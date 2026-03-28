@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+
 #include <logos/verification/sqlite_sink.hpp>
 #include <sqlite3.h>
 #include <mutex>

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/object_map.hpp>

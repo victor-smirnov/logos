@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+
 #include <logos/hermes/relative_ptr.hpp>
 #include <logos/hermes/tagged_ptr.hpp>
 #include <logos/hermes/type_tag.hpp>
