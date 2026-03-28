@@ -197,7 +197,7 @@ HermesCtr HermesCtr::compactify() const {
 
     const void* src_root = header()->root.get();
     void* dst_root = state.copy_tagged_object(src_root);
-    doc.set_root(dst_root);
+    doc.set_root_offset(doc.offset_of(dst_root));
 
     return doc;
 }

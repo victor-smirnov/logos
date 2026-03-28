@@ -140,7 +140,6 @@ public:
         auto* bucket_ptrs = buckets_.get();
 
         if (bucket_ptrs[idx].is_null()) {
-            // Create new bucket.
             auto* bucket = create_bucket(arena, 4);
             bucket_ptrs[idx].set(bucket);
         }
@@ -160,16 +159,25 @@ public:
             }
         }
 
-        // Insert new entry.
+        // Pre-allocate the key string BEFORE any bucket operations,
+        // since arena allocation can invalidate pointers in GrowableSingleChunk mode.
+        ArenaString* arena_key = ArenaString::create(arena, key);
+
+        // Re-fetch bucket pointers (may have been invalidated by string allocation).
+        bucket_ptrs = buckets_.get();
+        bucket = bucket_entry(bucket_ptrs, idx);
+        bsz = bucket_size(bucket);
+        bcap = bucket_cap(bucket);
+
+        // Grow bucket if needed.
         if (bsz >= bcap) {
             bucket = grow_bucket(arena, bucket, bucket_ptrs, idx);
             bsz = bucket_size(bucket);
             bcap = bucket_cap(bucket);
-            keys = bucket_keys(bucket);
-            vals = bucket_values(bucket, bcap);
         }
 
-        ArenaString* arena_key = ArenaString::create(arena, key);
+        keys = bucket_keys(bucket);
+        vals = bucket_values(bucket, bcap);
         keys[bsz].set(arena_key);
         vals[bsz] = value;
         set_bucket_size(bucket, bsz + 1);

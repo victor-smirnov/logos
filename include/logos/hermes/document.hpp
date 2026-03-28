@@ -44,7 +44,7 @@ static_assert(sizeof(DocumentHeader) == 8);
 class HermesCtr {
 public:
     // Create a new empty document.
-    static HermesCtr create(ArenaMode mode = ArenaMode::MultiChunk, size_t capacity = 4096) {
+    static HermesCtr create(ArenaMode mode = ArenaMode::MultiChunk, size_t capacity = 65536) {
         HermesCtr doc;
         doc.arena_ = std::make_unique<Arena>(mode, capacity);
         // Allocate the document header at offset 0.
@@ -66,8 +66,22 @@ public:
 
     bool has_root() const { return !header()->root.is_null(); }
 
-    // Set the root object. The object must be allocated in this document's arena.
+    // Set the root object by offset from arena start.
+    // Use root_offset() to get the offset when the object is allocated.
+    void set_root_offset(size_t offset) {
+        auto* base = arena_->head().data();
+        header()->root.set(base + offset);
+    }
+
+    // Set the root object. Object must be in the current arena chunk.
+    // WARNING: if the arena grew since object was allocated, the pointer is stale.
+    // Prefer set_root_offset() for safety.
     void set_root(void* object) { header()->root.set(object); }
+
+    // Compute offset of an arena object from the arena start.
+    size_t offset_of(const void* object) const {
+        return static_cast<const uint8_t*>(object) - arena_->head().data();
+    }
 
     template <typename T>
     T* root() { return static_cast<T*>(header()->root.get()); }

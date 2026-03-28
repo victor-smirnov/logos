@@ -62,6 +62,17 @@ public:
         return &elements()[index];
     }
 
+    // Push an arena pointer as a new element. The grow (if any) happens
+    // BEFORE set_pointer, so the relative offset is always correct.
+    void push_back_ptr(void* target, Arena& arena) {
+        if (size_ >= capacity_) {
+            grow(arena, capacity_ == 0 ? 4 : capacity_ * 2);
+        }
+        elements()[size_] = TaggedPtr{};
+        elements()[size_].set_pointer(target);
+        ++size_;
+    }
+
     // Remove last element.
     void pop_back() {
         if (size_ > 0) {

@@ -4,6 +4,8 @@ add_library(logos_hermes
     binary_codec.cpp
     text_parser.cpp
     stringify.cpp
+    path.cpp
+    template.cpp
 )
 
 target_include_directories(logos_hermes PUBLIC
@@ -37,3 +39,7 @@ target_link_libraries(hermes_exerciser_codec PRIVATE logos_hermes)
 # Exerciser: text parser + stringify
 add_executable(hermes_exerciser_text exerciser_text.cpp)
 target_link_libraries(hermes_exerciser_text PRIVATE logos_hermes)
+
+# Exerciser: HermesPath + Template
+add_executable(hermes_exerciser_path exerciser_path.cpp)
+target_link_libraries(hermes_exerciser_path PRIVATE logos_hermes)

@@ -196,7 +196,7 @@ public:
     HermesCtr decode() {
         auto doc = HermesCtr::create();
         void* root = decode_tagged_object(doc.arena());
-        doc.set_root(root);
+        doc.set_root_offset(doc.offset_of(root));
         return doc;
     }
 

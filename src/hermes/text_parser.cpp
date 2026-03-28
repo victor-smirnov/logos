@@ -933,7 +933,7 @@ HermesCtr parse(std::string_view text) {
     auto doc = HermesCtr::create();
     Parser parser(text, doc);
     void* root = parser.parse_document();
-    doc.set_root(root);
+    doc.set_root_offset(doc.offset_of(root));
     return doc;
 }
 
