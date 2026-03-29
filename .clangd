@@ -1,2 +1,3 @@
 CompileFlags:
+  CompilationDatabase: build
   Remove: [-finstrument-functions-exclude-file-list=*, -finstrument-functions-exclude-function-list=*]
