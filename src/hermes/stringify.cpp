@@ -22,7 +22,7 @@ public:
     void stringify_root(const HermesCtr& doc) {
         base_ = const_cast<uint8_t*>(doc.base());
         if (!doc.has_root()) { out_ += "null"; return; }
-        auto* root = static_cast<const uint8_t*>(doc.header()->root.get(base_));
+        auto* root = static_cast<const uint8_t*>(doc.root<void>());
         stringify_tagged(root);
     }
 

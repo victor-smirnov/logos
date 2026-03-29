@@ -48,7 +48,7 @@ public:
         : text_(text), pos_(0), doc_(doc) {}
 
     void* parse() {
-        auto* stmts = doc_.make_array();
+        auto* stmts = doc_.raw_array();
         parse_block(stmts, "");
         return stmts;
     }
@@ -78,7 +78,7 @@ private:
             // Emit text node if any.
             if (pos_ > text_start) {
                 auto sv = text_.substr(text_start, pos_ - text_start);
-                auto* s = doc_.make_string(sv);
+                auto* s = doc_.raw_string(sv);
                 stmts->push_back(TaggedPtr{}, doc_.arena());
                 stmts->slot(stmts->size() - 1)->set_pointer(s);
             }
@@ -114,8 +114,8 @@ private:
         // Parse the expression as HermesPath AST.
         auto expr_doc = parse_path(expr_text);
 
-        auto* expr_str = doc_.make_string(expr_text);
-        auto* node = doc_.make_tiny_map(4);
+        auto* expr_str = doc_.raw_string(expr_text);
+        auto* node = doc_.raw_tiny_map(4);
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::VAR_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
         node->slot(tpl_ast::EXPRESSION)->set_pointer(expr_str);
@@ -187,16 +187,16 @@ private:
         skip_to_close_tag();
 
         // Parse body.
-        auto* body = doc_.make_array();
+        auto* body = doc_.raw_array();
         std::string end_kw = parse_block(body, "endfor");
         if (end_kw != "endfor") throw std::runtime_error("Template: expected 'endfor'");
 
         // Allocate strings first, then build the node.
         // All allocations happen before set_pointer to avoid any ordering issues.
-        auto* var_str = doc_.make_string(var_name);
-        auto* expr_str = doc_.make_string(expr_text);
+        auto* var_str = doc_.raw_string(var_name);
+        auto* expr_str = doc_.raw_string(expr_text);
 
-        auto* node = doc_.make_tiny_map(8);
+        auto* node = doc_.raw_tiny_map(8);
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::FOR_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::VARIABLE, TaggedPtr{}, doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
@@ -215,11 +215,11 @@ private:
         std::string_view expr_text = read_until_close_tag();
         skip_to_close_tag();
 
-        auto* body = doc_.make_array();
+        auto* body = doc_.raw_array();
         std::string end_kw = parse_block(body, "endif");
 
-        auto* expr_str = doc_.make_string(expr_text);
-        auto* node = doc_.make_tiny_map(8);
+        auto* expr_str = doc_.raw_string(expr_text);
+        auto* node = doc_.raw_tiny_map(8);
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::IF_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
         node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
@@ -228,9 +228,9 @@ private:
 
         // Handle else/elif chain.
         if (end_kw == "else") {
-            auto* else_body = doc_.make_array();
+            auto* else_body = doc_.raw_array();
             parse_block(else_body, "endif");
-            auto* else_node = doc_.make_tiny_map(4);
+            auto* else_node = doc_.raw_tiny_map(4);
             else_node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::ELSE_STMT, type_hash::Integer), doc_.arena());
             else_node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
             else_node->slot(tpl_ast::STATEMENTS)->set_pointer(else_body);
@@ -238,7 +238,7 @@ private:
             node->slot(tpl_ast::ELSE_BRANCH)->set_pointer(else_node);
         } else if (end_kw == "elif") {
             // Recursive: build a nested if from the elif.
-            auto* elif_stmts = doc_.make_array();
+            auto* elif_stmts = doc_.raw_array();
             parse_if_stmt_with_expr(elif_stmts, elif_expr_);
             if (elif_stmts->size() > 0) {
                 node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
@@ -252,11 +252,11 @@ private:
     }
 
     void parse_if_stmt_with_expr(ObjectArray* stmts, std::string_view expr_text) {
-        auto* body = doc_.make_array();
+        auto* body = doc_.raw_array();
         std::string end_kw = parse_block(body, "endif");
 
-        auto* expr_str = doc_.make_string(expr_text);
-        auto* node = doc_.make_tiny_map(8);
+        auto* expr_str = doc_.raw_string(expr_text);
+        auto* node = doc_.raw_tiny_map(8);
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::IF_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
         node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
@@ -264,16 +264,16 @@ private:
         node->slot(tpl_ast::STATEMENTS)->set_pointer(body);
 
         if (end_kw == "else") {
-            auto* else_body = doc_.make_array();
+            auto* else_body = doc_.raw_array();
             parse_block(else_body, "endif");
-            auto* else_node = doc_.make_tiny_map(4);
+            auto* else_node = doc_.raw_tiny_map(4);
             else_node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::ELSE_STMT, type_hash::Integer), doc_.arena());
             else_node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
             else_node->slot(tpl_ast::STATEMENTS)->set_pointer(else_body);
             node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
             node->slot(tpl_ast::ELSE_BRANCH)->set_pointer(else_node);
         } else if (end_kw == "elif") {
-            auto* elif_stmts = doc_.make_array();
+            auto* elif_stmts = doc_.raw_array();
             parse_if_stmt_with_expr(elif_stmts, elif_expr_);
             if (elif_stmts->size() > 0) {
                 node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
@@ -295,9 +295,9 @@ private:
         std::string_view expr_text = read_until_close_tag();
         skip_to_close_tag();
 
-        auto* var_str = doc_.make_string(var_name);
-        auto* expr_str = doc_.make_string(expr_text);
-        auto* node = doc_.make_tiny_map(4);
+        auto* var_str = doc_.raw_string(var_name);
+        auto* expr_str = doc_.raw_string(expr_text);
+        auto* node = doc_.raw_tiny_map(4);
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::SET_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::VARIABLE, TaggedPtr{}, doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());

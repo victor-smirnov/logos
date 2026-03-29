@@ -249,4 +249,10 @@ using HermesCtr = Own<HermesCtrView>;
 // Create a new document.
 HermesCtr make_doc(size_t capacity = 65536);
 
+// Deep-copy a document into a new compacted single-chunk arena.
+HermesCtr compactify(const HermesCtrView& src);
+
+// Load a document from raw bytes (copies the data).
+HermesCtr from_bytes_copy(const uint8_t* data, size_t size);
+
 } // namespace logos::hermes

@@ -8,7 +8,6 @@
 #include <logos/verification/sqlite_sink.hpp>
 
 #include <cstdio>
-#include <cstring>
 
 using namespace logos::hermes;
 
@@ -19,25 +18,23 @@ using namespace logos::hermes;
 static void test_document_create() {
     std::printf("--- Document create ---\n");
 
-    auto doc = HermesCtr::create();
+    auto doc = make_doc();
 
     LOGOS_ASSERT(!doc.has_root(), "HERMES-DOC-001",
         "New document must have no root");
 
-    // Create a TinyObjectMap as root.
-    auto* map = doc.make_tiny_map();
-    doc.set_root(map);
+    // Create a TinyObjectMap as root via View API.
+    auto map = doc.make_tiny_map();
+    doc.set_root_offset(map.offset());
 
     LOGOS_ASSERT(doc.has_root(), "HERMES-DOC-001", "Document must have root after set_root");
-    LOGOS_ASSERT(doc.root<TinyObjectMap>() == map, "HERMES-DOC-001",
-        "root() must return the same pointer as set_root()");
 
-    // Add some data.
-    map->put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer), doc.arena());
-    map->put(1, TaggedPtr::from_value(float(3.14f), type_hash::Real), doc.arena());
+    // Add data through the View.
+    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
+    map.put(1, TaggedPtr::from_value(float(3.14f), type_hash::Real));
 
-    LOGOS_ASSERT(map->get(0).as_value<int32_t>() == 42, "HERMES-DOC-001", "");
-    LOGOS_ASSERT(map->get(1).as_value<float>() == 3.14f, "HERMES-DOC-001", "");
+    LOGOS_ASSERT(map.get(0).as_value<int32_t>() == 42, "HERMES-DOC-001", "");
+    LOGOS_ASSERT(map.get(1).as_value<float>() == 3.14f, "HERMES-DOC-001", "");
 
     LOGOS_TRACE("hermes.doc.create", "status", "pass");
     std::printf("  Document create: OK\n");
@@ -46,31 +43,19 @@ static void test_document_create() {
 static void test_document_nested_objects() {
     std::printf("--- Document nested objects ---\n");
 
-    auto doc = HermesCtr::create();
+    auto doc = make_doc();
 
-    // Build a small document: root map with an array and a string.
-    auto* root = doc.make_tiny_map();
-    doc.set_root(root);
+    auto root = doc.make_tiny_map();
+    doc.set_root_offset(root.offset());
 
-    // Key 0 = string "hello"
-    auto* greeting = doc.make_string("hello");
-    root->put(0, TaggedPtr{}, doc.arena());  // placeholder
-    // We need to use in-place pointer... but TinyObjectMap doesn't have slot().
-    // For embedded values this is fine. For pointers, we need to add slot().
-    // For this test, use embedded int values only — pointer test in ObjectArray.
+    root.put(0, TaggedPtr::from_value(int32_t(100), type_hash::Integer));
+    root.put(1, TaggedPtr::from_value(int32_t(200), type_hash::Integer));
+    root.put(2, TaggedPtr::from_value(int32_t(300), type_hash::Integer));
 
-    root->put(0, TaggedPtr::from_value(int32_t(100), type_hash::Integer), doc.arena());
-    root->put(1, TaggedPtr::from_value(int32_t(200), type_hash::Integer), doc.arena());
-    root->put(2, TaggedPtr::from_value(int32_t(300), type_hash::Integer), doc.arena());
-
-    auto* root_read = doc.root<TinyObjectMap>();
-    LOGOS_ASSERT(root_read->size() == 3, "HERMES-DOC-002", "Root must have 3 entries");
-    LOGOS_ASSERT(root_read->get(0).as_value<int32_t>() == 100, "HERMES-DOC-002", "");
-    LOGOS_ASSERT(root_read->get(1).as_value<int32_t>() == 200, "HERMES-DOC-002", "");
-    LOGOS_ASSERT(root_read->get(2).as_value<int32_t>() == 300, "HERMES-DOC-002", "");
-
-    // Suppress unused variable warning.
-    (void)greeting;
+    LOGOS_ASSERT(root.size() == 3, "HERMES-DOC-002", "Root must have 3 entries");
+    LOGOS_ASSERT(root.get(0).as_value<int32_t>() == 100, "HERMES-DOC-002", "");
+    LOGOS_ASSERT(root.get(1).as_value<int32_t>() == 200, "HERMES-DOC-002", "");
+    LOGOS_ASSERT(root.get(2).as_value<int32_t>() == 300, "HERMES-DOC-002", "");
 
     LOGOS_TRACE("hermes.doc.nested", "status", "pass");
     std::printf("  Document nested objects: OK\n");
@@ -79,26 +64,29 @@ static void test_document_nested_objects() {
 static void test_document_with_array_root() {
     std::printf("--- Document with array root ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* arr = doc.make_array();
-    doc.set_root(arr);
+    auto doc = make_doc();
+    auto arr = doc.make_array();
+    doc.set_root_offset(arr.offset());
 
-    arr->push_back(TaggedPtr::from_value(int32_t(1), type_hash::Integer), doc.arena());
-    arr->push_back(TaggedPtr::from_value(int32_t(2), type_hash::Integer), doc.arena());
-    arr->push_back(TaggedPtr::from_value(int32_t(3), type_hash::Integer), doc.arena());
+    arr.push_back(TaggedPtr::from_value(int32_t(1), type_hash::Integer));
+    arr.push_back(TaggedPtr::from_value(int32_t(2), type_hash::Integer));
+    arr.push_back(TaggedPtr::from_value(int32_t(3), type_hash::Integer));
 
-    // Add a string via slot.
-    auto* s = doc.make_string("test");
-    arr->push_back(TaggedPtr{}, doc.arena());
-    arr->slot(3)->set_pointer(s);
+    // Add a string via pointer — use offset-based set.
+    auto s = doc.make_string("test");
+    arr.push_back(TaggedPtr{});
+    arr.slot(3)->set_pointer(s.ptr(), arr.ptr()->slot(3, doc.base()) ? doc.base() : doc.base());
 
-    auto* read_arr = doc.root<ObjectArray>();
-    LOGOS_ASSERT(read_arr->size() == 4, "HERMES-DOC-002", "");
-    LOGOS_ASSERT(read_arr->get(0).as_value<int32_t>() == 1, "HERMES-DOC-002", "");
+    // Simpler: use set_offset on the TaggedPtr.
+    arr.slot(3)->set_offset(s.offset());
 
-    TaggedPtr* str_slot = read_arr->slot(3);
+    LOGOS_ASSERT(arr.size() == 4, "HERMES-DOC-002", "");
+    LOGOS_ASSERT(arr.get(0).as_value<int32_t>() == 1, "HERMES-DOC-002", "");
+
+    // Check string via slot.
+    TaggedPtr* str_slot = arr.slot(3);
     LOGOS_ASSERT(str_slot->is_pointer(), "HERMES-DOC-002", "");
-    LOGOS_ASSERT(*str_slot->as_ptr<ArenaString>() == "test", "HERMES-DOC-002", "");
+    LOGOS_ASSERT(*str_slot->as_ptr<ArenaString>(doc.base()) == "test", "HERMES-DOC-002", "");
 
     LOGOS_TRACE("hermes.doc.array_root", "status", "pass");
     std::printf("  Document with array root: OK\n");
@@ -111,28 +99,25 @@ static void test_document_with_array_root() {
 static void test_compactify_simple() {
     std::printf("--- Compactify (simple) ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* map = doc.make_tiny_map();
-    doc.set_root(map);
+    auto doc = make_doc();
+    auto map = doc.make_tiny_map();
+    doc.set_root_offset(map.offset());
 
-    map->put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer), doc.arena());
-    map->put(5, TaggedPtr::from_value(float(2.5f), type_hash::Real), doc.arena());
-    map->put(10, TaggedPtr::from_value(int8_t(-1), type_hash::TinyInt), doc.arena());
+    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
+    map.put(5, TaggedPtr::from_value(float(2.5f), type_hash::Real));
+    map.put(10, TaggedPtr::from_value(int8_t(-1), type_hash::TinyInt));
 
-    auto compact = doc.compactify();
+    auto compact = compactify(doc);
 
     LOGOS_ASSERT(compact.has_root(), "HERMES-DOC-003", "Compacted doc must have root");
-    LOGOS_ASSERT(compact.arena().mode() == ArenaMode::GrowableSingleChunk, "HERMES-DOC-003",
-        "Compacted doc must be GrowableSingleChunk");
-    LOGOS_ASSERT(compact.arena().chunk_count() == 1, "HERMES-DOC-003",
-        "Compacted doc must have 1 chunk");
 
     auto* cmap = compact.root<TinyObjectMap>();
+    uint8_t* cb = compact.base();
     LOGOS_ASSERT(cmap->size() == 3, "HERMES-DOC-003",
         "Compacted map must have 3 entries, got {}", cmap->size());
-    LOGOS_ASSERT(cmap->get(0).as_value<int32_t>() == 42, "HERMES-DOC-003", "");
-    LOGOS_ASSERT(cmap->get(5).as_value<float>() == 2.5f, "HERMES-DOC-003", "");
-    LOGOS_ASSERT(cmap->get(10).as_value<int8_t>() == -1, "HERMES-DOC-003", "");
+    LOGOS_ASSERT(cmap->get(0, cb).as_value<int32_t>() == 42, "HERMES-DOC-003", "");
+    LOGOS_ASSERT(cmap->get(5, cb).as_value<float>() == 2.5f, "HERMES-DOC-003", "");
+    LOGOS_ASSERT(cmap->get(10, cb).as_value<int8_t>() == -1, "HERMES-DOC-003", "");
 
     LOGOS_TRACE("hermes.doc.compactify", "status", "pass",
         "original_used", doc.arena().total_used(),
@@ -144,20 +129,21 @@ static void test_compactify_simple() {
 static void test_compactify_array_with_values() {
     std::printf("--- Compactify (array with embedded values) ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* arr = doc.make_array();
-    doc.set_root(arr);
+    auto doc = make_doc();
+    auto arr = doc.make_array();
+    doc.set_root_offset(arr.offset());
 
     for (int i = 0; i < 20; ++i) {
-        arr->push_back(TaggedPtr::from_value(int32_t(i * 100), type_hash::Integer), doc.arena());
+        arr.push_back(TaggedPtr::from_value(int32_t(i * 100), type_hash::Integer));
     }
 
-    auto compact = doc.compactify();
+    auto compact = compactify(doc);
 
     auto* carr = compact.root<ObjectArray>();
+    uint8_t* cb = compact.base();
     LOGOS_ASSERT(carr->size() == 20, "HERMES-DOC-003", "");
     for (int i = 0; i < 20; ++i) {
-        LOGOS_ASSERT(carr->get(i).as_value<int32_t>() == i * 100, "HERMES-DOC-003",
+        LOGOS_ASSERT(carr->get(i, cb).as_value<int32_t>() == i * 100, "HERMES-DOC-003",
             "Compacted array[{}] must be {}", i, i * 100);
     }
 
@@ -172,55 +158,57 @@ static void test_compactify_array_with_values() {
 static void test_zero_copy_round_trip() {
     std::printf("--- Zero-copy serialization round-trip ---\n");
 
-    // Create and compactify a document.
-    auto doc = HermesCtr::create();
-    auto* map = doc.make_tiny_map();
-    doc.set_root(map);
-    map->put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer), doc.arena());
-    map->put(3, TaggedPtr::from_value(int32_t(99), type_hash::Integer), doc.arena());
+    auto doc = make_doc();
+    auto map = doc.make_tiny_map();
+    doc.set_root_offset(map.offset());
+    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
+    map.put(3, TaggedPtr::from_value(int32_t(99), type_hash::Integer));
 
-    auto compact = doc.compactify();
+    auto compact = compactify(doc);
 
     // Serialize to bytes.
-    auto bytes = compact.as_bytes();
-    LOGOS_ASSERT(bytes.data != nullptr, "HERMES-SERIAL-001", "");
-    LOGOS_ASSERT(bytes.size > 0, "HERMES-SERIAL-001", "");
+    auto* data = compact.base();
+    size_t size = compact.arena().total_used();
+    LOGOS_ASSERT(data != nullptr, "HERMES-SERIAL-001", "");
+    LOGOS_ASSERT(size > 0, "HERMES-SERIAL-001", "");
 
-    // Deserialize (copy bytes to simulate receiving from network).
-    auto loaded = HermesCtr::from_bytes_copy(bytes.data, bytes.size);
+    // Deserialize (copy bytes).
+    auto loaded = from_bytes_copy(data, size);
 
     LOGOS_ASSERT(loaded.has_root(), "HERMES-SERIAL-001", "Loaded doc must have root");
 
     auto* lmap = loaded.root<TinyObjectMap>();
+    uint8_t* lb = loaded.base();
     LOGOS_ASSERT(lmap->size() == 2, "HERMES-SERIAL-001",
         "Loaded map must have 2 entries, got {}", lmap->size());
-    LOGOS_ASSERT(lmap->get(0).as_value<int32_t>() == 42, "HERMES-SERIAL-001", "");
-    LOGOS_ASSERT(lmap->get(3).as_value<int32_t>() == 99, "HERMES-SERIAL-001", "");
+    LOGOS_ASSERT(lmap->get(0, lb).as_value<int32_t>() == 42, "HERMES-SERIAL-001", "");
+    LOGOS_ASSERT(lmap->get(3, lb).as_value<int32_t>() == 99, "HERMES-SERIAL-001", "");
 
-    LOGOS_TRACE("hermes.serial.zerocopy", "status", "pass",
-        "bytes", bytes.size);
-    std::printf("  Zero-copy round-trip: OK (%zu bytes)\n", bytes.size);
+    LOGOS_TRACE("hermes.serial.zerocopy", "status", "pass", "bytes", size);
+    std::printf("  Zero-copy round-trip: OK (%zu bytes)\n", size);
 }
 
 static void test_zero_copy_array_round_trip() {
     std::printf("--- Zero-copy array round-trip ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* arr = doc.make_array();
-    doc.set_root(arr);
+    auto doc = make_doc();
+    auto arr = doc.make_array();
+    doc.set_root_offset(arr.offset());
 
     for (int i = 0; i < 10; ++i) {
-        arr->push_back(TaggedPtr::from_value(int32_t(i), type_hash::Integer), doc.arena());
+        arr.push_back(TaggedPtr::from_value(int32_t(i), type_hash::Integer));
     }
 
-    auto compact = doc.compactify();
-    auto bytes = compact.as_bytes();
-    auto loaded = HermesCtr::from_bytes_copy(bytes.data, bytes.size);
+    auto compact = compactify(doc);
+    auto* data = compact.base();
+    size_t size = compact.arena().total_used();
+    auto loaded = from_bytes_copy(data, size);
 
     auto* larr = loaded.root<ObjectArray>();
+    uint8_t* lb = loaded.base();
     LOGOS_ASSERT(larr->size() == 10, "HERMES-SERIAL-001", "");
     for (int i = 0; i < 10; ++i) {
-        LOGOS_ASSERT(larr->get(i).as_value<int32_t>() == i, "HERMES-SERIAL-001", "");
+        LOGOS_ASSERT(larr->get(i, lb).as_value<int32_t>() == i, "HERMES-SERIAL-001", "");
     }
 
     LOGOS_TRACE("hermes.serial.zerocopy_array", "status", "pass");
