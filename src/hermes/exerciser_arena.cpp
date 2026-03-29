@@ -32,18 +32,19 @@ static void test_relative_ptr() {
     *a = 42;
     *b = 99;
 
+    // Segment-relative: buf is the base, offsets are from buf[0].
     auto* ptr = reinterpret_cast<RelativePtr<int32_t>*>(buf + 8);
-    ptr->set(b);
-    LOGOS_ASSERT(ptr->get() == b, "HERMES-RELPTR-001",
+    ptr->set(b, buf);  // set offset = (b - buf)
+    LOGOS_ASSERT(ptr->get(buf) == b, "HERMES-RELPTR-001",
         "RelativePtr deref must return the original target address");
-    LOGOS_ASSERT(*ptr->get() == 99, "HERMES-RELPTR-001",
-        "RelativePtr deref must yield the correct value (expected 99, got {})", *ptr->get());
+    LOGOS_ASSERT(*ptr->get(buf) == 99, "HERMES-RELPTR-001",
+        "RelativePtr deref must yield the correct value (expected 99, got {})", *ptr->get(buf));
 
     // Null
     RelativePtr<int32_t> null_ptr;
     LOGOS_ASSERT(null_ptr.is_null(), "HERMES-RELPTR-002",
         "Default-constructed RelativePtr must be null");
-    LOGOS_ASSERT(null_ptr.get() == nullptr, "HERMES-RELPTR-002",
+    LOGOS_ASSERT(null_ptr.get(buf) == nullptr, "HERMES-RELPTR-002",
         "Null RelativePtr::get() must return nullptr");
 
     LOGOS_TRACE("hermes.relptr", "status", "pass");
@@ -57,18 +58,18 @@ static void test_relative_ptr() {
 static void test_tagged_ptr_pointer_mode() {
     std::printf("--- TaggedPtr pointer mode ---\n");
 
-    // Pointer mode round-trip with various offsets.
-    int64_t test_offsets[] = {2, -2, 256, -256, 1024, -1024, 0x7FFFFFFE, -0x7FFFFFFE};
-    for (int64_t offset : test_offsets) {
+    // Pointer mode round-trip with various arena offsets (segment-relative, always >= 0).
+    arena_offset_t test_offsets[] = {2, 256, 1024, 65536, 0x7FFFFFFE};
+    for (arena_offset_t offset : test_offsets) {
         TaggedPtr p = TaggedPtr::from_offset(offset);
         LOGOS_ASSERT(p.is_pointer(), "HERMES-TAGPTR-003",
-            "TaggedPtr from even offset {} must be in pointer mode", offset);
+            "TaggedPtr from offset {} must be in pointer mode", offset);
         LOGOS_ASSERT(!p.is_value(), "HERMES-TAGPTR-003",
-            "TaggedPtr from even offset {} must not be in value mode", offset);
+            "TaggedPtr from offset {} must not be in value mode", offset);
         LOGOS_ASSERT(!p.is_null(), "HERMES-TAGPTR-003",
             "TaggedPtr from non-zero offset {} must not be null", offset);
 
-        int64_t recovered = p.to_offset();
+        arena_offset_t recovered = p.to_offset();
         LOGOS_ASSERT(recovered == offset, "HERMES-TAGPTR-001",
             "TaggedPtr pointer mode round-trip failed: wrote {}, got {}", offset, recovered);
     }
@@ -174,11 +175,11 @@ static void test_tagged_ptr_set_pointer() {
     *target = 777;
 
     TaggedPtr* slot = reinterpret_cast<TaggedPtr*>(buf + 0);
-    slot->set_pointer(target);
+    slot->set_pointer(target, buf);
 
     LOGOS_ASSERT(slot->is_pointer(), "HERMES-TAGPTR-003",
         "TaggedPtr after set_pointer must be in pointer mode");
-    LOGOS_ASSERT(*slot->as_ptr<int32_t>() == 777, "HERMES-TAGPTR-001",
+    LOGOS_ASSERT(*slot->as_ptr<int32_t>(buf) == 777, "HERMES-TAGPTR-001",
         "TaggedPtr set_pointer/as_ptr round-trip failed");
 
     LOGOS_TRACE("hermes.tagptr.set_pointer", "status", "pass");

@@ -455,7 +455,7 @@ private:
                     arg = parse_pipe();
                 }
                 args->push_back(TaggedPtr{}, doc_.arena());
-                args->slot(args->size(, doc_.base()) - 1)->set_pointer(arg, doc_.base());
+                args->slot(args->size() - 1, doc_.base())->set_pointer(arg, doc_.base());
                 skip();
                 if (peek() == ')') break;
                 expect(',');
@@ -475,7 +475,7 @@ private:
         while (true) {
             void* e = parse_pipe();
             exprs->push_back(TaggedPtr{}, doc_.arena());
-            exprs->slot(exprs->size(, doc_.base()) - 1)->set_pointer(e, doc_.base());
+            exprs->slot(exprs->size() - 1, doc_.base())->set_pointer(e, doc_.base());
             skip();
             if (peek() == ']') { ++pos_; break; }
             expect(',');
@@ -499,9 +499,9 @@ private:
 
             auto* ks = doc_.raw_string(key);
             keys_arr->push_back(TaggedPtr{}, doc_.arena());
-            keys_arr->slot(keys_arr->size(, doc_.base()) - 1)->set_pointer(ks, doc_.base());
+            keys_arr->slot(keys_arr->size() - 1, doc_.base())->set_pointer(ks, doc_.base());
             vals_arr->push_back(TaggedPtr{}, doc_.arena());
-            vals_arr->slot(vals_arr->size(, doc_.base()) - 1)->set_pointer(val, doc_.base());
+            vals_arr->slot(vals_arr->size() - 1, doc_.base())->set_pointer(val, doc_.base());
 
             skip();
             if (peek() == '}') { ++pos_; break; }
@@ -599,12 +599,13 @@ private:
 
 class PathEvaluator {
 public:
-    PathEvaluator(HermesCtr& result) : result_(result) {}
+    PathEvaluator(HermesCtr& result, uint8_t* data_base, uint8_t* ast_base)
+        : result_(result), data_base_(data_base), ast_base_(ast_base) {}
 
     // Evaluate an AST node against a data value. Returns arena pointer to result.
     void* eval(void* data, void* ast_node) {
         auto* node = static_cast<TinyObjectMap*>(ast_node);
-        int32_t code = node->get(CODE).as_value<int32_t>();
+        int32_t code = node->get(CODE, ast_base_).as_value<int32_t>();
 
         switch (code) {
             case CURRENT_NODE:  return data;
@@ -634,11 +635,13 @@ public:
 
 private:
     HermesCtr& result_;
+    uint8_t* data_base_;  // base of the data document arena
+    uint8_t* ast_base_;   // base of the AST document arena
 
     void* get_child(TinyObjectMap* node, uint8_t key) {
-        TaggedPtr* slot = node->slot(key, base);
-        if (!slot || slot->is_null()) return nullptr;
-        if (slot->is_pointer()) return slot->as_ptr<void>(base);
+        TaggedPtr* s = node->slot(key, ast_base_);
+        if (!s || s->is_null()) return nullptr;
+        if (s->is_pointer()) return s->as_ptr<void>(ast_base_);
         return nullptr; // Embedded values are not child nodes.
     }
 
@@ -661,30 +664,30 @@ private:
 
     void* eval_identifier(void* data, TinyObjectMap* node) {
         if (!data) return nullptr;
-        TaggedPtr* name_slot = node->slot(NAME, base);
+        TaggedPtr* name_slot = node->slot(NAME, ast_base_);
         if (!name_slot || name_slot->is_null()) return nullptr;
-        auto* name = name_slot->as_ptr<ArenaString>(base);
+        auto* name = name_slot->as_ptr<ArenaString>(ast_base_);
         auto key = name->view();
 
         auto* bytes = static_cast<const uint8_t*>(data);
         TypeTag tag = TypeTag::read_before(bytes);
         if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::ObjectMap) {
             auto* map = static_cast<ObjectMap*>(data);
-            TaggedPtr* slot = map->get_slot(key);
+            TaggedPtr* slot = map->get_slot(key, data_base_);
             if (!slot) return nullptr;
             if (slot->is_value()) return resolve_embedded(slot);
-            if (slot->is_pointer()) return slot->as_ptr<void>(base);
+            if (slot->is_pointer()) return slot->as_ptr<void>(data_base_);
             return nullptr;
         }
         return nullptr;
     }
 
     // Resolve a TaggedPtr slot. For embedded values, materializes in result arena.
-    // For pointer-mode, returns the pointed-to object directly (caller must
-    // use copy_to_result() if storing in result arena containers).
+    // For pointer-mode, the caller must supply the correct base via the
+    // typed resolve methods below; this overload handles embedded-only.
     void* resolve_embedded(TaggedPtr* slot) {
         if (slot->is_null()) return nullptr;
-        if (slot->is_pointer()) return slot->as_ptr<void>(base);
+        if (slot->is_pointer()) return nullptr; // Caller should use typed resolve
         // Embedded value — allocate in result arena.
         uint8_t th = slot->value_type_hash();
         switch (th) {
@@ -708,6 +711,13 @@ private:
         }
     }
 
+    // Resolve a TaggedPtr slot with a specific arena base for pointer-mode values.
+    void* resolve_slot(TaggedPtr* slot, uint8_t* base) {
+        if (!slot || slot->is_null()) return nullptr;
+        if (slot->is_pointer()) return slot->as_ptr<void>(base);
+        return resolve_embedded(slot);
+    }
+
     void* eval_subexpression(void* data, TinyObjectMap* node) {
         void* left_result = eval(data, get_child(node, LEFT));
         return eval(left_result, get_child(node, RIGHT));
@@ -725,10 +735,10 @@ private:
         if (tag.descriptor() != TagDescriptor::Array || tag.type_code() != type_hash::ObjectArray)
             return nullptr;
         auto* arr = static_cast<ObjectArray*>(data);
-        int32_t idx = node->get(VALUE).as_value<int32_t>();
+        int32_t idx = node->get(VALUE, ast_base_).as_value<int32_t>();
         if (idx < 0) idx += static_cast<int32_t>(arr->size());
         if (idx < 0 || idx >= static_cast<int32_t>(arr->size())) return nullptr;
-        return resolve_embedded(arr->slot(idx, base));
+        return resolve_slot(arr->slot(idx, data_base_), data_base_);
     }
 
     void* eval_flatten(void* data) {
@@ -739,14 +749,14 @@ private:
         auto* arr = static_cast<ObjectArray*>(data);
         auto* result = result_.raw_array();
         for (uint64_t i = 0; i < arr->size(); ++i) {
-            void* elem = resolve_embedded(arr->slot(i, base));
+            void* elem = resolve_slot(arr->slot(i, data_base_), data_base_);
             if (!elem) continue;
             auto* eb = static_cast<const uint8_t*>(elem);
             TypeTag et = TypeTag::read_before(eb);
             if (et.descriptor() == TagDescriptor::Array && et.type_code() == type_hash::ObjectArray) {
                 auto* inner = static_cast<ObjectArray*>(elem);
                 for (uint64_t j = 0; j < inner->size(); ++j) {
-                    void* ie = resolve_embedded(inner->slot(j, base));
+                    void* ie = resolve_slot(inner->slot(j, data_base_), data_base_);
                     push_value(result, ie);
                 }
             } else {
@@ -760,9 +770,9 @@ private:
         if (!data) return nullptr;
         auto* arr = static_cast<ObjectArray*>(data);
         int64_t len = arr->size();
-        int64_t start = node->has_key(START) ? node->get(START).as_value<int32_t>() : 0;
-        int64_t stop = node->has_key(STOP) ? node->get(STOP).as_value<int32_t>() : len;
-        int64_t step = node->has_key(STEP) ? node->get(STEP).as_value<int32_t>() : 1;
+        int64_t start = node->has_key(START) ? node->get(START, ast_base_).as_value<int32_t>() : 0;
+        int64_t stop = node->has_key(STOP) ? node->get(STOP, ast_base_).as_value<int32_t>() : len;
+        int64_t step = node->has_key(STEP) ? node->get(STEP, ast_base_).as_value<int32_t>() : 1;
         if (step == 0) return nullptr;
 
         if (start < 0) start += len;
@@ -773,10 +783,10 @@ private:
         auto* result = result_.raw_array();
         if (step > 0) {
             for (int64_t i = start; i < stop; i += step)
-                push_value(result, resolve_embedded(arr->slot(i, base)));
+                push_value(result, resolve_slot(arr->slot(i, data_base_), data_base_));
         } else {
             for (int64_t i = start; i > stop; i += step)
-                push_value(result, resolve_embedded(arr->slot(i, base)));
+                push_value(result, resolve_slot(arr->slot(i, data_base_), data_base_));
         }
         return result;
     }
@@ -787,7 +797,7 @@ private:
         auto* result = result_.raw_array();
         void* filter_ast = get_child(node, RIGHT);
         for (uint64_t i = 0; i < arr->size(); ++i) {
-            void* elem = resolve_embedded(arr->slot(i, base));
+            void* elem = resolve_slot(arr->slot(i, data_base_), data_base_);
             void* test = eval(elem, filter_ast);
             if (is_truthy(test)) push_value(result, elem);
         }
@@ -799,7 +809,7 @@ private:
         auto* arr = static_cast<ObjectArray*>(data);
         auto* result = result_.raw_array();
         for (uint64_t i = 0; i < arr->size(); ++i)
-            push_value(result, resolve_embedded(arr->slot(i, base)));
+            push_value(result, resolve_slot(arr->slot(i, data_base_), data_base_));
         return result;
     }
 
@@ -811,8 +821,8 @@ private:
             auto* map = static_cast<ObjectMap*>(data);
             auto* result = result_.raw_array();
             map->for_each([&](ArenaString*, TaggedPtr* val) {
-                push_value(result, resolve_embedded(val));
-            });
+                push_value(result, resolve_slot(val, data_base_));
+            }, data_base_);
             return result;
         }
         return nullptr;
@@ -821,7 +831,7 @@ private:
     void* eval_comparator(void* data, TinyObjectMap* node) {
         void* lv = eval(data, get_child(node, LEFT));
         void* rv = eval(data, get_child(node, RIGHT));
-        int32_t cmp = node->get(COMPARATOR).as_value<int32_t>();
+        int32_t cmp = node->get(COMPARATOR, ast_base_).as_value<int32_t>();
         bool result_val = compare(lv, rv, cmp);
         TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
         void* mem = result_.arena().allocate(1, 2, tag);
@@ -904,7 +914,7 @@ private:
         auto* exprs = static_cast<ObjectArray*>(get_child(node, EXPRESSIONS));
         auto* result = result_.raw_array();
         for (uint64_t i = 0; i < exprs->size(); ++i) {
-            void* expr = resolve_embedded(exprs->slot(i, base));
+            void* expr = resolve_slot(exprs->slot(i, ast_base_), ast_base_);
             void* val = eval(data, expr);
             push_value(result, val);
         }
@@ -916,8 +926,8 @@ private:
         auto* vals_arr = static_cast<ObjectArray*>(get_child(node, EXPRESSIONS));
         auto* result = result_.raw_object_map();
         for (uint64_t i = 0; i < keys_arr->size(); ++i) {
-            auto* key = keys_arr->slot(i, base)->as_ptr<ArenaString>(base);
-            void* expr = resolve_embedded(vals_arr->slot(i, base));
+            auto* key = keys_arr->slot(i, ast_base_)->as_ptr<ArenaString>(ast_base_);
+            void* expr = resolve_slot(vals_arr->slot(i, ast_base_), ast_base_);
             void* val = eval(data, expr);
             put_value(result, key->view(), val);
         }
@@ -925,7 +935,7 @@ private:
     }
 
     void* eval_function(void* data, TinyObjectMap* node) {
-        auto* fname = node->slot(NAME, base)->as_ptr<ArenaString>(base);
+        auto* fname = node->slot(NAME, ast_base_)->as_ptr<ArenaString>(ast_base_);
         auto name = fname->view();
         auto* args = static_cast<ObjectArray*>(get_child(node, ARGS));
 
@@ -945,16 +955,16 @@ private:
 
     void* eval_hermes_value(TinyObjectMap* node) {
         if (!node->has_key(VALUE)) return nullptr;
-        TaggedPtr val = node->get(VALUE);
-        if (val.is_value()) return resolve_embedded(node->slot(VALUE, base));
-        if (val.is_pointer()) return node->slot(VALUE, base)->as_ptr<void>(base);
+        TaggedPtr val = node->get(VALUE, ast_base_);
+        if (val.is_value()) return resolve_embedded(node->slot(VALUE, ast_base_));
+        if (val.is_pointer()) return node->slot(VALUE, ast_base_)->as_ptr<void>(ast_base_);
         return nullptr;
     }
 
     // --- Built-in functions ---
 
     void* fn_length(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         if (!arg) return result_.make_value<int32_t>(0);
         auto* b = static_cast<const uint8_t*>(arg);
         TypeTag tag = TypeTag::read_before(b);
@@ -968,7 +978,7 @@ private:
     }
 
     void* fn_type(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         if (!arg) return result_.raw_string("null");
         auto* b = static_cast<const uint8_t*>(arg);
         TypeTag tag = TypeTag::read_before(b);
@@ -986,25 +996,25 @@ private:
     }
 
     void* fn_keys(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         if (!arg) return result_.raw_array(0);
         auto* map = static_cast<ObjectMap*>(arg);
         auto* result = result_.raw_array();
         map->for_each([&](ArenaString* key, TaggedPtr*) {
             auto* ks = result_.raw_string(key->view());
             result->push_back(TaggedPtr{}, result_.arena());
-            result->slot(result->size(, base) - 1)->set_pointer(ks, base);
-        });
+            result->slot(result->size() - 1, result_.base())->set_pointer(ks, result_.base());
+        }, data_base_);
         return result;
     }
 
     void* fn_values(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         return eval_hash_wildcard(arg);
     }
 
     void* fn_to_string(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         auto sv = to_string(arg);
         if (!sv.empty()) return result_.raw_string(sv);
         double d = to_double(arg);
@@ -1019,27 +1029,27 @@ private:
     void* fn_not_null(void* data, ObjectArray* args) {
         if (!args) return nullptr;
         for (uint64_t i = 0; i < args->size(); ++i) {
-            void* val = eval(data, resolve_embedded(args->slot(i, base)));
+            void* val = eval(data, resolve_slot(args->slot(i, ast_base_), ast_base_));
             if (val) return val;
         }
         return nullptr;
     }
 
     void* fn_abs(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         double d = to_double(arg);
         if (!std::isnan(d)) return result_.make_value<double>(std::abs(d));
         return nullptr;
     }
 
     void* fn_sort(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         if (!arg) return result_.raw_array(0);
         auto* arr = static_cast<ObjectArray*>(arg);
         // Collect values, sort, rebuild.
         std::vector<void*> items;
         for (uint64_t i = 0; i < arr->size(); ++i)
-            items.push_back(resolve_embedded(arr->slot(i, base)));
+            items.push_back(resolve_slot(arr->slot(i, data_base_), data_base_));
         std::sort(items.begin(), items.end(), [this](void* a, void* b) {
             double da = to_double(a), db = to_double(b);
             if (!std::isnan(da) && !std::isnan(db)) return da < db;
@@ -1051,19 +1061,19 @@ private:
     }
 
     void* fn_reverse(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         if (!arg) return result_.raw_array(0);
         auto* arr = static_cast<ObjectArray*>(arg);
         auto* result = result_.raw_array();
         for (int64_t i = arr->size() - 1; i >= 0; --i)
-            push_value(result, resolve_embedded(arr->slot(i, base)));
+            push_value(result, resolve_slot(arr->slot(i, data_base_), data_base_));
         return result;
     }
 
     void* fn_contains(void* data, ObjectArray* args) {
         if (!args || args->size() < 2) return nullptr;
-        void* subject = eval(data, resolve_embedded(args->slot(0, base)));
-        void* search = eval(data, resolve_embedded(args->slot(1, base)));
+        void* subject = eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_));
+        void* search = eval(data, resolve_slot(args->slot(1, ast_base_), ast_base_));
         bool found = false;
         if (subject) {
             auto* b = static_cast<const uint8_t*>(subject);
@@ -1077,7 +1087,7 @@ private:
                 double search_d = to_double(search);
                 auto search_s = to_string(search);
                 for (uint64_t i = 0; i < arr->size(); ++i) {
-                    void* elem = resolve_embedded(arr->slot(i, base));
+                    void* elem = resolve_slot(arr->slot(i, data_base_), data_base_);
                     if (!std::isnan(search_d) && to_double(elem) == search_d) { found = true; break; }
                     if (!search_s.empty() && to_string(elem) == search_s) { found = true; break; }
                 }
@@ -1111,12 +1121,12 @@ private:
             auto* s = static_cast<const ArenaString*>(val);
             auto* copy = result_.raw_string(s->view());
             arr->push_back(TaggedPtr{}, result_.arena());
-            arr->slot(arr->size(, base) - 1)->set_pointer(copy, base);
+            arr->slot(arr->size() - 1, result_.base())->set_pointer(copy, result_.base());
         } else {
             // For complex objects (arrays, maps), store pointer directly.
             // This is safe only if val is already in result_ arena.
             arr->push_back(TaggedPtr{}, result_.arena());
-            arr->slot(arr->size(, base) - 1)->set_pointer(val, base);
+            arr->slot(arr->size() - 1, result_.base())->set_pointer(val, result_.base());
         }
     }
 
@@ -1138,10 +1148,10 @@ private:
             auto* s = static_cast<const ArenaString*>(val);
             auto* copy = result_.raw_string(s->view());
             map->put(key, TaggedPtr{}, result_.arena());
-            map->get_slot(key)->set_pointer(copy, base);
+            map->get_slot(key, result_.base())->set_pointer(copy, result_.base());
         } else {
             map->put(key, TaggedPtr{}, result_.arena());
-            map->get_slot(key)->set_pointer(val, base);
+            map->get_slot(key, result_.base())->set_pointer(val, result_.base());
         }
     }
 };
@@ -1153,7 +1163,7 @@ private:
 HermesCtr parse_path(std::string_view expr) {
     // Use MultiChunk to avoid pointer invalidation on realloc.
     // Cross-chunk relative pointers are a known issue — use large initial chunk.
-    auto doc = HermesCtr::create(ArenaMode::MultiChunk, 65536);
+    auto doc = make_doc(65536);
     PathParser parser(expr, doc);
     void* ast = parser.parse();
     doc.set_root_offset(doc.offset_of(ast));
@@ -1162,19 +1172,29 @@ HermesCtr parse_path(std::string_view expr) {
 
 HermesCtr eval_path(const HermesCtr& data, std::string_view expr) {
     auto ast_doc = parse_path(expr);
-    auto result = make_doc();
-    PathEvaluator evaluator(result);
-    void* data_root = const_cast<void*>(static_cast<const void*>(
-        data.header()->root.get()));
+    // Result document shares data's arena via the same MemHolder.
+    // Use set_root_override to store a data-relative offset without a separate arena.
+    HermesCtr result = make_doc();
+    PathEvaluator evaluator(result, data.base(), ast_doc.base());
+    void* data_root = data.root<void>();
     void* ast_root = ast_doc.root<void>();
     void* val = evaluator.eval(data_root, ast_root);
-    if (val) result.set_root_offset(result.offset_of(val));
+    if (val) {
+        // val lives in data's arena — compute its offset from data.base().
+        arena_offset_t off = static_cast<arena_offset_t>(
+            static_cast<uint8_t*>(val) - data.base());
+        // Store it in a result doc that wraps the same holder.
+        result = HermesCtr(HermesCtrView(data.holder()));
+        result.set_root_override(off);
+    }
     return result;
 }
 
 HermesCtr eval_path_ast(void* data_root, void* ast_root, Arena& /*data_arena*/) {
     auto result = make_doc();
-    PathEvaluator evaluator(result);
+    // Without proper base pointers, use nullptr — caller must ensure
+    // objects are in contiguous arenas with matching bases.
+    PathEvaluator evaluator(result, nullptr, nullptr);
     void* val = evaluator.eval(data_root, ast_root);
     if (val) result.set_root_offset(result.offset_of(val));
     return result;

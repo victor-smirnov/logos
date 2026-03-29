@@ -19,34 +19,35 @@ using namespace logos::hermes;
 static void test_deep_copy_tiny_map_with_pointers() {
     std::printf("--- Deep copy TinyObjectMap with pointers ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* map = doc.make_tiny_map();
-    doc.set_root(map);
+    auto doc = make_doc();
+    auto map = doc.make_tiny_map();
+    doc.set_root_offset(map.offset());
 
     // Key 0 = embedded int
-    map->put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer), doc.arena());
+    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
 
     // Key 1 = pointer to string
-    auto* s = doc.make_string("hello from pointer");
-    map->put(1, TaggedPtr{}, doc.arena());
-    map->slot(1)->set_pointer(s);
+    auto s = doc.make_string("hello from pointer");
+    map.put(1, TaggedPtr{});
+    map.slot(1)->set_pointer(s.ptr(), doc.base());
 
     // Key 2 = embedded float
-    map->put(2, TaggedPtr::from_value(float(2.5f), type_hash::Real), doc.arena());
+    map.put(2, TaggedPtr::from_value(float(2.5f), type_hash::Real));
 
     // Compactify (deep copy).
-    auto compact = doc.compactify();
+    auto compact = compactify(doc);
+    uint8_t* cb = compact.base();
     auto* cmap = compact.root<TinyObjectMap>();
 
     LOGOS_ASSERT(cmap->size() == 3, "HERMES-DEEPCOPY-001", "");
-    LOGOS_ASSERT(cmap->get(0).as_value<int32_t>() == 42, "HERMES-DEEPCOPY-001", "");
-    LOGOS_ASSERT(cmap->get(2).as_value<float>() == 2.5f, "HERMES-DEEPCOPY-001", "");
+    LOGOS_ASSERT(cmap->get(0, cb).as_value<int32_t>() == 42, "HERMES-DEEPCOPY-001", "");
+    LOGOS_ASSERT(cmap->get(2, cb).as_value<float>() == 2.5f, "HERMES-DEEPCOPY-001", "");
 
     // Check the pointer-mode value.
-    TaggedPtr* slot1 = cmap->slot(1);
+    TaggedPtr* slot1 = cmap->slot(1, cb);
     LOGOS_ASSERT(slot1->is_pointer(), "HERMES-DEEPCOPY-001",
         "Key 1 must still be pointer mode after deep copy");
-    auto* cs = slot1->as_ptr<ArenaString>();
+    auto* cs = slot1->as_ptr<ArenaString>(cb);
     LOGOS_ASSERT(*cs == "hello from pointer", "HERMES-DEEPCOPY-001",
         "Deep-copied string must match original");
 
@@ -57,30 +58,31 @@ static void test_deep_copy_tiny_map_with_pointers() {
 static void test_deep_copy_object_map() {
     std::printf("--- Deep copy ObjectMap ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* map = doc.make_object_map();
-    doc.set_root(map);
+    auto doc = make_doc();
+    auto map = doc.make_object_map();
+    doc.set_root_offset(map.offset());
 
-    map->put("name", TaggedPtr::from_value(int32_t(1), type_hash::Integer), doc.arena());
-    map->put("count", TaggedPtr::from_value(int32_t(2), type_hash::Integer), doc.arena());
+    map.put("name", TaggedPtr::from_value(int32_t(1), type_hash::Integer));
+    map.put("count", TaggedPtr::from_value(int32_t(2), type_hash::Integer));
 
     // Add a pointer-mode value.
-    auto* s = doc.make_string("value_string");
-    map->put("text", TaggedPtr{}, doc.arena());
-    map->get_slot("text")->set_pointer(s);
+    auto s = doc.make_string("value_string");
+    map.put("text", TaggedPtr{});
+    map.get_slot("text")->set_pointer(s.ptr(), doc.base());
 
-    auto compact = doc.compactify();
+    auto compact = compactify(doc);
+    uint8_t* cb = compact.base();
     auto* cmap = compact.root<ObjectMap>();
 
     LOGOS_ASSERT(cmap->size() == 3, "HERMES-DEEPCOPY-002",
         "Compacted ObjectMap must have 3 entries, got {}", cmap->size());
-    LOGOS_ASSERT(cmap->get("name").as_value<int32_t>() == 1, "HERMES-DEEPCOPY-002", "");
-    LOGOS_ASSERT(cmap->get("count").as_value<int32_t>() == 2, "HERMES-DEEPCOPY-002", "");
+    LOGOS_ASSERT(cmap->get("name", cb).as_value<int32_t>() == 1, "HERMES-DEEPCOPY-002", "");
+    LOGOS_ASSERT(cmap->get("count", cb).as_value<int32_t>() == 2, "HERMES-DEEPCOPY-002", "");
 
-    TaggedPtr* text_slot = cmap->get_slot("text");
+    TaggedPtr* text_slot = cmap->get_slot("text", cb);
     LOGOS_ASSERT(text_slot != nullptr, "HERMES-DEEPCOPY-002", "");
     LOGOS_ASSERT(text_slot->is_pointer(), "HERMES-DEEPCOPY-002", "");
-    LOGOS_ASSERT(*text_slot->as_ptr<ArenaString>() == "value_string", "HERMES-DEEPCOPY-002", "");
+    LOGOS_ASSERT(*text_slot->as_ptr<ArenaString>(cb) == "value_string", "HERMES-DEEPCOPY-002", "");
 
     LOGOS_TRACE("hermes.deepcopy.objmap", "status", "pass");
     std::printf("  Deep copy ObjectMap: OK\n");
@@ -93,25 +95,26 @@ static void test_deep_copy_object_map() {
 static void test_binary_tiny_map() {
     std::printf("--- Binary codec TinyObjectMap ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* map = doc.make_tiny_map();
-    doc.set_root(map);
+    auto doc = make_doc();
+    auto map = doc.make_tiny_map();
+    doc.set_root_offset(map.offset());
 
-    map->put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer), doc.arena());
-    map->put(5, TaggedPtr::from_value(float(3.14f), type_hash::Real), doc.arena());
-    map->put(10, TaggedPtr::from_value(int8_t(-1), type_hash::TinyInt), doc.arena());
+    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
+    map.put(5, TaggedPtr::from_value(float(3.14f), type_hash::Real));
+    map.put(10, TaggedPtr::from_value(int8_t(-1), type_hash::TinyInt));
 
     auto bytes = binary_encode(doc);
     LOGOS_ASSERT(!bytes.empty(), "HERMES-BINARY-001", "Encoded bytes must not be empty");
 
     auto decoded = binary_decode(bytes.data(), bytes.size());
-
+    uint8_t* db = decoded.base();
     auto* dmap = decoded.root<TinyObjectMap>();
+
     LOGOS_ASSERT(dmap->size() == 3, "HERMES-BINARY-003",
         "Decoded map must have 3 entries, got {}", dmap->size());
-    LOGOS_ASSERT(dmap->get(0).as_value<int32_t>() == 42, "HERMES-BINARY-003", "");
-    LOGOS_ASSERT(dmap->get(5).as_value<float>() == 3.14f, "HERMES-BINARY-003", "");
-    LOGOS_ASSERT(dmap->get(10).as_value<int8_t>() == -1, "HERMES-BINARY-003", "");
+    LOGOS_ASSERT(dmap->get(0, db).as_value<int32_t>() == 42, "HERMES-BINARY-003", "");
+    LOGOS_ASSERT(dmap->get(5, db).as_value<float>() == 3.14f, "HERMES-BINARY-003", "");
+    LOGOS_ASSERT(dmap->get(10, db).as_value<int8_t>() == -1, "HERMES-BINARY-003", "");
 
     LOGOS_TRACE("hermes.binary.tinymap", "status", "pass", "bytes", bytes.size());
     std::printf("  Binary TinyObjectMap: OK (%zu bytes)\n", bytes.size());
@@ -124,21 +127,22 @@ static void test_binary_tiny_map() {
 static void test_binary_object_array() {
     std::printf("--- Binary codec ObjectArray ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* arr = doc.make_array();
-    doc.set_root(arr);
+    auto doc = make_doc();
+    auto arr = doc.make_array();
+    doc.set_root_offset(arr.offset());
 
     for (int i = 0; i < 10; ++i) {
-        arr->push_back(TaggedPtr::from_value(int32_t(i * 100), type_hash::Integer), doc.arena());
+        arr.push_back(TaggedPtr::from_value(int32_t(i * 100), type_hash::Integer));
     }
 
     auto bytes = binary_encode(doc);
     auto decoded = binary_decode(bytes.data(), bytes.size());
+    uint8_t* db = decoded.base();
 
     auto* darr = decoded.root<ObjectArray>();
     LOGOS_ASSERT(darr->size() == 10, "HERMES-BINARY-003", "");
     for (int i = 0; i < 10; ++i) {
-        LOGOS_ASSERT(darr->get(i).as_value<int32_t>() == i * 100, "HERMES-BINARY-003",
+        LOGOS_ASSERT(darr->get(i, db).as_value<int32_t>() == i * 100, "HERMES-BINARY-003",
             "Decoded array[{}] must be {}", i, i * 100);
     }
 
@@ -153,21 +157,22 @@ static void test_binary_object_array() {
 static void test_binary_object_map() {
     std::printf("--- Binary codec ObjectMap ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* map = doc.make_object_map();
-    doc.set_root(map);
+    auto doc = make_doc();
+    auto map = doc.make_object_map();
+    doc.set_root_offset(map.offset());
 
-    map->put("name", TaggedPtr::from_value(int32_t(42), type_hash::Integer), doc.arena());
-    map->put("value", TaggedPtr::from_value(int32_t(99), type_hash::Integer), doc.arena());
+    map.put("name", TaggedPtr::from_value(int32_t(42), type_hash::Integer));
+    map.put("value", TaggedPtr::from_value(int32_t(99), type_hash::Integer));
 
     auto bytes = binary_encode(doc);
     auto decoded = binary_decode(bytes.data(), bytes.size());
+    uint8_t* db = decoded.base();
 
     auto* dmap = decoded.root<ObjectMap>();
     LOGOS_ASSERT(dmap->size() == 2, "HERMES-BINARY-003",
         "Decoded map must have 2 entries, got {}", dmap->size());
-    LOGOS_ASSERT(dmap->get("name").as_value<int32_t>() == 42, "HERMES-BINARY-003", "");
-    LOGOS_ASSERT(dmap->get("value").as_value<int32_t>() == 99, "HERMES-BINARY-003", "");
+    LOGOS_ASSERT(dmap->get("name", db).as_value<int32_t>() == 42, "HERMES-BINARY-003", "");
+    LOGOS_ASSERT(dmap->get("value", db).as_value<int32_t>() == 99, "HERMES-BINARY-003", "");
 
     LOGOS_TRACE("hermes.binary.objmap", "status", "pass", "bytes", bytes.size());
     std::printf("  Binary ObjectMap: OK (%zu bytes)\n", bytes.size());
@@ -180,44 +185,45 @@ static void test_binary_object_map() {
 static void test_binary_nested() {
     std::printf("--- Binary codec nested structure ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* root = doc.make_tiny_map();
-    doc.set_root(root);
+    auto doc = make_doc();
+    auto root = doc.make_tiny_map();
+    doc.set_root_offset(root.offset());
 
     // Key 0 = embedded int
-    root->put(0, TaggedPtr::from_value(int32_t(1), type_hash::Integer), doc.arena());
+    root.put(0, TaggedPtr::from_value(int32_t(1), type_hash::Integer));
 
     // Key 1 = pointer to string
-    auto* s = doc.make_string("nested_string");
-    root->put(1, TaggedPtr{}, doc.arena());
-    root->slot(1)->set_pointer(s);
+    auto s = doc.make_string("nested_string");
+    root.put(1, TaggedPtr{});
+    root.slot(1)->set_pointer(s.ptr(), doc.base());
 
     // Key 2 = pointer to an array
-    auto* inner_arr = doc.make_array();
-    inner_arr->push_back(TaggedPtr::from_value(int32_t(10), type_hash::Integer), doc.arena());
-    inner_arr->push_back(TaggedPtr::from_value(int32_t(20), type_hash::Integer), doc.arena());
-    root->put(2, TaggedPtr{}, doc.arena());
-    root->slot(2)->set_pointer(inner_arr);
+    auto inner_arr = doc.make_array();
+    inner_arr.push_back(TaggedPtr::from_value(int32_t(10), type_hash::Integer));
+    inner_arr.push_back(TaggedPtr::from_value(int32_t(20), type_hash::Integer));
+    root.put(2, TaggedPtr{});
+    root.slot(2)->set_pointer(inner_arr.ptr(), doc.base());
 
     auto bytes = binary_encode(doc);
     auto decoded = binary_decode(bytes.data(), bytes.size());
+    uint8_t* db = decoded.base();
 
     auto* droot = decoded.root<TinyObjectMap>();
     LOGOS_ASSERT(droot->size() == 3, "HERMES-BINARY-004", "");
-    LOGOS_ASSERT(droot->get(0).as_value<int32_t>() == 1, "HERMES-BINARY-004", "");
+    LOGOS_ASSERT(droot->get(0, db).as_value<int32_t>() == 1, "HERMES-BINARY-004", "");
 
     // String
-    TaggedPtr* str_slot = droot->slot(1);
+    TaggedPtr* str_slot = droot->slot(1, db);
     LOGOS_ASSERT(str_slot->is_pointer(), "HERMES-BINARY-004", "");
-    LOGOS_ASSERT(*str_slot->as_ptr<ArenaString>() == "nested_string", "HERMES-BINARY-004", "");
+    LOGOS_ASSERT(*str_slot->as_ptr<ArenaString>(db) == "nested_string", "HERMES-BINARY-004", "");
 
     // Array
-    TaggedPtr* arr_slot = droot->slot(2);
+    TaggedPtr* arr_slot = droot->slot(2, db);
     LOGOS_ASSERT(arr_slot->is_pointer(), "HERMES-BINARY-004", "");
-    auto* darr = arr_slot->as_ptr<ObjectArray>();
+    auto* darr = arr_slot->as_ptr<ObjectArray>(db);
     LOGOS_ASSERT(darr->size() == 2, "HERMES-BINARY-004", "");
-    LOGOS_ASSERT(darr->get(0).as_value<int32_t>() == 10, "HERMES-BINARY-004", "");
-    LOGOS_ASSERT(darr->get(1).as_value<int32_t>() == 20, "HERMES-BINARY-004", "");
+    LOGOS_ASSERT(darr->get(0, db).as_value<int32_t>() == 10, "HERMES-BINARY-004", "");
+    LOGOS_ASSERT(darr->get(1, db).as_value<int32_t>() == 20, "HERMES-BINARY-004", "");
 
     LOGOS_TRACE("hermes.binary.nested", "status", "pass", "bytes", bytes.size());
     std::printf("  Binary nested: OK (%zu bytes)\n", bytes.size());
@@ -230,12 +236,12 @@ static void test_binary_nested() {
 static void test_binary_double_round_trip() {
     std::printf("--- Binary double round-trip ---\n");
 
-    auto doc = HermesCtr::create();
-    auto* map = doc.make_tiny_map();
-    doc.set_root(map);
+    auto doc = make_doc();
+    auto map = doc.make_tiny_map();
+    doc.set_root_offset(map.offset());
 
-    map->put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer), doc.arena());
-    map->put(1, TaggedPtr::from_value(float(3.14f), type_hash::Real), doc.arena());
+    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
+    map.put(1, TaggedPtr::from_value(float(3.14f), type_hash::Real));
 
     // Encode → decode → encode → compare.
     auto bytes1 = binary_encode(doc);

@@ -185,6 +185,12 @@ HermesCtr compactify(const HermesCtrView& src) {
     return dst;
 }
 
+void* copy_object_into(const void* src_obj, const uint8_t* src_base, HermesCtrView& dst) {
+    if (!src_obj) return nullptr;
+    DeepCopyState state(dst.arena(), src_base);
+    return state.copy_tagged_object(src_obj);
+}
+
 HermesCtr from_bytes_copy(const uint8_t* data, size_t size) {
     auto doc = make_doc(size);
     // Copy data into the arena (after the DocumentHeader that make_doc already allocated).

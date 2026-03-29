@@ -153,12 +153,13 @@ static void test_parse_array() {
 
     {
         auto doc = parse("[1, 2, 3]");
+        uint8_t* base = doc.base();
         auto* arr = doc.root<ObjectArray>();
         LOGOS_ASSERT(arr->size() == 3, "HERMES-PARSE-005",
             "Array size must be 3, got {}", arr->size());
-        LOGOS_ASSERT(arr->get(0).as_value<int32_t>() == 1, "HERMES-PARSE-005", "");
-        LOGOS_ASSERT(arr->get(1).as_value<int32_t>() == 2, "HERMES-PARSE-005", "");
-        LOGOS_ASSERT(arr->get(2).as_value<int32_t>() == 3, "HERMES-PARSE-005", "");
+        LOGOS_ASSERT(arr->get(0, base).as_value<int32_t>() == 1, "HERMES-PARSE-005", "");
+        LOGOS_ASSERT(arr->get(1, base).as_value<int32_t>() == 2, "HERMES-PARSE-005", "");
+        LOGOS_ASSERT(arr->get(2, base).as_value<int32_t>() == 3, "HERMES-PARSE-005", "");
     }
     {
         auto doc = parse("[]");
@@ -168,15 +169,16 @@ static void test_parse_array() {
     {
         // Mixed types.
         auto doc = parse("[1, 3.14, \"hello\"]");
+        uint8_t* base = doc.base();
         auto* arr = doc.root<ObjectArray>();
         LOGOS_ASSERT(arr->size() == 3, "HERMES-PARSE-005", "");
-        LOGOS_ASSERT(arr->get(0).as_value<int32_t>() == 1, "HERMES-PARSE-005", "");
+        LOGOS_ASSERT(arr->get(0, base).as_value<int32_t>() == 1, "HERMES-PARSE-005", "");
         // Float embedded.
-        LOGOS_ASSERT(std::abs(arr->get(1).as_value<float>() - 3.14f) < 0.01f, "HERMES-PARSE-005", "");
+        LOGOS_ASSERT(std::abs(arr->get(1, base).as_value<float>() - 3.14f) < 0.01f, "HERMES-PARSE-005", "");
         // String is pointer-mode.
-        TaggedPtr* slot2 = const_cast<ObjectArray*>(arr)->slot(2);
+        TaggedPtr* slot2 = arr->slot(2, base);
         LOGOS_ASSERT(slot2->is_pointer(), "HERMES-PARSE-005", "");
-        LOGOS_ASSERT(*slot2->as_ptr<ArenaString>() == "hello", "HERMES-PARSE-005", "");
+        LOGOS_ASSERT(*slot2->as_ptr<ArenaString>(base) == "hello", "HERMES-PARSE-005", "");
     }
 
     LOGOS_TRACE("hermes.parse.array", "status", "pass");
@@ -188,15 +190,16 @@ static void test_parse_map() {
 
     {
         auto doc = parse("{name: \"Alice\", age: 30}");
+        uint8_t* base = doc.base();
         auto* map = doc.root<ObjectMap>();
         LOGOS_ASSERT(map->size() == 2, "HERMES-PARSE-006",
             "Map size must be 2, got {}", map->size());
-        LOGOS_ASSERT(map->get("age").as_value<int32_t>() == 30, "HERMES-PARSE-006", "");
+        LOGOS_ASSERT(map->get("age", base).as_value<int32_t>() == 30, "HERMES-PARSE-006", "");
 
-        TaggedPtr* name_slot = map->get_slot("name");
+        TaggedPtr* name_slot = map->get_slot("name", base);
         LOGOS_ASSERT(name_slot != nullptr, "HERMES-PARSE-006", "");
         LOGOS_ASSERT(name_slot->is_pointer(), "HERMES-PARSE-006", "");
-        LOGOS_ASSERT(*name_slot->as_ptr<ArenaString>() == "Alice", "HERMES-PARSE-006", "");
+        LOGOS_ASSERT(*name_slot->as_ptr<ArenaString>(base) == "Alice", "HERMES-PARSE-006", "");
     }
     {
         auto doc = parse("{}");
@@ -206,9 +209,10 @@ static void test_parse_map() {
     {
         // Quoted keys.
         auto doc = parse("{\"key 1\": 1, \"key 2\": 2}");
+        uint8_t* base = doc.base();
         auto* map = doc.root<ObjectMap>();
         LOGOS_ASSERT(map->size() == 2, "HERMES-PARSE-006", "");
-        LOGOS_ASSERT(map->get("key 1").as_value<int32_t>() == 1, "HERMES-PARSE-006", "");
+        LOGOS_ASSERT(map->get("key 1", base).as_value<int32_t>() == 1, "HERMES-PARSE-006", "");
     }
 
     LOGOS_TRACE("hermes.parse.map", "status", "pass");
@@ -225,28 +229,29 @@ static void test_parse_nested() {
         rating: 4.5
     })");
 
+    uint8_t* base = doc.base();
     auto* root = doc.root<ObjectMap>();
     LOGOS_ASSERT(root->size() == 4, "HERMES-PARSE-007",
         "Root map must have 4 entries, got {}", root->size());
 
     // active = true (embedded boolean)
-    TaggedPtr active_val = root->get("active");
+    TaggedPtr active_val = root->get("active", base);
     LOGOS_ASSERT(active_val.as_value<uint8_t>() == 1, "HERMES-PARSE-007", "");
 
     // rating = 4.5f (embedded float)
-    LOGOS_ASSERT(std::abs(root->get("rating").as_value<float>() - 4.5f) < 0.01f, "HERMES-PARSE-007", "");
+    LOGOS_ASSERT(std::abs(root->get("rating", base).as_value<float>() - 4.5f) < 0.01f, "HERMES-PARSE-007", "");
 
     // items = [1,2,3] (pointer to array)
-    TaggedPtr* items_slot = root->get_slot("items");
+    TaggedPtr* items_slot = root->get_slot("items", base);
     LOGOS_ASSERT(items_slot->is_pointer(), "HERMES-PARSE-007", "");
-    auto* items = items_slot->as_ptr<ObjectArray>();
+    auto* items = items_slot->as_ptr<ObjectArray>(base);
     LOGOS_ASSERT(items->size() == 3, "HERMES-PARSE-007", "");
 
     // user = {name: "Bob", id: 42} (pointer to map)
-    TaggedPtr* user_slot = root->get_slot("user");
+    TaggedPtr* user_slot = root->get_slot("user", base);
     LOGOS_ASSERT(user_slot->is_pointer(), "HERMES-PARSE-007", "");
-    auto* user = user_slot->as_ptr<ObjectMap>();
-    LOGOS_ASSERT(user->get("id").as_value<int32_t>() == 42, "HERMES-PARSE-007", "");
+    auto* user = user_slot->as_ptr<ObjectMap>(base);
+    LOGOS_ASSERT(user->get("id", base).as_value<int32_t>() == 42, "HERMES-PARSE-007", "");
 
     LOGOS_TRACE("hermes.parse.nested", "status", "pass");
     std::printf("  Parse nested: OK\n");
@@ -326,52 +331,58 @@ static void test_parse_type_declarations() {
     // Simple type name
     {
         auto doc = parse("Integer");
+        uint8_t* base = doc.base();
         auto* dt = doc.root<DatatypeData>();
-        LOGOS_ASSERT(dt->name_view() == "Integer", "HERMES-PARSE-TYPE-001",
-            "Expected 'Integer', got '{}'", dt->name_view());
+        LOGOS_ASSERT(dt->name_view(base) == "Integer", "HERMES-PARSE-TYPE-001",
+            "Expected 'Integer', got '{}'", dt->name_view(base));
         LOGOS_ASSERT(!dt->has_params(), "HERMES-PARSE-TYPE-001", "No params expected");
     }
 
     // Parameterized type
     {
         auto doc = parse("Array<Integer>");
+        uint8_t* base = doc.base();
         auto* dt = doc.root<DatatypeData>();
-        LOGOS_ASSERT(dt->name_view() == "Array", "HERMES-PARSE-TYPE-002", "");
+        LOGOS_ASSERT(dt->name_view(base) == "Array", "HERMES-PARSE-TYPE-002", "");
         LOGOS_ASSERT(dt->has_params(), "HERMES-PARSE-TYPE-002", "Must have params");
-        LOGOS_ASSERT(dt->params.get()->size() == 1, "HERMES-PARSE-TYPE-002", "");
+        LOGOS_ASSERT(dt->params.get(base)->size() == 1, "HERMES-PARSE-TYPE-002", "");
     }
 
     // Multi-param type
     {
         auto doc = parse("Map<Varchar, Integer>");
+        uint8_t* base = doc.base();
         auto* dt = doc.root<DatatypeData>();
-        LOGOS_ASSERT(dt->name_view() == "Map", "HERMES-PARSE-TYPE-003", "");
-        LOGOS_ASSERT(dt->params.get()->size() == 2, "HERMES-PARSE-TYPE-003", "");
+        LOGOS_ASSERT(dt->name_view(base) == "Map", "HERMES-PARSE-TYPE-003", "");
+        LOGOS_ASSERT(dt->params.get(base)->size() == 2, "HERMES-PARSE-TYPE-003", "");
     }
 
     // Constructor args
     {
         auto doc = parse("Decimal(10, 2)");
+        uint8_t* base = doc.base();
         auto* dt = doc.root<DatatypeData>();
-        LOGOS_ASSERT(dt->name_view() == "Decimal", "HERMES-PARSE-TYPE-004", "");
+        LOGOS_ASSERT(dt->name_view(base) == "Decimal", "HERMES-PARSE-TYPE-004", "");
         LOGOS_ASSERT(dt->has_ctr(), "HERMES-PARSE-TYPE-004", "Must have constructor args");
-        LOGOS_ASSERT(dt->ctr.get()->size() == 2, "HERMES-PARSE-TYPE-004", "");
+        LOGOS_ASSERT(dt->ctr.get(base)->size() == 2, "HERMES-PARSE-TYPE-004", "");
     }
 
     // Qualified name
     {
         auto doc = parse("std::vector<int>");
+        uint8_t* base = doc.base();
         auto* dt = doc.root<DatatypeData>();
-        LOGOS_ASSERT(dt->name_view() == "std::vector", "HERMES-PARSE-TYPE-005", "");
+        LOGOS_ASSERT(dt->name_view(base) == "std::vector", "HERMES-PARSE-TYPE-005", "");
         LOGOS_ASSERT(dt->has_params(), "HERMES-PARSE-TYPE-005", "");
     }
 
     // C++ basic type
     {
         auto doc = parse("unsigned long long");
+        uint8_t* base = doc.base();
         auto* dt = doc.root<DatatypeData>();
-        LOGOS_ASSERT(dt->name_view() == "unsigned long long", "HERMES-PARSE-TYPE-006",
-            "Expected 'unsigned long long', got '{}'", dt->name_view());
+        LOGOS_ASSERT(dt->name_view(base) == "unsigned long long", "HERMES-PARSE-TYPE-006",
+            "Expected 'unsigned long long', got '{}'", dt->name_view(base));
     }
 
     LOGOS_TRACE("hermes.parse.types", "status", "pass");
@@ -387,24 +398,26 @@ static void test_parse_typed_values() {
 
     {
         auto doc = parse("@Integer = 42");
+        uint8_t* base = doc.base();
         auto* tv = doc.root<TypedValueData>();
 
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(tv));
         LOGOS_ASSERT(tag.type_code() == type_hash::TypedValue, "HERMES-PARSE-TV-001",
             "Root must be TypedValue");
 
-        LOGOS_ASSERT(tv->datatype.get()->name_view() == "Integer", "HERMES-PARSE-TV-001", "");
+        LOGOS_ASSERT(tv->datatype.get(base)->name_view(base) == "Integer", "HERMES-PARSE-TV-001", "");
         LOGOS_ASSERT(tv->value.is_value(), "HERMES-PARSE-TV-001", "Value must be embedded");
         LOGOS_ASSERT(tv->value.as_value<int32_t>() == 42, "HERMES-PARSE-TV-001", "");
     }
 
     {
         auto doc = parse("@Decimal(50, 3) = \"19345\"");
+        uint8_t* base = doc.base();
         auto* tv = doc.root<TypedValueData>();
-        LOGOS_ASSERT(tv->datatype.get()->name_view() == "Decimal", "HERMES-PARSE-TV-002", "");
-        LOGOS_ASSERT(tv->datatype.get()->has_ctr(), "HERMES-PARSE-TV-002", "");
+        LOGOS_ASSERT(tv->datatype.get(base)->name_view(base) == "Decimal", "HERMES-PARSE-TV-002", "");
+        LOGOS_ASSERT(tv->datatype.get(base)->has_ctr(), "HERMES-PARSE-TV-002", "");
         LOGOS_ASSERT(tv->value.is_pointer(), "HERMES-PARSE-TV-002", "String must be pointer");
-        LOGOS_ASSERT(*tv->value.as_ptr<ArenaString>() == "19345", "HERMES-PARSE-TV-002", "");
+        LOGOS_ASSERT(*tv->value.as_ptr<ArenaString>(base) == "19345", "HERMES-PARSE-TV-002", "");
     }
 
     LOGOS_TRACE("hermes.parse.typed_values", "status", "pass");
@@ -420,13 +433,14 @@ static void test_parse_parameters() {
 
     {
         auto doc = parse("?userId");
+        uint8_t* base = doc.base();
         auto* p = doc.root<ParameterData>();
 
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(p));
         LOGOS_ASSERT(tag.type_code() == type_hash::Parameter, "HERMES-PARSE-PARAM-001",
             "Root must be Parameter");
-        LOGOS_ASSERT(p->name_view() == "userId", "HERMES-PARSE-PARAM-001",
-            "Expected 'userId', got '{}'", p->name_view());
+        LOGOS_ASSERT(p->name_view(base) == "userId", "HERMES-PARSE-PARAM-001",
+            "Expected 'userId', got '{}'", p->name_view(base));
     }
 
     LOGOS_TRACE("hermes.parse.parameters", "status", "pass");
@@ -478,22 +492,26 @@ static void test_parse_typed_containers() {
 
     {
         auto doc = parse("<Integer>[1, 2, 3]");
+        uint8_t* base = doc.base();
         auto* tv = doc.root<TypedValueData>();
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(tv));
         LOGOS_ASSERT(tag.type_code() == type_hash::TypedValue, "HERMES-PARSE-TC-001",
             "Typed container must produce TypedValue");
-        LOGOS_ASSERT(tv->datatype.get()->name_view() == "Array", "HERMES-PARSE-TC-001",
-            "Expected 'Array', got '{}'", tv->datatype.get()->name_view());
+        auto* dt = tv->datatype.get(base);
+        LOGOS_ASSERT(dt->name_view(base) == "Array", "HERMES-PARSE-TC-001",
+            "Expected 'Array', got '{}'", dt->name_view(base));
         LOGOS_ASSERT(tv->value.is_pointer(), "HERMES-PARSE-TC-001", "");
-        auto* arr = tv->value.as_ptr<ObjectArray>();
+        auto* arr = tv->value.as_ptr<ObjectArray>(base);
         LOGOS_ASSERT(arr->size() == 3, "HERMES-PARSE-TC-001", "");
     }
 
     {
         auto doc = parse("<Varchar, Integer>{name: 1, age: 2}");
+        uint8_t* base = doc.base();
         auto* tv = doc.root<TypedValueData>();
-        LOGOS_ASSERT(tv->datatype.get()->name_view() == "Map", "HERMES-PARSE-TC-002", "");
-        LOGOS_ASSERT(tv->datatype.get()->params.get()->size() == 2, "HERMES-PARSE-TC-002", "");
+        auto* dt = tv->datatype.get(base);
+        LOGOS_ASSERT(dt->name_view(base) == "Map", "HERMES-PARSE-TC-002", "");
+        LOGOS_ASSERT(dt->params.get(base)->size() == 2, "HERMES-PARSE-TC-002", "");
     }
 
     LOGOS_TRACE("hermes.parse.typed_containers", "status", "pass");

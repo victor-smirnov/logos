@@ -186,13 +186,14 @@ using Object    = Own<ObjectView>;
 
 class HermesCtrView {
 public:
-    HermesCtrView() noexcept : holder_(nullptr) {}
-    explicit HermesCtrView(MemHolder* holder) noexcept : holder_(holder) {}
+    HermesCtrView() noexcept : holder_(nullptr), root_override_(NULL_OFFSET) {}
+    explicit HermesCtrView(MemHolder* holder) noexcept
+        : holder_(holder), root_override_(NULL_OFFSET) {}
 
     bool is_null() const noexcept { return !holder_; }
     MemHolder* holder() const noexcept { return holder_; }
 
-    void reset() noexcept { holder_ = nullptr; }
+    void reset() noexcept { holder_ = nullptr; root_override_ = NULL_OFFSET; }
 
     // --- Segment base ---
     uint8_t* base() const { return holder_->base(); }
@@ -202,6 +203,10 @@ public:
     bool has_root() const;
     void set_root(void* object);
     void set_root_offset(arena_offset_t offset);
+
+    // Override root without modifying DocumentHeader (e.g. for path eval results).
+    void set_root_override(arena_offset_t offset) noexcept { root_override_ = offset; }
+    bool has_root_override() const noexcept { return root_override_ != NULL_OFFSET; }
 
     template <typename T>
     T* root() const;
@@ -241,16 +246,24 @@ public:
 
 private:
     MemHolder* holder_;
+    arena_offset_t root_override_;
 };
 
 // HermesCtr: owning document handle.
 using HermesCtr = Own<HermesCtrView>;
 
-// Create a new document.
+// Create a new document (GrowableSingleChunk — base is stable within size, moves on grow).
 HermesCtr make_doc(size_t capacity = 65536);
+
+// Create a new document with MultiChunk arena (base is always stable).
+HermesCtr make_doc_multi(size_t initial_capacity = 4096);
 
 // Deep-copy a document into a new compacted single-chunk arena.
 HermesCtr compactify(const HermesCtrView& src);
+
+// Deep-copy a single tagged object from src_base arena into dst document's arena.
+// Returns pointer into dst's arena. Useful for cross-arena pointer resolution.
+void* copy_object_into(const void* src_obj, const uint8_t* src_base, HermesCtrView& dst);
 
 // Load a document from raw bytes (copies the data).
 HermesCtr from_bytes_copy(const uint8_t* data, size_t size);

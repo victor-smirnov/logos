@@ -30,6 +30,8 @@ struct DatatypeData {
             arena.allocate(sizeof(DatatypeData), alignof(DatatypeData), tag));
         uint8_t* base = arena.head().data();
         mem->extras = 0;
+        mem->params.clear();
+        mem->ctr.clear();
         mem->name.set(type_name, base);
         if (type_params) mem->params.set(type_params, base);
         if (ctr_args) mem->ctr.set(ctr_args, base);

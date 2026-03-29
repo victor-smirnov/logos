@@ -209,7 +209,7 @@ static void test_path_multiselect() {
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-008", "");
         auto* map = result.root<ObjectMap>();
         LOGOS_ASSERT(map->size() == 2, "HERMES-PATH-008", "");
-        LOGOS_ASSERT(map->get("x").as_value<int32_t>() == 1, "HERMES-PATH-008", "");
+        LOGOS_ASSERT(map->get("x", result.base()).as_value<int32_t>() == 1, "HERMES-PATH-008", "");
     }
 
     LOGOS_TRACE("hermes.path.multiselect", "status", "pass");

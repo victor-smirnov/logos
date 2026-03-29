@@ -18,9 +18,10 @@ namespace logos::hermes {
 // When refcount drops to zero, the MemHolder and its arena are destroyed.
 class MemHolder {
 public:
-    explicit MemHolder(size_t arena_capacity = 65536)
+    explicit MemHolder(size_t arena_capacity = 65536,
+                       ArenaMode mode = ArenaMode::GrowableSingleChunk)
         : ref_count_(0)
-        , arena_(ArenaMode::GrowableSingleChunk, arena_capacity)
+        , arena_(mode, arena_capacity)
     {}
 
     // --- Reference counting ---

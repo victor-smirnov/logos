@@ -80,7 +80,7 @@ private:
                 auto sv = text_.substr(text_start, pos_ - text_start);
                 auto* s = doc_.raw_string(sv);
                 stmts->push_back(TaggedPtr{}, doc_.arena());
-                stmts->slot(stmts->size() - 1)->set_pointer(s);
+                stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(s, doc_.base());
             }
 
             if (at_end()) break;
@@ -118,10 +118,10 @@ private:
         auto* node = doc_.raw_tiny_map(4);
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::VAR_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
-        node->slot(tpl_ast::EXPRESSION)->set_pointer(expr_str);
+        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
 
         stmts->push_back(TaggedPtr{}, doc_.arena());
-        stmts->slot(stmts->size() - 1)->set_pointer(node);
+        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
     // Returns non-empty string if this statement is a block-terminating keyword
@@ -202,12 +202,12 @@ private:
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
         node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
         // Now set pointers — all allocations are done, no more arena mutations.
-        node->slot(tpl_ast::VARIABLE)->set_pointer(var_str);
-        node->slot(tpl_ast::EXPRESSION)->set_pointer(expr_str);
-        node->slot(tpl_ast::STATEMENTS)->set_pointer(body);
+        node->slot(tpl_ast::VARIABLE, doc_.base())->set_pointer(var_str, doc_.base());
+        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
+        node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
 
         stmts->push_back(TaggedPtr{}, doc_.arena());
-        stmts->slot(stmts->size() - 1)->set_pointer(node);
+        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
     void parse_if_stmt(ObjectArray* stmts, bool /*strip*/) {
@@ -223,8 +223,8 @@ private:
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::IF_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
         node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
-        node->slot(tpl_ast::EXPRESSION)->set_pointer(expr_str);
-        node->slot(tpl_ast::STATEMENTS)->set_pointer(body);
+        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
+        node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
 
         // Handle else/elif chain.
         if (end_kw == "else") {
@@ -233,22 +233,22 @@ private:
             auto* else_node = doc_.raw_tiny_map(4);
             else_node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::ELSE_STMT, type_hash::Integer), doc_.arena());
             else_node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
-            else_node->slot(tpl_ast::STATEMENTS)->set_pointer(else_body);
+            else_node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(else_body, doc_.base());
             node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
-            node->slot(tpl_ast::ELSE_BRANCH)->set_pointer(else_node);
+            node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(else_node, doc_.base());
         } else if (end_kw == "elif") {
             // Recursive: build a nested if from the elif.
             auto* elif_stmts = doc_.raw_array();
             parse_if_stmt_with_expr(elif_stmts, elif_expr_);
             if (elif_stmts->size() > 0) {
                 node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
-                node->slot(tpl_ast::ELSE_BRANCH)->set_pointer(
-                    elif_stmts->slot(0)->as_ptr<void>());
+                node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(
+                    elif_stmts->slot(0, doc_.base())->as_ptr<void>(doc_.base()), doc_.base());
             }
         }
 
         stmts->push_back(TaggedPtr{}, doc_.arena());
-        stmts->slot(stmts->size() - 1)->set_pointer(node);
+        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
     void parse_if_stmt_with_expr(ObjectArray* stmts, std::string_view expr_text) {
@@ -260,8 +260,8 @@ private:
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::IF_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
         node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
-        node->slot(tpl_ast::EXPRESSION)->set_pointer(expr_str);
-        node->slot(tpl_ast::STATEMENTS)->set_pointer(body);
+        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
+        node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
 
         if (end_kw == "else") {
             auto* else_body = doc_.raw_array();
@@ -269,21 +269,21 @@ private:
             auto* else_node = doc_.raw_tiny_map(4);
             else_node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::ELSE_STMT, type_hash::Integer), doc_.arena());
             else_node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
-            else_node->slot(tpl_ast::STATEMENTS)->set_pointer(else_body);
+            else_node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(else_body, doc_.base());
             node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
-            node->slot(tpl_ast::ELSE_BRANCH)->set_pointer(else_node);
+            node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(else_node, doc_.base());
         } else if (end_kw == "elif") {
             auto* elif_stmts = doc_.raw_array();
             parse_if_stmt_with_expr(elif_stmts, elif_expr_);
             if (elif_stmts->size() > 0) {
                 node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
-                node->slot(tpl_ast::ELSE_BRANCH)->set_pointer(
-                    elif_stmts->slot(0)->as_ptr<void>());
+                node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(
+                    elif_stmts->slot(0, doc_.base())->as_ptr<void>(doc_.base()), doc_.base());
             }
         }
 
         stmts->push_back(TaggedPtr{}, doc_.arena());
-        stmts->slot(stmts->size() - 1)->set_pointer(node);
+        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
     void parse_set_stmt(ObjectArray* stmts) {
@@ -301,11 +301,11 @@ private:
         node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::SET_STMT, type_hash::Integer), doc_.arena());
         node->put(tpl_ast::VARIABLE, TaggedPtr{}, doc_.arena());
         node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
-        node->slot(tpl_ast::VARIABLE)->set_pointer(var_str);
-        node->slot(tpl_ast::EXPRESSION)->set_pointer(expr_str);
+        node->slot(tpl_ast::VARIABLE, doc_.base())->set_pointer(var_str, doc_.base());
+        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
 
         stmts->push_back(TaggedPtr{}, doc_.arena());
-        stmts->slot(stmts->size() - 1)->set_pointer(node);
+        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
     // --- Lexer helpers ---
@@ -358,7 +358,8 @@ public:
     TemplateRenderer(const HermesCtr& data)
         : data_(data) {}
 
-    std::string render(const ObjectArray* stmts) {
+    std::string render(const ObjectArray* stmts, uint8_t* tpl_base) {
+        base_ = tpl_base;  // Template AST base for reading nodes.
         visit_stmts(stmts);
         return std::move(out_);
     }
@@ -366,17 +367,19 @@ public:
 private:
     const HermesCtr& data_;
     std::string out_;
-    HermesCtr scratch_ = HermesCtr::create(); // Scratch arena for materialized values.
+    uint8_t* base_ = nullptr;  // Template AST arena base.
+    HermesCtr scratch_ = make_doc_multi(4096); // Scratch arena for materialized values.
 
     // Variable scope stack.
     struct VarBinding {
         std::string name;
         void* value;
+        uint8_t* base;  // arena base of value
     };
     std::vector<VarBinding> var_stack_;
 
-    void push_var(const std::string& name, void* val) {
-        var_stack_.push_back({name, val});
+    void push_var(const std::string& name, void* val, uint8_t* val_base = nullptr) {
+        var_stack_.push_back({name, val, val_base});
     }
 
     void pop_vars_to(size_t mark) {
@@ -394,31 +397,32 @@ private:
     // Evaluate a HermesPath expression against current context.
     // Build a fresh context doc with data + template variables.
     HermesCtr build_context() {
-        auto ctx_doc = HermesCtr::create();
-        auto* ctx = ctx_doc.make_object_map();
+        auto ctx_doc = make_doc_multi();
+        auto* ctx = ctx_doc.raw_object_map();
         ctx_doc.set_root(ctx);
 
         // Copy data fields.
-        void* data_root = const_cast<void*>(static_cast<const void*>(data_.header()->root.get()));
+        void* data_root = data_.root<void>();
         if (data_root) {
             auto* db = static_cast<const uint8_t*>(data_root);
             TypeTag tag = TypeTag::read_before(db);
             if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::ObjectMap) {
                 auto* data_map = static_cast<ObjectMap*>(data_root);
+                uint8_t* data_base = const_cast<uint8_t*>(data_.base());
                 data_map->for_each([&](ArenaString* key, TaggedPtr* val) {
                     if (val->is_value()) {
                         ctx->put(key->view(), *val, ctx_doc.arena());
                     } else if (val->is_pointer()) {
-                        put_into_ctx(ctx, ctx_doc, key->view(), val->as_ptr<void>());
+                        put_into_ctx(ctx, ctx_doc, key->view(), val->as_ptr<void>(data_base), data_base);
                     }
-                });
+                }, data_base);
             }
         }
 
         // Overlay template variables.
         for (auto& binding : var_stack_) {
             if (!binding.value) continue;
-            put_into_ctx(ctx, ctx_doc, binding.name, binding.value);
+            put_into_ctx(ctx, ctx_doc, binding.name, binding.value, binding.base);
         }
 
         return ctx_doc;
@@ -466,7 +470,8 @@ private:
     // Copy data root fields into a context ObjectMap.
     // Put an arena object into context map, copying if needed to avoid cross-arena pointers.
     // NOTE: ctx may be invalidated after this call (arena growth). Re-derive via offset.
-    void put_into_ctx(ObjectMap* ctx, HermesCtr& ctx_doc, std::string_view key, void* val) {
+    void put_into_ctx(ObjectMap* ctx, HermesCtr& ctx_doc, std::string_view key, void* val,
+                     uint8_t* val_base = nullptr) {
         if (!val) { ctx->put(key, TaggedPtr{}, ctx_doc.arena()); return; }
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
@@ -494,15 +499,18 @@ private:
             case type_hash::Varchar: {
                 auto* s = static_cast<const ArenaString*>(val);
                 auto* copy = ArenaString::create(ctx_doc.arena(), s->view());
+                uint8_t* cb = ctx_doc.base();
                 ctx->put(key, TaggedPtr{}, ctx_doc.arena());
-                ctx->get_slot(key)->set_pointer(copy);
+                ctx->get_slot(key, cb)->set_pointer(copy, cb);
                 return;
             }
             default: {
-                // Complex types (arrays, maps): store pointer directly.
-                // This works only if the object lives long enough.
+                // Complex types (arrays, maps): deep-copy into ctx_doc so offsets are consistent.
+                uint8_t* vb = val_base ? val_base : const_cast<uint8_t*>(data_.base());
+                void* copy = copy_object_into(val, vb, ctx_doc);
+                uint8_t* cb = ctx_doc.base();
                 ctx->put(key, TaggedPtr{}, ctx_doc.arena());
-                ctx->get_slot(key)->set_pointer(val);
+                ctx->get_slot(key, cb)->set_pointer(copy, cb);
                 return;
             }
         }
@@ -551,10 +559,10 @@ private:
     void visit_stmts(const ObjectArray* stmts) {
         auto* stmts_mut = const_cast<ObjectArray*>(stmts);
         for (uint64_t i = 0; i < stmts->size(); ++i) {
-            TaggedPtr* slot = stmts_mut->slot(i);
+            TaggedPtr* slot = stmts_mut->slot(i, base_);
             if (slot->is_null()) continue;
             if (!slot->is_pointer()) continue;
-            void* elem = slot->as_ptr<void>();
+            void* elem = slot->as_ptr<void>(base_);
             auto* eb = static_cast<const uint8_t*>(elem);
             TypeTag tag = TypeTag::read_before(eb);
 
@@ -564,7 +572,7 @@ private:
             } else if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::Hermes) {
                 // Statement node (TinyObjectMap).
                 auto* node = static_cast<TinyObjectMap*>(elem);
-                int32_t code = node->get(tpl_ast::CODE).as_value<int32_t>();
+                int32_t code = node->get(tpl_ast::CODE, base_).as_value<int32_t>();
                 switch (code) {
                     case tpl_ast::VAR_STMT:  visit_var(node); break;
                     case tpl_ast::FOR_STMT:  visit_for(node); break;
@@ -577,14 +585,14 @@ private:
     }
 
     void visit_var(TinyObjectMap* node) {
-        auto* expr_str = node->slot(tpl_ast::EXPRESSION)->as_ptr<ArenaString>();
+        auto* expr_str = node->slot(tpl_ast::EXPRESSION, base_)->as_ptr<ArenaString>(base_);
         out_ += eval_to_string(expr_str->view());
     }
 
     void visit_for(TinyObjectMap* node) {
-        auto* var_str = node->slot(tpl_ast::VARIABLE)->as_ptr<ArenaString>();
-        auto* expr_str = node->slot(tpl_ast::EXPRESSION)->as_ptr<ArenaString>();
-        auto* body = node->slot(tpl_ast::STATEMENTS)->as_ptr<ObjectArray>();
+        auto* var_str = node->slot(tpl_ast::VARIABLE, base_)->as_ptr<ArenaString>(base_);
+        auto* expr_str = node->slot(tpl_ast::EXPRESSION, base_)->as_ptr<ArenaString>(base_);
+        auto* body = node->slot(tpl_ast::STATEMENTS, base_)->as_ptr<ObjectArray>(base_);
 
         std::string var_name(var_str->view());
 
@@ -596,19 +604,22 @@ private:
         auto* arr = iter_result.root<ObjectArray>();
         if (!arr) return;
 
+        uint8_t* iter_base = iter_result.base();
         size_t stack_mark = var_stack_.size();
         for (uint64_t i = 0; i < arr->size(); ++i) {
-            TaggedPtr* slot = const_cast<ObjectArray*>(arr)->slot(i);
+            TaggedPtr* slot = const_cast<ObjectArray*>(arr)->slot(i, iter_base);
             void* elem = nullptr;
+            uint8_t* elem_base = iter_base;
             if (slot->is_pointer()) {
-                elem = slot->as_ptr<void>();
+                elem = slot->as_ptr<void>(iter_base);
             } else if (slot->is_value()) {
-                // Materialize embedded value into a temporary arena object.
+                // Materialize embedded value into scratch arena.
                 elem = materialize_embedded(slot);
+                elem_base = scratch_.base();
             }
 
             pop_vars_to(stack_mark);
-            push_var(var_name, elem);
+            push_var(var_name, elem, elem_base);
             visit_stmts(body);
         }
         pop_vars_to(stack_mark);
@@ -620,18 +631,18 @@ private:
     }
 
     void visit_if(TinyObjectMap* node) {
-        auto* expr_str = node->slot(tpl_ast::EXPRESSION)->as_ptr<ArenaString>();
+        auto* expr_str = node->slot(tpl_ast::EXPRESSION, base_)->as_ptr<ArenaString>(base_);
 
         // Evaluate condition.
         void* cond = eval_expr(expr_str->view());
         if (is_truthy(cond)) {
-            auto* body = node->slot(tpl_ast::STATEMENTS)->as_ptr<ObjectArray>();
+            auto* body = node->slot(tpl_ast::STATEMENTS, base_)->as_ptr<ObjectArray>(base_);
             visit_stmts(body);
         } else if (node->has_key(tpl_ast::ELSE_BRANCH)) {
-            auto* else_node = node->slot(tpl_ast::ELSE_BRANCH)->as_ptr<TinyObjectMap>();
-            int32_t code = else_node->get(tpl_ast::CODE).as_value<int32_t>();
+            auto* else_node = node->slot(tpl_ast::ELSE_BRANCH, base_)->as_ptr<TinyObjectMap>(base_);
+            int32_t code = else_node->get(tpl_ast::CODE, base_).as_value<int32_t>();
             if (code == tpl_ast::ELSE_STMT) {
-                auto* body = else_node->slot(tpl_ast::STATEMENTS)->as_ptr<ObjectArray>();
+                auto* body = else_node->slot(tpl_ast::STATEMENTS, base_)->as_ptr<ObjectArray>(base_);
                 visit_stmts(body);
             } else if (code == tpl_ast::IF_STMT) {
                 // elif chain — recursive.
@@ -641,8 +652,8 @@ private:
     }
 
     void visit_set(TinyObjectMap* node) {
-        auto* var_str = node->slot(tpl_ast::VARIABLE)->as_ptr<ArenaString>();
-        auto* expr_str = node->slot(tpl_ast::EXPRESSION)->as_ptr<ArenaString>();
+        auto* var_str = node->slot(tpl_ast::VARIABLE, base_)->as_ptr<ArenaString>(base_);
+        auto* expr_str = node->slot(tpl_ast::EXPRESSION, base_)->as_ptr<ArenaString>(base_);
         void* val = eval_expr(expr_str->view());
         push_var(std::string(var_str->view()), val);
     }
@@ -653,7 +664,7 @@ private:
 // ============================================================================
 
 HermesCtr parse_template(std::string_view tpl) {
-    auto doc = HermesCtr::create();
+    auto doc = make_doc();
     TemplateParser parser(tpl, doc);
     void* root = parser.parse();
     doc.set_root_offset(doc.offset_of(root));
@@ -664,7 +675,7 @@ std::string render_template(const HermesCtr& tpl, const HermesCtr& data) {
     auto* stmts = tpl.root<ObjectArray>();
     if (!stmts) return "";
     TemplateRenderer renderer(data);
-    return renderer.render(stmts);
+    return renderer.render(stmts, const_cast<uint8_t*>(tpl.base()));
 }
 
 std::string render(std::string_view tpl_text, const HermesCtr& data) {

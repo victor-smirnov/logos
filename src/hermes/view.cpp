@@ -13,7 +13,9 @@ static DocumentHeader* get_header(MemHolder* holder) {
 // --- HermesCtrView ---
 
 bool HermesCtrView::has_root() const {
-    return holder_ && get_header(holder_)->has_root();
+    if (!holder_) return false;
+    if (root_override_ != NULL_OFFSET) return true;
+    return get_header(holder_)->has_root();
 }
 
 void HermesCtrView::set_root(void* object) {
@@ -26,7 +28,9 @@ void HermesCtrView::set_root_offset(arena_offset_t offset) {
 
 template <typename T>
 T* HermesCtrView::root() const {
-    auto off = get_header(holder_)->root_offset;
+    arena_offset_t off = (root_override_ != NULL_OFFSET)
+        ? root_override_
+        : get_header(holder_)->root_offset;
     if (off == NULL_OFFSET) return nullptr;
     return reinterpret_cast<T*>(base() + off);
 }
@@ -79,14 +83,19 @@ String HermesCtrView::make_string(std::string_view str) {
 
 // --- make_doc ---
 
-HermesCtr make_doc(size_t capacity) {
-    auto* holder = new MemHolder(capacity);
-
+static HermesCtr make_doc_impl(MemHolder* holder) {
     auto* hdr = static_cast<DocumentHeader*>(
         holder->arena().allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)));
     hdr->root_offset = NULL_OFFSET;
-
     return HermesCtr(HermesCtrView(holder));
+}
+
+HermesCtr make_doc(size_t capacity) {
+    return make_doc_impl(new MemHolder(capacity, ArenaMode::GrowableSingleChunk));
+}
+
+HermesCtr make_doc_multi(size_t initial_capacity) {
+    return make_doc_impl(new MemHolder(initial_capacity, ArenaMode::MultiChunk));
 }
 
 } // namespace logos::hermes
