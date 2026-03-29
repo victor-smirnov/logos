@@ -17,11 +17,12 @@ namespace logos::hermes {
 
 class Stringifier {
 public:
-    Stringifier(bool pretty) : pretty_(pretty), indent_(0) {}
+    Stringifier(bool pretty) : base_(nullptr), pretty_(pretty), indent_(0) {}
 
     void stringify_root(const HermesCtr& doc) {
+        base_ = const_cast<uint8_t*>(doc.base());
         if (!doc.has_root()) { out_ += "null"; return; }
-        auto* root = static_cast<const uint8_t*>(doc.header()->root.get());
+        auto* root = static_cast<const uint8_t*>(doc.header()->root.get(base_));
         stringify_tagged(root);
     }
 
@@ -29,6 +30,7 @@ public:
 
 private:
     std::string out_;
+    uint8_t* base_;
     bool pretty_;
     int indent_;
 
@@ -87,7 +89,7 @@ private:
         } else if (slot->is_value()) {
             stringify_embedded(slot);
         } else {
-            auto* target = slot->as_ptr<uint8_t>();
+            auto* target = slot->as_ptr<uint8_t>(base_);
             stringify_tagged(target);
         }
     }
@@ -151,24 +153,24 @@ private:
     // --- Compound types ---
 
     void stringify_datatype(const DatatypeData* dt) {
-        out_ += dt->name_view();
+        out_ += dt->name_view(base_);
         if (dt->has_params()) {
             out_ += '<';
-            auto* params = dt->params.get();
+            auto* params = dt->params.get(base_);
             auto* params_mut = const_cast<ObjectArray*>(params);
             for (uint64_t i = 0; i < params->size(); ++i) {
                 if (i > 0) out_ += ", ";
-                stringify_tagged_ptr(params_mut->slot(i));
+                stringify_tagged_ptr(params_mut->slot(i, base_));
             }
             out_ += '>';
         }
         if (dt->has_ctr()) {
             out_ += '(';
-            auto* ctr = dt->ctr.get();
+            auto* ctr = dt->ctr.get(base_);
             auto* ctr_mut = const_cast<ObjectArray*>(ctr);
             for (uint64_t i = 0; i < ctr->size(); ++i) {
                 if (i > 0) out_ += ", ";
-                stringify_tagged_ptr(ctr_mut->slot(i));
+                stringify_tagged_ptr(ctr_mut->slot(i, base_));
             }
             out_ += ')';
         }
@@ -184,7 +186,7 @@ private:
 
     void stringify_typed_value(const TypedValueData* tv) {
         out_ += '@';
-        stringify_datatype(tv->datatype.get());
+        stringify_datatype(tv->datatype.get(base_));
         out_ += " = ";
         // The value TaggedPtr lives at &tv->value — pass its actual address
         // so pointer-mode offsets resolve correctly.
@@ -193,7 +195,7 @@ private:
 
     void stringify_parameter(const ParameterData* p) {
         out_ += '?';
-        out_ += p->name_view();
+        out_ += p->name_view(base_);
     }
 
     void stringify_string(std::string_view sv) {
@@ -234,7 +236,7 @@ private:
         for (uint64_t i = 0; i < arr->size(); ++i) {
             if (i > 0) out_ += pretty_ ? ", " : ",";
             if (pretty_ && arr->size() > 4) { indent_++; newline_indent(); indent_--; }
-            stringify_tagged_ptr(arr_mut->slot(i));
+            stringify_tagged_ptr(arr_mut->slot(i, base_));
         }
         out_ += ']';
     }
@@ -256,7 +258,7 @@ private:
             out_ += std::to_string(key);
             out_ += "\"";
             out_ += pretty_ ? ": " : ":";
-            stringify_tagged_ptr(map->slot(key));
+            stringify_tagged_ptr(map->slot(key, base_));
         }
         if (pretty_) { indent_--; newline_indent(); }
         out_ += '}';
@@ -274,7 +276,7 @@ private:
             stringify_string(key->view());
             out_ += pretty_ ? ": " : ":";
             stringify_tagged_ptr(val);
-        });
+        }, base_);
         if (pretty_) { indent_--; newline_indent(); }
         out_ += '}';
     }

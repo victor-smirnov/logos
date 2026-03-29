@@ -14,21 +14,12 @@
 
 namespace logos::hermes {
 
-// ============================================================================
-// Datatype: a type declaration (name + optional params + optional constructor args)
-//
-// Arena layout (32 bytes + tag):
-//   name:   RelativePtr<ArenaString>     — type name (e.g. "Array", "Decimal")
-//   params: RelativePtr<ObjectArray>     — type parameters (e.g. <Integer, String>), nullable
-//   ctr:    RelativePtr<ObjectArray>     — constructor args (e.g. (10, 2)), nullable
-//   extras: uint32_t                     — C++ qualifiers bitmask (const, volatile, ptr, ref)
-// ============================================================================
-
+// Datatype: type declaration (name + optional params + optional constructor args).
 struct DatatypeData {
     RelativePtr<ArenaString>  name;
     RelativePtr<ObjectArray>  params;
     RelativePtr<ObjectArray>  ctr;
-    uint32_t extras = 0; // Bits: [0]=const, [1]=volatile, [2..9]=ptr_count, [10..11]=ref_count
+    uint32_t extras = 0;
 
     static DatatypeData* create(Arena& arena, ArenaString* type_name,
                                 ObjectArray* type_params = nullptr,
@@ -37,22 +28,18 @@ struct DatatypeData {
         TypeTag tag(type_hash::Datatype, TagDescriptor::Data);
         auto* mem = static_cast<DatatypeData*>(
             arena.allocate(sizeof(DatatypeData), alignof(DatatypeData), tag));
+        uint8_t* base = arena.head().data();
         mem->extras = 0;
-        mem->name.set(type_name);
-        if (type_params) mem->params.set(type_params);
-        if (ctr_args) mem->ctr.set(ctr_args);
+        mem->name.set(type_name, base);
+        if (type_params) mem->params.set(type_params, base);
+        if (ctr_args) mem->ctr.set(ctr_args, base);
         return mem;
     }
 
-    std::string_view name_view() const { return name.get()->view(); }
+    std::string_view name_view(uint8_t* base) const { return name.get(base)->view(); }
     bool has_params() const { return !params.is_null(); }
     bool has_ctr() const { return !ctr.is_null(); }
 
-    // Qualifier accessors. Layout of extras:
-    //   bit 0     = const
-    //   bit 1     = volatile
-    //   bits 2..9 = pointer indirection count (0-255)
-    //   bits 10..11 = reference count (0 = none, 1 = &, 2 = &&)
     bool is_const() const    { return extras & 1; }
     bool is_volatile() const { return extras & 2; }
     uint8_t ptr_count() const  { return (extras >> 2) & 0xFF; }
@@ -64,39 +51,30 @@ struct DatatypeData {
     void set_refs(uint8_t n) { extras = (extras & ~(0x3u << 10)) | (uint32_t(n & 3) << 10); }
 };
 
-static_assert(sizeof(DatatypeData) == 32);
+// 3 x RelativePtr(4) + extras(4) = 16, but with alignment padding...
+// Actually: name(4) + params(4) + ctr(4) + extras(4) = 16
+static_assert(sizeof(DatatypeData) == 16);
 
-// ============================================================================
-// TypedValue: a value paired with its type declaration
-//
-// Arena layout (16 bytes + tag):
-//   datatype: RelativePtr<DatatypeData>
-//   value:    TaggedPtr (embedded or pointer to arena object)
-// ============================================================================
-
+// TypedValue: a value paired with its type declaration.
 struct TypedValueData {
     RelativePtr<DatatypeData> datatype;
-    TaggedPtr value;
+    TaggedPtr value;  // 8 bytes (embedded or segment-relative pointer)
 
     static TypedValueData* create(Arena& arena, DatatypeData* dt) {
         TypeTag tag(type_hash::TypedValue, TagDescriptor::Data);
         auto* mem = static_cast<TypedValueData*>(
             arena.allocate(sizeof(TypedValueData), alignof(TypedValueData), tag));
-        mem->datatype.set(dt);
+        uint8_t* base = arena.head().data();
+        mem->datatype.set(dt, base);
         mem->value = TaggedPtr{};
         return mem;
     }
 };
 
+// datatype(4) + padding(4) + value(8) = 16
 static_assert(sizeof(TypedValueData) == 16);
 
-// ============================================================================
-// ParameterData: a query parameter placeholder (?name)
-//
-// Arena layout (8 bytes + tag):
-//   name: RelativePtr<ArenaString>
-// ============================================================================
-
+// ParameterData: a query parameter placeholder (?name).
 struct ParameterData {
     RelativePtr<ArenaString> name;
 
@@ -104,13 +82,14 @@ struct ParameterData {
         TypeTag tag(type_hash::Parameter, TagDescriptor::Data);
         auto* mem = static_cast<ParameterData*>(
             arena.allocate(sizeof(ParameterData), alignof(ParameterData), tag));
-        mem->name.set(param_name);
+        uint8_t* base = arena.head().data();
+        mem->name.set(param_name, base);
         return mem;
     }
 
-    std::string_view name_view() const { return name.get()->view(); }
+    std::string_view name_view(uint8_t* base) const { return name.get(base)->view(); }
 };
 
-static_assert(sizeof(ParameterData) == 8);
+static_assert(sizeof(ParameterData) == sizeof(arena_offset_t));
 
 } // namespace logos::hermes

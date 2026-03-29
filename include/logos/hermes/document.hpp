@@ -22,79 +22,68 @@
 
 namespace logos::hermes {
 
-// DocumentHeader: untagged structure at offset 0 of the first arena chunk.
-// Contains a single relative pointer to the root object.
+// DocumentHeader: untagged structure at offset 0 of the arena.
 struct DocumentHeader {
     RelativePtr<void> root;
 };
 
-static_assert(sizeof(DocumentHeader) == 8);
+static_assert(sizeof(DocumentHeader) == sizeof(arena_offset_t));
 
-// HermesCtr: a Hermes document container. Owns an arena and provides
-// the high-level API for creating and manipulating Hermes documents.
-//
-// Usage:
-//   auto doc = HermesCtr::create();
-//   auto* map = doc.make_tiny_map();
-//   doc.set_root(map);
-//   map->put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer), doc.arena());
-//
-//   auto compact = doc.compactify();
-//   auto bytes = compact.as_bytes();  // zero-copy serialization
+// HermesCtr: a Hermes document container. Owns an arena.
+// All internal pointers are segment-relative offsets from arena base.
 class HermesCtr {
 public:
-    // Create a new empty document.
     static HermesCtr create(ArenaMode mode = ArenaMode::MultiChunk, size_t capacity = 65536) {
+        (void)mode; // ArenaMode kept for API compat, ignored.
         HermesCtr doc;
-        doc.arena_ = std::make_unique<Arena>(mode, capacity);
-        // Allocate the document header at offset 0.
+        doc.arena_ = std::make_unique<Arena>(ArenaMode::GrowableSingleChunk, capacity);
         auto* hdr = static_cast<DocumentHeader*>(
             doc.arena_->allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)));
-        hdr->root = RelativePtr<void>{};  // null root
+        hdr->root = RelativePtr<void>{};
         return doc;
     }
+
+    // --- Segment base ---
+
+    uint8_t* base() { return arena_->head().data(); }
+    const uint8_t* base() const { return arena_->head().data(); }
 
     // --- Root access ---
 
     DocumentHeader* header() {
-        return reinterpret_cast<DocumentHeader*>(arena_->head().data());
+        return reinterpret_cast<DocumentHeader*>(base());
     }
-
     const DocumentHeader* header() const {
-        return reinterpret_cast<const DocumentHeader*>(arena_->head().data());
+        return reinterpret_cast<const DocumentHeader*>(base());
     }
 
     bool has_root() const { return !header()->root.is_null(); }
 
-    // Set the root object by offset from arena start.
-    // Use root_offset() to get the offset when the object is allocated.
-    void set_root_offset(size_t offset) {
-        auto* base = arena_->head().data();
-        header()->root.set(base + offset);
+    void set_root(void* object) {
+        header()->root.set(object, base());
     }
 
-    // Set the root object. Object must be in the current arena chunk.
-    // WARNING: if the arena grew since object was allocated, the pointer is stale.
-    // Prefer set_root_offset() for safety.
-    void set_root(void* object) { header()->root.set(object); }
+    void set_root_offset(arena_offset_t offset) {
+        header()->root.set_offset(offset);
+    }
 
-    // Compute offset of an arena object from the arena start.
-    size_t offset_of(const void* object) const {
-        return static_cast<const uint8_t*>(object) - arena_->head().data();
+    arena_offset_t offset_of(const void* object) const {
+        return static_cast<arena_offset_t>(
+            static_cast<const uint8_t*>(object) - base());
     }
 
     template <typename T>
-    T* root() { return static_cast<T*>(header()->root.get()); }
+    T* root() { return static_cast<T*>(header()->root.get(base())); }
 
     template <typename T>
-    const T* root() const { return static_cast<const T*>(header()->root.get()); }
+    const T* root() const { return static_cast<const T*>(header()->root.get(base())); }
 
     // --- Arena access ---
 
     Arena& arena() { return *arena_; }
     const Arena& arena() const { return *arena_; }
 
-    // --- Factory helpers (allocate objects in this document's arena) ---
+    // --- Factory helpers ---
 
     TinyObjectMap* make_tiny_map(uint8_t capacity = 4) {
         return TinyObjectMap::create(*arena_, capacity);
@@ -120,15 +109,10 @@ public:
 
     // --- Compactification ---
 
-    // Create a new document with a single contiguous chunk containing a deep copy
-    // of all reachable objects from the root. The result is suitable for zero-copy
-    // serialization.
     HermesCtr compactify() const;
 
     // --- Zero-copy serialization ---
 
-    // Get the raw bytes of a compacted (single-chunk) document.
-    // Only valid if the document is GrowableSingleChunk mode.
     struct ByteSpan {
         const uint8_t* data;
         size_t size;
@@ -138,10 +122,7 @@ public:
         return {arena_->head().data(), arena_->head().used};
     }
 
-    // Load a document from raw bytes (zero-copy — takes ownership of the buffer).
     static HermesCtr from_bytes(std::unique_ptr<uint8_t[]> data, size_t size);
-
-    // Load a document from raw bytes (copies the data).
     static HermesCtr from_bytes_copy(const uint8_t* data, size_t size);
 
 private:

@@ -271,7 +271,7 @@ private:
             DatatypeData* dt = parse_type_declaration();
             auto* arena_str = doc_.make_string(str);
             auto* tv = TypedValueData::create(doc_.arena(), dt);
-            tv->value.set_pointer(arena_str);
+            tv->value.set_pointer(arena_str, doc_.base());
             return tv;
         }
 
@@ -803,7 +803,7 @@ private:
         if (can_embed(tag.type_code())) {
             tv->value = make_embedded(val, tag.type_code());
         } else {
-            tv->value.set_pointer(val);
+            tv->value.set_pointer(val, doc_.base());
         }
         return tv;
     }
@@ -843,7 +843,7 @@ private:
         auto* kind_name = doc_.make_string(container_kind);
         auto* dt = DatatypeData::create(doc_.arena(), kind_name, type_params);
         auto* tv = TypedValueData::create(doc_.arena(), dt);
-        tv->value.set_pointer(container);
+        tv->value.set_pointer(container, doc_.base());
         return tv;
     }
 
@@ -866,7 +866,7 @@ private:
             arr->push_back(make_embedded(elem, tc), doc_.arena());
         } else {
             arr->push_back(TaggedPtr{}, doc_.arena());
-            arr->slot(arr->size() - 1)->set_pointer(elem);
+            arr->slot(arr->size() - 1, doc_.base())->set_pointer(elem, doc_.base());
         }
     }
 
@@ -878,7 +878,7 @@ private:
             map->put(key, make_embedded(elem, tc), doc_.arena());
         } else {
             map->put(key, TaggedPtr{}, doc_.arena());
-            map->get_slot(key)->set_pointer(elem);
+            map->get_slot(key, doc_.base())->set_pointer(elem, doc_.base());
         }
     }
 

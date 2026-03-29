@@ -7,21 +7,29 @@
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
+#include <logos/hermes/config.hpp>
 
 namespace logos::hermes {
 
-// TaggedPtr: an 8-byte polymorphic slot that holds either a relative pointer
-// to an arena object, or a small value embedded inline (up to 7 bytes).
+// TaggedPtr: an 8-byte polymorphic slot that holds either a segment-relative
+// offset to an arena object, or a small value embedded inline (up to 7 bytes).
 //
-// Discriminant: bit 0 of the last byte (byte[7]).
-//   0 = pointer mode (56-bit signed relative offset, bit-rotated)
-//   1 = value mode   (7 bytes of data + 1-byte tag)
+// Layout (little-endian uint64_t):
 //
-// In pointer mode, the offset is always even (arena alignment >= 2),
-// so after bit rotation the discriminant bit is naturally 0.
+// Pointer mode (discriminant bit = 0):
+//   bits [0:31]  = arena_offset_t offset (segment-relative)
+//   bits [32:62] = reserved (zero)
+//   bit  63      = 0 (discriminant)
+//   Null: all bits zero (offset 0 is DocumentHeader, but TaggedPtr never points there).
+//   Actually null is bits_ == 0 which means offset=0; we use NULL_OFFSET for real null.
 //
-// In value mode, byte[7] = (type_hash << 1) | 1, and bytes[0..6] hold the value
-// (zero-padded for types smaller than 7 bytes).
+// Value mode (discriminant bit = 1):
+//   bytes [0..6] = value data (up to 7 bytes, zero-padded)
+//   byte  [7]    = (type_hash << 1) | 1
+//
+// With segment-relative offsets, TaggedPtr can be freely copied between
+// memory locations without relocation — the offset is from the segment
+// base, not from the TaggedPtr's own address.
 class TaggedPtr {
 public:
     TaggedPtr() : bits_(0) {}
@@ -32,47 +40,46 @@ public:
     bool is_pointer() const { return !is_null() && (last_byte() & 1) == 0; }
     bool is_value() const { return (last_byte() & 1) == 1; }
 
-    // --- Pointer mode ---
+    // --- Pointer mode (segment-relative offset) ---
 
-    // Create a TaggedPtr in pointer mode from a byte offset.
-    // The offset must be even (arena alignment guarantee).
-    static TaggedPtr from_offset(int64_t offset) {
+    // Create a TaggedPtr in pointer mode from a segment-relative offset.
+    static TaggedPtr from_offset(arena_offset_t offset) {
         TaggedPtr p;
-        auto u = static_cast<uint64_t>(offset);
-        // Rotate: move low byte to high position, shift rest down.
-        // This places the always-zero low bit of offset into bit 0 of byte[7].
-        p.bits_ = (u >> 8) | (u << 56);
+        p.bits_ = static_cast<uint64_t>(offset);
         return p;
     }
 
-    // Recover the signed byte offset (pointer mode only).
-    int64_t to_offset() const {
-        // Reverse rotation: move high byte back to low position.
-        uint64_t top_byte = bits_ >> 56;
-        uint64_t raw = (bits_ << 8) | top_byte;
-        return static_cast<int64_t>(raw);
+    // Recover the segment-relative offset.
+    arena_offset_t to_offset() const {
+        return static_cast<arena_offset_t>(bits_);
     }
 
-    // Dereference: returns pointer to target object relative to this TaggedPtr's address.
+    // Dereference: requires segment base address.
     template <typename T>
-    T* as_ptr() const {
-        auto base = reinterpret_cast<const uint8_t*>(this);
-        return reinterpret_cast<T*>(const_cast<uint8_t*>(base + to_offset()));
+    T* as_ptr(uint8_t* base) const {
+        return reinterpret_cast<T*>(base + to_offset());
     }
 
-    // Set this TaggedPtr to point at target (pointer mode).
-    void set_pointer(const void* target) {
-        auto base = reinterpret_cast<const uint8_t*>(this);
-        auto dest = reinterpret_cast<const uint8_t*>(target);
-        int64_t offset = dest - base;
+    template <typename T>
+    const T* as_ptr(const uint8_t* base) const {
+        return reinterpret_cast<const T*>(base + to_offset());
+    }
+
+    // Set this TaggedPtr to point at target (pointer mode), given segment base.
+    void set_pointer(const void* target, const uint8_t* base) {
+        auto offset = static_cast<arena_offset_t>(
+            static_cast<const uint8_t*>(target) - base);
+        *this = from_offset(offset);
+    }
+
+    // Set from a known offset.
+    void set_offset(arena_offset_t offset) {
         *this = from_offset(offset);
     }
 
     // --- Value mode ---
 
     // Embed a small value with a type hash tag.
-    // T must be a trivially copyable type with sizeof(T) <= 7.
-    // type_hash must fit in 7 bits (< 128).
     template <typename T>
     static TaggedPtr from_value(T value, uint8_t type_hash) {
         static_assert(std::is_trivially_copyable_v<T>);
@@ -81,13 +88,12 @@ public:
         TaggedPtr p;
         p.bits_ = 0;
         std::memcpy(&p.bits_, &value, sizeof(T));
-        // Set tag in the last byte: (type_hash << 1) | 1
         auto* bytes = reinterpret_cast<uint8_t*>(&p.bits_);
         bytes[7] = static_cast<uint8_t>((type_hash << 1) | 1);
         return p;
     }
 
-    // Extract the embedded value (value mode only).
+    // Extract the embedded value.
     template <typename T>
     T as_value() const {
         static_assert(std::is_trivially_copyable_v<T>);
@@ -98,24 +104,9 @@ public:
         return result;
     }
 
-    // Extract the 7-bit type hash from the tag byte (value mode only).
+    // Extract the 7-bit type hash from the tag byte.
     uint8_t value_type_hash() const {
         return last_byte() >> 1;
-    }
-
-    // --- Relocation ---
-
-    // After moving a TaggedPtr to a different memory address (e.g. during array grow),
-    // pointer-mode offsets must be adjusted. Call this on the NEW location, passing
-    // the OLD location, to fix up the relative offset.
-    void relocate_from(const TaggedPtr* old_location) {
-        if (!is_pointer()) return;  // Values are self-contained, no fix needed.
-        // Compute absolute target from old offset, then recompute relative to new location.
-        auto old_base = reinterpret_cast<const uint8_t*>(old_location);
-        auto new_base = reinterpret_cast<const uint8_t*>(this);
-        int64_t old_offset = to_offset();
-        int64_t new_offset = old_offset + (old_base - new_base);
-        *this = from_offset(new_offset);
     }
 
     // --- Raw access ---
@@ -133,6 +124,5 @@ private:
 };
 
 static_assert(sizeof(TaggedPtr) == 8);
-static_assert(alignof(TaggedPtr) == 8);
 
 } // namespace logos::hermes

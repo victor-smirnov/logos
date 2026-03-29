@@ -7,52 +7,61 @@
 #include <cstdint>
 #include <cstddef>
 #include <type_traits>
+#include <logos/hermes/config.hpp>
 
 namespace logos::hermes {
 
-// Relative pointer: stores a signed byte offset from its own address to the target.
-// Null is represented by offset == 0 (pointing at itself is not a valid use case).
-// All Hermes arena pointers are relative, making memory segments fully relocatable.
+// RelativePtr<T>: segment-relative pointer.
+//
+// Stores an offset from the segment base (not from its own address).
+// All dereferences require the segment base pointer to be passed explicitly.
+// This makes the pointer stable across realloc (offset doesn't change when
+// the segment moves) and eliminates cross-chunk pointer issues.
+//
+// Null is represented by NULL_OFFSET.
 template <typename T>
 class RelativePtr {
 public:
-    RelativePtr() : offset_(0) {}
+    RelativePtr() : offset_(NULL_OFFSET) {}
+    explicit RelativePtr(arena_offset_t offset) : offset_(offset) {}
 
-    bool is_null() const { return offset_ == 0; }
+    bool is_null() const { return offset_ == NULL_OFFSET; }
 
-    T* get() const {
-        if (offset_ == 0) return nullptr;
-        auto base = reinterpret_cast<const uint8_t*>(this);
-        return reinterpret_cast<T*>(const_cast<uint8_t*>(base + offset_));
+    // Dereference: requires segment base address.
+    T* get(uint8_t* base) const {
+        if (offset_ == NULL_OFFSET) return nullptr;
+        return reinterpret_cast<T*>(base + offset_);
     }
 
-    // operator* and operator-> are only available for non-void types.
-    // We use a separate enable_if approach that GCC handles correctly.
-    template <typename U = T, std::enable_if_t<!std::is_void_v<U>, int> = 0>
-    U& operator*() const { return *get(); }
-
-    template <typename U = T, std::enable_if_t<!std::is_void_v<U>, int> = 0>
-    U* operator->() const { return get(); }
-
-    explicit operator bool() const { return !is_null(); }
-
-    // Set this pointer to point at target.
-    void set(T* target) {
-        auto base = reinterpret_cast<const uint8_t*>(this);
-        auto dest = reinterpret_cast<const uint8_t*>(target);
-        offset_ = dest - base;
+    const T* get(const uint8_t* base) const {
+        if (offset_ == NULL_OFFSET) return nullptr;
+        return reinterpret_cast<const T*>(base + offset_);
     }
 
-    void clear() { offset_ = 0; }
+    template <typename U = T, std::enable_if_t<!std::is_void_v<U>, int> = 0>
+    U& deref(uint8_t* base) const { return *get(base); }
 
-    int64_t raw_offset() const { return offset_; }
+    template <typename U = T, std::enable_if_t<!std::is_void_v<U>, int> = 0>
+    const U& deref(const uint8_t* base) const { return *get(base); }
+
+    // Set from a raw pointer + base.
+    void set(const void* target, const uint8_t* base) {
+        if (!target) { offset_ = NULL_OFFSET; return; }
+        offset_ = static_cast<arena_offset_t>(
+            static_cast<const uint8_t*>(target) - base);
+    }
+
+    // Set directly from an offset.
+    void set_offset(arena_offset_t off) { offset_ = off; }
+
+    void clear() { offset_ = NULL_OFFSET; }
+
+    arena_offset_t offset() const { return offset_; }
 
 private:
-    int64_t offset_;
+    arena_offset_t offset_;
 };
 
-static_assert(sizeof(RelativePtr<int>) == 8);
-static_assert(alignof(RelativePtr<int>) == 8);
-static_assert(sizeof(RelativePtr<void>) == 8);
+static_assert(sizeof(RelativePtr<int>) == sizeof(arena_offset_t));
 
 } // namespace logos::hermes
