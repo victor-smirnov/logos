@@ -20,6 +20,12 @@
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/object_map.hpp>
 
+// Forward declaration for View layer.
+class TinyMapView;
+class ArrayView;
+class MapView;
+class StringView;
+
 namespace logos::hermes {
 
 // DocumentHeader: untagged structure at offset 0 of the arena.
@@ -31,14 +37,33 @@ static_assert(sizeof(DocumentHeader) == sizeof(arena_offset_t));
 
 // HermesCtr: a Hermes document container. Owns an arena.
 // All internal pointers are segment-relative offsets from arena base.
-class HermesCtr {
+//
+// For external (client) use, create via make_shared_ctr() and use View
+// methods which return safe handles (View = offset + shared_ptr<HermesCtr>).
+//
+// For internal (parser/codec) use, create via create() and use raw-pointer
+// methods directly.
+class HermesCtr : public std::enable_shared_from_this<HermesCtr> {
 public:
+    // --- Constructors ---
+
+    // Internal: create a value-type document (no shared ownership).
     static HermesCtr create(ArenaMode mode = ArenaMode::MultiChunk, size_t capacity = 65536) {
-        (void)mode; // ArenaMode kept for API compat, ignored.
+        (void)mode;
         HermesCtr doc;
         doc.arena_ = std::make_unique<Arena>(ArenaMode::GrowableSingleChunk, capacity);
         auto* hdr = static_cast<DocumentHeader*>(
             doc.arena_->allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)));
+        hdr->root = RelativePtr<void>{};
+        return doc;
+    }
+
+    // External: create a shared document that can issue Views.
+    static std::shared_ptr<HermesCtr> make_shared_ctr(size_t capacity = 65536) {
+        auto doc = std::make_shared<HermesCtr>();
+        doc->arena_ = std::make_unique<Arena>(ArenaMode::GrowableSingleChunk, capacity);
+        auto* hdr = static_cast<DocumentHeader*>(
+            doc->arena_->allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)));
         hdr->root = RelativePtr<void>{};
         return doc;
     }

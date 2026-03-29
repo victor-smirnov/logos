@@ -101,9 +101,9 @@ private:
         auto* m = doc_.make_tiny_map(4);
         m->put(CODE, TaggedPtr::from_value(code, type_hash::Integer), doc_.arena());
         m->put(LEFT, TaggedPtr{}, doc_.arena());
-        m->slot(LEFT)->set_pointer(left);
+        m->slot(LEFT, doc_.base())->set_pointer(left, doc_.base());
         m->put(RIGHT, TaggedPtr{}, doc_.arena());
-        m->slot(RIGHT)->set_pointer(right);
+        m->slot(RIGHT, doc_.base())->set_pointer(right, doc_.base());
         return m;
     }
 
@@ -112,7 +112,7 @@ private:
         m->put(CODE, TaggedPtr::from_value(code, type_hash::Integer), doc_.arena());
         auto* s = doc_.make_string(name);
         m->put(NAME, TaggedPtr{}, doc_.arena());
-        m->slot(NAME)->set_pointer(s);
+        m->slot(NAME, doc_.base())->set_pointer(s, doc_.base());
         return m;
     }
 
@@ -169,9 +169,9 @@ private:
                 auto* m = doc_.make_tiny_map(6);
                 m->put(CODE, TaggedPtr::from_value(int32_t(COMPARATOR_EXPR), type_hash::Integer), doc_.arena());
                 m->put(LEFT, TaggedPtr{}, doc_.arena());
-                m->slot(LEFT)->set_pointer(left);
+                m->slot(LEFT, doc_.base())->set_pointer(left, doc_.base());
                 m->put(RIGHT, TaggedPtr{}, doc_.arena());
-                m->slot(RIGHT)->set_pointer(right);
+                m->slot(RIGHT, doc_.base())->set_pointer(right, doc_.base());
                 m->put(COMPARATOR, TaggedPtr::from_value(cmp, type_hash::Integer), doc_.arena());
                 left = m;
             } else break;
@@ -199,7 +199,7 @@ private:
             auto* m = doc_.make_tiny_map(4);
             m->put(CODE, TaggedPtr::from_value(int32_t(NOT_EXPR), type_hash::Integer), doc_.arena());
             m->put(RIGHT, TaggedPtr{}, doc_.arena());
-            m->slot(RIGHT)->set_pointer(expr);
+            m->slot(RIGHT, doc_.base())->set_pointer(expr, doc_.base());
             return m;
         }
         return parse_postfix();
@@ -270,7 +270,7 @@ private:
             auto* m = doc_.make_tiny_map(4);
             m->put(CODE, TaggedPtr::from_value(int32_t(PAREN), type_hash::Integer), doc_.arena());
             m->put(RIGHT, TaggedPtr{}, doc_.arena());
-            m->slot(RIGHT)->set_pointer(expr);
+            m->slot(RIGHT, doc_.base())->set_pointer(expr, doc_.base());
             return m;
         }
         if (c == '{') {
@@ -310,11 +310,11 @@ private:
                 if (name == "true") {
                     auto* v = doc_.make_value<uint8_t>(1);
                     m->put(VALUE, TaggedPtr{}, doc_.arena());
-                    m->slot(VALUE)->set_pointer(v);
+                    m->slot(VALUE, doc_.base())->set_pointer(v, doc_.base());
                 } else if (name == "false") {
                     auto* v = doc_.make_value<uint8_t>(0);
                     m->put(VALUE, TaggedPtr{}, doc_.arena());
-                    m->slot(VALUE)->set_pointer(v);
+                    m->slot(VALUE, doc_.base())->set_pointer(v, doc_.base());
                 }
                 // null: VALUE stays null
                 return m;
@@ -342,7 +342,7 @@ private:
             auto* m = doc_.make_tiny_map(4);
             m->put(CODE, TaggedPtr::from_value(int32_t(FILTER), type_hash::Integer), doc_.arena());
             m->put(RIGHT, TaggedPtr{}, doc_.arena());
-            m->slot(RIGHT)->set_pointer(expr);
+            m->slot(RIGHT, doc_.base())->set_pointer(expr, doc_.base());
             return m;
         }
 
@@ -435,7 +435,7 @@ private:
         m->put(CODE, TaggedPtr::from_value(int32_t(FUNCTION_CALL), type_hash::Integer), doc_.arena());
         auto* fname = doc_.make_string(name);
         m->put(NAME, TaggedPtr{}, doc_.arena());
-        m->slot(NAME)->set_pointer(fname);
+        m->slot(NAME, doc_.base())->set_pointer(fname, doc_.base());
 
         auto* args = doc_.make_array();
         skip();
@@ -449,13 +449,13 @@ private:
                     auto* ea = doc_.make_tiny_map(4);
                     ea->put(CODE, TaggedPtr::from_value(int32_t(EXPR_ARGUMENT), type_hash::Integer), doc_.arena());
                     ea->put(RIGHT, TaggedPtr{}, doc_.arena());
-                    ea->slot(RIGHT)->set_pointer(expr);
+                    ea->slot(RIGHT, doc_.base())->set_pointer(expr, doc_.base());
                     arg = ea;
                 } else {
                     arg = parse_pipe();
                 }
                 args->push_back(TaggedPtr{}, doc_.arena());
-                args->slot(args->size() - 1)->set_pointer(arg);
+                args->slot(args->size(, doc_.base()) - 1)->set_pointer(arg, doc_.base());
                 skip();
                 if (peek() == ')') break;
                 expect(',');
@@ -463,7 +463,7 @@ private:
         }
         expect(')');
         m->put(ARGS, TaggedPtr{}, doc_.arena());
-        m->slot(ARGS)->set_pointer(args);
+        m->slot(ARGS, doc_.base())->set_pointer(args, doc_.base());
         return m;
     }
 
@@ -475,7 +475,7 @@ private:
         while (true) {
             void* e = parse_pipe();
             exprs->push_back(TaggedPtr{}, doc_.arena());
-            exprs->slot(exprs->size() - 1)->set_pointer(e);
+            exprs->slot(exprs->size(, doc_.base()) - 1)->set_pointer(e, doc_.base());
             skip();
             if (peek() == ']') { ++pos_; break; }
             expect(',');
@@ -483,7 +483,7 @@ private:
         auto* m = doc_.make_tiny_map(4);
         m->put(CODE, TaggedPtr::from_value(int32_t(MULTISELECT_LIST), type_hash::Integer), doc_.arena());
         m->put(EXPRESSIONS, TaggedPtr{}, doc_.arena());
-        m->slot(EXPRESSIONS)->set_pointer(exprs);
+        m->slot(EXPRESSIONS, doc_.base())->set_pointer(exprs, doc_.base());
         return m;
     }
 
@@ -499,9 +499,9 @@ private:
 
             auto* ks = doc_.make_string(key);
             keys_arr->push_back(TaggedPtr{}, doc_.arena());
-            keys_arr->slot(keys_arr->size() - 1)->set_pointer(ks);
+            keys_arr->slot(keys_arr->size(, doc_.base()) - 1)->set_pointer(ks, doc_.base());
             vals_arr->push_back(TaggedPtr{}, doc_.arena());
-            vals_arr->slot(vals_arr->size() - 1)->set_pointer(val);
+            vals_arr->slot(vals_arr->size(, doc_.base()) - 1)->set_pointer(val, doc_.base());
 
             skip();
             if (peek() == '}') { ++pos_; break; }
@@ -510,9 +510,9 @@ private:
         auto* m = doc_.make_tiny_map(6);
         m->put(CODE, TaggedPtr::from_value(int32_t(MULTISELECT_HASH), type_hash::Integer), doc_.arena());
         m->put(KEYS, TaggedPtr{}, doc_.arena());
-        m->slot(KEYS)->set_pointer(keys_arr);
+        m->slot(KEYS, doc_.base())->set_pointer(keys_arr, doc_.base());
         m->put(EXPRESSIONS, TaggedPtr{}, doc_.arena());
-        m->slot(EXPRESSIONS)->set_pointer(vals_arr);
+        m->slot(EXPRESSIONS, doc_.base())->set_pointer(vals_arr, doc_.base());
         return m;
     }
 
@@ -532,7 +532,7 @@ private:
         auto* m = doc_.make_tiny_map(4);
         m->put(CODE, TaggedPtr::from_value(int32_t(HERMES_VALUE), type_hash::Integer), doc_.arena());
         m->put(VALUE, TaggedPtr{}, doc_.arena());
-        m->slot(VALUE)->set_pointer(val);
+        m->slot(VALUE, doc_.base())->set_pointer(val, doc_.base());
         (void)start;
         return m;
     }
@@ -557,7 +557,7 @@ private:
             auto* m = doc_.make_tiny_map(4);
             m->put(CODE, TaggedPtr::from_value(int32_t(HERMES_VALUE), type_hash::Integer), doc_.arena());
             m->put(VALUE, TaggedPtr{}, doc_.arena());
-            m->slot(VALUE)->set_pointer(v);
+            m->slot(VALUE, doc_.base())->set_pointer(v, doc_.base());
             return m;
         }
         int32_t ival = neg ? -int32_t(val) : int32_t(val);
@@ -636,9 +636,9 @@ private:
     HermesCtr& result_;
 
     void* get_child(TinyObjectMap* node, uint8_t key) {
-        TaggedPtr* slot = node->slot(key);
+        TaggedPtr* slot = node->slot(key, base);
         if (!slot || slot->is_null()) return nullptr;
-        if (slot->is_pointer()) return slot->as_ptr<void>();
+        if (slot->is_pointer()) return slot->as_ptr<void>(base);
         return nullptr; // Embedded values are not child nodes.
     }
 
@@ -661,9 +661,9 @@ private:
 
     void* eval_identifier(void* data, TinyObjectMap* node) {
         if (!data) return nullptr;
-        TaggedPtr* name_slot = node->slot(NAME);
+        TaggedPtr* name_slot = node->slot(NAME, base);
         if (!name_slot || name_slot->is_null()) return nullptr;
-        auto* name = name_slot->as_ptr<ArenaString>();
+        auto* name = name_slot->as_ptr<ArenaString>(base);
         auto key = name->view();
 
         auto* bytes = static_cast<const uint8_t*>(data);
@@ -673,7 +673,7 @@ private:
             TaggedPtr* slot = map->get_slot(key);
             if (!slot) return nullptr;
             if (slot->is_value()) return resolve_embedded(slot);
-            if (slot->is_pointer()) return slot->as_ptr<void>();
+            if (slot->is_pointer()) return slot->as_ptr<void>(base);
             return nullptr;
         }
         return nullptr;
@@ -684,7 +684,7 @@ private:
     // use copy_to_result() if storing in result arena containers).
     void* resolve_embedded(TaggedPtr* slot) {
         if (slot->is_null()) return nullptr;
-        if (slot->is_pointer()) return slot->as_ptr<void>();
+        if (slot->is_pointer()) return slot->as_ptr<void>(base);
         // Embedded value — allocate in result arena.
         uint8_t th = slot->value_type_hash();
         switch (th) {
@@ -728,7 +728,7 @@ private:
         int32_t idx = node->get(VALUE).as_value<int32_t>();
         if (idx < 0) idx += static_cast<int32_t>(arr->size());
         if (idx < 0 || idx >= static_cast<int32_t>(arr->size())) return nullptr;
-        return resolve_embedded(arr->slot(idx));
+        return resolve_embedded(arr->slot(idx, base));
     }
 
     void* eval_flatten(void* data) {
@@ -739,14 +739,14 @@ private:
         auto* arr = static_cast<ObjectArray*>(data);
         auto* result = result_.make_array();
         for (uint64_t i = 0; i < arr->size(); ++i) {
-            void* elem = resolve_embedded(arr->slot(i));
+            void* elem = resolve_embedded(arr->slot(i, base));
             if (!elem) continue;
             auto* eb = static_cast<const uint8_t*>(elem);
             TypeTag et = TypeTag::read_before(eb);
             if (et.descriptor() == TagDescriptor::Array && et.type_code() == type_hash::ObjectArray) {
                 auto* inner = static_cast<ObjectArray*>(elem);
                 for (uint64_t j = 0; j < inner->size(); ++j) {
-                    void* ie = resolve_embedded(inner->slot(j));
+                    void* ie = resolve_embedded(inner->slot(j, base));
                     push_value(result, ie);
                 }
             } else {
@@ -773,10 +773,10 @@ private:
         auto* result = result_.make_array();
         if (step > 0) {
             for (int64_t i = start; i < stop; i += step)
-                push_value(result, resolve_embedded(arr->slot(i)));
+                push_value(result, resolve_embedded(arr->slot(i, base)));
         } else {
             for (int64_t i = start; i > stop; i += step)
-                push_value(result, resolve_embedded(arr->slot(i)));
+                push_value(result, resolve_embedded(arr->slot(i, base)));
         }
         return result;
     }
@@ -787,7 +787,7 @@ private:
         auto* result = result_.make_array();
         void* filter_ast = get_child(node, RIGHT);
         for (uint64_t i = 0; i < arr->size(); ++i) {
-            void* elem = resolve_embedded(arr->slot(i));
+            void* elem = resolve_embedded(arr->slot(i, base));
             void* test = eval(elem, filter_ast);
             if (is_truthy(test)) push_value(result, elem);
         }
@@ -799,7 +799,7 @@ private:
         auto* arr = static_cast<ObjectArray*>(data);
         auto* result = result_.make_array();
         for (uint64_t i = 0; i < arr->size(); ++i)
-            push_value(result, resolve_embedded(arr->slot(i)));
+            push_value(result, resolve_embedded(arr->slot(i, base)));
         return result;
     }
 
@@ -904,7 +904,7 @@ private:
         auto* exprs = static_cast<ObjectArray*>(get_child(node, EXPRESSIONS));
         auto* result = result_.make_array();
         for (uint64_t i = 0; i < exprs->size(); ++i) {
-            void* expr = resolve_embedded(exprs->slot(i));
+            void* expr = resolve_embedded(exprs->slot(i, base));
             void* val = eval(data, expr);
             push_value(result, val);
         }
@@ -916,8 +916,8 @@ private:
         auto* vals_arr = static_cast<ObjectArray*>(get_child(node, EXPRESSIONS));
         auto* result = result_.make_object_map();
         for (uint64_t i = 0; i < keys_arr->size(); ++i) {
-            auto* key = keys_arr->slot(i)->as_ptr<ArenaString>();
-            void* expr = resolve_embedded(vals_arr->slot(i));
+            auto* key = keys_arr->slot(i, base)->as_ptr<ArenaString>(base);
+            void* expr = resolve_embedded(vals_arr->slot(i, base));
             void* val = eval(data, expr);
             put_value(result, key->view(), val);
         }
@@ -925,7 +925,7 @@ private:
     }
 
     void* eval_function(void* data, TinyObjectMap* node) {
-        auto* fname = node->slot(NAME)->as_ptr<ArenaString>();
+        auto* fname = node->slot(NAME, base)->as_ptr<ArenaString>(base);
         auto name = fname->view();
         auto* args = static_cast<ObjectArray*>(get_child(node, ARGS));
 
@@ -946,15 +946,15 @@ private:
     void* eval_hermes_value(TinyObjectMap* node) {
         if (!node->has_key(VALUE)) return nullptr;
         TaggedPtr val = node->get(VALUE);
-        if (val.is_value()) return resolve_embedded(node->slot(VALUE));
-        if (val.is_pointer()) return node->slot(VALUE)->as_ptr<void>();
+        if (val.is_value()) return resolve_embedded(node->slot(VALUE, base));
+        if (val.is_pointer()) return node->slot(VALUE, base)->as_ptr<void>(base);
         return nullptr;
     }
 
     // --- Built-in functions ---
 
     void* fn_length(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
         if (!arg) return result_.make_value<int32_t>(0);
         auto* b = static_cast<const uint8_t*>(arg);
         TypeTag tag = TypeTag::read_before(b);
@@ -968,7 +968,7 @@ private:
     }
 
     void* fn_type(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
         if (!arg) return result_.make_string("null");
         auto* b = static_cast<const uint8_t*>(arg);
         TypeTag tag = TypeTag::read_before(b);
@@ -986,25 +986,25 @@ private:
     }
 
     void* fn_keys(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
         if (!arg) return result_.make_array(0);
         auto* map = static_cast<ObjectMap*>(arg);
         auto* result = result_.make_array();
         map->for_each([&](ArenaString* key, TaggedPtr*) {
             auto* ks = result_.make_string(key->view());
             result->push_back(TaggedPtr{}, result_.arena());
-            result->slot(result->size() - 1)->set_pointer(ks);
+            result->slot(result->size(, base) - 1)->set_pointer(ks, base);
         });
         return result;
     }
 
     void* fn_values(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
         return eval_hash_wildcard(arg);
     }
 
     void* fn_to_string(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
         auto sv = to_string(arg);
         if (!sv.empty()) return result_.make_string(sv);
         double d = to_double(arg);
@@ -1019,27 +1019,27 @@ private:
     void* fn_not_null(void* data, ObjectArray* args) {
         if (!args) return nullptr;
         for (uint64_t i = 0; i < args->size(); ++i) {
-            void* val = eval(data, resolve_embedded(args->slot(i)));
+            void* val = eval(data, resolve_embedded(args->slot(i, base)));
             if (val) return val;
         }
         return nullptr;
     }
 
     void* fn_abs(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
         double d = to_double(arg);
         if (!std::isnan(d)) return result_.make_value<double>(std::abs(d));
         return nullptr;
     }
 
     void* fn_sort(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
         if (!arg) return result_.make_array(0);
         auto* arr = static_cast<ObjectArray*>(arg);
         // Collect values, sort, rebuild.
         std::vector<void*> items;
         for (uint64_t i = 0; i < arr->size(); ++i)
-            items.push_back(resolve_embedded(arr->slot(i)));
+            items.push_back(resolve_embedded(arr->slot(i, base)));
         std::sort(items.begin(), items.end(), [this](void* a, void* b) {
             double da = to_double(a), db = to_double(b);
             if (!std::isnan(da) && !std::isnan(db)) return da < db;
@@ -1051,19 +1051,19 @@ private:
     }
 
     void* fn_reverse(void* data, ObjectArray* args) {
-        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0))) : data;
+        void* arg = (args && args->size() > 0) ? eval(data, resolve_embedded(args->slot(0, base))) : data;
         if (!arg) return result_.make_array(0);
         auto* arr = static_cast<ObjectArray*>(arg);
         auto* result = result_.make_array();
         for (int64_t i = arr->size() - 1; i >= 0; --i)
-            push_value(result, resolve_embedded(arr->slot(i)));
+            push_value(result, resolve_embedded(arr->slot(i, base)));
         return result;
     }
 
     void* fn_contains(void* data, ObjectArray* args) {
         if (!args || args->size() < 2) return nullptr;
-        void* subject = eval(data, resolve_embedded(args->slot(0)));
-        void* search = eval(data, resolve_embedded(args->slot(1)));
+        void* subject = eval(data, resolve_embedded(args->slot(0, base)));
+        void* search = eval(data, resolve_embedded(args->slot(1, base)));
         bool found = false;
         if (subject) {
             auto* b = static_cast<const uint8_t*>(subject);
@@ -1077,7 +1077,7 @@ private:
                 double search_d = to_double(search);
                 auto search_s = to_string(search);
                 for (uint64_t i = 0; i < arr->size(); ++i) {
-                    void* elem = resolve_embedded(arr->slot(i));
+                    void* elem = resolve_embedded(arr->slot(i, base));
                     if (!std::isnan(search_d) && to_double(elem) == search_d) { found = true; break; }
                     if (!search_s.empty() && to_string(elem) == search_s) { found = true; break; }
                 }
@@ -1111,12 +1111,12 @@ private:
             auto* s = static_cast<const ArenaString*>(val);
             auto* copy = result_.make_string(s->view());
             arr->push_back(TaggedPtr{}, result_.arena());
-            arr->slot(arr->size() - 1)->set_pointer(copy);
+            arr->slot(arr->size(, base) - 1)->set_pointer(copy, base);
         } else {
             // For complex objects (arrays, maps), store pointer directly.
             // This is safe only if val is already in result_ arena.
             arr->push_back(TaggedPtr{}, result_.arena());
-            arr->slot(arr->size() - 1)->set_pointer(val);
+            arr->slot(arr->size(, base) - 1)->set_pointer(val, base);
         }
     }
 
@@ -1138,10 +1138,10 @@ private:
             auto* s = static_cast<const ArenaString*>(val);
             auto* copy = result_.make_string(s->view());
             map->put(key, TaggedPtr{}, result_.arena());
-            map->get_slot(key)->set_pointer(copy);
+            map->get_slot(key)->set_pointer(copy, base);
         } else {
             map->put(key, TaggedPtr{}, result_.arena());
-            map->get_slot(key)->set_pointer(val);
+            map->get_slot(key)->set_pointer(val, base);
         }
     }
 };

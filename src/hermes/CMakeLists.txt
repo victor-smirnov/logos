@@ -1,6 +1,7 @@
 add_library(logos_hermes
     arena.cpp
     document.cpp
+    view.cpp
     binary_codec.cpp
     text_parser.cpp
     stringify.cpp
