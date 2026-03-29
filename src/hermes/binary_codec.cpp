@@ -20,8 +20,10 @@ public:
         LOGOS_ASSERT(doc.has_root(), "HERMES-BINARY-001",
             "Cannot encode a document without a root");
 
+        base_ = doc.base();
+
         // Encode root object from its arena location.
-        const auto* root_bytes = static_cast<const uint8_t*>(doc.header()->root.get());
+        const auto* root_bytes = static_cast<const uint8_t*>(doc.root<void>());
         encode_tagged_object(root_bytes);
     }
 
@@ -29,6 +31,7 @@ public:
 
 private:
     std::vector<uint8_t> buf_;
+    const uint8_t* base_ = nullptr;
 
     void write_bytes(const void* data, size_t len) {
         auto* p = static_cast<const uint8_t*>(data);
@@ -92,7 +95,7 @@ private:
         }
 
         // Pointer mode — encode the pointed-to object.
-        auto* target = slot->as_ptr<uint8_t>();
+        auto* target = slot->as_ptr<uint8_t>(base_);
         encode_tagged_object(target);
     }
 
@@ -115,8 +118,8 @@ private:
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
             buf_.push_back(key); // Key as single byte.
-            const TaggedPtr* slot = map->slot(key);
-            encode_tagged_ptr(slot);
+            const TaggedPtr* s = map->slot(key, base_);
+            encode_tagged_ptr(s);
         }
     }
 
@@ -128,9 +131,10 @@ private:
 
         // Const cast needed because slot() is non-const.
         auto* arr_mut = const_cast<ObjectArray*>(arr);
+        uint8_t* base_mut = const_cast<uint8_t*>(base_);
         for (uint64_t i = 0; i < arr->size(); ++i) {
-            TaggedPtr* slot = arr_mut->slot(i);
-            encode_tagged_ptr(slot);
+            TaggedPtr* s = arr_mut->slot(i, base_mut);
+            encode_tagged_ptr(s);
         }
     }
 
@@ -140,6 +144,7 @@ private:
         write_type_tag(tag);
         write_varint(map->size());
 
+        uint8_t* base_mut = const_cast<uint8_t*>(base_);
         map->for_each([&](ArenaString* key, TaggedPtr* val_slot) {
             // Encode key as string (without TypeTag — always Varchar by convention).
             auto sv = key->view();
@@ -148,7 +153,7 @@ private:
 
             // Encode value.
             encode_tagged_ptr(val_slot);
-        });
+        }, base_mut);
     }
 
     void encode_fixed(const uint8_t* obj, TypeTag tag) {
@@ -194,7 +199,7 @@ public:
         : data_(data), size_(size), pos_(0) {}
 
     HermesCtr decode() {
-        auto doc = HermesCtr::create();
+        auto doc = make_doc();
         void* root = decode_tagged_object(doc.arena());
         doc.set_root_offset(doc.offset_of(root));
         return doc;
@@ -281,10 +286,9 @@ private:
             *dst_slot = TaggedPtr::from_raw(bits);
         } else {
             // Non-embeddable: decode as arena object and store pointer.
-            // We need to re-read the tag, but we already consumed it.
-            // Re-dispatch based on tag.
             void* obj = decode_object_from_tag(arena, tag);
-            dst_slot->set_pointer(obj);
+            uint8_t* base = arena.head().data();
+            dst_slot->set_pointer(obj, base);
         }
     }
 
@@ -328,8 +332,9 @@ private:
         for (uint64_t i = 0; i < count; ++i) {
             uint8_t key = read_byte();
             map->put(key, TaggedPtr{}, arena);
-            TaggedPtr* slot = map->slot(key);
-            decode_tagged_ptr(arena, slot);
+            uint8_t* base = arena.head().data();
+            TaggedPtr* s = map->slot(key, base);
+            decode_tagged_ptr(arena, s);
         }
         return map;
     }
@@ -340,8 +345,9 @@ private:
 
         for (uint64_t i = 0; i < count; ++i) {
             arr->push_back(TaggedPtr{}, arena);
-            TaggedPtr* slot = arr->slot(i);
-            decode_tagged_ptr(arena, slot);
+            uint8_t* base = arena.head().data();
+            TaggedPtr* s = arr->slot(i, base);
+            decode_tagged_ptr(arena, s);
         }
         return arr;
     }
@@ -358,8 +364,9 @@ private:
 
             // Put placeholder, then decode value into slot.
             map->put(key, TaggedPtr{}, arena);
-            TaggedPtr* slot = map->get_slot(key);
-            decode_tagged_ptr(arena, slot);
+            uint8_t* base = arena.head().data();
+            TaggedPtr* s = map->get_slot(key, base);
+            decode_tagged_ptr(arena, s);
         }
         return map;
     }

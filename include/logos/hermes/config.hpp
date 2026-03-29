@@ -20,4 +20,14 @@ using arena_offset_t = LOGOS_HERMES_OFFSET_TYPE;
 // Sentinel value for null offsets.
 inline constexpr arena_offset_t NULL_OFFSET = ~arena_offset_t(0);
 
+// DocumentHeader: untagged structure at offset 0 of every arena segment.
+struct DocumentHeader {
+    // Forward-declared RelativePtr<void> — just stores an arena_offset_t.
+    arena_offset_t root_offset = NULL_OFFSET;
+
+    bool has_root() const { return root_offset != NULL_OFFSET; }
+};
+
+static_assert(sizeof(DocumentHeader) == sizeof(arena_offset_t));
+
 } // namespace logos::hermes

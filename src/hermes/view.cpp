@@ -3,101 +3,90 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/view.hpp>
-#include <logos/hermes/document.hpp>
 
 namespace logos::hermes {
 
-// --- ViewBase ---
-
-uint8_t* ViewBase::base() const {
-    return mem_->base();
+static DocumentHeader* get_header(MemHolder* holder) {
+    return reinterpret_cast<DocumentHeader*>(holder->base());
 }
 
-// --- TinyMapView ---
+// --- HermesCtrView ---
 
-Arena& TinyMapView::arena() const { return mem_->arena(); }
-
-// --- ArrayView ---
-
-Arena& ArrayView::arena() const { return mem_->arena(); }
-
-// --- MapView ---
-
-Arena& MapView::arena() const { return mem_->arena(); }
-
-// --- ObjectView conversions ---
-
-TinyMapView ObjectView::as_tiny_map() const {
-    return TinyMapView(tagged_.to_offset(), mem_);
+bool HermesCtrView::has_root() const {
+    return holder_ && get_header(holder_)->has_root();
 }
 
-ArrayView ObjectView::as_array() const {
-    return ArrayView(tagged_.to_offset(), mem_);
+void HermesCtrView::set_root(void* object) {
+    get_header(holder_)->root_offset = offset_of(object);
 }
 
-MapView ObjectView::as_map() const {
-    return MapView(tagged_.to_offset(), mem_);
+void HermesCtrView::set_root_offset(arena_offset_t offset) {
+    get_header(holder_)->root_offset = offset;
 }
 
-StringView ObjectView::as_string() const {
-    return StringView(tagged_.to_offset(), mem_);
+template <typename T>
+T* HermesCtrView::root() const {
+    auto off = get_header(holder_)->root_offset;
+    if (off == NULL_OFFSET) return nullptr;
+    return reinterpret_cast<T*>(base() + off);
 }
 
-DatatypeView ObjectView::as_datatype() const {
-    return DatatypeView(tagged_.to_offset(), mem_);
+// Explicit instantiations for common types.
+template void* HermesCtrView::root<void>() const;
+template TinyObjectMap* HermesCtrView::root<TinyObjectMap>() const;
+template ObjectArray* HermesCtrView::root<ObjectArray>() const;
+template ObjectMap* HermesCtrView::root<ObjectMap>() const;
+template ArenaString* HermesCtrView::root<ArenaString>() const;
+template int32_t* HermesCtrView::root<int32_t>() const;
+template uint8_t* HermesCtrView::root<uint8_t>() const;
+template float* HermesCtrView::root<float>() const;
+template double* HermesCtrView::root<double>() const;
+template int64_t* HermesCtrView::root<int64_t>() const;
+template uint32_t* HermesCtrView::root<uint32_t>() const;
+template uint16_t* HermesCtrView::root<uint16_t>() const;
+template int16_t* HermesCtrView::root<int16_t>() const;
+template int8_t* HermesCtrView::root<int8_t>() const;
+template DatatypeData* HermesCtrView::root<DatatypeData>() const;
+template TypedValueData* HermesCtrView::root<TypedValueData>() const;
+template ParameterData* HermesCtrView::root<ParameterData>() const;
+
+Object HermesCtrView::root_object() const {
+    if (!has_root()) return Object{};
+    auto off = get_header(holder_)->root_offset;
+    TaggedPtr tp = TaggedPtr::from_offset(off);
+    return Object(ObjectView(tp, holder_));
 }
 
-ParameterView ObjectView::as_parameter() const {
-    return ParameterView(tagged_.to_offset(), mem_);
+TinyMap HermesCtrView::make_tiny_map(uint8_t capacity) {
+    auto* p = TinyObjectMap::create(holder_->arena(), capacity);
+    return TinyMap(offset_of(p), holder_);
 }
 
-// --- Document ---
-
-Document Document::create(size_t capacity) {
-    return Document(HermesCtr::make_shared_ctr(capacity));
+Array HermesCtrView::make_array(uint64_t capacity) {
+    auto* p = ObjectArray::create(holder_->arena(), capacity);
+    return Array(offset_of(p), holder_);
 }
 
-bool Document::has_root() const {
-    return ctr_ && ctr_->has_root();
+Map HermesCtrView::make_object_map(uint8_t log2_buckets) {
+    auto* p = ObjectMap::create(holder_->arena(), log2_buckets);
+    return Map(offset_of(p), holder_);
 }
 
-void Document::set_root(const ViewBase& view) {
-    ctr_->set_root_offset(view.offset());
+String HermesCtrView::make_string(std::string_view str) {
+    auto* p = ArenaString::create(holder_->arena(), str);
+    return String(offset_of(p), holder_);
 }
 
-void Document::set_root_offset(arena_offset_t offset) {
-    ctr_->set_root_offset(offset);
-}
+// --- make_doc ---
 
-ObjectView Document::root() const {
-    if (!has_root()) return ObjectView{};
-    auto* hdr = ctr_->header();
-    // Build a TaggedPtr in pointer mode from the root offset.
-    TaggedPtr tp = TaggedPtr::from_offset(hdr->root.offset());
-    return ObjectView(tp, ctr_);
-}
+HermesCtr make_doc(size_t capacity) {
+    auto* holder = new MemHolder(capacity);
 
-TinyMapView Document::make_tiny_map(uint8_t capacity) {
-    auto* p = ctr_->make_tiny_map(capacity);
-    return TinyMapView(ctr_->offset_of(p), ctr_);
-}
+    auto* hdr = static_cast<DocumentHeader*>(
+        holder->arena().allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)));
+    hdr->root_offset = NULL_OFFSET;
 
-ArrayView Document::make_array(uint64_t capacity) {
-    auto* p = ctr_->make_array(capacity);
-    return ArrayView(ctr_->offset_of(p), ctr_);
+    return HermesCtr(HermesCtrView(holder));
 }
-
-MapView Document::make_object_map(uint8_t log2_buckets) {
-    auto* p = ctr_->make_object_map(log2_buckets);
-    return MapView(ctr_->offset_of(p), ctr_);
-}
-
-StringView Document::make_string(std::string_view str) {
-    auto* p = ctr_->make_string(str);
-    return StringView(ctr_->offset_of(p), ctr_);
-}
-
-HermesCtr& Document::ctr() { return *ctr_; }
-const HermesCtr& Document::ctr() const { return *ctr_; }
 
 } // namespace logos::hermes

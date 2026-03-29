@@ -11,7 +11,6 @@
 namespace logos::hermes {
 
 // Deep copy engine — copies objects between arenas.
-// All source pointers use src_base, all destination use dst Arena.
 class DeepCopyState {
 public:
     DeepCopyState(Arena& dst, const uint8_t* src_base)
@@ -47,15 +46,12 @@ public:
         return dst_obj;
     }
 
-    // Copy a TaggedPtr. For pointer mode, deep-copies the target.
-    // src_slot is read using src_base_. dst_slot is written using dst base.
     void copy_tagged_ptr(const TaggedPtr* src_slot, TaggedPtr* dst_slot) {
         if (src_slot->is_null()) {
             *dst_slot = TaggedPtr{};
         } else if (src_slot->is_value()) {
             *dst_slot = *src_slot;
         } else {
-            // Pointer mode: resolve src, deep-copy, set dst.
             const void* src_target = src_slot->as_ptr<void>(const_cast<uint8_t*>(src_base_));
             void* dst_target = copy_tagged_object(src_target);
             uint8_t* dst_base = dst_.head().data();
@@ -96,7 +92,7 @@ private:
             if (!(bm & (1ULL << key))) continue;
 
             dst_map->put(key, TaggedPtr{}, dst_);
-            dst_base = dst_.head().data(); // re-derive after put
+            dst_base = dst_.head().data();
 
             TaggedPtr* dst_slot = dst_map->slot(key, dst_base);
             const TaggedPtr* src_slot = src_map->slot(key, const_cast<uint8_t*>(src_base_));
@@ -145,8 +141,8 @@ private:
         return mem;
     }
 
-    static size_t fixed_type_size(uint64_t type_code) {
-        switch (type_code) {
+    static size_t fixed_type_size(uint64_t tc) {
+        switch (tc) {
             case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 1;
             case type_hash::SmallInt: case type_hash::USmallInt: return 2;
             case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
@@ -161,8 +157,8 @@ private:
         }
     }
 
-    static size_t fixed_type_alignment(uint64_t type_code) {
-        switch (type_code) {
+    static size_t fixed_type_alignment(uint64_t tc) {
+        switch (tc) {
             case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 2;
             case type_hash::SmallInt: case type_hash::USmallInt: return 2;
             case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
@@ -172,36 +168,33 @@ private:
     }
 };
 
-HermesCtr HermesCtr::compactify() const {
-    LOGOS_ASSERT(has_root(), "HERMES-DOC-001",
+// --- Free functions ---
+
+HermesCtr compactify(const HermesCtrView& src) {
+    LOGOS_ASSERT(src.has_root(), "HERMES-DOC-001",
         "Cannot compactify a document without a root object");
 
-    auto doc = HermesCtr::create(ArenaMode::GrowableSingleChunk, arena_->total_used() * 2);
-    DeepCopyState state(doc.arena(), base());
+    auto dst = make_doc(src.arena().total_used() * 2);
+    DeepCopyState state(dst.arena(), src.base());
 
-    const void* src_root = header()->root.get(base());
+    arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(src.base())->root_offset;
+    const void* src_root = src.base() + root_off;
     void* dst_root = state.copy_tagged_object(src_root);
-    doc.set_root(dst_root);
+    dst.set_root(dst_root);
 
-    return doc;
+    return dst;
 }
 
-HermesCtr HermesCtr::from_bytes(std::unique_ptr<uint8_t[]> data, size_t size) {
-    HermesCtr doc;
-    doc.arena_ = std::make_unique<Arena>(ArenaMode::GrowableSingleChunk, 0);
-
-    auto& chunk = doc.arena_->head();
-    chunk.memory = std::move(data);
-    chunk.capacity = size;
+HermesCtr from_bytes_copy(const uint8_t* data, size_t size) {
+    auto doc = make_doc(size);
+    // Copy data into the arena (after the DocumentHeader that make_doc already allocated).
+    // Actually, the entire segment IS the data — header is at offset 0.
+    // We need to replace the arena content with the provided bytes.
+    auto& arena = doc.arena();
+    auto& chunk = arena.head();
+    std::memcpy(chunk.data(), data, size);
     chunk.used = size;
-
     return doc;
-}
-
-HermesCtr HermesCtr::from_bytes_copy(const uint8_t* data, size_t size) {
-    auto buf = std::make_unique<uint8_t[]>(size);
-    std::memcpy(buf.get(), data, size);
-    return from_bytes(std::move(buf), size);
 }
 
 } // namespace logos::hermes

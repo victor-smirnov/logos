@@ -4,10 +4,11 @@
 
 #pragma once
 
-#include <memory>
 #include <string_view>
 
 #include <logos/hermes/config.hpp>
+#include <logos/hermes/mem_holder.hpp>
+#include <logos/hermes/own.hpp>
 #include <logos/hermes/tagged_ptr.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
@@ -17,45 +18,35 @@
 
 namespace logos::hermes {
 
-class HermesCtr; // Forward declaration.
-
-// MemRef: shared reference to a HermesCtr. Keeps the document (and its arena)
-// alive while any View referencing it exists. Lightweight (shared_ptr copy).
-using MemRef = std::shared_ptr<HermesCtr>;
-
 // ---------------------------------------------------------------------------
 // ViewBase: common base for all typed views.
 //
-// Stores:
-//   - arena_offset_t offset_  (stable across realloc)
-//   - MemRef          mem_    (keeps document alive, provides fresh base())
-//
-// Dereference: mem_->base() + offset_ → raw pointer to the arena object.
-// This is always valid because:
-//   1. MemRef keeps HermesCtr alive (shared ownership)
-//   2. offset_ is segment-relative (stable across realloc)
-//   3. base() returns the current arena base (updated after realloc)
+// Non-owning: stores MemHolder* (raw, no refcount) + arena_offset_t.
+// Cheap to create/copy (12 bytes). Use Own<View> for owning semantics.
 // ---------------------------------------------------------------------------
 
 class ViewBase {
 public:
-    ViewBase() : offset_(NULL_OFFSET) {}
-    ViewBase(arena_offset_t offset, MemRef mem) : offset_(offset), mem_(std::move(mem)) {}
+    ViewBase() noexcept : offset_(NULL_OFFSET), holder_(nullptr) {}
+    ViewBase(arena_offset_t offset, MemHolder* holder) noexcept
+        : offset_(offset), holder_(holder) {}
 
-    bool is_null() const { return offset_ == NULL_OFFSET || !mem_; }
-    arena_offset_t offset() const { return offset_; }
-    const MemRef& mem() const { return mem_; }
+    bool is_null() const noexcept { return offset_ == NULL_OFFSET || !holder_; }
+    arena_offset_t offset() const noexcept { return offset_; }
+    MemHolder* holder() const noexcept { return holder_; }
+
+    void reset() noexcept { offset_ = NULL_OFFSET; holder_ = nullptr; }
 
 protected:
-    // Get the current segment base. Always fresh — survives realloc.
-    uint8_t* base() const;
+    uint8_t* base() const { return holder_->base(); }
+    Arena& arena() const { return holder_->arena(); }
 
     arena_offset_t offset_;
-    MemRef mem_;
+    MemHolder* holder_;
 };
 
 // ---------------------------------------------------------------------------
-// Typed Views
+// Typed Views (non-owning)
 // ---------------------------------------------------------------------------
 
 class TinyMapView : public ViewBase {
@@ -72,9 +63,6 @@ public:
     TaggedPtr* slot(uint8_t key) const { return ptr()->slot(key, base()); }
 
     void put(uint8_t key, TaggedPtr value) { ptr()->put(key, value, arena()); }
-
-private:
-    Arena& arena() const;
 };
 
 class ArrayView : public ViewBase {
@@ -90,9 +78,6 @@ public:
     TaggedPtr* slot(uint64_t index) const { return ptr()->slot(index, base()); }
 
     void push_back(TaggedPtr value) { ptr()->push_back(value, arena()); }
-
-private:
-    Arena& arena() const;
 };
 
 class MapView : public ViewBase {
@@ -112,9 +97,6 @@ public:
 
     template <typename Fn>
     void for_each(Fn fn) const { ptr()->for_each(fn, base()); }
-
-private:
-    Arena& arena() const;
 };
 
 class StringView : public ViewBase {
@@ -125,7 +107,6 @@ public:
 
     std::string_view view() const { return ptr()->view(); }
     size_t length() const { return ptr()->length(); }
-    uint64_t hash() const { return ptr()->hash(); }
 
     bool operator==(std::string_view other) const { return view() == other; }
     bool operator!=(std::string_view other) const { return view() != other; }
@@ -140,8 +121,6 @@ public:
     std::string_view name() const { return ptr()->name_view(base()); }
     bool has_params() const { return ptr()->has_params(); }
     bool has_ctr() const { return ptr()->has_ctr(); }
-    bool is_const() const { return ptr()->is_const(); }
-    bool is_volatile() const { return ptr()->is_volatile(); }
 };
 
 class ParameterView : public ViewBase {
@@ -154,72 +133,120 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// ObjectView: universal tagged value — can hold any Hermes value.
-// Wraps a TaggedPtr + MemRef. The TaggedPtr may be embedded (value mode)
-// or point to an arena object (pointer mode).
+// ObjectView: universal tagged value (non-owning).
+// Can hold embedded value (TaggedPtr value mode) or arena pointer.
 // ---------------------------------------------------------------------------
 
 class ObjectView {
 public:
-    ObjectView() : tagged_{} {}
-    ObjectView(TaggedPtr tagged, MemRef mem) : tagged_(tagged), mem_(std::move(mem)) {}
+    ObjectView() noexcept : holder_(nullptr) {}
+    ObjectView(TaggedPtr tagged, MemHolder* holder) noexcept
+        : tagged_(tagged), holder_(holder) {}
 
-    bool is_null() const { return tagged_.is_null(); }
-    bool is_value() const { return tagged_.is_value(); }
-    bool is_pointer() const { return tagged_.is_pointer(); }
+    bool is_null() const noexcept { return tagged_.is_null(); }
+    bool is_value() const noexcept { return tagged_.is_value(); }
+    bool is_pointer() const noexcept { return tagged_.is_pointer(); }
 
-    // For embedded values:
     template <typename T> T as_value() const { return tagged_.as_value<T>(); }
     uint8_t value_type_hash() const { return tagged_.value_type_hash(); }
 
-    // For pointer-mode values — resolve to typed view:
-    TinyMapView as_tiny_map() const;
-    ArrayView as_array() const;
-    MapView as_map() const;
-    StringView as_string() const;
-    DatatypeView as_datatype() const;
-    ParameterView as_parameter() const;
+    TinyMapView as_tiny_map() const { return {tagged_.to_offset(), holder_}; }
+    ArrayView as_array() const { return {tagged_.to_offset(), holder_}; }
+    MapView as_map() const { return {tagged_.to_offset(), holder_}; }
+    StringView as_string() const { return {tagged_.to_offset(), holder_}; }
+    DatatypeView as_datatype() const { return {tagged_.to_offset(), holder_}; }
+    ParameterView as_parameter() const { return {tagged_.to_offset(), holder_}; }
 
-    // Raw TaggedPtr access.
     TaggedPtr tagged() const { return tagged_; }
-    const MemRef& mem() const { return mem_; }
+    MemHolder* holder() const noexcept { return holder_; }
+
+    void reset() noexcept { tagged_ = TaggedPtr{}; holder_ = nullptr; }
 
 private:
     TaggedPtr tagged_;
-    MemRef mem_;
+    MemHolder* holder_;
 };
 
 // ---------------------------------------------------------------------------
-// Document: a shared HermesCtr wrapper that produces Views.
-// This is the primary API for external (client) code.
+// Owning type aliases — these manage MemHolder refcount.
+// Store these. Pass Views for cheap temporary access.
 // ---------------------------------------------------------------------------
 
-class Document {
+using TinyMap   = Own<TinyMapView>;
+using Array     = Own<ArrayView>;
+using Map       = Own<MapView>;
+using String    = Own<StringView>;
+using Datatype  = Own<DatatypeView>;
+using Parameter = Own<ParameterView>;
+using Object    = Own<ObjectView>;
+
+// ---------------------------------------------------------------------------
+// HermesCtrView: non-owning view of a document.
+// ---------------------------------------------------------------------------
+
+class HermesCtrView {
 public:
-    Document() = default;
+    HermesCtrView() noexcept : holder_(nullptr) {}
+    explicit HermesCtrView(MemHolder* holder) noexcept : holder_(holder) {}
 
-    static Document create(size_t capacity = 65536);
+    bool is_null() const noexcept { return !holder_; }
+    MemHolder* holder() const noexcept { return holder_; }
 
-    bool is_null() const { return !ctr_; }
+    void reset() noexcept { holder_ = nullptr; }
+
+    // --- Segment base ---
+    uint8_t* base() const { return holder_->base(); }
+    Arena& arena() const { return holder_->arena(); }
+
+    // --- Root access ---
     bool has_root() const;
-
-    void set_root(const ViewBase& view);
+    void set_root(void* object);
     void set_root_offset(arena_offset_t offset);
 
-    ObjectView root() const;
+    template <typename T>
+    T* root() const;
 
-    TinyMapView make_tiny_map(uint8_t capacity = 4);
-    ArrayView make_array(uint64_t capacity = 4);
-    MapView make_object_map(uint8_t log2_buckets = 3);
-    StringView make_string(std::string_view str);
+    Object root_object() const;
 
-    HermesCtr& ctr();
-    const HermesCtr& ctr() const;
-    MemRef mem_ref() const { return ctr_; }
+    arena_offset_t offset_of(const void* object) const {
+        return static_cast<arena_offset_t>(
+            static_cast<const uint8_t*>(object) - base());
+    }
+
+    // --- Factory methods returning owning Views ---
+    TinyMap make_tiny_map(uint8_t capacity = 4);
+    Array make_array(uint64_t capacity = 4);
+    Map make_object_map(uint8_t log2_buckets = 3);
+    String make_string(std::string_view str);
+
+    // --- Raw-pointer factory methods (for internal parser/codec use) ---
+    TinyObjectMap* raw_tiny_map(uint8_t capacity = 4) {
+        return TinyObjectMap::create(holder_->arena(), capacity);
+    }
+    ObjectArray* raw_array(uint64_t capacity = 4) {
+        return ObjectArray::create(holder_->arena(), capacity);
+    }
+    ObjectMap* raw_object_map(uint8_t log2_buckets = 3) {
+        return ObjectMap::create(holder_->arena(), log2_buckets);
+    }
+    ArenaString* raw_string(std::string_view str) {
+        return ArenaString::create(holder_->arena(), str);
+    }
+
+    template <typename T>
+        requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
+    T* make_value(T value) {
+        return arena_put<T>(holder_->arena(), value);
+    }
 
 private:
-    std::shared_ptr<HermesCtr> ctr_;
-    Document(std::shared_ptr<HermesCtr> ctr) : ctr_(std::move(ctr)) {}
+    MemHolder* holder_;
 };
+
+// HermesCtr: owning document handle.
+using HermesCtr = Own<HermesCtrView>;
+
+// Create a new document.
+HermesCtr make_doc(size_t capacity = 65536);
 
 } // namespace logos::hermes

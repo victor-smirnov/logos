@@ -269,13 +269,13 @@ private:
             ++pos_;
             skip();
             DatatypeData* dt = parse_type_declaration();
-            auto* arena_str = doc_.make_string(str);
+            auto* arena_str = doc_.raw_string(str);
             auto* tv = TypedValueData::create(doc_.arena(), dt);
             tv->value.set_pointer(arena_str, doc_.base());
             return tv;
         }
 
-        return doc_.make_string(str);
+        return doc_.raw_string(str);
     }
 
     std::string parse_quoted_string() {
@@ -473,7 +473,7 @@ private:
 
     void* parse_array() {
         expect('[');
-        auto* arr = doc_.make_array();
+        auto* arr = doc_.raw_array();
         skip();
         if (peek() == ']') { ++pos_; return arr; }
         while (true) {
@@ -489,7 +489,7 @@ private:
 
     void* parse_map() {
         expect('{');
-        auto* map = doc_.make_object_map();
+        auto* map = doc_.raw_object_map();
         skip();
         if (peek() == '}') { ++pos_; return map; }
         while (true) {
@@ -514,7 +514,7 @@ private:
     DatatypeData* parse_type_declaration() {
         skip();
         std::string name = parse_datatype_name();
-        auto* arena_name = doc_.make_string(name);
+        auto* arena_name = doc_.raw_string(name);
 
         ObjectArray* params = nullptr;
         ObjectArray* ctr_args = nullptr;
@@ -523,7 +523,7 @@ private:
         // Type parameters: <...>
         if (!at_end() && peek() == '<') {
             ++pos_;
-            params = doc_.make_array();
+            params = doc_.raw_array();
             skip();
             if (peek() != '>') {
                 while (true) {
@@ -541,7 +541,7 @@ private:
         // Constructor args: (...)
         if (!at_end() && peek() == '(') {
             ++pos_;
-            ctr_args = doc_.make_array();
+            ctr_args = doc_.raw_array();
             skip();
             if (peek() != ')') {
                 while (true) {
@@ -735,7 +735,7 @@ private:
 
         // Bare identifier — treat as string.
         auto name = read_identifier();
-        return doc_.make_string(name);
+        return doc_.raw_string(name);
     }
 
     bool looks_like_type_declaration() {
@@ -817,7 +817,7 @@ private:
         // Collect type params into a DatatypeData.
         // For <T>[...] → Datatype name="Array", params=[T]
         // For <K,V>{...} → Datatype name="Map", params=[K,V]
-        auto* type_params = doc_.make_array();
+        auto* type_params = doc_.raw_array();
         while (true) {
             push_element(type_params, parse_type_param());
             skip();
@@ -840,7 +840,7 @@ private:
         }
 
         // Wrap: @Array<T> = [...]  or  @Map<K,V> = {...}
-        auto* kind_name = doc_.make_string(container_kind);
+        auto* kind_name = doc_.raw_string(container_kind);
         auto* dt = DatatypeData::create(doc_.arena(), kind_name, type_params);
         auto* tv = TypedValueData::create(doc_.arena(), dt);
         tv->value.set_pointer(container, doc_.base());
@@ -852,7 +852,7 @@ private:
     void* parse_parameter() {
         expect('?');
         auto name = read_identifier();
-        auto* arena_name = doc_.make_string(name);
+        auto* arena_name = doc_.raw_string(name);
         return ParameterData::create(doc_.arena(), arena_name);
     }
 
@@ -930,7 +930,7 @@ private:
 // ============================================================================
 
 HermesCtr parse(std::string_view text) {
-    auto doc = HermesCtr::create();
+    auto doc = make_doc();
     Parser parser(text, doc);
     void* root = parser.parse_document();
     doc.set_root_offset(doc.offset_of(root));
