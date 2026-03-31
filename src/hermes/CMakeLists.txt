@@ -44,3 +44,7 @@ target_link_libraries(hermes_exerciser_text PRIVATE logos_hermes)
 # Exerciser: HermesPath + Template
 add_executable(hermes_exerciser_path exerciser_path.cpp)
 target_link_libraries(hermes_exerciser_path PRIVATE logos_hermes)
+
+# Walkthrough: interactive API tour for debugging
+add_executable(hermes_walkthrough walkthrough.cpp)
+target_link_libraries(hermes_walkthrough PRIVATE logos_hermes)

@@ -1172,20 +1172,26 @@ HermesCtr parse_path(std::string_view expr) {
 
 HermesCtr eval_path(const HermesCtr& data, std::string_view expr) {
     auto ast_doc = parse_path(expr);
-    // Result document shares data's arena via the same MemHolder.
-    // Use set_root_override to store a data-relative offset without a separate arena.
     HermesCtr result = make_doc();
     PathEvaluator evaluator(result, data.base(), ast_doc.base());
     void* data_root = data.root<void>();
     void* ast_root = ast_doc.root<void>();
     void* val = evaluator.eval(data_root, ast_root);
     if (val) {
-        // val lives in data's arena — compute its offset from data.base().
-        arena_offset_t off = static_cast<arena_offset_t>(
-            static_cast<uint8_t*>(val) - data.base());
-        // Store it in a result doc that wraps the same holder.
-        result = HermesCtr(HermesCtrView(data.holder()));
-        result.set_root_override(off);
+        auto* vp = static_cast<uint8_t*>(val);
+        auto* db = data.base();
+        size_t data_used = data.arena().total_used();
+        if (vp >= db && vp < db + data_used) {
+            // val is in data's arena — return a view sharing data's holder.
+            arena_offset_t off = static_cast<arena_offset_t>(vp - db);
+            result = HermesCtr(HermesCtrView(data.holder()));
+            result.set_root_override(off);
+        } else {
+            // val is in result's arena (slice, wildcard, filter, etc.).
+            auto* rb = result.base();
+            arena_offset_t off = static_cast<arena_offset_t>(vp - rb);
+            result.set_root_offset(off);
+        }
     }
     return result;
 }
