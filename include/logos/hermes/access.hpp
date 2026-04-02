@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// HermesCtrAccess — internal accessor for HermesCtrView private members.
+//
+// This header is intentionally NOT included by document.hpp / view.hpp.
+// Only internal Hermes implementation files (parser, codec, path, etc.)
+// and low-level tools like the walkthrough should include it.
+//
+// External code should use the public HermesCtrView API only.
+
+#pragma once
+
+#include <logos/hermes/view.hpp>
+
+namespace logos::hermes {
+
+class HermesCtrAccess {
+public:
+    static uint8_t* base(const HermesCtrView& v)  { return v.base(); }
+    static uint8_t* base(HermesCtrView& v)         { return v.base(); }
+    static Arena& arena(const HermesCtrView& v)    { return v.arena(); }
+    static Arena& arena(HermesCtrView& v)           { return v.arena(); }
+
+    template <typename T>
+    static T* root(const HermesCtrView& v)         { return v.root<T>(); }
+    template <typename T>
+    static T* root(HermesCtrView& v)               { return v.root<T>(); }
+
+    static arena_offset_t offset_of(const HermesCtrView& v, const void* obj) {
+        return v.offset_of(obj);
+    }
+
+    static void set_root(HermesCtrView& v, void* obj) { v.set_root(obj); }
+    static void set_root_offset(HermesCtrView& v, arena_offset_t off) { v.set_root_offset(off); }
+    static void set_root_override(HermesCtrView& v, arena_offset_t off) { v.set_root_override(off); }
+    static bool has_root_override(const HermesCtrView& v) { return v.has_root_override(); }
+
+    static TinyObjectMap* raw_tiny_map(HermesCtrView& v, uint8_t cap = 4)  { return v.raw_tiny_map(cap); }
+    static ObjectArray*   raw_array(HermesCtrView& v, uint64_t cap = 4)    { return v.raw_array(cap); }
+    static ObjectMap*     raw_object_map(HermesCtrView& v, uint8_t log2 = 3) { return v.raw_object_map(log2); }
+    static ArenaString*   raw_string(HermesCtrView& v, std::string_view s) { return v.raw_string(s); }
+
+    template <typename T>
+        requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
+    static T* make_value(HermesCtrView& v, T value) { return v.make_value<T>(value); }
+};
+
+} // namespace logos::hermes

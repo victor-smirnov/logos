@@ -2,7 +2,7 @@
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 
-#include <logos/hermes/view.hpp>
+#include <logos/hermes/access.hpp>
 #include <logos/verification/assert.hpp>
 
 namespace logos::hermes {
@@ -24,7 +24,7 @@ static AnyVal resolve_for_arena(const ObjectView& value, MemHolder* dst_holder) 
     void* copy = copy_object_into(src_obj, value.holder()->base(), dst);
 
     AnyVal result;
-    result.set_pointer(copy, dst.base());  // re-fetched after possible arena growth
+    result.set_pointer(copy, HermesCtrAccess::base(dst));  // re-fetched after possible arena growth
     return result;
 }
 

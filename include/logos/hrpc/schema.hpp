@@ -11,6 +11,7 @@
 
 #include <logos/hrpc/common.hpp>
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/access.hpp>
 #include <logos/hermes/view.hpp>
 #include <logos/hermes/any_val.hpp>
 #include <logos/hermes/named_code.hpp>
@@ -94,8 +95,8 @@ struct Request {
         Request rq;
         rq.doc = std::move(doc);
         // Root is a TinyObjectMap.
-        auto* root_ptr = rq.doc.root<logos::hermes::TinyObjectMap>();
-        rq.map = TinyMapView(rq.doc.offset_of(root_ptr), rq.doc.holder());
+        auto* root_ptr = logos::hermes::HermesCtrAccess::root<logos::hermes::TinyObjectMap>(rq.doc);
+        rq.map = TinyMapView(logos::hermes::HermesCtrAccess::offset_of(rq.doc, root_ptr), rq.doc.holder());
         return rq;
     }
 
@@ -187,8 +188,8 @@ struct Response {
     static Response from_doc(HermesCtr doc) {
         Response rs;
         rs.doc = std::move(doc);
-        auto* root_ptr = rs.doc.root<logos::hermes::TinyObjectMap>();
-        rs.map = TinyMapView(rs.doc.offset_of(root_ptr), rs.doc.holder());
+        auto* root_ptr = logos::hermes::HermesCtrAccess::root<logos::hermes::TinyObjectMap>(rs.doc);
+        rs.map = TinyMapView(logos::hermes::HermesCtrAccess::offset_of(rs.doc, root_ptr), rs.doc.holder());
         return rs;
     }
 
@@ -245,8 +246,8 @@ struct StreamMessage {
     static StreamMessage from_doc(HermesCtr doc) {
         StreamMessage msg;
         msg.doc = std::move(doc);
-        auto* root_ptr = msg.doc.root<logos::hermes::TinyObjectMap>();
-        msg.map = TinyMapView(msg.doc.offset_of(root_ptr), msg.doc.holder());
+        auto* root_ptr = logos::hermes::HermesCtrAccess::root<logos::hermes::TinyObjectMap>(msg.doc);
+        msg.map = TinyMapView(logos::hermes::HermesCtrAccess::offset_of(msg.doc, root_ptr), msg.doc.holder());
         return msg;
     }
 
@@ -283,8 +284,8 @@ struct ConnectionMetadata {
     static ConnectionMetadata from_doc(HermesCtr doc) {
         ConnectionMetadata meta;
         meta.doc = std::move(doc);
-        auto* root_ptr = meta.doc.root<logos::hermes::TinyObjectMap>();
-        meta.map = TinyMapView(meta.doc.offset_of(root_ptr), meta.doc.holder());
+        auto* root_ptr = logos::hermes::HermesCtrAccess::root<logos::hermes::TinyObjectMap>(meta.doc);
+        meta.map = TinyMapView(logos::hermes::HermesCtrAccess::offset_of(meta.doc, root_ptr), meta.doc.holder());
         return meta;
     }
 

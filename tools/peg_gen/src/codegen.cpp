@@ -556,6 +556,7 @@ private:
         w.line("// SPDX-License-Identifier: Apache-2.0");
         w.line();
         w.fmt("#include \"{}.hpp\"", g_.output);
+        w.line("#include <logos/hermes/access.hpp>");
         w.line("#include <logos/verification/assert.hpp>");
         w.line("#include <charconv>");
         w.line("#include <cctype>");
@@ -932,7 +933,7 @@ private:
             w.fmt("AnyVal root = rule_{}();", e);
             w.fmt("LOGOS_ASSERT(!root.is_null(), \"{}-PARSE-001\", \"parse_{}: expected {}\");",
                   to_upper(g_.name), e, e);
-            w.line("doc_.set_root_offset(root.to_offset());");
+            w.line("logos::hermes::HermesCtrAccess::set_root_offset(doc_, root.to_offset());");
             w.line("return std::move(doc_);");
             w.dedent();
             w.line("}");
@@ -1237,7 +1238,7 @@ private:
     void emit_action(CodeWriter& w, const Action& action,
                      const std::vector<std::string>& captures) {
         int slot_count = int(action.fields.size()) + 1; // +1 for CODE
-        w.fmt("auto* node = doc_.raw_tiny_map({});", slot_count);
+        w.fmt("auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, {});", slot_count);
 
         for (const auto& field : action.fields) {
             const auto& expr = field.expr;
@@ -1250,7 +1251,7 @@ private:
                 // rule captures hold arena object offsets.
                 size_t idx = size_t(expr.index);
                 if (idx < captures.size() && !captures[idx].empty()) {
-                    w.fmt("node->put({}, {}, doc_.arena());",
+                    w.fmt("node->put({}, {}, logos::hermes::HermesCtrAccess::arena(doc_));",
                           field_const, captures[idx]);
                 } else {
                     w.fmt("// {} : ${}  — capture index out of range", field.name, idx);
@@ -1262,26 +1263,26 @@ private:
                 // $... — use the rule-captures collector built during item matching.
                 // rcap_VAR was declared before the items and populated by every RULE_REF.
                 // TOKEN_REF captures are NOT included — they're structural punctuation.
-                w.fmt("node->put({}, AnyVal::from_offset({}.offset()), doc_.arena());",
+                w.fmt("node->put({}, AnyVal::from_offset({}.offset()), logos::hermes::HermesCtrAccess::arena(doc_));",
                       field_const, rcap_var_);
                 break;
             }
 
             case int32_t(ast::STR_LIT): {
                 // Symbolic name (e.g. MAP_NODE) → NamedCode value.
-                w.fmt("node->put({}, AnyVal::from_value({}::{}), doc_.arena());",
+                w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::hermes::HermesCtrAccess::arena(doc_));",
                       field_const, ast_ns_, expr.value);
                 break;
             }
 
             case int32_t(ast::INT_LIT): {
-                w.fmt("node->put({}, AnyVal::from_value(int32_t({})), doc_.arena());",
+                w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::hermes::HermesCtrAccess::arena(doc_));",
                       field_const, expr.int_val);
                 break;
             }
 
             case int32_t(ast::BOOL_LIT): {
-                w.fmt("node->put({}, AnyVal::from_value(uint8_t({})), doc_.arena());",
+                w.fmt("node->put({}, AnyVal::from_value(uint8_t({})), logos::hermes::HermesCtrAccess::arena(doc_));",
                       field_const, expr.int_val);
                 break;
             }
@@ -1297,7 +1298,7 @@ private:
         w.line("{");
         w.indent();
         w.line("AnyVal result_;");
-        w.line("result_.set_pointer(node, doc_.base());");
+        w.line("result_.set_pointer(node, logos::hermes::HermesCtrAccess::base(doc_));");
         w.line("return result_;");
         w.dedent();
         w.line("}");

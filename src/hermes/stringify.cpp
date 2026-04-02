@@ -3,6 +3,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/stringify.hpp>
+#include <logos/hermes/access.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
@@ -20,9 +21,9 @@ public:
     Stringifier(bool pretty) : base_(nullptr), pretty_(pretty), indent_(0) {}
 
     void stringify_root(const HermesCtr& doc) {
-        base_ = const_cast<uint8_t*>(doc.base());
+        base_ = const_cast<uint8_t*>(HermesCtrAccess::base(doc));
         if (!doc.has_root()) { out_ += "null"; return; }
-        auto* root = static_cast<const uint8_t*>(doc.root<void>());
+        auto* root = static_cast<const uint8_t*>(HermesCtrAccess::root<void>(doc));
         stringify_tagged(root);
     }
 

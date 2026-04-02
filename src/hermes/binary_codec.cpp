@@ -3,6 +3,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/binary_codec.hpp>
+#include <logos/hermes/access.hpp>
 #include <logos/hermes/varint.hpp>
 #include <logos/verification/assert.hpp>
 
@@ -20,10 +21,10 @@ public:
         LOGOS_ASSERT(doc.has_root(), "HERMES-BINARY-001",
             "Cannot encode a document without a root");
 
-        base_ = doc.base();
+        base_ = HermesCtrAccess::base(doc);
 
         // Encode root object from its arena location.
-        const auto* root_bytes = static_cast<const uint8_t*>(doc.root<void>());
+        const auto* root_bytes = static_cast<const uint8_t*>(HermesCtrAccess::root<void>(doc));
         encode_tagged_object(root_bytes);
     }
 
@@ -200,8 +201,8 @@ public:
 
     HermesCtr decode() {
         auto doc = make_doc();
-        void* root = decode_tagged_object(doc.arena());
-        doc.set_root_offset(doc.offset_of(root));
+        void* root = decode_tagged_object(HermesCtrAccess::arena(doc));
+        HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
         return doc;
     }
 

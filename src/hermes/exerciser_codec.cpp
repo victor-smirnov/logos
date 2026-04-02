@@ -2,6 +2,7 @@
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 
+#include <logos/hermes/access.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/verification/assert.hpp>
@@ -29,15 +30,15 @@ static void test_deep_copy_tiny_map_with_pointers() {
     // Key 1 = pointer to string
     auto s = doc.make_string("hello from pointer");
     map.put(1, AnyVal{});
-    map.slot(1)->set_pointer(s.ptr(), doc.base());
+    map.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
     // Key 2 = embedded float
     map.put(2, AnyVal::from_value(float(2.5f)));
 
     // Compactify (deep copy).
     auto compact = compactify(doc);
-    uint8_t* cb = compact.base();
-    auto* cmap = compact.root<TinyObjectMap>();
+    uint8_t* cb = HermesCtrAccess::base(compact);
+    auto* cmap = HermesCtrAccess::root<TinyObjectMap>(compact);
 
     LOGOS_ASSERT(cmap->size() == 3, "HERMES-DEEPCOPY-001", "");
     LOGOS_ASSERT(cmap->get(0, cb).as_value<int32_t>() == 42, "HERMES-DEEPCOPY-001", "");
@@ -68,11 +69,11 @@ static void test_deep_copy_object_map() {
     // Add a pointer-mode value.
     auto s = doc.make_string("value_string");
     map.put("text", AnyVal{});
-    map.get_slot("text")->set_pointer(s.ptr(), doc.base());
+    map.get_slot("text")->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
     auto compact = compactify(doc);
-    uint8_t* cb = compact.base();
-    auto* cmap = compact.root<ObjectMap>();
+    uint8_t* cb = HermesCtrAccess::base(compact);
+    auto* cmap = HermesCtrAccess::root<ObjectMap>(compact);
 
     LOGOS_ASSERT(cmap->size() == 3, "HERMES-DEEPCOPY-002",
         "Compacted ObjectMap must have 3 entries, got {}", cmap->size());
@@ -107,8 +108,8 @@ static void test_binary_tiny_map() {
     LOGOS_ASSERT(!bytes.empty(), "HERMES-BINARY-001", "Encoded bytes must not be empty");
 
     auto decoded = binary_decode(bytes.data(), bytes.size());
-    uint8_t* db = decoded.base();
-    auto* dmap = decoded.root<TinyObjectMap>();
+    uint8_t* db = HermesCtrAccess::base(decoded);
+    auto* dmap = HermesCtrAccess::root<TinyObjectMap>(decoded);
 
     LOGOS_ASSERT(dmap->size() == 3, "HERMES-BINARY-003",
         "Decoded map must have 3 entries, got {}", dmap->size());
@@ -137,9 +138,9 @@ static void test_binary_object_array() {
 
     auto bytes = binary_encode(doc);
     auto decoded = binary_decode(bytes.data(), bytes.size());
-    uint8_t* db = decoded.base();
+    uint8_t* db = HermesCtrAccess::base(decoded);
 
-    auto* darr = decoded.root<ObjectArray>();
+    auto* darr = HermesCtrAccess::root<ObjectArray>(decoded);
     LOGOS_ASSERT(darr->size() == 10, "HERMES-BINARY-003", "");
     for (int i = 0; i < 10; ++i) {
         LOGOS_ASSERT(darr->get(i, db).as_value<int32_t>() == i * 100, "HERMES-BINARY-003",
@@ -166,9 +167,9 @@ static void test_binary_object_map() {
 
     auto bytes = binary_encode(doc);
     auto decoded = binary_decode(bytes.data(), bytes.size());
-    uint8_t* db = decoded.base();
+    uint8_t* db = HermesCtrAccess::base(decoded);
 
-    auto* dmap = decoded.root<ObjectMap>();
+    auto* dmap = HermesCtrAccess::root<ObjectMap>(decoded);
     LOGOS_ASSERT(dmap->size() == 2, "HERMES-BINARY-003",
         "Decoded map must have 2 entries, got {}", dmap->size());
     LOGOS_ASSERT(dmap->get("name", db).as_value<int32_t>() == 42, "HERMES-BINARY-003", "");
@@ -195,20 +196,20 @@ static void test_binary_nested() {
     // Key 1 = pointer to string
     auto s = doc.make_string("nested_string");
     root.put(1, AnyVal{});
-    root.slot(1)->set_pointer(s.ptr(), doc.base());
+    root.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
     // Key 2 = pointer to an array
     auto inner_arr = doc.make_array();
     inner_arr.push_back(AnyVal::from_value(int32_t(10)));
     inner_arr.push_back(AnyVal::from_value(int32_t(20)));
     root.put(2, AnyVal{});
-    root.slot(2)->set_pointer(inner_arr.ptr(), doc.base());
+    root.slot(2)->set_pointer(inner_arr.ptr(), HermesCtrAccess::base(doc));
 
     auto bytes = binary_encode(doc);
     auto decoded = binary_decode(bytes.data(), bytes.size());
-    uint8_t* db = decoded.base();
+    uint8_t* db = HermesCtrAccess::base(decoded);
 
-    auto* droot = decoded.root<TinyObjectMap>();
+    auto* droot = HermesCtrAccess::root<TinyObjectMap>(decoded);
     LOGOS_ASSERT(droot->size() == 3, "HERMES-BINARY-004", "");
     LOGOS_ASSERT(droot->get(0, db).as_value<int32_t>() == 1, "HERMES-BINARY-004", "");
 

@@ -2,6 +2,7 @@
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 
+#include <logos/hermes/access.hpp>
 #include <logos/hermes/text_parser.hpp>
 #include <logos/hermes/stringify.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
@@ -28,32 +29,32 @@ static void test_parse_integers() {
 
     {
         auto doc = parse("42");
-        auto* root = doc.root<int32_t>();
+        auto* root = HermesCtrAccess::root<int32_t>(doc);
         LOGOS_ASSERT(*root == 42, "HERMES-PARSE-001", "Expected 42, got {}", *root);
     }
     {
         auto doc = parse("-7");
-        auto* root = doc.root<int32_t>();
+        auto* root = HermesCtrAccess::root<int32_t>(doc);
         LOGOS_ASSERT(*root == -7, "HERMES-PARSE-001", "Expected -7, got {}", *root);
     }
     {
         auto doc = parse("100ll");
-        auto* root = doc.root<int64_t>();
+        auto* root = HermesCtrAccess::root<int64_t>(doc);
         LOGOS_ASSERT(*root == 100, "HERMES-PARSE-001", "");
     }
     {
         auto doc = parse("255_u8");
-        auto* root = doc.root<uint8_t>();
+        auto* root = HermesCtrAccess::root<uint8_t>(doc);
         LOGOS_ASSERT(*root == 255, "HERMES-PARSE-001", "");
     }
     {
         auto doc = parse("0xFF_u32");
-        auto* root = doc.root<uint32_t>();
+        auto* root = HermesCtrAccess::root<uint32_t>(doc);
         LOGOS_ASSERT(*root == 255, "HERMES-PARSE-001", "");
     }
     {
         auto doc = parse("0b1010_u16");
-        auto* root = doc.root<uint16_t>();
+        auto* root = HermesCtrAccess::root<uint16_t>(doc);
         LOGOS_ASSERT(*root == 10, "HERMES-PARSE-001", "");
     }
 
@@ -66,22 +67,22 @@ static void test_parse_floats() {
 
     {
         auto doc = parse("3.14");
-        auto* root = doc.root<float>();
+        auto* root = HermesCtrAccess::root<float>(doc);
         LOGOS_ASSERT(std::abs(*root - 3.14f) < 0.001f, "HERMES-PARSE-002", "");
     }
     {
         auto doc = parse("3.14f");
-        auto* root = doc.root<float>();
+        auto* root = HermesCtrAccess::root<float>(doc);
         LOGOS_ASSERT(std::abs(*root - 3.14f) < 0.001f, "HERMES-PARSE-002", "");
     }
     {
         auto doc = parse("2.718d");
-        auto* root = doc.root<double>();
+        auto* root = HermesCtrAccess::root<double>(doc);
         LOGOS_ASSERT(std::abs(*root - 2.718) < 0.001, "HERMES-PARSE-002", "");
     }
     {
         auto doc = parse("1e3");
-        auto* root = doc.root<float>();
+        auto* root = HermesCtrAccess::root<float>(doc);
         LOGOS_ASSERT(std::abs(*root - 1000.0f) < 0.1f, "HERMES-PARSE-002", "");
     }
 
@@ -94,12 +95,12 @@ static void test_parse_booleans_null() {
 
     {
         auto doc = parse("true");
-        auto* root = doc.root<uint8_t>();
+        auto* root = HermesCtrAccess::root<uint8_t>(doc);
         LOGOS_ASSERT(*root == 1, "HERMES-PARSE-003", "true must be 1");
     }
     {
         auto doc = parse("false");
-        auto* root = doc.root<uint8_t>();
+        auto* root = HermesCtrAccess::root<uint8_t>(doc);
         LOGOS_ASSERT(*root == 0, "HERMES-PARSE-003", "false must be 0");
     }
     {
@@ -116,27 +117,27 @@ static void test_parse_strings() {
 
     {
         auto doc = parse("\"hello\"");
-        auto* root = doc.root<ArenaString>();
+        auto* root = HermesCtrAccess::root<ArenaString>(doc);
         LOGOS_ASSERT(*root == "hello", "HERMES-PARSE-004", "");
     }
     {
         auto doc = parse("\"line1\\nline2\"");
-        auto* root = doc.root<ArenaString>();
+        auto* root = HermesCtrAccess::root<ArenaString>(doc);
         LOGOS_ASSERT(*root == "line1\nline2", "HERMES-PARSE-004", "");
     }
     {
         auto doc = parse("'raw string'");
-        auto* root = doc.root<ArenaString>();
+        auto* root = HermesCtrAccess::root<ArenaString>(doc);
         LOGOS_ASSERT(*root == "raw string", "HERMES-PARSE-004", "");
     }
     {
         auto doc = parse("'can\\'t'");
-        auto* root = doc.root<ArenaString>();
+        auto* root = HermesCtrAccess::root<ArenaString>(doc);
         LOGOS_ASSERT(*root == "can't", "HERMES-PARSE-004", "");
     }
     {
         auto doc = parse("\"\\u0041\""); // 'A'
-        auto* root = doc.root<ArenaString>();
+        auto* root = HermesCtrAccess::root<ArenaString>(doc);
         LOGOS_ASSERT(*root == "A", "HERMES-PARSE-004", "Unicode escape failed");
     }
 
@@ -153,8 +154,8 @@ static void test_parse_array() {
 
     {
         auto doc = parse("[1, 2, 3]");
-        uint8_t* base = doc.base();
-        auto* arr = doc.root<ObjectArray>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* arr = HermesCtrAccess::root<ObjectArray>(doc);
         LOGOS_ASSERT(arr->size() == 3, "HERMES-PARSE-005",
             "Array size must be 3, got {}", arr->size());
         LOGOS_ASSERT(arr->get(0, base).as_value<int32_t>() == 1, "HERMES-PARSE-005", "");
@@ -163,14 +164,14 @@ static void test_parse_array() {
     }
     {
         auto doc = parse("[]");
-        auto* arr = doc.root<ObjectArray>();
+        auto* arr = HermesCtrAccess::root<ObjectArray>(doc);
         LOGOS_ASSERT(arr->size() == 0, "HERMES-PARSE-005", "");
     }
     {
         // Mixed types.
         auto doc = parse("[1, 3.14, \"hello\"]");
-        uint8_t* base = doc.base();
-        auto* arr = doc.root<ObjectArray>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* arr = HermesCtrAccess::root<ObjectArray>(doc);
         LOGOS_ASSERT(arr->size() == 3, "HERMES-PARSE-005", "");
         LOGOS_ASSERT(arr->get(0, base).as_value<int32_t>() == 1, "HERMES-PARSE-005", "");
         // Float embedded.
@@ -190,8 +191,8 @@ static void test_parse_map() {
 
     {
         auto doc = parse("{name: \"Alice\", age: 30}");
-        uint8_t* base = doc.base();
-        auto* map = doc.root<ObjectMap>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* map = HermesCtrAccess::root<ObjectMap>(doc);
         LOGOS_ASSERT(map->size() == 2, "HERMES-PARSE-006",
             "Map size must be 2, got {}", map->size());
         LOGOS_ASSERT(map->get("age", base).as_value<int32_t>() == 30, "HERMES-PARSE-006", "");
@@ -203,14 +204,14 @@ static void test_parse_map() {
     }
     {
         auto doc = parse("{}");
-        auto* map = doc.root<ObjectMap>();
+        auto* map = HermesCtrAccess::root<ObjectMap>(doc);
         LOGOS_ASSERT(map->size() == 0, "HERMES-PARSE-006", "");
     }
     {
         // Quoted keys.
         auto doc = parse("{\"key 1\": 1, \"key 2\": 2}");
-        uint8_t* base = doc.base();
-        auto* map = doc.root<ObjectMap>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* map = HermesCtrAccess::root<ObjectMap>(doc);
         LOGOS_ASSERT(map->size() == 2, "HERMES-PARSE-006", "");
         LOGOS_ASSERT(map->get("key 1", base).as_value<int32_t>() == 1, "HERMES-PARSE-006", "");
     }
@@ -229,8 +230,8 @@ static void test_parse_nested() {
         rating: 4.5
     })");
 
-    uint8_t* base = doc.base();
-    auto* root = doc.root<ObjectMap>();
+    uint8_t* base = HermesCtrAccess::base(doc);
+    auto* root = HermesCtrAccess::root<ObjectMap>(doc);
     LOGOS_ASSERT(root->size() == 4, "HERMES-PARSE-007",
         "Root map must have 4 entries, got {}", root->size());
 
@@ -273,7 +274,7 @@ static void test_parse_comments() {
         ]
     )");
 
-    auto* arr = doc.root<ObjectArray>();
+    auto* arr = HermesCtrAccess::root<ObjectArray>(doc);
     LOGOS_ASSERT(arr->size() == 3, "HERMES-PARSE-008", "");
 
     LOGOS_TRACE("hermes.parse.comments", "status", "pass");
@@ -331,8 +332,8 @@ static void test_parse_type_declarations() {
     // Simple type name
     {
         auto doc = parse("Integer");
-        uint8_t* base = doc.base();
-        auto* dt = doc.root<DatatypeData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->name_view(base) == "Integer", "HERMES-PARSE-TYPE-001",
             "Expected 'Integer', got '{}'", dt->name_view(base));
         LOGOS_ASSERT(!dt->has_params(), "HERMES-PARSE-TYPE-001", "No params expected");
@@ -341,8 +342,8 @@ static void test_parse_type_declarations() {
     // Parameterized type
     {
         auto doc = parse("Array<Integer>");
-        uint8_t* base = doc.base();
-        auto* dt = doc.root<DatatypeData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->name_view(base) == "Array", "HERMES-PARSE-TYPE-002", "");
         LOGOS_ASSERT(dt->has_params(), "HERMES-PARSE-TYPE-002", "Must have params");
         LOGOS_ASSERT(dt->params.get(base)->size() == 1, "HERMES-PARSE-TYPE-002", "");
@@ -351,8 +352,8 @@ static void test_parse_type_declarations() {
     // Multi-param type
     {
         auto doc = parse("Map<Varchar, Integer>");
-        uint8_t* base = doc.base();
-        auto* dt = doc.root<DatatypeData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->name_view(base) == "Map", "HERMES-PARSE-TYPE-003", "");
         LOGOS_ASSERT(dt->params.get(base)->size() == 2, "HERMES-PARSE-TYPE-003", "");
     }
@@ -360,8 +361,8 @@ static void test_parse_type_declarations() {
     // Constructor args
     {
         auto doc = parse("Decimal(10, 2)");
-        uint8_t* base = doc.base();
-        auto* dt = doc.root<DatatypeData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->name_view(base) == "Decimal", "HERMES-PARSE-TYPE-004", "");
         LOGOS_ASSERT(dt->has_ctr(), "HERMES-PARSE-TYPE-004", "Must have constructor args");
         LOGOS_ASSERT(dt->ctr.get(base)->size() == 2, "HERMES-PARSE-TYPE-004", "");
@@ -370,8 +371,8 @@ static void test_parse_type_declarations() {
     // Qualified name
     {
         auto doc = parse("std::vector<int>");
-        uint8_t* base = doc.base();
-        auto* dt = doc.root<DatatypeData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->name_view(base) == "std::vector", "HERMES-PARSE-TYPE-005", "");
         LOGOS_ASSERT(dt->has_params(), "HERMES-PARSE-TYPE-005", "");
     }
@@ -379,8 +380,8 @@ static void test_parse_type_declarations() {
     // C++ basic type
     {
         auto doc = parse("unsigned long long");
-        uint8_t* base = doc.base();
-        auto* dt = doc.root<DatatypeData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->name_view(base) == "unsigned long long", "HERMES-PARSE-TYPE-006",
             "Expected 'unsigned long long', got '{}'", dt->name_view(base));
     }
@@ -398,8 +399,8 @@ static void test_parse_typed_values() {
 
     {
         auto doc = parse("@Integer = 42");
-        uint8_t* base = doc.base();
-        auto* tv = doc.root<TypedValueData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* tv = HermesCtrAccess::root<TypedValueData>(doc);
 
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(tv));
         LOGOS_ASSERT(tag.type_code() == type_hash::TypedValue, "HERMES-PARSE-TV-001",
@@ -412,8 +413,8 @@ static void test_parse_typed_values() {
 
     {
         auto doc = parse("@Decimal(50, 3) = \"19345\"");
-        uint8_t* base = doc.base();
-        auto* tv = doc.root<TypedValueData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* tv = HermesCtrAccess::root<TypedValueData>(doc);
         LOGOS_ASSERT(tv->datatype.get(base)->name_view(base) == "Decimal", "HERMES-PARSE-TV-002", "");
         LOGOS_ASSERT(tv->datatype.get(base)->has_ctr(), "HERMES-PARSE-TV-002", "");
         LOGOS_ASSERT(tv->value.is_pointer(), "HERMES-PARSE-TV-002", "String must be pointer");
@@ -433,8 +434,8 @@ static void test_parse_parameters() {
 
     {
         auto doc = parse("?userId");
-        uint8_t* base = doc.base();
-        auto* p = doc.root<ParameterData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* p = HermesCtrAccess::root<ParameterData>(doc);
 
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(p));
         LOGOS_ASSERT(tag.type_code() == type_hash::Parameter, "HERMES-PARSE-PARAM-001",
@@ -492,8 +493,8 @@ static void test_parse_typed_containers() {
 
     {
         auto doc = parse("<Integer>[1, 2, 3]");
-        uint8_t* base = doc.base();
-        auto* tv = doc.root<TypedValueData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* tv = HermesCtrAccess::root<TypedValueData>(doc);
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(tv));
         LOGOS_ASSERT(tag.type_code() == type_hash::TypedValue, "HERMES-PARSE-TC-001",
             "Typed container must produce TypedValue");
@@ -507,8 +508,8 @@ static void test_parse_typed_containers() {
 
     {
         auto doc = parse("<Varchar, Integer>{name: 1, age: 2}");
-        uint8_t* base = doc.base();
-        auto* tv = doc.root<TypedValueData>();
+        uint8_t* base = HermesCtrAccess::base(doc);
+        auto* tv = HermesCtrAccess::root<TypedValueData>(doc);
         auto* dt = tv->datatype.get(base);
         LOGOS_ASSERT(dt->name_view(base) == "Map", "HERMES-PARSE-TC-002", "");
         LOGOS_ASSERT(dt->params.get(base)->size() == 2, "HERMES-PARSE-TC-002", "");
@@ -528,13 +529,13 @@ static void test_parse_octal() {
     {
         // Memoria style: 0 prefix
         auto doc = parse("010");  // octal 8
-        auto* root = doc.root<int32_t>();
+        auto* root = HermesCtrAccess::root<int32_t>(doc);
         LOGOS_ASSERT(*root == 8, "HERMES-PARSE-OCT-001",
             "010 (octal) must be 8, got {}", *root);
     }
     {
         auto doc = parse("0o77");  // explicit octal
-        auto* root = doc.root<int32_t>();
+        auto* root = HermesCtrAccess::root<int32_t>(doc);
         LOGOS_ASSERT(*root == 63, "HERMES-PARSE-OCT-001",
             "0o77 must be 63, got {}", *root);
     }
@@ -553,7 +554,7 @@ static void test_parse_surrogate_pairs() {
     {
         // U+1F600 (😀) encoded as surrogate pair: \uD83D\uDE00
         auto doc = parse("\"\\uD83D\\uDE00\"");
-        auto* root = doc.root<ArenaString>();
+        auto* root = HermesCtrAccess::root<ArenaString>(doc);
         auto sv = root->view();
         // UTF-8 encoding of U+1F600: F0 9F 98 80
         LOGOS_ASSERT(sv.size() == 4, "HERMES-PARSE-SURR-001",
@@ -577,7 +578,7 @@ static void test_qualifiers() {
 
     {
         auto doc = parse("int*");
-        auto* dt = doc.root<DatatypeData>();
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->ptr_count() == 1, "HERMES-PARSE-QUAL-001",
             "ptr_count must be 1, got {}", dt->ptr_count());
         std::string s = stringify(doc);
@@ -585,13 +586,13 @@ static void test_qualifiers() {
     }
     {
         auto doc = parse("int const*");
-        auto* dt = doc.root<DatatypeData>();
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->ptr_count() == 1, "HERMES-PARSE-QUAL-002", "");
         LOGOS_ASSERT(dt->is_const(), "HERMES-PARSE-QUAL-002", "");
     }
     {
         auto doc = parse("int&");
-        auto* dt = doc.root<DatatypeData>();
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->ref_count() == 1, "HERMES-PARSE-QUAL-003",
             "ref_count must be 1, got {}", dt->ref_count());
         std::string s = stringify(doc);
@@ -599,7 +600,7 @@ static void test_qualifiers() {
     }
     {
         auto doc = parse("int&&");
-        auto* dt = doc.root<DatatypeData>();
+        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->ref_count() == 2, "HERMES-PARSE-QUAL-004", "");
         std::string s = stringify(doc);
         LOGOS_ASSERT(s == "int&&", "HERMES-PARSE-QUAL-004", "Expected 'int&&', got '{}'", s);

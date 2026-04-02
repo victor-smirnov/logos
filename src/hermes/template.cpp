@@ -3,6 +3,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/template.hpp>
+#include <logos/hermes/access.hpp>
 #include <logos/hermes/path.hpp>
 #include <logos/hermes/named_code.hpp>
 #include <logos/hermes/stringify.hpp>
@@ -54,7 +55,7 @@ public:
         : text_(text), pos_(0), doc_(doc) {}
 
     void* parse() {
-        auto* stmts = doc_.raw_array();
+        auto* stmts = HermesCtrAccess::raw_array(doc_);
         parse_block(stmts, "");
         return stmts;
     }
@@ -84,9 +85,9 @@ private:
             // Emit text node if any.
             if (pos_ > text_start) {
                 auto sv = text_.substr(text_start, pos_ - text_start);
-                auto* s = doc_.raw_string(sv);
-                stmts->push_back(AnyVal{}, doc_.arena());
-                stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(s, doc_.base());
+                auto* s = HermesCtrAccess::raw_string(doc_,sv);
+                stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+                stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(s, HermesCtrAccess::base(doc_));
             }
 
             if (at_end()) break;
@@ -120,14 +121,14 @@ private:
         // Parse the expression as HermesPath AST.
         auto expr_doc = parse_path(expr_text);
 
-        auto* expr_str = doc_.raw_string(expr_text);
-        auto* node = doc_.raw_tiny_map(4);
-        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::VAR_STMT), doc_.arena());
-        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
-        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
+        auto* expr_str = HermesCtrAccess::raw_string(doc_,expr_text);
+        auto* node = HermesCtrAccess::raw_tiny_map(doc_,4);
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::VAR_STMT), HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
 
-        stmts->push_back(AnyVal{}, doc_.arena());
-        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
+        stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
     }
 
     // Returns non-empty string if this statement is a block-terminating keyword
@@ -193,27 +194,27 @@ private:
         skip_to_close_tag();
 
         // Parse body.
-        auto* body = doc_.raw_array();
+        auto* body = HermesCtrAccess::raw_array(doc_);
         std::string end_kw = parse_block(body, "endfor");
         if (end_kw != "endfor") throw std::runtime_error("Template: expected 'endfor'");
 
         // Allocate strings first, then build the node.
         // All allocations happen before set_pointer to avoid any ordering issues.
-        auto* var_str = doc_.raw_string(var_name);
-        auto* expr_str = doc_.raw_string(expr_text);
+        auto* var_str = HermesCtrAccess::raw_string(doc_,var_name);
+        auto* expr_str = HermesCtrAccess::raw_string(doc_,expr_text);
 
-        auto* node = doc_.raw_tiny_map(8);
-        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::FOR_STMT), doc_.arena());
-        node->put(tpl_ast::VARIABLE, AnyVal{}, doc_.arena());
-        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
-        node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
+        auto* node = HermesCtrAccess::raw_tiny_map(doc_,8);
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::FOR_STMT), HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::VARIABLE, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_));
         // Now set pointers — all allocations are done, no more arena mutations.
-        node->slot(tpl_ast::VARIABLE, doc_.base())->set_pointer(var_str, doc_.base());
-        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
-        node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
+        node->slot(tpl_ast::VARIABLE, HermesCtrAccess::base(doc_))->set_pointer(var_str, HermesCtrAccess::base(doc_));
+        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
+        node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(body, HermesCtrAccess::base(doc_));
 
-        stmts->push_back(AnyVal{}, doc_.arena());
-        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
+        stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
     }
 
     void parse_if_stmt(ObjectArray* stmts, bool /*strip*/) {
@@ -221,75 +222,75 @@ private:
         std::string_view expr_text = read_until_close_tag();
         skip_to_close_tag();
 
-        auto* body = doc_.raw_array();
+        auto* body = HermesCtrAccess::raw_array(doc_);
         std::string end_kw = parse_block(body, "endif");
 
-        auto* expr_str = doc_.raw_string(expr_text);
-        auto* node = doc_.raw_tiny_map(8);
-        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), doc_.arena());
-        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
-        node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
-        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
-        node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
+        auto* expr_str = HermesCtrAccess::raw_string(doc_,expr_text);
+        auto* node = HermesCtrAccess::raw_tiny_map(doc_,8);
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
+        node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(body, HermesCtrAccess::base(doc_));
 
         // Handle else/elif chain.
         if (end_kw == "else") {
-            auto* else_body = doc_.raw_array();
+            auto* else_body = HermesCtrAccess::raw_array(doc_);
             parse_block(else_body, "endif");
-            auto* else_node = doc_.raw_tiny_map(4);
-            else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), doc_.arena());
-            else_node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
-            else_node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(else_body, doc_.base());
-            node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, doc_.arena());
-            node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(else_node, doc_.base());
+            auto* else_node = HermesCtrAccess::raw_tiny_map(doc_,4);
+            else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), HermesCtrAccess::arena(doc_));
+            else_node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_));
+            else_node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(else_body, HermesCtrAccess::base(doc_));
+            node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesCtrAccess::arena(doc_));
+            node->slot(tpl_ast::ELSE_BRANCH, HermesCtrAccess::base(doc_))->set_pointer(else_node, HermesCtrAccess::base(doc_));
         } else if (end_kw == "elif") {
             // Recursive: build a nested if from the elif.
-            auto* elif_stmts = doc_.raw_array();
+            auto* elif_stmts = HermesCtrAccess::raw_array(doc_);
             parse_if_stmt_with_expr(elif_stmts, elif_expr_);
             if (elif_stmts->size() > 0) {
-                node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, doc_.arena());
-                node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(
-                    elif_stmts->slot(0, doc_.base())->as_ptr<void>(doc_.base()), doc_.base());
+                node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesCtrAccess::arena(doc_));
+                node->slot(tpl_ast::ELSE_BRANCH, HermesCtrAccess::base(doc_))->set_pointer(
+                    elif_stmts->slot(0, HermesCtrAccess::base(doc_))->as_ptr<void>(HermesCtrAccess::base(doc_)), HermesCtrAccess::base(doc_));
             }
         }
 
-        stmts->push_back(AnyVal{}, doc_.arena());
-        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
+        stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
     }
 
     void parse_if_stmt_with_expr(ObjectArray* stmts, std::string_view expr_text) {
-        auto* body = doc_.raw_array();
+        auto* body = HermesCtrAccess::raw_array(doc_);
         std::string end_kw = parse_block(body, "endif");
 
-        auto* expr_str = doc_.raw_string(expr_text);
-        auto* node = doc_.raw_tiny_map(8);
-        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), doc_.arena());
-        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
-        node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
-        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
-        node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
+        auto* expr_str = HermesCtrAccess::raw_string(doc_,expr_text);
+        auto* node = HermesCtrAccess::raw_tiny_map(doc_,8);
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
+        node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(body, HermesCtrAccess::base(doc_));
 
         if (end_kw == "else") {
-            auto* else_body = doc_.raw_array();
+            auto* else_body = HermesCtrAccess::raw_array(doc_);
             parse_block(else_body, "endif");
-            auto* else_node = doc_.raw_tiny_map(4);
-            else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), doc_.arena());
-            else_node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
-            else_node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(else_body, doc_.base());
-            node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, doc_.arena());
-            node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(else_node, doc_.base());
+            auto* else_node = HermesCtrAccess::raw_tiny_map(doc_,4);
+            else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), HermesCtrAccess::arena(doc_));
+            else_node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_));
+            else_node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(else_body, HermesCtrAccess::base(doc_));
+            node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesCtrAccess::arena(doc_));
+            node->slot(tpl_ast::ELSE_BRANCH, HermesCtrAccess::base(doc_))->set_pointer(else_node, HermesCtrAccess::base(doc_));
         } else if (end_kw == "elif") {
-            auto* elif_stmts = doc_.raw_array();
+            auto* elif_stmts = HermesCtrAccess::raw_array(doc_);
             parse_if_stmt_with_expr(elif_stmts, elif_expr_);
             if (elif_stmts->size() > 0) {
-                node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, doc_.arena());
-                node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(
-                    elif_stmts->slot(0, doc_.base())->as_ptr<void>(doc_.base()), doc_.base());
+                node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesCtrAccess::arena(doc_));
+                node->slot(tpl_ast::ELSE_BRANCH, HermesCtrAccess::base(doc_))->set_pointer(
+                    elif_stmts->slot(0, HermesCtrAccess::base(doc_))->as_ptr<void>(HermesCtrAccess::base(doc_)), HermesCtrAccess::base(doc_));
             }
         }
 
-        stmts->push_back(AnyVal{}, doc_.arena());
-        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
+        stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
     }
 
     void parse_set_stmt(ObjectArray* stmts) {
@@ -301,17 +302,17 @@ private:
         std::string_view expr_text = read_until_close_tag();
         skip_to_close_tag();
 
-        auto* var_str = doc_.raw_string(var_name);
-        auto* expr_str = doc_.raw_string(expr_text);
-        auto* node = doc_.raw_tiny_map(4);
-        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::SET_STMT), doc_.arena());
-        node->put(tpl_ast::VARIABLE, AnyVal{}, doc_.arena());
-        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
-        node->slot(tpl_ast::VARIABLE, doc_.base())->set_pointer(var_str, doc_.base());
-        node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
+        auto* var_str = HermesCtrAccess::raw_string(doc_,var_name);
+        auto* expr_str = HermesCtrAccess::raw_string(doc_,expr_text);
+        auto* node = HermesCtrAccess::raw_tiny_map(doc_,4);
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::SET_STMT), HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::VARIABLE, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_));
+        node->slot(tpl_ast::VARIABLE, HermesCtrAccess::base(doc_))->set_pointer(var_str, HermesCtrAccess::base(doc_));
+        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
 
-        stmts->push_back(AnyVal{}, doc_.arena());
-        stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
+        stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
     }
 
     // --- Lexer helpers ---
@@ -404,20 +405,20 @@ private:
     // Build a fresh context doc with data + template variables.
     HermesCtr build_context() {
         auto ctx_doc = make_doc_multi();
-        auto* ctx = ctx_doc.raw_object_map();
-        ctx_doc.set_root(ctx);
+        auto* ctx = HermesCtrAccess::raw_object_map(ctx_doc);
+        HermesCtrAccess::set_root(ctx_doc, ctx);
 
         // Copy data fields.
-        void* data_root = data_.root<void>();
+        void* data_root = HermesCtrAccess::root<void>(data_);
         if (data_root) {
             auto* db = static_cast<const uint8_t*>(data_root);
             TypeTag tag = TypeTag::read_before(db);
             if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::ObjectMap) {
                 auto* data_map = static_cast<ObjectMap*>(data_root);
-                uint8_t* data_base = const_cast<uint8_t*>(data_.base());
+                uint8_t* data_base = const_cast<uint8_t*>(HermesCtrAccess::base(data_));
                 data_map->for_each([&](ArenaString* key, AnyVal* val) {
                     if (val->is_value()) {
-                        ctx->put(key->view(), *val, ctx_doc.arena());
+                        ctx->put(key->view(), *val, HermesCtrAccess::arena(ctx_doc));
                     } else if (val->is_pointer()) {
                         put_into_ctx(ctx, ctx_doc, key->view(), val->as_ptr<void>(data_base), data_base);
                     }
@@ -439,14 +440,14 @@ private:
 
         auto result = eval_path(ctx_doc, expr_text);
         if (!result.has_root()) return nullptr;
-        return result.root<void>();
+        return HermesCtrAccess::root<void>(result);
     }
 
     std::string eval_to_string(std::string_view expr_text) {
         auto ctx_doc = build_context();
         auto res = eval_path(ctx_doc, expr_text);
         if (!res.has_root()) return "";
-        return value_to_string(res.root<void>());
+        return value_to_string(HermesCtrAccess::root<void>(res));
     }
 
     std::string value_to_string(void* val) {
@@ -478,44 +479,44 @@ private:
     // NOTE: ctx may be invalidated after this call (arena growth). Re-derive via offset.
     void put_into_ctx(ObjectMap* ctx, HermesCtr& ctx_doc, std::string_view key, void* val,
                      uint8_t* val_base = nullptr) {
-        if (!val) { ctx->put(key, AnyVal{}, ctx_doc.arena()); return; }
+        if (!val) { ctx->put(key, AnyVal{}, HermesCtrAccess::arena(ctx_doc)); return; }
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         uint64_t tc = tag.type_code();
         // Embeddable scalars: store as embedded AnyVal (no pointer needed).
         switch (tc) {
             case type_hash::Integer:
-                ctx->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesCtrAccess::arena(ctx_doc));
                 return;
             case type_hash::UInteger:
-                ctx->put(key, AnyVal::from_value(*static_cast<const uint32_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const uint32_t*>(val), tc), HermesCtrAccess::arena(ctx_doc));
                 return;
             case type_hash::Boolean:
-                ctx->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesCtrAccess::arena(ctx_doc));
                 return;
             case type_hash::Real:
-                ctx->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), HermesCtrAccess::arena(ctx_doc));
                 return;
             case type_hash::SmallInt:
-                ctx->put(key, AnyVal::from_value(*static_cast<const int16_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const int16_t*>(val), tc), HermesCtrAccess::arena(ctx_doc));
                 return;
             case type_hash::TinyInt:
-                ctx->put(key, AnyVal::from_value(*static_cast<const int8_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const int8_t*>(val), tc), HermesCtrAccess::arena(ctx_doc));
                 return;
             case type_hash::Varchar: {
                 auto* s = static_cast<const ArenaString*>(val);
-                auto* copy = ArenaString::create(ctx_doc.arena(), s->view());
-                uint8_t* cb = ctx_doc.base();
-                ctx->put(key, AnyVal{}, ctx_doc.arena());
+                auto* copy = ArenaString::create(HermesCtrAccess::arena(ctx_doc), s->view());
+                uint8_t* cb = HermesCtrAccess::base(ctx_doc);
+                ctx->put(key, AnyVal{}, HermesCtrAccess::arena(ctx_doc));
                 ctx->get_slot(key, cb)->set_pointer(copy, cb);
                 return;
             }
             default: {
                 // Complex types (arrays, maps): deep-copy into ctx_doc so offsets are consistent.
-                uint8_t* vb = val_base ? val_base : const_cast<uint8_t*>(data_.base());
+                uint8_t* vb = val_base ? val_base : const_cast<uint8_t*>(HermesCtrAccess::base(data_));
                 void* copy = copy_object_into(val, vb, ctx_doc);
-                uint8_t* cb = ctx_doc.base();
-                ctx->put(key, AnyVal{}, ctx_doc.arena());
+                uint8_t* cb = HermesCtrAccess::base(ctx_doc);
+                ctx->put(key, AnyVal{}, HermesCtrAccess::arena(ctx_doc));
                 ctx->get_slot(key, cb)->set_pointer(copy, cb);
                 return;
             }
@@ -529,21 +530,21 @@ private:
         uint8_t th = slot->value_type_hash();
         switch (th) {
             case type_hash::Integer:
-                return scratch_.make_value<int32_t>(slot->as_value<int32_t>());
+                return HermesCtrAccess::make_value<int32_t>(scratch_, slot->as_value<int32_t>());
             case type_hash::UInteger:
-                return scratch_.make_value<uint32_t>(slot->as_value<uint32_t>());
+                return HermesCtrAccess::make_value<uint32_t>(scratch_, slot->as_value<uint32_t>());
             case type_hash::Boolean: {
                 TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
-                void* mem = scratch_.arena().allocate(1, 2, tag);
+                void* mem = HermesCtrAccess::arena(scratch_).allocate(1, 2, tag);
                 *static_cast<uint8_t*>(mem) = slot->as_value<uint8_t>();
                 return mem;
             }
             case type_hash::Real:
-                return scratch_.make_value<float>(slot->as_value<float>());
+                return HermesCtrAccess::make_value<float>(scratch_, slot->as_value<float>());
             case type_hash::SmallInt:
-                return scratch_.make_value<int16_t>(slot->as_value<int16_t>());
+                return HermesCtrAccess::make_value<int16_t>(scratch_, slot->as_value<int16_t>());
             case type_hash::TinyInt:
-                return scratch_.make_value<int8_t>(slot->as_value<int8_t>());
+                return HermesCtrAccess::make_value<int8_t>(scratch_, slot->as_value<int8_t>());
             default: return nullptr;
         }
     }
@@ -607,10 +608,10 @@ private:
         auto iter_result = eval_path_for_iterate(expr_str->view());
         if (!iter_result.has_root()) return;
 
-        auto* arr = iter_result.root<ObjectArray>();
+        auto* arr = HermesCtrAccess::root<ObjectArray>(iter_result);
         if (!arr) return;
 
-        uint8_t* iter_base = iter_result.base();
+        uint8_t* iter_base = HermesCtrAccess::base(iter_result);
         size_t stack_mark = var_stack_.size();
         for (uint64_t i = 0; i < arr->size(); ++i) {
             AnyVal* slot = const_cast<ObjectArray*>(arr)->slot(i, iter_base);
@@ -621,7 +622,7 @@ private:
             } else if (slot->is_value()) {
                 // Materialize embedded value into scratch arena.
                 elem = materialize_embedded(slot);
-                elem_base = scratch_.base();
+                elem_base = HermesCtrAccess::base(scratch_);
             }
 
             pop_vars_to(stack_mark);
@@ -673,15 +674,15 @@ HermesCtr parse_template(std::string_view tpl) {
     auto doc = make_doc();
     TemplateParser parser(tpl, doc);
     void* root = parser.parse();
-    doc.set_root_offset(doc.offset_of(root));
+    HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
     return doc;
 }
 
 std::string render_template(const HermesCtr& tpl, const HermesCtr& data) {
-    auto* stmts = tpl.root<ObjectArray>();
+    auto* stmts = HermesCtrAccess::root<ObjectArray>(tpl);
     if (!stmts) return "";
     TemplateRenderer renderer(data);
-    return renderer.render(stmts, const_cast<uint8_t*>(tpl.base()));
+    return renderer.render(stmts, const_cast<uint8_t*>(HermesCtrAccess::base(tpl)));
 }
 
 std::string render(std::string_view tpl_text, const HermesCtr& data) {

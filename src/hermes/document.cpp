@@ -3,6 +3,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/access.hpp>
 #include <logos/verification/assert.hpp>
 
 #include <cstring>
@@ -174,20 +175,20 @@ HermesCtr compactify(const HermesCtrView& src) {
     LOGOS_ASSERT(src.has_root(), "HERMES-DOC-001",
         "Cannot compactify a document without a root object");
 
-    auto dst = make_doc(src.arena().total_used() * 2);
-    DeepCopyState state(dst.arena(), src.base());
+    auto dst = make_doc(HermesCtrAccess::arena(src).total_used() * 2);
+    DeepCopyState state(HermesCtrAccess::arena(dst), HermesCtrAccess::base(src));
 
-    arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(src.base())->root_offset;
-    const void* src_root = src.base() + root_off.value();
+    arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(HermesCtrAccess::base(src))->root_offset;
+    const void* src_root = HermesCtrAccess::base(src) + root_off.value();
     void* dst_root = state.copy_tagged_object(src_root);
-    dst.set_root(dst_root);
+    HermesCtrAccess::set_root(dst, dst_root);
 
     return dst;
 }
 
 void* copy_object_into(const void* src_obj, const uint8_t* src_base, HermesCtrView& dst) {
     if (!src_obj) return nullptr;
-    DeepCopyState state(dst.arena(), src_base);
+    DeepCopyState state(HermesCtrAccess::arena(dst), src_base);
     return state.copy_tagged_object(src_obj);
 }
 
@@ -196,7 +197,7 @@ HermesCtr from_bytes_copy(const uint8_t* data, size_t size) {
     // Copy data into the arena (after the DocumentHeader that make_doc already allocated).
     // Actually, the entire segment IS the data — header is at offset 0.
     // We need to replace the arena content with the provided bytes.
-    auto& arena = doc.arena();
+    auto& arena = HermesCtrAccess::arena(doc);
     auto& chunk = arena.head();
     std::memcpy(chunk.data(), data, size);
     chunk.used = size;

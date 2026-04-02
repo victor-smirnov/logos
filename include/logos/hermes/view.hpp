@@ -200,6 +200,8 @@ using Object    = Own<ObjectView>;
 // HermesCtrView: non-owning view of a document.
 // ---------------------------------------------------------------------------
 
+class HermesCtrAccess;
+
 class HermesCtrView {
 public:
     HermesCtrView() noexcept : holder_(nullptr), root_override_(NULL_OFFSET) {}
@@ -211,15 +213,26 @@ public:
 
     void reset() noexcept { holder_ = nullptr; root_override_ = NULL_OFFSET; }
 
-    // --- Segment base ---
-    uint8_t* base() const { return holder_->base(); }
-    Arena& arena() const { return holder_->arena(); }
-
     // --- Root access ---
     bool has_root() const;
 
-    // Set root from any View (TinyMap, Array, Map, String, etc.)
+    // Set root from any View (TinyMap, Array, Map, String, etc.) — public API.
     void set_root(const ViewBase& view) { set_root_offset(view.offset()); }
+
+    Object root_object() const;
+
+    // --- Factory methods returning owning Views ---
+    TinyMap make_tiny_map(uint8_t capacity = 4);
+    Array make_array(uint64_t capacity = 4);
+    Map make_object_map(uint8_t log2_buckets = 3);
+    String make_string(std::string_view str);
+
+private:
+    friend class HermesCtrAccess;
+
+    // --- Segment base ---
+    uint8_t* base() const { return holder_->base(); }
+    Arena& arena() const { return holder_->arena(); }
 
     // --- Internal root manipulation (used by parser, codec, path evaluator) ---
     void set_root(void* object);
@@ -230,18 +243,10 @@ public:
     template <typename T>
     T* root() const;
 
-    Object root_object() const;
-
     arena_offset_t offset_of(const void* object) const {
         return arena_offset_t{static_cast<arena_offset_t::value_type>(
             static_cast<const uint8_t*>(object) - base())};
     }
-
-    // --- Factory methods returning owning Views ---
-    TinyMap make_tiny_map(uint8_t capacity = 4);
-    Array make_array(uint64_t capacity = 4);
-    Map make_object_map(uint8_t log2_buckets = 3);
-    String make_string(std::string_view str);
 
     // --- Raw-pointer factory methods (for internal parser/codec use) ---
     TinyObjectMap* raw_tiny_map(uint8_t capacity = 4) {
@@ -263,7 +268,6 @@ public:
         return arena_put<T>(holder_->arena(), value);
     }
 
-private:
     MemHolder* holder_;
     arena_offset_t root_override_;
 };
