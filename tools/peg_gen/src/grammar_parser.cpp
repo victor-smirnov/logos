@@ -12,9 +12,9 @@
 #include <stdexcept>
 #include <string>
 
-namespace logos::peg_gen {
-
 namespace ast = logos::peg_gen::ast;
+
+namespace logos::peg_gen {
 using logos::hermes::AnyVal;
 using logos::hermes::HermesCtr;
 using logos::hermes::HermesCtrView;
