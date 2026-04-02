@@ -632,19 +632,19 @@ private:
         // Common whitespace
         bool has_ws_skip = false;
         for (const auto& t : g_.tokens) {
-            if (t.kind == skip_code && (t.pattern == "/[ \\t\\n\\r]+/" ||
+            if (t.kind == skip_code && (t.pattern == R"(/[ \t\n\r]+/)" ||
                 t.pattern == "/[ \t\n\r]+/")) {
                 has_ws_skip = true; break;
             }
         }
         if (has_ws_skip) {
-            w.line("if (c == ' ' || c == '\\t' || c == '\\n' || c == '\\r') { ++pos_; continue; }");
+            w.line(R"(if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { ++pos_; continue; })");
         }
         // Line comment skip: //[^\n]*
         for (const auto& t : g_.tokens) {
             if (t.kind == skip_code && t.pattern.find("//") != std::string::npos) {
                 w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '/') {");
-                w.line("    while (pos_ < source_.size() && source_[pos_] != '\\n') ++pos_;");
+                w.line(R"(    while (pos_ < source_.size() && source_[pos_] != '\n') ++pos_;)");
                 w.line("    continue; }");
                 break;
             }
@@ -743,11 +743,11 @@ private:
             // STRING: \"([^\"\\\\]|\\\\.)*\"
             else if (pat.find('"') != std::string::npos) {
                 w.fmt("// {} = /{}/", t.name, pat);
-                w.fmt("if (c == '\"') {{");
+                w.line(R"(if (c == '"') {)");
                 w.indent();
                 w.line("++pos_;");
-                w.line("while (pos_ < source_.size() && source_[pos_] != '\"') {");
-                w.line("    if (source_[pos_] == '\\\\') ++pos_;");
+                w.line(R"(while (pos_ < source_.size() && source_[pos_] != '"') {)");
+                w.line(R"(    if (source_[pos_] == '\\') ++pos_;)");
                 w.line("    ++pos_;");
                 w.line("}");
                 w.line("if (pos_ < source_.size()) ++pos_;");
