@@ -407,10 +407,17 @@ private:
     fs::path           out_dir_;
     std::string        parser_class_;
     std::string        ast_ns_;
-    int                lc_ = 0;  // label counter — reset per rule, always increasing
+    int                lc_ = 0;   // label counter — reset per rule, always increasing
+    std::string        rcap_var_; // name of the rule-captures array for $... in current alt
 
     // Returns a unique label suffix string within the current rule.
     std::string fresh() { return std::to_string(lc_++); }
+
+    static bool action_has_array_capture(const Action& action) {
+        for (const auto& f : action.fields)
+            if (f.expr.kind == int32_t(ast::ARRAY_CAPTURE)) return true;
+        return false;
+    }
 
     // ── Header ──────────────────────────────────────────────────────────────
 
@@ -640,18 +647,29 @@ private:
         if (has_ws_skip) {
             w.line(R"(if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { ++pos_; continue; })");
         }
-        // Line comment skip: //[^\n]*
+        // Helper: strip outer /.../ delimiters to get the raw regex content.
+        auto regex_inner = [](const std::string& p) -> std::string_view {
+            std::string_view sv = p;
+            if (sv.size() >= 2 && sv.front() == '/' && sv.back() == '/')
+                sv = sv.substr(1, sv.size() - 2);
+            return sv;
+        };
+        // Line comment skip: pattern inner starts with // or \/\/ (escaped-slash pair).
         for (const auto& t : g_.tokens) {
-            if (t.kind == skip_code && t.pattern.find("//") != std::string::npos) {
+            if (t.kind != skip_code) continue;
+            auto inner = regex_inner(t.pattern);
+            if (inner.starts_with("//") || inner.starts_with("\\/\\/")) {
                 w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '/') {");
                 w.line(R"(    while (pos_ < source_.size() && source_[pos_] != '\n') ++pos_;)");
                 w.line("    continue; }");
                 break;
             }
         }
-        // Block comment: /* ... */
+        // Block comment: pattern inner starts with /* or \/\* (escaped-slash + escaped-star).
         for (const auto& t : g_.tokens) {
-            if (t.kind == skip_code && t.pattern.find("/*") != std::string::npos) {
+            if (t.kind != skip_code) continue;
+            auto inner = regex_inner(t.pattern);
+            if (inner.starts_with("/*") || inner.starts_with("\\/\\*")) {
                 w.line("if (c == '/' && pos_+1 < source_.size() && source_[pos_+1] == '*') {");
                 w.line("    pos_ += 2;");
                 w.line("    while (pos_+1 < source_.size() &&");
@@ -686,8 +704,18 @@ private:
                     w.fmt("if (c == '{}') {{ ++pos_; return {{TK::{}, source_.substr(start, 1)}}; }}",
                           escape_char(pat[0]), safe_tok_name(t->name));
                 } else {
+                    // Word-like keywords (all alnum/underscore) need a boundary check:
+                    // the character after the match must not be alnum/underscore.
+                    bool is_word = std::all_of(pat.begin(), pat.end(),
+                        [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_'; });
                     w.fmt("if (source_.substr(pos_, {0}).size() == {0} &&", pat.size());
-                    w.fmt("    source_.substr(pos_, {}) == \"{}\") {{", pat.size(), pat);
+                    if (is_word) {
+                        w.fmt("    source_.substr(pos_, {}) == \"{}\" &&", pat.size(), pat);
+                        w.fmt("    (pos_ + {} >= source_.size() || (!std::isalnum(source_[pos_ + {}]) && source_[pos_ + {}] != '_'))) {{",
+                              pat.size(), pat.size(), pat.size());
+                    } else {
+                        w.fmt("    source_.substr(pos_, {}) == \"{}\") {{", pat.size(), pat);
+                    }
                     w.fmt("    pos_ += {}; return {{TK::{}, source_.substr(start, {})}}; }}",
                           pat.size(), safe_tok_name(t->name), pat.size());
                 }
@@ -705,7 +733,54 @@ private:
         w.line();
     }
 
+    // Return name of the first FLOAT-like regex token (pattern has '.' and '[0-9]'), or "".
+    std::string find_float_token_name() const {
+        for (const auto& t : g_.tokens) {
+            if (t.kind != int32_t(ast::TOKEN_REGEX)) continue;
+            std::string_view pat = std::string_view(t.pattern);
+            if (pat.size() >= 2 && pat.front() == '/' && pat.back() == '/')
+                pat = pat.substr(1, pat.size() - 2);
+            if (pat.find('.') != std::string::npos && pat.find("[0-9]") != std::string::npos)
+                return safe_tok_name(t.name);
+        }
+        return {};
+    }
+
+    // Detect regex features for enhanced number lexing.
+    static bool pat_has_hex(std::string_view pat)  { return pat.find("a-f") != std::string::npos || pat.find("a-F") != std::string::npos; }
+    static bool pat_has_bin(std::string_view pat)  { return pat.find("0[bB]") != std::string::npos; }
+    static bool pat_has_oct(std::string_view pat)  { return pat.find("0[oO]") != std::string::npos; }
+    static bool pat_has_int_suffix(std::string_view pat) { return pat.find("ull") != std::string::npos || pat.find("_u") != std::string::npos; }
+    static bool pat_has_float_suffix(std::string_view pat) { return pat.find("[fd]") != std::string::npos; }
+
+    // Emit suffix matching for integer tokens.
+    // Tries longest match: _u64/_s64 (3-char suffix), _u32/_s32/_u16/_s16 (3-char),
+    // _u8/_s8 (2-char), ull (3-char), ul/ll (2-char), u (1-char).
+    static void emit_int_suffix_matching(CodeWriter& w) {
+        // Helper lambda in generated code: try to match a suffix string.
+        w.line("// Integer type suffix (longest match).");
+        w.line("auto try_suffix = [&](std::string_view sfx) -> bool {");
+        w.line("    if (pos_ + sfx.size() <= source_.size() &&");
+        w.line("        source_.substr(pos_, sfx.size()) == sfx) {");
+        w.line("        pos_ += sfx.size(); return true;");
+        w.line("    }");
+        w.line("    return false;");
+        w.line("};");
+        // Ordered longest-first. The C-style 'u' suffix must be checked last
+        // and must NOT be followed by an alnum/underscore (to avoid eating IDENT).
+        w.line("if (!try_suffix(\"_u64\") && !try_suffix(\"_u32\") && !try_suffix(\"_u16\") && !try_suffix(\"_u8\") &&");
+        w.line("    !try_suffix(\"_s64\") && !try_suffix(\"_s32\") && !try_suffix(\"_s16\") && !try_suffix(\"_s8\") &&");
+        w.line("    !try_suffix(\"ull\") && !try_suffix(\"ul\") && !try_suffix(\"ll\")) {");
+        w.line("    // Single-char 'u' — only if not followed by alnum/underscore.");
+        w.line("    if (pos_ < source_.size() && source_[pos_] == 'u' &&");
+        w.line("        (pos_+1 >= source_.size() || (!std::isalnum(source_[pos_+1]) && source_[pos_+1] != '_')))");
+        w.line("        ++pos_;");
+        w.line("}");
+    }
+
     void emit_regex_tokens(CodeWriter& w) {
+        const std::string float_tok = find_float_token_name();
+
         for (const auto& t : g_.tokens) {
             if (t.kind != int32_t(ast::TOKEN_REGEX)) continue;
             std::string_view pat = std::string_view(t.pattern);
@@ -724,21 +799,103 @@ private:
                 w.dedent();
                 w.line("}");
             }
-            // INTEGER: [0-9]+  or  [-]?[0-9]+
+            // INTEGER: patterns containing [0-9]+ without '.' are integer tokens.
+            // Supports optional base prefixes (0x, 0b, 0o) and type suffixes
+            // (_u8..._u64, _s8..._s64, ull, ul, ll, u) when detected in the regex.
+            // If a FLOAT token also exists, performs longest-match: after decimal digits,
+            // if '.' followed by a digit is found, consumes fractional part and returns FLOAT.
             else if (pat.find("[0-9]+") != std::string::npos && pat.find('.') == std::string::npos) {
+                const bool hex = pat_has_hex(pat);
+                const bool bin = pat_has_bin(pat);
+                const bool oct = pat_has_oct(pat);
+                const bool int_sfx = pat_has_int_suffix(pat);
+                // Float suffix is detected from the FLOAT token pattern.
+                std::string_view float_pat;
+                for (const auto& ft : g_.tokens) {
+                    if (ft.kind != int32_t(ast::TOKEN_REGEX)) continue;
+                    float_pat = ft.pattern;
+                    if (float_pat.size() >= 2 && float_pat.front() == '/' && float_pat.back() == '/')
+                        float_pat = float_pat.substr(1, float_pat.size() - 2);
+                    if (float_pat.find('.') != std::string::npos && float_pat.find("[0-9]") != std::string::npos)
+                        break;
+                    float_pat = {};
+                }
+                const bool flt_sfx = pat_has_float_suffix(float_pat);
+
                 w.fmt("// {} = /{}/", t.name, pat);
-                w.fmt("if (std::isdigit(c) || (c == '-' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))) {{");
+                // Entry condition: digit, negative-digit, or dot-digit (for floats like .5)
+                if (!float_tok.empty()) {
+                    w.fmt("if (std::isdigit(c) || (c == '-' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))"
+                          " || (c == '.' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))) {{");
+                } else {
+                    w.fmt("if (std::isdigit(c) || (c == '-' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))) {{");
+                }
                 w.indent();
                 w.line("if (c == '-') ++pos_;");
-                w.line("while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+
+                if (hex || bin || oct) {
+                    // Base prefix detection.
+                    w.line("int base = 10;");
+                    w.line("if (pos_ < source_.size() && source_[pos_] == '0' && pos_+1 < source_.size()) {");
+                    w.indent();
+                    w.line("char nx = source_[pos_+1];");
+                    if (hex) w.line("if (nx == 'x' || nx == 'X') { base = 16; pos_ += 2; }");
+                    if (bin) w.fmt("{}if (nx == 'b' || nx == 'B') {{ base = 2; pos_ += 2; }}", hex ? "else " : "");
+                    if (oct) w.fmt("{}if (nx == 'o' || nx == 'O') {{ base = 8; pos_ += 2; }}", (hex || bin) ? "else " : "");
+                    w.dedent();
+                    w.line("}");
+                    // Consume digits per base.
+                    w.line("if (base == 16) {");
+                    w.line("    while (pos_ < source_.size() && std::isxdigit(source_[pos_])) ++pos_;");
+                    w.line("} else if (base == 2) {");
+                    w.line("    while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1')) ++pos_;");
+                    w.line("} else if (base == 8) {");
+                    w.line("    while (pos_ < source_.size() && source_[pos_] >= '0' && source_[pos_] <= '7') ++pos_;");
+                    w.line("} else {");
+                    w.line("    while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                    w.line("}");
+                } else {
+                    w.line("while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                }
+
+                if (!float_tok.empty()) {
+                    // Longest-match: decimal-only → if next is '.' followed by digit, it's a float.
+                    if (hex || bin || oct) {
+                        w.line("if (base == 10 && pos_ < source_.size() && source_[pos_] == '.'");
+                    } else {
+                        w.line("if (pos_ < source_.size() && source_[pos_] == '.'");
+                    }
+                    w.line("    && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])) {");
+                    w.indent();
+                    w.line("++pos_; // consume '.'");
+                    w.line("while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                    w.line("if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {");
+                    w.indent();
+                    w.line("++pos_;");
+                    w.line("if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
+                    w.line("while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                    w.dedent();
+                    w.line("}");
+                    if (flt_sfx) {
+                        w.line("if (pos_ < source_.size() && (source_[pos_] == 'f' || source_[pos_] == 'd')) ++pos_;");
+                    }
+                    w.fmt("return {{TK::{}, source_.substr(start, pos_ - start)}};", float_tok);
+                    w.dedent();
+                    w.line("}");
+                }
+
+                if (int_sfx) {
+                    // Integer type suffixes — try longest match.
+                    emit_int_suffix_matching(w);
+                }
+
                 w.fmt("return {{TK::{}, source_.substr(start, pos_ - start)}};", safe_tok_name(t.name));
                 w.dedent();
                 w.line("}");
             }
-            // FLOAT: pattern contains '.' and [0-9]
+            // FLOAT: handled by the INTEGER longest-match handler above — skip.
             else if (pat.find('.') != std::string::npos && pat.find("[0-9]") != std::string::npos) {
-                w.fmt("// {} = /{}/", t.name, pat);
-                w.line("// (FLOAT matched by INTEGER handler if needed — order tokens carefully)");
+                w.fmt("// {} = /{}/ — handled by INTEGER longest-match above", t.name, pat);
             }
             // STRING: \"([^\"\\\\]|\\\\.)*\"
             else if (pat.find('"') != std::string::npos) {
@@ -826,6 +983,14 @@ private:
         // Backtrack label for this alternative — used as fail_label for all items.
         std::string alt_fail = std::format("bt_{}_{}", rule.name, idx);
 
+        // If the action uses $..., declare a rule-captures collector array.
+        // RULE_REF results anywhere in the sequence push to it; TOKEN_REF results don't.
+        rcap_var_.clear();
+        if (alt.action && action_has_array_capture(*alt.action)) {
+            rcap_var_ = "rcap_" + std::to_string(lc_++);
+            w.fmt("auto {} = doc_.make_array(4);", rcap_var_);
+        }
+
         // Capture slots (one per item in the sequence).
         // We number them from 1 ($1, $2, ...) to match grammar action syntax.
         // All captures have type AnyVal — tokens are interned as arena strings,
@@ -837,13 +1002,16 @@ private:
             emit_item_match(w, alt.seq[i], cap, alt_fail, i);
         }
 
-        // Action: build AST node.
+        // Action: build AST node.  rcap_var_ is still set here for ARRAY_CAPTURE use.
         if (alt.action) {
             emit_action(w, *alt.action, captures);
+            rcap_var_.clear();
         } else if (alt.seq.size() == 1) {
+            rcap_var_.clear();
             // No action + single item → pass through.
             w.fmt("return {};", captures[1]);
         } else {
+            rcap_var_.clear();
             w.line("return AnyVal{}; // TODO: add => { ... } action for multi-item alt");
         }
 
@@ -882,6 +1050,9 @@ private:
                 call = std::format("{0}_.rule_{1}()", item.grammar_alias, item.name);
             w.fmt("AnyVal {} = {};", cap, call);
             w.fmt("if ({}.is_null()) goto {};", cap, fail_label);
+            // Collect into rule-captures array if $... is used in this alt's action.
+            if (!rcap_var_.empty())
+                w.fmt("{}.push_back({});", rcap_var_, cap);
             break;
         }
 
@@ -1088,20 +1259,11 @@ private:
             }
 
             case int32_t(ast::ARRAY_CAPTURE): {
-                // $... — collect all non-null AnyVal captures into an array.
-                w.fmt("// {} : $...", field.name);
-                w.line("{");
-                w.indent();
-                w.fmt("auto items_arr = doc_.make_array({});", captures.size());
-                for (size_t i = 1; i < captures.size(); ++i) {
-                    if (!captures[i].empty()) {
-                        w.fmt("if (!{0}.is_null()) items_arr.push_back({0});", captures[i]);
-                    }
-                }
-                w.fmt("node->put({}, AnyVal::from_offset(items_arr.offset()), doc_.arena());",
-                      field_const);
-                w.dedent();
-                w.line("}");
+                // $... — use the rule-captures collector built during item matching.
+                // rcap_VAR was declared before the items and populated by every RULE_REF.
+                // TOKEN_REF captures are NOT included — they're structural punctuation.
+                w.fmt("node->put({}, AnyVal::from_offset({}.offset()), doc_.arena());",
+                      field_const, rcap_var_);
                 break;
             }
 

@@ -4,9 +4,8 @@
 //
 // codegen: generates C++ parser from resolved grammar modules.
 //
-// Uses HermesTemplate to render C++ from .htpl template files.
-// The grammar document (grammar_ast schema) is passed directly as the
-// template context — templates access grammar fields by name.
+// Emits a .hpp/.cpp pair per grammar module via a Writer (hardcoded
+// recursive-descent generation — no template files).
 //
 // Generated file pair for a grammar named "sql":
 //
@@ -60,8 +59,7 @@
 namespace logos::peg_gen {
 
 struct CodegenOptions {
-    std::filesystem::path templates_dir;  // directory with .htpl files
-    std::filesystem::path output_dir;     // where to write generated files
+    std::filesystem::path output_dir;  // where to write generated files
     bool                  overwrite = true;
 };
 
