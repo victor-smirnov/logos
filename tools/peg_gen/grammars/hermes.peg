@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// Hermes data format grammar.
+//
+// This grammar can be %imported by other grammars (SQL, DSL) to add native
+// Hermes literal support. Exported rules: value, map, array, typed_value.
+
+%meta {
+    name:      "hermes"
+    version:   "1.0"
+    namespace: "logos::hermes"
+    output:    "hermes_parser"
+}
+
+%export { value map array typed_value }
+
+// ── AST field keys ────────────────────────────────────────────────────────
+%fields {
+    CODE        = 0
+    VALUE       = 1
+    KEY         = 2
+    ITEMS       = 3
+    NAME        = 4
+    PARAMS      = 5
+}
+
+// ── AST node codes ────────────────────────────────────────────────────────
+%nodes {
+    MAP         = 0
+    ARRAY       = 1
+    STRING      = 2
+    INTEGER     = 3
+    FLOAT       = 4
+    BOOLEAN     = 5
+    NULL_VAL    = 6
+    TYPED_VALUE = 7     // Typename(value)  e.g. Date("2026-01-01")
+    DATATYPE    = 8     // Typename<Param, ...>
+    MAP_ENTRY   = 9
+}
+
+// ── Tokens ────────────────────────────────────────────────────────────────
+%tokens {
+    // Punctuation
+    LBRACE      = "{"
+    RBRACE      = "}"
+    LBRACKET    = "["
+    RBRACKET    = "]"
+    LPAREN      = "("
+    RPAREN      = ")"
+    LANGLE      = "<"
+    RANGLE      = ">"
+    COLON       = ":"
+    COMMA       = ","
+    EQUALS      = "="
+
+    // Literals
+    TRUE        = "true"
+    FALSE       = "false"
+    NULL        = "null"
+    STRING      = /"([^"\\]|\\.)*"/
+    INTEGER     = /[-]?[0-9]+/
+    FLOAT       = /[-]?[0-9]*\.[0-9]+([eE][+-]?[0-9]+)?/
+
+    // Identifier (used as map keys and type names)
+    IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
+
+    // Skip
+    %skip       = /[ \t\n\r]+/
+    %skip       = /\/\/[^\n]*/     // line comment
+    %skip       = /\/\*.*?\*\//    // block comment (non-greedy)
+}
+
+// ── Rules ─────────────────────────────────────────────────────────────────
+%rules {
+    // Top-level value — the entry point for embedding in other grammars.
+    value <- typed_value
+           / map
+           / array
+           / STRING      => { CODE: STRING,   VALUE: $1 }
+           / FLOAT       => { CODE: FLOAT,    VALUE: $1 }
+           / INTEGER     => { CODE: INTEGER,  VALUE: $1 }
+           / TRUE        => { CODE: BOOLEAN,  VALUE: true }
+           / FALSE       => { CODE: BOOLEAN,  VALUE: false }
+           / NULL        => { CODE: NULL_VAL }
+
+    // { key: value, ... }
+    map <- LBRACE (map_entry (COMMA map_entry)*)? COMMA? RBRACE
+        => { CODE: MAP, ITEMS: $... }
+
+    map_entry <- (STRING / IDENT) COLON value
+              => { CODE: MAP_ENTRY, KEY: $1, VALUE: $3 }
+
+    // [ value, ... ]
+    array <- LBRACKET (value (COMMA value)*)? COMMA? RBRACKET
+          => { CODE: ARRAY, ITEMS: $... }
+
+    // TypeName(value)  — typed value constructor, e.g. Date("2026-01-01")
+    typed_value <- datatype LPAREN value RPAREN
+                => { CODE: TYPED_VALUE, NAME: $1, VALUE: $3 }
+
+    // TypeName  or  TypeName<Param, Param>
+    datatype <- IDENT (LANGLE (datatype (COMMA datatype)*)? RANGLE)?
+             => { CODE: DATATYPE, NAME: $1, PARAMS: $... }
+}

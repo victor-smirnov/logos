@@ -21,4 +21,8 @@ include_directories(include)
 
 # Modules
 add_subdirectory(src/verification)
+add_subdirectory(src/core)
 add_subdirectory(src/hermes)
+
+# Tools
+add_subdirectory(tools/peg_gen)
