@@ -59,7 +59,6 @@ static void test_echo_rq() {
     }, "server");
 
     reactor.spawn([&] {
-        Scheduler::current()->yield();  // let server bind+listen first
 
         Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
 
@@ -110,7 +109,6 @@ static void test_multi_rq() {
     }, "server");
 
     reactor.spawn([&] {
-        Scheduler::current()->yield();
 
         Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
@@ -183,7 +181,6 @@ static void test_bidirectional() {
     }, "server");
 
     reactor.spawn([&] {
-        Scheduler::current()->yield();
 
         Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
 
@@ -236,7 +233,6 @@ static void test_unknown_endpoint() {
     }, "server");
 
     reactor.spawn([&] {
-        Scheduler::current()->yield();
 
         Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");

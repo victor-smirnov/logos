@@ -73,7 +73,6 @@ static void test_input_stream() {
     }, "server");
 
     reactor.spawn([&] {
-        Scheduler::current()->yield();
 
         Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
@@ -150,7 +149,6 @@ static void test_output_stream() {
     }, "server");
 
     reactor.spawn([&] {
-        Scheduler::current()->yield();
 
         Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
