@@ -8,7 +8,7 @@ set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/toolchains/j
 set(CMAKE_TOOLCHAIN_FILE "/home/victor/cxx/vcpkg/scripts/buildsystems/vcpkg.cmake"
     CACHE STRING "Vcpkg toolchain file")
 
-project(logos LANGUAGES CXX C)
+project(logos LANGUAGES CXX C ASM)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,6 +28,7 @@ include_directories(include)
 add_subdirectory(src/verification)
 add_subdirectory(src/core)
 add_subdirectory(src/hermes)
+add_subdirectory(src/reactor)
 
 # Tools
 add_subdirectory(tools/peg_gen)
