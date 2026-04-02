@@ -9,7 +9,8 @@
 #include <logos/hermes/config.hpp>
 #include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/own.hpp>
-#include <logos/hermes/tagged_ptr.hpp>
+#include <logos/hermes/any_val.hpp>
+#include <logos/hermes/named_code.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/object_array.hpp>
@@ -17,6 +18,9 @@
 #include <logos/hermes/compound_types.hpp>
 
 namespace logos::hermes {
+
+// Forward declaration — ObjectView is defined below, after the typed views.
+class ObjectView;
 
 // ---------------------------------------------------------------------------
 // ViewBase: common base for all typed views.
@@ -53,47 +57,59 @@ class TinyMapView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    TinyObjectMap* ptr() const { return reinterpret_cast<TinyObjectMap*>(base() + offset_); }
+    TinyObjectMap* ptr() const { return reinterpret_cast<TinyObjectMap*>(base() + offset_.value()); }
 
     uint8_t size() const { return ptr()->size(); }
     uint64_t bitmap() const { return ptr()->bitmap(); }
     bool has_key(uint8_t key) const { return ptr()->has_key(key); }
 
-    TaggedPtr get(uint8_t key) const { return ptr()->get(key, base()); }
-    TaggedPtr* slot(uint8_t key) const { return ptr()->slot(key, base()); }
+    AnyVal get(uint8_t key) const { return ptr()->get(key, base()); }
+    AnyVal* slot(uint8_t key) const { return ptr()->slot(key, base()); }
 
-    void put(uint8_t key, TaggedPtr value) { ptr()->put(key, value, arena()); }
+    // Checked access: asserts the key exists and includes the field name in the error.
+    AnyVal get(NamedCode<uint8_t> key) const;
+
+    void put(uint8_t key, AnyVal value) { ptr()->put(key, value, arena()); }
+
+    // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
+    void put(uint8_t key, const ObjectView& value);
 };
 
 class ArrayView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    ObjectArray* ptr() const { return reinterpret_cast<ObjectArray*>(base() + offset_); }
+    ObjectArray* ptr() const { return reinterpret_cast<ObjectArray*>(base() + offset_.value()); }
 
     uint64_t size() const { return ptr()->size(); }
     bool empty() const { return ptr()->empty(); }
 
-    TaggedPtr get(uint64_t index) const { return ptr()->get(index, base()); }
-    TaggedPtr* slot(uint64_t index) const { return ptr()->slot(index, base()); }
+    AnyVal get(uint64_t index) const { return ptr()->get(index, base()); }
+    AnyVal* slot(uint64_t index) const { return ptr()->slot(index, base()); }
 
-    void push_back(TaggedPtr value) { ptr()->push_back(value, arena()); }
+    void push_back(AnyVal value) { ptr()->push_back(value, arena()); }
+
+    // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
+    void push_back(const ObjectView& value);
 };
 
 class MapView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    ObjectMap* ptr() const { return reinterpret_cast<ObjectMap*>(base() + offset_); }
+    ObjectMap* ptr() const { return reinterpret_cast<ObjectMap*>(base() + offset_.value()); }
 
     uint64_t size() const { return ptr()->size(); }
     bool empty() const { return ptr()->empty(); }
 
-    TaggedPtr get(std::string_view key) const { return ptr()->get(key, base()); }
-    TaggedPtr* get_slot(std::string_view key) const { return ptr()->get_slot(key, base()); }
+    AnyVal get(std::string_view key) const { return ptr()->get(key, base()); }
+    AnyVal* get_slot(std::string_view key) const { return ptr()->get_slot(key, base()); }
     bool has(std::string_view key) const { return ptr()->has(key, base()); }
 
-    void put(std::string_view key, TaggedPtr value) { ptr()->put(key, value, arena()); }
+    void put(std::string_view key, AnyVal value) { ptr()->put(key, value, arena()); }
+
+    // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
+    void put(std::string_view key, const ObjectView& value);
 
     template <typename Fn>
     void for_each(Fn fn) const { ptr()->for_each(fn, base()); }
@@ -103,7 +119,7 @@ class StringView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    ArenaString* ptr() const { return reinterpret_cast<ArenaString*>(base() + offset_); }
+    ArenaString* ptr() const { return reinterpret_cast<ArenaString*>(base() + offset_.value()); }
 
     std::string_view view() const { return ptr()->view(); }
     size_t length() const { return ptr()->length(); }
@@ -116,7 +132,7 @@ class DatatypeView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    DatatypeData* ptr() const { return reinterpret_cast<DatatypeData*>(base() + offset_); }
+    DatatypeData* ptr() const { return reinterpret_cast<DatatypeData*>(base() + offset_.value()); }
 
     std::string_view name() const { return ptr()->name_view(base()); }
     bool has_params() const { return ptr()->has_params(); }
@@ -127,20 +143,20 @@ class ParameterView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    ParameterData* ptr() const { return reinterpret_cast<ParameterData*>(base() + offset_); }
+    ParameterData* ptr() const { return reinterpret_cast<ParameterData*>(base() + offset_.value()); }
 
     std::string_view name() const { return ptr()->name_view(base()); }
 };
 
 // ---------------------------------------------------------------------------
 // ObjectView: universal tagged value (non-owning).
-// Can hold embedded value (TaggedPtr value mode) or arena pointer.
+// Can hold embedded value (AnyVal value mode) or arena pointer.
 // ---------------------------------------------------------------------------
 
 class ObjectView {
 public:
     ObjectView() noexcept : holder_(nullptr) {}
-    ObjectView(TaggedPtr tagged, MemHolder* holder) noexcept
+    ObjectView(AnyVal tagged, MemHolder* holder) noexcept
         : tagged_(tagged), holder_(holder) {}
 
     bool is_null() const noexcept { return tagged_.is_null(); }
@@ -157,13 +173,13 @@ public:
     DatatypeView as_datatype() const { return {tagged_.to_offset(), holder_}; }
     ParameterView as_parameter() const { return {tagged_.to_offset(), holder_}; }
 
-    TaggedPtr tagged() const { return tagged_; }
+    AnyVal tagged() const { return tagged_; }
     MemHolder* holder() const noexcept { return holder_; }
 
-    void reset() noexcept { tagged_ = TaggedPtr{}; holder_ = nullptr; }
+    void reset() noexcept { tagged_ = AnyVal{}; holder_ = nullptr; }
 
 private:
-    TaggedPtr tagged_;
+    AnyVal tagged_;
     MemHolder* holder_;
 };
 
@@ -201,10 +217,13 @@ public:
 
     // --- Root access ---
     bool has_root() const;
+
+    // Set root from any View (TinyMap, Array, Map, String, etc.)
+    void set_root(const ViewBase& view) { set_root_offset(view.offset()); }
+
+    // --- Internal root manipulation (used by parser, codec, path evaluator) ---
     void set_root(void* object);
     void set_root_offset(arena_offset_t offset);
-
-    // Override root without modifying DocumentHeader (e.g. for path eval results).
     void set_root_override(arena_offset_t offset) noexcept { root_override_ = offset; }
     bool has_root_override() const noexcept { return root_override_ != NULL_OFFSET; }
 
@@ -214,8 +233,8 @@ public:
     Object root_object() const;
 
     arena_offset_t offset_of(const void* object) const {
-        return static_cast<arena_offset_t>(
-            static_cast<const uint8_t*>(object) - base());
+        return arena_offset_t{static_cast<arena_offset_t::value_type>(
+            static_cast<const uint8_t*>(object) - base())};
     }
 
     // --- Factory methods returning owning Views ---

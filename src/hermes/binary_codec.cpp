@@ -72,7 +72,7 @@ private:
         }
     }
 
-    void encode_tagged_ptr(const TaggedPtr* slot) {
+    void encode_tagged_ptr(const AnyVal* slot) {
         if (slot->is_null()) {
             // Encode null as a zero-length special marker.
             // Use type_code 0 with code_len 0 as null indicator.
@@ -88,7 +88,7 @@ private:
 
             // Write the value bytes (extract from the tagged ptr).
             size_t sz = embedded_value_size(th);
-            // Copy the value bytes directly from the TaggedPtr's storage.
+            // Copy the value bytes directly from the AnyVal's storage.
             uint64_t raw = slot->raw();
             write_bytes(&raw, sz);
             return;
@@ -118,7 +118,7 @@ private:
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
             buf_.push_back(key); // Key as single byte.
-            const TaggedPtr* s = map->slot(key, base_);
+            const AnyVal* s = map->slot(key, base_);
             encode_tagged_ptr(s);
         }
     }
@@ -133,7 +133,7 @@ private:
         auto* arr_mut = const_cast<ObjectArray*>(arr);
         uint8_t* base_mut = const_cast<uint8_t*>(base_);
         for (uint64_t i = 0; i < arr->size(); ++i) {
-            TaggedPtr* s = arr_mut->slot(i, base_mut);
+            AnyVal* s = arr_mut->slot(i, base_mut);
             encode_tagged_ptr(s);
         }
     }
@@ -145,7 +145,7 @@ private:
         write_varint(map->size());
 
         uint8_t* base_mut = const_cast<uint8_t*>(base_);
-        map->for_each([&](ArenaString* key, TaggedPtr* val_slot) {
+        map->for_each([&](ArenaString* key, AnyVal* val_slot) {
             // Encode key as string (without TypeTag — always Varchar by convention).
             auto sv = key->view();
             write_varint(sv.size());
@@ -258,14 +258,14 @@ private:
         }
     }
 
-    // Decode a TaggedPtr element into a slot in-place.
-    void decode_tagged_ptr(Arena& arena, TaggedPtr* dst_slot) {
+    // Decode a AnyVal element into a slot in-place.
+    void decode_tagged_ptr(Arena& arena, AnyVal* dst_slot) {
         uint8_t first = data_[pos_];
 
         // Null check: a zero byte means null.
         if (first == 0) {
             ++pos_;
-            *dst_slot = TaggedPtr{};
+            *dst_slot = AnyVal{};
             return;
         }
 
@@ -277,13 +277,13 @@ private:
         bool is_embed = (tc < 128) && is_embeddable_by_hash(tc);
 
         if (is_embed) {
-            // Read value bytes and construct embedded TaggedPtr.
+            // Read value bytes and construct embedded AnyVal.
             size_t sz = embedded_value_size_for(tc);
             uint64_t bits = 0;
             read_bytes(&bits, sz);
             auto* bytes = reinterpret_cast<uint8_t*>(&bits);
             bytes[7] = static_cast<uint8_t>((tc << 1) | 1);
-            *dst_slot = TaggedPtr::from_raw(bits);
+            *dst_slot = AnyVal::from_raw(bits);
         } else {
             // Non-embeddable: decode as arena object and store pointer.
             void* obj = decode_object_from_tag(arena, tag);
@@ -331,9 +331,9 @@ private:
 
         for (uint64_t i = 0; i < count; ++i) {
             uint8_t key = read_byte();
-            map->put(key, TaggedPtr{}, arena);
+            map->put(key, AnyVal{}, arena);
             uint8_t* base = arena.head().data();
-            TaggedPtr* s = map->slot(key, base);
+            AnyVal* s = map->slot(key, base);
             decode_tagged_ptr(arena, s);
         }
         return map;
@@ -344,9 +344,9 @@ private:
         auto* arr = ObjectArray::create(arena, count);
 
         for (uint64_t i = 0; i < count; ++i) {
-            arr->push_back(TaggedPtr{}, arena);
+            arr->push_back(AnyVal{}, arena);
             uint8_t* base = arena.head().data();
-            TaggedPtr* s = arr->slot(i, base);
+            AnyVal* s = arr->slot(i, base);
             decode_tagged_ptr(arena, s);
         }
         return arr;
@@ -363,9 +363,9 @@ private:
             pos_ += key_len;
 
             // Put placeholder, then decode value into slot.
-            map->put(key, TaggedPtr{}, arena);
+            map->put(key, AnyVal{}, arena);
             uint8_t* base = arena.head().data();
-            TaggedPtr* s = map->get_slot(key, base);
+            AnyVal* s = map->get_slot(key, base);
             decode_tagged_ptr(arena, s);
         }
         return map;

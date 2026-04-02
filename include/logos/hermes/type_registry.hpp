@@ -95,7 +95,7 @@ constexpr TypeTag type_tag_for() {
     return TypeTag(TypeTraits<T>::hash, TypeTraits<T>::descriptor);
 }
 
-// Convenience: check if a C++ type can be embedded in a TaggedPtr.
+// Convenience: check if a C++ type can be embedded in a AnyVal.
 template <typename T>
 constexpr bool is_embeddable() {
     return TypeTraits<T>::embeddable && sizeof(T) < 8 && TypeTraits<T>::hash < 128;

@@ -176,7 +176,7 @@ static void test_parse_array() {
         // Float embedded.
         LOGOS_ASSERT(std::abs(arr->get(1, base).as_value<float>() - 3.14f) < 0.01f, "HERMES-PARSE-005", "");
         // String is pointer-mode.
-        TaggedPtr* slot2 = arr->slot(2, base);
+        AnyVal* slot2 = arr->slot(2, base);
         LOGOS_ASSERT(slot2->is_pointer(), "HERMES-PARSE-005", "");
         LOGOS_ASSERT(*slot2->as_ptr<ArenaString>(base) == "hello", "HERMES-PARSE-005", "");
     }
@@ -196,7 +196,7 @@ static void test_parse_map() {
             "Map size must be 2, got {}", map->size());
         LOGOS_ASSERT(map->get("age", base).as_value<int32_t>() == 30, "HERMES-PARSE-006", "");
 
-        TaggedPtr* name_slot = map->get_slot("name", base);
+        AnyVal* name_slot = map->get_slot("name", base);
         LOGOS_ASSERT(name_slot != nullptr, "HERMES-PARSE-006", "");
         LOGOS_ASSERT(name_slot->is_pointer(), "HERMES-PARSE-006", "");
         LOGOS_ASSERT(*name_slot->as_ptr<ArenaString>(base) == "Alice", "HERMES-PARSE-006", "");
@@ -235,20 +235,20 @@ static void test_parse_nested() {
         "Root map must have 4 entries, got {}", root->size());
 
     // active = true (embedded boolean)
-    TaggedPtr active_val = root->get("active", base);
+    AnyVal active_val = root->get("active", base);
     LOGOS_ASSERT(active_val.as_value<uint8_t>() == 1, "HERMES-PARSE-007", "");
 
     // rating = 4.5f (embedded float)
     LOGOS_ASSERT(std::abs(root->get("rating", base).as_value<float>() - 4.5f) < 0.01f, "HERMES-PARSE-007", "");
 
     // items = [1,2,3] (pointer to array)
-    TaggedPtr* items_slot = root->get_slot("items", base);
+    AnyVal* items_slot = root->get_slot("items", base);
     LOGOS_ASSERT(items_slot->is_pointer(), "HERMES-PARSE-007", "");
     auto* items = items_slot->as_ptr<ObjectArray>(base);
     LOGOS_ASSERT(items->size() == 3, "HERMES-PARSE-007", "");
 
     // user = {name: "Bob", id: 42} (pointer to map)
-    TaggedPtr* user_slot = root->get_slot("user", base);
+    AnyVal* user_slot = root->get_slot("user", base);
     LOGOS_ASSERT(user_slot->is_pointer(), "HERMES-PARSE-007", "");
     auto* user = user_slot->as_ptr<ObjectMap>(base);
     LOGOS_ASSERT(user->get("id", base).as_value<int32_t>() == 42, "HERMES-PARSE-007", "");

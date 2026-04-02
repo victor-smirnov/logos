@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/relative_ptr.hpp>
-#include <logos/hermes/tagged_ptr.hpp>
+#include <logos/hermes/any_val.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/type_registry.hpp>
@@ -60,7 +60,7 @@ static_assert(sizeof(DatatypeData) == 16);
 // TypedValue: a value paired with its type declaration.
 struct TypedValueData {
     RelativePtr<DatatypeData> datatype;
-    TaggedPtr value;  // 8 bytes (embedded or segment-relative pointer)
+    AnyVal value;  // 8 bytes (embedded or segment-relative pointer)
 
     static TypedValueData* create(Arena& arena, DatatypeData* dt) {
         TypeTag tag(type_hash::TypedValue, TagDescriptor::Data);
@@ -68,7 +68,7 @@ struct TypedValueData {
             arena.allocate(sizeof(TypedValueData), alignof(TypedValueData), tag));
         uint8_t* base = arena.head().data();
         mem->datatype.set(dt, base);
-        mem->value = TaggedPtr{};
+        mem->value = AnyVal{};
         return mem;
     }
 };

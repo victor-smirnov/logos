@@ -30,12 +30,12 @@ public:
     // Dereference: requires segment base address.
     T* get(uint8_t* base) const {
         if (offset_ == NULL_OFFSET) return nullptr;
-        return reinterpret_cast<T*>(base + offset_);
+        return reinterpret_cast<T*>(base + offset_.value());
     }
 
     const T* get(const uint8_t* base) const {
         if (offset_ == NULL_OFFSET) return nullptr;
-        return reinterpret_cast<const T*>(base + offset_);
+        return reinterpret_cast<const T*>(base + offset_.value());
     }
 
     template <typename U = T, std::enable_if_t<!std::is_void_v<U>, int> = 0>
@@ -47,8 +47,8 @@ public:
     // Set from a raw pointer + base.
     void set(const void* target, const uint8_t* base) {
         if (!target) { offset_ = NULL_OFFSET; return; }
-        offset_ = static_cast<arena_offset_t>(
-            static_cast<const uint8_t*>(target) - base);
+        offset_ = arena_offset_t{static_cast<arena_offset_t::value_type>(
+            static_cast<const uint8_t*>(target) - base)};
     }
 
     // Set directly from an offset.

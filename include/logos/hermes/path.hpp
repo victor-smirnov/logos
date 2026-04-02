@@ -6,56 +6,61 @@
 
 #include <string_view>
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/named_code.hpp>
 
 namespace logos::hermes {
 
-// AST node type codes (stored in TinyObjectMap key 0).
+// AST node field keys and type codes.
 namespace path_ast {
-    inline constexpr uint8_t CODE          = 0;
-    inline constexpr uint8_t LEFT          = 1;
-    inline constexpr uint8_t RIGHT         = 2;
-    inline constexpr uint8_t NAME          = 3;
-    inline constexpr uint8_t VALUE         = 4;
-    inline constexpr uint8_t COMPARATOR    = 5;
-    inline constexpr uint8_t ARGS          = 6;
-    inline constexpr uint8_t EXPRESSIONS   = 7;
-    inline constexpr uint8_t KEYS          = 8;
-    inline constexpr uint8_t START         = 9;
-    inline constexpr uint8_t STOP          = 10;
-    inline constexpr uint8_t STEP          = 11;
+    using Key  = NamedCode<uint8_t>;   // TinyObjectMap field key
+    using Code = NamedCode<int32_t>;   // node type discriminant or comparator value
+
+    // Field keys (stored in TinyObjectMap).
+    inline constexpr Key CODE          {"CODE",        0};
+    inline constexpr Key LEFT          {"LEFT",        1};
+    inline constexpr Key RIGHT         {"RIGHT",       2};
+    inline constexpr Key NAME          {"NAME",        3};
+    inline constexpr Key VALUE         {"VALUE",       4};
+    inline constexpr Key COMPARATOR    {"COMPARATOR",  5};
+    inline constexpr Key ARGS          {"ARGS",        6};
+    inline constexpr Key EXPRESSIONS   {"EXPRESSIONS", 7};
+    inline constexpr Key KEYS          {"KEYS",        8};
+    inline constexpr Key START         {"START",       9};
+    inline constexpr Key STOP          {"STOP",       10};
+    inline constexpr Key STEP          {"STEP",       11};
 
     // Node types (stored as value of key CODE).
-    inline constexpr int32_t IDENTITY           = 0;
-    inline constexpr int32_t IDENTIFIER         = 1;
-    inline constexpr int32_t RAW_STRING         = 2;
-    inline constexpr int32_t SUBEXPRESSION      = 3;
-    inline constexpr int32_t INDEX_EXPRESSION   = 4;
-    inline constexpr int32_t ARRAY_ITEM         = 5;
-    inline constexpr int32_t FLATTEN            = 6;
-    inline constexpr int32_t SLICE              = 7;
-    inline constexpr int32_t LIST_WILDCARD      = 8;
-    inline constexpr int32_t HASH_WILDCARD      = 9;
-    inline constexpr int32_t FILTER             = 10;
-    inline constexpr int32_t COMPARATOR_EXPR    = 11;
-    inline constexpr int32_t NOT_EXPR           = 12;
-    inline constexpr int32_t OR_EXPR            = 13;
-    inline constexpr int32_t AND_EXPR           = 14;
-    inline constexpr int32_t PIPE               = 15;
-    inline constexpr int32_t FUNCTION_CALL      = 16;
-    inline constexpr int32_t MULTISELECT_LIST   = 17;
-    inline constexpr int32_t MULTISELECT_HASH   = 18;
-    inline constexpr int32_t PAREN              = 19;
-    inline constexpr int32_t CURRENT_NODE       = 20;
-    inline constexpr int32_t HERMES_VALUE       = 21;
-    inline constexpr int32_t EXPR_ARGUMENT      = 22;
+    inline constexpr Code IDENTITY           {"IDENTITY",         0};
+    inline constexpr Code IDENTIFIER         {"IDENTIFIER",       1};
+    inline constexpr Code RAW_STRING         {"RAW_STRING",       2};
+    inline constexpr Code SUBEXPRESSION      {"SUBEXPRESSION",    3};
+    inline constexpr Code INDEX_EXPRESSION   {"INDEX_EXPRESSION", 4};
+    inline constexpr Code ARRAY_ITEM         {"ARRAY_ITEM",       5};
+    inline constexpr Code FLATTEN            {"FLATTEN",          6};
+    inline constexpr Code SLICE              {"SLICE",            7};
+    inline constexpr Code LIST_WILDCARD      {"LIST_WILDCARD",    8};
+    inline constexpr Code HASH_WILDCARD      {"HASH_WILDCARD",    9};
+    inline constexpr Code FILTER             {"FILTER",          10};
+    inline constexpr Code COMPARATOR_EXPR    {"COMPARATOR_EXPR", 11};
+    inline constexpr Code NOT_EXPR           {"NOT_EXPR",        12};
+    inline constexpr Code OR_EXPR            {"OR_EXPR",         13};
+    inline constexpr Code AND_EXPR           {"AND_EXPR",        14};
+    inline constexpr Code PIPE               {"PIPE",            15};
+    inline constexpr Code FUNCTION_CALL      {"FUNCTION_CALL",   16};
+    inline constexpr Code MULTISELECT_LIST   {"MULTISELECT_LIST",17};
+    inline constexpr Code MULTISELECT_HASH   {"MULTISELECT_HASH",18};
+    inline constexpr Code PAREN              {"PAREN",           19};
+    inline constexpr Code CURRENT_NODE       {"CURRENT_NODE",    20};
+    inline constexpr Code HERMES_VALUE       {"HERMES_VALUE",    21};
+    inline constexpr Code EXPR_ARGUMENT      {"EXPR_ARGUMENT",   22};
 
     // Comparator values (stored as value of key COMPARATOR).
-    inline constexpr int32_t CMP_LT  = 0;
-    inline constexpr int32_t CMP_LE  = 1;
-    inline constexpr int32_t CMP_EQ  = 2;
-    inline constexpr int32_t CMP_GE  = 3;
-    inline constexpr int32_t CMP_GT  = 4;
-    inline constexpr int32_t CMP_NE  = 5;
+    inline constexpr Code CMP_LT  {"CMP_LT", 0};
+    inline constexpr Code CMP_LE  {"CMP_LE", 1};
+    inline constexpr Code CMP_EQ  {"CMP_EQ", 2};
+    inline constexpr Code CMP_GE  {"CMP_GE", 3};
+    inline constexpr Code CMP_GT  {"CMP_GT", 4};
+    inline constexpr Code CMP_NE  {"CMP_NE", 5};
 }
 
 // Parse a HermesPath expression into an AST (stored as Hermes objects in a document).

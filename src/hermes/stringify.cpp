@@ -83,7 +83,7 @@ private:
         }
     }
 
-    void stringify_tagged_ptr(const TaggedPtr* slot) {
+    void stringify_tagged_ptr(const AnyVal* slot) {
         if (slot->is_null()) {
             out_ += "null";
         } else if (slot->is_value()) {
@@ -94,7 +94,7 @@ private:
         }
     }
 
-    void stringify_embedded(const TaggedPtr* slot) {
+    void stringify_embedded(const AnyVal* slot) {
         uint8_t th = slot->value_type_hash();
         switch (th) {
             case type_hash::TinyInt:   append_int(slot->as_value<int8_t>(), "_s8"); return;
@@ -188,7 +188,7 @@ private:
         out_ += '@';
         stringify_datatype(tv->datatype.get(base_));
         out_ += " = ";
-        // The value TaggedPtr lives at &tv->value — pass its actual address
+        // The value AnyVal lives at &tv->value — pass its actual address
         // so pointer-mode offsets resolve correctly.
         stringify_tagged_ptr(&tv->value);
     }
@@ -268,7 +268,7 @@ private:
         out_ += '{';
         if (pretty_) indent_++;
         bool first = true;
-        map->for_each([&](ArenaString* key, TaggedPtr* val) {
+        map->for_each([&](ArenaString* key, AnyVal* val) {
             if (!first) out_ += pretty_ ? "," : ",";
             if (pretty_) newline_indent();
             else if (!first) out_ += ' ';

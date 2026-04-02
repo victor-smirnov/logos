@@ -4,6 +4,7 @@
 
 #include <logos/hermes/template.hpp>
 #include <logos/hermes/path.hpp>
+#include <logos/hermes/named_code.hpp>
 #include <logos/hermes/stringify.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/arena_value.hpp>
@@ -22,20 +23,25 @@ namespace logos::hermes {
 // ============================================================================
 
 namespace tpl_ast {
-    inline constexpr uint8_t CODE              = 0;
-    inline constexpr uint8_t EXPRESSION        = 1;
-    inline constexpr uint8_t VARIABLE          = 2;
-    inline constexpr uint8_t STATEMENTS        = 3;
-    inline constexpr uint8_t ELSE_BRANCH       = 4;
-    inline constexpr uint8_t STRIP_BEFORE      = 5;
-    inline constexpr uint8_t STRIP_AFTER       = 6;
+    using Key  = NamedCode<uint8_t>;
+    using Code = NamedCode<int32_t>;
 
-    inline constexpr int32_t TEXT_NODE    = 0;
-    inline constexpr int32_t VAR_STMT     = 1;
-    inline constexpr int32_t FOR_STMT     = 2;
-    inline constexpr int32_t IF_STMT      = 3;
-    inline constexpr int32_t ELSE_STMT    = 4;
-    inline constexpr int32_t SET_STMT     = 5;
+    // Field keys (stored in TinyObjectMap).
+    inline constexpr Key CODE              {"CODE",         0};
+    inline constexpr Key EXPRESSION        {"EXPRESSION",   1};
+    inline constexpr Key VARIABLE          {"VARIABLE",     2};
+    inline constexpr Key STATEMENTS        {"STATEMENTS",   3};
+    inline constexpr Key ELSE_BRANCH       {"ELSE_BRANCH",  4};
+    inline constexpr Key STRIP_BEFORE      {"STRIP_BEFORE", 5};
+    inline constexpr Key STRIP_AFTER       {"STRIP_AFTER",  6};
+
+    // Node types (stored as value of key CODE).
+    inline constexpr Code TEXT_NODE    {"TEXT_NODE",  0};
+    inline constexpr Code VAR_STMT     {"VAR_STMT",   1};
+    inline constexpr Code FOR_STMT     {"FOR_STMT",   2};
+    inline constexpr Code IF_STMT      {"IF_STMT",    3};
+    inline constexpr Code ELSE_STMT    {"ELSE_STMT",  4};
+    inline constexpr Code SET_STMT     {"SET_STMT",   5};
 }
 
 // ============================================================================
@@ -79,7 +85,7 @@ private:
             if (pos_ > text_start) {
                 auto sv = text_.substr(text_start, pos_ - text_start);
                 auto* s = doc_.raw_string(sv);
-                stmts->push_back(TaggedPtr{}, doc_.arena());
+                stmts->push_back(AnyVal{}, doc_.arena());
                 stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(s, doc_.base());
             }
 
@@ -116,11 +122,11 @@ private:
 
         auto* expr_str = doc_.raw_string(expr_text);
         auto* node = doc_.raw_tiny_map(4);
-        node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::VAR_STMT, type_hash::Integer), doc_.arena());
-        node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::VAR_STMT), doc_.arena());
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
         node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
 
-        stmts->push_back(TaggedPtr{}, doc_.arena());
+        stmts->push_back(AnyVal{}, doc_.arena());
         stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
@@ -197,16 +203,16 @@ private:
         auto* expr_str = doc_.raw_string(expr_text);
 
         auto* node = doc_.raw_tiny_map(8);
-        node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::FOR_STMT, type_hash::Integer), doc_.arena());
-        node->put(tpl_ast::VARIABLE, TaggedPtr{}, doc_.arena());
-        node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
-        node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::FOR_STMT), doc_.arena());
+        node->put(tpl_ast::VARIABLE, AnyVal{}, doc_.arena());
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
+        node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
         // Now set pointers — all allocations are done, no more arena mutations.
         node->slot(tpl_ast::VARIABLE, doc_.base())->set_pointer(var_str, doc_.base());
         node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
         node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
 
-        stmts->push_back(TaggedPtr{}, doc_.arena());
+        stmts->push_back(AnyVal{}, doc_.arena());
         stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
@@ -220,9 +226,9 @@ private:
 
         auto* expr_str = doc_.raw_string(expr_text);
         auto* node = doc_.raw_tiny_map(8);
-        node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::IF_STMT, type_hash::Integer), doc_.arena());
-        node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
-        node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), doc_.arena());
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
+        node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
         node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
         node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
 
@@ -231,23 +237,23 @@ private:
             auto* else_body = doc_.raw_array();
             parse_block(else_body, "endif");
             auto* else_node = doc_.raw_tiny_map(4);
-            else_node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::ELSE_STMT, type_hash::Integer), doc_.arena());
-            else_node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
+            else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), doc_.arena());
+            else_node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
             else_node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(else_body, doc_.base());
-            node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
+            node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, doc_.arena());
             node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(else_node, doc_.base());
         } else if (end_kw == "elif") {
             // Recursive: build a nested if from the elif.
             auto* elif_stmts = doc_.raw_array();
             parse_if_stmt_with_expr(elif_stmts, elif_expr_);
             if (elif_stmts->size() > 0) {
-                node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
+                node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, doc_.arena());
                 node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(
                     elif_stmts->slot(0, doc_.base())->as_ptr<void>(doc_.base()), doc_.base());
             }
         }
 
-        stmts->push_back(TaggedPtr{}, doc_.arena());
+        stmts->push_back(AnyVal{}, doc_.arena());
         stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
@@ -257,9 +263,9 @@ private:
 
         auto* expr_str = doc_.raw_string(expr_text);
         auto* node = doc_.raw_tiny_map(8);
-        node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::IF_STMT, type_hash::Integer), doc_.arena());
-        node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
-        node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), doc_.arena());
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
+        node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
         node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
         node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(body, doc_.base());
 
@@ -267,22 +273,22 @@ private:
             auto* else_body = doc_.raw_array();
             parse_block(else_body, "endif");
             auto* else_node = doc_.raw_tiny_map(4);
-            else_node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::ELSE_STMT, type_hash::Integer), doc_.arena());
-            else_node->put(tpl_ast::STATEMENTS, TaggedPtr{}, doc_.arena());
+            else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), doc_.arena());
+            else_node->put(tpl_ast::STATEMENTS, AnyVal{}, doc_.arena());
             else_node->slot(tpl_ast::STATEMENTS, doc_.base())->set_pointer(else_body, doc_.base());
-            node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
+            node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, doc_.arena());
             node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(else_node, doc_.base());
         } else if (end_kw == "elif") {
             auto* elif_stmts = doc_.raw_array();
             parse_if_stmt_with_expr(elif_stmts, elif_expr_);
             if (elif_stmts->size() > 0) {
-                node->put(tpl_ast::ELSE_BRANCH, TaggedPtr{}, doc_.arena());
+                node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, doc_.arena());
                 node->slot(tpl_ast::ELSE_BRANCH, doc_.base())->set_pointer(
                     elif_stmts->slot(0, doc_.base())->as_ptr<void>(doc_.base()), doc_.base());
             }
         }
 
-        stmts->push_back(TaggedPtr{}, doc_.arena());
+        stmts->push_back(AnyVal{}, doc_.arena());
         stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
@@ -298,13 +304,13 @@ private:
         auto* var_str = doc_.raw_string(var_name);
         auto* expr_str = doc_.raw_string(expr_text);
         auto* node = doc_.raw_tiny_map(4);
-        node->put(tpl_ast::CODE, TaggedPtr::from_value(tpl_ast::SET_STMT, type_hash::Integer), doc_.arena());
-        node->put(tpl_ast::VARIABLE, TaggedPtr{}, doc_.arena());
-        node->put(tpl_ast::EXPRESSION, TaggedPtr{}, doc_.arena());
+        node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::SET_STMT), doc_.arena());
+        node->put(tpl_ast::VARIABLE, AnyVal{}, doc_.arena());
+        node->put(tpl_ast::EXPRESSION, AnyVal{}, doc_.arena());
         node->slot(tpl_ast::VARIABLE, doc_.base())->set_pointer(var_str, doc_.base());
         node->slot(tpl_ast::EXPRESSION, doc_.base())->set_pointer(expr_str, doc_.base());
 
-        stmts->push_back(TaggedPtr{}, doc_.arena());
+        stmts->push_back(AnyVal{}, doc_.arena());
         stmts->slot(stmts->size() - 1, doc_.base())->set_pointer(node, doc_.base());
     }
 
@@ -409,7 +415,7 @@ private:
             if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::ObjectMap) {
                 auto* data_map = static_cast<ObjectMap*>(data_root);
                 uint8_t* data_base = const_cast<uint8_t*>(data_.base());
-                data_map->for_each([&](ArenaString* key, TaggedPtr* val) {
+                data_map->for_each([&](ArenaString* key, AnyVal* val) {
                     if (val->is_value()) {
                         ctx->put(key->view(), *val, ctx_doc.arena());
                     } else if (val->is_pointer()) {
@@ -472,35 +478,35 @@ private:
     // NOTE: ctx may be invalidated after this call (arena growth). Re-derive via offset.
     void put_into_ctx(ObjectMap* ctx, HermesCtr& ctx_doc, std::string_view key, void* val,
                      uint8_t* val_base = nullptr) {
-        if (!val) { ctx->put(key, TaggedPtr{}, ctx_doc.arena()); return; }
+        if (!val) { ctx->put(key, AnyVal{}, ctx_doc.arena()); return; }
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         uint64_t tc = tag.type_code();
-        // Embeddable scalars: store as embedded TaggedPtr (no pointer needed).
+        // Embeddable scalars: store as embedded AnyVal (no pointer needed).
         switch (tc) {
             case type_hash::Integer:
-                ctx->put(key, TaggedPtr::from_value(*static_cast<const int32_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), ctx_doc.arena());
                 return;
             case type_hash::UInteger:
-                ctx->put(key, TaggedPtr::from_value(*static_cast<const uint32_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const uint32_t*>(val), tc), ctx_doc.arena());
                 return;
             case type_hash::Boolean:
-                ctx->put(key, TaggedPtr::from_value(*static_cast<const uint8_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), ctx_doc.arena());
                 return;
             case type_hash::Real:
-                ctx->put(key, TaggedPtr::from_value(*static_cast<const float*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), ctx_doc.arena());
                 return;
             case type_hash::SmallInt:
-                ctx->put(key, TaggedPtr::from_value(*static_cast<const int16_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const int16_t*>(val), tc), ctx_doc.arena());
                 return;
             case type_hash::TinyInt:
-                ctx->put(key, TaggedPtr::from_value(*static_cast<const int8_t*>(val), tc), ctx_doc.arena());
+                ctx->put(key, AnyVal::from_value(*static_cast<const int8_t*>(val), tc), ctx_doc.arena());
                 return;
             case type_hash::Varchar: {
                 auto* s = static_cast<const ArenaString*>(val);
                 auto* copy = ArenaString::create(ctx_doc.arena(), s->view());
                 uint8_t* cb = ctx_doc.base();
-                ctx->put(key, TaggedPtr{}, ctx_doc.arena());
+                ctx->put(key, AnyVal{}, ctx_doc.arena());
                 ctx->get_slot(key, cb)->set_pointer(copy, cb);
                 return;
             }
@@ -509,16 +515,16 @@ private:
                 uint8_t* vb = val_base ? val_base : const_cast<uint8_t*>(data_.base());
                 void* copy = copy_object_into(val, vb, ctx_doc);
                 uint8_t* cb = ctx_doc.base();
-                ctx->put(key, TaggedPtr{}, ctx_doc.arena());
+                ctx->put(key, AnyVal{}, ctx_doc.arena());
                 ctx->get_slot(key, cb)->set_pointer(copy, cb);
                 return;
             }
         }
     }
 
-    // Materialize an embedded TaggedPtr value into an arena-allocated object.
+    // Materialize an embedded AnyVal value into an arena-allocated object.
     // Uses a scratch doc so the pointer stays valid for the template's lifetime.
-    void* materialize_embedded(TaggedPtr* slot) {
+    void* materialize_embedded(AnyVal* slot) {
         if (!slot || slot->is_null()) return nullptr;
         uint8_t th = slot->value_type_hash();
         switch (th) {
@@ -559,7 +565,7 @@ private:
     void visit_stmts(const ObjectArray* stmts) {
         auto* stmts_mut = const_cast<ObjectArray*>(stmts);
         for (uint64_t i = 0; i < stmts->size(); ++i) {
-            TaggedPtr* slot = stmts_mut->slot(i, base_);
+            AnyVal* slot = stmts_mut->slot(i, base_);
             if (slot->is_null()) continue;
             if (!slot->is_pointer()) continue;
             void* elem = slot->as_ptr<void>(base_);
@@ -607,7 +613,7 @@ private:
         uint8_t* iter_base = iter_result.base();
         size_t stack_mark = var_stack_.size();
         for (uint64_t i = 0; i < arr->size(); ++i) {
-            TaggedPtr* slot = const_cast<ObjectArray*>(arr)->slot(i, iter_base);
+            AnyVal* slot = const_cast<ObjectArray*>(arr)->slot(i, iter_base);
             void* elem = nullptr;
             uint8_t* elem_base = iter_base;
             if (slot->is_pointer()) {

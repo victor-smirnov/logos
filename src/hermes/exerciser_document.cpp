@@ -25,13 +25,13 @@ static void test_document_create() {
 
     // Create a TinyObjectMap as root via View API.
     auto map = doc.make_tiny_map();
-    doc.set_root_offset(map.offset());
+    doc.set_root(map);
 
     LOGOS_ASSERT(doc.has_root(), "HERMES-DOC-001", "Document must have root after set_root");
 
     // Add data through the View.
-    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
-    map.put(1, TaggedPtr::from_value(float(3.14f), type_hash::Real));
+    map.put(0, AnyVal::from_value(int32_t(42)));
+    map.put(1, AnyVal::from_value(float(3.14f)));
 
     LOGOS_ASSERT(map.get(0).as_value<int32_t>() == 42, "HERMES-DOC-001", "");
     LOGOS_ASSERT(map.get(1).as_value<float>() == 3.14f, "HERMES-DOC-001", "");
@@ -46,11 +46,11 @@ static void test_document_nested_objects() {
     auto doc = make_doc();
 
     auto root = doc.make_tiny_map();
-    doc.set_root_offset(root.offset());
+    doc.set_root(root);
 
-    root.put(0, TaggedPtr::from_value(int32_t(100), type_hash::Integer));
-    root.put(1, TaggedPtr::from_value(int32_t(200), type_hash::Integer));
-    root.put(2, TaggedPtr::from_value(int32_t(300), type_hash::Integer));
+    root.put(0, AnyVal::from_value(int32_t(100)));
+    root.put(1, AnyVal::from_value(int32_t(200)));
+    root.put(2, AnyVal::from_value(int32_t(300)));
 
     LOGOS_ASSERT(root.size() == 3, "HERMES-DOC-002", "Root must have 3 entries");
     LOGOS_ASSERT(root.get(0).as_value<int32_t>() == 100, "HERMES-DOC-002", "");
@@ -66,25 +66,25 @@ static void test_document_with_array_root() {
 
     auto doc = make_doc();
     auto arr = doc.make_array();
-    doc.set_root_offset(arr.offset());
+    doc.set_root(arr);
 
-    arr.push_back(TaggedPtr::from_value(int32_t(1), type_hash::Integer));
-    arr.push_back(TaggedPtr::from_value(int32_t(2), type_hash::Integer));
-    arr.push_back(TaggedPtr::from_value(int32_t(3), type_hash::Integer));
+    arr.push_back(AnyVal::from_value(int32_t(1)));
+    arr.push_back(AnyVal::from_value(int32_t(2)));
+    arr.push_back(AnyVal::from_value(int32_t(3)));
 
     // Add a string via pointer — use offset-based set.
     auto s = doc.make_string("test");
-    arr.push_back(TaggedPtr{});
+    arr.push_back(AnyVal{});
     arr.slot(3)->set_pointer(s.ptr(), arr.ptr()->slot(3, doc.base()) ? doc.base() : doc.base());
 
-    // Simpler: use set_offset on the TaggedPtr.
+    // Simpler: use set_offset on the AnyVal.
     arr.slot(3)->set_offset(s.offset());
 
     LOGOS_ASSERT(arr.size() == 4, "HERMES-DOC-002", "");
     LOGOS_ASSERT(arr.get(0).as_value<int32_t>() == 1, "HERMES-DOC-002", "");
 
     // Check string via slot.
-    TaggedPtr* str_slot = arr.slot(3);
+    AnyVal* str_slot = arr.slot(3);
     LOGOS_ASSERT(str_slot->is_pointer(), "HERMES-DOC-002", "");
     LOGOS_ASSERT(*str_slot->as_ptr<ArenaString>(doc.base()) == "test", "HERMES-DOC-002", "");
 
@@ -101,11 +101,11 @@ static void test_compactify_simple() {
 
     auto doc = make_doc();
     auto map = doc.make_tiny_map();
-    doc.set_root_offset(map.offset());
+    doc.set_root(map);
 
-    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
-    map.put(5, TaggedPtr::from_value(float(2.5f), type_hash::Real));
-    map.put(10, TaggedPtr::from_value(int8_t(-1), type_hash::TinyInt));
+    map.put(0, AnyVal::from_value(int32_t(42)));
+    map.put(5, AnyVal::from_value(float(2.5f)));
+    map.put(10, AnyVal::from_value(int8_t(-1)));
 
     auto compact = compactify(doc);
 
@@ -131,10 +131,10 @@ static void test_compactify_array_with_values() {
 
     auto doc = make_doc();
     auto arr = doc.make_array();
-    doc.set_root_offset(arr.offset());
+    doc.set_root(arr);
 
     for (int i = 0; i < 20; ++i) {
-        arr.push_back(TaggedPtr::from_value(int32_t(i * 100), type_hash::Integer));
+        arr.push_back(AnyVal::from_value(int32_t(i * 100)));
     }
 
     auto compact = compactify(doc);
@@ -160,9 +160,9 @@ static void test_zero_copy_round_trip() {
 
     auto doc = make_doc();
     auto map = doc.make_tiny_map();
-    doc.set_root_offset(map.offset());
-    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
-    map.put(3, TaggedPtr::from_value(int32_t(99), type_hash::Integer));
+    doc.set_root(map);
+    map.put(0, AnyVal::from_value(int32_t(42)));
+    map.put(3, AnyVal::from_value(int32_t(99)));
 
     auto compact = compactify(doc);
 
@@ -193,10 +193,10 @@ static void test_zero_copy_array_round_trip() {
 
     auto doc = make_doc();
     auto arr = doc.make_array();
-    doc.set_root_offset(arr.offset());
+    doc.set_root(arr);
 
     for (int i = 0; i < 10; ++i) {
-        arr.push_back(TaggedPtr::from_value(int32_t(i), type_hash::Integer));
+        arr.push_back(AnyVal::from_value(int32_t(i)));
     }
 
     auto compact = compactify(doc);

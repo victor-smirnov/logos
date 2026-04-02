@@ -46,9 +46,9 @@ public:
         return dst_obj;
     }
 
-    void copy_tagged_ptr(const TaggedPtr* src_slot, TaggedPtr* dst_slot) {
+    void copy_tagged_ptr(const AnyVal* src_slot, AnyVal* dst_slot) {
         if (src_slot->is_null()) {
-            *dst_slot = TaggedPtr{};
+            *dst_slot = AnyVal{};
         } else if (src_slot->is_value()) {
             *dst_slot = *src_slot;
         } else {
@@ -91,11 +91,11 @@ private:
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
 
-            dst_map->put(key, TaggedPtr{}, dst_);
+            dst_map->put(key, AnyVal{}, dst_);
             dst_base = dst_.head().data();
 
-            TaggedPtr* dst_slot = dst_map->slot(key, dst_base);
-            const TaggedPtr* src_slot = src_map->slot(key, const_cast<uint8_t*>(src_base_));
+            AnyVal* dst_slot = dst_map->slot(key, dst_base);
+            const AnyVal* src_slot = src_map->slot(key, const_cast<uint8_t*>(src_base_));
 
             copy_tagged_ptr(src_slot, dst_slot);
         }
@@ -107,12 +107,12 @@ private:
         auto* dst_arr = ObjectArray::create(dst_, src_arr->size());
 
         for (uint64_t i = 0; i < src_arr->size(); ++i) {
-            dst_arr->push_back(TaggedPtr{}, dst_);
+            dst_arr->push_back(AnyVal{}, dst_);
             uint8_t* dst_base = dst_.head().data();
-            TaggedPtr* dst_slot = dst_arr->slot(i, dst_base);
+            AnyVal* dst_slot = dst_arr->slot(i, dst_base);
 
             auto* src_arr_mut = const_cast<ObjectArray*>(src_arr);
-            TaggedPtr* src_slot = src_arr_mut->slot(i, const_cast<uint8_t*>(src_base_));
+            AnyVal* src_slot = src_arr_mut->slot(i, const_cast<uint8_t*>(src_base_));
 
             copy_tagged_ptr(src_slot, dst_slot);
         }
@@ -123,10 +123,10 @@ private:
         auto* src_map = static_cast<const ObjectMap*>(src);
         auto* dst_map = ObjectMap::create(dst_);
 
-        src_map->for_each([&](ArenaString* src_key, TaggedPtr* src_val_slot) {
-            dst_map->put(src_key->view(), TaggedPtr{}, dst_);
+        src_map->for_each([&](ArenaString* src_key, AnyVal* src_val_slot) {
+            dst_map->put(src_key->view(), AnyVal{}, dst_);
             uint8_t* dst_base = dst_.head().data();
-            TaggedPtr* dst_slot = dst_map->get_slot(src_key->view(), dst_base);
+            AnyVal* dst_slot = dst_map->get_slot(src_key->view(), dst_base);
             copy_tagged_ptr(src_val_slot, dst_slot);
         }, const_cast<uint8_t*>(src_base_));
 
@@ -178,7 +178,7 @@ HermesCtr compactify(const HermesCtrView& src) {
     DeepCopyState state(dst.arena(), src.base());
 
     arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(src.base())->root_offset;
-    const void* src_root = src.base() + root_off;
+    const void* src_root = src.base() + root_off.value();
     void* dst_root = state.copy_tagged_object(src_root);
     dst.set_root(dst_root);
 

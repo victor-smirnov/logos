@@ -6,7 +6,7 @@
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/fnv_hash.hpp>
-#include <logos/hermes/tagged_ptr.hpp>
+#include <logos/hermes/any_val.hpp>
 #include <logos/verification/assert.hpp>
 #include <logos/verification/trace.hpp>
 #include <logos/verification/sqlite_sink.hpp>
@@ -119,16 +119,16 @@ static void test_arena_put_get() {
 }
 
 // ============================================================================
-// TaggedPtr embedding with TypeTraits
+// AnyVal embedding with TypeTraits
 // ============================================================================
 
 static void test_tagged_ptr_with_traits() {
-    std::printf("--- TaggedPtr + TypeTraits ---\n");
+    std::printf("--- AnyVal + TypeTraits ---\n");
 
     // Embed each embeddable type using its TypeTraits hash
     {
         int8_t val = -42;
-        TaggedPtr p = TaggedPtr::from_value(val, TypeTraits<int8_t>::hash);
+        AnyVal p = AnyVal::from_value(val, TypeTraits<int8_t>::hash);
         LOGOS_ASSERT(p.is_value(), "HERMES-TYPES-003", "");
         LOGOS_ASSERT(p.value_type_hash() == type_hash::TinyInt, "HERMES-TYPES-003",
             "Embedded int8_t must have type_hash={}", type_hash::TinyInt);
@@ -138,14 +138,14 @@ static void test_tagged_ptr_with_traits() {
 
     {
         int32_t val = 999999;
-        TaggedPtr p = TaggedPtr::from_value(val, TypeTraits<int32_t>::hash);
+        AnyVal p = AnyVal::from_value(val, TypeTraits<int32_t>::hash);
         LOGOS_ASSERT(p.value_type_hash() == type_hash::Integer, "HERMES-TYPES-003", "");
         LOGOS_ASSERT(p.as_value<int32_t>() == 999999, "HERMES-TYPES-003", "");
     }
 
     {
         float val = -1.5f;
-        TaggedPtr p = TaggedPtr::from_value(val, TypeTraits<float>::hash);
+        AnyVal p = AnyVal::from_value(val, TypeTraits<float>::hash);
         LOGOS_ASSERT(p.value_type_hash() == type_hash::Real, "HERMES-TYPES-003", "");
         LOGOS_ASSERT(p.as_value<float>() == -1.5f, "HERMES-TYPES-003", "");
     }
@@ -156,7 +156,7 @@ static void test_tagged_ptr_with_traits() {
     static_assert(!TypeTraits<double>::embeddable);
 
     LOGOS_TRACE("hermes.types.tagged_embed", "status", "pass");
-    std::printf("  TaggedPtr + TypeTraits: OK\n");
+    std::printf("  AnyVal + TypeTraits: OK\n");
 }
 
 // ============================================================================

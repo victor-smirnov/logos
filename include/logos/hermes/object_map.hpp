@@ -11,14 +11,14 @@
 
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/relative_ptr.hpp>
-#include <logos/hermes/tagged_ptr.hpp>
+#include <logos/hermes/any_val.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/fnv_hash.hpp>
 #include <logos/hermes/type_registry.hpp>
 
 namespace logos::hermes {
 
-// ObjectMap: string-keyed hash map with TaggedPtr values.
+// ObjectMap: string-keyed hash map with AnyVal values.
 // All methods take segment base via Arena or explicit uint8_t* base.
 class ObjectMap {
 public:
@@ -28,14 +28,14 @@ public:
 
     // --- Lookup ---
 
-    TaggedPtr get(std::string_view key, uint8_t* base) const {
-        if (size_ == 0) return TaggedPtr{};
+    AnyVal get(std::string_view key, uint8_t* base) const {
+        if (size_ == 0) return AnyVal{};
 
         uint64_t h = fnv1a_hash(key);
         uint64_t idx = h & (bucket_count() - 1);
 
         auto* bucket_ptrs = buckets_.get(base);
-        if (bucket_ptrs[idx].is_null()) return TaggedPtr{};
+        if (bucket_ptrs[idx].is_null()) return AnyVal{};
 
         auto* bucket = bucket_ptrs[idx].get(base);
         uint32_t bsz = bucket_size(bucket);
@@ -47,14 +47,14 @@ public:
                 return bucket_values(bucket, bucket_cap(bucket))[i];
             }
         }
-        return TaggedPtr{};
+        return AnyVal{};
     }
 
     bool has(std::string_view key, uint8_t* base) const {
         return get_slot(key, base) != nullptr;
     }
 
-    TaggedPtr* get_slot(std::string_view key, uint8_t* base) {
+    AnyVal* get_slot(std::string_view key, uint8_t* base) {
         if (size_ == 0) return nullptr;
 
         uint64_t h = fnv1a_hash(key);
@@ -77,7 +77,7 @@ public:
         return nullptr;
     }
 
-    const TaggedPtr* get_slot(std::string_view key, uint8_t* base) const {
+    const AnyVal* get_slot(std::string_view key, uint8_t* base) const {
         return const_cast<ObjectMap*>(this)->get_slot(key, base);
     }
 
@@ -108,7 +108,7 @@ public:
 
     // --- Mutation ---
 
-    void put(std::string_view key, TaggedPtr value, Arena& arena) {
+    void put(std::string_view key, AnyVal value, Arena& arena) {
         uint8_t* base = arena.head().data();
 
         if (bucket_capacity_ == 0) {
@@ -195,7 +195,7 @@ public:
                     vals[i] = vals[bsz - 1];
                 }
                 keys[bsz - 1].clear();
-                vals[bsz - 1] = TaggedPtr{};
+                vals[bsz - 1] = AnyVal{};
                 set_bucket_size(bucket, bsz - 1);
                 --size_;
                 return true;
@@ -227,7 +227,7 @@ private:
     static size_t bucket_alloc_size(uint32_t cap) {
         return bucket_header_size
              + cap * sizeof(RelativePtr<ArenaString>)
-             + cap * sizeof(TaggedPtr);
+             + cap * sizeof(AnyVal);
     }
 
     static uint32_t bucket_size(const uint8_t* bucket) {
@@ -247,11 +247,11 @@ private:
         return reinterpret_cast<const RelativePtr<ArenaString>*>(bucket + bucket_header_size);
     }
 
-    static TaggedPtr* bucket_values(uint8_t* bucket, uint32_t cap) {
-        return reinterpret_cast<TaggedPtr*>(bucket + bucket_header_size + cap * sizeof(RelativePtr<ArenaString>));
+    static AnyVal* bucket_values(uint8_t* bucket, uint32_t cap) {
+        return reinterpret_cast<AnyVal*>(bucket + bucket_header_size + cap * sizeof(RelativePtr<ArenaString>));
     }
-    static const TaggedPtr* bucket_values(const uint8_t* bucket, uint32_t cap) {
-        return reinterpret_cast<const TaggedPtr*>(bucket + bucket_header_size + cap * sizeof(RelativePtr<ArenaString>));
+    static const AnyVal* bucket_values(const uint8_t* bucket, uint32_t cap) {
+        return reinterpret_cast<const AnyVal*>(bucket + bucket_header_size + cap * sizeof(RelativePtr<ArenaString>));
     }
 
     uint8_t* create_bucket(Arena& arena, uint32_t cap = 4) {
@@ -288,7 +288,7 @@ private:
 
         // Segment-relative: just copy, no relocation!
         std::memcpy(new_keys, old_keys, old_sz * sizeof(RelativePtr<ArenaString>));
-        std::memcpy(new_vals, old_vals, old_sz * sizeof(TaggedPtr));
+        std::memcpy(new_vals, old_vals, old_sz * sizeof(AnyVal));
         set_bucket_size(new_bucket, old_sz);
 
         bptrs[idx].set(new_bucket, base);
@@ -362,7 +362,7 @@ private:
                 }
 
                 bucket_keys(nb)[nsz] = keys[j]; // Copy offset directly
-                bucket_values(nb, ncap)[nsz] = vals[j]; // Copy TaggedPtr directly
+                bucket_values(nb, ncap)[nsz] = vals[j]; // Copy AnyVal directly
                 set_bucket_size(nb, nsz + 1);
                 ++size_;
             }

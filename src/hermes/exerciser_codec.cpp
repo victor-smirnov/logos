@@ -21,18 +21,18 @@ static void test_deep_copy_tiny_map_with_pointers() {
 
     auto doc = make_doc();
     auto map = doc.make_tiny_map();
-    doc.set_root_offset(map.offset());
+    doc.set_root(map);
 
     // Key 0 = embedded int
-    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
+    map.put(0, AnyVal::from_value(int32_t(42)));
 
     // Key 1 = pointer to string
     auto s = doc.make_string("hello from pointer");
-    map.put(1, TaggedPtr{});
+    map.put(1, AnyVal{});
     map.slot(1)->set_pointer(s.ptr(), doc.base());
 
     // Key 2 = embedded float
-    map.put(2, TaggedPtr::from_value(float(2.5f), type_hash::Real));
+    map.put(2, AnyVal::from_value(float(2.5f)));
 
     // Compactify (deep copy).
     auto compact = compactify(doc);
@@ -44,7 +44,7 @@ static void test_deep_copy_tiny_map_with_pointers() {
     LOGOS_ASSERT(cmap->get(2, cb).as_value<float>() == 2.5f, "HERMES-DEEPCOPY-001", "");
 
     // Check the pointer-mode value.
-    TaggedPtr* slot1 = cmap->slot(1, cb);
+    AnyVal* slot1 = cmap->slot(1, cb);
     LOGOS_ASSERT(slot1->is_pointer(), "HERMES-DEEPCOPY-001",
         "Key 1 must still be pointer mode after deep copy");
     auto* cs = slot1->as_ptr<ArenaString>(cb);
@@ -60,14 +60,14 @@ static void test_deep_copy_object_map() {
 
     auto doc = make_doc();
     auto map = doc.make_object_map();
-    doc.set_root_offset(map.offset());
+    doc.set_root(map);
 
-    map.put("name", TaggedPtr::from_value(int32_t(1), type_hash::Integer));
-    map.put("count", TaggedPtr::from_value(int32_t(2), type_hash::Integer));
+    map.put("name", AnyVal::from_value(int32_t(1)));
+    map.put("count", AnyVal::from_value(int32_t(2)));
 
     // Add a pointer-mode value.
     auto s = doc.make_string("value_string");
-    map.put("text", TaggedPtr{});
+    map.put("text", AnyVal{});
     map.get_slot("text")->set_pointer(s.ptr(), doc.base());
 
     auto compact = compactify(doc);
@@ -79,7 +79,7 @@ static void test_deep_copy_object_map() {
     LOGOS_ASSERT(cmap->get("name", cb).as_value<int32_t>() == 1, "HERMES-DEEPCOPY-002", "");
     LOGOS_ASSERT(cmap->get("count", cb).as_value<int32_t>() == 2, "HERMES-DEEPCOPY-002", "");
 
-    TaggedPtr* text_slot = cmap->get_slot("text", cb);
+    AnyVal* text_slot = cmap->get_slot("text", cb);
     LOGOS_ASSERT(text_slot != nullptr, "HERMES-DEEPCOPY-002", "");
     LOGOS_ASSERT(text_slot->is_pointer(), "HERMES-DEEPCOPY-002", "");
     LOGOS_ASSERT(*text_slot->as_ptr<ArenaString>(cb) == "value_string", "HERMES-DEEPCOPY-002", "");
@@ -97,11 +97,11 @@ static void test_binary_tiny_map() {
 
     auto doc = make_doc();
     auto map = doc.make_tiny_map();
-    doc.set_root_offset(map.offset());
+    doc.set_root(map);
 
-    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
-    map.put(5, TaggedPtr::from_value(float(3.14f), type_hash::Real));
-    map.put(10, TaggedPtr::from_value(int8_t(-1), type_hash::TinyInt));
+    map.put(0, AnyVal::from_value(int32_t(42)));
+    map.put(5, AnyVal::from_value(float(3.14f)));
+    map.put(10, AnyVal::from_value(int8_t(-1)));
 
     auto bytes = binary_encode(doc);
     LOGOS_ASSERT(!bytes.empty(), "HERMES-BINARY-001", "Encoded bytes must not be empty");
@@ -129,10 +129,10 @@ static void test_binary_object_array() {
 
     auto doc = make_doc();
     auto arr = doc.make_array();
-    doc.set_root_offset(arr.offset());
+    doc.set_root(arr);
 
     for (int i = 0; i < 10; ++i) {
-        arr.push_back(TaggedPtr::from_value(int32_t(i * 100), type_hash::Integer));
+        arr.push_back(AnyVal::from_value(int32_t(i * 100)));
     }
 
     auto bytes = binary_encode(doc);
@@ -159,10 +159,10 @@ static void test_binary_object_map() {
 
     auto doc = make_doc();
     auto map = doc.make_object_map();
-    doc.set_root_offset(map.offset());
+    doc.set_root(map);
 
-    map.put("name", TaggedPtr::from_value(int32_t(42), type_hash::Integer));
-    map.put("value", TaggedPtr::from_value(int32_t(99), type_hash::Integer));
+    map.put("name", AnyVal::from_value(int32_t(42)));
+    map.put("value", AnyVal::from_value(int32_t(99)));
 
     auto bytes = binary_encode(doc);
     auto decoded = binary_decode(bytes.data(), bytes.size());
@@ -187,21 +187,21 @@ static void test_binary_nested() {
 
     auto doc = make_doc();
     auto root = doc.make_tiny_map();
-    doc.set_root_offset(root.offset());
+    doc.set_root(root);
 
     // Key 0 = embedded int
-    root.put(0, TaggedPtr::from_value(int32_t(1), type_hash::Integer));
+    root.put(0, AnyVal::from_value(int32_t(1)));
 
     // Key 1 = pointer to string
     auto s = doc.make_string("nested_string");
-    root.put(1, TaggedPtr{});
+    root.put(1, AnyVal{});
     root.slot(1)->set_pointer(s.ptr(), doc.base());
 
     // Key 2 = pointer to an array
     auto inner_arr = doc.make_array();
-    inner_arr.push_back(TaggedPtr::from_value(int32_t(10), type_hash::Integer));
-    inner_arr.push_back(TaggedPtr::from_value(int32_t(20), type_hash::Integer));
-    root.put(2, TaggedPtr{});
+    inner_arr.push_back(AnyVal::from_value(int32_t(10)));
+    inner_arr.push_back(AnyVal::from_value(int32_t(20)));
+    root.put(2, AnyVal{});
     root.slot(2)->set_pointer(inner_arr.ptr(), doc.base());
 
     auto bytes = binary_encode(doc);
@@ -213,12 +213,12 @@ static void test_binary_nested() {
     LOGOS_ASSERT(droot->get(0, db).as_value<int32_t>() == 1, "HERMES-BINARY-004", "");
 
     // String
-    TaggedPtr* str_slot = droot->slot(1, db);
+    AnyVal* str_slot = droot->slot(1, db);
     LOGOS_ASSERT(str_slot->is_pointer(), "HERMES-BINARY-004", "");
     LOGOS_ASSERT(*str_slot->as_ptr<ArenaString>(db) == "nested_string", "HERMES-BINARY-004", "");
 
     // Array
-    TaggedPtr* arr_slot = droot->slot(2, db);
+    AnyVal* arr_slot = droot->slot(2, db);
     LOGOS_ASSERT(arr_slot->is_pointer(), "HERMES-BINARY-004", "");
     auto* darr = arr_slot->as_ptr<ObjectArray>(db);
     LOGOS_ASSERT(darr->size() == 2, "HERMES-BINARY-004", "");
@@ -238,10 +238,10 @@ static void test_binary_double_round_trip() {
 
     auto doc = make_doc();
     auto map = doc.make_tiny_map();
-    doc.set_root_offset(map.offset());
+    doc.set_root(map);
 
-    map.put(0, TaggedPtr::from_value(int32_t(42), type_hash::Integer));
-    map.put(1, TaggedPtr::from_value(float(3.14f), type_hash::Real));
+    map.put(0, AnyVal::from_value(int32_t(42)));
+    map.put(1, AnyVal::from_value(float(3.14f)));
 
     // Encode → decode → encode → compare.
     auto bytes1 = binary_encode(doc);

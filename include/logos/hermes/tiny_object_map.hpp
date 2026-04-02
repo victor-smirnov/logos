@@ -11,16 +11,16 @@
 
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/relative_ptr.hpp>
-#include <logos/hermes/tagged_ptr.hpp>
+#include <logos/hermes/any_val.hpp>
 #include <logos/hermes/type_registry.hpp>
 
 namespace logos::hermes {
 
 // TinyObjectMap: bitmap-indexed sparse map with uint8_t keys (0..51)
-// and TaggedPtr values. O(1) lookup via popcount.
+// and AnyVal values. O(1) lookup via popcount.
 //
 // All read/write methods take `uint8_t* base` — the segment base address.
-// TaggedPtr values in pointer mode store segment-relative offsets, so they
+// AnyVal values in pointer mode store segment-relative offsets, so they
 // can be freely copied without relocation.
 class TinyObjectMap {
 public:
@@ -36,22 +36,22 @@ public:
         return (header_ & (1ULL << key)) != 0;
     }
 
-    TaggedPtr get(uint8_t key, uint8_t* base) const {
-        if (!has_key(key)) return TaggedPtr{};
+    AnyVal get(uint8_t key, uint8_t* base) const {
+        if (!has_key(key)) return AnyVal{};
         return values(base)[index_of(key)];
     }
 
-    TaggedPtr* slot(uint8_t key, uint8_t* base) {
+    AnyVal* slot(uint8_t key, uint8_t* base) {
         if (!has_key(key)) return nullptr;
         return &values(base)[index_of(key)];
     }
 
-    const TaggedPtr* slot(uint8_t key, const uint8_t* base) const {
+    const AnyVal* slot(uint8_t key, const uint8_t* base) const {
         if (!has_key(key)) return nullptr;
         return &const_cast<TinyObjectMap*>(this)->values(const_cast<uint8_t*>(base))[index_of(key)];
     }
 
-    void put(uint8_t key, TaggedPtr value, Arena& arena) {
+    void put(uint8_t key, AnyVal value, Arena& arena) {
         if (key >= MAX_KEYS) return;
         uint8_t* base = arena.head().data();
 
@@ -70,7 +70,7 @@ public:
         }
 
         uint8_t pos = index_of(key);
-        TaggedPtr* vals = values(base);
+        AnyVal* vals = values(base);
         for (uint8_t i = sz; i > pos; --i) {
             vals[i] = vals[i - 1];
         }
@@ -88,11 +88,11 @@ public:
         uint8_t sz = size();
         uint8_t cap = capacity();
 
-        TaggedPtr* vals = values(base);
+        AnyVal* vals = values(base);
         for (uint8_t i = pos; i + 1 < sz; ++i) {
             vals[i] = vals[i + 1];
         }
-        vals[sz - 1] = TaggedPtr{};
+        vals[sz - 1] = AnyVal{};
 
         uint64_t bm = bitmap() & ~(1ULL << key);
         header_ = bm
@@ -114,30 +114,30 @@ public:
 
 private:
     uint64_t header_ = 0;
-    RelativePtr<TaggedPtr> data_;
+    RelativePtr<AnyVal> data_;
 
     uint8_t index_of(uint8_t key) const {
         uint64_t mask_below = (1ULL << key) - 1;
         return static_cast<uint8_t>(std::popcount(bitmap() & mask_below));
     }
 
-    TaggedPtr* values(uint8_t* base) const {
+    AnyVal* values(uint8_t* base) const {
         return data_.get(base);
     }
 
     void grow(Arena& arena, uint8_t new_cap) {
         if (new_cap > MAX_KEYS) new_cap = MAX_KEYS;
 
-        void* new_mem = arena.allocate_raw(new_cap * sizeof(TaggedPtr), alignof(TaggedPtr));
-        auto* new_vals = static_cast<TaggedPtr*>(new_mem);
-        for (uint8_t i = 0; i < new_cap; ++i) new_vals[i] = TaggedPtr{};
+        void* new_mem = arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal));
+        auto* new_vals = static_cast<AnyVal*>(new_mem);
+        for (uint8_t i = 0; i < new_cap; ++i) new_vals[i] = AnyVal{};
 
         // Segment-relative: just copy. No relocation needed!
         uint8_t sz = size();
         uint8_t* base = arena.head().data();
         if (sz > 0 && !data_.is_null()) {
-            TaggedPtr* old_vals = values(base);
-            std::memcpy(new_vals, old_vals, sz * sizeof(TaggedPtr));
+            AnyVal* old_vals = values(base);
+            std::memcpy(new_vals, old_vals, sz * sizeof(AnyVal));
         }
 
         data_.set(new_vals, base);

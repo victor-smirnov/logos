@@ -3,7 +3,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/relative_ptr.hpp>
-#include <logos/hermes/tagged_ptr.hpp>
+#include <logos/hermes/any_val.hpp>
 #include <logos/hermes/type_tag.hpp>
 #include <logos/hermes/varint.hpp>
 #include <logos/hermes/arena.hpp>
@@ -52,48 +52,51 @@ static void test_relative_ptr() {
 }
 
 // ============================================================================
-// TaggedPtr tests
+// AnyVal tests
 // ============================================================================
 
 static void test_tagged_ptr_pointer_mode() {
-    std::printf("--- TaggedPtr pointer mode ---\n");
+    std::printf("--- AnyVal pointer mode ---\n");
 
     // Pointer mode round-trip with various arena offsets (segment-relative, always >= 0).
-    arena_offset_t test_offsets[] = {2, 256, 1024, 65536, 0x7FFFFFFE};
+    arena_offset_t test_offsets[] = {
+        arena_offset_t{2}, arena_offset_t{256}, arena_offset_t{1024},
+        arena_offset_t{65536}, arena_offset_t{0x7FFFFFFE}
+    };
     for (arena_offset_t offset : test_offsets) {
-        TaggedPtr p = TaggedPtr::from_offset(offset);
+        AnyVal p = AnyVal::from_offset(offset);
         LOGOS_ASSERT(p.is_pointer(), "HERMES-TAGPTR-003",
-            "TaggedPtr from offset {} must be in pointer mode", offset);
+            "AnyVal from offset {} must be in pointer mode", offset);
         LOGOS_ASSERT(!p.is_value(), "HERMES-TAGPTR-003",
-            "TaggedPtr from offset {} must not be in value mode", offset);
+            "AnyVal from offset {} must not be in value mode", offset);
         LOGOS_ASSERT(!p.is_null(), "HERMES-TAGPTR-003",
-            "TaggedPtr from non-zero offset {} must not be null", offset);
+            "AnyVal from non-zero offset {} must not be null", offset);
 
         arena_offset_t recovered = p.to_offset();
         LOGOS_ASSERT(recovered == offset, "HERMES-TAGPTR-001",
-            "TaggedPtr pointer mode round-trip failed: wrote {}, got {}", offset, recovered);
+            "AnyVal pointer mode round-trip failed: wrote {}, got {}", offset, recovered);
     }
 
     // Null
-    TaggedPtr null_p;
+    AnyVal null_p;
     LOGOS_ASSERT(null_p.is_null(), "HERMES-TAGPTR-004",
-        "Default-constructed TaggedPtr must be null");
+        "Default-constructed AnyVal must be null");
     LOGOS_ASSERT(null_p.raw() == 0, "HERMES-TAGPTR-004",
-        "Null TaggedPtr raw bits must be all zeros");
+        "Null AnyVal raw bits must be all zeros");
 
     LOGOS_TRACE("hermes.tagptr.pointer", "status", "pass");
-    std::printf("  TaggedPtr pointer mode: OK\n");
+    std::printf("  AnyVal pointer mode: OK\n");
 }
 
 static void test_tagged_ptr_value_mode() {
-    std::printf("--- TaggedPtr value mode ---\n");
+    std::printf("--- AnyVal value mode ---\n");
 
     // Embed int8_t (TinyInt, type_hash=20)
     {
         int8_t val = -42;
-        TaggedPtr p = TaggedPtr::from_value(val, 20);
+        AnyVal p = AnyVal::from_value(val, 20);
         LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003",
-            "TaggedPtr with embedded int8_t must be in value mode");
+            "AnyVal with embedded int8_t must be in value mode");
         LOGOS_ASSERT(p.value_type_hash() == 20, "HERMES-TAGPTR-002",
             "Embedded int8_t type_hash must be 20, got {}", p.value_type_hash());
         int8_t extracted = p.as_value<int8_t>();
@@ -104,7 +107,7 @@ static void test_tagged_ptr_value_mode() {
     // Embed uint8_t (UTinyInt, type_hash=21)
     {
         uint8_t val = 200;
-        TaggedPtr p = TaggedPtr::from_value(val, 21);
+        AnyVal p = AnyVal::from_value(val, 21);
         LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003", "");
         LOGOS_ASSERT(p.as_value<uint8_t>() == val, "HERMES-TAGPTR-002",
             "Embedded uint8_t round-trip failed");
@@ -113,7 +116,7 @@ static void test_tagged_ptr_value_mode() {
     // Embed int16_t (SmallInt, type_hash=22)
     {
         int16_t val = -12345;
-        TaggedPtr p = TaggedPtr::from_value(val, 22);
+        AnyVal p = AnyVal::from_value(val, 22);
         LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003", "");
         LOGOS_ASSERT(p.as_value<int16_t>() == val, "HERMES-TAGPTR-002",
             "Embedded int16_t round-trip failed: wrote {}, got {}", val, p.as_value<int16_t>());
@@ -122,7 +125,7 @@ static void test_tagged_ptr_value_mode() {
     // Embed int32_t (Integer, type_hash=23)
     {
         int32_t val = -1234567;
-        TaggedPtr p = TaggedPtr::from_value(val, 23);
+        AnyVal p = AnyVal::from_value(val, 23);
         LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003", "");
         LOGOS_ASSERT(p.as_value<int32_t>() == val, "HERMES-TAGPTR-002",
             "Embedded int32_t round-trip failed: wrote {}, got {}", val, p.as_value<int32_t>());
@@ -131,7 +134,7 @@ static void test_tagged_ptr_value_mode() {
     // Embed uint32_t (UInteger, type_hash=25)
     {
         uint32_t val = 0xDEADBEEF;
-        TaggedPtr p = TaggedPtr::from_value(val, 25);
+        AnyVal p = AnyVal::from_value(val, 25);
         LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003", "");
         LOGOS_ASSERT(p.as_value<uint32_t>() == val, "HERMES-TAGPTR-002",
             "Embedded uint32_t round-trip failed");
@@ -140,7 +143,7 @@ static void test_tagged_ptr_value_mode() {
     // Embed float (Real, type_hash=30)
     {
         float val = 3.14f;
-        TaggedPtr p = TaggedPtr::from_value(val, 30);
+        AnyVal p = AnyVal::from_value(val, 30);
         LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003", "");
         float extracted = p.as_value<float>();
         LOGOS_ASSERT(std::abs(extracted - val) < 1e-6f, "HERMES-TAGPTR-002",
@@ -151,39 +154,39 @@ static void test_tagged_ptr_value_mode() {
     {
         // Use uint8_t for embedding since bool has implementation-defined size
         uint8_t val_true = 1;
-        TaggedPtr p = TaggedPtr::from_value(val_true, 37);
+        AnyVal p = AnyVal::from_value(val_true, 37);
         LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003", "");
         LOGOS_ASSERT(p.as_value<uint8_t>() == 1, "HERMES-TAGPTR-002",
             "Embedded boolean true round-trip failed");
 
         uint8_t val_false = 0;
-        TaggedPtr pf = TaggedPtr::from_value(val_false, 37);
+        AnyVal pf = AnyVal::from_value(val_false, 37);
         LOGOS_ASSERT(pf.as_value<uint8_t>() == 0, "HERMES-TAGPTR-002",
             "Embedded boolean false round-trip failed");
     }
 
     LOGOS_TRACE("hermes.tagptr.value", "status", "pass");
-    std::printf("  TaggedPtr value mode: OK\n");
+    std::printf("  AnyVal value mode: OK\n");
 }
 
 static void test_tagged_ptr_set_pointer() {
-    std::printf("--- TaggedPtr set_pointer ---\n");
+    std::printf("--- AnyVal set_pointer ---\n");
 
     // Use aligned buffer to simulate arena objects.
     alignas(8) uint8_t buf[128] = {};
     int32_t* target = reinterpret_cast<int32_t*>(buf + 64);
     *target = 777;
 
-    TaggedPtr* slot = reinterpret_cast<TaggedPtr*>(buf + 0);
+    AnyVal* slot = reinterpret_cast<AnyVal*>(buf + 0);
     slot->set_pointer(target, buf);
 
     LOGOS_ASSERT(slot->is_pointer(), "HERMES-TAGPTR-003",
-        "TaggedPtr after set_pointer must be in pointer mode");
+        "AnyVal after set_pointer must be in pointer mode");
     LOGOS_ASSERT(*slot->as_ptr<int32_t>(buf) == 777, "HERMES-TAGPTR-001",
-        "TaggedPtr set_pointer/as_ptr round-trip failed");
+        "AnyVal set_pointer/as_ptr round-trip failed");
 
     LOGOS_TRACE("hermes.tagptr.set_pointer", "status", "pass");
-    std::printf("  TaggedPtr set_pointer: OK\n");
+    std::printf("  AnyVal set_pointer: OK\n");
 }
 
 // ============================================================================

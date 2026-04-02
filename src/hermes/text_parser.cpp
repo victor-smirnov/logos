@@ -865,7 +865,7 @@ private:
         if (can_embed(tc)) {
             arr->push_back(make_embedded(elem, tc), doc_.arena());
         } else {
-            arr->push_back(TaggedPtr{}, doc_.arena());
+            arr->push_back(AnyVal{}, doc_.arena());
             arr->slot(arr->size() - 1, doc_.base())->set_pointer(elem, doc_.base());
         }
     }
@@ -877,7 +877,7 @@ private:
         if (can_embed(tc)) {
             map->put(key, make_embedded(elem, tc), doc_.arena());
         } else {
-            map->put(key, TaggedPtr{}, doc_.arena());
+            map->put(key, AnyVal{}, doc_.arena());
             map->get_slot(key, doc_.base())->set_pointer(elem, doc_.base());
         }
     }
@@ -893,17 +893,17 @@ private:
         }
     }
 
-    TaggedPtr make_embedded(const void* obj, uint64_t tc) {
+    AnyVal make_embedded(const void* obj, uint64_t tc) {
         switch (tc) {
-            case type_hash::TinyInt:  return TaggedPtr::from_value(*static_cast<const int8_t*>(obj), tc);
+            case type_hash::TinyInt:  return AnyVal::from_value(*static_cast<const int8_t*>(obj), tc);
             case type_hash::UTinyInt: case type_hash::Boolean:
-                return TaggedPtr::from_value(*static_cast<const uint8_t*>(obj), tc);
-            case type_hash::SmallInt: return TaggedPtr::from_value(*static_cast<const int16_t*>(obj), tc);
-            case type_hash::USmallInt:return TaggedPtr::from_value(*static_cast<const uint16_t*>(obj), tc);
-            case type_hash::Integer:  return TaggedPtr::from_value(*static_cast<const int32_t*>(obj), tc);
-            case type_hash::UInteger: return TaggedPtr::from_value(*static_cast<const uint32_t*>(obj), tc);
-            case type_hash::Real:     return TaggedPtr::from_value(*static_cast<const float*>(obj), tc);
-            default: return TaggedPtr{};
+                return AnyVal::from_value(*static_cast<const uint8_t*>(obj), tc);
+            case type_hash::SmallInt: return AnyVal::from_value(*static_cast<const int16_t*>(obj), tc);
+            case type_hash::USmallInt:return AnyVal::from_value(*static_cast<const uint16_t*>(obj), tc);
+            case type_hash::Integer:  return AnyVal::from_value(*static_cast<const int32_t*>(obj), tc);
+            case type_hash::UInteger: return AnyVal::from_value(*static_cast<const uint32_t*>(obj), tc);
+            case type_hash::Real:     return AnyVal::from_value(*static_cast<const float*>(obj), tc);
+            default: return AnyVal{};
         }
     }
 
