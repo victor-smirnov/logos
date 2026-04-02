@@ -4,7 +4,7 @@ This document is the authoritative specification for porting Hermes from Memoria
 
 **Related specifications:**
 - `hermes-abi.json` — Machine-readable type registry: all DataTypes, their type hashes, binary layouts, embeddability rules, and encoding properties. **The** authoritative source for type code assignments.
-- `hermes-wire-format.md` — Formal binary wire format: bit-exact encoding of ShortTypeCode, ERelativePtr, arena layout, container structures, and cross-runtime interoperability requirements. **The** authoritative source for binary stability guarantees.
+- `hermes-wire-format.md` — Formal binary wire format: bit-exact encoding of ShortTypeCode, AnyVal, arena layout, container structures, and cross-runtime interoperability requirements. **The** authoritative source for binary stability guarantees.
 
 ## 1. Memory Model
 
@@ -16,60 +16,48 @@ Hermes objects live in an arena -- a contiguous (or chunked) memory region with 
 - `MULTI_CHUNK`: new chunks allocated as needed (default 4KB). Used for mutable documents under construction.
 
 **Allocation mechanics:**
-- `allocate_space(size, alignment, tag_size)`: finds room for `size` bytes at `alignment`, ensuring `tag_size` bytes of space *before* the object for the type tag.
-- Tag is written *backwards* from object start address. If alignment gap >= tag_size, tag fits in the gap at zero extra cost.
-- Objects may have gaps between them (alignment).
+- `allocate(size, alignment, tag)`: finds room for `size` bytes at `alignment`, ensuring space *before* the returned address for the `TypeTag` bytes. Tag is written backwards from the object start. If the alignment gap >= tag size, the tag fits at zero extra cost.
+- `allocate_raw(size, alignment)`: no type tag (used for untagged structures like `DocumentHeader`).
+- Objects may have gaps between them (alignment padding).
 
 **Chunk structure:**
-```
+```cpp
 struct Chunk {
-    UniquePtr<uint8_t> memory;  // owned buffer
-    size_t capacity;            // allocated capacity
-    size_t size;                // used bytes
+    std::unique_ptr<uint8_t[]> memory;  // owned buffer
+    size_t capacity;                    // allocated capacity
+    size_t used;                        // used bytes
 };
 ```
 
-Arena owns a `vector<Chunk>`. `head()` = last chunk (current allocation target). `tail()` = first chunk (contains document header).
+Arena owns a `vector<Chunk>`. The tail chunk contains `DocumentHeader` at offset 0. The current chunk (head) is where new allocations go.
 
-**Object allocation:**
-```cpp
-template <typename T, typename... Args>
-T* allocate_object(Args&&... args) {
-    ShortTypeCode tag = TypeHashV<T>;
-    size_t tag_size = tag.full_code_len();
-    void* ptr = allocate_space(sizeof(T), alignof(T), tag_size);
-    write_type_tag(ptr, tag);
-    return new (ptr) T(std::forward<Args>(args)...);
-}
-```
+Some types have dynamic size (e.g. `ArenaString`), where the object size depends on runtime data (e.g. string length). The arena's `allocate()` method takes a `TypeTag` and writes it before the object address.
 
-Some types have dynamic size (`UseObjectSize = true`), where `T::object_size(args...)` determines allocation size instead of `sizeof(T)`.
+**Deep Copy:**
+`Document::deep_copy()` allocates a new arena, traverses the object graph, and copies each reachable object. Since all offsets are segment-relative, pointer fixup is straightforward: subtract the old base, add the new base. Result is a clean, compacted single-chunk arena.
 
-**Copying GC / Deep Copy:**
-Deep copy = allocate new arena, traverse object graph, copy each object into new arena, fix up relative pointers. `DeepCopyState` tracks already-copied objects (deduplication map) to handle shared references. This *is* the GC: compactification creates a clean arena with no garbage.
-
-**Thread-local arena pool:**
-`get_local_instance()` provides a thread-local reusable arena for temporary allocations. `PoolableArena` integrates with object pools for efficient reuse.
+**Thread-local arena pool:** planned for future; not currently implemented.
 
 ### 1.2 Relative Pointers
-All in-arena pointers are relative (offset from the pointer's own address).
 
-**`RelativePtr<T>`:** 8 bytes. Stores `int64_t offset_`. `get()` returns `this_addr + offset_`. Null = offset 0.
+All in-arena pointers store **segment-relative offsets** — offsets from the beginning of the arena segment. Dereference always requires the segment base address to be passed explicitly. This model is stable across realloc (the offset doesn't change when the segment moves) and simpler than self-relative pointers.
 
-**`EmbeddingRelativePtr<T>` (aka `ERelativePtr`):** 8 bytes. Can store *either* a relative pointer *or* an embedded small value.
-- Bit 0 of last byte: 0 = pointer mode, 1 = value mode.
-- In pointer mode: 56-bit offset (top byte stores low bits of offset, remaining 7 bytes store rest). Same idea as tagged pointers but at the byte level.
-- In value mode: first N bytes = value, last byte = `(tag << 1) | 1`. Values up to 7 bytes can be embedded (56-bit integers, floats, short strings).
+**`RelativePtr<T>`:** holds `arena_offset_t` (a 32-bit unsigned offset). `get(base)` returns `base + offset`. Null = `NULL_OFFSET` sentinel.
 
-This is the key optimization enabling 56-bit integers and small-value embedding without pointer indirection.
+**`AnyVal`:** 8 bytes. Can store *either* a segment-relative pointer *or* an embedded small value. Previously called `EmbeddingRelativePtr`/`ERelativePtr` in Memoria; renamed for clarity.
+- Discriminant: bit 0 of byte[7] (most-significant byte in little-endian layout): `0` = pointer, `1` = value.
+- **Pointer mode:** 32-bit segment-relative offset in bytes[0..3]; bytes[4..7] = 0. High bytes being zero ensures the discriminant bit is 0 without any encoding tricks.
+- **Value mode:** bytes[0..6] = value (up to 7 bytes), byte[7] = `(type_hash << 1) | 1`. Values ≤ 7 bytes can be embedded (integers, floats, bool).
+
+See `hermes-wire-format.md §3` for the exact bit-level encoding.
 
 ### 1.3 Document Structure
 ```
 DocumentHeader {
-    ERelativePtr root;  // root object of the document
+    AnyVal root;  // root object of the document (pointer mode)
 }
 ```
-Header is allocated untagged at the start of the arena. `root` points to the top-level Hermes object.
+Header is allocated untagged at offset 0 of the arena segment. `root` points to the top-level Hermes object via a segment-relative offset.
 
 ## 2. Type System
 
@@ -111,7 +99,7 @@ See `hermes-abi.json` for the complete machine-readable type registry. Summary:
 | Uid256      | UID256          | 40       | 2 bytes  |
 | Uid64       | uint64_t        | 42       | 2 bytes  |
 
-Fixed-size types (integers, floats, bool) can be embedded in `ERelativePtr` when their tag code < 128 and value fits in 7 bytes.
+Fixed-size types (integers, floats, bool) can be embedded in `AnyVal` when `TypeTraits<T>::embeddable == true` (type_hash < 128, sizeof(T) < 8).
 
 ### 2.3 Datatypes with Constructors
 `Datatype` = name (Varchar) + optional type parameters (ObjectArray) + optional constructor arguments (ObjectArray) + C++ type extras (const/volatile/pointer/ref qualifiers).
@@ -131,22 +119,28 @@ struct DatatypeData {
 
 Type identity: SHA256 hash of normalized C++ type declaration → `UID256`. Used for type registry lookup.
 
-### 2.4 Type Reflection System
-Global registry mapping `ShortTypeCode` → `TypeReflection` and `UID256` → `TypeReflection`.
+### 2.4 Type Traits System
 
-`TypeReflection` provides virtual methods for:
-- Stringify, deep copy, comparison, equality
-- Import/export between documents
-- Embedding in `ERelativePtr`
-- Structure checking (integrity validation)
-- Container wrapping (GenericArray/GenericMap)
-- Type conversion
+Compile-time type metadata is expressed through `TypeTraits<T>` specializations (in `type_registry.hpp`):
 
-Registration: `register_type_reflection()` at static init time. Every datatype must be registered.
+```cpp
+template <> struct TypeTraits<int32_t> {
+    static constexpr uint64_t hash = type_hash::Integer;  // 23
+    static constexpr bool fixed_size = true;
+    static constexpr bool embeddable = true;
+    static constexpr TagDescriptor descriptor = TagDescriptor::Data;
+};
+```
+
+Convenience helpers:
+- `type_tag_for<T>()` → `TypeTag` for arena allocation
+- `is_embeddable<T>()` → bool, true if T fits in AnyVal value mode
+
+There is no runtime polymorphic `TypeReflection` registry. Type identity at runtime is handled by reading the `TypeTag` from the arena bytes before each object.
 
 ## 3. Container Types
 
-### 3.1 TinyObjectMap (`Map<uint8_t, ERelativePtr>`)
+### 3.1 TinyObjectMap (`Map<uint8_t, AnyVal>`)
 The workhorse for structured objects (M-Code entities, template AST nodes, etc.).
 
 **Layout:**
@@ -164,22 +158,22 @@ struct {
 
 **Lookup:** `PopCnt(header & mask_below_key)` gives position in value array. O(1).
 
-**Values:** `ERelativePtr` (8 bytes each) — either pointer to arena object or embedded small value.
+**Values:** `AnyVal` (8 bytes each) — either pointer to arena object or embedded small value.
 
 Total overhead: 16 bytes (header + data pointer). This is minimal for a dynamic key-value structure.
 
-### 3.2 ObjectArray (`Vector<ERelativePtr>`)
+### 3.2 ObjectArray (`Vector<AnyVal>`)
 Dynamic array of heterogeneous objects.
 
 ```
-struct Vector<ERelativePtr> {
+struct ObjectArrayData {
     uint64_t size_;
     uint64_t capacity_;
-    RelativePtr<ERelativePtr> data_;
+    RelativePtr<AnyVal> data_;
 };
 ```
 
-Standard dynamic array semantics. Each element is an `ERelativePtr` (pointer or embedded value).
+Standard dynamic array semantics. Each element is an `AnyVal` (pointer or embedded value).
 
 ### 3.3 TypedArray (`Array<T>` / `Vector<T>`)
 Homogeneous arrays.
@@ -187,7 +181,7 @@ Homogeneous arrays.
 `Array<T>`: inline storage (flexible array member `T array_[1]`), fixed after allocation. `UseObjectSize` pattern.
 `Vector<T>`: separate data buffer via `RelativePtr<T>`, dynamically resizable.
 
-### 3.4 ObjectMap (`Map<RelativePtr<ArenaString>, ERelativePtr>`)
+### 3.4 ObjectMap (`Map<RelativePtr<ArenaString>, AnyVal>`)
 String-keyed hash map.
 
 ```
@@ -211,64 +205,53 @@ Length encoded with `u64_56_vlen` (1-8 bytes, optimized for short strings). No n
 
 ## 4. View Layer
 
-Every arena object has a corresponding *View* class providing the public API. Views are lightweight (pointer + mem_holder reference).
+Every arena object has a corresponding *View* class providing the public API.
 
-**Key types:**
-- `ObjectView` — universal tagged value holder. Contains `ValueStorage` (union of address, small_value, embedded).
-- `HermesCtrView` — document container. Owns or references arena. Factory methods, parsing, serialization.
-- `ArrayView<DT>` — typed array view.
-- `MapView<KeyDT, ValueDT>` — typed map view.
-- `DatatypeView` — datatype declaration view.
-- `TypedValueView` — value + type pair.
-- `ParameterView` — query parameter placeholder.
+**`ViewBase`:** all typed views inherit from this. Stores `arena_offset_t offset_` + `MemHolder* holder_` (12 bytes, non-owning). Access to the object: `base() + offset_` → raw pointer. Access to the arena: `holder_->arena()`.
 
-**Ownership:** Views hold a non-atomic `LWMemHolder*` reference to the document. The document itself may use atomic reference counting for cross-thread sharing. Within a single thread, views are zero-cost.
+**Typed views:**
+- `TinyMapView` — accesses `TinyObjectMap` via `get(key)`, `put(key, val)`, etc.
+- `ArrayView` — accesses `ObjectArray` via `get(index)`, `push_back(val)`, etc.
+- `MapView` — accesses `ObjectMap` via `get(key)`, `put(key, val)`, `for_each(fn)`.
+- `StringView` — accesses `ArenaString`, returns `std::string_view`.
+- `DatatypeView` — accesses `DatatypeData`, returns name/params/ctr.
+- `ParameterView` — accesses `ParameterData`, returns parameter name.
+- `ObjectView` — universal view wrapping an `AnyVal`. Dispatches to concrete type.
 
-**`GenericArray` / `GenericMap`:** Abstract interfaces for type-erased collection access. Implementations (`TypedGenericArray<T>`, `TypedGenericMap<K,V>`) are pooled thread-locally for efficiency.
+**`MemHolder`:** owns the `Arena` (via `std::shared_ptr<Arena>`) and provides the segment base pointer. `MemHolder::base()` → `uint8_t*`.
+
+**Ownership:**
+- Non-owning views (`TinyMapView`, `ArrayView`, etc.) are cheap (12 bytes). The caller must ensure the `MemHolder` outlives the view.
+- `Own<View>` wraps a view with shared ownership of its `MemHolder`. Provides RAII lifetime management. Use `Own<TinyMapView>`, `Own<ArrayView>`, etc. for returned values that outlive the calling scope.
+
+**Cross-arena operations:** `put(key, ObjectView)` / `push_back(ObjectView)` detect cross-arena writes (different `MemHolder`) and deep-copy the value into the target arena automatically.
 
 ## 5. Parser
 
 ### 5.1 Technology
-Boost.Spirit.Qi with Unicode support (`boost::spirit::qi::unicode`). Grammar produces Hermes objects directly during parsing via semantic actions — no intermediate AST.
+
+The Hermes text parser is a hand-written recursive descent parser (`src/hermes/text_parser.cpp`, ~940 lines). No external parsing library is used. The canonical grammar is defined in `tools/peg_gen/grammars/hermes.peg` (PEG format), which also serves as the machine-readable source for generating a parser via `peg_gen`.
 
 ### 5.2 Grammar Summary
 
 ```
-document     := type_directory? value
-value        := string | number | bool | null | array | map |
-                typed_value | type_declaration | parameter | typed_container
-string       := quoted_string ('@' type_declaration)?  |  raw_string
-number       := integer_literal | float_literal
-integer_literal := (hex | bin | oct | dec) suffix?
-bool         := "true" | "false"
-null         := "null"
-array        := '[' (value (',' value)*)? ']'
-map          := '{' (map_entry (',' map_entry)*)? '}'
+value        := typed_value / map / array / string / float / integer /
+                "true" / "false" / "null"
+map          := '{' (map_entry (',' map_entry)*)? ','? '}'
 map_entry    := (string | identifier) ':' value
-typed_value  := '@' type_declaration '=' value
-typed_container := '<' type_param (',' type_param)* '>' (typed_array | typed_map)
-type_declaration := datatype_name ('<' type_params '>')? ('(' ctr_args ')')? qualifiers?
-parameter    := '?' identifier
-type_directory := '#{' (identifier ':' type_declaration (',' ...))? '}'
-comment      := '//' ... EOL
+array        := '[' (value (',' value)*)? ','? ']'
+typed_value  := datatype '(' value ')'
+datatype     := IDENT ('<' (datatype (',' datatype)*)? '>')?
 ```
 
-Integer suffixes: `_u8`, `_u16`, `_u32`/`u`, `_u64`/`ull`/`ul`, `_s8`, `_s16`, `_s32` (default), `_s64`/`ll`.
-Float suffixes: `f` (float32), `d` (float64).
+Integer literals: optional `-` sign, then `0x…` (hex), `0b…` (binary), `0o…` (octal), or decimal digits. Optional type suffix: `_u8`, `_u16`, `_u32`, `_u64`, `_s8`, `_s16`, `_s32`, `_s64`, `ull`, `ul`, `ll`, `u`.
 
-### 5.3 Builder Pattern
-`HermesCtrBuilder` is a thread-local stateful helper used during parsing:
-- Maintains the target `HermesCtr` document
-- String deduplication (string_registry_)
-- Type directory (type_registry_)
-- Nested value construction (reference counting for nested `hermes_value` rules)
+Float literals: optional `-` sign, decimal digits, `.`, decimal digits, optional exponent `e±…`. Optional suffix: `f` (float32), `d` (float64).
 
-### 5.4 Text Serialization (Stringify)
-Each type implements `stringify(ostream, DumpFormatState)`. `DumpFormatState` controls indentation, newlines, raw vs quoted strings.
+Whitespace and comments are skipped: `//` line comments, `/* */` block comments.
 
-`StringifyCfg` has a `StringifySpec` controlling formatting (compact vs pretty, spaces, newlines).
-
-String escaping: two modes — standard escaped (`"..."`) and raw (`'...'`).
+### 5.3 Text Serialization (Stringify)
+`stringify(doc, stream)` / `stringify(doc, pretty=true)` in `src/hermes/stringify.cpp`. Produces compact or indented JSON-like text that round-trips through the parser.
 
 ## 6. HermesPath
 
@@ -284,9 +267,9 @@ JMESPath-inspired query language for navigating Hermes documents.
 
 Jinja-like syntax: `{{ expr }}` for output, `{% for/if/set/elif/else/endif/endfor %}` for control flow.
 
-**Parsing:** Boost.Spirit grammar produces template AST as Hermes TinyObjectMap nodes. Expressions use HermesPath grammar.
+**Parsing:** Hand-written recursive descent parser (`src/hermes/template.cpp`). Produces template AST as Hermes `TinyObjectMap` nodes. Expressions use the HermesPath sub-grammar.
 
-**Rendering:** `TplRenderer` walks AST, evaluates expressions via `HermesASTInterpreter`, maintains variable stack (`TplVarStack`), writes to output stream.
+**Rendering:** `TplRenderer` walks AST, evaluates expressions via the HermesPath interpreter, maintains variable stack (`TplVarStack`), writes to output stream.
 
 **Whitespace control:** `{%- -%}` strips whitespace, `{%+ +%}` preserves. Default: strip empty first/last lines around blocks.
 
@@ -323,39 +306,21 @@ Dense encoding. `SerializationState` / `DeserializationState` handle traversal a
 
 Profiles are compile-time configuration selecting which types and containers are available. Reduces binary size for constrained environments.
 
-## 11. Dependencies (Memoria → Logos Port)
+## 11. Implementation Notes
 
-### Must Port
-- `core/arena/` — complete (arena, relative_ptr, tiny_map, vector, array, string, map, hash_fn)
-- `core/hermes/` — complete (all headers + all lib/*.cpp)
-- `core/datatypes/` — core.hpp, traits.hpp, varchars/
-- `core/reflection/` — typehash.hpp, reflection.hpp, type_signature.hpp
-- `core/strings/` — U8String, U8StringView, format, string_buffer
-- `core/memory/` — shared_ptr, malloc, ptr_cast, object_pool
-- `core/tools/` — bitmap, bitmap_select, span, result, optional, uid_256, arena_buffer, type_name
-- `core/linked/` — linked_hash (FNV hasher)
-- `core/flat_map/` — flat_hash_map (ska::flat_hash_map)
-- `core/bignum/` — codec implementations for numeric types
-- `core/exceptions/` — exception framework
+### What Was Ported vs. Reimplemented
+The Logos Hermes implementation is a **clean-room rewrite**, not a port of Memoria code. Memoria served as a reference for algorithms and data layouts (especially wire format), but the C++ code is new:
+- No Boost dependencies (Spirit, Phoenix, Fusion, Regex)
+- No ICU dependency
+- No Memoria template metaprogramming patterns
+- No `ska::flat_hash_map` — ObjectMap uses a simple open-addressing scheme
+- No `shared_ptr` in the arena itself — `MemHolder` with manual lifetime management
 
-### External Dependencies
-- Boost.Spirit.Qi (parser)
-- Boost.Phoenix (parser semantic actions)
-- Boost.Fusion (struct adaptation)
-- Boost.Regex (Unicode iterators for parser)
-- ICU (Unicode support, regex)
-- fmt (formatting)
-- hash-library (SHA256 for type hashes)
+### C++23 Standard Library Only
+Hermes uses only the C++23 standard library (`std::string_view`, `std::format`, `std::span`, `std::shared_ptr` for `MemHolder`) plus SQLite (via `logos_verification`). No other external dependencies.
 
-### Port Strategy
-1. Copy arena/ as-is (minimal changes, core data layout must be wire-compatible)
-2. Port hermes/ headers, adapting namespace (`memoria::` → `logos::`)
-3. Port hermes/ lib/*.cpp, adapting includes
-4. Port required core/ utilities
-5. Port parser (keep Boost.Spirit for now, consider replacement later)
-6. Port HermesPath
-7. Port template engine
-8. Write comprehensive tests comparing Logos Hermes output with Memoria reference
+### Namespace
+All types live in `logos::hermes::`. The `logos::hermes::type_hash::` sub-namespace holds compile-time type hash constants.
 
 ## 12. Binary Stability & Cross-Runtime Interop
 
@@ -368,20 +333,18 @@ See `hermes-wire-format.md` for the full formal specification.
 
 ### 12.2 Cross-Runtime Strategy
 
-**ARC runtimes** (C++, Rust, CPython, Swift): Full native arena implementation. Zero-copy memory mapping. Direct ERelativePtr access.
+**ARC runtimes** (C++, Rust, CPython, Swift): Full native arena implementation. Zero-copy memory mapping. Direct AnyVal access via segment base + offset.
 
 **Tracing-GC runtimes** (Java, JavaScript, Go): Hermes Wire Codec — a lightweight serialization/deserialization layer that converts between Hermes binary format and native objects. No arena allocation needed in the target runtime. Schema-driven code generation from `hermes-abi.json` for typed access patterns.
 
-## 13. Known Improvement Opportunities
+## 13. Known Gaps and Future Work
 
-1. **Parser:** Boost.Spirit is powerful but compile-time heavy and hard to maintain. Consider hand-written recursive descent for Logos. Parser is ~900 lines of grammar — manageable.
+1. **Schema processor:** `CheckStructureState` — structural validation of arena integrity (allocation bitmap, cycle detection, bounds checking) — is not yet implemented.
 
-2. **Thread-local pools:** Current code uses many `thread_local` pools. In green-fiber world, these should be fiber-local or per-reactor. Needs adaptation for Logos reactor.
+2. **Profiles:** Compile-time feature selection (pico/nano/micro/basic) for constrained environments is not implemented.
 
-3. **String handling:** Multiple string types (U8String, U8StringView, std::string, ArenaString). Simplify in Logos port.
+3. **Thread-local arena pools:** Not implemented. For green-fiber world (Phase 1B reactor), pools should be fiber-local or per-reactor.
 
-4. **Error handling:** Mix of exceptions and `MEMORIA_MAKE_GENERIC_ERROR`. Standardize in Logos.
+4. **Fuzz testing:** Arena and container operations have no fuzzing harness yet.
 
-5. **Deep copy deduplication:** Uses flat_hash_map for pointer mapping. Could use arena-local structure for better locality.
-
-6. **EmbeddingRelativePtr bit layout:** Current encoding uses byte rotation for offset storage. Thoroughly documented in `hermes-wire-format.md` §3. Wire-compatible across implementations.
+5. **Extended numeric types:** Varbinary, BigDecimal, Decimal, TimestampWithTZ, TimeWithTZ defined in `hermes-abi.json` but not implemented in TypeTraits or containers.

@@ -102,71 +102,79 @@ These are the exact `ShortTypeCode` uint64_t values and their 2-byte arena repre
 | Parameter | 104 | 0 | `0x6801` | `0x68 0x01` |
 | Array\<Integer\> | 105 | 1 | `0x6909` | `0x69 0x09` |
 
-## 3. EmbeddingRelativePtr (ERelativePtr)
+## 3. AnyVal (Polymorphic 8-byte Slot)
 
-The fundamental 8-byte polymorphic slot used as element type in ObjectArray and TinyObjectMap values.
+The fundamental 8-byte polymorphic slot used as element type in ObjectArray and TinyObjectMap values. Previously called `EmbeddingRelativePtr` / `ERelativePtr` in Memoria; renamed `AnyVal` in Logos for clarity.
 
 ### 3.1 Discriminant
 
 ```
-buffer[7] bit 0:
-  0 → pointer mode (relative pointer to arena object)
+byte[7] bit 0  (= bit 56 of the little-endian uint64_t):
+  0 → pointer mode (segment-relative offset to arena object)
   1 → value mode (inline embedded small value)
 ```
 
 ### 3.2 Pointer Mode
 
-Stores a byte-rotated signed relative offset:
+Stores a 32-bit **segment-relative** offset in the low 4 bytes. The high 4 bytes are always zero.
 
-**Encode offset → stored uint64_t:**
+**Layout:**
 ```
-uint64_t stored = ((uint64_t)offset >> 8) | ((uint64_t)offset << 56)
-```
-
-**Decode stored uint64_t → offset:**
-```
-uint64_t top_byte = stored >> 56
-int64_t offset = (int64_t)((stored << 8) | top_byte)
+bytes [0..3] = uint32_t segment-relative offset (little-endian)
+bytes [4..7] = 0x00 0x00 0x00 0x00
 ```
 
-**Dereference:** `target = (uint8_t*)&this_erelptr + offset`
+**Encode (given segment base and target pointer):**
+```
+offset = (uint32_t)((uint8_t*)target - segment_base)
+stored_u64 = (uint64_t)offset            // high 4 bytes remain zero
+```
 
-**Null check:** `stored_u64 == 0` (all zeros = null pointer).
+**Dereference (given segment base):**
+```
+offset = (uint32_t)(stored_u64 & 0xFFFFFFFF)
+target = segment_base + offset
+```
 
-**Invariant:** The offset is always even (arena alignment >= 2), so the low bit of `offset & 0xFF` is 0, and after rotation it becomes bit 0 of `buffer[7]`, which is 0 in pointer mode. This is the mechanism that makes the discriminant work.
+**Null check:** `stored_u64 == 0`.
+
+**Rationale:** With high bytes zero, bit 0 of `byte[7]` is always 0 in pointer mode — this is the discriminant. Offset 0 always refers to DocumentHeader; AnyVal values never point there, so `stored_u64 == 0` is unambiguously null.
+
+**Arena size limit:** 4 GiB (32-bit offset).
 
 ### 3.3 Value Mode
 
 ```
 Byte layout (little-endian uint64_t):
-  buffer[0..6]  = value data (up to 7 bytes, zero-padded high bytes)
-  buffer[7]     = (type_hash << 1) | 0x01
+  bytes [0..6] = value data (up to 7 bytes, zero-padded high bytes)
+  byte  [7]    = (type_hash << 1) | 0x01
 ```
 
-**Tag extraction:** `tag = buffer[7] >> 1` (7-bit type_hash, range 0-127).
+**Tag extraction:** `tag = byte[7] >> 1` (7-bit type_hash, range 0-127).
 
-**Value extraction:** read `sizeof(ValueType)` bytes from `buffer[0..]`.
+**Value extraction:** read `sizeof(ValueType)` bytes from `bytes[0..]`.
 
 **Embeddability rule:** A type T can be embedded iff:
-1. `DataTypeTraits<T>::isFixedSize == true`
-2. `sizeof(ViewType) < 8` (value fits in 7 bytes)
-3. `TypeHash<T> < 128` (tag fits in 7 bits)
+1. `TypeTraits<T>::fixed_size == true`
+2. `sizeof(T) < 8` (value fits in 7 bytes)
+3. `TypeTraits<T>::hash < 128` (tag fits in 7 bits)
 
 ### 3.4 Embeddable Types
 
-| Type | TypeHash | Value Size | Embedded Tag Byte |
-|------|----------|-----------|-------------------|
-| TinyInt | 20 | 1 | `0x29` = (20<<1)\|1 |
-| UTinyInt | 21 | 1 | `0x2B` |
-| SmallInt | 22 | 2 | `0x2D` |
-| Integer | 23 | 4 | `0x2F` |
-| USmallInt | 24 | 2 | `0x31` |
-| UInteger | 25 | 4 | `0x33` |
-| Real | 30 | 4 | `0x3D` |
-| Time | 35 | 4 | `0x47` |
-| Boolean | 37 | 1 | `0x4B` |
+| Type | TypeHash | C++ Type | Value Size | Embedded Tag Byte |
+|------|----------|----------|-----------|-------------------|
+| TinyInt | 20 | int8_t | 1 | `0x29` = (20<<1)\|1 |
+| UTinyInt | 21 | uint8_t | 1 | `0x2B` |
+| SmallInt | 22 | int16_t | 2 | `0x2D` |
+| Integer | 23 | int32_t | 4 | `0x2F` |
+| USmallInt | 24 | uint16_t | 2 | `0x31` |
+| UInteger | 25 | uint32_t | 4 | `0x33` |
+| Real | 30 | float | 4 | `0x3D` |
+| Boolean | 37 | uint8_t | 1 | `0x4B` |
 
-Types NOT embeddable (size == 8): BigInt, UBigInt, Double, Timestamp, Date, Uid64, Uid256.
+Types NOT embeddable (size == 8 bytes): BigInt (int64_t), UBigInt (uint64_t), Double (double), Timestamp, Uid64, Uid256.
+
+`TypeTraits<T>::embeddable` in the C++ implementation encodes this table at compile time.
 
 ## 4. Variable-Length Integer Encoding (vlen_u64_56)
 
@@ -365,7 +373,7 @@ Offset 8+: Arena objects (tagged, aligned)
   ...
 ```
 
-This segment is directly memory-mappable. All pointers are relative to their own address, so the entire segment can be relocated without fixup.
+This segment is directly memory-mappable. All pointers (`RelativePtr`, `AnyVal` in pointer mode) store offsets relative to the **segment base address**, so the entire segment can be relocated by updating a single base pointer — no fixup of individual pointers is needed.
 
 ### 9.2 Compactification
 
@@ -457,8 +465,8 @@ For a language L to interoperate with Hermes:
 The following are **frozen** and must not change across versions without a major version bump:
 
 1. `ShortTypeCode` encoding (byte layout, bit fields)
-2. `EmbeddingRelativePtr` encoding (discriminant, rotation, tag)
-3. `RelativePtr` encoding (int64_t offset)
+2. `AnyVal` encoding (discriminant at byte[7] bit 0; pointer mode: 32-bit segment-relative offset in bytes[0..3]; value mode: bytes[0..6] + tag byte[7])
+3. `RelativePtr` encoding (32-bit segment-relative offset)
 4. `vlen_u64_56` encoding
 5. `DocumentHeader` layout
 6. Arena tag placement (before object, backwards)
