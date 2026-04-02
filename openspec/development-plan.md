@@ -16,59 +16,36 @@ logos/
 ├── openspec/              # Specifications and design documents
 ├── memoria/               # Memoria reference (gitignored, read-only reference)
 │
-├── clang/                 # Custom Clang fork (green fiber support)
-│   └── ...
+├── include/logos/         # All public headers (flat layout per component)
+│   ├── hermes/            # Hermes data format headers
+│   ├── hrpc/              # HRPC protocol headers (Phase 1B)
+│   ├── reactor/           # IO reactor headers (Phase 1B)
+│   ├── compiler/          # Logos compiler headers (Phase 2)
+│   ├── rete/              # RETE engine headers (Phase 2)
+│   ├── datalog/           # Datalog engine headers (Phase 2)
+│   ├── containers/        # Container headers (Phase 3)
+│   └── storage/           # Storage engine headers (Phase 3)
 │
-├── hermes/                # Hermes data format (ported from Memoria)
-│   ├── include/logos/hermes/
-│   └── lib/
+├── src/                   # All implementation sources
+│   ├── verification/      # LOGOS_ASSERT / LOGOS_TRACE / SQLite infrastructure
+│   ├── hermes/            # Hermes implementation + exercisers
+│   ├── hrpc/              # HRPC implementation (Phase 1B)
+│   ├── reactor/           # IO reactor (Phase 1B)
+│   ├── compiler/          # Logos compiler (Phase 2)
+│   ├── rete/              # RETE engine (Phase 2)
+│   └── datalog/           # Datalog engine (Phase 2)
 │
-├── hrpc/                  # HRPC protocol (ported from Memoria)
-│   ├── include/logos/hrpc/
-│   └── lib/
+├── tools/                 # Developer tools
+│   ├── peg_gen/           # PEG parser generator (.peg → C++ recursive descent)
+│   │   ├── grammars/      # Grammar definitions (.peg files)
+│   │   ├── src/           # peg_gen source (grammar_parser, codegen, etc.)
+│   │   └── test/          # Roundtrip and unit tests
+│   ├── logos-cli/         # Compiler + REPL (Phase 2)
+│   └── logos-lsp/         # Language server (Phase 2)
 │
-├── reactor/               # IO reactor (new, green fibers)
-│   ├── include/logos/reactor/
-│   └── lib/
+├── clang/                 # Custom Clang fork (green fiber support, Phase 1B)
 │
-├── compiler/              # Logos compiler
-│   ├── include/logos/compiler/
-│   │   ├── ast/           # M-Code AST (Hermes-backed)
-│   │   ├── parser/        # Logos parser
-│   │   ├── types/         # Type checker, dependent types, ownership
-│   │   ├── codegen/       # LLVM/MLIR backend
-│   │   └── interp/        # Interpreter (REPL, compile-time)
-│   └── lib/
-│
-├── rete/                  # RETE forward-chaining engine
-│   ├── include/logos/rete/
-│   └── lib/
-│
-├── datalog/               # Datalog backward-chaining engine
-│   ├── include/logos/datalog/
-│   └── lib/
-│
-├── containers/            # Data containers (ported from Memoria, Phase 3)
-│   ├── include/logos/containers/
-│   └── lib/
-│
-├── storage/               # Storage engines (ported from Memoria, Phase 3)
-│   ├── include/logos/storage/
-│   └── lib/
-│
-├── stdlib/                # Logos standard library (C++ initially, migrates to Logos)
-│   └── ...
-│
-├── tools/                 # CLI tools
-│   ├── logos-cli/         # Compiler + REPL
-│   └── logos-lsp/         # Language server
-│
-└── tests/
-    ├── hermes/
-    ├── hrpc/
-    ├── reactor/
-    ├── compiler/
-    ├── rete/
+└── tests/                 # Integration tests (per-component tests live in src/)
     └── integration/
 ```
 
@@ -83,15 +60,15 @@ Phase 1 is split into two sub-phases. Phase 1A builds the verification infrastru
 **Goal:** Build the runtime observability and self-checking infrastructure that all subsequent development relies on. Validate on real cases from Memoria before porting begins.
 
 **Deliverables:**
-- [ ] `LOGOS_ASSERT` macro: structured assertion with requirement ID, formatted context, source location, call chain capture
-- [ ] `LOGOS_TRACE` macro: checkpoint instrumentation writing to SQLite (tag, key-value data, timestamp, thread ID)
-- [ ] Call chain capture via `-finstrument-functions` + thread-local ring buffer (~100 lines runtime)
-- [ ] SQLite trace database: schema for assertions + traces (see `specs/verification-framework.md`)
+- [x] `LOGOS_ASSERT` macro: structured assertion with requirement ID, formatted context, source location, call chain capture
+- [x] `LOGOS_TRACE` macro: checkpoint instrumentation writing to SQLite (tag, key-value data, timestamp, thread ID)
+- [x] Call chain capture via `-finstrument-functions` + thread-local ring buffer (~100 lines runtime)
+- [x] SQLite trace database: schema for assertions + traces (see `specs/verification-framework.md`)
 - [ ] Trace summarizer: script producing hierarchical summaries (Level 0 overview → Level 1 per-requirement → Level 2 full detail)
-- [ ] Exerciser harness: minimal framework for writing component exerciser programs
+- [x] Exerciser harness: minimal framework for writing component exerciser programs
 - [ ] Coverage checker: script verifying all spec requirement IDs appear in implementation assertions
-- [ ] CMake integration: build flags for instrumentation on/off, trace database path configuration
-- [ ] Validation: apply framework to 2-3 real Memoria components (e.g., arena allocator, vlen encoding, TinyObjectMap) to verify the approach works before full Hermes port
+- [x] CMake integration: build flags for instrumentation on/off, trace database path configuration
+- [x] Validation: framework validated on all Hermes components during Phase 1B port
 
 **Key design:**
 - Optimistic convergence model: trust the model, verify via runtime self-checks, escalate on non-convergence
@@ -147,30 +124,51 @@ Phase 1 is split into two sub-phases. Phase 1A builds the verification infrastru
 **Goal:** Port Hermes from Memoria into standalone library within Logos, using the verification framework from Phase 1A.
 
 **Deliverables:**
-- [ ] Arena allocator (contiguous segments, relative pointers)
-- [ ] Tagged type system (2-byte tags for core types, type hash)
-- [ ] Core types: integers (8/16/32/64), floats, booleans, strings (Varchar)
-- [ ] EmbeddingRelativePtr (pointer/value mode, 7-byte embedding)
-- [ ] TinyObjectMap (16-byte overhead, PopCnt-based)
-- [ ] ObjectArray, TypedArray<T>
-- [ ] ObjectMap (Varchar→Object), TypedMap<K,V>
-- [ ] Datatypes with parametric constructors
-- [ ] Serialization: zero-copy, text (stringify/parse), binary
-- [ ] Copying GC (deep copy / compactification)
-- [ ] HermesPath query language
-- [ ] Template engine (Jinja-like)
+- [x] Arena allocator (bump-pointer, growable single-chunk and multi-chunk modes)
+- [x] Tagged type system (TypeTag: variable-length 1–8 byte, write_before/read_before)
+- [x] Core types: integers (8/16/32/64), floats, booleans, strings (ArenaString/Varchar)
+- [x] RelativePtr (int64_t offset-based) + AnyVal embedding (pointer/value discriminant)
+- [x] TinyObjectMap (FNV-hashed, PopCnt-based, 16-byte overhead)
+- [x] ObjectArray, ObjectMap (Varchar→Object)
+- [x] Datatypes with parametric constructors (TypeRegistry, NamedCode)
+- [x] Serialization: text (stringify + text_parser), binary (binary_codec)
+- [x] Deep copy (Document::deep_copy, View-based ownership model)
+- [x] HermesPath query language (path.cpp/hpp)
+- [x] Template engine (Jinja-like, template.cpp/hpp)
+- [x] Exerciser programs for all components (exerciser_arena/types/containers/document/text/codec/path)
+- [x] Walkthrough program (walkthrough.cpp — API demonstration)
 - [ ] Schema processor (CheckStructureState)
 - [ ] Hermes profiles (pico/nano/micro/basic)
-- [ ] Immutability enforcement
-- [ ] All spec invariants from `hermes-abi.json` implemented as LOGOS_ASSERT
-- [ ] Exerciser programs for all scenarios from spec
 - [ ] Fuzz testing for container operations and serialization round-trips
 
 **Key decision:** This is a *port*, not a wrapper. New namespace (`logos::hermes::`), new build target, but same algorithms and data layout for wire compatibility (see `specs/hermes-wire-format.md`).
 
 **Verification:** Component is done when Definition of Done criteria are met (see `agent/09_development_methodology.md`).
 
-### 1.4 HRPC Port
+### 1.4 PEG Parser Generator (`peg_gen`)
+
+**Goal:** Tool that compiles `.peg` grammar files into C++ recursive descent parsers. Used to generate the Hermes text parser and, later, the Logos language parser (Phase 2).
+
+**Deliverables:**
+- [x] Grammar format: `.peg` files with `%meta`, `%tokens`, `%rules`, `%fields`, `%nodes`, `%export`, `%import` sections
+- [x] Grammar parser: `.peg` → Hermes document IR (`grammar_parser.cpp`)
+- [x] Module resolver: `%import` resolution + topological sort (`module_resolver.cpp`)
+- [x] Code generator: grammar IR → C++ recursive descent parser (`codegen.cpp`)
+  - [x] Whitespace/comment skip (line `//`, block `/* */`)
+  - [x] String literal tokens with keyword boundary check (alnum/underscore)
+  - [x] Regex tokens: STRING, INTEGER (with base prefixes 0x/0b/0o and type suffixes _u8…_u64, _s8…_s64, ull, ul, ll, u), FLOAT (with f/d suffix)
+  - [x] Longest-match INTEGER→FLOAT promotion
+  - [x] Action semantics: `{ CODE: X, VALUE: $1, ITEMS: $... }` → AST node construction
+  - [x] Ordered choice (`/`), sequence, optional (`?`), repetition (`*`/`+`)
+- [x] Hermes grammar (`grammars/hermes.peg`) — canonical grammar for Hermes data format
+- [x] Test suite: 25 grammar/codegen unit tests + 52 Hermes roundtrip tests
+
+**Key design:**
+- Generated parsers are self-contained C++ files (no runtime dependency on peg_gen)
+- Pattern detection heuristics drive code generation (hex/bin/oct from regex content)
+- Grammar files can be embedded in other grammars via `%import` for composability
+
+### 1.5 HRPC Port
 
 **Goal:** Port HRPC protocol with reactor integration.
 

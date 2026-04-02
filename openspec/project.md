@@ -64,7 +64,8 @@ Port and reimplement the runtime substrate.
 - Validated on real Memoria components before Hermes port begins
 
 **Phase 1B — Runtime Components:**
-- Hermes: data format, type system, arena allocator, serialization, HermesPath, templates, schema
+- Hermes: data format, type system, arena allocator, serialization, HermesPath, templates, schema *(implemented)*
+- PEG parser generator (`tools/peg_gen`): `.peg` → C++ recursive descent parser; used for Hermes grammar and future Logos parser *(implemented)*
 - HRPC: protocol, session management, streaming, TCP transport
 - IO Reactor: **full reimplementation** on green fibers (segmented stacks)
 - Custom Clang: green/red fiber attribute, segmented stack support, trampolines
@@ -119,6 +120,9 @@ Port Memoria's data containers and storage engines.
 - [`specs/hermes.md`](specs/hermes.md) -- Hermes port specification (architecture, algorithms, API)
 - [`specs/hermes-abi.json`](specs/hermes-abi.json) -- Machine-readable type registry (data types, binary layouts, type codes)
 - [`specs/hermes-wire-format.md`](specs/hermes-wire-format.md) -- Formal binary wire format (bit-exact encodings, stability guarantees)
+
+### PEG Grammar
+- [`../tools/peg_gen/grammars/hermes.peg`](../tools/peg_gen/grammars/hermes.peg) -- Canonical Hermes data format grammar (machine-readable, generates the text parser)
 
 ### Verification & Methodology
 - [`specs/verification-framework.md`](specs/verification-framework.md) -- Runtime observability framework specification
