@@ -30,5 +30,7 @@ add_subdirectory(src/core)
 add_subdirectory(src/hermes)
 add_subdirectory(src/reactor)
 
+add_subdirectory(src/hrpc)
+
 # Tools
 add_subdirectory(tools/peg_gen)
