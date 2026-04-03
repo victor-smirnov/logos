@@ -16,6 +16,7 @@
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/text_parser.hpp>
 #include <logos/hermes/stringify.hpp>
+#include <logos/hermes/type_ops.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/path.hpp>
 #include <logos/hermes/template.hpp>
@@ -512,6 +513,7 @@ static void walkthrough_memory_layout() {
 // ============================================================================
 
 int main() {
+    logos::hermes::hermes_init();
     std::println("========================================");
     std::println("  Hermes API Walkthrough");
     std::println("  Set breakpoints at STOP comments");

@@ -5,6 +5,7 @@
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/text_parser.hpp>
 #include <logos/hermes/stringify.hpp>
+#include <logos/hermes/type_ops.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/object_map.hpp>
@@ -647,6 +648,7 @@ static void test_round_trip() {
 // ============================================================================
 
 int main() {
+    logos::hermes::hermes_init();
     logos::init_sqlite_sink({.path = "test_traces.sqlite"});
 
     std::printf("=== Hermes Text Parser & Stringify Exerciser ===\n\n");

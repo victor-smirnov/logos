@@ -7,6 +7,7 @@
 #include <logos/hermes/template.hpp>
 #include <logos/hermes/text_parser.hpp>
 #include <logos/hermes/stringify.hpp>
+#include <logos/hermes/type_ops.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/object_map.hpp>
 #include <logos/hermes/arena_string.hpp>
@@ -294,6 +295,7 @@ static void test_template_set() {
 // ============================================================================
 
 int main() {
+    logos::hermes::hermes_init();
     logos::init_sqlite_sink({.path = "test_traces.sqlite"});
 
     std::printf("=== Hermes: HermesPath & Template Exerciser ===\n\n");

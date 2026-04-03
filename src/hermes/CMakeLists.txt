@@ -5,6 +5,7 @@ add_library(logos_hermes
     binary_codec.cpp
     text_parser.cpp
     stringify.cpp
+    type_ops.cpp
     path.cpp
     template.cpp
 )
