@@ -1039,7 +1039,7 @@ private:
             w.fmt("if (peek_token().kind != TK::{}) goto {};",
                   safe_tok_name(item.name), fail_label);
             w.fmt("Token tok_{0}_ = next_token();", cap);
-            w.fmt("AnyVal {0} = AnyVal::from_offset(doc_.make_string(tok_{0}_.text).offset());", cap);
+            w.fmt("AnyVal {0} = doc_.make_string(tok_{0}_.text).to_anyval();", cap);
             break;
         }
 
@@ -1062,7 +1062,7 @@ private:
             size_t n = item.name.size();
             w.fmt("if (pos_ + {0} > source_.size() || source_.substr(pos_, {0}) != \"{1}\") goto {2};",
                   n, item.name, fail_label);
-            w.fmt("AnyVal {0} = AnyVal::from_offset(doc_.make_string(source_.substr(pos_, {1})).offset());", cap, n);
+            w.fmt("AnyVal {0} = doc_.make_string(source_.substr(pos_, {1})).to_anyval();", cap, n);
             w.fmt("pos_ += {};", n);
             break;
         }
@@ -1122,7 +1122,7 @@ private:
             w.line("}");
             w.dedent();
             w.line("}");
-            w.fmt("AnyVal {} = AnyVal::from_offset({}.offset());", cap, arr_var);
+            w.fmt("AnyVal {} = {}.to_anyval();", cap, arr_var);
             if (item.min > 0)
                 w.fmt("if ({}.size() < {}) goto {};", arr_var, item.min, fail_label);
             break;
@@ -1263,7 +1263,7 @@ private:
                 // $... — use the rule-captures collector built during item matching.
                 // rcap_VAR was declared before the items and populated by every RULE_REF.
                 // TOKEN_REF captures are NOT included — they're structural punctuation.
-                w.fmt("node->put({}, AnyVal::from_offset({}.offset()), logos::hermes::HermesCtrAccess::arena(doc_));",
+                w.fmt("node->put({}, {}.to_anyval(), logos::hermes::HermesCtrAccess::arena(doc_));",
                       field_const, rcap_var_);
                 break;
             }

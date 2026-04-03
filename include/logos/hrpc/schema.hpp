@@ -11,7 +11,6 @@
 
 #include <logos/hrpc/common.hpp>
 #include <logos/hermes/document.hpp>
-#include <logos/hermes/access.hpp>
 #include <logos/hermes/view.hpp>
 #include <logos/hermes/any_val.hpp>
 #include <logos/hermes/named_code.hpp>
@@ -94,39 +93,35 @@ struct Request {
     static Request from_doc(HermesCtr doc) {
         Request rq;
         rq.doc = std::move(doc);
-        // Root is a TinyObjectMap.
-        auto* root_ptr = logos::hermes::HermesCtrAccess::root<logos::hermes::TinyObjectMap>(rq.doc);
-        rq.map = TinyMapView(logos::hermes::HermesCtrAccess::offset_of(rq.doc, root_ptr), rq.doc.holder());
+        rq.map = rq.doc.root_object().as_tiny_map();
         return rq;
     }
 
     void set_param(NamedCode<uint8_t> key, AnyVal value) {
-        map.put(key.code, value);
+        map.put(key, value);
     }
 
     AnyVal get_param(NamedCode<uint8_t> key) const {
-        if (!map.has_key(key.code)) return AnyVal{};
-        return map.get(key.code);
+        if (!map.has_key(key)) return AnyVal{};
+        return map.get(key);
     }
 
     uint16_t input_channels() const {
-        if (!map.has_key(keys::INPUT_CHANNELS.code)) return 0;
-        AnyVal v = map.get(keys::INPUT_CHANNELS.code);
-        return v.as_value<uint16_t>();
+        if (!map.has_key(keys::INPUT_CHANNELS)) return 0;
+        return map.get(keys::INPUT_CHANNELS).as_value<uint16_t>();
     }
 
     uint16_t output_channels() const {
-        if (!map.has_key(keys::OUTPUT_CHANNELS.code)) return 0;
-        AnyVal v = map.get(keys::OUTPUT_CHANNELS.code);
-        return v.as_value<uint16_t>();
+        if (!map.has_key(keys::OUTPUT_CHANNELS)) return 0;
+        return map.get(keys::OUTPUT_CHANNELS).as_value<uint16_t>();
     }
 
     void set_input_channels(uint16_t n) {
-        map.put(keys::INPUT_CHANNELS.code, AnyVal::from_value(n));
+        map.put(keys::INPUT_CHANNELS, AnyVal::from_value(n));
     }
 
     void set_output_channels(uint16_t n) {
-        map.put(keys::OUTPUT_CHANNELS.code, AnyVal::from_value(n));
+        map.put(keys::OUTPUT_CHANNELS, AnyVal::from_value(n));
     }
 };
 
@@ -151,7 +146,7 @@ struct Response {
         auto tiny = rs.doc.make_tiny_map(4);
         rs.doc.set_root(tiny);
         rs.map = tiny;
-        rs.map.put(keys::STATUS_CODE.code,
+        rs.map.put(keys::STATUS_CODE,
                    AnyVal::from_value(static_cast<uint32_t>(StatusCode::Ok)));
         return rs;
     }
@@ -159,7 +154,7 @@ struct Response {
     // Successful response with a result value.
     static Response ok(AnyVal result) {
         Response rs = Response::ok();
-        rs.map.put(keys::RESULT.code, result);
+        rs.map.put(keys::RESULT, result);
         return rs;
     }
 
@@ -171,16 +166,14 @@ struct Response {
         rs.doc.set_root(root);
         rs.map = root;
 
-        rs.map.put(keys::STATUS_CODE.code,
+        rs.map.put(keys::STATUS_CODE,
                    AnyVal::from_value(static_cast<uint32_t>(StatusCode::Error)));
 
         // Error sub-map with description string.
         auto err_map = rs.doc.make_tiny_map(2);
         auto desc_str = rs.doc.make_string(description);
-        err_map.put(keys::ERROR_DESC.code,
-                    AnyVal::from_offset(desc_str.offset()));
-        rs.map.put(keys::ERROR.code,
-                   AnyVal::from_offset(err_map.offset()));
+        err_map.put(keys::ERROR_DESC, AnyVal::from_offset(desc_str.offset()));
+        rs.map.put(keys::ERROR, AnyVal::from_offset(err_map.offset()));
         return rs;
     }
 
@@ -188,32 +181,31 @@ struct Response {
     static Response from_doc(HermesCtr doc) {
         Response rs;
         rs.doc = std::move(doc);
-        auto* root_ptr = logos::hermes::HermesCtrAccess::root<logos::hermes::TinyObjectMap>(rs.doc);
-        rs.map = TinyMapView(logos::hermes::HermesCtrAccess::offset_of(rs.doc, root_ptr), rs.doc.holder());
+        rs.map = rs.doc.root_object().as_tiny_map();
         return rs;
     }
 
     bool is_ok() const {
-        if (!map.has_key(keys::STATUS_CODE.code)) return false;
-        uint32_t code = map.get(keys::STATUS_CODE.code).as_value<uint32_t>();
+        if (!map.has_key(keys::STATUS_CODE)) return false;
+        uint32_t code = map.get(keys::STATUS_CODE).as_value<uint32_t>();
         return code == static_cast<uint32_t>(StatusCode::Ok);
     }
 
     AnyVal result() const {
-        if (!map.has_key(keys::RESULT.code)) return AnyVal{};
-        return map.get(keys::RESULT.code);
+        if (!map.has_key(keys::RESULT)) return AnyVal{};
+        return map.get(keys::RESULT);
     }
 
     // Returns the error description string, or empty string if none.
     std::string error_description() const {
-        if (!map.has_key(keys::ERROR.code)) return {};
-        AnyVal err_val = map.get(keys::ERROR.code);
+        if (!map.has_key(keys::ERROR)) return {};
+        AnyVal err_val = map.get(keys::ERROR);
         if (err_val.is_null()) return {};
 
         // err_val is a pointer to TinyObjectMap.
         TinyMapView err_map(err_val.to_offset(), doc.holder());
-        if (!err_map.has_key(keys::ERROR_DESC.code)) return {};
-        AnyVal desc_val = err_map.get(keys::ERROR_DESC.code);
+        if (!err_map.has_key(keys::ERROR_DESC)) return {};
+        AnyVal desc_val = err_map.get(keys::ERROR_DESC);
         if (desc_val.is_null()) return {};
 
         // desc_val is a pointer to ArenaString.
@@ -239,21 +231,20 @@ struct StreamMessage {
         auto tiny = msg.doc.make_tiny_map(2);
         msg.doc.set_root(tiny);
         msg.map = tiny;
-        msg.map.put(keys::MSG_DATA.code, data);
+        msg.map.put(keys::MSG_DATA, data);
         return msg;
     }
 
     static StreamMessage from_doc(HermesCtr doc) {
         StreamMessage msg;
         msg.doc = std::move(doc);
-        auto* root_ptr = logos::hermes::HermesCtrAccess::root<logos::hermes::TinyObjectMap>(msg.doc);
-        msg.map = TinyMapView(logos::hermes::HermesCtrAccess::offset_of(msg.doc, root_ptr), msg.doc.holder());
+        msg.map = msg.doc.root_object().as_tiny_map();
         return msg;
     }
 
     AnyVal data() const {
-        if (!map.has_key(keys::MSG_DATA.code)) return AnyVal{};
-        return map.get(keys::MSG_DATA.code);
+        if (!map.has_key(keys::MSG_DATA)) return AnyVal{};
+        return map.get(keys::MSG_DATA);
     }
 };
 
@@ -276,7 +267,7 @@ struct ConnectionMetadata {
         meta.map = tiny;
         // uint64_t doesn't fit in 7 bytes as value mode, store as uint32_t
         // (buffer sizes under 4GB are sufficient).
-        meta.map.put(keys::CHAN_BUF_SIZE.code,
+        meta.map.put(keys::CHAN_BUF_SIZE,
                      AnyVal::from_value(static_cast<uint32_t>(buffer_size)));
         return meta;
     }
@@ -284,15 +275,14 @@ struct ConnectionMetadata {
     static ConnectionMetadata from_doc(HermesCtr doc) {
         ConnectionMetadata meta;
         meta.doc = std::move(doc);
-        auto* root_ptr = logos::hermes::HermesCtrAccess::root<logos::hermes::TinyObjectMap>(meta.doc);
-        meta.map = TinyMapView(logos::hermes::HermesCtrAccess::offset_of(meta.doc, root_ptr), meta.doc.holder());
+        meta.map = meta.doc.root_object().as_tiny_map();
         return meta;
     }
 
     uint64_t channel_buffer_size() const {
-        if (!map.has_key(keys::CHAN_BUF_SIZE.code)) return 1024 * 1024;
+        if (!map.has_key(keys::CHAN_BUF_SIZE)) return 1024 * 1024;
         return static_cast<uint64_t>(
-            map.get(keys::CHAN_BUF_SIZE.code).as_value<uint32_t>());
+            map.get(keys::CHAN_BUF_SIZE).as_value<uint32_t>());
     }
 };
 

@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// Example HRPC IDL — Echo service.
+
+package echo;
+
+// ── Messages ──────────────────────────────────────────────────────────────
+
+message PingRequest {
+    required string name  = 1;
+    optional uint32 count = 2;
+}
+
+message PingResponse {
+    required string greeting = 1;
+    required uint32 counter  = 2;
+}
+
+message Chunk {
+    required bytes data   = 1;
+    optional uint64 seq   = 2;
+}
+
+message UploadResult {
+    required uint64 total_bytes = 1;
+    required uint32 chunk_count = 2;
+}
+
+message ChatMessage {
+    required string sender    = 1;
+    required string text      = 2;
+    optional uint64 timestamp = 3;
+}
+
+message Batch {
+    required string              name   = 1;
+    repeated string              tags   = 2;
+    repeated PingRequest         items  = 3;
+    map<string, uint32>          scores = 4;
+    map<string, string>          labels = 5;
+}
+
+// ── Enum example ──────────────────────────────────────────────────────────
+
+enum ErrorKind {
+    UNKNOWN       = 0;
+    NOT_FOUND     = 1;
+    UNAVAILABLE   = 2;
+}
+
+// ── Service ───────────────────────────────────────────────────────────────
+
+service Echo {
+    // Simple unary call.
+    rpc ping(PingRequest) returns (PingResponse);
+
+    // Client-streaming: client sends chunks, server returns summary.
+    rpc upload(stream Chunk) returns (UploadResult);
+
+    // Server-streaming: server pushes events.
+    rpc subscribe(PingRequest) returns (stream ChatMessage);
+
+    // Bidirectional streaming.
+    rpc chat(stream ChatMessage) returns (stream ChatMessage);
+}

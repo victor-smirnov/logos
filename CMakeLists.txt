@@ -34,3 +34,4 @@ add_subdirectory(src/hrpc)
 
 # Tools
 add_subdirectory(tools/peg_gen)
+add_subdirectory(tools/hrpc_gen)

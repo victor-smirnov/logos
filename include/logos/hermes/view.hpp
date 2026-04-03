@@ -39,6 +39,9 @@ public:
     arena_offset_t offset() const noexcept { return offset_; }
     MemHolder* holder() const noexcept { return holder_; }
 
+    // Convert this view to an AnyVal pointer (for storing in a map/array slot).
+    AnyVal to_anyval() const { return AnyVal::from_offset(offset_); }
+
     void reset() noexcept { offset_ = NULL_OFFSET; holder_ = nullptr; }
 
 protected:
@@ -69,10 +72,14 @@ public:
     // Checked access: asserts the key exists and includes the field name in the error.
     AnyVal get(NamedCode<uint8_t> key) const;
 
+    bool has_key(NamedCode<uint8_t> key) const { return has_key(key.code); }
+
     void put(uint8_t key, AnyVal value) { ptr()->put(key, value, arena()); }
+    void put(NamedCode<uint8_t> key, AnyVal value) { put(key.code, value); }
 
     // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
     void put(uint8_t key, const ObjectView& value);
+    void put(NamedCode<uint8_t> key, const ObjectView& value) { put(key.code, value); }
 };
 
 class ArrayView : public ViewBase {

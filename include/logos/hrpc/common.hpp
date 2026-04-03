@@ -171,6 +171,27 @@ inline EndpointID make_random_endpoint_id() {
     return id;
 }
 
+// Derive a deterministic EndpointID from a human-readable name string.
+// Uses FNV-1a 64-bit with four independent seeds to fill all 32 bytes.
+// Both client and server call this with the same name to get the same ID.
+// Convention: "package.ServiceName/method_name" (e.g. "echo.Echo/ping").
+inline EndpointID endpoint_id_from_name(std::string_view name) {
+    EndpointID id{};
+    static constexpr uint64_t kFNVPrime = 0x100000001b3ULL;
+    static constexpr uint64_t kSeeds[4] = {
+        0xcbf29ce484222325ULL,   // FNV-1a standard offset basis
+        0x9e3779b97f4a7c15ULL,   // Fibonacci hashing constant
+        0x6c62272e07bb0142ULL,   // FNV-1a alternative
+        0x517cc1b727220a95ULL,   // Knuth multiplicative hash
+    };
+    for (int s = 0; s < 4; ++s) {
+        uint64_t h = kSeeds[s];
+        for (uint8_t c : name) { h ^= c; h *= kFNVPrime; }
+        std::memcpy(id.data() + s * 8, &h, 8);
+    }
+    return id;
+}
+
 // Convert an EndpointID to a lowercase hex string (64 hex chars).
 inline std::string endpoint_id_to_hex(const EndpointID& id) {
     static constexpr char kHex[] = "0123456789abcdef";

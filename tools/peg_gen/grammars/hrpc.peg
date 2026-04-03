@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// HRPC IDL grammar — protobuf-like interface definition language
+// for the Logos HRPC framework.
+
+%meta {
+    name:      "hrpc_idl"
+    version:   "1.0"
+    namespace: "logos::hrpc"
+    output:    "hrpc_idl_parser"
+}
+
+%export { file }
+
+// ── AST field keys ────────────────────────────────────────────────────────
+%fields {
+    CODE        = 0
+    NAME        = 1
+    ITEMS       = 2
+    VALUE       = 3
+    TYPE        = 4
+    NUMBER      = 5
+    KEY_TYPE    = 6
+    VALUE_TYPE  = 7
+    INPUT       = 8
+    OUTPUT      = 9
+    PACKAGE     = 10
+    OPTIONS     = 11
+    LABEL       = 12
+    PATH        = 13
+}
+
+// ── AST node codes ────────────────────────────────────────────────────────
+%nodes {
+    FILE        = 0
+    PACKAGE_DEF = 1
+    IMPORT_DEF  = 2
+    OPTION_DEF  = 3
+    MESSAGE     = 4
+    FIELD       = 5
+    ENUM_DEF    = 6
+    ENUM_VALUE  = 7
+    SERVICE     = 8
+    RPC_METHOD  = 9
+    TYPE_REF    = 10
+    MAP_TYPE    = 11
+    STREAM_TYPE = 12
+    ONEOF       = 13
+    ONEOF_FIELD = 14
+    IDENT_NODE  = 15
+}
+
+// ── Tokens ────────────────────────────────────────────────────────────────
+%tokens {
+    // Keywords
+    PACKAGE     = "package"
+    IMPORT      = "import"
+    OPTION      = "option"
+    MESSAGE     = "message"
+    ENUM        = "enum"
+    SERVICE     = "service"
+    RPC         = "rpc"
+    RETURNS     = "returns"
+    STREAM      = "stream"
+    REPEATED    = "repeated"
+    OPTIONAL    = "optional"
+    REQUIRED    = "required"
+    MAP         = "map"
+    ONEOF       = "oneof"
+
+    // Punctuation
+    LBRACE      = "{"
+    RBRACE      = "}"
+    LPAREN      = "("
+    RPAREN      = ")"
+    LANGLE      = "<"
+    RANGLE      = ">"
+    SEMICOLON   = ";"
+    EQUALS      = "="
+    COMMA       = ","
+    DOT         = "."
+
+    // Literals
+    STRING      = /"([^"\\]|\\.)*"/
+    INTEGER     = /[0-9]+/
+
+    // Identifiers
+    IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
+
+    // Skip
+    %skip       = /[ \t\n\r]+/
+    %skip       = /\/\/[^\n]*/
+    %skip       = /\/\*.*?\*\//
+}
+
+// ── Rules ─────────────────────────────────────────────────────────────────
+%rules {
+    // Top-level file.
+    file <- package_def? import_def* top_def*
+         => { CODE: FILE, PACKAGE: $1, ITEMS: $... }
+
+    // package foo.bar;
+    package_def <- PACKAGE qualified_name SEMICOLON
+                => { CODE: PACKAGE_DEF, NAME: $2 }
+
+    // import "other.hrpc";
+    import_def <- IMPORT STRING SEMICOLON
+               => { CODE: IMPORT_DEF, PATH: $2 }
+
+    // option key = value;
+    option_def <- OPTION IDENT EQUALS option_value SEMICOLON
+               => { CODE: OPTION_DEF, NAME: $2, VALUE: $4 }
+
+    option_value <- STRING / INTEGER / IDENT
+
+    // Top-level definitions
+    top_def <- message_def / enum_def / service_def / option_def
+
+    // ── Message ───────────────────────────────────────────────────────────
+    message_def <- MESSAGE IDENT LBRACE message_body* RBRACE
+                => { CODE: MESSAGE, NAME: $2, ITEMS: $... }
+
+    message_body <- field_def / oneof_def / enum_def / message_def / option_def
+
+    // optional string name = 1;
+    field_def <- field_label? type_ref IDENT EQUALS INTEGER SEMICOLON
+              => { CODE: FIELD, LABEL: $1, TYPE: $2, NAME: $3, NUMBER: $5 }
+
+    field_label <- OPTIONAL / REQUIRED / REPEATED
+
+    // oneof choice { ... }
+    oneof_def <- ONEOF IDENT LBRACE oneof_field* RBRACE
+              => { CODE: ONEOF, NAME: $2, ITEMS: $... }
+
+    oneof_field <- type_ref IDENT EQUALS INTEGER SEMICOLON
+                => { CODE: ONEOF_FIELD, TYPE: $1, NAME: $2, NUMBER: $4 }
+
+    // ── Enum ──────────────────────────────────────────────────────────────
+    enum_def <- ENUM IDENT LBRACE enum_value_def* RBRACE
+             => { CODE: ENUM_DEF, NAME: $2, ITEMS: $... }
+
+    enum_value_def <- IDENT EQUALS INTEGER SEMICOLON
+                   => { CODE: ENUM_VALUE, NAME: $1, VALUE: $3 }
+
+    // ── Service ───────────────────────────────────────────────────────────
+    service_def <- SERVICE IDENT LBRACE rpc_def* RBRACE
+                => { CODE: SERVICE, NAME: $2, ITEMS: $... }
+
+    rpc_def <- RPC IDENT LPAREN rpc_type RPAREN RETURNS LPAREN rpc_type RPAREN SEMICOLON
+            => { CODE: RPC_METHOD, NAME: $2, INPUT: $4, OUTPUT: $8 }
+
+    // stream Foo  or  Foo
+    rpc_type <- STREAM type_ref
+                => { CODE: STREAM_TYPE, TYPE: $2 }
+              / type_ref
+
+    // ── Type references ───────────────────────────────────────────────────
+    // map<KeyType, ValueType>
+    type_ref <- MAP LANGLE type_ref COMMA type_ref RANGLE
+                => { CODE: MAP_TYPE, KEY_TYPE: $3, VALUE_TYPE: $5 }
+              / qualified_name
+
+    // foo.bar.Baz — each component captured as an ident_node rule result,
+    // so $... in qualified_name collects them all into an array.
+    qualified_name <- ident_node (DOT ident_node)*
+                   => { CODE: TYPE_REF, ITEMS: $... }
+
+    // Wraps a single IDENT token as a rule result so it is captured by $...
+    ident_node <- IDENT
+               => { CODE: IDENT_NODE, NAME: $1 }
+}
