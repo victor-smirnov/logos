@@ -930,12 +930,16 @@ private:
 // Public API
 // ============================================================================
 
-HermesCtr parse(std::string_view text) {
-    auto doc = make_doc();
-    Parser parser(text, doc);
-    void* root = parser.parse_document();
-    HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
-    return doc;
+logos::expected<HermesCtr> parse(std::string_view text) noexcept {
+    try {
+        auto doc = make_doc();
+        Parser parser(text, doc);
+        void* root = parser.parse_document();
+        HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
+        return doc;
+    } catch (std::runtime_error&) {
+        return std::unexpected(logos::err(ErrCode::parse_error));
+    }
 }
 
 } // namespace logos::hermes

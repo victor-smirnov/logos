@@ -15,6 +15,21 @@ struct io_uring_sqe;  // submission queue entry
 namespace logos::reactor {
 
 // ---------------------------------------------------------------------------
+// Reactor scalar error codes (range 0x0003'0000 … 0x0003'FFFF).
+// ---------------------------------------------------------------------------
+enum class ErrCode : uint64_t {
+    socket_error   = 0x0003'0001,  // socket() syscall failed
+    bind_error     = 0x0003'0002,  // bind() syscall failed
+    listen_error   = 0x0003'0003,  // listen() syscall failed
+    connect_error  = 0x0003'0004,  // connect() failed
+    accept_error   = 0x0003'0005,  // accept() returned error
+    open_error     = 0x0003'0006,  // open() syscall failed
+    sigprocmask_error = 0x0003'0007, // sigprocmask() failed
+    signalfd_error = 0x0003'0008,  // signalfd() failed
+    invalid_host   = 0x0003'0009,  // inet_aton() rejected the host string
+};
+
+// ---------------------------------------------------------------------------
 // Reactor — one io_uring instance + Scheduler per OS thread.
 //
 // All IO primitives below may only be called from inside a fiber running on

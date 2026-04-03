@@ -19,6 +19,10 @@
 
 using namespace logos::hermes;
 
+static HermesCtr parse_doc(std::string_view text) {
+    return logos::hermes::parse(text).get();
+}
+
 // ============================================================================
 // HermesPath: identifier access
 // ============================================================================
@@ -26,7 +30,7 @@ using namespace logos::hermes;
 static void test_path_identifier() {
     std::printf("--- HermesPath: identifier ---\n");
 
-    auto data = parse("{name: \"Alice\", age: 30}");
+    auto data = parse_doc("{name: \"Alice\", age: 30}");
 
     {
         auto result = eval_path(data, "name");
@@ -56,7 +60,7 @@ static void test_path_identifier() {
 static void test_path_subexpression() {
     std::printf("--- HermesPath: subexpression ---\n");
 
-    auto data = parse("{user: {name: \"Bob\", addr: {city: \"NY\"}}}");
+    auto data = parse_doc("{user: {name: \"Bob\", addr: {city: \"NY\"}}}");
 
     {
         auto result = eval_path(data, "user.name");
@@ -80,7 +84,7 @@ static void test_path_subexpression() {
 static void test_path_array_index() {
     std::printf("--- HermesPath: array index ---\n");
 
-    auto data = parse("{items: [10, 20, 30]}");
+    auto data = parse_doc("{items: [10, 20, 30]}");
 
     {
         auto result = eval_path(data, "items[0]");
@@ -104,7 +108,7 @@ static void test_path_array_index() {
 static void test_path_slice() {
     std::printf("--- HermesPath: slice ---\n");
 
-    auto data = parse("{items: [0, 1, 2, 3, 4]}");
+    auto data = parse_doc("{items: [0, 1, 2, 3, 4]}");
 
     {
         auto result = eval_path(data, "items[1:3]");
@@ -125,7 +129,7 @@ static void test_path_slice() {
 static void test_path_wildcard_filter() {
     std::printf("--- HermesPath: wildcard & filter ---\n");
 
-    auto data = parse("{items: [1, 2, 3, 4, 5]}");
+    auto data = parse_doc("{items: [1, 2, 3, 4, 5]}");
 
     {
         auto result = eval_path(data, "items[*]");
@@ -145,7 +149,7 @@ static void test_path_wildcard_filter() {
 static void test_path_comparator() {
     std::printf("--- HermesPath: comparator ---\n");
 
-    auto data = parse("{x: 10, y: 20}");
+    auto data = parse_doc("{x: 10, y: 20}");
 
     {
         auto result = eval_path(data, "x < y");
@@ -169,7 +173,7 @@ static void test_path_comparator() {
 static void test_path_functions() {
     std::printf("--- HermesPath: functions ---\n");
 
-    auto data = parse("{items: [1, 2, 3], name: \"hello\"}");
+    auto data = parse_doc("{items: [1, 2, 3], name: \"hello\"}");
 
     {
         auto result = eval_path(data, "length(items)");
@@ -198,7 +202,7 @@ static void test_path_functions() {
 static void test_path_multiselect() {
     std::printf("--- HermesPath: multiselect ---\n");
 
-    auto data = parse("{a: 1, b: 2, c: 3}");
+    auto data = parse_doc("{a: 1, b: 2, c: 3}");
 
     {
         auto result = eval_path(data, "[a, c]");
@@ -225,7 +229,7 @@ static void test_path_multiselect() {
 static void test_template_var() {
     std::printf("--- Template: variable output ---\n");
 
-    auto data = parse("{name: \"World\"}");
+    auto data = parse_doc("{name: \"World\"}");
     std::string result = render("Hello, {{ name }}!", data);
     LOGOS_ASSERT(result == "Hello, World!", "HERMES-TPL-001",
         "Expected 'Hello, World!', got '{}'", result);
@@ -241,7 +245,7 @@ static void test_template_var() {
 static void test_template_for() {
     std::printf("--- Template: for loop ---\n");
 
-    auto data = parse("{items: [1, 2, 3]}");
+    auto data = parse_doc("{items: [1, 2, 3]}");
     std::string result = render("{% for x in items %}[{{ x }}]{% endfor %}", data);
     LOGOS_ASSERT(result == "[1][2][3]", "HERMES-TPL-002",
         "Expected '[1][2][3]', got '{}'", result);
@@ -258,13 +262,13 @@ static void test_template_if() {
     std::printf("--- Template: if/else ---\n");
 
     {
-        auto data = parse("{show: true}");
+        auto data = parse_doc("{show: true}");
         std::string result = render("{% if show %}yes{% else %}no{% endif %}", data);
         LOGOS_ASSERT(result == "yes", "HERMES-TPL-003",
             "Expected 'yes', got '{}'", result);
     }
     {
-        auto data = parse("{show: false}");
+        auto data = parse_doc("{show: false}");
         std::string result = render("{% if show %}yes{% else %}no{% endif %}", data);
         LOGOS_ASSERT(result == "no", "HERMES-TPL-003",
             "Expected 'no', got '{}'", result);
@@ -281,7 +285,7 @@ static void test_template_if() {
 static void test_template_set() {
     std::printf("--- Template: set ---\n");
 
-    auto data = parse("{x: 10}");
+    auto data = parse_doc("{x: 10}");
     std::string result = render("{% set y = x %}{{ y }}", data);
     LOGOS_ASSERT(result == "10", "HERMES-TPL-004",
         "Expected '10', got '{}'", result);

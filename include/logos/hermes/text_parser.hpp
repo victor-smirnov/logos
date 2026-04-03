@@ -6,11 +6,12 @@
 
 #include <string_view>
 #include <logos/hermes/document.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
 // Parse a Hermes text document into a HermesCtr.
-// Throws std::runtime_error on parse failure with line:column info.
-HermesCtr parse(std::string_view text);
+// Returns an error (ErrCode::parse_error) on parse failure with line:column info.
+[[nodiscard]] logos::expected<HermesCtr> parse(std::string_view text) noexcept;
 
 } // namespace logos::hermes

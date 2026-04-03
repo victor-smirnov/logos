@@ -27,6 +27,10 @@
 
 using namespace logos::hermes;
 
+static HermesCtr parse_doc(std::string_view text) {
+    return logos::hermes::parse(text).get();
+}
+
 // ============================================================================
 // 1. Documents & Ownership Model
 // ============================================================================
@@ -185,7 +189,7 @@ static void walkthrough_building() {
 // 4. Text Parser & Stringify Text Parser & Stringify
 // ============================================================================
 //
-// parse("...") → HermesCtr with the parsed value as root.
+// parse_doc("...") → HermesCtr with the parsed value as root.
 // stringify(doc) → text representation.
 //
 // Supports: integers (42, -7, 0xFF, 0b1010, 100ll, 255_u8),
@@ -204,21 +208,21 @@ static void walkthrough_parser() {
 
     // Simple values.
     {
-        auto doc = parse("42");
-        std::println("  parse('42') -> root = {}", *HermesCtrAccess::root<int32_t>(doc));
+        auto doc = parse_doc("42");
+        std::println("  parse_doc('42') -> root = {}", *HermesCtrAccess::root<int32_t>(doc));
         std::println("  stringify   -> '{}'", stringify(doc));
     }
     // STOP: inspect HermesCtrAccess::root<int32_t>(doc), the TypeTag before the int32_t
 
     // String.
     {
-        auto doc = parse("\"hello\\nworld\"");
+        auto doc = parse_doc("\"hello\\nworld\"");
         std::println("  parse string -> '{}'", HermesCtrAccess::root<ArenaString>(doc)->view());
     }
 
     // Array of mixed types.
     {
-        auto doc = parse("[1, 3.14, \"text\", true, null]");
+        auto doc = parse_doc("[1, 3.14, \"text\", true, null]");
         uint8_t* base = HermesCtrAccess::base(doc);
         auto* arr = HermesCtrAccess::root<ObjectArray>(doc);
         std::println("  parse array -> size={}", arr->size());
@@ -243,7 +247,7 @@ static void walkthrough_parser() {
 
     // Type declarations.
     {
-        auto doc = parse("Array<Integer>");
+        auto doc = parse_doc("Array<Integer>");
         uint8_t* base = HermesCtrAccess::base(doc);
         auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         std::println("  Type: name='{}', has_params={}",
@@ -253,7 +257,7 @@ static void walkthrough_parser() {
 
     // Typed value.
     {
-        auto doc = parse("@Integer = 42");
+        auto doc = parse_doc("@Integer = 42");
         uint8_t* base = HermesCtrAccess::base(doc);
         auto* tv = HermesCtrAccess::root<TypedValueData>(doc);
         std::println("  TypedValue: type='{}', value={}",
@@ -263,16 +267,16 @@ static void walkthrough_parser() {
 
     // Parameter.
     {
-        auto doc = parse("?userId");
+        auto doc = parse_doc("?userId");
         std::println("  Parameter: name='{}'",
             HermesCtrAccess::root<ParameterData>(doc)->name_view(HermesCtrAccess::base(doc)));
     }
 
     // Round-trip: parse -> stringify -> parse -> stringify.
     {
-        auto doc1 = parse("{x: [1, 2], y: @Integer = 3}");
+        auto doc1 = parse_doc("{x: [1, 2], y: @Integer = 3}");
         std::string s1 = stringify(doc1);
-        auto doc2 = parse(s1);
+        auto doc2 = parse_doc(s1);
         std::string s2 = stringify(doc2);
         std::println("  Round-trip: '{}' == '{}' -> {}",
             s1, s2, s1 == s2 ? "OK" : "MISMATCH");
@@ -290,7 +294,7 @@ static void walkthrough_parser() {
 static void walkthrough_binary() {
     std::println("\n=== 5. Binary Codec ===");
 
-    auto doc = parse("{name: \"Alice\", scores: [95, 87, 92]}");
+    auto doc = parse_doc("{name: \"Alice\", scores: [95, 87, 92]}");
     std::println("  Arena size: {} bytes", HermesCtrAccess::arena(doc).total_used());
 
     // Encode.

@@ -10,6 +10,14 @@
 
 namespace logos::hermes {
 
+// ---------------------------------------------------------------------------
+// Hermes scalar error codes (range 0x0001'0000 … 0x0001'FFFF).
+// ---------------------------------------------------------------------------
+enum class ErrCode : uint64_t {
+    parse_error    = 0x0001'0001,  // text parser or path parser failure
+    template_error = 0x0001'0002,  // template parse / render failure
+};
+
 // Strong offset type for arena-relative pointers.
 // Prevents accidental implicit conversion from raw integers.
 // Default storage: uint32_t (max segment size 4GB).
