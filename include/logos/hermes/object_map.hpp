@@ -15,6 +15,7 @@
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/fnv_hash.hpp>
 #include <logos/hermes/type_registry.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
@@ -108,67 +109,72 @@ public:
 
     // --- Mutation ---
 
-    void put(std::string_view key, AnyVal value, Arena& arena) {
-        uint8_t* base = arena.head().data();
+    [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal value, Arena& arena) noexcept {
+        try {
+            uint8_t* base = arena.head().data();
 
-        if (bucket_capacity_ == 0) {
-            init_buckets(arena);
-            base = arena.head().data();
-        }
-
-        if (size_ * 4 >= bucket_count() * 3) {
-            rehash(arena, bucket_capacity_ + 1);
-            base = arena.head().data();
-        }
-
-        uint64_t h = fnv1a_hash(key);
-        uint64_t idx = h & (bucket_count() - 1);
-
-        auto* bucket_ptrs = buckets_.get(base);
-
-        if (bucket_ptrs[idx].is_null()) {
-            auto* bucket = create_bucket(arena);
-            base = arena.head().data(); // re-derive
-            bucket_ptrs = buckets_.get(base);
-            bucket_ptrs[idx].set(bucket, base);
-        }
-
-        auto* bucket = bucket_ptrs[idx].get(base);
-        uint32_t bsz = bucket_size(bucket);
-        uint32_t bcap = bucket_cap(bucket);
-        auto* keys = bucket_keys(bucket);
-        auto* vals = bucket_values(bucket, bcap);
-
-        for (uint32_t i = 0; i < bsz; ++i) {
-            ArenaString* k = keys[i].get(base);
-            if (k && *k == key) {
-                vals[i] = value;
-                return;
+            if (bucket_capacity_ == 0) {
+                init_buckets(arena);
+                base = arena.head().data();
             }
-        }
 
-        // Pre-allocate key string, then re-derive everything.
-        ArenaString* arena_key = ArenaString::create(arena, key);
-        base = arena.head().data();
-        bucket_ptrs = buckets_.get(base);
-        bucket = bucket_ptrs[idx].get(base);
-        bsz = bucket_size(bucket);
-        bcap = bucket_cap(bucket);
+            if (size_ * 4 >= bucket_count() * 3) {
+                rehash(arena, bucket_capacity_ + 1);
+                base = arena.head().data();
+            }
 
-        if (bsz >= bcap) {
-            bucket = grow_bucket(arena, bucket, bucket_ptrs, idx, base);
+            uint64_t h = fnv1a_hash(key);
+            uint64_t idx = h & (bucket_count() - 1);
+
+            auto* bucket_ptrs = buckets_.get(base);
+
+            if (bucket_ptrs[idx].is_null()) {
+                auto* bucket = create_bucket(arena);
+                base = arena.head().data(); // re-derive
+                bucket_ptrs = buckets_.get(base);
+                bucket_ptrs[idx].set(bucket, base);
+            }
+
+            auto* bucket = bucket_ptrs[idx].get(base);
+            uint32_t bsz = bucket_size(bucket);
+            uint32_t bcap = bucket_cap(bucket);
+            auto* keys = bucket_keys(bucket);
+            auto* vals = bucket_values(bucket, bcap);
+
+            for (uint32_t i = 0; i < bsz; ++i) {
+                ArenaString* k = keys[i].get(base);
+                if (k && *k == key) {
+                    vals[i] = value;
+                    return {};
+                }
+            }
+
+            // Pre-allocate key string, then re-derive everything.
+            ArenaString* arena_key = ArenaString::create(arena, key).get();
             base = arena.head().data();
-            bucket = buckets_.get(base)[idx].get(base);
+            bucket_ptrs = buckets_.get(base);
+            bucket = bucket_ptrs[idx].get(base);
             bsz = bucket_size(bucket);
             bcap = bucket_cap(bucket);
-        }
 
-        keys = bucket_keys(bucket);
-        vals = bucket_values(bucket, bcap);
-        keys[bsz].set(arena_key, base);
-        vals[bsz] = value;
-        set_bucket_size(bucket, bsz + 1);
-        ++size_;
+            if (bsz >= bcap) {
+                bucket = grow_bucket(arena, bucket, bucket_ptrs, idx, base);
+                base = arena.head().data();
+                bucket = buckets_.get(base)[idx].get(base);
+                bsz = bucket_size(bucket);
+                bcap = bucket_cap(bucket);
+            }
+
+            keys = bucket_keys(bucket);
+            vals = bucket_values(bucket, bcap);
+            keys[bsz].set(arena_key, base);
+            vals[bsz] = value;
+            set_bucket_size(bucket, bsz + 1);
+            ++size_;
+            return {};
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
+        }
     }
 
     bool remove(std::string_view key, Arena& arena) {
@@ -206,15 +212,19 @@ public:
 
     // --- Factory ---
 
-    static ObjectMap* create(Arena& arena, uint8_t initial_log2_buckets = 3) {
-        TypeTag tag(type_hash::ObjectMap, TagDescriptor::Map);
-        void* mem = arena.allocate(sizeof(ObjectMap), alignof(ObjectMap), tag).get();
-        auto* map = new (mem) ObjectMap();
+    [[nodiscard]] static logos::expected<ObjectMap*> create(Arena& arena, uint8_t initial_log2_buckets = 3) noexcept {
+        try {
+            TypeTag tag(type_hash::ObjectMap, TagDescriptor::Map);
+            void* mem = arena.allocate(sizeof(ObjectMap), alignof(ObjectMap), tag).get();
+            auto* map = new (mem) ObjectMap();
 
-        if (initial_log2_buckets > 0) {
-            map->init_buckets(arena);
+            if (initial_log2_buckets > 0) {
+                map->init_buckets(arena);
+            }
+            return map;
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
         }
-        return map;
     }
 
 private:

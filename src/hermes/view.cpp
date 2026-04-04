@@ -52,12 +52,22 @@ logos::expected<void> TinyMapView::put(uint8_t key, const ObjectView& value) {
     }
 }
 
-void ArrayView::push_back(const ObjectView& value) {
-    ptr()->push_back(resolve_for_arena(value, holder_).get(), arena());
+logos::expected<void> ArrayView::push_back(const ObjectView& value) {
+    try {
+        ptr()->push_back(resolve_for_arena(value, holder_).get(), arena()).get();
+        return {};
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
-void MapView::put(std::string_view key, const ObjectView& value) {
-    ptr()->put(key, resolve_for_arena(value, holder_).get(), arena());
+logos::expected<void> MapView::put(std::string_view key, const ObjectView& value) {
+    try {
+        ptr()->put(key, resolve_for_arena(value, holder_).get(), arena()).get();
+        return {};
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
 static DocumentHeader* get_header(MemHolder* holder) {
@@ -115,24 +125,40 @@ Object HermesCtrView::root_object() const {
     return Object(ObjectView(tp, holder_));
 }
 
-TinyMap HermesCtrView::make_tiny_map(uint8_t capacity) {
-    auto* p = TinyObjectMap::create(holder_->arena(), capacity).get();
-    return TinyMap(offset_of(p), holder_);
+logos::expected<TinyMap> HermesCtrView::make_tiny_map(uint8_t capacity) noexcept {
+    try {
+        auto* p = TinyObjectMap::create(holder_->arena(), capacity).get();
+        return TinyMap(offset_of(p), holder_);
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
-Array HermesCtrView::make_array(uint64_t capacity) {
-    auto* p = ObjectArray::create(holder_->arena(), capacity);
-    return Array(offset_of(p), holder_);
+logos::expected<Array> HermesCtrView::make_array(uint64_t capacity) noexcept {
+    try {
+        auto* p = ObjectArray::create(holder_->arena(), capacity).get();
+        return Array(offset_of(p), holder_);
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
-Map HermesCtrView::make_object_map(uint8_t log2_buckets) {
-    auto* p = ObjectMap::create(holder_->arena(), log2_buckets);
-    return Map(offset_of(p), holder_);
+logos::expected<Map> HermesCtrView::make_object_map(uint8_t log2_buckets) noexcept {
+    try {
+        auto* p = ObjectMap::create(holder_->arena(), log2_buckets).get();
+        return Map(offset_of(p), holder_);
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
-String HermesCtrView::make_string(std::string_view str) {
-    auto* p = ArenaString::create(holder_->arena(), str);
-    return String(offset_of(p), holder_);
+logos::expected<String> HermesCtrView::make_string(std::string_view str) noexcept {
+    try {
+        auto* p = ArenaString::create(holder_->arena(), str).get();
+        return String(offset_of(p), holder_);
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
 // --- make_doc ---

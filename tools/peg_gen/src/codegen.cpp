@@ -989,7 +989,7 @@ private:
         rcap_var_.clear();
         if (alt.action && action_has_array_capture(*alt.action)) {
             rcap_var_ = "rcap_" + std::to_string(lc_++);
-            w.fmt("auto {} = doc_.make_array(4);", rcap_var_);
+            w.fmt("auto {} = doc_.make_array(4).get();", rcap_var_);
         }
 
         // Capture slots (one per item in the sequence).
@@ -1039,7 +1039,7 @@ private:
             w.fmt("if (peek_token().kind != TK::{}) goto {};",
                   safe_tok_name(item.name), fail_label);
             w.fmt("Token tok_{0}_ = next_token();", cap);
-            w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(tok_{0}_.text).to_anyval();", cap);
+            w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(tok_{0}_.text).get().to_anyval();", cap);
             break;
         }
 
@@ -1053,7 +1053,7 @@ private:
             w.fmt("if ({}.is_null()) goto {};", cap, fail_label);
             // Collect into rule-captures array if $... is used in this alt's action.
             if (!rcap_var_.empty())
-                w.fmt("{}.push_back({});", rcap_var_, cap);
+                w.fmt("{}.push_back({}).get();", rcap_var_, cap);
             break;
         }
 
@@ -1062,7 +1062,7 @@ private:
             size_t n = item.name.size();
             w.fmt("if (pos_ + {0} > source_.size() || source_.substr(pos_, {0}) != \"{1}\") goto {2};",
                   n, item.name, fail_label);
-            w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(source_.substr(pos_, {1})).to_anyval();", cap, n);
+            w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(source_.substr(pos_, {1})).get().to_anyval();", cap, n);
             w.fmt("pos_ += {};", n);
             break;
         }
@@ -1099,7 +1099,7 @@ private:
             std::string id       = fresh();
             std::string arr_var  = "arr_" + id;
             std::string fail_lbl = "rep_fail_" + id;
-            w.fmt("auto {} = doc_.make_array(4);", arr_var);
+            w.fmt("auto {} = doc_.make_array(4).get();", arr_var);
             w.line("{");
             w.indent();
             w.line("while (true) {");
@@ -1110,7 +1110,7 @@ private:
                 w.indent();
                 std::string sub_cap = "rep_item_" + id;
                 emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
-                w.fmt("if (!{}.is_null()) {}.push_back({});", sub_cap, arr_var, sub_cap);
+                w.fmt("if (!{}.is_null()) {}.push_back({}).get();", sub_cap, arr_var, sub_cap);
                 w.line("continue;");
                 w.dedent();
                 w.line("}");

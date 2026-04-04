@@ -163,15 +163,15 @@ static void test_object_array_basic() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
-    auto* arr = ObjectArray::create(arena);
+    auto* arr = ObjectArray::create(arena).get();
 
     LOGOS_ASSERT(arr->size() == 0, "HERMES-ARRAY-001", "New array must be empty");
     LOGOS_ASSERT(arr->empty(), "HERMES-ARRAY-001", "");
 
     // Push elements.
-    arr->push_back(AnyVal::from_value(int32_t(10)), arena);
-    arr->push_back(AnyVal::from_value(int32_t(20)), arena);
-    arr->push_back(AnyVal::from_value(float(3.14f)), arena);
+    arr->push_back(AnyVal::from_value(int32_t(10)), arena).get();
+    arr->push_back(AnyVal::from_value(int32_t(20)), arena).get();
+    arr->push_back(AnyVal::from_value(float(3.14f)), arena).get();
 
     LOGOS_ASSERT(arr->size() == 3, "HERMES-ARRAY-001",
         "Array size must be 3, got {}", arr->size());
@@ -197,10 +197,10 @@ static void test_object_array_grow() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
-    auto* arr = ObjectArray::create(arena, 2); // Small initial capacity.
+    auto* arr = ObjectArray::create(arena, 2).get(); // Small initial capacity.
 
     for (int i = 0; i < 100; ++i) {
-        arr->push_back(AnyVal::from_value(int32_t(i)), arena);
+        arr->push_back(AnyVal::from_value(int32_t(i)), arena).get();
     }
 
     LOGOS_ASSERT(arr->size() == 100, "HERMES-ARRAY-001",
@@ -224,11 +224,11 @@ static void test_object_array_set_and_pop() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
-    auto* arr = ObjectArray::create(arena);
+    auto* arr = ObjectArray::create(arena).get();
 
-    arr->push_back(AnyVal::from_value(int32_t(1)), arena);
-    arr->push_back(AnyVal::from_value(int32_t(2)), arena);
-    arr->push_back(AnyVal::from_value(int32_t(3)), arena);
+    arr->push_back(AnyVal::from_value(int32_t(1)), arena).get();
+    arr->push_back(AnyVal::from_value(int32_t(2)), arena).get();
+    arr->push_back(AnyVal::from_value(int32_t(3)), arena).get();
 
     // Set.
     arr->set(1, AnyVal::from_value(int32_t(99)), base);
@@ -249,16 +249,16 @@ static void test_object_array_with_pointers() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
-    auto* arr = ObjectArray::create(arena);
+    auto* arr = ObjectArray::create(arena).get();
 
     // IMPORTANT: pointer-mode AnyVals contain relative offsets from their own
     // address, so they must be written in-place via slot(), never via a stack copy.
-    ArenaString* s1 = ArenaString::create(arena, "hello");
-    ArenaString* s2 = ArenaString::create(arena, "world");
+    ArenaString* s1 = ArenaString::create(arena, "hello").get();
+    ArenaString* s2 = ArenaString::create(arena, "world").get();
 
     // Push null placeholders, then set pointers in-place via slot().
-    arr->push_back(AnyVal{}, arena);
-    arr->push_back(AnyVal{}, arena);
+    arr->push_back(AnyVal{}, arena).get();
+    arr->push_back(AnyVal{}, arena).get();
 
     arr->slot(0, base)->set_pointer(s1, base);
     arr->slot(1, base)->set_pointer(s2, base);
@@ -287,12 +287,12 @@ static void test_object_map_basic() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
-    auto* map = ObjectMap::create(arena);
+    auto* map = ObjectMap::create(arena).get();
 
     LOGOS_ASSERT(map->size() == 0, "HERMES-MAP-001", "New map must be empty");
 
-    map->put("name", AnyVal::from_value(int32_t(42)), arena);
-    map->put("age", AnyVal::from_value(int32_t(30)), arena);
+    map->put("name", AnyVal::from_value(int32_t(42)), arena).get();
+    map->put("age", AnyVal::from_value(int32_t(30)), arena).get();
 
     LOGOS_ASSERT(map->size() == 2, "HERMES-MAP-001", "Map size must be 2");
     LOGOS_ASSERT(map->has("name", base), "HERMES-MAP-001", "");
@@ -317,10 +317,10 @@ static void test_object_map_update() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
-    auto* map = ObjectMap::create(arena);
+    auto* map = ObjectMap::create(arena).get();
 
-    map->put("key", AnyVal::from_value(int32_t(1)), arena);
-    map->put("key", AnyVal::from_value(int32_t(2)), arena);
+    map->put("key", AnyVal::from_value(int32_t(1)), arena).get();
+    map->put("key", AnyVal::from_value(int32_t(2)), arena).get();
 
     LOGOS_ASSERT(map->size() == 1, "HERMES-MAP-001", "Update must not increase size");
     LOGOS_ASSERT(map->get("key", base).as_value<int32_t>() == 2, "HERMES-MAP-001", "");
@@ -334,11 +334,11 @@ static void test_object_map_remove() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
-    auto* map = ObjectMap::create(arena);
+    auto* map = ObjectMap::create(arena).get();
 
-    map->put("a", AnyVal::from_value(int32_t(1)), arena);
-    map->put("b", AnyVal::from_value(int32_t(2)), arena);
-    map->put("c", AnyVal::from_value(int32_t(3)), arena);
+    map->put("a", AnyVal::from_value(int32_t(1)), arena).get();
+    map->put("b", AnyVal::from_value(int32_t(2)), arena).get();
+    map->put("c", AnyVal::from_value(int32_t(3)), arena).get();
 
     LOGOS_ASSERT(map->remove("b", arena), "HERMES-MAP-001", "");
     LOGOS_ASSERT(map->size() == 2, "HERMES-MAP-001", "");
@@ -358,13 +358,13 @@ static void test_object_map_stress() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 65536).get();
     uint8_t* base = arena.head().data();
-    auto* map = ObjectMap::create(arena);
+    auto* map = ObjectMap::create(arena).get();
 
     // Insert 200 unique keys (triggers rehash).
     char keybuf[32];
     for (int i = 0; i < 200; ++i) {
         std::snprintf(keybuf, sizeof(keybuf), "key_%03d", i);
-        map->put(keybuf, AnyVal::from_value(int32_t(i)), arena);
+        map->put(keybuf, AnyVal::from_value(int32_t(i)), arena).get();
     }
 
     LOGOS_ASSERT(map->size() == 200, "HERMES-MAP-001",
@@ -391,12 +391,12 @@ static void test_object_map_with_string_values() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
-    auto* map = ObjectMap::create(arena);
+    auto* map = ObjectMap::create(arena).get();
 
-    ArenaString* greeting = ArenaString::create(arena, "Hello, World!");
+    ArenaString* greeting = ArenaString::create(arena, "Hello, World!").get();
 
     // First put a null placeholder, then set the pointer in-place via get_slot.
-    map->put("greeting", AnyVal{}, arena);
+    map->put("greeting", AnyVal{}, arena).get();
     AnyVal* slot = map->get_slot("greeting", base);
     LOGOS_ASSERT(slot != nullptr, "HERMES-MAP-001", "Slot must exist after put");
     slot->set_pointer(greeting, base);

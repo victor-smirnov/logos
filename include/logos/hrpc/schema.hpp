@@ -83,7 +83,7 @@ struct Request {
     static Request make() {
         Request rq;
         rq.doc = logos::hermes::make_doc();
-        auto tiny = rq.doc.make_tiny_map(4);
+        auto tiny = rq.doc.make_tiny_map(4).get();
         rq.doc.set_root(tiny);
         rq.map = tiny;
         return rq;
@@ -143,7 +143,7 @@ struct Response {
     static Response ok() {
         Response rs;
         rs.doc = logos::hermes::make_doc();
-        auto tiny = rs.doc.make_tiny_map(4);
+        auto tiny = rs.doc.make_tiny_map(4).get();
         rs.doc.set_root(tiny);
         rs.map = tiny;
         rs.map.put(keys::STATUS_CODE,
@@ -162,7 +162,7 @@ struct Response {
     static Response error(std::string_view description) {
         Response rs;
         rs.doc = logos::hermes::make_doc();
-        auto root = rs.doc.make_tiny_map(4);
+        auto root = rs.doc.make_tiny_map(4).get();
         rs.doc.set_root(root);
         rs.map = root;
 
@@ -170,8 +170,8 @@ struct Response {
                    AnyVal::from_value(static_cast<uint32_t>(StatusCode::Error))).get();
 
         // Error sub-map with description string.
-        auto err_map = rs.doc.make_tiny_map(2);
-        auto desc_str = rs.doc.make_string(description);
+        auto err_map = rs.doc.make_tiny_map(2).get();
+        auto desc_str = rs.doc.make_string(description).get();
         err_map.put(keys::ERROR_DESC, AnyVal::from_offset(desc_str.offset())).get();
         rs.map.put(keys::ERROR, AnyVal::from_offset(err_map.offset())).get();
         return rs;
@@ -228,7 +228,7 @@ struct StreamMessage {
     static StreamMessage make(AnyVal data) {
         StreamMessage msg;
         msg.doc = logos::hermes::make_doc();
-        auto tiny = msg.doc.make_tiny_map(2);
+        auto tiny = msg.doc.make_tiny_map(2).get();
         msg.doc.set_root(tiny);
         msg.map = tiny;
         msg.map.put(keys::MSG_DATA, data).get();
@@ -262,7 +262,7 @@ struct ConnectionMetadata {
     static ConnectionMetadata make(uint64_t buffer_size = 1024 * 1024) {
         ConnectionMetadata meta;
         meta.doc = logos::hermes::make_doc();
-        auto tiny = meta.doc.make_tiny_map(2);
+        auto tiny = meta.doc.make_tiny_map(2).get();
         meta.doc.set_root(tiny);
         meta.map = tiny;
         // uint64_t doesn't fit in 7 bytes as value mode, store as uint32_t

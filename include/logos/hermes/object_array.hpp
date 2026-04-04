@@ -12,6 +12,7 @@
 #include <logos/hermes/relative_ptr.hpp>
 #include <logos/hermes/any_val.hpp>
 #include <logos/hermes/type_registry.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
@@ -33,12 +34,17 @@ public:
         return &elements(base)[index];
     }
 
-    void push_back(AnyVal value, Arena& arena) {
-        if (size_ >= capacity_) {
-            grow(arena, capacity_ == 0 ? 4 : capacity_ * 2);
+    [[nodiscard]] logos::expected<void> push_back(AnyVal value, Arena& arena) noexcept {
+        try {
+            if (size_ >= capacity_) {
+                grow(arena, capacity_ == 0 ? 4 : capacity_ * 2);
+            }
+            elements(arena.head().data())[size_] = value;
+            ++size_;
+            return {};
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
         }
-        elements(arena.head().data())[size_] = value;
-        ++size_;
     }
 
     void set(uint64_t index, AnyVal value, uint8_t* base) {
@@ -54,15 +60,19 @@ public:
         }
     }
 
-    static ObjectArray* create(Arena& arena, uint64_t initial_capacity = 4) {
-        TypeTag tag(type_hash::ObjectArray, TagDescriptor::Array);
-        void* mem = arena.allocate(sizeof(ObjectArray), alignof(ObjectArray), tag).get();
-        auto* arr = new (mem) ObjectArray();
+    [[nodiscard]] static logos::expected<ObjectArray*> create(Arena& arena, uint64_t initial_capacity = 4) noexcept {
+        try {
+            TypeTag tag(type_hash::ObjectArray, TagDescriptor::Array);
+            void* mem = arena.allocate(sizeof(ObjectArray), alignof(ObjectArray), tag).get();
+            auto* arr = new (mem) ObjectArray();
 
-        if (initial_capacity > 0) {
-            arr->grow(arena, initial_capacity);
+            if (initial_capacity > 0) {
+                arr->grow(arena, initial_capacity);
+            }
+            return arr;
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
         }
-        return arr;
     }
 
 private:

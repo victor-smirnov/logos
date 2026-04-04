@@ -13,6 +13,7 @@
 #include <logos/hermes/varint.hpp>
 #include <logos/hermes/type_registry.hpp>
 #include <logos/hermes/fnv_hash.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
@@ -61,21 +62,25 @@ public:
     bool operator!=(std::string_view other) const { return view() != other; }
 
     // Allocate and write a string into the arena. Returns pointer to the ArenaString.
-    static ArenaString* create(Arena& arena, std::string_view str) {
-        // Calculate total size: vlen header + string bytes.
-        uint8_t vlen_buf[8];
-        size_t vlen_size = varint_encode(str.size(), vlen_buf);
-        size_t total = vlen_size + str.size();
+    [[nodiscard]] static logos::expected<ArenaString*> create(Arena& arena, std::string_view str) noexcept {
+        try {
+            // Calculate total size: vlen header + string bytes.
+            uint8_t vlen_buf[8];
+            size_t vlen_size = varint_encode(str.size(), vlen_buf);
+            size_t total = vlen_size + str.size();
 
-        TypeTag tag(type_hash::Varchar, TagDescriptor::Data);
-        // Alignment 1 is fine for strings, but arena requires >= 2 for tag placement.
-        void* mem = arena.allocate(total, 2, tag).get();
+            TypeTag tag(type_hash::Varchar, TagDescriptor::Data);
+            // Alignment 1 is fine for strings, but arena requires >= 2 for tag placement.
+            void* mem = arena.allocate(total, 2, tag).get();
 
-        auto* dest = static_cast<uint8_t*>(mem);
-        std::memcpy(dest, vlen_buf, vlen_size);
-        std::memcpy(dest + vlen_size, str.data(), str.size());
+            auto* dest = static_cast<uint8_t*>(mem);
+            std::memcpy(dest, vlen_buf, vlen_size);
+            std::memcpy(dest + vlen_size, str.data(), str.size());
 
-        return reinterpret_cast<ArenaString*>(mem);
+            return reinterpret_cast<ArenaString*>(mem);
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
+        }
     }
 };
 

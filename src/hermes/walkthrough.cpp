@@ -127,7 +127,7 @@ static void walkthrough_building() {
     auto doc = make_doc();
 
     // --- TinyMap: bitmap-indexed sparse map, keys 0..51 ---
-    auto tmap = doc.make_tiny_map();
+    auto tmap = doc.make_tiny_map().get();
     tmap.put(0, AnyVal::from_value(int32_t(100))).get();
     tmap.put(5, AnyVal::from_value(int32_t(200))).get();
     std::println("  TinyMap: size={}, has_key(0)={}, has_key(1)={}",
@@ -136,24 +136,24 @@ static void walkthrough_building() {
     // STOP: inspect tmap.ptr(), tmap.offset(), tmap.ptr()->bitmap()
 
     // --- Array: dynamic heterogeneous array ---
-    auto arr = doc.make_array();
-    arr.push_back(AnyVal::from_value(int32_t(10)));
-    arr.push_back(AnyVal::from_value(int32_t(20)));
-    arr.push_back(AnyVal::from_value(float(3.14f)));
+    auto arr = doc.make_array().get();
+    arr.push_back(AnyVal::from_value(int32_t(10))).get();
+    arr.push_back(AnyVal::from_value(int32_t(20))).get();
+    arr.push_back(AnyVal::from_value(float(3.14f))).get();
     std::println("  Array: size={}", arr.size());
     std::println("  Array[0]={}, Array[2]={}",
         arr.get(0).as_value<int32_t>(), arr.get(2).as_value<float>());
     // STOP: inspect arr.ptr(), arr.ptr()->capacity()
 
     // --- String: arena-allocated UTF-8 ---
-    auto s = doc.make_string("Hello, Hermes!");
+    auto s = doc.make_string("Hello, Hermes!").get();
     std::println("  String: '{}' (len={})", s.view(), s.length());
     // STOP: inspect s.ptr(), the ArenaString layout (varint length + data)
 
     // --- Pointer-mode values in containers ---
     // Strings are too large for AnyVal value mode, so we use pointer mode.
     // The slot stores the string's arena offset.
-    arr.push_back(AnyVal{});  // placeholder
+    arr.push_back(AnyVal{}).get();  // placeholder
     arr.slot(3)->set_offset(s.offset());
     AnyVal* str_slot = arr.slot(3);
     auto str_view = str_slot->as_ptr<ArenaString>(HermesCtrAccess::base(doc))->view();
@@ -162,7 +162,7 @@ static void walkthrough_building() {
     // STOP: compare str_slot->to_offset() with s.offset()
 
     // --- Map: string-keyed hash map ---
-    auto map = doc.make_object_map();
+    auto map = doc.make_object_map().get();
     map.put("name", AnyVal::from_value(int32_t(42)));
     map.put("active", AnyVal::from_value(uint8_t(1)));
     std::println("  Map: size={}, has('name')={}, get('name')={}",
@@ -170,7 +170,7 @@ static void walkthrough_building() {
 
     // Store a string value in map (pointer mode).
     // Allocate string BEFORE put() to avoid arena realloc between operations.
-    auto greeting = doc.make_string("world");
+    auto greeting = doc.make_string("world").get();
     map.put("greeting", AnyVal{});
     // Re-fetch base after allocations (arena may have grown).
     uint8_t* b2 = HermesCtrAccess::base(doc);
@@ -326,11 +326,11 @@ static void walkthrough_compactify() {
     std::println("\n=== 6. Compactify & Zero-Copy ===");
 
     auto doc = make_doc();
-    auto map = doc.make_tiny_map();
+    auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
     map.put(0, AnyVal::from_value(int32_t(42))).get();
-    auto s = doc.make_string("hello");
+    auto s = doc.make_string("hello").get();
     map.put(1, AnyVal{}).get();
     map.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
@@ -484,7 +484,7 @@ static void walkthrough_memory_layout() {
     std::println("\n=== 9. Memory Layout ===");
 
     auto doc = make_doc(256);
-    auto map = doc.make_tiny_map();
+    auto map = doc.make_tiny_map().get();
     doc.set_root(map);
     map.put(0, AnyVal::from_value(int32_t(7))).get();
 

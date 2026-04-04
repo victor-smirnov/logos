@@ -100,10 +100,10 @@ public:
     AnyVal get(uint64_t index) const { return ptr()->get(index, base()); }
     AnyVal* slot(uint64_t index) const { return ptr()->slot(index, base()); }
 
-    void push_back(AnyVal value) { ptr()->push_back(value, arena()); }
+    [[nodiscard]] logos::expected<void> push_back(AnyVal value) noexcept { return ptr()->push_back(value, arena()); }
 
     // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
-    void push_back(const ObjectView& value);
+    [[nodiscard]] logos::expected<void> push_back(const ObjectView& value);
 };
 
 class MapView : public ViewBase {
@@ -119,10 +119,10 @@ public:
     AnyVal* get_slot(std::string_view key) const { return ptr()->get_slot(key, base()); }
     bool has(std::string_view key) const { return ptr()->has(key, base()); }
 
-    void put(std::string_view key, AnyVal value) { ptr()->put(key, value, arena()); }
+    [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal value) noexcept { return ptr()->put(key, value, arena()); }
 
     // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
-    void put(std::string_view key, const ObjectView& value);
+    [[nodiscard]] logos::expected<void> put(std::string_view key, const ObjectView& value);
 
     template <typename Fn>
     void for_each(Fn fn) const { ptr()->for_each(fn, base()); }
@@ -235,10 +235,10 @@ public:
     Object root_object() const;
 
     // --- Factory methods returning owning Views ---
-    TinyMap make_tiny_map(uint8_t capacity = 4);
-    Array make_array(uint64_t capacity = 4);
-    Map make_object_map(uint8_t log2_buckets = 3);
-    String make_string(std::string_view str);
+    [[nodiscard]] logos::expected<TinyMap> make_tiny_map(uint8_t capacity = 4) noexcept;
+    [[nodiscard]] logos::expected<Array> make_array(uint64_t capacity = 4) noexcept;
+    [[nodiscard]] logos::expected<Map> make_object_map(uint8_t log2_buckets = 3) noexcept;
+    [[nodiscard]] logos::expected<String> make_string(std::string_view str) noexcept;
 
 private:
     friend class HermesCtrAccess;
@@ -265,20 +265,20 @@ private:
     [[nodiscard]] logos::expected<TinyObjectMap*> raw_tiny_map(uint8_t capacity = 4) noexcept {
         return TinyObjectMap::create(holder_->arena(), capacity);
     }
-    ObjectArray* raw_array(uint64_t capacity = 4) {
+    [[nodiscard]] logos::expected<ObjectArray*> raw_array(uint64_t capacity = 4) noexcept {
         return ObjectArray::create(holder_->arena(), capacity);
     }
-    ObjectMap* raw_object_map(uint8_t log2_buckets = 3) {
+    [[nodiscard]] logos::expected<ObjectMap*> raw_object_map(uint8_t log2_buckets = 3) noexcept {
         return ObjectMap::create(holder_->arena(), log2_buckets);
     }
-    ArenaString* raw_string(std::string_view str) {
+    [[nodiscard]] logos::expected<ArenaString*> raw_string(std::string_view str) noexcept {
         return ArenaString::create(holder_->arena(), str);
     }
 
     template <typename T>
         requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
     T* make_value(T value) {
-        return arena_put<T>(holder_->arena(), value);
+        return arena_put<T>(holder_->arena(), value).get();
     }
 
     MemHolder* holder_;

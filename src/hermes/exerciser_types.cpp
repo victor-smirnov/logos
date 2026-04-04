@@ -67,47 +67,47 @@ static void test_arena_put_get() {
 
     // Integer types
     {
-        int8_t* p = arena_put<int8_t>(arena, -42);
+        int8_t* p = arena_put<int8_t>(arena, -42).get();
         LOGOS_ASSERT(arena_get(p) == -42, "HERMES-TYPES-001",
             "arena_put/get int8_t round-trip failed");
 
-        uint8_t* q = arena_put<uint8_t>(arena, 200);
+        uint8_t* q = arena_put<uint8_t>(arena, 200).get();
         LOGOS_ASSERT(arena_get(q) == 200, "HERMES-TYPES-001",
             "arena_put/get uint8_t round-trip failed");
 
-        int16_t* r = arena_put<int16_t>(arena, -12345);
+        int16_t* r = arena_put<int16_t>(arena, -12345).get();
         LOGOS_ASSERT(arena_get(r) == -12345, "HERMES-TYPES-001",
             "arena_put/get int16_t round-trip failed");
 
-        int32_t* s = arena_put<int32_t>(arena, -1234567);
+        int32_t* s = arena_put<int32_t>(arena, -1234567).get();
         LOGOS_ASSERT(arena_get(s) == -1234567, "HERMES-TYPES-001",
             "arena_put/get int32_t round-trip failed");
 
-        int64_t* t = arena_put<int64_t>(arena, -9876543210LL);
+        int64_t* t = arena_put<int64_t>(arena, -9876543210LL).get();
         LOGOS_ASSERT(arena_get(t) == -9876543210LL, "HERMES-TYPES-001",
             "arena_put/get int64_t round-trip failed");
     }
 
     // Floating point
     {
-        float* f = arena_put<float>(arena, 3.14f);
+        float* f = arena_put<float>(arena, 3.14f).get();
         LOGOS_ASSERT(std::abs(arena_get(f) - 3.14f) < 1e-6f, "HERMES-TYPES-001",
             "arena_put/get float round-trip failed");
 
-        double* d = arena_put<double>(arena, 2.718281828);
+        double* d = arena_put<double>(arena, 2.718281828).get();
         LOGOS_ASSERT(std::abs(arena_get(d) - 2.718281828) < 1e-9, "HERMES-TYPES-001",
             "arena_put/get double round-trip failed");
     }
 
     // Verify TypeTags are written correctly
     {
-        int32_t* p = arena_put<int32_t>(arena, 0);
+        int32_t* p = arena_put<int32_t>(arena, 0).get();
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(p));
         LOGOS_ASSERT(tag.type_code() == type_hash::Integer, "HERMES-TYPES-002",
             "TypeTag for int32_t must have type_code={}, got {}",
             type_hash::Integer, tag.type_code());
 
-        double* d = arena_put<double>(arena, 0.0);
+        double* d = arena_put<double>(arena, 0.0).get();
         TypeTag dtag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(d));
         LOGOS_ASSERT(dtag.type_code() == type_hash::Double, "HERMES-TYPES-002",
             "TypeTag for double must have type_code={}, got {}",
@@ -170,7 +170,7 @@ static void test_arena_string() {
 
     // Basic string
     {
-        ArenaString* s = ArenaString::create(arena, "hello");
+        ArenaString* s = ArenaString::create(arena, "hello").get();
         LOGOS_ASSERT(s->view() == "hello", "HERMES-STRING-001",
             "ArenaString view must return original content");
         LOGOS_ASSERT(s->length() == 5, "HERMES-STRING-001",
@@ -185,7 +185,7 @@ static void test_arena_string() {
 
     // Empty string
     {
-        ArenaString* s = ArenaString::create(arena, "");
+        ArenaString* s = ArenaString::create(arena, "").get();
         LOGOS_ASSERT(s->view() == "", "HERMES-STRING-001", "Empty string round-trip failed");
         LOGOS_ASSERT(s->length() == 0, "HERMES-STRING-001", "Empty string length must be 0");
     }
@@ -193,7 +193,7 @@ static void test_arena_string() {
     // UTF-8 string (multi-byte characters)
     {
         std::string_view utf8 = "Привет мир";  // Russian "Hello world"
-        ArenaString* s = ArenaString::create(arena, utf8);
+        ArenaString* s = ArenaString::create(arena, utf8).get();
         LOGOS_ASSERT(s->view() == utf8, "HERMES-STRING-001",
             "UTF-8 string round-trip failed");
     }
@@ -201,7 +201,7 @@ static void test_arena_string() {
     // Long string (triggers multi-byte vlen encoding)
     {
         std::string long_str(300, 'x');
-        ArenaString* s = ArenaString::create(arena, long_str);
+        ArenaString* s = ArenaString::create(arena, long_str).get();
         LOGOS_ASSERT(s->view() == long_str, "HERMES-STRING-001",
             "Long string (300 chars) round-trip failed");
         LOGOS_ASSERT(s->length() == 300, "HERMES-STRING-001",
@@ -210,7 +210,7 @@ static void test_arena_string() {
 
     // Equality operator
     {
-        ArenaString* s = ArenaString::create(arena, "test");
+        ArenaString* s = ArenaString::create(arena, "test").get();
         LOGOS_ASSERT(*s == "test", "HERMES-STRING-001", "Equality operator failed");
         LOGOS_ASSERT(*s != "other", "HERMES-STRING-001", "Inequality operator failed");
     }
@@ -239,7 +239,7 @@ static void test_fnv_hash() {
 
     // ArenaString hash must match direct hash
     auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
-    ArenaString* s = ArenaString::create(arena, "hello");
+    ArenaString* s = ArenaString::create(arena, "hello").get();
     LOGOS_ASSERT(s->hash() == h1, "HERMES-HASH-002",
         "ArenaString::hash() must match fnv1a_hash() for same content");
 
@@ -258,7 +258,7 @@ static void test_uid_types() {
 
     // Uid64
     {
-        Uid64* p = arena_put<Uid64>(arena, Uid64{0xDEADBEEFCAFE1234ULL});
+        Uid64* p = arena_put<Uid64>(arena, Uid64{0xDEADBEEFCAFE1234ULL}).get();
         LOGOS_ASSERT(arena_get(p).value == 0xDEADBEEFCAFE1234ULL, "HERMES-TYPES-001",
             "Uid64 round-trip failed");
 
@@ -271,7 +271,7 @@ static void test_uid_types() {
     {
         Uid128 val{};
         for (int i = 0; i < 16; ++i) val.bytes[i] = static_cast<uint8_t>(i + 1);
-        Uid128* p = arena_put<Uid128>(arena, val);
+        Uid128* p = arena_put<Uid128>(arena, val).get();
         Uid128 got = arena_get(p);
         LOGOS_ASSERT(std::memcmp(got.bytes, val.bytes, 16) == 0, "HERMES-TYPES-001",
             "Uid128 round-trip failed");
@@ -285,7 +285,7 @@ static void test_uid_types() {
     {
         Uid256 val{};
         for (int i = 0; i < 32; ++i) val.bytes[i] = static_cast<uint8_t>(255 - i);
-        Uid256* p = arena_put<Uid256>(arena, val);
+        Uid256* p = arena_put<Uid256>(arena, val).get();
         Uid256 got = arena_get(p);
         LOGOS_ASSERT(std::memcmp(got.bytes, val.bytes, 32) == 0, "HERMES-TYPES-001",
             "Uid256 round-trip failed");

@@ -342,10 +342,10 @@ private:
 
     void* decode_object_array(Arena& arena) {
         uint64_t count = read_varint();
-        auto* arr = ObjectArray::create(arena, count);
+        auto* arr = ObjectArray::create(arena, count).get();
 
         for (uint64_t i = 0; i < count; ++i) {
-            arr->push_back(AnyVal{}, arena);
+            arr->push_back(AnyVal{}, arena).get();
             uint8_t* base = arena.head().data();
             AnyVal* s = arr->slot(i, base);
             decode_tagged_ptr(arena, s);
@@ -355,7 +355,7 @@ private:
 
     void* decode_object_map(Arena& arena) {
         uint64_t count = read_varint();
-        auto* map = ObjectMap::create(arena);
+        auto* map = ObjectMap::create(arena).get();
 
         for (uint64_t i = 0; i < count; ++i) {
             // Read key string (no TypeTag prefix — always Varchar by convention).
@@ -364,7 +364,7 @@ private:
             pos_ += key_len;
 
             // Put placeholder, then decode value into slot.
-            map->put(key, AnyVal{}, arena);
+            map->put(key, AnyVal{}, arena).get();
             uint8_t* base = arena.head().data();
             AnyVal* s = map->get_slot(key, base);
             decode_tagged_ptr(arena, s);

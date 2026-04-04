@@ -270,13 +270,13 @@ private:
             ++pos_;
             skip();
             DatatypeData* dt = parse_type_declaration();
-            auto* arena_str = HermesCtrAccess::raw_string(doc_, str);
-            auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt);
+            auto* arena_str = HermesCtrAccess::raw_string(doc_, str).get();
+            auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt).get();
             tv->value.set_pointer(arena_str, HermesCtrAccess::base(doc_));
             return tv;
         }
 
-        return HermesCtrAccess::raw_string(doc_, str);
+        return HermesCtrAccess::raw_string(doc_, str).get();
     }
 
     std::string parse_quoted_string() {
@@ -474,7 +474,7 @@ private:
 
     void* parse_array() {
         expect('[');
-        auto* arr = HermesCtrAccess::raw_array(doc_);
+        auto* arr = HermesCtrAccess::raw_array(doc_).get();
         skip();
         if (peek() == ']') { ++pos_; return arr; }
         while (true) {
@@ -490,7 +490,7 @@ private:
 
     void* parse_map() {
         expect('{');
-        auto* map = HermesCtrAccess::raw_object_map(doc_);
+        auto* map = HermesCtrAccess::raw_object_map(doc_).get();
         skip();
         if (peek() == '}') { ++pos_; return map; }
         while (true) {
@@ -515,7 +515,7 @@ private:
     DatatypeData* parse_type_declaration() {
         skip();
         std::string name = parse_datatype_name();
-        auto* arena_name = HermesCtrAccess::raw_string(doc_, name);
+        auto* arena_name = HermesCtrAccess::raw_string(doc_, name).get();
 
         ObjectArray* params = nullptr;
         ObjectArray* ctr_args = nullptr;
@@ -524,7 +524,7 @@ private:
         // Type parameters: <...>
         if (!at_end() && peek() == '<') {
             ++pos_;
-            params = HermesCtrAccess::raw_array(doc_);
+            params = HermesCtrAccess::raw_array(doc_).get();
             skip();
             if (peek() != '>') {
                 while (true) {
@@ -542,7 +542,7 @@ private:
         // Constructor args: (...)
         if (!at_end() && peek() == '(') {
             ++pos_;
-            ctr_args = HermesCtrAccess::raw_array(doc_);
+            ctr_args = HermesCtrAccess::raw_array(doc_).get();
             skip();
             if (peek() != ')') {
                 while (true) {
@@ -555,7 +555,7 @@ private:
             expect(')');
         }
 
-        auto* dt = DatatypeData::create(HermesCtrAccess::arena(doc_), arena_name, params, ctr_args);
+        auto* dt = DatatypeData::create(HermesCtrAccess::arena(doc_), arena_name, params, ctr_args).get();
 
         // Optional qualifiers: const, volatile, *, &
         skip();
@@ -736,7 +736,7 @@ private:
 
         // Bare identifier — treat as string.
         auto name = read_identifier();
-        return HermesCtrAccess::raw_string(doc_, name);
+        return HermesCtrAccess::raw_string(doc_, name).get();
     }
 
     bool looks_like_type_declaration() {
@@ -797,7 +797,7 @@ private:
         expect('=');
         void* val = parse_value();
 
-        auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt);
+        auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt).get();
         // Set value in-place.
         auto* bytes = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(bytes);
@@ -818,7 +818,7 @@ private:
         // Collect type params into a DatatypeData.
         // For <T>[...] → Datatype name="Array", params=[T]
         // For <K,V>{...} → Datatype name="Map", params=[K,V]
-        auto* type_params = HermesCtrAccess::raw_array(doc_);
+        auto* type_params = HermesCtrAccess::raw_array(doc_).get();
         while (true) {
             push_element(type_params, parse_type_param());
             skip();
@@ -841,9 +841,9 @@ private:
         }
 
         // Wrap: @Array<T> = [...]  or  @Map<K,V> = {...}
-        auto* kind_name = HermesCtrAccess::raw_string(doc_, container_kind);
-        auto* dt = DatatypeData::create(HermesCtrAccess::arena(doc_), kind_name, type_params);
-        auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt);
+        auto* kind_name = HermesCtrAccess::raw_string(doc_, container_kind).get();
+        auto* dt = DatatypeData::create(HermesCtrAccess::arena(doc_), kind_name, type_params).get();
+        auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt).get();
         tv->value.set_pointer(container, HermesCtrAccess::base(doc_));
         return tv;
     }
@@ -853,8 +853,8 @@ private:
     void* parse_parameter() {
         expect('?');
         auto name = read_identifier();
-        auto* arena_name = HermesCtrAccess::raw_string(doc_, name);
-        return ParameterData::create(HermesCtrAccess::arena(doc_), arena_name);
+        auto* arena_name = HermesCtrAccess::raw_string(doc_, name).get();
+        return ParameterData::create(HermesCtrAccess::arena(doc_), arena_name).get();
     }
 
     // --- Container element helpers ---
@@ -864,9 +864,9 @@ private:
         TypeTag tag = TypeTag::read_before(bytes);
         uint64_t tc = tag.type_code();
         if (can_embed(tc)) {
-            arr->push_back(make_embedded(elem, tc), HermesCtrAccess::arena(doc_));
+            arr->push_back(make_embedded(elem, tc), HermesCtrAccess::arena(doc_)).get();
         } else {
-            arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+            arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)).get();
             arr->slot(arr->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(elem, HermesCtrAccess::base(doc_));
         }
     }
@@ -876,9 +876,9 @@ private:
         TypeTag tag = TypeTag::read_before(bytes);
         uint64_t tc = tag.type_code();
         if (can_embed(tc)) {
-            map->put(key, make_embedded(elem, tc), HermesCtrAccess::arena(doc_));
+            map->put(key, make_embedded(elem, tc), HermesCtrAccess::arena(doc_)).get();
         } else {
-            map->put(key, AnyVal{}, HermesCtrAccess::arena(doc_));
+            map->put(key, AnyVal{}, HermesCtrAccess::arena(doc_)).get();
             map->get_slot(key, HermesCtrAccess::base(doc_))->set_pointer(elem, HermesCtrAccess::base(doc_));
         }
     }

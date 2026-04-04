@@ -76,7 +76,7 @@ private:
 
     void* copy_string(const void* src) {
         auto* s = static_cast<const ArenaString*>(src);
-        return ArenaString::create(dst_, s->view());
+        return ArenaString::create(dst_, s->view()).get();
     }
 
     void* copy_varbinary(const void* src) {
@@ -114,10 +114,10 @@ private:
 
     void* copy_object_array(const void* src) {
         auto* src_arr = static_cast<const ObjectArray*>(src);
-        auto* dst_arr = ObjectArray::create(dst_, src_arr->size());
+        auto* dst_arr = ObjectArray::create(dst_, src_arr->size()).get();
 
         for (uint64_t i = 0; i < src_arr->size(); ++i) {
-            dst_arr->push_back(AnyVal{}, dst_);
+            dst_arr->push_back(AnyVal{}, dst_).get();
             uint8_t* dst_base = dst_.head().data();
             AnyVal* dst_slot = dst_arr->slot(i, dst_base);
 
@@ -131,10 +131,10 @@ private:
 
     void* copy_object_map(const void* src) {
         auto* src_map = static_cast<const ObjectMap*>(src);
-        auto* dst_map = ObjectMap::create(dst_);
+        auto* dst_map = ObjectMap::create(dst_).get();
 
         src_map->for_each([&](ArenaString* src_key, AnyVal* src_val_slot) {
-            dst_map->put(src_key->view(), AnyVal{}, dst_);
+            dst_map->put(src_key->view(), AnyVal{}, dst_).get();
             uint8_t* dst_base = dst_.head().data();
             AnyVal* dst_slot = dst_map->get_slot(src_key->view(), dst_base);
             copy_tagged_ptr(src_val_slot, dst_slot).get();

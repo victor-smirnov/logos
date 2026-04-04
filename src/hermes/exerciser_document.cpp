@@ -25,7 +25,7 @@ static void test_document_create() {
         "New document must have no root");
 
     // Create a TinyObjectMap as root via View API.
-    auto map = doc.make_tiny_map();
+    auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
     LOGOS_ASSERT(doc.has_root(), "HERMES-DOC-001", "Document must have root after set_root");
@@ -46,7 +46,7 @@ static void test_document_nested_objects() {
 
     auto doc = make_doc();
 
-    auto root = doc.make_tiny_map();
+    auto root = doc.make_tiny_map().get();
     doc.set_root(root);
 
     root.put(0, AnyVal::from_value(int32_t(100))).get();
@@ -66,16 +66,16 @@ static void test_document_with_array_root() {
     std::printf("--- Document with array root ---\n");
 
     auto doc = make_doc();
-    auto arr = doc.make_array();
+    auto arr = doc.make_array().get();
     doc.set_root(arr);
 
-    arr.push_back(AnyVal::from_value(int32_t(1)));
-    arr.push_back(AnyVal::from_value(int32_t(2)));
-    arr.push_back(AnyVal::from_value(int32_t(3)));
+    arr.push_back(AnyVal::from_value(int32_t(1))).get();
+    arr.push_back(AnyVal::from_value(int32_t(2))).get();
+    arr.push_back(AnyVal::from_value(int32_t(3))).get();
 
     // Add a string via pointer — use offset-based set.
-    auto s = doc.make_string("test");
-    arr.push_back(AnyVal{});
+    auto s = doc.make_string("test").get();
+    arr.push_back(AnyVal{}).get();
     arr.slot(3)->set_pointer(s.ptr(), arr.ptr()->slot(3, HermesCtrAccess::base(doc)) ? HermesCtrAccess::base(doc) : HermesCtrAccess::base(doc));
 
     // Simpler: use set_offset on the AnyVal.
@@ -101,7 +101,7 @@ static void test_compactify_simple() {
     std::printf("--- Compactify (simple) ---\n");
 
     auto doc = make_doc();
-    auto map = doc.make_tiny_map();
+    auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
     map.put(0, AnyVal::from_value(int32_t(42))).get();
@@ -131,11 +131,11 @@ static void test_compactify_array_with_values() {
     std::printf("--- Compactify (array with embedded values) ---\n");
 
     auto doc = make_doc();
-    auto arr = doc.make_array();
+    auto arr = doc.make_array().get();
     doc.set_root(arr);
 
     for (int i = 0; i < 20; ++i) {
-        arr.push_back(AnyVal::from_value(int32_t(i * 100)));
+        arr.push_back(AnyVal::from_value(int32_t(i * 100))).get();
     }
 
     auto compact = compactify(doc).get();
@@ -160,7 +160,7 @@ static void test_zero_copy_round_trip() {
     std::printf("--- Zero-copy serialization round-trip ---\n");
 
     auto doc = make_doc();
-    auto map = doc.make_tiny_map();
+    auto map = doc.make_tiny_map().get();
     doc.set_root(map);
     map.put(0, AnyVal::from_value(int32_t(42))).get();
     map.put(3, AnyVal::from_value(int32_t(99))).get();
@@ -193,11 +193,11 @@ static void test_zero_copy_array_round_trip() {
     std::printf("--- Zero-copy array round-trip ---\n");
 
     auto doc = make_doc();
-    auto arr = doc.make_array();
+    auto arr = doc.make_array().get();
     doc.set_root(arr);
 
     for (int i = 0; i < 10; ++i) {
-        arr.push_back(AnyVal::from_value(int32_t(i)));
+        arr.push_back(AnyVal::from_value(int32_t(i))).get();
     }
 
     auto compact = compactify(doc).get();

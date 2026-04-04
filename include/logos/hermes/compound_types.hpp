@@ -11,6 +11,7 @@
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/type_registry.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
@@ -21,21 +22,25 @@ struct DatatypeData {
     RelativePtr<ObjectArray>  ctr;
     uint32_t extras = 0;
 
-    static DatatypeData* create(Arena& arena, ArenaString* type_name,
+    [[nodiscard]] static logos::expected<DatatypeData*> create(Arena& arena, ArenaString* type_name,
                                 ObjectArray* type_params = nullptr,
-                                ObjectArray* ctr_args = nullptr)
+                                ObjectArray* ctr_args = nullptr) noexcept
     {
-        TypeTag tag(type_hash::Datatype, TagDescriptor::Data);
-        auto* mem = static_cast<DatatypeData*>(
-            arena.allocate(sizeof(DatatypeData), alignof(DatatypeData), tag).get());
-        uint8_t* base = arena.head().data();
-        mem->extras = 0;
-        mem->params.clear();
-        mem->ctr.clear();
-        mem->name.set(type_name, base);
-        if (type_params) mem->params.set(type_params, base);
-        if (ctr_args) mem->ctr.set(ctr_args, base);
-        return mem;
+        try {
+            TypeTag tag(type_hash::Datatype, TagDescriptor::Data);
+            auto* mem = static_cast<DatatypeData*>(
+                arena.allocate(sizeof(DatatypeData), alignof(DatatypeData), tag).get());
+            uint8_t* base = arena.head().data();
+            mem->extras = 0;
+            mem->params.clear();
+            mem->ctr.clear();
+            mem->name.set(type_name, base);
+            if (type_params) mem->params.set(type_params, base);
+            if (ctr_args) mem->ctr.set(ctr_args, base);
+            return mem;
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
+        }
     }
 
     std::string_view name_view(uint8_t* base) const { return name.get(base)->view(); }
@@ -62,14 +67,18 @@ struct TypedValueData {
     RelativePtr<DatatypeData> datatype;
     AnyVal value;  // 8 bytes (embedded or segment-relative pointer)
 
-    static TypedValueData* create(Arena& arena, DatatypeData* dt) {
-        TypeTag tag(type_hash::TypedValue, TagDescriptor::Data);
-        auto* mem = static_cast<TypedValueData*>(
-            arena.allocate(sizeof(TypedValueData), alignof(TypedValueData), tag).get());
-        uint8_t* base = arena.head().data();
-        mem->datatype.set(dt, base);
-        mem->value = AnyVal{};
-        return mem;
+    [[nodiscard]] static logos::expected<TypedValueData*> create(Arena& arena, DatatypeData* dt) noexcept {
+        try {
+            TypeTag tag(type_hash::TypedValue, TagDescriptor::Data);
+            auto* mem = static_cast<TypedValueData*>(
+                arena.allocate(sizeof(TypedValueData), alignof(TypedValueData), tag).get());
+            uint8_t* base = arena.head().data();
+            mem->datatype.set(dt, base);
+            mem->value = AnyVal{};
+            return mem;
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
+        }
     }
 };
 
@@ -80,13 +89,17 @@ static_assert(sizeof(TypedValueData) == 16);
 struct ParameterData {
     RelativePtr<ArenaString> name;
 
-    static ParameterData* create(Arena& arena, ArenaString* param_name) {
-        TypeTag tag(type_hash::Parameter, TagDescriptor::Data);
-        auto* mem = static_cast<ParameterData*>(
-            arena.allocate(sizeof(ParameterData), alignof(ParameterData), tag).get());
-        uint8_t* base = arena.head().data();
-        mem->name.set(param_name, base);
-        return mem;
+    [[nodiscard]] static logos::expected<ParameterData*> create(Arena& arena, ArenaString* param_name) noexcept {
+        try {
+            TypeTag tag(type_hash::Parameter, TagDescriptor::Data);
+            auto* mem = static_cast<ParameterData*>(
+                arena.allocate(sizeof(ParameterData), alignof(ParameterData), tag).get());
+            uint8_t* base = arena.head().data();
+            mem->name.set(param_name, base);
+            return mem;
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
+        }
     }
 
     std::string_view name_view(uint8_t* base) const { return name.get(base)->view(); }

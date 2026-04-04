@@ -10,6 +10,7 @@
 
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/type_registry.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
@@ -21,11 +22,15 @@ namespace logos::hermes {
 //   double*  d = arena_put<double>(arena, 3.14);
 template <typename T>
     requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
-T* arena_put(Arena& arena, T value) {
-    TypeTag tag = type_tag_for<T>();
-    void* mem = arena.allocate(sizeof(T), alignof(T) < 2 ? 2 : alignof(T), tag).get();
-    std::memcpy(mem, &value, sizeof(T));
-    return static_cast<T*>(mem);
+[[nodiscard]] logos::expected<T*> arena_put(Arena& arena, T value) noexcept {
+    try {
+        TypeTag tag = type_tag_for<T>();
+        void* mem = arena.allocate(sizeof(T), alignof(T) < 2 ? 2 : alignof(T), tag).get();
+        std::memcpy(mem, &value, sizeof(T));
+        return static_cast<T*>(mem);
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
 // Read back a fixed-size value from an arena pointer.

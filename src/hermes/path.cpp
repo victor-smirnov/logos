@@ -111,7 +111,7 @@ private:
     void* make_named(int32_t code, std::string_view name) {
         auto* m = HermesCtrAccess::raw_tiny_map(doc_, 4).get();
         m->put(CODE, AnyVal::from_value(code), HermesCtrAccess::arena(doc_)).get();
-        auto* s = HermesCtrAccess::raw_string(doc_, name);
+        auto* s = HermesCtrAccess::raw_string(doc_, name).get();
         m->put(NAME, AnyVal{}, HermesCtrAccess::arena(doc_)).get();
         m->slot(NAME, HermesCtrAccess::base(doc_))->set_pointer(s, HermesCtrAccess::base(doc_));
         return m;
@@ -434,11 +434,11 @@ private:
         expect('(');
         auto* m = HermesCtrAccess::raw_tiny_map(doc_, 4).get();
         m->put(CODE, AnyVal::from_value(int32_t(FUNCTION_CALL)), HermesCtrAccess::arena(doc_)).get();
-        auto* fname = HermesCtrAccess::raw_string(doc_, name);
+        auto* fname = HermesCtrAccess::raw_string(doc_, name).get();
         m->put(NAME, AnyVal{}, HermesCtrAccess::arena(doc_)).get();
         m->slot(NAME, HermesCtrAccess::base(doc_))->set_pointer(fname, HermesCtrAccess::base(doc_));
 
-        auto* args = HermesCtrAccess::raw_array(doc_);
+        auto* args = HermesCtrAccess::raw_array(doc_).get();
         skip();
         if (peek() != ')') {
             while (true) {
@@ -455,7 +455,7 @@ private:
                 } else {
                     arg = parse_pipe();
                 }
-                args->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+                args->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)).get();
                 args->slot(args->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(arg, HermesCtrAccess::base(doc_));
                 skip();
                 if (peek() == ')') break;
@@ -472,10 +472,10 @@ private:
 
     void* parse_multiselect_list() {
         expect('[');
-        auto* exprs = HermesCtrAccess::raw_array(doc_);
+        auto* exprs = HermesCtrAccess::raw_array(doc_).get();
         while (true) {
             void* e = parse_pipe();
-            exprs->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+            exprs->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)).get();
             exprs->slot(exprs->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(e, HermesCtrAccess::base(doc_));
             skip();
             if (peek() == ']') { ++pos_; break; }
@@ -490,18 +490,18 @@ private:
 
     void* parse_multiselect_hash() {
         expect('{');
-        auto* keys_arr = HermesCtrAccess::raw_array(doc_);
-        auto* vals_arr = HermesCtrAccess::raw_array(doc_);
+        auto* keys_arr = HermesCtrAccess::raw_array(doc_).get();
+        auto* vals_arr = HermesCtrAccess::raw_array(doc_).get();
         while (true) {
             skip();
             std::string key = read_identifier();
             expect(':');
             void* val = parse_pipe();
 
-            auto* ks = HermesCtrAccess::raw_string(doc_, key);
-            keys_arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+            auto* ks = HermesCtrAccess::raw_string(doc_, key).get();
+            keys_arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)).get();
             keys_arr->slot(keys_arr->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(ks, HermesCtrAccess::base(doc_));
-            vals_arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_));
+            vals_arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)).get();
             vals_arr->slot(vals_arr->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(val, HermesCtrAccess::base(doc_));
 
             skip();
@@ -748,7 +748,7 @@ private:
         TypeTag tag = TypeTag::read_before(bytes);
         if (tag.descriptor() != TagDescriptor::Array) return nullptr;
         auto* arr = static_cast<ObjectArray*>(data);
-        auto* result = HermesCtrAccess::raw_array(result_);
+        auto* result = HermesCtrAccess::raw_array(result_).get();
         for (uint64_t i = 0; i < arr->size(); ++i) {
             void* elem = resolve_slot(arr->slot(i, data_base_), data_base_);
             if (!elem) continue;
@@ -781,7 +781,7 @@ private:
         start = std::clamp(start, int64_t(0), len);
         stop = std::clamp(stop, int64_t(0), len);
 
-        auto* result = HermesCtrAccess::raw_array(result_);
+        auto* result = HermesCtrAccess::raw_array(result_).get();
         if (step > 0) {
             for (int64_t i = start; i < stop; i += step)
                 push_value(result, resolve_slot(arr->slot(i, data_base_), data_base_));
@@ -795,7 +795,7 @@ private:
     void* eval_filter(void* data, TinyObjectMap* node) {
         if (!data) return nullptr;
         auto* arr = static_cast<ObjectArray*>(data);
-        auto* result = HermesCtrAccess::raw_array(result_);
+        auto* result = HermesCtrAccess::raw_array(result_).get();
         void* filter_ast = get_child(node, RIGHT);
         for (uint64_t i = 0; i < arr->size(); ++i) {
             void* elem = resolve_slot(arr->slot(i, data_base_), data_base_);
@@ -808,7 +808,7 @@ private:
     void* eval_list_wildcard(void* data) {
         if (!data) return nullptr;
         auto* arr = static_cast<ObjectArray*>(data);
-        auto* result = HermesCtrAccess::raw_array(result_);
+        auto* result = HermesCtrAccess::raw_array(result_).get();
         for (uint64_t i = 0; i < arr->size(); ++i)
             push_value(result, resolve_slot(arr->slot(i, data_base_), data_base_));
         return result;
@@ -820,7 +820,7 @@ private:
         TypeTag tag = TypeTag::read_before(bytes);
         if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::ObjectMap) {
             auto* map = static_cast<ObjectMap*>(data);
-            auto* result = HermesCtrAccess::raw_array(result_);
+            auto* result = HermesCtrAccess::raw_array(result_).get();
             map->for_each([&](ArenaString*, AnyVal* val) {
                 push_value(result, resolve_slot(val, data_base_));
             }, data_base_);
@@ -913,7 +913,7 @@ private:
 
     void* eval_multiselect_list(void* data, TinyObjectMap* node) {
         auto* exprs = static_cast<ObjectArray*>(get_child(node, EXPRESSIONS));
-        auto* result = HermesCtrAccess::raw_array(result_);
+        auto* result = HermesCtrAccess::raw_array(result_).get();
         for (uint64_t i = 0; i < exprs->size(); ++i) {
             void* expr = resolve_slot(exprs->slot(i, ast_base_), ast_base_);
             void* val = eval(data, expr);
@@ -925,7 +925,7 @@ private:
     void* eval_multiselect_hash(void* data, TinyObjectMap* node) {
         auto* keys_arr = static_cast<ObjectArray*>(get_child(node, KEYS));
         auto* vals_arr = static_cast<ObjectArray*>(get_child(node, EXPRESSIONS));
-        auto* result = HermesCtrAccess::raw_object_map(result_);
+        auto* result = HermesCtrAccess::raw_object_map(result_).get();
         for (uint64_t i = 0; i < keys_arr->size(); ++i) {
             auto* key = keys_arr->slot(i, ast_base_)->as_ptr<ArenaString>(ast_base_);
             void* expr = resolve_slot(vals_arr->slot(i, ast_base_), ast_base_);
@@ -980,30 +980,30 @@ private:
 
     void* fn_type(void* data, ObjectArray* args) {
         void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
-        if (!arg) return HermesCtrAccess::raw_string(result_, "null");
+        if (!arg) return HermesCtrAccess::raw_string(result_, "null").get();
         auto* b = static_cast<const uint8_t*>(arg);
         TypeTag tag = TypeTag::read_before(b);
         switch (tag.type_code()) {
-            case type_hash::Varchar: return HermesCtrAccess::raw_string(result_, "string");
+            case type_hash::Varchar: return HermesCtrAccess::raw_string(result_, "string").get();
             case type_hash::Integer: case type_hash::BigInt:
             case type_hash::Real: case type_hash::Double:
-                return HermesCtrAccess::raw_string(result_, "number");
-            case type_hash::Boolean: return HermesCtrAccess::raw_string(result_, "boolean");
+                return HermesCtrAccess::raw_string(result_, "number").get();
+            case type_hash::Boolean: return HermesCtrAccess::raw_string(result_, "boolean").get();
             default:
-                if (tag.descriptor() == TagDescriptor::Array) return HermesCtrAccess::raw_string(result_, "array");
-                if (tag.descriptor() == TagDescriptor::Map) return HermesCtrAccess::raw_string(result_, "object");
-                return HermesCtrAccess::raw_string(result_, "unknown");
+                if (tag.descriptor() == TagDescriptor::Array) return HermesCtrAccess::raw_string(result_, "array").get();
+                if (tag.descriptor() == TagDescriptor::Map) return HermesCtrAccess::raw_string(result_, "object").get();
+                return HermesCtrAccess::raw_string(result_, "unknown").get();
         }
     }
 
     void* fn_keys(void* data, ObjectArray* args) {
         void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
-        if (!arg) return HermesCtrAccess::raw_array(result_, 0);
+        if (!arg) return HermesCtrAccess::raw_array(result_, 0).get();
         auto* map = static_cast<ObjectMap*>(arg);
-        auto* result = HermesCtrAccess::raw_array(result_);
+        auto* result = HermesCtrAccess::raw_array(result_).get();
         map->for_each([&](ArenaString* key, AnyVal*) {
-            auto* ks = HermesCtrAccess::raw_string(result_, key->view());
-            result->push_back(AnyVal{}, HermesCtrAccess::arena(result_));
+            auto* ks = HermesCtrAccess::raw_string(result_, key->view()).get();
+            result->push_back(AnyVal{}, HermesCtrAccess::arena(result_)).get();
             result->slot(result->size() - 1, HermesCtrAccess::base(result_))->set_pointer(ks, HermesCtrAccess::base(result_));
         }, data_base_);
         return result;
@@ -1017,14 +1017,14 @@ private:
     void* fn_to_string(void* data, ObjectArray* args) {
         void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         auto sv = to_string(arg);
-        if (!sv.empty()) return HermesCtrAccess::raw_string(result_, sv);
+        if (!sv.empty()) return HermesCtrAccess::raw_string(result_, sv).get();
         double d = to_double(arg);
         if (!std::isnan(d)) {
             char buf[32];
             int n = std::snprintf(buf, sizeof(buf), "%g", d);
-            return HermesCtrAccess::raw_string(result_, std::string_view(buf, n));
+            return HermesCtrAccess::raw_string(result_, std::string_view(buf, n)).get();
         }
-        return HermesCtrAccess::raw_string(result_, "null");
+        return HermesCtrAccess::raw_string(result_, "null").get();
     }
 
     void* fn_not_null(void* data, ObjectArray* args) {
@@ -1045,7 +1045,7 @@ private:
 
     void* fn_sort(void* data, ObjectArray* args) {
         void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
-        if (!arg) return HermesCtrAccess::raw_array(result_, 0);
+        if (!arg) return HermesCtrAccess::raw_array(result_, 0).get();
         auto* arr = static_cast<ObjectArray*>(arg);
         // Collect values, sort, rebuild.
         std::vector<void*> items;
@@ -1056,16 +1056,16 @@ private:
             if (!std::isnan(da) && !std::isnan(db)) return da < db;
             return to_string(a) < to_string(b);
         });
-        auto* result = HermesCtrAccess::raw_array(result_);
+        auto* result = HermesCtrAccess::raw_array(result_).get();
         for (auto* item : items) push_value(result, item);
         return result;
     }
 
     void* fn_reverse(void* data, ObjectArray* args) {
         void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
-        if (!arg) return HermesCtrAccess::raw_array(result_, 0);
+        if (!arg) return HermesCtrAccess::raw_array(result_, 0).get();
         auto* arr = static_cast<ObjectArray*>(arg);
-        auto* result = HermesCtrAccess::raw_array(result_);
+        auto* result = HermesCtrAccess::raw_array(result_).get();
         for (int64_t i = arr->size() - 1; i >= 0; --i)
             push_value(result, resolve_slot(arr->slot(i, data_base_), data_base_));
         return result;
@@ -1106,52 +1106,52 @@ private:
     // This ensures no cross-arena pointers.
     void push_value(ObjectArray* arr, void* val) {
         if (!val) {
-            arr->push_back(AnyVal{}, HermesCtrAccess::arena(result_));
+            arr->push_back(AnyVal{}, HermesCtrAccess::arena(result_)).get();
             return;
         }
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         uint64_t tc = tag.type_code();
         if (tc == type_hash::Integer) {
-            arr->push_back(AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesCtrAccess::arena(result_));
+            arr->push_back(AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesCtrAccess::arena(result_)).get();
         } else if (tc == type_hash::Boolean) {
-            arr->push_back(AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesCtrAccess::arena(result_));
+            arr->push_back(AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesCtrAccess::arena(result_)).get();
         } else if (tc == type_hash::Real) {
-            arr->push_back(AnyVal::from_value(*static_cast<const float*>(val), tc), HermesCtrAccess::arena(result_));
+            arr->push_back(AnyVal::from_value(*static_cast<const float*>(val), tc), HermesCtrAccess::arena(result_)).get();
         } else if (tc == type_hash::Varchar) {
             auto* s = static_cast<const ArenaString*>(val);
-            auto* copy = HermesCtrAccess::raw_string(result_, s->view());
-            arr->push_back(AnyVal{}, HermesCtrAccess::arena(result_));
+            auto* copy = HermesCtrAccess::raw_string(result_, s->view()).get();
+            arr->push_back(AnyVal{}, HermesCtrAccess::arena(result_)).get();
             arr->slot(arr->size() - 1, HermesCtrAccess::base(result_))->set_pointer(copy, HermesCtrAccess::base(result_));
         } else {
             // For complex objects (arrays, maps), store pointer directly.
             // This is safe only if val is already in result_ arena.
-            arr->push_back(AnyVal{}, HermesCtrAccess::arena(result_));
+            arr->push_back(AnyVal{}, HermesCtrAccess::arena(result_)).get();
             arr->slot(arr->size() - 1, HermesCtrAccess::base(result_))->set_pointer(val, HermesCtrAccess::base(result_));
         }
     }
 
     void put_value(ObjectMap* map, std::string_view key, void* val) {
         if (!val) {
-            map->put(key, AnyVal{}, HermesCtrAccess::arena(result_));
+            map->put(key, AnyVal{}, HermesCtrAccess::arena(result_)).get();
             return;
         }
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         uint64_t tc = tag.type_code();
         if (tc == type_hash::Integer) {
-            map->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesCtrAccess::arena(result_));
+            map->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesCtrAccess::arena(result_)).get();
         } else if (tc == type_hash::Boolean) {
-            map->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesCtrAccess::arena(result_));
+            map->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesCtrAccess::arena(result_)).get();
         } else if (tc == type_hash::Real) {
-            map->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), HermesCtrAccess::arena(result_));
+            map->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), HermesCtrAccess::arena(result_)).get();
         } else if (tc == type_hash::Varchar) {
             auto* s = static_cast<const ArenaString*>(val);
-            auto* copy = HermesCtrAccess::raw_string(result_, s->view());
-            map->put(key, AnyVal{}, HermesCtrAccess::arena(result_));
+            auto* copy = HermesCtrAccess::raw_string(result_, s->view()).get();
+            map->put(key, AnyVal{}, HermesCtrAccess::arena(result_)).get();
             map->get_slot(key, HermesCtrAccess::base(result_))->set_pointer(copy, HermesCtrAccess::base(result_));
         } else {
-            map->put(key, AnyVal{}, HermesCtrAccess::arena(result_));
+            map->put(key, AnyVal{}, HermesCtrAccess::arena(result_)).get();
             map->get_slot(key, HermesCtrAccess::base(result_))->set_pointer(val, HermesCtrAccess::base(result_));
         }
     }

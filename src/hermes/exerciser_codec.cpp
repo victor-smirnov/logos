@@ -21,14 +21,14 @@ static void test_deep_copy_tiny_map_with_pointers() {
     std::printf("--- Deep copy TinyObjectMap with pointers ---\n");
 
     auto doc = make_doc();
-    auto map = doc.make_tiny_map();
+    auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
     // Key 0 = embedded int
     map.put(0, AnyVal::from_value(int32_t(42))).get();
 
     // Key 1 = pointer to string
-    auto s = doc.make_string("hello from pointer");
+    auto s = doc.make_string("hello from pointer").get();
     map.put(1, AnyVal{}).get();
     map.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
@@ -60,14 +60,14 @@ static void test_deep_copy_object_map() {
     std::printf("--- Deep copy ObjectMap ---\n");
 
     auto doc = make_doc();
-    auto map = doc.make_object_map();
+    auto map = doc.make_object_map().get();
     doc.set_root(map);
 
     map.put("name", AnyVal::from_value(int32_t(1)));
     map.put("count", AnyVal::from_value(int32_t(2)));
 
     // Add a pointer-mode value.
-    auto s = doc.make_string("value_string");
+    auto s = doc.make_string("value_string").get();
     map.put("text", AnyVal{});
     map.get_slot("text")->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
@@ -97,7 +97,7 @@ static void test_binary_tiny_map() {
     std::printf("--- Binary codec TinyObjectMap ---\n");
 
     auto doc = make_doc();
-    auto map = doc.make_tiny_map();
+    auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
     map.put(0, AnyVal::from_value(int32_t(42))).get();
@@ -129,11 +129,11 @@ static void test_binary_object_array() {
     std::printf("--- Binary codec ObjectArray ---\n");
 
     auto doc = make_doc();
-    auto arr = doc.make_array();
+    auto arr = doc.make_array().get();
     doc.set_root(arr);
 
     for (int i = 0; i < 10; ++i) {
-        arr.push_back(AnyVal::from_value(int32_t(i * 100)));
+        arr.push_back(AnyVal::from_value(int32_t(i * 100))).get();
     }
 
     auto bytes = binary_encode(doc);
@@ -159,7 +159,7 @@ static void test_binary_object_map() {
     std::printf("--- Binary codec ObjectMap ---\n");
 
     auto doc = make_doc();
-    auto map = doc.make_object_map();
+    auto map = doc.make_object_map().get();
     doc.set_root(map);
 
     map.put("name", AnyVal::from_value(int32_t(42)));
@@ -187,21 +187,21 @@ static void test_binary_nested() {
     std::printf("--- Binary codec nested structure ---\n");
 
     auto doc = make_doc();
-    auto root = doc.make_tiny_map();
+    auto root = doc.make_tiny_map().get();
     doc.set_root(root);
 
     // Key 0 = embedded int
     root.put(0, AnyVal::from_value(int32_t(1))).get();
 
     // Key 1 = pointer to string
-    auto s = doc.make_string("nested_string");
+    auto s = doc.make_string("nested_string").get();
     root.put(1, AnyVal{}).get();
     root.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
     // Key 2 = pointer to an array
-    auto inner_arr = doc.make_array();
-    inner_arr.push_back(AnyVal::from_value(int32_t(10)));
-    inner_arr.push_back(AnyVal::from_value(int32_t(20)));
+    auto inner_arr = doc.make_array().get();
+    inner_arr.push_back(AnyVal::from_value(int32_t(10))).get();
+    inner_arr.push_back(AnyVal::from_value(int32_t(20))).get();
     root.put(2, AnyVal{}).get();
     root.slot(2)->set_pointer(inner_arr.ptr(), HermesCtrAccess::base(doc));
 
@@ -238,7 +238,7 @@ static void test_binary_double_round_trip() {
     std::printf("--- Binary double round-trip ---\n");
 
     auto doc = make_doc();
-    auto map = doc.make_tiny_map();
+    auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
     map.put(0, AnyVal::from_value(int32_t(42))).get();
