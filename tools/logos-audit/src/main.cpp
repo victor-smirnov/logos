@@ -182,6 +182,45 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// Check 5 — non-noexcept function that silently swallows errors
+//
+// A function returning plain void (not expected<void>) that is also not
+// noexcept has no way to report failures to its caller.  Flag it so that
+// the author makes a conscious choice: either add noexcept (if truly
+// infallible) or change the return type to expected<void> noexcept.
+//
+// Heuristic: flag void functions that are NOT noexcept and are NOT:
+//   - constructors / destructors (often legitimately void+throwing)
+//   - override / virtual (signature is fixed by the base)
+//   - main()
+// ---------------------------------------------------------------------------
+
+class VoidNotNoexceptCheck : public MatchFinder::MatchCallback {
+public:
+    static void addTo(MatchFinder& f) {
+        f.addMatcher(
+            functionDecl(
+                returns(voidType()),
+                unless(isNoexceptFn()),
+                unless(cxxConstructorDecl()),
+                unless(cxxDestructorDecl()),
+                unless(cxxMethodDecl(isOverride())),
+                unless(cxxMethodDecl(isVirtual())),
+                unless(hasName("main")),
+                isDefinition()
+            ).bind("fn"),
+            new VoidNotNoexceptCheck);
+    }
+
+    void run(const MatchFinder::MatchResult& R) override {
+        auto* fn = R.Nodes.getNodeAs<FunctionDecl>("fn");
+        if (!isProductionCode(*R.SourceManager, fn->getLocation())) return;
+        emit(*R.SourceManager, fn->getLocation(), "noexcept",
+             "void function is not noexcept — add noexcept or return expected<void>");
+    }
+};
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -214,6 +253,7 @@ int main(int argc, const char** argv) {
     NoTryCatchCheck::addTo(finder);
     NoThrowCheck::addTo(finder);
     NoExpectedGetCheck::addTo(finder);
+    VoidNotNoexceptCheck::addTo(finder);
 
     int rc = tool.run(newFrontendActionFactory(&finder).get());
 
