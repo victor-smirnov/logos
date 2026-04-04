@@ -532,9 +532,9 @@ private:
         uint8_t th = slot->value_type_hash();
         switch (th) {
             case type_hash::Integer:
-                return HermesCtrAccess::make_value<int32_t>(scratch_, slot->as_value<int32_t>());
+                return HermesCtrAccess::make_value<int32_t>(scratch_, slot->as_value<int32_t>()).get();
             case type_hash::UInteger:
-                return HermesCtrAccess::make_value<uint32_t>(scratch_, slot->as_value<uint32_t>());
+                return HermesCtrAccess::make_value<uint32_t>(scratch_, slot->as_value<uint32_t>()).get();
             case type_hash::Boolean: {
                 TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
                 void* mem = HermesCtrAccess::arena(scratch_).allocate(1, 2, tag).get();
@@ -542,11 +542,11 @@ private:
                 return mem;
             }
             case type_hash::Real:
-                return HermesCtrAccess::make_value<float>(scratch_, slot->as_value<float>());
+                return HermesCtrAccess::make_value<float>(scratch_, slot->as_value<float>()).get();
             case type_hash::SmallInt:
-                return HermesCtrAccess::make_value<int16_t>(scratch_, slot->as_value<int16_t>());
+                return HermesCtrAccess::make_value<int16_t>(scratch_, slot->as_value<int16_t>()).get();
             case type_hash::TinyInt:
-                return HermesCtrAccess::make_value<int8_t>(scratch_, slot->as_value<int8_t>());
+                return HermesCtrAccess::make_value<int8_t>(scratch_, slot->as_value<int8_t>()).get();
             default: return nullptr;
         }
     }

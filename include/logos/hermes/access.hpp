@@ -44,7 +44,7 @@ public:
 
     template <typename T>
         requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
-    static T* make_value(HermesCtrView& v, T value) { return v.make_value<T>(value); }
+    [[nodiscard]] static logos::expected<T*> make_value(HermesCtrView& v, T value) noexcept { return v.make_value<T>(value); }
 };
 
 } // namespace logos::hermes

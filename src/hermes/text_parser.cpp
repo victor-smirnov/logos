@@ -433,12 +433,12 @@ private:
         if (try_consume_raw("d")) {
             double val;
             std::from_chars(num_text.data(), num_text.data() + num_text.size(), val);
-            return HermesCtrAccess::make_value<double>(doc_, val);
+            return HermesCtrAccess::make_value<double>(doc_, val).get();
         }
         try_consume_raw("f");
         double dval;
         std::from_chars(num_text.data(), num_text.data() + num_text.size(), dval);
-        return HermesCtrAccess::make_value<float>(doc_, static_cast<float>(dval));
+        return HermesCtrAccess::make_value<float>(doc_, static_cast<float>(dval)).get();
     }
 
     void* parse_integer_with_suffix(std::string_view digits, int base, bool negative) {
@@ -453,21 +453,21 @@ private:
         }
 
         if (try_consume("ull") || try_consume("ul") || try_consume("_u64"))
-            return HermesCtrAccess::make_value<uint64_t>(doc_, uval);
+            return HermesCtrAccess::make_value<uint64_t>(doc_, uval).get();
         if (try_consume("ll") || try_consume("_s64"))
-            return HermesCtrAccess::make_value<int64_t>(doc_, negative ? -int64_t(uval) : int64_t(uval));
+            return HermesCtrAccess::make_value<int64_t>(doc_, negative ? -int64_t(uval) : int64_t(uval)).get();
         if (try_consume("_u32") || try_consume_raw("u"))
-            return HermesCtrAccess::make_value<uint32_t>(doc_, uint32_t(uval));
-        if (try_consume("_u16")) return HermesCtrAccess::make_value<uint16_t>(doc_, uint16_t(uval));
-        if (try_consume("_u8"))  return HermesCtrAccess::make_value<uint8_t>(doc_, uint8_t(uval));
-        if (try_consume("_s16")) return HermesCtrAccess::make_value<int16_t>(doc_, negative ? -int16_t(uval) : int16_t(uval));
-        if (try_consume("_s8"))  return HermesCtrAccess::make_value<int8_t>(doc_, negative ? -int8_t(uval) : int8_t(uval));
-        if (try_consume("_s32")) return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval));
+            return HermesCtrAccess::make_value<uint32_t>(doc_, uint32_t(uval)).get();
+        if (try_consume("_u16")) return HermesCtrAccess::make_value<uint16_t>(doc_, uint16_t(uval)).get();
+        if (try_consume("_u8"))  return HermesCtrAccess::make_value<uint8_t>(doc_, uint8_t(uval)).get();
+        if (try_consume("_s16")) return HermesCtrAccess::make_value<int16_t>(doc_, negative ? -int16_t(uval) : int16_t(uval)).get();
+        if (try_consume("_s8"))  return HermesCtrAccess::make_value<int8_t>(doc_, negative ? -int8_t(uval) : int8_t(uval)).get();
+        if (try_consume("_s32")) return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval)).get();
 
-        if (!at_end() && peek() == 'f') { advance(); return HermesCtrAccess::make_value<float>(doc_, negative ? -float(uval) : float(uval)); }
-        if (!at_end() && peek() == 'd') { advance(); return HermesCtrAccess::make_value<double>(doc_, negative ? -double(uval) : double(uval)); }
+        if (!at_end() && peek() == 'f') { advance(); return HermesCtrAccess::make_value<float>(doc_, negative ? -float(uval) : float(uval)).get(); }
+        if (!at_end() && peek() == 'd') { advance(); return HermesCtrAccess::make_value<double>(doc_, negative ? -double(uval) : double(uval)).get(); }
 
-        return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval));
+        return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval)).get();
     }
 
     // --- Array ---

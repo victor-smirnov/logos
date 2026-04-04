@@ -309,11 +309,11 @@ private:
                 auto* m = HermesCtrAccess::raw_tiny_map(doc_, 4).get();
                 m->put(CODE, AnyVal::from_value(int32_t(HERMES_VALUE)), HermesCtrAccess::arena(doc_)).get();
                 if (name == "true") {
-                    auto* v = HermesCtrAccess::make_value<uint8_t>(doc_, 1);
+                    auto* v = HermesCtrAccess::make_value<uint8_t>(doc_, 1).get();
                     m->put(VALUE, AnyVal{}, HermesCtrAccess::arena(doc_)).get();
                     m->slot(VALUE, HermesCtrAccess::base(doc_))->set_pointer(v, HermesCtrAccess::base(doc_));
                 } else if (name == "false") {
-                    auto* v = HermesCtrAccess::make_value<uint8_t>(doc_, 0);
+                    auto* v = HermesCtrAccess::make_value<uint8_t>(doc_, 0).get();
                     m->put(VALUE, AnyVal{}, HermesCtrAccess::arena(doc_)).get();
                     m->slot(VALUE, HermesCtrAccess::base(doc_))->set_pointer(v, HermesCtrAccess::base(doc_));
                 }
@@ -554,7 +554,7 @@ private:
             std::string_view ns = text_.substr(start, pos_ - start);
             double dval;
             std::from_chars(ns.data(), ns.data() + ns.size(), dval);
-            auto* v = HermesCtrAccess::make_value<double>(doc_, dval);
+            auto* v = HermesCtrAccess::make_value<double>(doc_, dval).get();
             auto* m = HermesCtrAccess::raw_tiny_map(doc_, 4).get();
             m->put(CODE, AnyVal::from_value(int32_t(HERMES_VALUE)), HermesCtrAccess::arena(doc_)).get();
             m->put(VALUE, AnyVal{}, HermesCtrAccess::arena(doc_)).get();
@@ -693,9 +693,9 @@ private:
         uint8_t th = slot->value_type_hash();
         switch (th) {
             case type_hash::Integer:
-                return HermesCtrAccess::make_value<int32_t>(result_, slot->as_value<int32_t>());
+                return HermesCtrAccess::make_value<int32_t>(result_, slot->as_value<int32_t>()).get();
             case type_hash::UInteger:
-                return HermesCtrAccess::make_value<uint32_t>(result_, slot->as_value<uint32_t>());
+                return HermesCtrAccess::make_value<uint32_t>(result_, slot->as_value<uint32_t>()).get();
             case type_hash::Boolean: {
                 TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
                 void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, tag).get();
@@ -703,11 +703,11 @@ private:
                 return mem;
             }
             case type_hash::Real:
-                return HermesCtrAccess::make_value<float>(result_, slot->as_value<float>());
+                return HermesCtrAccess::make_value<float>(result_, slot->as_value<float>()).get();
             case type_hash::SmallInt:
-                return HermesCtrAccess::make_value<int16_t>(result_, slot->as_value<int16_t>());
+                return HermesCtrAccess::make_value<int16_t>(result_, slot->as_value<int16_t>()).get();
             case type_hash::TinyInt:
-                return HermesCtrAccess::make_value<int8_t>(result_, slot->as_value<int8_t>());
+                return HermesCtrAccess::make_value<int8_t>(result_, slot->as_value<int8_t>()).get();
             default: return nullptr;
         }
     }
@@ -966,16 +966,16 @@ private:
 
     void* fn_length(void* data, ObjectArray* args) {
         void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
-        if (!arg) return HermesCtrAccess::make_value<int32_t>(result_, 0);
+        if (!arg) return HermesCtrAccess::make_value<int32_t>(result_, 0).get();
         auto* b = static_cast<const uint8_t*>(arg);
         TypeTag tag = TypeTag::read_before(b);
         if (tag.type_code() == type_hash::Varchar)
-            return HermesCtrAccess::make_value<int32_t>(result_, static_cast<int32_t>(static_cast<const ArenaString*>(arg)->length()));
+            return HermesCtrAccess::make_value<int32_t>(result_, static_cast<int32_t>(static_cast<const ArenaString*>(arg)->length())).get();
         if (tag.descriptor() == TagDescriptor::Array)
-            return HermesCtrAccess::make_value<int32_t>(result_, static_cast<int32_t>(static_cast<const ObjectArray*>(arg)->size()));
+            return HermesCtrAccess::make_value<int32_t>(result_, static_cast<int32_t>(static_cast<const ObjectArray*>(arg)->size())).get();
         if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::ObjectMap)
-            return HermesCtrAccess::make_value<int32_t>(result_, static_cast<int32_t>(static_cast<const ObjectMap*>(arg)->size()));
-        return HermesCtrAccess::make_value<int32_t>(result_, 0);
+            return HermesCtrAccess::make_value<int32_t>(result_, static_cast<int32_t>(static_cast<const ObjectMap*>(arg)->size())).get();
+        return HermesCtrAccess::make_value<int32_t>(result_, 0).get();
     }
 
     void* fn_type(void* data, ObjectArray* args) {
@@ -1039,7 +1039,7 @@ private:
     void* fn_abs(void* data, ObjectArray* args) {
         void* arg = (args && args->size() > 0) ? eval(data, resolve_slot(args->slot(0, ast_base_), ast_base_)) : data;
         double d = to_double(arg);
-        if (!std::isnan(d)) return HermesCtrAccess::make_value<double>(result_, std::abs(d));
+        if (!std::isnan(d)) return HermesCtrAccess::make_value<double>(result_, std::abs(d)).get();
         return nullptr;
     }
 

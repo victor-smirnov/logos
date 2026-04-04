@@ -277,8 +277,9 @@ private:
 
     template <typename T>
         requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
-    [[clang::always_inline]] T* make_value(T value) {
-        return arena_put<T>(holder_->arena(), value).get();
+    [[nodiscard]] logos::expected<T*> make_value(T value) noexcept {
+        LOGOS_TRY(auto* p, arena_put<T>(holder_->arena(), value));
+        return p;
     }
 
     MemHolder* holder_;
