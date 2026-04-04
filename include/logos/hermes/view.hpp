@@ -40,7 +40,7 @@ public:
     MemHolder* holder() const noexcept { return holder_; }
 
     // Convert this view to an AnyVal pointer (for storing in a map/array slot).
-    AnyVal to_anyval() const { return AnyVal::from_offset(offset_); }
+    AnyVal to_anyval() const noexcept { return AnyVal::from_offset(offset_); }
 
     void reset() noexcept { offset_ = NULL_OFFSET; holder_ = nullptr; }
 
@@ -60,19 +60,19 @@ class TinyMapView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    TinyObjectMap* ptr() const { return reinterpret_cast<TinyObjectMap*>(base() + offset_.value()); }
+    TinyObjectMap* ptr() const noexcept { return reinterpret_cast<TinyObjectMap*>(base() + offset_.value()); }
 
-    uint8_t size() const { return ptr()->size(); }
-    uint64_t bitmap() const { return ptr()->bitmap(); }
-    bool has_key(uint8_t key) const { return ptr()->has_key(key); }
+    uint8_t size() const noexcept { return ptr()->size(); }
+    uint64_t bitmap() const noexcept { return ptr()->bitmap(); }
+    bool has_key(uint8_t key) const noexcept { return ptr()->has_key(key); }
 
-    AnyVal get(uint8_t key) const { return ptr()->get(key, base()); }
-    AnyVal* slot(uint8_t key) const { return ptr()->slot(key, base()); }
+    AnyVal get(uint8_t key) const noexcept { return ptr()->get(key, base()); }
+    AnyVal* slot(uint8_t key) const noexcept { return ptr()->slot(key, base()); }
 
     // Checked access: asserts the key exists and includes the field name in the error.
     AnyVal get(NamedCode<uint8_t> key) const;
 
-    bool has_key(NamedCode<uint8_t> key) const { return has_key(key.code); }
+    bool has_key(NamedCode<uint8_t> key) const noexcept { return has_key(key.code); }
 
     [[nodiscard]] logos::expected<void> put(uint8_t key, AnyVal value) noexcept {
         return ptr()->put(key, value, arena());
@@ -92,13 +92,13 @@ class ArrayView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    ObjectArray* ptr() const { return reinterpret_cast<ObjectArray*>(base() + offset_.value()); }
+    ObjectArray* ptr() const noexcept { return reinterpret_cast<ObjectArray*>(base() + offset_.value()); }
 
-    uint64_t size() const { return ptr()->size(); }
-    bool empty() const { return ptr()->empty(); }
+    uint64_t size() const noexcept { return ptr()->size(); }
+    bool empty() const noexcept { return ptr()->empty(); }
 
-    AnyVal get(uint64_t index) const { return ptr()->get(index, base()); }
-    AnyVal* slot(uint64_t index) const { return ptr()->slot(index, base()); }
+    AnyVal get(uint64_t index) const noexcept { return ptr()->get(index, base()); }
+    AnyVal* slot(uint64_t index) const noexcept { return ptr()->slot(index, base()); }
 
     [[nodiscard]] logos::expected<void> push_back(AnyVal value) noexcept { return ptr()->push_back(value, arena()); }
 
@@ -110,14 +110,14 @@ class MapView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    ObjectMap* ptr() const { return reinterpret_cast<ObjectMap*>(base() + offset_.value()); }
+    ObjectMap* ptr() const noexcept { return reinterpret_cast<ObjectMap*>(base() + offset_.value()); }
 
-    uint64_t size() const { return ptr()->size(); }
-    bool empty() const { return ptr()->empty(); }
+    uint64_t size() const noexcept { return ptr()->size(); }
+    bool empty() const noexcept { return ptr()->empty(); }
 
-    AnyVal get(std::string_view key) const { return ptr()->get(key, base()); }
-    AnyVal* get_slot(std::string_view key) const { return ptr()->get_slot(key, base()); }
-    bool has(std::string_view key) const { return ptr()->has(key, base()); }
+    AnyVal get(std::string_view key) const noexcept { return ptr()->get(key, base()); }
+    AnyVal* get_slot(std::string_view key) const noexcept { return ptr()->get_slot(key, base()); }
+    bool has(std::string_view key) const noexcept { return ptr()->has(key, base()); }
 
     [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal value) noexcept { return ptr()->put(key, value, arena()); }
 
@@ -132,33 +132,33 @@ class StringView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    ArenaString* ptr() const { return reinterpret_cast<ArenaString*>(base() + offset_.value()); }
+    ArenaString* ptr() const noexcept { return reinterpret_cast<ArenaString*>(base() + offset_.value()); }
 
-    std::string_view view() const { return ptr()->view(); }
-    size_t length() const { return ptr()->length(); }
+    std::string_view view() const noexcept { return ptr()->view(); }
+    size_t length() const noexcept { return ptr()->length(); }
 
-    bool operator==(std::string_view other) const { return view() == other; }
-    bool operator!=(std::string_view other) const { return view() != other; }
+    bool operator==(std::string_view other) const noexcept { return view() == other; }
+    bool operator!=(std::string_view other) const noexcept { return view() != other; }
 };
 
 class DatatypeView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    DatatypeData* ptr() const { return reinterpret_cast<DatatypeData*>(base() + offset_.value()); }
+    DatatypeData* ptr() const noexcept { return reinterpret_cast<DatatypeData*>(base() + offset_.value()); }
 
-    std::string_view name() const { return ptr()->name_view(base()); }
-    bool has_params() const { return ptr()->has_params(); }
-    bool has_ctr() const { return ptr()->has_ctr(); }
+    std::string_view name() const noexcept { return ptr()->name_view(base()); }
+    bool has_params() const noexcept { return ptr()->has_params(); }
+    bool has_ctr() const noexcept { return ptr()->has_ctr(); }
 };
 
 class ParameterView : public ViewBase {
 public:
     using ViewBase::ViewBase;
 
-    ParameterData* ptr() const { return reinterpret_cast<ParameterData*>(base() + offset_.value()); }
+    ParameterData* ptr() const noexcept { return reinterpret_cast<ParameterData*>(base() + offset_.value()); }
 
-    std::string_view name() const { return ptr()->name_view(base()); }
+    std::string_view name() const noexcept { return ptr()->name_view(base()); }
 };
 
 // ---------------------------------------------------------------------------
@@ -176,17 +176,17 @@ public:
     bool is_value() const noexcept { return tagged_.is_value(); }
     bool is_pointer() const noexcept { return tagged_.is_pointer(); }
 
-    template <typename T> T as_value() const { return tagged_.as_value<T>(); }
-    uint8_t value_type_hash() const { return tagged_.value_type_hash(); }
+    template <typename T> T as_value() const noexcept { return tagged_.as_value<T>(); }
+    uint8_t value_type_hash() const noexcept { return tagged_.value_type_hash(); }
 
-    TinyMapView as_tiny_map() const { return {tagged_.to_offset(), holder_}; }
-    ArrayView as_array() const { return {tagged_.to_offset(), holder_}; }
-    MapView as_map() const { return {tagged_.to_offset(), holder_}; }
-    StringView as_string() const { return {tagged_.to_offset(), holder_}; }
-    DatatypeView as_datatype() const { return {tagged_.to_offset(), holder_}; }
-    ParameterView as_parameter() const { return {tagged_.to_offset(), holder_}; }
+    TinyMapView as_tiny_map() const noexcept { return {tagged_.to_offset(), holder_}; }
+    ArrayView as_array() const noexcept { return {tagged_.to_offset(), holder_}; }
+    MapView as_map() const noexcept { return {tagged_.to_offset(), holder_}; }
+    StringView as_string() const noexcept { return {tagged_.to_offset(), holder_}; }
+    DatatypeView as_datatype() const noexcept { return {tagged_.to_offset(), holder_}; }
+    ParameterView as_parameter() const noexcept { return {tagged_.to_offset(), holder_}; }
 
-    AnyVal tagged() const { return tagged_; }
+    AnyVal tagged() const noexcept { return tagged_; }
     MemHolder* holder() const noexcept { return holder_; }
 
     void reset() noexcept { tagged_ = AnyVal{}; holder_ = nullptr; }
@@ -227,12 +227,12 @@ public:
     void reset() noexcept { holder_ = nullptr; root_override_ = NULL_OFFSET; }
 
     // --- Root access ---
-    bool has_root() const;
+    bool has_root() const noexcept;
 
     // Set root from any View (TinyMap, Array, Map, String, etc.) — public API.
-    void set_root(const ViewBase& view) { set_root_offset(view.offset()); }
+    void set_root(const ViewBase& view) noexcept { set_root_offset(view.offset()); }
 
-    Object root_object() const;
+    Object root_object() const noexcept;
 
     // --- Factory methods returning owning Views ---
     [[nodiscard]] logos::expected<TinyMap> make_tiny_map(uint8_t capacity = 4) noexcept;
@@ -277,7 +277,7 @@ private:
 
     template <typename T>
         requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
-    T* make_value(T value) {
+    [[clang::always_inline]] T* make_value(T value) {
         return arena_put<T>(holder_->arena(), value).get();
     }
 

@@ -61,7 +61,7 @@ static DocumentHeader* get_header(MemHolder* holder) {
 
 // --- HermesCtrView ---
 
-bool HermesCtrView::has_root() const {
+bool HermesCtrView::has_root() const noexcept {
     if (!holder_) return false;
     if (root_override_ != NULL_OFFSET) return true;
     return get_header(holder_)->has_root();
@@ -103,7 +103,7 @@ template DatatypeData* HermesCtrView::root<DatatypeData>() const;
 template TypedValueData* HermesCtrView::root<TypedValueData>() const;
 template ParameterData* HermesCtrView::root<ParameterData>() const;
 
-Object HermesCtrView::root_object() const {
+Object HermesCtrView::root_object() const noexcept {
     if (!has_root()) return Object{};
     auto off = get_header(holder_)->root_offset;
     AnyVal tp = AnyVal::from_offset(off);
