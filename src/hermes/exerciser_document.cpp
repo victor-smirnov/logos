@@ -19,7 +19,7 @@ using namespace logos::hermes;
 static void test_document_create() {
     std::printf("--- Document create ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
 
     LOGOS_ASSERT(!doc.has_root(), "HERMES-DOC-001",
         "New document must have no root");
@@ -44,7 +44,7 @@ static void test_document_create() {
 static void test_document_nested_objects() {
     std::printf("--- Document nested objects ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
 
     auto root = doc.make_tiny_map().get();
     doc.set_root(root);
@@ -65,7 +65,7 @@ static void test_document_nested_objects() {
 static void test_document_with_array_root() {
     std::printf("--- Document with array root ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto arr = doc.make_array().get();
     doc.set_root(arr);
 
@@ -100,7 +100,7 @@ static void test_document_with_array_root() {
 static void test_compactify_simple() {
     std::printf("--- Compactify (simple) ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
@@ -130,7 +130,7 @@ static void test_compactify_simple() {
 static void test_compactify_array_with_values() {
     std::printf("--- Compactify (array with embedded values) ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto arr = doc.make_array().get();
     doc.set_root(arr);
 
@@ -159,7 +159,7 @@ static void test_compactify_array_with_values() {
 static void test_zero_copy_round_trip() {
     std::printf("--- Zero-copy serialization round-trip ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto map = doc.make_tiny_map().get();
     doc.set_root(map);
     map.put(0, AnyVal::from_value(int32_t(42))).get();
@@ -174,7 +174,7 @@ static void test_zero_copy_round_trip() {
     LOGOS_ASSERT(size > 0, "HERMES-SERIAL-001", "");
 
     // Deserialize (copy bytes).
-    auto loaded = from_bytes_copy(data, size);
+    auto loaded = from_bytes_copy(data, size).get();
 
     LOGOS_ASSERT(loaded.has_root(), "HERMES-SERIAL-001", "Loaded doc must have root");
 
@@ -192,7 +192,7 @@ static void test_zero_copy_round_trip() {
 static void test_zero_copy_array_round_trip() {
     std::printf("--- Zero-copy array round-trip ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto arr = doc.make_array().get();
     doc.set_root(arr);
 
@@ -203,7 +203,7 @@ static void test_zero_copy_array_round_trip() {
     auto compact = compactify(doc).get();
     auto* data = HermesCtrAccess::base(compact);
     size_t size = HermesCtrAccess::arena(compact).total_used();
-    auto loaded = from_bytes_copy(data, size);
+    auto loaded = from_bytes_copy(data, size).get();
 
     auto* larr = HermesCtrAccess::root<ObjectArray>(loaded);
     uint8_t* lb = HermesCtrAccess::base(loaded);

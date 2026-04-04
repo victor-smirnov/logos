@@ -20,40 +20,36 @@ namespace logos::hermes {
 // All read/write methods take `uint8_t* base` — the segment base address.
 class ObjectArray {
 public:
-    uint64_t size() const     { return size_; }
-    uint64_t capacity() const { return capacity_; }
-    bool empty() const        { return size_ == 0; }
+    uint64_t size() const noexcept     { return size_; }
+    uint64_t capacity() const noexcept { return capacity_; }
+    bool empty() const noexcept        { return size_ == 0; }
 
-    AnyVal get(uint64_t index, uint8_t* base) const {
+    AnyVal get(uint64_t index, uint8_t* base) const noexcept {
         if (index >= size_) return AnyVal{};
         return elements(base)[index];
     }
 
-    AnyVal* slot(uint64_t index, uint8_t* base) {
+    AnyVal* slot(uint64_t index, uint8_t* base) noexcept {
         if (index >= size_) return nullptr;
         return &elements(base)[index];
     }
 
     [[nodiscard]] logos::expected<void> push_back(AnyVal value, Arena& arena) noexcept {
-        try {
-            if (size_ >= capacity_) {
-                grow(arena, capacity_ == 0 ? 4 : capacity_ * 2);
-            }
-            elements(arena.head().data())[size_] = value;
-            ++size_;
-            return {};
-        } catch (logos::Err& e) {
-            return std::unexpected(std::move(e));
+        if (size_ >= capacity_) {
+            LOGOS_TRY_VOID(grow(arena, capacity_ == 0 ? 4 : capacity_ * 2));
         }
+        elements(arena.head().data())[size_] = value;
+        ++size_;
+        return {};
     }
 
-    void set(uint64_t index, AnyVal value, uint8_t* base) {
+    void set(uint64_t index, AnyVal value, uint8_t* base) noexcept {
         if (index < size_) {
             elements(base)[index] = value;
         }
     }
 
-    void pop_back(uint8_t* base) {
+    void pop_back(uint8_t* base) noexcept {
         if (size_ > 0) {
             --size_;
             elements(base)[size_] = AnyVal{};
@@ -61,18 +57,13 @@ public:
     }
 
     [[nodiscard]] static logos::expected<ObjectArray*> create(Arena& arena, uint64_t initial_capacity = 4) noexcept {
-        try {
-            TypeTag tag(type_hash::ObjectArray, TagDescriptor::Array);
-            void* mem = arena.allocate(sizeof(ObjectArray), alignof(ObjectArray), tag).get();
-            auto* arr = new (mem) ObjectArray();
-
-            if (initial_capacity > 0) {
-                arr->grow(arena, initial_capacity);
-            }
-            return arr;
-        } catch (logos::Err& e) {
-            return std::unexpected(std::move(e));
+        TypeTag tag(type_hash::ObjectArray, TagDescriptor::Array);
+        LOGOS_TRY(auto* mem, arena.allocate(sizeof(ObjectArray), alignof(ObjectArray), tag));
+        auto* arr = new (mem) ObjectArray();
+        if (initial_capacity > 0) {
+            LOGOS_TRY_VOID(arr->grow(arena, initial_capacity));
         }
+        return arr;
     }
 
 private:
@@ -80,11 +71,11 @@ private:
     uint64_t capacity_ = 0;
     RelativePtr<AnyVal> data_;
 
-    AnyVal* elements(uint8_t* base) const { return data_.get(base); }
+    AnyVal* elements(uint8_t* base) const noexcept { return data_.get(base); }
 
-    void grow(Arena& arena, uint64_t new_cap) {
-        void* new_mem = arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal)).get();
-        auto* new_elems = static_cast<AnyVal*>(new_mem);
+    logos::expected<void> grow(Arena& arena, uint64_t new_cap) noexcept {
+        LOGOS_TRY(auto* new_mem_void, arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal)));
+        auto* new_elems = static_cast<AnyVal*>(new_mem_void);
         for (uint64_t i = 0; i < new_cap; ++i) new_elems[i] = AnyVal{};
 
         uint8_t* base = arena.head().data();
@@ -95,6 +86,7 @@ private:
 
         data_.set(new_elems, base);
         capacity_ = new_cap;
+        return {};
     }
 };
 

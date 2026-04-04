@@ -82,7 +82,7 @@ struct Request {
     // Create a new empty Request document.
     static Request make() {
         Request rq;
-        rq.doc = logos::hermes::make_doc();
+        rq.doc = logos::hermes::make_doc().get();
         auto tiny = rq.doc.make_tiny_map(4).get();
         rq.doc.set_root(tiny);
         rq.map = tiny;
@@ -142,7 +142,7 @@ struct Response {
     // Successful response with no result value.
     static Response ok() {
         Response rs;
-        rs.doc = logos::hermes::make_doc();
+        rs.doc = logos::hermes::make_doc().get();
         auto tiny = rs.doc.make_tiny_map(4).get();
         rs.doc.set_root(tiny);
         rs.map = tiny;
@@ -161,7 +161,7 @@ struct Response {
     // Error response with a human-readable description.
     static Response error(std::string_view description) {
         Response rs;
-        rs.doc = logos::hermes::make_doc();
+        rs.doc = logos::hermes::make_doc().get();
         auto root = rs.doc.make_tiny_map(4).get();
         rs.doc.set_root(root);
         rs.map = root;
@@ -227,7 +227,7 @@ struct StreamMessage {
 
     static StreamMessage make(AnyVal data) {
         StreamMessage msg;
-        msg.doc = logos::hermes::make_doc();
+        msg.doc = logos::hermes::make_doc().get();
         auto tiny = msg.doc.make_tiny_map(2).get();
         msg.doc.set_root(tiny);
         msg.map = tiny;
@@ -261,7 +261,7 @@ struct ConnectionMetadata {
 
     static ConnectionMetadata make(uint64_t buffer_size = 1024 * 1024) {
         ConnectionMetadata meta;
-        meta.doc = logos::hermes::make_doc();
+        meta.doc = logos::hermes::make_doc().get();
         auto tiny = meta.doc.make_tiny_map(2).get();
         meta.doc.set_root(tiny);
         meta.map = tiny;

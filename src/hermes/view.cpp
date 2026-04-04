@@ -132,33 +132,35 @@ logos::expected<String> HermesCtrView::make_string(std::string_view str) noexcep
 
 // --- make_doc ---
 
-static HermesCtr make_doc_impl(MemHolder* holder) {
-    auto* hdr = static_cast<DocumentHeader*>(
-        holder->arena().allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)).get());
+static logos::expected<HermesCtr> make_doc_impl(MemHolder* holder) noexcept {
+    LOGOS_TRY(auto* hdr_void, holder->arena().allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)));
+    auto* hdr = static_cast<DocumentHeader*>(hdr_void);
     hdr->root_offset = NULL_OFFSET;
     return HermesCtr(HermesCtrView(holder));
 }
 
 // MemHolder has a private destructor (heap-only), so we construct it with new
 // and use the InitTag protocol manually to check for OOM.
-static MemHolder* make_mem_holder(size_t capacity, ArenaMode mode) {
+static logos::expected<MemHolder*> make_mem_holder(size_t capacity, ArenaMode mode) noexcept {
     logos::InitTag tag;
     auto* holder = new MemHolder(tag, capacity, mode);
     if (!tag.ok()) {
         // Arena construction failed — destroy via the ref-counting protocol.
         holder->ref();
         holder->unref();  // drops to 0, calls delete via the private dtor
-        throw std::move(tag.err);
+        return std::unexpected(std::move(tag.err));
     }
     return holder;
 }
 
-HermesCtr make_doc(size_t capacity) {
-    return make_doc_impl(make_mem_holder(capacity, ArenaMode::GrowableSingleChunk));
+logos::expected<HermesCtr> make_doc(size_t capacity) noexcept {
+    LOGOS_TRY(auto* holder, make_mem_holder(capacity, ArenaMode::GrowableSingleChunk));
+    return make_doc_impl(holder);
 }
 
-HermesCtr make_doc_multi(size_t initial_capacity) {
-    return make_doc_impl(make_mem_holder(initial_capacity, ArenaMode::MultiChunk));
+logos::expected<HermesCtr> make_doc_multi(size_t initial_capacity) noexcept {
+    LOGOS_TRY(auto* holder, make_mem_holder(initial_capacity, ArenaMode::MultiChunk));
+    return make_doc_impl(holder);
 }
 
 } // namespace logos::hermes

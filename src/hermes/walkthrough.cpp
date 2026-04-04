@@ -46,7 +46,7 @@ static void walkthrough_documents() {
     std::println("\n=== 1. Documents & Ownership ===");
 
     // Create a fresh document. Arena is allocated with 65536-byte capacity.
-    HermesCtr doc = make_doc();
+    HermesCtr doc = make_doc().get();
 
     // The document owns a MemHolder with a GrowableSingleChunk arena.
     // base() returns the start of the arena segment — all offsets are relative to this.
@@ -124,7 +124,7 @@ static void walkthrough_any_val() {
 static void walkthrough_building() {
     std::println("\n=== 3. Building Documents ===");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
 
     // --- TinyMap: bitmap-indexed sparse map, keys 0..51 ---
     auto tmap = doc.make_tiny_map().get();
@@ -325,7 +325,7 @@ static void walkthrough_binary() {
 static void walkthrough_compactify() {
     std::println("\n=== 6. Compactify & Zero-Copy ===");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
@@ -346,7 +346,7 @@ static void walkthrough_compactify() {
     uint8_t* data = HermesCtrAccess::base(compact);
     size_t size = HermesCtrAccess::arena(compact).total_used();
 
-    auto loaded = from_bytes_copy(data, size);
+    auto loaded = from_bytes_copy(data, size).get();
     uint8_t* lb = HermesCtrAccess::base(loaded);
     auto* lmap = HermesCtrAccess::root<TinyObjectMap>(loaded);
     std::println("  Loaded: map[0]={}, map[1]='{}'",
@@ -483,7 +483,7 @@ static void walkthrough_templates() {
 static void walkthrough_memory_layout() {
     std::println("\n=== 9. Memory Layout ===");
 
-    auto doc = make_doc(256);
+    auto doc = make_doc(256).get();
     auto map = doc.make_tiny_map().get();
     doc.set_root(map);
     map.put(0, AnyVal::from_value(int32_t(7))).get();

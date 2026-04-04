@@ -932,7 +932,7 @@ private:
 
 logos::expected<HermesCtr> parse(std::string_view text) noexcept {
     try {
-        auto doc = make_doc();
+        auto doc = make_doc().get();
         Parser parser(text, doc);
         void* root = parser.parse_document();
         HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));

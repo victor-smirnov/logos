@@ -1163,7 +1163,7 @@ private:
 
 logos::expected<HermesCtr> parse_path(std::string_view expr) noexcept {
     try {
-        auto doc = make_doc(65536);
+        auto doc = make_doc(65536).get();
         PathParser parser(expr, doc);
         void* ast = parser.parse();
         HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, ast));
@@ -1180,7 +1180,7 @@ logos::expected<HermesCtr> eval_path(const HermesCtr& data,
         if (!ast_doc_exp) return ast_doc_exp;
         auto& ast_doc = *ast_doc_exp;
 
-        HermesCtr result = make_doc();
+        HermesCtr result = make_doc().get();
         PathEvaluator evaluator(result, HermesCtrAccess::base(data),
                                         HermesCtrAccess::base(ast_doc));
         void* data_root = HermesCtrAccess::root<void>(data);
@@ -1209,7 +1209,7 @@ logos::expected<HermesCtr> eval_path(const HermesCtr& data,
 logos::expected<HermesCtr> eval_path_ast(void* data_root, void* ast_root,
                                           Arena& /*data_arena*/) noexcept {
     try {
-        auto result = make_doc();
+        auto result = make_doc().get();
         PathEvaluator evaluator(result, nullptr, nullptr);
         void* val = evaluator.eval(data_root, ast_root);
         if (val) HermesCtrAccess::set_root_offset(result, HermesCtrAccess::offset_of(result, val));

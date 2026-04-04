@@ -20,7 +20,7 @@ using namespace logos::hermes;
 static void test_deep_copy_tiny_map_with_pointers() {
     std::printf("--- Deep copy TinyObjectMap with pointers ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
@@ -59,7 +59,7 @@ static void test_deep_copy_tiny_map_with_pointers() {
 static void test_deep_copy_object_map() {
     std::printf("--- Deep copy ObjectMap ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto map = doc.make_object_map().get();
     doc.set_root(map);
 
@@ -96,7 +96,7 @@ static void test_deep_copy_object_map() {
 static void test_binary_tiny_map() {
     std::printf("--- Binary codec TinyObjectMap ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 
@@ -128,7 +128,7 @@ static void test_binary_tiny_map() {
 static void test_binary_object_array() {
     std::printf("--- Binary codec ObjectArray ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto arr = doc.make_array().get();
     doc.set_root(arr);
 
@@ -158,7 +158,7 @@ static void test_binary_object_array() {
 static void test_binary_object_map() {
     std::printf("--- Binary codec ObjectMap ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto map = doc.make_object_map().get();
     doc.set_root(map);
 
@@ -186,7 +186,7 @@ static void test_binary_object_map() {
 static void test_binary_nested() {
     std::printf("--- Binary codec nested structure ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto root = doc.make_tiny_map().get();
     doc.set_root(root);
 
@@ -237,7 +237,7 @@ static void test_binary_nested() {
 static void test_binary_double_round_trip() {
     std::printf("--- Binary double round-trip ---\n");
 
-    auto doc = make_doc();
+    auto doc = make_doc().get();
     auto map = doc.make_tiny_map().get();
     doc.set_root(map);
 

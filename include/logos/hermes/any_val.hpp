@@ -34,48 +34,48 @@ namespace logos::hermes {
 // base, not from the AnyVal's own address.
 class AnyVal {
 public:
-    AnyVal() : bits_(0) {}
+    AnyVal() noexcept : bits_(0) {}
 
     // --- Discriminant ---
 
-    bool is_null() const { return bits_ == 0; }
-    bool is_pointer() const { return !is_null() && (last_byte() & 1) == 0; }
-    bool is_value() const { return (last_byte() & 1) == 1; }
+    bool is_null() const noexcept { return bits_ == 0; }
+    bool is_pointer() const noexcept { return !is_null() && (last_byte() & 1) == 0; }
+    bool is_value() const noexcept { return (last_byte() & 1) == 1; }
 
     // --- Pointer mode (segment-relative offset) ---
 
     // Create a AnyVal in pointer mode from a segment-relative offset.
-    static AnyVal from_offset(arena_offset_t offset) {
+    static AnyVal from_offset(arena_offset_t offset) noexcept {
         AnyVal p;
         p.bits_ = static_cast<uint64_t>(offset.value());
         return p;
     }
 
     // Recover the segment-relative offset.
-    arena_offset_t to_offset() const {
+    arena_offset_t to_offset() const noexcept {
         return arena_offset_t{static_cast<arena_offset_t::value_type>(bits_)};
     }
 
     // Dereference: requires segment base address.
     template <typename T>
-    T* as_ptr(uint8_t* base) const {
+    T* as_ptr(uint8_t* base) const noexcept {
         return reinterpret_cast<T*>(base + to_offset().value());
     }
 
     template <typename T>
-    const T* as_ptr(const uint8_t* base) const {
+    const T* as_ptr(const uint8_t* base) const noexcept {
         return reinterpret_cast<const T*>(base + to_offset().value());
     }
 
     // Set this AnyVal to point at target (pointer mode), given segment base.
-    void set_pointer(const void* target, const uint8_t* base) {
+    void set_pointer(const void* target, const uint8_t* base) noexcept {
         auto offset = arena_offset_t{static_cast<arena_offset_t::value_type>(
             static_cast<const uint8_t*>(target) - base)};
         *this = from_offset(offset);
     }
 
     // Set from a known offset.
-    void set_offset(arena_offset_t offset) {
+    void set_offset(arena_offset_t offset) noexcept {
         *this = from_offset(offset);
     }
 
@@ -83,7 +83,7 @@ public:
 
     // Embed a small value with a type hash tag.
     template <typename T>
-    static AnyVal from_value(T value, uint8_t type_hash) {
+    static AnyVal from_value(T value, uint8_t type_hash) noexcept {
         static_assert(std::is_trivially_copyable_v<T>);
         static_assert(sizeof(T) <= 7);
 
@@ -100,7 +100,7 @@ public:
     //   AnyVal::from_value(int32_t(7), type_hash::Integer)
     template <typename T>
         requires requires { requires TypeTraits<T>::embeddable; } && (sizeof(T) <= 7)
-    static AnyVal from_value(T value) {
+    static AnyVal from_value(T value) noexcept {
         return from_value(value, static_cast<uint8_t>(TypeTraits<T>::hash));
     }
 
@@ -108,13 +108,13 @@ public:
     // so NamedCode<int32_t> wouldn't match T above without this.
     template <typename T>
         requires requires { requires TypeTraits<T>::embeddable; } && (sizeof(T) <= 7)
-    static AnyVal from_value(NamedCode<T> value) {
+    static AnyVal from_value(NamedCode<T> value) noexcept {
         return from_value(value.code, static_cast<uint8_t>(TypeTraits<T>::hash));
     }
 
     // Extract the embedded value.
     template <typename T>
-    T as_value() const {
+    T as_value() const noexcept {
         static_assert(std::is_trivially_copyable_v<T>);
         static_assert(sizeof(T) <= 7);
 
@@ -124,19 +124,19 @@ public:
     }
 
     // Extract the 7-bit type hash from the tag byte.
-    uint8_t value_type_hash() const {
+    uint8_t value_type_hash() const noexcept {
         return last_byte() >> 1;
     }
 
     // --- Raw access ---
 
-    uint64_t raw() const { return bits_; }
-    static AnyVal from_raw(uint64_t bits) { AnyVal p; p.bits_ = bits; return p; }
+    uint64_t raw() const noexcept { return bits_; }
+    static AnyVal from_raw(uint64_t bits) noexcept { AnyVal p; p.bits_ = bits; return p; }
 
 private:
     uint64_t bits_;
 
-    uint8_t last_byte() const {
+    uint8_t last_byte() const noexcept {
         auto* bytes = reinterpret_cast<const uint8_t*>(&bits_);
         return bytes[7];
     }

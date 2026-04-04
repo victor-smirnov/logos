@@ -289,10 +289,10 @@ private:
 using HermesCtr = Own<HermesCtrView>;
 
 // Create a new document (GrowableSingleChunk — base is stable within size, moves on grow).
-HermesCtr make_doc(size_t capacity = 65536);
+[[nodiscard]] logos::expected<HermesCtr> make_doc(size_t capacity = 65536) noexcept;
 
 // Create a new document with MultiChunk arena (base is always stable).
-HermesCtr make_doc_multi(size_t initial_capacity = 4096);
+[[nodiscard]] logos::expected<HermesCtr> make_doc_multi(size_t initial_capacity = 4096) noexcept;
 
 // Deep-copy a document into a new compacted single-chunk arena.
 logos::expected<HermesCtr> compactify(const HermesCtrView& src) noexcept;
@@ -303,6 +303,6 @@ logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_
                                          HermesCtrView& dst) noexcept;
 
 // Load a document from raw bytes (copies the data).
-HermesCtr from_bytes_copy(const uint8_t* data, size_t size);
+[[nodiscard]] logos::expected<HermesCtr> from_bytes_copy(const uint8_t* data, size_t size) noexcept;
 
 } // namespace logos::hermes

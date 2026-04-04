@@ -183,7 +183,7 @@ logos::expected<HermesCtr> compactify(const HermesCtrView& src) noexcept {
     LOGOS_ASSERT(src.has_root(), "HERMES-DOC-001",
         "Cannot compactify a document without a root object");
 
-    auto dst = make_doc(HermesCtrAccess::arena(src).total_used() * 2);
+    LOGOS_TRY(auto dst, make_doc(HermesCtrAccess::arena(src).total_used() * 2));
     DeepCopyState state(HermesCtrAccess::arena(dst), HermesCtrAccess::base(src));
 
     arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(HermesCtrAccess::base(src))->root_offset;
@@ -201,8 +201,8 @@ logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_
     return state.copy_tagged_object(src_obj);
 }
 
-HermesCtr from_bytes_copy(const uint8_t* data, size_t size) {
-    auto doc = make_doc(size);
+logos::expected<HermesCtr> from_bytes_copy(const uint8_t* data, size_t size) noexcept {
+    LOGOS_TRY(auto doc, make_doc(size));
     // Copy data into the arena (after the DocumentHeader that make_doc already allocated).
     // Actually, the entire segment IS the data — header is at offset 0.
     // We need to replace the arena content with the provided bytes.

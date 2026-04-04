@@ -200,7 +200,7 @@ public:
         : data_(data), size_(size), pos_(0) {}
 
     logos::expected<HermesCtr> decode() noexcept {
-        auto doc = make_doc();
+        LOGOS_TRY(auto doc, make_doc());
         LOGOS_TRY(auto* root, decode_tagged_object(HermesCtrAccess::arena(doc)));
         HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
         return doc;

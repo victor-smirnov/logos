@@ -929,7 +929,7 @@ private:
         for (const auto& e : g_.exports) {
             w.fmt("logos::hermes::HermesCtr {}::parse_{}() {{", parser_class_, e);
             w.indent();
-            w.line("doc_ = logos::hermes::make_doc();");
+            w.line("doc_ = logos::hermes::make_doc().get();");
             w.fmt("AnyVal root = rule_{}();", e);
             w.fmt("LOGOS_ASSERT(!root.is_null(), \"{}-PARSE-001\", \"parse_{}: expected {}\");",
                   to_upper(g_.name), e, e);

@@ -377,7 +377,7 @@ private:
     const HermesCtr& data_;
     std::string out_;
     uint8_t* base_ = nullptr;  // Template AST arena base.
-    HermesCtr scratch_ = make_doc_multi(4096); // Scratch arena for materialized values.
+    HermesCtr scratch_ = make_doc_multi(4096).get(); // Scratch arena for materialized values.
 
     // Variable scope stack.
     struct VarBinding {
@@ -406,7 +406,7 @@ private:
     // Evaluate a HermesPath expression against current context.
     // Build a fresh context doc with data + template variables.
     HermesCtr build_context() {
-        auto ctx_doc = make_doc_multi();
+        auto ctx_doc = make_doc_multi().get();
         auto* ctx = HermesCtrAccess::raw_object_map(ctx_doc).get();
         HermesCtrAccess::set_root(ctx_doc, ctx);
 
@@ -674,7 +674,7 @@ private:
 
 logos::expected<HermesCtr> parse_template(std::string_view tpl) noexcept {
     try {
-        auto doc = make_doc();
+        auto doc = make_doc().get();
         TemplateParser parser(tpl, doc);
         void* root = parser.parse();
         HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
