@@ -88,7 +88,7 @@ private:
     // and switch back to the scheduler.
     [[noreturn]] static void finish(Fiber* self) noexcept;
 
-    void init_stack();
+    void init_stack() noexcept;
 
     FiberRegs   regs_{};
     uint8_t*    stack_base_ = nullptr;

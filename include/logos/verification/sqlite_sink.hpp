@@ -16,9 +16,9 @@ struct TraceDatabaseConfig {
 };
 
 // Initialize the trace sink (schema, threads)
-void init_sqlite_sink(const TraceDatabaseConfig& config);
+void init_sqlite_sink(const TraceDatabaseConfig& config) noexcept;
 // Graceful shutdown
-void shutdown_sqlite_sink();
+void shutdown_sqlite_sink() noexcept;
 
 // Submit an assertion failure record
 void record_assertion(
@@ -29,7 +29,7 @@ void record_assertion(
     std::string_view condition,
     std::string_view message,
     const std::source_location& loc,
-    std::string_view call_chain_json);
+    std::string_view call_chain_json) noexcept;
 
 // Submit a trace record
 void record_trace(
@@ -38,6 +38,6 @@ void record_trace(
     uint64_t fiber_id,
     std::string_view tag,
     const std::source_location& loc,
-    std::string_view data_json);
+    std::string_view data_json) noexcept;
 
 } // namespace logos

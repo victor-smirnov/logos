@@ -18,7 +18,7 @@ namespace logos {
     std::string_view req_id,
     std::string_view condition,
     std::string_view message,
-    const std::source_location& loc)
+    const std::source_location& loc) noexcept
 {
     auto now = std::chrono::steady_clock::now().time_since_epoch();
     uint64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
@@ -56,13 +56,13 @@ namespace {
     std::string g_trace_prefix;
 }
 
-bool __attribute__((no_instrument_function)) is_trace_enabled(std::string_view tag) {
+bool __attribute__((no_instrument_function)) is_trace_enabled(std::string_view tag) noexcept {
     if (!g_traces_enabled) return false;
     if (tag.starts_with(g_trace_prefix)) return true;
     return false;
 }
 
-void __attribute__((no_instrument_function)) enable_trace(std::string_view tag_prefix) {
+void __attribute__((no_instrument_function)) enable_trace(std::string_view tag_prefix) noexcept {
     if (tag_prefix == "*") {
         g_trace_prefix = "";
     } else {
@@ -74,7 +74,7 @@ void __attribute__((no_instrument_function)) enable_trace(std::string_view tag_p
     g_traces_enabled = true;
 }
 
-void __attribute__((no_instrument_function)) write_trace(std::string_view tag, std::string_view json_data, const std::source_location& loc) {
+void __attribute__((no_instrument_function)) write_trace(std::string_view tag, std::string_view json_data, const std::source_location& loc) noexcept {
     auto now = std::chrono::steady_clock::now().time_since_epoch();
     uint64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
     uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());

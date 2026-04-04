@@ -14,14 +14,14 @@
 
 namespace logos {
 
-bool is_trace_enabled(std::string_view tag);
-void write_trace(std::string_view tag, std::string_view json_data, const std::source_location& loc);
-void enable_trace(std::string_view tag_prefix);
+bool is_trace_enabled(std::string_view tag) noexcept;
+void write_trace(std::string_view tag, std::string_view json_data, const std::source_location& loc) noexcept;
+void enable_trace(std::string_view tag_prefix) noexcept;
 
 namespace detail {
 
 template<typename T>
-[[gnu::no_instrument_function]] std::string format_json_value(const T& val) {
+[[gnu::no_instrument_function]] std::string format_json_value(const T& val) noexcept {
     if constexpr (std::is_constructible_v<std::string_view, T>) {
         return std::format("\"{}\"", val); // Note: proper escaping needed for production
     } else if constexpr (std::is_arithmetic_v<T>) {
@@ -39,14 +39,14 @@ template<typename T>
 }
 
 template<typename... Args>
-[[gnu::no_instrument_function]] std::string format_trace_data(Args&&... args) {
+[[gnu::no_instrument_function]] std::string format_trace_data(Args&&... args) noexcept {
     constexpr size_t N = sizeof...(Args);
     static_assert(N % 2 == 0, "LOGOS_TRACE requires key-value pairs");
     
     std::string result = "{";
     auto t = std::forward_as_tuple(args...);
     
-    auto format_pairs = [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+    auto format_pairs = [&]<std::size_t... Is>(std::index_sequence<Is...>) noexcept {
         bool first = true;
         ((
             result += (first ? "" : ","),
@@ -65,7 +65,7 @@ template<typename... Args>
 } // namespace detail
 
 template <typename... Args>
-[[gnu::no_instrument_function]] void log_trace(std::string_view tag, const std::source_location& loc, Args&&... args) {
+[[gnu::no_instrument_function]] void log_trace(std::string_view tag, const std::source_location& loc, Args&&... args) noexcept {
     if (!is_trace_enabled(tag)) return;
     std::string json_data = detail::format_trace_data(std::forward<Args>(args)...);
     write_trace(tag, json_data, loc);

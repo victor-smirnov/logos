@@ -34,17 +34,17 @@ static void test_uds_echo_single() {
         auto server = UnixSocket::listen_on(kSockPath).get();
         auto client = server.accept().get();
         char buf[64];
-        int n = client.read(buf, sizeof(buf));
+        int n = client.read(buf, sizeof(buf)).get();
         LOGOS_ASSERT(n > 0, "REACTOR-UDS-T01a", "server recv failed: {}", n);
-        client.write_all(buf, static_cast<size_t>(n));
+        client.write_all(buf, static_cast<size_t>(n)).get();
     }, "server");
 
     reactor.spawn([&] {
         Scheduler::current()->yield();
         auto sock = UnixSocket::connect_to(kSockPath).get();
-        sock.write_all(payload.data(), payload.size());
+        sock.write_all(payload.data(), payload.size()).get();
         char buf[64];
-        int n = sock.read(buf, sizeof(buf));
+        int n = sock.read(buf, sizeof(buf)).get();
         LOGOS_ASSERT(n > 0, "REACTOR-UDS-T01b", "client recv failed: {}", n);
         received.assign(buf, static_cast<size_t>(n));
     }, "client");
@@ -73,8 +73,8 @@ static void test_uds_multiple_clients() {
             auto client = server.accept().get();
             Scheduler::current()->spawn([c = std::move(client)]() mutable {
                 char buf[64];
-                int n = c.read(buf, sizeof(buf));
-                if (n > 0) c.write_all(buf, static_cast<size_t>(n));
+                int n = c.read(buf, sizeof(buf)).get();
+                if (n > 0) c.write_all(buf, static_cast<size_t>(n)).get();
             }, "handler");
         }
     }, "server");
@@ -84,9 +84,9 @@ static void test_uds_multiple_clients() {
             Scheduler::current()->yield();
             auto sock = UnixSocket::connect_to(kSockPath2).get();
             std::string greeting = "uds-client-" + std::to_string(i);
-            sock.write_all(greeting.data(), greeting.size());
+            sock.write_all(greeting.data(), greeting.size()).get();
             char buf[64];
-            int n = sock.read(buf, sizeof(buf));
+            int n = sock.read(buf, sizeof(buf)).get();
             if (n > 0) results[i].assign(buf, static_cast<size_t>(n));
         }, "client");
     }
@@ -118,7 +118,7 @@ static void test_uds_large_transfer() {
         auto client = server.accept().get();
         uint8_t buf[4096];
         while (true) {
-            int n = client.read(buf, sizeof(buf));
+            int n = client.read(buf, sizeof(buf)).get();
             if (n <= 0) break;
             for (int i = 0; i < n; ++i) received.push_back(buf[i]);
         }
@@ -127,7 +127,7 @@ static void test_uds_large_transfer() {
     reactor.spawn([&] {
         Scheduler::current()->yield();
         auto sock = UnixSocket::connect_to(kSockPath3).get();
-        sock.write_all(sent.data(), sent.size());
+        sock.write_all(sent.data(), sent.size()).get();
         // Closing the socket signals EOF to the server.
     }, "client");
 

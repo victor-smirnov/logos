@@ -39,7 +39,7 @@ public:
 
     // Unlock 'mutex', suspend this fiber, then re-lock 'mutex' on wake.
     // Must be called with 'mutex' already locked.
-    void wait(Mutex& mutex) {
+    void wait(Mutex& mutex) noexcept {
         Scheduler* s = Scheduler::current();
         LOGOS_ASSERT(s && s->running(), "REACTOR-CV-001",
                      "ConditionVariable::wait() called outside a fiber");
@@ -54,13 +54,13 @@ public:
 
     // Wait until predicate() returns true (spurious wake resilient).
     template<typename Predicate>
-    void wait(Mutex& mutex, Predicate predicate) {
+    void wait(Mutex& mutex, Predicate predicate) noexcept {
         while (!predicate())
             wait(mutex);
     }
 
     // Wake one waiting fiber.
-    void notify_one() {
+    void notify_one() noexcept {
         if (waiters_.empty()) return;
         Fiber* f = waiters_.front();
         waiters_.pop_front();
@@ -68,7 +68,7 @@ public:
     }
 
     // Wake all waiting fibers.
-    void notify_all() {
+    void notify_all() noexcept {
         Scheduler* s = Scheduler::current();
         while (!waiters_.empty()) {
             Fiber* f = waiters_.front();

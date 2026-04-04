@@ -36,7 +36,7 @@ public:
     Mutex& operator=(const Mutex&) = delete;
 
     // Acquire the mutex. Blocks the calling fiber if already held.
-    void lock() {
+    void lock() noexcept {
         if (!locked_) {
             locked_ = true;
             return;
@@ -61,7 +61,7 @@ public:
 
     // Release the mutex. If there are waiters, transfers ownership directly
     // to the first one (locked_ stays true) and wakes it.
-    void unlock() {
+    void unlock() noexcept {
         LOGOS_ASSERT(locked_, "REACTOR-MUTEX-010", "Mutex::unlock() called on unlocked mutex");
         if (!waiters_.empty()) {
             Fiber* next = waiters_.front();

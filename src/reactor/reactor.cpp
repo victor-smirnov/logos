@@ -17,14 +17,14 @@ Reactor* Reactor::current() noexcept { return tl_current_reactor; }
 // ---------------------------------------------------------------------------
 // Construction / destruction
 // ---------------------------------------------------------------------------
-Reactor::Reactor(unsigned ring_depth) {
+Reactor::Reactor(unsigned ring_depth) noexcept {
     ring_ = new io_uring{};
     int rc = io_uring_queue_init(ring_depth, ring_, 0);
     LOGOS_ASSERT(rc == 0, "REACTOR-INIT-001",
                  "io_uring_queue_init failed: {}", strerror(-rc));
 }
 
-Reactor::~Reactor() {
+Reactor::~Reactor() noexcept {
     if (ring_) { io_uring_queue_exit(ring_); delete ring_; ring_ = nullptr; }
 }
 
@@ -32,7 +32,7 @@ Reactor::~Reactor() {
 // spawn
 // ---------------------------------------------------------------------------
 Fiber* Reactor::spawn(std::move_only_function<void()> fn,
-                      std::string_view name, size_t stack_size)
+                      std::string_view name, size_t stack_size) noexcept
 {
     return sched_.spawn(std::move(fn), name, stack_size);
 }
@@ -40,7 +40,7 @@ Fiber* Reactor::spawn(std::move_only_function<void()> fn,
 // ---------------------------------------------------------------------------
 // run
 // ---------------------------------------------------------------------------
-void Reactor::run() {
+void Reactor::run() noexcept {
     LOGOS_ASSERT(!tl_current_reactor, "REACTOR-RUN-001",
                  "Reactor::run() on thread that already has a reactor");
     tl_current_reactor = this;
@@ -66,7 +66,7 @@ void Reactor::run() {
 // ---------------------------------------------------------------------------
 // submit_and_wait — the single place where fibers block on IO
 // ---------------------------------------------------------------------------
-int Reactor::submit_and_wait(io_uring_sqe* sqe) {
+logos::expected<int> Reactor::submit_and_wait(io_uring_sqe* sqe) noexcept {
     Fiber* self = sched_.running_;
     LOGOS_ASSERT(self, "REACTOR-IO-001", "IO operation called outside a fiber");
 
@@ -82,13 +82,15 @@ int Reactor::submit_and_wait(io_uring_sqe* sqe) {
     fiber_switch(&self->regs_, &sched_.sched_regs_);
     self->state_ = FiberState::Running;
 
+    if (op.result < 0)
+        return std::unexpected(logos::err(ErrCode::io_error));
     return op.result;
 }
 
 // ---------------------------------------------------------------------------
 // Timer
 // ---------------------------------------------------------------------------
-void Reactor::sleep_for(std::chrono::nanoseconds duration) {
+void Reactor::sleep_for(std::chrono::nanoseconds duration) noexcept {
     LOGOS_ASSERT(sched_.running_, "REACTOR-SLEEP-001", "sleep_for() outside a fiber");
 
     __kernel_timespec ts{};
@@ -105,14 +107,14 @@ void Reactor::sleep_for(std::chrono::nanoseconds duration) {
 // ---------------------------------------------------------------------------
 // File IO
 // ---------------------------------------------------------------------------
-int Reactor::read(int fd, void* buf, size_t size, off_t offset) {
+logos::expected<int> Reactor::read(int fd, void* buf, size_t size, off_t offset) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-READ-001", "io_uring_get_sqe returned null");
     io_uring_prep_read(sqe, fd, buf, static_cast<unsigned>(size), offset);
     return submit_and_wait(sqe);
 }
 
-int Reactor::write(int fd, const void* buf, size_t size, off_t offset) {
+logos::expected<int> Reactor::write(int fd, const void* buf, size_t size, off_t offset) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-WRITE-001", "io_uring_get_sqe returned null");
     io_uring_prep_write(sqe, fd, buf, static_cast<unsigned>(size), offset);
@@ -122,28 +124,28 @@ int Reactor::write(int fd, const void* buf, size_t size, off_t offset) {
 // ---------------------------------------------------------------------------
 // Stream socket IO
 // ---------------------------------------------------------------------------
-int Reactor::accept(int listen_fd, sockaddr* addr, socklen_t* addrlen) {
+logos::expected<int> Reactor::accept(int listen_fd, sockaddr* addr, socklen_t* addrlen) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-ACCEPT-001", "io_uring_get_sqe returned null");
     io_uring_prep_accept(sqe, listen_fd, addr, addrlen, 0);
     return submit_and_wait(sqe);
 }
 
-int Reactor::connect(int fd, const sockaddr* addr, socklen_t addrlen) {
+logos::expected<int> Reactor::connect(int fd, const sockaddr* addr, socklen_t addrlen) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-CONNECT-001", "io_uring_get_sqe returned null");
     io_uring_prep_connect(sqe, fd, addr, addrlen);
     return submit_and_wait(sqe);
 }
 
-int Reactor::recv(int fd, void* buf, size_t size, int flags) {
+logos::expected<int> Reactor::recv(int fd, void* buf, size_t size, int flags) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-RECV-001", "io_uring_get_sqe returned null");
     io_uring_prep_recv(sqe, fd, buf, size, flags);
     return submit_and_wait(sqe);
 }
 
-int Reactor::send(int fd, const void* buf, size_t size, int flags) {
+logos::expected<int> Reactor::send(int fd, const void* buf, size_t size, int flags) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-SEND-001", "io_uring_get_sqe returned null");
     io_uring_prep_send(sqe, fd, buf, size, flags);
@@ -153,14 +155,14 @@ int Reactor::send(int fd, const void* buf, size_t size, int flags) {
 // ---------------------------------------------------------------------------
 // Message IO (UDP / QUIC)
 // ---------------------------------------------------------------------------
-int Reactor::sendmsg(int fd, const ::msghdr* msg, int flags) {
+logos::expected<int> Reactor::sendmsg(int fd, const ::msghdr* msg, int flags) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-SENDMSG-001", "io_uring_get_sqe returned null");
     io_uring_prep_sendmsg(sqe, fd, msg, flags);
     return submit_and_wait(sqe);
 }
 
-int Reactor::recvmsg(int fd, ::msghdr* msg, int flags) {
+logos::expected<int> Reactor::recvmsg(int fd, ::msghdr* msg, int flags) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-RECVMSG-001", "io_uring_get_sqe returned null");
     io_uring_prep_recvmsg(sqe, fd, msg, flags);
@@ -170,7 +172,7 @@ int Reactor::recvmsg(int fd, ::msghdr* msg, int flags) {
 // ---------------------------------------------------------------------------
 // Poll (for signalfd, eventfd, etc.)
 // ---------------------------------------------------------------------------
-int Reactor::poll_one(int fd, uint32_t poll_mask) {
+logos::expected<int> Reactor::poll_one(int fd, uint32_t poll_mask) noexcept {
     auto* sqe = io_uring_get_sqe(ring_);
     LOGOS_ASSERT(sqe, "REACTOR-POLL-001", "io_uring_get_sqe returned null");
     io_uring_prep_poll_add(sqe, fd, poll_mask);
@@ -180,10 +182,10 @@ int Reactor::poll_one(int fd, uint32_t poll_mask) {
 // ---------------------------------------------------------------------------
 // reap_completions
 // ---------------------------------------------------------------------------
-int Reactor::reap_completions(bool wait) {
+int Reactor::reap_completions(bool wait) noexcept {
     int count = 0;
 
-    auto process = [&](io_uring_cqe* cqe) {
+    auto process = [&](io_uring_cqe* cqe) noexcept {
         auto* op = static_cast<IoOp*>(io_uring_cqe_get_data(cqe));
         if (op && op->fiber) {
             op->result = cqe->res;

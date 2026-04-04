@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Logos project — https://github.com/victor-smirnov/logos
 //
 // Fiber-aware Unix Domain Socket (AF_UNIX, SOCK_STREAM).
 //
@@ -9,14 +8,14 @@
 //
 // Usage — server:
 //
-//   auto server = UnixSocket::listen_on("/tmp/my.sock");
-//   auto client = server.accept();
-//   char buf[64]; int n = client.read(buf, sizeof(buf));
+//   auto server = UnixSocket::listen_on("/tmp/my.sock").get();
+//   auto client = server.accept().get();
+//   char buf[64]; int n = client.read(buf, sizeof(buf)).get();
 //
 // Usage — client:
 //
-//   auto sock = UnixSocket::connect_to("/tmp/my.sock");
-//   sock.write("ping", 4);
+//   auto sock = UnixSocket::connect_to("/tmp/my.sock").get();
+//   sock.write_all("ping", 4).get();
 
 #pragma once
 
@@ -60,7 +59,7 @@ public:
         sockaddr_un addr{};
         addr.sun_family = AF_UNIX;
         std::strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
-        ::unlink(path);  // remove stale socket file if present
+        ::unlink(path);
 
         if (::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) < 0) {
             ::close(fd);
@@ -77,8 +76,7 @@ public:
     logos::expected<UnixSocket> accept() noexcept {
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-UDS-001", "UnixSocket::accept() outside reactor");
-        int client_fd = r->accept(fd_);
-        if (client_fd < 0) return std::unexpected(logos::err(ErrCode::accept_error));
+        LOGOS_TRY(auto client_fd, r->accept(fd_));
         return UnixSocket{client_fd};
     }
 
@@ -97,8 +95,8 @@ public:
 
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-UDS-010", "UnixSocket::connect_to() outside reactor");
-        int rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
-        if (rc < 0) { ::close(fd); return std::unexpected(logos::err(ErrCode::connect_error)); }
+        auto rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
+        if (!rc) { ::close(fd); return std::unexpected(std::move(rc.error())); }
         return UnixSocket{fd};
     }
 
@@ -106,30 +104,34 @@ public:
     // IO
     // -----------------------------------------------------------------------
 
-    int read(void* buf, size_t size) {
+    [[nodiscard]]
+    logos::expected<int> read(void* buf, size_t size) noexcept {
         return Reactor::current()->recv(fd_, buf, size, 0);
     }
 
-    int write(const void* buf, size_t size) {
+    [[nodiscard]]
+    logos::expected<int> write(const void* buf, size_t size) noexcept {
         return Reactor::current()->send(fd_, buf, size, 0);
     }
 
-    int write_all(const void* buf, size_t size) {
+    [[nodiscard]]
+    logos::expected<void> write_all(const void* buf, size_t size) noexcept {
         const char* p = static_cast<const char*>(buf);
         size_t rem = size;
         while (rem > 0) {
-            int n = write(p, rem);
-            if (n <= 0) return n;
-            p += n; rem -= static_cast<size_t>(n);
+            LOGOS_TRY(auto n, write(p, rem));
+            if (n == 0) return std::unexpected(logos::err(ErrCode::io_error));
+            p += static_cast<size_t>(n);
+            rem -= static_cast<size_t>(n);
         }
-        return static_cast<int>(size);
+        return {};
     }
 
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    void close() { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
+    void close() noexcept { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
     bool valid() const noexcept { return fd_ >= 0; }
     int  fd()    const noexcept { return fd_; }
 

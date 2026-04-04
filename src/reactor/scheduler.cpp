@@ -35,7 +35,7 @@ Scheduler::~Scheduler() = default;
 // ---------------------------------------------------------------------------
 Fiber* Scheduler::spawn(std::move_only_function<void()> fn,
                         std::string_view     name,
-                        size_t               stack_size)
+                        size_t               stack_size) noexcept
 {
     auto fiber = std::make_unique<Fiber>(std::move(fn), name, stack_size);
     Fiber* raw = fiber.get();
@@ -61,7 +61,7 @@ bool Scheduler::step() {
 // run — execute fibers until the run queue is empty
 // (Reactor calls step() in its own event loop instead)
 // ---------------------------------------------------------------------------
-void Scheduler::run() {
+void Scheduler::run() noexcept {
     LOGOS_ASSERT(tl_current_scheduler == nullptr, "REACTOR-SCHED-001",
                  "Scheduler::run() called on a thread that already has a scheduler");
 
@@ -73,7 +73,7 @@ void Scheduler::run() {
 // ---------------------------------------------------------------------------
 // yield — called from within a fiber
 // ---------------------------------------------------------------------------
-void Scheduler::yield() {
+void Scheduler::yield() noexcept {
     Fiber* self = running_;
     LOGOS_ASSERT(self != nullptr, "REACTOR-SCHED-010",
                  "Scheduler::yield() called outside a fiber");
@@ -93,7 +93,7 @@ void Scheduler::yield() {
 // ---------------------------------------------------------------------------
 // join — block the calling fiber until 'target' finishes
 // ---------------------------------------------------------------------------
-void Scheduler::join(Fiber* target) {
+void Scheduler::join(Fiber* target) noexcept {
     LOGOS_ASSERT(target != nullptr, "REACTOR-SCHED-020",
                  "Scheduler::join() called with null fiber");
 
@@ -119,7 +119,7 @@ void Scheduler::join(Fiber* target) {
 // block — suspend the calling fiber without re-queuing it.
 // It will remain Blocked until someone explicitly calls wake(fiber).
 // ---------------------------------------------------------------------------
-void Scheduler::block() {
+void Scheduler::block() noexcept {
     Fiber* self = running_;
     LOGOS_ASSERT(self != nullptr, "REACTOR-SCHED-060",
                  "Scheduler::block() called outside a fiber");
@@ -137,7 +137,7 @@ void Scheduler::block() {
 // ---------------------------------------------------------------------------
 // wake — move a Blocked fiber back to the run queue
 // ---------------------------------------------------------------------------
-void Scheduler::wake(Fiber* fiber) {
+void Scheduler::wake(Fiber* fiber) noexcept {
     LOGOS_ASSERT(fiber != nullptr, "REACTOR-SCHED-030",
                  "Scheduler::wake() called with null fiber");
     LOGOS_ASSERT(fiber->state_ == FiberState::Blocked, "REACTOR-SCHED-031",
@@ -151,7 +151,7 @@ void Scheduler::wake(Fiber* fiber) {
 // ---------------------------------------------------------------------------
 // switch_to — context-switch from the scheduler loop into a fiber
 // ---------------------------------------------------------------------------
-void Scheduler::switch_to(Fiber* next) {
+void Scheduler::switch_to(Fiber* next) noexcept {
     LOGOS_ASSERT(next != nullptr, "REACTOR-SCHED-040",
                  "switch_to() called with null fiber");
     LOGOS_ASSERT(next->state_ == FiberState::Ready, "REACTOR-SCHED-041",
@@ -168,7 +168,7 @@ void Scheduler::switch_to(Fiber* next) {
 // ---------------------------------------------------------------------------
 // fiber_done — called by Fiber::finish() when a fiber's fn() returns
 // ---------------------------------------------------------------------------
-void Scheduler::fiber_done(Fiber* fiber) {
+void Scheduler::fiber_done(Fiber* fiber) noexcept {
     LOGOS_ASSERT(fiber != nullptr, "REACTOR-SCHED-050",
                  "fiber_done() called with null fiber");
 

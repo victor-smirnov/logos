@@ -46,7 +46,7 @@ std::vector<TraceRecord> g_traces;
 std::atomic<bool> g_running{false};
 std::thread g_writer_thread;
 
-void writer_loop() {
+void writer_loop() noexcept {
     while (true) {
         std::vector<AssertRecord> local_asserts;
         std::vector<TraceRecord> local_traces;
@@ -122,7 +122,7 @@ void writer_loop() {
 
 } // namespace
 
-void init_sqlite_sink(const TraceDatabaseConfig& config) {
+void init_sqlite_sink(const TraceDatabaseConfig& config) noexcept {
     if (g_db) return;
     
     if (sqlite3_open(config.path.c_str(), &g_db) != SQLITE_OK) {
@@ -173,7 +173,7 @@ void init_sqlite_sink(const TraceDatabaseConfig& config) {
     g_writer_thread = std::thread(writer_loop);
 }
 
-void shutdown_sqlite_sink() {
+void shutdown_sqlite_sink() noexcept {
     g_running.store(false, std::memory_order_release);
     g_cv.notify_one();
     if (g_writer_thread.joinable()) {
@@ -193,7 +193,7 @@ void record_assertion(
     std::string_view condition,
     std::string_view message,
     const std::source_location& loc,
-    std::string_view call_chain_json)
+    std::string_view call_chain_json) noexcept
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_asserts.push_back({
@@ -210,7 +210,7 @@ void record_trace(
     uint64_t fiber_id,
     std::string_view tag,
     const std::source_location& loc,
-    std::string_view data_json)
+    std::string_view data_json) noexcept
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_traces.push_back({

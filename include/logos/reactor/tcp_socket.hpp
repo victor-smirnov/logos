@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Logos project — https://github.com/victor-smirnov/logos
 //
 // Fiber-aware TCP socket.
 //
@@ -10,22 +9,22 @@
 //
 // Usage — server:
 //
-//   auto server = TcpSocket::listen_on("0.0.0.0", 8080);
+//   auto server = TcpSocket::listen_on("0.0.0.0", 8080).get();
 //   while (true) {
-//       auto client = server.accept();
+//       auto client = server.accept().get();
 //       Reactor::current()->spawn([c = std::move(client)]() mutable {
 //           char buf[256];
-//           int n = c.read(buf, sizeof(buf));
-//           if (n > 0) c.write(buf, n);  // echo
+//           auto n = c.read(buf, sizeof(buf)).get();
+//           if (n > 0) c.write_all(buf, n).get();  // echo
 //       });
 //   }
 //
 // Usage — client:
 //
-//   auto sock = TcpSocket::connect_to("127.0.0.1", 8080);
-//   sock.write("hello", 5);
+//   auto sock = TcpSocket::connect_to("127.0.0.1", 8080).get();
+//   sock.write_all("hello", 5).get();
 //   char reply[64];
-//   int n = sock.read(reply, sizeof(reply));
+//   int n = sock.read(reply, sizeof(reply)).get();
 
 #pragma once
 
@@ -63,7 +62,6 @@ public:
     // Factory — server side
     // -----------------------------------------------------------------------
 
-    // Create a listening TCP socket bound to host:port.
     [[nodiscard]]
     static logos::expected<TcpSocket> listen_on(const char* host, uint16_t port,
                                                  int backlog = 128) noexcept
@@ -103,8 +101,7 @@ public:
     logos::expected<TcpSocket> accept() noexcept {
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-TCP-001", "TcpSocket::accept() called outside reactor");
-        int client_fd = r->accept(fd_);
-        if (client_fd < 0) return std::unexpected(logos::err(ErrCode::accept_error));
+        LOGOS_TRY(auto client_fd, r->accept(fd_));
         return TcpSocket{client_fd};
     }
 
@@ -112,7 +109,6 @@ public:
     // Factory — client side
     // -----------------------------------------------------------------------
 
-    // Connect to host:port (blocks fiber until connected or error).
     [[nodiscard]]
     static logos::expected<TcpSocket> connect_to(const char* host, uint16_t port) noexcept {
         int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -128,10 +124,10 @@ public:
 
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-TCP-010", "TcpSocket::connect_to() called outside reactor");
-        int rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
-        if (rc < 0) {
+        auto rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
+        if (!rc) {
             ::close(fd);
-            return std::unexpected(logos::err(ErrCode::connect_error));
+            return std::unexpected(std::move(rc.error()));
         }
         return TcpSocket{fd};
     }
@@ -140,34 +136,37 @@ public:
     // Data transfer (all block the fiber)
     // -----------------------------------------------------------------------
 
-    // Read up to 'size' bytes. Returns bytes read (0 = peer closed, <0 = error).
-    int read(void* buf, size_t size) {
+    // Read up to 'size' bytes. Returns bytes read (0 = peer closed).
+    [[nodiscard]]
+    logos::expected<int> read(void* buf, size_t size) noexcept {
         return Reactor::current()->recv(fd_, buf, size, 0);
     }
 
-    // Write up to 'size' bytes. Returns bytes written (<0 = error).
-    int write(const void* buf, size_t size) {
+    // Write up to 'size' bytes.
+    [[nodiscard]]
+    logos::expected<int> write(const void* buf, size_t size) noexcept {
         return Reactor::current()->send(fd_, buf, size, 0);
     }
 
     // Write all 'size' bytes, looping until done or error.
-    int write_all(const void* buf, size_t size) {
+    [[nodiscard]]
+    logos::expected<void> write_all(const void* buf, size_t size) noexcept {
         const char* p  = static_cast<const char*>(buf);
-        size_t      remaining = size;
+        size_t remaining = size;
         while (remaining > 0) {
-            int n = write(p, remaining);
-            if (n <= 0) return n;
-            p         += n;
+            LOGOS_TRY(auto n, write(p, remaining));
+            if (n == 0) return std::unexpected(logos::err(ErrCode::io_error));
+            p         += static_cast<size_t>(n);
             remaining -= static_cast<size_t>(n);
         }
-        return static_cast<int>(size);
+        return {};
     }
 
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    void close() {
+    void close() noexcept {
         if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
     }
 

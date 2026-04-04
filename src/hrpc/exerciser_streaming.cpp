@@ -68,7 +68,7 @@ static void test_input_stream() {
             return Response::ok(AnyVal::from_value(sum)).get();
         }).get();
 
-        session.start();
+        session.start().get();
         session.run();
     }, "server");
 
@@ -76,23 +76,23 @@ static void test_input_stream() {
 
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
-        session.start();
+        session.start().get();
 
         // Make async call with 1 input channel (client → server).
         Request rq = Request::make().get();
         auto call = session.call_async(kSumEndpoint, std::move(rq),
                                        /*input_channels=*/1,
-                                       /*output_channels=*/0);
+                                       /*output_channels=*/0).get();
 
         // Push N integer messages to the server via input_channel[0].
         for (int i = 0; i < N; ++i) {
-            call->push(StreamMessage::make(AnyVal::from_value(int32_t(i))).get(), 0);
+            call->push(StreamMessage::make(AnyVal::from_value(int32_t(i))).get(), 0).get();
         }
 
         // Push a null-doc sentinel to signal end-of-stream.
         // call->push() detects the null doc and sends CallCloseOutput on the wire
         // instead of a CallChannelMessage. Context::pop() returns false on this.
-        call->push(StreamMessage{}, 0);
+        call->push(StreamMessage{}, 0).get();
 
         Response rs = call->wait();
         LOGOS_ASSERT(rs.is_ok(), "HRPC-STREAM-T01a",
@@ -137,14 +137,14 @@ static void test_output_stream() {
         session.endpoints().add(kCountEndpoint, [](Context& ctx) -> Response {
             constexpr int count = 50;
             for (int i = 0; i < count; ++i) {
-                ctx.push(StreamMessage::make(AnyVal::from_value(int32_t(i * 2))).get(), 0);
+                ctx.push(StreamMessage::make(AnyVal::from_value(int32_t(i * 2))).get(), 0).get();
             }
             // Null-doc sentinel signals end-of-stream to call->pop().
-            ctx.push(StreamMessage{}, 0);
+            ctx.push(StreamMessage{}, 0).get();
             return Response::ok(AnyVal::from_value(int32_t(count))).get();
         }).get();
 
-        session.start();
+        session.start().get();
         session.run();
     }, "server");
 
@@ -152,12 +152,12 @@ static void test_output_stream() {
 
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
-        session.start();
+        session.start().get();
 
         Request rq = Request::make().get();
         auto call = session.call_async(kCountEndpoint, std::move(rq),
                                        /*input_channels=*/0,
-                                       /*output_channels=*/1);
+                                       /*output_channels=*/1).get();
 
         // Collect messages from output_channel[0] until end-of-stream.
         StreamMessage msg;

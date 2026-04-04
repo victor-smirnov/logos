@@ -893,7 +893,7 @@ private:
             auto* map = static_cast<ObjectMap*>(data);
             LOGOS_TRY(auto* result, HermesCtrAccess::raw_array(result_));
             logos::expected<void> status{};
-            map->for_each([&](ArenaString*, AnyVal* val) {
+            map->for_each([&](ArenaString*, AnyVal* val) noexcept {
                 if (!status) return;
                 auto slot_res = resolve_slot(val, data_base_);
                 if (!slot_res) { status = std::unexpected(std::move(slot_res.error())); return; }
@@ -1083,7 +1083,7 @@ private:
         auto* map = static_cast<ObjectMap*>(arg);
         LOGOS_TRY(auto* result, HermesCtrAccess::raw_array(result_));
         logos::expected<void> status{};
-        map->for_each([&](ArenaString* key, AnyVal*) {
+        map->for_each([&](ArenaString* key, AnyVal*) noexcept {
             if (!status) return;
             auto ks_res = HermesCtrAccess::raw_string(result_, key->view());
             if (!ks_res) { status = std::unexpected(std::move(ks_res.error())); return; }

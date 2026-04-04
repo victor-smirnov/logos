@@ -381,7 +381,7 @@ private:
     const HermesCtr& data_;
     std::string out_;
     uint8_t* base_ = nullptr;  // Template AST arena base.
-    HermesCtr scratch_ = make_doc_multi(4096).get(); // Scratch arena for materialized values.
+    HermesCtr scratch_ = make_doc_multi(4096).value_or(HermesCtr{}); // Scratch arena; OOM → terminate via get() later.
 
     // Variable scope stack.
     struct VarBinding {
@@ -424,7 +424,7 @@ private:
                 auto* data_map = static_cast<ObjectMap*>(data_root);
                 uint8_t* data_base = const_cast<uint8_t*>(HermesCtrAccess::base(data_));
                 logos::expected<void> status{};
-                data_map->for_each([&](ArenaString* key, AnyVal* val) {
+                data_map->for_each([&](ArenaString* key, AnyVal* val) noexcept {
                     if (!status) return;
                     if (val->is_value()) {
                         auto res = ctx->put(key->view(), *val, HermesCtrAccess::arena(ctx_doc));

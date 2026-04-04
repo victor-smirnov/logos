@@ -36,10 +36,10 @@ static void test_echo_single() {
         auto client = server.accept().get();
 
         char buf[256];
-        int n = client.read(buf, sizeof(buf));
+        int n = client.read(buf, sizeof(buf)).get();
         LOGOS_ASSERT(n > 0, "REACTOR-NET-T01a",
                      "Server recv failed: {}", n);
-        client.write_all(buf, static_cast<size_t>(n));
+        client.write_all(buf, static_cast<size_t>(n)).get();
     }, "server");
 
     // Client fiber: connect, send, receive.
@@ -47,10 +47,10 @@ static void test_echo_single() {
         // Yield once to let server fiber bind and listen first.
         Scheduler::current()->yield();
         auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
-        sock.write_all(payload.data(), payload.size());
+        sock.write_all(payload.data(), payload.size()).get();
 
         char buf[256];
-        int n = sock.read(buf, sizeof(buf));
+        int n = sock.read(buf, sizeof(buf)).get();
         LOGOS_ASSERT(n > 0, "REACTOR-NET-T01b",
                      "Client recv failed: {}", n);
         received.assign(buf, static_cast<size_t>(n));
@@ -83,8 +83,8 @@ static void test_echo_multiple_clients() {
             auto client = server.accept().get();
             Scheduler::current()->spawn([c = std::move(client)]() mutable {
                 char buf[64];
-                int n = c.read(buf, sizeof(buf));
-                if (n > 0) c.write_all(buf, static_cast<size_t>(n));
+                int n = c.read(buf, sizeof(buf)).get();
+                if (n > 0) c.write_all(buf, static_cast<size_t>(n)).get();
             }, "handler");
         }
     }, "server");
@@ -95,9 +95,9 @@ static void test_echo_multiple_clients() {
             Scheduler::current()->yield();
             auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
             std::string greeting = "client-" + std::to_string(i);
-            sock.write_all(greeting.data(), greeting.size());
+            sock.write_all(greeting.data(), greeting.size()).get();
             char buf[64];
-            int n = sock.read(buf, sizeof(buf));
+            int n = sock.read(buf, sizeof(buf)).get();
             if (n > 0) results[i].assign(buf, static_cast<size_t>(n));
         }, "client");
     }
@@ -132,7 +132,7 @@ static void test_streaming() {
         auto client = server.accept().get();
         char buf[4];
         while (true) {
-            int n = client.read(buf, sizeof(buf));
+            int n = client.read(buf, sizeof(buf)).get();
             if (n <= 0) break;
             if (n == 4) ++server_count;
         }
@@ -144,7 +144,7 @@ static void test_streaming() {
         auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
         for (int i = 0; i < N; ++i) {
             uint32_t v = static_cast<uint32_t>(i);
-            sock.write_all(&v, sizeof(v));
+            sock.write_all(&v, sizeof(v)).get();
         }
         // Closing sock drops the fd; server gets EOF.
     }, "client");

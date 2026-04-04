@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Logos project — https://github.com/victor-smirnov/logos
 //
 // Fiber-aware file IO.
 //
@@ -9,13 +8,13 @@
 //
 // Usage:
 //
-//   auto f = File::open("data.bin", O_RDONLY);
+//   auto f = File::open("data.bin", O_RDONLY).get();
 //   char buf[4096];
-//   int n = f.read(buf, sizeof(buf));      // async, blocks fiber
+//   int n = f.read(buf, sizeof(buf)).get();      // async, blocks fiber
 //   f.close();
 //
-//   auto out = File::open("out.bin", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-//   out.write(buf, n);                     // async, blocks fiber
+//   auto out = File::open("out.bin", O_WRONLY | O_CREAT | O_TRUNC, 0644).get();
+//   out.write_all(buf, n).get();                 // async, blocks fiber
 
 #pragma once
 
@@ -48,7 +47,6 @@ public:
     // Factories
     // -----------------------------------------------------------------------
 
-    // Open with explicit flags and optional mode (for O_CREAT).
     [[nodiscard]]
     static logos::expected<File> open(const char* path, int flags,
                                       mode_t mode = 0644) noexcept {
@@ -68,38 +66,40 @@ public:
     // -----------------------------------------------------------------------
 
     // Read up to 'size' bytes at the current sequential offset.
-    // Returns bytes read (0 = EOF, <0 = -errno).
-    int read(void* buf, size_t size) {
+    // Returns bytes read (0 = EOF).
+    [[nodiscard]]
+    logos::expected<int> read(void* buf, size_t size) noexcept {
         Reactor* r = Reactor::current();
-        LOGOS_ASSERT(r,  "REACTOR-FILE-001", "File::read() called outside reactor");
+        LOGOS_ASSERT(r,     "REACTOR-FILE-001", "File::read() called outside reactor");
         LOGOS_ASSERT(fd_ >= 0, "REACTOR-FILE-002", "File::read() on closed file");
-        int n = r->read(fd_, buf, size, offset_);
+        LOGOS_TRY(auto n, r->read(fd_, buf, size, offset_));
         if (n > 0) offset_ += n;
         return n;
     }
 
     // Write 'size' bytes at the current sequential offset.
-    // Returns bytes written (<0 = -errno).
-    int write(const void* buf, size_t size) {
+    [[nodiscard]]
+    logos::expected<int> write(const void* buf, size_t size) noexcept {
         Reactor* r = Reactor::current();
-        LOGOS_ASSERT(r,  "REACTOR-FILE-010", "File::write() called outside reactor");
+        LOGOS_ASSERT(r,     "REACTOR-FILE-010", "File::write() called outside reactor");
         LOGOS_ASSERT(fd_ >= 0, "REACTOR-FILE-011", "File::write() on closed file");
-        int n = r->write(fd_, buf, size, offset_);
+        LOGOS_TRY(auto n, r->write(fd_, buf, size, offset_));
         if (n > 0) offset_ += n;
         return n;
     }
 
     // Write all bytes, looping until done or error.
-    int write_all(const void* buf, size_t size) {
+    [[nodiscard]]
+    logos::expected<void> write_all(const void* buf, size_t size) noexcept {
         const char* p         = static_cast<const char*>(buf);
         size_t      remaining = size;
         while (remaining > 0) {
-            int n = write(p, remaining);
-            if (n <= 0) return n;
-            p         += n;
+            LOGOS_TRY(auto n, write(p, remaining));
+            if (n == 0) return std::unexpected(logos::err(ErrCode::io_error));
+            p         += static_cast<size_t>(n);
             remaining -= static_cast<size_t>(n);
         }
-        return static_cast<int>(size);
+        return {};
     }
 
     // Seek (does not involve io_uring).
@@ -110,7 +110,7 @@ public:
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    void close() {
+    void close() noexcept {
         if (fd_ >= 0) { ::close(fd_); fd_ = -1; offset_ = 0; }
     }
 

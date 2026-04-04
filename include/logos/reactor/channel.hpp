@@ -42,7 +42,7 @@ public:
     // Blocking send.
     // If the channel is full (bounded), blocks until a receiver drains a slot.
     // -----------------------------------------------------------------------
-    void send(T value) {
+    void send(T value) noexcept {
         // Wait until there is room (for bounded channels).
         while (full()) {
             Scheduler* s = Scheduler::current();
@@ -100,7 +100,7 @@ public:
     size_t capacity() const noexcept { return capacity_; }
 
 private:
-    void wake_one_receiver() {
+    void wake_one_receiver() noexcept {
         if (!receiver_waiters_.empty()) {
             Fiber* f = receiver_waiters_.front();
             receiver_waiters_.pop_front();
@@ -108,7 +108,7 @@ private:
         }
     }
 
-    void wake_one_sender() {
+    void wake_one_sender() noexcept {
         if (!sender_waiters_.empty()) {
             Fiber* f = sender_waiters_.front();
             sender_waiters_.pop_front();

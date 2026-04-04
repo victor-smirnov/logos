@@ -181,7 +181,7 @@ logos::expected<void> s_object_map(const uint8_t* o, StringifyCtx* c) noexcept {
     bool first = true;
     // for_each callback is void — use status-variable pattern.
     logos::expected<void> status{};
-    map->for_each([&](ArenaString* key, AnyVal* val) {
+    map->for_each([&](ArenaString* key, AnyVal* val) noexcept {
         if (!status) return;
         if (!first) *c->out += ',';
         if (c->pretty) newline_indent(c->indent, *c->out);

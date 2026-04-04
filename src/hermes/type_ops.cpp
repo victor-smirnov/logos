@@ -82,7 +82,7 @@ static bool         g_initialized = false;
 // ---------------------------------------------------------------------------
 // hermes_init()
 // ---------------------------------------------------------------------------
-void hermes_init() {
+void hermes_init() noexcept {
     if (g_initialized) return;
     g_initialized = true;
 

@@ -62,7 +62,7 @@ public:
     //
     // Send a message to the client. Immediately transmits a
     // ContextChannelMessage over the wire.
-    void push(StreamMessage msg, ChannelCode code = 0);
+    logos::expected<void> push(StreamMessage msg, ChannelCode code = 0) noexcept;
 
 private:
     friend class Session;
@@ -76,7 +76,7 @@ private:
     // input_channels[i]: server pops messages from these.
     // Filled by Session::handle_call_channel_msg().
     void set_input_channels(
-        std::vector<std::unique_ptr<logos::reactor::Channel<StreamMessage>>> ch)
+        std::vector<std::unique_ptr<logos::reactor::Channel<StreamMessage>>> ch) noexcept
     {
         input_channels_ = std::move(ch);
     }

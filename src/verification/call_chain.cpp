@@ -28,7 +28,7 @@ static uint64_t get_time_ns() {
 }
 
 extern "C" void __attribute__((no_instrument_function))
-__cyg_profile_func_enter(void *this_fn, void *call_site) {
+__cyg_profile_func_enter(void *this_fn, void *call_site) noexcept {
     if (t_call_ring_paused) return;
     
     auto& ring = t_call_ring;
@@ -41,7 +41,7 @@ __cyg_profile_func_enter(void *this_fn, void *call_site) {
 }
 
 extern "C" void __attribute__((no_instrument_function))
-__cyg_profile_func_exit(void *this_fn, void *call_site) {
+__cyg_profile_func_exit(void *this_fn, void *call_site) noexcept {
     // For now, we only trace entries to see the execution path.
     // Tracing exits as well would require differentiating them in the event struct,
     // which the spec doesn't explicitly mandate for the MVP.
@@ -99,11 +99,11 @@ std::string __attribute__((no_instrument_function)) capture_call_chain_json() {
     return json;
 }
 
-void __attribute__((no_instrument_function)) pause_call_ring() {
+void __attribute__((no_instrument_function)) pause_call_ring() noexcept {
     t_call_ring_paused = true;
 }
 
-void __attribute__((no_instrument_function)) resume_call_ring() {
+void __attribute__((no_instrument_function)) resume_call_ring() noexcept {
     t_call_ring_paused = false;
 }
 

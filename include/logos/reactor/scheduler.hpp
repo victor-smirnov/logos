@@ -38,11 +38,11 @@ public:
     // Returns a raw pointer — the Scheduler owns the Fiber.
     Fiber* spawn(std::move_only_function<void()> fn,
                  std::string_view     name       = "",
-                 size_t               stack_size = Fiber::kDefaultStackSize);
+                 size_t               stack_size = Fiber::kDefaultStackSize) noexcept;
 
     // Run all fibers until the run queue is empty and no fibers are blocked.
     // Returns when all work is done.
-    void run();
+    void run() noexcept;
 
     // Run exactly one ready fiber from the queue.  Returns true if a fiber
     // was run, false if the queue was empty.  Used by Reactor::run().
@@ -58,20 +58,20 @@ public:
 
     // Yield execution back to the scheduler.  The calling fiber is put at the
     // back of the run queue and will resume on the next scheduler round.
-    void yield();
+    void yield() noexcept;
 
     // Block the calling fiber until 'target' completes.  If 'target' is
     // already Done, returns immediately.
-    void join(Fiber* target);
+    void join(Fiber* target) noexcept;
 
     // Block the calling fiber without re-queuing it.
     // The fiber stays Blocked until someone calls wake() on it.
     // Used by Mutex::lock(), Channel::recv()/send(), etc.
-    void block();
+    void block() noexcept;
 
     // Wake a blocked fiber (called from IO completion or channel).
     // Safe to call from the scheduler loop (not from another fiber).
-    void wake(Fiber* fiber);
+    void wake(Fiber* fiber) noexcept;
 
     // The Scheduler currently running on this OS thread (thread-local).
     static Scheduler* current() noexcept;
@@ -86,11 +86,11 @@ private:
     friend class Reactor;
 
     // Switch from 'running_' (or scheduler loop) to 'next'.
-    void switch_to(Fiber* next);
+    void switch_to(Fiber* next) noexcept;
 
     // Called by Fiber::finish() — marks fiber Done, wakes any joiner,
     // switches back to scheduler loop.
-    void fiber_done(Fiber* fiber);
+    void fiber_done(Fiber* fiber) noexcept;
 
     // Scheduler's own "fiber" context (the OS thread's original stack).
     FiberRegs sched_regs_{};

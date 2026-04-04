@@ -15,7 +15,7 @@ namespace logos {
     std::string_view req_id,
     std::string_view condition,
     std::string_view message,
-    const std::source_location& loc);
+    const std::source_location& loc) noexcept;
 
 } // namespace logos
 

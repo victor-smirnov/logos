@@ -79,7 +79,7 @@ public:
 
     // Send a message to the context (server) side on input_channel[code].
     // Immediately sends a CallChannelMessage over the wire.
-    void push(StreamMessage msg, ChannelCode code = 0);
+    logos::expected<void> push(StreamMessage msg, ChannelCode code = 0) noexcept;
 
     // Block until a message arrives from the context (server) on output_channel[code].
     // Returns false when the channel is closed (sentinel empty doc received).

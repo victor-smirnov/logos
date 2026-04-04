@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Logos project — https://github.com/victor-smirnov/logos
 //
 // HRPC Session implementation.
 //
@@ -36,14 +35,14 @@ using logos::reactor::Scheduler;
 // Local helper: read exactly 'size' bytes from sock.
 // Returns false on connection close or error.
 // ---------------------------------------------------------------------------
-static bool read_exact(logos::reactor::TcpSocket& sock, void* buf, size_t size) {
+static bool read_exact(logos::reactor::TcpSocket& sock, void* buf, size_t size) noexcept {
     uint8_t* ptr = static_cast<uint8_t*>(buf);
     size_t remaining = size;
     while (remaining > 0) {
-        int n = sock.read(ptr, remaining);
-        if (n <= 0) return false;
-        ptr       += static_cast<size_t>(n);
-        remaining -= static_cast<size_t>(n);
+        auto res = sock.read(ptr, remaining);
+        if (!res || *res == 0) return false;
+        ptr       += static_cast<size_t>(*res);
+        remaining -= static_cast<size_t>(*res);
     }
     return true;
 }
@@ -66,12 +65,12 @@ Session::~Session() {
 // start() — session negotiation
 // ---------------------------------------------------------------------------
 
-void Session::start() {
+logos::expected<void> Session::start() noexcept {
     if (side_ == SessionSide::Client) {
         // Send SESSION_START to server, then block until run() receives the ack.
         // The run() fiber must already be spawned before calling start().
-        ConnectionMetadata meta = ConnectionMetadata::make().get();
-        send_message(MessageType::SessionStart, 0, nullptr, 0, &meta.doc);
+        LOGOS_TRY(auto meta, ConnectionMetadata::make());
+        LOGOS_TRY_VOID(send_message(MessageType::SessionStart, 0, nullptr, 0, &meta.doc));
 
         ngt_mutex_.lock();
         ngt_cv_.wait(ngt_mutex_, [this] { return negotiated_; });
@@ -80,13 +79,14 @@ void Session::start() {
     // Server side: no-op. Negotiation is handled by run() when it receives
     // the client's SESSION_START and sends back the ack automatically.
     // Endpoints should be registered before calling run().
+    return {};
 }
 
 // ---------------------------------------------------------------------------
 // run() — inbound message loop
 // ---------------------------------------------------------------------------
 
-void Session::run() {
+void Session::run() noexcept {
     while (!closed_) {
         // Step 1: read first 4 bytes (message_size field).
         uint32_t msg_size = 0;
@@ -119,10 +119,12 @@ void Session::run() {
         size_t hdr_size     = hdr->header_size();
         size_t payload_size = hdr->payload_size();
         if (payload_size > 0 && hdr_size + payload_size <= static_cast<size_t>(msg_size)) {
-            payload = binary_decode(buf.data() + hdr_size, payload_size).get();
+            auto dec = binary_decode(buf.data() + hdr_size, payload_size);
+            if (!dec) break;
+            payload = std::move(*dec);
         }
 
-        handle_message(*hdr, buf.data(), std::move(payload));
+        if (!handle_message(*hdr, buf.data(), std::move(payload))) break;
     }
 
     closed_ = true;
@@ -140,7 +142,8 @@ void Session::run() {
         for (auto& [call_id, pc] : pending_calls_) {
             std::lock_guard pc_lock(pc->mutex);
             if (!pc->response.has_value()) {
-                pc->response = Response::error("Session closed").get();
+                auto err_resp = Response::error("Session closed");
+                pc->response = err_resp ? std::move(*err_resp) : Response{};
                 pc->cv.notify_one();
             }
         }
@@ -151,10 +154,10 @@ void Session::run() {
 // close()
 // ---------------------------------------------------------------------------
 
-void Session::close() {
+void Session::close() noexcept {
     if (closed_) return;
     closed_ = true;
-    send_message(MessageType::SessionClose, 0);
+    send_message(MessageType::SessionClose, 0);  // best-effort, ignore error
     sock_.close();
 }
 
@@ -162,24 +165,31 @@ void Session::close() {
 // call() and call_async()
 // ---------------------------------------------------------------------------
 
-Response Session::call(const EndpointID& endpoint, Request request,
-                       uint16_t input_channels, uint16_t output_channels) {
-    auto pending = call_async(endpoint, std::move(request),
-                              input_channels, output_channels);
+logos::expected<Response> Session::call(const EndpointID& endpoint, Request request,
+                                         uint16_t input_channels,
+                                         uint16_t output_channels) noexcept {
+    LOGOS_TRY(auto pending, call_async(endpoint, std::move(request),
+                                       input_channels, output_channels));
     return pending->wait();
 }
 
-std::shared_ptr<Call> Session::call_async(const EndpointID& endpoint,
-                                           Request request,
-                                           uint16_t input_channels,
-                                           uint16_t output_channels) {
+logos::expected<std::shared_ptr<Call>> Session::call_async(
+    const EndpointID& endpoint,
+    Request           request,
+    uint16_t          input_channels,
+    uint16_t          output_channels) noexcept {
+
     // Allocate call ID.
     CallID call_id = call_id_cnt_;
     call_id_cnt_ += 2;
 
     // Set channel counts in the request.
-    if (input_channels > 0)  request.set_input_channels(input_channels).get();
-    if (output_channels > 0) request.set_output_channels(output_channels).get();
+    if (input_channels > 0) {
+        LOGOS_TRY_VOID(request.set_input_channels(input_channels));
+    }
+    if (output_channels > 0) {
+        LOGOS_TRY_VOID(request.set_output_channels(output_channels));
+    }
 
     // Build PendingCall state.
     auto pending = std::make_shared<PendingCall>();
@@ -200,7 +210,7 @@ std::shared_ptr<Call> Session::call_async(const EndpointID& endpoint,
     }
 
     // Send the CALL message.
-    send_message(MessageType::Call, call_id, &endpoint, 0, &request.doc);
+    LOGOS_TRY_VOID(send_message(MessageType::Call, call_id, &endpoint, 0, &request.doc));
 
     return std::make_shared<Call>(std::move(pending), this);
 }
@@ -209,31 +219,31 @@ std::shared_ptr<Call> Session::call_async(const EndpointID& endpoint,
 // send_raw() — write a fully formed buffer under write_mutex_
 // ---------------------------------------------------------------------------
 
-void Session::send_raw(const std::vector<uint8_t>& buf) {
+logos::expected<void> Session::send_raw(const std::vector<uint8_t>& buf) noexcept {
     std::lock_guard lock(write_mutex_);
-    sock_.write_all(buf.data(), buf.size());
+    return sock_.write_all(buf.data(), buf.size());
 }
 
 // ---------------------------------------------------------------------------
 // send_message() — build a wire message and send it
 // ---------------------------------------------------------------------------
 
-void Session::send_message(MessageType type, CallID call_id,
-                            const EndpointID* endpoint,
-                            ChannelCode ch_code,
-                            const HermesCtr* payload) {
+logos::expected<void> Session::send_message(MessageType type, CallID call_id,
+                                             const EndpointID* endpoint,
+                                             ChannelCode ch_code,
+                                             const HermesCtr* payload) noexcept {
     // Encode payload bytes.
     std::vector<uint8_t> payload_bytes;
     if (payload && !payload->is_null()) {
-        payload_bytes = binary_encode(*payload).get();
+        LOGOS_TRY(payload_bytes, binary_encode(*payload));
     }
 
     // Compute sizes.
     size_t hdr_size = MessageHeader::kBaseSize + (endpoint ? 32u : 0u);
     size_t total    = hdr_size + payload_bytes.size();
 
-    std::vector<uint8_t> buf(total, 0);
-    MessageHeader* hdr = reinterpret_cast<MessageHeader*>(buf.data());
+    std::vector<uint8_t> msg_buf(total, 0);
+    MessageHeader* hdr = reinterpret_cast<MessageHeader*>(msg_buf.data());
     hdr->message_size  = static_cast<uint32_t>(total);
     hdr->bits          = 0;
     hdr->call_id       = call_id;
@@ -243,39 +253,40 @@ void Session::send_message(MessageType type, CallID call_id,
 
     if (endpoint) {
         hdr->set_optionals(MessageHeader::kOptEndpointId);
-        hdr->set_endpoint_id(buf.data() + MessageHeader::kBaseSize, *endpoint);
+        hdr->set_endpoint_id(msg_buf.data() + MessageHeader::kBaseSize, *endpoint);
     }
 
     if (!payload_bytes.empty()) {
-        std::memcpy(buf.data() + hdr_size,
+        std::memcpy(msg_buf.data() + hdr_size,
                     payload_bytes.data(), payload_bytes.size());
     }
 
-    send_raw(buf);
+    return send_raw(msg_buf);
 }
 
 // ---------------------------------------------------------------------------
 // send_return() — send a RETURN message with a Response payload
 // ---------------------------------------------------------------------------
 
-void Session::send_return(CallID call_id, Response response) {
-    send_message(MessageType::Return, call_id, nullptr, 0, &response.doc);
+logos::expected<void> Session::send_return(CallID call_id, Response response) noexcept {
+    return send_message(MessageType::Return, call_id, nullptr, 0, &response.doc);
 }
 
 // ---------------------------------------------------------------------------
 // send_channel_message() — public, used by Call::push() and Context::push()
 // ---------------------------------------------------------------------------
 
-void Session::send_channel_message(MessageType type, CallID call_id,
-                                   ChannelCode code, StreamMessage msg) {
+logos::expected<void> Session::send_channel_message(MessageType type, CallID call_id,
+                                                     ChannelCode code,
+                                                     StreamMessage msg) noexcept {
     if (msg.doc.is_null()) {
         // Null doc = end-of-stream sentinel: send close-output message instead.
         MessageType close_type = (type == MessageType::CallChannelMessage)
             ? MessageType::CallCloseOutput
             : MessageType::ContextCloseOutput;
-        send_message(close_type, call_id, nullptr, code, nullptr);
+        return send_message(close_type, call_id, nullptr, code, nullptr);
     } else {
-        send_message(type, call_id, nullptr, code, &msg.doc);
+        return send_message(type, call_id, nullptr, code, &msg.doc);
     }
 }
 
@@ -283,19 +294,17 @@ void Session::send_channel_message(MessageType type, CallID call_id,
 // handle_message() — dispatch inbound messages
 // ---------------------------------------------------------------------------
 
-void Session::handle_message(const MessageHeader& hdr,
-                              const uint8_t* buf,
-                              HermesCtr payload) {
+logos::expected<void> Session::handle_message(const MessageHeader& hdr,
+                                               const uint8_t* buf,
+                                               HermesCtr payload) noexcept {
     switch (hdr.type()) {
         case MessageType::SessionStart:
-            handle_session_start(hdr, std::move(payload));
-            break;
+            return handle_session_start(hdr, std::move(payload));
         case MessageType::SessionClose:
             handle_session_close();
             break;
         case MessageType::Call:
-            handle_call(hdr, buf, std::move(payload));
-            break;
+            return handle_call(hdr, buf, std::move(payload));
         case MessageType::Return:
             handle_return(hdr, std::move(payload));
             break;
@@ -317,18 +326,19 @@ void Session::handle_message(const MessageHeader& hdr,
         default:
             break;
     }
+    return {};
 }
 
 // ---------------------------------------------------------------------------
 // handle_session_start()
 // ---------------------------------------------------------------------------
 
-void Session::handle_session_start(const MessageHeader& /*hdr*/,
-                                    HermesCtr /*payload*/) {
+logos::expected<void> Session::handle_session_start(const MessageHeader& /*hdr*/,
+                                                     HermesCtr /*payload*/) noexcept {
     if (side_ == SessionSide::Server) {
         // Acknowledge: send our own SESSION_START.
-        ConnectionMetadata meta = ConnectionMetadata::make().get();
-        send_message(MessageType::SessionStart, 0, nullptr, 0, &meta.doc);
+        LOGOS_TRY(auto meta, ConnectionMetadata::make());
+        LOGOS_TRY_VOID(send_message(MessageType::SessionStart, 0, nullptr, 0, &meta.doc));
 
         std::lock_guard lock(ngt_mutex_);
         negotiated_ = true;
@@ -339,13 +349,14 @@ void Session::handle_session_start(const MessageHeader& /*hdr*/,
         negotiated_ = true;
         ngt_cv_.notify_all();
     }
+    return {};
 }
 
 // ---------------------------------------------------------------------------
 // handle_session_close()
 // ---------------------------------------------------------------------------
 
-void Session::handle_session_close() {
+void Session::handle_session_close() noexcept {
     closed_ = true;
     sock_.close();
 }
@@ -354,9 +365,9 @@ void Session::handle_session_close() {
 // handle_call() — server side: dispatch inbound call to a handler fiber
 // ---------------------------------------------------------------------------
 
-void Session::handle_call(const MessageHeader& hdr,
-                           const uint8_t* buf,
-                           HermesCtr payload) {
+logos::expected<void> Session::handle_call(const MessageHeader& hdr,
+                                            const uint8_t* buf,
+                                            HermesCtr payload) noexcept {
     // Extract endpoint ID from the optional field.
     EndpointID endpoint_id{};
     if (hdr.has_endpoint_id()) {
@@ -365,8 +376,8 @@ void Session::handle_call(const MessageHeader& hdr,
 
     HandlerFn* handler_fn_ptr = endpoints_.get(endpoint_id);
     if (!handler_fn_ptr) {
-        send_return(hdr.call_id, Response::error("Unknown endpoint").get());
-        return;
+        LOGOS_TRY(auto err_resp, Response::error("Unknown endpoint"));
+        return send_return(hdr.call_id, std::move(err_resp));
     }
 
     // Copy the handler (std::function is copyable).
@@ -410,23 +421,24 @@ void Session::handle_call(const MessageHeader& hdr,
 
     // Spawn handler fiber.
     Scheduler::current()->spawn(
-        [this, handler_fn = std::move(handler_fn), actx, call_id]() mutable {
-            Response rs;
-            rs = handler_fn(actx->ctx);
-            send_return(call_id, std::move(rs));
+        [this, handler_fn = std::move(handler_fn), actx, call_id]() mutable noexcept {
+            Response rs = handler_fn(actx->ctx);
+            send_return(call_id, std::move(rs));  // best-effort, connection dies if this fails
 
             std::lock_guard lock(contexts_mutex_);
             contexts_.erase(call_id);
         },
         "hrpc-handler"
     );
+
+    return {};
 }
 
 // ---------------------------------------------------------------------------
 // handle_return() — client side: deliver response to waiting Call
 // ---------------------------------------------------------------------------
 
-void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) {
+void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) noexcept {
     std::shared_ptr<PendingCall> pc;
     {
         std::lock_guard lock(pending_calls_mutex_);
@@ -447,7 +459,7 @@ void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) {
 // handle_call_channel_msg() — client pushed a message → feed context channel
 // ---------------------------------------------------------------------------
 
-void Session::handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payload) {
+void Session::handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept {
     std::shared_ptr<ActiveContext> actx;
     {
         std::lock_guard lock(contexts_mutex_);
@@ -467,7 +479,7 @@ void Session::handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payloa
 // handle_ctx_channel_msg() — context pushed a message → feed call channel
 // ---------------------------------------------------------------------------
 
-void Session::handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload) {
+void Session::handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept {
     std::shared_ptr<PendingCall> pc;
     {
         std::lock_guard lock(pending_calls_mutex_);
@@ -487,7 +499,7 @@ void Session::handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload
 // handle_call_close_output() — call side closed its output → sentinel to ctx
 // ---------------------------------------------------------------------------
 
-void Session::handle_call_close_output(const MessageHeader& hdr) {
+void Session::handle_call_close_output(const MessageHeader& hdr) noexcept {
     std::shared_ptr<ActiveContext> actx;
     {
         std::lock_guard lock(contexts_mutex_);
@@ -507,7 +519,7 @@ void Session::handle_call_close_output(const MessageHeader& hdr) {
 // handle_ctx_close_output() — context closed its output → sentinel to call
 // ---------------------------------------------------------------------------
 
-void Session::handle_ctx_close_output(const MessageHeader& hdr) {
+void Session::handle_ctx_close_output(const MessageHeader& hdr) noexcept {
     std::shared_ptr<PendingCall> pc;
     {
         std::lock_guard lock(pending_calls_mutex_);
@@ -526,7 +538,7 @@ void Session::handle_ctx_close_output(const MessageHeader& hdr) {
 // handle_cancel()
 // ---------------------------------------------------------------------------
 
-void Session::handle_cancel(const MessageHeader& hdr) {
+void Session::handle_cancel(const MessageHeader& hdr) noexcept {
     std::lock_guard lock(contexts_mutex_);
     auto it = contexts_.find(hdr.call_id);
     if (it != contexts_.end()) {
@@ -545,11 +557,12 @@ void Session::handle_cancel(const MessageHeader& hdr) {
 
 namespace logos::hrpc {
 
-void Context::push(StreamMessage msg, ChannelCode code) {
+logos::expected<void> Context::push(StreamMessage msg, ChannelCode code) noexcept {
     if (session_) {
-        session_->send_channel_message(
+        return session_->send_channel_message(
             MessageType::ContextChannelMessage, call_id_, code, std::move(msg));
     }
+    return {};
 }
 
 } // namespace logos::hrpc
@@ -562,14 +575,15 @@ void Context::push(StreamMessage msg, ChannelCode code) {
 
 namespace logos::hrpc {
 
-void Call::push(StreamMessage msg, ChannelCode code) {
+logos::expected<void> Call::push(StreamMessage msg, ChannelCode code) noexcept {
     if (session_) {
-        session_->send_channel_message(
+        return session_->send_channel_message(
             MessageType::CallChannelMessage,
             state_->call_id,
             code,
             std::move(msg));
     }
+    return {};
 }
 
 } // namespace logos::hrpc

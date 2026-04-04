@@ -23,7 +23,7 @@ std::vector<CallEvent> get_thread_call_chain();
 std::string capture_call_chain_json();
 
 // Pause and resume call ring tracking (useful to prevent std::format from overwriting the chain on assert)
-void pause_call_ring();
-void resume_call_ring();
+void pause_call_ring() noexcept;
+void resume_call_ring() noexcept;
 
 } // namespace logos

@@ -7,14 +7,14 @@
 #include <logos/verification/sqlite_sink.hpp>
 #include <iostream>
 
-[[gnu::noinline]] void deeper_function() {
+[[gnu::noinline]] void deeper_function() noexcept {
     LOGOS_TRACE("test.deep", "msg", "Inside deeper function", "val", 42);
     // Simulate an error
     int x = 5;
     LOGOS_ASSERT(x == 10, "REQ-001", "Expected x to be 10, got {}", x);
 }
 
-[[gnu::noinline]] void some_function() {
+[[gnu::noinline]] void some_function() noexcept {
     LOGOS_TRACE("test.mid", "step", 1);
     deeper_function();
 }

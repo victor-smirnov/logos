@@ -17,7 +17,7 @@ namespace logos::hermes {
 
 class BinaryEncoder {
 public:
-    void encode_document(const HermesCtr& doc) {
+    void encode_document(const HermesCtr& doc) noexcept {
         LOGOS_ASSERT(doc.has_root(), "HERMES-BINARY-001",
             "Cannot encode a document without a root");
 
@@ -34,18 +34,18 @@ private:
     std::vector<uint8_t> buf_;
     const uint8_t* base_ = nullptr;
 
-    void write_bytes(const void* data, size_t len) {
+    void write_bytes(const void* data, size_t len) noexcept {
         auto* p = static_cast<const uint8_t*>(data);
         buf_.insert(buf_.end(), p, p + len);
     }
 
-    void write_varint(uint64_t value) {
+    void write_varint(uint64_t value) noexcept {
         uint8_t tmp[8];
         size_t n = varint_encode(value, tmp);
         write_bytes(tmp, n);
     }
 
-    void write_type_tag(TypeTag tag) {
+    void write_type_tag(TypeTag tag) noexcept {
         // Write the tag as variable-length bytes.
         size_t len = tag.byte_length();
         uint64_t raw = tag.raw();
@@ -54,7 +54,7 @@ private:
         }
     }
 
-    void encode_tagged_object(const uint8_t* obj_addr) {
+    void encode_tagged_object(const uint8_t* obj_addr) noexcept {
         TypeTag tag = TypeTag::read_before(obj_addr);
         uint64_t tc = tag.type_code();
 
@@ -73,7 +73,7 @@ private:
         }
     }
 
-    void encode_tagged_ptr(const AnyVal* slot) {
+    void encode_tagged_ptr(const AnyVal* slot) noexcept {
         if (slot->is_null()) {
             // Encode null as a zero-length special marker.
             // Use type_code 0 with code_len 0 as null indicator.
@@ -100,7 +100,7 @@ private:
         encode_tagged_object(target);
     }
 
-    void encode_string(const uint8_t* obj, TypeTag tag) {
+    void encode_string(const uint8_t* obj, TypeTag tag) noexcept {
         auto* s = reinterpret_cast<const ArenaString*>(obj);
         auto sv = s->view();
 
@@ -109,7 +109,7 @@ private:
         write_bytes(sv.data(), sv.size());
     }
 
-    void encode_tiny_map(const uint8_t* obj, TypeTag tag) {
+    void encode_tiny_map(const uint8_t* obj, TypeTag tag) noexcept {
         auto* map = reinterpret_cast<const TinyObjectMap*>(obj);
 
         write_type_tag(tag);
@@ -124,7 +124,7 @@ private:
         }
     }
 
-    void encode_object_array(const uint8_t* obj, TypeTag tag) {
+    void encode_object_array(const uint8_t* obj, TypeTag tag) noexcept {
         auto* arr = reinterpret_cast<const ObjectArray*>(obj);
 
         write_type_tag(tag);
@@ -139,14 +139,14 @@ private:
         }
     }
 
-    void encode_object_map(const uint8_t* obj, TypeTag tag) {
+    void encode_object_map(const uint8_t* obj, TypeTag tag) noexcept {
         auto* map = reinterpret_cast<const ObjectMap*>(obj);
 
         write_type_tag(tag);
         write_varint(map->size());
 
         uint8_t* base_mut = const_cast<uint8_t*>(base_);
-        map->for_each([&](ArenaString* key, AnyVal* val_slot) {
+        map->for_each([&](ArenaString* key, AnyVal* val_slot) noexcept {
             // Encode key as string (without TypeTag — always Varchar by convention).
             auto sv = key->view();
             write_varint(sv.size());
@@ -157,7 +157,7 @@ private:
         }, base_mut);
     }
 
-    void encode_fixed(const uint8_t* obj, TypeTag tag) {
+    void encode_fixed(const uint8_t* obj, TypeTag tag) noexcept {
         size_t sz = fixed_size_for(tag.type_code());
         write_type_tag(tag);
         write_bytes(obj, sz);

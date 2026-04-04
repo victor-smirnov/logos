@@ -128,7 +128,7 @@ private:
         LOGOS_TRY(auto* dst_map, ObjectMap::create(dst_));
 
         logos::expected<void> status;
-        src_map->for_each([&](ArenaString* src_key, AnyVal* src_val_slot) {
+        src_map->for_each([&](ArenaString* src_key, AnyVal* src_val_slot) noexcept {
             if (!status) return;
             auto r = dst_map->put(src_key->view(), AnyVal{}, dst_);
             if (!r) { status = std::move(r); return; }

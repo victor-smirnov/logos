@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Logos project — https://github.com/victor-smirnov/logos
 //
 // Fiber-aware UDP socket.
 //
@@ -10,21 +9,16 @@
 // Two usage modes:
 //
 // Unconnected (server / listener):
-//   auto sock = UdpSocket::bind_to("0.0.0.0", 9000);
+//   auto sock = UdpSocket::bind_to("0.0.0.0", 9000).get();
 //   UdpEndpoint from;
 //   char buf[1500];
-//   int n = sock.recv_from(buf, sizeof(buf), from);
-//   sock.send_to(buf, n, from);  // echo
+//   int n = sock.recv_from(buf, sizeof(buf), from).get();
+//   sock.send_to(buf, n, from).get();  // echo
 //
 // Connected (client — fixed peer, no address per datagram):
-//   auto sock = UdpSocket::connect_to("127.0.0.1", 9000);
-//   sock.send("hello", 5);
-//   char reply[64]; int n = sock.recv(reply, sizeof(reply));
-//
-// Notes:
-// - Maximum useful datagram size is limited by the OS UDP buffer and MTU.
-// - For QUIC, the caller handles framing; UdpSocket just provides the
-//   unreliable datagram transport beneath it.
+//   auto sock = UdpSocket::connect_to("127.0.0.1", 9000).get();
+//   sock.send("hello", 5).get();
+//   char reply[64]; int n = sock.recv(reply, sizeof(reply)).get();
 
 #pragma once
 
@@ -51,7 +45,6 @@ struct UdpEndpoint {
 
     UdpEndpoint() { addr.sin_family = AF_INET; }
 
-    // Returns nullptr on invalid host.
     static logos::expected<UdpEndpoint> make(const char* host, uint16_t port) noexcept {
         UdpEndpoint ep;
         ep.addr.sin_port = htons(port);
@@ -93,16 +86,10 @@ public:
     // Factories
     // -----------------------------------------------------------------------
 
-    // Bind to host:port (server / listener).
     [[nodiscard]]
     static logos::expected<UdpSocket> bind_to(const char* host, uint16_t port) noexcept {
-        auto ep_exp = UdpEndpoint::make(host, port);
-        if (!ep_exp) return std::unexpected(std::move(ep_exp.error()));
-        auto& ep = *ep_exp;
-
-        auto fd_exp = make_socket();
-        if (!fd_exp) return std::unexpected(std::move(fd_exp.error()));
-        int fd = *fd_exp;
+        LOGOS_TRY(auto ep, UdpEndpoint::make(host, port));
+        LOGOS_TRY(auto fd, make_socket());
 
         int one = 1;
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
@@ -115,16 +102,10 @@ public:
         return UdpSocket{fd};
     }
 
-    // Connect to peer (client — sets default destination for send/recv).
     [[nodiscard]]
     static logos::expected<UdpSocket> connect_to(const char* host, uint16_t port) noexcept {
-        auto ep_exp = UdpEndpoint::make(host, port);
-        if (!ep_exp) return std::unexpected(std::move(ep_exp.error()));
-        auto& ep = *ep_exp;
-
-        auto fd_exp = make_socket();
-        if (!fd_exp) return std::unexpected(std::move(fd_exp.error()));
-        int fd = *fd_exp;
+        LOGOS_TRY(auto ep, UdpEndpoint::make(host, port));
+        LOGOS_TRY(auto fd, make_socket());
 
         if (::connect(fd, ep.as_sockaddr(), ep.len()) < 0) {
             ::close(fd);
@@ -133,20 +114,18 @@ public:
         return UdpSocket{fd};
     }
 
-    // Create an unbound, unconnected socket (manual bind/connect later).
     [[nodiscard]]
     static logos::expected<UdpSocket> create() noexcept {
-        auto fd_exp = make_socket();
-        if (!fd_exp) return std::unexpected(std::move(fd_exp.error()));
-        return UdpSocket{*fd_exp};
+        LOGOS_TRY(auto fd, make_socket());
+        return UdpSocket{fd};
     }
 
     // -----------------------------------------------------------------------
     // Unconnected send/recv (explicit endpoint per datagram)
     // -----------------------------------------------------------------------
 
-    // Send datagram to 'to'. Returns bytes sent, or -errno on error.
-    int send_to(const void* buf, size_t size, const UdpEndpoint& to) {
+    [[nodiscard]]
+    logos::expected<int> send_to(const void* buf, size_t size, const UdpEndpoint& to) noexcept {
         iovec  iov{ const_cast<void*>(buf), size };
         msghdr mh{};
         mh.msg_name    = const_cast<sockaddr*>(to.as_sockaddr());
@@ -156,17 +135,16 @@ public:
         return Reactor::current()->sendmsg(fd_, &mh, 0);
     }
 
-    // Receive one datagram; fills 'from' with sender's address.
-    // Returns bytes received, or -errno on error.
-    int recv_from(void* buf, size_t size, UdpEndpoint& from) {
+    [[nodiscard]]
+    logos::expected<int> recv_from(void* buf, size_t size, UdpEndpoint& from) noexcept {
         iovec  iov{ buf, size };
         msghdr mh{};
         mh.msg_name    = from.as_sockaddr();
         mh.msg_namelen = from.len();
         mh.msg_iov     = &iov;
         mh.msg_iovlen  = 1;
-        int n = Reactor::current()->recvmsg(fd_, &mh, 0);
-        if (n >= 0) from.addr.sin_port = reinterpret_cast<sockaddr_in*>(mh.msg_name)->sin_port;
+        LOGOS_TRY(auto n, Reactor::current()->recvmsg(fd_, &mh, 0));
+        from.addr.sin_port = reinterpret_cast<sockaddr_in*>(mh.msg_name)->sin_port;
         return n;
     }
 
@@ -174,11 +152,13 @@ public:
     // Connected send/recv (no address needed per datagram)
     // -----------------------------------------------------------------------
 
-    int send(const void* buf, size_t size, int flags = 0) {
+    [[nodiscard]]
+    logos::expected<int> send(const void* buf, size_t size, int flags = 0) noexcept {
         return Reactor::current()->send(fd_, buf, size, flags);
     }
 
-    int recv(void* buf, size_t size, int flags = 0) {
+    [[nodiscard]]
+    logos::expected<int> recv(void* buf, size_t size, int flags = 0) noexcept {
         return Reactor::current()->recv(fd_, buf, size, flags);
     }
 
@@ -186,7 +166,7 @@ public:
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    void close() { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
+    void close() noexcept { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
     bool valid() const noexcept { return fd_ >= 0; }
     int  fd()    const noexcept { return fd_; }
 

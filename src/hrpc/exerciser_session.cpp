@@ -54,7 +54,7 @@ static void test_echo_rq() {
             AnyVal param = ctx.request().get_param(keys::PARAMETERS);
             return Response::ok(param).get();
         }).get();
-        session.start();
+        session.start().get();
         session.run();
     }, "server");
 
@@ -65,12 +65,12 @@ static void test_echo_rq() {
         // Spawn the run fiber before start() so we can receive SESSION_START ack.
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
 
-        session.start();
+        session.start().get();
 
         Request rq = Request::make().get();
         rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(42))).get();
 
-        Response rs = session.call(kEchoEndpoint, std::move(rq));
+        Response rs = session.call(kEchoEndpoint, std::move(rq)).get();
 
         LOGOS_ASSERT(rs.is_ok(), "HRPC-SESSION-T01a",
                      "Expected ok response, got error: {}", rs.error_description());
@@ -104,7 +104,7 @@ static void test_multi_rq() {
         session.endpoints().add(kEchoEndpoint, [](Context& ctx) -> Response {
             return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
         }).get();
-        session.start();
+        session.start().get();
         session.run();
     }, "server");
 
@@ -112,12 +112,12 @@ static void test_multi_rq() {
 
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
-        session.start();
+        session.start().get();
 
         for (int i = 0; i < N; ++i) {
             Request rq = Request::make().get();
             rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(i * 10))).get();
-            Response rs = session.call(kEchoEndpoint, std::move(rq));
+            Response rs = session.call(kEchoEndpoint, std::move(rq)).get();
 
             LOGOS_ASSERT(rs.is_ok(), "HRPC-SESSION-T02a",
                          "Call {} failed: {}", i, rs.error_description());
@@ -167,7 +167,7 @@ static void test_bidirectional() {
                 Request ping_rq = Request::make().get();
                 ping_rq.set_param(keys::PARAMETERS,
                                   AnyVal::from_value(int32_t(client_val + 1))).get();
-                Response ping_rs = session.call(kPingEndpoint, std::move(ping_rq));
+                Response ping_rs = session.call(kPingEndpoint, std::move(ping_rq)).get();
 
                 server_called_client_with = client_val + 1;
 
@@ -176,7 +176,7 @@ static void test_bidirectional() {
             }).get();
 
         // Server runs its read loop — no separate "server makes first call" step.
-        session.start();
+        session.start().get();
         session.run();
     }, "server");
 
@@ -190,12 +190,12 @@ static void test_bidirectional() {
         }).get();
 
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
-        session.start();
+        session.start().get();
 
         // Client calls the server's echo endpoint.
         Request rq = Request::make().get();
         rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(77))).get();
-        Response rs = session.call(kEchoEndpoint, std::move(rq));
+        Response rs = session.call(kEchoEndpoint, std::move(rq)).get();
 
         LOGOS_ASSERT(rs.is_ok(), "HRPC-SESSION-T03b",
                      "Client->server call failed: {}", rs.error_description());
@@ -228,7 +228,7 @@ static void test_unknown_endpoint() {
 
         Session session(std::move(conn), SessionSide::Server);
         // Register nothing — all calls should return error.
-        session.start();
+        session.start().get();
         session.run();
     }, "server");
 
@@ -236,11 +236,11 @@ static void test_unknown_endpoint() {
 
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
-        session.start();
+        session.start().get();
 
         EndpointID unknown = make_random_endpoint_id().get();
         Request rq = Request::make().get();
-        Response rs = session.call(unknown, std::move(rq));
+        Response rs = session.call(unknown, std::move(rq)).get();
 
         got_error = !rs.is_ok();
         LOGOS_ASSERT(got_error, "HRPC-SESSION-T04a",

@@ -62,7 +62,7 @@ struct TypeOps {
 
 // Collect all TypeOps from the linker section and build the dispatch tables.
 // Must be called once before any stringify / compare operation.
-void hermes_init();
+void hermes_init() noexcept;
 
 // Return the TypeOps for a type_code, or nullptr if unknown.
 // O(1) for core types; ≤2 probes for extension types.

@@ -31,19 +31,19 @@ static void test_udp_echo_single() {
         auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase).get();
         char buf[256];
         UdpEndpoint from;
-        int n = server.recv_from(buf, sizeof(buf), from);
+        int n = server.recv_from(buf, sizeof(buf), from).get();
         LOGOS_ASSERT(n > 0, "REACTOR-UDP-T01a", "server recv_from failed: {}", n);
-        server.send_to(buf, static_cast<size_t>(n), from);
+        server.send_to(buf, static_cast<size_t>(n), from).get();
     }, "server");
 
     reactor.spawn([&] {
         Scheduler::current()->yield();
         auto sock = UdpSocket::bind_to("127.0.0.1", kUdpBase + 1).get();
         auto server_ep = UdpEndpoint::make("127.0.0.1", kUdpBase).get();
-        sock.send_to(payload.data(), payload.size(), server_ep);
+        sock.send_to(payload.data(), payload.size(), server_ep).get();
         char buf[256];
         UdpEndpoint from;
-        int n = sock.recv_from(buf, sizeof(buf), from);
+        int n = sock.recv_from(buf, sizeof(buf), from).get();
         LOGOS_ASSERT(n > 0, "REACTOR-UDP-T01b", "client recv_from failed: {}", n);
         received.assign(buf, static_cast<size_t>(n));
     }, "client");
@@ -70,18 +70,18 @@ static void test_udp_connected() {
         auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase + 2).get();
         char buf[256];
         UdpEndpoint from;
-        int n = server.recv_from(buf, sizeof(buf), from);
+        int n = server.recv_from(buf, sizeof(buf), from).get();
         LOGOS_ASSERT(n > 0, "REACTOR-UDP-T02a", "server recv failed: {}", n);
-        server.send_to(buf, static_cast<size_t>(n), from);
+        server.send_to(buf, static_cast<size_t>(n), from).get();
     }, "server");
 
     reactor.spawn([&] {
         Scheduler::current()->yield();
         // Client: connected to server's address.
         auto sock = UdpSocket::connect_to("127.0.0.1", kUdpBase + 2).get();
-        sock.send(payload.data(), payload.size());
+        sock.send(payload.data(), payload.size()).get();
         char buf[256];
-        int n = sock.recv(buf, sizeof(buf));
+        int n = sock.recv(buf, sizeof(buf)).get();
         LOGOS_ASSERT(n > 0, "REACTOR-UDP-T02b", "client recv failed: {}", n);
         received.assign(buf, static_cast<size_t>(n));
     }, "client");
@@ -108,9 +108,9 @@ static void test_udp_multi_datagram() {
         for (int i = 0; i < N; ++i) {
             char buf[8];
             UdpEndpoint from;
-            int n = server.recv_from(buf, sizeof(buf), from);
+            int n = server.recv_from(buf, sizeof(buf), from).get();
             LOGOS_ASSERT(n == 4, "REACTOR-UDP-T03a", "server recv wrong size: {}", n);
-            server.send_to(buf, static_cast<size_t>(n), from);
+            server.send_to(buf, static_cast<size_t>(n), from).get();
         }
     }, "server");
 
@@ -120,10 +120,10 @@ static void test_udp_multi_datagram() {
         auto server_ep = UdpEndpoint::make("127.0.0.1", kUdpBase + 3).get();
         for (int i = 0; i < N; ++i) {
             uint32_t val = static_cast<uint32_t>(i);
-            sock.send_to(&val, sizeof(val), server_ep);
+            sock.send_to(&val, sizeof(val), server_ep).get();
             uint32_t reply;
             UdpEndpoint from;
-            int n = sock.recv_from(&reply, sizeof(reply), from);
+            int n = sock.recv_from(&reply, sizeof(reply), from).get();
             LOGOS_ASSERT(n == 4, "REACTOR-UDP-T03b", "client recv wrong size: {}", n);
             echoed.push_back(static_cast<int>(reply));
         }

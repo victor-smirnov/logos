@@ -27,7 +27,7 @@ static void test_signal_catch() {
 
     // Fiber 1: waits for SIGUSR1.
     reactor.spawn([&] {
-        caught = watcher.wait();
+        caught = watcher.wait().get();
     }, "signal-waiter");
 
     // Fiber 2: raises SIGUSR1 after yielding to let waiter block.
@@ -57,7 +57,7 @@ static void test_graceful_shutdown() {
 
     // Signal handler fiber: waits, then calls reactor.stop().
     reactor.spawn([&] {
-        watcher.wait();
+        watcher.wait().get();
         shutdown_seen = true;
         reactor.stop();
     }, "shutdown-handler");
@@ -96,7 +96,7 @@ static void test_multiple_signals() {
 
     reactor.spawn([&] {
         for (int i = 0; i < 2; ++i) {
-            int sig = watcher.wait();
+            int sig = watcher.wait().get();
             LOGOS_ASSERT(sig == SIGUSR1, "REACTOR-SIG-T03a",
                          "Expected SIGUSR1, got {}", sig);
             ++count;

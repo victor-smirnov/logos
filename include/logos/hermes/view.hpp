@@ -125,7 +125,7 @@ public:
     [[nodiscard]] logos::expected<void> put(std::string_view key, const ObjectView& value) noexcept;
 
     template <typename Fn>
-    void for_each(Fn fn) const { ptr()->for_each(fn, base()); }
+    void for_each(Fn fn) const noexcept { ptr()->for_each(fn, base()); }
 };
 
 class StringView : public ViewBase {

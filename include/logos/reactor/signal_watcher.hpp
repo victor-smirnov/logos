@@ -80,13 +80,14 @@ public:
     SignalWatcher& operator=(const SignalWatcher&) = delete;
 
     // Block the calling fiber until one of the watched signals arrives.
-    // Returns the signal number.
-    int wait() {
+    // Returns the signal number, or Err on IO failure.
+    [[nodiscard]]
+    logos::expected<int> wait() noexcept {
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-SIG-001", "SignalWatcher::wait() called outside reactor");
 
         signalfd_siginfo info{};
-        int n = r->read(sfd_, &info, sizeof(info));
+        LOGOS_TRY(auto n, r->read(sfd_, &info, sizeof(info)));
         LOGOS_ASSERT(n == (int)sizeof(info), "REACTOR-SIG-002",
                      "signalfd read returned {}, expected {}", n, (int)sizeof(info));
         return static_cast<int>(info.ssi_signo);

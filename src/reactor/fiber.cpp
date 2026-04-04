@@ -71,7 +71,7 @@ Fiber::~Fiber() {
 //
 // FiberRegs.r12 = this   (picked up by fiber_entry_trampoline → rdi)
 // ---------------------------------------------------------------------------
-void Fiber::init_stack() {
+void Fiber::init_stack() noexcept {
     // Stack top: base + 4096 (guard) + stack_size_.
     uint8_t* top = stack_base_ + 4096 + stack_size_;
 
