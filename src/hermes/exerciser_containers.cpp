@@ -23,7 +23,7 @@ using namespace logos::hermes;
 static void test_tiny_map_basic() {
     std::printf("--- TinyObjectMap basic ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
     auto* map = TinyObjectMap::create(arena);
 
@@ -72,7 +72,7 @@ static void test_tiny_map_basic() {
 static void test_tiny_map_update() {
     std::printf("--- TinyObjectMap update ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
     auto* map = TinyObjectMap::create(arena);
 
@@ -93,7 +93,7 @@ static void test_tiny_map_update() {
 static void test_tiny_map_remove() {
     std::printf("--- TinyObjectMap remove ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
     auto* map = TinyObjectMap::create(arena);
 
@@ -122,7 +122,7 @@ static void test_tiny_map_remove() {
 static void test_tiny_map_stress() {
     std::printf("--- TinyObjectMap stress (all 52 keys) ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 8192);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
     auto* map = TinyObjectMap::create(arena, 0);
 
@@ -161,7 +161,7 @@ static void test_tiny_map_stress() {
 static void test_object_array_basic() {
     std::printf("--- ObjectArray basic ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
     auto* arr = ObjectArray::create(arena);
 
@@ -195,7 +195,7 @@ static void test_object_array_basic() {
 static void test_object_array_grow() {
     std::printf("--- ObjectArray grow ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
     auto* arr = ObjectArray::create(arena, 2); // Small initial capacity.
 
@@ -222,7 +222,7 @@ static void test_object_array_grow() {
 static void test_object_array_set_and_pop() {
     std::printf("--- ObjectArray set/pop ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
     auto* arr = ObjectArray::create(arena);
 
@@ -247,7 +247,7 @@ static void test_object_array_set_and_pop() {
 static void test_object_array_with_pointers() {
     std::printf("--- ObjectArray with arena pointers ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
     auto* arr = ObjectArray::create(arena);
 
@@ -285,7 +285,7 @@ static void test_object_array_with_pointers() {
 static void test_object_map_basic() {
     std::printf("--- ObjectMap basic ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 8192);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
     auto* map = ObjectMap::create(arena);
 
@@ -315,7 +315,7 @@ static void test_object_map_basic() {
 static void test_object_map_update() {
     std::printf("--- ObjectMap update ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 8192);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
     auto* map = ObjectMap::create(arena);
 
@@ -332,7 +332,7 @@ static void test_object_map_update() {
 static void test_object_map_remove() {
     std::printf("--- ObjectMap remove ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 8192);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
     auto* map = ObjectMap::create(arena);
 
@@ -356,7 +356,7 @@ static void test_object_map_remove() {
 static void test_object_map_stress() {
     std::printf("--- ObjectMap stress (200 keys) ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 65536);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 65536).get();
     uint8_t* base = arena.head().data();
     auto* map = ObjectMap::create(arena);
 
@@ -389,7 +389,7 @@ static void test_object_map_stress() {
 static void test_object_map_with_string_values() {
     std::printf("--- ObjectMap with string values ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 8192);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
     auto* map = ObjectMap::create(arena);
 

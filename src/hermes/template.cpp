@@ -537,7 +537,7 @@ private:
                 return HermesCtrAccess::make_value<uint32_t>(scratch_, slot->as_value<uint32_t>());
             case type_hash::Boolean: {
                 TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
-                void* mem = HermesCtrAccess::arena(scratch_).allocate(1, 2, tag);
+                void* mem = HermesCtrAccess::arena(scratch_).allocate(1, 2, tag).get();
                 *static_cast<uint8_t*>(mem) = slot->as_value<uint8_t>();
                 return mem;
             }

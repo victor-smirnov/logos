@@ -320,7 +320,7 @@ private:
         uint8_t vlen_buf[8];
         size_t vlen_size = varint_encode(len, vlen_buf);
         size_t total = vlen_size + len;
-        auto* mem = static_cast<uint8_t*>(arena.allocate(total, 2, tag));
+        auto* mem = static_cast<uint8_t*>(arena.allocate(total, 2, tag).get());
         std::memcpy(mem, vlen_buf, vlen_size);
         std::memcpy(mem + vlen_size, sv.data(), len);
         return mem;
@@ -375,7 +375,7 @@ private:
     void* decode_fixed(Arena& arena, TypeTag tag) {
         size_t sz = fixed_size_for(tag.type_code());
         size_t align = fixed_align_for(tag.type_code());
-        auto* mem = static_cast<uint8_t*>(arena.allocate(sz, align, tag));
+        auto* mem = static_cast<uint8_t*>(arena.allocate(sz, align, tag).get());
         read_bytes(mem, sz);
         return mem;
     }

@@ -103,7 +103,7 @@ public:
 
     static TinyObjectMap* create(Arena& arena, uint8_t initial_capacity = 4) {
         TypeTag tag(type_hash::Hermes, TagDescriptor::Map);
-        void* mem = arena.allocate(sizeof(TinyObjectMap), alignof(TinyObjectMap), tag);
+        void* mem = arena.allocate(sizeof(TinyObjectMap), alignof(TinyObjectMap), tag).get();
         auto* map = new (mem) TinyObjectMap();
 
         if (initial_capacity > 0) {
@@ -128,7 +128,7 @@ private:
     void grow(Arena& arena, uint8_t new_cap) {
         if (new_cap > MAX_KEYS) new_cap = MAX_KEYS;
 
-        void* new_mem = arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal));
+        void* new_mem = arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal)).get();
         auto* new_vals = static_cast<AnyVal*>(new_mem);
         for (uint8_t i = 0; i < new_cap; ++i) new_vals[i] = AnyVal{};
 

@@ -208,7 +208,7 @@ public:
 
     static ObjectMap* create(Arena& arena, uint8_t initial_log2_buckets = 3) {
         TypeTag tag(type_hash::ObjectMap, TagDescriptor::Map);
-        void* mem = arena.allocate(sizeof(ObjectMap), alignof(ObjectMap), tag);
+        void* mem = arena.allocate(sizeof(ObjectMap), alignof(ObjectMap), tag).get();
         auto* map = new (mem) ObjectMap();
 
         if (initial_log2_buckets > 0) {
@@ -256,7 +256,7 @@ private:
 
     uint8_t* create_bucket(Arena& arena, uint32_t cap = 4) {
         size_t alloc = bucket_alloc_size(cap);
-        auto* bucket = static_cast<uint8_t*>(arena.allocate_raw(alloc, 8));
+        auto* bucket = static_cast<uint8_t*>(arena.allocate_raw(alloc, 8).get());
         std::memset(bucket, 0, alloc);
         // Set NULL_OFFSET for all RelativePtrs (zero won't work since NULL_OFFSET = ~0).
         auto* keys = bucket_keys(bucket);
@@ -298,7 +298,7 @@ private:
     void init_buckets(Arena& arena, uint64_t log2_cap = 3) {
         uint64_t count = 1ULL << log2_cap;
         size_t alloc = count * sizeof(RelativePtr<uint8_t>);
-        auto* mem = static_cast<RelativePtr<uint8_t>*>(arena.allocate_raw(alloc, 8));
+        auto* mem = static_cast<RelativePtr<uint8_t>*>(arena.allocate_raw(alloc, 8).get());
         for (uint64_t i = 0; i < count; ++i) mem[i] = RelativePtr<uint8_t>{};
         uint8_t* base = arena.head().data();
         buckets_.set(mem, base);
@@ -312,7 +312,7 @@ private:
 
         uint64_t new_count = 1ULL << new_log2_cap;
         size_t alloc = new_count * sizeof(RelativePtr<uint8_t>);
-        auto* new_bucket_ptrs = static_cast<RelativePtr<uint8_t>*>(arena.allocate_raw(alloc, 8));
+        auto* new_bucket_ptrs = static_cast<RelativePtr<uint8_t>*>(arena.allocate_raw(alloc, 8).get());
         for (uint64_t i = 0; i < new_count; ++i) new_bucket_ptrs[i] = RelativePtr<uint8_t>{};
 
         base = arena.head().data(); // re-derive

@@ -295,13 +295,13 @@ static void test_varint() {
 static void test_arena_basic() {
     std::printf("--- Arena basic allocation ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
 
     TypeTag int_tag(23, TagDescriptor::Data); // Integer, type_hash=23
 
     // Allocate a few int32_t objects.
-    void* p1 = arena.allocate(sizeof(int32_t), alignof(int32_t), int_tag);
-    void* p2 = arena.allocate(sizeof(int32_t), alignof(int32_t), int_tag);
+    void* p1 = arena.allocate(sizeof(int32_t), alignof(int32_t), int_tag).get();
+    void* p2 = arena.allocate(sizeof(int32_t), alignof(int32_t), int_tag).get();
 
     LOGOS_ASSERT(p1 != nullptr, "HERMES-ARENA-001", "First allocation must succeed");
     LOGOS_ASSERT(p2 != nullptr, "HERMES-ARENA-001", "Second allocation must succeed");
@@ -336,15 +336,15 @@ static void test_arena_basic() {
 static void test_arena_mixed_types() {
     std::printf("--- Arena mixed type allocation ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
 
     TypeTag tiny_tag(20, TagDescriptor::Data);   // TinyInt
     TypeTag big_tag(26, TagDescriptor::Data);     // BigInt (8 bytes, align 8)
     TypeTag map_tag(98, TagDescriptor::Map);      // TinyObjectMap
 
-    void* p_tiny = arena.allocate(1, 2, tiny_tag);
-    void* p_big  = arena.allocate(8, 8, big_tag);
-    void* p_map  = arena.allocate(16, 8, map_tag);
+    void* p_tiny = arena.allocate(1, 2, tiny_tag).get();
+    void* p_big  = arena.allocate(8, 8, big_tag).get();
+    void* p_map  = arena.allocate(16, 8, map_tag).get();
 
     // All must be non-null and properly aligned.
     LOGOS_ASSERT(p_tiny != nullptr, "HERMES-ARENA-001", "");
@@ -369,16 +369,16 @@ static void test_arena_mixed_types() {
 static void test_arena_grow_single_chunk() {
     std::printf("--- Arena single chunk grow ---\n");
 
-    Arena arena(ArenaMode::GrowableSingleChunk, 64); // Tiny initial size.
+    auto arena = Arena::make(ArenaMode::GrowableSingleChunk, 64).get(); // Tiny initial size.
 
     TypeTag tag(23, TagDescriptor::Data);
 
     // Allocate until we exceed the initial capacity.
-    void* first = arena.allocate(sizeof(int32_t), 4, tag);
+    void* first = arena.allocate(sizeof(int32_t), 4, tag).get();
     uintptr_t first_offset = static_cast<uint8_t*>(first) - arena.head().data();
 
     for (int i = 0; i < 100; ++i) {
-        arena.allocate(sizeof(int32_t), 4, tag);
+        arena.allocate(sizeof(int32_t), 4, tag).get();
     }
 
     LOGOS_ASSERT(arena.chunk_count() == 1, "HERMES-ARENA-003",
@@ -401,12 +401,12 @@ static void test_arena_grow_single_chunk() {
 static void test_arena_grow_multi_chunk() {
     std::printf("--- Arena multi-chunk grow ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 64);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 64).get();
 
     TypeTag tag(23, TagDescriptor::Data);
 
     for (int i = 0; i < 100; ++i) {
-        arena.allocate(sizeof(int32_t), 4, tag);
+        arena.allocate(sizeof(int32_t), 4, tag).get();
     }
 
     LOGOS_ASSERT(arena.chunk_count() > 1, "HERMES-ARENA-003",
@@ -420,17 +420,17 @@ static void test_arena_grow_multi_chunk() {
 static void test_arena_raw_allocation() {
     std::printf("--- Arena raw allocation ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
 
     // Raw allocation (no tag) — used for DocumentHeader.
-    void* raw = arena.allocate_raw(8, 8);
+    void* raw = arena.allocate_raw(8, 8).get();
     LOGOS_ASSERT(raw != nullptr, "HERMES-ARENA-001", "Raw allocation must succeed");
     LOGOS_ASSERT(reinterpret_cast<uintptr_t>(raw) % 8 == 0, "HERMES-ARENA-001",
         "Raw allocation must be aligned");
 
     // After raw allocation, tagged allocation must still work.
     TypeTag tag(20, TagDescriptor::Data);
-    void* tagged = arena.allocate(1, 2, tag);
+    void* tagged = arena.allocate(1, 2, tag).get();
     LOGOS_ASSERT(tagged != nullptr, "HERMES-ARENA-001", "");
 
     TypeTag rt = TypeTag::read_before(static_cast<const uint8_t*>(tagged));

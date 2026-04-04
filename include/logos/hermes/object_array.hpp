@@ -56,7 +56,7 @@ public:
 
     static ObjectArray* create(Arena& arena, uint64_t initial_capacity = 4) {
         TypeTag tag(type_hash::ObjectArray, TagDescriptor::Array);
-        void* mem = arena.allocate(sizeof(ObjectArray), alignof(ObjectArray), tag);
+        void* mem = arena.allocate(sizeof(ObjectArray), alignof(ObjectArray), tag).get();
         auto* arr = new (mem) ObjectArray();
 
         if (initial_capacity > 0) {
@@ -73,7 +73,7 @@ private:
     AnyVal* elements(uint8_t* base) const { return data_.get(base); }
 
     void grow(Arena& arena, uint64_t new_cap) {
-        void* new_mem = arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal));
+        void* new_mem = arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal)).get();
         auto* new_elems = static_cast<AnyVal*>(new_mem);
         for (uint64_t i = 0; i < new_cap; ++i) new_elems[i] = AnyVal{};
 

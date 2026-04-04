@@ -63,7 +63,7 @@ static void test_type_registry() {
 static void test_arena_put_get() {
     std::printf("--- arena_put / arena_get ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
 
     // Integer types
     {
@@ -166,7 +166,7 @@ static void test_tagged_ptr_with_traits() {
 static void test_arena_string() {
     std::printf("--- ArenaString ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
 
     // Basic string
     {
@@ -238,7 +238,7 @@ static void test_fnv_hash() {
     LOGOS_ASSERT(h1 == h3, "HERMES-HASH-001", "Same strings must hash identically");
 
     // ArenaString hash must match direct hash
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     ArenaString* s = ArenaString::create(arena, "hello");
     LOGOS_ASSERT(s->hash() == h1, "HERMES-HASH-002",
         "ArenaString::hash() must match fnv1a_hash() for same content");
@@ -254,7 +254,7 @@ static void test_fnv_hash() {
 static void test_uid_types() {
     std::printf("--- UID types ---\n");
 
-    Arena arena(ArenaMode::MultiChunk, 4096);
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
 
     // Uid64
     {

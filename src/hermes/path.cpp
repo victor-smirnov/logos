@@ -698,7 +698,7 @@ private:
                 return HermesCtrAccess::make_value<uint32_t>(result_, slot->as_value<uint32_t>());
             case type_hash::Boolean: {
                 TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
-                void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, tag);
+                void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, tag).get();
                 *static_cast<uint8_t*>(mem) = slot->as_value<uint8_t>();
                 return mem;
             }
@@ -835,7 +835,7 @@ private:
         int32_t cmp = node->get(COMPARATOR, ast_base_).as_value<int32_t>();
         bool result_val = compare(lv, rv, cmp);
         TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
-        void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, tag);
+        void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, tag).get();
         *static_cast<uint8_t*>(mem) = result_val ? 1 : 0;
         return mem;
     }
@@ -889,7 +889,7 @@ private:
         void* val = eval(data, get_child(node, RIGHT));
         bool result_val = !is_truthy(val);
         TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
-        void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, tag);
+        void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, tag).get();
         *static_cast<uint8_t*>(mem) = result_val ? 1 : 0;
         return mem;
     }
@@ -1095,7 +1095,7 @@ private:
             }
         }
         TypeTag btag(type_hash::Boolean, TagDescriptor::Data);
-        void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, btag);
+        void* mem = HermesCtrAccess::arena(result_).allocate(1, 2, btag).get();
         *static_cast<uint8_t*>(mem) = found ? 1 : 0;
         return mem;
     }

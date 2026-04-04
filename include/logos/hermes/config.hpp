@@ -16,6 +16,7 @@ namespace logos::hermes {
 enum class ErrCode : uint64_t {
     parse_error    = 0x0001'0001,  // text parser or path parser failure
     template_error = 0x0001'0002,  // template parse / render failure
+    out_of_memory  = 0x0001'0003,  // arena allocation failed (OOM)
 };
 
 // Strong offset type for arena-relative pointers.

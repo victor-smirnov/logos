@@ -77,7 +77,7 @@ private:
         size_t vlen_size = varint_encode(sv.size(), vlen_buf);
         size_t total = vlen_size + sv.size();
         TypeTag tag(type_hash::Varbinary, TagDescriptor::Data);
-        auto* mem = static_cast<uint8_t*>(dst_.allocate(total, 2, tag));
+        auto* mem = static_cast<uint8_t*>(dst_.allocate(total, 2, tag).get());
         std::memcpy(mem, vlen_buf, vlen_size);
         std::memcpy(mem + vlen_size, sv.data(), sv.size());
         return mem;
@@ -137,7 +137,7 @@ private:
     void* copy_fixed(const void* src, TypeTag tag) {
         size_t size = fixed_type_size(tag.type_code());
         size_t alignment = fixed_type_alignment(tag.type_code());
-        auto* mem = static_cast<uint8_t*>(dst_.allocate(size, alignment, tag));
+        auto* mem = static_cast<uint8_t*>(dst_.allocate(size, alignment, tag).get());
         std::memcpy(mem, src, size);
         return mem;
     }

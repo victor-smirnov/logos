@@ -910,7 +910,7 @@ private:
 
     void* make_boolean(uint8_t val) {
         TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
-        void* mem = HermesCtrAccess::arena(doc_).allocate(1, 2, tag);
+        void* mem = HermesCtrAccess::arena(doc_).allocate(1, 2, tag).get();
         *static_cast<uint8_t*>(mem) = val;
         return mem;
     }

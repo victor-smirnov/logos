@@ -23,7 +23,7 @@ template <typename T>
     requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
 T* arena_put(Arena& arena, T value) {
     TypeTag tag = type_tag_for<T>();
-    void* mem = arena.allocate(sizeof(T), alignof(T) < 2 ? 2 : alignof(T), tag);
+    void* mem = arena.allocate(sizeof(T), alignof(T) < 2 ? 2 : alignof(T), tag).get();
     std::memcpy(mem, &value, sizeof(T));
     return static_cast<T*>(mem);
 }

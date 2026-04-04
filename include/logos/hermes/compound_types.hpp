@@ -27,7 +27,7 @@ struct DatatypeData {
     {
         TypeTag tag(type_hash::Datatype, TagDescriptor::Data);
         auto* mem = static_cast<DatatypeData*>(
-            arena.allocate(sizeof(DatatypeData), alignof(DatatypeData), tag));
+            arena.allocate(sizeof(DatatypeData), alignof(DatatypeData), tag).get());
         uint8_t* base = arena.head().data();
         mem->extras = 0;
         mem->params.clear();
@@ -65,7 +65,7 @@ struct TypedValueData {
     static TypedValueData* create(Arena& arena, DatatypeData* dt) {
         TypeTag tag(type_hash::TypedValue, TagDescriptor::Data);
         auto* mem = static_cast<TypedValueData*>(
-            arena.allocate(sizeof(TypedValueData), alignof(TypedValueData), tag));
+            arena.allocate(sizeof(TypedValueData), alignof(TypedValueData), tag).get());
         uint8_t* base = arena.head().data();
         mem->datatype.set(dt, base);
         mem->value = AnyVal{};
@@ -83,7 +83,7 @@ struct ParameterData {
     static ParameterData* create(Arena& arena, ArenaString* param_name) {
         TypeTag tag(type_hash::Parameter, TagDescriptor::Data);
         auto* mem = static_cast<ParameterData*>(
-            arena.allocate(sizeof(ParameterData), alignof(ParameterData), tag));
+            arena.allocate(sizeof(ParameterData), alignof(ParameterData), tag).get());
         uint8_t* base = arena.head().data();
         mem->name.set(param_name, base);
         return mem;

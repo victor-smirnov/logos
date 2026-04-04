@@ -4,6 +4,7 @@
 
 #include <logos/hermes/access.hpp>
 #include <logos/verification/assert.hpp>
+#include <logos/core/err.hpp>
 
 namespace logos::hermes {
 
@@ -129,17 +130,31 @@ String HermesCtrView::make_string(std::string_view str) {
 
 static HermesCtr make_doc_impl(MemHolder* holder) {
     auto* hdr = static_cast<DocumentHeader*>(
-        holder->arena().allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)));
+        holder->arena().allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)).get());
     hdr->root_offset = NULL_OFFSET;
     return HermesCtr(HermesCtrView(holder));
 }
 
+// MemHolder has a private destructor (heap-only), so we construct it with new
+// and use the InitTag protocol manually to check for OOM.
+static MemHolder* make_mem_holder(size_t capacity, ArenaMode mode) {
+    logos::InitTag tag;
+    auto* holder = new MemHolder(tag, capacity, mode);
+    if (!tag.ok()) {
+        // Arena construction failed — destroy via the ref-counting protocol.
+        holder->ref();
+        holder->unref();  // drops to 0, calls delete via the private dtor
+        throw std::move(tag.err);
+    }
+    return holder;
+}
+
 HermesCtr make_doc(size_t capacity) {
-    return make_doc_impl(new MemHolder(capacity, ArenaMode::GrowableSingleChunk));
+    return make_doc_impl(make_mem_holder(capacity, ArenaMode::GrowableSingleChunk));
 }
 
 HermesCtr make_doc_multi(size_t initial_capacity) {
-    return make_doc_impl(new MemHolder(initial_capacity, ArenaMode::MultiChunk));
+    return make_doc_impl(make_mem_holder(initial_capacity, ArenaMode::MultiChunk));
 }
 
 } // namespace logos::hermes

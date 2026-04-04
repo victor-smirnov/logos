@@ -69,7 +69,7 @@ public:
 
         TypeTag tag(type_hash::Varchar, TagDescriptor::Data);
         // Alignment 1 is fine for strings, but arena requires >= 2 for tag placement.
-        void* mem = arena.allocate(total, 2, tag);
+        void* mem = arena.allocate(total, 2, tag).get();
 
         auto* dest = static_cast<uint8_t*>(mem);
         std::memcpy(dest, vlen_buf, vlen_size);
