@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/stringify.hpp>
 #include <logos/hermes/type_ops.hpp>
@@ -92,47 +91,50 @@ void newline_indent(int indent, std::string& out) noexcept {
 // Per-type stringify_tagged handlers
 // ============================================================================
 
-void s_tinyint  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int8_t*>(o),   "_s8",  *c->out); }
-void s_utinyint (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint8_t*>(o), "_u8",  *c->out); }
-void s_smallint (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int16_t*>(o),  "_s16", *c->out); }
-void s_usmallint(const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint16_t*>(o),"_u16", *c->out); }
-void s_integer  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int32_t*>(o),  nullptr,*c->out); }
-void s_uinteger (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint32_t*>(o),"u",    *c->out); }
-void s_bigint   (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int64_t*>(o),  "ll",   *c->out); }
-void s_ubigint  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint64_t*>(o),"ull",  *c->out); }
-void s_real     (const uint8_t* o, StringifyCtx* c) noexcept { fmt_float(*reinterpret_cast<const float*>(o),   *c->out); }
-void s_double   (const uint8_t* o, StringifyCtx* c) noexcept { fmt_double(*reinterpret_cast<const double*>(o), *c->out); }
+logos::expected<void> s_tinyint  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int8_t*>(o),   "_s8",  *c->out); return {}; }
+logos::expected<void> s_utinyint (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint8_t*>(o), "_u8",  *c->out); return {}; }
+logos::expected<void> s_smallint (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int16_t*>(o),  "_s16", *c->out); return {}; }
+logos::expected<void> s_usmallint(const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint16_t*>(o),"_u16", *c->out); return {}; }
+logos::expected<void> s_integer  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int32_t*>(o),  nullptr,*c->out); return {}; }
+logos::expected<void> s_uinteger (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint32_t*>(o),"u",    *c->out); return {}; }
+logos::expected<void> s_bigint   (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int64_t*>(o),  "ll",   *c->out); return {}; }
+logos::expected<void> s_ubigint  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint64_t*>(o),"ull",  *c->out); return {}; }
+logos::expected<void> s_real     (const uint8_t* o, StringifyCtx* c) noexcept { fmt_float(*reinterpret_cast<const float*>(o),   *c->out); return {}; }
+logos::expected<void> s_double   (const uint8_t* o, StringifyCtx* c) noexcept { fmt_double(*reinterpret_cast<const double*>(o), *c->out); return {}; }
 
-void s_boolean(const uint8_t* o, StringifyCtx* c) noexcept {
+logos::expected<void> s_boolean(const uint8_t* o, StringifyCtx* c) noexcept {
     uint8_t v; std::memcpy(&v, o, 1);
     *c->out += v ? "true" : "false";
+    return {};
 }
 
-void s_varchar(const uint8_t* o, StringifyCtx* c) noexcept {
+logos::expected<void> s_varchar(const uint8_t* o, StringifyCtx* c) noexcept {
     fmt_string(reinterpret_cast<const ArenaString*>(o)->view(), *c->out);
+    return {};
 }
 
 // ============================================================================
 // Per-type stringify_embed handlers (value-mode AnyVal)
 // ============================================================================
 
-void e_tinyint  (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int8_t>(),   "_s8",  *c->out); }
-void e_utinyint (const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint8_t>(), "_u8",  *c->out); }
-void e_smallint (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int16_t>(),  "_s16", *c->out); }
-void e_usmallint(const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint16_t>(),"_u16", *c->out); }
-void e_integer  (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int32_t>(),  nullptr,*c->out); }
-void e_uinteger (const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint32_t>(),"u",    *c->out); }
-void e_real     (const AnyVal* s, StringifyCtx* c) noexcept { fmt_float(s->as_value<float>(),   *c->out); }
+logos::expected<void> e_tinyint  (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int8_t>(),   "_s8",  *c->out); return {}; }
+logos::expected<void> e_utinyint (const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint8_t>(), "_u8",  *c->out); return {}; }
+logos::expected<void> e_smallint (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int16_t>(),  "_s16", *c->out); return {}; }
+logos::expected<void> e_usmallint(const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint16_t>(),"_u16", *c->out); return {}; }
+logos::expected<void> e_integer  (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int32_t>(),  nullptr,*c->out); return {}; }
+logos::expected<void> e_uinteger (const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint32_t>(),"u",    *c->out); return {}; }
+logos::expected<void> e_real     (const AnyVal* s, StringifyCtx* c) noexcept { fmt_float(s->as_value<float>(),   *c->out); return {}; }
 
-void e_boolean(const AnyVal* s, StringifyCtx* c) noexcept {
+logos::expected<void> e_boolean(const AnyVal* s, StringifyCtx* c) noexcept {
     *c->out += s->as_value<uint8_t>() ? "true" : "false";
+    return {};
 }
 
 // ============================================================================
 // Container handlers
 // ============================================================================
 
-void s_object_array(const uint8_t* o, StringifyCtx* c) noexcept {
+logos::expected<void> s_object_array(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* arr     = reinterpret_cast<const ObjectArray*>(o);
     auto* arr_mut = const_cast<ObjectArray*>(arr);
     *c->out += '[';
@@ -143,12 +145,13 @@ void s_object_array(const uint8_t* o, StringifyCtx* c) noexcept {
             newline_indent(c->indent, *c->out);
             c->indent--;
         }
-        c->recurse_anyval(arr_mut->slot(i, c->base), c);
+        LOGOS_TRY_VOID(c->recurse_anyval(arr_mut->slot(i, c->base), c));
     }
     *c->out += ']';
+    return {};
 }
 
-void s_tiny_map(const uint8_t* o, StringifyCtx* c) noexcept {
+logos::expected<void> s_tiny_map(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* map = reinterpret_cast<const TinyObjectMap*>(o);
     *c->out += '{';
     if (c->pretty) c->indent++;
@@ -164,35 +167,42 @@ void s_tiny_map(const uint8_t* o, StringifyCtx* c) noexcept {
         *c->out += std::to_string(key);
         *c->out += '"';
         *c->out += c->pretty ? ": " : ":";
-        c->recurse_anyval(map->slot(key, c->base), c);
+        LOGOS_TRY_VOID(c->recurse_anyval(map->slot(key, c->base), c));
     }
     if (c->pretty) { c->indent--; newline_indent(c->indent, *c->out); }
     *c->out += '}';
+    return {};
 }
 
-void s_object_map(const uint8_t* o, StringifyCtx* c) noexcept {
+logos::expected<void> s_object_map(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* map = reinterpret_cast<const ObjectMap*>(o);
     *c->out += '{';
     if (c->pretty) c->indent++;
     bool first = true;
+    // for_each callback is void — use status-variable pattern.
+    logos::expected<void> status{};
     map->for_each([&](ArenaString* key, AnyVal* val) {
+        if (!status) return;
         if (!first) *c->out += ',';
         if (c->pretty) newline_indent(c->indent, *c->out);
         else if (!first) *c->out += ' ';
         first = false;
         fmt_string(key->view(), *c->out);
         *c->out += c->pretty ? ": " : ":";
-        c->recurse_anyval(val, c);
+        auto res = c->recurse_anyval(val, c);
+        if (!res) { status = std::unexpected(std::move(res.error())); }
     }, c->base);
+    LOGOS_TRY_VOID(std::move(status));
     if (c->pretty) { c->indent--; newline_indent(c->indent, *c->out); }
     *c->out += '}';
+    return {};
 }
 
 // ============================================================================
 // Compound type handlers
 // ============================================================================
 
-void s_datatype(const uint8_t* o, StringifyCtx* c) noexcept {
+logos::expected<void> s_datatype(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* dt = reinterpret_cast<const DatatypeData*>(o);
     *c->out += dt->name_view(c->base);
     if (dt->has_params()) {
@@ -200,7 +210,7 @@ void s_datatype(const uint8_t* o, StringifyCtx* c) noexcept {
         auto* params = const_cast<ObjectArray*>(dt->params.get(c->base));
         for (uint64_t i = 0; i < params->size(); ++i) {
             if (i > 0) *c->out += ", ";
-            c->recurse_anyval(params->slot(i, c->base), c);
+            LOGOS_TRY_VOID(c->recurse_anyval(params->slot(i, c->base), c));
         }
         *c->out += '>';
     }
@@ -209,7 +219,7 @@ void s_datatype(const uint8_t* o, StringifyCtx* c) noexcept {
         auto* ctr = const_cast<ObjectArray*>(dt->ctr.get(c->base));
         for (uint64_t i = 0; i < ctr->size(); ++i) {
             if (i > 0) *c->out += ", ";
-            c->recurse_anyval(ctr->slot(i, c->base), c);
+            LOGOS_TRY_VOID(c->recurse_anyval(ctr->slot(i, c->base), c));
         }
         *c->out += ')';
     }
@@ -218,20 +228,23 @@ void s_datatype(const uint8_t* o, StringifyCtx* c) noexcept {
     if (dt->is_volatile()) *c->out += " volatile";
     if (dt->ref_count() == 1) *c->out += '&';
     else if (dt->ref_count() == 2) *c->out += "&&";
+    return {};
 }
 
-void s_typed_value(const uint8_t* o, StringifyCtx* c) noexcept {
+logos::expected<void> s_typed_value(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* tv = reinterpret_cast<const TypedValueData*>(o);
     *c->out += '@';
-    c->recurse_tagged(reinterpret_cast<const uint8_t*>(tv->datatype.get(c->base)), c);
+    LOGOS_TRY_VOID(c->recurse_tagged(reinterpret_cast<const uint8_t*>(tv->datatype.get(c->base)), c));
     *c->out += " = ";
-    c->recurse_anyval(&tv->value, c);
+    LOGOS_TRY_VOID(c->recurse_anyval(&tv->value, c));
+    return {};
 }
 
-void s_parameter(const uint8_t* o, StringifyCtx* c) noexcept {
+logos::expected<void> s_parameter(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* p = reinterpret_cast<const ParameterData*>(o);
     *c->out += '?';
     *c->out += p->name_view(c->base);
+    return {};
 }
 
 // ============================================================================
@@ -282,29 +295,32 @@ HERMES_REGISTER_TYPE(k_typed_val_ops);
 HERMES_REGISTER_TYPE(k_parameter_ops);
 
 // ============================================================================
-// Recursive dispatch (populates StringifyCtx callbacks)
+// Recursive dispatch
 // ============================================================================
 
-static void do_recurse_tagged(const uint8_t* obj, StringifyCtx* ctx) noexcept {
+static logos::expected<void> do_recurse_tagged(const uint8_t* obj, StringifyCtx* ctx) noexcept {
     TypeTag tag = TypeTag::read_before(obj);
     const TypeOps* ops = find_type_ops(tag.type_code());
-    if (ops && ops->stringify_tagged)
-        ops->stringify_tagged(obj, ctx);
-    else
+    if (ops && ops->stringify_tagged) {
+        LOGOS_TRY_VOID(ops->stringify_tagged(obj, ctx));
+    } else {
         *ctx->out += "null";
+    }
+    return {};
 }
 
-static void do_recurse_anyval(const AnyVal* slot, StringifyCtx* ctx) noexcept {
-    if (slot->is_null()) { *ctx->out += "null"; return; }
+static logos::expected<void> do_recurse_anyval(const AnyVal* slot, StringifyCtx* ctx) noexcept {
+    if (slot->is_null()) { *ctx->out += "null"; return {}; }
     if (slot->is_value()) {
         const TypeOps* ops = find_type_ops(slot->value_type_hash());
-        if (ops && ops->stringify_embed)
-            ops->stringify_embed(slot, ctx);
-        else
+        if (ops && ops->stringify_embed) {
+            LOGOS_TRY_VOID(ops->stringify_embed(slot, ctx));
+        } else {
             *ctx->out += "null";
-        return;
+        }
+        return {};
     }
-    do_recurse_tagged(slot->as_ptr<uint8_t>(ctx->base), ctx);
+    return do_recurse_tagged(slot->as_ptr<uint8_t>(ctx->base), ctx);
 }
 
 // ============================================================================
@@ -313,7 +329,7 @@ static void do_recurse_anyval(const AnyVal* slot, StringifyCtx* ctx) noexcept {
 
 logos::expected<std::string> stringify(const HermesCtr& doc, bool pretty) noexcept {
     std::string out;
-    if (!doc.has_root()) { out = "null"; return out; }
+    if (!doc.has_root()) return std::string("null");
     StringifyCtx ctx;
     ctx.base           = const_cast<uint8_t*>(HermesCtrAccess::base(doc));
     ctx.pretty         = pretty;
@@ -322,7 +338,7 @@ logos::expected<std::string> stringify(const HermesCtr& doc, bool pretty) noexce
     ctx.recurse_anyval = do_recurse_anyval;
     ctx.recurse_tagged = do_recurse_tagged;
     const uint8_t* root = static_cast<const uint8_t*>(HermesCtrAccess::root<void>(doc));
-    do_recurse_tagged(root, &ctx);
+    LOGOS_TRY_VOID(do_recurse_tagged(root, &ctx));
     return out;
 }
 

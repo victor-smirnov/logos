@@ -95,6 +95,9 @@ public:
 //
 // Note: unique variable names use __LINE__ — do not call two macros on the
 // same physical line (e.g. separated by a comma or semicolon).
+// Both macros expand to two statements — always use braces around if/else
+// bodies that contain them (unbraced single-statement if would only capture
+// the first statement of the expansion).
 
 #define LOGOS_PP_CAT2(a, b) a##b
 #define LOGOS_PP_CAT(a, b)  LOGOS_PP_CAT2(a, b)
