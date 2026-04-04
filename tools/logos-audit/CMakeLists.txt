@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Victor Smirnov
+# Logos project — https://github.com/victor-smirnov/logos
+#
+# logos-audit — static analysis tool that enforces the Logos C++ subset.
+#
+# Requires the Clang/LLVM development libraries from the Jenny toolchain.
+# Skipped silently if not found so the main build is unaffected.
+
+set(LOGOS_LLVM_DIR  /opt/jenny-21x/lib/cmake/llvm  CACHE PATH "LLVM cmake dir")
+set(LOGOS_CLANG_DIR /opt/jenny-21x/lib/cmake/clang CACHE PATH "Clang cmake dir")
+
+find_package(LLVM  CONFIG QUIET HINTS ${LOGOS_LLVM_DIR})
+find_package(Clang CONFIG QUIET HINTS ${LOGOS_CLANG_DIR})
+
+if (NOT Clang_FOUND OR NOT LLVM_FOUND)
+    message(STATUS "logos-audit: Clang/LLVM dev libs not found — skipping")
+    return()
+endif()
+
+message(STATUS "logos-audit: building with LLVM ${LLVM_PACKAGE_VERSION}")
+
+add_executable(logos_audit src/main.cpp)
+
+# Clang headers live under ${LLVM_INCLUDE_DIRS} and ${CLANG_INCLUDE_DIRS}.
+target_include_directories(logos_audit SYSTEM PRIVATE
+    ${LLVM_INCLUDE_DIRS}
+    ${CLANG_INCLUDE_DIRS}
+)
+
+# clangTooling transitively pulls in everything we need.
+target_link_libraries(logos_audit PRIVATE
+    clangTooling
+    clangASTMatchers
+    clangFrontend
+    clangSerialization
+    clangAST
+    clangBasic
+    LLVMSupport
+)
+
+# Clang libs are built without RTTI; we must match.
+target_compile_options(logos_audit PRIVATE -fno-rtti)
