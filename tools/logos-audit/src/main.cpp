@@ -203,10 +203,10 @@ int main(int argc, const char** argv) {
 
     ClangTool tool(parser->getCompilations(), parser->getSourcePathList());
 
-    // Jenny toolchain (clang-21) needs its own resource dir for system headers.
-    // Bake it in so users don't have to pass --extra-arg every time.
+    // The tool is built against a specific Clang installation.  Inject its
+    // resource directory so system headers (stddef.h etc.) are found correctly.
     tool.appendArgumentsAdjuster(
-        getInsertArgumentAdjuster("-resource-dir=/opt/jenny-21x/lib/clang/21",
+        getInsertArgumentAdjuster("-resource-dir=" LOGOS_CLANG_RESOURCE_DIR,
                                   ArgumentInsertPosition::BEGIN));
 
     MatchFinder finder;

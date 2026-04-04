@@ -20,7 +20,23 @@ endif()
 
 message(STATUS "logos-audit: building with LLVM ${LLVM_PACKAGE_VERSION}")
 
+# Ask the found clang for its resource directory (contains stddef.h etc.).
+execute_process(
+    COMMAND ${LLVM_TOOLS_BINARY_DIR}/clang --print-resource-dir
+    OUTPUT_VARIABLE LOGOS_CLANG_RESOURCE_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _rc
+)
+if (_rc OR NOT LOGOS_CLANG_RESOURCE_DIR)
+    message(FATAL_ERROR "logos-audit: failed to determine clang resource dir")
+endif()
+message(STATUS "logos-audit: clang resource dir = ${LOGOS_CLANG_RESOURCE_DIR}")
+
 add_executable(logos_audit src/main.cpp)
+
+target_compile_definitions(logos_audit PRIVATE
+    LOGOS_CLANG_RESOURCE_DIR="${LOGOS_CLANG_RESOURCE_DIR}"
+)
 
 # Clang headers live under ${LLVM_INCLUDE_DIRS} and ${CLANG_INCLUDE_DIRS}.
 target_include_directories(logos_audit SYSTEM PRIVATE
