@@ -108,7 +108,7 @@ static void test_compactify_simple() {
     map.put(5, AnyVal::from_value(float(2.5f))).get();
     map.put(10, AnyVal::from_value(int8_t(-1))).get();
 
-    auto compact = compactify(doc);
+    auto compact = compactify(doc).get();
 
     LOGOS_ASSERT(compact.has_root(), "HERMES-DOC-003", "Compacted doc must have root");
 
@@ -138,7 +138,7 @@ static void test_compactify_array_with_values() {
         arr.push_back(AnyVal::from_value(int32_t(i * 100)));
     }
 
-    auto compact = compactify(doc);
+    auto compact = compactify(doc).get();
 
     auto* carr = HermesCtrAccess::root<ObjectArray>(compact);
     uint8_t* cb = HermesCtrAccess::base(compact);
@@ -165,7 +165,7 @@ static void test_zero_copy_round_trip() {
     map.put(0, AnyVal::from_value(int32_t(42))).get();
     map.put(3, AnyVal::from_value(int32_t(99))).get();
 
-    auto compact = compactify(doc);
+    auto compact = compactify(doc).get();
 
     // Serialize to bytes.
     auto* data = HermesCtrAccess::base(compact);
@@ -200,7 +200,7 @@ static void test_zero_copy_array_round_trip() {
         arr.push_back(AnyVal::from_value(int32_t(i)));
     }
 
-    auto compact = compactify(doc);
+    auto compact = compactify(doc).get();
     auto* data = HermesCtrAccess::base(compact);
     size_t size = HermesCtrAccess::arena(compact).total_used();
     auto loaded = from_bytes_copy(data, size);

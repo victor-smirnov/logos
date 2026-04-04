@@ -128,8 +128,8 @@ static void walkthrough_building() {
 
     // --- TinyMap: bitmap-indexed sparse map, keys 0..51 ---
     auto tmap = doc.make_tiny_map();
-    tmap.put(0, AnyVal::from_value(int32_t(100)));
-    tmap.put(5, AnyVal::from_value(int32_t(200)));
+    tmap.put(0, AnyVal::from_value(int32_t(100))).get();
+    tmap.put(5, AnyVal::from_value(int32_t(200))).get();
     std::println("  TinyMap: size={}, has_key(0)={}, has_key(1)={}",
         tmap.size(), tmap.has_key(0), tmap.has_key(1));
     std::println("  TinyMap[0] = {}", tmap.get(0).as_value<int32_t>());
@@ -303,7 +303,7 @@ static void walkthrough_binary() {
     // STOP: inspect bytes — each value prefixed with TypeTag
 
     // Decode.
-    auto decoded = binary_decode(bytes.data(), bytes.size());
+    auto decoded = binary_decode(bytes.data(), bytes.size()).get();
     std::println("  Decoded:    arena={} bytes", HermesCtrAccess::arena(decoded).total_used());
     std::println("  stringify:  '{}'", stringify(decoded));
 
@@ -329,16 +329,16 @@ static void walkthrough_compactify() {
     auto map = doc.make_tiny_map();
     doc.set_root(map);
 
-    map.put(0, AnyVal::from_value(int32_t(42)));
+    map.put(0, AnyVal::from_value(int32_t(42))).get();
     auto s = doc.make_string("hello");
-    map.put(1, AnyVal{});
+    map.put(1, AnyVal{}).get();
     map.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
     std::println("  Original arena: {} bytes used of {} capacity",
         HermesCtrAccess::arena(doc).total_used(), HermesCtrAccess::arena(doc).head().capacity);
 
     // Compactify: deep-copy into minimal arena.
-    auto compact = compactify(doc);
+    auto compact = compactify(doc).get();
     std::println("  Compact arena:  {} bytes used", HermesCtrAccess::arena(compact).total_used());
     // STOP: compare HermesCtrAccess::arena(doc).total_used() vs HermesCtrAccess::arena(compact).total_used()
 
@@ -486,7 +486,7 @@ static void walkthrough_memory_layout() {
     auto doc = make_doc(256);
     auto map = doc.make_tiny_map();
     doc.set_root(map);
-    map.put(0, AnyVal::from_value(int32_t(7)));
+    map.put(0, AnyVal::from_value(int32_t(7))).get();
 
     uint8_t* base = HermesCtrAccess::base(doc);
     size_t used = HermesCtrAccess::arena(doc).total_used();

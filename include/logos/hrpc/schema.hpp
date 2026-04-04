@@ -98,7 +98,7 @@ struct Request {
     }
 
     void set_param(NamedCode<uint8_t> key, AnyVal value) {
-        map.put(key, value);
+        map.put(key, value).get();
     }
 
     AnyVal get_param(NamedCode<uint8_t> key) const {
@@ -117,11 +117,11 @@ struct Request {
     }
 
     void set_input_channels(uint16_t n) {
-        map.put(keys::INPUT_CHANNELS, AnyVal::from_value(n));
+        map.put(keys::INPUT_CHANNELS, AnyVal::from_value(n)).get();
     }
 
     void set_output_channels(uint16_t n) {
-        map.put(keys::OUTPUT_CHANNELS, AnyVal::from_value(n));
+        map.put(keys::OUTPUT_CHANNELS, AnyVal::from_value(n)).get();
     }
 };
 
@@ -147,14 +147,14 @@ struct Response {
         rs.doc.set_root(tiny);
         rs.map = tiny;
         rs.map.put(keys::STATUS_CODE,
-                   AnyVal::from_value(static_cast<uint32_t>(StatusCode::Ok)));
+                   AnyVal::from_value(static_cast<uint32_t>(StatusCode::Ok))).get();
         return rs;
     }
 
     // Successful response with a result value.
     static Response ok(AnyVal result) {
         Response rs = Response::ok();
-        rs.map.put(keys::RESULT, result);
+        rs.map.put(keys::RESULT, result).get();
         return rs;
     }
 
@@ -167,13 +167,13 @@ struct Response {
         rs.map = root;
 
         rs.map.put(keys::STATUS_CODE,
-                   AnyVal::from_value(static_cast<uint32_t>(StatusCode::Error)));
+                   AnyVal::from_value(static_cast<uint32_t>(StatusCode::Error))).get();
 
         // Error sub-map with description string.
         auto err_map = rs.doc.make_tiny_map(2);
         auto desc_str = rs.doc.make_string(description);
-        err_map.put(keys::ERROR_DESC, AnyVal::from_offset(desc_str.offset()));
-        rs.map.put(keys::ERROR, AnyVal::from_offset(err_map.offset()));
+        err_map.put(keys::ERROR_DESC, AnyVal::from_offset(desc_str.offset())).get();
+        rs.map.put(keys::ERROR, AnyVal::from_offset(err_map.offset())).get();
         return rs;
     }
 
@@ -231,7 +231,7 @@ struct StreamMessage {
         auto tiny = msg.doc.make_tiny_map(2);
         msg.doc.set_root(tiny);
         msg.map = tiny;
-        msg.map.put(keys::MSG_DATA, data);
+        msg.map.put(keys::MSG_DATA, data).get();
         return msg;
     }
 
@@ -268,7 +268,7 @@ struct ConnectionMetadata {
         // uint64_t doesn't fit in 7 bytes as value mode, store as uint32_t
         // (buffer sizes under 4GB are sufficient).
         meta.map.put(keys::CHAN_BUF_SIZE,
-                     AnyVal::from_value(static_cast<uint32_t>(buffer_size)));
+                     AnyVal::from_value(static_cast<uint32_t>(buffer_size))).get();
         return meta;
     }
 

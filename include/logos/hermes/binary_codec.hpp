@@ -30,6 +30,6 @@ namespace logos::hermes {
 std::vector<uint8_t> binary_encode(const HermesCtr& doc);
 
 // Decode binary data into a new document.
-HermesCtr binary_decode(const uint8_t* data, size_t size);
+logos::expected<HermesCtr> binary_decode(const uint8_t* data, size_t size) noexcept;
 
 } // namespace logos::hermes

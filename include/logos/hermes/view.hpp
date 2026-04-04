@@ -295,11 +295,12 @@ HermesCtr make_doc(size_t capacity = 65536);
 HermesCtr make_doc_multi(size_t initial_capacity = 4096);
 
 // Deep-copy a document into a new compacted single-chunk arena.
-HermesCtr compactify(const HermesCtrView& src);
+logos::expected<HermesCtr> compactify(const HermesCtrView& src) noexcept;
 
 // Deep-copy a single tagged object from src_base arena into dst document's arena.
 // Returns pointer into dst's arena. Useful for cross-arena pointer resolution.
-void* copy_object_into(const void* src_obj, const uint8_t* src_base, HermesCtrView& dst);
+logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_base,
+                                         HermesCtrView& dst) noexcept;
 
 // Load a document from raw bytes (copies the data).
 HermesCtr from_bytes_copy(const uint8_t* data, size_t size);

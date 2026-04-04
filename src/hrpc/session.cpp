@@ -119,7 +119,7 @@ void Session::run() {
         size_t hdr_size     = hdr->header_size();
         size_t payload_size = hdr->payload_size();
         if (payload_size > 0 && hdr_size + payload_size <= static_cast<size_t>(msg_size)) {
-            payload = binary_decode(buf.data() + hdr_size, payload_size);
+            payload = binary_decode(buf.data() + hdr_size, payload_size).get();
         }
 
         handle_message(*hdr, buf.data(), std::move(payload));

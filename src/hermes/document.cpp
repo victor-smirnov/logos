@@ -17,46 +17,55 @@ public:
     DeepCopyState(Arena& dst, const uint8_t* src_base)
         : dst_(dst), src_base_(src_base) {}
 
-    void* copy_tagged_object(const void* src_obj) {
-        if (!src_obj) return nullptr;
+    logos::expected<void*> copy_tagged_object(const void* src_obj) noexcept {
+        try {
+            if (!src_obj) return nullptr;
 
-        auto it = copied_.find(src_obj);
-        if (it != copied_.end()) return it->second;
+            auto it = copied_.find(src_obj);
+            if (it != copied_.end()) return it->second;
 
-        const auto* src_bytes = static_cast<const uint8_t*>(src_obj);
-        TypeTag tag = TypeTag::read_before(src_bytes);
-        uint64_t type_code = tag.type_code();
+            const auto* src_bytes = static_cast<const uint8_t*>(src_obj);
+            TypeTag tag = TypeTag::read_before(src_bytes);
+            uint64_t type_code = tag.type_code();
 
-        void* dst_obj = nullptr;
+            void* dst_obj = nullptr;
 
-        if (type_code == type_hash::Varchar) {
-            dst_obj = copy_string(src_obj);
-        } else if (type_code == type_hash::Varbinary) {
-            dst_obj = copy_varbinary(src_obj);
-        } else if (tag.descriptor() == TagDescriptor::Map && type_code == type_hash::Hermes) {
-            dst_obj = copy_tiny_map(src_obj);
-        } else if (tag.descriptor() == TagDescriptor::Array && type_code == type_hash::ObjectArray) {
-            dst_obj = copy_object_array(src_obj);
-        } else if (tag.descriptor() == TagDescriptor::Map && type_code == type_hash::ObjectMap) {
-            dst_obj = copy_object_map(src_obj);
-        } else {
-            dst_obj = copy_fixed(src_obj, tag);
+            if (type_code == type_hash::Varchar) {
+                dst_obj = copy_string(src_obj);
+            } else if (type_code == type_hash::Varbinary) {
+                dst_obj = copy_varbinary(src_obj);
+            } else if (tag.descriptor() == TagDescriptor::Map && type_code == type_hash::Hermes) {
+                dst_obj = copy_tiny_map(src_obj);
+            } else if (tag.descriptor() == TagDescriptor::Array && type_code == type_hash::ObjectArray) {
+                dst_obj = copy_object_array(src_obj);
+            } else if (tag.descriptor() == TagDescriptor::Map && type_code == type_hash::ObjectMap) {
+                dst_obj = copy_object_map(src_obj);
+            } else {
+                dst_obj = copy_fixed(src_obj, tag);
+            }
+
+            copied_[src_obj] = dst_obj;
+            return dst_obj;
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
         }
-
-        copied_[src_obj] = dst_obj;
-        return dst_obj;
     }
 
-    void copy_tagged_ptr(const AnyVal* src_slot, AnyVal* dst_slot) {
-        if (src_slot->is_null()) {
-            *dst_slot = AnyVal{};
-        } else if (src_slot->is_value()) {
-            *dst_slot = *src_slot;
-        } else {
-            const void* src_target = src_slot->as_ptr<void>(const_cast<uint8_t*>(src_base_));
-            void* dst_target = copy_tagged_object(src_target);
-            uint8_t* dst_base = dst_.head().data();
-            dst_slot->set_pointer(dst_target, dst_base);
+    logos::expected<void> copy_tagged_ptr(const AnyVal* src_slot, AnyVal* dst_slot) noexcept {
+        try {
+            if (src_slot->is_null()) {
+                *dst_slot = AnyVal{};
+            } else if (src_slot->is_value()) {
+                *dst_slot = *src_slot;
+            } else {
+                const void* src_target = src_slot->as_ptr<void>(const_cast<uint8_t*>(src_base_));
+                void* dst_target = copy_tagged_object(src_target).get();
+                uint8_t* dst_base = dst_.head().data();
+                dst_slot->set_pointer(dst_target, dst_base);
+            }
+            return {};
+        } catch (logos::Err& e) {
+            return std::unexpected(std::move(e));
         }
     }
 
@@ -98,7 +107,7 @@ private:
             AnyVal* dst_slot = dst_map->slot(key, dst_base);
             const AnyVal* src_slot = src_map->slot(key, const_cast<uint8_t*>(src_base_));
 
-            copy_tagged_ptr(src_slot, dst_slot);
+            copy_tagged_ptr(src_slot, dst_slot).get();
         }
         return dst_map;
     }
@@ -115,7 +124,7 @@ private:
             auto* src_arr_mut = const_cast<ObjectArray*>(src_arr);
             AnyVal* src_slot = src_arr_mut->slot(i, const_cast<uint8_t*>(src_base_));
 
-            copy_tagged_ptr(src_slot, dst_slot);
+            copy_tagged_ptr(src_slot, dst_slot).get();
         }
         return dst_arr;
     }
@@ -128,7 +137,7 @@ private:
             dst_map->put(src_key->view(), AnyVal{}, dst_);
             uint8_t* dst_base = dst_.head().data();
             AnyVal* dst_slot = dst_map->get_slot(src_key->view(), dst_base);
-            copy_tagged_ptr(src_val_slot, dst_slot);
+            copy_tagged_ptr(src_val_slot, dst_slot).get();
         }, const_cast<uint8_t*>(src_base_));
 
         return dst_map;
@@ -171,25 +180,34 @@ private:
 
 // --- Free functions ---
 
-HermesCtr compactify(const HermesCtrView& src) {
-    LOGOS_ASSERT(src.has_root(), "HERMES-DOC-001",
-        "Cannot compactify a document without a root object");
+logos::expected<HermesCtr> compactify(const HermesCtrView& src) noexcept {
+    try {
+        LOGOS_ASSERT(src.has_root(), "HERMES-DOC-001",
+            "Cannot compactify a document without a root object");
 
-    auto dst = make_doc(HermesCtrAccess::arena(src).total_used() * 2);
-    DeepCopyState state(HermesCtrAccess::arena(dst), HermesCtrAccess::base(src));
+        auto dst = make_doc(HermesCtrAccess::arena(src).total_used() * 2);
+        DeepCopyState state(HermesCtrAccess::arena(dst), HermesCtrAccess::base(src));
 
-    arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(HermesCtrAccess::base(src))->root_offset;
-    const void* src_root = HermesCtrAccess::base(src) + root_off.value();
-    void* dst_root = state.copy_tagged_object(src_root);
-    HermesCtrAccess::set_root(dst, dst_root);
+        arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(HermesCtrAccess::base(src))->root_offset;
+        const void* src_root = HermesCtrAccess::base(src) + root_off.value();
+        void* dst_root = state.copy_tagged_object(src_root).get();
+        HermesCtrAccess::set_root(dst, dst_root);
 
-    return dst;
+        return dst;
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
-void* copy_object_into(const void* src_obj, const uint8_t* src_base, HermesCtrView& dst) {
-    if (!src_obj) return nullptr;
-    DeepCopyState state(HermesCtrAccess::arena(dst), src_base);
-    return state.copy_tagged_object(src_obj);
+logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_base,
+                                         HermesCtrView& dst) noexcept {
+    try {
+        if (!src_obj) return nullptr;
+        DeepCopyState state(HermesCtrAccess::arena(dst), src_base);
+        return state.copy_tagged_object(src_obj).get();
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
 HermesCtr from_bytes_copy(const uint8_t* data, size_t size) {

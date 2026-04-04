@@ -516,7 +516,7 @@ private:
             default: {
                 // Complex types (arrays, maps): deep-copy into ctx_doc so offsets are consistent.
                 uint8_t* vb = val_base ? val_base : const_cast<uint8_t*>(HermesCtrAccess::base(data_));
-                void* copy = copy_object_into(val, vb, ctx_doc);
+                void* copy = copy_object_into(val, vb, ctx_doc).get();
                 uint8_t* cb = HermesCtrAccess::base(ctx_doc);
                 ctx->put(key, AnyVal{}, HermesCtrAccess::arena(ctx_doc));
                 ctx->get_slot(key, cb)->set_pointer(copy, cb);

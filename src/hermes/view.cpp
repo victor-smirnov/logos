@@ -11,22 +11,27 @@ namespace logos::hermes {
 // Resolve an ObjectView into an AnyVal that is safe to store in dst_holder's arena.
 // If value is embedded (is_value()) or already in the same arena — returned as-is.
 // If value is a pointer from a different arena — deep-copied into dst_holder's arena.
-static AnyVal resolve_for_arena(const ObjectView& value, MemHolder* dst_holder) {
-    if (!value.is_pointer()) return value.tagged();  // embedded value — arena-independent
+static logos::expected<AnyVal> resolve_for_arena(const ObjectView& value,
+                                                   MemHolder* dst_holder) noexcept {
+    try {
+        if (!value.is_pointer()) return value.tagged();  // embedded value — arena-independent
 
-    LOGOS_ASSERT(value.holder() != nullptr, "HERMES-ANYVAL-001",
-        "ObjectView in pointer mode must have a valid MemHolder");
+        LOGOS_ASSERT(value.holder() != nullptr, "HERMES-ANYVAL-001",
+            "ObjectView in pointer mode must have a valid MemHolder");
 
-    if (value.holder() == dst_holder) return value.tagged();  // same arena — safe as-is
+        if (value.holder() == dst_holder) return value.tagged();  // same arena — safe as-is
 
-    // Cross-arena: deep-copy the object into the destination arena.
-    HermesCtrView dst(dst_holder);
-    const void* src_obj = value.tagged().as_ptr<void>(value.holder()->base());
-    void* copy = copy_object_into(src_obj, value.holder()->base(), dst);
+        // Cross-arena: deep-copy the object into the destination arena.
+        HermesCtrView dst(dst_holder);
+        const void* src_obj = value.tagged().as_ptr<void>(value.holder()->base());
+        void* copy = copy_object_into(src_obj, value.holder()->base(), dst).get();
 
-    AnyVal result;
-    result.set_pointer(copy, HermesCtrAccess::base(dst));  // re-fetched after possible arena growth
-    return result;
+        AnyVal result;
+        result.set_pointer(copy, HermesCtrAccess::base(dst));  // re-fetched after possible arena growth
+        return result;
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
 // --- NamedCode checked access ---
@@ -40,15 +45,19 @@ AnyVal TinyMapView::get(NamedCode<uint8_t> key) const {
 // --- Cross-arena safe put/push_back overloads ---
 
 logos::expected<void> TinyMapView::put(uint8_t key, const ObjectView& value) {
-    return ptr()->put(key, resolve_for_arena(value, holder_), arena());
+    try {
+        return ptr()->put(key, resolve_for_arena(value, holder_).get(), arena());
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
 void ArrayView::push_back(const ObjectView& value) {
-    ptr()->push_back(resolve_for_arena(value, holder_), arena());
+    ptr()->push_back(resolve_for_arena(value, holder_).get(), arena());
 }
 
 void MapView::put(std::string_view key, const ObjectView& value) {
-    ptr()->put(key, resolve_for_arena(value, holder_), arena());
+    ptr()->put(key, resolve_for_arena(value, holder_).get(), arena());
 }
 
 static DocumentHeader* get_header(MemHolder* holder) {

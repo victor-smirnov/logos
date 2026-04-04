@@ -440,9 +440,13 @@ std::vector<uint8_t> binary_encode(const HermesCtr& doc) {
     return std::move(encoder.output());
 }
 
-HermesCtr binary_decode(const uint8_t* data, size_t size) {
-    BinaryDecoder decoder(data, size);
-    return decoder.decode();
+logos::expected<HermesCtr> binary_decode(const uint8_t* data, size_t size) noexcept {
+    try {
+        BinaryDecoder decoder(data, size);
+        return decoder.decode();
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
 } // namespace logos::hermes
