@@ -4,6 +4,7 @@
 //
 // Layer 7 exerciser: SignalWatcher + graceful shutdown.
 
+#include <logos/core/make_object.hpp>
 #include <logos/reactor/reactor.hpp>
 #include <logos/reactor/signal_watcher.hpp>
 #include <logos/verification/assert.hpp>
@@ -22,7 +23,7 @@ static void test_signal_catch() {
     int caught = 0;
     Reactor reactor;
 
-    auto watcher = logos::make_object<SignalWatcher>({SIGUSR1}).get();
+    auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR1}).get();
 
     // Fiber 1: waits for SIGUSR1.
     reactor.spawn([&] {
@@ -52,7 +53,7 @@ static void test_graceful_shutdown() {
     bool shutdown_seen = false;
     Reactor reactor;
 
-    auto watcher = logos::make_object<SignalWatcher>({SIGUSR2}).get();
+    auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR2}).get();
 
     // Signal handler fiber: waits, then calls reactor.stop().
     reactor.spawn([&] {
@@ -91,7 +92,7 @@ static void test_multiple_signals() {
     int count = 0;
     Reactor reactor;
 
-    auto watcher = logos::make_object<SignalWatcher>({SIGUSR1}).get();
+    auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR1}).get();
 
     reactor.spawn([&] {
         for (int i = 0; i < 2; ++i) {

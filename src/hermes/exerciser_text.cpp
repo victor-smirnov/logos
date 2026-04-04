@@ -229,7 +229,7 @@ static void test_parse_map() {
 static void test_parse_nested() {
     std::printf("--- Parse nested structure ---\n");
 
-    auto doc = parse(R"({
+    auto doc = parse_doc(R"({
         user: {name: "Bob", id: 42},
         items: [1, 2, 3],
         active: true,
@@ -271,7 +271,7 @@ static void test_parse_nested() {
 static void test_parse_comments() {
     std::printf("--- Parse comments ---\n");
 
-    auto doc = parse(R"(
+    auto doc = parse_doc(R"(
         // This is a comment
         [
             1, // inline comment

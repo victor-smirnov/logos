@@ -33,7 +33,7 @@ static void test_echo_single() {
     // Server fiber: accept one client, echo once, close.
     reactor.spawn([&] {
         auto server = TcpSocket::listen_on("127.0.0.1", port).get();
-        auto client = server.accept();
+        auto client = server.accept().get();
 
         char buf[256];
         int n = client.read(buf, sizeof(buf));
@@ -80,7 +80,7 @@ static void test_echo_multiple_clients() {
     reactor.spawn([&] {
         auto server = TcpSocket::listen_on("127.0.0.1", port).get();
         for (int i = 0; i < N; ++i) {
-            auto client = server.accept();
+            auto client = server.accept().get();
             Scheduler::current()->spawn([c = std::move(client)]() mutable {
                 char buf[64];
                 int n = c.read(buf, sizeof(buf));
@@ -129,7 +129,7 @@ static void test_streaming() {
     // Server: read until connection closes, count 4-byte messages.
     reactor.spawn([&] {
         auto server = TcpSocket::listen_on("127.0.0.1", port).get();
-        auto client = server.accept();
+        auto client = server.accept().get();
         char buf[4];
         while (true) {
             int n = client.read(buf, sizeof(buf));

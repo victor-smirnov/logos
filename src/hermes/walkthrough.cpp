@@ -236,7 +236,7 @@ static void walkthrough_parser() {
 
     // Nested map.
     {
-        auto doc = parse(R"({
+        auto doc = parse_doc(R"({
             user: {name: "Alice", age: 30},
             scores: [95, 87, 92],
             active: true
@@ -368,9 +368,9 @@ static void walkthrough_compactify() {
 //            multiselect lists [a, b], multiselect hashes {x: a, y: b}.
 
 static void walkthrough_path() {
-    std::println("\n=== 7. HermesPath ===").get();
+    std::println("\n=== 7. HermesPath ===");
 
-    auto data = parse(R"({
+    auto data = parse_doc(R"({
         user: {name: "Alice", age: 30},
         items: [
             {name: "book", price: 15},
@@ -430,7 +430,7 @@ static void walkthrough_path() {
 static void walkthrough_templates() {
     std::println("\n=== 8. Template Engine ===");
 
-    auto data = parse(R"({
+    auto data = parse_doc(R"({
         name: "Alice",
         items: ["apple", "banana", "cherry"],
         show_greeting: true,

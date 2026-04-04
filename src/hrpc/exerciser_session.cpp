@@ -47,7 +47,7 @@ static void test_echo_rq() {
 
     reactor.spawn([&] {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
-        auto conn     = listener.accept();
+        auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
         session.endpoints().add(kEchoEndpoint, [](Context& ctx) -> Response {
@@ -98,7 +98,7 @@ static void test_multi_rq() {
 
     reactor.spawn([&] {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
-        auto conn     = listener.accept();
+        auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
         session.endpoints().add(kEchoEndpoint, [](Context& ctx) -> Response {
@@ -152,7 +152,7 @@ static void test_bidirectional() {
 
     reactor.spawn([&] {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
-        auto conn     = listener.accept();
+        auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
 
@@ -224,7 +224,7 @@ static void test_unknown_endpoint() {
 
     reactor.spawn([&] {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
-        auto conn     = listener.accept();
+        auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
         // Register nothing — all calls should return error.

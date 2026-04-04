@@ -23,7 +23,7 @@ namespace logos::hrpc {
 // Connect to an HRPC server over TCP. Returns a new Session in Client mode.
 // Must be called from within a reactor fiber.
 inline Session connect_tcp(const char* host, uint16_t port) {
-    auto sock = logos::reactor::TcpSocket::connect_to(host, port);
+    auto sock = logos::reactor::TcpSocket::connect_to(host, port).get();
     return Session(std::move(sock), SessionSide::Client);
 }
 

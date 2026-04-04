@@ -13,7 +13,15 @@ namespace logos::hermes {
 // Linker-section symbols synthesised by the GNU/LLVM linker for any section
 // whose name is a valid C identifier.  The section contains TypeOps structs
 // placed there by HERMES_REGISTER_TYPE().
+//
+// Sentinel — ensures the hermes_typeops section always exists in this TU so
+// that __start_hermes_typeops/__stop_hermes_typeops are always defined by the
+// linker, even when no other object contributing entries is pulled in.
+// Entries with type_code == 0 are skipped in hermes_init().
 // ---------------------------------------------------------------------------
+[[gnu::section("hermes_typeops"), gnu::used]]
+static const TypeOps hermes_typeops_sentinel = {};  // type_code == 0 → skip
+
 extern "C" {
     extern const TypeOps __start_hermes_typeops[];
     extern const TypeOps __stop_hermes_typeops[];
@@ -81,6 +89,7 @@ void hermes_init() {
     for (const TypeOps* p = __start_hermes_typeops;
          p != __stop_hermes_typeops; ++p)
     {
+        if (!p->type_code) continue;  // skip sentinel (type_code == 0)
         if (p->type_code < 128) {
             g_core_ops[p->type_code] = p;
         } else {

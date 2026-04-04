@@ -32,7 +32,7 @@ static void test_uds_echo_single() {
 
     reactor.spawn([&] {
         auto server = UnixSocket::listen_on(kSockPath).get();
-        auto client = server.accept();
+        auto client = server.accept().get();
         char buf[64];
         int n = client.read(buf, sizeof(buf));
         LOGOS_ASSERT(n > 0, "REACTOR-UDS-T01a", "server recv failed: {}", n);
@@ -70,7 +70,7 @@ static void test_uds_multiple_clients() {
     reactor.spawn([&] {
         auto server = UnixSocket::listen_on(kSockPath2).get();
         for (int i = 0; i < N; ++i) {
-            auto client = server.accept();
+            auto client = server.accept().get();
             Scheduler::current()->spawn([c = std::move(client)]() mutable {
                 char buf[64];
                 int n = c.read(buf, sizeof(buf));
@@ -115,7 +115,7 @@ static void test_uds_large_transfer() {
 
     reactor.spawn([&] {
         auto server = UnixSocket::listen_on(kSockPath3).get();
-        auto client = server.accept();
+        auto client = server.accept().get();
         uint8_t buf[4096];
         while (true) {
             int n = client.read(buf, sizeof(buf));

@@ -78,12 +78,12 @@ const TypeOps* find_type_ops(uint64_t type_code) noexcept;
 //   static const TypeOps k_my_ops = { MY_TYPE_CODE, my_stringify, ... };
 //   HERMES_REGISTER_TYPE(k_my_ops)
 // ---------------------------------------------------------------------------
-#define HERMES_REGISTER_TYPE_IMPL(ops_var, line)                         \
+#define HERMES_CONCAT_(a, b) a##b
+#define HERMES_CONCAT(a, b)  HERMES_CONCAT_(a, b)
+
+#define HERMES_REGISTER_TYPE(ops_var)                                     \
     [[gnu::section("hermes_typeops"), gnu::used]]                         \
     static const ::logos::hermes::TypeOps                                 \
-        hermes_typeops_entry_##line = (ops_var)
-
-#define HERMES_REGISTER_TYPE(ops_var) \
-    HERMES_REGISTER_TYPE_IMPL(ops_var, __LINE__)
+        HERMES_CONCAT(hermes_typeops_entry_, __LINE__) = (ops_var)
 
 } // namespace logos::hermes

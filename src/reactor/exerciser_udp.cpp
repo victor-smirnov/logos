@@ -39,7 +39,7 @@ static void test_udp_echo_single() {
     reactor.spawn([&] {
         Scheduler::current()->yield();
         auto sock = UdpSocket::bind_to("127.0.0.1", kUdpBase + 1).get();
-        UdpEndpoint server_ep("127.0.0.1", kUdpBase);
+        auto server_ep = UdpEndpoint::make("127.0.0.1", kUdpBase).get();
         sock.send_to(payload.data(), payload.size(), server_ep);
         char buf[256];
         UdpEndpoint from;
@@ -117,7 +117,7 @@ static void test_udp_multi_datagram() {
     reactor.spawn([&] {
         Scheduler::current()->yield();
         auto sock = UdpSocket::bind_to("0.0.0.0", kUdpBase + 4).get();
-        UdpEndpoint server_ep("127.0.0.1", kUdpBase + 3);
+        auto server_ep = UdpEndpoint::make("127.0.0.1", kUdpBase + 3).get();
         for (int i = 0; i < N; ++i) {
             uint32_t val = static_cast<uint32_t>(i);
             sock.send_to(&val, sizeof(val), server_ep);

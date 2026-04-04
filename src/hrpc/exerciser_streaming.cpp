@@ -54,7 +54,7 @@ static void test_input_stream() {
 
     reactor.spawn([&] {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
-        auto conn     = listener.accept();
+        auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
 
@@ -130,7 +130,7 @@ static void test_output_stream() {
 
     reactor.spawn([&] {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
-        auto conn     = listener.accept();
+        auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
 
