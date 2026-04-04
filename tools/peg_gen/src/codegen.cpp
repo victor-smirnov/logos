@@ -1019,7 +1019,7 @@ private:
         w.dedent();
         w.line("}"); // end inner block
         // Backtrack label is here, AFTER the inner block — no initialization is crossed.
-        w.fmt("bt_{}_{}:", rule.name, idx);
+        w.fmt("[[maybe_unused]] bt_{}_{}:", rule.name, idx);
         w.line("pos_      = saved_pos;");
         w.line("have_la_  = saved_la;");
         w.line("la_       = saved_tok_;");
@@ -1039,7 +1039,7 @@ private:
             w.fmt("if (peek_token().kind != TK::{}) goto {};",
                   safe_tok_name(item.name), fail_label);
             w.fmt("Token tok_{0}_ = next_token();", cap);
-            w.fmt("AnyVal {0} = doc_.make_string(tok_{0}_.text).to_anyval();", cap);
+            w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(tok_{0}_.text).to_anyval();", cap);
             break;
         }
 
@@ -1049,7 +1049,7 @@ private:
                 call = std::format("rule_{}()", item.name);
             else
                 call = std::format("{0}_.rule_{1}()", item.grammar_alias, item.name);
-            w.fmt("AnyVal {} = {};", cap, call);
+            w.fmt("[[maybe_unused]] AnyVal {} = {};", cap, call);
             w.fmt("if ({}.is_null()) goto {};", cap, fail_label);
             // Collect into rule-captures array if $... is used in this alt's action.
             if (!rcap_var_.empty())
@@ -1062,7 +1062,7 @@ private:
             size_t n = item.name.size();
             w.fmt("if (pos_ + {0} > source_.size() || source_.substr(pos_, {0}) != \"{1}\") goto {2};",
                   n, item.name, fail_label);
-            w.fmt("AnyVal {0} = doc_.make_string(source_.substr(pos_, {1})).to_anyval();", cap, n);
+            w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(source_.substr(pos_, {1})).to_anyval();", cap, n);
             w.fmt("pos_ += {};", n);
             break;
         }
@@ -1072,7 +1072,7 @@ private:
             std::string id       = fresh();
             std::string done_lbl = "opt_done_" + id;
             std::string fail_lbl = "opt_fail_" + id;
-            w.fmt("AnyVal {} = AnyVal{{}};", cap);
+            w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
             w.line("{");
             w.indent();
             w.line("size_t opt_pos_ = pos_; bool opt_la_ = have_la_; Token opt_tok_ = la_;");
@@ -1122,7 +1122,7 @@ private:
             w.line("}");
             w.dedent();
             w.line("}");
-            w.fmt("AnyVal {} = {}.to_anyval();", cap, arr_var);
+            w.fmt("[[maybe_unused]] AnyVal {} = {}.to_anyval();", cap, arr_var);
             if (item.min > 0)
                 w.fmt("if ({}.size() < {}) goto {};", arr_var, item.min, fail_label);
             break;
@@ -1134,7 +1134,7 @@ private:
             // All labels use unique IDs from fresh() to avoid collisions.
             std::string grp_id   = fresh();
             std::string done_lbl = "grp_done_" + grp_id;
-            w.fmt("AnyVal {} = AnyVal{{}};", cap);
+            w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
             w.line("{");
             w.indent();
             w.line("size_t grp_pos_; bool grp_la_; Token grp_tok_;");
@@ -1187,7 +1187,7 @@ private:
                 emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
             }
             w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_;");
-            w.fmt("AnyVal {} = AnyVal{{}};  // lookahead result (position restored)", cap);
+            w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};  // lookahead result (position restored)", cap);
             w.fmt("goto {};", end_lbl);
             w.dedent();
             w.line("}");
@@ -1221,14 +1221,14 @@ private:
             w.fmt("{}: ;", fail_lbl);
             w.fmt("{}: ;", ok_lbl);
             w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_;");
-            w.fmt("AnyVal {} = AnyVal{{}};  // negative lookahead succeeded", cap);
+            w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};  // negative lookahead succeeded", cap);
             w.dedent();
             w.line("}");
             break;
         }
 
         default:
-            w.fmt("AnyVal {} = AnyVal{{}}; // TODO: item kind {}", cap, item.kind);
+            w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}}; // TODO: item kind {}", cap, item.kind);
             break;
         }
     }

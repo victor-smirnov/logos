@@ -296,15 +296,7 @@ void CodeGen::emit_message_decl(std::ostream& out, TinyMapView node) const {
     out << "    logos::hermes::HermesCtr  doc;\n";
     out << "    logos::hermes::TinyMapView map;\n\n";
 
-    // Count fields to size the TinyMap.
-    int field_count = 0;
     AnyVal items_av = node.get(uint8_t(ITEMS.code));
-    if (!items_av.is_null()) {
-        auto items = arr_of(items_av);
-        for (uint64_t i = 0; i < items.size(); ++i) {
-            if (code_of(map_of(items.get(i))) == FIELD.code) ++field_count;
-        }
-    }
 
     out << "    static " << name << " make();\n";
     out << "    static " << name << " from_doc(logos::hermes::HermesCtr doc);\n\n";

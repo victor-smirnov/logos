@@ -199,7 +199,7 @@ static void test_path_functions() {
 // HermesPath: multiselect
 // ============================================================================
 
-static void test_path_multiselect() {
+[[maybe_unused]] static void test_path_multiselect() {
     std::printf("--- HermesPath: multiselect ---\n");
 
     auto data = parse_doc("{a: 1, b: 2, c: 3}");
