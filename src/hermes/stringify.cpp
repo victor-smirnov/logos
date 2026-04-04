@@ -25,18 +25,18 @@ namespace logos::hermes {
 namespace {
 
 template <typename T>
-void fmt_int(T val, const char* suffix, std::string& out) {
+void fmt_int(T val, const char* suffix, std::string& out) noexcept {
     out += std::to_string(static_cast<int64_t>(val));
     if (suffix) out += suffix;
 }
 
 template <typename T>
-void fmt_uint(T val, const char* suffix, std::string& out) {
+void fmt_uint(T val, const char* suffix, std::string& out) noexcept {
     out += std::to_string(static_cast<uint64_t>(val));
     if (suffix) out += suffix;
 }
 
-void fmt_float(float val, std::string& out) {
+void fmt_float(float val, std::string& out) noexcept {
     char buf[32];
     int n = std::snprintf(buf, sizeof(buf), "%g", val);
     std::string_view sv(buf, n);
@@ -47,7 +47,7 @@ void fmt_float(float val, std::string& out) {
     out += 'f';
 }
 
-void fmt_double(double val, std::string& out) {
+void fmt_double(double val, std::string& out) noexcept {
     char buf[32];
     int n = std::snprintf(buf, sizeof(buf), "%g", val);
     std::string_view sv(buf, n);
@@ -58,7 +58,7 @@ void fmt_double(double val, std::string& out) {
     out += 'd';
 }
 
-void fmt_string(std::string_view sv, std::string& out) {
+void fmt_string(std::string_view sv, std::string& out) noexcept {
     out += '"';
     for (char c : sv) {
         switch (c) {
@@ -83,7 +83,7 @@ void fmt_string(std::string_view sv, std::string& out) {
     out += '"';
 }
 
-void newline_indent(int indent, std::string& out) {
+void newline_indent(int indent, std::string& out) noexcept {
     out += '\n';
     for (int i = 0; i < indent; ++i) out += "  ";
 }
@@ -92,23 +92,23 @@ void newline_indent(int indent, std::string& out) {
 // Per-type stringify_tagged handlers
 // ============================================================================
 
-void s_tinyint  (const uint8_t* o, StringifyCtx* c) { fmt_int(*reinterpret_cast<const int8_t*>(o),   "_s8",  *c->out); }
-void s_utinyint (const uint8_t* o, StringifyCtx* c) { fmt_uint(*reinterpret_cast<const uint8_t*>(o), "_u8",  *c->out); }
-void s_smallint (const uint8_t* o, StringifyCtx* c) { fmt_int(*reinterpret_cast<const int16_t*>(o),  "_s16", *c->out); }
-void s_usmallint(const uint8_t* o, StringifyCtx* c) { fmt_uint(*reinterpret_cast<const uint16_t*>(o),"_u16", *c->out); }
-void s_integer  (const uint8_t* o, StringifyCtx* c) { fmt_int(*reinterpret_cast<const int32_t*>(o),  nullptr,*c->out); }
-void s_uinteger (const uint8_t* o, StringifyCtx* c) { fmt_uint(*reinterpret_cast<const uint32_t*>(o),"u",    *c->out); }
-void s_bigint   (const uint8_t* o, StringifyCtx* c) { fmt_int(*reinterpret_cast<const int64_t*>(o),  "ll",   *c->out); }
-void s_ubigint  (const uint8_t* o, StringifyCtx* c) { fmt_uint(*reinterpret_cast<const uint64_t*>(o),"ull",  *c->out); }
-void s_real     (const uint8_t* o, StringifyCtx* c) { fmt_float(*reinterpret_cast<const float*>(o),   *c->out); }
-void s_double   (const uint8_t* o, StringifyCtx* c) { fmt_double(*reinterpret_cast<const double*>(o), *c->out); }
+void s_tinyint  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int8_t*>(o),   "_s8",  *c->out); }
+void s_utinyint (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint8_t*>(o), "_u8",  *c->out); }
+void s_smallint (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int16_t*>(o),  "_s16", *c->out); }
+void s_usmallint(const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint16_t*>(o),"_u16", *c->out); }
+void s_integer  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int32_t*>(o),  nullptr,*c->out); }
+void s_uinteger (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint32_t*>(o),"u",    *c->out); }
+void s_bigint   (const uint8_t* o, StringifyCtx* c) noexcept { fmt_int(*reinterpret_cast<const int64_t*>(o),  "ll",   *c->out); }
+void s_ubigint  (const uint8_t* o, StringifyCtx* c) noexcept { fmt_uint(*reinterpret_cast<const uint64_t*>(o),"ull",  *c->out); }
+void s_real     (const uint8_t* o, StringifyCtx* c) noexcept { fmt_float(*reinterpret_cast<const float*>(o),   *c->out); }
+void s_double   (const uint8_t* o, StringifyCtx* c) noexcept { fmt_double(*reinterpret_cast<const double*>(o), *c->out); }
 
-void s_boolean(const uint8_t* o, StringifyCtx* c) {
+void s_boolean(const uint8_t* o, StringifyCtx* c) noexcept {
     uint8_t v; std::memcpy(&v, o, 1);
     *c->out += v ? "true" : "false";
 }
 
-void s_varchar(const uint8_t* o, StringifyCtx* c) {
+void s_varchar(const uint8_t* o, StringifyCtx* c) noexcept {
     fmt_string(reinterpret_cast<const ArenaString*>(o)->view(), *c->out);
 }
 
@@ -116,15 +116,15 @@ void s_varchar(const uint8_t* o, StringifyCtx* c) {
 // Per-type stringify_embed handlers (value-mode AnyVal)
 // ============================================================================
 
-void e_tinyint  (const AnyVal* s, StringifyCtx* c) { fmt_int(s->as_value<int8_t>(),   "_s8",  *c->out); }
-void e_utinyint (const AnyVal* s, StringifyCtx* c) { fmt_uint(s->as_value<uint8_t>(), "_u8",  *c->out); }
-void e_smallint (const AnyVal* s, StringifyCtx* c) { fmt_int(s->as_value<int16_t>(),  "_s16", *c->out); }
-void e_usmallint(const AnyVal* s, StringifyCtx* c) { fmt_uint(s->as_value<uint16_t>(),"_u16", *c->out); }
-void e_integer  (const AnyVal* s, StringifyCtx* c) { fmt_int(s->as_value<int32_t>(),  nullptr,*c->out); }
-void e_uinteger (const AnyVal* s, StringifyCtx* c) { fmt_uint(s->as_value<uint32_t>(),"u",    *c->out); }
-void e_real     (const AnyVal* s, StringifyCtx* c) { fmt_float(s->as_value<float>(),   *c->out); }
+void e_tinyint  (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int8_t>(),   "_s8",  *c->out); }
+void e_utinyint (const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint8_t>(), "_u8",  *c->out); }
+void e_smallint (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int16_t>(),  "_s16", *c->out); }
+void e_usmallint(const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint16_t>(),"_u16", *c->out); }
+void e_integer  (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int32_t>(),  nullptr,*c->out); }
+void e_uinteger (const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint32_t>(),"u",    *c->out); }
+void e_real     (const AnyVal* s, StringifyCtx* c) noexcept { fmt_float(s->as_value<float>(),   *c->out); }
 
-void e_boolean(const AnyVal* s, StringifyCtx* c) {
+void e_boolean(const AnyVal* s, StringifyCtx* c) noexcept {
     *c->out += s->as_value<uint8_t>() ? "true" : "false";
 }
 
@@ -132,7 +132,7 @@ void e_boolean(const AnyVal* s, StringifyCtx* c) {
 // Container handlers
 // ============================================================================
 
-void s_object_array(const uint8_t* o, StringifyCtx* c) {
+void s_object_array(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* arr     = reinterpret_cast<const ObjectArray*>(o);
     auto* arr_mut = const_cast<ObjectArray*>(arr);
     *c->out += '[';
@@ -148,7 +148,7 @@ void s_object_array(const uint8_t* o, StringifyCtx* c) {
     *c->out += ']';
 }
 
-void s_tiny_map(const uint8_t* o, StringifyCtx* c) {
+void s_tiny_map(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* map = reinterpret_cast<const TinyObjectMap*>(o);
     *c->out += '{';
     if (c->pretty) c->indent++;
@@ -170,7 +170,7 @@ void s_tiny_map(const uint8_t* o, StringifyCtx* c) {
     *c->out += '}';
 }
 
-void s_object_map(const uint8_t* o, StringifyCtx* c) {
+void s_object_map(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* map = reinterpret_cast<const ObjectMap*>(o);
     *c->out += '{';
     if (c->pretty) c->indent++;
@@ -192,7 +192,7 @@ void s_object_map(const uint8_t* o, StringifyCtx* c) {
 // Compound type handlers
 // ============================================================================
 
-void s_datatype(const uint8_t* o, StringifyCtx* c) {
+void s_datatype(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* dt = reinterpret_cast<const DatatypeData*>(o);
     *c->out += dt->name_view(c->base);
     if (dt->has_params()) {
@@ -220,7 +220,7 @@ void s_datatype(const uint8_t* o, StringifyCtx* c) {
     else if (dt->ref_count() == 2) *c->out += "&&";
 }
 
-void s_typed_value(const uint8_t* o, StringifyCtx* c) {
+void s_typed_value(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* tv = reinterpret_cast<const TypedValueData*>(o);
     *c->out += '@';
     c->recurse_tagged(reinterpret_cast<const uint8_t*>(tv->datatype.get(c->base)), c);
@@ -228,7 +228,7 @@ void s_typed_value(const uint8_t* o, StringifyCtx* c) {
     c->recurse_anyval(&tv->value, c);
 }
 
-void s_parameter(const uint8_t* o, StringifyCtx* c) {
+void s_parameter(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* p = reinterpret_cast<const ParameterData*>(o);
     *c->out += '?';
     *c->out += p->name_view(c->base);
@@ -285,7 +285,7 @@ HERMES_REGISTER_TYPE(k_parameter_ops);
 // Recursive dispatch (populates StringifyCtx callbacks)
 // ============================================================================
 
-static void do_recurse_tagged(const uint8_t* obj, StringifyCtx* ctx) {
+static void do_recurse_tagged(const uint8_t* obj, StringifyCtx* ctx) noexcept {
     TypeTag tag = TypeTag::read_before(obj);
     const TypeOps* ops = find_type_ops(tag.type_code());
     if (ops && ops->stringify_tagged)
@@ -294,7 +294,7 @@ static void do_recurse_tagged(const uint8_t* obj, StringifyCtx* ctx) {
         *ctx->out += "null";
 }
 
-static void do_recurse_anyval(const AnyVal* slot, StringifyCtx* ctx) {
+static void do_recurse_anyval(const AnyVal* slot, StringifyCtx* ctx) noexcept {
     if (slot->is_null()) { *ctx->out += "null"; return; }
     if (slot->is_value()) {
         const TypeOps* ops = find_type_ops(slot->value_type_hash());

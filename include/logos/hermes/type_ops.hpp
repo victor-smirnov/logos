@@ -31,11 +31,11 @@ struct StringifyCtx {
     std::string* out;
 
     // Stringify a child held in an AnyVal slot (value-mode or pointer-mode).
-    void (*recurse_anyval)(const AnyVal* slot, StringifyCtx* ctx);
+    void (*recurse_anyval)(const AnyVal* slot, StringifyCtx* ctx) noexcept;
 
     // Stringify a tagged object; obj points at the first data byte
     // (TypeTag is stored *before* obj in the arena).
-    void (*recurse_tagged)(const uint8_t* obj, StringifyCtx* ctx);
+    void (*recurse_tagged)(const uint8_t* obj, StringifyCtx* ctx) noexcept;
 };
 
 // ---------------------------------------------------------------------------
@@ -45,14 +45,14 @@ struct TypeOps {
     uint64_t type_code;
 
     // Stringify a tagged (pointer-mode) value.  Required — must not be null.
-    void (*stringify_tagged)(const uint8_t* obj, StringifyCtx* ctx);
+    void (*stringify_tagged)(const uint8_t* obj, StringifyCtx* ctx) noexcept;
 
     // Stringify a value-mode AnyVal.  Null if this type is never embeddable.
-    void (*stringify_embed)(const AnyVal* slot, StringifyCtx* ctx);
+    void (*stringify_embed)(const AnyVal* slot, StringifyCtx* ctx) noexcept;
 
     // Compare two values in the arena.  Returns <0 / 0 / >0.
     // Null if comparison is not supported for this type.
-    int (*compare)(const uint8_t* a, const uint8_t* b, uint8_t* base);
+    int (*compare)(const uint8_t* a, const uint8_t* b, uint8_t* base) noexcept;
 };
 
 // ---------------------------------------------------------------------------
