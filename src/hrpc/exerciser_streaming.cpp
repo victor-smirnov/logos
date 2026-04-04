@@ -65,8 +65,8 @@ static void test_input_stream() {
                 sum += msg.data().as_value<int32_t>();
             }
             server_computed_sum = sum;
-            return Response::ok(AnyVal::from_value(sum));
-        });
+            return Response::ok(AnyVal::from_value(sum)).get();
+        }).get();
 
         session.start();
         session.run();
@@ -79,14 +79,14 @@ static void test_input_stream() {
         session.start();
 
         // Make async call with 1 input channel (client → server).
-        Request rq = Request::make();
+        Request rq = Request::make().get();
         auto call = session.call_async(kSumEndpoint, std::move(rq),
                                        /*input_channels=*/1,
                                        /*output_channels=*/0);
 
         // Push N integer messages to the server via input_channel[0].
         for (int i = 0; i < N; ++i) {
-            call->push(StreamMessage::make(AnyVal::from_value(int32_t(i))), 0);
+            call->push(StreamMessage::make(AnyVal::from_value(int32_t(i))).get(), 0);
         }
 
         // Push a null-doc sentinel to signal end-of-stream.
@@ -137,12 +137,12 @@ static void test_output_stream() {
         session.endpoints().add(kCountEndpoint, [](Context& ctx) -> Response {
             constexpr int count = 50;
             for (int i = 0; i < count; ++i) {
-                ctx.push(StreamMessage::make(AnyVal::from_value(int32_t(i * 2))), 0);
+                ctx.push(StreamMessage::make(AnyVal::from_value(int32_t(i * 2))).get(), 0);
             }
             // Null-doc sentinel signals end-of-stream to call->pop().
             ctx.push(StreamMessage{}, 0);
-            return Response::ok(AnyVal::from_value(int32_t(count)));
-        });
+            return Response::ok(AnyVal::from_value(int32_t(count))).get();
+        }).get();
 
         session.start();
         session.run();
@@ -154,7 +154,7 @@ static void test_output_stream() {
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
         session.start();
 
-        Request rq = Request::make();
+        Request rq = Request::make().get();
         auto call = session.call_async(kCountEndpoint, std::move(rq),
                                        /*input_channels=*/0,
                                        /*output_channels=*/1);

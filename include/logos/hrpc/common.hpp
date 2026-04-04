@@ -20,7 +20,17 @@
 #include <random>
 #include <string>
 
+#include <logos/core/expected.hpp>
+
 namespace logos::hrpc {
+
+// ---------------------------------------------------------------------------
+// HRPC error codes (range 0x0002'0000 … 0x0002'FFFF).
+// ---------------------------------------------------------------------------
+enum class ErrCode : uint64_t {
+    transport_error = 0x0002'0001,  // TCP connect / read / write failure
+    out_of_memory   = 0x0002'0002,  // arena or container allocation failed
+};
 
 // ---------------------------------------------------------------------------
 // Fundamental types
@@ -159,23 +169,27 @@ static_assert(alignof(MessageHeader) == 8, "MessageHeader must be 8-byte aligned
 // ---------------------------------------------------------------------------
 
 // Fill an EndpointID with random bytes using <random>.
-inline EndpointID make_random_endpoint_id() {
-    EndpointID id{};
-    std::random_device rd;
-    std::mt19937_64 gen(rd());
-    std::uniform_int_distribution<uint64_t> dist;
-    for (size_t i = 0; i < 4; ++i) {
-        uint64_t chunk = dist(gen);
-        std::memcpy(id.data() + i * 8, &chunk, 8);
+[[nodiscard]] inline logos::expected<EndpointID> make_random_endpoint_id() noexcept {
+    try {
+        EndpointID id{};
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        std::uniform_int_distribution<uint64_t> dist;
+        for (size_t i = 0; i < 4; ++i) {
+            uint64_t chunk = dist(gen);
+            std::memcpy(id.data() + i * 8, &chunk, 8);
+        }
+        return id;
+    } catch (...) {
+        return std::unexpected(logos::err(ErrCode::out_of_memory));
     }
-    return id;
 }
 
 // Derive a deterministic EndpointID from a human-readable name string.
 // Uses FNV-1a 64-bit with four independent seeds to fill all 32 bytes.
 // Both client and server call this with the same name to get the same ID.
 // Convention: "package.ServiceName/method_name" (e.g. "echo.Echo/ping").
-inline EndpointID endpoint_id_from_name(std::string_view name) {
+inline EndpointID endpoint_id_from_name(std::string_view name) noexcept {
     EndpointID id{};
     static constexpr uint64_t kFNVPrime = 0x100000001b3ULL;
     static constexpr uint64_t kSeeds[4] = {
@@ -193,15 +207,19 @@ inline EndpointID endpoint_id_from_name(std::string_view name) {
 }
 
 // Convert an EndpointID to a lowercase hex string (64 hex chars).
-inline std::string endpoint_id_to_hex(const EndpointID& id) {
-    static constexpr char kHex[] = "0123456789abcdef";
-    std::string out;
-    out.reserve(64);
-    for (uint8_t byte : id) {
-        out.push_back(kHex[byte >> 4]);
-        out.push_back(kHex[byte & 0xF]);
+[[nodiscard]] inline logos::expected<std::string> endpoint_id_to_hex(const EndpointID& id) noexcept {
+    try {
+        static constexpr char kHex[] = "0123456789abcdef";
+        std::string out;
+        out.reserve(64);
+        for (uint8_t byte : id) {
+            out.push_back(kHex[byte >> 4]);
+            out.push_back(kHex[byte & 0xF]);
+        }
+        return out;
+    } catch (...) {
+        return std::unexpected(logos::err(ErrCode::out_of_memory));
     }
-    return out;
 }
 
 } // namespace logos::hrpc

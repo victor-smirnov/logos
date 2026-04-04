@@ -37,17 +37,22 @@ public:
 
     // Register a handler for the given endpoint ID.
     // Overwrites any previously registered handler for the same ID.
-    void add(const EndpointID& id, HandlerFn handler) {
-        handlers_[id] = std::move(handler);
+    [[nodiscard]] logos::expected<void> add(const EndpointID& id, HandlerFn handler) noexcept {
+        try {
+            handlers_[id] = std::move(handler);
+            return {};
+        } catch (...) {
+            return std::unexpected(logos::err(ErrCode::out_of_memory));
+        }
     }
 
     // Unregister the handler for the given endpoint ID (no-op if not found).
-    void remove(const EndpointID& id) {
+    void remove(const EndpointID& id) noexcept {
         handlers_.erase(id);
     }
 
     // Look up a handler. Returns nullptr if no handler is registered.
-    HandlerFn* get(const EndpointID& id) {
+    HandlerFn* get(const EndpointID& id) noexcept {
         auto it = handlers_.find(id);
         if (it == handlers_.end()) return nullptr;
         return &it->second;

@@ -42,10 +42,10 @@ public:
 
     // --- Accessors ---
 
-    const Request& request() const { return request_; }
-    const EndpointID& endpoint_id() const { return endpoint_id_; }
-    CallID call_id() const { return call_id_; }
-    bool is_cancelled() const { return cancelled_; }
+    const Request& request() const noexcept { return request_; }
+    const EndpointID& endpoint_id() const noexcept { return endpoint_id_; }
+    CallID call_id() const noexcept { return call_id_; }
+    bool is_cancelled() const noexcept { return cancelled_; }
 
     // --- Streaming: input channels (server reads, client writes via wire) ---
     //
@@ -67,11 +67,11 @@ public:
 private:
     friend class Session;
 
-    void set_request(Request rq)                { request_     = std::move(rq); }
-    void set_endpoint_id(const EndpointID& id)  { endpoint_id_ = id; }
-    void set_call_id(CallID id)                 { call_id_     = id; }
-    void set_cancelled(bool c)                  { cancelled_   = c; }
-    void set_session(Session* s)                { session_     = s; }
+    void set_request(Request rq) noexcept       { request_     = std::move(rq); }
+    void set_endpoint_id(const EndpointID& id) noexcept { endpoint_id_ = id; }
+    void set_call_id(CallID id) noexcept        { call_id_     = id; }
+    void set_cancelled(bool c) noexcept         { cancelled_   = c; }
+    void set_session(Session* s) noexcept       { session_     = s; }
 
     // input_channels[i]: server pops messages from these.
     // Filled by Session::handle_call_channel_msg().
@@ -81,7 +81,7 @@ private:
         input_channels_ = std::move(ch);
     }
 
-    logos::reactor::Channel<StreamMessage>* input_channel(ChannelCode code) {
+    logos::reactor::Channel<StreamMessage>* input_channel(ChannelCode code) noexcept {
         if (code >= input_channels_.size()) return nullptr;
         return input_channels_[code].get();
     }

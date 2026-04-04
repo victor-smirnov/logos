@@ -57,7 +57,7 @@ public:
 
     // --- Configuration ---
 
-    EndpointRegistry& endpoints() { return endpoints_; }
+    EndpointRegistry& endpoints() noexcept { return endpoints_; }
 
     // --- Session lifecycle ---
 
@@ -73,7 +73,7 @@ public:
     // Close the session (sends SESSION_CLOSE, marks closed).
     void close();
 
-    bool is_closed() const { return closed_; }
+    bool is_closed() const noexcept { return closed_; }
 
     // --- RPC: synchronous ---
 

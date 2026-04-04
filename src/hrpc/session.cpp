@@ -70,7 +70,7 @@ void Session::start() {
     if (side_ == SessionSide::Client) {
         // Send SESSION_START to server, then block until run() receives the ack.
         // The run() fiber must already be spawned before calling start().
-        ConnectionMetadata meta = ConnectionMetadata::make();
+        ConnectionMetadata meta = ConnectionMetadata::make().get();
         send_message(MessageType::SessionStart, 0, nullptr, 0, &meta.doc);
 
         ngt_mutex_.lock();
@@ -140,7 +140,7 @@ void Session::run() {
         for (auto& [call_id, pc] : pending_calls_) {
             std::lock_guard pc_lock(pc->mutex);
             if (!pc->response.has_value()) {
-                pc->response = Response::error("Session closed");
+                pc->response = Response::error("Session closed").get();
                 pc->cv.notify_one();
             }
         }
@@ -178,8 +178,8 @@ std::shared_ptr<Call> Session::call_async(const EndpointID& endpoint,
     call_id_cnt_ += 2;
 
     // Set channel counts in the request.
-    if (input_channels > 0)  request.set_input_channels(input_channels);
-    if (output_channels > 0) request.set_output_channels(output_channels);
+    if (input_channels > 0)  request.set_input_channels(input_channels).get();
+    if (output_channels > 0) request.set_output_channels(output_channels).get();
 
     // Build PendingCall state.
     auto pending = std::make_shared<PendingCall>();
@@ -327,7 +327,7 @@ void Session::handle_session_start(const MessageHeader& /*hdr*/,
                                     HermesCtr /*payload*/) {
     if (side_ == SessionSide::Server) {
         // Acknowledge: send our own SESSION_START.
-        ConnectionMetadata meta = ConnectionMetadata::make();
+        ConnectionMetadata meta = ConnectionMetadata::make().get();
         send_message(MessageType::SessionStart, 0, nullptr, 0, &meta.doc);
 
         std::lock_guard lock(ngt_mutex_);
@@ -365,7 +365,7 @@ void Session::handle_call(const MessageHeader& hdr,
 
     HandlerFn* handler_fn_ptr = endpoints_.get(endpoint_id);
     if (!handler_fn_ptr) {
-        send_return(hdr.call_id, Response::error("Unknown endpoint"));
+        send_return(hdr.call_id, Response::error("Unknown endpoint").get());
         return;
     }
 
@@ -415,9 +415,9 @@ void Session::handle_call(const MessageHeader& hdr,
             try {
                 rs = handler_fn(actx->ctx);
             } catch (const std::exception& e) {
-                rs = Response::error(e.what());
+                rs = Response::error(e.what()).value_or(Response{});
             } catch (...) {
-                rs = Response::error("Unknown exception in handler");
+                rs = Response::error("Unknown exception in handler").value_or(Response{});
             }
             send_return(call_id, std::move(rs));
 

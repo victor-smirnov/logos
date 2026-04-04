@@ -52,8 +52,8 @@ static void test_echo_rq() {
         Session session(std::move(conn), SessionSide::Server);
         session.endpoints().add(kEchoEndpoint, [](Context& ctx) -> Response {
             AnyVal param = ctx.request().get_param(keys::PARAMETERS);
-            return Response::ok(param);
-        });
+            return Response::ok(param).get();
+        }).get();
         session.start();
         session.run();
     }, "server");
@@ -67,8 +67,8 @@ static void test_echo_rq() {
 
         session.start();
 
-        Request rq = Request::make();
-        rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(42)));
+        Request rq = Request::make().get();
+        rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(42))).get();
 
         Response rs = session.call(kEchoEndpoint, std::move(rq));
 
@@ -102,8 +102,8 @@ static void test_multi_rq() {
 
         Session session(std::move(conn), SessionSide::Server);
         session.endpoints().add(kEchoEndpoint, [](Context& ctx) -> Response {
-            return Response::ok(ctx.request().get_param(keys::PARAMETERS));
-        });
+            return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
+        }).get();
         session.start();
         session.run();
     }, "server");
@@ -115,8 +115,8 @@ static void test_multi_rq() {
         session.start();
 
         for (int i = 0; i < N; ++i) {
-            Request rq = Request::make();
-            rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(i * 10)));
+            Request rq = Request::make().get();
+            rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(i * 10))).get();
             Response rs = session.call(kEchoEndpoint, std::move(rq));
 
             LOGOS_ASSERT(rs.is_ok(), "HRPC-SESSION-T02a",
@@ -164,16 +164,16 @@ static void test_bidirectional() {
                     ctx.request().get_param(keys::PARAMETERS).as_value<int32_t>();
 
                 // Call the client's kPingEndpoint from within the handler fiber.
-                Request ping_rq = Request::make();
+                Request ping_rq = Request::make().get();
                 ping_rq.set_param(keys::PARAMETERS,
-                                  AnyVal::from_value(int32_t(client_val + 1)));
+                                  AnyVal::from_value(int32_t(client_val + 1))).get();
                 Response ping_rs = session.call(kPingEndpoint, std::move(ping_rq));
 
                 server_called_client_with = client_val + 1;
 
-                if (!ping_rs.is_ok()) return Response::error("ping failed");
-                return Response::ok(AnyVal::from_value(int32_t(200)));
-            });
+                if (!ping_rs.is_ok()) return Response::error("ping failed").get();
+                return Response::ok(AnyVal::from_value(int32_t(200))).get();
+            }).get();
 
         // Server runs its read loop — no separate "server makes first call" step.
         session.start();
@@ -186,15 +186,15 @@ static void test_bidirectional() {
 
         // Client registers kPingEndpoint so server can call it back.
         session.endpoints().add(kPingEndpoint, [](Context& ctx) -> Response {
-            return Response::ok(ctx.request().get_param(keys::PARAMETERS));
-        });
+            return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
+        }).get();
 
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
         session.start();
 
         // Client calls the server's echo endpoint.
-        Request rq = Request::make();
-        rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(77)));
+        Request rq = Request::make().get();
+        rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(77))).get();
         Response rs = session.call(kEchoEndpoint, std::move(rq));
 
         LOGOS_ASSERT(rs.is_ok(), "HRPC-SESSION-T03b",
@@ -238,8 +238,8 @@ static void test_unknown_endpoint() {
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
         session.start();
 
-        EndpointID unknown = make_random_endpoint_id();
-        Request rq = Request::make();
+        EndpointID unknown = make_random_endpoint_id().get();
+        Request rq = Request::make().get();
         Response rs = session.call(unknown, std::move(rq));
 
         got_error = !rs.is_ok();

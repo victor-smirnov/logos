@@ -54,7 +54,7 @@ struct PendingCall {
 class Call {
 public:
     // session is a raw pointer — Call must not outlive Session.
-    Call(std::shared_ptr<PendingCall> state, Session* session)
+    Call(std::shared_ptr<PendingCall> state, Session* session) noexcept
         : state_(std::move(state))
         , session_(session)
     {}
@@ -73,7 +73,7 @@ public:
     }
 
     // Non-blocking check — true if a response has arrived.
-    bool is_done() const {
+    bool is_done() const noexcept {
         return state_->response.has_value();
     }
 
@@ -89,8 +89,8 @@ public:
         return !msg.doc.is_null();
     }
 
-    std::shared_ptr<PendingCall> state() const { return state_; }
-    Session* session() const { return session_; }
+    std::shared_ptr<PendingCall> state() const noexcept { return state_; }
+    Session* session() const noexcept { return session_; }
 
 private:
     std::shared_ptr<PendingCall> state_;
