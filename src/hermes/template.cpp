@@ -103,11 +103,7 @@ private:
                 if (!keyword.empty()) return keyword;
             }
         }
-        try {
-            return std::string{};
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        return std::string{};
     }
 
     logos::expected<void> parse_var_stmt(ObjectArray* stmts) noexcept {
@@ -147,12 +143,7 @@ private:
         if (pos_ < text_.size() && text_[pos_] == '+') { ++pos_; } // preserve (default)
 
         skip_ws();
-        logos::expected<std::string> kw_res;
-        try {
-            kw_res = read_keyword();
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        logos::expected<std::string> kw_res = read_keyword();
         if (!kw_res) return std::unexpected(std::move(kw_res.error()));
         std::string keyword = std::move(*kw_res);
 
@@ -162,47 +153,41 @@ private:
         }
         if (keyword == "else") {
             skip_to_close_tag();
-            try { return std::string("else"); } catch (...) { return std::unexpected(logos::err(ErrCode::out_of_memory)); }
+            return std::string("else");
         }
         if (keyword == "elif") {
             skip_ws();
             std::string_view elif_expr = read_until_close_tag();
             skip_to_close_tag();
             elif_expr_ = elif_expr;
-            try { return std::string("elif"); } catch (...) { return std::unexpected(logos::err(ErrCode::out_of_memory)); }
+            return std::string("elif");
         }
 
         if (keyword == "for") {
             LOGOS_TRY_VOID(parse_for_stmt(stmts, strip_before));
-            try { return std::string{}; } catch (...) { return std::unexpected(logos::err(ErrCode::out_of_memory)); }
+            return std::string{};
         }
         if (keyword == "if") {
             LOGOS_TRY_VOID(parse_if_stmt(stmts, strip_before));
-            try { return std::string{}; } catch (...) { return std::unexpected(logos::err(ErrCode::out_of_memory)); }
+            return std::string{};
         }
         if (keyword == "set") {
             LOGOS_TRY_VOID(parse_set_stmt(stmts));
-            try { return std::string{}; } catch (...) { return std::unexpected(logos::err(ErrCode::out_of_memory)); }
+            return std::string{};
         }
 
         // Unknown statement — skip.
         skip_to_close_tag();
-        try { return std::string{}; } catch (...) { return std::unexpected(logos::err(ErrCode::out_of_memory)); }
+        return std::string{};
     }
 
     logos::expected<void> parse_for_stmt(ObjectArray* stmts, bool /*strip*/) noexcept {
         skip_ws();
-        logos::expected<std::string> var_res;
-        logos::expected<std::string> in_res;
-        try {
-            var_res = read_keyword();
-            if (!var_res) return std::unexpected(std::move(var_res.error()));
-            skip_ws();
-            in_res = read_keyword();
-            if (!in_res) return std::unexpected(std::move(in_res.error()));
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        logos::expected<std::string> var_res = read_keyword();
+        if (!var_res) return std::unexpected(std::move(var_res.error()));
+        skip_ws();
+        logos::expected<std::string> in_res = read_keyword();
+        if (!in_res) return std::unexpected(std::move(in_res.error()));
         std::string var_name = std::move(*var_res);
         std::string in_kw = std::move(*in_res);
         if (in_kw != "in") return std::unexpected(logos::err(ErrCode::template_error));
@@ -314,12 +299,7 @@ private:
 
     logos::expected<void> parse_set_stmt(ObjectArray* stmts) noexcept {
         skip_ws();
-        logos::expected<std::string> var_res;
-        try {
-            var_res = read_keyword();
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        logos::expected<std::string> var_res = read_keyword();
         if (!var_res) return std::unexpected(std::move(var_res.error()));
         std::string var_name = std::move(*var_res);
 
@@ -394,11 +374,7 @@ public:
     logos::expected<std::string> render(const ObjectArray* stmts, uint8_t* tpl_base) noexcept {
         base_ = tpl_base;  // Template AST base for reading nodes.
         LOGOS_TRY_VOID(visit_stmts(stmts));
-        try {
-            return std::move(out_);
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        return std::move(out_);
     }
 
 private:
@@ -416,12 +392,8 @@ private:
     std::vector<VarBinding> var_stack_;
 
     logos::expected<void> push_var(const std::string& name, void* val, uint8_t* val_base = nullptr) noexcept {
-        try {
-            var_stack_.push_back({name, val, val_base});
-            return {};
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        var_stack_.push_back({name, val, val_base});
+        return {};
     }
 
     void pop_vars_to(size_t mark) noexcept {
@@ -486,38 +458,34 @@ private:
         LOGOS_TRY(auto ctx_doc, build_context());
         LOGOS_TRY(auto res, eval_path(ctx_doc, expr_text));
         if (!res.has_root()) {
-            try { return std::string{}; } catch (...) { return std::unexpected(logos::err(ErrCode::out_of_memory)); }
+            return std::string{};
         }
         return value_to_string(HermesCtrAccess::root<void>(res));
     }
 
     logos::expected<std::string> value_to_string(void* val) noexcept {
         if (!val) {
-            try { return std::string{}; } catch (...) { return std::unexpected(logos::err(ErrCode::out_of_memory)); }
+            return std::string{};
         }
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
-        try {
-            switch (tag.type_code()) {
-                case type_hash::Varchar: return std::string(static_cast<const ArenaString*>(val)->view());
-                case type_hash::Integer: return std::to_string(*static_cast<const int32_t*>(val));
-                case type_hash::BigInt:  return std::to_string(*static_cast<const int64_t*>(val));
-                case type_hash::Real: {
-                    char buf[32];
-                    int n = std::snprintf(buf, sizeof(buf), "%g", *static_cast<const float*>(val));
-                    return std::string(buf, n);
-                }
-                case type_hash::Double: {
-                    char buf[32];
-                    int n = std::snprintf(buf, sizeof(buf), "%g", *static_cast<const double*>(val));
-                    return std::string(buf, n);
-                }
-                case type_hash::Boolean:
-                    return *static_cast<const uint8_t*>(val) ? std::string("true") : std::string("false");
-                default: return std::string{};
+        switch (tag.type_code()) {
+            case type_hash::Varchar: return std::string(static_cast<const ArenaString*>(val)->view());
+            case type_hash::Integer: return std::to_string(*static_cast<const int32_t*>(val));
+            case type_hash::BigInt:  return std::to_string(*static_cast<const int64_t*>(val));
+            case type_hash::Real: {
+                char buf[32];
+                int n = std::snprintf(buf, sizeof(buf), "%g", *static_cast<const float*>(val));
+                return std::string(buf, n);
             }
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
+            case type_hash::Double: {
+                char buf[32];
+                int n = std::snprintf(buf, sizeof(buf), "%g", *static_cast<const double*>(val));
+                return std::string(buf, n);
+            }
+            case type_hash::Boolean:
+                return *static_cast<const uint8_t*>(val) ? std::string("true") : std::string("false");
+            default: return std::string{};
         }
     }
 
@@ -626,11 +594,7 @@ private:
 
             if (tag.type_code() == type_hash::Varchar) {
                 // Text node.
-                try {
-                    out_ += static_cast<const ArenaString*>(elem)->view();
-                } catch (...) {
-                    return std::unexpected(logos::err(ErrCode::out_of_memory));
-                }
+                out_ += static_cast<const ArenaString*>(elem)->view();
             } else if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::Hermes) {
                 // Statement node (TinyObjectMap).
                 auto* node = static_cast<TinyObjectMap*>(elem);
@@ -650,12 +614,8 @@ private:
     logos::expected<void> visit_var(TinyObjectMap* node) noexcept {
         auto* expr_str = node->slot(tpl_ast::EXPRESSION, base_)->as_ptr<ArenaString>(base_);
         LOGOS_TRY(auto s, eval_to_string(expr_str->view()));
-        try {
-            out_ += s;
-            return {};
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        out_ += s;
+        return {};
     }
 
     logos::expected<void> visit_for(TinyObjectMap* node) noexcept {
@@ -663,12 +623,7 @@ private:
         auto* expr_str = node->slot(tpl_ast::EXPRESSION, base_)->as_ptr<ArenaString>(base_);
         auto* body = node->slot(tpl_ast::STATEMENTS, base_)->as_ptr<ObjectArray>(base_);
 
-        std::string var_name;
-        try {
-            var_name = std::string(var_str->view());
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        std::string var_name(var_str->view());
 
         // Evaluate the iterable expression.
         LOGOS_TRY(auto iter_result, eval_path_for_iterate(expr_str->view()));
@@ -740,27 +695,19 @@ private:
 // ============================================================================
 
 logos::expected<HermesCtr> parse_template(std::string_view tpl) noexcept {
-    try {
-        LOGOS_TRY(auto doc, make_doc());
-        TemplateParser parser(tpl, doc);
-        LOGOS_TRY(void* root, parser.parse());
-        HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
-        return doc;
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    LOGOS_TRY(auto doc, make_doc());
+    TemplateParser parser(tpl, doc);
+    LOGOS_TRY(void* root, parser.parse());
+    HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
+    return doc;
 }
 
 logos::expected<std::string> render_template(const HermesCtr& tpl,
                                               const HermesCtr& data) noexcept {
-    try {
-        auto* stmts = HermesCtrAccess::root<ObjectArray>(tpl);
-        if (!stmts) return std::string{};
-        TemplateRenderer renderer(data);
-        return renderer.render(stmts, const_cast<uint8_t*>(HermesCtrAccess::base(tpl)));
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    auto* stmts = HermesCtrAccess::root<ObjectArray>(tpl);
+    if (!stmts) return std::string{};
+    TemplateRenderer renderer(data);
+    return renderer.render(stmts, const_cast<uint8_t*>(HermesCtrAccess::base(tpl)));
 }
 
 logos::expected<std::string> render(std::string_view tpl_text,

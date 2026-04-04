@@ -9,7 +9,6 @@
 #include <sys/mman.h>
 #include <cstring>
 #include <format>
-#include <print>
 
 namespace logos::reactor {
 
@@ -114,15 +113,7 @@ void Fiber::entry(Fiber* self) noexcept {
     LOGOS_ASSERT(self->state_ == FiberState::Running, "REACTOR-FIBER-011",
                  "Fiber '{}' entered in wrong state: {}",
                  self->name_, static_cast<int>(self->state_));
-    try {
-        self->fn_();
-    } catch (const std::exception& ex) {
-        std::println(stderr, "[reactor] fiber '{}' threw: {}", self->name_, ex.what());
-        self->result_ = -1;
-    } catch (...) {
-        std::println(stderr, "[reactor] fiber '{}' threw unknown exception", self->name_);
-        self->result_ = -1;
-    }
+    self->fn_();
 }
 
 // ---------------------------------------------------------------------------

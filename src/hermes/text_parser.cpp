@@ -181,14 +181,10 @@ private:
         while (true) {
             skip();
             LOGOS_TRY(auto name_sv, read_identifier());
-            try {
-                std::string name(name_sv);
-                LOGOS_TRY_VOID(expect(':'));
-                LOGOS_TRY(DatatypeData* dt, parse_type_declaration());
-                type_dir_.push_back({std::move(name), dt});
-            } catch (...) {
-                return std::unexpected(logos::err(ErrCode::out_of_memory));
-            }
+            std::string name(name_sv);
+            LOGOS_TRY_VOID(expect(':'));
+            LOGOS_TRY(DatatypeData* dt, parse_type_declaration());
+            type_dir_.push_back({std::move(name), dt});
 
             skip();
             if (peek() == '}') { ++pos_; break; }
@@ -280,35 +276,31 @@ private:
     logos::expected<std::string> parse_quoted_string() noexcept {
         LOGOS_TRY_VOID(expect('"'));
         std::string result;
-        try {
-            while (!at_end() && peek() != '"') {
-                if (peek() == '\\') {
-                    ++pos_;
-                    if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
-                    char esc = advance();
-                    switch (esc) {
-                        case '"':  result += '"'; break;
-                        case '\\': result += '\\'; break;
-                        case '/':  result += '/'; break;
-                        case 'b':  result += '\b'; break;
-                        case 'f':  result += '\f'; break;
-                        case 'n':  result += '\n'; break;
-                        case 'r':  result += '\r'; break;
-                        case 't':  result += '\t'; break;
-                        case 'u': {
-                            LOGOS_TRY(auto u, parse_unicode_escape());
-                            result += u;
-                            break;
-                        }
-                        default:
-                            return std::unexpected(logos::err(ErrCode::parse_error));
+        while (!at_end() && peek() != '"') {
+            if (peek() == '\\') {
+                ++pos_;
+                if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
+                char esc = advance();
+                switch (esc) {
+                    case '"':  result += '"'; break;
+                    case '\\': result += '\\'; break;
+                    case '/':  result += '/'; break;
+                    case 'b':  result += '\b'; break;
+                    case 'f':  result += '\f'; break;
+                    case 'n':  result += '\n'; break;
+                    case 'r':  result += '\r'; break;
+                    case 't':  result += '\t'; break;
+                    case 'u': {
+                        LOGOS_TRY(auto u, parse_unicode_escape());
+                        result += u;
+                        break;
                     }
-                } else {
-                    result += advance();
+                    default:
+                        return std::unexpected(logos::err(ErrCode::parse_error));
                 }
+            } else {
+                result += advance();
             }
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
         }
         if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
         ++pos_;
@@ -318,17 +310,13 @@ private:
     logos::expected<std::string> parse_raw_string() noexcept {
         LOGOS_TRY_VOID(expect('\''));
         std::string result;
-        try {
-            while (!at_end() && peek() != '\'') {
-                if (peek() == '\\' && peek(1) == '\'') {
-                    pos_ += 2;
-                    result += '\'';
-                } else {
-                    result += advance();
-                }
+        while (!at_end() && peek() != '\'') {
+            if (peek() == '\\' && peek(1) == '\'') {
+                pos_ += 2;
+                result += '\'';
+            } else {
+                result += advance();
             }
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
         }
         if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
         ++pos_;
@@ -372,24 +360,20 @@ private:
 
     static logos::expected<std::string> encode_utf8(uint32_t cp) noexcept {
         std::string r;
-        try {
-            if (cp < 0x80) {
-                r += static_cast<char>(cp);
-            } else if (cp < 0x800) {
-                r += static_cast<char>(0xC0 | (cp >> 6));
-                r += static_cast<char>(0x80 | (cp & 0x3F));
-            } else if (cp < 0x10000) {
-                r += static_cast<char>(0xE0 | (cp >> 12));
-                r += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-                r += static_cast<char>(0x80 | (cp & 0x3F));
-            } else {
-                r += static_cast<char>(0xF0 | (cp >> 18));
-                r += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
-                r += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-                r += static_cast<char>(0x80 | (cp & 0x3F));
-            }
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
+        if (cp < 0x80) {
+            r += static_cast<char>(cp);
+        } else if (cp < 0x800) {
+            r += static_cast<char>(0xC0 | (cp >> 6));
+            r += static_cast<char>(0x80 | (cp & 0x3F));
+        } else if (cp < 0x10000) {
+            r += static_cast<char>(0xE0 | (cp >> 12));
+            r += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            r += static_cast<char>(0x80 | (cp & 0x3F));
+        } else {
+            r += static_cast<char>(0xF0 | (cp >> 18));
+            r += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+            r += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            r += static_cast<char>(0x80 | (cp & 0x3F));
         }
         return r;
     }
@@ -517,11 +501,7 @@ private:
                 key_res = parse_raw_string();
             } else {
                 LOGOS_TRY(auto sv, read_identifier());
-                try {
-                    key_res = std::string(sv);
-                } catch (...) {
-                    return std::unexpected(logos::err(ErrCode::out_of_memory));
-                }
+                key_res = std::string(sv);
             }
             if (!key_res) return std::unexpected(std::move(key_res.error()));
 
@@ -609,19 +589,15 @@ private:
         if (!basic.empty()) return basic;
 
         // Qualified name: identifier (:: identifier)*
-        try {
-            LOGOS_TRY(auto first, read_identifier());
-            std::string result(first);
-            while (pos_ + 1 < text_.size() && text_[pos_] == ':' && text_[pos_ + 1] == ':') {
-                pos_ += 2;
-                LOGOS_TRY(auto next, read_identifier());
-                result += "::";
-                result += next;
-            }
-            return result;
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
+        LOGOS_TRY(auto first, read_identifier());
+        std::string result(first);
+        while (pos_ + 1 < text_.size() && text_[pos_] == ':' && text_[pos_ + 1] == ':') {
+            pos_ += 2;
+            LOGOS_TRY(auto next, read_identifier());
+            result += "::";
+            result += next;
         }
+        return result;
     }
 
     logos::expected<std::string> try_cxx_basic_type() noexcept {
@@ -662,11 +638,7 @@ private:
         for (auto& b : basics) {
             pos_ = saved;
             if (try_match_words(b.text)) {
-                try {
-                    return std::string(b.canonical);
-                } catch (...) {
-                    return std::unexpected(logos::err(ErrCode::out_of_memory));
-                }
+                return std::string(b.canonical);
             }
         }
         pos_ = saved;
@@ -973,17 +945,11 @@ private:
 // ============================================================================
 
 logos::expected<HermesCtr> parse(std::string_view text) noexcept {
-    try {
-        LOGOS_TRY(auto doc, make_doc());
-        Parser parser(text, doc);
-        LOGOS_TRY(void* root, parser.parse_document());
-        HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
-        return doc;
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    } catch (...) {
-        return std::unexpected(logos::err(ErrCode::parse_error));
-    }
+    LOGOS_TRY(auto doc, make_doc());
+    Parser parser(text, doc);
+    LOGOS_TRY(void* root, parser.parse_document());
+    HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
+    return doc;
 }
 
 } // namespace logos::hermes

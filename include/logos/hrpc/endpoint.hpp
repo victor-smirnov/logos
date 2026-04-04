@@ -38,12 +38,8 @@ public:
     // Register a handler for the given endpoint ID.
     // Overwrites any previously registered handler for the same ID.
     [[nodiscard]] logos::expected<void> add(const EndpointID& id, HandlerFn handler) noexcept {
-        try {
-            handlers_[id] = std::move(handler);
-            return {};
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        handlers_[id] = std::move(handler);
+        return {};
     }
 
     // Unregister the handler for the given endpoint ID (no-op if not found).

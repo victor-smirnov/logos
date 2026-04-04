@@ -412,13 +412,7 @@ void Session::handle_call(const MessageHeader& hdr,
     Scheduler::current()->spawn(
         [this, handler_fn = std::move(handler_fn), actx, call_id]() mutable {
             Response rs;
-            try {
-                rs = handler_fn(actx->ctx);
-            } catch (const std::exception& e) {
-                rs = Response::error(e.what()).value_or(Response{});
-            } catch (...) {
-                rs = Response::error("Unknown exception in handler").value_or(Response{});
-            }
+            rs = handler_fn(actx->ctx);
             send_return(call_id, std::move(rs));
 
             std::lock_guard lock(contexts_mutex_);

@@ -81,18 +81,12 @@ struct Request {
 
     // Create a new empty Request document.
     [[nodiscard]] static logos::expected<Request> make() noexcept {
-        try {
-            Request rq;
-            rq.doc = logos::hermes::make_doc().get();
-            auto tiny = rq.doc.make_tiny_map(4).get();
-            rq.doc.set_root(tiny);
-            rq.map = tiny;
-            return rq;
-        } catch (logos::Err& e) {
-            return std::unexpected(std::move(e));
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        Request rq;
+        LOGOS_TRY(rq.doc, logos::hermes::make_doc());
+        LOGOS_TRY(auto tiny, rq.doc.make_tiny_map(4));
+        rq.doc.set_root(tiny);
+        rq.map = tiny;
+        return rq;
     }
 
     // Wrap an existing document (used on the receiving side).
@@ -147,59 +141,40 @@ struct Response {
 
     // Successful response with no result value.
     [[nodiscard]] static logos::expected<Response> ok() noexcept {
-        try {
-            Response rs;
-            rs.doc = logos::hermes::make_doc().get();
-            auto tiny = rs.doc.make_tiny_map(4).get();
-            rs.doc.set_root(tiny);
-            rs.map = tiny;
-            rs.map.put(keys::STATUS_CODE,
-                       AnyVal::from_value(static_cast<uint32_t>(StatusCode::Ok))).get();
-            return rs;
-        } catch (logos::Err& e) {
-            return std::unexpected(std::move(e));
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        Response rs;
+        LOGOS_TRY(rs.doc, logos::hermes::make_doc());
+        LOGOS_TRY(auto tiny, rs.doc.make_tiny_map(4));
+        rs.doc.set_root(tiny);
+        rs.map = tiny;
+        LOGOS_TRY_VOID(rs.map.put(keys::STATUS_CODE,
+                       AnyVal::from_value(static_cast<uint32_t>(StatusCode::Ok))));
+        return rs;
     }
 
     // Successful response with a result value.
     [[nodiscard]] static logos::expected<Response> ok(AnyVal result) noexcept {
-        try {
-            auto rs_exp = Response::ok();
-            if (!rs_exp) return rs_exp;
-            rs_exp->map.put(keys::RESULT, result).get();
-            return rs_exp;
-        } catch (logos::Err& e) {
-            return std::unexpected(std::move(e));
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        LOGOS_TRY(auto rs, Response::ok());
+        LOGOS_TRY_VOID(rs.map.put(keys::RESULT, result));
+        return rs;
     }
 
     // Error response with a human-readable description.
     [[nodiscard]] static logos::expected<Response> error(std::string_view description) noexcept {
-        try {
-            Response rs;
-            rs.doc = logos::hermes::make_doc().get();
-            auto root = rs.doc.make_tiny_map(4).get();
-            rs.doc.set_root(root);
-            rs.map = root;
+        Response rs;
+        LOGOS_TRY(rs.doc, logos::hermes::make_doc());
+        LOGOS_TRY(auto root, rs.doc.make_tiny_map(4));
+        rs.doc.set_root(root);
+        rs.map = root;
 
-            rs.map.put(keys::STATUS_CODE,
-                       AnyVal::from_value(static_cast<uint32_t>(StatusCode::Error))).get();
+        LOGOS_TRY_VOID(rs.map.put(keys::STATUS_CODE,
+                       AnyVal::from_value(static_cast<uint32_t>(StatusCode::Error))));
 
-            // Error sub-map with description string.
-            auto err_map  = rs.doc.make_tiny_map(2).get();
-            auto desc_str = rs.doc.make_string(description).get();
-            err_map.put(keys::ERROR_DESC, AnyVal::from_offset(desc_str.offset())).get();
-            rs.map.put(keys::ERROR, AnyVal::from_offset(err_map.offset())).get();
-            return rs;
-        } catch (logos::Err& e) {
-            return std::unexpected(std::move(e));
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        // Error sub-map with description string.
+        LOGOS_TRY(auto err_map,  rs.doc.make_tiny_map(2));
+        LOGOS_TRY(auto desc_str, rs.doc.make_string(description));
+        LOGOS_TRY_VOID(err_map.put(keys::ERROR_DESC, AnyVal::from_offset(desc_str.offset())));
+        LOGOS_TRY_VOID(rs.map.put(keys::ERROR, AnyVal::from_offset(err_map.offset())));
+        return rs;
     }
 
     // Wrap an existing document (used on the receiving side).
@@ -252,19 +227,13 @@ struct StreamMessage {
     TinyMapView map;
 
     [[nodiscard]] static logos::expected<StreamMessage> make(AnyVal data) noexcept {
-        try {
-            StreamMessage msg;
-            msg.doc = logos::hermes::make_doc().get();
-            auto tiny = msg.doc.make_tiny_map(2).get();
-            msg.doc.set_root(tiny);
-            msg.map = tiny;
-            msg.map.put(keys::MSG_DATA, data).get();
-            return msg;
-        } catch (logos::Err& e) {
-            return std::unexpected(std::move(e));
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        StreamMessage msg;
+        LOGOS_TRY(msg.doc, logos::hermes::make_doc());
+        LOGOS_TRY(auto tiny, msg.doc.make_tiny_map(2));
+        msg.doc.set_root(tiny);
+        msg.map = tiny;
+        LOGOS_TRY_VOID(msg.map.put(keys::MSG_DATA, data));
+        return msg;
     }
 
     static StreamMessage from_doc(HermesCtr doc) noexcept {
@@ -292,22 +261,16 @@ struct ConnectionMetadata {
     TinyMapView map;
 
     [[nodiscard]] static logos::expected<ConnectionMetadata> make(uint64_t buffer_size = 1024 * 1024) noexcept {
-        try {
-            ConnectionMetadata meta;
-            meta.doc = logos::hermes::make_doc().get();
-            auto tiny = meta.doc.make_tiny_map(2).get();
-            meta.doc.set_root(tiny);
-            meta.map = tiny;
-            // uint64_t doesn't fit in 7 bytes as value mode, store as uint32_t
-            // (buffer sizes under 4GB are sufficient).
-            meta.map.put(keys::CHAN_BUF_SIZE,
-                         AnyVal::from_value(static_cast<uint32_t>(buffer_size))).get();
-            return meta;
-        } catch (logos::Err& e) {
-            return std::unexpected(std::move(e));
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        ConnectionMetadata meta;
+        LOGOS_TRY(meta.doc, logos::hermes::make_doc());
+        LOGOS_TRY(auto tiny, meta.doc.make_tiny_map(2));
+        meta.doc.set_root(tiny);
+        meta.map = tiny;
+        // uint64_t doesn't fit in 7 bytes as value mode, store as uint32_t
+        // (buffer sizes under 4GB are sufficient).
+        LOGOS_TRY_VOID(meta.map.put(keys::CHAN_BUF_SIZE,
+                         AnyVal::from_value(static_cast<uint32_t>(buffer_size))));
+        return meta;
     }
 
     static ConnectionMetadata from_doc(HermesCtr doc) noexcept {

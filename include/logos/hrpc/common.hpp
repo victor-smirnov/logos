@@ -170,19 +170,15 @@ static_assert(alignof(MessageHeader) == 8, "MessageHeader must be 8-byte aligned
 
 // Fill an EndpointID with random bytes using <random>.
 [[nodiscard]] inline logos::expected<EndpointID> make_random_endpoint_id() noexcept {
-    try {
-        EndpointID id{};
-        std::random_device rd;
-        std::mt19937_64 gen(rd());
-        std::uniform_int_distribution<uint64_t> dist;
-        for (size_t i = 0; i < 4; ++i) {
-            uint64_t chunk = dist(gen);
-            std::memcpy(id.data() + i * 8, &chunk, 8);
-        }
-        return id;
-    } catch (...) {
-        return std::unexpected(logos::err(ErrCode::out_of_memory));
+    EndpointID id{};
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<uint64_t> dist;
+    for (size_t i = 0; i < 4; ++i) {
+        uint64_t chunk = dist(gen);
+        std::memcpy(id.data() + i * 8, &chunk, 8);
     }
+    return id;
 }
 
 // Derive a deterministic EndpointID from a human-readable name string.
@@ -208,18 +204,14 @@ inline EndpointID endpoint_id_from_name(std::string_view name) noexcept {
 
 // Convert an EndpointID to a lowercase hex string (64 hex chars).
 [[nodiscard]] inline logos::expected<std::string> endpoint_id_to_hex(const EndpointID& id) noexcept {
-    try {
-        static constexpr char kHex[] = "0123456789abcdef";
-        std::string out;
-        out.reserve(64);
-        for (uint8_t byte : id) {
-            out.push_back(kHex[byte >> 4]);
-            out.push_back(kHex[byte & 0xF]);
-        }
-        return out;
-    } catch (...) {
-        return std::unexpected(logos::err(ErrCode::out_of_memory));
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(64);
+    for (uint8_t byte : id) {
+        out.push_back(kHex[byte >> 4]);
+        out.push_back(kHex[byte & 0xF]);
     }
+    return out;
 }
 
 } // namespace logos::hrpc

@@ -312,26 +312,18 @@ static void do_recurse_anyval(const AnyVal* slot, StringifyCtx* ctx) {
 // ============================================================================
 
 logos::expected<std::string> stringify(const HermesCtr& doc, bool pretty) noexcept {
-    try {
-        std::string out;
-        if (!doc.has_root()) { out = "null"; return out; }
-
-        StringifyCtx ctx;
-        ctx.base           = const_cast<uint8_t*>(HermesCtrAccess::base(doc));
-        ctx.pretty         = pretty;
-        ctx.indent         = 0;
-        ctx.out            = &out;
-        ctx.recurse_anyval = do_recurse_anyval;
-        ctx.recurse_tagged = do_recurse_tagged;
-
-        const uint8_t* root = static_cast<const uint8_t*>(HermesCtrAccess::root<void>(doc));
-        do_recurse_tagged(root, &ctx);
-        return out;
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    } catch (...) {
-        return std::unexpected(logos::err(ErrCode::out_of_memory));
-    }
+    std::string out;
+    if (!doc.has_root()) { out = "null"; return out; }
+    StringifyCtx ctx;
+    ctx.base           = const_cast<uint8_t*>(HermesCtrAccess::base(doc));
+    ctx.pretty         = pretty;
+    ctx.indent         = 0;
+    ctx.out            = &out;
+    ctx.recurse_anyval = do_recurse_anyval;
+    ctx.recurse_tagged = do_recurse_tagged;
+    const uint8_t* root = static_cast<const uint8_t*>(HermesCtrAccess::root<void>(doc));
+    do_recurse_tagged(root, &ctx);
+    return out;
 }
 
 } // namespace logos::hermes

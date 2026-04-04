@@ -5,25 +5,11 @@
 // expected.hpp — logos::expected<T, E>
 //
 // Thin wrapper over std::expected<T, E> that adds:
-//   .get()  — returns the value or throws E directly (not bad_expected_access).
+//   .get()  — returns the value or calls std::terminate() on error.
 //
-// get() is marked always_inline so the throw site is visible at the call site.
-//
-// NOTE: "EH elision" (throw+catch → branch) does NOT happen in clang 21 or
-// GCC 15 — __cxa_throw/__cxa_begin_catch are opaque to the optimizer.
-// The try/catch pattern gives zero-cost happy path (zero-cost exceptions),
-// but the error path still pays full EH overhead (heap alloc + throw + unwind).
-// For hot error paths prefer explicit: if (!r) return std::unexpected(r.error());
-//
-// Usage:
-//   logos::expected<int, Err> foo() noexcept {
-//       try {
-//           return compute().get();   // throws Err on error, caught below
-//       }
-//       catch (Err& e) {
-//           return std::unexpected(std::move(e));
-//       }
-//   }
+// Designed for -fno-exceptions builds.  get() is a "forced unwrap" —
+// use it only at test/exerciser boundaries where an error is a bug.
+// All library code propagates errors via LOGOS_TRY / LOGOS_TRY_VOID.
 //
 // Default error type is logos::Err — write logos::expected<int> for brevity.
 
@@ -31,6 +17,7 @@
 
 #include <expected>
 #include <utility>
+#include <exception>
 #include <logos/core/err.hpp>
 
 namespace logos {
@@ -45,18 +32,18 @@ public:
     using Base::Base;
     using Base::operator=;
 
-    // Return value or throw E.  Non-const only — throwing moves the error out.
+    // Return value or terminate.  Use only at test/exerciser boundaries.
     [[gnu::always_inline]] inline
-    T& get() & {
+    T& get() & noexcept {
         if (!this->has_value()) [[unlikely]]
-            throw std::move(this->error());
+            std::terminate();
         return **this;
     }
 
     [[gnu::always_inline]] inline
-    T get() && {
+    T get() && noexcept {
         if (!this->has_value()) [[unlikely]]
-            throw std::move(this->error());
+            std::terminate();
         return std::move(**this);
     }
 };
@@ -72,15 +59,15 @@ public:
     using Base::operator=;
 
     [[gnu::always_inline]] inline
-    void get() & {
+    void get() & noexcept {
         if (!this->has_value()) [[unlikely]]
-            throw std::move(this->error());
+            std::terminate();
     }
 
     [[gnu::always_inline]] inline
-    void get() && {
+    void get() && noexcept {
         if (!this->has_value()) [[unlikely]]
-            throw std::move(this->error());
+            std::terminate();
     }
 };
 

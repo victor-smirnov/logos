@@ -38,11 +38,7 @@ Arena::Arena(logos::InitTag& tag, ArenaMode mode, size_t initial_capacity) noexc
         return;
     }
 
-    try {
-        chunks_.push_back(std::move(*chunk_exp));
-    } catch (...) {
-        tag.fail(logos::err(ErrCode::out_of_memory));
-    }
+    chunks_.push_back(std::move(*chunk_exp));
 }
 
 logos::expected<Arena> Arena::make(ArenaMode mode, size_t initial_capacity) noexcept {
@@ -164,11 +160,7 @@ logos::expected<void> Arena::grow(size_t needed) noexcept {
         chunk.capacity = cap;
         chunk.used     = 0;
 
-        try {
-            chunks_.push_back(std::move(chunk));
-        } catch (...) {
-            return std::unexpected(logos::err(ErrCode::out_of_memory));
-        }
+        chunks_.push_back(std::move(chunk));
     }
 
     return {};

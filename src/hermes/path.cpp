@@ -87,11 +87,7 @@ private:
         size_t start = pos_;
         if (at_end() || !is_ident_start(peek())) return std::unexpected(logos::err(hermes::ErrCode::parse_error));
         while (pos_ < text_.size() && is_ident_char(text_[pos_])) ++pos_;
-        try {
-            return std::string(text_.substr(start, pos_ - start));
-        } catch (...) {
-            return std::unexpected(logos::err(hermes::ErrCode::parse_error));
-        }
+        return std::string(text_.substr(start, pos_ - start));
     }
 
     int32_t try_comparator() noexcept {
@@ -582,32 +578,24 @@ private:
 
     logos::expected<std::string> parse_qstring() noexcept {
         std::string result;
-        try {
-            while (!at_end() && peek() != '"') {
-                if (peek() == '\\') { ++pos_; result += advance(); }
-                else result += advance();
-            }
-            if (at_end()) return std::unexpected(logos::err(hermes::ErrCode::parse_error));
-            ++pos_;
-            return result;
-        } catch (...) {
-            return std::unexpected(logos::err(hermes::ErrCode::parse_error));
+        while (!at_end() && peek() != '"') {
+            if (peek() == '\\') { ++pos_; result += advance(); }
+            else result += advance();
         }
+        if (at_end()) return std::unexpected(logos::err(hermes::ErrCode::parse_error));
+        ++pos_;
+        return result;
     }
 
     logos::expected<std::string> parse_raw_str() noexcept {
         std::string result;
-        try {
-            while (!at_end() && peek() != '\'') {
-                if (peek() == '\\' && peek(1) == '\'') { pos_ += 2; result += '\''; }
-                else result += advance();
-            }
-            if (at_end()) return std::unexpected(logos::err(hermes::ErrCode::parse_error));
-            ++pos_;
-            return result;
-        } catch (...) {
-            return std::unexpected(logos::err(hermes::ErrCode::parse_error));
+        while (!at_end() && peek() != '\'') {
+            if (peek() == '\\' && peek(1) == '\'') { pos_ += 2; result += '\''; }
+            else result += advance();
         }
+        if (at_end()) return std::unexpected(logos::err(hermes::ErrCode::parse_error));
+        ++pos_;
+        return result;
     }
 };
 
