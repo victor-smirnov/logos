@@ -82,8 +82,8 @@ public:
     }
 
     // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
-    [[nodiscard]] logos::expected<void> put(uint8_t key, const ObjectView& value);
-    [[nodiscard]] logos::expected<void> put(NamedCode<uint8_t> key, const ObjectView& value) {
+    [[nodiscard]] logos::expected<void> put(uint8_t key, const ObjectView& value) noexcept;
+    [[nodiscard]] logos::expected<void> put(NamedCode<uint8_t> key, const ObjectView& value) noexcept {
         return put(key.code, value);
     }
 };
@@ -103,7 +103,7 @@ public:
     [[nodiscard]] logos::expected<void> push_back(AnyVal value) noexcept { return ptr()->push_back(value, arena()); }
 
     // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
-    [[nodiscard]] logos::expected<void> push_back(const ObjectView& value);
+    [[nodiscard]] logos::expected<void> push_back(const ObjectView& value) noexcept;
 };
 
 class MapView : public ViewBase {
@@ -122,7 +122,7 @@ public:
     [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal value) noexcept { return ptr()->put(key, value, arena()); }
 
     // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
-    [[nodiscard]] logos::expected<void> put(std::string_view key, const ObjectView& value);
+    [[nodiscard]] logos::expected<void> put(std::string_view key, const ObjectView& value) noexcept;
 
     template <typename Fn>
     void for_each(Fn fn) const { ptr()->for_each(fn, base()); }

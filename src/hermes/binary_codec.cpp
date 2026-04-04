@@ -199,9 +199,9 @@ public:
     BinaryDecoder(const uint8_t* data, size_t size)
         : data_(data), size_(size), pos_(0) {}
 
-    HermesCtr decode() {
+    logos::expected<HermesCtr> decode() noexcept {
         auto doc = make_doc();
-        void* root = decode_tagged_object(HermesCtrAccess::arena(doc));
+        LOGOS_TRY(auto* root, decode_tagged_object(HermesCtrAccess::arena(doc)));
         HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
         return doc;
     }
@@ -240,7 +240,7 @@ private:
         return TypeTag::from_raw(val);
     }
 
-    void* decode_tagged_object(Arena& arena) {
+    logos::expected<void*> decode_tagged_object(Arena& arena) noexcept {
         TypeTag tag = read_type_tag();
         uint64_t tc = tag.type_code();
 
@@ -260,14 +260,14 @@ private:
     }
 
     // Decode a AnyVal element into a slot in-place.
-    void decode_tagged_ptr(Arena& arena, AnyVal* dst_slot) {
+    logos::expected<void> decode_tagged_ptr(Arena& arena, AnyVal* dst_slot) noexcept {
         uint8_t first = data_[pos_];
 
         // Null check: a zero byte means null.
         if (first == 0) {
             ++pos_;
             *dst_slot = AnyVal{};
-            return;
+            return {};
         }
 
         // Parse type tag to determine what this is.
@@ -287,13 +287,14 @@ private:
             *dst_slot = AnyVal::from_raw(bits);
         } else {
             // Non-embeddable: decode as arena object and store pointer.
-            void* obj = decode_object_from_tag(arena, tag);
+            LOGOS_TRY(auto* obj, decode_object_from_tag(arena, tag));
             uint8_t* base = arena.head().data();
             dst_slot->set_pointer(obj, base);
         }
+        return {};
     }
 
-    void* decode_object_from_tag(Arena& arena, TypeTag tag) {
+    logos::expected<void*> decode_object_from_tag(Arena& arena, TypeTag tag) noexcept {
         uint64_t tc = tag.type_code();
 
         if (tc == type_hash::Varchar || tc == type_hash::Varbinary) {
@@ -309,7 +310,7 @@ private:
         }
     }
 
-    void* decode_string(Arena& arena, TypeTag tag) {
+    logos::expected<void*> decode_string(Arena& arena, TypeTag tag) noexcept {
         uint64_t len = read_varint();
         LOGOS_ASSERT(pos_ + len <= size_, "HERMES-BINARY-002", "String data exceeds buffer");
 
@@ -320,42 +321,43 @@ private:
         uint8_t vlen_buf[8];
         size_t vlen_size = varint_encode(len, vlen_buf);
         size_t total = vlen_size + len;
-        auto* mem = static_cast<uint8_t*>(arena.allocate(total, 2, tag).get());
+        LOGOS_TRY(auto* mem_void, arena.allocate(total, 2, tag));
+        auto* mem = static_cast<uint8_t*>(mem_void);
         std::memcpy(mem, vlen_buf, vlen_size);
         std::memcpy(mem + vlen_size, sv.data(), len);
         return mem;
     }
 
-    void* decode_tiny_map(Arena& arena) {
+    logos::expected<void*> decode_tiny_map(Arena& arena) noexcept {
         uint64_t count = read_varint();
-        auto* map = TinyObjectMap::create(arena, static_cast<uint8_t>(count)).get();
+        LOGOS_TRY(auto* map, TinyObjectMap::create(arena, static_cast<uint8_t>(count)));
 
         for (uint64_t i = 0; i < count; ++i) {
             uint8_t key = read_byte();
-            map->put(key, AnyVal{}, arena).get();
+            LOGOS_TRY_VOID(map->put(key, AnyVal{}, arena));
             uint8_t* base = arena.head().data();
             AnyVal* s = map->slot(key, base);
-            decode_tagged_ptr(arena, s);
+            LOGOS_TRY_VOID(decode_tagged_ptr(arena, s));
         }
         return map;
     }
 
-    void* decode_object_array(Arena& arena) {
+    logos::expected<void*> decode_object_array(Arena& arena) noexcept {
         uint64_t count = read_varint();
-        auto* arr = ObjectArray::create(arena, count).get();
+        LOGOS_TRY(auto* arr, ObjectArray::create(arena, count));
 
         for (uint64_t i = 0; i < count; ++i) {
-            arr->push_back(AnyVal{}, arena).get();
+            LOGOS_TRY_VOID(arr->push_back(AnyVal{}, arena));
             uint8_t* base = arena.head().data();
             AnyVal* s = arr->slot(i, base);
-            decode_tagged_ptr(arena, s);
+            LOGOS_TRY_VOID(decode_tagged_ptr(arena, s));
         }
         return arr;
     }
 
-    void* decode_object_map(Arena& arena) {
+    logos::expected<void*> decode_object_map(Arena& arena) noexcept {
         uint64_t count = read_varint();
-        auto* map = ObjectMap::create(arena).get();
+        LOGOS_TRY(auto* map, ObjectMap::create(arena));
 
         for (uint64_t i = 0; i < count; ++i) {
             // Read key string (no TypeTag prefix — always Varchar by convention).
@@ -364,18 +366,19 @@ private:
             pos_ += key_len;
 
             // Put placeholder, then decode value into slot.
-            map->put(key, AnyVal{}, arena).get();
+            LOGOS_TRY_VOID(map->put(key, AnyVal{}, arena));
             uint8_t* base = arena.head().data();
             AnyVal* s = map->get_slot(key, base);
-            decode_tagged_ptr(arena, s);
+            LOGOS_TRY_VOID(decode_tagged_ptr(arena, s));
         }
         return map;
     }
 
-    void* decode_fixed(Arena& arena, TypeTag tag) {
+    logos::expected<void*> decode_fixed(Arena& arena, TypeTag tag) noexcept {
         size_t sz = fixed_size_for(tag.type_code());
         size_t align = fixed_align_for(tag.type_code());
-        auto* mem = static_cast<uint8_t*>(arena.allocate(sz, align, tag).get());
+        LOGOS_TRY(auto* mem_void, arena.allocate(sz, align, tag));
+        auto* mem = static_cast<uint8_t*>(mem_void);
         read_bytes(mem, sz);
         return mem;
     }
@@ -441,12 +444,8 @@ std::vector<uint8_t> binary_encode(const HermesCtr& doc) {
 }
 
 logos::expected<HermesCtr> binary_decode(const uint8_t* data, size_t size) noexcept {
-    try {
-        BinaryDecoder decoder(data, size);
-        return decoder.decode();
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    BinaryDecoder decoder(data, size);
+    return decoder.decode();
 }
 
 } // namespace logos::hermes

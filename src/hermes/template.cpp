@@ -698,11 +698,8 @@ logos::expected<std::string> render_template(const HermesCtr& tpl,
 
 logos::expected<std::string> render(std::string_view tpl_text,
                                      const HermesCtr& data) noexcept {
-    try {
-        return render_template(parse_template(tpl_text).get(), data).get();
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    LOGOS_TRY(auto tpl, parse_template(tpl_text));
+    return render_template(tpl, data);
 }
 
 } // namespace logos::hermes

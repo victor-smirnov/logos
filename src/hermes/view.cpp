@@ -13,25 +13,21 @@ namespace logos::hermes {
 // If value is a pointer from a different arena — deep-copied into dst_holder's arena.
 static logos::expected<AnyVal> resolve_for_arena(const ObjectView& value,
                                                    MemHolder* dst_holder) noexcept {
-    try {
-        if (!value.is_pointer()) return value.tagged();  // embedded value — arena-independent
+    if (!value.is_pointer()) return value.tagged();  // embedded value — arena-independent
 
-        LOGOS_ASSERT(value.holder() != nullptr, "HERMES-ANYVAL-001",
-            "ObjectView in pointer mode must have a valid MemHolder");
+    LOGOS_ASSERT(value.holder() != nullptr, "HERMES-ANYVAL-001",
+        "ObjectView in pointer mode must have a valid MemHolder");
 
-        if (value.holder() == dst_holder) return value.tagged();  // same arena — safe as-is
+    if (value.holder() == dst_holder) return value.tagged();  // same arena — safe as-is
 
-        // Cross-arena: deep-copy the object into the destination arena.
-        HermesCtrView dst(dst_holder);
-        const void* src_obj = value.tagged().as_ptr<void>(value.holder()->base());
-        void* copy = copy_object_into(src_obj, value.holder()->base(), dst).get();
+    // Cross-arena: deep-copy the object into the destination arena.
+    HermesCtrView dst(dst_holder);
+    const void* src_obj = value.tagged().as_ptr<void>(value.holder()->base());
+    LOGOS_TRY(auto* copy, copy_object_into(src_obj, value.holder()->base(), dst));
 
-        AnyVal result;
-        result.set_pointer(copy, HermesCtrAccess::base(dst));  // re-fetched after possible arena growth
-        return result;
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    AnyVal result;
+    result.set_pointer(copy, HermesCtrAccess::base(dst));  // re-fetched after possible arena growth
+    return result;
 }
 
 // --- NamedCode checked access ---
@@ -44,30 +40,19 @@ AnyVal TinyMapView::get(NamedCode<uint8_t> key) const {
 
 // --- Cross-arena safe put/push_back overloads ---
 
-logos::expected<void> TinyMapView::put(uint8_t key, const ObjectView& value) {
-    try {
-        return ptr()->put(key, resolve_for_arena(value, holder_).get(), arena());
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+logos::expected<void> TinyMapView::put(uint8_t key, const ObjectView& value) noexcept {
+    LOGOS_TRY(auto resolved, resolve_for_arena(value, holder_));
+    return ptr()->put(key, resolved, arena());
 }
 
-logos::expected<void> ArrayView::push_back(const ObjectView& value) {
-    try {
-        ptr()->push_back(resolve_for_arena(value, holder_).get(), arena()).get();
-        return {};
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+logos::expected<void> ArrayView::push_back(const ObjectView& value) noexcept {
+    LOGOS_TRY(auto resolved, resolve_for_arena(value, holder_));
+    return ptr()->push_back(resolved, arena());
 }
 
-logos::expected<void> MapView::put(std::string_view key, const ObjectView& value) {
-    try {
-        ptr()->put(key, resolve_for_arena(value, holder_).get(), arena()).get();
-        return {};
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+logos::expected<void> MapView::put(std::string_view key, const ObjectView& value) noexcept {
+    LOGOS_TRY(auto resolved, resolve_for_arena(value, holder_));
+    return ptr()->put(key, resolved, arena());
 }
 
 static DocumentHeader* get_header(MemHolder* holder) {
@@ -126,39 +111,23 @@ Object HermesCtrView::root_object() const {
 }
 
 logos::expected<TinyMap> HermesCtrView::make_tiny_map(uint8_t capacity) noexcept {
-    try {
-        auto* p = TinyObjectMap::create(holder_->arena(), capacity).get();
-        return TinyMap(offset_of(p), holder_);
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    LOGOS_TRY(auto* p, TinyObjectMap::create(holder_->arena(), capacity));
+    return TinyMap(offset_of(p), holder_);
 }
 
 logos::expected<Array> HermesCtrView::make_array(uint64_t capacity) noexcept {
-    try {
-        auto* p = ObjectArray::create(holder_->arena(), capacity).get();
-        return Array(offset_of(p), holder_);
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    LOGOS_TRY(auto* p, ObjectArray::create(holder_->arena(), capacity));
+    return Array(offset_of(p), holder_);
 }
 
 logos::expected<Map> HermesCtrView::make_object_map(uint8_t log2_buckets) noexcept {
-    try {
-        auto* p = ObjectMap::create(holder_->arena(), log2_buckets).get();
-        return Map(offset_of(p), holder_);
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    LOGOS_TRY(auto* p, ObjectMap::create(holder_->arena(), log2_buckets));
+    return Map(offset_of(p), holder_);
 }
 
 logos::expected<String> HermesCtrView::make_string(std::string_view str) noexcept {
-    try {
-        auto* p = ArenaString::create(holder_->arena(), str).get();
-        return String(offset_of(p), holder_);
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    LOGOS_TRY(auto* p, ArenaString::create(holder_->arena(), str));
+    return String(offset_of(p), holder_);
 }
 
 // --- make_doc ---
