@@ -163,15 +163,15 @@ static void walkthrough_building() {
 
     // --- Map: string-keyed hash map ---
     auto map = doc.make_object_map().get();
-    map.put("name", AnyVal::from_value(int32_t(42)));
-    map.put("active", AnyVal::from_value(uint8_t(1)));
+    map.put("name", AnyVal::from_value(int32_t(42))).get();
+    map.put("active", AnyVal::from_value(uint8_t(1))).get();
     std::println("  Map: size={}, has('name')={}, get('name')={}",
         map.size(), map.has("name"), map.get("name").as_value<int32_t>());
 
     // Store a string value in map (pointer mode).
     // Allocate string BEFORE put() to avoid arena realloc between operations.
     auto greeting = doc.make_string("world").get();
-    map.put("greeting", AnyVal{});
+    map.put("greeting", AnyVal{}).get();
     // Re-fetch base after allocations (arena may have grown).
     uint8_t* b2 = HermesCtrAccess::base(doc);
     map.get_slot("greeting")->set_pointer(greeting.ptr(), b2);

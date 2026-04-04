@@ -63,12 +63,12 @@ static void test_deep_copy_object_map() {
     auto map = doc.make_object_map().get();
     doc.set_root(map);
 
-    map.put("name", AnyVal::from_value(int32_t(1)));
-    map.put("count", AnyVal::from_value(int32_t(2)));
+    map.put("name", AnyVal::from_value(int32_t(1))).get();
+    map.put("count", AnyVal::from_value(int32_t(2))).get();
 
     // Add a pointer-mode value.
     auto s = doc.make_string("value_string").get();
-    map.put("text", AnyVal{});
+    map.put("text", AnyVal{}).get();
     map.get_slot("text")->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
     auto compact = compactify(doc).get();
@@ -162,8 +162,8 @@ static void test_binary_object_map() {
     auto map = doc.make_object_map().get();
     doc.set_root(map);
 
-    map.put("name", AnyVal::from_value(int32_t(42)));
-    map.put("value", AnyVal::from_value(int32_t(99)));
+    map.put("name", AnyVal::from_value(int32_t(42))).get();
+    map.put("value", AnyVal::from_value(int32_t(99))).get();
 
     auto bytes = binary_encode(doc);
     auto decoded = binary_decode(bytes.data(), bytes.size()).get();

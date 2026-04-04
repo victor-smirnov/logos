@@ -82,16 +82,16 @@ bool HermesCtrView::has_root() const {
     return get_header(holder_)->has_root();
 }
 
-void HermesCtrView::set_root(void* object) {
+void HermesCtrView::set_root(void* object) noexcept {
     get_header(holder_)->root_offset = offset_of(object);
 }
 
-void HermesCtrView::set_root_offset(arena_offset_t offset) {
+void HermesCtrView::set_root_offset(arena_offset_t offset) noexcept {
     get_header(holder_)->root_offset = offset;
 }
 
 template <typename T>
-T* HermesCtrView::root() const {
+T* HermesCtrView::root() const noexcept {
     arena_offset_t off = (root_override_ != NULL_OFFSET)
         ? root_override_
         : get_header(holder_)->root_offset;

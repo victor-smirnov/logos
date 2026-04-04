@@ -51,11 +51,11 @@ public:
 
     // --- Arena access ---
 
-    Arena&       arena()       { return arena_; }
-    const Arena& arena() const { return arena_; }
+    Arena&       arena()       noexcept { return arena_; }
+    const Arena& arena() const noexcept { return arena_; }
 
-    uint8_t*       base()       { return arena_.head().data(); }
-    const uint8_t* base() const { return arena_.head().data(); }
+    uint8_t*       base()       noexcept { return arena_.head().data(); }
+    const uint8_t* base() const noexcept { return arena_.head().data(); }
 
 private:
     std::atomic<int32_t> ref_count_;

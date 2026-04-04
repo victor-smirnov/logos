@@ -45,8 +45,8 @@ public:
     void reset() noexcept { offset_ = NULL_OFFSET; holder_ = nullptr; }
 
 protected:
-    uint8_t* base() const { return holder_->base(); }
-    Arena& arena() const { return holder_->arena(); }
+    uint8_t* base() const noexcept { return holder_->base(); }
+    Arena& arena() const noexcept { return holder_->arena(); }
 
     arena_offset_t offset_;
     MemHolder* holder_;
@@ -244,19 +244,19 @@ private:
     friend class HermesCtrAccess;
 
     // --- Segment base ---
-    uint8_t* base() const { return holder_->base(); }
-    Arena& arena() const { return holder_->arena(); }
+    uint8_t* base() const noexcept { return holder_->base(); }
+    Arena& arena() const noexcept { return holder_->arena(); }
 
     // --- Internal root manipulation (used by parser, codec, path evaluator) ---
-    void set_root(void* object);
-    void set_root_offset(arena_offset_t offset);
+    void set_root(void* object) noexcept;
+    void set_root_offset(arena_offset_t offset) noexcept;
     void set_root_override(arena_offset_t offset) noexcept { root_override_ = offset; }
     bool has_root_override() const noexcept { return root_override_ != NULL_OFFSET; }
 
     template <typename T>
-    T* root() const;
+    T* root() const noexcept;
 
-    arena_offset_t offset_of(const void* object) const {
+    arena_offset_t offset_of(const void* object) const noexcept {
         return arena_offset_t{static_cast<arena_offset_t::value_type>(
             static_cast<const uint8_t*>(object) - base())};
     }
