@@ -196,7 +196,7 @@ private:
 
 class BinaryDecoder {
 public:
-    BinaryDecoder(const uint8_t* data, size_t size)
+    BinaryDecoder(const uint8_t* data, size_t size) noexcept
         : data_(data), size_(size), pos_(0) {}
 
     logos::expected<HermesCtr> decode() noexcept {
@@ -211,12 +211,12 @@ private:
     size_t size_;
     size_t pos_;
 
-    uint8_t read_byte() {
+    uint8_t read_byte() noexcept {
         LOGOS_ASSERT(pos_ < size_, "HERMES-BINARY-002", "Unexpected end of binary data");
         return data_[pos_++];
     }
 
-    void read_bytes(void* dst, size_t n) {
+    void read_bytes(void* dst, size_t n) noexcept {
         LOGOS_ASSERT(pos_ + n <= size_, "HERMES-BINARY-002",
             "Unexpected end of binary data (need {} bytes, have {})", n, size_ - pos_);
         std::memcpy(dst, data_ + pos_, n);
@@ -229,7 +229,7 @@ private:
         return r.value;
     }
 
-    TypeTag read_type_tag() {
+    TypeTag read_type_tag() noexcept {
         uint8_t first = data_[pos_];
         uint8_t code_len = first & 0x07;
         uint64_t val = 0;
@@ -383,7 +383,7 @@ private:
         return mem;
     }
 
-    static bool is_embeddable_by_hash(uint64_t tc) {
+    static bool is_embeddable_by_hash(uint64_t tc) noexcept{
         switch (tc) {
             case type_hash::TinyInt: case type_hash::UTinyInt:
             case type_hash::SmallInt: case type_hash::USmallInt:
