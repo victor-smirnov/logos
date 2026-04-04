@@ -22,41 +22,41 @@ namespace logos::hermes {
 template <typename T>
 class RelativePtr {
 public:
-    RelativePtr() : offset_(NULL_OFFSET) {}
-    explicit RelativePtr(arena_offset_t offset) : offset_(offset) {}
+    RelativePtr() noexcept : offset_(NULL_OFFSET) {}
+    explicit RelativePtr(arena_offset_t offset) noexcept : offset_(offset) {}
 
-    bool is_null() const { return offset_ == NULL_OFFSET; }
+    bool is_null() const noexcept { return offset_ == NULL_OFFSET; }
 
     // Dereference: requires segment base address.
-    T* get(uint8_t* base) const {
+    T* get(uint8_t* base) const noexcept {
         if (offset_ == NULL_OFFSET) return nullptr;
         return reinterpret_cast<T*>(base + offset_.value());
     }
 
-    const T* get(const uint8_t* base) const {
+    const T* get(const uint8_t* base) const noexcept {
         if (offset_ == NULL_OFFSET) return nullptr;
         return reinterpret_cast<const T*>(base + offset_.value());
     }
 
     template <typename U = T, std::enable_if_t<!std::is_void_v<U>, int> = 0>
-    U& deref(uint8_t* base) const { return *get(base); }
+    U& deref(uint8_t* base) const noexcept { return *get(base); }
 
     template <typename U = T, std::enable_if_t<!std::is_void_v<U>, int> = 0>
-    const U& deref(const uint8_t* base) const { return *get(base); }
+    const U& deref(const uint8_t* base) const noexcept{ return *get(base); }
 
     // Set from a raw pointer + base.
-    void set(const void* target, const uint8_t* base) {
+    void set(const void* target, const uint8_t* base) noexcept{
         if (!target) { offset_ = NULL_OFFSET; return; }
         offset_ = arena_offset_t{static_cast<arena_offset_t::value_type>(
             static_cast<const uint8_t*>(target) - base)};
     }
 
     // Set directly from an offset.
-    void set_offset(arena_offset_t off) { offset_ = off; }
+    void set_offset(arena_offset_t off) noexcept { offset_ = off; }
 
-    void clear() { offset_ = NULL_OFFSET; }
+    void clear() noexcept { offset_ = NULL_OFFSET; }
 
-    arena_offset_t offset() const { return offset_; }
+    arena_offset_t offset() const noexcept { return offset_; }
 
 private:
     arena_offset_t offset_;

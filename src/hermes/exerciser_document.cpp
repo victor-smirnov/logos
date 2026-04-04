@@ -31,8 +31,8 @@ static void test_document_create() {
     LOGOS_ASSERT(doc.has_root(), "HERMES-DOC-001", "Document must have root after set_root");
 
     // Add data through the View.
-    map.put(0, AnyVal::from_value(int32_t(42)));
-    map.put(1, AnyVal::from_value(float(3.14f)));
+    map.put(0, AnyVal::from_value(int32_t(42))).get();
+    map.put(1, AnyVal::from_value(float(3.14f))).get();
 
     LOGOS_ASSERT(map.get(0).as_value<int32_t>() == 42, "HERMES-DOC-001", "");
     LOGOS_ASSERT(map.get(1).as_value<float>() == 3.14f, "HERMES-DOC-001", "");
@@ -49,9 +49,9 @@ static void test_document_nested_objects() {
     auto root = doc.make_tiny_map();
     doc.set_root(root);
 
-    root.put(0, AnyVal::from_value(int32_t(100)));
-    root.put(1, AnyVal::from_value(int32_t(200)));
-    root.put(2, AnyVal::from_value(int32_t(300)));
+    root.put(0, AnyVal::from_value(int32_t(100))).get();
+    root.put(1, AnyVal::from_value(int32_t(200))).get();
+    root.put(2, AnyVal::from_value(int32_t(300))).get();
 
     LOGOS_ASSERT(root.size() == 3, "HERMES-DOC-002", "Root must have 3 entries");
     LOGOS_ASSERT(root.get(0).as_value<int32_t>() == 100, "HERMES-DOC-002", "");
@@ -104,9 +104,9 @@ static void test_compactify_simple() {
     auto map = doc.make_tiny_map();
     doc.set_root(map);
 
-    map.put(0, AnyVal::from_value(int32_t(42)));
-    map.put(5, AnyVal::from_value(float(2.5f)));
-    map.put(10, AnyVal::from_value(int8_t(-1)));
+    map.put(0, AnyVal::from_value(int32_t(42))).get();
+    map.put(5, AnyVal::from_value(float(2.5f))).get();
+    map.put(10, AnyVal::from_value(int8_t(-1))).get();
 
     auto compact = compactify(doc);
 
@@ -162,8 +162,8 @@ static void test_zero_copy_round_trip() {
     auto doc = make_doc();
     auto map = doc.make_tiny_map();
     doc.set_root(map);
-    map.put(0, AnyVal::from_value(int32_t(42)));
-    map.put(3, AnyVal::from_value(int32_t(99)));
+    map.put(0, AnyVal::from_value(int32_t(42))).get();
+    map.put(3, AnyVal::from_value(int32_t(99))).get();
 
     auto compact = compactify(doc);
 

@@ -1238,7 +1238,7 @@ private:
     void emit_action(CodeWriter& w, const Action& action,
                      const std::vector<std::string>& captures) {
         int slot_count = int(action.fields.size()) + 1; // +1 for CODE
-        w.fmt("auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, {});", slot_count);
+        w.fmt("auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
         for (const auto& field : action.fields) {
             const auto& expr = field.expr;
@@ -1251,7 +1251,7 @@ private:
                 // rule captures hold arena object offsets.
                 size_t idx = size_t(expr.index);
                 if (idx < captures.size() && !captures[idx].empty()) {
-                    w.fmt("node->put({}, {}, logos::hermes::HermesCtrAccess::arena(doc_));",
+                    w.fmt("node->put({}, {}, logos::hermes::HermesCtrAccess::arena(doc_)).get();",
                           field_const, captures[idx]);
                 } else {
                     w.fmt("// {} : ${}  — capture index out of range", field.name, idx);
@@ -1263,26 +1263,26 @@ private:
                 // $... — use the rule-captures collector built during item matching.
                 // rcap_VAR was declared before the items and populated by every RULE_REF.
                 // TOKEN_REF captures are NOT included — they're structural punctuation.
-                w.fmt("node->put({}, {}.to_anyval(), logos::hermes::HermesCtrAccess::arena(doc_));",
+                w.fmt("node->put({}, {}.to_anyval(), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
                       field_const, rcap_var_);
                 break;
             }
 
             case int32_t(ast::STR_LIT): {
                 // Symbolic name (e.g. MAP_NODE) → NamedCode value.
-                w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::hermes::HermesCtrAccess::arena(doc_));",
+                w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
                       field_const, ast_ns_, expr.value);
                 break;
             }
 
             case int32_t(ast::INT_LIT): {
-                w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::hermes::HermesCtrAccess::arena(doc_));",
+                w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
                       field_const, expr.int_val);
                 break;
             }
 
             case int32_t(ast::BOOL_LIT): {
-                w.fmt("node->put({}, AnyVal::from_value(uint8_t({})), logos::hermes::HermesCtrAccess::arena(doc_));",
+                w.fmt("node->put({}, AnyVal::from_value(uint8_t({})), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
                       field_const, expr.int_val);
                 break;
             }

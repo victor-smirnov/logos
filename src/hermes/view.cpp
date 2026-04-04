@@ -39,8 +39,8 @@ AnyVal TinyMapView::get(NamedCode<uint8_t> key) const {
 
 // --- Cross-arena safe put/push_back overloads ---
 
-void TinyMapView::put(uint8_t key, const ObjectView& value) {
-    ptr()->put(key, resolve_for_arena(value, holder_), arena());
+logos::expected<void> TinyMapView::put(uint8_t key, const ObjectView& value) {
+    return ptr()->put(key, resolve_for_arena(value, holder_), arena());
 }
 
 void ArrayView::push_back(const ObjectView& value) {
@@ -107,7 +107,7 @@ Object HermesCtrView::root_object() const {
 }
 
 TinyMap HermesCtrView::make_tiny_map(uint8_t capacity) {
-    auto* p = TinyObjectMap::create(holder_->arena(), capacity);
+    auto* p = TinyObjectMap::create(holder_->arena(), capacity).get();
     return TinyMap(offset_of(p), holder_);
 }
 

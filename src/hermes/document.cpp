@@ -85,14 +85,14 @@ private:
 
     void* copy_tiny_map(const void* src) {
         auto* src_map = static_cast<const TinyObjectMap*>(src);
-        auto* dst_map = TinyObjectMap::create(dst_, src_map->capacity());
+        auto* dst_map = TinyObjectMap::create(dst_, src_map->capacity()).get();
 
         uint8_t* dst_base = dst_.head().data();
         uint64_t bm = src_map->bitmap();
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
 
-            dst_map->put(key, AnyVal{}, dst_);
+            dst_map->put(key, AnyVal{}, dst_).get();
             dst_base = dst_.head().data();
 
             AnyVal* dst_slot = dst_map->slot(key, dst_base);

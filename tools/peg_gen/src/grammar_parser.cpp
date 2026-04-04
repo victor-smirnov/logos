@@ -333,7 +333,7 @@ private:
     void parse_meta(MapView& root) {
         expect(TK::LBrace, "{");
         auto meta = doc_.make_tiny_map(8);
-        meta.put(ast::CODE, AnyVal::from_value(ast::META_INFO));
+        meta.put(ast::CODE, AnyVal::from_value(ast::META_INFO)).get();
 
         while (lex_.peek().kind == TK::Ident) {
             Token key = lex_.next();
@@ -343,10 +343,10 @@ private:
             AnyVal ref = AnyVal::from_offset(sv.offset());
 
             std::string_view k = key.text;
-            if      (k == "name")      meta.put(ast::NAME,      ref);
-            else if (k == "version")   meta.put(ast::VERSION,   ref);
-            else if (k == "namespace") meta.put(ast::NAMESPACE, ref);
-            else if (k == "output")    meta.put(ast::OUTPUT,    ref);
+            if      (k == "name")      meta.put(ast::NAME,      ref).get();
+            else if (k == "version")   meta.put(ast::VERSION,   ref).get();
+            else if (k == "namespace") meta.put(ast::NAMESPACE, ref).get();
+            else if (k == "output")    meta.put(ast::OUTPUT,    ref).get();
             else error(key, std::format("unknown meta key '{}'", k));
         }
         expect(TK::RBrace, "}");
@@ -364,9 +364,9 @@ private:
         auto node  = doc_.make_tiny_map(4);
         auto path_s  = make_str(unquote(path_tok.text));
         auto alias_s = make_str(alias_tok.text);
-        node.put(ast::CODE,  AnyVal::from_value(ast::IMPORT));
-        node.put(ast::PATH,  AnyVal::from_offset(path_s.offset()));
-        node.put(ast::ALIAS, AnyVal::from_offset(alias_s.offset()));
+        node.put(ast::CODE,  AnyVal::from_value(ast::IMPORT)).get();
+        node.put(ast::PATH,  AnyVal::from_offset(path_s.offset())).get();
+        node.put(ast::ALIAS, AnyVal::from_offset(alias_s.offset())).get();
         return node;
     }
 
@@ -393,9 +393,9 @@ private:
 
             auto node = doc_.make_tiny_map(4);
             auto ns   = make_str(name.text);
-            node.put(ast::CODE,  AnyVal::from_value(ast::NAME_DECL));
-            node.put(ast::NAME,  AnyVal::from_offset(ns.offset()));
-            node.put(ast::VALUE, AnyVal::from_value(parse_int(num.text)));
+            node.put(ast::CODE,  AnyVal::from_value(ast::NAME_DECL)).get();
+            node.put(ast::NAME,  AnyVal::from_offset(ns.offset())).get();
+            node.put(ast::VALUE, AnyVal::from_value(parse_int(num.text))).get();
             out.push_back(AnyVal::from_offset(node.offset()));
 
             try_eat(TK::Comma);
@@ -429,10 +429,10 @@ private:
             auto node = doc_.make_tiny_map(4);
             auto ns   = make_str(is_skip ? std::string_view("%skip") : name.text);
             auto ps   = make_str(pat.text);
-            node.put(ast::CODE,    AnyVal::from_value(ast::TOKEN_DECL));
-            node.put(ast::NAME,    AnyVal::from_offset(ns.offset()));
-            node.put(ast::KIND,    AnyVal::from_value(kind_code));
-            node.put(ast::PATTERN, AnyVal::from_offset(ps.offset()));
+            node.put(ast::CODE,    AnyVal::from_value(ast::TOKEN_DECL)).get();
+            node.put(ast::NAME,    AnyVal::from_offset(ns.offset())).get();
+            node.put(ast::KIND,    AnyVal::from_value(kind_code)).get();
+            node.put(ast::PATTERN, AnyVal::from_offset(ps.offset())).get();
             out.push_back(AnyVal::from_offset(node.offset()));
         }
         expect(TK::RBrace, "}");
@@ -460,9 +460,9 @@ private:
             }
 
             auto node = doc_.make_tiny_map(4);
-            node.put(ast::CODE,   AnyVal::from_value(ast::PREC_LEVEL));
-            node.put(ast::ASSOC,  AnyVal::from_value(assoc_code));
-            node.put(ast::TOKENS, AnyVal::from_offset(toks.offset()));
+            node.put(ast::CODE,   AnyVal::from_value(ast::PREC_LEVEL)).get();
+            node.put(ast::ASSOC,  AnyVal::from_value(assoc_code)).get();
+            node.put(ast::TOKENS, AnyVal::from_offset(toks.offset())).get();
             out.push_back(AnyVal::from_offset(node.offset()));
         }
         expect(TK::RBrace, "}");
@@ -489,9 +489,9 @@ private:
 
         auto node = doc_.make_tiny_map(4);
         auto ns   = make_str(name.text);
-        node.put(ast::CODE, AnyVal::from_value(ast::RULE));
-        node.put(ast::NAME, AnyVal::from_offset(ns.offset()));
-        node.put(ast::ALTS, AnyVal::from_offset(alts.offset()));
+        node.put(ast::CODE, AnyVal::from_value(ast::RULE)).get();
+        node.put(ast::NAME, AnyVal::from_offset(ns.offset())).get();
+        node.put(ast::ALTS, AnyVal::from_offset(alts.offset())).get();
         return node;
     }
 
@@ -518,9 +518,9 @@ private:
         }
 
         auto node = doc_.make_tiny_map(4);
-        node.put(ast::CODE, AnyVal::from_value(ast::ALT));
-        node.put(ast::SEQ,  AnyVal::from_offset(seq.offset()));
-        if (has_action) node.put(ast::ACTION, AnyVal::from_offset(action.offset()));
+        node.put(ast::CODE, AnyVal::from_value(ast::ALT)).get();
+        node.put(ast::SEQ,  AnyVal::from_offset(seq.offset())).get();
+        if (has_action) node.put(ast::ACTION, AnyVal::from_offset(action.offset())).get();
         return node;
     }
 
@@ -542,22 +542,22 @@ private:
             lex_.next();
             auto wrapper = doc_.make_tiny_map(6);
             ast::Code wrap_code = (pk == TK::Question) ? ast::OPT : ast::REP;
-            wrapper.put(ast::CODE, AnyVal::from_value(wrap_code));
-            wrapper.put(ast::ITEM, AnyVal::from_offset(result.offset()));
+            wrapper.put(ast::CODE, AnyVal::from_value(wrap_code)).get();
+            wrapper.put(ast::ITEM, AnyVal::from_offset(result.offset())).get();
             if (pk == TK::Star) {
-                wrapper.put(ast::MIN, AnyVal::from_value(int32_t(0)));
-                wrapper.put(ast::MAX, AnyVal::from_value(int32_t(-1)));
+                wrapper.put(ast::MIN, AnyVal::from_value(int32_t(0))).get();
+                wrapper.put(ast::MAX, AnyVal::from_value(int32_t(-1))).get();
             } else if (pk == TK::Plus) {
-                wrapper.put(ast::MIN, AnyVal::from_value(int32_t(1)));
-                wrapper.put(ast::MAX, AnyVal::from_value(int32_t(-1)));
+                wrapper.put(ast::MIN, AnyVal::from_value(int32_t(1))).get();
+                wrapper.put(ast::MAX, AnyVal::from_value(int32_t(-1))).get();
             }
             result = std::move(wrapper);
         }
 
         if (is_la || is_neg) {
             auto wrapper = doc_.make_tiny_map(2);
-            wrapper.put(ast::CODE, AnyVal::from_value(is_la ? ast::LOOKAHEAD : ast::NEG_AHEAD));
-            wrapper.put(ast::ITEM, AnyVal::from_offset(result.offset()));
+            wrapper.put(ast::CODE, AnyVal::from_value(is_la ? ast::LOOKAHEAD : ast::NEG_AHEAD)).get();
+            wrapper.put(ast::ITEM, AnyVal::from_offset(result.offset())).get();
             result = std::move(wrapper);
         }
         return result;
@@ -576,8 +576,8 @@ private:
             expect(TK::RParen, ")");
 
             auto node = doc_.make_tiny_map(2);
-            node.put(ast::CODE, AnyVal::from_value(ast::GROUP));
-            node.put(ast::ALTS, AnyVal::from_offset(alts.offset()));
+            node.put(ast::CODE, AnyVal::from_value(ast::GROUP)).get();
+            node.put(ast::ALTS, AnyVal::from_offset(alts.offset())).get();
             return node;
         }
 
@@ -586,8 +586,8 @@ private:
             lex_.next();
             auto node = doc_.make_tiny_map(2);
             auto vs   = make_str(unquote(t.text));
-            node.put(ast::CODE,  AnyVal::from_value(ast::LITERAL));
-            node.put(ast::VALUE, AnyVal::from_offset(vs.offset()));
+            node.put(ast::CODE,  AnyVal::from_value(ast::LITERAL)).get();
+            node.put(ast::VALUE, AnyVal::from_offset(vs.offset())).get();
             return node;
         }
 
@@ -612,11 +612,11 @@ private:
 
             auto node = doc_.make_tiny_map(4);
             auto ns   = make_str(item_name);
-            node.put(ast::CODE, AnyVal::from_value(is_token ? ast::TOKEN_REF : ast::RULE_REF));
-            node.put(ast::NAME, AnyVal::from_offset(ns.offset()));
+            node.put(ast::CODE, AnyVal::from_value(is_token ? ast::TOKEN_REF : ast::RULE_REF)).get();
+            node.put(ast::NAME, AnyVal::from_offset(ns.offset())).get();
             if (!grammar_alias.empty()) {
                 auto gs = make_str(grammar_alias);
-                node.put(ast::GRAMMAR, AnyVal::from_offset(gs.offset()));
+                node.put(ast::GRAMMAR, AnyVal::from_offset(gs.offset())).get();
             }
             return node;
         }
@@ -649,40 +649,40 @@ private:
             // $1, $2, ...  — strip the leading $
             int32_t idx = parse_int(t.text.substr(1));
             auto node = doc_.make_tiny_map(2);
-            node.put(ast::CODE,  AnyVal::from_value(ast::CAPTURE));
-            node.put(ast::INDEX, AnyVal::from_value(idx));
+            node.put(ast::CODE,  AnyVal::from_value(ast::CAPTURE)).get();
+            node.put(ast::INDEX, AnyVal::from_value(idx)).get();
             return node;
         }
         if (t.kind == TK::DollarDots) {
             auto node = doc_.make_tiny_map(1);
-            node.put(ast::CODE, AnyVal::from_value(ast::ARRAY_CAPTURE));
+            node.put(ast::CODE, AnyVal::from_value(ast::ARRAY_CAPTURE)).get();
             return node;
         }
         if (t.kind == TK::Ident) {
             if (t.text == "true" || t.text == "false") {
                 auto node = doc_.make_tiny_map(2);
-                node.put(ast::CODE,  AnyVal::from_value(ast::BOOL_LIT));
-                node.put(ast::VALUE, AnyVal::from_value(uint8_t(t.text == "true" ? 1 : 0)));
+                node.put(ast::CODE,  AnyVal::from_value(ast::BOOL_LIT)).get();
+                node.put(ast::VALUE, AnyVal::from_value(uint8_t(t.text == "true" ? 1 : 0))).get();
                 return node;
             }
             // Symbolic name (e.g. MAP_NODE) — stored as a STR_LIT; codegen resolves it.
             auto node = doc_.make_tiny_map(2);
             auto vs   = make_str(t.text);
-            node.put(ast::CODE,  AnyVal::from_value(ast::STR_LIT));
-            node.put(ast::VALUE, AnyVal::from_offset(vs.offset()));
+            node.put(ast::CODE,  AnyVal::from_value(ast::STR_LIT)).get();
+            node.put(ast::VALUE, AnyVal::from_offset(vs.offset())).get();
             return node;
         }
         if (t.kind == TK::Integer) {
             auto node = doc_.make_tiny_map(2);
-            node.put(ast::CODE,  AnyVal::from_value(ast::INT_LIT));
-            node.put(ast::VALUE, AnyVal::from_value(parse_int(t.text)));
+            node.put(ast::CODE,  AnyVal::from_value(ast::INT_LIT)).get();
+            node.put(ast::VALUE, AnyVal::from_value(parse_int(t.text))).get();
             return node;
         }
         if (t.kind == TK::String) {
             auto node = doc_.make_tiny_map(2);
             auto vs   = make_str(unquote(t.text));
-            node.put(ast::CODE,  AnyVal::from_value(ast::STR_LIT));
-            node.put(ast::VALUE, AnyVal::from_offset(vs.offset()));
+            node.put(ast::CODE,  AnyVal::from_value(ast::STR_LIT)).get();
+            node.put(ast::VALUE, AnyVal::from_offset(vs.offset())).get();
             return node;
         }
         error(t, std::format("unexpected token in action expression: '{}'", t.text));

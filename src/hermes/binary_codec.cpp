@@ -328,11 +328,11 @@ private:
 
     void* decode_tiny_map(Arena& arena) {
         uint64_t count = read_varint();
-        auto* map = TinyObjectMap::create(arena, static_cast<uint8_t>(count));
+        auto* map = TinyObjectMap::create(arena, static_cast<uint8_t>(count)).get();
 
         for (uint64_t i = 0; i < count; ++i) {
             uint8_t key = read_byte();
-            map->put(key, AnyVal{}, arena);
+            map->put(key, AnyVal{}, arena).get();
             uint8_t* base = arena.head().data();
             AnyVal* s = map->slot(key, base);
             decode_tagged_ptr(arena, s);

@@ -25,15 +25,15 @@ static void test_deep_copy_tiny_map_with_pointers() {
     doc.set_root(map);
 
     // Key 0 = embedded int
-    map.put(0, AnyVal::from_value(int32_t(42)));
+    map.put(0, AnyVal::from_value(int32_t(42))).get();
 
     // Key 1 = pointer to string
     auto s = doc.make_string("hello from pointer");
-    map.put(1, AnyVal{});
+    map.put(1, AnyVal{}).get();
     map.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
     // Key 2 = embedded float
-    map.put(2, AnyVal::from_value(float(2.5f)));
+    map.put(2, AnyVal::from_value(float(2.5f))).get();
 
     // Compactify (deep copy).
     auto compact = compactify(doc);
@@ -100,9 +100,9 @@ static void test_binary_tiny_map() {
     auto map = doc.make_tiny_map();
     doc.set_root(map);
 
-    map.put(0, AnyVal::from_value(int32_t(42)));
-    map.put(5, AnyVal::from_value(float(3.14f)));
-    map.put(10, AnyVal::from_value(int8_t(-1)));
+    map.put(0, AnyVal::from_value(int32_t(42))).get();
+    map.put(5, AnyVal::from_value(float(3.14f))).get();
+    map.put(10, AnyVal::from_value(int8_t(-1))).get();
 
     auto bytes = binary_encode(doc);
     LOGOS_ASSERT(!bytes.empty(), "HERMES-BINARY-001", "Encoded bytes must not be empty");
@@ -191,18 +191,18 @@ static void test_binary_nested() {
     doc.set_root(root);
 
     // Key 0 = embedded int
-    root.put(0, AnyVal::from_value(int32_t(1)));
+    root.put(0, AnyVal::from_value(int32_t(1))).get();
 
     // Key 1 = pointer to string
     auto s = doc.make_string("nested_string");
-    root.put(1, AnyVal{});
+    root.put(1, AnyVal{}).get();
     root.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
 
     // Key 2 = pointer to an array
     auto inner_arr = doc.make_array();
     inner_arr.push_back(AnyVal::from_value(int32_t(10)));
     inner_arr.push_back(AnyVal::from_value(int32_t(20)));
-    root.put(2, AnyVal{});
+    root.put(2, AnyVal{}).get();
     root.slot(2)->set_pointer(inner_arr.ptr(), HermesCtrAccess::base(doc));
 
     auto bytes = binary_encode(doc);
@@ -241,8 +241,8 @@ static void test_binary_double_round_trip() {
     auto map = doc.make_tiny_map();
     doc.set_root(map);
 
-    map.put(0, AnyVal::from_value(int32_t(42)));
-    map.put(1, AnyVal::from_value(float(3.14f)));
+    map.put(0, AnyVal::from_value(int32_t(42))).get();
+    map.put(1, AnyVal::from_value(float(3.14f))).get();
 
     // Encode → decode → encode → compare.
     auto bytes1 = binary_encode(doc);

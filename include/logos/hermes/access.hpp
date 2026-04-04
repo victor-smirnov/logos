@@ -37,7 +37,7 @@ public:
     static void set_root_override(HermesCtrView& v, arena_offset_t off) { v.set_root_override(off); }
     static bool has_root_override(const HermesCtrView& v) { return v.has_root_override(); }
 
-    static TinyObjectMap* raw_tiny_map(HermesCtrView& v, uint8_t cap = 4)  { return v.raw_tiny_map(cap); }
+    static logos::expected<TinyObjectMap*> raw_tiny_map(HermesCtrView& v, uint8_t cap = 4) noexcept { return v.raw_tiny_map(cap); }
     static ObjectArray*   raw_array(HermesCtrView& v, uint64_t cap = 4)    { return v.raw_array(cap); }
     static ObjectMap*     raw_object_map(HermesCtrView& v, uint8_t log2 = 3) { return v.raw_object_map(log2); }
     static ArenaString*   raw_string(HermesCtrView& v, std::string_view s) { return v.raw_string(s); }

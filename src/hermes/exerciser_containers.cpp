@@ -25,15 +25,15 @@ static void test_tiny_map_basic() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
-    auto* map = TinyObjectMap::create(arena);
+    auto* map = TinyObjectMap::create(arena).get();
 
     LOGOS_ASSERT(map->size() == 0, "INV-TINYMAP-001", "New map must have size 0");
     LOGOS_ASSERT(!map->has_key(0), "INV-TINYMAP-001", "New map must have no keys");
 
     // Put some values.
-    map->put(0, AnyVal::from_value(int32_t(42)), arena);
-    map->put(5, AnyVal::from_value(int32_t(99)), arena);
-    map->put(10, AnyVal::from_value(int8_t(-1)), arena);
+    map->put(0, AnyVal::from_value(int32_t(42)), arena).get();
+    map->put(5, AnyVal::from_value(int32_t(99)), arena).get();
+    map->put(10, AnyVal::from_value(int8_t(-1)), arena).get();
 
     LOGOS_ASSERT(map->size() == 3, "INV-TINYMAP-001",
         "Map size must be 3, got {}", map->size());
@@ -74,13 +74,13 @@ static void test_tiny_map_update() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
-    auto* map = TinyObjectMap::create(arena);
+    auto* map = TinyObjectMap::create(arena).get();
 
-    map->put(3, AnyVal::from_value(int32_t(10)), arena);
+    map->put(3, AnyVal::from_value(int32_t(10)), arena).get();
     LOGOS_ASSERT(map->get(3, base).as_value<int32_t>() == 10, "INV-TINYMAP-001", "");
 
     // Update existing key.
-    map->put(3, AnyVal::from_value(int32_t(20)), arena);
+    map->put(3, AnyVal::from_value(int32_t(20)), arena).get();
     LOGOS_ASSERT(map->size() == 1, "INV-TINYMAP-001",
         "Update must not increase size");
     LOGOS_ASSERT(map->get(3, base).as_value<int32_t>() == 20, "INV-TINYMAP-001",
@@ -95,11 +95,11 @@ static void test_tiny_map_remove() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
     uint8_t* base = arena.head().data();
-    auto* map = TinyObjectMap::create(arena);
+    auto* map = TinyObjectMap::create(arena).get();
 
-    map->put(0, AnyVal::from_value(int32_t(1)), arena);
-    map->put(1, AnyVal::from_value(int32_t(2)), arena);
-    map->put(2, AnyVal::from_value(int32_t(3)), arena);
+    map->put(0, AnyVal::from_value(int32_t(1)), arena).get();
+    map->put(1, AnyVal::from_value(int32_t(2)), arena).get();
+    map->put(2, AnyVal::from_value(int32_t(3)), arena).get();
 
     bool removed = map->remove(1, base);
     LOGOS_ASSERT(removed, "INV-TINYMAP-001", "Remove of existing key must return true");
@@ -124,11 +124,11 @@ static void test_tiny_map_stress() {
 
     auto arena = Arena::make(ArenaMode::MultiChunk, 8192).get();
     uint8_t* base = arena.head().data();
-    auto* map = TinyObjectMap::create(arena, 0);
+    auto* map = TinyObjectMap::create(arena, 0).get();
 
     // Fill all 52 keys.
     for (uint8_t k = 0; k < 52; ++k) {
-        map->put(k, AnyVal::from_value(int32_t(k * 10)), arena);
+        map->put(k, AnyVal::from_value(int32_t(k * 10)), arena).get();
     }
 
     LOGOS_ASSERT(map->size() == 52, "INV-TINYMAP-001",

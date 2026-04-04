@@ -74,12 +74,18 @@ public:
 
     bool has_key(NamedCode<uint8_t> key) const { return has_key(key.code); }
 
-    void put(uint8_t key, AnyVal value) { ptr()->put(key, value, arena()); }
-    void put(NamedCode<uint8_t> key, AnyVal value) { put(key.code, value); }
+    [[nodiscard]] logos::expected<void> put(uint8_t key, AnyVal value) noexcept {
+        return ptr()->put(key, value, arena());
+    }
+    [[nodiscard]] logos::expected<void> put(NamedCode<uint8_t> key, AnyVal value) noexcept {
+        return put(key.code, value);
+    }
 
     // Cross-arena safe: deep-copies value into this arena if it comes from a different one.
-    void put(uint8_t key, const ObjectView& value);
-    void put(NamedCode<uint8_t> key, const ObjectView& value) { put(key.code, value); }
+    [[nodiscard]] logos::expected<void> put(uint8_t key, const ObjectView& value);
+    [[nodiscard]] logos::expected<void> put(NamedCode<uint8_t> key, const ObjectView& value) {
+        return put(key.code, value);
+    }
 };
 
 class ArrayView : public ViewBase {
@@ -256,7 +262,7 @@ private:
     }
 
     // --- Raw-pointer factory methods (for internal parser/codec use) ---
-    TinyObjectMap* raw_tiny_map(uint8_t capacity = 4) {
+    [[nodiscard]] logos::expected<TinyObjectMap*> raw_tiny_map(uint8_t capacity = 4) noexcept {
         return TinyObjectMap::create(holder_->arena(), capacity);
     }
     ObjectArray* raw_array(uint64_t capacity = 4) {
