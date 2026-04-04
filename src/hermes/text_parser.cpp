@@ -6,11 +6,10 @@
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/compound_types.hpp>
+#include <logos/core/expected.hpp>
 
 #include <charconv>
-#include <stdexcept>
 #include <string>
-#include <cmath>
 #include <unordered_set>
 
 namespace logos::hermes {
@@ -53,17 +52,17 @@ public:
     Parser(std::string_view text, HermesCtr& doc)
         : text_(text), pos_(0), doc_(doc) {}
 
-    void* parse_document() {
+    logos::expected<void*> parse_document() noexcept {
         skip();
         // Optional type directory.
         if (text_.substr(pos_).starts_with("#{")) {
-            parse_type_directory();
+            LOGOS_TRY_VOID(parse_type_directory());
         }
         skip();
-        void* root = parse_value();
+        LOGOS_TRY(void* root, parse_value());
         skip();
         if (pos_ < text_.size()) {
-            error("unexpected trailing characters");
+            return std::unexpected(logos::err(ErrCode::parse_error));
         }
         return root;
     }
@@ -82,30 +81,31 @@ private:
 
     // --- Character access ---
 
-    bool at_end() const { return pos_ >= text_.size(); }
-    char peek() const { return at_end() ? '\0' : text_[pos_]; }
-    char peek(size_t offset) const {
+    bool at_end() const noexcept { return pos_ >= text_.size(); }
+    char peek() const noexcept { return at_end() ? '\0' : text_[pos_]; }
+    char peek(size_t offset) const noexcept {
         size_t p = pos_ + offset;
         return p >= text_.size() ? '\0' : text_[p];
     }
-    char advance() { return text_[pos_++]; }
+    char advance() noexcept { return text_[pos_++]; }
 
-    void expect(char c) {
+    logos::expected<void> expect(char c) noexcept {
         skip();
         if (at_end() || text_[pos_] != c) {
-            error(std::string("expected '") + c + "'");
+            return std::unexpected(logos::err(ErrCode::parse_error));
         }
         ++pos_;
+        return {};
     }
 
-    bool try_char(char c) {
+    bool try_char(char c) noexcept {
         skip();
         if (!at_end() && text_[pos_] == c) { ++pos_; return true; }
         return false;
     }
 
     // Try to consume a literal string at current position (no skip before).
-    bool try_consume(std::string_view s) {
+    bool try_consume(std::string_view s) noexcept {
         if (pos_ + s.size() <= text_.size() && text_.substr(pos_, s.size()) == s) {
             // For suffixes, check that the next char isn't alphanumeric (avoid partial match).
             size_t after = pos_ + s.size();
@@ -117,7 +117,7 @@ private:
     }
 
     // Try to consume a literal string at current position, no boundary check.
-    bool try_consume_raw(std::string_view s) {
+    bool try_consume_raw(std::string_view s) noexcept {
         if (pos_ + s.size() <= text_.size() && text_.substr(pos_, s.size()) == s) {
             pos_ += s.size();
             return true;
@@ -127,7 +127,7 @@ private:
 
     // --- Whitespace & comments ---
 
-    void skip() {
+    void skip() noexcept {
         while (pos_ < text_.size()) {
             char c = text_[pos_];
             if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
@@ -141,79 +141,74 @@ private:
         }
     }
 
-    // --- Error reporting ---
-
-    [[noreturn]] void error(const std::string& msg) {
-        size_t line = 1, col = 1;
-        for (size_t i = 0; i < pos_ && i < text_.size(); ++i) {
-            if (text_[i] == '\n') { ++line; col = 1; } else { ++col; }
-        }
-        throw std::runtime_error(
-            "Hermes parse error at " + std::to_string(line) + ":" +
-            std::to_string(col) + ": " + msg);
-    }
-
     // --- Identifier ---
 
-    bool is_ident_start(char c) {
+    bool is_ident_start(char c) noexcept {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
     }
-    bool is_ident_char(char c) {
+    bool is_ident_char(char c) noexcept {
         return is_ident_start(c) || (c >= '0' && c <= '9');
     }
-    bool is_digit(char c) { return c >= '0' && c <= '9'; }
+    bool is_digit(char c) noexcept { return c >= '0' && c <= '9'; }
 
-    std::string_view read_identifier() {
+    logos::expected<std::string_view> read_identifier() noexcept {
         size_t start = pos_;
-        if (at_end() || !is_ident_start(peek())) error("expected identifier");
+        if (at_end() || !is_ident_start(peek()))
+            return std::unexpected(logos::err(ErrCode::parse_error));
         while (pos_ < text_.size() && is_ident_char(text_[pos_])) ++pos_;
         return text_.substr(start, pos_ - start);
     }
 
     // Peek identifier without consuming.
-    std::string_view peek_identifier() {
+    logos::expected<std::string_view> peek_identifier() noexcept {
         size_t saved = pos_;
-        auto id = read_identifier();
+        LOGOS_TRY(auto id, read_identifier());
         pos_ = saved;
         return id;
     }
 
-    bool is_keyword(std::string_view id) {
+    bool is_keyword(std::string_view id) noexcept {
         return KEYWORDS.contains(id);
     }
 
     // --- Type directory ---
 
-    void parse_type_directory() {
+    logos::expected<void> parse_type_directory() noexcept {
         pos_ += 2; // skip '#{'
         skip();
-        if (peek() == '}') { ++pos_; return; }
+        if (peek() == '}') { ++pos_; return {}; }
 
         while (true) {
             skip();
-            std::string name(read_identifier());
-            expect(':');
-            DatatypeData* dt = parse_type_declaration();
-            type_dir_.push_back({std::move(name), dt});
+            LOGOS_TRY(auto name_sv, read_identifier());
+            try {
+                std::string name(name_sv);
+                LOGOS_TRY_VOID(expect(':'));
+                LOGOS_TRY(DatatypeData* dt, parse_type_declaration());
+                type_dir_.push_back({std::move(name), dt});
+            } catch (...) {
+                return std::unexpected(logos::err(ErrCode::out_of_memory));
+            }
 
             skip();
             if (peek() == '}') { ++pos_; break; }
-            expect(',');
+            LOGOS_TRY_VOID(expect(','));
         }
+        return {};
     }
 
-    DatatypeData* resolve_typeref(std::string_view name) {
+    logos::expected<DatatypeData*> resolve_typeref(std::string_view name) noexcept {
         for (auto& entry : type_dir_) {
             if (entry.name == name) return entry.datatype;
         }
-        error(std::string("unknown type reference '#") + std::string(name) + "'");
+        return std::unexpected(logos::err(ErrCode::parse_error));
     }
 
     // --- Value dispatch ---
 
-    void* parse_value() {
+    logos::expected<void*> parse_value() noexcept {
         skip();
-        if (at_end()) error("unexpected end of input");
+        if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
         char c = peek();
 
         // String (quoted/raw), possibly with type annotation
@@ -247,142 +242,161 @@ private:
         // Type reference: #Name
         if (c == '#' && peek(1) != '{') {
             ++pos_;
-            auto name = read_identifier();
+            LOGOS_TRY(auto name, read_identifier());
             return resolve_typeref(name);
         }
 
-        error(std::string("unexpected character '") + c + "'");
+        return std::unexpected(logos::err(ErrCode::parse_error));
     }
 
     // --- Strings ---
 
-    void* parse_string_or_typed() {
-        std::string str;
+    logos::expected<void*> parse_string_or_typed() noexcept {
+        logos::expected<std::string> str_res;
         if (peek() == '"') {
-            str = parse_quoted_string();
+            str_res = parse_quoted_string();
         } else {
-            str = parse_raw_string();
+            str_res = parse_raw_string();
         }
+        if (!str_res) return std::unexpected(std::move(str_res.error()));
+        std::string str = std::move(*str_res);
 
         // Check for type annotation: "str"@Type
         skip();
         if (!at_end() && peek() == '@') {
             ++pos_;
             skip();
-            DatatypeData* dt = parse_type_declaration();
-            auto* arena_str = HermesCtrAccess::raw_string(doc_, str).get();
-            auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt).get();
+            LOGOS_TRY(DatatypeData* dt, parse_type_declaration());
+            LOGOS_TRY(auto* arena_str, HermesCtrAccess::raw_string(doc_, str));
+            LOGOS_TRY(auto* tv, TypedValueData::create(HermesCtrAccess::arena(doc_), dt));
             tv->value.set_pointer(arena_str, HermesCtrAccess::base(doc_));
             return tv;
         }
 
-        return HermesCtrAccess::raw_string(doc_, str).get();
+        LOGOS_TRY(auto* s, HermesCtrAccess::raw_string(doc_, str));
+        return s;
     }
 
-    std::string parse_quoted_string() {
-        expect('"');
+    logos::expected<std::string> parse_quoted_string() noexcept {
+        LOGOS_TRY_VOID(expect('"'));
         std::string result;
-        while (!at_end() && peek() != '"') {
-            if (peek() == '\\') {
-                ++pos_;
-                if (at_end()) error("unterminated escape sequence");
-                char esc = advance();
-                switch (esc) {
-                    case '"':  result += '"'; break;
-                    case '\\': result += '\\'; break;
-                    case '/':  result += '/'; break;
-                    case 'b':  result += '\b'; break;
-                    case 'f':  result += '\f'; break;
-                    case 'n':  result += '\n'; break;
-                    case 'r':  result += '\r'; break;
-                    case 't':  result += '\t'; break;
-                    case 'u':  result += parse_unicode_escape(); break;
-                    default:
-                        error(std::string("unknown escape '\\") + esc + "'");
+        try {
+            while (!at_end() && peek() != '"') {
+                if (peek() == '\\') {
+                    ++pos_;
+                    if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
+                    char esc = advance();
+                    switch (esc) {
+                        case '"':  result += '"'; break;
+                        case '\\': result += '\\'; break;
+                        case '/':  result += '/'; break;
+                        case 'b':  result += '\b'; break;
+                        case 'f':  result += '\f'; break;
+                        case 'n':  result += '\n'; break;
+                        case 'r':  result += '\r'; break;
+                        case 't':  result += '\t'; break;
+                        case 'u': {
+                            LOGOS_TRY(auto u, parse_unicode_escape());
+                            result += u;
+                            break;
+                        }
+                        default:
+                            return std::unexpected(logos::err(ErrCode::parse_error));
+                    }
+                } else {
+                    result += advance();
                 }
-            } else {
-                result += advance();
             }
+        } catch (...) {
+            return std::unexpected(logos::err(ErrCode::out_of_memory));
         }
-        if (at_end()) error("unterminated string");
+        if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
         ++pos_;
         return result;
     }
 
-    std::string parse_raw_string() {
-        expect('\'');
+    logos::expected<std::string> parse_raw_string() noexcept {
+        LOGOS_TRY_VOID(expect('\''));
         std::string result;
-        while (!at_end() && peek() != '\'') {
-            if (peek() == '\\' && peek(1) == '\'') {
-                pos_ += 2;
-                result += '\'';
-            } else {
-                result += advance();
+        try {
+            while (!at_end() && peek() != '\'') {
+                if (peek() == '\\' && peek(1) == '\'') {
+                    pos_ += 2;
+                    result += '\'';
+                } else {
+                    result += advance();
+                }
             }
+        } catch (...) {
+            return std::unexpected(logos::err(ErrCode::out_of_memory));
         }
-        if (at_end()) error("unterminated raw string");
+        if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
         ++pos_;
         return result;
     }
 
-    uint32_t read_hex4() {
+    logos::expected<uint32_t> read_hex4() noexcept {
         uint32_t cp = 0;
         for (int i = 0; i < 4; ++i) {
-            if (at_end()) error("incomplete \\u escape");
+            if (at_end()) return std::unexpected(logos::err(ErrCode::parse_error));
             char h = advance();
             cp <<= 4;
             if (h >= '0' && h <= '9') cp |= (h - '0');
             else if (h >= 'a' && h <= 'f') cp |= (h - 'a' + 10);
             else if (h >= 'A' && h <= 'F') cp |= (h - 'A' + 10);
-            else error("invalid hex in \\u escape");
+            else return std::unexpected(logos::err(ErrCode::parse_error));
         }
         return cp;
     }
 
-    std::string parse_unicode_escape() {
-        uint32_t cp = read_hex4();
+    logos::expected<std::string> parse_unicode_escape() noexcept {
+        LOGOS_TRY(uint32_t cp, read_hex4());
 
         // Handle surrogate pairs: \uD800-\uDBFF followed by \uDC00-\uDFFF.
         if (cp >= 0xD800 && cp <= 0xDBFF) {
             if (pos_ + 1 < text_.size() && text_[pos_] == '\\' && text_[pos_ + 1] == 'u') {
                 pos_ += 2; // skip \u
-                uint32_t lo = read_hex4();
+                LOGOS_TRY(uint32_t lo, read_hex4());
                 if (lo >= 0xDC00 && lo <= 0xDFFF) {
                     cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
                 } else {
-                    error("invalid low surrogate in \\u escape pair");
+                    return std::unexpected(logos::err(ErrCode::parse_error));
                 }
             } else {
-                error("high surrogate without low surrogate");
+                return std::unexpected(logos::err(ErrCode::parse_error));
             }
         }
 
         return encode_utf8(cp);
     }
 
-    static std::string encode_utf8(uint32_t cp) {
+    static logos::expected<std::string> encode_utf8(uint32_t cp) noexcept {
         std::string r;
-        if (cp < 0x80) {
-            r += static_cast<char>(cp);
-        } else if (cp < 0x800) {
-            r += static_cast<char>(0xC0 | (cp >> 6));
-            r += static_cast<char>(0x80 | (cp & 0x3F));
-        } else if (cp < 0x10000) {
-            r += static_cast<char>(0xE0 | (cp >> 12));
-            r += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-            r += static_cast<char>(0x80 | (cp & 0x3F));
-        } else {
-            r += static_cast<char>(0xF0 | (cp >> 18));
-            r += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
-            r += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-            r += static_cast<char>(0x80 | (cp & 0x3F));
+        try {
+            if (cp < 0x80) {
+                r += static_cast<char>(cp);
+            } else if (cp < 0x800) {
+                r += static_cast<char>(0xC0 | (cp >> 6));
+                r += static_cast<char>(0x80 | (cp & 0x3F));
+            } else if (cp < 0x10000) {
+                r += static_cast<char>(0xE0 | (cp >> 12));
+                r += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                r += static_cast<char>(0x80 | (cp & 0x3F));
+            } else {
+                r += static_cast<char>(0xF0 | (cp >> 18));
+                r += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+                r += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                r += static_cast<char>(0x80 | (cp & 0x3F));
+            }
+        } catch (...) {
+            return std::unexpected(logos::err(ErrCode::out_of_memory));
         }
         return r;
     }
 
     // --- Numbers ---
 
-    void* parse_number() {
+    logos::expected<void*> parse_number() noexcept {
         size_t num_start = pos_;
         bool negative = false;
         if (peek() == '-' || peek() == '+') {
@@ -422,89 +436,101 @@ private:
         }
 
         std::string_view digits = text_.substr(digits_start, pos_ - digits_start);
-        if (digits.empty()) error("expected digits");
+        if (digits.empty()) return std::unexpected(logos::err(ErrCode::parse_error));
 
         if (has_dot || has_exp) return parse_float_suffix(num_start);
         return parse_integer_with_suffix(digits, base, negative);
     }
 
-    void* parse_float_suffix(size_t num_start) {
+    logos::expected<void*> parse_float_suffix(size_t num_start) noexcept {
         std::string_view num_text = text_.substr(num_start, pos_ - num_start);
         if (try_consume_raw("d")) {
             double val;
             std::from_chars(num_text.data(), num_text.data() + num_text.size(), val);
-            return HermesCtrAccess::make_value<double>(doc_, val).get();
+            return HermesCtrAccess::make_value<double>(doc_, val);
         }
         try_consume_raw("f");
         double dval;
         std::from_chars(num_text.data(), num_text.data() + num_text.size(), dval);
-        return HermesCtrAccess::make_value<float>(doc_, static_cast<float>(dval)).get();
+        return HermesCtrAccess::make_value<float>(doc_, static_cast<float>(dval));
     }
 
-    void* parse_integer_with_suffix(std::string_view digits, int base, bool negative) {
+    logos::expected<void*> parse_integer_with_suffix(std::string_view digits, int base, bool negative) noexcept {
         uint64_t uval = 0;
         for (char c : digits) {
             uint64_t d;
             if (c >= '0' && c <= '9') d = c - '0';
             else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
             else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
-            else error("invalid digit");
+            else return std::unexpected(logos::err(ErrCode::parse_error));
             uval = uval * base + d;
         }
 
         if (try_consume("ull") || try_consume("ul") || try_consume("_u64"))
-            return HermesCtrAccess::make_value<uint64_t>(doc_, uval).get();
+            return HermesCtrAccess::make_value<uint64_t>(doc_, uval);
         if (try_consume("ll") || try_consume("_s64"))
-            return HermesCtrAccess::make_value<int64_t>(doc_, negative ? -int64_t(uval) : int64_t(uval)).get();
+            return HermesCtrAccess::make_value<int64_t>(doc_, negative ? -int64_t(uval) : int64_t(uval));
         if (try_consume("_u32") || try_consume_raw("u"))
-            return HermesCtrAccess::make_value<uint32_t>(doc_, uint32_t(uval)).get();
-        if (try_consume("_u16")) return HermesCtrAccess::make_value<uint16_t>(doc_, uint16_t(uval)).get();
-        if (try_consume("_u8"))  return HermesCtrAccess::make_value<uint8_t>(doc_, uint8_t(uval)).get();
-        if (try_consume("_s16")) return HermesCtrAccess::make_value<int16_t>(doc_, negative ? -int16_t(uval) : int16_t(uval)).get();
-        if (try_consume("_s8"))  return HermesCtrAccess::make_value<int8_t>(doc_, negative ? -int8_t(uval) : int8_t(uval)).get();
-        if (try_consume("_s32")) return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval)).get();
+            return HermesCtrAccess::make_value<uint32_t>(doc_, uint32_t(uval));
+        if (try_consume("_u16")) return HermesCtrAccess::make_value<uint16_t>(doc_, uint16_t(uval));
+        if (try_consume("_u8"))  return HermesCtrAccess::make_value<uint8_t>(doc_, uint8_t(uval));
+        if (try_consume("_s16")) return HermesCtrAccess::make_value<int16_t>(doc_, negative ? -int16_t(uval) : int16_t(uval));
+        if (try_consume("_s8"))  return HermesCtrAccess::make_value<int8_t>(doc_, negative ? -int8_t(uval) : int8_t(uval));
+        if (try_consume("_s32")) return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval));
 
-        if (!at_end() && peek() == 'f') { advance(); return HermesCtrAccess::make_value<float>(doc_, negative ? -float(uval) : float(uval)).get(); }
-        if (!at_end() && peek() == 'd') { advance(); return HermesCtrAccess::make_value<double>(doc_, negative ? -double(uval) : double(uval)).get(); }
+        if (!at_end() && peek() == 'f') { advance(); return HermesCtrAccess::make_value<float>(doc_, negative ? -float(uval) : float(uval)); }
+        if (!at_end() && peek() == 'd') { advance(); return HermesCtrAccess::make_value<double>(doc_, negative ? -double(uval) : double(uval)); }
 
-        return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval)).get();
+        return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval));
     }
 
     // --- Array ---
 
-    void* parse_array() {
-        expect('[');
-        auto* arr = HermesCtrAccess::raw_array(doc_).get();
+    logos::expected<void*> parse_array() noexcept {
+        LOGOS_TRY_VOID(expect('['));
+        LOGOS_TRY(auto* arr, HermesCtrAccess::raw_array(doc_));
         skip();
         if (peek() == ']') { ++pos_; return arr; }
         while (true) {
-            push_element(arr, parse_value());
+            LOGOS_TRY(void* elem, parse_value());
+            LOGOS_TRY_VOID(push_element(arr, elem));
             skip();
             if (peek() == ']') { ++pos_; break; }
-            expect(',');
+            LOGOS_TRY_VOID(expect(','));
         }
         return arr;
     }
 
     // --- Map ---
 
-    void* parse_map() {
-        expect('{');
-        auto* map = HermesCtrAccess::raw_object_map(doc_).get();
+    logos::expected<void*> parse_map() noexcept {
+        LOGOS_TRY_VOID(expect('{'));
+        LOGOS_TRY(auto* map, HermesCtrAccess::raw_object_map(doc_));
         skip();
         if (peek() == '}') { ++pos_; return map; }
         while (true) {
             skip();
-            std::string key;
-            if (peek() == '"') key = parse_quoted_string();
-            else if (peek() == '\'') key = parse_raw_string();
-            else key = std::string(read_identifier());
+            logos::expected<std::string> key_res;
+            if (peek() == '"') {
+                key_res = parse_quoted_string();
+            } else if (peek() == '\'') {
+                key_res = parse_raw_string();
+            } else {
+                LOGOS_TRY(auto sv, read_identifier());
+                try {
+                    key_res = std::string(sv);
+                } catch (...) {
+                    return std::unexpected(logos::err(ErrCode::out_of_memory));
+                }
+            }
+            if (!key_res) return std::unexpected(std::move(key_res.error()));
 
-            expect(':');
-            put_map_entry(map, key, parse_value());
+            LOGOS_TRY_VOID(expect(':'));
+            LOGOS_TRY(void* val, parse_value());
+            LOGOS_TRY_VOID(put_map_entry(map, *key_res, val));
             skip();
             if (peek() == '}') { ++pos_; break; }
-            expect(',');
+            LOGOS_TRY_VOID(expect(','));
         }
         return map;
     }
@@ -512,10 +538,10 @@ private:
     // --- Type declaration ---
     // datatype_name ('<' type_param % ',' '>')? ('(' value % ',' ')')? qualifiers?
 
-    DatatypeData* parse_type_declaration() {
+    logos::expected<DatatypeData*> parse_type_declaration() noexcept {
         skip();
-        std::string name = parse_datatype_name();
-        auto* arena_name = HermesCtrAccess::raw_string(doc_, name).get();
+        LOGOS_TRY(std::string name, parse_datatype_name());
+        LOGOS_TRY(auto* arena_name, HermesCtrAccess::raw_string(doc_, name));
 
         ObjectArray* params = nullptr;
         ObjectArray* ctr_args = nullptr;
@@ -524,38 +550,39 @@ private:
         // Type parameters: <...>
         if (!at_end() && peek() == '<') {
             ++pos_;
-            params = HermesCtrAccess::raw_array(doc_).get();
+            LOGOS_TRY(params, HermesCtrAccess::raw_array(doc_));
             skip();
             if (peek() != '>') {
                 while (true) {
-                    void* tp = parse_type_param();
-                    push_element(params, tp);
+                    LOGOS_TRY(void* tp, parse_type_param());
+                    LOGOS_TRY_VOID(push_element(params, tp));
                     skip();
                     if (peek() == '>') break;
-                    expect(',');
+                    LOGOS_TRY_VOID(expect(','));
                 }
             }
-            expect('>');
+            LOGOS_TRY_VOID(expect('>'));
         }
 
         skip();
         // Constructor args: (...)
         if (!at_end() && peek() == '(') {
             ++pos_;
-            ctr_args = HermesCtrAccess::raw_array(doc_).get();
+            LOGOS_TRY(ctr_args, HermesCtrAccess::raw_array(doc_));
             skip();
             if (peek() != ')') {
                 while (true) {
-                    push_element(ctr_args, parse_value());
+                    LOGOS_TRY(void* v, parse_value());
+                    LOGOS_TRY_VOID(push_element(ctr_args, v));
                     skip();
                     if (peek() == ')') break;
-                    expect(',');
+                    LOGOS_TRY_VOID(expect(','));
                 }
             }
-            expect(')');
+            LOGOS_TRY_VOID(expect(')'));
         }
 
-        auto* dt = DatatypeData::create(HermesCtrAccess::arena(doc_), arena_name, params, ctr_args).get();
+        LOGOS_TRY(auto* dt, DatatypeData::create(HermesCtrAccess::arena(doc_), arena_name, params, ctr_args));
 
         // Optional qualifiers: const, volatile, *, &
         skip();
@@ -564,12 +591,12 @@ private:
         return dt;
     }
 
-    std::string parse_datatype_name() {
+    logos::expected<std::string> parse_datatype_name() noexcept {
         skip();
         // Skip optional struct/class/union prefix.
         size_t saved = pos_;
         if (is_ident_start(peek())) {
-            auto kw = read_identifier();
+            LOGOS_TRY(auto kw, read_identifier());
             if (kw == "struct" || kw == "class" || kw == "union") {
                 skip();
             } else {
@@ -578,21 +605,26 @@ private:
         }
 
         // Try C++ basic types first.
-        std::string basic = try_cxx_basic_type();
+        LOGOS_TRY(std::string basic, try_cxx_basic_type());
         if (!basic.empty()) return basic;
 
         // Qualified name: identifier (:: identifier)*
-        std::string result;
-        result += read_identifier();
-        while (pos_ + 1 < text_.size() && text_[pos_] == ':' && text_[pos_ + 1] == ':') {
-            pos_ += 2;
-            result += "::";
-            result += read_identifier();
+        try {
+            LOGOS_TRY(auto first, read_identifier());
+            std::string result(first);
+            while (pos_ + 1 < text_.size() && text_[pos_] == ':' && text_[pos_ + 1] == ':') {
+                pos_ += 2;
+                LOGOS_TRY(auto next, read_identifier());
+                result += "::";
+                result += next;
+            }
+            return result;
+        } catch (...) {
+            return std::unexpected(logos::err(ErrCode::out_of_memory));
         }
-        return result;
     }
 
-    std::string try_cxx_basic_type() {
+    logos::expected<std::string> try_cxx_basic_type() noexcept {
         size_t saved = pos_;
 
         // Try multi-word basic types (order: longest match first).
@@ -630,15 +662,19 @@ private:
         for (auto& b : basics) {
             pos_ = saved;
             if (try_match_words(b.text)) {
-                return b.canonical;
+                try {
+                    return std::string(b.canonical);
+                } catch (...) {
+                    return std::unexpected(logos::err(ErrCode::out_of_memory));
+                }
             }
         }
         pos_ = saved;
-        return "";
+        return std::string{};
     }
 
     // Match space-separated words like "unsigned long long".
-    bool try_match_words(const char* pattern) {
+    bool try_match_words(const char* pattern) noexcept {
         size_t saved = pos_;
         const char* p = pattern;
         while (*p) {
@@ -652,29 +688,30 @@ private:
             std::string_view word(word_start, p - word_start);
 
             if (!is_ident_start(peek())) { pos_ = saved; return false; }
-            auto id = read_identifier();
-            if (id != word) { pos_ = saved; return false; }
+            auto id_res = read_identifier();
+            if (!id_res) { pos_ = saved; return false; }
+            if (*id_res != word) { pos_ = saved; return false; }
         }
         // Check that the next char isn't ident (avoid partial match like "integer" matching "int").
         if (!at_end() && is_ident_char(peek())) { pos_ = saved; return false; }
         return true;
     }
 
-    void* parse_type_param() {
+    logos::expected<void*> parse_type_param() noexcept {
         skip();
         char c = peek();
 
         // Type reference: #Name
         if (c == '#') {
             ++pos_;
-            auto name = read_identifier();
+            LOGOS_TRY(auto name, read_identifier());
             return resolve_typeref(name);
         }
 
         // Boolean literal as type param
         if (is_ident_start(c)) {
             size_t saved = pos_;
-            auto id = read_identifier();
+            LOGOS_TRY(auto id, read_identifier());
             if (id == "true") return make_boolean(1);
             if (id == "false") return make_boolean(0);
             pos_ = saved;
@@ -696,7 +733,7 @@ private:
         return parse_type_declaration();
     }
 
-    void parse_qualifiers(DatatypeData* dt) {
+    void parse_qualifiers(DatatypeData* dt) noexcept {
         // Qualifiers: optional (const? volatile? *)* then optional (const? volatile? & &?)
         while (!at_end()) {
             skip();
@@ -710,9 +747,10 @@ private:
 
             size_t saved = pos_;
             if (is_ident_start(peek())) {
-                auto kw = read_identifier();
-                if (kw == "const") { dt->set_const(true); continue; }
-                if (kw == "volatile") { dt->set_volatile(true); continue; }
+                auto kw_res = read_identifier();
+                if (!kw_res) break;
+                if (*kw_res == "const") { dt->set_const(true); continue; }
+                if (*kw_res == "volatile") { dt->set_volatile(true); continue; }
                 pos_ = saved;
             }
             break;
@@ -721,30 +759,31 @@ private:
 
     // --- Keywords, type declarations, or identifier ---
 
-    void* parse_keyword_or_type_or_identifier() {
-        auto id = peek_identifier();
+    logos::expected<void*> parse_keyword_or_type_or_identifier() noexcept {
+        LOGOS_TRY(auto id, peek_identifier());
 
-        if (id == "null") { read_identifier(); return make_boolean(0); } // TODO: proper null
-        if (id == "true") { read_identifier(); return make_boolean(1); }
-        if (id == "false") { read_identifier(); return make_boolean(0); }
+        if (id == "null") { (void)read_identifier(); return make_boolean(0); } // TODO: proper null
+        if (id == "true") { (void)read_identifier(); return make_boolean(1); }
+        if (id == "false") { (void)read_identifier(); return make_boolean(0); }
 
         // Try as type declaration: identifier followed by < or ( or :: or qualifier
         // or just a known type keyword.
-        if (looks_like_type_declaration()) {
+        LOGOS_TRY(bool is_type, looks_like_type_declaration());
+        if (is_type) {
             return parse_type_declaration();
         }
 
         // Bare identifier — treat as string.
-        auto name = read_identifier();
-        return HermesCtrAccess::raw_string(doc_, name).get();
+        LOGOS_TRY(auto name, read_identifier());
+        return HermesCtrAccess::raw_string(doc_, name);
     }
 
-    bool looks_like_type_declaration() {
+    logos::expected<bool> looks_like_type_declaration() noexcept {
         size_t saved = pos_;
 
         if (!is_ident_start(peek())) { pos_ = saved; return false; }
 
-        auto id = read_identifier();
+        LOGOS_TRY(auto id, read_identifier());
 
         // struct/class/union prefix → definitely a type.
         if (id == "struct" || id == "class" || id == "union") {
@@ -775,29 +814,29 @@ private:
         return false;
     }
 
-    char peek_at(size_t p) { return p < text_.size() ? text_[p] : '\0'; }
+    char peek_at(size_t p) noexcept { return p < text_.size() ? text_[p] : '\0'; }
 
     // --- Typed value: @Type = value ---
 
-    void* parse_typed_value() {
-        expect('@');
+    logos::expected<void*> parse_typed_value() noexcept {
+        LOGOS_TRY_VOID(expect('@'));
         skip();
 
         DatatypeData* dt;
         // Type reference: @#Name = value
         if (peek() == '#') {
             ++pos_;
-            auto name = read_identifier();
-            dt = resolve_typeref(name);
+            LOGOS_TRY(auto name, read_identifier());
+            LOGOS_TRY(dt, resolve_typeref(name));
         } else {
-            dt = parse_type_declaration();
+            LOGOS_TRY(dt, parse_type_declaration());
         }
 
         skip();
-        expect('=');
-        void* val = parse_value();
+        LOGOS_TRY_VOID(expect('='));
+        LOGOS_TRY(void* val, parse_value());
 
-        auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt).get();
+        LOGOS_TRY(auto* tv, TypedValueData::create(HermesCtrAccess::arena(doc_), dt));
         // Set value in-place.
         auto* bytes = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(bytes);
@@ -813,77 +852,80 @@ private:
     // Creates a TypedValue where the datatype encodes the container element type(s)
     // and the value is the array or map.
 
-    void* parse_typed_container() {
-        expect('<');
+    logos::expected<void*> parse_typed_container() noexcept {
+        LOGOS_TRY_VOID(expect('<'));
         // Collect type params into a DatatypeData.
         // For <T>[...] → Datatype name="Array", params=[T]
         // For <K,V>{...} → Datatype name="Map", params=[K,V]
-        auto* type_params = HermesCtrAccess::raw_array(doc_).get();
+        LOGOS_TRY(auto* type_params, HermesCtrAccess::raw_array(doc_));
         while (true) {
-            push_element(type_params, parse_type_param());
+            LOGOS_TRY(void* tp, parse_type_param());
+            LOGOS_TRY_VOID(push_element(type_params, tp));
             skip();
             if (peek() == '>') break;
-            expect(',');
+            LOGOS_TRY_VOID(expect(','));
         }
-        expect('>');
+        LOGOS_TRY_VOID(expect('>'));
 
         skip();
         void* container;
         const char* container_kind;
         if (peek() == '[') {
-            container = parse_array();
+            LOGOS_TRY(container, parse_array());
             container_kind = "Array";
         } else if (peek() == '{') {
-            container = parse_map();
+            LOGOS_TRY(container, parse_map());
             container_kind = "Map";
         } else {
-            error("expected '[' or '{' after typed container type params");
+            return std::unexpected(logos::err(ErrCode::parse_error));
         }
 
         // Wrap: @Array<T> = [...]  or  @Map<K,V> = {...}
-        auto* kind_name = HermesCtrAccess::raw_string(doc_, container_kind).get();
-        auto* dt = DatatypeData::create(HermesCtrAccess::arena(doc_), kind_name, type_params).get();
-        auto* tv = TypedValueData::create(HermesCtrAccess::arena(doc_), dt).get();
+        LOGOS_TRY(auto* kind_name, HermesCtrAccess::raw_string(doc_, container_kind));
+        LOGOS_TRY(auto* dt, DatatypeData::create(HermesCtrAccess::arena(doc_), kind_name, type_params));
+        LOGOS_TRY(auto* tv, TypedValueData::create(HermesCtrAccess::arena(doc_), dt));
         tv->value.set_pointer(container, HermesCtrAccess::base(doc_));
         return tv;
     }
 
     // --- Parameter: ?name ---
 
-    void* parse_parameter() {
-        expect('?');
-        auto name = read_identifier();
-        auto* arena_name = HermesCtrAccess::raw_string(doc_, name).get();
-        return ParameterData::create(HermesCtrAccess::arena(doc_), arena_name).get();
+    logos::expected<void*> parse_parameter() noexcept {
+        LOGOS_TRY_VOID(expect('?'));
+        LOGOS_TRY(auto name, read_identifier());
+        LOGOS_TRY(auto* arena_name, HermesCtrAccess::raw_string(doc_, name));
+        return ParameterData::create(HermesCtrAccess::arena(doc_), arena_name);
     }
 
     // --- Container element helpers ---
 
-    void push_element(ObjectArray* arr, void* elem) {
+    logos::expected<void> push_element(ObjectArray* arr, void* elem) noexcept {
         auto* bytes = static_cast<const uint8_t*>(elem);
         TypeTag tag = TypeTag::read_before(bytes);
         uint64_t tc = tag.type_code();
         if (can_embed(tc)) {
-            arr->push_back(make_embedded(elem, tc), HermesCtrAccess::arena(doc_)).get();
+            LOGOS_TRY_VOID(arr->push_back(make_embedded(elem, tc), HermesCtrAccess::arena(doc_)));
         } else {
-            arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)).get();
+            LOGOS_TRY_VOID(arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)));
             arr->slot(arr->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(elem, HermesCtrAccess::base(doc_));
         }
+        return {};
     }
 
-    void put_map_entry(ObjectMap* map, std::string_view key, void* elem) {
+    logos::expected<void> put_map_entry(ObjectMap* map, std::string_view key, void* elem) noexcept {
         auto* bytes = static_cast<const uint8_t*>(elem);
         TypeTag tag = TypeTag::read_before(bytes);
         uint64_t tc = tag.type_code();
         if (can_embed(tc)) {
-            map->put(key, make_embedded(elem, tc), HermesCtrAccess::arena(doc_)).get();
+            LOGOS_TRY_VOID(map->put(key, make_embedded(elem, tc), HermesCtrAccess::arena(doc_)));
         } else {
-            map->put(key, AnyVal{}, HermesCtrAccess::arena(doc_)).get();
+            LOGOS_TRY_VOID(map->put(key, AnyVal{}, HermesCtrAccess::arena(doc_)));
             map->get_slot(key, HermesCtrAccess::base(doc_))->set_pointer(elem, HermesCtrAccess::base(doc_));
         }
+        return {};
     }
 
-    bool can_embed(uint64_t tc) {
+    bool can_embed(uint64_t tc) noexcept {
         switch (tc) {
             case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean:
             case type_hash::SmallInt: case type_hash::USmallInt:
@@ -894,7 +936,7 @@ private:
         }
     }
 
-    AnyVal make_embedded(const void* obj, uint64_t tc) {
+    AnyVal make_embedded(const void* obj, uint64_t tc) noexcept {
         switch (tc) {
             case type_hash::TinyInt:  return AnyVal::from_value(*static_cast<const int8_t*>(obj), tc);
             case type_hash::UTinyInt: case type_hash::Boolean:
@@ -908,14 +950,14 @@ private:
         }
     }
 
-    void* make_boolean(uint8_t val) {
+    logos::expected<void*> make_boolean(uint8_t val) noexcept {
         TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
-        void* mem = HermesCtrAccess::arena(doc_).allocate(1, 2, tag).get();
+        LOGOS_TRY(void* mem, HermesCtrAccess::arena(doc_).allocate(1, 2, tag));
         *static_cast<uint8_t*>(mem) = val;
         return mem;
     }
 
-    void skip_balanced(char open, char close) {
+    void skip_balanced(char open, char close) noexcept {
         int depth = 0;
         if (peek() == open) { ++pos_; depth = 1; }
         while (depth > 0 && !at_end()) {
@@ -932,12 +974,14 @@ private:
 
 logos::expected<HermesCtr> parse(std::string_view text) noexcept {
     try {
-        auto doc = make_doc().get();
+        LOGOS_TRY(auto doc, make_doc());
         Parser parser(text, doc);
-        void* root = parser.parse_document();
+        LOGOS_TRY(void* root, parser.parse_document());
         HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
         return doc;
-    } catch (std::runtime_error&) {
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    } catch (...) {
         return std::unexpected(logos::err(ErrCode::parse_error));
     }
 }
