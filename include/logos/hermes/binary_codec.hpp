@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <logos/hermes/document.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
@@ -27,7 +28,7 @@ namespace logos::hermes {
 // streaming over the wire — compact, self-describing, no pointer fixup needed.
 
 // Encode a document to binary. Returns the encoded bytes.
-std::vector<uint8_t> binary_encode(const HermesCtr& doc);
+[[nodiscard]] logos::expected<std::vector<uint8_t>> binary_encode(const HermesCtr& doc) noexcept;
 
 // Decode binary data into a new document.
 logos::expected<HermesCtr> binary_decode(const uint8_t* data, size_t size) noexcept;

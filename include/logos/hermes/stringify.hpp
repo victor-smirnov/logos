@@ -6,10 +6,11 @@
 
 #include <string>
 #include <logos/hermes/document.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
 // Convert a Hermes document to its text representation.
-std::string stringify(const HermesCtr& doc, bool pretty = false);
+[[nodiscard]] logos::expected<std::string> stringify(const HermesCtr& doc, bool pretty = false) noexcept;
 
 } // namespace logos::hermes

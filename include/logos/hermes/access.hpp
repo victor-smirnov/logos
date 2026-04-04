@@ -18,24 +18,24 @@ namespace logos::hermes {
 
 class HermesCtrAccess {
 public:
-    static uint8_t* base(const HermesCtrView& v)  { return v.base(); }
-    static uint8_t* base(HermesCtrView& v)         { return v.base(); }
-    static Arena& arena(const HermesCtrView& v)    { return v.arena(); }
-    static Arena& arena(HermesCtrView& v)           { return v.arena(); }
+    static uint8_t* base(const HermesCtrView& v) noexcept  { return v.base(); }
+    static uint8_t* base(HermesCtrView& v) noexcept         { return v.base(); }
+    static Arena& arena(const HermesCtrView& v) noexcept    { return v.arena(); }
+    static Arena& arena(HermesCtrView& v) noexcept           { return v.arena(); }
 
     template <typename T>
-    static T* root(const HermesCtrView& v)         { return v.root<T>(); }
+    static T* root(const HermesCtrView& v) noexcept         { return v.root<T>(); }
     template <typename T>
-    static T* root(HermesCtrView& v)               { return v.root<T>(); }
+    static T* root(HermesCtrView& v) noexcept               { return v.root<T>(); }
 
-    static arena_offset_t offset_of(const HermesCtrView& v, const void* obj) {
+    static arena_offset_t offset_of(const HermesCtrView& v, const void* obj) noexcept {
         return v.offset_of(obj);
     }
 
-    static void set_root(HermesCtrView& v, void* obj) { v.set_root(obj); }
-    static void set_root_offset(HermesCtrView& v, arena_offset_t off) { v.set_root_offset(off); }
-    static void set_root_override(HermesCtrView& v, arena_offset_t off) { v.set_root_override(off); }
-    static bool has_root_override(const HermesCtrView& v) { return v.has_root_override(); }
+    static void set_root(HermesCtrView& v, void* obj) noexcept { v.set_root(obj); }
+    static void set_root_offset(HermesCtrView& v, arena_offset_t off) noexcept { v.set_root_offset(off); }
+    static void set_root_override(HermesCtrView& v, arena_offset_t off) noexcept { v.set_root_override(off); }
+    static bool has_root_override(const HermesCtrView& v) noexcept { return v.has_root_override(); }
 
     [[nodiscard]] static logos::expected<TinyObjectMap*> raw_tiny_map(HermesCtrView& v, uint8_t cap = 4) noexcept { return v.raw_tiny_map(cap); }
     [[nodiscard]] static logos::expected<ObjectArray*>   raw_array(HermesCtrView& v, uint64_t cap = 4) noexcept { return v.raw_array(cap); }

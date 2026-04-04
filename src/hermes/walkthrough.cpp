@@ -190,7 +190,7 @@ static void walkthrough_building() {
 // ============================================================================
 //
 // parse_doc("...") → HermesCtr with the parsed value as root.
-// stringify(doc) → text representation.
+// stringify(doc).get() → text representation.
 //
 // Supports: integers (42, -7, 0xFF, 0b1010, 100ll, 255_u8),
 //           floats (3.14, 3.14f, 2.718d, 1e3),
@@ -210,7 +210,7 @@ static void walkthrough_parser() {
     {
         auto doc = parse_doc("42");
         std::println("  parse_doc('42') -> root = {}", *HermesCtrAccess::root<int32_t>(doc));
-        std::println("  stringify   -> '{}'", stringify(doc));
+        std::println("  stringify   -> '{}'", stringify(doc).get());
     }
     // STOP: inspect HermesCtrAccess::root<int32_t>(doc), the TypeTag before the int32_t
 
@@ -241,7 +241,7 @@ static void walkthrough_parser() {
             scores: [95, 87, 92],
             active: true
         })");
-        std::println("  Nested map -> '{}'", stringify(doc));
+        std::println("  Nested map -> '{}'", stringify(doc).get());
         // STOP: inspect the ObjectMap tree, follow pointers from slots
     }
 
@@ -252,7 +252,7 @@ static void walkthrough_parser() {
         auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         std::println("  Type: name='{}', has_params={}",
             dt->name_view(base), dt->has_params());
-        std::println("  stringify -> '{}'", stringify(doc));
+        std::println("  stringify -> '{}'", stringify(doc).get());
     }
 
     // Typed value.
@@ -275,9 +275,9 @@ static void walkthrough_parser() {
     // Round-trip: parse -> stringify -> parse -> stringify.
     {
         auto doc1 = parse_doc("{x: [1, 2], y: @Integer = 3}");
-        std::string s1 = stringify(doc1);
+        std::string s1 = stringify(doc1).get();
         auto doc2 = parse_doc(s1);
-        std::string s2 = stringify(doc2);
+        std::string s2 = stringify(doc2).get();
         std::println("  Round-trip: '{}' == '{}' -> {}",
             s1, s2, s1 == s2 ? "OK" : "MISMATCH");
     }
@@ -298,17 +298,17 @@ static void walkthrough_binary() {
     std::println("  Arena size: {} bytes", HermesCtrAccess::arena(doc).total_used());
 
     // Encode.
-    auto bytes = binary_encode(doc);
+    auto bytes = binary_encode(doc).get();
     std::println("  Encoded:    {} bytes", bytes.size());
     // STOP: inspect bytes — each value prefixed with TypeTag
 
     // Decode.
     auto decoded = binary_decode(bytes.data(), bytes.size()).get();
     std::println("  Decoded:    arena={} bytes", HermesCtrAccess::arena(decoded).total_used());
-    std::println("  stringify:  '{}'", stringify(decoded));
+    std::println("  stringify:  '{}'", stringify(decoded).get());
 
     // Double round-trip.
-    auto bytes2 = binary_encode(decoded);
+    auto bytes2 = binary_encode(decoded).get();
     std::println("  Round-trip: identical={}", bytes == bytes2);
 }
 

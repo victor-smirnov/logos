@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     auto doc = parser.parse_file();
 
     // Stringify the Hermes document to see the AST.
-    std::string json = logos::hermes::stringify(doc);
+    std::string json = logos::hermes::stringify(doc).get();
     std::cout << json << "\n";
 
     // Basic sanity checks.

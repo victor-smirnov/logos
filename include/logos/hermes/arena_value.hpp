@@ -23,14 +23,10 @@ namespace logos::hermes {
 template <typename T>
     requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
 [[nodiscard]] logos::expected<T*> arena_put(Arena& arena, T value) noexcept {
-    try {
-        TypeTag tag = type_tag_for<T>();
-        void* mem = arena.allocate(sizeof(T), alignof(T) < 2 ? 2 : alignof(T), tag).get();
-        std::memcpy(mem, &value, sizeof(T));
-        return static_cast<T*>(mem);
-    } catch (logos::Err& e) {
-        return std::unexpected(std::move(e));
-    }
+    TypeTag tag = type_tag_for<T>();
+    LOGOS_TRY(void* mem, arena.allocate(sizeof(T), alignof(T) < 2 ? 2 : alignof(T), tag));
+    std::memcpy(mem, &value, sizeof(T));
+    return static_cast<T*>(mem);
 }
 
 // Read back a fixed-size value from an arena pointer.
@@ -38,7 +34,7 @@ template <typename T>
 // symmetry with arena_put and a place to add validation later.
 template <typename T>
     requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
-T arena_get(const T* ptr) {
+T arena_get(const T* ptr) noexcept {
     T value;
     std::memcpy(&value, ptr, sizeof(T));
     return value;

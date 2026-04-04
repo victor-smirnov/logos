@@ -26,7 +26,7 @@ struct VarIntResult {
 
 // Encode value into buf. Returns the number of bytes written (1 to 8).
 // Caller must ensure buf has at least 8 bytes of space.
-inline size_t varint_encode(uint64_t value, uint8_t* buf) {
+inline size_t varint_encode(uint64_t value, uint8_t* buf) noexcept {
     if (value < 249) {
         buf[0] = static_cast<uint8_t>(value);
         return 1;
@@ -48,7 +48,7 @@ inline size_t varint_encode(uint64_t value, uint8_t* buf) {
 }
 
 // Decode a varint from buf. Returns the value and number of bytes consumed.
-inline VarIntResult varint_decode(const uint8_t* buf) {
+inline VarIntResult varint_decode(const uint8_t* buf) noexcept {
     uint8_t first = buf[0];
     if (first < 249) {
         return {first, 1};

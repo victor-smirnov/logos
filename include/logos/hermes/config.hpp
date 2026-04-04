@@ -48,7 +48,7 @@ inline constexpr arena_offset_t NULL_OFFSET{~uint32_t(0)};
 struct DocumentHeader {
     arena_offset_t root_offset = NULL_OFFSET;
 
-    bool has_root() const { return root_offset != NULL_OFFSET; }
+    bool has_root() const noexcept { return root_offset != NULL_OFFSET; }
 };
 
 static_assert(sizeof(DocumentHeader) == sizeof(arena_offset_t));

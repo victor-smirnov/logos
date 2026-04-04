@@ -104,7 +104,7 @@ static void test_binary_tiny_map() {
     map.put(5, AnyVal::from_value(float(3.14f))).get();
     map.put(10, AnyVal::from_value(int8_t(-1))).get();
 
-    auto bytes = binary_encode(doc);
+    auto bytes = binary_encode(doc).get();
     LOGOS_ASSERT(!bytes.empty(), "HERMES-BINARY-001", "Encoded bytes must not be empty");
 
     auto decoded = binary_decode(bytes.data(), bytes.size()).get();
@@ -136,7 +136,7 @@ static void test_binary_object_array() {
         arr.push_back(AnyVal::from_value(int32_t(i * 100))).get();
     }
 
-    auto bytes = binary_encode(doc);
+    auto bytes = binary_encode(doc).get();
     auto decoded = binary_decode(bytes.data(), bytes.size()).get();
     uint8_t* db = HermesCtrAccess::base(decoded);
 
@@ -165,7 +165,7 @@ static void test_binary_object_map() {
     map.put("name", AnyVal::from_value(int32_t(42))).get();
     map.put("value", AnyVal::from_value(int32_t(99))).get();
 
-    auto bytes = binary_encode(doc);
+    auto bytes = binary_encode(doc).get();
     auto decoded = binary_decode(bytes.data(), bytes.size()).get();
     uint8_t* db = HermesCtrAccess::base(decoded);
 
@@ -205,7 +205,7 @@ static void test_binary_nested() {
     root.put(2, AnyVal{}).get();
     root.slot(2)->set_pointer(inner_arr.ptr(), HermesCtrAccess::base(doc));
 
-    auto bytes = binary_encode(doc);
+    auto bytes = binary_encode(doc).get();
     auto decoded = binary_decode(bytes.data(), bytes.size()).get();
     uint8_t* db = HermesCtrAccess::base(decoded);
 
@@ -245,9 +245,9 @@ static void test_binary_double_round_trip() {
     map.put(1, AnyVal::from_value(float(3.14f))).get();
 
     // Encode → decode → encode → compare.
-    auto bytes1 = binary_encode(doc);
+    auto bytes1 = binary_encode(doc).get();
     auto doc2 = binary_decode(bytes1.data(), bytes1.size()).get();
-    auto bytes2 = binary_encode(doc2);
+    auto bytes2 = binary_encode(doc2).get();
 
     LOGOS_ASSERT(bytes1.size() == bytes2.size(), "HERMES-BINARY-005",
         "Double round-trip must produce same size: {} vs {}", bytes1.size(), bytes2.size());

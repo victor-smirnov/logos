@@ -225,7 +225,7 @@ void Session::send_message(MessageType type, CallID call_id,
     // Encode payload bytes.
     std::vector<uint8_t> payload_bytes;
     if (payload && !payload->is_null()) {
-        payload_bytes = binary_encode(*payload);
+        payload_bytes = binary_encode(*payload).get();
     }
 
     // Compute sizes.

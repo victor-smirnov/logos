@@ -437,10 +437,16 @@ private:
 // Public API
 // ============================================================================
 
-std::vector<uint8_t> binary_encode(const HermesCtr& doc) {
-    BinaryEncoder encoder;
-    encoder.encode_document(doc);
-    return std::move(encoder.output());
+logos::expected<std::vector<uint8_t>> binary_encode(const HermesCtr& doc) noexcept {
+    try {
+        BinaryEncoder encoder;
+        encoder.encode_document(doc);
+        return std::move(encoder.output());
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    } catch (...) {
+        return std::unexpected(logos::err(ErrCode::out_of_memory));
+    }
 }
 
 logos::expected<HermesCtr> binary_decode(const uint8_t* data, size_t size) noexcept {

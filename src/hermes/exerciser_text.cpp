@@ -296,17 +296,17 @@ static void test_stringify_simple() {
 
     {
         auto doc = parse_doc("42");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "42", "HERMES-STR-001", "Expected '42', got '{}'", s);
     }
     {
         auto doc = parse_doc("\"hello\"");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "\"hello\"", "HERMES-STR-001", "Expected '\"hello\"', got '{}'", s);
     }
     {
         auto doc = parse_doc("true");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "true", "HERMES-STR-001", "Expected 'true', got '{}'", s);
     }
 
@@ -319,7 +319,7 @@ static void test_stringify_containers() {
 
     {
         auto doc = parse_doc("[1, 2, 3]");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "[1,2,3]", "HERMES-STR-002",
             "Expected '[1,2,3]', got '{}'", s);
     }
@@ -463,25 +463,25 @@ static void test_stringify_compound() {
 
     {
         auto doc = parse_doc("Array<Integer>");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "Array<Integer>", "HERMES-STR-COMPOUND-001",
             "Expected 'Array<Integer>', got '{}'", s);
     }
     {
         auto doc = parse_doc("Decimal(10, 2)");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "Decimal(10, 2)", "HERMES-STR-COMPOUND-002",
             "Expected 'Decimal(10, 2)', got '{}'", s);
     }
     {
         auto doc = parse_doc("@Integer = 42");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "@Integer = 42", "HERMES-STR-COMPOUND-003",
             "Expected '@Integer = 42', got '{}'", s);
     }
     {
         auto doc = parse_doc("?myParam");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "?myParam", "HERMES-STR-COMPOUND-004",
             "Expected '?myParam', got '{}'", s);
     }
@@ -587,7 +587,7 @@ static void test_qualifiers() {
         auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->ptr_count() == 1, "HERMES-PARSE-QUAL-001",
             "ptr_count must be 1, got {}", dt->ptr_count());
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "int*", "HERMES-PARSE-QUAL-001", "Expected 'int*', got '{}'", s);
     }
     {
@@ -601,14 +601,14 @@ static void test_qualifiers() {
         auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->ref_count() == 1, "HERMES-PARSE-QUAL-003",
             "ref_count must be 1, got {}", dt->ref_count());
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "int&", "HERMES-PARSE-QUAL-003", "Expected 'int&', got '{}'", s);
     }
     {
         auto doc = parse_doc("int&&");
         auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
         LOGOS_ASSERT(dt->ref_count() == 2, "HERMES-PARSE-QUAL-004", "");
-        std::string s = stringify(doc);
+        std::string s = stringify(doc).get();
         LOGOS_ASSERT(s == "int&&", "HERMES-PARSE-QUAL-004", "Expected 'int&&', got '{}'", s);
     }
 
@@ -636,9 +636,9 @@ static void test_round_trip() {
 
     for (auto* input : inputs) {
         auto doc1 = parse_doc(input);
-        std::string text1 = stringify(doc1);
+        std::string text1 = stringify(doc1).get();
         auto doc2 = parse_doc(text1);
-        std::string text2 = stringify(doc2);
+        std::string text2 = stringify(doc2).get();
 
         LOGOS_ASSERT(text1 == text2, "HERMES-RT-001",
             "Round-trip failed for input '{}': '{}' != '{}'", input, text1, text2);

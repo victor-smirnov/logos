@@ -37,22 +37,22 @@ public:
 
     // --- Field accessors ---
 
-    constexpr uint8_t code_len() const { return raw_ & 0x07; }
-    constexpr size_t  byte_length() const { return code_len() + 1; }
-    constexpr TagDescriptor descriptor() const {
+    constexpr uint8_t code_len() const noexcept { return raw_ & 0x07; }
+    constexpr size_t  byte_length() const noexcept { return code_len() + 1; }
+    constexpr TagDescriptor descriptor() const noexcept {
         return static_cast<TagDescriptor>((raw_ >> 3) & 0x1F);
     }
-    constexpr uint64_t type_code() const { return raw_ >> 8; }
-    constexpr uint64_t raw() const { return raw_; }
+    constexpr uint64_t type_code() const noexcept { return raw_ >> 8; }
+    constexpr uint64_t raw() const noexcept { return raw_; }
 
-    constexpr bool operator==(const TypeTag& other) const { return raw_ == other.raw_; }
-    constexpr bool operator!=(const TypeTag& other) const { return raw_ != other.raw_; }
+    constexpr bool operator==(const TypeTag& other) const noexcept { return raw_ == other.raw_; }
+    constexpr bool operator!=(const TypeTag& other) const noexcept { return raw_ != other.raw_; }
 
     // --- Arena I/O ---
 
     // Write this tag into the bytes immediately before object_addr.
     // Caller must ensure at least byte_length() bytes are available before object_addr.
-    void write_before(uint8_t* object_addr) const {
+    void write_before(uint8_t* object_addr) const noexcept {
         size_t len = byte_length();
         for (size_t i = 0; i < len; ++i) {
             object_addr[-(ptrdiff_t)(i + 1)] = static_cast<uint8_t>(raw_ >> (i * 8));
@@ -60,7 +60,7 @@ public:
     }
 
     // Read a tag from the bytes immediately before object_addr.
-    static TypeTag read_before(const uint8_t* object_addr) {
+    static TypeTag read_before(const uint8_t* object_addr) noexcept {
         uint8_t first_byte = object_addr[-1];
         uint8_t code_len = first_byte & 0x07;
         uint64_t val = 0;
@@ -73,7 +73,7 @@ public:
     }
 
     // Construct from a raw uint64_t value (used by binary decoder).
-    static constexpr TypeTag from_raw(uint64_t raw) {
+    static constexpr TypeTag from_raw(uint64_t raw) noexcept {
         TypeTag tag;
         tag.raw_ = raw;
         return tag;
@@ -83,7 +83,7 @@ private:
     uint64_t raw_;
 
     // Determine the minimum code_len needed to represent type_hash in the upper bits.
-    static constexpr uint8_t needed_code_len(uint64_t type_hash) {
+    static constexpr uint8_t needed_code_len(uint64_t type_hash) noexcept {
         if (type_hash == 0) return 0;
         // type_hash occupies bits [63:8], so we need enough bytes to hold (type_hash << 8).
         // code_len = (total_bytes - 1), total_bytes = ceil_byte_count of the full encoded value.
@@ -95,7 +95,7 @@ private:
         return bytes_needed - 1; // code_len = additional bytes beyond the first
     }
 
-    static constexpr uint64_t encode(uint64_t type_hash, TagDescriptor descriptor) {
+    static constexpr uint64_t encode(uint64_t type_hash, TagDescriptor descriptor) noexcept {
         uint8_t cl = needed_code_len(type_hash);
         return (type_hash << 8)
              | (static_cast<uint64_t>(descriptor) << 3)

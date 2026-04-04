@@ -91,13 +91,13 @@ HERMES_FIXED_TYPE_TRAITS(double,   type_hash::Double,    false);  // 8 bytes, ca
 
 // Convenience: get the TypeTag for a C++ type at compile time.
 template <typename T>
-constexpr TypeTag type_tag_for() {
+constexpr TypeTag type_tag_for() noexcept {
     return TypeTag(TypeTraits<T>::hash, TypeTraits<T>::descriptor);
 }
 
 // Convenience: check if a C++ type can be embedded in a AnyVal.
 template <typename T>
-constexpr bool is_embeddable() {
+constexpr bool is_embeddable() noexcept {
     return TypeTraits<T>::embeddable && sizeof(T) < 8 && TypeTraits<T>::hash < 128;
 }
 
