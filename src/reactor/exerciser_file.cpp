@@ -38,7 +38,7 @@ static void test_file_write_read() {
             data[i] = static_cast<uint8_t>(i & 0xFF);
 
         {
-            auto f = File::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            auto f = File::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644).get();
             int n = f.write_all(data.data(), data.size());
             LOGOS_ASSERT(n == (int)N, "REACTOR-FILE-T01a",
                          "write_all returned {}, expected {}", n, N);
@@ -46,7 +46,7 @@ static void test_file_write_read() {
 
         // Read it back.
         {
-            auto f = File::open(path, O_RDONLY);
+            auto f = File::open(path, O_RDONLY).get();
             read_back.resize(N);
             int n = f.read(read_back.data(), N);
             LOGOS_ASSERT(n == (int)N, "REACTOR-FILE-T01b",
@@ -81,13 +81,13 @@ static void test_file_sequential_reads() {
         for (size_t i = 0; i < data.size(); ++i)
             data[i] = static_cast<uint8_t>(i % 251);  // prime, avoids trivial pattern
         {
-            auto f = File::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            auto f = File::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644).get();
             f.write_all(data.data(), data.size());
         }
 
         // Read in 128-byte chunks.
         {
-            auto f = File::open(path, O_RDONLY);
+            auto f = File::open(path, O_RDONLY).get();
             uint8_t chunk[128];
             while (true) {
                 int n = f.read(chunk, sizeof(chunk));
@@ -127,7 +127,7 @@ static void test_file_concurrent() {
     // Fiber A: writes file A.
     reactor.spawn([&] {
         std::string msg = "fiber A was here";
-        auto f = File::open(pathA, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        auto f = File::open(pathA, O_WRONLY | O_CREAT | O_TRUNC, 0644).get();
         f.write_all(msg.data(), msg.size());
         a_done = true;
     }, "fiberA");
@@ -135,7 +135,7 @@ static void test_file_concurrent() {
     // Fiber B: writes file B.
     reactor.spawn([&] {
         std::string msg = "fiber B was here";
-        auto f = File::open(pathB, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        auto f = File::open(pathB, O_WRONLY | O_CREAT | O_TRUNC, 0644).get();
         f.write_all(msg.data(), msg.size());
         b_done = true;
     }, "fiberB");

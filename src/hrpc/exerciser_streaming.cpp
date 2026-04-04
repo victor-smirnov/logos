@@ -53,7 +53,7 @@ static void test_input_stream() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto listener = TcpSocket::listen_on("127.0.0.1", port);
+        auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept();
 
         Session session(std::move(conn), SessionSide::Server);
@@ -74,7 +74,7 @@ static void test_input_stream() {
 
     reactor.spawn([&] {
 
-        Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
+        Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
         session.start();
 
@@ -129,7 +129,7 @@ static void test_output_stream() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto listener = TcpSocket::listen_on("127.0.0.1", port);
+        auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept();
 
         Session session(std::move(conn), SessionSide::Server);
@@ -150,7 +150,7 @@ static void test_output_stream() {
 
     reactor.spawn([&] {
 
-        Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
+        Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
         session.start();
 

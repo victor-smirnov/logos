@@ -1161,50 +1161,62 @@ private:
 // Public API
 // ============================================================================
 
-HermesCtr parse_path(std::string_view expr) {
-    // Use MultiChunk to avoid pointer invalidation on realloc.
-    // Cross-chunk relative pointers are a known issue — use large initial chunk.
-    auto doc = make_doc(65536);
-    PathParser parser(expr, doc);
-    void* ast = parser.parse();
-    HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, ast));
-    return doc;
-}
-
-HermesCtr eval_path(const HermesCtr& data, std::string_view expr) {
-    auto ast_doc = parse_path(expr);
-    HermesCtr result = make_doc();
-    PathEvaluator evaluator(result, HermesCtrAccess::base(data), HermesCtrAccess::base(ast_doc));
-    void* data_root = HermesCtrAccess::root<void>(data);
-    void* ast_root = HermesCtrAccess::root<void>(ast_doc);
-    void* val = evaluator.eval(data_root, ast_root);
-    if (val) {
-        auto* vp = static_cast<uint8_t*>(val);
-        auto* db = HermesCtrAccess::base(data);
-        size_t data_used = HermesCtrAccess::arena(data).total_used();
-        if (vp >= db && vp < db + data_used) {
-            // val is in data's arena — return a view sharing data's holder.
-            arena_offset_t off = arena_offset_t{static_cast<arena_offset_t::value_type>(vp - db)};
-            result = HermesCtr(HermesCtrView(data.holder()));
-            HermesCtrAccess::set_root_override(result, off);
-        } else {
-            // val is in result's arena (slice, wildcard, filter, etc.).
-            auto* rb = HermesCtrAccess::base(result);
-            arena_offset_t off = arena_offset_t{static_cast<arena_offset_t::value_type>(vp - rb)};
-            HermesCtrAccess::set_root_offset(result, off);
-        }
+logos::expected<HermesCtr> parse_path(std::string_view expr) noexcept {
+    try {
+        auto doc = make_doc(65536);
+        PathParser parser(expr, doc);
+        void* ast = parser.parse();
+        HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, ast));
+        return doc;
+    } catch (std::runtime_error&) {
+        return std::unexpected(logos::err(hermes::ErrCode::parse_error));
     }
-    return result;
 }
 
-HermesCtr eval_path_ast(void* data_root, void* ast_root, Arena& /*data_arena*/) {
-    auto result = make_doc();
-    // Without proper base pointers, use nullptr — caller must ensure
-    // objects are in contiguous arenas with matching bases.
-    PathEvaluator evaluator(result, nullptr, nullptr);
-    void* val = evaluator.eval(data_root, ast_root);
-    if (val) HermesCtrAccess::set_root_offset(result, HermesCtrAccess::offset_of(result, val));
-    return result;
+logos::expected<HermesCtr> eval_path(const HermesCtr& data,
+                                      std::string_view expr) noexcept {
+    try {
+        auto ast_doc_exp = parse_path(expr);
+        if (!ast_doc_exp) return ast_doc_exp;
+        auto& ast_doc = *ast_doc_exp;
+
+        HermesCtr result = make_doc();
+        PathEvaluator evaluator(result, HermesCtrAccess::base(data),
+                                        HermesCtrAccess::base(ast_doc));
+        void* data_root = HermesCtrAccess::root<void>(data);
+        void* ast_root  = HermesCtrAccess::root<void>(ast_doc);
+        void* val = evaluator.eval(data_root, ast_root);
+        if (val) {
+            auto* vp = static_cast<uint8_t*>(val);
+            auto* db = HermesCtrAccess::base(data);
+            size_t data_used = HermesCtrAccess::arena(data).total_used();
+            if (vp >= db && vp < db + data_used) {
+                arena_offset_t off{static_cast<arena_offset_t::value_type>(vp - db)};
+                result = HermesCtr(HermesCtrView(data.holder()));
+                HermesCtrAccess::set_root_override(result, off);
+            } else {
+                auto* rb = HermesCtrAccess::base(result);
+                arena_offset_t off{static_cast<arena_offset_t::value_type>(vp - rb)};
+                HermesCtrAccess::set_root_offset(result, off);
+            }
+        }
+        return result;
+    } catch (std::runtime_error&) {
+        return std::unexpected(logos::err(hermes::ErrCode::parse_error));
+    }
+}
+
+logos::expected<HermesCtr> eval_path_ast(void* data_root, void* ast_root,
+                                          Arena& /*data_arena*/) noexcept {
+    try {
+        auto result = make_doc();
+        PathEvaluator evaluator(result, nullptr, nullptr);
+        void* val = evaluator.eval(data_root, ast_root);
+        if (val) HermesCtrAccess::set_root_offset(result, HermesCtrAccess::offset_of(result, val));
+        return result;
+    } catch (std::runtime_error&) {
+        return std::unexpected(logos::err(hermes::ErrCode::parse_error));
+    }
 }
 
 } // namespace logos::hermes

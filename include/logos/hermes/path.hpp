@@ -7,6 +7,7 @@
 #include <string_view>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/named_code.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
@@ -64,16 +65,15 @@ namespace path_ast {
 }
 
 // Parse a HermesPath expression into an AST (stored as Hermes objects in a document).
-HermesCtr parse_path(std::string_view expr);
+[[nodiscard]] logos::expected<HermesCtr> parse_path(std::string_view expr) noexcept;
 
 // Evaluate a HermesPath expression against a data document.
-// Returns the result as a new HermesCtr.
-HermesCtr eval_path(const HermesCtr& data, std::string_view expr);
+[[nodiscard]] logos::expected<HermesCtr> eval_path(const HermesCtr& data,
+                                                    std::string_view expr) noexcept;
 
 // Evaluate a pre-parsed AST against a data value.
-// The ast_root should be a TinyObjectMap AST node.
-// data_root is the value to query.
-// Returns result in a new document.
-HermesCtr eval_path_ast(void* data_root, void* ast_root, Arena& data_arena);
+[[nodiscard]] logos::expected<HermesCtr> eval_path_ast(void* data_root,
+                                                        void* ast_root,
+                                                        Arena& data_arena) noexcept;
 
 } // namespace logos::hermes

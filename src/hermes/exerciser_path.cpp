@@ -33,19 +33,19 @@ static void test_path_identifier() {
     auto data = parse_doc("{name: \"Alice\", age: 30}");
 
     {
-        auto result = eval_path(data, "name");
+        auto result = eval_path(data, "name").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-001", "");
         auto* s = HermesCtrAccess::root<ArenaString>(result);
         LOGOS_ASSERT(*s == "Alice", "HERMES-PATH-001",
             "Expected 'Alice', got '{}'", s->view());
     }
     {
-        auto result = eval_path(data, "age");
+        auto result = eval_path(data, "age").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-001", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 30, "HERMES-PATH-001", "");
     }
     {
-        auto result = eval_path(data, "missing");
+        auto result = eval_path(data, "missing").get();
         LOGOS_ASSERT(!result.has_root(), "HERMES-PATH-001", "Missing key must return null");
     }
 
@@ -63,12 +63,12 @@ static void test_path_subexpression() {
     auto data = parse_doc("{user: {name: \"Bob\", addr: {city: \"NY\"}}}");
 
     {
-        auto result = eval_path(data, "user.name");
+        auto result = eval_path(data, "user.name").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-002", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<ArenaString>(result) == "Bob", "HERMES-PATH-002", "");
     }
     {
-        auto result = eval_path(data, "user.addr.city");
+        auto result = eval_path(data, "user.addr.city").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-002", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<ArenaString>(result) == "NY", "HERMES-PATH-002", "");
     }
@@ -87,12 +87,12 @@ static void test_path_array_index() {
     auto data = parse_doc("{items: [10, 20, 30]}");
 
     {
-        auto result = eval_path(data, "items[0]");
+        auto result = eval_path(data, "items[0]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-003", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 10, "HERMES-PATH-003", "");
     }
     {
-        auto result = eval_path(data, "items[-1]");
+        auto result = eval_path(data, "items[-1]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-003", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 30, "HERMES-PATH-003", "Negative index");
     }
@@ -111,7 +111,7 @@ static void test_path_slice() {
     auto data = parse_doc("{items: [0, 1, 2, 3, 4]}");
 
     {
-        auto result = eval_path(data, "items[1:3]");
+        auto result = eval_path(data, "items[1:3]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-004", "");
         auto* arr = HermesCtrAccess::root<ObjectArray>(result);
         LOGOS_ASSERT(arr->size() == 2, "HERMES-PATH-004",
@@ -132,7 +132,7 @@ static void test_path_wildcard_filter() {
     auto data = parse_doc("{items: [1, 2, 3, 4, 5]}");
 
     {
-        auto result = eval_path(data, "items[*]");
+        auto result = eval_path(data, "items[*]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-005", "");
         auto* arr = HermesCtrAccess::root<ObjectArray>(result);
         LOGOS_ASSERT(arr->size() == 5, "HERMES-PATH-005", "");
@@ -152,12 +152,12 @@ static void test_path_comparator() {
     auto data = parse_doc("{x: 10, y: 20}");
 
     {
-        auto result = eval_path(data, "x < y");
+        auto result = eval_path(data, "x < y").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-006", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<uint8_t>(result) == 1, "HERMES-PATH-006", "10 < 20 must be true");
     }
     {
-        auto result = eval_path(data, "x == y");
+        auto result = eval_path(data, "x == y").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-006", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<uint8_t>(result) == 0, "HERMES-PATH-006", "10 == 20 must be false");
     }
@@ -176,17 +176,17 @@ static void test_path_functions() {
     auto data = parse_doc("{items: [1, 2, 3], name: \"hello\"}");
 
     {
-        auto result = eval_path(data, "length(items)");
+        auto result = eval_path(data, "length(items)").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-007", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 3, "HERMES-PATH-007", "");
     }
     {
-        auto result = eval_path(data, "length(name)");
+        auto result = eval_path(data, "length(name)").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-007", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 5, "HERMES-PATH-007", "");
     }
     {
-        auto result = eval_path(data, "type(name)");
+        auto result = eval_path(data, "type(name)").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-007", "");
         LOGOS_ASSERT(*HermesCtrAccess::root<ArenaString>(result) == "string", "HERMES-PATH-007", "");
     }
@@ -205,13 +205,13 @@ static void test_path_multiselect() {
     auto data = parse_doc("{a: 1, b: 2, c: 3}");
 
     {
-        auto result = eval_path(data, "[a, c]");
+        auto result = eval_path(data, "[a, c]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-008", "");
         auto* arr = HermesCtrAccess::root<ObjectArray>(result);
         LOGOS_ASSERT(arr->size() == 2, "HERMES-PATH-008", "");
     }
     {
-        auto result = eval_path(data, "{x: a, y: b}");
+        auto result = eval_path(data, "{x: a, y: b}").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-008", "");
         auto* map = HermesCtrAccess::root<ObjectMap>(result);
         LOGOS_ASSERT(map->size() == 2, "HERMES-PATH-008", "");
@@ -230,7 +230,7 @@ static void test_template_var() {
     std::printf("--- Template: variable output ---\n");
 
     auto data = parse_doc("{name: \"World\"}");
-    std::string result = render("Hello, {{ name }}!", data);
+    std::string result = render("Hello, {{ name }}!", data).get();
     LOGOS_ASSERT(result == "Hello, World!", "HERMES-TPL-001",
         "Expected 'Hello, World!', got '{}'", result);
 
@@ -246,7 +246,7 @@ static void test_template_for() {
     std::printf("--- Template: for loop ---\n");
 
     auto data = parse_doc("{items: [1, 2, 3]}");
-    std::string result = render("{% for x in items %}[{{ x }}]{% endfor %}", data);
+    std::string result = render("{% for x in items %}[{{ x }}]{% endfor %}", data).get();
     LOGOS_ASSERT(result == "[1][2][3]", "HERMES-TPL-002",
         "Expected '[1][2][3]', got '{}'", result);
 
@@ -263,13 +263,13 @@ static void test_template_if() {
 
     {
         auto data = parse_doc("{show: true}");
-        std::string result = render("{% if show %}yes{% else %}no{% endif %}", data);
+        std::string result = render("{% if show %}yes{% else %}no{% endif %}", data).get();
         LOGOS_ASSERT(result == "yes", "HERMES-TPL-003",
             "Expected 'yes', got '{}'", result);
     }
     {
         auto data = parse_doc("{show: false}");
-        std::string result = render("{% if show %}yes{% else %}no{% endif %}", data);
+        std::string result = render("{% if show %}yes{% else %}no{% endif %}", data).get();
         LOGOS_ASSERT(result == "no", "HERMES-TPL-003",
             "Expected 'no', got '{}'", result);
     }
@@ -286,7 +286,7 @@ static void test_template_set() {
     std::printf("--- Template: set ---\n");
 
     auto data = parse_doc("{x: 10}");
-    std::string result = render("{% set y = x %}{{ y }}", data);
+    std::string result = render("{% set y = x %}{{ y }}", data).get();
     LOGOS_ASSERT(result == "10", "HERMES-TPL-004",
         "Expected '10', got '{}'", result);
 

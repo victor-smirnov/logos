@@ -25,8 +25,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
-#include <stdexcept>
-#include <string>
+#include <logos/core/expected.hpp>
 
 namespace logos::reactor {
 
@@ -50,14 +49,17 @@ public:
     // -----------------------------------------------------------------------
 
     // Open with explicit flags and optional mode (for O_CREAT).
-    static File open(const char* path, int flags, mode_t mode = 0644) {
+    [[nodiscard]]
+    static logos::expected<File> open(const char* path, int flags,
+                                      mode_t mode = 0644) noexcept {
         int fd = ::open(path, flags, mode);
-        if (fd < 0)
-            throw std::runtime_error(std::string("File::open(") + path + "): " + strerror(errno));
+        if (fd < 0) return std::unexpected(logos::err(ErrCode::open_error));
         return File{fd};
     }
 
-    static File open(const std::string& path, int flags, mode_t mode = 0644) {
+    [[nodiscard]]
+    static logos::expected<File> open(const std::string& path, int flags,
+                                      mode_t mode = 0644) noexcept {
         return open(path.c_str(), flags, mode);
     }
 

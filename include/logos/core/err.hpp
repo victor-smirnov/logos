@@ -133,4 +133,30 @@ Err err(Code code) noexcept {
     return Err::from_code(static_cast<uint64_t>(code));
 }
 
+// ---------------------------------------------------------------------------
+// InitTag — passed as first argument to fallible constructors.
+//
+// The constructor signals failure by calling tag.fail(e).
+// make_object<T>(args...) creates the InitTag, constructs T, and checks it.
+//
+// Convention: InitTag& is always the first constructor parameter.
+//
+// Example:
+//   class Foo {
+//   public:
+//       Foo(logos::InitTag& tag, int x) noexcept {
+//           if (x < 0) { tag.fail(logos::err(ErrCode::bad_arg)); return; }
+//           // ...
+//       }
+//   };
+//   auto foo = logos::make_object<Foo>(42);  // → logos::expected<Foo>
+// ---------------------------------------------------------------------------
+struct InitTag {
+    Err err;
+
+    bool ok() const noexcept { return err.empty(); }
+
+    void fail(Err e) noexcept { err = std::move(e); }
+};
+
 } // namespace logos

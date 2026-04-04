@@ -39,8 +39,8 @@
 #include <unistd.h>
 
 #include <cstring>
-#include <stdexcept>
 #include <string>
+#include <logos/core/expected.hpp>
 
 namespace logos::reactor {
 
@@ -64,11 +64,12 @@ public:
     // -----------------------------------------------------------------------
 
     // Create a listening TCP socket bound to host:port.
-    static TcpSocket listen_on(const char* host, uint16_t port,
-                               int backlog = 128)
+    [[nodiscard]]
+    static logos::expected<TcpSocket> listen_on(const char* host, uint16_t port,
+                                                 int backlog = 128) noexcept
     {
         int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (fd < 0) throw std::runtime_error(std::string("socket: ") + strerror(errno));
+        if (fd < 0) return std::unexpected(logos::err(ErrCode::socket_error));
 
         int one = 1;
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
@@ -80,26 +81,30 @@ public:
         if (!host || host[0] == '\0' || std::string(host) == "0.0.0.0") {
             addr.sin_addr.s_addr = INADDR_ANY;
         } else {
-            if (inet_aton(host, &addr.sin_addr) == 0)
-                throw std::runtime_error(std::string("invalid host: ") + host);
+            if (inet_aton(host, &addr.sin_addr) == 0) {
+                ::close(fd);
+                return std::unexpected(logos::err(ErrCode::invalid_host));
+            }
         }
 
-        if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
-            throw std::runtime_error(std::string("bind: ") + strerror(errno));
-
-        if (::listen(fd, backlog) < 0)
-            throw std::runtime_error(std::string("listen: ") + strerror(errno));
-
+        if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+            ::close(fd);
+            return std::unexpected(logos::err(ErrCode::bind_error));
+        }
+        if (::listen(fd, backlog) < 0) {
+            ::close(fd);
+            return std::unexpected(logos::err(ErrCode::listen_error));
+        }
         return TcpSocket{fd};
     }
 
     // Accept next incoming connection (blocks fiber).
-    TcpSocket accept() {
+    [[nodiscard]]
+    logos::expected<TcpSocket> accept() noexcept {
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-TCP-001", "TcpSocket::accept() called outside reactor");
         int client_fd = r->accept(fd_);
-        if (client_fd < 0)
-            throw std::runtime_error(std::string("accept: ") + strerror(-client_fd));
+        if (client_fd < 0) return std::unexpected(logos::err(ErrCode::accept_error));
         return TcpSocket{client_fd};
     }
 
@@ -108,22 +113,25 @@ public:
     // -----------------------------------------------------------------------
 
     // Connect to host:port (blocks fiber until connected or error).
-    static TcpSocket connect_to(const char* host, uint16_t port) {
+    [[nodiscard]]
+    static logos::expected<TcpSocket> connect_to(const char* host, uint16_t port) noexcept {
         int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (fd < 0) throw std::runtime_error(std::string("socket: ") + strerror(errno));
+        if (fd < 0) return std::unexpected(logos::err(ErrCode::socket_error));
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_port   = htons(port);
-        if (inet_aton(host, &addr.sin_addr) == 0)
-            throw std::runtime_error(std::string("invalid host: ") + host);
+        if (inet_aton(host, &addr.sin_addr) == 0) {
+            ::close(fd);
+            return std::unexpected(logos::err(ErrCode::invalid_host));
+        }
 
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-TCP-010", "TcpSocket::connect_to() called outside reactor");
         int rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
         if (rc < 0) {
             ::close(fd);
-            throw std::runtime_error(std::string("connect: ") + strerror(-rc));
+            return std::unexpected(logos::err(ErrCode::connect_error));
         }
         return TcpSocket{fd};
     }

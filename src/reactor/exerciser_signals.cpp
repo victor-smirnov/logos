@@ -22,7 +22,7 @@ static void test_signal_catch() {
     int caught = 0;
     Reactor reactor;
 
-    SignalWatcher watcher({SIGUSR1});
+    auto watcher = logos::make_object<SignalWatcher>({SIGUSR1}).get();
 
     // Fiber 1: waits for SIGUSR1.
     reactor.spawn([&] {
@@ -52,7 +52,7 @@ static void test_graceful_shutdown() {
     bool shutdown_seen = false;
     Reactor reactor;
 
-    SignalWatcher watcher({SIGUSR2});
+    auto watcher = logos::make_object<SignalWatcher>({SIGUSR2}).get();
 
     // Signal handler fiber: waits, then calls reactor.stop().
     reactor.spawn([&] {
@@ -91,7 +91,7 @@ static void test_multiple_signals() {
     int count = 0;
     Reactor reactor;
 
-    SignalWatcher watcher({SIGUSR1});
+    auto watcher = logos::make_object<SignalWatcher>({SIGUSR1}).get();
 
     reactor.spawn([&] {
         for (int i = 0; i < 2; ++i) {

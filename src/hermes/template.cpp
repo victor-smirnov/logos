@@ -12,8 +12,8 @@
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/object_map.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
+#include <logos/core/err.hpp>
 
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -119,7 +119,9 @@ private:
         if (pos_ + 1 < text_.size()) pos_ += 2; // skip }}
 
         // Parse the expression as HermesPath AST.
-        auto expr_doc = parse_path(expr_text);
+        // Called from within a noexcept barrier — .get() throws on error,
+        // which the barrier catches and converts to logos::expected.
+        auto expr_doc = parse_path(expr_text).get();
 
         auto* expr_str = HermesCtrAccess::raw_string(doc_,expr_text);
         auto* node = HermesCtrAccess::raw_tiny_map(doc_,4);
@@ -188,7 +190,7 @@ private:
         std::string var_name = read_keyword();
         skip_ws();
         std::string in_kw = read_keyword();
-        if (in_kw != "in") throw std::runtime_error("Template: expected 'in' in for statement");
+        if (in_kw != "in") throw logos::err(hermes::ErrCode::template_error);
         skip_ws();
         std::string_view expr_text = read_until_close_tag();
         skip_to_close_tag();
@@ -196,7 +198,7 @@ private:
         // Parse body.
         auto* body = HermesCtrAccess::raw_array(doc_);
         std::string end_kw = parse_block(body, "endfor");
-        if (end_kw != "endfor") throw std::runtime_error("Template: expected 'endfor'");
+        if (end_kw != "endfor") throw logos::err(hermes::ErrCode::template_error);
 
         // Allocate strings first, then build the node.
         // All allocations happen before set_pointer to avoid any ordering issues.
@@ -437,15 +439,15 @@ private:
 
     void* eval_expr(std::string_view expr_text) {
         auto ctx_doc = build_context();
-
-        auto result = eval_path(ctx_doc, expr_text);
+        // Called inside a noexcept barrier — .get() propagates Err via throw.
+        auto result = eval_path(ctx_doc, expr_text).get();
         if (!result.has_root()) return nullptr;
         return HermesCtrAccess::root<void>(result);
     }
 
     std::string eval_to_string(std::string_view expr_text) {
         auto ctx_doc = build_context();
-        auto res = eval_path(ctx_doc, expr_text);
+        auto res = eval_path(ctx_doc, expr_text).get();
         if (!res.has_root()) return "";
         return value_to_string(HermesCtrAccess::root<void>(res));
     }
@@ -634,7 +636,7 @@ private:
 
     HermesCtr eval_path_for_iterate(std::string_view expr_text) {
         auto ctx_doc = build_context();
-        return eval_path(ctx_doc, expr_text);
+        return eval_path(ctx_doc, expr_text).get();
     }
 
     void visit_if(TinyObjectMap* node) {
@@ -670,24 +672,37 @@ private:
 // Public API
 // ============================================================================
 
-HermesCtr parse_template(std::string_view tpl) {
-    auto doc = make_doc();
-    TemplateParser parser(tpl, doc);
-    void* root = parser.parse();
-    HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
-    return doc;
+logos::expected<HermesCtr> parse_template(std::string_view tpl) noexcept {
+    try {
+        auto doc = make_doc();
+        TemplateParser parser(tpl, doc);
+        void* root = parser.parse();
+        HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
+        return doc;
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
-std::string render_template(const HermesCtr& tpl, const HermesCtr& data) {
-    auto* stmts = HermesCtrAccess::root<ObjectArray>(tpl);
-    if (!stmts) return "";
-    TemplateRenderer renderer(data);
-    return renderer.render(stmts, const_cast<uint8_t*>(HermesCtrAccess::base(tpl)));
+logos::expected<std::string> render_template(const HermesCtr& tpl,
+                                              const HermesCtr& data) noexcept {
+    try {
+        auto* stmts = HermesCtrAccess::root<ObjectArray>(tpl);
+        if (!stmts) return std::string{};
+        TemplateRenderer renderer(data);
+        return renderer.render(stmts, const_cast<uint8_t*>(HermesCtrAccess::base(tpl)));
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
-std::string render(std::string_view tpl_text, const HermesCtr& data) {
-    auto tpl = parse_template(tpl_text);
-    return render_template(tpl, data);
+logos::expected<std::string> render(std::string_view tpl_text,
+                                     const HermesCtr& data) noexcept {
+    try {
+        return render_template(parse_template(tpl_text).get(), data).get();
+    } catch (logos::Err& e) {
+        return std::unexpected(std::move(e));
+    }
 }
 
 } // namespace logos::hermes

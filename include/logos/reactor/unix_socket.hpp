@@ -29,8 +29,7 @@
 #include <unistd.h>
 
 #include <cstring>
-#include <stdexcept>
-#include <string>
+#include <logos/core/expected.hpp>
 
 namespace logos::reactor {
 
@@ -52,33 +51,34 @@ public:
     // Factory — server
     // -----------------------------------------------------------------------
 
-    static UnixSocket listen_on(const char* path, int backlog = 128) {
+    [[nodiscard]]
+    static logos::expected<UnixSocket> listen_on(const char* path,
+                                                  int backlog = 128) noexcept {
         int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (fd < 0) throw std::runtime_error(std::string("socket: ") + strerror(errno));
+        if (fd < 0) return std::unexpected(logos::err(ErrCode::socket_error));
 
         sockaddr_un addr{};
         addr.sun_family = AF_UNIX;
         std::strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
-
         ::unlink(path);  // remove stale socket file if present
 
         if (::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) < 0) {
             ::close(fd);
-            throw std::runtime_error(std::string("bind: ") + strerror(errno));
+            return std::unexpected(logos::err(ErrCode::bind_error));
         }
         if (::listen(fd, backlog) < 0) {
             ::close(fd);
-            throw std::runtime_error(std::string("listen: ") + strerror(errno));
+            return std::unexpected(logos::err(ErrCode::listen_error));
         }
         return UnixSocket{fd};
     }
 
-    UnixSocket accept() {
+    [[nodiscard]]
+    logos::expected<UnixSocket> accept() noexcept {
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-UDS-001", "UnixSocket::accept() outside reactor");
         int client_fd = r->accept(fd_);
-        if (client_fd < 0)
-            throw std::runtime_error(std::string("accept: ") + strerror(-client_fd));
+        if (client_fd < 0) return std::unexpected(logos::err(ErrCode::accept_error));
         return UnixSocket{client_fd};
     }
 
@@ -86,9 +86,10 @@ public:
     // Factory — client
     // -----------------------------------------------------------------------
 
-    static UnixSocket connect_to(const char* path) {
+    [[nodiscard]]
+    static logos::expected<UnixSocket> connect_to(const char* path) noexcept {
         int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (fd < 0) throw std::runtime_error(std::string("socket: ") + strerror(errno));
+        if (fd < 0) return std::unexpected(logos::err(ErrCode::socket_error));
 
         sockaddr_un addr{};
         addr.sun_family = AF_UNIX;
@@ -97,7 +98,7 @@ public:
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-UDS-010", "UnixSocket::connect_to() outside reactor");
         int rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
-        if (rc < 0) { ::close(fd); throw std::runtime_error(std::string("connect: ") + strerror(-rc)); }
+        if (rc < 0) { ::close(fd); return std::unexpected(logos::err(ErrCode::connect_error)); }
         return UnixSocket{fd};
     }
 

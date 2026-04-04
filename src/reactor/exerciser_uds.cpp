@@ -31,7 +31,7 @@ static void test_uds_echo_single() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto server = UnixSocket::listen_on(kSockPath);
+        auto server = UnixSocket::listen_on(kSockPath).get();
         auto client = server.accept();
         char buf[64];
         int n = client.read(buf, sizeof(buf));
@@ -41,7 +41,7 @@ static void test_uds_echo_single() {
 
     reactor.spawn([&] {
         Scheduler::current()->yield();
-        auto sock = UnixSocket::connect_to(kSockPath);
+        auto sock = UnixSocket::connect_to(kSockPath).get();
         sock.write_all(payload.data(), payload.size());
         char buf[64];
         int n = sock.read(buf, sizeof(buf));
@@ -68,7 +68,7 @@ static void test_uds_multiple_clients() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto server = UnixSocket::listen_on(kSockPath2);
+        auto server = UnixSocket::listen_on(kSockPath2).get();
         for (int i = 0; i < N; ++i) {
             auto client = server.accept();
             Scheduler::current()->spawn([c = std::move(client)]() mutable {
@@ -82,7 +82,7 @@ static void test_uds_multiple_clients() {
     for (int i = 0; i < N; ++i) {
         reactor.spawn([&, i] {
             Scheduler::current()->yield();
-            auto sock = UnixSocket::connect_to(kSockPath2);
+            auto sock = UnixSocket::connect_to(kSockPath2).get();
             std::string greeting = "uds-client-" + std::to_string(i);
             sock.write_all(greeting.data(), greeting.size());
             char buf[64];
@@ -114,7 +114,7 @@ static void test_uds_large_transfer() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto server = UnixSocket::listen_on(kSockPath3);
+        auto server = UnixSocket::listen_on(kSockPath3).get();
         auto client = server.accept();
         uint8_t buf[4096];
         while (true) {
@@ -126,7 +126,7 @@ static void test_uds_large_transfer() {
 
     reactor.spawn([&] {
         Scheduler::current()->yield();
-        auto sock = UnixSocket::connect_to(kSockPath3);
+        auto sock = UnixSocket::connect_to(kSockPath3).get();
         sock.write_all(sent.data(), sent.size());
         // Closing the socket signals EOF to the server.
     }, "client");

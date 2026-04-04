@@ -46,7 +46,7 @@ static void test_echo_rq() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto listener = TcpSocket::listen_on("127.0.0.1", port);
+        auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept();
 
         Session session(std::move(conn), SessionSide::Server);
@@ -60,7 +60,7 @@ static void test_echo_rq() {
 
     reactor.spawn([&] {
 
-        Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
+        Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
 
         // Spawn the run fiber before start() so we can receive SESSION_START ack.
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
@@ -97,7 +97,7 @@ static void test_multi_rq() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto listener = TcpSocket::listen_on("127.0.0.1", port);
+        auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept();
 
         Session session(std::move(conn), SessionSide::Server);
@@ -110,7 +110,7 @@ static void test_multi_rq() {
 
     reactor.spawn([&] {
 
-        Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
+        Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
         session.start();
 
@@ -151,7 +151,7 @@ static void test_bidirectional() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto listener = TcpSocket::listen_on("127.0.0.1", port);
+        auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept();
 
         Session session(std::move(conn), SessionSide::Server);
@@ -182,7 +182,7 @@ static void test_bidirectional() {
 
     reactor.spawn([&] {
 
-        Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
+        Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
 
         // Client registers kPingEndpoint so server can call it back.
         session.endpoints().add(kPingEndpoint, [](Context& ctx) -> Response {
@@ -223,7 +223,7 @@ static void test_unknown_endpoint() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto listener = TcpSocket::listen_on("127.0.0.1", port);
+        auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept();
 
         Session session(std::move(conn), SessionSide::Server);
@@ -234,7 +234,7 @@ static void test_unknown_endpoint() {
 
     reactor.spawn([&] {
 
-        Session session(TcpSocket::connect_to("127.0.0.1", port), SessionSide::Client);
+        Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
         Scheduler::current()->spawn([&session] { session.run(); }, "reader");
         session.start();
 

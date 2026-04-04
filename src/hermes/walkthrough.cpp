@@ -368,7 +368,7 @@ static void walkthrough_compactify() {
 //            multiselect lists [a, b], multiselect hashes {x: a, y: b}.
 
 static void walkthrough_path() {
-    std::println("\n=== 7. HermesPath ===");
+    std::println("\n=== 7. HermesPath ===").get();
 
     auto data = parse(R"({
         user: {name: "Alice", age: 30},
@@ -381,20 +381,20 @@ static void walkthrough_path() {
 
     // Simple identifier.
     {
-        auto r = eval_path(data, "user.name");
+        auto r = eval_path(data, "user.name").get();
         std::println("  user.name = '{}'", HermesCtrAccess::root<ArenaString>(r)->view());
     }
     // STOP: inspect r — it shares data's MemHolder with root_override
 
     // Array index.
     {
-        auto r = eval_path(data, "items[0].name");
+        auto r = eval_path(data, "items[0].name").get();
         std::println("  items[0].name = '{}'", HermesCtrAccess::root<ArenaString>(r)->view());
     }
 
     // Negative index (last element).
     {
-        auto r = eval_path(data, "items[-1].price");
+        auto r = eval_path(data, "items[-1].price").get();
         std::println("  items[-1].price = {}", *HermesCtrAccess::root<int32_t>(r));
     }
 
@@ -409,7 +409,7 @@ static void walkthrough_path() {
 
     // Function (returns embedded value — works reliably).
     {
-        auto r = eval_path(data, "length(items)");
+        auto r = eval_path(data, "length(items)").get();
         if (r.has_root()) {
             std::println("  length(items) = {}", *HermesCtrAccess::root<int32_t>(r));
         }
@@ -439,27 +439,27 @@ static void walkthrough_templates() {
 
     // Variable substitution.
     {
-        std::string r = render("Hello, {{ name }}!", data);
+        std::string r = render("Hello, {{ name }}!", data).get();
         std::println("  Variable: '{}'", r);
     }
 
     // For loop.
     {
-        std::string r = render("Items: {% for x in items %}[{{ x }}]{% endfor %}", data);
+        std::string r = render("Items: {% for x in items %}[{{ x }}]{% endfor %}", data).get();
         std::println("  For loop: '{}'", r);
     }
 
     // Conditional.
     {
         std::string r = render(
-            "{% if show_greeting %}Hi {{ name }}{% else %}Bye{% endif %}", data);
+            "{% if show_greeting %}Hi {{ name }}{% else %}Bye{% endif %}", data).get();
         std::println("  If/else:  '{}'", r);
     }
 
     // Set variable.
     {
         std::string r = render(
-            "{% set doubled = count %}Count is {{ doubled }}", data);
+            "{% set doubled = count %}Count is {{ doubled }}", data).get();
         std::println("  Set:      '{}'", r);
     }
 }

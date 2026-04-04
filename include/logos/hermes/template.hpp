@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <logos/hermes/document.hpp>
+#include <logos/core/expected.hpp>
 
 namespace logos::hermes {
 
@@ -21,12 +22,14 @@ namespace logos::hermes {
 //   {% endfor %}           — end for
 //   {% set x = expr %}     — set variable
 //   {%- / -%} / {%+ / +%} — whitespace control
-HermesCtr parse_template(std::string_view tpl);
+[[nodiscard]] logos::expected<HermesCtr>    parse_template(std::string_view tpl) noexcept;
 
 // Render a parsed template against data. Returns the rendered string.
-std::string render_template(const HermesCtr& tpl, const HermesCtr& data);
+[[nodiscard]] logos::expected<std::string>  render_template(const HermesCtr& tpl,
+                                                             const HermesCtr& data) noexcept;
 
 // Convenience: parse + render in one step.
-std::string render(std::string_view tpl, const HermesCtr& data);
+[[nodiscard]] logos::expected<std::string>  render(std::string_view tpl,
+                                                    const HermesCtr& data) noexcept;
 
 } // namespace logos::hermes

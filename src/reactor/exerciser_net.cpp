@@ -32,7 +32,7 @@ static void test_echo_single() {
 
     // Server fiber: accept one client, echo once, close.
     reactor.spawn([&] {
-        auto server = TcpSocket::listen_on("127.0.0.1", port);
+        auto server = TcpSocket::listen_on("127.0.0.1", port).get();
         auto client = server.accept();
 
         char buf[256];
@@ -46,7 +46,7 @@ static void test_echo_single() {
     reactor.spawn([&] {
         // Yield once to let server fiber bind and listen first.
         Scheduler::current()->yield();
-        auto sock = TcpSocket::connect_to("127.0.0.1", port);
+        auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
         sock.write_all(payload.data(), payload.size());
 
         char buf[256];
@@ -78,7 +78,7 @@ static void test_echo_multiple_clients() {
 
     // Server: accept N clients, spawn a handler fiber per client.
     reactor.spawn([&] {
-        auto server = TcpSocket::listen_on("127.0.0.1", port);
+        auto server = TcpSocket::listen_on("127.0.0.1", port).get();
         for (int i = 0; i < N; ++i) {
             auto client = server.accept();
             Scheduler::current()->spawn([c = std::move(client)]() mutable {
@@ -93,7 +93,7 @@ static void test_echo_multiple_clients() {
     for (int i = 0; i < N; ++i) {
         reactor.spawn([&, i] {
             Scheduler::current()->yield();
-            auto sock = TcpSocket::connect_to("127.0.0.1", port);
+            auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
             std::string greeting = "client-" + std::to_string(i);
             sock.write_all(greeting.data(), greeting.size());
             char buf[64];
@@ -128,7 +128,7 @@ static void test_streaming() {
 
     // Server: read until connection closes, count 4-byte messages.
     reactor.spawn([&] {
-        auto server = TcpSocket::listen_on("127.0.0.1", port);
+        auto server = TcpSocket::listen_on("127.0.0.1", port).get();
         auto client = server.accept();
         char buf[4];
         while (true) {
@@ -141,7 +141,7 @@ static void test_streaming() {
     // Client: send N 4-byte messages, then close.
     reactor.spawn([&] {
         Scheduler::current()->yield();
-        auto sock = TcpSocket::connect_to("127.0.0.1", port);
+        auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
         for (int i = 0; i < N; ++i) {
             uint32_t v = static_cast<uint32_t>(i);
             sock.write_all(&v, sizeof(v));

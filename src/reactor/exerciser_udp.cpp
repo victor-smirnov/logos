@@ -28,7 +28,7 @@ static void test_udp_echo_single() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase);
+        auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase).get();
         char buf[256];
         UdpEndpoint from;
         int n = server.recv_from(buf, sizeof(buf), from);
@@ -38,7 +38,7 @@ static void test_udp_echo_single() {
 
     reactor.spawn([&] {
         Scheduler::current()->yield();
-        auto sock = UdpSocket::bind_to("127.0.0.1", kUdpBase + 1);
+        auto sock = UdpSocket::bind_to("127.0.0.1", kUdpBase + 1).get();
         UdpEndpoint server_ep("127.0.0.1", kUdpBase);
         sock.send_to(payload.data(), payload.size(), server_ep);
         char buf[256];
@@ -67,7 +67,7 @@ static void test_udp_connected() {
 
     reactor.spawn([&] {
         // Server: bound, unconnected, reads one datagram and echoes it.
-        auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase + 2);
+        auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase + 2).get();
         char buf[256];
         UdpEndpoint from;
         int n = server.recv_from(buf, sizeof(buf), from);
@@ -78,7 +78,7 @@ static void test_udp_connected() {
     reactor.spawn([&] {
         Scheduler::current()->yield();
         // Client: connected to server's address.
-        auto sock = UdpSocket::connect_to("127.0.0.1", kUdpBase + 2);
+        auto sock = UdpSocket::connect_to("127.0.0.1", kUdpBase + 2).get();
         sock.send(payload.data(), payload.size());
         char buf[256];
         int n = sock.recv(buf, sizeof(buf));
@@ -104,7 +104,7 @@ static void test_udp_multi_datagram() {
     Reactor reactor;
 
     reactor.spawn([&] {
-        auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase + 3);
+        auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase + 3).get();
         for (int i = 0; i < N; ++i) {
             char buf[8];
             UdpEndpoint from;
@@ -116,7 +116,7 @@ static void test_udp_multi_datagram() {
 
     reactor.spawn([&] {
         Scheduler::current()->yield();
-        auto sock = UdpSocket::bind_to("0.0.0.0", kUdpBase + 4);
+        auto sock = UdpSocket::bind_to("0.0.0.0", kUdpBase + 4).get();
         UdpEndpoint server_ep("127.0.0.1", kUdpBase + 3);
         for (int i = 0; i < N; ++i) {
             uint32_t val = static_cast<uint32_t>(i);
