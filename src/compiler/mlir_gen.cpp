@@ -124,6 +124,9 @@ private:
 
     // -- Type mapping -------------------------------------------------
     mlir::Type resolve_type(TinyMapView type_ref) {
+        if (!type_ref.has_key(la::NAME) || type_ref.get(la::NAME).is_null()) {
+            return nullptr;
+        }
         auto name = str_of(type_ref.get(la::NAME));
         if (name == "i32")  return builder_.getI32Type();
         if (name == "i64")  return builder_.getI64Type();

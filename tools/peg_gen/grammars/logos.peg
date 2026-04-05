@@ -2,14 +2,14 @@
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Logos language grammar — Iteration 1.
+// Logos language grammar — Iteration 2.
 //
-// Minimal Rust-like syntax: free functions, let bindings, if/else, return,
-// binary ops, function calls, integer and boolean literals.
+// Rust-like syntax. Packages, use declarations, extern fn, pub visibility,
+// string literals, pointer types, free functions, let, if/else, return.
 
 %meta {
     name:      "logos"
-    version:   "0.1"
+    version:   "0.2"
     namespace: "logos::compiler"
     output:    "logos_parser"
 }
@@ -34,36 +34,51 @@
     RHS         = 13
     CALLEE      = 14
     ARGS        = 15
+    PATH        = 16
+    USES        = 17
+    POINTEE     = 18
+    MUTPTR      = 19
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
 %nodes {
     MODULE      = 1
-    FN          = 2
-    PARAM       = 3
-    BLOCK       = 10
-    LET         = 11
-    RETURN      = 12
-    IF          = 13
-    CALL        = 20
-    BINOP       = 21
-    VAR_REF     = 22
-    LIT_INT     = 23
-    LIT_BOOL    = 24
-    TYPE_REF    = 30
+    PACKAGE     = 2
+    USE         = 3
+    FN          = 10
+    EXTERN_FN   = 11
+    PARAM       = 12
+    BLOCK       = 20
+    LET         = 21
+    RETURN      = 22
+    IF          = 23
+    EXPR_STMT   = 24
+    CALL        = 30
+    BINOP       = 31
+    VAR_REF     = 32
+    LIT_INT     = 33
+    LIT_BOOL    = 34
+    LIT_STR     = 35
+    TYPE_REF    = 40
+    PTR_TYPE    = 41
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
 %tokens {
     // Keywords
-    KW_MOD      = "mod"
+    KW_PACKAGE  = "package"
+    KW_USE      = "use"
+    KW_PUB      = "pub"
     KW_FN       = "fn"
+    KW_EXTERN   = "extern"
     KW_LET      = "let"
     KW_IF       = "if"
     KW_ELSE     = "else"
     KW_RETURN   = "return"
     KW_TRUE     = "true"
     KW_FALSE    = "false"
+    KW_CONST    = "const"
+    KW_MUT      = "mut"
 
     // Punctuation
     LBRACE      = "{"
@@ -74,8 +89,10 @@
     COMMA       = ","
     SEMI        = ";"
     ARROW       = "->"
+    DOT         = "."
+    STAR        = "*"
 
-    // Operators (multi-char first for longest match)
+    // Operators (multi-char first)
     EQ          = "=="
     NE          = "!="
     LE          = "<="
@@ -84,11 +101,11 @@
     GT          = ">"
     PLUS        = "+"
     MINUS       = "-"
-    STAR        = "*"
     SLASH       = "/"
     ASSIGN      = "="
 
     // Literals & identifiers
+    STRING      = /"([^"\\]|\\.)*"/
     INTEGER     = /[-]?[0-9]+/
     IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
 
@@ -98,25 +115,32 @@
     %skip       = /\/\*.*?\*\//
 }
 
-// ── Operator precedence (low to high) ─────────────────────────────────────
-// Operator precedence handled manually in grammar rules (no %prec).
-// Low to high: comparison < additive < multiplicative.
-
 // ── Rules ─────────────────────────────────────────────────────────────────
 %rules {
 
     // ── Top level ────────────────────────────────────────────────
-    module <- KW_MOD IDENT SEMI item*
+    module <- KW_PACKAGE IDENT SEMI item*
            => { CODE: MODULE, NAME: $2, ITEMS: $... }
 
-    item <- function_def
+    item <- extern_fn_def / pub_fn_def / fn_def
 
-    // ── Function ─────────────────────────────────────────────────
-    function_def <- KW_FN IDENT LPAREN param_list? RPAREN return_type? block
-                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $6, BODY: $7 }
+    // ── Extern function (FFI) ────────────────────────────────────
+    extern_fn_def <- KW_EXTERN KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
+                  => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
+                   / KW_EXTERN KW_FN IDENT LPAREN param_list? RPAREN SEMI
+                  => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5 }
 
-    return_type <- ARROW IDENT
-                => { CODE: TYPE_REF, NAME: $2 }
+    // ── Public function ──────────────────────────────────────────
+    pub_fn_def <- KW_PUB KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+               => { CODE: FN, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
+                / KW_PUB KW_FN IDENT LPAREN param_list? RPAREN block
+               => { CODE: FN, NAME: $3, PARAMS: $5, BODY: $7 }
+
+    // ── Private function ─────────────────────────────────────────
+    fn_def <- KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+           => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
+            / KW_FN IDENT LPAREN param_list? RPAREN block
+           => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
 
     param_list <- param (COMMA param)*
 
@@ -124,8 +148,15 @@
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
 
     // ── Type reference ───────────────────────────────────────────
-    type_ref <- IDENT
-             => { CODE: TYPE_REF, NAME: $1 }
+    type_ref <- ptr_type / simple_type
+
+    ptr_type <- STAR KW_CONST simple_type
+             => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: false }
+              / STAR KW_MUT simple_type
+             => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
+
+    simple_type <- IDENT
+                => { CODE: TYPE_REF, NAME: $1 }
 
     // ── Block ────────────────────────────────────────────────────
     block <- LBRACE stmt* RBRACE
@@ -140,15 +171,13 @@
     let_stmt <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, TYPE: $4, VALUE: $6 }
 
-    return_stmt <- KW_RETURN expr SEMI
+    return_stmt <- KW_RETURN expr? SEMI
                 => { CODE: RETURN, VALUE: $2 }
 
     if_expr <- KW_IF expr block (KW_ELSE (if_expr / block))?
             => { CODE: IF, COND: $2, THEN: $3, ELSE: $4 }
 
     // ── Expressions (precedence via rule nesting) ─────────────────
-    // Low → high: comparison → additive → multiplicative → atom
-    // Each level either passes through to the next, or wraps in BINOP.
     expr <- cmp_expr
 
     cmp_expr <- add_expr (EQ / NE / LE / GE / LT / GT) add_expr
@@ -165,6 +194,7 @@
 
     atom <- call_expr
           / LPAREN expr RPAREN
+          / STRING     => { CODE: LIT_STR,  VALUE: $1 }
           / KW_TRUE    => { CODE: LIT_BOOL, VALUE: true }
           / KW_FALSE   => { CODE: LIT_BOOL, VALUE: false }
           / INTEGER    => { CODE: LIT_INT,  VALUE: $1 }

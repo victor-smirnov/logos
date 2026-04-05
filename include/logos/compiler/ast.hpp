@@ -39,30 +39,44 @@ inline constexpr Key LHS      {"LHS",      12};  // left-hand side
 inline constexpr Key RHS      {"RHS",      13};  // right-hand side
 inline constexpr Key CALLEE   {"CALLEE",   14};  // call target
 inline constexpr Key ARGS     {"ARGS",     15};  // call arguments
+inline constexpr Key PATH     {"PATH",     16};  // package path (dotted name)
+inline constexpr Key USES     {"USES",     17};  // use declarations array
+inline constexpr Key POINTEE  {"POINTEE",  18};  // pointee type for pointer types
+inline constexpr Key MUTPTR   {"MUTPTR",   19};  // pointer mutability (bool)
 
 // ── Node codes ───────────────────────────────────────────────────────────
 
 // Top-level
 inline constexpr Code MODULE      {"MODULE",       1};
+inline constexpr Code PACKAGE     {"PACKAGE",      2};   // package declaration
+inline constexpr Code USE         {"USE",          3};   // use declaration
 
 // Definitions
-inline constexpr Code FN          {"FN",           2};
-inline constexpr Code PARAM       {"PARAM",        3};
+inline constexpr Code FN          {"FN",          10};
+inline constexpr Code EXTERN_FN   {"EXTERN_FN",   11};   // extern fn (FFI, no body)
+inline constexpr Code PARAM       {"PARAM",       12};
 
 // Statements / blocks
-inline constexpr Code BLOCK       {"BLOCK",       10};
-inline constexpr Code LET         {"LET",         11};
-inline constexpr Code RETURN      {"RETURN",      12};
-inline constexpr Code IF          {"IF",          13};
+inline constexpr Code BLOCK       {"BLOCK",       20};
+inline constexpr Code LET         {"LET",         21};
+inline constexpr Code RETURN      {"RETURN",      22};
+inline constexpr Code IF          {"IF",          23};
+inline constexpr Code EXPR_STMT   {"EXPR_STMT",   24};   // expression as statement
 
-// Expressions (appear as values in statements)
-inline constexpr Code CALL        {"CALL",        20};
-inline constexpr Code BINOP       {"BINOP",       21};
-inline constexpr Code VAR_REF     {"VAR_REF",     22};
-inline constexpr Code LIT_INT     {"LIT_INT",     23};
-inline constexpr Code LIT_BOOL    {"LIT_BOOL",    24};
+// Expressions
+inline constexpr Code CALL        {"CALL",        30};
+inline constexpr Code BINOP       {"BINOP",       31};
+inline constexpr Code VAR_REF     {"VAR_REF",     32};
+inline constexpr Code LIT_INT     {"LIT_INT",     33};
+inline constexpr Code LIT_BOOL    {"LIT_BOOL",    34};
+inline constexpr Code LIT_STR     {"LIT_STR",     35};   // string literal
 
 // Type references
-inline constexpr Code TYPE_REF    {"TYPE_REF",    30};
+inline constexpr Code TYPE_REF    {"TYPE_REF",    40};
+inline constexpr Code PTR_TYPE    {"PTR_TYPE",    41};   // *const T or *mut T
+
+// Visibility
+inline constexpr int32_t VIS_PRIVATE = 0;
+inline constexpr int32_t VIS_PUBLIC  = 1;
 
 } // namespace logos::compiler::ast
