@@ -8,17 +8,17 @@
 
 #include <logos/hrpc/common.hpp>
 #include <logos/hrpc/schema.hpp>
-#include <logos/hrpc/green_handler_fn.hpp>
 
+#include <functional>
 #include <unordered_map>
 
 namespace logos::hrpc {
 
+class Context;
+
 // Handler function type: receives a Context reference, returns a Response.
-// GreenHandlerFn (not std::function) so that handler bodies may call green
-// (fiber-blocking) reactor primitives such as ctx.pop(), ctx.push(),
-// session.call(), etc.
-using HandlerFn = GreenHandlerFn;
+// May call fiber-blocking reactor primitives (ctx.pop(), session.call(), etc.).
+using HandlerFn = std::move_only_function<Response(Context&)>;
 
 // ---------------------------------------------------------------------------
 // EndpointRegistry — thread-local (single-core fiber) registry mapping

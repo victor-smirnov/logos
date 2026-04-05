@@ -381,8 +381,8 @@ logos::expected<void> Session::handle_call(const MessageHeader& hdr,
         return send_return(hdr.call_id, std::move(err_resp));
     }
 
-    // Copy the handler (std::function is copyable).
-    HandlerFn handler_fn = *handler_fn_ptr;
+    // Move the handler out of the registry for this call.
+    HandlerFn handler_fn = std::move(*handler_fn_ptr);
 
     Request request = Request::from_doc(std::move(payload));
 
