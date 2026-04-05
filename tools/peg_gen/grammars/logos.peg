@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// Logos language grammar — Iteration 1.
+//
+// Minimal Rust-like syntax: free functions, let bindings, if/else, return,
+// binary ops, function calls, integer and boolean literals.
+
+%meta {
+    name:      "logos"
+    version:   "0.1"
+    namespace: "logos::compiler"
+    output:    "logos_parser"
+}
+
+%export { module }
+
+// ── AST field keys ────────────────────────────────────────────────────────
+%fields {
+    CODE        = 0
+    NAME        = 1
+    ITEMS       = 2
+    TYPE        = 3
+    PARAMS      = 4
+    BODY        = 5
+    RET_TYPE    = 6
+    VALUE       = 7
+    COND        = 8
+    THEN        = 9
+    ELSE        = 10
+    OP          = 11
+    LHS         = 12
+    RHS         = 13
+    CALLEE      = 14
+    ARGS        = 15
+}
+
+// ── AST node codes ────────────────────────────────────────────────────────
+%nodes {
+    MODULE      = 1
+    FN          = 2
+    PARAM       = 3
+    BLOCK       = 10
+    LET         = 11
+    RETURN      = 12
+    IF          = 13
+    CALL        = 20
+    BINOP       = 21
+    VAR_REF     = 22
+    LIT_INT     = 23
+    LIT_BOOL    = 24
+    TYPE_REF    = 30
+}
+
+// ── Tokens ────────────────────────────────────────────────────────────────
+%tokens {
+    // Keywords
+    KW_MOD      = "mod"
+    KW_FN       = "fn"
+    KW_LET      = "let"
+    KW_IF       = "if"
+    KW_ELSE     = "else"
+    KW_RETURN   = "return"
+    KW_TRUE     = "true"
+    KW_FALSE    = "false"
+
+    // Punctuation
+    LBRACE      = "{"
+    RBRACE      = "}"
+    LPAREN      = "("
+    RPAREN      = ")"
+    COLON       = ":"
+    COMMA       = ","
+    SEMI        = ";"
+    ARROW       = "->"
+
+    // Operators (multi-char first for longest match)
+    EQ          = "=="
+    NE          = "!="
+    LE          = "<="
+    GE          = ">="
+    LT          = "<"
+    GT          = ">"
+    PLUS        = "+"
+    MINUS       = "-"
+    STAR        = "*"
+    SLASH       = "/"
+    ASSIGN      = "="
+
+    // Literals & identifiers
+    INTEGER     = /[-]?[0-9]+/
+    IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
+
+    // Skip
+    %skip       = /[ \t\n\r]+/
+    %skip       = /\/\/[^\n]*/
+    %skip       = /\/\*.*?\*\//
+}
+
+// ── Operator precedence (low to high) ─────────────────────────────────────
+// Operator precedence handled manually in grammar rules (no %prec).
+// Low to high: comparison < additive < multiplicative.
+
+// ── Rules ─────────────────────────────────────────────────────────────────
+%rules {
+
+    // ── Top level ────────────────────────────────────────────────
+    module <- KW_MOD IDENT SEMI item*
+           => { CODE: MODULE, NAME: $2, ITEMS: $... }
+
+    item <- function_def
+
+    // ── Function ─────────────────────────────────────────────────
+    function_def <- KW_FN IDENT LPAREN param_list? RPAREN (ARROW type_ref)? block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $6, BODY: $7 }
+
+    param_list <- param (COMMA param)*
+
+    param <- IDENT COLON type_ref
+          => { CODE: PARAM, NAME: $1, TYPE: $3 }
+
+    // ── Type reference ───────────────────────────────────────────
+    type_ref <- IDENT
+             => { CODE: TYPE_REF, NAME: $1 }
+
+    // ── Block ────────────────────────────────────────────────────
+    block <- LBRACE stmt* RBRACE
+          => { CODE: BLOCK, ITEMS: $... }
+
+    // ── Statements ───────────────────────────────────────────────
+    stmt <- let_stmt
+          / return_stmt
+          / if_expr SEMI?
+          / expr SEMI
+
+    let_stmt <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
+             => { CODE: LET, NAME: $2, TYPE: $4, VALUE: $6 }
+
+    return_stmt <- KW_RETURN expr SEMI
+                => { CODE: RETURN, VALUE: $2 }
+
+    if_expr <- KW_IF expr block (KW_ELSE (if_expr / block))?
+            => { CODE: IF, COND: $2, THEN: $3, ELSE: $4 }
+
+    // ── Expressions (precedence via rule nesting) ─────────────────
+    // Low → high: comparison → additive → multiplicative → atom
+    expr <- cmp_expr
+
+    cmp_expr <- add_expr ((EQ / NE / LE / GE / LT / GT) add_expr)?
+             => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+
+    add_expr <- mul_expr ((PLUS / MINUS) mul_expr)*
+             => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+
+    mul_expr <- atom ((STAR / SLASH) atom)*
+             => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+
+    atom <- call_expr
+          / LPAREN expr RPAREN
+          / KW_TRUE    => { CODE: LIT_BOOL, VALUE: true }
+          / KW_FALSE   => { CODE: LIT_BOOL, VALUE: false }
+          / INTEGER    => { CODE: LIT_INT,  VALUE: $1 }
+          / IDENT      => { CODE: VAR_REF,  NAME: $1 }
+
+    call_expr <- IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+              => { CODE: CALL, CALLEE: $1, ARGS: $... }
+}

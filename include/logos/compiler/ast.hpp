@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// Logos AST node codes and field keys.
+//
+// Every AST node is a Hermes TinyObjectMap. The CODE field (key 0) is the
+// node type discriminant. Remaining fields are node-specific.
+//
+// This file defines the constants — no runtime logic, no includes beyond
+// NamedCode.  Safe to include from parsers, compiler passes, and tools.
+
+#pragma once
+
+#include <logos/core/named_code.hpp>
+
+namespace logos::compiler::ast {
+
+using Key  = logos::NamedCode<uint8_t>;   // TinyObjectMap field key (0..51)
+using Code = logos::NamedCode<int32_t>;   // Node type discriminant
+
+// ── Field keys ───────────────────────────────────────────────────────────
+//
+// Shared across node types. Not every node uses every key.
+
+inline constexpr Key CODE     {"CODE",      0};  // node type (int32_t)
+inline constexpr Key NAME     {"NAME",      1};  // identifier string
+inline constexpr Key ITEMS    {"ITEMS",     2};  // child array (stmts, params, etc.)
+inline constexpr Key TYPE     {"TYPE",      3};  // type reference
+inline constexpr Key PARAMS   {"PARAMS",    4};  // parameter list
+inline constexpr Key BODY     {"BODY",      5};  // function/loop body (block)
+inline constexpr Key RET_TYPE {"RET_TYPE",  6};  // return type
+inline constexpr Key VALUE    {"VALUE",     7};  // initializer / literal value
+inline constexpr Key COND     {"COND",      8};  // condition (if/while)
+inline constexpr Key THEN     {"THEN",      9};  // then branch
+inline constexpr Key ELSE     {"ELSE",     10};  // else branch
+inline constexpr Key OP       {"OP",       11};  // operator string ("+", "==", etc.)
+inline constexpr Key LHS      {"LHS",      12};  // left-hand side
+inline constexpr Key RHS      {"RHS",      13};  // right-hand side
+inline constexpr Key CALLEE   {"CALLEE",   14};  // call target
+inline constexpr Key ARGS     {"ARGS",     15};  // call arguments
+
+// ── Node codes ───────────────────────────────────────────────────────────
+
+// Top-level
+inline constexpr Code MODULE      {"MODULE",       1};
+
+// Definitions
+inline constexpr Code FN          {"FN",           2};
+inline constexpr Code PARAM       {"PARAM",        3};
+
+// Statements / blocks
+inline constexpr Code BLOCK       {"BLOCK",       10};
+inline constexpr Code LET         {"LET",         11};
+inline constexpr Code RETURN      {"RETURN",      12};
+inline constexpr Code IF          {"IF",          13};
+
+// Expressions (appear as values in statements)
+inline constexpr Code CALL        {"CALL",        20};
+inline constexpr Code BINOP       {"BINOP",       21};
+inline constexpr Code VAR_REF     {"VAR_REF",     22};
+inline constexpr Code LIT_INT     {"LIT_INT",     23};
+inline constexpr Code LIT_BOOL    {"LIT_BOOL",    24};
+
+// Type references
+inline constexpr Code TYPE_REF    {"TYPE_REF",    30};
+
+} // namespace logos::compiler::ast
