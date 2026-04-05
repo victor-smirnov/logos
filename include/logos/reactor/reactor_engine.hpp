@@ -50,16 +50,12 @@ class ReactorEngine {
 public:
     static constexpr size_t kQueueCapacity = 256;
 
-#if LOGOS_HAS_GREEN_STACKS
-    using Task = GreenFn;
-#else
     using Task = std::move_only_function<void()>;
-#endif
     using TaskQueue = SpscQueue<Task, kQueueCapacity>;
 
     // Create num_reactors reactors, each with the given io_uring depth.
-    // stack_size: classic mode only — sets the StackPool size for all fibers on
-    //             every reactor in this engine.  Ignored in green mode.
+    // stack_size: sets the StackPool size for all fibers on every reactor
+    //             in this engine.
     explicit ReactorEngine(size_t num_reactors,
                            unsigned ring_depth = Reactor::kRingDepth,
                            size_t   stack_size = Fiber::kDefaultStackSize) noexcept;

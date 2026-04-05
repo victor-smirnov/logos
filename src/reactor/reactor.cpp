@@ -41,18 +41,11 @@ Reactor::~Reactor() noexcept {
 // ---------------------------------------------------------------------------
 // spawn
 // ---------------------------------------------------------------------------
-#if LOGOS_HAS_GREEN_STACKS
-Fiber* Reactor::spawn(GreenFn fn, std::string_view name, size_t stack_size) noexcept
-{
-    return sched_.spawn(std::move(fn), name, stack_size);
-}
-#else
 Fiber* Reactor::spawn(std::move_only_function<void()> fn,
                       std::string_view name, size_t stack_size) noexcept
 {
     return sched_.spawn(std::move(fn), name, stack_size);
 }
-#endif
 
 // ---------------------------------------------------------------------------
 // run
@@ -206,7 +199,7 @@ logos::expected<int> Reactor::poll_one(int fd, uint32_t poll_mask) noexcept {
 int Reactor::reap_completions(bool wait) noexcept {
     int count = 0;
 
-    auto process = [&](io_uring_cqe* cqe) noexcept LOGOS_RED {
+    auto process = [&](io_uring_cqe* cqe) noexcept {
         auto* op = static_cast<IoOp*>(io_uring_cqe_get_data(cqe));
         if (!op) { io_uring_cqe_seen(ring_, cqe); return; }
 
@@ -243,11 +236,7 @@ int Reactor::reap_completions(bool wait) noexcept {
 // Alien task queue
 // ---------------------------------------------------------------------------
 
-#if LOGOS_HAS_GREEN_STACKS
-void Reactor::alien_submit(GreenFn fn) noexcept {
-#else
 void Reactor::alien_submit(std::move_only_function<void()> fn) noexcept {
-#endif
     // Fast path: reactor-to-reactor via P2P SPSC queue (lock-free).
     Reactor* caller = Reactor::current();
     if (caller && engine_ && caller->engine_ == engine_) {
@@ -278,22 +267,14 @@ void Reactor::drain_p2p_() noexcept {
     size_t n = engine_->size();
     for (size_t src = 0; src < n; ++src) {
         auto& q = engine_->queue(src, id_);
-#if LOGOS_HAS_GREEN_STACKS
-        GreenFn task;
-#else
         std::move_only_function<void()> task;
-#endif
         while (q.pop(task))
             sched_.spawn(std::move(task));
     }
 }
 
 void Reactor::drain_alien_() noexcept {
-#if LOGOS_HAS_GREEN_STACKS
-    std::vector<GreenFn> tasks;
-#else
     std::vector<std::move_only_function<void()>> tasks;
-#endif
     {
         std::lock_guard lock(alien_mutex_);
         tasks.swap(alien_pending_);

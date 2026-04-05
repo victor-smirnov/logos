@@ -12,16 +12,6 @@ namespace logos::reactor {
 // ---------------------------------------------------------------------------
 static thread_local Scheduler* tl_current_scheduler = nullptr;
 
-#if LOGOS_HAS_GREEN_STACKS
-// Used by green_bridge.cpp for __morestack → StackChain lookup.
-thread_local Fiber* tls_current_fiber = nullptr;
-
-// Jenny's TLS slot for the system (red) stack pointer — defined in green_bridge.cpp.
-// Scheduler::switch_to() writes the current RSP here before fiber_switch so that
-// [[clang::green]] → [[clang::red]] calls inside the fiber switch to this stack.
-extern "C" __thread void* __green_fiber_system_stack;
-#endif
-
 Scheduler* Scheduler::current() noexcept { return tl_current_scheduler; }
 
 void Scheduler::install(Scheduler* s) noexcept   { tl_current_scheduler = s; }
@@ -31,32 +21,14 @@ void Scheduler::uninstall() noexcept             { tl_current_scheduler = nullpt
 // Construction / destruction
 // ---------------------------------------------------------------------------
 Scheduler::Scheduler(size_t stack_size) noexcept
-#if !LOGOS_HAS_GREEN_STACKS
     : pool_(stack_size)
-#endif
-{
-    (void)stack_size;  // suppress unused-parameter warning in green mode
-}
+{}
 
 Scheduler::~Scheduler() = default;
 
 // ---------------------------------------------------------------------------
 // spawn
 // ---------------------------------------------------------------------------
-#if LOGOS_HAS_GREEN_STACKS
-Fiber* Scheduler::spawn(GreenFn fn,
-                        std::string_view name,
-                        size_t           /*stack_size*/) noexcept
-{
-    auto fiber = std::make_unique<Fiber>(std::move(fn), name);
-    Fiber* raw = fiber.get();
-    raw->scheduler_ = this;
-    raw->state_     = FiberState::Ready;
-    run_queue_.push_back(raw);
-    fibers_.push_back(std::move(fiber));
-    return raw;
-}
-#else
 Fiber* Scheduler::spawn(std::move_only_function<void()> fn,
                         std::string_view name,
                         size_t           /*stack_size*/) noexcept
@@ -69,7 +41,6 @@ Fiber* Scheduler::spawn(std::move_only_function<void()> fn,
     fibers_.push_back(std::move(fiber));
     return raw;
 }
-#endif
 
 // ---------------------------------------------------------------------------
 // step — run one fiber from the run queue; returns false if queue empty
@@ -165,9 +136,7 @@ void Scheduler::wake(Fiber* fiber) noexcept {
 }
 
 // ---------------------------------------------------------------------------
-// switch_to — context-switch from the scheduler loop into a fiber.
-// Sets tls_current_fiber (green mode) so that __morestack can locate the
-// fiber's StackChain via green_bridge.cpp.
+// switch_to
 // ---------------------------------------------------------------------------
 void Scheduler::switch_to(Fiber* next) noexcept {
     LOGOS_ASSERT(next != nullptr, "REACTOR-SCHED-040",
@@ -179,23 +148,7 @@ void Scheduler::switch_to(Fiber* next) noexcept {
     next->state_ = FiberState::Running;
     running_ = next;
 
-#if LOGOS_HAS_GREEN_STACKS
-    tls_current_fiber = next;
-    // Point __green_fiber_system_stack well below the current frame.
-    // Jenny 19 switches RSP to this value for green→red calls inside the fiber.
-    // Red calls then grow downward.  Without enough headroom they overwrite
-    // the caller's stack (switch_to / step / run / sched_regs_).
-    void* rsp;
-    asm volatile("movq %%rsp, %0" : "=r"(rsp));
-    __green_fiber_system_stack = static_cast<char*>(rsp) - 65536;
-#endif
-
-    fiber_switch_red(&sched_regs_, &next->regs_);
-
-    // Returns here after the fiber yields or finishes.
-#if LOGOS_HAS_GREEN_STACKS
-    tls_current_fiber = nullptr;
-#endif
+    fiber_switch(&sched_regs_, &next->regs_);
 }
 
 // ---------------------------------------------------------------------------
@@ -214,8 +167,7 @@ void Scheduler::fiber_done(Fiber* fiber) noexcept {
     }
 
     fiber_switch(&fiber->regs_, &sched_regs_);
-    // __builtin_unreachable() not usable in [[clang::green]] context (Jenny 19).
-    for (;;) {}  // fiber_done's fiber_switch never returns here
+    __builtin_unreachable();
 }
 
 } // namespace logos::reactor

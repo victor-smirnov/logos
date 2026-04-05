@@ -6,13 +6,9 @@ pkg_check_modules(LIBURING REQUIRED liburing)
 # ---------------------------------------------------------------------------
 add_library(logos_reactor STATIC
     fiber_switch.S
-    morestack.S
-    stack_allocator.cpp
-    stack_chain.cpp
     stack_pool.cpp
     fiber.cpp
     scheduler.cpp
-    green_bridge.cpp
     reactor.cpp
     reactor_engine.cpp
 )

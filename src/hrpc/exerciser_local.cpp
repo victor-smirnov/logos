@@ -27,12 +27,12 @@ static void test_local_echo() {
 
     LocalServer server(engine.reactor(1));
     server.endpoints().add(kEchoEndpoint,
-        [](Context& ctx) noexcept LOGOS_GREEN -> Response {
+        [](Context& ctx) noexcept -> Response {
             AnyVal param = ctx.request().get_param(keys::PARAMETERS);
             return Response::ok(param).get();
         }).get();
 
-    engine.reactor(0).spawn([&]() LOGOS_FIBER_FN {
+    engine.reactor(0).spawn([&]() {
         Request rq = Request::make().get();
         rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(42))).get();
         auto rs = server.call(kEchoEndpoint, std::move(rq)).get();
@@ -41,7 +41,7 @@ static void test_local_echo() {
         result_value = rs.result().as_value<int32_t>();
     }, "client");
 
-    engine.reactor(1).spawn([]() LOGOS_FIBER_FN {
+    engine.reactor(1).spawn([]() {
         Reactor::current()->sleep_for(std::chrono::milliseconds(500));
     }, "keepalive");
 
@@ -65,11 +65,11 @@ static void test_local_multi() {
 
     LocalServer server(engine.reactor(1));
     server.endpoints().add(kEchoEndpoint,
-        [](Context& ctx) noexcept LOGOS_GREEN -> Response {
+        [](Context& ctx) noexcept -> Response {
             return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
         }).get();
 
-    engine.reactor(0).spawn([&]() LOGOS_FIBER_FN {
+    engine.reactor(0).spawn([&]() {
         for (int i = 0; i < N; ++i) {
             Request rq = Request::make().get();
             rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(i * 10))).get();
@@ -80,7 +80,7 @@ static void test_local_multi() {
         }
     }, "client");
 
-    engine.reactor(1).spawn([]() LOGOS_FIBER_FN {
+    engine.reactor(1).spawn([]() {
         Reactor::current()->sleep_for(std::chrono::seconds(2));
     }, "keepalive");
 
@@ -106,16 +106,16 @@ static void test_local_fan_in() {
 
     LocalServer server(engine.reactor(0));
     server.endpoints().add(kEchoEndpoint,
-        [](Context& ctx) noexcept LOGOS_GREEN -> Response {
+        [](Context& ctx) noexcept -> Response {
             return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
         }).get();
 
-    engine.reactor(0).spawn([]() LOGOS_FIBER_FN {
+    engine.reactor(0).spawn([]() {
         Reactor::current()->sleep_for(std::chrono::seconds(2));
     }, "keepalive");
 
     for (size_t i = 1; i < NUM_REACTORS; ++i) {
-        engine.reactor(i).spawn([&server, &total, i]() LOGOS_FIBER_FN {
+        engine.reactor(i).spawn([&server, &total, i]() {
             Request rq = Request::make().get();
             rq.set_param(keys::PARAMETERS,
                          AnyVal::from_value(int32_t(i * 100))).get();
@@ -147,13 +147,13 @@ static void test_local_error() {
 
     LocalServer server(engine.reactor(1));
 
-    engine.reactor(0).spawn([&]() LOGOS_FIBER_FN {
+    engine.reactor(0).spawn([&]() {
         Request rq = Request::make().get();
         auto rs = server.call(kUnknownEndpoint, std::move(rq)).get();
         got_error = !rs.is_ok();
     }, "client");
 
-    engine.reactor(1).spawn([]() LOGOS_FIBER_FN {
+    engine.reactor(1).spawn([]() {
         Reactor::current()->sleep_for(std::chrono::milliseconds(500));
     }, "keepalive");
 

@@ -39,7 +39,7 @@ public:
         size_t t = tail_.load(std::memory_order_relaxed);
         if (t - head_.load(std::memory_order_acquire) == N)
             return false;
-        buf_[t & (N - 1)] = LOGOS_MOVE_(val);
+        buf_[t & (N - 1)] = std::move(val);
         tail_.store(t + 1, std::memory_order_release);
         return true;
     }
@@ -50,7 +50,7 @@ public:
         size_t h = head_.load(std::memory_order_relaxed);
         if (tail_.load(std::memory_order_acquire) == h)
             return false;
-        out = LOGOS_MOVE_(buf_[h & (N - 1)]);
+        out = std::move(buf_[h & (N - 1)]);
         head_.store(h + 1, std::memory_order_release);
         return true;
     }

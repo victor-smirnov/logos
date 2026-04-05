@@ -26,19 +26,19 @@
 #include <cstring>
 #include <logos/core/expected.hpp>
 
-LOGOS_NS_BEGIN
+namespace logos::reactor {
 
 class File {
 public:
-    LOGOS_RED File() = default;
+    File() = default;
 
-    LOGOS_RED ~File() { close(); }
+    ~File() { close(); }
 
     File(const File&)            = delete;
     File& operator=(const File&) = delete;
 
-    LOGOS_RED File(File&& o) noexcept : fd_(o.fd_), offset_(o.offset_) { o.fd_ = -1; }
-    LOGOS_RED File& operator=(File&& o) noexcept {
+    File(File&& o) noexcept : fd_(o.fd_), offset_(o.offset_) { o.fd_ = -1; }
+    File& operator=(File&& o) noexcept {
         if (this != &o) { close(); fd_ = o.fd_; offset_ = o.offset_; o.fd_ = -1; }
         return *this;
     }
@@ -47,7 +47,7 @@ public:
     // Factories
     // -----------------------------------------------------------------------
 
-    [[nodiscard]] LOGOS_RED
+    [[nodiscard]]
     static logos::expected<File> open(const char* path, int flags,
                                       mode_t mode = 0644) noexcept {
         int fd = ::open(path, flags, mode);
@@ -55,7 +55,7 @@ public:
         return File{fd};
     }
 
-    [[nodiscard]] LOGOS_RED
+    [[nodiscard]]
     static logos::expected<File> open(const std::string& path, int flags,
                                       mode_t mode = 0644) noexcept {
         return open(path.c_str(), flags, mode);
@@ -99,24 +99,24 @@ public:
     }
 
     // Seek (does not involve io_uring).
-    LOGOS_RED void  seek(off_t pos) noexcept { offset_ = pos; }
-    LOGOS_RED off_t tell() const noexcept { return offset_; }
+    void  seek(off_t pos) noexcept { offset_ = pos; }
+    off_t tell() const noexcept { return offset_; }
 
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    LOGOS_RED void close() noexcept {
+    void close() noexcept {
         if (fd_ >= 0) { ::close(fd_); fd_ = -1; offset_ = 0; }
     }
 
-    LOGOS_RED bool valid() const noexcept { return fd_ >= 0; }
-    LOGOS_RED int  fd()    const noexcept { return fd_; }
+    bool valid() const noexcept { return fd_ >= 0; }
+    int  fd()    const noexcept { return fd_; }
 
 private:
-    LOGOS_RED explicit File(int fd) : fd_(fd) {}
+    explicit File(int fd) : fd_(fd) {}
     int   fd_     = -1;
     off_t offset_ = 0;
 };
 
-LOGOS_NS_END
+} // namespace logos::reactor

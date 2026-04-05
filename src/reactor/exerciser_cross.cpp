@@ -23,16 +23,16 @@ static void test_submit_to_basic() {
     std::atomic<bool> ran_on_target{false};
     int result_value = 0;
 
-    engine.reactor(0).spawn([&]() LOGOS_FIBER_FN {
+    engine.reactor(0).spawn([&]() {
         auto result = submit_to(engine.reactor(1),
-            [&ran_on_target]() noexcept LOGOS_GREEN -> logos::expected<int> {
+            [&ran_on_target]() noexcept -> logos::expected<int> {
                 ran_on_target.store(true, std::memory_order_relaxed);
                 return 42;
             });
         result_value = result.get();
     }, "caller");
 
-    engine.reactor(1).spawn([]() LOGOS_FIBER_FN {
+    engine.reactor(1).spawn([]() {
         Reactor::current()->sleep_for(500ms);
     }, "keepalive");
 
@@ -55,20 +55,20 @@ static void test_bidirectional() {
     ReactorEngine engine(2);
     std::atomic<int> sum{0};
 
-    engine.reactor(0).spawn([&]() LOGOS_FIBER_FN {
+    engine.reactor(0).spawn([&]() {
         auto v = submit_to(engine.reactor(1),
-            []() noexcept LOGOS_GREEN -> logos::expected<int> { return 10; });
+            []() noexcept -> logos::expected<int> { return 10; });
         sum.fetch_add(v.get(), std::memory_order_relaxed);
     }, "r0-caller");
 
-    engine.reactor(1).spawn([&]() LOGOS_FIBER_FN {
+    engine.reactor(1).spawn([&]() {
         auto v = submit_to(engine.reactor(0),
-            []() noexcept LOGOS_GREEN -> logos::expected<int> { return 20; });
+            []() noexcept -> logos::expected<int> { return 20; });
         sum.fetch_add(v.get(), std::memory_order_relaxed);
     }, "r1-caller");
 
-    engine.reactor(0).spawn([]() LOGOS_FIBER_FN { Reactor::current()->sleep_for(500ms); }, "ka0");
-    engine.reactor(1).spawn([]() LOGOS_FIBER_FN { Reactor::current()->sleep_for(500ms); }, "ka1");
+    engine.reactor(0).spawn([]() { Reactor::current()->sleep_for(500ms); }, "ka0");
+    engine.reactor(1).spawn([]() { Reactor::current()->sleep_for(500ms); }, "ka1");
 
     std::jthread t1([&] { engine.reactor(1).run(); });
     engine.reactor(0).run();
@@ -88,10 +88,10 @@ static void test_fan_out() {
     ReactorEngine engine(N);
     std::atomic<int> total{0};
 
-    engine.reactor(0).spawn([&]() LOGOS_FIBER_FN {
+    engine.reactor(0).spawn([&]() {
         for (size_t i = 1; i < N; ++i) {
             auto v = submit_to(engine.reactor(i),
-                [i]() noexcept LOGOS_GREEN -> logos::expected<int> {
+                [i]() noexcept -> logos::expected<int> {
                     return static_cast<int>(i * 100);
                 });
             total.fetch_add(v.get(), std::memory_order_relaxed);
@@ -99,7 +99,7 @@ static void test_fan_out() {
     }, "fan-out");
 
     for (size_t i = 1; i < N; ++i)
-        engine.reactor(i).spawn([]() LOGOS_FIBER_FN { Reactor::current()->sleep_for(500ms); }, "ka");
+        engine.reactor(i).spawn([]() { Reactor::current()->sleep_for(500ms); }, "ka");
 
     std::vector<std::jthread> threads;
     for (size_t i = 1; i < N; ++i)
@@ -122,15 +122,15 @@ static void test_burst() {
     constexpr int COUNT = 100;
     std::atomic<int> sum{0};
 
-    engine.reactor(0).spawn([&]() LOGOS_FIBER_FN {
+    engine.reactor(0).spawn([&]() {
         for (int i = 0; i < COUNT; ++i) {
             auto v = submit_to(engine.reactor(1),
-                [i]() noexcept LOGOS_GREEN -> logos::expected<int> { return i; });
+                [i]() noexcept -> logos::expected<int> { return i; });
             sum.fetch_add(v.get(), std::memory_order_relaxed);
         }
     }, "burst");
 
-    engine.reactor(1).spawn([]() LOGOS_FIBER_FN { Reactor::current()->sleep_for(2s); }, "ka");
+    engine.reactor(1).spawn([]() { Reactor::current()->sleep_for(2s); }, "ka");
 
     std::jthread t1([&] { engine.reactor(1).run(); });
     engine.reactor(0).run();

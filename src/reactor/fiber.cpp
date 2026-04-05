@@ -7,10 +7,7 @@
 #include <logos/verification/assert.hpp>
 
 #include <cstring>
-
-#if !LOGOS_HAS_GREEN_STACKS
-#  include <sys/mman.h>
-#endif
+#include <sys/mman.h>
 
 namespace logos::reactor {
 
@@ -19,20 +16,6 @@ uint64_t Fiber::next_id_ = 1;
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
-
-#if LOGOS_HAS_GREEN_STACKS
-
-Fiber::Fiber(GreenFn fn, std::string_view name) noexcept
-    : stack_chain_()  // 1 KB initial segment (StackAllocator::kDefaultSegmentSize)
-    , fn_(std::move(fn))
-    , name_(name)
-    , id_(next_id_++)
-{
-    init_stack();
-}
-
-#else  // classic mode
-
 Fiber::Fiber(std::move_only_function<void()> fn,
              std::string_view                name,
              StackPool*                      pool) noexcept
@@ -67,14 +50,10 @@ Fiber::Fiber(std::move_only_function<void()> fn,
     init_stack();
 }
 
-#endif
-
 // ---------------------------------------------------------------------------
 // Destruction
 // ---------------------------------------------------------------------------
-
 Fiber::~Fiber() noexcept {
-#if !LOGOS_HAS_GREEN_STACKS
     if (stack_base_) {
         if (pool_) {
             pool_->release({ stack_base_, stack_size_ });
@@ -84,41 +63,12 @@ Fiber::~Fiber() noexcept {
         }
         stack_base_ = nullptr;
     }
-#endif
-    // Green mode: stack_chain_ destructor frees all segments automatically.
 }
 
 // ---------------------------------------------------------------------------
 // init_stack — set up the initial FiberRegs for the entry trampoline.
-//
-// We lay a fake call frame so that fiber_switch() restores into
-// fiber_entry_trampoline, which calls Fiber::entry(this).
-//
-// Stack layout after init (grows downward):
-//
-//   [ ... usable space ... ]
-//   [ &fiber_entry_trampoline ]  ← regs_.rsp  (fake "return address")
-//
-// regs_.r12 = this   (picked up by fiber_entry_trampoline → rdi)
-// regs_.stack_limit = lower bound of stack (→ %fs:0x70)
 // ---------------------------------------------------------------------------
 void Fiber::init_stack() noexcept {
-#if LOGOS_HAS_GREEN_STACKS
-    // Green mode: initial RSP = SegmentHeader address (top of first segment).
-    auto* sp = static_cast<uint8_t*>(stack_chain_.current_sp());
-    // The header is already 16-byte aligned; align down just in case.
-    sp = reinterpret_cast<uint8_t*>(reinterpret_cast<uintptr_t>(sp) & ~uintptr_t(15));
-
-    // Push trampoline address as fake "return address" (popped by ret in fiber_switch).
-    sp -= 8;
-    *reinterpret_cast<uint64_t*>(sp) = reinterpret_cast<uint64_t>(fiber_entry_trampoline);
-
-    regs_.rsp         = reinterpret_cast<uint64_t>(sp);
-    regs_.r12         = reinterpret_cast<uint64_t>(this);
-    regs_.stack_limit = reinterpret_cast<uint64_t>(stack_chain_.current_limit());
-
-#else
-    // Classic mode: stack top = guard_base + 4096 + stack_size_.
     uint8_t* top = stack_base_ + 4096 + stack_size_;
 
     // SysV ABI: at function entry rsp % 16 == 8 (call has pushed the return addr).
@@ -127,10 +77,8 @@ void Fiber::init_stack() noexcept {
     top -= 8;   // top % 16 == 8 after this push
     *reinterpret_cast<uint64_t*>(top) = reinterpret_cast<uint64_t>(fiber_entry_trampoline);
 
-    regs_.rsp         = reinterpret_cast<uint64_t>(top);
-    regs_.r12         = reinterpret_cast<uint64_t>(this);
-    regs_.stack_limit = reinterpret_cast<uint64_t>(stack_base_ + 4096);  // above guard page
-#endif
+    regs_.rsp = reinterpret_cast<uint64_t>(top);
+    regs_.r12 = reinterpret_cast<uint64_t>(this);
 }
 
 // ---------------------------------------------------------------------------
@@ -148,12 +96,11 @@ void Fiber::entry(Fiber* self) noexcept {
 // ---------------------------------------------------------------------------
 // Fiber::finish — called after entry() returns; switches back to scheduler
 // ---------------------------------------------------------------------------
-[[noreturn]] LOGOS_GREEN void Fiber::finish(Fiber* self) noexcept {
+[[noreturn]] void Fiber::finish(Fiber* self) noexcept {
     LOGOS_ASSERT(self != nullptr, "REACTOR-FIBER-020",
                  "Fiber::finish called with null Fiber*");
     self->scheduler_->fiber_done(self);
-    // __builtin_unreachable() not usable in [[clang::green]] context (Jenny 19).
-    for (;;) {}  // fiber_done never returns
+    __builtin_unreachable();
 }
 
 } // namespace logos::reactor

@@ -22,11 +22,11 @@ static void test_signal_catch() {
 
     auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR1}).get();
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         caught = watcher.wait().get();
     }, "signal-waiter");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Scheduler::current()->yield();
         ::raise(SIGUSR1);
     }, "signal-sender");
@@ -47,19 +47,19 @@ static void test_graceful_shutdown() {
 
     auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR2}).get();
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         watcher.wait().get();
         shutdown_seen = true;
         reactor.stop();
     }, "shutdown-handler");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         work_started = true;
         for (int i = 0; i < 5; ++i)
             Scheduler::current()->yield();
     }, "worker");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Scheduler::current()->yield();
         ::raise(SIGUSR2);
     }, "trigger");
@@ -79,7 +79,7 @@ static void test_multiple_signals() {
 
     auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR1}).get();
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         for (int i = 0; i < 2; ++i) {
             int sig = watcher.wait().get();
             LOGOS_ASSERT(sig == SIGUSR1, "REACTOR-SIG-T03a",
@@ -88,7 +88,7 @@ static void test_multiple_signals() {
         }
     }, "waiter");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Scheduler::current()->yield();
         ::raise(SIGUSR1);
         Scheduler::current()->yield();

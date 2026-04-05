@@ -26,12 +26,12 @@
 
 #include <deque>
 
-LOGOS_NS_BEGIN
+namespace logos::reactor {
 
 class ConditionVariable {
 public:
-    LOGOS_RED ConditionVariable()  = default;
-    LOGOS_RED ~ConditionVariable() = default;
+    ConditionVariable()  = default;
+    ~ConditionVariable() = default;
 
     ConditionVariable(const ConditionVariable&)            = delete;
     ConditionVariable& operator=(const ConditionVariable&) = delete;
@@ -80,4 +80,4 @@ private:
     std::deque<Fiber*> waiters_;
 };
 
-LOGOS_NS_END
+} // namespace logos::reactor

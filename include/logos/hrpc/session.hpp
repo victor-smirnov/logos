@@ -65,14 +65,14 @@ public:
     // Start the session.  Client sends SESSION_START and waits for server ack.
     // Server waits for SESSION_START then sends its own.
     // Must be called from within a fiber.
-    LOGOS_GREEN logos::expected<void> start() noexcept;
+    logos::expected<void> start() noexcept;
 
     // Run the inbound message loop.  Blocks the calling fiber until the session
     // is closed.  Should be called from a dedicated fiber.
-    LOGOS_GREEN void run() noexcept;
+    void run() noexcept;
 
     // Close the session (sends SESSION_CLOSE, marks closed).
-    LOGOS_GREEN void close() noexcept;
+    void close() noexcept;
 
     bool is_closed() const noexcept { return closed_; }
 
@@ -80,7 +80,7 @@ public:
 
     // Make a synchronous call.  Blocks the current fiber until the response
     // arrives.  Internally uses call_async() + wait().
-    LOGOS_GREEN logos::expected<Response> call(const EndpointID& endpoint, Request request,
+    logos::expected<Response> call(const EndpointID& endpoint, Request request,
                                    uint16_t input_channels  = 0,
                                    uint16_t output_channels = 0) noexcept;
 
@@ -88,7 +88,7 @@ public:
 
     // Submit a call and return immediately.  The caller must call call->wait()
     // to retrieve the response.
-    LOGOS_GREEN logos::expected<std::shared_ptr<Call>> call_async(
+    logos::expected<std::shared_ptr<Call>> call_async(
         const EndpointID& endpoint, Request request,
         uint16_t input_channels  = 0,
         uint16_t output_channels = 0) noexcept;
@@ -96,35 +96,35 @@ public:
     // --- Wire send helpers (used by Call::push and Context::push) ---
 
     // Send a channel message over the wire (acquires write_mutex_).
-    LOGOS_GREEN logos::expected<void> send_channel_message(MessageType type, CallID call_id,
+    logos::expected<void> send_channel_message(MessageType type, CallID call_id,
                                                ChannelCode code, StreamMessage msg) noexcept;
 
 private:
     // --- Internal message sending ---
 
-    LOGOS_GREEN logos::expected<void> send_raw(const std::vector<uint8_t>& buf) noexcept;
+    logos::expected<void> send_raw(const std::vector<uint8_t>& buf) noexcept;
 
-    LOGOS_GREEN logos::expected<void> send_message(MessageType type, CallID call_id,
+    logos::expected<void> send_message(MessageType type, CallID call_id,
                                        const EndpointID* endpoint = nullptr,
                                        ChannelCode ch_code        = 0,
                                        const HermesCtr* payload   = nullptr) noexcept;
 
-    LOGOS_GREEN logos::expected<void> send_return(CallID call_id, Response response) noexcept;
+    logos::expected<void> send_return(CallID call_id, Response response) noexcept;
 
     // --- Inbound message handling ---
 
-    LOGOS_GREEN logos::expected<void> handle_message(const MessageHeader& hdr,
+    logos::expected<void> handle_message(const MessageHeader& hdr,
                                          const uint8_t* buf,
                                          HermesCtr payload) noexcept;
 
-    LOGOS_GREEN logos::expected<void> handle_session_start(const MessageHeader& hdr, HermesCtr payload) noexcept;
+    logos::expected<void> handle_session_start(const MessageHeader& hdr, HermesCtr payload) noexcept;
     void handle_session_close() noexcept;
-    LOGOS_GREEN logos::expected<void> handle_call(const MessageHeader& hdr, const uint8_t* buf, HermesCtr payload) noexcept;
-    LOGOS_GREEN void handle_return(const MessageHeader& hdr, HermesCtr payload) noexcept;
-    LOGOS_GREEN void handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept;
-    LOGOS_GREEN void handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept;
-    LOGOS_GREEN void handle_call_close_output(const MessageHeader& hdr) noexcept;
-    LOGOS_GREEN void handle_ctx_close_output(const MessageHeader& hdr) noexcept;
+    logos::expected<void> handle_call(const MessageHeader& hdr, const uint8_t* buf, HermesCtr payload) noexcept;
+    void handle_return(const MessageHeader& hdr, HermesCtr payload) noexcept;
+    void handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept;
+    void handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept;
+    void handle_call_close_output(const MessageHeader& hdr) noexcept;
+    void handle_ctx_close_output(const MessageHeader& hdr) noexcept;
     void handle_cancel(const MessageHeader& hdr) noexcept;
 
     // --- State ---

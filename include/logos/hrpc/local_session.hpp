@@ -59,11 +59,11 @@ public:
     // moved back.
     //
     // Must be called from a fiber on a reactor in the same ReactorEngine.
-    [[nodiscard]] LOGOS_GREEN
+    [[nodiscard]]
     logos::expected<Response>
     call(const EndpointID& endpoint_id, Request request) noexcept {
         return logos::reactor::submit_to(*reactor_,
-            [this, endpoint_id, req = std::move(request)]() mutable noexcept LOGOS_GREEN
+            [this, endpoint_id, req = std::move(request)]() mutable noexcept
             -> logos::expected<Response>
         {
             return dispatch_(endpoint_id, std::move(req));
@@ -72,7 +72,7 @@ public:
 
 private:
     // Runs on the server reactor's thread (green fiber context).
-    LOGOS_GREEN logos::expected<Response>
+    logos::expected<Response>
     dispatch_(const EndpointID& endpoint_id, Request req) noexcept {
         HandlerFn* handler = endpoints_.get(endpoint_id);
         if (!handler)

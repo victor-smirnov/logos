@@ -30,18 +30,18 @@
 #include <cstring>
 #include <logos/core/expected.hpp>
 
-LOGOS_NS_BEGIN
+namespace logos::reactor {
 
 class UnixSocket {
 public:
-    LOGOS_RED UnixSocket() = default;
-    LOGOS_RED ~UnixSocket() { close(); }
+    UnixSocket() = default;
+    ~UnixSocket() { close(); }
 
     UnixSocket(const UnixSocket&)            = delete;
     UnixSocket& operator=(const UnixSocket&) = delete;
 
-    LOGOS_RED UnixSocket(UnixSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
-    LOGOS_RED UnixSocket& operator=(UnixSocket&& o) noexcept {
+    UnixSocket(UnixSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
+    UnixSocket& operator=(UnixSocket&& o) noexcept {
         if (this != &o) { close(); fd_ = o.fd_; o.fd_ = -1; }
         return *this;
     }
@@ -50,7 +50,7 @@ public:
     // Factory — server
     // -----------------------------------------------------------------------
 
-    [[nodiscard]] LOGOS_RED
+    [[nodiscard]]
     static logos::expected<UnixSocket> listen_on(const char* path,
                                                   int backlog = 128) noexcept {
         int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -96,7 +96,7 @@ public:
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-UDS-010", "UnixSocket::connect_to() outside reactor");
         auto rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
-        if (!rc) { ::close(fd); return std::unexpected(LOGOS_MOVE_(rc.error())); }
+        if (!rc) { ::close(fd); return std::unexpected(std::move(rc.error())); }
         return UnixSocket{fd};
     }
 
@@ -131,13 +131,13 @@ public:
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    LOGOS_RED void close() noexcept { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
-    LOGOS_RED bool valid() const noexcept { return fd_ >= 0; }
-    LOGOS_RED int  fd()    const noexcept { return fd_; }
+    void close() noexcept { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
+    bool valid() const noexcept { return fd_ >= 0; }
+    int  fd()    const noexcept { return fd_; }
 
 private:
-    LOGOS_RED explicit UnixSocket(int fd) : fd_(fd) {}
+    explicit UnixSocket(int fd) : fd_(fd) {}
     int fd_ = -1;
 };
 
-LOGOS_NS_END
+} // namespace logos::reactor

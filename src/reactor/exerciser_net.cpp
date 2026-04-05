@@ -25,7 +25,7 @@ static void test_echo_single() {
     std::string received;
     Reactor reactor;
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         auto server = TcpSocket::listen_on("127.0.0.1", port).get();
         auto client = server.accept().get();
         char buf[256];
@@ -34,7 +34,7 @@ static void test_echo_single() {
         client.write_all(buf, static_cast<size_t>(n)).get();
     }, "server");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Scheduler::current()->yield();
         auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
         sock.write_all(payload.data(), payload.size()).get();
@@ -60,11 +60,11 @@ static void test_echo_multiple_clients() {
     std::vector<std::string> results(N);
     Reactor reactor;
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         auto server = TcpSocket::listen_on("127.0.0.1", port).get();
         for (int i = 0; i < N; ++i) {
             auto client = server.accept().get();
-            Scheduler::current()->spawn([c = std::move(client)]() mutable LOGOS_FIBER_FN {
+            Scheduler::current()->spawn([c = std::move(client)]() mutable {
                 char buf[64];
                 int n = c.read(buf, sizeof(buf)).get();
                 if (n > 0) c.write_all(buf, static_cast<size_t>(n)).get();
@@ -73,7 +73,7 @@ static void test_echo_multiple_clients() {
     }, "server");
 
     for (int i = 0; i < N; ++i) {
-        reactor.spawn([&, i]() LOGOS_FIBER_FN {
+        reactor.spawn([&, i]() {
             Scheduler::current()->yield();
             auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
             std::string greeting = "client-" + std::to_string(i);
@@ -103,7 +103,7 @@ static void test_streaming() {
     int server_count = 0;
     Reactor reactor;
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         auto server = TcpSocket::listen_on("127.0.0.1", port).get();
         auto client = server.accept().get();
         char buf[4];
@@ -114,7 +114,7 @@ static void test_streaming() {
         }
     }, "server");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Scheduler::current()->yield();
         auto sock = TcpSocket::connect_to("127.0.0.1", port).get();
         for (int i = 0; i < N; ++i) {

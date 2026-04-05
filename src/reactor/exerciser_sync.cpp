@@ -28,7 +28,7 @@ static void test_mutex_basic() {
     Scheduler sched;
 
     for (int i = 0; i < 10; ++i) {
-        sched.spawn([&]() LOGOS_FIBER_FN {
+        sched.spawn([&]() {
             for (int j = 0; j < 100; ++j) {
                 mu.lock();
                 ++counter;
@@ -50,7 +50,7 @@ static void test_mutex_contention() {
     Mutex mu;
     Scheduler sched;
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         mu.lock();
         for (int i = 0; i < 5; ++i) {
             log.push_back(i);
@@ -59,7 +59,7 @@ static void test_mutex_contention() {
         mu.unlock();
     }, "A");
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         mu.lock();
         for (int i = 10; i < 15; ++i) {
             log.push_back(i);
@@ -89,7 +89,7 @@ static void test_try_lock() {
     bool try_succeeded = false;
     bool try_failed    = false;
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         try_succeeded = mu.try_lock();
         try_failed = !mu.try_lock();
         mu.unlock();
@@ -116,7 +116,7 @@ static void test_cv_producer_consumer() {
     std::vector<int> queue;
     Scheduler sched;
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         for (int i = 1; i <= 5; ++i) {
             mu.lock();
             queue.push_back(i);
@@ -130,7 +130,7 @@ static void test_cv_producer_consumer() {
         mu.unlock();
     }, "producer");
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         while (true) {
             mu.lock();
             cv.wait(mu, [&]{ return !queue.empty(); });
@@ -162,7 +162,7 @@ static void test_cv_notify_all() {
     Scheduler sched;
 
     for (int i = 0; i < 5; ++i) {
-        sched.spawn([&]() LOGOS_FIBER_FN {
+        sched.spawn([&]() {
             mu.lock();
             cv.wait(mu, [&]{ return ready; });
             ++woken;
@@ -170,7 +170,7 @@ static void test_cv_notify_all() {
         }, "waiter");
     }
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         Scheduler::current()->yield();
         mu.lock();
         ready = true;
@@ -196,12 +196,12 @@ static void test_channel_unbounded() {
     Scheduler sched;
     std::vector<int> received;
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         for (int i = 0; i < 10; ++i)
             ch.send(i);
     }, "producer");
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         for (int i = 0; i < 10; ++i)
             received.push_back(ch.recv());
     }, "consumer");
@@ -223,14 +223,14 @@ static void test_channel_bounded() {
     Scheduler sched;
     std::vector<int> order;
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         for (int i = 0; i < 5; ++i) {
             order.push_back(-(i + 1));
             ch.send(i);
         }
     }, "producer");
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         for (int i = 0; i < 5; ++i) {
             int v = ch.recv();
             order.push_back(v + 1);
@@ -262,13 +262,13 @@ static void test_channel_fan_out() {
 
     constexpr int N = 4, M = 20;
     for (int i = 0; i < N; ++i) {
-        sched.spawn([&]() LOGOS_FIBER_FN {
+        sched.spawn([&]() {
             for (int j = 0; j < M / N; ++j)
                 received.push_back(ch.recv());
         }, "consumer");
     }
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         for (int i = 0; i < M; ++i)
             ch.send(i);
     }, "producer");
@@ -289,7 +289,7 @@ static void test_try_send_recv() {
     Channel<int> ch(2);
     Scheduler sched;
 
-    sched.spawn([&]() LOGOS_FIBER_FN {
+    sched.spawn([&]() {
         LOGOS_ASSERT(ch.try_send(1), "REACTOR-SYNC-CH04a", "try_send slot 1 failed");
         LOGOS_ASSERT(ch.try_send(2), "REACTOR-SYNC-CH04b", "try_send slot 2 failed");
         LOGOS_ASSERT(!ch.try_send(3), "REACTOR-SYNC-CH04c", "try_send on full should fail");

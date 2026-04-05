@@ -21,20 +21,20 @@
 
 #include <logos/reactor/scheduler.hpp>
 #include <logos/verification/assert.hpp>
-#include <logos/core/expected.hpp>  // LOGOS_MOVE_
+#include <logos/core/expected.hpp>
 
 #include <deque>
 #include <optional>
 
-LOGOS_NS_BEGIN
+namespace logos::reactor {
 
 template<typename T>
 class Channel {
 public:
     // capacity == 0 → unbounded (send() never blocks on fullness)
-    LOGOS_RED explicit Channel(size_t capacity = 0) : capacity_(capacity) {}
+    explicit Channel(size_t capacity = 0) : capacity_(capacity) {}
 
-    LOGOS_RED ~Channel() = default;
+    ~Channel() = default;
 
     Channel(const Channel&)            = delete;
     Channel& operator=(const Channel&) = delete;
@@ -52,7 +52,7 @@ public:
             sender_waiters_.push_back(s->running());
             s->block();
         }
-        buffer_.push_back(LOGOS_MOVE_(value));
+        buffer_.push_back(std::move(value));
         wake_one_receiver();
     }
 
@@ -68,7 +68,7 @@ public:
             receiver_waiters_.push_back(s->running());
             s->block();
         }
-        T value = LOGOS_MOVE_(buffer_.front());
+        T value = std::move(buffer_.front());
         buffer_.pop_front();
         wake_one_sender();
         return value;
@@ -79,14 +79,14 @@ public:
     // -----------------------------------------------------------------------
     bool try_send(T value) {
         if (full()) return false;
-        buffer_.push_back(LOGOS_MOVE_(value));
+        buffer_.push_back(std::move(value));
         wake_one_receiver();
         return true;
     }
 
     std::optional<T> try_recv() {
         if (buffer_.empty()) return std::nullopt;
-        T value = LOGOS_MOVE_(buffer_.front());
+        T value = std::move(buffer_.front());
         buffer_.pop_front();
         wake_one_sender();
         return value;
@@ -123,4 +123,4 @@ private:
     std::deque<Fiber*>  receiver_waiters_;
 };
 
-LOGOS_NS_END
+} // namespace logos::reactor

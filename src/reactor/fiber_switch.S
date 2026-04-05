@@ -12,7 +12,6 @@
 //   uint64_t r14;         // offset 32
 //   uint64_t r15;         // offset 40
 //   uint64_t rsp;         // offset 48  (return address is on top of restored stack)
-//   uint64_t stack_limit; // offset 56  (saved/restored %fs:0x70 split-stack limit)
 // };
 
     .text
@@ -36,15 +35,6 @@ fiber_switch:
     movq    %r14, 32(%rdi)
     movq    %r15, 40(%rdi)
     movq    %rsp, 48(%rdi)   // rsp points at caller's return address
-
-    // Swap split-stack limit (%fs:0x70).
-    // Jenny instruments every [[clang::green]] function prologue with a check
-    // against this TLS slot. Failing to swap it causes the fiber to think the
-    // stack is exhausted and call __morestack immediately → SIGSEGV.
-    movq    %fs:0x70, %rax
-    movq    %rax, 56(%rdi)   // save caller's stack_limit
-    movq    56(%rsi), %rax   // load 'to' fiber's stack_limit
-    movq    %rax, %fs:0x70   // install it
 
     // Restore 'to' fiber's registers from *rsi.
     movq     0(%rsi), %rbp

@@ -19,7 +19,7 @@ static void test_sleep_basic() {
     LOGOS_TRACE("reactor.sleep.basic", "start", "");
     bool after_sleep = false;
     Reactor reactor;
-    reactor.spawn([&after_sleep]() LOGOS_FIBER_FN {
+    reactor.spawn([&after_sleep]() {
         Reactor::current()->sleep_for(10ms);
         after_sleep = true;
     }, "sleeper");
@@ -35,12 +35,12 @@ static void test_sleep_ordering() {
     std::vector<int> order;
     Reactor reactor;
 
-    reactor.spawn([&order]() LOGOS_FIBER_FN {
+    reactor.spawn([&order]() {
         Reactor::current()->sleep_for(50ms);
         order.push_back(2);
     }, "slow");
 
-    reactor.spawn([&order]() LOGOS_FIBER_FN {
+    reactor.spawn([&order]() {
         Reactor::current()->sleep_for(10ms);
         order.push_back(1);
     }, "fast");
@@ -63,7 +63,7 @@ static void test_mixed_compute_and_sleep() {
     Reactor reactor;
 
     for (int i = 0; i < 5; ++i) {
-        reactor.spawn([&compute_count]() LOGOS_FIBER_FN {
+        reactor.spawn([&compute_count]() {
             for (int j = 0; j < 3; ++j) {
                 ++compute_count;
                 Scheduler::current()->yield();
@@ -71,7 +71,7 @@ static void test_mixed_compute_and_sleep() {
         }, "compute");
     }
 
-    reactor.spawn([&sleep_done]() LOGOS_FIBER_FN {
+    reactor.spawn([&sleep_done]() {
         Reactor::current()->sleep_for(20ms);
         sleep_done = true;
     }, "sleeper");
@@ -90,7 +90,7 @@ static void test_sequential_sleeps() {
     LOGOS_TRACE("reactor.sleep.sequential", "start", "");
     int steps = 0;
     Reactor reactor;
-    reactor.spawn([&steps]() LOGOS_FIBER_FN {
+    reactor.spawn([&steps]() {
         for (int i = 0; i < 3; ++i) {
             Reactor::current()->sleep_for(10ms);
             ++steps;

@@ -12,7 +12,7 @@
 //   auto server = TcpSocket::listen_on("0.0.0.0", 8080).get();
 //   while (true) {
 //       auto client = server.accept().get();
-//       Reactor::current()->spawn([c = LOGOS_MOVE_(client)]() mutable {
+//       Reactor::current()->spawn([c = std::move(client)]() mutable {
 //           char buf[256];
 //           auto n = c.read(buf, sizeof(buf)).get();
 //           if (n > 0) c.write_all(buf, n).get();  // echo
@@ -41,19 +41,19 @@
 #include <string>
 #include <logos/core/expected.hpp>
 
-LOGOS_NS_BEGIN
+namespace logos::reactor {
 
 class TcpSocket {
 public:
-    LOGOS_RED TcpSocket() = default;
+    TcpSocket() = default;
 
-    LOGOS_RED ~TcpSocket() { close(); }
+    ~TcpSocket() { close(); }
 
     TcpSocket(const TcpSocket&)            = delete;
     TcpSocket& operator=(const TcpSocket&) = delete;
 
-    LOGOS_RED TcpSocket(TcpSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
-    LOGOS_RED TcpSocket& operator=(TcpSocket&& o) noexcept {
+    TcpSocket(TcpSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
+    TcpSocket& operator=(TcpSocket&& o) noexcept {
         if (this != &o) { close(); fd_ = o.fd_; o.fd_ = -1; }
         return *this;
     }
@@ -62,7 +62,7 @@ public:
     // Factory — server side
     // -----------------------------------------------------------------------
 
-    [[nodiscard]] LOGOS_RED
+    [[nodiscard]]
     static logos::expected<TcpSocket> listen_on(const char* host, uint16_t port,
                                                  int backlog = 128) noexcept
     {
@@ -127,7 +127,7 @@ public:
         auto rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
         if (!rc) {
             ::close(fd);
-            return std::unexpected(LOGOS_MOVE_(rc.error()));
+            return std::unexpected(std::move(rc.error()));
         }
         return TcpSocket{fd};
     }
@@ -166,16 +166,16 @@ public:
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    LOGOS_RED void close() noexcept {
+    void close() noexcept {
         if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
     }
 
-    LOGOS_RED bool valid() const noexcept { return fd_ >= 0; }
-    LOGOS_RED int  fd()    const noexcept { return fd_; }
+    bool valid() const noexcept { return fd_ >= 0; }
+    int  fd()    const noexcept { return fd_; }
 
 private:
-    LOGOS_RED explicit TcpSocket(int fd) : fd_(fd) {}
+    explicit TcpSocket(int fd) : fd_(fd) {}
     int fd_ = -1;
 };
 
-LOGOS_NS_END
+} // namespace logos::reactor

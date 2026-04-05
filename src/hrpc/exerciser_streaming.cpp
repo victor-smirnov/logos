@@ -41,7 +41,7 @@ static void test_input_stream() {
 
     Reactor reactor;
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept().get();
 
@@ -49,7 +49,7 @@ static void test_input_stream() {
 
         // Handler calls ctx.pop() — green, must run in green context.
         session.endpoints().add(kSumEndpoint,
-            [&server_computed_sum](Context& ctx) noexcept LOGOS_GREEN -> Response {
+            [&server_computed_sum](Context& ctx) noexcept -> Response {
                 int32_t sum = 0;
                 StreamMessage msg;
                 while (ctx.pop(msg, 0)) {
@@ -63,9 +63,9 @@ static void test_input_stream() {
         session.run();
     }, "server");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
-        Scheduler::current()->spawn([&session]() LOGOS_FIBER_FN { session.run(); }, "reader");
+        Scheduler::current()->spawn([&session]() { session.run(); }, "reader");
         session.start().get();
 
         Request rq = Request::make().get();
@@ -107,7 +107,7 @@ static void test_output_stream() {
 
     Reactor reactor;
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept().get();
 
@@ -115,7 +115,7 @@ static void test_output_stream() {
 
         // Handler calls ctx.push() — green, must run in green context.
         session.endpoints().add(kCountEndpoint,
-            [](Context& ctx) noexcept LOGOS_GREEN -> Response {
+            [](Context& ctx) noexcept -> Response {
                 constexpr int count = 50;
                 for (int i = 0; i < count; ++i) {
                     ctx.push(StreamMessage::make(AnyVal::from_value(int32_t(i * 2))).get(), 0).get();
@@ -128,9 +128,9 @@ static void test_output_stream() {
         session.run();
     }, "server");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
-        Scheduler::current()->spawn([&session]() LOGOS_FIBER_FN { session.run(); }, "reader");
+        Scheduler::current()->spawn([&session]() { session.run(); }, "reader");
         session.start().get();
 
         Request rq = Request::make().get();

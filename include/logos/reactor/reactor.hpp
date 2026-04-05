@@ -17,7 +17,7 @@
 struct io_uring;      // forward declare — avoid including liburing.h in public header
 struct io_uring_sqe;  // submission queue entry
 
-LOGOS_NS_BEGIN
+namespace logos::reactor {
 
 // ---------------------------------------------------------------------------
 // Reactor scalar error codes (range 0x0003'0000 … 0x0003'FFFF).
@@ -72,36 +72,26 @@ class Reactor {
 public:
     static constexpr unsigned kRingDepth = 256;
 
-    // Red: run in scheduler/thread context (not on a fiber stack).
-    LOGOS_RED explicit Reactor(unsigned ring_depth = kRingDepth,
-                               size_t   stack_size = Fiber::kDefaultStackSize) noexcept;
-    LOGOS_RED ~Reactor() noexcept;
+    explicit Reactor(unsigned ring_depth = kRingDepth,
+                     size_t   stack_size = Fiber::kDefaultStackSize) noexcept;
+    ~Reactor() noexcept;
 
     Reactor(const Reactor&)            = delete;
     Reactor& operator=(const Reactor&) = delete;
 
-    // Red: called before entering the scheduler loop.
-#if LOGOS_HAS_GREEN_STACKS
-    LOGOS_RED Fiber* spawn(GreenFn fn,
-                           std::string_view name       = "",
-                           size_t           stack_size = Fiber::kDefaultStackSize) noexcept;
-#else
     Fiber* spawn(std::move_only_function<void()> fn,
                  std::string_view                name       = "",
                  size_t                          stack_size = Fiber::kDefaultStackSize) noexcept;
-#endif
 
-    // Red: scheduler event loop.
-    LOGOS_RED void run() noexcept;
-    LOGOS_RED void stop() noexcept { stop_requested_ = true; }
-    LOGOS_RED bool stop_requested() const noexcept { return stop_requested_; }
+    void run() noexcept;
+    void stop() noexcept { stop_requested_ = true; }
+    bool stop_requested() const noexcept { return stop_requested_; }
 
     // -------------------------------------------------------------------------
-    // Fiber-callable API — green (inherited from namespace LOGOS_GREEN).
+    // Fiber-callable API.
     //
     // These suspend the calling fiber via fiber_switch and must run on the
-    // fiber's green stack.  Red sub-calls (io_uring, liburing) auto-switch to
-    // the system thread stack via Jenny.
+    // fiber's stack.
     // -------------------------------------------------------------------------
 
     // Timer
@@ -132,35 +122,29 @@ public:
     logos::expected<int> poll_one(int fd, uint32_t poll_mask) noexcept;
 
     // -------------------------------------------------------------------------
-    // Alien task queue — cross-reactor work submission (red: called off-fiber).
+    // Alien task queue — cross-reactor work submission.
     // -------------------------------------------------------------------------
-#if LOGOS_HAS_GREEN_STACKS
-    LOGOS_RED void alien_submit(GreenFn fn) noexcept;
-#else
     void alien_submit(std::move_only_function<void()> fn) noexcept;
-#endif
 
     // -------------------------------------------------------------------------
-    // Accessors — red: called from scheduler/thread context.
+    // Accessors.
     // -------------------------------------------------------------------------
-    LOGOS_RED static Reactor* current() noexcept;
-    LOGOS_RED size_t         id()      const noexcept { return id_; }
-    LOGOS_RED ReactorEngine* engine()  const noexcept { return engine_; }
-    LOGOS_RED Scheduler&     scheduler()     noexcept { return sched_; }
+    static Reactor* current() noexcept;
+    size_t         id()      const noexcept { return id_; }
+    ReactorEngine* engine()  const noexcept { return engine_; }
+    Scheduler&     scheduler()     noexcept { return sched_; }
 
 private:
     friend class ReactorEngine;
 
     struct IoOp { Fiber* fiber; int result = 0; };
 
-    // Green: called from fiber context, saves green RSP via fiber_switch.
     logos::expected<int> submit_and_wait(io_uring_sqe* sqe) noexcept;
 
-    // Red: scheduler event-loop helpers.
-    LOGOS_RED int  reap_completions(bool wait) noexcept;
-    LOGOS_RED void drain_p2p_() noexcept;
-    LOGOS_RED void drain_alien_() noexcept;
-    LOGOS_RED void rearm_alien_() noexcept;
+    int  reap_completions(bool wait) noexcept;
+    void drain_p2p_() noexcept;
+    void drain_alien_() noexcept;
+    void rearm_alien_() noexcept;
 
     Scheduler  sched_;
     io_uring*  ring_;
@@ -177,14 +161,10 @@ private:
 
     // Alien queue — tasks submitted from non-reactor OS threads.
     std::mutex alien_mutex_;
-#if LOGOS_HAS_GREEN_STACKS
-    std::vector<GreenFn> alien_pending_;
-#else
     std::vector<std::move_only_function<void()>> alien_pending_;
-#endif
     uint64_t                                     alien_buf_  = 0;
     int                                          alien_efd_  = -1;
     IoOp                                         alien_op_{};  // sentinel: fiber == nullptr
 };
 
-LOGOS_NS_END
+} // namespace logos::reactor

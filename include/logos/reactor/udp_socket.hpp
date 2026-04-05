@@ -35,7 +35,7 @@
 #include <string>
 #include <logos/core/expected.hpp>
 
-LOGOS_NS_BEGIN
+namespace logos::reactor {
 
 // ---------------------------------------------------------------------------
 // UdpEndpoint — a (host, port) pair for addressing datagrams.
@@ -43,10 +43,10 @@ LOGOS_NS_BEGIN
 struct UdpEndpoint {
     sockaddr_in addr{};
 
-    LOGOS_RED UdpEndpoint() { addr.sin_family = AF_INET; }
-    LOGOS_RED ~UdpEndpoint() = default;
+    UdpEndpoint() { addr.sin_family = AF_INET; }
+    ~UdpEndpoint() = default;
 
-    LOGOS_RED static logos::expected<UdpEndpoint> make(const char* host, uint16_t port) noexcept {
+    static logos::expected<UdpEndpoint> make(const char* host, uint16_t port) noexcept {
         UdpEndpoint ep;
         ep.addr.sin_port = htons(port);
         if (!host || host[0] == '\0' || std::string(host) == "0.0.0.0") {
@@ -58,12 +58,12 @@ struct UdpEndpoint {
         return ep;
     }
 
-    LOGOS_RED uint16_t    port() const noexcept { return ntohs(addr.sin_port); }
-    LOGOS_RED std::string host() const { return inet_ntoa(addr.sin_addr); }
+    uint16_t    port() const noexcept { return ntohs(addr.sin_port); }
+    std::string host() const { return inet_ntoa(addr.sin_addr); }
 
-    LOGOS_RED sockaddr*       as_sockaddr()       noexcept { return reinterpret_cast<sockaddr*>(&addr); }
-    LOGOS_RED const sockaddr* as_sockaddr() const noexcept { return reinterpret_cast<const sockaddr*>(&addr); }
-    LOGOS_RED socklen_t       len()         const noexcept { return sizeof(addr); }
+    sockaddr*       as_sockaddr()       noexcept { return reinterpret_cast<sockaddr*>(&addr); }
+    const sockaddr* as_sockaddr() const noexcept { return reinterpret_cast<const sockaddr*>(&addr); }
+    socklen_t       len()         const noexcept { return sizeof(addr); }
 };
 
 // ---------------------------------------------------------------------------
@@ -71,14 +71,14 @@ struct UdpEndpoint {
 // ---------------------------------------------------------------------------
 class UdpSocket {
 public:
-    LOGOS_RED UdpSocket() = default;
-    LOGOS_RED ~UdpSocket() { close(); }
+    UdpSocket() = default;
+    ~UdpSocket() { close(); }
 
     UdpSocket(const UdpSocket&)            = delete;
     UdpSocket& operator=(const UdpSocket&) = delete;
 
-    LOGOS_RED UdpSocket(UdpSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
-    LOGOS_RED UdpSocket& operator=(UdpSocket&& o) noexcept {
+    UdpSocket(UdpSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
+    UdpSocket& operator=(UdpSocket&& o) noexcept {
         if (this != &o) { close(); fd_ = o.fd_; o.fd_ = -1; }
         return *this;
     }
@@ -87,7 +87,7 @@ public:
     // Factories
     // -----------------------------------------------------------------------
 
-    [[nodiscard]] LOGOS_RED
+    [[nodiscard]]
     static logos::expected<UdpSocket> bind_to(const char* host, uint16_t port) noexcept {
         LOGOS_TRY(auto ep, UdpEndpoint::make(host, port));
         LOGOS_TRY(auto fd, make_socket());
@@ -103,7 +103,7 @@ public:
         return UdpSocket{fd};
     }
 
-    [[nodiscard]] LOGOS_RED
+    [[nodiscard]]
     static logos::expected<UdpSocket> connect_to(const char* host, uint16_t port) noexcept {
         LOGOS_TRY(auto ep, UdpEndpoint::make(host, port));
         LOGOS_TRY(auto fd, make_socket());
@@ -115,7 +115,7 @@ public:
         return UdpSocket{fd};
     }
 
-    [[nodiscard]] LOGOS_RED
+    [[nodiscard]]
     static logos::expected<UdpSocket> create() noexcept {
         LOGOS_TRY(auto fd, make_socket());
         return UdpSocket{fd};
@@ -167,14 +167,14 @@ public:
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    LOGOS_RED void close() noexcept { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
-    LOGOS_RED bool valid() const noexcept { return fd_ >= 0; }
-    LOGOS_RED int  fd()    const noexcept { return fd_; }
+    void close() noexcept { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
+    bool valid() const noexcept { return fd_ >= 0; }
+    int  fd()    const noexcept { return fd_; }
 
 private:
-    LOGOS_RED explicit UdpSocket(int fd) : fd_(fd) {}
+    explicit UdpSocket(int fd) : fd_(fd) {}
 
-    LOGOS_RED static logos::expected<int> make_socket() noexcept {
+    static logos::expected<int> make_socket() noexcept {
         int fd = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         if (fd < 0) return std::unexpected(logos::err(ErrCode::socket_error));
         return fd;
@@ -183,4 +183,4 @@ private:
     int fd_ = -1;
 };
 
-LOGOS_NS_END
+} // namespace logos::reactor

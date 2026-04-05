@@ -26,7 +26,7 @@ static void test_udp_echo_single() {
     std::string received;
     Reactor reactor;
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase).get();
         char buf[256];
         UdpEndpoint from;
@@ -35,7 +35,7 @@ static void test_udp_echo_single() {
         server.send_to(buf, static_cast<size_t>(n), from).get();
     }, "server");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Scheduler::current()->yield();
         auto sock = UdpSocket::bind_to("127.0.0.1", kUdpBase + 1).get();
         auto server_ep = UdpEndpoint::make("127.0.0.1", kUdpBase).get();
@@ -64,7 +64,7 @@ static void test_udp_connected() {
     std::string received;
     Reactor reactor;
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase + 2).get();
         char buf[256];
         UdpEndpoint from;
@@ -73,7 +73,7 @@ static void test_udp_connected() {
         server.send_to(buf, static_cast<size_t>(n), from).get();
     }, "server");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Scheduler::current()->yield();
         auto sock = UdpSocket::connect_to("127.0.0.1", kUdpBase + 2).get();
         sock.send(payload.data(), payload.size()).get();
@@ -100,7 +100,7 @@ static void test_udp_multi_datagram() {
     std::vector<int> echoed;
     Reactor reactor;
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         auto server = UdpSocket::bind_to("127.0.0.1", kUdpBase + 3).get();
         for (int i = 0; i < N; ++i) {
             char buf[8];
@@ -111,7 +111,7 @@ static void test_udp_multi_datagram() {
         }
     }, "server");
 
-    reactor.spawn([&]() LOGOS_FIBER_FN {
+    reactor.spawn([&]() {
         Scheduler::current()->yield();
         auto sock = UdpSocket::bind_to("0.0.0.0", kUdpBase + 4).get();
         auto server_ep = UdpEndpoint::make("127.0.0.1", kUdpBase + 3).get();
