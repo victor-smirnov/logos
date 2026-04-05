@@ -6,7 +6,6 @@
 
 #include <string_view>
 #include <cstdint>
-#include <source_location>
 #include <string>
 
 namespace logos {
@@ -28,7 +27,8 @@ void record_assertion(
     std::string_view req_id,
     std::string_view condition,
     std::string_view message,
-    const std::source_location& loc,
+    const char* file,
+    int line,
     std::string_view call_chain_json) noexcept;
 
 // Submit a trace record
@@ -37,7 +37,8 @@ void record_trace(
     uint64_t thread_id,
     uint64_t fiber_id,
     std::string_view tag,
-    const std::source_location& loc,
+    const char* file,
+    int line,
     std::string_view data_json) noexcept;
 
 } // namespace logos

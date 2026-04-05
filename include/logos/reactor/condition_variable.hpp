@@ -25,14 +25,13 @@
 #include <logos/reactor/mutex.hpp>
 
 #include <deque>
-#include <functional>
 
-namespace logos::reactor {
+LOGOS_NS_BEGIN
 
 class ConditionVariable {
 public:
-    ConditionVariable()  = default;
-    ~ConditionVariable() = default;
+    LOGOS_RED ConditionVariable()  = default;
+    LOGOS_RED ~ConditionVariable() = default;
 
     ConditionVariable(const ConditionVariable&)            = delete;
     ConditionVariable& operator=(const ConditionVariable&) = delete;
@@ -81,4 +80,4 @@ private:
     std::deque<Fiber*> waiters_;
 };
 
-} // namespace logos::reactor
+LOGOS_NS_END

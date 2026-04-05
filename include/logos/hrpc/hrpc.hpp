@@ -22,7 +22,7 @@ namespace logos::hrpc {
 
 // Connect to an HRPC server over TCP. Returns a new Session in Client mode.
 // Must be called from within a reactor fiber.
-[[nodiscard]] inline logos::expected<std::unique_ptr<Session>>
+[[nodiscard]] LOGOS_GREEN inline logos::expected<std::unique_ptr<Session>>
 connect_tcp(const char* host, uint16_t port) noexcept {
     LOGOS_TRY(auto sock, logos::reactor::TcpSocket::connect_to(host, port));
     return std::make_unique<Session>(std::move(sock), SessionSide::Client);

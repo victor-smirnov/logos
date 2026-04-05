@@ -41,19 +41,19 @@
 #include <string>
 #include <logos/core/expected.hpp>
 
-namespace logos::reactor {
+LOGOS_NS_BEGIN
 
 class TcpSocket {
 public:
-    TcpSocket() = default;
+    LOGOS_RED TcpSocket() = default;
 
-    ~TcpSocket() { close(); }
+    LOGOS_RED ~TcpSocket() { close(); }
 
     TcpSocket(const TcpSocket&)            = delete;
     TcpSocket& operator=(const TcpSocket&) = delete;
 
-    TcpSocket(TcpSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
-    TcpSocket& operator=(TcpSocket&& o) noexcept {
+    LOGOS_RED TcpSocket(TcpSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
+    LOGOS_RED TcpSocket& operator=(TcpSocket&& o) noexcept {
         if (this != &o) { close(); fd_ = o.fd_; o.fd_ = -1; }
         return *this;
     }
@@ -62,7 +62,7 @@ public:
     // Factory — server side
     // -----------------------------------------------------------------------
 
-    [[nodiscard]]
+    [[nodiscard]] LOGOS_RED
     static logos::expected<TcpSocket> listen_on(const char* host, uint16_t port,
                                                  int backlog = 128) noexcept
     {
@@ -166,16 +166,16 @@ public:
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    void close() noexcept {
+    LOGOS_RED void close() noexcept {
         if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
     }
 
-    bool valid() const noexcept { return fd_ >= 0; }
-    int  fd()    const noexcept { return fd_; }
+    LOGOS_RED bool valid() const noexcept { return fd_ >= 0; }
+    LOGOS_RED int  fd()    const noexcept { return fd_; }
 
 private:
-    explicit TcpSocket(int fd) : fd_(fd) {}
+    LOGOS_RED explicit TcpSocket(int fd) : fd_(fd) {}
     int fd_ = -1;
 };
 
-} // namespace logos::reactor
+LOGOS_NS_END

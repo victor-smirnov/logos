@@ -25,12 +25,12 @@
 
 #include <deque>
 
-namespace logos::reactor {
+LOGOS_NS_BEGIN
 
 class Mutex {
 public:
-    Mutex()  = default;
-    ~Mutex() = default;
+    LOGOS_RED Mutex()  = default;
+    LOGOS_RED ~Mutex() = default;
 
     Mutex(const Mutex&)            = delete;
     Mutex& operator=(const Mutex&) = delete;
@@ -81,4 +81,17 @@ private:
     std::deque<Fiber*> waiters_;
 };
 
-} // namespace logos::reactor
+// RAII lock guard for green (fiber) context.  Unlike std::lock_guard, this
+// type is in the green namespace so its ctor/dtor can call green Mutex
+// methods without triggering a red→green coloring violation.
+class LockGuard {
+public:
+    explicit LockGuard(Mutex& m) noexcept : m_(m) { m_.lock(); }
+    ~LockGuard() noexcept { m_.unlock(); }
+    LockGuard(const LockGuard&)            = delete;
+    LockGuard& operator=(const LockGuard&) = delete;
+private:
+    Mutex& m_;
+};
+
+LOGOS_NS_END

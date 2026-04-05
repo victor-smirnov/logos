@@ -8,36 +8,47 @@
 namespace logos::reactor {
 
 // ---------------------------------------------------------------------------
-// Thread-local current scheduler
+// Thread-local state
 // ---------------------------------------------------------------------------
 static thread_local Scheduler* tl_current_scheduler = nullptr;
 
-Scheduler* Scheduler::current() noexcept {
-    return tl_current_scheduler;
-}
+#if LOGOS_HAS_GREEN_STACKS
+// Used by green_bridge.cpp for __morestack → StackChain lookup.
+thread_local Fiber* tls_current_fiber = nullptr;
 
-void Scheduler::install(Scheduler* s) noexcept {
-    tl_current_scheduler = s;
-}
+// Jenny's TLS slot for the system (red) stack pointer — defined in green_bridge.cpp.
+// Scheduler::switch_to() writes the current RSP here before fiber_switch so that
+// [[clang::green]] → [[clang::red]] calls inside the fiber switch to this stack.
+extern "C" __thread void* __green_fiber_system_stack;
+#endif
 
-void Scheduler::uninstall() noexcept {
-    tl_current_scheduler = nullptr;
-}
+Scheduler* Scheduler::current() noexcept { return tl_current_scheduler; }
+
+void Scheduler::install(Scheduler* s) noexcept   { tl_current_scheduler = s; }
+void Scheduler::uninstall() noexcept             { tl_current_scheduler = nullptr; }
 
 // ---------------------------------------------------------------------------
 // Construction / destruction
 // ---------------------------------------------------------------------------
-Scheduler::Scheduler() = default;
+Scheduler::Scheduler(size_t stack_size) noexcept
+#if !LOGOS_HAS_GREEN_STACKS
+    : pool_(stack_size)
+#endif
+{
+    (void)stack_size;  // suppress unused-parameter warning in green mode
+}
+
 Scheduler::~Scheduler() = default;
 
 // ---------------------------------------------------------------------------
-// spawn — create a fiber and put it in the run queue
+// spawn
 // ---------------------------------------------------------------------------
-Fiber* Scheduler::spawn(std::move_only_function<void()> fn,
-                        std::string_view     name,
-                        size_t               stack_size) noexcept
+#if LOGOS_HAS_GREEN_STACKS
+Fiber* Scheduler::spawn(GreenFn fn,
+                        std::string_view name,
+                        size_t           /*stack_size*/) noexcept
 {
-    auto fiber = std::make_unique<Fiber>(std::move(fn), name, stack_size);
+    auto fiber = std::make_unique<Fiber>(std::move(fn), name);
     Fiber* raw = fiber.get();
     raw->scheduler_ = this;
     raw->state_     = FiberState::Ready;
@@ -45,6 +56,20 @@ Fiber* Scheduler::spawn(std::move_only_function<void()> fn,
     fibers_.push_back(std::move(fiber));
     return raw;
 }
+#else
+Fiber* Scheduler::spawn(std::move_only_function<void()> fn,
+                        std::string_view name,
+                        size_t           /*stack_size*/) noexcept
+{
+    auto fiber = std::make_unique<Fiber>(std::move(fn), name, &pool_);
+    Fiber* raw = fiber.get();
+    raw->scheduler_ = this;
+    raw->state_     = FiberState::Ready;
+    run_queue_.push_back(raw);
+    fibers_.push_back(std::move(fiber));
+    return raw;
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // step — run one fiber from the run queue; returns false if queue empty
@@ -58,20 +83,18 @@ bool Scheduler::step() {
 }
 
 // ---------------------------------------------------------------------------
-// run — execute fibers until the run queue is empty
-// (Reactor calls step() in its own event loop instead)
+// run
 // ---------------------------------------------------------------------------
 void Scheduler::run() noexcept {
     LOGOS_ASSERT(tl_current_scheduler == nullptr, "REACTOR-SCHED-001",
                  "Scheduler::run() called on a thread that already has a scheduler");
-
     install(this);
     while (step()) {}
     uninstall();
 }
 
 // ---------------------------------------------------------------------------
-// yield — called from within a fiber
+// yield
 // ---------------------------------------------------------------------------
 void Scheduler::yield() noexcept {
     Fiber* self = running_;
@@ -84,21 +107,17 @@ void Scheduler::yield() noexcept {
     run_queue_.push_back(self);
     running_ = nullptr;
 
-    // Switch back to the scheduler loop.
     fiber_switch(&self->regs_, &sched_regs_);
-    // We resume here when the scheduler picks us again.
     self->state_ = FiberState::Running;
 }
 
 // ---------------------------------------------------------------------------
-// join — block the calling fiber until 'target' finishes
+// join
 // ---------------------------------------------------------------------------
 void Scheduler::join(Fiber* target) noexcept {
     LOGOS_ASSERT(target != nullptr, "REACTOR-SCHED-020",
                  "Scheduler::join() called with null fiber");
-
-    if (target->state_ == FiberState::Done)
-        return;
+    if (target->state_ == FiberState::Done) return;
 
     Fiber* self = running_;
     LOGOS_ASSERT(self != nullptr, "REACTOR-SCHED-021",
@@ -111,13 +130,11 @@ void Scheduler::join(Fiber* target) noexcept {
     running_ = nullptr;
 
     fiber_switch(&self->regs_, &sched_regs_);
-    // Resumed by fiber_done() when target completes.
     self->state_ = FiberState::Running;
 }
 
 // ---------------------------------------------------------------------------
-// block — suspend the calling fiber without re-queuing it.
-// It will remain Blocked until someone explicitly calls wake(fiber).
+// block
 // ---------------------------------------------------------------------------
 void Scheduler::block() noexcept {
     Fiber* self = running_;
@@ -130,12 +147,11 @@ void Scheduler::block() noexcept {
     running_ = nullptr;
 
     fiber_switch(&self->regs_, &sched_regs_);
-    // Resumed here by wake() → scheduler picks this fiber from the run queue.
     self->state_ = FiberState::Running;
 }
 
 // ---------------------------------------------------------------------------
-// wake — move a Blocked fiber back to the run queue
+// wake
 // ---------------------------------------------------------------------------
 void Scheduler::wake(Fiber* fiber) noexcept {
     LOGOS_ASSERT(fiber != nullptr, "REACTOR-SCHED-030",
@@ -149,7 +165,9 @@ void Scheduler::wake(Fiber* fiber) noexcept {
 }
 
 // ---------------------------------------------------------------------------
-// switch_to — context-switch from the scheduler loop into a fiber
+// switch_to — context-switch from the scheduler loop into a fiber.
+// Sets tls_current_fiber (green mode) so that __morestack can locate the
+// fiber's StackChain via green_bridge.cpp.
 // ---------------------------------------------------------------------------
 void Scheduler::switch_to(Fiber* next) noexcept {
     LOGOS_ASSERT(next != nullptr, "REACTOR-SCHED-040",
@@ -161,12 +179,27 @@ void Scheduler::switch_to(Fiber* next) noexcept {
     next->state_ = FiberState::Running;
     running_ = next;
 
-    fiber_switch(&sched_regs_, &next->regs_);
+#if LOGOS_HAS_GREEN_STACKS
+    tls_current_fiber = next;
+    // Point __green_fiber_system_stack well below the current frame.
+    // Jenny 19 switches RSP to this value for green→red calls inside the fiber.
+    // Red calls then grow downward.  Without enough headroom they overwrite
+    // the caller's stack (switch_to / step / run / sched_regs_).
+    void* rsp;
+    asm volatile("movq %%rsp, %0" : "=r"(rsp));
+    __green_fiber_system_stack = static_cast<char*>(rsp) - 65536;
+#endif
+
+    fiber_switch_red(&sched_regs_, &next->regs_);
+
     // Returns here after the fiber yields or finishes.
+#if LOGOS_HAS_GREEN_STACKS
+    tls_current_fiber = nullptr;
+#endif
 }
 
 // ---------------------------------------------------------------------------
-// fiber_done — called by Fiber::finish() when a fiber's fn() returns
+// fiber_done
 // ---------------------------------------------------------------------------
 void Scheduler::fiber_done(Fiber* fiber) noexcept {
     LOGOS_ASSERT(fiber != nullptr, "REACTOR-SCHED-050",
@@ -175,16 +208,14 @@ void Scheduler::fiber_done(Fiber* fiber) noexcept {
     fiber->state_ = FiberState::Done;
     running_ = nullptr;
 
-    // Wake any fiber waiting to join this one.
     if (fiber->join_waiter_) {
         wake(fiber->join_waiter_);
         fiber->join_waiter_ = nullptr;
     }
 
-    // Switch back to the scheduler loop.
     fiber_switch(&fiber->regs_, &sched_regs_);
-    // Unreachable — the scheduler never switches back to a Done fiber.
-    __builtin_unreachable();
+    // __builtin_unreachable() not usable in [[clang::green]] context (Jenny 19).
+    for (;;) {}  // fiber_done's fiber_switch never returns here
 }
 
 } // namespace logos::reactor

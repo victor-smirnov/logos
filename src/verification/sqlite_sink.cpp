@@ -192,14 +192,15 @@ void record_assertion(
     std::string_view req_id,
     std::string_view condition,
     std::string_view message,
-    const std::source_location& loc,
+    const char* file,
+    int line,
     std::string_view call_chain_json) noexcept
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_asserts.push_back({
-        timestamp_ns, thread_id, fiber_id, 
+        timestamp_ns, thread_id, fiber_id,
         std::string(req_id), std::string(condition), std::string(message),
-        std::string(loc.file_name()), loc.line(), std::string(call_chain_json)
+        file ? std::string(file) : "", static_cast<uint32_t>(line), std::string(call_chain_json)
     });
     g_cv.notify_one();
 }
@@ -209,13 +210,14 @@ void record_trace(
     uint64_t thread_id,
     uint64_t fiber_id,
     std::string_view tag,
-    const std::source_location& loc,
+    const char* file,
+    int line,
     std::string_view data_json) noexcept
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_traces.push_back({
-        timestamp_ns, thread_id, fiber_id, 
-        std::string(tag), std::string(loc.file_name()), loc.line(), std::string(data_json)
+        timestamp_ns, thread_id, fiber_id,
+        std::string(tag), file ? std::string(file) : "", static_cast<uint32_t>(line), std::string(data_json)
     });
     g_cv.notify_one();
 }

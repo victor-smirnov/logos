@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <cstddef>
 #include <memory>
@@ -68,8 +69,19 @@ public:
     // Non-copyable, movable.
     Arena(const Arena&)            = delete;
     Arena& operator=(const Arena&) = delete;
-    Arena(Arena&&) noexcept        = default;
-    Arena& operator=(Arena&&) noexcept = default;
+
+    Arena(Arena&& o) noexcept
+        : mode_(o.mode_),
+          sealed_(o.sealed_.load(std::memory_order_relaxed)),
+          chunks_(std::move(o.chunks_)) {}
+
+    Arena& operator=(Arena&& o) noexcept {
+        mode_   = o.mode_;
+        sealed_.store(o.sealed_.load(std::memory_order_relaxed),
+                      std::memory_order_relaxed);
+        chunks_ = std::move(o.chunks_);
+        return *this;
+    }
 
     // Allocate space for a tagged object. The TypeTag is written before the
     // returned address. Returns a pointer to the object (not the tag).
@@ -81,6 +93,22 @@ public:
     // Returns an error on OOM.
     [[nodiscard]] logos::expected<void*>
     allocate_raw(size_t size, size_t alignment) noexcept;
+
+    // --- Seal (immutable sharing) ---
+
+    // Seal the arena: forbid further allocations.  After sealing, the arena
+    // content is immutable and may be read concurrently from multiple threads
+    // (reactors) via shared Own<View> references.
+    //
+    // Issues a release fence so that all prior writes are visible to any
+    // thread that observes is_sealed() == true (acquire load).
+    void seal() noexcept;
+
+    // True after seal() has been called.  Acquire ordering ensures all arena
+    // content written before seal() is visible to the caller.
+    bool is_sealed() const noexcept {
+        return sealed_.load(std::memory_order_acquire);
+    }
 
     // --- Accessors ---
 
@@ -98,8 +126,9 @@ public:
     size_t total_used()  const noexcept;
 
 private:
-    ArenaMode           mode_ = ArenaMode::MultiChunk;
-    std::vector<Chunk>  chunks_;
+    ArenaMode              mode_ = ArenaMode::MultiChunk;
+    std::atomic<bool>      sealed_{false};
+    std::vector<Chunk>     chunks_;
 
     // Find space in the current chunk for the given allocation.
     // Returns the aligned address, or nullptr if the chunk is full.

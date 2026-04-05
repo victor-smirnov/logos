@@ -3,12 +3,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // HRPC Layer 0 exerciser — basic request-response RPC.
-//
-// Tests:
-//   test_echo_rq         — single call, response matches request value
-//   test_multi_rq        — 5 sequential calls on same session
-//   test_bidirectional   — both sides register endpoints, call each other
-//   test_unknown_endpoint — call to non-registered endpoint returns error
 
 #include <logos/hrpc/hrpc.hpp>
 #include <logos/reactor/reactor.hpp>
@@ -22,17 +16,15 @@ using namespace logos::reactor;
 
 static constexpr uint16_t kBasePort = 57000;
 
-// A well-known endpoint ID for the echo handler.
 static const EndpointID kEchoEndpoint = [] {
     EndpointID id{};
-    id[0] = 0xEC; id[1] = 0x40;  // "ECHO" marker
+    id[0] = 0xEC; id[1] = 0x40;
     return id;
 }();
 
-// A second endpoint ID for bidirectional test.
 static const EndpointID kPingEndpoint = [] {
     EndpointID id{};
-    id[0] = 0xB1; id[1] = 0xD1;  // "BIDI" marker
+    id[0] = 0xB1; id[1] = 0xD1;
     return id;
 }();
 
@@ -42,40 +34,34 @@ static const EndpointID kPingEndpoint = [] {
 static void test_echo_rq() {
     const uint16_t port = kBasePort;
     int32_t result_value = 0;
-
     Reactor reactor;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
-        session.endpoints().add(kEchoEndpoint, [](Context& ctx) -> Response {
-            AnyVal param = ctx.request().get_param(keys::PARAMETERS);
-            return Response::ok(param).get();
-        }).get();
+        session.endpoints().add(kEchoEndpoint,
+            [](Context& ctx) noexcept LOGOS_GREEN -> Response {
+                AnyVal param = ctx.request().get_param(keys::PARAMETERS);
+                return Response::ok(param).get();
+            }).get();
         session.start().get();
         session.run();
     }, "server");
 
-    reactor.spawn([&] {
-
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
-
-        // Spawn the run fiber before start() so we can receive SESSION_START ack.
-        Scheduler::current()->spawn([&session] { session.run(); }, "reader");
-
+        Scheduler::current()->spawn([&session]() LOGOS_FIBER_FN { session.run(); }, "reader");
         session.start().get();
 
         Request rq = Request::make().get();
         rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(42))).get();
-
         Response rs = session.call(kEchoEndpoint, std::move(rq)).get();
 
         LOGOS_ASSERT(rs.is_ok(), "HRPC-SESSION-T01a",
                      "Expected ok response, got error: {}", rs.error_description());
         result_value = rs.result().as_value<int32_t>();
-
         session.close();
     }, "client");
 
@@ -93,25 +79,24 @@ static void test_multi_rq() {
     const uint16_t port = kBasePort + 1;
     constexpr int N = 5;
     int results[N] = {};
-
     Reactor reactor;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
-        session.endpoints().add(kEchoEndpoint, [](Context& ctx) -> Response {
-            return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
-        }).get();
+        session.endpoints().add(kEchoEndpoint,
+            [](Context& ctx) noexcept LOGOS_GREEN -> Response {
+                return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
+            }).get();
         session.start().get();
         session.run();
     }, "server");
 
-    reactor.spawn([&] {
-
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
-        Scheduler::current()->spawn([&session] { session.run(); }, "reader");
+        Scheduler::current()->spawn([&session]() LOGOS_FIBER_FN { session.run(); }, "reader");
         session.start().get();
 
         for (int i = 0; i < N; ++i) {
@@ -123,7 +108,6 @@ static void test_multi_rq() {
                          "Call {} failed: {}", i, rs.error_description());
             results[i] = rs.result().as_value<int32_t>();
         }
-
         session.close();
     }, "client");
 
@@ -138,32 +122,25 @@ static void test_multi_rq() {
 
 // ---------------------------------------------------------------------------
 // test_bidirectional — both sides register endpoints and call each other.
-//
-// Pattern: client calls server (echo), server's handler calls client back
-// (ping) as part of processing, then returns.  Both calls complete before
-// session.close() is issued by the client.
 // ---------------------------------------------------------------------------
 static void test_bidirectional() {
     const uint16_t port = kBasePort + 2;
     int32_t client_got  = 0;
     int32_t server_called_client_with = 0;
-
     Reactor reactor;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
 
-        // Echo handler: receives client's value, calls client's ping endpoint,
-        // then returns the ping result to the client.
+        // Handler calls session.call() → must be green.
         session.endpoints().add(kEchoEndpoint,
-            [&server_called_client_with, &session](Context& ctx) -> Response {
+            [&server_called_client_with, &session](Context& ctx) noexcept LOGOS_GREEN -> Response {
                 int32_t client_val =
                     ctx.request().get_param(keys::PARAMETERS).as_value<int32_t>();
 
-                // Call the client's kPingEndpoint from within the handler fiber.
                 Request ping_rq = Request::make().get();
                 ping_rq.set_param(keys::PARAMETERS,
                                   AnyVal::from_value(int32_t(client_val + 1))).get();
@@ -175,24 +152,21 @@ static void test_bidirectional() {
                 return Response::ok(AnyVal::from_value(int32_t(200))).get();
             }).get();
 
-        // Server runs its read loop — no separate "server makes first call" step.
         session.start().get();
         session.run();
     }, "server");
 
-    reactor.spawn([&] {
-
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
 
-        // Client registers kPingEndpoint so server can call it back.
-        session.endpoints().add(kPingEndpoint, [](Context& ctx) -> Response {
-            return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
-        }).get();
+        session.endpoints().add(kPingEndpoint,
+            [](Context& ctx) noexcept LOGOS_GREEN -> Response {
+                return Response::ok(ctx.request().get_param(keys::PARAMETERS)).get();
+            }).get();
 
-        Scheduler::current()->spawn([&session] { session.run(); }, "reader");
+        Scheduler::current()->spawn([&session]() LOGOS_FIBER_FN { session.run(); }, "reader");
         session.start().get();
 
-        // Client calls the server's echo endpoint.
         Request rq = Request::make().get();
         rq.set_param(keys::PARAMETERS, AnyVal::from_value(int32_t(77))).get();
         Response rs = session.call(kEchoEndpoint, std::move(rq)).get();
@@ -200,7 +174,6 @@ static void test_bidirectional() {
         LOGOS_ASSERT(rs.is_ok(), "HRPC-SESSION-T03b",
                      "Client->server call failed: {}", rs.error_description());
         client_got = rs.result().as_value<int32_t>();
-
         session.close();
     }, "client");
 
@@ -219,23 +192,20 @@ static void test_bidirectional() {
 static void test_unknown_endpoint() {
     const uint16_t port = kBasePort + 3;
     bool got_error = false;
-
     Reactor reactor;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         auto listener = TcpSocket::listen_on("127.0.0.1", port).get();
         auto conn     = listener.accept().get();
 
         Session session(std::move(conn), SessionSide::Server);
-        // Register nothing — all calls should return error.
         session.start().get();
         session.run();
     }, "server");
 
-    reactor.spawn([&] {
-
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         Session session(TcpSocket::connect_to("127.0.0.1", port).get(), SessionSide::Client);
-        Scheduler::current()->spawn([&session] { session.run(); }, "reader");
+        Scheduler::current()->spawn([&session]() LOGOS_FIBER_FN { session.run(); }, "reader");
         session.start().get();
 
         EndpointID unknown = make_random_endpoint_id().get();
@@ -245,7 +215,6 @@ static void test_unknown_endpoint() {
         got_error = !rs.is_ok();
         LOGOS_ASSERT(got_error, "HRPC-SESSION-T04a",
                      "Expected error for unknown endpoint, got ok");
-
         session.close();
     }, "client");
 
@@ -256,9 +225,6 @@ static void test_unknown_endpoint() {
     std::println("  [ok] test_unknown_endpoint");
 }
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
 int main() {
     std::println("=== HRPC exerciser (Layer 0 — basic request-response) ===");
     test_echo_rq();

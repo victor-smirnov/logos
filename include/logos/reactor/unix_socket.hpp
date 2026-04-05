@@ -30,18 +30,18 @@
 #include <cstring>
 #include <logos/core/expected.hpp>
 
-namespace logos::reactor {
+LOGOS_NS_BEGIN
 
 class UnixSocket {
 public:
-    UnixSocket() = default;
-    ~UnixSocket() { close(); }
+    LOGOS_RED UnixSocket() = default;
+    LOGOS_RED ~UnixSocket() { close(); }
 
     UnixSocket(const UnixSocket&)            = delete;
     UnixSocket& operator=(const UnixSocket&) = delete;
 
-    UnixSocket(UnixSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
-    UnixSocket& operator=(UnixSocket&& o) noexcept {
+    LOGOS_RED UnixSocket(UnixSocket&& o) noexcept : fd_(o.fd_) { o.fd_ = -1; }
+    LOGOS_RED UnixSocket& operator=(UnixSocket&& o) noexcept {
         if (this != &o) { close(); fd_ = o.fd_; o.fd_ = -1; }
         return *this;
     }
@@ -50,7 +50,7 @@ public:
     // Factory — server
     // -----------------------------------------------------------------------
 
-    [[nodiscard]]
+    [[nodiscard]] LOGOS_RED
     static logos::expected<UnixSocket> listen_on(const char* path,
                                                   int backlog = 128) noexcept {
         int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -131,13 +131,13 @@ public:
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    void close() noexcept { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
-    bool valid() const noexcept { return fd_ >= 0; }
-    int  fd()    const noexcept { return fd_; }
+    LOGOS_RED void close() noexcept { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
+    LOGOS_RED bool valid() const noexcept { return fd_ >= 0; }
+    LOGOS_RED int  fd()    const noexcept { return fd_; }
 
 private:
-    explicit UnixSocket(int fd) : fd_(fd) {}
+    LOGOS_RED explicit UnixSocket(int fd) : fd_(fd) {}
     int fd_ = -1;
 };
 
-} // namespace logos::reactor
+LOGOS_NS_END

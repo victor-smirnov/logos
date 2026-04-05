@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <source_location>
 #include <string_view>
 #include <format>
 #include <string>
@@ -15,7 +14,7 @@
 namespace logos {
 
 bool is_trace_enabled(std::string_view tag) noexcept;
-void write_trace(std::string_view tag, std::string_view json_data, const std::source_location& loc) noexcept;
+void write_trace(std::string_view tag, std::string_view json_data, const char* file, int line) noexcept;
 void enable_trace(std::string_view tag_prefix) noexcept;
 
 namespace detail {
@@ -65,13 +64,13 @@ template<typename... Args>
 } // namespace detail
 
 template <typename... Args>
-[[gnu::no_instrument_function]] void log_trace(std::string_view tag, const std::source_location& loc, Args&&... args) noexcept {
+[[gnu::no_instrument_function]] void log_trace(std::string_view tag, const char* file, int line, Args&&... args) noexcept {
     if (!is_trace_enabled(tag)) return;
     std::string json_data = detail::format_trace_data(std::forward<Args>(args)...);
-    write_trace(tag, json_data, loc);
+    write_trace(tag, json_data, file, line);
 }
 
 } // namespace logos
 
 #define LOGOS_TRACE(tag, ...) \
-    ::logos::log_trace(tag, std::source_location::current() __VA_OPT__(,) __VA_ARGS__)
+    ::logos::log_trace(tag, __FILE__, __LINE__ __VA_OPT__(,) __VA_ARGS__)

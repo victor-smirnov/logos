@@ -63,7 +63,7 @@ public:
     Call& operator=(const Call&) = delete;
 
     // Block the current fiber until the server sends a Return message.
-    Response wait() {
+    LOGOS_GREEN Response wait() {
         auto& s = *state_;
         s.mutex.lock();
         s.cv.wait(s.mutex, [&] { return s.response.has_value(); });
@@ -79,11 +79,11 @@ public:
 
     // Send a message to the context (server) side on input_channel[code].
     // Immediately sends a CallChannelMessage over the wire.
-    logos::expected<void> push(StreamMessage msg, ChannelCode code = 0) noexcept;
+    LOGOS_GREEN logos::expected<void> push(StreamMessage msg, ChannelCode code = 0) noexcept;
 
     // Block until a message arrives from the context (server) on output_channel[code].
     // Returns false when the channel is closed (sentinel empty doc received).
-    bool pop(StreamMessage& msg, ChannelCode code = 0) {
+    LOGOS_GREEN bool pop(StreamMessage& msg, ChannelCode code = 0) {
         if (code >= state_->output_channels.size()) return false;
         msg = state_->output_channels[code]->recv();
         return !msg.doc.is_null();

@@ -15,14 +15,11 @@
 using namespace logos::reactor;
 using namespace std::chrono_literals;
 
-// ---------------------------------------------------------------------------
-// Test 1: sleep_for suspends and resumes a fiber
-// ---------------------------------------------------------------------------
 static void test_sleep_basic() {
     LOGOS_TRACE("reactor.sleep.basic", "start", "");
     bool after_sleep = false;
     Reactor reactor;
-    reactor.spawn([&after_sleep] {
+    reactor.spawn([&after_sleep]() LOGOS_FIBER_FN {
         Reactor::current()->sleep_for(10ms);
         after_sleep = true;
     }, "sleeper");
@@ -33,20 +30,17 @@ static void test_sleep_basic() {
     std::println("  [ok] test_sleep_basic");
 }
 
-// ---------------------------------------------------------------------------
-// Test 2: sleep ordering — longer sleep completes after shorter
-// ---------------------------------------------------------------------------
 static void test_sleep_ordering() {
     LOGOS_TRACE("reactor.sleep.ordering", "start", "");
     std::vector<int> order;
     Reactor reactor;
 
-    reactor.spawn([&order] {
+    reactor.spawn([&order]() LOGOS_FIBER_FN {
         Reactor::current()->sleep_for(50ms);
         order.push_back(2);
     }, "slow");
 
-    reactor.spawn([&order] {
+    reactor.spawn([&order]() LOGOS_FIBER_FN {
         Reactor::current()->sleep_for(10ms);
         order.push_back(1);
     }, "fast");
@@ -62,18 +56,14 @@ static void test_sleep_ordering() {
     std::println("  [ok] test_sleep_ordering");
 }
 
-// ---------------------------------------------------------------------------
-// Test 3: mix of compute fibers and sleeping fibers
-// ---------------------------------------------------------------------------
 static void test_mixed_compute_and_sleep() {
     LOGOS_TRACE("reactor.sleep.mixed", "start", "");
     int compute_count = 0;
     bool sleep_done   = false;
     Reactor reactor;
 
-    // Compute fibers — yield a few times each.
     for (int i = 0; i < 5; ++i) {
-        reactor.spawn([&compute_count] {
+        reactor.spawn([&compute_count]() LOGOS_FIBER_FN {
             for (int j = 0; j < 3; ++j) {
                 ++compute_count;
                 Scheduler::current()->yield();
@@ -81,7 +71,7 @@ static void test_mixed_compute_and_sleep() {
         }, "compute");
     }
 
-    reactor.spawn([&sleep_done] {
+    reactor.spawn([&sleep_done]() LOGOS_FIBER_FN {
         Reactor::current()->sleep_for(20ms);
         sleep_done = true;
     }, "sleeper");
@@ -96,14 +86,11 @@ static void test_mixed_compute_and_sleep() {
     std::println("  [ok] test_mixed_compute_and_sleep");
 }
 
-// ---------------------------------------------------------------------------
-// Test 4: sequential sleeps in one fiber
-// ---------------------------------------------------------------------------
 static void test_sequential_sleeps() {
     LOGOS_TRACE("reactor.sleep.sequential", "start", "");
     int steps = 0;
     Reactor reactor;
-    reactor.spawn([&steps] {
+    reactor.spawn([&steps]() LOGOS_FIBER_FN {
         for (int i = 0; i < 3; ++i) {
             Reactor::current()->sleep_for(10ms);
             ++steps;
@@ -116,9 +103,6 @@ static void test_sequential_sleeps() {
     std::println("  [ok] test_sequential_sleeps");
 }
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
 int main() {
     std::println("=== reactor exerciser (Layer 1 — io_uring sleep) ===");
     test_sleep_basic();

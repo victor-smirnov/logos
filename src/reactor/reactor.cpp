@@ -3,9 +3,12 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/reactor/reactor.hpp>
+#include <logos/reactor/reactor_engine.hpp>
 #include <logos/verification/assert.hpp>
 
 #include <liburing.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 #include <cstring>
 
 namespace logos::reactor {
@@ -17,25 +20,39 @@ Reactor* Reactor::current() noexcept { return tl_current_reactor; }
 // ---------------------------------------------------------------------------
 // Construction / destruction
 // ---------------------------------------------------------------------------
-Reactor::Reactor(unsigned ring_depth) noexcept {
+Reactor::Reactor(unsigned ring_depth, size_t stack_size) noexcept
+    : sched_(stack_size)
+{
     ring_ = new io_uring{};
     int rc = io_uring_queue_init(ring_depth, ring_, 0);
     LOGOS_ASSERT(rc == 0, "REACTOR-INIT-001",
                  "io_uring_queue_init failed: {}", strerror(-rc));
+
+    alien_efd_ = ::eventfd(0, EFD_CLOEXEC);
+    LOGOS_ASSERT(alien_efd_ >= 0, "REACTOR-INIT-002",
+                 "eventfd() for alien queue failed: {}", strerror(errno));
 }
 
 Reactor::~Reactor() noexcept {
+    if (alien_efd_ >= 0) { ::close(alien_efd_); alien_efd_ = -1; }
     if (ring_) { io_uring_queue_exit(ring_); delete ring_; ring_ = nullptr; }
 }
 
 // ---------------------------------------------------------------------------
 // spawn
 // ---------------------------------------------------------------------------
+#if LOGOS_HAS_GREEN_STACKS
+Fiber* Reactor::spawn(GreenFn fn, std::string_view name, size_t stack_size) noexcept
+{
+    return sched_.spawn(std::move(fn), name, stack_size);
+}
+#else
 Fiber* Reactor::spawn(std::move_only_function<void()> fn,
                       std::string_view name, size_t stack_size) noexcept
 {
     return sched_.spawn(std::move(fn), name, stack_size);
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // run
@@ -46,15 +63,19 @@ void Reactor::run() noexcept {
     tl_current_reactor = this;
     Scheduler::install(&sched_);
 
+    rearm_alien_();  // start listening for alien task submissions
+
     while (!stop_requested_) {
+        drain_p2p_();
+        drain_alien_();
         while (sched_.step()) {}
 
         if (pending_io_ > 0) {
-            int n = reap_completions(/*wait=*/true);
-            LOGOS_ASSERT(n > 0, "REACTOR-RUN-002",
-                         "io_uring wait returned no completions (pending={})", pending_io_);
+            sleeping_.store(true, std::memory_order_release);
+            reap_completions(/*wait=*/true);
+            sleeping_.store(false, std::memory_order_relaxed);
             reap_completions(/*wait=*/false);
-            continue;
+            continue;  // alien wakeup or real IO — either way, loop back
         }
         break;
     }
@@ -185,13 +206,22 @@ logos::expected<int> Reactor::poll_one(int fd, uint32_t poll_mask) noexcept {
 int Reactor::reap_completions(bool wait) noexcept {
     int count = 0;
 
-    auto process = [&](io_uring_cqe* cqe) noexcept {
+    auto process = [&](io_uring_cqe* cqe) noexcept LOGOS_RED {
         auto* op = static_cast<IoOp*>(io_uring_cqe_get_data(cqe));
-        if (op && op->fiber) {
+        if (!op) { io_uring_cqe_seen(ring_, cqe); return; }
+
+        if (op->fiber) {
+            // Normal IO completion — wake the blocked fiber.
             op->result = cqe->res;
             sched_.wake(op->fiber);
             --pending_io_;
             ++count;
+        } else {
+            // Alien wake-up — drain the queue and re-arm the read.
+            if (cqe->res > 0) {
+                drain_alien_();
+                rearm_alien_();
+            }
         }
         io_uring_cqe_seen(ring_, cqe);
     };
@@ -207,6 +237,78 @@ int Reactor::reap_completions(bool wait) noexcept {
     io_uring_for_each_cqe(ring_, head, cqe) { process(cqe); }
 
     return count;
+}
+
+// ---------------------------------------------------------------------------
+// Alien task queue
+// ---------------------------------------------------------------------------
+
+#if LOGOS_HAS_GREEN_STACKS
+void Reactor::alien_submit(GreenFn fn) noexcept {
+#else
+void Reactor::alien_submit(std::move_only_function<void()> fn) noexcept {
+#endif
+    // Fast path: reactor-to-reactor via P2P SPSC queue (lock-free).
+    Reactor* caller = Reactor::current();
+    if (caller && engine_ && caller->engine_ == engine_) {
+        auto& q = engine_->queue(caller->id_, id_);
+        bool ok = q.push(std::move(fn));
+        LOGOS_ASSERT(ok, "REACTOR-ALIEN-003",
+                     "P2P SPSC queue full (reactor {} -> {})", caller->id_, id_);
+        // Conditional wakeup: only write eventfd if target is sleeping.
+        if (sleeping_.load(std::memory_order_acquire)) {
+            uint64_t one = 1;
+            ::write(alien_efd_, &one, sizeof(one));
+        }
+        return;
+    }
+
+    // Slow path: non-reactor thread — mutex-protected queue.
+    {
+        std::lock_guard lock(alien_mutex_);
+        alien_pending_.push_back(std::move(fn));
+    }
+    uint64_t one = 1;
+    ::write(alien_efd_, &one, sizeof(one));  // always wake — can't check sleeping_ safely
+}
+
+void Reactor::drain_p2p_() noexcept {
+    if (!engine_) return;  // standalone reactor — no P2P queues
+
+    size_t n = engine_->size();
+    for (size_t src = 0; src < n; ++src) {
+        auto& q = engine_->queue(src, id_);
+#if LOGOS_HAS_GREEN_STACKS
+        GreenFn task;
+#else
+        std::move_only_function<void()> task;
+#endif
+        while (q.pop(task))
+            sched_.spawn(std::move(task));
+    }
+}
+
+void Reactor::drain_alien_() noexcept {
+#if LOGOS_HAS_GREEN_STACKS
+    std::vector<GreenFn> tasks;
+#else
+    std::vector<std::move_only_function<void()>> tasks;
+#endif
+    {
+        std::lock_guard lock(alien_mutex_);
+        tasks.swap(alien_pending_);
+    }
+    for (auto& fn : tasks)
+        sched_.spawn(std::move(fn));
+}
+
+void Reactor::rearm_alien_() noexcept {
+    auto* sqe = io_uring_get_sqe(ring_);
+    LOGOS_ASSERT(sqe, "REACTOR-ALIEN-001", "io_uring_get_sqe returned null");
+    io_uring_prep_read(sqe, alien_efd_, &alien_buf_, sizeof(alien_buf_), 0);
+    io_uring_sqe_set_data(sqe, &alien_op_);  // alien_op_.fiber == nullptr → sentinel
+    int rc = io_uring_submit(ring_);
+    LOGOS_ASSERT(rc >= 0, "REACTOR-ALIEN-002", "io_uring_submit failed: {}", strerror(-rc));
 }
 
 } // namespace logos::reactor

@@ -26,19 +26,19 @@
 #include <cstring>
 #include <logos/core/expected.hpp>
 
-namespace logos::reactor {
+LOGOS_NS_BEGIN
 
 class File {
 public:
-    File() = default;
+    LOGOS_RED File() = default;
 
-    ~File() { close(); }
+    LOGOS_RED ~File() { close(); }
 
     File(const File&)            = delete;
     File& operator=(const File&) = delete;
 
-    File(File&& o) noexcept : fd_(o.fd_), offset_(o.offset_) { o.fd_ = -1; }
-    File& operator=(File&& o) noexcept {
+    LOGOS_RED File(File&& o) noexcept : fd_(o.fd_), offset_(o.offset_) { o.fd_ = -1; }
+    LOGOS_RED File& operator=(File&& o) noexcept {
         if (this != &o) { close(); fd_ = o.fd_; offset_ = o.offset_; o.fd_ = -1; }
         return *this;
     }
@@ -47,7 +47,7 @@ public:
     // Factories
     // -----------------------------------------------------------------------
 
-    [[nodiscard]]
+    [[nodiscard]] LOGOS_RED
     static logos::expected<File> open(const char* path, int flags,
                                       mode_t mode = 0644) noexcept {
         int fd = ::open(path, flags, mode);
@@ -55,7 +55,7 @@ public:
         return File{fd};
     }
 
-    [[nodiscard]]
+    [[nodiscard]] LOGOS_RED
     static logos::expected<File> open(const std::string& path, int flags,
                                       mode_t mode = 0644) noexcept {
         return open(path.c_str(), flags, mode);
@@ -70,22 +70,20 @@ public:
     [[nodiscard]]
     logos::expected<int> read(void* buf, size_t size) noexcept {
         Reactor* r = Reactor::current();
-        LOGOS_ASSERT(r,     "REACTOR-FILE-001", "File::read() called outside reactor");
-        LOGOS_ASSERT(fd_ >= 0, "REACTOR-FILE-002", "File::read() on closed file");
-        LOGOS_TRY(auto n, r->read(fd_, buf, size, offset_));
-        if (n > 0) offset_ += n;
-        return n;
+        auto rd = r->read(fd_, buf, size, offset_);
+        if (!rd) return std::unexpected(std::move(rd.error()));
+        if (*rd > 0) offset_ += *rd;
+        return *rd;
     }
 
     // Write 'size' bytes at the current sequential offset.
     [[nodiscard]]
     logos::expected<int> write(const void* buf, size_t size) noexcept {
         Reactor* r = Reactor::current();
-        LOGOS_ASSERT(r,     "REACTOR-FILE-010", "File::write() called outside reactor");
-        LOGOS_ASSERT(fd_ >= 0, "REACTOR-FILE-011", "File::write() on closed file");
-        LOGOS_TRY(auto n, r->write(fd_, buf, size, offset_));
-        if (n > 0) offset_ += n;
-        return n;
+        auto wr = r->write(fd_, buf, size, offset_);
+        if (!wr) return std::unexpected(std::move(wr.error()));
+        if (*wr > 0) offset_ += *wr;
+        return *wr;
     }
 
     // Write all bytes, looping until done or error.
@@ -103,24 +101,24 @@ public:
     }
 
     // Seek (does not involve io_uring).
-    void seek(off_t pos) noexcept { offset_ = pos; }
-    off_t tell() const noexcept { return offset_; }
+    LOGOS_RED void  seek(off_t pos) noexcept { offset_ = pos; }
+    LOGOS_RED off_t tell() const noexcept { return offset_; }
 
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    void close() noexcept {
+    LOGOS_RED void close() noexcept {
         if (fd_ >= 0) { ::close(fd_); fd_ = -1; offset_ = 0; }
     }
 
-    bool valid() const noexcept { return fd_ >= 0; }
-    int  fd()    const noexcept { return fd_; }
+    LOGOS_RED bool valid() const noexcept { return fd_ >= 0; }
+    LOGOS_RED int  fd()    const noexcept { return fd_; }
 
 private:
-    explicit File(int fd) : fd_(fd) {}
+    LOGOS_RED explicit File(int fd) : fd_(fd) {}
     int   fd_     = -1;
     off_t offset_ = 0;
 };
 
-} // namespace logos::reactor
+LOGOS_NS_END

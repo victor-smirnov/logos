@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <logos/hermes/config.hpp>
 #include <logos/hermes/mem_holder.hpp>
 
 namespace logos::hermes {

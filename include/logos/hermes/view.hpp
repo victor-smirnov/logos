@@ -226,6 +226,16 @@ public:
 
     void reset() noexcept { holder_ = nullptr; root_override_ = NULL_OFFSET; }
 
+    // --- Seal (immutable sharing across reactors) ---
+
+    // Seal the underlying arena: no further allocations allowed.
+    // After sealing, this document (and any copies via Own<>) can be safely
+    // read from multiple reactors concurrently — the arena content is immutable.
+    void seal() noexcept { holder_->arena().seal(); }
+
+    // True if the arena has been sealed.
+    bool is_sealed() const noexcept { return holder_->arena().is_sealed(); }
+
     // --- Root access ---
     bool has_root() const noexcept;
 

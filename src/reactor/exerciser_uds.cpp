@@ -30,7 +30,7 @@ static void test_uds_echo_single() {
     std::string received;
     Reactor reactor;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         auto server = UnixSocket::listen_on(kSockPath).get();
         auto client = server.accept().get();
         char buf[64];
@@ -39,7 +39,7 @@ static void test_uds_echo_single() {
         client.write_all(buf, static_cast<size_t>(n)).get();
     }, "server");
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         Scheduler::current()->yield();
         auto sock = UnixSocket::connect_to(kSockPath).get();
         sock.write_all(payload.data(), payload.size()).get();
@@ -67,11 +67,11 @@ static void test_uds_multiple_clients() {
     std::vector<std::string> results(N);
     Reactor reactor;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         auto server = UnixSocket::listen_on(kSockPath2).get();
         for (int i = 0; i < N; ++i) {
             auto client = server.accept().get();
-            Scheduler::current()->spawn([c = std::move(client)]() mutable {
+            Scheduler::current()->spawn([c = std::move(client)]() mutable LOGOS_FIBER_FN {
                 char buf[64];
                 int n = c.read(buf, sizeof(buf)).get();
                 if (n > 0) c.write_all(buf, static_cast<size_t>(n)).get();
@@ -80,7 +80,7 @@ static void test_uds_multiple_clients() {
     }, "server");
 
     for (int i = 0; i < N; ++i) {
-        reactor.spawn([&, i] {
+        reactor.spawn([&, i]() LOGOS_FIBER_FN {
             Scheduler::current()->yield();
             auto sock = UnixSocket::connect_to(kSockPath2).get();
             std::string greeting = "uds-client-" + std::to_string(i);
@@ -113,7 +113,7 @@ static void test_uds_large_transfer() {
     for (size_t i = 0; i < TOTAL; ++i) sent[i] = static_cast<uint8_t>(i & 0xFF);
     Reactor reactor;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         auto server = UnixSocket::listen_on(kSockPath3).get();
         auto client = server.accept().get();
         uint8_t buf[4096];
@@ -124,7 +124,7 @@ static void test_uds_large_transfer() {
         }
     }, "server");
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         Scheduler::current()->yield();
         auto sock = UnixSocket::connect_to(kSockPath3).get();
         sock.write_all(sent.data(), sent.size()).get();

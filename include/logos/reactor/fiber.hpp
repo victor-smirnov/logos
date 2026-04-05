@@ -4,6 +4,15 @@
 
 #pragma once
 
+#include <logos/reactor/features.hpp>
+
+#if LOGOS_HAS_GREEN_STACKS
+#  include <logos/reactor/stack_chain.hpp>
+#  include <logos/reactor/green_fn.hpp>
+#else
+#  include <logos/reactor/stack_pool.hpp>
+#endif
+
 #include <cstdint>
 #include <cstddef>
 #include <functional>
@@ -46,78 +55,111 @@ enum class FiberState : uint8_t {
 class Scheduler;
 
 // ---------------------------------------------------------------------------
-// Fiber — a green fiber (cooperatively scheduled, segmented-stack-compatible).
+// Fiber — a cooperatively-scheduled green fiber.
 //
-// [[clang::green]] functions run on this fiber's segmented stack.
-// Plain (red) functions run on the system thread stack and must not be called
-// from green functions without a trampoline.
+// Stack mode is selected at compile time via LOGOS_HAS_GREEN_STACKS:
+//
+//   Green mode (LOGOS_HAS_GREEN_STACKS=1, Jenny/Clang 21):
+//     - Initial stack is 1 KB (grows via __morestack as needed).
+//     - stack_size parameter to Fiber() and Scheduler::spawn() is ignored.
+//     - StackChain member manages the segment linked list.
+//     - tls_current_fiber (scheduler.cpp) is set during execution so that
+//       green_bridge.cpp can locate the fiber on __morestack entry.
+//
+//   Classic mode (LOGOS_HAS_GREEN_STACKS=0):
+//     - Fixed-size stack acquired from StackPool on construction,
+//       returned to the pool on destruction (O(1) reuse, no per-fiber mmap).
+//     - Stack size is set at ReactorEngine construction (engine-wide).
+//     - guard page (PROT_NONE, 4 KB) at the bottom catches overflow.
 //
 // Ownership: the Scheduler owns all live Fibers.
 // ---------------------------------------------------------------------------
 class Fiber {
 public:
+    // Classic mode default — ignored in green mode.
     static constexpr size_t kDefaultStackSize = 256 * 1024;  // 256 KB
 
-    // Create a fiber with the given function and stack size.
-    // The fiber is not started until the scheduler runs it.
+#if LOGOS_HAS_GREEN_STACKS
+    // Green mode: fn is a GreenFn (type-erased green callable).
+    // GreenFn's internal thunk is [[clang::green]], so the fiber body
+    // can call any other green scheduler primitive (yield, block, join…).
+    explicit Fiber(GreenFn fn, std::string_view name = "") noexcept;
+#else
+    // Classic mode: pool provides + recycles the stack.
+    // pool must remain valid for the Fiber's lifetime (Scheduler outlives Fiber).
     explicit Fiber(std::move_only_function<void()> fn,
-                   std::string_view                name       = "",
-                   size_t                          stack_size = kDefaultStackSize);
+                   std::string_view                name = "",
+                   StackPool*                      pool = nullptr) noexcept;
+#endif
 
-    ~Fiber();
+    ~Fiber() noexcept;
 
     // Non-copyable, non-movable (Scheduler holds raw pointers).
     Fiber(const Fiber&)            = delete;
     Fiber& operator=(const Fiber&) = delete;
 
-    FiberState  state() const noexcept { return state_; }
+    FiberState       state() const noexcept { return state_; }
     std::string_view name()  const noexcept { return name_; }
-    uint64_t    id()    const noexcept { return id_; }
+    uint64_t         id()    const noexcept { return id_; }
+    int              result() const noexcept { return result_; }
 
-    // Return value stored by the fiber (for join).
-    int result() const noexcept { return result_; }
+#if LOGOS_HAS_GREEN_STACKS
+    // Called from green_bridge.cpp via tls_current_fiber when __morestack fires.
+    void* grow_stack(size_t needed) noexcept  { return stack_chain_.push_segment(needed); }
+    void  shrink_stack()            noexcept  { stack_chain_.pop_segment(); }
+    void* stack_limit()       const noexcept  { return stack_chain_.current_limit(); }
+#endif
 
 private:
     friend class Scheduler;
     friend class Reactor;
 
-    // Called by fiber_switch.S trampoline to run the fiber function.
-    static void entry(Fiber* self) noexcept;
+    // LOGOS_GREEN: root of the fiber's green-stack call tree.
+    // Any [[clang::red]] calls from fn_() auto-switch to the system thread
+    // stack (set up in Scheduler::switch_to before fiber_switch).
+    LOGOS_GREEN static void entry(Fiber* self) noexcept;
 
-    // Called after entry() returns (or throws) to mark the fiber Done
-    // and switch back to the scheduler.
-    [[noreturn]] static void finish(Fiber* self) noexcept;
+    // LOGOS_GREEN: must stay on green stack to reach fiber_done → fiber_switch.
+    [[noreturn]] LOGOS_GREEN static void finish(Fiber* self) noexcept;
 
     void init_stack() noexcept;
 
-    FiberRegs   regs_{};
-    uint8_t*    stack_base_ = nullptr;
-    size_t      stack_size_;
+    FiberRegs regs_{};
 
+#if LOGOS_HAS_GREEN_STACKS
+    StackChain stack_chain_;
+#else
+    StackPool* pool_       = nullptr;
+    uint8_t*   stack_base_ = nullptr;
+    size_t     stack_size_ = kDefaultStackSize;
+#endif
+
+#if LOGOS_HAS_GREEN_STACKS
+    GreenFn fn_;
+#else
     std::move_only_function<void()> fn_;
+#endif
     std::string           name_;
     uint64_t              id_;
     FiberState            state_  = FiberState::Ready;
     int                   result_ = 0;
 
-    Scheduler* scheduler_ = nullptr;   // set by Scheduler::spawn()
-
-    // Fibers waiting to join this one (woken when this fiber finishes).
-    Fiber* join_waiter_ = nullptr;
+    Scheduler* scheduler_   = nullptr;
+    Fiber*     join_waiter_ = nullptr;
 
     static uint64_t next_id_;
 };
 
 // ---------------------------------------------------------------------------
 // fiber_switch — assembly context switch (fiber_switch.S)
-//
-// Saves callee-saved regs + rsp into *from, restores from *to, then returns
-// into the 'to' fiber (ret pops the return address off 'to's restored stack).
 // ---------------------------------------------------------------------------
-extern "C" void fiber_switch(FiberRegs* from, const FiberRegs* to) noexcept;
-
-// Entry trampoline — defined in fiber_switch.S.
-// On entry r12 = Fiber*. Calls Fiber::entry(r12), then Fiber::finish(r12).
-extern "C" void fiber_entry_trampoline() noexcept;
+// fiber_switch is assembly — no compiler-generated prologue.  Declare it green
+// so Jenny 19 does NOT wrap calls from green context with RSP save/restore
+// (which would clobber the intentional stack switch).
+// Red callers use the _red alias (same symbol, different declaration).
+extern "C" LOGOS_GREEN void fiber_switch(FiberRegs* from, const FiberRegs* to) noexcept;
+extern "C" void fiber_switch_red(FiberRegs* from, const FiberRegs* to) noexcept
+    asm("fiber_switch");
+extern "C" LOGOS_GREEN void fiber_entry_trampoline() noexcept;
 
 } // namespace logos::reactor

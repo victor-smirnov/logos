@@ -31,13 +31,13 @@
 
 #include <initializer_list>
 
-namespace logos::reactor {
+LOGOS_NS_BEGIN
 
 class SignalWatcher {
 public:
     // Fallible constructor — use logos::make_object<SignalWatcher>(signals).
-    SignalWatcher(logos::InitTag& tag,
-                  std::initializer_list<int> signals) noexcept {
+    LOGOS_RED SignalWatcher(logos::InitTag& tag,
+                            std::initializer_list<int> signals) noexcept {
         sigemptyset(&mask_);
         for (int sig : signals) sigaddset(&mask_, sig);
 
@@ -52,20 +52,20 @@ public:
         }
     }
 
-    ~SignalWatcher() {
+    LOGOS_RED ~SignalWatcher() {
         if (sfd_ >= 0) {
             ::close(sfd_);
             sigprocmask(SIG_SETMASK, &saved_mask_, nullptr);
         }
     }
 
-    SignalWatcher(SignalWatcher&& o) noexcept
+    LOGOS_RED SignalWatcher(SignalWatcher&& o) noexcept
         : mask_(o.mask_), saved_mask_(o.saved_mask_), sfd_(o.sfd_)
     {
         o.sfd_ = -1;
     }
 
-    SignalWatcher& operator=(SignalWatcher&& o) noexcept {
+    LOGOS_RED SignalWatcher& operator=(SignalWatcher&& o) noexcept {
         if (this != &o) {
             if (sfd_ >= 0) { ::close(sfd_); sigprocmask(SIG_SETMASK, &saved_mask_, nullptr); }
             mask_       = o.mask_;
@@ -93,7 +93,7 @@ public:
         return static_cast<int>(info.ssi_signo);
     }
 
-    int fd() const noexcept { return sfd_; }
+    LOGOS_RED int fd() const noexcept { return sfd_; }
 
 private:
     sigset_t mask_{};
@@ -101,4 +101,4 @@ private:
     int      sfd_ = -1;
 };
 
-} // namespace logos::reactor
+LOGOS_NS_END

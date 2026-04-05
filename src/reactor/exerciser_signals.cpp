@@ -15,9 +15,6 @@
 
 using namespace logos::reactor;
 
-// ---------------------------------------------------------------------------
-// Test 1: catch SIGUSR1 sent from within the reactor
-// ---------------------------------------------------------------------------
 static void test_signal_catch() {
     LOGOS_TRACE("reactor.signal.catch", "start", "");
     int caught = 0;
@@ -25,13 +22,11 @@ static void test_signal_catch() {
 
     auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR1}).get();
 
-    // Fiber 1: waits for SIGUSR1.
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         caught = watcher.wait().get();
     }, "signal-waiter");
 
-    // Fiber 2: raises SIGUSR1 after yielding to let waiter block.
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         Scheduler::current()->yield();
         ::raise(SIGUSR1);
     }, "signal-sender");
@@ -44,9 +39,6 @@ static void test_signal_catch() {
     std::println("  [ok] test_signal_catch (caught SIGUSR1)");
 }
 
-// ---------------------------------------------------------------------------
-// Test 2: graceful shutdown — SIGUSR2 stops the reactor while work is running
-// ---------------------------------------------------------------------------
 static void test_graceful_shutdown() {
     LOGOS_TRACE("reactor.signal.shutdown", "start", "");
     bool work_started = false;
@@ -55,24 +47,20 @@ static void test_graceful_shutdown() {
 
     auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR2}).get();
 
-    // Signal handler fiber: waits, then calls reactor.stop().
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         watcher.wait().get();
         shutdown_seen = true;
         reactor.stop();
     }, "shutdown-handler");
 
-    // Work fiber: starts, yields a few times.  After stop(), the reactor
-    // exits when the run queue drains — this fiber may or may not complete.
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         work_started = true;
         for (int i = 0; i < 5; ++i)
             Scheduler::current()->yield();
     }, "worker");
 
-    // Trigger fiber: sends SIGUSR2 after work starts.
-    reactor.spawn([&] {
-        Scheduler::current()->yield();  // let work_fiber start
+    reactor.spawn([&]() LOGOS_FIBER_FN {
+        Scheduler::current()->yield();
         ::raise(SIGUSR2);
     }, "trigger");
 
@@ -84,9 +72,6 @@ static void test_graceful_shutdown() {
     std::println("  [ok] test_graceful_shutdown");
 }
 
-// ---------------------------------------------------------------------------
-// Test 3: multiple signals — catch SIGUSR1 twice
-// ---------------------------------------------------------------------------
 static void test_multiple_signals() {
     LOGOS_TRACE("reactor.signal.multiple", "start", "");
     int count = 0;
@@ -94,7 +79,7 @@ static void test_multiple_signals() {
 
     auto watcher = logos::make_object<SignalWatcher>(std::initializer_list<int>{SIGUSR1}).get();
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         for (int i = 0; i < 2; ++i) {
             int sig = watcher.wait().get();
             LOGOS_ASSERT(sig == SIGUSR1, "REACTOR-SIG-T03a",
@@ -103,7 +88,7 @@ static void test_multiple_signals() {
         }
     }, "waiter");
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         Scheduler::current()->yield();
         ::raise(SIGUSR1);
         Scheduler::current()->yield();
@@ -118,9 +103,6 @@ static void test_multiple_signals() {
     std::println("  [ok] test_multiple_signals");
 }
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
 int main() {
     std::println("=== reactor signal exerciser (Layer 7 — signalfd + io_uring poll) ===");
     test_signal_catch();

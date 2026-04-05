@@ -30,7 +30,7 @@ static void test_file_write_read() {
     std::vector<uint8_t> written;
     std::vector<uint8_t> read_back;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         // Write 4096 bytes of incrementing pattern.
         constexpr size_t N = 4096;
         std::vector<uint8_t> data(N);
@@ -73,7 +73,7 @@ static void test_file_sequential_reads() {
     Reactor reactor;
     std::vector<uint8_t> reconstructed;
 
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         // Write 1024 bytes.
         std::vector<uint8_t> data(1024);
         for (size_t i = 0; i < data.size(); ++i)
@@ -123,7 +123,7 @@ static void test_file_concurrent() {
     int  compute_count = 0;
 
     // Fiber A: writes file A.
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         std::string msg = "fiber A was here";
         auto f = File::open(pathA, O_WRONLY | O_CREAT | O_TRUNC, 0644).get();
         f.write_all(msg.data(), msg.size()).get();
@@ -131,7 +131,7 @@ static void test_file_concurrent() {
     }, "fiberA");
 
     // Fiber B: writes file B.
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         std::string msg = "fiber B was here";
         auto f = File::open(pathB, O_WRONLY | O_CREAT | O_TRUNC, 0644).get();
         f.write_all(msg.data(), msg.size()).get();
@@ -139,7 +139,7 @@ static void test_file_concurrent() {
     }, "fiberB");
 
     // Compute fiber: increments counter while IO fibers run.
-    reactor.spawn([&] {
+    reactor.spawn([&]() LOGOS_FIBER_FN {
         for (int i = 0; i < 5; ++i) {
             ++compute_count;
             Scheduler::current()->yield();

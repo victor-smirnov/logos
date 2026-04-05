@@ -25,15 +25,15 @@
 #include <deque>
 #include <optional>
 
-namespace logos::reactor {
+LOGOS_NS_BEGIN
 
 template<typename T>
 class Channel {
 public:
     // capacity == 0 → unbounded (send() never blocks on fullness)
-    explicit Channel(size_t capacity = 0) : capacity_(capacity) {}
+    LOGOS_RED explicit Channel(size_t capacity = 0) : capacity_(capacity) {}
 
-    ~Channel() = default;
+    LOGOS_RED ~Channel() = default;
 
     Channel(const Channel&)            = delete;
     Channel& operator=(const Channel&) = delete;
@@ -122,4 +122,4 @@ private:
     std::deque<Fiber*>  receiver_waiters_;
 };
 
-} // namespace logos::reactor
+LOGOS_NS_END

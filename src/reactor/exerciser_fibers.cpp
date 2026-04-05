@@ -3,7 +3,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // Layer 0 exerciser: fiber context switch, spawn, yield, join.
-// No io_uring. Validates the scheduler in isolation.
 
 #include <logos/reactor/scheduler.hpp>
 #include <logos/verification/assert.hpp>
@@ -14,29 +13,23 @@
 
 using namespace logos::reactor;
 
-// ---------------------------------------------------------------------------
-// Test 1: single fiber runs to completion
-// ---------------------------------------------------------------------------
 static void test_single_fiber() {
     LOGOS_TRACE("reactor.fibers.single", "start", "");
     bool ran = false;
     Scheduler sched;
-    sched.spawn([&ran] { ran = true; });
+    sched.spawn([&ran]() LOGOS_FIBER_FN { ran = true; });
     sched.run();
     LOGOS_ASSERT(ran, "REACTOR-FIBER-T01", "Single fiber did not run");
     LOGOS_TRACE("reactor.fibers.single", "ok", "");
     std::println("  [ok] test_single_fiber");
 }
 
-// ---------------------------------------------------------------------------
-// Test 2: multiple fibers run in spawn order (FIFO run queue)
-// ---------------------------------------------------------------------------
 static void test_fifo_order() {
     LOGOS_TRACE("reactor.fibers.fifo", "start", "");
     std::vector<int> order;
     Scheduler sched;
     for (int i = 0; i < 5; ++i)
-        sched.spawn([&order, i] { order.push_back(i); });
+        sched.spawn([&order, i]() LOGOS_FIBER_FN { order.push_back(i); });
     sched.run();
     LOGOS_ASSERT(order.size() == 5, "REACTOR-FIBER-T02a",
                  "Expected 5 fibers, got {}", order.size());
@@ -47,23 +40,18 @@ static void test_fifo_order() {
     std::println("  [ok] test_fifo_order");
 }
 
-// ---------------------------------------------------------------------------
-// Test 3: yield interleaves fibers
-// ---------------------------------------------------------------------------
 static void test_yield_interleave() {
     LOGOS_TRACE("reactor.fibers.yield", "start", "");
     std::vector<int> log;
     Scheduler sched;
 
-    // Fiber A: logs 0, yields, logs 2
-    sched.spawn([&log] {
+    sched.spawn([&log]() LOGOS_FIBER_FN {
         log.push_back(0);
         Scheduler::current()->yield();
         log.push_back(2);
     }, "A");
 
-    // Fiber B: logs 1, yields, logs 3
-    sched.spawn([&log] {
+    sched.spawn([&log]() LOGOS_FIBER_FN {
         log.push_back(1);
         Scheduler::current()->yield();
         log.push_back(3);
@@ -81,27 +69,20 @@ static void test_yield_interleave() {
     std::println("  [ok] test_yield_interleave");
 }
 
-// ---------------------------------------------------------------------------
-// Test 4: join waits for a fiber to finish
-// ---------------------------------------------------------------------------
 static void test_join() {
     LOGOS_TRACE("reactor.fibers.join", "start", "");
     std::vector<int> log;
     Scheduler sched;
-
     Fiber* child = nullptr;
 
-    sched.spawn([&log, &child, &sched] {
-        // Spawn child.
-        child = sched.spawn([&log] {
-            log.push_back(1);  // child runs first (or after yield)
+    sched.spawn([&log, &child, &sched]() LOGOS_FIBER_FN {
+        child = sched.spawn([&log]() LOGOS_FIBER_FN {
+            log.push_back(1);
         }, "child");
 
-        // Yield so child gets a chance to be queued, then join.
         Scheduler::current()->yield();
         Scheduler::current()->join(child);
-
-        log.push_back(2);  // must be after child
+        log.push_back(2);
     }, "parent");
 
     sched.run();
@@ -116,18 +97,15 @@ static void test_join() {
     std::println("  [ok] test_join");
 }
 
-// ---------------------------------------------------------------------------
-// Test 5: nested spawn — fibers spawn fibers
-// ---------------------------------------------------------------------------
 static void test_nested_spawn() {
     LOGOS_TRACE("reactor.fibers.nested", "start", "");
     int count = 0;
     Scheduler sched;
 
-    sched.spawn([&count, &sched] {
+    sched.spawn([&count, &sched]() LOGOS_FIBER_FN {
         for (int i = 0; i < 10; ++i)
-            sched.spawn([&count] { ++count; });
-        Scheduler::current()->yield();  // let children run
+            sched.spawn([&count]() LOGOS_FIBER_FN { ++count; });
+        Scheduler::current()->yield();
     }, "root");
 
     sched.run();
@@ -138,16 +116,13 @@ static void test_nested_spawn() {
     std::println("  [ok] test_nested_spawn");
 }
 
-// ---------------------------------------------------------------------------
-// Test 6: many fibers (stress)
-// ---------------------------------------------------------------------------
 static void test_many_fibers() {
     LOGOS_TRACE("reactor.fibers.many", "start", "");
     constexpr int N = 1000;
     int count = 0;
     Scheduler sched;
     for (int i = 0; i < N; ++i)
-        sched.spawn([&count] { ++count; });
+        sched.spawn([&count]() LOGOS_FIBER_FN { ++count; });
     sched.run();
     LOGOS_ASSERT(count == N, "REACTOR-FIBER-T06",
                  "Expected {} fibers, got {}", N, count);
@@ -155,13 +130,10 @@ static void test_many_fibers() {
     std::println("  [ok] test_many_fibers ({} fibers)", N);
 }
 
-// ---------------------------------------------------------------------------
-// Test 7: deep recursion via fibers (validates stack size)
-// ---------------------------------------------------------------------------
-static void recursive_fiber(Scheduler& sched, int depth, int& counter) {
+LOGOS_GREEN static void recursive_fiber(Scheduler& sched, int depth, int& counter) {
     ++counter;
     if (depth > 0) {
-        Fiber* child = sched.spawn([&sched, depth, &counter] {
+        Fiber* child = sched.spawn([&sched, depth, &counter]() LOGOS_FIBER_FN {
             recursive_fiber(sched, depth - 1, counter);
         });
         Scheduler::current()->join(child);
@@ -172,7 +144,7 @@ static void test_deep_recursion() {
     LOGOS_TRACE("reactor.fibers.deep", "start", "");
     int counter = 0;
     Scheduler sched;
-    sched.spawn([&sched, &counter] {
+    sched.spawn([&sched, &counter]() LOGOS_FIBER_FN {
         recursive_fiber(sched, 50, counter);
     }, "root");
     sched.run();
@@ -182,9 +154,6 @@ static void test_deep_recursion() {
     std::println("  [ok] test_deep_recursion (depth 50)");
 }
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
 int main() {
     std::println("=== reactor fiber exerciser (Layer 0) ===");
     test_single_fiber();

@@ -10,96 +10,88 @@
 #include <memory>
 #include <vector>
 
-namespace logos::reactor {
-
 // ---------------------------------------------------------------------------
 // Scheduler — single-core cooperative fiber scheduler.
 //
 // One Scheduler lives per OS thread (reactor core). It owns all fibers
 // spawned on that core and runs them cooperatively.
 //
-// Usage pattern:
-//
-//   Scheduler sched;
-//   sched.spawn([] { ... });
-//   sched.run();           // blocks until all fibers complete
-//
-// Inside a fiber:
-//   Scheduler::current()->yield();
-//   auto* f = Scheduler::current()->spawn([] { ... });
-//   Scheduler::current()->join(f);
+// Function coloring (green mode):
+//   The whole namespace is [[clang::green]] so that fiber primitives
+//   (yield, block, join, fiber_done) are green by default.
+//   Functions that run in the scheduler event loop (switch_to, run, step,
+//   wake, install, uninstall, current) must be [[clang::red]] because they
+//   execute on the system thread stack, not on a fiber stack.
 // ---------------------------------------------------------------------------
+LOGOS_NS_BEGIN
+
 class Scheduler {
 public:
-    Scheduler();
-    ~Scheduler();
+    // stack_size: classic mode only — passed to StackPool.
+    // Ignored in green mode (stacks grow dynamically).
+    LOGOS_RED explicit Scheduler(size_t stack_size = Fiber::kDefaultStackSize) noexcept;
+    LOGOS_RED ~Scheduler();
 
-    // Spawn a new fiber. The fiber is added to the run queue immediately.
-    // Returns a raw pointer — the Scheduler owns the Fiber.
+    // Spawn a new fiber.  Added to the run queue immediately.
+    // In green mode, fn is a GreenFn (or any callable implicitly convertible to it).
+    // In classic mode, fn is a move_only_function<void()>.
+#if LOGOS_HAS_GREEN_STACKS
+    LOGOS_RED Fiber* spawn(GreenFn fn,
+                           std::string_view name       = "",
+                           size_t           stack_size = Fiber::kDefaultStackSize) noexcept;
+#else
     Fiber* spawn(std::move_only_function<void()> fn,
-                 std::string_view     name       = "",
-                 size_t               stack_size = Fiber::kDefaultStackSize) noexcept;
+                 std::string_view                name       = "",
+                 size_t                          stack_size = Fiber::kDefaultStackSize) noexcept;
+#endif
 
-    // Run all fibers until the run queue is empty and no fibers are blocked.
-    // Returns when all work is done.
-    void run() noexcept;
+    // Run all fibers until the run queue is empty.
+    LOGOS_RED void run() noexcept;
 
-    // Run exactly one ready fiber from the queue.  Returns true if a fiber
-    // was run, false if the queue was empty.  Used by Reactor::run().
-    bool step();
+    // Run exactly one ready fiber.  Returns true if a fiber ran.
+    LOGOS_RED bool step();
 
     // Install/uninstall this scheduler as the current one for this thread.
-    // Called by Reactor::run() before/after the event loop so that
-    // Scheduler::current() works inside fibers during reactor operation.
-    static void install(Scheduler* s) noexcept;
-    static void uninstall() noexcept;
+    LOGOS_RED static void install(Scheduler* s) noexcept;
+    LOGOS_RED static void uninstall() noexcept;
 
     // --- Fiber API (called from within a running fiber) ---
+    //
+    // These are green (inherited from namespace): they call fiber_switch from
+    // fiber context and must run on the fiber's green stack so that
+    // fiber_switch saves the correct (green) RSP.
 
-    // Yield execution back to the scheduler.  The calling fiber is put at the
-    // back of the run queue and will resume on the next scheduler round.
     void yield() noexcept;
-
-    // Block the calling fiber until 'target' completes.  If 'target' is
-    // already Done, returns immediately.
     void join(Fiber* target) noexcept;
-
-    // Block the calling fiber without re-queuing it.
-    // The fiber stays Blocked until someone calls wake() on it.
-    // Used by Mutex::lock(), Channel::recv()/send(), etc.
     void block() noexcept;
 
-    // Wake a blocked fiber (called from IO completion or channel).
-    // Safe to call from the scheduler loop (not from another fiber).
-    void wake(Fiber* fiber) noexcept;
+    // wake() is called from the scheduler loop (red context).
+    LOGOS_RED void wake(Fiber* fiber) noexcept;
 
-    // The Scheduler currently running on this OS thread (thread-local).
-    static Scheduler* current() noexcept;
+    LOGOS_RED static Scheduler* current() noexcept;
 
-    // The fiber currently executing on this scheduler (null in scheduler loop).
-    Fiber* running() const noexcept { return running_; }
-
-    bool has_work() const noexcept { return !run_queue_.empty(); }
+    LOGOS_RED Fiber* running() const noexcept { return running_; }
+    LOGOS_RED bool   has_work() const noexcept { return !run_queue_.empty(); }
 
 private:
     friend class Fiber;
     friend class Reactor;
 
-    // Switch from 'running_' (or scheduler loop) to 'next'.
-    void switch_to(Fiber* next) noexcept;
+    // switch_to: called from scheduler loop (red), NOT green.
+    LOGOS_RED void switch_to(Fiber* next) noexcept;
 
-    // Called by Fiber::finish() — marks fiber Done, wakes any joiner,
-    // switches back to scheduler loop.
+    // fiber_done: called from Fiber::finish (green context).
     void fiber_done(Fiber* fiber) noexcept;
 
-    // Scheduler's own "fiber" context (the OS thread's original stack).
     FiberRegs sched_regs_{};
 
     Fiber*             running_   = nullptr;
     std::deque<Fiber*> run_queue_;
-
-    // All spawned fibers (owned).
     std::vector<std::unique_ptr<Fiber>> fibers_;
+
+#if !LOGOS_HAS_GREEN_STACKS
+    StackPool pool_;
+#endif
 };
 
-} // namespace logos::reactor
+LOGOS_NS_END

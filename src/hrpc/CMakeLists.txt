@@ -24,3 +24,9 @@ target_link_libraries(hrpc_exerciser_session PRIVATE logos_hrpc)
 # ---------------------------------------------------------------------------
 add_executable(hrpc_exerciser_streaming exerciser_streaming.cpp)
 target_link_libraries(hrpc_exerciser_streaming PRIVATE logos_hrpc)
+
+# ---------------------------------------------------------------------------
+# Layer 2 exerciser — local cross-reactor RPC (no TCP)
+# ---------------------------------------------------------------------------
+add_executable(hrpc_exerciser_local exerciser_local.cpp)
+target_link_libraries(hrpc_exerciser_local PRIVATE logos_hrpc)

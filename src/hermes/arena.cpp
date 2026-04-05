@@ -49,8 +49,14 @@ logos::expected<Arena> Arena::make(ArenaMode mode, size_t initial_capacity) noex
     return arena;
 }
 
+void Arena::seal() noexcept {
+    sealed_.store(true, std::memory_order_release);
+}
+
 logos::expected<void*>
 Arena::allocate(size_t size, size_t alignment, TypeTag tag) noexcept {
+    LOGOS_ASSERT(!is_sealed(), "HERMES-ARENA-002",
+        "Arena::allocate() called on a sealed arena");
     LOGOS_ASSERT(alignment >= 2, "HERMES-ARENA-001",
         "Arena alignment must be >= 2 (got {}), required for TypeTag placement", alignment);
     LOGOS_ASSERT(size > 0, "HERMES-ARENA-001",
@@ -81,6 +87,8 @@ Arena::allocate(size_t size, size_t alignment, TypeTag tag) noexcept {
 
 logos::expected<void*>
 Arena::allocate_raw(size_t size, size_t alignment) noexcept {
+    LOGOS_ASSERT(!is_sealed(), "HERMES-ARENA-002",
+        "Arena::allocate_raw() called on a sealed arena");
     uint8_t* addr = try_allocate_in_tail(size, alignment, 0);
     if (!addr) {
         auto res = grow(size + alignment);

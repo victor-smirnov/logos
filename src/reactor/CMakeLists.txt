@@ -6,10 +6,17 @@ pkg_check_modules(LIBURING REQUIRED liburing)
 # ---------------------------------------------------------------------------
 add_library(logos_reactor STATIC
     fiber_switch.S
+    morestack.S
+    stack_allocator.cpp
+    stack_chain.cpp
+    stack_pool.cpp
     fiber.cpp
     scheduler.cpp
+    green_bridge.cpp
     reactor.cpp
+    reactor_engine.cpp
 )
+
 
 target_include_directories(logos_reactor PUBLIC
     ${CMAKE_SOURCE_DIR}/include
@@ -20,6 +27,7 @@ target_link_libraries(logos_reactor PUBLIC
     logos_verification
     ${LIBURING_LIBRARIES}
 )
+
 
 # ---------------------------------------------------------------------------
 # Layer 0 exerciser — fibers + scheduler only (no io_uring)
@@ -68,3 +76,9 @@ target_link_libraries(reactor_exerciser_udp PRIVATE logos_reactor)
 # ---------------------------------------------------------------------------
 add_executable(reactor_exerciser_signals exerciser_signals.cpp)
 target_link_libraries(reactor_exerciser_signals PRIVATE logos_reactor)
+
+# ---------------------------------------------------------------------------
+# Layer 8 exerciser — cross-reactor submit_to with P2P SPSC queues
+# ---------------------------------------------------------------------------
+add_executable(reactor_exerciser_cross exerciser_cross.cpp)
+target_link_libraries(reactor_exerciser_cross PRIVATE logos_reactor)

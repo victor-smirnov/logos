@@ -35,7 +35,7 @@ using logos::reactor::Scheduler;
 // Local helper: read exactly 'size' bytes from sock.
 // Returns false on connection close or error.
 // ---------------------------------------------------------------------------
-static bool read_exact(logos::reactor::TcpSocket& sock, void* buf, size_t size) noexcept {
+LOGOS_GREEN static bool read_exact(logos::reactor::TcpSocket& sock, void* buf, size_t size) noexcept {
     uint8_t* ptr = static_cast<uint8_t*>(buf);
     size_t remaining = size;
     while (remaining > 0) {
@@ -65,11 +65,11 @@ Session::~Session() {
 // start() — session negotiation
 // ---------------------------------------------------------------------------
 
-logos::expected<void> Session::start() noexcept {
+LOGOS_GREEN logos::expected<void> Session::start() noexcept {
     if (side_ == SessionSide::Client) {
         // Send SESSION_START to server, then block until run() receives the ack.
         // The run() fiber must already be spawned before calling start().
-        LOGOS_TRY(auto meta, ConnectionMetadata::make());
+        LOGOS_TRY(auto meta, ConnectionMetadata::make(1024 * 1024));
         LOGOS_TRY_VOID(send_message(MessageType::SessionStart, 0, nullptr, 0, &meta.doc));
 
         ngt_mutex_.lock();
@@ -86,7 +86,7 @@ logos::expected<void> Session::start() noexcept {
 // run() — inbound message loop
 // ---------------------------------------------------------------------------
 
-void Session::run() noexcept {
+LOGOS_GREEN void Session::run() noexcept {
     while (!closed_) {
         // Step 1: read first 4 bytes (message_size field).
         uint32_t msg_size = 0;
@@ -131,7 +131,7 @@ void Session::run() noexcept {
 
     // Wake any fibers waiting for negotiation (prevent hang on error).
     {
-        std::lock_guard lock(ngt_mutex_);
+        logos::reactor::LockGuard lock(ngt_mutex_);
         negotiated_ = true;
         ngt_cv_.notify_all();
     }
@@ -139,8 +139,9 @@ void Session::run() noexcept {
     // Wake any fibers waiting for responses (deliver error responses).
     {
         std::lock_guard lock(pending_calls_mutex_);
-        for (auto& [call_id, pc] : pending_calls_) {
-            std::lock_guard pc_lock(pc->mutex);
+        for (auto& kv : pending_calls_) {
+            auto& pc = kv.second;
+            logos::reactor::LockGuard pc_lock(pc->mutex);
             if (!pc->response.has_value()) {
                 auto err_resp = Response::error("Session closed");
                 pc->response = err_resp ? std::move(*err_resp) : Response{};
@@ -154,7 +155,7 @@ void Session::run() noexcept {
 // close()
 // ---------------------------------------------------------------------------
 
-void Session::close() noexcept {
+LOGOS_GREEN void Session::close() noexcept {
     if (closed_) return;
     closed_ = true;
     send_message(MessageType::SessionClose, 0);  // best-effort, ignore error
@@ -219,7 +220,7 @@ logos::expected<std::shared_ptr<Call>> Session::call_async(
 // send_raw() — write a fully formed buffer under write_mutex_
 // ---------------------------------------------------------------------------
 
-logos::expected<void> Session::send_raw(const std::vector<uint8_t>& buf) noexcept {
+LOGOS_GREEN logos::expected<void> Session::send_raw(const std::vector<uint8_t>& buf) noexcept {
     std::lock_guard lock(write_mutex_);
     return sock_.write_all(buf.data(), buf.size());
 }
@@ -228,7 +229,7 @@ logos::expected<void> Session::send_raw(const std::vector<uint8_t>& buf) noexcep
 // send_message() — build a wire message and send it
 // ---------------------------------------------------------------------------
 
-logos::expected<void> Session::send_message(MessageType type, CallID call_id,
+LOGOS_GREEN logos::expected<void> Session::send_message(MessageType type, CallID call_id,
                                              const EndpointID* endpoint,
                                              ChannelCode ch_code,
                                              const HermesCtr* payload) noexcept {
@@ -268,7 +269,7 @@ logos::expected<void> Session::send_message(MessageType type, CallID call_id,
 // send_return() — send a RETURN message with a Response payload
 // ---------------------------------------------------------------------------
 
-logos::expected<void> Session::send_return(CallID call_id, Response response) noexcept {
+LOGOS_GREEN logos::expected<void> Session::send_return(CallID call_id, Response response) noexcept {
     return send_message(MessageType::Return, call_id, nullptr, 0, &response.doc);
 }
 
@@ -276,7 +277,7 @@ logos::expected<void> Session::send_return(CallID call_id, Response response) no
 // send_channel_message() — public, used by Call::push() and Context::push()
 // ---------------------------------------------------------------------------
 
-logos::expected<void> Session::send_channel_message(MessageType type, CallID call_id,
+LOGOS_GREEN logos::expected<void> Session::send_channel_message(MessageType type, CallID call_id,
                                                      ChannelCode code,
                                                      StreamMessage msg) noexcept {
     if (msg.doc.is_null()) {
@@ -294,7 +295,7 @@ logos::expected<void> Session::send_channel_message(MessageType type, CallID cal
 // handle_message() — dispatch inbound messages
 // ---------------------------------------------------------------------------
 
-logos::expected<void> Session::handle_message(const MessageHeader& hdr,
+LOGOS_GREEN logos::expected<void> Session::handle_message(const MessageHeader& hdr,
                                                const uint8_t* buf,
                                                HermesCtr payload) noexcept {
     switch (hdr.type()) {
@@ -333,19 +334,19 @@ logos::expected<void> Session::handle_message(const MessageHeader& hdr,
 // handle_session_start()
 // ---------------------------------------------------------------------------
 
-logos::expected<void> Session::handle_session_start(const MessageHeader& /*hdr*/,
+LOGOS_GREEN logos::expected<void> Session::handle_session_start(const MessageHeader& /*hdr*/,
                                                      HermesCtr /*payload*/) noexcept {
     if (side_ == SessionSide::Server) {
         // Acknowledge: send our own SESSION_START.
-        LOGOS_TRY(auto meta, ConnectionMetadata::make());
+        LOGOS_TRY(auto meta, ConnectionMetadata::make(1024 * 1024));
         LOGOS_TRY_VOID(send_message(MessageType::SessionStart, 0, nullptr, 0, &meta.doc));
 
-        std::lock_guard lock(ngt_mutex_);
+        logos::reactor::LockGuard lock(ngt_mutex_);
         negotiated_ = true;
         ngt_cv_.notify_all();
     } else {
         // Client received server's acknowledgment.
-        std::lock_guard lock(ngt_mutex_);
+        logos::reactor::LockGuard lock(ngt_mutex_);
         negotiated_ = true;
         ngt_cv_.notify_all();
     }
@@ -365,7 +366,7 @@ void Session::handle_session_close() noexcept {
 // handle_call() — server side: dispatch inbound call to a handler fiber
 // ---------------------------------------------------------------------------
 
-logos::expected<void> Session::handle_call(const MessageHeader& hdr,
+LOGOS_GREEN logos::expected<void> Session::handle_call(const MessageHeader& hdr,
                                             const uint8_t* buf,
                                             HermesCtr payload) noexcept {
     // Extract endpoint ID from the optional field.
@@ -421,7 +422,7 @@ logos::expected<void> Session::handle_call(const MessageHeader& hdr,
 
     // Spawn handler fiber.
     Scheduler::current()->spawn(
-        [this, handler_fn = std::move(handler_fn), actx, call_id]() mutable noexcept {
+        [this, handler_fn = std::move(handler_fn), actx, call_id]() mutable LOGOS_FIBER_FN {
             Response rs = handler_fn(actx->ctx);
             send_return(call_id, std::move(rs));  // best-effort, connection dies if this fails
 
@@ -438,7 +439,7 @@ logos::expected<void> Session::handle_call(const MessageHeader& hdr,
 // handle_return() — client side: deliver response to waiting Call
 // ---------------------------------------------------------------------------
 
-void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) noexcept {
+LOGOS_GREEN void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) noexcept {
     std::shared_ptr<PendingCall> pc;
     {
         std::lock_guard lock(pending_calls_mutex_);
@@ -450,7 +451,7 @@ void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) noexcep
 
     Response rs = Response::from_doc(std::move(payload));
 
-    std::lock_guard pc_lock(pc->mutex);
+    logos::reactor::LockGuard pc_lock(pc->mutex);
     pc->response = std::move(rs);
     pc->cv.notify_one();
 }
@@ -459,7 +460,7 @@ void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) noexcep
 // handle_call_channel_msg() — client pushed a message → feed context channel
 // ---------------------------------------------------------------------------
 
-void Session::handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept {
+LOGOS_GREEN void Session::handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept {
     std::shared_ptr<ActiveContext> actx;
     {
         std::lock_guard lock(contexts_mutex_);
@@ -479,7 +480,7 @@ void Session::handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payloa
 // handle_ctx_channel_msg() — context pushed a message → feed call channel
 // ---------------------------------------------------------------------------
 
-void Session::handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept {
+LOGOS_GREEN void Session::handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept {
     std::shared_ptr<PendingCall> pc;
     {
         std::lock_guard lock(pending_calls_mutex_);
@@ -499,7 +500,7 @@ void Session::handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload
 // handle_call_close_output() — call side closed its output → sentinel to ctx
 // ---------------------------------------------------------------------------
 
-void Session::handle_call_close_output(const MessageHeader& hdr) noexcept {
+LOGOS_GREEN void Session::handle_call_close_output(const MessageHeader& hdr) noexcept {
     std::shared_ptr<ActiveContext> actx;
     {
         std::lock_guard lock(contexts_mutex_);
@@ -519,7 +520,7 @@ void Session::handle_call_close_output(const MessageHeader& hdr) noexcept {
 // handle_ctx_close_output() — context closed its output → sentinel to call
 // ---------------------------------------------------------------------------
 
-void Session::handle_ctx_close_output(const MessageHeader& hdr) noexcept {
+LOGOS_GREEN void Session::handle_ctx_close_output(const MessageHeader& hdr) noexcept {
     std::shared_ptr<PendingCall> pc;
     {
         std::lock_guard lock(pending_calls_mutex_);
@@ -557,7 +558,7 @@ void Session::handle_cancel(const MessageHeader& hdr) noexcept {
 
 namespace logos::hrpc {
 
-logos::expected<void> Context::push(StreamMessage msg, ChannelCode code) noexcept {
+LOGOS_GREEN logos::expected<void> Context::push(StreamMessage msg, ChannelCode code) noexcept {
     if (session_) {
         return session_->send_channel_message(
             MessageType::ContextChannelMessage, call_id_, code, std::move(msg));
@@ -575,7 +576,7 @@ logos::expected<void> Context::push(StreamMessage msg, ChannelCode code) noexcep
 
 namespace logos::hrpc {
 
-logos::expected<void> Call::push(StreamMessage msg, ChannelCode code) noexcept {
+LOGOS_GREEN logos::expected<void> Call::push(StreamMessage msg, ChannelCode code) noexcept {
     if (session_) {
         return session_->send_channel_message(
             MessageType::CallChannelMessage,

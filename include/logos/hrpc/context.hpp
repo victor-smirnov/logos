@@ -52,7 +52,7 @@ public:
     // Block the current fiber until a StreamMessage arrives on input channel
     // 'code'. Returns false when a sentinel (null doc) is received, signalling
     // end-of-stream.
-    bool pop(StreamMessage& msg, ChannelCode code = 0) {
+    LOGOS_GREEN bool pop(StreamMessage& msg, ChannelCode code = 0) {
         if (code >= input_channels_.size()) return false;
         msg = input_channels_[code]->recv();
         return !msg.doc.is_null();
@@ -62,10 +62,11 @@ public:
     //
     // Send a message to the client. Immediately transmits a
     // ContextChannelMessage over the wire.
-    logos::expected<void> push(StreamMessage msg, ChannelCode code = 0) noexcept;
+    LOGOS_GREEN logos::expected<void> push(StreamMessage msg, ChannelCode code = 0) noexcept;
 
 private:
     friend class Session;
+    friend class LocalServer;
 
     void set_request(Request rq) noexcept       { request_     = std::move(rq); }
     void set_endpoint_id(const EndpointID& id) noexcept { endpoint_id_ = id; }
