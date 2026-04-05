@@ -70,18 +70,34 @@ public:
         }
 
         auto items = arr_of(root.get(la::ITEMS));
+
+        // Two passes: first emit all declarations (extern fn), then bodies.
+        // This ensures callees are visible when generating caller bodies.
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto item = map_of(items.get(i));
+            int32_t item_code = code_of(item);
+            if (item_code == la::EXTERN_FN) {
+                auto fn = gen_extern_fn(item);
+                if (!fn) return nullptr;
+                mod.push_back(fn);
+            } else if (item_code == la::FN) {
+                // Forward-declare functions so they can call each other.
+                auto fn_type = make_fn_type(item);
+                auto name = std::string(str_of(item.get(la::NAME)));
+                auto decl = mlir::func::FuncOp::create(loc_, name, fn_type);
+                mod.push_back(decl);
+            }
+        }
+
+        // Second pass: fill in function bodies.
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             int32_t item_code = code_of(item);
             if (item_code == la::FN) {
-                auto fn = gen_function(item);
-                if (!fn) return nullptr;
-                mod.push_back(fn);
-            } else if (item_code == la::EXTERN_FN) {
-                auto fn = gen_extern_fn(item);
-                if (!fn) return nullptr;
-                mod.push_back(fn);
-            } else {
+                auto name = std::string(str_of(item.get(la::NAME)));
+                auto func = mod.lookupSymbol<mlir::func::FuncOp>(name);
+                if (!gen_function_body(func, item)) return nullptr;
+            } else if (item_code != la::EXTERN_FN) {
                 std::fprintf(stderr, "mlir_gen: unknown top-level item code %d\n", item_code);
                 return nullptr;
             }
@@ -159,7 +175,14 @@ private:
         if (!node.has_key(la::PARAMS)) return;
         AnyVal params_av = node.get(la::PARAMS);
         if (params_av.is_null() || !params_av.is_pointer()) return;
-        auto params = arr_of(params_av);
+
+        // param_list returns { ITEMS: [...params...] } wrapper node.
+        auto wrapper = map_of(params_av);
+        if (!wrapper.has_key(la::ITEMS)) return;
+        AnyVal items_av = wrapper.get(la::ITEMS);
+        if (items_av.is_null() || !items_av.is_pointer()) return;
+
+        auto params = arr_of(items_av);
         for (uint64_t i = 0; i < params.size(); ++i) {
             auto p = map_of(params.get(i));
             auto ptype = resolve_type(map_of(p.get(la::TYPE)));
@@ -193,12 +216,8 @@ private:
         return func;
     }
 
-    // -- Function -----------------------------------------------------
-    mlir::func::FuncOp gen_function(TinyMapView node) {
-        auto name = std::string(str_of(node.get(la::NAME)));
-        auto func_type = make_fn_type(node);
-        auto func = mlir::func::FuncOp::create(loc_, name, func_type);
-
+    // -- Function body ------------------------------------------------
+    bool gen_function_body(mlir::func::FuncOp func, TinyMapView node) {
         llvm::SmallVector<mlir::Type> param_types;
         llvm::SmallVector<std::string> param_names;
         parse_params(node, param_types, param_names);
@@ -215,7 +234,7 @@ private:
 
         // Generate body.
         auto body = map_of(node.get(la::BODY));
-        auto ret_types = func_type.getResults();
+        auto ret_types = func.getFunctionType().getResults();
         auto result = gen_block(body, ret_types.empty() ? nullptr : ret_types[0]);
 
         // If block didn't terminate, add implicit return.
@@ -227,7 +246,7 @@ private:
             }
         }
 
-        return func;
+        return true;
     }
 
     // -- Block --------------------------------------------------------
@@ -244,10 +263,11 @@ private:
     mlir::Value gen_stmt(TinyMapView node) {
         int32_t code = code_of(node);
         switch (code) {
-            case la::LET:    return gen_let(node);
-            case la::RETURN: return gen_return(node);
-            case la::IF:     return gen_if(node);
-            default:         return gen_expr(node);
+            case la::LET:       return gen_let(node);
+            case la::RETURN:    return gen_return(node);
+            case la::IF:        return gen_if(node);
+            case la::EXPR_STMT: return gen_expr(map_of(node.get(la::VALUE)));
+            default:            return gen_expr(node);
         }
     }
 

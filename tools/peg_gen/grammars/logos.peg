@@ -143,6 +143,7 @@
            => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
 
     param_list <- param (COMMA param)*
+              => { ITEMS: $... }
 
     param <- IDENT COLON type_ref
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
@@ -165,8 +166,9 @@
     // ── Statements ───────────────────────────────────────────────
     stmt <- let_stmt
           / return_stmt
-          / if_expr SEMI?
+          / if_expr
           / expr SEMI
+            => { CODE: EXPR_STMT, VALUE: $1 }
 
     let_stmt <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, TYPE: $4, VALUE: $6 }
