@@ -27,6 +27,7 @@
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 
 #include <unordered_map>
 #include <string>
@@ -76,6 +77,10 @@ public:
                 auto fn = gen_function(item);
                 if (!fn) return nullptr;
                 mod.push_back(fn);
+            } else if (item_code == la::EXTERN_FN) {
+                auto fn = gen_extern_fn(item);
+                if (!fn) return nullptr;
+                mod.push_back(fn);
             } else {
                 std::fprintf(stderr, "mlir_gen: unknown top-level item code %d\n", item_code);
                 return nullptr;
@@ -98,6 +103,7 @@ private:
 
     // Variable name -> SSA value in current scope.
     std::unordered_map<std::string, mlir::Value> scope_;
+    int str_counter_ = 0;  // unique suffix for string global names
 
     // -- Hermes access helpers ----------------------------------------
     //
@@ -124,6 +130,14 @@ private:
 
     // -- Type mapping -------------------------------------------------
     mlir::Type resolve_type(TinyMapView type_ref) {
+        int32_t tc = code_of(type_ref);
+
+        // *const T / *mut T → LLVM pointer type (opaque ptr in LLVM 21)
+        if (tc == la::PTR_TYPE) {
+            return mlir::LLVM::LLVMPointerType::get(builder_.getContext());
+        }
+
+        // Simple type reference by name.
         if (!type_ref.has_key(la::NAME) || type_ref.get(la::NAME).is_null()) {
             return nullptr;
         }
@@ -132,42 +146,62 @@ private:
         if (name == "i64")  return builder_.getI64Type();
         if (name == "f64")  return builder_.getF64Type();
         if (name == "bool") return builder_.getI1Type();
+        if (name == "u8")   return builder_.getIntegerType(8);
         std::fprintf(stderr, "mlir_gen: unknown type '%.*s'\n",
                      (int)name.size(), name.data());
         return nullptr;
     }
 
-    // -- Function -----------------------------------------------------
-    mlir::func::FuncOp gen_function(TinyMapView node) {
-        auto name = std::string(str_of(node.get(la::NAME)));
-
-        // Parameters.
-        llvm::SmallVector<mlir::Type> param_types;
-        llvm::SmallVector<std::string> param_names;
-        if (node.has_key(la::PARAMS)) {
-            AnyVal params_av = node.get(la::PARAMS);
-            if (!params_av.is_null() && params_av.is_pointer()) {
-                auto params = arr_of(params_av);
-                for (uint64_t i = 0; i < params.size(); ++i) {
-                    auto p = map_of(params.get(i));
-                    auto ptype = resolve_type(map_of(p.get(la::TYPE)));
-                    if (!ptype) return nullptr;
-                    param_types.push_back(ptype);
-                    param_names.push_back(std::string(str_of(p.get(la::NAME))));
-                }
+    // Helper: parse parameters from AST node (shared by fn and extern fn).
+    void parse_params(TinyMapView node,
+                      llvm::SmallVectorImpl<mlir::Type>& types,
+                      llvm::SmallVectorImpl<std::string>& names) {
+        if (!node.has_key(la::PARAMS)) return;
+        AnyVal params_av = node.get(la::PARAMS);
+        if (params_av.is_null() || !params_av.is_pointer()) return;
+        auto params = arr_of(params_av);
+        for (uint64_t i = 0; i < params.size(); ++i) {
+            auto p = map_of(params.get(i));
+            auto ptype = resolve_type(map_of(p.get(la::TYPE)));
+            if (ptype) {
+                types.push_back(ptype);
+                names.push_back(std::string(str_of(p.get(la::NAME))));
             }
         }
+    }
 
-        // Return type.
+    mlir::FunctionType make_fn_type(TinyMapView node) {
+        llvm::SmallVector<mlir::Type> param_types;
+        llvm::SmallVector<std::string> param_names;
+        parse_params(node, param_types, param_names);
+
         llvm::SmallVector<mlir::Type> ret_types;
         if (node.has_key(la::RET_TYPE) && !node.get(la::RET_TYPE).is_null()) {
             auto rt = resolve_type(map_of(node.get(la::RET_TYPE)));
-            if (!rt) return nullptr;
-            ret_types.push_back(rt);
+            if (rt) ret_types.push_back(rt);
         }
 
-        auto func_type = builder_.getFunctionType(param_types, ret_types);
+        return builder_.getFunctionType(param_types, ret_types);
+    }
+
+    // -- Extern function (FFI declaration, no body) -------------------
+    mlir::func::FuncOp gen_extern_fn(TinyMapView node) {
+        auto name = std::string(str_of(node.get(la::NAME)));
+        auto func_type = make_fn_type(node);
         auto func = mlir::func::FuncOp::create(loc_, name, func_type);
+        func.setPrivate();  // extern = not defined here
+        return func;
+    }
+
+    // -- Function -----------------------------------------------------
+    mlir::func::FuncOp gen_function(TinyMapView node) {
+        auto name = std::string(str_of(node.get(la::NAME)));
+        auto func_type = make_fn_type(node);
+        auto func = mlir::func::FuncOp::create(loc_, name, func_type);
+
+        llvm::SmallVector<mlir::Type> param_types;
+        llvm::SmallVector<std::string> param_names;
+        parse_params(node, param_types, param_names);
 
         // Entry block with arguments.
         auto* entry = func.addEntryBlock();
@@ -181,6 +215,7 @@ private:
 
         // Generate body.
         auto body = map_of(node.get(la::BODY));
+        auto ret_types = func_type.getResults();
         auto result = gen_block(body, ret_types.empty() ? nullptr : ret_types[0]);
 
         // If block didn't terminate, add implicit return.
@@ -291,6 +326,7 @@ private:
         switch (code) {
             case la::LIT_INT:  return gen_lit_int(node);
             case la::LIT_BOOL: return gen_lit_bool(node);
+            case la::LIT_STR:  return gen_lit_str(node);
             case la::VAR_REF:  return gen_var_ref(node);
             case la::CALL:     return gen_call(node);
             case la::BINOP:    return gen_binop(node);
@@ -315,6 +351,43 @@ private:
         AnyVal av = node.get(la::VALUE);
         bool val = av.as_value<uint8_t>() != 0;
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, val ? 1 : 0, 1);
+    }
+
+    mlir::Value gen_lit_str(TinyMapView node) {
+        // String literal → LLVM global constant + addressof → *const u8.
+        // PEG parser stores the string WITH quotes; strip them.
+        auto raw = str_of(node.get(la::VALUE));
+        std::string text(raw);
+        // Strip surrounding quotes.
+        if (text.size() >= 2 && text.front() == '"' && text.back() == '"')
+            text = text.substr(1, text.size() - 2);
+        // Append null terminator for C interop.
+        text.push_back('\0');
+
+        // Create a unique global name.
+        auto global_name = std::string(".str.") + std::to_string(str_counter_++);
+
+        // Get the parent module to insert the global.
+        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto save_point = builder_.saveInsertionPoint();
+
+        // Insert global at module level.
+        builder_.setInsertionPointToStart(parent_mod.getBody());
+
+        auto i8 = builder_.getIntegerType(8);
+        auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, text.size());
+        auto str_attr = builder_.getStringAttr(llvm::StringRef(text.data(), text.size()));
+
+        auto global = builder_.create<mlir::LLVM::GlobalOp>(
+            loc_, arr_type, /*isConstant=*/true,
+            mlir::LLVM::Linkage::Internal, global_name, str_attr);
+        (void)global;
+
+        // Restore insertion point and emit addressof.
+        builder_.restoreInsertionPoint(save_point);
+
+        auto ptr_type = mlir::LLVM::LLVMPointerType::get(builder_.getContext());
+        return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type, global_name);
     }
 
     mlir::Value gen_var_ref(TinyMapView node) {
