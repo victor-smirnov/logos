@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.io
+//
+// Basic I/O operations via C FFI.
+
+package std.io;
+
+extern fn puts(s: *const u8) -> i32;
+
+pub fn println(s: *const u8) -> i32 {
+    return puts(s);
+}

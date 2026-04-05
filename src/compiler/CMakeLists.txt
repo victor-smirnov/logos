@@ -46,6 +46,7 @@ add_custom_command(
 add_executable(logosc
     main.cpp
     mlir_gen.cpp
+    module_loader.cpp
     ${LOGOS_PARSER_CPP}
 )
 

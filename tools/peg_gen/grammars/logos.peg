@@ -119,8 +119,13 @@
 %rules {
 
     // ── Top level ────────────────────────────────────────────────
-    module <- KW_PACKAGE IDENT SEMI item*
-           => { CODE: MODULE, NAME: $2, ITEMS: $... }
+    module <- KW_PACKAGE IDENT DOT IDENT SEMI use_decl* item*
+           => { CODE: MODULE, NAME: $2, PATH: $4, USES: $6, ITEMS: $... }
+            / KW_PACKAGE IDENT SEMI use_decl* item*
+           => { CODE: MODULE, NAME: $2, USES: $4, ITEMS: $... }
+
+    use_decl <- KW_USE IDENT DOT IDENT SEMI
+             => { CODE: USE, NAME: $2, PATH: $4 }
 
     item <- extern_fn_def / pub_fn_def / fn_def
 

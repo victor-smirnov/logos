@@ -55,51 +55,69 @@ public:
         , holder_(nullptr)
     {}
 
-    mlir::OwningOpRef<mlir::ModuleOp> generate(hermes::HermesCtrView ast) {
-        holder_ = ast.holder();
-
+    mlir::OwningOpRef<mlir::ModuleOp> generate(const std::vector<hermes::HermesCtr>& asts) {
         auto mod = mlir::ModuleOp::create(loc_);
 
-        auto root_obj = ast.root_object();
-        auto root = root_obj.as_tiny_map();
-        int32_t code = code_of(root);
+        // Collect (holder, items) pairs from all ASTs.
+        struct ModItems { hermes::MemHolder* holder; ArrayView items; };
+        std::vector<ModItems> all_modules;
 
-        if (code != la::MODULE) {
-            std::fprintf(stderr, "mlir_gen: expected MODULE node, got code %d\n", code);
-            return nullptr;
+        for (auto& ast : asts) {
+            auto h = ast.holder();
+            holder_ = h;
+            auto root_obj = ast.root_object();
+            auto root = root_obj.as_tiny_map();
+            int32_t code = code_of(root);
+            if (code != la::MODULE) {
+                std::fprintf(stderr, "mlir_gen: expected MODULE node, got code %d\n", code);
+                return nullptr;
+            }
+            AnyVal items_av = root.get(la::ITEMS);
+            if (items_av.is_null() || !items_av.is_pointer()) continue;
+            all_modules.push_back({h, ArrayView(items_av.to_offset(), h)});
         }
 
-        auto items = arr_of(root.get(la::ITEMS));
-
-        // Two passes: first emit all declarations (extern fn), then bodies.
-        // This ensures callees are visible when generating caller bodies.
-        for (uint64_t i = 0; i < items.size(); ++i) {
-            auto item = map_of(items.get(i));
-            int32_t item_code = code_of(item);
-            if (item_code == la::EXTERN_FN) {
-                auto fn = gen_extern_fn(item);
-                if (!fn) return nullptr;
-                mod.push_back(fn);
-            } else if (item_code == la::FN) {
-                // Forward-declare functions so they can call each other.
-                auto fn_type = make_fn_type(item);
-                auto name = std::string(str_of(item.get(la::NAME)));
-                auto decl = mlir::func::FuncOp::create(loc_, name, fn_type);
-                mod.push_back(decl);
+        // Pass 1: emit all declarations (extern fn + fn forward decl).
+        for (auto& [h, items] : all_modules) {
+            holder_ = h;
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto item = map_of(items.get(i));
+                int32_t item_code = code_of(item);
+                if (item_code == la::EXTERN_FN) {
+                    // Skip if already declared (duplicate extern across modules).
+                    auto name = std::string(str_of(item.get(la::NAME)));
+                    if (!mod.lookupSymbol<mlir::func::FuncOp>(name)) {
+                        auto fn = gen_extern_fn(item);
+                        if (!fn) return nullptr;
+                        mod.push_back(fn);
+                    }
+                } else if (item_code == la::FN) {
+                    auto fn_type = make_fn_type(item);
+                    auto name = std::string(str_of(item.get(la::NAME)));
+                    if (!mod.lookupSymbol<mlir::func::FuncOp>(name)) {
+                        auto decl = mlir::func::FuncOp::create(loc_, name, fn_type);
+                        mod.push_back(decl);
+                    }
+                }
             }
         }
 
-        // Second pass: fill in function bodies.
-        for (uint64_t i = 0; i < items.size(); ++i) {
-            auto item = map_of(items.get(i));
-            int32_t item_code = code_of(item);
-            if (item_code == la::FN) {
-                auto name = std::string(str_of(item.get(la::NAME)));
-                auto func = mod.lookupSymbol<mlir::func::FuncOp>(name);
-                if (!gen_function_body(func, item)) return nullptr;
-            } else if (item_code != la::EXTERN_FN) {
-                std::fprintf(stderr, "mlir_gen: unknown top-level item code %d\n", item_code);
-                return nullptr;
+        // Pass 2: fill in function bodies.
+        for (auto& [h, items] : all_modules) {
+            holder_ = h;
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto item = map_of(items.get(i));
+                int32_t item_code = code_of(item);
+                if (item_code == la::FN) {
+                    auto name = std::string(str_of(item.get(la::NAME)));
+                    auto func = mod.lookupSymbol<mlir::func::FuncOp>(name);
+                    if (!gen_function_body(func, item)) return nullptr;
+                } else if (item_code == la::USE || item_code == la::PACKAGE) {
+                    // Skip — handled by module loader.
+                } else if (item_code != la::EXTERN_FN) {
+                    std::fprintf(stderr, "mlir_gen: unknown top-level item code %d\n", item_code);
+                    return nullptr;
+                }
             }
         }
 
@@ -478,10 +496,10 @@ private:
 // Public API
 // ---------------------------------------------------------------------------
 mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
-                                            hermes::HermesCtrView ast) noexcept
+                                            const std::vector<hermes::HermesCtr>& asts) noexcept
 {
     MLIRGenImpl gen(ctx);
-    return gen.generate(ast);
+    return gen.generate(asts);
 }
 
 } // namespace logos::compiler

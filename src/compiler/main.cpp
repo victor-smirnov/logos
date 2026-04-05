@@ -7,7 +7,7 @@
 // Pipeline: .logos file → PEG parser → Hermes AST → MLIR → LLVM IR → .o file.
 
 #include "mlir_gen.hpp"
-#include "logos_parser.hpp"
+#include "module_loader.hpp"
 
 #include <logos/hermes/document.hpp>
 
@@ -42,17 +42,8 @@
 #include <llvm/TargetParser/Host.h>
 
 #include <cstdio>
-#include <fstream>
-#include <sstream>
 #include <string>
-
-static std::string read_file(const char* path) {
-    std::ifstream f(path);
-    if (!f) return {};
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
+#include <vector>
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -64,27 +55,27 @@ int main(int argc, char** argv) {
     const char* output_path = "output.o";
     bool emit_mlir = false;
     bool emit_llvm = false;
+    std::vector<std::string> search_paths;
 
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-o" && i + 1 < argc) { output_path = argv[++i]; }
+        else if (arg == "-I" && i + 1 < argc) { search_paths.push_back(argv[++i]); }
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
     }
 
-    // ── Step 1: Read source ──────────────────────────────────────
-    auto source = read_file(input_path);
-    if (source.empty()) {
-        std::fprintf(stderr, "logosc: cannot read '%s'\n", input_path);
+    // ── Step 1-2: Load and parse all modules ────────────────────
+    auto modules = logos::compiler::load_modules(input_path, search_paths);
+    if (modules.empty()) {
+        std::fprintf(stderr, "logosc: no modules loaded\n");
         return 1;
     }
 
-    // ── Step 2: Parse → Hermes AST ──────────────────────────────
-    logos::compiler::LogosParser parser(source);
-    auto ast = parser.parse_module();
-    if (ast.is_null()) {
-        std::fprintf(stderr, "logosc: parse failed\n");
-        return 1;
+    // Collect ASTs.
+    std::vector<logos::hermes::HermesCtr> asts;
+    for (auto& m : modules) {
+        asts.push_back(std::move(m.ast));
     }
 
     // ── Step 3: Hermes AST → MLIR ───────────────────────────────
@@ -95,7 +86,7 @@ int main(int argc, char** argv) {
     mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
     mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
 
-    auto mlir_module = logos::compiler::mlir_gen(mlir_ctx, ast);
+    auto mlir_module = logos::compiler::mlir_gen(mlir_ctx, asts);
     if (!mlir_module) {
         std::fprintf(stderr, "logosc: MLIR generation failed\n");
         return 1;
