@@ -96,7 +96,7 @@ public:
         Reactor* r = Reactor::current();
         LOGOS_ASSERT(r, "REACTOR-UDS-010", "UnixSocket::connect_to() outside reactor");
         auto rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
-        if (!rc) { ::close(fd); return std::unexpected(std::move(rc.error())); }
+        if (!rc) { ::close(fd); return std::unexpected(LOGOS_MOVE_(rc.error())); }
         return UnixSocket{fd};
     }
 

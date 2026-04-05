@@ -92,7 +92,7 @@ public:
     // The ::write() to eventfd never blocks (EFD_SEMAPHORE is O(1)).
     [[nodiscard]]
     logos::expected<void> send(T val) noexcept {
-        if (!state_->queue.push(std::move(val)))
+        if (!state_->queue.push(LOGOS_MOVE_(val)))
             return std::unexpected(logos::err(ErrCode::channel_full));
         uint64_t one = 1;
         ::write(state_->efd, &one, sizeof(one));  // non-blocking; result ignored
@@ -107,7 +107,7 @@ private:
         make_cross_channel() noexcept;
 
     explicit CrossSender(std::shared_ptr<detail::CrossState<T,N>> s) noexcept
-        : state_(std::move(s)) {}
+        : state_(LOGOS_MOVE_(s)) {}
 
     std::shared_ptr<detail::CrossState<T,N>> state_;
 };
@@ -151,7 +151,7 @@ private:
         make_cross_channel() noexcept;
 
     explicit CrossReceiver(std::shared_ptr<detail::CrossState<T,N>> s) noexcept
-        : state_(std::move(s)) {}
+        : state_(LOGOS_MOVE_(s)) {}
 
     std::shared_ptr<detail::CrossState<T,N>> state_;
 };

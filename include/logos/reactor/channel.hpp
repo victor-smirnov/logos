@@ -21,6 +21,7 @@
 
 #include <logos/reactor/scheduler.hpp>
 #include <logos/verification/assert.hpp>
+#include <logos/core/expected.hpp>  // LOGOS_MOVE_
 
 #include <deque>
 #include <optional>
@@ -51,7 +52,7 @@ public:
             sender_waiters_.push_back(s->running());
             s->block();
         }
-        buffer_.push_back(std::move(value));
+        buffer_.push_back(LOGOS_MOVE_(value));
         wake_one_receiver();
     }
 
@@ -67,7 +68,7 @@ public:
             receiver_waiters_.push_back(s->running());
             s->block();
         }
-        T value = std::move(buffer_.front());
+        T value = LOGOS_MOVE_(buffer_.front());
         buffer_.pop_front();
         wake_one_sender();
         return value;
@@ -78,14 +79,14 @@ public:
     // -----------------------------------------------------------------------
     bool try_send(T value) {
         if (full()) return false;
-        buffer_.push_back(std::move(value));
+        buffer_.push_back(LOGOS_MOVE_(value));
         wake_one_receiver();
         return true;
     }
 
     std::optional<T> try_recv() {
         if (buffer_.empty()) return std::nullopt;
-        T value = std::move(buffer_.front());
+        T value = LOGOS_MOVE_(buffer_.front());
         buffer_.pop_front();
         wake_one_sender();
         return value;

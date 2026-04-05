@@ -72,7 +72,7 @@ Ret submit_to(Reactor& target, Fn fn) noexcept {
 
     // Post work to target reactor.  Runs as a new fiber; signals state->efd
     // when fn() completes so the caller's io_uring read unblocks.
-    target.alien_submit([state, fn = std::move(fn)]() mutable noexcept LOGOS_GREEN {
+    target.alien_submit([state, fn = LOGOS_MOVE_(fn)]() mutable noexcept LOGOS_GREEN {
         state->result = fn();
         uint64_t one = 1;
         ::write(state->efd, &one, sizeof(one));  // never blocks; result ignored
@@ -83,7 +83,7 @@ Ret submit_to(Reactor& target, Fn fn) noexcept {
     LOGOS_TRY(auto n, self->read(state->efd, &v, sizeof(v)));
     (void)n;
 
-    return std::move(state->result);
+    return LOGOS_MOVE_(state->result);
 }
 
 LOGOS_NS_END

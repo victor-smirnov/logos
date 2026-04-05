@@ -70,20 +70,18 @@ public:
     [[nodiscard]]
     logos::expected<int> read(void* buf, size_t size) noexcept {
         Reactor* r = Reactor::current();
-        auto rd = r->read(fd_, buf, size, offset_);
-        if (!rd) return std::unexpected(std::move(rd.error()));
-        if (*rd > 0) offset_ += *rd;
-        return *rd;
+        LOGOS_TRY(auto n, r->read(fd_, buf, size, offset_));
+        if (n > 0) offset_ += n;
+        return n;
     }
 
     // Write 'size' bytes at the current sequential offset.
     [[nodiscard]]
     logos::expected<int> write(const void* buf, size_t size) noexcept {
         Reactor* r = Reactor::current();
-        auto wr = r->write(fd_, buf, size, offset_);
-        if (!wr) return std::unexpected(std::move(wr.error()));
-        if (*wr > 0) offset_ += *wr;
-        return *wr;
+        LOGOS_TRY(auto n, r->write(fd_, buf, size, offset_));
+        if (n > 0) offset_ += n;
+        return n;
     }
 
     // Write all bytes, looping until done or error.

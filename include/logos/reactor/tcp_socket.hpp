@@ -12,7 +12,7 @@
 //   auto server = TcpSocket::listen_on("0.0.0.0", 8080).get();
 //   while (true) {
 //       auto client = server.accept().get();
-//       Reactor::current()->spawn([c = std::move(client)]() mutable {
+//       Reactor::current()->spawn([c = LOGOS_MOVE_(client)]() mutable {
 //           char buf[256];
 //           auto n = c.read(buf, sizeof(buf)).get();
 //           if (n > 0) c.write_all(buf, n).get();  // echo
@@ -127,7 +127,7 @@ public:
         auto rc = r->connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
         if (!rc) {
             ::close(fd);
-            return std::unexpected(std::move(rc.error()));
+            return std::unexpected(LOGOS_MOVE_(rc.error()));
         }
         return TcpSocket{fd};
     }

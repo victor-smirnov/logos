@@ -102,16 +102,22 @@ public:
 #define LOGOS_PP_CAT2(a, b) a##b
 #define LOGOS_PP_CAT(a, b)  LOGOS_PP_CAT2(a, b)
 
+// Note: use static_cast<T&&> instead of std::move() — Jenny 19's
+// [[clang::green]] codegen auto-wraps std::move (red/STL function) with
+// RSP save/restore which corrupts locals on the green fiber stack.
+// static_cast<T&&> is a cast, not a call, so it has no ABI overhead.
+#define LOGOS_MOVE_(x)  static_cast<std::remove_reference_t<decltype(x)>&&>(x)
+
 #define LOGOS_TRY(decl, expr)                                              \
     auto LOGOS_PP_CAT(_logos_r_, __LINE__) = (expr);                      \
     if (!LOGOS_PP_CAT(_logos_r_, __LINE__)) [[unlikely]]                  \
         return std::unexpected(                                            \
-            std::move(LOGOS_PP_CAT(_logos_r_, __LINE__).error()));        \
-    decl = std::move(*LOGOS_PP_CAT(_logos_r_, __LINE__))
+            LOGOS_MOVE_(LOGOS_PP_CAT(_logos_r_, __LINE__).error()));      \
+    decl = LOGOS_MOVE_(*LOGOS_PP_CAT(_logos_r_, __LINE__))
 
 #define LOGOS_TRY_VOID(expr)                                               \
     auto LOGOS_PP_CAT(_logos_rv_, __LINE__) = (expr);                     \
     if (!LOGOS_PP_CAT(_logos_rv_, __LINE__)) [[unlikely]]                 \
         return std::unexpected(                                            \
-            std::move(LOGOS_PP_CAT(_logos_rv_, __LINE__).error()))
+            LOGOS_MOVE_(LOGOS_PP_CAT(_logos_rv_, __LINE__).error()))
 
