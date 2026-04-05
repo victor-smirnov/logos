@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Victor Smirnov
+# Logos project — https://github.com/victor-smirnov/logos
+#
+# logosc — Logos compiler (iteration 1).
+#
+# Pipeline: .logos source → PEG parser → Hermes AST → MLIR → LLVM IR → native.
+# Requires MLIR/LLVM dev libraries from the Jenny toolchain.
+
+set(LOGOS_LLVM_DIR /opt/jenny-21x/lib/cmake/llvm CACHE PATH "LLVM cmake dir")
+set(LOGOS_MLIR_DIR /opt/jenny-21x/lib/cmake/mlir CACHE PATH "MLIR cmake dir")
+
+find_package(LLVM CONFIG QUIET HINTS ${LOGOS_LLVM_DIR})
+find_package(MLIR CONFIG QUIET HINTS ${LOGOS_MLIR_DIR})
+
+if (NOT LLVM_FOUND OR NOT MLIR_FOUND)
+    message(STATUS "logosc: LLVM/MLIR dev libs not found — skipping compiler build")
+    return()
+endif()
+
+message(STATUS "logosc: building with LLVM ${LLVM_PACKAGE_VERSION}")
+
+# Include MLIR cmake helpers (provides mlir_tablegen, etc.)
+list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
+include(AddMLIR)
+
+# ---------------------------------------------------------------------------
+# Generate Logos parser from PEG grammar
+# ---------------------------------------------------------------------------
+set(LOGOS_GRAMMAR ${CMAKE_SOURCE_DIR}/tools/peg_gen/grammars/logos.peg)
+set(LOGOS_PARSER_HPP ${CMAKE_CURRENT_BINARY_DIR}/logos_parser.hpp)
+set(LOGOS_PARSER_CPP ${CMAKE_CURRENT_BINARY_DIR}/logos_parser.cpp)
+
+add_custom_command(
+    OUTPUT  ${LOGOS_PARSER_HPP} ${LOGOS_PARSER_CPP}
+    COMMAND $<TARGET_FILE:peg_gen>
+            ${LOGOS_GRAMMAR}
+            --out-dir ${CMAKE_CURRENT_BINARY_DIR}
+    DEPENDS peg_gen ${LOGOS_GRAMMAR}
+    COMMENT "Generating logos_parser from logos.peg"
+)
+
+# ---------------------------------------------------------------------------
+# logosc executable
+# ---------------------------------------------------------------------------
+add_executable(logosc
+    main.cpp
+    mlir_gen.cpp
+    ${LOGOS_PARSER_CPP}
+)
+
+target_include_directories(logosc PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_BINARY_DIR}   # generated logos_parser.hpp
+    ${LLVM_INCLUDE_DIRS}
+    ${MLIR_INCLUDE_DIRS}
+)
+
+# MLIR/LLVM libraries for the pipeline:
+#   func dialect → arith dialect → scf/cf → LLVM dialect → LLVM IR → target
+target_link_libraries(logosc PRIVATE
+    logos_hermes
+
+    # MLIR dialects
+    MLIRFuncDialect
+    MLIRArithDialect
+    MLIRSCFDialect
+    MLIRControlFlowDialect
+    MLIRLLVMDialect
+
+    # MLIR → LLVM lowering passes
+    MLIRFuncToLLVM
+    MLIRArithToLLVM
+    MLIRSCFToControlFlow
+    MLIRControlFlowToLLVM
+    MLIRReconcileUnrealizedCasts
+
+    # MLIR infrastructure
+    MLIRIR
+    MLIRPass
+    MLIRTransforms
+    MLIRSupport
+
+    # MLIR → LLVM IR translation
+    MLIRTargetLLVMIRExport
+    MLIRTargetLLVM
+    MLIRBuiltinToLLVMIRTranslation
+    MLIRLLVMToLLVMIRTranslation
+
+    # LLVM backend (x86)
+    LLVMX86CodeGen
+    LLVMX86AsmParser
+    LLVMX86Desc
+    LLVMX86Info
+
+    # LLVM core
+    LLVMCore
+    LLVMSupport
+    LLVMTarget
+    LLVMTargetParser
+    LLVMMC
+    LLVMAsmPrinter
+    LLVMCodeGen
+    LLVMAnalysis
+    LLVMTransformUtils
+    LLVMScalarOpts
+    LLVMipo
+    LLVMPasses
+)
+
+# Note: MLIR/LLVM built without RTTI, but Hermes requires it.
+# We compile with RTTI enabled — MLIR's public API doesn't use RTTI
+# (no dynamic_cast across boundary).  If linking fails, we'll need
+# to split into separate TUs.
+target_compile_options(logosc PRIVATE -fno-rtti)

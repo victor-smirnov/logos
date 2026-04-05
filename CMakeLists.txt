@@ -32,6 +32,9 @@ add_subdirectory(src/reactor)
 
 add_subdirectory(src/hrpc)
 
+# Compiler
+add_subdirectory(src/compiler)
+
 # Tools
 add_subdirectory(tools/peg_gen)
 add_subdirectory(tools/hrpc_gen)

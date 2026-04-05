@@ -1,0 +1,179 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// logosc — Logos compiler driver (iteration 1).
+//
+// Pipeline: .logos file → PEG parser → Hermes AST → MLIR → LLVM IR → .o file.
+
+#include "mlir_gen.hpp"
+#include "logos_parser.hpp"
+
+#include <logos/hermes/document.hpp>
+
+// MLIR
+#include <mlir/IR/MLIRContext.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Pass/Pass.h>
+#include <mlir/Pass/PassManager.h>
+#include <mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h>
+#include <mlir/Conversion/ArithToLLVM/ArithToLLVM.h>
+#include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
+#include <mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h>
+#include <mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h>
+#include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
+#include <mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h>
+#include <mlir/Target/LLVMIR/Export.h>
+
+// LLVM
+#include <llvm/IR/Module.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/MC/TargetRegistry.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/Target/TargetOptions.h>
+#include <llvm/TargetParser/Host.h>
+
+#include <cstdio>
+#include <fstream>
+#include <sstream>
+#include <string>
+
+static std::string read_file(const char* path) {
+    std::ifstream f(path);
+    if (!f) return {};
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [--emit-mlir] [--emit-llvm]\n");
+        return 1;
+    }
+
+    const char* input_path = argv[1];
+    const char* output_path = "output.o";
+    bool emit_mlir = false;
+    bool emit_llvm = false;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-o" && i + 1 < argc) { output_path = argv[++i]; }
+        else if (arg == "--emit-mlir") { emit_mlir = true; }
+        else if (arg == "--emit-llvm") { emit_llvm = true; }
+    }
+
+    // ── Step 1: Read source ──────────────────────────────────────
+    auto source = read_file(input_path);
+    if (source.empty()) {
+        std::fprintf(stderr, "logosc: cannot read '%s'\n", input_path);
+        return 1;
+    }
+
+    // ── Step 2: Parse → Hermes AST ──────────────────────────────
+    logos::compiler::LogosParser parser(source);
+    auto ast = parser.parse_module();
+    if (ast.is_null()) {
+        std::fprintf(stderr, "logosc: parse failed\n");
+        return 1;
+    }
+
+    // ── Step 3: Hermes AST → MLIR ───────────────────────────────
+    mlir::MLIRContext mlir_ctx;
+    mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+
+    auto mlir_module = logos::compiler::mlir_gen(mlir_ctx, ast);
+    if (!mlir_module) {
+        std::fprintf(stderr, "logosc: MLIR generation failed\n");
+        return 1;
+    }
+
+    if (emit_mlir) {
+        mlir_module->dump();
+        return 0;
+    }
+
+    // ── Step 4: MLIR → LLVM dialect ─────────────────────────────
+    mlir::PassManager pm(&mlir_ctx);
+    pm.addPass(mlir::createSCFToControlFlowPass());
+    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+    pm.addPass(mlir::createArithToLLVMConversionPass());
+    pm.addPass(mlir::createConvertFuncToLLVMPass());
+    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+
+    if (mlir::failed(pm.run(*mlir_module))) {
+        std::fprintf(stderr, "logosc: MLIR lowering failed\n");
+        return 1;
+    }
+
+    // ── Step 5: MLIR LLVM dialect → LLVM IR ─────────────────────
+    mlir::registerBuiltinDialectTranslation(mlir_ctx);
+    mlir::registerLLVMDialectTranslation(mlir_ctx);
+
+    llvm::LLVMContext llvm_ctx;
+    auto llvm_module = mlir::translateModuleToLLVMIR(*mlir_module, llvm_ctx);
+    if (!llvm_module) {
+        std::fprintf(stderr, "logosc: LLVM IR translation failed\n");
+        return 1;
+    }
+
+    llvm_module->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+
+    if (emit_llvm) {
+        llvm_module->print(llvm::outs(), nullptr);
+        return 0;
+    }
+
+    // ── Step 6: LLVM IR → object file ───────────────────────────
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+
+    std::string error;
+    auto* target = llvm::TargetRegistry::lookupTarget(
+        llvm_module->getTargetTriple(), error);
+    if (!target) {
+        std::fprintf(stderr, "logosc: target lookup failed: %s\n", error.c_str());
+        return 1;
+    }
+
+    auto target_machine = std::unique_ptr<llvm::TargetMachine>(
+        target->createTargetMachine(
+            llvm_module->getTargetTriple(), "generic", "",
+            llvm::TargetOptions{}, llvm::Reloc::PIC_));
+
+    llvm_module->setDataLayout(target_machine->createDataLayout());
+
+    std::error_code ec;
+    llvm::raw_fd_ostream out(output_path, ec, llvm::sys::fs::OF_None);
+    if (ec) {
+        std::fprintf(stderr, "logosc: cannot open output '%s': %s\n",
+                     output_path, ec.message().c_str());
+        return 1;
+    }
+
+    llvm::legacy::PassManager pass;
+    if (target_machine->addPassesToEmitFile(pass, out, nullptr,
+                                             llvm::CodeGenFileType::ObjectFile)) {
+        std::fprintf(stderr, "logosc: target cannot emit object file\n");
+        return 1;
+    }
+
+    pass.run(*llvm_module);
+    out.flush();
+
+    std::fprintf(stderr, "logosc: wrote %s\n", output_path);
+    return 0;
+}
