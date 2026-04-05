@@ -112,8 +112,11 @@
     item <- function_def
 
     // ── Function ─────────────────────────────────────────────────
-    function_def <- KW_FN IDENT LPAREN param_list? RPAREN (ARROW type_ref)? block
+    function_def <- KW_FN IDENT LPAREN param_list? RPAREN return_type? block
                  => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $6, BODY: $7 }
+
+    return_type <- ARROW IDENT
+                => { CODE: TYPE_REF, NAME: $2 }
 
     param_list <- param (COMMA param)*
 
@@ -145,16 +148,20 @@
 
     // ── Expressions (precedence via rule nesting) ─────────────────
     // Low → high: comparison → additive → multiplicative → atom
+    // Each level either passes through to the next, or wraps in BINOP.
     expr <- cmp_expr
 
-    cmp_expr <- add_expr ((EQ / NE / LE / GE / LT / GT) add_expr)?
-             => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+    cmp_expr <- add_expr (EQ / NE / LE / GE / LT / GT) add_expr
+                => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+              / add_expr
 
-    add_expr <- mul_expr ((PLUS / MINUS) mul_expr)*
-             => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+    add_expr <- mul_expr (PLUS / MINUS) mul_expr
+                => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+              / mul_expr
 
-    mul_expr <- atom ((STAR / SLASH) atom)*
-             => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+    mul_expr <- atom (STAR / SLASH) atom
+                => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+              / atom
 
     atom <- call_expr
           / LPAREN expr RPAREN

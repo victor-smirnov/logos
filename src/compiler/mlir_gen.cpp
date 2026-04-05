@@ -142,19 +142,22 @@ private:
         llvm::SmallVector<mlir::Type> param_types;
         llvm::SmallVector<std::string> param_names;
         if (node.has_key(la::PARAMS)) {
-            auto params = arr_of(node.get(la::PARAMS));
-            for (uint64_t i = 0; i < params.size(); ++i) {
-                auto p = map_of(params.get(i));
-                auto ptype = resolve_type(map_of(p.get(la::TYPE)));
-                if (!ptype) return nullptr;
-                param_types.push_back(ptype);
-                param_names.push_back(std::string(str_of(p.get(la::NAME))));
+            AnyVal params_av = node.get(la::PARAMS);
+            if (!params_av.is_null() && params_av.is_pointer()) {
+                auto params = arr_of(params_av);
+                for (uint64_t i = 0; i < params.size(); ++i) {
+                    auto p = map_of(params.get(i));
+                    auto ptype = resolve_type(map_of(p.get(la::TYPE)));
+                    if (!ptype) return nullptr;
+                    param_types.push_back(ptype);
+                    param_names.push_back(std::string(str_of(p.get(la::NAME))));
+                }
             }
         }
 
         // Return type.
         llvm::SmallVector<mlir::Type> ret_types;
-        if (node.has_key(la::RET_TYPE)) {
+        if (node.has_key(la::RET_TYPE) && !node.get(la::RET_TYPE).is_null()) {
             auto rt = resolve_type(map_of(node.get(la::RET_TYPE)));
             if (!rt) return nullptr;
             ret_types.push_back(rt);
@@ -218,7 +221,7 @@ private:
     }
 
     mlir::Value gen_return(TinyMapView node) {
-        if (node.has_key(la::VALUE)) {
+        if (node.has_key(la::VALUE) && !node.get(la::VALUE).is_null()) {
             auto val = gen_expr(map_of(node.get(la::VALUE)));
             builder_.create<mlir::func::ReturnOp>(loc_, val);
         } else {
