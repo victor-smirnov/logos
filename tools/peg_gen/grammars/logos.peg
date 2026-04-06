@@ -46,6 +46,7 @@
     SIZE        = 23
     SRC_LINE    = 24
     IS_MUT      = 25
+    INCLUSIVE   = 26
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -89,6 +90,9 @@
     CONTINUE    = 67
     LOOP        = 68
     CAST        = 69
+    FOR         = 70
+    CONST_DEF   = 71
+    TYPE_ALIAS  = 72
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -96,6 +100,10 @@
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
     KW_PACKAGE  = "package"
+    KW_STATIC   = "static"
+    KW_TYPE     = "type"
+    KW_FOR      = "for"
+    KW_IN       = "in"
     KW_STRUCT   = "struct"
     KW_EXTERN   = "extern"
     KW_RETURN   = "return"
@@ -136,6 +144,8 @@
     NE          = "!="
     LE          = "<="
     GE          = ">="
+    DOTDOTEQ    = "..="
+    DOTDOT      = ".."
     LT          = "<"
     GT          = ">"
     PLUS        = "+"
@@ -168,7 +178,16 @@
     use_decl <- KW_USE IDENT DOT IDENT SEMI
              => { CODE: USE, NAME: $2, PATH: $4 }
 
-    item <- struct_def / extern_fn_def / pub_fn_def / fn_def
+    item <- const_def / type_alias / struct_def / extern_fn_def / pub_fn_def / fn_def
+
+    // const NAME: type = expr;
+    const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
+
+    // static NAME: type = expr;  (module-level mutable static — same repr as const for now)
+    // type NAME = type_ref;
+    type_alias <- KW_TYPE IDENT ASSIGN type_ref SEMI
+               => { CODE: TYPE_ALIAS, NAME: $2, TYPE: $4 }
 
     // ── Struct definition ────────────────────────────────────────
     struct_def <- KW_STRUCT IDENT LBRACE field_def* method_def* RBRACE
@@ -225,6 +244,7 @@
 
     // ── Statements ───────────────────────────────────────────────
     stmt <- let_stmt
+          / for_stmt
           / while_stmt
           / loop_stmt
           / return_stmt
@@ -236,6 +256,12 @@
           / assign_stmt
           / expr SEMI
             => { CODE: EXPR_STMT, VALUE: $1 }
+
+    // for i in lo..hi { }  (exclusive) and  for i in lo..=hi { }  (inclusive)
+    for_stmt <- KW_FOR IDENT KW_IN expr DOTDOTEQ expr block
+             => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: true }
+              / KW_FOR IDENT KW_IN expr DOTDOT expr block
+             => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: false }
 
     loop_stmt     <- KW_LOOP block
                   => { CODE: LOOP, BODY: $2 }
@@ -310,28 +336,29 @@
               => { CODE: CAST, VALUE: $1, TYPE: $3 }
                / atom
 
-    // ── Atoms ────────────────────────────────────────────────────
-    // Order matters: more-specific patterns before plain IDENT.
-    atom <- method_call_expr   // IDENT.IDENT(args)  — before field_read
-          / field_read_expr    // IDENT.IDENT         — before plain IDENT
-          / index_read_expr    // IDENT[expr]         — before call and var_ref
-          / call_expr          // IDENT(args)         — before plain IDENT
-          / struct_lit         // IDENT { fields }    — before plain IDENT
-          / arr_lit            // [e1, e2, ...]
-          / paren_expr         // (expr)
-          / STRING     => { CODE: LIT_STR,  VALUE: $1 }
-          / KW_TRUE    => { CODE: LIT_BOOL, VALUE: true }
-          / KW_FALSE   => { CODE: LIT_BOOL, VALUE: false }
-          / INTEGER    => { CODE: LIT_INT,  VALUE: $1 }
-          / IDENT      => { CODE: VAR_REF,  NAME: $1 }
+    // ── Atoms (postfix chain) ─────────────────────────────────────
+    // atom = primary_expr followed by zero or more postfix suffixes.
+    // The ( ... )* uses $0 (fold accumulator) for RECEIVER so that
+    // a.b.c and a.f().b are parsed correctly as left-associative chains.
+    atom <- primary_expr
+            ( DOT IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+                => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
+            / DOT IDENT
+                => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
+            / LBRACKET expr RBRACKET
+                => { CODE: INDEX_READ, RECEIVER: $0, VALUE: $2 }
+            )*
 
-    // ── Method call: receiver.method(args) ───────────────────────
-    method_call_expr <- IDENT DOT IDENT LPAREN (expr (COMMA expr)*)? RPAREN
-                     => { CODE: METHOD_CALL, RECEIVER: $1, NAME: $3, ARGS: $... }
-
-    // ── Field read: receiver.field ────────────────────────────────
-    field_read_expr <- IDENT DOT IDENT
-                    => { CODE: FIELD_READ, RECEIVER: $1, FIELD: $3 }
+    // ── Primary expressions (base of a postfix chain) ─────────────
+    primary_expr <- struct_lit       // IDENT { fields }  — before plain IDENT
+                  / arr_lit          // [e1, e2, ...]
+                  / paren_expr       // (expr)
+                  / call_expr        // IDENT(args)        — before plain IDENT
+                  / STRING   => { CODE: LIT_STR,  VALUE: $1 }
+                  / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
+                  / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
+                  / INTEGER  => { CODE: LIT_INT,  VALUE: $1 }
+                  / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
     // ── Struct literal: TypeName { field: expr, ... } ─────────────
     struct_lit <- IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
@@ -339,10 +366,6 @@
 
     field_init <- IDENT COLON expr
                => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
-
-    // ── Array subscript read: arr[i] ─────────────────────────────
-    index_read_expr <- IDENT LBRACKET expr RBRACKET
-                    => { CODE: INDEX_READ, NAME: $1, VALUE: $3 }
 
     // ── Array literal: [e1, e2, ...] ─────────────────────────────
     arr_lit <- LBRACKET (expr (COMMA expr)*)? RBRACKET

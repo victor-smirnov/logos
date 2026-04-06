@@ -271,6 +271,9 @@ private:
             auto f = it->vars.find(std::string(name));
             if (f != it->vars.end()) return f->second.type;
         }
+        // Fall through to module-level constants.
+        auto cit = module_consts_.find(std::string(name));
+        if (cit != module_consts_.end()) return cit->second;
         return nullptr;
     }
 
@@ -310,8 +313,10 @@ private:
         const LogosType* ret_type;
     };
 
-    std::unordered_map<std::string, SemaStructInfo> structs_;
-    std::unordered_map<std::string, SemaFuncInfo>   funcs_;
+    std::unordered_map<std::string, SemaStructInfo>    structs_;
+    std::unordered_map<std::string, SemaFuncInfo>      funcs_;
+    std::unordered_map<std::string, const LogosType*>  type_aliases_;  // type Name = T
+    std::unordered_map<std::string, const LogosType*>  module_consts_; // const NAME: T
 
     // ── Type resolution ──────────────────────────────────────────
 
@@ -352,6 +357,9 @@ private:
             if (name == "u32")  return prim(LogosType::Kind::U32);
             if (name == "u64")  return prim(LogosType::Kind::U64);
             if (name == "void") return prim(LogosType::Kind::Void);
+            // Type alias
+            auto ait = type_aliases_.find(std::string(name));
+            if (ait != type_aliases_.end()) return ait->second;
             // User-defined struct
             if (structs_.count(std::string(name)))
                 return make_struct_type(name);
@@ -403,7 +411,28 @@ private:
             if (c == la::STRUCT)     collect_struct(item);
             else if (c == la::FN || c == la::EXTERN_FN)
                 collect_fn(item);
+            else if (c == la::TYPE_ALIAS)  collect_type_alias(item);
+            else if (c == la::CONST_DEF)   collect_const(item);
         }
+    }
+
+    void collect_type_alias(TinyMapView node) {
+        auto name = std::string(str_of(node.get(la::NAME.code)));
+        if (!node.has_key(la::TYPE)) return;
+        auto* t = resolve_type(map_of(node.get(la::TYPE.code)));
+        type_aliases_[name] = t;
+    }
+
+    void collect_const(TinyMapView node) {
+        auto name = std::string(str_of(node.get(la::NAME.code)));
+        const LogosType* t = nullptr;
+        if (node.has_key(la::TYPE)) {
+            t = resolve_type(map_of(node.get(la::TYPE.code)));
+        } else if (node.has_key(la::VALUE)) {
+            t = check_expr(map_of(node.get(la::VALUE.code)));
+            if (t->kind == LogosType::Kind::IntLit) t = i32_t();
+        }
+        if (t) module_consts_[name] = t;
     }
 
     void collect_struct(TinyMapView node) {
@@ -647,6 +676,8 @@ private:
                 check_block(map_of(stmt.get(la::BODY.code)));
                 --loop_depth_;
             }
+        } else if (c == la::FOR) {
+            check_for(stmt);
         } else if (c == la::BREAK || c == la::CONTINUE) {
             if (loop_depth_ == 0)
                 error(c == la::BREAK ? "'break' outside loop" : "'continue' outside loop");
@@ -685,7 +716,10 @@ private:
             }
             define(name, ann, is_mut);
         } else {
-            define(name, rhs_type, is_mut);
+            // Default unresolved integer literals to i32.
+            const LogosType* actual = rhs_type;
+            if (actual->kind == LogosType::Kind::IntLit) actual = i32_t();
+            define(name, actual, is_mut);
         }
     }
 
@@ -752,6 +786,30 @@ private:
             else
                 check_stmt(else_node);  // else-if
         }
+    }
+
+    void check_for(TinyMapView node) {
+        auto var_name = str_of(node.get(la::NAME.code));
+        // Check lo and hi are integers.
+        if (node.has_key(la::LHS)) {
+            auto* lt = check_expr(map_of(node.get(la::LHS.code)));
+            if (!is_integer(lt) && lt->kind != LogosType::Kind::Error)
+                error(std::format("for range start must be integer, got {}", type_str(lt)));
+        }
+        if (node.has_key(la::RHS)) {
+            auto* rt = check_expr(map_of(node.get(la::RHS.code)));
+            if (!is_integer(rt) && rt->kind != LogosType::Kind::Error)
+                error(std::format("for range end must be integer, got {}", type_str(rt)));
+        }
+        // Loop variable is i32 (mutable, loop-scoped).
+        push_scope();
+        define(var_name, i32_t(), /*is_mut=*/true);
+        if (node.has_key(la::BODY)) {
+            ++loop_depth_;
+            check_block(map_of(node.get(la::BODY.code)));
+            --loop_depth_;
+        }
+        pop_scope();
     }
 
     void check_while(TinyMapView node) {
@@ -1033,12 +1091,24 @@ private:
         return fi.ret_type;
     }
 
+    // Extract struct name from a LogosType (Struct or *Struct).
+    std::string_view struct_name_from_type(const LogosType* t) {
+        if (!t) return {};
+        if (t->kind == LogosType::Kind::Struct) return t->struct_name;
+        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
+            t->pointee->kind == LogosType::Kind::Struct)
+            return t->pointee->struct_name;
+        return {};
+    }
+
     const LogosType* check_method_call(TinyMapView node) {
-        auto recv_name  = str_of(node.get(la::RECEIVER.code));
-        auto method_name= str_of(node.get(la::NAME.code));
-        auto sname = struct_name_of(recv_name);
+        auto method_name = str_of(node.get(la::NAME.code));
+        // RECEIVER is an expression node (not a bare name string).
+        auto* recv_type = check_expr(map_of(node.get(la::RECEIVER.code)));
+        auto sname = struct_name_from_type(recv_type);
         if (sname.empty()) {
-            error(std::format("method call: '{}' is not a struct", recv_name));
+            error(std::format("method call: receiver is not a struct (got {})",
+                  type_str(recv_type)));
             return error_t();
         }
         auto mangled = std::string(sname) + "__" + std::string(method_name);
@@ -1084,11 +1154,13 @@ private:
     }
 
     const LogosType* check_field_read(TinyMapView node) {
-        auto recv_name  = str_of(node.get(la::RECEIVER.code));
         auto field_name = str_of(node.get(la::FIELD.code));
-        auto sname = struct_name_of(recv_name);
+        // RECEIVER is an expression node (not a bare name string).
+        auto* recv_type = check_expr(map_of(node.get(la::RECEIVER.code)));
+        auto sname = struct_name_from_type(recv_type);
         if (sname.empty()) {
-            error(std::format("field read: '{}' is not a struct", recv_name));
+            error(std::format("field read: receiver is not a struct (got {})",
+                  type_str(recv_type)));
             return error_t();
         }
         auto* ft = field_type_of(sname, field_name);
@@ -1151,10 +1223,9 @@ private:
     }
 
     const LogosType* check_index_read(TinyMapView node) {
-        auto arr_name = str_of(node.get(la::NAME.code));
-        auto* arr_type = lookup(arr_name);
+        // RECEIVER is an expression node (was NAME string before postfix-chain refactor).
+        auto* arr_type = check_expr(map_of(node.get(la::RECEIVER.code)));
         if (!arr_type) {
-            error(std::format("index read: undefined variable '{}'", arr_name));
             if (node.has_key(la::VALUE))
                 check_expr(map_of(node.get(la::VALUE.code)));
             return error_t();
@@ -1162,8 +1233,8 @@ private:
         if (arr_type->kind != LogosType::Kind::Array &&
             arr_type->kind != LogosType::Kind::Ptr &&
             arr_type->kind != LogosType::Kind::Error) {
-            error(std::format("index read: '{}' is not an array or pointer (got {})",
-                  arr_name, type_str(arr_type)));
+            error(std::format("index read: receiver is not an array or pointer (got {})",
+                  type_str(arr_type)));
         }
         if (node.has_key(la::VALUE)) {
             auto* it = check_expr(map_of(node.get(la::VALUE.code)));

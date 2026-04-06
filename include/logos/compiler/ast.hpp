@@ -49,8 +49,9 @@ inline constexpr Key RECEIVER {"RECEIVER", 20};  // receiver of field read / met
 inline constexpr Key FIELD    {"FIELD",    21};  // field name (string)
 inline constexpr Key FIELDS   {"FIELDS",   22};  // field definitions array (in struct)
 inline constexpr Key SIZE     {"SIZE",     23};  // array size (integer literal)
-inline constexpr Key SRC_LINE {"SRC_LINE", 24};  // source line number (uint32_t, 1-based)
-inline constexpr Key IS_MUT   {"IS_MUT",   25};  // mutability flag (uint8_t, 1 = mut)
+inline constexpr Key SRC_LINE  {"SRC_LINE",  24};  // source line number (uint32_t, 1-based)
+inline constexpr Key IS_MUT    {"IS_MUT",    25};  // mutability flag (uint8_t, 1 = mut)
+inline constexpr Key INCLUSIVE {"INCLUSIVE", 26};  // for range: inclusive end (..=)
 
 // ── Node codes ───────────────────────────────────────────────────────────
 
@@ -103,7 +104,10 @@ inline constexpr Code ARR_LIT     {"ARR_LIT",     65};
 inline constexpr Code BREAK       {"BREAK",       66};
 inline constexpr Code CONTINUE    {"CONTINUE",    67};
 inline constexpr Code LOOP        {"LOOP",        68};
-inline constexpr Code CAST        {"CAST",        69};   // [e1, e2, ...] array literal
+inline constexpr Code CAST        {"CAST",        69};
+inline constexpr Code FOR         {"FOR",         70};   // for i in lo..hi { }
+inline constexpr Code CONST_DEF  {"CONST_DEF",   71};   // const NAME: type = expr;
+inline constexpr Code TYPE_ALIAS {"TYPE_ALIAS",  72};   // type NAME = type_ref;
 
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;

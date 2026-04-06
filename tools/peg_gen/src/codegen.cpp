@@ -408,7 +408,9 @@ private:
     std::string        parser_class_;
     std::string        ast_ns_;
     int                lc_ = 0;   // label counter — reset per rule, always increasing
-    std::string        rcap_var_; // name of the rule-captures array for $... in current alt
+    std::string        rcap_var_;       // name of the rule-captures array for $... in current alt
+    std::string        cur_fold_var_;   // name of the fold accumulator variable (for $0)
+    std::string        fold_init_cap_;  // cap name to initialise the next fold REP from
 
     // Returns a unique label suffix string within the current rule.
     std::string fresh() { return std::to_string(lc_++); }
@@ -416,6 +418,23 @@ private:
     static bool action_has_array_capture(const Action& action) {
         for (const auto& f : action.fields)
             if (f.expr.kind == int32_t(ast::ARRAY_CAPTURE)) return true;
+        return false;
+    }
+
+    static bool action_has_fold_capture(const Action& action) {
+        for (const auto& f : action.fields)
+            if (f.expr.kind == int32_t(ast::FOLD_CAPTURE)) return true;
+        return false;
+    }
+
+    // A REP is in fold-mode when its body GROUP has at least one alt with $0 ($FOLD_CAPTURE).
+    static bool rep_is_fold(const Item& rep) {
+        if (rep.sub_items.empty()) return false;
+        const auto& body = rep.sub_items[0];
+        if (body.kind == int32_t(ast::GROUP)) {
+            for (const auto& sa : body.sub_alts)
+                if (sa.action && action_has_fold_capture(*sa.action)) return true;
+        }
         return false;
     }
 
@@ -1007,7 +1026,11 @@ private:
         for (size_t i = 0; i < alt.seq.size(); ++i) {
             std::string cap = std::format("cap{}", i + 1);
             captures[i + 1] = cap;
+            // For fold-mode REP: provide the preceding item's cap as the fold initialiser.
+            if (alt.seq[i].kind == int32_t(ast::REP) && rep_is_fold(alt.seq[i]) && i > 0)
+                fold_init_cap_ = captures[i]; // captures[i] = cap of item i-1 (1-indexed)
             emit_item_match(w, alt.seq[i], cap, alt_fail, i);
+            fold_init_cap_.clear();
         }
 
         // Action: build AST node.  rcap_var_ is still set here for ARRAY_CAPTURE use.
@@ -1020,7 +1043,10 @@ private:
             w.fmt("return {};", captures[1]);
         } else {
             rcap_var_.clear();
-            w.line("return AnyVal{}; // TODO: add => { ... } action for multi-item alt");
+            // No action + multiple items → return the last capture.
+            // This covers fold-chain rules like `atom <- primary_expr postfix*`
+            // where the fold REP accumulates into its cap.
+            w.fmt("return {};", captures[alt.seq.size()]);
         }
 
         w.dedent();
@@ -1106,38 +1132,78 @@ private:
         }
 
         case int32_t(ast::REP): {
-            // Repetition: collect sub-items into array. cap = AnyVal pointing to array.
             std::string id       = fresh();
-            std::string arr_var  = "arr_" + id;
             std::string fail_lbl = "rep_fail_" + id;
-            w.fmt("auto {} = doc_.make_array(4).get();", arr_var);
-            w.line("{");
-            w.indent();
-            w.line("while (true) {");
-            w.indent();
-            w.line("size_t rep_pos_ = pos_; bool rep_la_ = have_la_; Token rep_tok_ = la_; uint32_t rep_line_ = line_;");
-            w.line("size_t rep_doc_ = doc_.arena_checkpoint();");
-            if (!item.sub_items.empty()) {
-                w.line("{"); // inner scope for sub-item
+
+            if (rep_is_fold(item) && !fold_init_cap_.empty()) {
+                // ── Fold-mode repetition ─────────────────────────────────────────
+                // Accumulator starts from the preceding sequence item.
+                // Each iteration: GROUP matches a postfix suffix, builds a new node
+                // with RECEIVER=$0 (= fold accumulator), then fold_acc = new node.
+                std::string fold_acc = "fold_acc_" + id;
+                w.fmt("AnyVal {} = {};", fold_acc, fold_init_cap_);
+                // Set cur_fold_var_ so that $0 inside GROUP alt actions resolves correctly.
+                cur_fold_var_ = fold_acc;
+                w.line("{");
                 w.indent();
-                std::string sub_cap = "rep_item_" + id;
-                emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
-                w.fmt("if (!{}.is_null()) {}.push_back({}).get();", sub_cap, arr_var, sub_cap);
-                w.line("continue;");
+                w.line("while (true) {");
+                w.indent();
+                w.line("size_t rep_pos_ = pos_; bool rep_la_ = have_la_; Token rep_tok_ = la_; uint32_t rep_line_ = line_;");
+                w.line("size_t rep_doc_ = doc_.arena_checkpoint();");
+                if (!item.sub_items.empty()) {
+                    w.line("{");
+                    w.indent();
+                    std::string sub_cap = "rep_item_" + id;
+                    emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
+                    w.fmt("{} = {};", fold_acc, sub_cap);
+                    w.line("continue;");
+                    w.dedent();
+                    w.line("}");
+                }
+                w.fmt("{}: ;", fail_lbl);
+                w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
+                w.line("doc_.arena_rollback(rep_doc_);");
+                w.line("break;");
                 w.dedent();
                 w.line("}");
+                w.dedent();
+                w.line("}");
+                w.fmt("[[maybe_unused]] AnyVal {} = {};", cap, fold_acc);
+                cur_fold_var_.clear();
+                if (item.min > 0)
+                    w.fmt("if ({}.is_null()) goto {};", fold_acc, fail_label);
+            } else {
+                // ── Array-accumulation mode (original behaviour) ─────────────────
+                std::string arr_var = "arr_" + id;
+                w.fmt("auto {} = doc_.make_array(4).get();", arr_var);
+                w.line("{");
+                w.indent();
+                w.line("while (true) {");
+                w.indent();
+                w.line("size_t rep_pos_ = pos_; bool rep_la_ = have_la_; Token rep_tok_ = la_; uint32_t rep_line_ = line_;");
+                w.line("size_t rep_doc_ = doc_.arena_checkpoint();");
+                if (!item.sub_items.empty()) {
+                    w.line("{");
+                    w.indent();
+                    std::string sub_cap = "rep_item_" + id;
+                    emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
+                    w.fmt("if (!{}.is_null()) {}.push_back({}).get();", sub_cap, arr_var, sub_cap);
+                    w.line("continue;");
+                    w.dedent();
+                    w.line("}");
+                }
+                w.fmt("{}: ;", fail_lbl);
+                w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
+                w.line("doc_.arena_rollback(rep_doc_);");
+                w.line("break;");
+                w.dedent();
+                w.line("}");
+                w.dedent();
+                w.line("}");
+                w.fmt("[[maybe_unused]] AnyVal {} = {}.to_anyval();", cap, arr_var);
+                if (item.min > 0)
+                    w.fmt("if ({}.size() < {}) goto {};", arr_var, item.min, fail_label);
             }
-            w.fmt("{}: ;", fail_lbl);
-            w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
-            w.line("doc_.arena_rollback(rep_doc_);");
-            w.line("break;");
-            w.dedent();
-            w.line("}");
-            w.dedent();
-            w.line("}");
-            w.fmt("[[maybe_unused]] AnyVal {} = {}.to_anyval();", cap, arr_var);
-            if (item.min > 0)
-                w.fmt("if ({}.size() < {}) goto {};", arr_var, item.min, fail_label);
             break;
         }
 
@@ -1145,6 +1211,7 @@ private:
             // Inline ordered choice: try each alt, use first that succeeds.
             // Each alt: outer scope holds position save; inner scope holds item captures.
             // All labels use unique IDs from fresh() to avoid collisions.
+            // If an alt's action uses $..., a per-alt rcap array is set up for it.
             std::string grp_id   = fresh();
             std::string done_lbl = "grp_done_" + grp_id;
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
@@ -1159,18 +1226,34 @@ private:
                 w.indent();
                 w.line("grp_pos_ = pos_; grp_la_ = have_la_; grp_tok_ = la_; grp_doc_ = doc_.arena_checkpoint(); grp_line_ = line_;");
                 w.line("{"); // inner scope: item captures
+
+                // Per-alt rcap: only when this alt has its own $... action.
+                // If no $... action: keep the outer rcap_var_ so that rule refs
+                // in this GROUP alt continue to push to the enclosing collector.
+                std::string saved_rcap = rcap_var_;
+                if (sa.action && action_has_array_capture(*sa.action)) {
+                    rcap_var_ = "grp_rcap_" + grp_id + "_" + std::to_string(gi);
+                    w.fmt("auto {} = doc_.make_array(4).get();", rcap_var_);
+                }
+
                 w.indent();
-                std::vector<std::string> sub_caps;
+                // 1-indexed capture slots for this GROUP alt ($1 = first item, etc.).
+                std::vector<std::string> sa_caps(1); // sa_caps[0] unused ($0 = FOLD_CAPTURE)
                 for (size_t si = 0; si < sa.seq.size(); ++si) {
                     std::string sc = std::format("{}_gi{}_s{}", cap, gi, si);
-                    sub_caps.push_back(sc);
+                    sa_caps.push_back(sc);
                     emit_item_match(w, sa.seq[si], sc, alt_fail, si);
                 }
-                if (sub_caps.size() == 1)
-                    w.fmt("{} = {};", cap, sub_caps[0]);
-                else
-                    w.fmt("{} = AnyVal{{}};  // multi-item group alt", cap);
+                if (sa.action) {
+                    // Emit action: stores result in `cap`; caller emits goto done_lbl.
+                    emit_action(w, *sa.action, sa_caps, cap);
+                } else if (sa_caps.size() == 2) {
+                    w.fmt("{} = {};", cap, sa_caps[1]);   // single-item passthrough
+                } else {
+                    w.fmt("{} = AnyVal{{}};  // multi-item group alt (no action)", cap);
+                }
                 w.fmt("goto {};", done_lbl);
+                rcap_var_ = saved_rcap;
                 w.dedent();
                 w.line("}"); // end inner scope
                 w.fmt("{}: ;", alt_fail);
@@ -1249,9 +1332,12 @@ private:
     }
 
     // ── Action ───────────────────────────────────────────────────────────────
+    // out_cap: if empty → emit "return result_" (rule-level alt);
+    //          if non-empty → emit "out_cap = result_" (GROUP sub-alt, caller emits goto).
 
     void emit_action(CodeWriter& w, const Action& action,
-                     const std::vector<std::string>& captures) {
+                     const std::vector<std::string>& captures,
+                     const std::string& out_cap = "") {
         int slot_count = int(action.fields.size()) + 2; // +1 for CODE, +1 for SRC_LINE
         w.fmt("auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
@@ -1270,6 +1356,17 @@ private:
                           field_const, captures[idx]);
                 } else {
                     w.fmt("// {} : ${}  — capture index out of range", field.name, idx);
+                }
+                break;
+            }
+
+            case int32_t(ast::FOLD_CAPTURE): {
+                // $0 — the fold accumulator: the result of the preceding sequence item.
+                if (!cur_fold_var_.empty()) {
+                    w.fmt("node->put({}, {}, logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+                          field_const, cur_fold_var_);
+                } else {
+                    w.fmt("// {} : $0  — no fold context (FOLD_CAPTURE outside fold REP)", field.name);
                 }
                 break;
             }
@@ -1314,7 +1411,10 @@ private:
         w.indent();
         w.line("AnyVal result_;");
         w.line("result_.set_pointer(node, logos::hermes::HermesCtrAccess::base(doc_));");
-        w.line("return result_;");
+        if (out_cap.empty())
+            w.line("return result_;");
+        else
+            w.fmt("{} = result_;", out_cap);
         w.dedent();
         w.line("}");
     }

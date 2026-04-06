@@ -41,7 +41,6 @@ namespace logos_ast {
     inline constexpr Key  SIZE                 {"SIZE", 23};
     inline constexpr Key  SRC_LINE             {"SRC_LINE", 24};
     inline constexpr Key  IS_MUT               {"IS_MUT", 25};
-    inline constexpr Key  INCLUSIVE            {"INCLUSIVE", 26};
 
     // Node type discriminants
     inline constexpr Code MODULE               {"MODULE", 1};
@@ -83,9 +82,6 @@ namespace logos_ast {
     inline constexpr Code CONTINUE             {"CONTINUE", 67};
     inline constexpr Code LOOP                 {"LOOP", 68};
     inline constexpr Code CAST                 {"CAST", 69};
-    inline constexpr Code FOR                  {"FOR", 70};
-    inline constexpr Code CONST_DEF            {"CONST_DEF", 71};
-    inline constexpr Code TYPE_ALIAS           {"TYPE_ALIAS", 72};
 
 } // namespace logos_ast
 
@@ -94,10 +90,6 @@ enum class TK_LOGOS : int {
     Eof = 0,
     KW_CONTINUE,   // "continue"
     KW_PACKAGE,   // "package"
-    KW_STATIC,   // "static"
-    KW_TYPE,   // "type"
-    KW_FOR,   // "for"
-    KW_IN,   // "in"
     KW_STRUCT,   // "struct"
     KW_EXTERN,   // "extern"
     KW_RETURN,   // "return"
@@ -134,8 +126,6 @@ enum class TK_LOGOS : int {
     NE,   // "!="
     LE,   // "<="
     GE,   // ">="
-    DOTDOTEQ,   // "..="
-    DOTDOT,   // ".."
     LT,   // "<"
     GT,   // ">"
     PLUS,   // "+"
@@ -161,8 +151,6 @@ private:
     logos::hermes::AnyVal rule_module();
     logos::hermes::AnyVal rule_use_decl();
     logos::hermes::AnyVal rule_item();
-    logos::hermes::AnyVal rule_const_def();
-    logos::hermes::AnyVal rule_type_alias();
     logos::hermes::AnyVal rule_struct_def();
     logos::hermes::AnyVal rule_field_def();
     logos::hermes::AnyVal rule_method_def();
@@ -177,7 +165,6 @@ private:
     logos::hermes::AnyVal rule_simple_type();
     logos::hermes::AnyVal rule_block();
     logos::hermes::AnyVal rule_stmt();
-    logos::hermes::AnyVal rule_for_stmt();
     logos::hermes::AnyVal rule_loop_stmt();
     logos::hermes::AnyVal rule_break_stmt();
     logos::hermes::AnyVal rule_continue_stmt();
@@ -196,9 +183,11 @@ private:
     logos::hermes::AnyVal rule_unary_expr();
     logos::hermes::AnyVal rule_cast_expr();
     logos::hermes::AnyVal rule_atom();
-    logos::hermes::AnyVal rule_primary_expr();
+    logos::hermes::AnyVal rule_method_call_expr();
+    logos::hermes::AnyVal rule_field_read_expr();
     logos::hermes::AnyVal rule_struct_lit();
     logos::hermes::AnyVal rule_field_init();
+    logos::hermes::AnyVal rule_index_read_expr();
     logos::hermes::AnyVal rule_arr_lit();
     logos::hermes::AnyVal rule_paren_expr();
     logos::hermes::AnyVal rule_call_expr();

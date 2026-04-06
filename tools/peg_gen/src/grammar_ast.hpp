@@ -52,6 +52,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <logos/core/named_code.hpp>
 
 namespace logos::peg_gen::ast {
@@ -108,11 +110,12 @@ inline constexpr Code LOOKAHEAD     {"LOOKAHEAD",     16};  // &
 inline constexpr Code NEG_AHEAD     {"NEG_AHEAD",     17};  // !
 
 // Action expression kinds
-inline constexpr Code CAPTURE       {"CAPTURE",       20};  // $n
+inline constexpr Code CAPTURE       {"CAPTURE",       20};  // $n  (n >= 1)
 inline constexpr Code ARRAY_CAPTURE {"ARRAY_CAPTURE", 21};  // $...
 inline constexpr Code BOOL_LIT      {"BOOL_LIT",      22};
 inline constexpr Code INT_LIT       {"INT_LIT",       23};
 inline constexpr Code STR_LIT       {"STR_LIT",       24};
+inline constexpr Code FOLD_CAPTURE  {"FOLD_CAPTURE",  25};  // $0  (fold accumulator)
 
 // ---------------------------------------------------------------------------
 // Token kind values  (stored as value of KIND field in TokenDecl)

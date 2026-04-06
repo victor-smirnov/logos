@@ -646,8 +646,13 @@ private:
         Token t = lex_.next();
 
         if (t.kind == TK::DollarN) {
-            // $1, $2, ...  — strip the leading $
+            // $0 → fold accumulator (FOLD_CAPTURE); $1, $2, ... → positional CAPTURE
             int32_t idx = parse_int(t.text.substr(1));
+            if (idx == 0) {
+                auto node = doc_.make_tiny_map(1).get();
+                node.put(ast::CODE, AnyVal::from_value(ast::FOLD_CAPTURE)).get();
+                return node;
+            }
             auto node = doc_.make_tiny_map(2).get();
             node.put(ast::CODE,  AnyVal::from_value(ast::CAPTURE)).get();
             node.put(ast::INDEX, AnyVal::from_value(idx)).get();
