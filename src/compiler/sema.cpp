@@ -38,13 +38,44 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
                a.elem && b.elem &&
                types_equal(*a.elem, *b.elem);
     case LogosType::Kind::Struct:
-        return a.struct_name == b.struct_name;
+        if (a.struct_name != b.struct_name) return false;
+        if (a.type_args.size() != b.type_args.size()) return false;
+        for (size_t i = 0; i < a.type_args.size(); ++i)
+            if (!a.type_args[i] || !b.type_args[i] ||
+                !types_equal(*a.type_args[i], *b.type_args[i])) return false;
+        return true;
     case LogosType::Kind::Enum:
         return a.enum_name == b.enum_name;
     case LogosType::Kind::TypeVar:
         return a.type_var_name == b.type_var_name;
     default:
         return true;
+    }
+}
+
+// ── Generic struct name helpers ────────────────────────────────────────────
+
+static std::string mangle_type_for_name(const LogosType* t);
+
+std::string concrete_struct_name(const LogosType* t) {
+    if (!t || t->kind != LogosType::Kind::Struct) return {};
+    if (t->type_args.empty()) return t->struct_name;
+    std::string r = t->struct_name;
+    for (auto* a : t->type_args) { r += "__"; r += mangle_type_for_name(a); }
+    return r;
+}
+
+static std::string mangle_type_for_name(const LogosType* t) {
+    if (!t) return "null";
+    switch (t->kind) {
+    case LogosType::Kind::Ptr:
+        return (t->mut_ptr ? "pmut_" : "pcst_") + mangle_type_for_name(t->pointee);
+    case LogosType::Kind::Array:
+        return "arr" + std::to_string(t->arr_size) + "_" + mangle_type_for_name(t->elem);
+    case LogosType::Kind::Struct:
+        return concrete_struct_name(t);
+    default:
+        return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
     }
 }
 
@@ -91,8 +122,15 @@ std::string type_str(const LogosType* t) {
         return std::string(t->mut_ptr ? "*mut " : "*const ") + type_str(t->pointee);
     case LogosType::Kind::Array:
         return std::format("[{}; {}]", type_str(t->elem), t->arr_size);
-    case LogosType::Kind::Struct:  return std::string(t->struct_name);
-    case LogosType::Kind::Enum:    return std::string(t->enum_name);
+    case LogosType::Kind::Struct:
+        if (t->type_args.empty()) return t->struct_name;
+        { std::string r = t->struct_name + "<";
+          for (size_t i = 0; i < t->type_args.size(); ++i) {
+              if (i) r += ", ";
+              r += type_str(t->type_args[i]);
+          }
+          return r + ">"; }
+    case LogosType::Kind::Enum:    return t->enum_name;
     case LogosType::Kind::TypeVar: return std::string(t->type_var_name);
     case LogosType::Kind::Error:   return "<error>";
     }
@@ -180,11 +218,18 @@ private:
     }
     const LogosType* make_struct_type(std::string_view name) {
         LogosType t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
-        return pool_.alloc(t);
+        return pool_.alloc(std::move(t));
+    }
+    const LogosType* make_generic_struct(std::string_view name,
+                                          std::vector<const LogosType*> args) {
+        LogosType t; t.kind = LogosType::Kind::Struct;
+        t.struct_name = std::string(name);
+        t.type_args   = std::move(args);
+        return pool_.alloc(std::move(t));
     }
     const LogosType* make_enum_type(std::string_view name) {
         LogosType t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
-        return pool_.alloc(t);
+        return pool_.alloc(std::move(t));
     }
     const LogosType* make_typevar(std::string_view name) {
         LogosType t; t.kind = LogosType::Kind::TypeVar;
@@ -327,6 +372,8 @@ private:
     std::unordered_map<std::string, const LogosType*> current_type_params_;
 
     std::unordered_map<std::string, SemaStructInfo>   structs_;
+    // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
+    std::unordered_map<std::string, SemaStructInfo>   struct_specs_sema_;
     std::unordered_map<std::string, SemaEnumInfo>     enums_;
     std::unordered_map<std::string, SemaFuncInfo>     funcs_;
     std::unordered_map<std::string, const LogosType*> type_aliases_;
@@ -374,6 +421,43 @@ private:
     void pop_type_params(const std::vector<TypeParam>& tps) {
         for (auto& tp : tps)
             current_type_params_.erase(tp.name);
+    }
+
+    // ── Sema-side type substitution (TypeVar → concrete) ────────────
+
+    using SemaSubst = std::unordered_map<std::string, const LogosType*>;
+
+    const LogosType* subst_type_sema(const LogosType* t, const SemaSubst& s) {
+        if (!t) return t;
+        switch (t->kind) {
+        case LogosType::Kind::TypeVar: {
+            auto it = s.find(t->type_var_name);
+            return (it != s.end()) ? it->second : t;
+        }
+        case LogosType::Kind::Ptr: {
+            auto* inner = subst_type_sema(t->pointee, s);
+            if (inner == t->pointee) return t;
+            return make_ptr(t->mut_ptr, inner);
+        }
+        case LogosType::Kind::Array: {
+            auto* elem = subst_type_sema(t->elem, s);
+            if (elem == t->elem) return t;
+            return make_array(elem, t->arr_size);
+        }
+        case LogosType::Kind::Struct: {
+            if (t->type_args.empty()) return t;
+            std::vector<const LogosType*> new_args;
+            bool changed = false;
+            for (auto* a : t->type_args) {
+                auto* na = subst_type_sema(a, s);
+                changed |= (na != a);
+                new_args.push_back(na);
+            }
+            if (!changed) return t;
+            return make_generic_struct(t->struct_name, std::move(new_args));
+        }
+        default: return t;
+        }
     }
 
     // ── Type resolution ──────────────────────────────────────────
@@ -426,17 +510,20 @@ private:
         }
 
         if (tc == la::GENERIC_INST) {
-            // Vec<T>, Map<K, V>, etc.  Resolve to a Struct type for now;
-            // the monomorphizer will validate the instantiation.
             auto name = str_of(node.get(la::NAME.code));
-            // Type args are in ITEMS — resolve each so TypeVars in scope are expanded
-            // (e.g., inside fn foo<T> { let v: Vec<T> = ...; } → Vec<TypeVar T>)
-            // We don't yet have a GenericInst LogosType — treat as the base struct type.
-            if (structs_.count(std::string(name))) return make_struct_type(name);
-            if (enums_.count(std::string(name)))   return make_enum_type(name);
-            // Unknown base — might be a forward reference or stdlib type
-            error(std::format("unknown generic type '{}'", name));
-            return error_t();
+            if (!structs_.count(std::string(name))) {
+                error(std::format("unknown generic type '{}'", name));
+                return error_t();
+            }
+            // Resolve each type arg (TypeVars in current scope are expanded).
+            std::vector<const LogosType*> args;
+            if (node.has_key(la::ITEMS)) {
+                auto items = arr_of(node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    args.push_back(resolve_type(map_of(items.get(i))));
+            }
+            if (args.empty()) return make_struct_type(name);  // degenerate: no args
+            return make_generic_struct(name, std::move(args));
         }
 
         error(std::format("unexpected type node code {}", tc));
@@ -456,6 +543,7 @@ private:
                 auto item = map_of(items.get(i));
                 int32_t ic = code_of(item);
                 if (ic == la::STRUCT) {
+                    if (is_specialization_struct(item)) continue;  // specs registered later
                     auto sname = std::string(str_of(item.get(la::NAME.code)));
                     if (structs_.count(sname)) error(std::format("duplicate struct '{}'", sname));
                     else structs_[sname] = {};
@@ -480,8 +568,10 @@ private:
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             int32_t c = code_of(item);
-            if      (c == la::STRUCT)                     collect_struct(item);
-            else if (c == la::ENUM)                       collect_enum(item);
+            if      (c == la::STRUCT) {
+                if (is_specialization_struct(item)) collect_struct_spec(item);
+                else                                collect_struct(item);
+            } else if (c == la::ENUM)                       collect_enum(item);
             else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
             else if (c == la::TYPE_ALIAS)                 collect_type_alias(item);
             else if (c == la::CONST_DEF)                  collect_const(item);
@@ -535,7 +625,76 @@ private:
         if (t) module_consts_[name] = t;
     }
 
+    // Collect a struct specialization into struct_specs_sema_.
+    // Only full specializations (all patterns concrete) are registered;
+    // partial specs are skipped here and handled by mono.
+    void collect_struct_spec(TinyMapView node) {
+        auto sname = std::string(str_of(node.get(la::NAME.code)));
+        ctx_ = std::format("struct {} (specialization)", sname);
+
+        // Parse spec patterns to determine the concrete name.
+        std::vector<const LogosType*> spec_patterns;
+        std::vector<TypeParam> pattern_tvars;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+                        auto tpnode = map_of(tpitems.get(i));
+                        int32_t tc  = code_of(tpnode);
+                        if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
+                            extract_typevars_from_type_node(tpnode, pattern_tvars);
+                            spec_patterns.push_back(resolve_type(tpnode));
+                        } else if (tc == la::TYPE_PARAM) {
+                            auto name = str_of(tpnode.get(la::NAME.code));
+                            auto* known = try_resolve_as_known_type(name);
+                            if (known) {
+                                spec_patterns.push_back(known);
+                            } else {
+                                // Partial spec — skip for sema registration.
+                                current_type_params_[std::string(name)] = make_typevar(name);
+                                pattern_tvars.push_back({std::string(name), {}});
+                                spec_patterns.push_back(make_typevar(name));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check if all patterns are concrete (no TypeVar).
+        bool all_concrete = true;
+        for (auto* p : spec_patterns)
+            if (p->kind == LogosType::Kind::TypeVar) { all_concrete = false; break; }
+
+        if (all_concrete) {
+            // Compute concrete name (e.g. "Pair__i32") and build SemaStructInfo.
+            auto* inst_type = make_generic_struct(sname, spec_patterns);
+            std::string concrete = concrete_struct_name(inst_type);
+
+            SemaStructInfo info;
+            if (node.has_key(la::FIELDS)) {
+                auto fields = arr_of(node.get(la::FIELDS.code));
+                for (uint64_t i = 0; i < fields.size(); ++i) {
+                    auto fnode = map_of(fields.get(i));
+                    auto fname = str_of(fnode.get(la::NAME.code));
+                    auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+                    info.fields.push_back({fname, ftype});
+                }
+            }
+            struct_specs_sema_[std::move(concrete)] = std::move(info);
+        }
+
+        // Clean up pattern TypeVars.
+        for (auto& tp : pattern_tvars)
+            current_type_params_.erase(tp.name);
+    }
+
     void collect_struct(TinyMapView node) {
+        // Struct specialisations don't go into structs_ — they're lowered directly.
+        if (is_specialization_struct(node)) return;
         auto sname = std::string(str_of(node.get(la::NAME.code)));
         ctx_ = std::format("struct {}", sname);
         SemaStructInfo info;
@@ -636,6 +795,89 @@ private:
             }
         }
         return false;
+    }
+
+    // Same logic as is_specialization_fn but for struct definitions.
+    bool is_specialization_struct(TinyMapView node) {
+        return is_specialization_fn(node);  // identical check
+    }
+
+    // ── lower_spec_struct ─────────────────────────────────────────
+    // Lowers a struct specialisation definition.
+    // Populates spec_patterns analogously to lower_spec_fn.
+
+    lir::LStructDef lower_spec_struct(TinyMapView node) {
+        auto sname = std::string(str_of(node.get(la::NAME.code)));
+        ctx_ = std::format("struct {} (specialization)", sname);
+
+        lir::LStructDef sd;
+        sd.name = sname;
+        sd.is_specialization = true;
+
+        // Parse spec type-param list: populate spec_patterns and TypeVar scope.
+        std::vector<TypeParam> pattern_tvars;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+                        auto tpnode = map_of(tpitems.get(i));
+                        int32_t tc  = code_of(tpnode);
+                        if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
+                            extract_typevars_from_type_node(tpnode, pattern_tvars);
+                            sd.spec_patterns.push_back(resolve_type(tpnode));
+                        } else if (tc == la::TYPE_PARAM) {
+                            auto name = str_of(tpnode.get(la::NAME.code));
+                            if (tpnode.has_key(la::ITEMS)) {
+                                // TypeVar with bounds — stays TypeVar in pattern.
+                                current_type_params_[std::string(name)] = make_typevar(name);
+                                TypeParam tp; tp.name = std::string(name);
+                                pattern_tvars.push_back(std::move(tp));
+                                sd.spec_patterns.push_back(make_typevar(name));
+                            } else {
+                                auto* known = try_resolve_as_known_type(name);
+                                if (known) {
+                                    sd.spec_patterns.push_back(known);
+                                } else {
+                                    current_type_params_[std::string(name)] = make_typevar(name);
+                                    pattern_tvars.push_back({std::string(name), {}});
+                                    sd.spec_patterns.push_back(make_typevar(name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Lower fields (TypeVars from patterns now in scope).
+        if (node.has_key(la::FIELDS)) {
+            auto fields = arr_of(node.get(la::FIELDS.code));
+            for (uint64_t i = 0; i < fields.size(); ++i) {
+                auto fnode = map_of(fields.get(i));
+                auto fname = str_of(fnode.get(la::NAME.code));
+                auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+                sd.fields.push_back({std::string(fname), ftype});
+            }
+        }
+
+        // Lower methods.
+        if (node.has_key(la::ITEMS)) {
+            auto methods = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t m = 0; m < methods.size(); ++m) {
+                auto method = map_of(methods.get(m));
+                if (code_of(method) == la::FN)
+                    sd.methods.push_back(lower_fn(method, sname));
+            }
+        }
+
+        // Clean up pattern TypeVars.
+        for (auto& tp : pattern_tvars)
+            current_type_params_.erase(tp.name);
+
+        return sd;
     }
 
     // ── lower_spec_fn ─────────────────────────────────────────────
@@ -858,12 +1100,39 @@ private:
         return t && is_integer_kind(t->kind);
     }
 
+    // Raw field type from the template (may contain TypeVars).
     const LogosType* field_type_of(std::string_view sname, std::string_view fname) {
         auto sit = structs_.find(std::string(sname));
         if (sit == structs_.end()) return nullptr;
         for (auto& f : sit->second.fields)
             if (f.name == fname) return f.type;
         return nullptr;
+    }
+
+    // Field type with TypeVars substituted for a (possibly generic) struct instance.
+    const LogosType* field_type_of_for_type(const LogosType* struct_t,
+                                             std::string_view fname) {
+        if (!struct_t || struct_t->kind != LogosType::Kind::Struct) return nullptr;
+        // Check for a concrete specialization first.
+        if (!struct_t->type_args.empty()) {
+            std::string concrete = concrete_struct_name(struct_t);
+            auto spec_it = struct_specs_sema_.find(concrete);
+            if (spec_it != struct_specs_sema_.end()) {
+                for (auto& f : spec_it->second.fields)
+                    if (f.name == fname) return f.type;
+                return nullptr;  // field not in specialization
+            }
+        }
+        auto* raw = field_type_of(struct_t->struct_name, fname);
+        if (!raw || struct_t->type_args.empty()) return raw;
+        // Build substitution from template type_params → concrete type_args.
+        auto sit = structs_.find(struct_t->struct_name);
+        if (sit == structs_.end()) return raw;
+        SemaSubst subst;
+        auto& tps = sit->second.type_params;
+        for (size_t i = 0; i < tps.size() && i < struct_t->type_args.size(); ++i)
+            subst[tps[i].name] = struct_t->type_args[i];
+        return subst_type_sema(raw, subst);
     }
 
     // ── lower_expr ───────────────────────────────────────────────
@@ -1127,16 +1396,8 @@ private:
         for (size_t i = 0; i < n_subst; ++i)
             subst[fi.type_params[i].name] = type_args[i];
 
-        // Determine concrete return type by substituting TypeVars
-        auto subst_type = [&](const LogosType* t) -> const LogosType* {
-            if (!t) return error_t();
-            if (t->kind == LogosType::Kind::TypeVar) {
-                auto it = subst.find(t->type_var_name);
-                if (it != subst.end()) return it->second;
-            }
-            return t;
-        };
-        const LogosType* ret = subst_type(fi.ret_type);
+        // Determine concrete return type by substituting TypeVars (recursive)
+        const LogosType* ret = subst_type_sema(fi.ret_type, subst);
 
         // Validate value argument count
         uint64_t n_args = arg_exprs.size();
@@ -1146,7 +1407,7 @@ private:
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto* at = arg_exprs[i]->type;
-                auto* pt = subst_type(fi.param_types[i]);
+                auto* pt = subst_type_sema(fi.param_types[i], subst);
                 if (at->kind != LogosType::Kind::Error &&
                     pt->kind != LogosType::Kind::Error &&
                     pt->kind != LogosType::Kind::TypeVar &&
@@ -1219,7 +1480,11 @@ private:
                   type_str(recv->type)));
             return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
         }
-        auto* ft = field_type_of(sname, field_name);
+        // Resolve the actual struct type (receiver may be a pointer to a struct).
+        const LogosType* recv_struct_t = recv->type;
+        if (recv_struct_t->kind == LogosType::Kind::Ptr)
+            recv_struct_t = recv_struct_t->pointee;
+        auto* ft = field_type_of_for_type(recv_struct_t, field_name);
         if (!ft) {
             error(std::format("field read: struct '{}' has no field '{}'", sname, field_name));
             return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
@@ -1236,41 +1501,101 @@ private:
         }
         auto& sinfo = sit->second;
 
-        std::unordered_map<std::string, bool> initialized;
-        for (auto& f : sinfo.fields) initialized[std::string(f.name)] = false;
-
+        // Lower all field values first (without validation), collecting names and types.
         std::vector<std::pair<std::string, lir::LExprPtr>> fields;
         if (node.has_key(la::ITEMS)) {
             auto inits = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < inits.size(); ++i) {
                 auto init = map_of(inits.get(i));
                 auto fname = str_of(init.get(la::NAME.code));
-                auto it = initialized.find(std::string(fname));
+                lir::LExprPtr val = init.has_key(la::VALUE)
+                    ? lower_expr(map_of(init.get(la::VALUE.code)))
+                    : error_expr();
+                fields.push_back({std::string(fname), std::move(val)});
+            }
+        }
+
+        // For generic structs: infer type args and resolve to spec or template.
+        if (!sinfo.type_params.empty()) {
+            // Infer type args from field values against the generic template.
+            SemaSubst inferred;
+            for (auto& [fname, fval] : fields) {
+                auto* raw_ft = field_type_of(std::string(sname), fname);
+                if (!raw_ft) continue;
+                if (raw_ft->kind == LogosType::Kind::TypeVar) {
+                    auto& tv = raw_ft->type_var_name;
+                    if (!inferred.count(tv)) {
+                        auto* vt = fval->type;
+                        if (vt->kind == LogosType::Kind::IntLit) vt = i32_t();
+                        inferred[tv] = vt;
+                    }
+                }
+            }
+            std::vector<const LogosType*> args;
+            for (auto& tp : sinfo.type_params) {
+                auto it = inferred.find(tp.name);
+                args.push_back(it != inferred.end() ? it->second : error_t());
+            }
+            const LogosType* lit_type = make_generic_struct(std::string(sname), args);
+
+            // Check if a concrete specialization exists for these type args.
+            std::string concrete = concrete_struct_name(lit_type);
+            auto spec_it = struct_specs_sema_.find(concrete);
+            const SemaStructInfo* effective = (spec_it != struct_specs_sema_.end())
+                                              ? &spec_it->second : &sinfo;
+
+            // Validate fields against the effective definition.
+            std::unordered_map<std::string, bool> initialized;
+            for (auto& f : effective->fields) initialized[std::string(f.name)] = false;
+            for (auto& [fname, fval] : fields) {
+                auto it = initialized.find(fname);
                 if (it == initialized.end()) {
                     error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
                 } else {
                     it->second = true;
-                }
-                lir::LExprPtr val = init.has_key(la::VALUE)
-                    ? lower_expr(map_of(init.get(la::VALUE.code)))
-                    : error_expr();
-                if (it != initialized.end()) {
-                    auto* ft = field_type_of(sname, fname);
+                    // Find field type in effective definition.
+                    const LogosType* ft = nullptr;
+                    for (auto& ef : effective->fields)
+                        if (ef.name == fname) { ft = ef.type; break; }
                     if (ft && ft->kind != LogosType::Kind::Error &&
-                        val->type->kind != LogosType::Kind::Error &&
-                        !types_compatible(val->type, ft)) {
+                        fval->type->kind != LogosType::Kind::Error &&
+                        ft->kind != LogosType::Kind::TypeVar &&
+                        !types_compatible(fval->type, ft)) {
                         error(std::format("struct literal '{}' field '{}': expected {}, got {}",
-                              sname, fname, type_str(ft), type_str(val->type)));
+                              sname, fname, type_str(ft), type_str(fval->type)));
                     }
                 }
-                fields.push_back({std::string(fname), std::move(val)});
+            }
+            for (auto& [fname, init] : initialized)
+                if (!init)
+                    error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
+
+            return make_expr(lit_type, lir::EStructLit{std::string(sname), std::move(fields)});
+        }
+
+        // Non-generic struct: validate against template fields directly.
+        std::unordered_map<std::string, bool> initialized;
+        for (auto& f : sinfo.fields) initialized[std::string(f.name)] = false;
+        for (auto& [fname, fval] : fields) {
+            auto it = initialized.find(fname);
+            if (it == initialized.end()) {
+                error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
+            } else {
+                it->second = true;
+                auto* ft = field_type_of(std::string(sname), fname);
+                if (ft && ft->kind != LogosType::Kind::Error &&
+                    fval->type->kind != LogosType::Kind::Error &&
+                    !types_compatible(fval->type, ft)) {
+                    error(std::format("struct literal '{}' field '{}': expected {}, got {}",
+                          sname, fname, type_str(ft), type_str(fval->type)));
+                }
             }
         }
         for (auto& [fname, init] : initialized)
             if (!init)
                 error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
 
-        return make_expr(make_struct_type(sname),
+        return make_expr(make_struct_type(std::string(sname)),
             lir::EStructLit{std::string(sname), std::move(fields)});
     }
 
@@ -1608,7 +1933,11 @@ private:
                 error(std::format("field write to immutable variable '{}'", recv_name));
             }
         }
-        auto* ft = sname.empty() ? nullptr : field_type_of(sname, field_name);
+        const LogosType* recv_struct_t = sname.empty() ? nullptr : lookup(recv_name);
+        if (recv_struct_t && recv_struct_t->kind == LogosType::Kind::Ptr)
+            recv_struct_t = recv_struct_t->pointee;
+        auto* ft = recv_struct_t ? field_type_of_for_type(recv_struct_t, field_name)
+                                 : nullptr;
         if (!sname.empty() && !ft)
             error(std::format("field write: struct '{}' has no field '{}'", sname, field_name));
 
@@ -1878,7 +2207,12 @@ private:
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             int32_t c = code_of(item);
-            if      (c == la::STRUCT)     prog.structs.push_back(lower_struct_def(item));
+            if      (c == la::STRUCT) {
+                if (is_specialization_struct(item))
+                    prog.struct_specializations.push_back(lower_spec_struct(item));
+                else
+                    prog.structs.push_back(lower_struct_def(item));
+            }
             else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
             else if (c == la::FN || c == la::EXTERN_FN) {
                 if (is_specialization_fn(item))

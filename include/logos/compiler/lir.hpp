@@ -238,6 +238,10 @@ struct LStructDef {
     std::vector<TypeParam>   type_params;  // empty for non-generic structs
     std::vector<LField>      fields;
     std::vector<LFunction>   methods;
+
+    // Specialisation support (mirrors LFunction).
+    bool                          is_specialization = false;
+    std::vector<const LogosType*> spec_patterns;
 };
 
 struct LVariant {
@@ -273,6 +277,7 @@ struct LProgram {
     TypePool               type_pool;  // owns all LogosType*
 
     std::vector<LStructDef>  structs;
+    std::vector<LStructDef>  struct_specializations;  // struct specs (consumed by mono)
     std::vector<LEnumDef>    enums;
     std::vector<LFunction>   functions;        // free functions and extern fn
     std::vector<LFunction>   specializations;  // fn specialisations (consumed by mono)

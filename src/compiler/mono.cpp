@@ -46,37 +46,46 @@ public:
     lir::LProgram run(lir::LProgram&& in, int /*max_depth*/) {
         in_ = std::move(in);
 
-        // Move non-generic structs to out_ (generic structs deferred to Batch E).
-        // Since LStructDef contains unique_ptrs, it is non-copyable — must move.
-        out_.structs      = std::move(in_.structs);
         out_.enums        = std::move(in_.enums);
         out_.consts       = std::move(in_.consts);
         out_.type_aliases = std::move(in_.type_aliases);
         // Move type_pool — will be extended with new types during mono
         out_.type_pool    = std::move(in_.type_pool);
 
-        // Index generic function templates by name.
-        // Pointers point into in_.functions (not moved) — stable for the run.
+        // Index generic struct templates; pass-through plain structs immediately.
+        for (auto& sd : in_.structs) {
+            if (!sd.type_params.empty())
+                struct_templates_[sd.name] = &sd;  // stable: in_.structs not moved
+        }
+        // Move non-generic structs to output.
+        for (auto& sd : in_.structs) {
+            if (sd.type_params.empty())
+                out_.structs.push_back(clone_struct_def(sd, {}, sd.name));
+        }
+
+        // Index generic fn templates.
         for (auto& fn : in_.functions) {
             if (!fn.type_params.empty())
                 templates_[fn.name] = &fn;
         }
 
-        // Index specialisations by base name.
-        // Pointers point into in_.specializations (not moved) — stable for the run.
+        // Index fn specialisations.
         for (auto& spec : in_.specializations)
             specs_[spec.name].push_back(&spec);
 
-        // Process non-generic free functions: clone (which rewrites generic call
-        // sites to mangled names) then scan the clone for instantiations to enqueue.
+        // Index struct specialisations.
+        for (auto& ss : in_.struct_specializations)
+            struct_specs_[ss.name].push_back(&ss);
+
+        // Process non-generic free functions.
         for (auto& fn : in_.functions) {
             if (!fn.type_params.empty()) continue;
-            auto cloned = clone_fn(fn, {});   // empty SubstMap = rewrite only
+            auto cloned = clone_fn(fn, {});
             scan_fn(cloned);
             out_.functions.push_back(std::move(cloned));
         }
 
-        // Process work-list of instantiations triggered by the scan above.
+        // Process function work-list.
         while (!worklist_.empty()) {
             auto item = std::move(worklist_.back());
             worklist_.pop_back();
@@ -84,6 +93,9 @@ public:
             scan_fn(inst);
             out_.functions.push_back(std::move(inst));
         }
+
+        // Instantiate all generic structs referenced by the output.
+        instantiate_struct_templates();
 
         out_.diags = std::move(in_.diags);
         return std::move(out_);
@@ -98,8 +110,20 @@ private:
     // name → pointer into in_.functions (generic templates only)
     std::unordered_map<std::string, const lir::LFunction*> templates_;
 
-    // name → list of specialisations (pointers into in_.specializations)
+    // name → list of fn specialisations (pointers into in_.specializations)
     std::unordered_map<std::string, std::vector<const lir::LFunction*>> specs_;
+
+    // name → pointer into in_.structs (generic struct templates)
+    std::unordered_map<std::string, const lir::LStructDef*> struct_templates_;
+
+    // name → list of struct specialisations (pointers into in_.struct_specializations)
+    std::unordered_map<std::string, std::vector<const lir::LStructDef*>> struct_specs_;
+
+    // concrete_name → LogosType* of needed generic struct instantiations
+    std::unordered_map<std::string, const LogosType*> needed_struct_insts_;
+
+    // Already-instantiated struct names (prevent duplicates)
+    std::unordered_set<std::string> struct_done_;
 
     // Already-instantiated mangled names (prevent duplicate generation)
     std::unordered_set<std::string> done_;
@@ -132,9 +156,37 @@ private:
             LogosType nt = *t; nt.elem = elem;
             return out_.type_pool.alloc(nt);
         }
+        case LogosType::Kind::Struct: {
+            if (t->type_args.empty()) return t;
+            std::vector<const LogosType*> new_args;
+            bool changed = false;
+            for (auto* a : t->type_args) {
+                auto* na = subst_type(a, s);
+                changed |= (na != a);
+                new_args.push_back(na);
+            }
+            if (!changed) return t;
+            LogosType nt = *t;
+            nt.type_args = std::move(new_args);
+            // Track this instantiation for struct monomorphization.
+            const LogosType* result = out_.type_pool.alloc(nt);
+            record_needed_struct(result);
+            return result;
+        }
         default:
             return t;
         }
+    }
+
+    // Register a generic struct instantiation as needed (all args must be concrete).
+    void record_needed_struct(const LogosType* t) {
+        if (!t || t->kind != LogosType::Kind::Struct || t->type_args.empty()) return;
+        // Check all args are concrete (no TypeVars).
+        for (auto* a : t->type_args)
+            if (a->kind == LogosType::Kind::TypeVar) return;
+        auto cname = concrete_struct_name(t);
+        if (!struct_done_.count(cname))
+            needed_struct_insts_[cname] = t;
     }
 
     // ── Mangling ──────────────────────────────────────────────────
@@ -149,8 +201,10 @@ private:
             return (t->mut_ptr ? "pmut_" : "pcst_") + mangle_type(t->pointee);
         case LogosType::Kind::Array:
             return "arr" + std::to_string(t->arr_size) + "_" + mangle_type(t->elem);
+        case LogosType::Kind::Struct:
+            return concrete_struct_name(t);  // handles generic inst mangling
         default:
-            return type_str(t);  // primitives / TypeVar / Struct / Enum — already valid
+            return type_str(t);  // primitives / TypeVar / Enum — already valid identifiers
         }
     }
 
@@ -223,9 +277,16 @@ private:
 
             } else if constexpr (std::is_same_v<K, lir::EStructLit>) {
                 lir::EStructLit ns;
-                ns.name = k.name;
+                // Update name to the concrete mangled struct name if generic.
+                if (result->type && result->type->kind == LogosType::Kind::Struct &&
+                    !result->type->type_args.empty())
+                    ns.name = concrete_struct_name(result->type);
+                else
+                    ns.name = k.name;
                 for (auto& [fn, fv] : k.fields)
                     ns.fields.push_back({fn, subst_expr(*fv, s)});
+                // Record the instantiation as needed.
+                record_needed_struct(result->type);
                 result->kind = std::move(ns);
 
             } else if constexpr (std::is_same_v<K, lir::EArrLit>) {
@@ -531,7 +592,7 @@ private:
         worklist_.push_back({mangled_callee, tmpl, std::move(subst)});
     }
 
-    // ── Instantiate a template with a concrete SubstMap ──────────
+    // ── Instantiate a function template with a concrete SubstMap ─
 
     lir::LFunction instantiate_fn(const lir::LFunction& tmpl,
                                    const std::string& mangled_name,
@@ -541,6 +602,191 @@ private:
         fn.name = mangled_name;
         --depth_;
         return fn;
+    }
+
+    // ── Struct monomorphization ───────────────────────────────────
+
+    // Clone a struct def with substitution; rename to new_name.
+    // Method names are rewritten from "Base__method" to "new_name__method".
+    lir::LStructDef clone_struct_def(const lir::LStructDef& tmpl,
+                                      const SubstMap& s,
+                                      const std::string& new_name) {
+        lir::LStructDef nd;
+        nd.name = new_name;
+        // type_params cleared: result is monomorphic
+        for (auto& f : tmpl.fields)
+            nd.fields.push_back({f.name, subst_type(f.type, s)});
+        for (auto& m : tmpl.methods) {
+            auto nm = clone_fn(m, s);
+            // Rename method: "OldBase__methodName" → "new_name__methodName"
+            // Method names are stored as "StructName__methodName".
+            auto sep = m.name.find("__");
+            if (sep != std::string::npos)
+                nm.name = new_name + m.name.substr(sep);
+            // Substitute struct type in params/ret as needed (already done by clone_fn).
+            nd.methods.push_back(std::move(nm));
+        }
+        return nd;
+    }
+
+    // Return the best-matching struct specialisation for (base_name, type_args).
+    const lir::LStructDef* find_best_struct_spec(
+        const std::string& base_name,
+        const std::vector<const LogosType*>& type_args) {
+        auto sit = struct_specs_.find(base_name);
+        if (sit == struct_specs_.end()) return nullptr;
+
+        const lir::LStructDef* best       = nullptr;
+        int                    best_score = -1;
+
+        for (auto* spec : sit->second) {
+            if (spec->spec_patterns.size() != type_args.size()) continue;
+            SubstMap dummy;
+            bool ok = true;
+            for (size_t i = 0; i < type_args.size(); ++i) {
+                if (!match_type(type_args[i], spec->spec_patterns[i], dummy)) {
+                    ok = false; break;
+                }
+            }
+            if (!ok) continue;
+            int score = specificity_score(spec->spec_patterns);
+            if (score > best_score) { best_score = score; best = spec; }
+        }
+        return best;
+    }
+
+    // Walk a type and record any concrete generic struct instantiations needed.
+    void collect_type_for_structs(const LogosType* t) {
+        if (!t) return;
+        switch (t->kind) {
+        case LogosType::Kind::Ptr:   collect_type_for_structs(t->pointee); break;
+        case LogosType::Kind::Array: collect_type_for_structs(t->elem);    break;
+        case LogosType::Kind::Struct:
+            record_needed_struct(t);
+            for (auto* a : t->type_args) collect_type_for_structs(a);
+            break;
+        default: break;
+        }
+    }
+
+    // Walk all output functions collecting generic struct instantiations needed.
+    void collect_struct_needs_from_output() {
+        for (auto& fn : out_.functions) {
+            collect_type_for_structs(fn.ret_type);
+            for (auto& p : fn.params) collect_type_for_structs(p.type);
+            collect_struct_needs_from_block(fn.body);
+        }
+        // Also walk already-instantiated structs (field types may reference more).
+        for (auto& sd : out_.structs)
+            for (auto& f : sd.fields) collect_type_for_structs(f.type);
+    }
+
+    void collect_struct_needs_from_block(const lir::LBlock& b) {
+        for (auto& st : b.stmts) collect_struct_needs_from_stmt(st);
+    }
+
+    void collect_struct_needs_from_stmt(const lir::LStmt& st) {
+        std::visit([&](const auto& k) {
+            using K = std::decay_t<decltype(k)>;
+            if constexpr (std::is_same_v<K, lir::SLet>)
+                { collect_type_for_structs(k.type); collect_struct_needs_from_expr(*k.value); }
+            else if constexpr (std::is_same_v<K, lir::SAssign>)
+                collect_struct_needs_from_expr(*k.value);
+            else if constexpr (std::is_same_v<K, lir::SReturn>)
+                { if (k.value) collect_struct_needs_from_expr(*k.value); }
+            else if constexpr (std::is_same_v<K, lir::SIf>) {
+                collect_struct_needs_from_expr(*k.cond);
+                collect_struct_needs_from_block(*k.then_);
+                if (k.else_) collect_struct_needs_from_block(**k.else_);
+            } else if constexpr (std::is_same_v<K, lir::SWhile>) {
+                collect_struct_needs_from_expr(*k.cond);
+                collect_struct_needs_from_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SFor>) {
+                collect_struct_needs_from_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SLoop>) {
+                collect_struct_needs_from_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
+                collect_struct_needs_from_expr(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
+                collect_struct_needs_from_expr(*k.index);
+                collect_struct_needs_from_expr(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
+                collect_struct_needs_from_expr(*k.expr);
+            } else if constexpr (std::is_same_v<K, lir::SMatch>) {
+                collect_struct_needs_from_expr(*k.scrut);
+                for (auto& arm : k.arms) collect_struct_needs_from_block(*arm.body);
+            }
+        }, st.kind);
+    }
+
+    void collect_struct_needs_from_expr(const lir::LExpr& e) {
+        collect_type_for_structs(e.type);
+        std::visit([&](const auto& k) {
+            using K = std::decay_t<decltype(k)>;
+            if constexpr (std::is_same_v<K, lir::ECall>) {
+                for (auto& a : k.args) collect_struct_needs_from_expr(*a);
+            } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {
+                collect_struct_needs_from_expr(*k.receiver);
+                for (auto& a : k.args) collect_struct_needs_from_expr(*a);
+            } else if constexpr (std::is_same_v<K, lir::EBinOp>) {
+                collect_struct_needs_from_expr(*k.lhs);
+                collect_struct_needs_from_expr(*k.rhs);
+            } else if constexpr (std::is_same_v<K, lir::EUnary>) {
+                collect_struct_needs_from_expr(*k.operand);
+            } else if constexpr (std::is_same_v<K, lir::EDeref>) {
+                collect_struct_needs_from_expr(*k.operand);
+            } else if constexpr (std::is_same_v<K, lir::EFieldRead>) {
+                collect_struct_needs_from_expr(*k.receiver);
+            } else if constexpr (std::is_same_v<K, lir::EIndexRead>) {
+                collect_struct_needs_from_expr(*k.receiver);
+                collect_struct_needs_from_expr(*k.index);
+            } else if constexpr (std::is_same_v<K, lir::EStructLit>) {
+                for (auto& [fn, fv] : k.fields) collect_struct_needs_from_expr(*fv);
+            } else if constexpr (std::is_same_v<K, lir::EArrLit>) {
+                for (auto& elem : k.elems) collect_struct_needs_from_expr(*elem);
+            } else if constexpr (std::is_same_v<K, lir::ECast>) {
+                collect_struct_needs_from_expr(*k.operand);
+            }
+        }, e.kind);
+    }
+
+    // Process all pending struct instantiations (may discover more via field types).
+    void instantiate_struct_templates() {
+        collect_struct_needs_from_output();
+
+        while (!needed_struct_insts_.empty()) {
+            // Take a copy of current needs (instantiating may add more).
+            auto current = std::move(needed_struct_insts_);
+            needed_struct_insts_.clear();
+
+            for (auto& [cname, struct_t] : current) {
+                if (struct_done_.count(cname)) continue;
+                struct_done_.insert(cname);
+
+                const std::string& base = struct_t->struct_name;
+                SubstMap subst;
+
+                const lir::LStructDef* tmpl = nullptr;
+                if (auto* spec = find_best_struct_spec(base, struct_t->type_args)) {
+                    for (size_t i = 0; i < spec->spec_patterns.size() &&
+                                       i < struct_t->type_args.size(); ++i)
+                        match_type(struct_t->type_args[i], spec->spec_patterns[i], subst);
+                    tmpl = spec;
+                } else {
+                    auto it = struct_templates_.find(base);
+                    if (it == struct_templates_.end()) continue;
+                    tmpl = it->second;
+                    for (size_t i = 0; i < tmpl->type_params.size() &&
+                                       i < struct_t->type_args.size(); ++i)
+                        subst[tmpl->type_params[i].name] = struct_t->type_args[i];
+                }
+
+                auto inst = clone_struct_def(*tmpl, subst, cname);
+                // Collect field types of new struct for further instantiation.
+                for (auto& f : inst.fields) collect_type_for_structs(f.type);
+                out_.structs.push_back(std::move(inst));
+            }
+        }
     }
 };
 

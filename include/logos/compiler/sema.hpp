@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace logos::compiler {
@@ -45,8 +44,12 @@ struct LogosType {
     uint64_t         arr_size = 0;
 
     // Struct / Enum
-    std::string_view struct_name;         // view into Hermes arena
-    std::string_view enum_name;           // view into Hermes arena (Enum kind)
+    std::string      struct_name;         // base struct name (owned; never mangled)
+    std::string      enum_name;           // enum name (owned)
+
+    // Generic struct instantiation: Pair<i32> → struct_name="Pair", type_args=[i32]
+    // Empty for plain (non-generic) structs.
+    std::vector<const LogosType*> type_args;
 
     // TypeVar — name stored as a std::string (owns its storage)
     std::string      type_var_name;       // e.g. "T" (TypeVar kind only)
@@ -70,6 +73,10 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept;
 
 // Human-readable name for error messages.
 std::string type_str(const LogosType* t);
+
+// Concrete struct name: plain structs → struct_name; generic insts → "Pair__i32__bool".
+// Used by mono and mlir_gen to look up instantiated struct definitions.
+std::string concrete_struct_name(const LogosType* t);
 
 // ── TypePool ───────────────────────────────────────────────────────────────
 //

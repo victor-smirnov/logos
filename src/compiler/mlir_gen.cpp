@@ -86,8 +86,9 @@ public:
             for (auto& m : sd.methods)
                 forward_declare(mod, m);
 
-        for (auto& fn : prog.functions)
+        for (auto& fn : prog.functions) {
             forward_declare(mod, fn);
+        }
 
         // Pass 2: fill function bodies.
         for (auto& sd : prog.structs) {
@@ -184,11 +185,12 @@ private:
             return mlir::LLVM::LLVMArrayType::get(elem, t->arr_size);
         }
         case LogosType::Kind::Struct: {
+            auto cname = concrete_struct_name(t);
             // Check type alias first.
-            auto ait = type_aliases_.find(std::string(t->struct_name));
+            auto ait = type_aliases_.find(cname);
             if (ait != type_aliases_.end()) return ait->second;
             // Struct passed by pointer.
-            if (struct_types_.count(std::string(t->struct_name))) return ptr_type();
+            if (struct_types_.count(cname)) return ptr_type();
             return nullptr;
         }
         case LogosType::Kind::TypeVar:
@@ -220,7 +222,7 @@ private:
                 return false;
             }
             std::string fsname;
-            if (f.type->kind == LogosType::Kind::Struct) fsname = std::string(f.type->struct_name);
+            if (f.type->kind == LogosType::Kind::Struct) fsname = concrete_struct_name(f.type);
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname});
             field_types.push_back(ft);
         }
@@ -279,14 +281,15 @@ private:
                 if (et) var_subscript_[p.name] = et;
             }
 
-            // Track struct type for 'self'.
-            if (p.name == "self" && p.type) {
-                std::string_view sname;
-                if (p.type->kind == LogosType::Kind::Struct) sname = p.type->struct_name;
+            // Track struct type for all struct parameters (including 'self').
+            if (p.type) {
+                std::string sname;
+                if (p.type->kind == LogosType::Kind::Struct)
+                    sname = concrete_struct_name(p.type);
                 else if (p.type->kind == LogosType::Kind::Ptr && p.type->pointee &&
                          p.type->pointee->kind == LogosType::Kind::Struct)
-                    sname = p.type->pointee->struct_name;
-                if (!sname.empty()) var_struct_["self"] = std::string(sname);
+                    sname = concrete_struct_name(p.type->pointee);
+                if (!sname.empty()) var_struct_[p.name] = std::move(sname);
             }
         }
 

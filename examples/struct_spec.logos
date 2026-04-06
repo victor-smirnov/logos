@@ -1,0 +1,25 @@
+// Struct full specialization: Pair<i32> overrides Pair<T>
+package struct_spec;
+
+struct Pair<T> {
+    first: T;
+    second: T;
+}
+
+struct Pair<i32> {
+    first: i32;
+    second: i32;
+    bonus: i32;
+}
+
+fn make_pair_i32(a: i32, b: i32) -> Pair<i32> {
+    return Pair { first: a, second: b, bonus: 100 };
+}
+
+fn sum_pair(p: Pair<i32>) -> i32 {
+    return (p.first + p.second) + p.bonus;
+}
+
+fn main() -> i32 {
+    return sum_pair(make_pair_i32(1, 2));
+}
