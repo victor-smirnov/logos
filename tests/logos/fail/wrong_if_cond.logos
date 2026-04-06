@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// Sema fail: if condition is not bool.
+package wrong_if_cond;
+
+fn main() -> i32 {
+    if 42 {
+        return 1;
+    }
+    return 0;
+}

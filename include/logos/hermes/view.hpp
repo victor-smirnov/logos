@@ -250,6 +250,11 @@ public:
     [[nodiscard]] logos::expected<Map> make_object_map(uint8_t log2_buckets = 3) noexcept;
     [[nodiscard]] logos::expected<String> make_string(std::string_view str) noexcept;
 
+    // Arena checkpoint / rollback (GrowableSingleChunk only).
+    // Used by generated PEG parsers to reclaim arena memory on backtrack.
+    size_t arena_checkpoint() const noexcept { return arena().checkpoint(); }
+    void   arena_rollback(size_t pos)  noexcept { arena().rollback(pos); }
+
 private:
     friend class HermesCtrAccess;
 

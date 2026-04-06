@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Sema fail: wrong number of arguments to function call.
+package wrong_arg_count;
+
+fn add(a: i32, b: i32) -> i32 {
+    return a;
+}
+
+fn main() -> i32 {
+    return add(1, 2, 3);
+}

@@ -35,11 +35,16 @@ public:
     }
 
     [[nodiscard]] logos::expected<void> push_back(AnyVal value, Arena& arena) noexcept {
+        // Save our offset from the arena base before any allocation.
+        // GrowableSingleChunk may realloc its buffer, making `this` stale.
+        ptrdiff_t self_off = reinterpret_cast<uint8_t*>(this) - arena.head().data();
         if (size_ >= capacity_) {
             LOGOS_TRY_VOID(grow(arena, capacity_ == 0 ? 4 : capacity_ * 2));
         }
-        elements(arena.head().data())[size_] = value;
-        ++size_;
+        uint8_t* base = arena.head().data();
+        auto* self = reinterpret_cast<ObjectArray*>(base + self_off);
+        self->elements(base)[self->size_] = value;
+        ++self->size_;
         return {};
     }
 
@@ -60,10 +65,12 @@ public:
         TypeTag tag(type_hash::ObjectArray, TagDescriptor::Array);
         LOGOS_TRY(auto* mem, arena.allocate(sizeof(ObjectArray), alignof(ObjectArray), tag));
         auto* arr = new (mem) ObjectArray();
+        // Save offset after allocation so we can recompute if grow() reallocs the buffer.
+        ptrdiff_t arr_off = reinterpret_cast<uint8_t*>(arr) - arena.head().data();
         if (initial_capacity > 0) {
             LOGOS_TRY_VOID(arr->grow(arena, initial_capacity));
         }
-        return arr;
+        return reinterpret_cast<ObjectArray*>(arena.head().data() + arr_off);
     }
 
 private:
@@ -74,18 +81,27 @@ private:
     AnyVal* elements(uint8_t* base) const noexcept { return data_.get(base); }
 
     logos::expected<void> grow(Arena& arena, uint64_t new_cap) noexcept {
+        // Save our offset from the arena base BEFORE allocating.
+        // GrowableSingleChunk may realloc its buffer during allocate_raw,
+        // making `this` a dangling pointer.  Recompute self from new base after.
+        uint8_t* base_before = arena.head().data();
+        ptrdiff_t self_off = reinterpret_cast<uint8_t*>(this) - base_before;
+
         LOGOS_TRY(auto* new_mem_void, arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal)));
         auto* new_elems = static_cast<AnyVal*>(new_mem_void);
         for (uint64_t i = 0; i < new_cap; ++i) new_elems[i] = AnyVal{};
 
         uint8_t* base = arena.head().data();
-        // Segment-relative: plain copy, no relocation.
-        if (size_ > 0 && !data_.is_null()) {
-            std::memcpy(new_elems, elements(base), size_ * sizeof(AnyVal));
+        // Recompute self — for MultiChunk base never moves so self == this;
+        // for GrowableSingleChunk after realloc, self points into the new buffer.
+        auto* self = reinterpret_cast<ObjectArray*>(base + self_off);
+
+        if (self->size_ > 0 && !self->data_.is_null()) {
+            std::memcpy(new_elems, self->elements(base), self->size_ * sizeof(AnyVal));
         }
 
-        data_.set(new_elems, base);
-        capacity_ = new_cap;
+        self->data_.set(new_elems, base);
+        self->capacity_ = new_cap;
         return {};
     }
 };

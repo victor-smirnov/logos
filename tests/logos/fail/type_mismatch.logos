@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Sema fail: return type mismatch.
+package type_mismatch;
+
+fn f() -> i32 {
+    return true;
+}

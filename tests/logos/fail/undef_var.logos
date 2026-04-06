@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Sema fail: undefined variable reference.
+package undef_var;
+
+fn main() -> i32 {
+    return x;
+}

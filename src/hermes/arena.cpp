@@ -49,6 +49,15 @@ logos::expected<Arena> Arena::make(ArenaMode mode, size_t initial_capacity) noex
     return arena;
 }
 
+void Arena::rollback(size_t pos) noexcept {
+    LOGOS_ASSERT(mode_ == ArenaMode::GrowableSingleChunk, "HERMES-ARENA-004",
+        "Arena::rollback requires GrowableSingleChunk mode");
+    LOGOS_ASSERT(pos <= head().used, "HERMES-ARENA-004",
+        "Arena::rollback: pos {} > used {}", pos, head().used);
+    std::memset(head().data() + pos, 0, head().used - pos);
+    head().used = pos;
+}
+
 void Arena::seal() noexcept {
     sealed_.store(true, std::memory_order_release);
 }

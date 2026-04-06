@@ -110,6 +110,20 @@ public:
         return sealed_.load(std::memory_order_acquire);
     }
 
+    // --- Checkpoint / rollback (GrowableSingleChunk only) ---
+    //
+    // Save the current allocation watermark.  Passing the saved value to
+    // rollback() reclaims all memory allocated since the checkpoint, zeroing
+    // the freed region so future allocations receive zeroed memory.
+    //
+    // Used by generated PEG parsers to discard arena allocations made during
+    // a failed parse alternative (backtracking).
+    size_t checkpoint() const noexcept { return head().used; }
+
+    // Restore the arena to a previously saved checkpoint.
+    // Asserts GrowableSingleChunk mode and pos <= current used.
+    void rollback(size_t pos) noexcept;
+
     // --- Accessors ---
 
     ArenaMode mode() const noexcept { return mode_; }

@@ -515,7 +515,7 @@ private:
         w.line("// Lexer state.");
         if (!g_.tokens.empty()) {
             w.fmt("using TK = TK_{};", to_upper(g_.name));
-            w.line("struct Token { TK kind; std::string_view text; };");
+            w.line("struct Token { TK kind; std::string_view text; uint32_t line = 0; };");
             w.line("Token lex_one();");
             w.line("Token next_token();");
             w.line("Token peek_token();");
@@ -527,6 +527,7 @@ private:
         w.line("logos::hermes::HermesCtr doc_;");
         w.line("std::string_view         source_;");
         w.line("size_t                   pos_ = 0;");
+        w.line("uint32_t                 line_ = 1;  // current source line (1-based)");
         if (!g_.tokens.empty()) {
             w.line("Token                    la_{};");
             w.line("bool                     have_la_ = false;");
@@ -646,7 +647,7 @@ private:
             }
         }
         if (has_ws_skip) {
-            w.line(R"(if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { ++pos_; continue; })");
+            w.line(R"(if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { if (c == '\n') ++line_; ++pos_; continue; })");
         }
         // Helper: strip outer /.../ delimiters to get the raw regex content.
         auto regex_inner = [](const std::string& p) -> std::string_view {
@@ -683,9 +684,10 @@ private:
         w.line("break;");
         w.dedent();
         w.line("}");
-        w.line("if (pos_ >= source_.size()) return {TK::Eof, {}};");
-        w.line("size_t start = pos_;");
-        w.line("char   c     = source_[pos_];");
+        w.line("if (pos_ >= source_.size()) return {TK::Eof, {}, line_};");
+        w.line("size_t   start      = pos_;");
+        w.line("uint32_t start_line_ = line_;");
+        w.line("char     c           = source_[pos_];");
         w.line("(void)c;");
         w.line();
 
@@ -702,7 +704,7 @@ private:
             for (const auto* t : literals) {
                 std::string pat = std::string(unquote(t->pattern));
                 if (pat.size() == 1) {
-                    w.fmt("if (c == '{}') {{ ++pos_; return {{TK::{}, source_.substr(start, 1)}}; }}",
+                    w.fmt("if (c == '{}') {{ ++pos_; return {{TK::{}, source_.substr(start, 1), start_line_}}; }}",
                           escape_char(pat[0]), safe_tok_name(t->name));
                 } else {
                     // Word-like keywords (all alnum/underscore) need a boundary check:
@@ -717,7 +719,7 @@ private:
                     } else {
                         w.fmt("    source_.substr(pos_, {}) == \"{}\") {{", pat.size(), pat);
                     }
-                    w.fmt("    pos_ += {}; return {{TK::{}, source_.substr(start, {})}}; }}",
+                    w.fmt("    pos_ += {}; return {{TK::{}, source_.substr(start, {}), start_line_}}; }}",
                           pat.size(), safe_tok_name(t->name), pat.size());
                 }
             }
@@ -796,7 +798,7 @@ private:
                 w.indent();
                 w.line("while (pos_ < source_.size() && (std::isalnum(source_[pos_]) || source_[pos_] == '_'))");
                 w.line("    ++pos_;");
-                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start)}};", safe_tok_name(t.name));
+                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
                 w.dedent();
                 w.line("}");
             }
@@ -880,7 +882,7 @@ private:
                     if (flt_sfx) {
                         w.line("if (pos_ < source_.size() && (source_[pos_] == 'f' || source_[pos_] == 'd')) ++pos_;");
                     }
-                    w.fmt("return {{TK::{}, source_.substr(start, pos_ - start)}};", float_tok);
+                    w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", float_tok);
                     w.dedent();
                     w.line("}");
                 }
@@ -890,7 +892,7 @@ private:
                     emit_int_suffix_matching(w);
                 }
 
-                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start)}};", safe_tok_name(t.name));
+                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
                 w.dedent();
                 w.line("}");
             }
@@ -909,7 +911,7 @@ private:
                 w.line("    ++pos_;");
                 w.line("}");
                 w.line("if (pos_ < source_.size()) ++pos_;");
-                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start)}};", safe_tok_name(t.name));
+                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
                 w.dedent();
                 w.line("}");
             }
@@ -929,7 +931,7 @@ private:
         for (const auto& e : g_.exports) {
             w.fmt("logos::hermes::HermesCtr {}::parse_{}() {{", parser_class_, e);
             w.indent();
-            w.line("doc_ = logos::hermes::make_doc().get();");
+            w.line("doc_ = logos::hermes::make_doc(524288).get();");
             w.fmt("AnyVal root = rule_{}();", e);
             w.fmt("LOGOS_ASSERT(!root.is_null(), \"{}-PARSE-001\", \"parse_{}: expected {}\");",
                   to_upper(g_.name), e, e);
@@ -955,6 +957,7 @@ private:
         w.indent();
         w.line("size_t saved_pos;");
         w.line("bool   saved_la;");
+        w.line("size_t saved_doc_;");
         w.line();
 
         for (size_t i = 0; i < rule.alts.size(); ++i)
@@ -972,14 +975,18 @@ private:
         // Outer block: holds saved_tok so it's accessible in the restore code below.
         w.line("{");
         w.indent();
-        w.line("saved_pos = pos_;");
-        w.line("saved_la  = have_la_;");
-        w.line("Token saved_tok_ = la_;");
+        w.line("saved_pos  = pos_;");
+        w.line("saved_la   = have_la_;");
+        w.line("saved_doc_ = doc_.arena_checkpoint();");
+        w.line("Token    saved_tok_  = la_;");
+        w.line("uint32_t saved_line_ = line_;");
         w.line();
         // Inner block: all captures and node pointers are scoped here.
         // The backtrack label below is OUTSIDE this block so gotos don't cross inits.
         w.line("{");
         w.indent();
+        // first_line_: line of the first token of this alt's match (for SRC_LINE in AST nodes).
+        w.line("[[maybe_unused]] uint32_t first_line_ = peek_token().line;");
 
         // Backtrack label for this alternative — used as fail_label for all items.
         std::string alt_fail = std::format("bt_{}_{}", rule.name, idx);
@@ -1023,6 +1030,8 @@ private:
         w.line("pos_      = saved_pos;");
         w.line("have_la_  = saved_la;");
         w.line("la_       = saved_tok_;");
+        w.line("line_     = saved_line_;");
+        w.line("doc_.arena_rollback(saved_doc_);");
         w.dedent();
         w.line("}");
         w.line();
@@ -1075,7 +1084,8 @@ private:
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
             w.line("{");
             w.indent();
-            w.line("size_t opt_pos_ = pos_; bool opt_la_ = have_la_; Token opt_tok_ = la_;");
+            w.line("size_t opt_pos_ = pos_; bool opt_la_ = have_la_; Token opt_tok_ = la_; uint32_t opt_line_ = line_;");
+            w.line("size_t opt_doc_ = doc_.arena_checkpoint();");
             w.line("{"); // inner scope for sub-item
             w.indent();
             if (!item.sub_items.empty()) {
@@ -1087,7 +1097,8 @@ private:
             w.dedent();
             w.line("}");
             w.fmt("{}: ;", fail_lbl);
-            w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_;");
+            w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_; line_ = opt_line_;");
+            w.line("doc_.arena_rollback(opt_doc_);");
             w.fmt("{}: ;", done_lbl);
             w.dedent();
             w.line("}");
@@ -1104,7 +1115,8 @@ private:
             w.indent();
             w.line("while (true) {");
             w.indent();
-            w.line("size_t rep_pos_ = pos_; bool rep_la_ = have_la_; Token rep_tok_ = la_;");
+            w.line("size_t rep_pos_ = pos_; bool rep_la_ = have_la_; Token rep_tok_ = la_; uint32_t rep_line_ = line_;");
+            w.line("size_t rep_doc_ = doc_.arena_checkpoint();");
             if (!item.sub_items.empty()) {
                 w.line("{"); // inner scope for sub-item
                 w.indent();
@@ -1116,7 +1128,8 @@ private:
                 w.line("}");
             }
             w.fmt("{}: ;", fail_lbl);
-            w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_;");
+            w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
+            w.line("doc_.arena_rollback(rep_doc_);");
             w.line("break;");
             w.dedent();
             w.line("}");
@@ -1137,14 +1150,14 @@ private:
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
             w.line("{");
             w.indent();
-            w.line("size_t grp_pos_; bool grp_la_; Token grp_tok_;");
+            w.line("size_t grp_pos_; bool grp_la_; Token grp_tok_; size_t grp_doc_; uint32_t grp_line_;");
             for (size_t gi = 0; gi < item.sub_alts.size(); ++gi) {
                 const auto& sa = item.sub_alts[gi];
                 std::string alt_fail = "grp_fail_" + grp_id + "_" + std::to_string(gi);
                 w.fmt("// Group alt {}", gi + 1);
                 w.line("{");
                 w.indent();
-                w.line("grp_pos_ = pos_; grp_la_ = have_la_; grp_tok_ = la_;");
+                w.line("grp_pos_ = pos_; grp_la_ = have_la_; grp_tok_ = la_; grp_doc_ = doc_.arena_checkpoint(); grp_line_ = line_;");
                 w.line("{"); // inner scope: item captures
                 w.indent();
                 std::vector<std::string> sub_caps;
@@ -1161,7 +1174,7 @@ private:
                 w.dedent();
                 w.line("}"); // end inner scope
                 w.fmt("{}: ;", alt_fail);
-                w.line("pos_ = grp_pos_; have_la_ = grp_la_; la_ = grp_tok_;");
+                w.line("pos_ = grp_pos_; have_la_ = grp_la_; la_ = grp_tok_; doc_.arena_rollback(grp_doc_); line_ = grp_line_;");
                 w.dedent();
                 w.line("}");
             }
@@ -1179,20 +1192,21 @@ private:
             std::string fail_lbl = "la_fail_" + id;
             w.line("{");
             w.indent();
-            w.line("size_t la_pos_ = pos_; bool la_la_ = have_la_; Token la_tok_ = la_;");
+            w.line("size_t la_pos_ = pos_; bool la_la_ = have_la_; Token la_tok_ = la_; uint32_t la_line_ = line_;");
+            w.line("size_t la_doc_ = doc_.arena_checkpoint();");
             w.line("{");
             w.indent();
             if (!item.sub_items.empty()) {
                 std::string sub_cap = "la_" + id;
                 emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
             }
-            w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_;");
+            w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_; doc_.arena_rollback(la_doc_); line_ = la_line_;");
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};  // lookahead result (position restored)", cap);
             w.fmt("goto {};", end_lbl);
             w.dedent();
             w.line("}");
             w.fmt("{}: ;", fail_lbl);
-            w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_;");
+            w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_; doc_.arena_rollback(la_doc_); line_ = la_line_;");
             w.fmt("goto {};", fail_label);
             w.fmt("{}: ;", end_lbl);
             w.dedent();
@@ -1206,7 +1220,8 @@ private:
             std::string fail_lbl = "na_fail_" + id;
             w.line("{");
             w.indent();
-            w.line("size_t na_pos_ = pos_; bool na_la_ = have_la_; Token na_tok_ = la_;");
+            w.line("size_t na_pos_ = pos_; bool na_la_ = have_la_; Token na_tok_ = la_; uint32_t na_line_ = line_;");
+            w.line("size_t na_doc_ = doc_.arena_checkpoint();");
             w.line("{");
             w.indent();
             if (!item.sub_items.empty()) {
@@ -1214,13 +1229,13 @@ private:
                 emit_item_match(w, item.sub_items[0], sub_cap, ok_lbl, 0);
             }
             // Sub-item matched → negation fails.
-            w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_;");
+            w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_; doc_.arena_rollback(na_doc_); line_ = na_line_;");
             w.fmt("goto {};", fail_label);
             w.dedent();
             w.line("}");
             w.fmt("{}: ;", fail_lbl);
             w.fmt("{}: ;", ok_lbl);
-            w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_;");
+            w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_; doc_.arena_rollback(na_doc_); line_ = na_line_;");
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};  // negative lookahead succeeded", cap);
             w.dedent();
             w.line("}");
@@ -1237,7 +1252,7 @@ private:
 
     void emit_action(CodeWriter& w, const Action& action,
                      const std::vector<std::string>& captures) {
-        int slot_count = int(action.fields.size()) + 1; // +1 for CODE
+        int slot_count = int(action.fields.size()) + 2; // +1 for CODE, +1 for SRC_LINE
         w.fmt("auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
         for (const auto& field : action.fields) {
@@ -1292,9 +1307,9 @@ private:
                 break;
             }
         }
-        // Emit CODE field (the node type discriminant — always the last field so it
-        // doesn't shift earlier slot indices, but we write it after all value fields).
-        // (already handled per-field above via STR_LIT/INT_LIT for the CODE field)
+        // Emit SRC_LINE (source line number of the first token — always present).
+        w.fmt("node->put({}::SRC_LINE, AnyVal::from_value(first_line_), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+              ast_ns_);
         w.line("{");
         w.indent();
         w.line("AnyVal result_;");

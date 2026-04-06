@@ -39,3 +39,7 @@ add_subdirectory(src/compiler)
 add_subdirectory(tools/peg_gen)
 add_subdirectory(tools/hrpc_gen)
 add_subdirectory(tools/logos-audit)
+
+# Tests
+enable_testing()
+add_subdirectory(tests/logos)

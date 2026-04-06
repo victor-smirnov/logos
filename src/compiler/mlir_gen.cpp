@@ -612,7 +612,8 @@ private:
         // Then.
         builder_.setInsertionPointToStart(then_block);
         gen_block(map_of(node.get(la::THEN)), nullptr);
-        if (!is_terminated(builder_.getBlock()))
+        bool then_falls_through = !is_terminated(builder_.getBlock());
+        if (then_falls_through)
             builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
         // Else.
@@ -620,8 +621,17 @@ private:
         bool has_else = node.has_key(la::ELSE) && !node.get(la::ELSE).is_null();
         if (has_else)
             gen_block(map_of(node.get(la::ELSE)), nullptr);
-        if (!is_terminated(builder_.getBlock()))
+        bool else_falls_through = !is_terminated(builder_.getBlock());
+        if (else_falls_through)
             builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        // If both branches terminated, merge_block is unreachable — drop it.
+        // The caller will see the current block is terminated and won't add
+        // a spurious trailing return.
+        if (!then_falls_through && !else_falls_through) {
+            merge_block->erase();
+            return nullptr;
+        }
 
         builder_.setInsertionPointToStart(merge_block);
         return nullptr;
@@ -686,6 +696,7 @@ private:
             case la::INDEX_READ: return gen_index_read(node);
             case la::ARR_LIT:    return gen_arr_lit(node, builder_.getI32Type());
             case la::DEREF:      return gen_deref(node);
+            case la::UNARY:      return gen_unary(node);
             case la::PAREN_EXPR: return gen_expr(map_of(node.get(la::VALUE)));
             default:
                 std::fprintf(stderr, "mlir_gen: unknown expr code %d\n", code);
@@ -782,6 +793,9 @@ private:
         if (op == "-")  return builder_.create<mlir::arith::SubIOp>(loc_, lhs, rhs);
         if (op == "*")  return builder_.create<mlir::arith::MulIOp>(loc_, lhs, rhs);
         if (op == "/")  return builder_.create<mlir::arith::DivSIOp>(loc_, lhs, rhs);
+        if (op == "%")  return builder_.create<mlir::arith::RemSIOp>(loc_, lhs, rhs);
+        if (op == "&&") return builder_.create<mlir::arith::AndIOp>(loc_, lhs, rhs);
+        if (op == "||") return builder_.create<mlir::arith::OrIOp> (loc_, lhs, rhs);
         if (op == "==") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq,  lhs, rhs);
         if (op == "!=") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne,  lhs, rhs);
         if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::slt, lhs, rhs);
@@ -957,6 +971,45 @@ private:
         auto ptr_val = gen_expr(map_of(node.get(la::VALUE)));
         if (!ptr_val) return nullptr;
         return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), ptr_val);
+    }
+
+    mlir::Value gen_unary(TinyMapView node) {
+        auto op = str_of(node.get(la::OP));
+
+        // & (address-of) — does not evaluate operand, returns alloca pointer
+        if (op == "&") {
+            auto child = map_of(node.get(la::VALUE));
+            if (code_of(child) != la::VAR_REF) {
+                std::fprintf(stderr, "mlir_gen: & operand must be a variable\n");
+                return nullptr;
+            }
+            auto name = std::string(str_of(child.get(la::NAME)));
+            auto it = scope_.find(name);
+            if (it == scope_.end()) {
+                std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", name.c_str());
+                return nullptr;
+            }
+            return it->second;   // alloca pointer
+        }
+
+        auto val = gen_expr(map_of(node.get(la::VALUE)));
+        if (!val) return nullptr;
+
+        // - (arithmetic negation, i32)
+        if (op == "-") {
+            auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+            return builder_.create<mlir::arith::SubIOp>(loc_, zero, val);
+        }
+
+        // ! (logical NOT, i1)
+        if (op == "!") {
+            auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
+            return builder_.create<mlir::arith::XOrIOp>(loc_, val, one);
+        }
+
+        std::fprintf(stderr, "mlir_gen: unknown unary op '%.*s'\n",
+                     (int)op.size(), op.data());
+        return nullptr;
     }
 };
 

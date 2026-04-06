@@ -8,6 +8,7 @@
 
 #include "mlir_gen.hpp"
 #include "module_loader.hpp"
+#include <logos/compiler/sema.hpp>
 
 #include <logos/hermes/document.hpp>
 
@@ -72,10 +73,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Collect ASTs.
+    // Collect ASTs and source paths.
     std::vector<logos::hermes::HermesCtr> asts;
+    std::vector<std::string> filenames;
     for (auto& m : modules) {
+        filenames.push_back(m.path);
         asts.push_back(std::move(m.ast));
+    }
+
+    // ── Step 2b: Semantic analysis ──────────────────────────────
+    {
+        auto sema = logos::compiler::sema_check(asts, filenames);
+        sema.print(stderr);
+        if (!sema.ok()) return 1;
     }
 
     // ── Step 3: Hermes AST → MLIR ───────────────────────────────

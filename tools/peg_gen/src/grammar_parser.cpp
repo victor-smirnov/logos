@@ -245,7 +245,7 @@ class PegParser {
 public:
     PegParser(std::string_view src, std::string_view name)
         : lex_(src, name)
-        , doc_(logos::hermes::make_doc_multi(65536).get()) {}
+        , doc_(logos::hermes::make_doc_multi(524288).get()) {}
 
     HermesCtr parse() {
         // Root is a string-keyed ObjectMap with named sections.

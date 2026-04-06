@@ -44,6 +44,7 @@
     FIELD       = 21
     FIELDS      = 22
     SIZE        = 23
+    SRC_LINE    = 24
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@
     WHILE       = 58
     DEREF       = 59
     PAREN_EXPR  = 60
+    UNARY       = 61
     INDEX_READ  = 62
     INDEX_WRITE = 63
     ARR_TYPE    = 64
@@ -119,6 +121,8 @@
     AMP         = "&"
 
     // Operators (multi-char first)
+    AND         = "&&"
+    OR          = "||"
     EQ          = "=="
     NE          = "!="
     LE          = "<="
@@ -128,6 +132,8 @@
     PLUS        = "+"
     MINUS       = "-"
     SLASH       = "/"
+    PERCENT     = "%"
+    BANG        = "!"
     ASSIGN      = "="
 
     // Literals & identifiers
@@ -240,11 +246,20 @@
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
 
-    if_expr <- KW_IF expr block (KW_ELSE (if_expr / block))?
-            => { CODE: IF, COND: $2, THEN: $3, ELSE: $4 }
+    if_expr <- KW_IF expr block KW_ELSE (if_expr / block)
+            => { CODE: IF, COND: $2, THEN: $3, ELSE: $5 }
+             / KW_IF expr block
+            => { CODE: IF, COND: $2, THEN: $3 }
 
     // ── Expressions (precedence via rule nesting) ─────────────────
-    expr <- cmp_expr
+    // Each binary level is deliberately non-associative: chains require
+    // explicit parentheses, e.g. (a + b) + c.  This keeps the grammar
+    // unambiguous and easy for LLMs to reason about.
+    expr <- log_expr
+
+    log_expr <- cmp_expr (AND / OR) cmp_expr
+                => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+              / cmp_expr
 
     cmp_expr <- add_expr (EQ / NE / LE / GE / LT / GT) add_expr
                 => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
@@ -254,12 +269,15 @@
                 => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
               / mul_expr
 
-    // unary_expr inserted between mul_expr and atom for prefix * (deref)
-    mul_expr <- unary_expr (STAR / SLASH) unary_expr
+    // unary_expr inserted between mul_expr and atom for prefix ops
+    mul_expr <- unary_expr (STAR / SLASH / PERCENT) unary_expr
                 => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
               / unary_expr
 
-    unary_expr <- STAR unary_expr => { CODE: DEREF, VALUE: $2 }
+    unary_expr <- STAR  unary_expr => { CODE: DEREF,  VALUE: $2 }
+                / MINUS unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
+                / BANG  unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
+                / AMP   unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / atom
 
     // ── Atoms ────────────────────────────────────────────────────
