@@ -27,12 +27,14 @@ namespace logos::compiler {
 
 struct LogosType {
     enum class Kind {
-        Void,   // no return value
-        I32, I64, F64, Bool, U8,  // primitives
-        Ptr,    // *const T / *mut T
-        Array,  // [T; N]
-        Struct, // user-defined
-        Error   // sentinel for ill-typed expressions
+        Void,                     // no return value
+        I32, I64, F64, Bool, U8,  // signed/float/bool primitives
+        I8, U32, U64,             // additional integer types
+        Ptr,                      // *const T / *mut T
+        Array,                    // [T; N]
+        Struct,                   // user-defined
+        IntLit,                   // unresolved integer literal (widens to any integer)
+        Error                     // sentinel for ill-typed expressions
     };
 
     Kind kind = Kind::Error;

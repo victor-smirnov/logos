@@ -19,8 +19,8 @@ struct Point {
 }
 
 fn sum_range(n: i32) -> i32 {
-    let result: i32 = 0;
-    let i: i32 = 0;
+    let mut result: i32 = 0;
+    let mut i: i32 = 0;
     while i < n {
         result = result + i;
         i = i + 1;

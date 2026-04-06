@@ -1,0 +1,6 @@
+package t;
+
+fn main() -> i32 {
+    break;
+    return 0;
+}

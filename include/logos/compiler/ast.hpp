@@ -50,6 +50,7 @@ inline constexpr Key FIELD    {"FIELD",    21};  // field name (string)
 inline constexpr Key FIELDS   {"FIELDS",   22};  // field definitions array (in struct)
 inline constexpr Key SIZE     {"SIZE",     23};  // array size (integer literal)
 inline constexpr Key SRC_LINE {"SRC_LINE", 24};  // source line number (uint32_t, 1-based)
+inline constexpr Key IS_MUT   {"IS_MUT",   25};  // mutability flag (uint8_t, 1 = mut)
 
 // ── Node codes ───────────────────────────────────────────────────────────
 
@@ -98,7 +99,11 @@ inline constexpr Code UNARY       {"UNARY",       61};   // unary op: -, !, &
 inline constexpr Code INDEX_READ  {"INDEX_READ",  62};   // arr[i]
 inline constexpr Code INDEX_WRITE {"INDEX_WRITE", 63};   // arr[i] = val
 inline constexpr Code ARR_TYPE    {"ARR_TYPE",    64};   // [T; N] array type
-inline constexpr Code ARR_LIT     {"ARR_LIT",     65};   // [e1, e2, ...] array literal
+inline constexpr Code ARR_LIT     {"ARR_LIT",     65};
+inline constexpr Code BREAK       {"BREAK",       66};
+inline constexpr Code CONTINUE    {"CONTINUE",    67};
+inline constexpr Code LOOP        {"LOOP",        68};
+inline constexpr Code CAST        {"CAST",        69};   // [e1, e2, ...] array literal
 
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;

@@ -19,8 +19,8 @@ fn swap(arr: *mut i32, a: i32, b: i32) {
 // ── Lomuto partition: pivot = arr[hi], returns pivot index ───────────────
 fn partition(arr: *mut i32, lo: i32, hi: i32) -> i32 {
     let pivot: i32 = arr[hi];
-    let i: i32 = lo;
-    let j: i32 = lo;
+    let mut i: i32 = lo;
+    let mut j: i32 = lo;
     while j < hi {
         if arr[j] <= pivot {
             swap(arr, i, j);

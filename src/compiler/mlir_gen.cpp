@@ -196,6 +196,11 @@ private:
     std::unordered_map<std::string, mlir::Type>  var_elem_types_;// scalar alloca elem type
     std::unordered_map<std::string, std::string> var_struct_;    // var → struct type name
     std::unordered_map<std::string, mlir::Type>  var_subscript_; // var → subscript elem type
+    mlir::Type cur_ret_type_;                                    // current function return type (null = void)
+
+    // Loop stack: {cond_block (or loop_block), exit_block}
+    struct LoopBlocks { mlir::Block* cont; mlir::Block* exit; };
+    std::vector<LoopBlocks> loop_stack_;
 
     int str_counter_ = 0;
 
@@ -210,6 +215,20 @@ private:
 
     mlir::Value i32_zero() {
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, int64_t(0), 32);
+    }
+
+    // Sign-extend or truncate integer value to target type.
+    // Returns v unchanged if types are equal or either is not an integer type.
+    mlir::Value coerce_int(mlir::Value v, mlir::Type to) {
+        if (!v || !to || v.getType() == to) return v;
+        auto from_int = mlir::dyn_cast<mlir::IntegerType>(v.getType());
+        auto to_int   = mlir::dyn_cast<mlir::IntegerType>(to);
+        if (!from_int || !to_int) return v;
+        if (to_int.getWidth() > from_int.getWidth())
+            return builder_.create<mlir::arith::ExtSIOp>(loc_, to, v);
+        if (to_int.getWidth() < from_int.getWidth())
+            return builder_.create<mlir::arith::TruncIOp>(loc_, to, v);
+        return v;
     }
 
     mlir::Value i64_one() {
@@ -266,6 +285,9 @@ private:
             if (name == "f64")  return builder_.getF64Type();
             if (name == "bool") return builder_.getI1Type();
             if (name == "u8")   return builder_.getIntegerType(8);
+            if (name == "i8")   return builder_.getIntegerType(8);
+            if (name == "u32")  return builder_.getIntegerType(32);
+            if (name == "u64")  return builder_.getIntegerType(64);
             // Struct type → pass by pointer
             if (struct_types_.count(std::string(name)))
                 return ptr_type();
@@ -422,7 +444,9 @@ private:
 
         auto body = map_of(node.get(la::BODY));
         auto ret_types = func.getFunctionType().getResults();
-        gen_block(body, ret_types.empty() ? nullptr : ret_types[0]);
+        cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
+        loop_stack_.clear();
+        gen_block(body, cur_ret_type_);
 
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::func::ReturnOp>(loc_);
@@ -450,6 +474,9 @@ private:
             case la::RETURN:      return gen_return(node);
             case la::IF:          return gen_if_stmt(node);
             case la::WHILE:       return gen_while(node);
+            case la::LOOP:        return gen_loop(node);
+            case la::BREAK:       return gen_break();
+            case la::CONTINUE:    return gen_continue();
             case la::ASSIGN:      return gen_assign(node);
             case la::FIELD_WRITE: return gen_field_write(node);
             case la::INDEX_WRITE: return gen_index_write(node);
@@ -499,6 +526,15 @@ private:
         auto val = gen_expr(val_node);
         if (!val) return nullptr;
 
+        // If explicit type annotation, coerce (e.g. i32 literal → i64).
+        if (node.has_key(la::TYPE) && !node.get(la::TYPE).is_null()) {
+            auto tn = map_of(node.get(la::TYPE));
+            if (code_of(tn) != la::ARR_TYPE) {  // arrays handled above
+                auto ann = resolve_type(tn);
+                if (ann) val = coerce_int(val, ann);
+            }
+        }
+
         auto elem_type = val.getType();
         auto alloca    = builder_.create<mlir::LLVM::AllocaOp>(
                              loc_, ptr_type(), elem_type, i64_one());
@@ -520,8 +556,12 @@ private:
     mlir::Value gen_return(TinyMapView node) {
         if (node.has_key(la::VALUE) && !node.get(la::VALUE).is_null()) {
             auto val = gen_expr(map_of(node.get(la::VALUE)));
-            if (val) builder_.create<mlir::func::ReturnOp>(loc_, val);
-            else     builder_.create<mlir::func::ReturnOp>(loc_);
+            if (val) {
+                if (cur_ret_type_) val = coerce_int(val, cur_ret_type_);
+                builder_.create<mlir::func::ReturnOp>(loc_, val);
+            } else {
+                builder_.create<mlir::func::ReturnOp>(loc_);
+            }
         } else {
             builder_.create<mlir::func::ReturnOp>(loc_);
         }
@@ -586,11 +626,51 @@ private:
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
         builder_.setInsertionPointToStart(body_block);
+        loop_stack_.push_back({cond_block, exit_block});
         gen_block(map_of(node.get(la::BODY)), nullptr);
+        loop_stack_.pop_back();
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
 
         builder_.setInsertionPointToStart(exit_block);
+        return nullptr;
+    }
+
+    mlir::Value gen_loop(TinyMapView node) {
+        auto* region      = builder_.getBlock()->getParent();
+        auto* loop_block  = new mlir::Block();
+        auto* exit_block  = new mlir::Block();
+        region->push_back(loop_block);
+        region->push_back(exit_block);
+
+        builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
+
+        builder_.setInsertionPointToStart(loop_block);
+        loop_stack_.push_back({loop_block, exit_block});
+        gen_block(map_of(node.get(la::BODY)), nullptr);
+        loop_stack_.pop_back();
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
+
+        builder_.setInsertionPointToStart(exit_block);
+        return nullptr;
+    }
+
+    mlir::Value gen_break() {
+        if (loop_stack_.empty()) {
+            std::fprintf(stderr, "mlir_gen: break outside loop\n");
+            return nullptr;
+        }
+        builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_.back().exit);
+        return nullptr;
+    }
+
+    mlir::Value gen_continue() {
+        if (loop_stack_.empty()) {
+            std::fprintf(stderr, "mlir_gen: continue outside loop\n");
+            return nullptr;
+        }
+        builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_.back().cont);
         return nullptr;
     }
 
@@ -698,6 +778,7 @@ private:
             case la::DEREF:      return gen_deref(node);
             case la::UNARY:      return gen_unary(node);
             case la::PAREN_EXPR: return gen_expr(map_of(node.get(la::VALUE)));
+            case la::CAST:       return gen_cast(node);
             default:
                 std::fprintf(stderr, "mlir_gen: unknown expr code %d\n", code);
                 return nullptr;
@@ -780,6 +861,10 @@ private:
             std::fprintf(stderr, "mlir_gen: undefined function '%s'\n", callee.c_str());
             return nullptr;
         }
+        // Coerce integer arguments to expected param types.
+        auto param_types = callee_fn.getFunctionType().getInputs();
+        for (size_t i = 0; i < args.size() && i < param_types.size(); ++i)
+            args[i] = coerce_int(args[i], param_types[i]);
         auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
         return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
@@ -788,6 +873,15 @@ private:
         auto lhs = gen_expr(map_of(node.get(la::LHS)));
         auto rhs = gen_expr(map_of(node.get(la::RHS)));
         if (!lhs || !rhs) return nullptr;
+        // Widen narrower integer operand so MLIR types match.
+        if (auto li = mlir::dyn_cast<mlir::IntegerType>(lhs.getType())) {
+            if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType())) {
+                if (li.getWidth() < ri.getWidth())
+                    lhs = builder_.create<mlir::arith::ExtSIOp>(loc_, rhs.getType(), lhs);
+                else if (ri.getWidth() < li.getWidth())
+                    rhs = builder_.create<mlir::arith::ExtSIOp>(loc_, lhs.getType(), rhs);
+            }
+        }
         auto op = str_of(node.get(la::OP));
         if (op == "+")  return builder_.create<mlir::arith::AddIOp>(loc_, lhs, rhs);
         if (op == "-")  return builder_.create<mlir::arith::SubIOp>(loc_, lhs, rhs);
@@ -971,6 +1065,35 @@ private:
         auto ptr_val = gen_expr(map_of(node.get(la::VALUE)));
         if (!ptr_val) return nullptr;
         return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), ptr_val);
+    }
+
+    mlir::Value gen_cast(TinyMapView node) {
+        auto val = gen_expr(map_of(node.get(la::VALUE)));
+        if (!val) return nullptr;
+        auto target = resolve_type(map_of(node.get(la::TYPE)));
+        if (!target) {
+            std::fprintf(stderr, "mlir_gen: cast: unknown target type\n");
+            return nullptr;
+        }
+        if (val.getType() == target) return val;
+        // Integer ↔ integer: sign-extend or truncate.
+        if (auto from_int = mlir::dyn_cast<mlir::IntegerType>(val.getType())) {
+            if (auto to_int = mlir::dyn_cast<mlir::IntegerType>(target)) {
+                if (to_int.getWidth() > from_int.getWidth())
+                    return builder_.create<mlir::arith::ExtSIOp>(loc_, target, val);
+                if (to_int.getWidth() < from_int.getWidth())
+                    return builder_.create<mlir::arith::TruncIOp>(loc_, target, val);
+                return val;
+            }
+        }
+        // Integer → float.
+        if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) && mlir::dyn_cast<mlir::FloatType>(target))
+            return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
+        // Float → integer.
+        if (mlir::dyn_cast<mlir::FloatType>(val.getType()) && mlir::dyn_cast<mlir::IntegerType>(target))
+            return builder_.create<mlir::arith::FPToSIOp>(loc_, target, val);
+        std::fprintf(stderr, "mlir_gen: unsupported cast\n");
+        return nullptr;
     }
 
     mlir::Value gen_unary(TinyMapView node) {

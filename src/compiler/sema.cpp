@@ -42,15 +42,32 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
 // Structural assignment/argument compatibility.
 // Extends types_equal with:
 //   [T; N] → *T  and  [T; N] → *mut T   (array-to-pointer coercion)
+static bool is_integer_kind(LogosType::Kind k) noexcept {
+    return k == LogosType::Kind::I32   || k == LogosType::Kind::I64 ||
+           k == LogosType::Kind::U8    || k == LogosType::Kind::I8  ||
+           k == LogosType::Kind::U32   || k == LogosType::Kind::U64 ||
+           k == LogosType::Kind::IntLit;
+}
+
 static bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
     if (!from || !to) return false;
     if (types_equal(*from, *to)) return true;
+    // IntLit widens to any concrete integer type.
+    if (from->kind == LogosType::Kind::IntLit && is_integer_kind(to->kind))
+        return true;
     // Array → pointer coercion: [T; N] is compatible with *const T or *mut T
     if (from->kind == LogosType::Kind::Array &&
         to->kind   == LogosType::Kind::Ptr   &&
         from->elem && to->pointee)
         return types_equal(*from->elem, *to->pointee);
     return false;
+}
+
+// Return the concrete integer type when one operand is an unresolved literal.
+// Precondition: both are integer kinds.
+static const LogosType* unify_int(const LogosType* a, const LogosType* b) noexcept {
+    if (a->kind == LogosType::Kind::IntLit) return b;
+    return a;
 }
 
 std::string type_str(const LogosType* t) {
@@ -62,6 +79,10 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::F64:    return "f64";
     case LogosType::Kind::Bool:   return "bool";
     case LogosType::Kind::U8:     return "u8";
+    case LogosType::Kind::I8:     return "i8";
+    case LogosType::Kind::U32:    return "u32";
+    case LogosType::Kind::U64:    return "u64";
+    case LogosType::Kind::IntLit: return "{integer}";
     case LogosType::Kind::Ptr:
         return std::string(t->mut_ptr ? "*mut " : "*const ") +
                type_str(t->pointee);
@@ -116,10 +137,10 @@ private:
 
     TypePool pool_;
 
-    // Indexed by Kind ordinal.  Kind goes 0..9 (Void..Error), so size 10.
-    // Only primitive kinds (Void, I32..U8, Error) are populated; compound
-    // kinds (Ptr=6, Array=7, Struct=8) are created via make_* helpers.
-    std::array<const LogosType*, 10> prims_{};
+    // Indexed by Kind ordinal.  Kind goes 0..13 (Void..Error), so size 14.
+    // Only primitive kinds (Void, I32..U64, IntLit, Error) are populated;
+    // compound kinds (Ptr=9, Array=10, Struct=11) are created via make_* helpers.
+    std::array<const LogosType*, 14> prims_{};
 
     void init_primitives() {
         auto alloc_prim = [&](LogosType::Kind k) {
@@ -133,15 +154,20 @@ private:
         alloc_prim(LogosType::Kind::F64);
         alloc_prim(LogosType::Kind::Bool);
         alloc_prim(LogosType::Kind::U8);
+        alloc_prim(LogosType::Kind::I8);
+        alloc_prim(LogosType::Kind::U32);
+        alloc_prim(LogosType::Kind::U64);
+        alloc_prim(LogosType::Kind::IntLit);
         alloc_prim(LogosType::Kind::Error);
     }
 
-    const LogosType* prim(LogosType::Kind k)  { return prims_[int(k)]; }
-    const LogosType* void_t()  { return prim(LogosType::Kind::Void); }
-    const LogosType* i32_t()   { return prim(LogosType::Kind::I32); }
-    const LogosType* bool_t()  { return prim(LogosType::Kind::Bool); }
-    const LogosType* u8_t()    { return prim(LogosType::Kind::U8); }
-    const LogosType* error_t() { return prim(LogosType::Kind::Error); }
+    const LogosType* prim(LogosType::Kind k)   { return prims_[int(k)]; }
+    const LogosType* void_t()    { return prim(LogosType::Kind::Void); }
+    const LogosType* i32_t()     { return prim(LogosType::Kind::I32); }
+    const LogosType* bool_t()    { return prim(LogosType::Kind::Bool); }
+    const LogosType* u8_t()      { return prim(LogosType::Kind::U8); }
+    const LogosType* intlit_t()  { return prim(LogosType::Kind::IntLit); }
+    const LogosType* error_t()   { return prim(LogosType::Kind::Error); }
 
     const LogosType* make_ptr(bool mut, const LogosType* pointee) {
         LogosType t;
@@ -219,8 +245,12 @@ private:
 
     // ── Scope management ─────────────────────────────────────────
 
+    struct VarInfo {
+        const LogosType* type;
+        bool is_mut = false;
+    };
     struct Frame {
-        std::unordered_map<std::string, const LogosType*> vars;
+        std::unordered_map<std::string, VarInfo> vars;
     };
     std::vector<Frame> scope_;
 
@@ -230,18 +260,27 @@ private:
         if (!scope_.empty()) scope_.pop_back();
     }
 
-    void define(std::string_view name, const LogosType* t) {
+    void define(std::string_view name, const LogosType* t, bool is_mut = false) {
         if (!scope_.empty())
-            scope_.back().vars[std::string(name)] = t;
+            scope_.back().vars[std::string(name)] = {t, is_mut};
     }
 
     // Returns nullptr if not found.
     const LogosType* lookup(std::string_view name) const {
         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
             auto f = it->vars.find(std::string(name));
-            if (f != it->vars.end()) return f->second;
+            if (f != it->vars.end()) return f->second.type;
         }
         return nullptr;
+    }
+
+    // Returns false if not found or not mutable.
+    bool lookup_is_mut(std::string_view name) const {
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
+            auto f = it->vars.find(std::string(name));
+            if (f != it->vars.end()) return f->second.is_mut;
+        }
+        return false;
     }
 
     // For field / method access: unwrap *Struct → Struct, return struct_name.
@@ -309,6 +348,9 @@ private:
             if (name == "f64")  return prim(LogosType::Kind::F64);
             if (name == "bool") return prim(LogosType::Kind::Bool);
             if (name == "u8")   return prim(LogosType::Kind::U8);
+            if (name == "i8")   return prim(LogosType::Kind::I8);
+            if (name == "u32")  return prim(LogosType::Kind::U32);
+            if (name == "u64")  return prim(LogosType::Kind::U64);
             if (name == "void") return prim(LogosType::Kind::Void);
             // User-defined struct
             if (structs_.count(std::string(name)))
@@ -437,6 +479,9 @@ private:
         funcs_[mangled] = std::move(info);
     }
 
+    // ── Loop depth tracking ──────────────────────────────────────
+    int loop_depth_ = 0;
+
     // ── Current function state ────────────────────────────────────
 
     const LogosType* ret_type_ = nullptr;  // expected return type
@@ -481,6 +526,11 @@ private:
     bool stmt_always_returns(TinyMapView stmt) {
         int32_t c = code_of(stmt);
         if (c == la::RETURN) return true;
+        // loop {} always returns if its body always returns (i.e. no break).
+        if (c == la::LOOP) {
+            return stmt.has_key(la::BODY) &&
+                   block_always_returns(map_of(stmt.get(la::BODY.code)));
+        }
         if (c == la::IF) {
             // Only guarantees a return if BOTH branches always return.
             if (!stmt.has_key(la::ELSE)) return false;
@@ -591,6 +641,15 @@ private:
             check_field_write(stmt);
         } else if (c == la::INDEX_WRITE) {
             check_index_write(stmt);
+        } else if (c == la::LOOP) {
+            if (stmt.has_key(la::BODY)) {
+                ++loop_depth_;
+                check_block(map_of(stmt.get(la::BODY.code)));
+                --loop_depth_;
+            }
+        } else if (c == la::BREAK || c == la::CONTINUE) {
+            if (loop_depth_ == 0)
+                error(c == la::BREAK ? "'break' outside loop" : "'continue' outside loop");
         } else {
             // Unknown statement kind — silently skip.
         }
@@ -598,6 +657,13 @@ private:
 
     void check_let(TinyMapView node) {
         auto name = str_of(node.get(la::NAME.code));
+
+        bool is_mut = false;
+        if (node.has_key(la::IS_MUT)) {
+            AnyVal av = node.get(la::IS_MUT.code);
+            if (!av.is_null() && av.is_value())
+                is_mut = av.as_value<uint8_t>() != 0;
+        }
 
         // Check RHS expression.
         const LogosType* rhs_type = nullptr;
@@ -617,9 +683,9 @@ private:
                 error(std::format("let '{}': type mismatch — expected {}, got {}",
                       name, type_str(ann), type_str(rhs_type)));
             }
-            define(name, ann);
+            define(name, ann, is_mut);
         } else {
-            define(name, rhs_type);
+            define(name, rhs_type, is_mut);
         }
     }
 
@@ -631,6 +697,9 @@ private:
             if (node.has_key(la::VALUE))
                 check_expr(map_of(node.get(la::VALUE.code)));
             return;
+        }
+        if (!lookup_is_mut(name)) {
+            error(std::format("assignment to immutable variable '{}'", name));
         }
         if (node.has_key(la::VALUE)) {
             auto* rhs = check_expr(map_of(node.get(la::VALUE.code)));
@@ -694,8 +763,11 @@ private:
                       type_str(ct)));
             }
         }
-        if (node.has_key(la::BODY))
+        if (node.has_key(la::BODY)) {
+            ++loop_depth_;
             check_block(map_of(node.get(la::BODY.code)));
+            --loop_depth_;
+        }
     }
 
     void check_field_write(TinyMapView node) {
@@ -707,6 +779,15 @@ private:
             if (node.has_key(la::VALUE))
                 check_expr(map_of(node.get(la::VALUE.code)));
             return;
+        }
+        // Mutability check: immutable struct variable or *const ptr.
+        auto* recv_type = lookup(recv_name);
+        if (recv_type && recv_type->kind == LogosType::Kind::Ptr) {
+            if (!recv_type->mut_ptr)
+                error(std::format("field write to '{}': receiver is *const pointer",
+                      recv_name));
+        } else if (!lookup_is_mut(recv_name)) {
+            error(std::format("field write to immutable variable '{}'", recv_name));
         }
         auto* field_type = field_type_of(sname, field_name);
         if (!field_type) {
@@ -734,6 +815,10 @@ private:
                    arr_type->kind != LogosType::Kind::Error) {
             error(std::format("index write: '{}' is not an array or pointer (got {})",
                   arr_name, type_str(arr_type)));
+        } else if (arr_type->kind == LogosType::Kind::Array && !lookup_is_mut(arr_name)) {
+            error(std::format("index write to immutable array '{}'", arr_name));
+        } else if (arr_type->kind == LogosType::Kind::Ptr && !arr_type->mut_ptr) {
+            error(std::format("index write through *const pointer '{}'", arr_name));
         }
 
         // Check index is integer.
@@ -776,7 +861,7 @@ private:
         int32_t c = code_of(expr);
 
         switch (c) {
-        case la::LIT_INT:   return i32_t();
+        case la::LIT_INT:   return intlit_t();
         case la::LIT_BOOL:  return bool_t();
         case la::LIT_STR:   return make_ptr(false, u8_t());  // *const u8
 
@@ -795,6 +880,13 @@ private:
                 return check_expr(map_of(expr.get(la::VALUE.code)));
             return error_t();
 
+        case la::CAST: {
+            if (expr.has_key(la::VALUE))
+                check_expr(map_of(expr.get(la::VALUE.code)));
+            if (expr.has_key(la::TYPE))
+                return resolve_type(map_of(expr.get(la::TYPE.code)));
+            return error_t();
+        }
         case la::BINOP:   return check_binop(expr);
         case la::UNARY:   return check_unary(expr);
         case la::DEREF:   return check_deref(expr);
@@ -828,26 +920,37 @@ private:
             return bool_t();
         }
 
-        // Comparison operators: T × T → bool (operands must match)
+        // Comparison operators: T × T → bool
+        // Integer literals are compatible with any integer type.
         if (op == "==" || op == "!=" ||
             op == "<"  || op == "<=" ||
             op == ">"  || op == ">=") {
-            if (!types_equal(*lhs, *rhs))
+            bool ok = types_compatible(lhs, rhs) || types_compatible(rhs, lhs);
+            if (!ok)
                 error(std::format("operator '{}': operand type mismatch ({} vs {})",
                       op, type_str(lhs), type_str(rhs)));
             return bool_t();
         }
 
-        // Arithmetic: numeric × numeric → same type
+        // Arithmetic: numeric × numeric → result type (unified if one is IntLit)
         if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%") {
             if (!is_numeric(lhs))
                 error(std::format("operator '{}': left operand must be numeric, got {}", op, type_str(lhs)));
             if (!is_numeric(rhs))
                 error(std::format("operator '{}': right operand must be numeric, got {}", op, type_str(rhs)));
-            if (is_numeric(lhs) && is_numeric(rhs) && !types_equal(*lhs, *rhs))
+            bool both_int = is_integer_kind(lhs->kind) && is_integer_kind(rhs->kind);
+            if (!both_int) {
+                // For f64: types must match exactly.
+                if (is_numeric(lhs) && is_numeric(rhs) && !types_equal(*lhs, *rhs))
+                    error(std::format("operator '{}': operand type mismatch ({} vs {})",
+                          op, type_str(lhs), type_str(rhs)));
+                return lhs;
+            }
+            // Integer operands: IntLit widens to the concrete side.
+            if (!types_compatible(lhs, rhs) && !types_compatible(rhs, lhs))
                 error(std::format("operator '{}': operand type mismatch ({} vs {})",
                       op, type_str(lhs), type_str(rhs)));
-            return lhs;
+            return unify_int(lhs, rhs);
         }
 
         error(std::format("unknown binary operator '{}'", op));
@@ -1029,7 +1132,7 @@ private:
                     auto* ft = field_type_of(sname, fname);
                     if (ft && ft->kind != LogosType::Kind::Error &&
                         vt->kind != LogosType::Kind::Error &&
-                        !types_equal(*ft, *vt)) {
+                        !types_compatible(vt, ft)) {
                         error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                               sname, fname, type_str(ft), type_str(vt)));
                     }
@@ -1089,12 +1192,18 @@ private:
         for (uint64_t i = 1; i < items.size(); ++i) {
             auto* t = check_expr(map_of(items.get(i)));
             if (t->kind != LogosType::Kind::Error &&
-                elem_type->kind != LogosType::Kind::Error &&
-                !types_equal(*elem_type, *t)) {
-                error(std::format("array literal: element {} has type {}, expected {}",
-                      i, type_str(t), type_str(elem_type)));
+                elem_type->kind != LogosType::Kind::Error) {
+                if (!types_compatible(t, elem_type) && !types_compatible(elem_type, t)) {
+                    error(std::format("array literal: element {} has type {}, expected {}",
+                          i, type_str(t), type_str(elem_type)));
+                } else {
+                    elem_type = unify_int(elem_type, t);
+                }
             }
         }
+        // Default unresolved integer literals to i32.
+        if (elem_type->kind == LogosType::Kind::IntLit)
+            elem_type = i32_t();
         return make_array(elem_type, items.size());
     }
 
@@ -1102,17 +1211,11 @@ private:
 
     static bool is_numeric(const LogosType* t) noexcept {
         if (!t) return false;
-        return t->kind == LogosType::Kind::I32 ||
-               t->kind == LogosType::Kind::I64 ||
-               t->kind == LogosType::Kind::F64 ||
-               t->kind == LogosType::Kind::U8;
+        return t->kind == LogosType::Kind::F64 || is_integer_kind(t->kind);
     }
 
     static bool is_integer(const LogosType* t) noexcept {
-        if (!t) return false;
-        return t->kind == LogosType::Kind::I32 ||
-               t->kind == LogosType::Kind::I64 ||
-               t->kind == LogosType::Kind::U8;
+        return t && is_integer_kind(t->kind);
     }
 
     // Look up a field's type in a struct (returns nullptr if not found).

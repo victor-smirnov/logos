@@ -45,6 +45,7 @@
     FIELDS      = 22
     SIZE        = 23
     SRC_LINE    = 24
+    IS_MUT      = 25
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -84,18 +85,25 @@
     INDEX_WRITE = 63
     ARR_TYPE    = 64
     ARR_LIT     = 65
+    BREAK       = 66
+    CONTINUE    = 67
+    LOOP        = 68
+    CAST        = 69
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
 %tokens {
     // Keywords (longest-match first within same length)
+    KW_CONTINUE = "continue"
     KW_PACKAGE  = "package"
     KW_STRUCT   = "struct"
     KW_EXTERN   = "extern"
     KW_RETURN   = "return"
+    KW_BREAK    = "break"
     KW_WHILE    = "while"
     KW_FALSE    = "false"
     KW_CONST    = "const"
+    KW_LOOP     = "loop"
     KW_TRUE     = "true"
     KW_ELSE     = "else"
     KW_USE      = "use"
@@ -104,6 +112,7 @@
     KW_PUB      = "pub"
     KW_FN       = "fn"
     KW_IF       = "if"
+    KW_AS       = "as"
 
     // Punctuation
     LBRACE      = "{"
@@ -217,7 +226,10 @@
     // ── Statements ───────────────────────────────────────────────
     stmt <- let_stmt
           / while_stmt
+          / loop_stmt
           / return_stmt
+          / break_stmt
+          / continue_stmt
           / if_expr
           / field_write_stmt
           / index_write_stmt
@@ -225,11 +237,24 @@
           / expr SEMI
             => { CODE: EXPR_STMT, VALUE: $1 }
 
+    loop_stmt     <- KW_LOOP block
+                  => { CODE: LOOP, BODY: $2 }
+
+    break_stmt    <- KW_BREAK SEMI
+                  => { CODE: BREAK }
+
+    continue_stmt <- KW_CONTINUE SEMI
+                  => { CODE: CONTINUE }
+
     // arr[idx] = expr;
     index_write_stmt <- IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
                      => { CODE: INDEX_WRITE, NAME: $1, LHS: $3, VALUE: $6 }
 
-    let_stmt <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
+    let_stmt <- KW_LET KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
+             => { CODE: LET, IS_MUT: true, NAME: $3, TYPE: $5, VALUE: $7 }
+              / KW_LET KW_MUT IDENT ASSIGN expr SEMI
+             => { CODE: LET, IS_MUT: true, NAME: $3, VALUE: $5 }
+              / KW_LET IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, TYPE: $4, VALUE: $6 }
               / KW_LET IDENT ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, VALUE: $4 }
@@ -278,7 +303,12 @@
                 / MINUS unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / BANG  unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / AMP   unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
-                / atom
+                / cast_expr
+
+    // ── Cast expression: atom as type ────────────────────────────
+    cast_expr <- atom KW_AS type_ref
+              => { CODE: CAST, VALUE: $1, TYPE: $3 }
+               / atom
 
     // ── Atoms ────────────────────────────────────────────────────
     // Order matters: more-specific patterns before plain IDENT.
