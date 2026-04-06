@@ -24,7 +24,6 @@
 #include <logos/compiler/sema.hpp>
 
 #include <format>
-#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -63,6 +62,11 @@ public:
                 templates_[fn.name] = &fn;
         }
 
+        // Index specialisations by base name.
+        // Pointers point into in_.specializations (not moved) — stable for the run.
+        for (auto& spec : in_.specializations)
+            specs_[spec.name].push_back(&spec);
+
         // Process non-generic free functions: clone (which rewrites generic call
         // sites to mangled names) then scan the clone for instantiations to enqueue.
         for (auto& fn : in_.functions) {
@@ -93,6 +97,9 @@ private:
 
     // name → pointer into in_.functions (generic templates only)
     std::unordered_map<std::string, const lir::LFunction*> templates_;
+
+    // name → list of specialisations (pointers into in_.specializations)
+    std::unordered_map<std::string, std::vector<const lir::LFunction*>> specs_;
 
     // Already-instantiated mangled names (prevent duplicate generation)
     std::unordered_set<std::string> done_;
@@ -132,13 +139,28 @@ private:
 
     // ── Mangling ──────────────────────────────────────────────────
 
+    // type_str() may contain spaces (" *const i32") and brackets ("[i32; 4]"),
+    // which are invalid in LLVM symbol names.  mangle_type() produces valid
+    // C-identifier-style names: pcst_i32, pmut_i32, arr4_i32, etc.
+    static std::string mangle_type(const LogosType* t) {
+        if (!t) return "null";
+        switch (t->kind) {
+        case LogosType::Kind::Ptr:
+            return (t->mut_ptr ? "pmut_" : "pcst_") + mangle_type(t->pointee);
+        case LogosType::Kind::Array:
+            return "arr" + std::to_string(t->arr_size) + "_" + mangle_type(t->elem);
+        default:
+            return type_str(t);  // primitives / TypeVar / Struct / Enum — already valid
+        }
+    }
+
     static std::string mangle(const std::string& name,
                                const std::vector<const LogosType*>& type_args) {
-        // e.g. identity__i32, swap__i32__bool
+        // e.g. identity__i32, describe__pcst_i32, swap__i32__bool
         std::string result = name;
         for (auto* t : type_args) {
             result += "__";
-            result += type_str(t);
+            result += mangle_type(t);
         }
         return result;
     }
@@ -395,25 +417,89 @@ private:
         }, e.kind);
     }
 
+    // ── Pattern matching (for specialisation selection) ───────────
+
+    // Match a concrete type against a specialisation pattern (may contain TypeVars).
+    // On success, fills `bindings` with TypeVar → concrete_type mappings.
+    static bool match_type(const LogosType* concrete, const LogosType* pattern,
+                           SubstMap& bindings) noexcept {
+        if (!concrete || !pattern) return false;
+        if (pattern->kind == LogosType::Kind::TypeVar) {
+            auto it = bindings.find(pattern->type_var_name);
+            if (it != bindings.end())
+                return types_equal(*concrete, *it->second);  // must match prior binding
+            bindings[pattern->type_var_name] = concrete;
+            return true;
+        }
+        if (pattern->kind != concrete->kind) return false;
+        switch (pattern->kind) {
+        case LogosType::Kind::Ptr:
+            return pattern->mut_ptr == concrete->mut_ptr &&
+                   match_type(concrete->pointee, pattern->pointee, bindings);
+        case LogosType::Kind::Array:
+            return pattern->arr_size == concrete->arr_size &&
+                   match_type(concrete->elem, pattern->elem, bindings);
+        case LogosType::Kind::Struct:
+            return pattern->struct_name == concrete->struct_name;
+        default:
+            return types_equal(*concrete, *pattern);
+        }
+    }
+
+    // Higher score = more concrete = higher priority.
+    static int type_specificity(const LogosType* t) noexcept {
+        if (!t || t->kind == LogosType::Kind::TypeVar) return 0;
+        if (t->kind == LogosType::Kind::Ptr)   return 1 + type_specificity(t->pointee);
+        if (t->kind == LogosType::Kind::Array)  return 1 + type_specificity(t->elem);
+        return 100;  // fully-concrete scalar / struct / enum
+    }
+
+    static int specificity_score(const std::vector<const LogosType*>& patterns) noexcept {
+        int s = 0;
+        for (auto* p : patterns) s += type_specificity(p);
+        return s;
+    }
+
+    // Return the most specific specialisation that matches type_args, or nullptr.
+    const lir::LFunction* find_best_spec(
+        const std::string& base_name,
+        const std::vector<const LogosType*>& type_args) {
+        auto sit = specs_.find(base_name);
+        if (sit == specs_.end()) return nullptr;
+
+        const lir::LFunction* best       = nullptr;
+        int                   best_score = -1;
+
+        for (auto* spec : sit->second) {
+            if (spec->spec_patterns.size() != type_args.size()) continue;
+            SubstMap dummy;
+            bool ok = true;
+            for (size_t i = 0; i < type_args.size(); ++i) {
+                if (!match_type(type_args[i], spec->spec_patterns[i], dummy)) {
+                    ok = false; break;
+                }
+            }
+            if (!ok) continue;
+            int score = specificity_score(spec->spec_patterns);
+            if (score > best_score) { best_score = score; best = spec; }
+        }
+        return best;
+    }
+
     // ── Enqueue an instantiation if needed ───────────────────────
 
     void enqueue_if_needed(const std::string& mangled_callee,
                            const std::vector<const LogosType*>& type_args) {
         if (done_.count(mangled_callee)) return;
 
-        // Find the original generic template: try stripping the mangled suffix.
-        // We search templates_ for a key that is a prefix of mangled_callee + "__"
-        const lir::LFunction* tmpl = nullptr;
+        // Find the base name by checking templates_ and specs_.
         std::string orig_name;
-        for (auto& [tname, tfn] : templates_) {
-            std::string expected_mangled = mangle(tname, type_args);
-            if (expected_mangled == mangled_callee) {
-                tmpl      = tfn;
-                orig_name = tname;
-                break;
-            }
-        }
-        if (!tmpl) return;  // not a generic call we know about
+        for (auto& [tname, _] : templates_)
+            if (mangle(tname, type_args) == mangled_callee) { orig_name = tname; break; }
+        if (orig_name.empty())
+            for (auto& [sname, _] : specs_)
+                if (mangle(sname, type_args) == mangled_callee) { orig_name = sname; break; }
+        if (orig_name.empty()) return;  // not a generic/spec call we know about
 
         if (depth_ >= max_depth_) {
             in_.diags.diags.push_back({Diag::Level::Error, "mono",
@@ -424,12 +510,24 @@ private:
 
         done_.insert(mangled_callee);
 
-        // Build substitution map
+        // Prefer the most-specific matching specialisation over the generic template.
+        if (auto* spec = find_best_spec(orig_name, type_args)) {
+            SubstMap subst;
+            for (size_t i = 0; i < spec->spec_patterns.size(); ++i)
+                match_type(type_args[i], spec->spec_patterns[i], subst);
+            worklist_.push_back({mangled_callee, spec, std::move(subst)});
+            return;
+        }
+
+        // Generic template fallback.
+        auto tit = templates_.find(orig_name);
+        if (tit == templates_.end()) return;
+        const lir::LFunction* tmpl = tit->second;
+
         SubstMap subst;
         size_t n = std::min(tmpl->type_params.size(), type_args.size());
         for (size_t i = 0; i < n; ++i)
             subst[tmpl->type_params[i].name] = type_args[i];
-
         worklist_.push_back({mangled_callee, tmpl, std::move(subst)});
     }
 

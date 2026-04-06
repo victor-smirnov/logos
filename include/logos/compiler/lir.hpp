@@ -214,11 +214,18 @@ struct LParam {
 
 struct LFunction {
     std::string              name;
-    std::vector<TypeParam>   type_params;  // empty for non-generic functions
+    std::vector<TypeParam>   type_params;  // TypeVar names (generic def, empty otherwise)
     std::vector<LParam>      params;
     const LogosType*         ret_type  = nullptr;
     LBlock                   body;
     bool                     is_extern = false;
+
+    // Specialisation support (set by sema, cleared by mono after instantiation).
+    // is_specialization == true  →  this is a specialisation of `name`.
+    // spec_patterns: one LogosType* per type-param position; may contain TypeVar
+    //   for partial specialisations (e.g. fn foo<*T> → pattern = *const TypeVar<T>).
+    bool                          is_specialization = false;
+    std::vector<const LogosType*> spec_patterns;
 };
 
 struct LField {
@@ -267,7 +274,8 @@ struct LProgram {
 
     std::vector<LStructDef>  structs;
     std::vector<LEnumDef>    enums;
-    std::vector<LFunction>   functions;    // free functions and extern fn
+    std::vector<LFunction>   functions;        // free functions and extern fn
+    std::vector<LFunction>   specializations;  // fn specialisations (consumed by mono)
     std::vector<LConst>      consts;
     std::vector<LTypeAlias>  type_aliases;
 

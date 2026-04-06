@@ -561,12 +561,205 @@ private:
         }
     }
 
+    // ── Specialisation helpers ────────────────────────────────────
+
+    // Returns the LogosType* for a name that is a primitive, struct, enum, or alias.
+    // Returns nullptr if name is not a known type (i.e. it would be a TypeVar).
+    const LogosType* try_resolve_as_known_type(std::string_view name) {
+        if (name == "i32")  return prim(LogosType::Kind::I32);
+        if (name == "i64")  return prim(LogosType::Kind::I64);
+        if (name == "f64")  return prim(LogosType::Kind::F64);
+        if (name == "bool") return prim(LogosType::Kind::Bool);
+        if (name == "u8")   return prim(LogosType::Kind::U8);
+        if (name == "i8")   return prim(LogosType::Kind::I8);
+        if (name == "u32")  return prim(LogosType::Kind::U32);
+        if (name == "u64")  return prim(LogosType::Kind::U64);
+        if (name == "void") return prim(LogosType::Kind::Void);
+        auto ait = type_aliases_.find(std::string(name));
+        if (ait != type_aliases_.end()) return ait->second;
+        if (structs_.count(std::string(name))) return make_struct_type(name);
+        if (enums_.count(std::string(name)))   return make_enum_type(name);
+        return nullptr;
+    }
+
+    bool is_known_type_name(std::string_view name) const {
+        static constexpr const char* prims[] = {
+            "i32","i64","f64","bool","u8","i8","u32","u64","void",nullptr
+        };
+        for (int i = 0; prims[i]; ++i) if (prims[i] == name) return true;
+        return structs_.count(std::string(name)) ||
+               enums_.count(std::string(name))   ||
+               type_aliases_.count(std::string(name));
+    }
+
+    // Walk a type AST node, registering any unresolved IDENT as a TypeVar in
+    // current_type_params_ (used to handle partial-spec patterns like *T or [T;4]).
+    void extract_typevars_from_type_node(TinyMapView node,
+                                          std::vector<TypeParam>& out_tvars) {
+        int32_t tc = code_of(node);
+        if (tc == la::PTR_TYPE) {
+            if (node.has_key(la::POINTEE))
+                extract_typevars_from_type_node(
+                    map_of(node.get(la::POINTEE.code)), out_tvars);
+        } else if (tc == la::ARR_TYPE) {
+            if (node.has_key(la::TYPE))
+                extract_typevars_from_type_node(
+                    map_of(node.get(la::TYPE.code)), out_tvars);
+        } else if (tc == la::TYPE_REF) {
+            auto name = str_of(node.get(la::NAME.code));
+            if (!is_known_type_name(name) &&
+                !current_type_params_.count(std::string(name))) {
+                current_type_params_[std::string(name)] = make_typevar(name);
+                out_tvars.push_back({std::string(name), {}});
+            }
+        }
+    }
+
+    // Return true when ANY element of the type_param_list is a concrete type
+    // or a structured pattern (ptr_type / arr_type), making this a specialisation.
+    bool is_specialization_fn(TinyMapView node) {
+        if (!node.has_key(la::TYPE_PARAMS)) return false;
+        AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+        if (tpav.is_null()) return false;
+        auto tplist = map_of(tpav);
+        if (!tplist.has_key(la::ITEMS)) return false;
+        auto items = arr_of(tplist.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto n = map_of(items.get(i));
+            int32_t c = code_of(n);
+            if (c == la::PTR_TYPE || c == la::ARR_TYPE)
+                return true;  // structured pattern → specialisation
+            if (c == la::TYPE_PARAM && !n.has_key(la::ITEMS)) {
+                auto name = str_of(n.get(la::NAME.code));
+                if (try_resolve_as_known_type(name))
+                    return true;  // concrete type name → specialisation
+            }
+        }
+        return false;
+    }
+
+    // ── lower_spec_fn ─────────────────────────────────────────────
+    // Like lower_fn but for specialisation definitions.
+    // Populates spec_patterns and routes the result to prog.specialisations.
+
+    lir::LFunction lower_spec_fn(TinyMapView node) {
+        auto raw_name = str_of(node.get(la::NAME.code));
+        ctx_ = std::format("fn {} (specialization)", raw_name);
+        node_line_ = get_line(node);
+
+        lir::LFunction fn;
+        fn.name = std::string(raw_name);
+        fn.is_specialization = true;
+
+        // Parse spec type-param list: populate fn.spec_patterns and scope TypeVars.
+        std::vector<TypeParam> pattern_tvars;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+                        auto tpnode = map_of(tpitems.get(i));
+                        int32_t tc  = code_of(tpnode);
+
+                        if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
+                            // Structured pattern: extract TypeVars then resolve.
+                            extract_typevars_from_type_node(tpnode, pattern_tvars);
+                            fn.spec_patterns.push_back(resolve_type(tpnode));
+
+                        } else if (tc == la::TYPE_PARAM) {
+                            auto name = str_of(tpnode.get(la::NAME.code));
+                            if (tpnode.has_key(la::ITEMS)) {
+                                // TypeVar with bounds — still a TypeVar in patterns.
+                                current_type_params_[std::string(name)] =
+                                    make_typevar(name);
+                                TypeParam tp; tp.name = std::string(name);
+                                // Read bounds for completeness.
+                                auto bounds = arr_of(tpnode.get(la::ITEMS.code));
+                                for (uint64_t b = 0; b < bounds.size(); ++b) {
+                                    auto bn = map_of(bounds.get(b));
+                                    if (code_of(bn) == la::TRAIT_BOUND)
+                                        tp.bounds.push_back(
+                                            {std::string(str_of(bn.get(la::NAME.code)))});
+                                }
+                                pattern_tvars.push_back(std::move(tp));
+                                fn.spec_patterns.push_back(make_typevar(name));
+                            } else {
+                                // Plain IDENT: known type → concrete; else → TypeVar.
+                                auto* known = try_resolve_as_known_type(name);
+                                if (known) {
+                                    fn.spec_patterns.push_back(known);
+                                } else {
+                                    current_type_params_[std::string(name)] =
+                                        make_typevar(name);
+                                    pattern_tvars.push_back({std::string(name), {}});
+                                    fn.spec_patterns.push_back(make_typevar(name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Resolve params and return type (TypeVars from patterns are now in scope).
+        fn.ret_type = node.has_key(la::RET_TYPE)
+            ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
+            : void_t();
+        ret_type_ = fn.ret_type;
+
+        scope_.clear();
+        push_scope();
+
+        if (node.has_key(la::PARAMS)) {
+            auto params_av = node.get(la::PARAMS.code);
+            if (params_av.is_pointer()) {
+                auto params_node = map_of(params_av);
+                if (params_node.has_key(la::ITEMS)) {
+                    auto arr = arr_of(params_node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < arr.size(); ++i) {
+                        auto p = map_of(arr.get(i));
+                        if (code_of(p) != la::PARAM) continue;
+                        auto pname = str_of(p.get(la::NAME.code));
+                        auto ptype = resolve_type(map_of(p.get(la::TYPE.code)));
+                        define(pname, ptype);
+                        fn.params.push_back({std::string(pname), ptype});
+                    }
+                }
+            }
+        }
+
+        if (!fn.is_extern && node.has_key(la::BODY)) {
+            auto body_node = map_of(node.get(la::BODY.code));
+            fn.body = lower_block(body_node);
+            if (fn.ret_type && fn.ret_type->kind != LogosType::Kind::Void &&
+                fn.ret_type->kind != LogosType::Kind::Error &&
+                !block_always_returns(body_node)) {
+                error("not all paths return a value");
+            }
+        }
+
+        pop_scope();
+
+        // Remove pattern TypeVars from scope.
+        for (auto& tp : pattern_tvars)
+            current_type_params_.erase(tp.name);
+
+        return fn;
+    }
+
     void collect_fn(TinyMapView node, std::string_view struct_ctx = {}) {
         auto raw_name = str_of(node.get(la::NAME.code));
         std::string mangled = struct_ctx.empty()
             ? std::string(raw_name)
             : std::string(struct_ctx) + "__" + std::string(raw_name);
         ctx_ = std::format("fn {}", mangled);
+
+        // Specialisations are validated and lowered inline by lower_spec_fn;
+        // skip collection-phase registration entirely.
+        if (is_specialization_fn(node)) return;
+
         if (funcs_.count(mangled)) {
             error(std::format("duplicate function '{}'", mangled));
             return;
@@ -1687,8 +1880,12 @@ private:
             int32_t c = code_of(item);
             if      (c == la::STRUCT)     prog.structs.push_back(lower_struct_def(item));
             else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
-            else if (c == la::FN || c == la::EXTERN_FN)
-                                          prog.functions.push_back(lower_fn(item));
+            else if (c == la::FN || c == la::EXTERN_FN) {
+                if (is_specialization_fn(item))
+                    prog.specializations.push_back(lower_spec_fn(item));
+                else
+                    prog.functions.push_back(lower_fn(item));
+            }
             else if (c == la::CONST_DEF)  prog.consts.push_back(lower_const_def(item));
             else if (c == la::TYPE_ALIAS) prog.type_aliases.push_back(lower_type_alias_def(item));
         }

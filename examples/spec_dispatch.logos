@@ -1,0 +1,20 @@
+package spec_dispatch;
+
+// Generic fallback
+fn describe<T>(x: T) -> i32 { return 0; }
+// Full specializations
+fn describe<i32>(x: i32) -> i32 { return 1; }
+fn describe<bool>(x: bool) -> i32 { return 2; }
+// Partial specialization: any pointer
+fn describe<*const T>(x: *const T) -> i32 { return 3; }
+// Full pointer specialization: *const i32 (beats partial)
+fn describe<*const i32>(x: *const i32) -> i32 { return 4; }
+
+fn main() -> i32 {
+    let v: i32 = 0;
+    let p: *const i32 = &v;
+    let a: i32 = describe::<i32>(v);          // full spec  → 1
+    let b: i32 = describe::<bool>(true);      // full spec  → 2
+    let c: i32 = describe::<*const i32>(p);   // full beats partial → 4
+    return (a + b) + c;   // 7
+}

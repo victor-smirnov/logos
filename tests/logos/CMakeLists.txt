@@ -29,6 +29,7 @@ foreach(EXPECTED IN ITEMS
     pass/generic_max.expected
     pass/generic_pow.expected
     pass/generic_nested.expected
+    pass/spec_dispatch.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)
