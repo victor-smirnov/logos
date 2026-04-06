@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// For-loop ranges: exclusive (..) and inclusive (..=).
+// sum of 0..10  = 0+1+…+9   = 45
+// sum of 1..=5  = 1+2+3+4+5 = 15
+// 45 - 15 = 30  →  exit code 30.
+
+package for_sum;
+
+fn sum_excl(lo: i32, hi: i32) -> i32 {
+    let mut s: i32 = 0;
+    for i in lo..hi {
+        s = s + i;
+    }
+    return s;
+}
+
+fn sum_incl(lo: i32, hi: i32) -> i32 {
+    let mut s: i32 = 0;
+    for i in lo..=hi {
+        s = s + i;
+    }
+    return s;
+}
+
+fn main() -> i32 {
+    let a: i32 = sum_excl(0, 10);   // 45
+    let b: i32 = sum_incl(1, 5);    // 15
+    return a - b;                   // 30
+}

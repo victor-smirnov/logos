@@ -191,6 +191,12 @@ private:
             if (struct_types_.count(std::string(t->struct_name))) return ptr_type();
             return nullptr;
         }
+        case LogosType::Kind::TypeVar:
+            // TypeVar should have been eliminated by mono_pass.
+            // Treat as error type to produce a clear diagnostic.
+            std::fprintf(stderr, "mlir_gen: unresolved TypeVar '%s' — mono_pass required\n",
+                         t->type_var_name.c_str());
+            return nullptr;
         case LogosType::Kind::Error:  return nullptr;
         }
         return nullptr;

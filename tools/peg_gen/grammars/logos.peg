@@ -47,6 +47,7 @@
     SRC_LINE    = 24
     IS_MUT      = 25
     INCLUSIVE   = 26
+    TYPE_PARAMS = 27
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -102,6 +103,10 @@
     ENUM_LIT    = 86
     PAT_INT     = 87
     PAT_BOOL    = 88
+    TRAIT_BOUND = 89
+    TYPE_PARAM  = 90
+    GENERIC_CALL = 91
+    GENERIC_INST = 92
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -132,6 +137,7 @@
     KW_FN       = "fn"
     KW_IF       = "if"
     KW_AS       = "as"
+    KW_WHERE    = "where"
 
     // Punctuation
     LBRACE      = "{"
@@ -216,8 +222,8 @@
                 => { CODE: VARIANT_DEF, NAME: $1 }
 
     // ── Struct definition ────────────────────────────────────────
-    struct_def <- KW_STRUCT IDENT LBRACE field_def* method_def* RBRACE
-               => { CODE: STRUCT, NAME: $2, FIELDS: $4, ITEMS: $5 }
+    struct_def <- KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
+               => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6 }
 
     field_def <- IDENT COLON type_ref SEMI
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
@@ -232,16 +238,16 @@
                   => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5 }
 
     // ── Public function ──────────────────────────────────────────
-    pub_fn_def <- KW_PUB KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
-               => { CODE: FN, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
-                / KW_PUB KW_FN IDENT LPAREN param_list? RPAREN block
-               => { CODE: FN, NAME: $3, PARAMS: $5, BODY: $7 }
+    pub_fn_def <- KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+               => { CODE: FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
+                / KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
+               => { CODE: FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
 
     // ── Private function ─────────────────────────────────────────
-    fn_def <- KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
-           => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
-            / KW_FN IDENT LPAREN param_list? RPAREN block
-           => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
+    fn_def <- KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
+            / KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
+           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, BODY: $7 }
 
     param_list <- param (COMMA param)*
               => { ITEMS: $... }
@@ -261,7 +267,9 @@
     arr_type <- LBRACKET simple_type SEMI INTEGER RBRACKET
              => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
 
-    simple_type <- IDENT
+    simple_type <- IDENT LT type_ref (COMMA type_ref)* GT
+                => { CODE: GENERIC_INST, NAME: $1, ITEMS: $... }
+                 / IDENT
                 => { CODE: TYPE_REF, NAME: $1 }
 
     // ── Block ────────────────────────────────────────────────────
@@ -427,7 +435,29 @@
     paren_expr <- LPAREN expr RPAREN
                => { CODE: PAREN_EXPR, VALUE: $2 }
 
-    // ── Free function call: fn(args) ─────────────────────────────
-    call_expr <- IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+    // ── Type parameter list: <T, U: Bound1 + Bound2> ─────────────
+    type_param_list <- LT type_param (COMMA type_param)* GT
+                    => { ITEMS: $... }
+
+    trait_bound <- IDENT
+                => { CODE: TRAIT_BOUND, NAME: $1 }
+
+    type_param <- IDENT COLON trait_bound (PLUS trait_bound)*
+               => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $... }
+                / IDENT
+               => { CODE: TYPE_PARAM, NAME: $1 }
+
+    // ── Type argument list (for generic instantiation in types): Vec<i32> ─
+    type_arg_list <- type_ref (COMMA type_ref)*
+                  => { ITEMS: $... }
+
+    // ── Value argument list (for call sites) ─────────────────────
+    call_arg_list <- expr (COMMA expr)*
+                  => { ITEMS: $... }
+
+    // ── Free function call: fn(args) or fn::<T>(args) ────────────
+    call_expr <- IDENT COLONCOLON LT type_arg_list GT LPAREN call_arg_list? RPAREN
+              => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
+               / IDENT LPAREN (expr (COMMA expr)*)? RPAREN
               => { CODE: CALL, CALLEE: $1, ARGS: $... }
 }

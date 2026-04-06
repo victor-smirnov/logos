@@ -41,6 +41,8 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
         return a.struct_name == b.struct_name;
     case LogosType::Kind::Enum:
         return a.enum_name == b.enum_name;
+    case LogosType::Kind::TypeVar:
+        return a.type_var_name == b.type_var_name;
     default:
         return true;
     }
@@ -57,6 +59,7 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
     if (!from || !to) return false;
     if (types_equal(*from, *to)) return true;
     if (from->kind == LogosType::Kind::IntLit && is_integer_kind(to->kind)) return true;
+    if (from->kind == LogosType::Kind::IntLit && to->kind == LogosType::Kind::TypeVar) return true;
     if (from->kind == LogosType::Kind::Enum   && is_integer_kind(to->kind)) return true;
     if (is_integer_kind(from->kind) && to->kind == LogosType::Kind::Enum)   return true;
     if (from->kind == LogosType::Kind::Array &&
@@ -88,9 +91,10 @@ std::string type_str(const LogosType* t) {
         return std::string(t->mut_ptr ? "*mut " : "*const ") + type_str(t->pointee);
     case LogosType::Kind::Array:
         return std::format("[{}; {}]", type_str(t->elem), t->arr_size);
-    case LogosType::Kind::Struct: return std::string(t->struct_name);
-    case LogosType::Kind::Enum:   return std::string(t->enum_name);
-    case LogosType::Kind::Error:  return "<error>";
+    case LogosType::Kind::Struct:  return std::string(t->struct_name);
+    case LogosType::Kind::Enum:    return std::string(t->enum_name);
+    case LogosType::Kind::TypeVar: return std::string(t->type_var_name);
+    case LogosType::Kind::Error:   return "<error>";
     }
     return "<unknown>";
 }
@@ -134,8 +138,9 @@ private:
 
     TypePool pool_;
 
-    // prims_[int(Kind)] for primitive kinds.  Size 15 (Kind::Error = 14).
-    std::array<const LogosType*, 15> prims_{};
+    // prims_[int(Kind)] for primitive kinds.  Size 16 (Kind::Error = 15).
+    // TypeVar is not a primitive — use make_typevar(name) instead.
+    std::array<const LogosType*, 16> prims_{};
 
     void init_primitives() {
         auto ap = [&](LogosType::Kind k) {
@@ -179,6 +184,11 @@ private:
     }
     const LogosType* make_enum_type(std::string_view name) {
         LogosType t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
+        return pool_.alloc(t);
+    }
+    const LogosType* make_typevar(std::string_view name) {
+        LogosType t; t.kind = LogosType::Kind::TypeVar;
+        t.type_var_name = std::string(name);
         return pool_.alloc(t);
     }
 
@@ -306,16 +316,65 @@ private:
     // ── Module-level symbol tables ───────────────────────────────
 
     struct SemaFieldInfo  { std::string_view name; const LogosType* type; };
-    struct SemaStructInfo { std::vector<SemaFieldInfo> fields; };
-    struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type; };
+    struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params; };
+    struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
+                            std::vector<TypeParam> type_params; };
     struct SemaVariantInfo{ std::string_view name; int32_t value; };
     struct SemaEnumInfo   { std::vector<SemaVariantInfo> variants; };
+
+    // Type params in scope for the function/struct currently being processed.
+    // Maps type param name → TypeVar LogosType*.
+    std::unordered_map<std::string, const LogosType*> current_type_params_;
 
     std::unordered_map<std::string, SemaStructInfo>   structs_;
     std::unordered_map<std::string, SemaEnumInfo>     enums_;
     std::unordered_map<std::string, SemaFuncInfo>     funcs_;
     std::unordered_map<std::string, const LogosType*> type_aliases_;
     std::unordered_map<std::string, const LogosType*> module_consts_;
+
+    // ── Type parameter helpers ────────────────────────────────────
+
+    // Read type_param_list from an AST node that may have TYPE_PARAMS.
+    std::vector<TypeParam> read_type_params(TinyMapView node) {
+        std::vector<TypeParam> result;
+        if (!node.has_key(la::TYPE_PARAMS)) return result;
+        AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+        if (tpav.is_null()) return result;
+        // type_param_list => { ITEMS: $... }
+        auto tplist = map_of(tpav);
+        if (!tplist.has_key(la::ITEMS)) return result;
+        auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < tpitems.size(); ++i) {
+            auto tpnode = map_of(tpitems.get(i));
+            if (code_of(tpnode) != la::TYPE_PARAM) continue;
+            TypeParam tp;
+            tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
+            // Optional bounds: ITEMS contains TRAIT_BOUND nodes
+            if (tpnode.has_key(la::ITEMS)) {
+                auto bounds = arr_of(tpnode.get(la::ITEMS.code));
+                for (uint64_t b = 0; b < bounds.size(); ++b) {
+                    auto bnode = map_of(bounds.get(b));
+                    if (code_of(bnode) == la::TRAIT_BOUND) {
+                        TraitBound tb;
+                        tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                        tp.bounds.push_back(std::move(tb));
+                    }
+                }
+            }
+            result.push_back(std::move(tp));
+        }
+        return result;
+    }
+
+    // Push type params into current_type_params_ (call before resolving fn/struct body).
+    void push_type_params(const std::vector<TypeParam>& tps) {
+        for (auto& tp : tps)
+            current_type_params_[tp.name] = make_typevar(tp.name);
+    }
+    void pop_type_params(const std::vector<TypeParam>& tps) {
+        for (auto& tp : tps)
+            current_type_params_.erase(tp.name);
+    }
 
     // ── Type resolution ──────────────────────────────────────────
 
@@ -355,11 +414,28 @@ private:
             if (name == "u32")  return prim(LogosType::Kind::U32);
             if (name == "u64")  return prim(LogosType::Kind::U64);
             if (name == "void") return prim(LogosType::Kind::Void);
+            // Check if it's a type variable in scope
+            auto tvit = current_type_params_.find(std::string(name));
+            if (tvit != current_type_params_.end()) return tvit->second;
             auto ait = type_aliases_.find(std::string(name));
             if (ait != type_aliases_.end()) return ait->second;
             if (structs_.count(std::string(name))) return make_struct_type(name);
             if (enums_.count(std::string(name)))   return make_enum_type(name);
             error(std::format("unknown type '{}'", name));
+            return error_t();
+        }
+
+        if (tc == la::GENERIC_INST) {
+            // Vec<T>, Map<K, V>, etc.  Resolve to a Struct type for now;
+            // the monomorphizer will validate the instantiation.
+            auto name = str_of(node.get(la::NAME.code));
+            // Type args are in ITEMS — resolve each so TypeVars in scope are expanded
+            // (e.g., inside fn foo<T> { let v: Vec<T> = ...; } → Vec<TypeVar T>)
+            // We don't yet have a GenericInst LogosType — treat as the base struct type.
+            if (structs_.count(std::string(name))) return make_struct_type(name);
+            if (enums_.count(std::string(name)))   return make_enum_type(name);
+            // Unknown base — might be a forward reference or stdlib type
+            error(std::format("unknown generic type '{}'", name));
             return error_t();
         }
 
@@ -463,6 +539,8 @@ private:
         auto sname = std::string(str_of(node.get(la::NAME.code)));
         ctx_ = std::format("struct {}", sname);
         SemaStructInfo info;
+        info.type_params = read_type_params(node);
+        push_type_params(info.type_params);
         if (node.has_key(la::FIELDS)) {
             auto fields = arr_of(node.get(la::FIELDS.code));
             for (uint64_t i = 0; i < fields.size(); ++i) {
@@ -472,6 +550,7 @@ private:
                 info.fields.push_back({fname, ftype});
             }
         }
+        pop_type_params(info.type_params);
         structs_[sname] = std::move(info);
         if (node.has_key(la::ITEMS)) {
             auto methods = arr_of(node.get(la::ITEMS.code));
@@ -493,6 +572,8 @@ private:
             return;
         }
         SemaFuncInfo info;
+        info.type_params = read_type_params(node);
+        push_type_params(info.type_params);
         if (node.has_key(la::PARAMS)) {
             auto params_av = node.get(la::PARAMS.code);
             if (params_av.is_pointer()) {
@@ -510,6 +591,7 @@ private:
         info.ret_type = node.has_key(la::RET_TYPE)
             ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
             : void_t();
+        pop_type_params(info.type_params);
         funcs_[mangled] = std::move(info);
     }
 
@@ -575,7 +657,9 @@ private:
 
     static bool is_numeric(const LogosType* t) noexcept {
         if (!t) return false;
-        return t->kind == LogosType::Kind::F64 || is_integer_kind(t->kind);
+        return t->kind == LogosType::Kind::F64 ||
+               t->kind == LogosType::Kind::TypeVar ||
+               is_integer_kind(t->kind);
     }
     static bool is_integer(const LogosType* t) noexcept {
         return t && is_integer_kind(t->kind);
@@ -641,8 +725,9 @@ private:
         case la::BINOP:       return lower_binop(expr);
         case la::UNARY:       return lower_unary(expr);
         case la::DEREF:       return lower_deref(expr);
-        case la::CALL:        return lower_call(expr);
-        case la::METHOD_CALL: return lower_method_call(expr);
+        case la::CALL:         return lower_call(expr);
+        case la::GENERIC_CALL: return lower_generic_call(expr);
+        case la::METHOD_CALL:  return lower_method_call(expr);
         case la::FIELD_READ:  return lower_field_read(expr);
         case la::STRUCT_LIT:  return lower_struct_lit(expr);
         case la::INDEX_READ:  return lower_index_read(expr);
@@ -685,10 +770,14 @@ private:
                 error(std::format("operator '{}': right must be numeric, got {}", op, type_str(rt)));
             bool both_int = is_integer_kind(lt->kind) && is_integer_kind(rt->kind);
             if (!both_int) {
-                if (is_numeric(lt) && is_numeric(rt) && !types_equal(*lt, *rt))
+                bool compat = types_compatible(lt, rt) || types_compatible(rt, lt);
+                if (is_numeric(lt) && is_numeric(rt) && !compat)
                     error(std::format("operator '{}': type mismatch ({} vs {})",
                           op, type_str(lt), type_str(rt)));
-                result_type = lt;
+                // If one side is TypeVar and the other is IntLit, result is the TypeVar
+                if (lt->kind == LogosType::Kind::TypeVar) result_type = lt;
+                else if (rt->kind == LogosType::Kind::TypeVar) result_type = rt;
+                else result_type = lt;
             } else {
                 if (!types_compatible(lt, rt) && !types_compatible(rt, lt))
                     error(std::format("operator '{}': type mismatch ({} vs {})",
@@ -768,7 +857,7 @@ private:
 
         if (fit == funcs_.end()) {
             error(std::format("call to undefined function '{}'", callee));
-            return make_expr(error_t(), lir::ECall{std::string(callee), std::move(arg_exprs)});
+            return make_expr(error_t(), lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
         }
 
         auto& fi = fit->second;
@@ -789,7 +878,92 @@ private:
             }
         }
 
-        return make_expr(fi.ret_type, lir::ECall{std::string(callee), std::move(arg_exprs)});
+        return make_expr(fi.ret_type, lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
+    }
+
+    // ── lower_generic_call: foo::<T1, T2>(args) ──────────────────
+
+    lir::LExprPtr lower_generic_call(TinyMapView node) {
+        auto callee = str_of(node.get(la::CALLEE.code));
+        auto fit = funcs_.find(std::string(callee));
+
+        // Resolve type arguments from TYPE_PARAMS (type_arg_list with ITEMS)
+        std::vector<const LogosType*> type_args;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        type_args.push_back(resolve_type(map_of(items.get(i))));
+                }
+            }
+        }
+
+        // Resolve value arguments from ARGS (call_arg_list? with ITEMS, or null)
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            AnyVal args_av = node.get(la::ARGS.code);
+            if (!args_av.is_null()) {
+                auto args_list = map_of(args_av);
+                if (args_list.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_list.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+
+        if (fit == funcs_.end()) {
+            error(std::format("call to undefined function '{}'", callee));
+            return make_expr(error_t(), lir::ECall{std::string(callee), std::move(type_args), std::move(arg_exprs)});
+        }
+
+        auto& fi = fit->second;
+
+        // Validate type argument count against type parameters
+        if (!fi.type_params.empty() && type_args.size() != fi.type_params.size()) {
+            error(std::format("call to '{}': expected {} type arg(s), got {}",
+                  callee, fi.type_params.size(), type_args.size()));
+        }
+
+        // Build substitution map: type param name → concrete type arg
+        std::unordered_map<std::string, const LogosType*> subst;
+        size_t n_subst = std::min(fi.type_params.size(), type_args.size());
+        for (size_t i = 0; i < n_subst; ++i)
+            subst[fi.type_params[i].name] = type_args[i];
+
+        // Determine concrete return type by substituting TypeVars
+        auto subst_type = [&](const LogosType* t) -> const LogosType* {
+            if (!t) return error_t();
+            if (t->kind == LogosType::Kind::TypeVar) {
+                auto it = subst.find(t->type_var_name);
+                if (it != subst.end()) return it->second;
+            }
+            return t;
+        };
+        const LogosType* ret = subst_type(fi.ret_type);
+
+        // Validate value argument count
+        uint64_t n_args = arg_exprs.size();
+        if (n_args != fi.param_types.size()) {
+            error(std::format("call to '{}': expected {} args, got {}",
+                  callee, fi.param_types.size(), n_args));
+        } else {
+            for (uint64_t i = 0; i < n_args; ++i) {
+                auto* at = arg_exprs[i]->type;
+                auto* pt = subst_type(fi.param_types[i]);
+                if (at->kind != LogosType::Kind::Error &&
+                    pt->kind != LogosType::Kind::Error &&
+                    pt->kind != LogosType::Kind::TypeVar &&
+                    !types_compatible(at, pt))
+                    error(std::format("call to '{}' arg {}: expected {}, got {}",
+                          callee, i + 1, type_str(pt), type_str(at)));
+            }
+        }
+
+        return make_expr(ret, lir::ECall{std::string(callee), std::move(type_args), std::move(arg_exprs)});
     }
 
     lir::LExprPtr lower_method_call(TinyMapView node) {
@@ -1393,8 +1567,12 @@ private:
         auto fit = funcs_.find(mangled);
         if (fit == funcs_.end()) return fn;   // shouldn't happen after collect
 
-        fn.ret_type = fit->second.ret_type;
-        ret_type_   = fn.ret_type;
+        fn.type_params = fit->second.type_params;
+        fn.ret_type    = fit->second.ret_type;
+        ret_type_      = fn.ret_type;
+
+        // Put type params in scope for the duration of the function body
+        push_type_params(fn.type_params);
 
         scope_.clear();
         push_scope();
@@ -1431,6 +1609,7 @@ private:
         }
 
         pop_scope();
+        pop_type_params(fn.type_params);
         return fn;
     }
 
@@ -1441,6 +1620,8 @@ private:
         lir::LStructDef sd;
         sd.name = sname;
         auto& sinfo = structs_[sname];
+        sd.type_params = sinfo.type_params;
+        push_type_params(sd.type_params);
         for (auto& f : sinfo.fields)
             sd.fields.push_back({std::string(f.name), f.type});
         if (node.has_key(la::ITEMS)) {
@@ -1451,6 +1632,7 @@ private:
                     sd.methods.push_back(lower_fn(method, sname));
             }
         }
+        pop_type_params(sd.type_params);
         return sd;
     }
 

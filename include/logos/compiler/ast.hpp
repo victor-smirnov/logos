@@ -51,7 +51,8 @@ inline constexpr Key FIELDS   {"FIELDS",   22};  // field definitions array (in 
 inline constexpr Key SIZE     {"SIZE",     23};  // array size (integer literal)
 inline constexpr Key SRC_LINE  {"SRC_LINE",  24};  // source line number (uint32_t, 1-based)
 inline constexpr Key IS_MUT    {"IS_MUT",    25};  // mutability flag (uint8_t, 1 = mut)
-inline constexpr Key INCLUSIVE {"INCLUSIVE", 26};  // for range: inclusive end (..=)
+inline constexpr Key INCLUSIVE  {"INCLUSIVE",  26};  // for range: inclusive end (..=)
+inline constexpr Key TYPE_PARAMS{"TYPE_PARAMS", 27}; // generic type parameter list
 
 // ── Node codes ───────────────────────────────────────────────────────────
 
@@ -119,6 +120,12 @@ inline constexpr Code PAT_WILD    {"PAT_WILD",     85};   // _ or name wildcard 
 inline constexpr Code ENUM_LIT    {"ENUM_LIT",     86};   // Enum::Variant expression
 inline constexpr Code PAT_INT     {"PAT_INT",      87};   // integer literal pattern
 inline constexpr Code PAT_BOOL    {"PAT_BOOL",     88};   // bool literal pattern
+
+// Batch D — generics
+inline constexpr Code TRAIT_BOUND {"TRAIT_BOUND",  89};   // bound in T: Trait1 + Trait2
+inline constexpr Code TYPE_PARAM  {"TYPE_PARAM",   90};   // type parameter T or T: Bound
+inline constexpr Code GENERIC_CALL{"GENERIC_CALL", 91};   // foo::<T>(args)
+inline constexpr Code GENERIC_INST{"GENERIC_INST", 92};   // Vec<T> in type position
 
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;

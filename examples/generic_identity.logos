@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// Batch D smoke test — generic function + turbofish call.
+//
+// identity<T>(x: T) -> T returns its argument unchanged.
+// When monomorphized with T = i32, it becomes identity__i32(x: i32) -> i32.
+// main() calls identity::<i32>(42) + identity::<i32>(1) and returns 43.
+
+package generic_identity;
+
+fn identity<T>(x: T) -> T {
+    return x;
+}
+
+fn main() -> i32 {
+    let a: i32 = identity::<i32>(42);
+    let b: i32 = identity::<i32>(1);
+    return a + b;
+}

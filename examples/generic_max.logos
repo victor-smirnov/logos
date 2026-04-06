@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// Generic max<T> — same function instantiated for i32 and i64.
+// max::<i32>(3, 7) = 7
+// max::<i64>(2, 5) as i32 = 5
+// 7 + 5 = 12, but we want exit code 10:
+// max::<i32>(4, 6) + max::<i32>(1, 4) = 6 + 4 = 10.
+
+package generic_max;
+
+fn max<T>(a: T, b: T) -> T {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+fn min<T>(a: T, b: T) -> T {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
+fn main() -> i32 {
+    let x: i32 = max::<i32>(4, 6);       // 6
+    let y: i32 = min::<i32>(7, 4);       // 4
+    return x + y;                        // 10
+}

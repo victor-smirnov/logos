@@ -29,6 +29,7 @@ struct LogosType {
         Array,                    // [T; N]
         Struct,                   // user-defined struct
         Enum,                     // discriminant enum (stored as i32)
+        TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)
         Error                     // sentinel for ill-typed expressions
     };
@@ -46,6 +47,22 @@ struct LogosType {
     // Struct / Enum
     std::string_view struct_name;         // view into Hermes arena
     std::string_view enum_name;           // view into Hermes arena (Enum kind)
+
+    // TypeVar — name stored as a std::string (owns its storage)
+    std::string      type_var_name;       // e.g. "T" (TypeVar kind only)
+};
+
+// ── Trait bound (for type parameter bounds) ────────────────────────────────
+
+struct TraitBound {
+    std::string trait_name;   // e.g. "Ord", "Clone" — no runtime semantics until Batch F
+};
+
+// ── Type parameter ────────────────────────────────────────────────────────
+
+struct TypeParam {
+    std::string              name;     // e.g. "T"
+    std::vector<TraitBound>  bounds;   // e.g. [Ord, Clone]
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).

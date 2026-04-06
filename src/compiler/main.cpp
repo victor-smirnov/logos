@@ -9,6 +9,7 @@
 #include "mlir_gen.hpp"
 #include "module_loader.hpp"
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/mono.hpp>
 
 #include <logos/hermes/document.hpp>
 
@@ -83,6 +84,11 @@ int main(int argc, char** argv) {
 
     // ── Step 2b: Semantic analysis + L-IR lowering ──────────────
     auto prog = logos::compiler::sema_lower(asts, filenames);
+    prog.print_diags(stderr);
+    if (!prog.ok()) return 1;
+
+    // ── Step 2c: Monomorphization ────────────────────────────────
+    prog = logos::compiler::mono_pass(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
 

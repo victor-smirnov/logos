@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// loop { ... break; } and continue in a while loop.
+//
+// count_to(5) = 5  (loop + break when i reaches n)
+// sum_skip3(6): sum 0..5 skipping i==3 → 0+1+2+4+5 = 12  (while + continue)
+// 5 + 12 = 17  →  exit code 17.
+
+package loop_break;
+
+fn count_to(n: i32) -> i32 {
+    let mut i: i32 = 0;
+    loop {
+        i = i + 1;
+        if i == n {
+            break;
+        }
+    }
+    return i;
+}
+
+fn sum_skip3(hi: i32) -> i32 {
+    let mut s: i32 = 0;
+    let mut i: i32 = 0;
+    while i < hi {
+        if i == 3 {
+            i = i + 1;
+            continue;
+        }
+        s = s + i;
+        i = i + 1;
+    }
+    return s;
+}
+
+fn main() -> i32 {
+    let a: i32 = count_to(5);      // 5
+    let b: i32 = sum_skip3(6);     // 0+1+2+4+5 = 12
+    return a + b;                  // 17
+}

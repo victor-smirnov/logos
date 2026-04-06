@@ -1,0 +1,10 @@
+// Sema fail: explicit empty return in a non-void function.
+package t;
+
+fn answer() -> i32 {
+    return;
+}
+
+fn main() -> i32 {
+    return answer();
+}

@@ -1,0 +1,10 @@
+package generic_pow;
+
+fn pow<T>(base: T, n: i32) -> T {
+    if n == 0 { return 1; }
+    return base * pow::<T>(base, n - 1);
+}
+
+fn main() -> i32 {
+    return pow::<i32>(2, 6);   // 64
+}

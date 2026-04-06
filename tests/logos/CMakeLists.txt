@@ -20,6 +20,15 @@ foreach(EXPECTED IN ITEMS
     pass/point.expected
     pass/hello.expected
     pass/enum_match.expected
+    pass/generic_identity.expected
+    pass/fibonacci.expected
+    pass/for_sum.expected
+    pass/cast.expected
+    pass/const_def.expected
+    pass/loop_break.expected
+    pass/generic_max.expected
+    pass/generic_pow.expected
+    pass/generic_nested.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)

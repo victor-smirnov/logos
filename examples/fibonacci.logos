@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// Recursive Fibonacci.
+// fib(10) = 55  →  exit code 55.
+
+package fibonacci;
+
+fn fib(n: i32) -> i32 {
+    if n <= 1 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() -> i32 {
+    return fib(10);
+}

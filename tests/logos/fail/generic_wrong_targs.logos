@@ -1,0 +1,10 @@
+// Sema fail: wrong number of type arguments in generic call.
+package t;
+
+fn identity<T>(x: T) -> T {
+    return x;
+}
+
+fn main() -> i32 {
+    return identity::<i32, bool>(1);
+}

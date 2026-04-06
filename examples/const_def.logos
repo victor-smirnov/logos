@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// Module-level const definitions used in expressions.
+// EXIT_CODE = 6 * 7 = 42  →  exit code 42.
+
+package const_def;
+
+const FACTOR_A: i32 = 6;
+const FACTOR_B: i32 = 7;
+const ANSWER: i32 = 42;
+
+fn mul_consts() -> i32 {
+    return FACTOR_A * FACTOR_B;
+}
+
+fn main() -> i32 {
+    let result: i32 = mul_consts();
+    if result == ANSWER {
+        return result;
+    }
+    return 0;
+}

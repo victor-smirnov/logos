@@ -66,8 +66,9 @@ struct EEnumLit   {
 };
 
 struct ECall      {
-    std::string            callee;
-    std::vector<LExprPtr>  args;
+    std::string                   callee;
+    std::vector<const LogosType*> type_args;  // empty for non-generic calls
+    std::vector<LExprPtr>         args;
 };
 
 struct EMethodCall {
@@ -212,11 +213,12 @@ struct LParam {
 };
 
 struct LFunction {
-    std::string           name;
-    std::vector<LParam>   params;
-    const LogosType*      ret_type  = nullptr;
-    LBlock                body;
-    bool                  is_extern = false;
+    std::string              name;
+    std::vector<TypeParam>   type_params;  // empty for non-generic functions
+    std::vector<LParam>      params;
+    const LogosType*         ret_type  = nullptr;
+    LBlock                   body;
+    bool                     is_extern = false;
 };
 
 struct LField {
@@ -226,6 +228,7 @@ struct LField {
 
 struct LStructDef {
     std::string              name;
+    std::vector<TypeParam>   type_params;  // empty for non-generic structs
     std::vector<LField>      fields;
     std::vector<LFunction>   methods;
 };

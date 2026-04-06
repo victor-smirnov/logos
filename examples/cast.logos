@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// Integer casts between widths.
+// u8 → i32, i32 → i64, i64 → i32.
+// Exit code 42.
+
+package cast;
+
+fn main() -> i32 {
+    // u8 to i32
+    let byte: u8 = 200;
+    let wide: i32 = byte as i32;      // 200
+
+    // i32 to i64 and back
+    let big: i64 = wide as i64;       // 200 as i64
+    let back: i32 = big as i32;       // 200
+
+    return back - 158;                // 200 - 158 = 42
+}
