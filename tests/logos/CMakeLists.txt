@@ -32,6 +32,7 @@ foreach(EXPECTED IN ITEMS
     pass/spec_dispatch.expected
     pass/generic_struct.expected
     pass/struct_spec.expected
+    pass/generic_methods.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)

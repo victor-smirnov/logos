@@ -359,13 +359,24 @@ private:
             return;
         }
 
+        // ── Struct value (from call or variable) ─────────────────
+        // Structs are represented as pointers — store the pointer directly,
+        // no wrapper alloca needed.
+        if (s.type && s.type->kind == LogosType::Kind::Struct) {
+            auto val = gen_expr(*s.value);
+            if (!val) return;
+            scope_[s.name]    = val;
+            let_vars_.insert(s.name);
+            var_struct_[s.name] = concrete_struct_name(s.type);
+            return;
+        }
+
         // ── Scalar ───────────────────────────────────────────────
         auto val = gen_expr(*s.value);
         if (!val) return;
 
         auto var_type = logos_to_mlir(s.type);
         if (!var_type) {
-            // Struct value — handled above; should not reach here.
             scope_[s.name] = val;
             return;
         }

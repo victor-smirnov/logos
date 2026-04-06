@@ -709,8 +709,8 @@ private:
                 info.fields.push_back({fname, ftype});
             }
         }
-        pop_type_params(info.type_params);
         structs_[sname] = std::move(info);
+        // Methods must be collected with the struct's type params in scope.
         if (node.has_key(la::ITEMS)) {
             auto methods = arr_of(node.get(la::ITEMS.code));
             for (uint64_t m = 0; m < methods.size(); ++m) {
@@ -718,6 +718,7 @@ private:
                 if (code_of(method) == la::FN) collect_fn(method, sname);
             }
         }
+        pop_type_params(structs_[sname].type_params);
     }
 
     // ── Specialisation helpers ────────────────────────────────────
@@ -1467,7 +1468,26 @@ private:
             }
         }
 
-        return make_expr(fi.ret_type,
+        // Substitute struct type params (TypeVars) in return type and param types
+        // using the actual type_args of the receiver.  Handles e.g. Pair<T>.swap()
+        // where the receiver is Pair<i32> and ret_type is Pair<T> → Pair<i32>.
+        const LogosType* recv_struct_t = recv->type;
+        if (recv_struct_t->kind == LogosType::Kind::Ptr && recv_struct_t->pointee)
+            recv_struct_t = recv_struct_t->pointee;
+        const LogosType* ret = fi.ret_type;
+        if (recv_struct_t->kind == LogosType::Kind::Struct &&
+            !recv_struct_t->type_args.empty()) {
+            auto sit = structs_.find(recv_struct_t->struct_name);
+            if (sit != structs_.end()) {
+                SemaSubst subst;
+                auto& tps = sit->second.type_params;
+                for (size_t i = 0; i < tps.size() && i < recv_struct_t->type_args.size(); ++i)
+                    subst[tps[i].name] = recv_struct_t->type_args[i];
+                ret = subst_type_sema(fi.ret_type, subst);
+            }
+        }
+
+        return make_expr(ret,
             lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs)});
     }
 
