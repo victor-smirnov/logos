@@ -109,6 +109,17 @@ inline constexpr Code FOR         {"FOR",         70};   // for i in lo..hi { }
 inline constexpr Code CONST_DEF  {"CONST_DEF",   71};   // const NAME: type = expr;
 inline constexpr Code TYPE_ALIAS {"TYPE_ALIAS",  72};   // type NAME = type_ref;
 
+// Iteration 4 — enums + match
+inline constexpr Code ENUM        {"ENUM",        80};   // enum definition
+inline constexpr Code VARIANT_DEF {"VARIANT_DEF", 81};   // variant inside enum
+inline constexpr Code MATCH       {"MATCH",        82};   // match statement
+inline constexpr Code MATCH_ARM   {"MATCH_ARM",    83};   // arm: pattern => body
+inline constexpr Code PAT_VARIANT {"PAT_VARIANT",  84};   // Enum::Variant pattern
+inline constexpr Code PAT_WILD    {"PAT_WILD",     85};   // _ or name wildcard pattern
+inline constexpr Code ENUM_LIT    {"ENUM_LIT",     86};   // Enum::Variant expression
+inline constexpr Code PAT_INT     {"PAT_INT",      87};   // integer literal pattern
+inline constexpr Code PAT_BOOL    {"PAT_BOOL",     88};   // bool literal pattern
+
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

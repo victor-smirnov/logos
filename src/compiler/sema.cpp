@@ -46,7 +46,7 @@ static bool is_integer_kind(LogosType::Kind k) noexcept {
     return k == LogosType::Kind::I32   || k == LogosType::Kind::I64 ||
            k == LogosType::Kind::U8    || k == LogosType::Kind::I8  ||
            k == LogosType::Kind::U32   || k == LogosType::Kind::U64 ||
-           k == LogosType::Kind::IntLit;
+           k == LogosType::Kind::IntLit || k == LogosType::Kind::Enum;
 }
 
 static bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
@@ -54,6 +54,12 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
     if (types_equal(*from, *to)) return true;
     // IntLit widens to any concrete integer type.
     if (from->kind == LogosType::Kind::IntLit && is_integer_kind(to->kind))
+        return true;
+    // Enum → integer coercion (discriminant enums are C-style i32 constants).
+    if (from->kind == LogosType::Kind::Enum && is_integer_kind(to->kind))
+        return true;
+    // Integer → Enum coercion (for assigning discriminant values).
+    if (is_integer_kind(from->kind) && to->kind == LogosType::Kind::Enum)
         return true;
     // Array → pointer coercion: [T; N] is compatible with *const T or *mut T
     if (from->kind == LogosType::Kind::Array &&
@@ -90,6 +96,8 @@ std::string type_str(const LogosType* t) {
         return std::format("[{}; {}]", type_str(t->elem), t->arr_size);
     case LogosType::Kind::Struct:
         return std::string(t->struct_name);
+    case LogosType::Kind::Enum:
+        return std::string(t->enum_name);
     case LogosType::Kind::Error:  return "<error>";
     }
     return "<unknown>";
@@ -137,10 +145,10 @@ private:
 
     TypePool pool_;
 
-    // Indexed by Kind ordinal.  Kind goes 0..13 (Void..Error), so size 14.
+    // Indexed by Kind ordinal.  Kind goes 0..14 (Void..Error), so size 15.
     // Only primitive kinds (Void, I32..U64, IntLit, Error) are populated;
-    // compound kinds (Ptr=9, Array=10, Struct=11) are created via make_* helpers.
-    std::array<const LogosType*, 14> prims_{};
+    // compound kinds (Ptr=9, Array=10, Struct=11, Enum=12) are created via make_* helpers.
+    std::array<const LogosType*, 15> prims_{};
 
     void init_primitives() {
         auto alloc_prim = [&](LogosType::Kind k) {
@@ -189,6 +197,13 @@ private:
         LogosType t;
         t.kind        = LogosType::Kind::Struct;
         t.struct_name = name;
+        return pool_.alloc(t);
+    }
+
+    const LogosType* make_enum_type(std::string_view name) {
+        LogosType t;
+        t.kind      = LogosType::Kind::Enum;
+        t.enum_name = name;
         return pool_.alloc(t);
     }
 
@@ -312,8 +327,16 @@ private:
         std::vector<const LogosType*> param_types;
         const LogosType* ret_type;
     };
+    struct SemaVariantInfo {
+        std::string_view name;
+        int32_t          value;
+    };
+    struct SemaEnumInfo {
+        std::vector<SemaVariantInfo> variants;
+    };
 
     std::unordered_map<std::string, SemaStructInfo>    structs_;
+    std::unordered_map<std::string, SemaEnumInfo>      enums_;
     std::unordered_map<std::string, SemaFuncInfo>      funcs_;
     std::unordered_map<std::string, const LogosType*>  type_aliases_;  // type Name = T
     std::unordered_map<std::string, const LogosType*>  module_consts_; // const NAME: T
@@ -363,6 +386,9 @@ private:
             // User-defined struct
             if (structs_.count(std::string(name)))
                 return make_struct_type(name);
+            // User-defined enum
+            if (enums_.count(std::string(name)))
+                return make_enum_type(name);
             error(std::format("unknown type '{}'", name));
             return error_t();
         }
@@ -384,12 +410,19 @@ private:
             auto items = arr_of(root.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto item = map_of(items.get(i));
-                if (code_of(item) == la::STRUCT) {
+                int32_t ic = code_of(item);
+                if (ic == la::STRUCT) {
                     auto sname = std::string(str_of(item.get(la::NAME.code)));
                     if (structs_.count(sname))
                         error(std::format("duplicate struct '{}'", sname));
                     else
                         structs_[sname] = {};  // placeholder
+                } else if (ic == la::ENUM) {
+                    auto ename = std::string(str_of(item.get(la::NAME.code)));
+                    if (enums_.count(ename))
+                        error(std::format("duplicate enum '{}'", ename));
+                    else
+                        enums_[ename] = {};   // placeholder
                 }
             }
         }
@@ -408,12 +441,41 @@ private:
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             int32_t c = code_of(item);
-            if (c == la::STRUCT)     collect_struct(item);
+            if (c == la::STRUCT)           collect_struct(item);
+            else if (c == la::ENUM)        collect_enum(item);
             else if (c == la::FN || c == la::EXTERN_FN)
                 collect_fn(item);
             else if (c == la::TYPE_ALIAS)  collect_type_alias(item);
             else if (c == la::CONST_DEF)   collect_const(item);
         }
+    }
+
+    void collect_enum(TinyMapView node) {
+        auto ename = std::string(str_of(node.get(la::NAME.code)));
+        ctx_ = std::format("enum {}", ename);
+        SemaEnumInfo info;
+        int32_t next_val = 0;
+        if (node.has_key(la::ITEMS)) {
+            auto items_av = node.get(la::ITEMS.code);
+            if (items_av.is_pointer()) {
+                auto list_node = map_of(items_av);
+                if (list_node.has_key(la::ITEMS)) {
+                    auto variants = arr_of(list_node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < variants.size(); ++i) {
+                        auto v = map_of(variants.get(i));
+                        auto vname = str_of(v.get(la::NAME.code));
+                        int32_t vval = next_val;
+                        if (v.has_key(la::VALUE)) {
+                            auto sv = str_of(v.get(la::VALUE.code));
+                            vval = (int32_t)std::strtol(sv.data(), nullptr, 10);
+                        }
+                        info.variants.push_back({vname, vval});
+                        next_val = vval + 1;
+                    }
+                }
+            }
+        }
+        enums_[ename] = std::move(info);
     }
 
     void collect_type_alias(TinyMapView node) {
@@ -571,6 +633,31 @@ private:
                              : stmt_always_returns(else_node);   // else-if
             return then_ret && else_ret;
         }
+        // match: returns if every arm returns and there's a wildcard (simplified).
+        if (c == la::MATCH) {
+            if (!stmt.has_key(la::ITEMS)) return false;
+            auto arms = arr_of(stmt.get(la::ITEMS.code));
+            bool has_wild = false;
+            bool all_ret  = true;
+            for (uint64_t i = 0; i < arms.size(); ++i) {
+                auto arm = map_of(arms.get(i));
+                if (code_of(arm) != la::MATCH_ARM) continue;
+                if (arm.has_key(la::LHS)) {
+                    auto pat = map_of(arm.get(la::LHS.code));
+                    if (code_of(pat) == la::PAT_WILD) has_wild = true;
+                }
+                if (arm.has_key(la::BODY)) {
+                    auto body = map_of(arm.get(la::BODY.code));
+                    bool arm_ret = (code_of(body) == la::BLOCK)
+                                   ? block_always_returns(body)
+                                   : stmt_always_returns(body);
+                    if (!arm_ret) all_ret = false;
+                } else {
+                    all_ret = false;
+                }
+            }
+            return has_wild && all_ret;
+        }
         // while, let, assign, expr_stmt, field_write, index_write — no guarantee.
         return false;
     }
@@ -678,6 +765,8 @@ private:
             }
         } else if (c == la::FOR) {
             check_for(stmt);
+        } else if (c == la::MATCH) {
+            check_match(stmt);
         } else if (c == la::BREAK || c == la::CONTINUE) {
             if (loop_depth_ == 0)
                 error(c == la::BREAK ? "'break' outside loop" : "'continue' outside loop");
@@ -954,6 +1043,7 @@ private:
         case la::STRUCT_LIT:  return check_struct_lit(expr);
         case la::INDEX_READ:  return check_index_read(expr);
         case la::ARR_LIT:     return check_arr_lit(expr);
+        case la::ENUM_LIT:    return check_enum_lit(expr);
 
         default:
             // Unknown expression — silently treat as error type.
@@ -1276,6 +1366,91 @@ private:
         if (elem_type->kind == LogosType::Kind::IntLit)
             elem_type = i32_t();
         return make_array(elem_type, items.size());
+    }
+
+    const LogosType* check_enum_lit(TinyMapView node) {
+        auto ename = str_of(node.get(la::NAME.code));
+        auto vname = str_of(node.get(la::FIELD.code));
+        auto eit = enums_.find(std::string(ename));
+        if (eit == enums_.end()) {
+            error(std::format("unknown enum '{}'", ename));
+            return error_t();
+        }
+        bool found = false;
+        for (auto& v : eit->second.variants)
+            if (v.name == vname) { found = true; break; }
+        if (!found) {
+            error(std::format("enum '{}' has no variant '{}'", ename, vname));
+            return error_t();
+        }
+        return make_enum_type(ename);
+    }
+
+    void check_match(TinyMapView node) {
+        // Type-check the scrutinee.
+        const LogosType* scrut_type = error_t();
+        if (node.has_key(la::VALUE))
+            scrut_type = check_expr(map_of(node.get(la::VALUE.code)));
+
+        bool has_wild = false;
+        if (!node.has_key(la::ITEMS)) return;
+        auto arms = arr_of(node.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < arms.size(); ++i) {
+            auto arm = map_of(arms.get(i));
+            if (code_of(arm) != la::MATCH_ARM) continue;
+
+            // Check pattern against scrutinee type.
+            if (arm.has_key(la::LHS)) {
+                auto pat = map_of(arm.get(la::LHS.code));
+                int32_t pc = code_of(pat);
+                if (pc == la::PAT_VARIANT) {
+                    auto pename = str_of(pat.get(la::NAME.code));
+                    auto pvname = str_of(pat.get(la::FIELD.code));
+                    auto eit = enums_.find(std::string(pename));
+                    if (eit == enums_.end()) {
+                        error(std::format("match pattern: unknown enum '{}'", pename));
+                    } else {
+                        // Scrutinee must be same enum.
+                        if (scrut_type->kind == LogosType::Kind::Enum &&
+                            scrut_type->enum_name != pename) {
+                            error(std::format("match pattern: enum '{}' does not match scrutinee type '{}'",
+                                  pename, type_str(scrut_type)));
+                        }
+                        bool found = false;
+                        for (auto& v : eit->second.variants)
+                            if (v.name == pvname) { found = true; break; }
+                        if (!found)
+                            error(std::format("match pattern: enum '{}' has no variant '{}'",
+                                  pename, pvname));
+                    }
+                } else if (pc == la::PAT_INT) {
+                    if (scrut_type->kind != LogosType::Kind::Error &&
+                        !is_integer(scrut_type) &&
+                        scrut_type->kind != LogosType::Kind::Enum) {
+                        error(std::format("match pattern: integer pattern on non-integer scrutinee (got {})",
+                              type_str(scrut_type)));
+                    }
+                } else if (pc == la::PAT_BOOL) {
+                    if (scrut_type->kind != LogosType::Kind::Error &&
+                        scrut_type->kind != LogosType::Kind::Bool) {
+                        error(std::format("match pattern: bool pattern on non-bool scrutinee (got {})",
+                              type_str(scrut_type)));
+                    }
+                } else if (pc == la::PAT_WILD) {
+                    has_wild = true;
+                }
+            }
+
+            // Check arm body.
+            if (arm.has_key(la::BODY)) {
+                auto body = map_of(arm.get(la::BODY.code));
+                if (code_of(body) == la::BLOCK)
+                    check_block(body);
+                else
+                    check_stmt(body);
+            }
+        }
+        (void)has_wild;  // exhaustiveness checks deferred
     }
 
     // ── Helpers ──────────────────────────────────────────────────

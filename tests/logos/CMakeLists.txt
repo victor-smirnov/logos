@@ -19,6 +19,7 @@ foreach(EXPECTED IN ITEMS
     pass/while_test.expected
     pass/point.expected
     pass/hello.expected
+    pass/enum_match.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)

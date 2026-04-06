@@ -32,7 +32,8 @@ struct LogosType {
         I8, U32, U64,             // additional integer types
         Ptr,                      // *const T / *mut T
         Array,                    // [T; N]
-        Struct,                   // user-defined
+        Struct,                   // user-defined struct
+        Enum,                     // discriminant enum (stored as i32)
         IntLit,                   // unresolved integer literal (widens to any integer)
         Error                     // sentinel for ill-typed expressions
     };
@@ -47,8 +48,9 @@ struct LogosType {
     const LogosType* elem     = nullptr;  // non-owning, pool-allocated
     uint64_t         arr_size = 0;
 
-    // Struct
+    // Struct / Enum
     std::string_view struct_name;         // view into Hermes arena
+    std::string_view enum_name;           // view into Hermes arena (Enum kind)
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).

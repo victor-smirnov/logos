@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: Apache-2.0
+// Batch B test: discriminant enums + match
+package enum_match;
+
+enum Direction { North, South = 10, East, West }
+
+enum Color { Red = 1, Green = 2, Blue = 3 }
+
+fn color_code(c: i32) -> i32 {
+    let mut result: i32 = 0;
+    match c {
+        Color::Red   => { result = 1; }
+        Color::Green => { result = 2; }
+        Color::Blue  => { result = 3; }
+        _            => { result = 0; }
+    }
+    return result;
+}
+
+pub fn main() -> i32 {
+    // Enum literals produce i32 discriminants
+    let n: i32 = Direction::North;
+    let s: i32 = Direction::South;
+    let e: i32 = Direction::East;
+    let w: i32 = Direction::West;
+
+    // North=0, South=10, East=11, West=12 → sum = 33
+    let sum: i32 = n + (s + (e + w));
+
+    // match on integer literal
+    let mut ok: i32 = 0;
+    match sum {
+        33 => { ok = 1; }
+        _  => { ok = 0; }
+    }
+
+    // match on enum: Color::Green = 2
+    let col: i32 = Color::Green;
+    let ccode: i32 = color_code(col);
+
+    // ok=1, ccode=2 → return 3
+    return ok + ccode;
+}

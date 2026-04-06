@@ -63,6 +63,19 @@ struct StructInfo {
 };
 
 // ---------------------------------------------------------------------------
+// Enum type registry
+// ---------------------------------------------------------------------------
+struct EnumVariantInfo {
+    std::string name;
+    int32_t     value;
+};
+
+struct EnumInfo {
+    std::string                   name;
+    std::vector<EnumVariantInfo>  variants;
+};
+
+// ---------------------------------------------------------------------------
 // MLIRGenImpl — stateful AST walker
 // ---------------------------------------------------------------------------
 class MLIRGenImpl {
@@ -104,13 +117,15 @@ public:
             }
         }
 
-        // Pass 0.5: collect type aliases and module-level constants.
+        // Pass 0.5: collect enums, type aliases and module-level constants.
         for (auto& [h, items] : all_modules) {
             holder_ = h;
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto item = map_of(items.get(i));
                 int32_t ic = code_of(item);
-                if (ic == la::TYPE_ALIAS) {
+                if (ic == la::ENUM) {
+                    register_enum(item);
+                } else if (ic == la::TYPE_ALIAS) {
                     auto name = std::string(str_of(item.get(la::NAME)));
                     if (item.has_key(la::TYPE)) {
                         auto t = resolve_type(map_of(item.get(la::TYPE)));
@@ -213,6 +228,8 @@ private:
 
     // Struct type registry (module-level).
     std::unordered_map<std::string, StructInfo> struct_types_;
+    // Enum type registry (module-level).
+    std::unordered_map<std::string, EnumInfo>   enum_types_;
     // Module-level constants: name → (holder, VALUE node AnyVal).
     // The expression is re-evaluated (as constant) at each use site.
     struct ConstEntry { MemHolder* holder; AnyVal value_av; mlir::Type type; };
@@ -321,6 +338,9 @@ private:
             // Type alias
             auto ait = type_aliases_.find(std::string(name));
             if (ait != type_aliases_.end()) return ait->second;
+            // Enum type → stored as i32
+            if (enum_types_.count(std::string(name)))
+                return builder_.getI32Type();
             // Struct type → pass by pointer
             if (struct_types_.count(std::string(name)))
                 return ptr_type();
@@ -339,6 +359,37 @@ private:
         auto name = std::string(str_of(type_ref.get(la::NAME)));
         if (struct_types_.count(name)) { out_name = name; return true; }
         return false;
+    }
+
+    // ── Enum registration (Pass 0.5) ─────────────────────────────
+
+    void register_enum(TinyMapView node) {
+        auto ename = std::string(str_of(node.get(la::NAME)));
+        if (enum_types_.count(ename)) return;
+        EnumInfo info;
+        info.name = ename;
+        int32_t next_val = 0;
+        if (node.has_key(la::ITEMS)) {
+            auto items_av = node.get(la::ITEMS);
+            if (items_av.is_pointer()) {
+                auto list_node = map_of(items_av);
+                if (list_node.has_key(la::ITEMS)) {
+                    auto variants = arr_of(list_node.get(la::ITEMS));
+                    for (uint64_t i = 0; i < variants.size(); ++i) {
+                        auto v = map_of(variants.get(i));
+                        auto vname = std::string(str_of(v.get(la::NAME)));
+                        int32_t vval = next_val;
+                        if (v.has_key(la::VALUE)) {
+                            auto sv = str_of(v.get(la::VALUE));
+                            vval = (int32_t)std::strtol(sv.data(), nullptr, 10);
+                        }
+                        info.variants.push_back({vname, vval});
+                        next_val = vval + 1;
+                    }
+                }
+            }
+        }
+        enum_types_[ename] = std::move(info);
     }
 
     // ── Struct registration (Pass 0) ─────────────────────────────
@@ -517,6 +568,7 @@ private:
             case la::ASSIGN:      return gen_assign(node);
             case la::FIELD_WRITE: return gen_field_write(node);
             case la::INDEX_WRITE: return gen_index_write(node);
+            case la::MATCH:       return gen_match(node);
             case la::EXPR_STMT:   return gen_expr(map_of(node.get(la::VALUE)));
             default:              return gen_expr(node);
         }
@@ -885,6 +937,7 @@ private:
             case la::UNARY:      return gen_unary(node);
             case la::PAREN_EXPR: return gen_expr(map_of(node.get(la::VALUE)));
             case la::CAST:       return gen_cast(node);
+            case la::ENUM_LIT:   return gen_enum_lit(node);
             default:
                 std::fprintf(stderr, "mlir_gen: unknown expr code %d\n", code);
                 return nullptr;
@@ -1298,6 +1351,133 @@ private:
 
         std::fprintf(stderr, "mlir_gen: unknown unary op '%.*s'\n",
                      (int)op.size(), op.data());
+        return nullptr;
+    }
+
+    // ── Enum literal: Color::Red → i32 constant ──────────────────
+
+    mlir::Value gen_enum_lit(TinyMapView node) {
+        auto ename = std::string(str_of(node.get(la::NAME)));
+        auto vname = std::string(str_of(node.get(la::FIELD)));
+        auto eit = enum_types_.find(ename);
+        if (eit == enum_types_.end()) {
+            std::fprintf(stderr, "mlir_gen: unknown enum '%s'\n", ename.c_str());
+            return nullptr;
+        }
+        for (auto& v : eit->second.variants) {
+            if (v.name == vname)
+                return builder_.create<mlir::arith::ConstantIntOp>(loc_, v.value, 32);
+        }
+        std::fprintf(stderr, "mlir_gen: enum '%s' has no variant '%s'\n",
+                     ename.c_str(), vname.c_str());
+        return nullptr;
+    }
+
+    // ── Match statement: if-else chain on i32 discriminant ───────
+
+    mlir::Value gen_match(TinyMapView node) {
+        auto* region = builder_.getBlock()->getParent();
+        auto* merge_block = new mlir::Block();
+
+        auto scrut = gen_expr(map_of(node.get(la::VALUE)));
+        if (!scrut) return nullptr;
+
+        if (!node.has_key(la::ITEMS)) {
+            region->push_back(merge_block);
+            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+            builder_.setInsertionPointToStart(merge_block);
+            return nullptr;
+        }
+        auto arms = arr_of(node.get(la::ITEMS));
+
+        // Resolve each arm's discriminant value.
+        // Arms are processed in order; the last PAT_WILD arm becomes the fallback.
+        // We lower to: cond0 ? body0 : (cond1 ? body1 : (... else fallback ...))
+        // Build the chain from last arm to first so we can set else targets.
+        mlir::Block* else_block = merge_block;
+        // First, collect arm info.
+        struct ArmInfo {
+            bool     is_wild;
+            int32_t  disc_val;   // valid only when !is_wild
+            TinyMapView body;
+        };
+        std::vector<ArmInfo> arm_infos;
+        for (uint64_t i = 0; i < arms.size(); ++i) {
+            auto arm = map_of(arms.get(i));
+            if (code_of(arm) != la::MATCH_ARM) continue;
+            ArmInfo ai;
+            ai.body = arm.has_key(la::BODY) ? map_of(arm.get(la::BODY)) : TinyMapView{};
+            ai.is_wild = false;
+            ai.disc_val = 0;
+            if (arm.has_key(la::LHS)) {
+                auto pat = map_of(arm.get(la::LHS));
+                int32_t pc = code_of(pat);
+                if (pc == la::PAT_WILD) {
+                    ai.is_wild = true;
+                } else if (pc == la::PAT_VARIANT) {
+                    auto pename = std::string(str_of(pat.get(la::NAME)));
+                    auto pvname = std::string(str_of(pat.get(la::FIELD)));
+                    auto eit = enum_types_.find(pename);
+                    if (eit != enum_types_.end()) {
+                        for (auto& v : eit->second.variants)
+                            if (v.name == pvname) { ai.disc_val = v.value; break; }
+                    }
+                } else if (pc == la::PAT_INT) {
+                    auto sv = str_of(pat.get(la::VALUE));
+                    ai.disc_val = (int32_t)std::strtol(sv.data(), nullptr, 10);
+                } else if (pc == la::PAT_BOOL) {
+                    AnyVal bv = pat.get(la::VALUE);
+                    ai.disc_val = (!bv.is_null() && bv.is_value() && bv.as_value<uint8_t>()) ? 1 : 0;
+                }
+            }
+            arm_infos.push_back(ai);
+        }
+
+        // Generate body blocks and collect which have terminators after generation.
+        // We iterate arms in reverse and chain else_block.
+        for (int i = (int)arm_infos.size() - 1; i >= 0; --i) {
+            auto& ai = arm_infos[i];
+            auto* body_block = new mlir::Block();
+            region->push_back(body_block);
+            {
+                mlir::OpBuilder::InsertionGuard guard(builder_);
+                builder_.setInsertionPointToStart(body_block);
+                if (!ai.body.is_null()) {
+                    if (code_of(ai.body) == la::BLOCK)
+                        gen_block(ai.body, nullptr);
+                    else
+                        gen_stmt(ai.body);
+                }
+                if (!is_terminated(builder_.getBlock()))
+                    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+            }
+
+            if (ai.is_wild) {
+                // Wild arm becomes the new else_block — jump directly to body_block.
+                else_block = body_block;
+            } else {
+                // Conditional branch: if scrut == disc_val goto body_block else else_block.
+                auto* test_block = new mlir::Block();
+                region->push_back(test_block);
+                {
+                    mlir::OpBuilder::InsertionGuard guard(builder_);
+                    builder_.setInsertionPointToStart(test_block);
+                    auto disc = builder_.create<mlir::arith::ConstantIntOp>(
+                        loc_, ai.disc_val, 32);
+                    auto scrut_i32 = coerce_int(scrut, builder_.getI32Type());
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, scrut_i32, disc);
+                    builder_.create<mlir::cf::CondBranchOp>(
+                        loc_, eq, body_block, else_block);
+                }
+                else_block = test_block;
+            }
+        }
+
+        // Branch from current block to the first test (or wild) block.
+        builder_.create<mlir::cf::BranchOp>(loc_, else_block);
+        region->push_back(merge_block);
+        builder_.setInsertionPointToStart(merge_block);
         return nullptr;
     }
 };

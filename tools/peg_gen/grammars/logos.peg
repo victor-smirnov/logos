@@ -93,6 +93,15 @@
     FOR         = 70
     CONST_DEF   = 71
     TYPE_ALIAS  = 72
+    ENUM        = 80
+    VARIANT_DEF = 81
+    MATCH       = 82
+    MATCH_ARM   = 83
+    PAT_VARIANT = 84
+    PAT_WILD    = 85
+    ENUM_LIT    = 86
+    PAT_INT     = 87
+    PAT_BOOL    = 88
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -101,7 +110,9 @@
     KW_CONTINUE = "continue"
     KW_PACKAGE  = "package"
     KW_STATIC   = "static"
+    KW_MATCH    = "match"
     KW_TYPE     = "type"
+    KW_ENUM     = "enum"
     KW_FOR      = "for"
     KW_IN       = "in"
     KW_STRUCT   = "struct"
@@ -154,6 +165,8 @@
     PERCENT     = "%"
     BANG        = "!"
     ASSIGN      = "="
+    FATARROW    = "=>"
+    COLONCOLON  = "::"
 
     // Literals & identifiers
     STRING      = /"([^"\\]|\\.)*"/
@@ -178,7 +191,7 @@
     use_decl <- KW_USE IDENT DOT IDENT SEMI
              => { CODE: USE, NAME: $2, PATH: $4 }
 
-    item <- const_def / type_alias / struct_def / extern_fn_def / pub_fn_def / fn_def
+    item <- const_def / type_alias / enum_def / struct_def / extern_fn_def / pub_fn_def / fn_def
 
     // const NAME: type = expr;
     const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
@@ -188,6 +201,19 @@
     // type NAME = type_ref;
     type_alias <- KW_TYPE IDENT ASSIGN type_ref SEMI
                => { CODE: TYPE_ALIAS, NAME: $2, TYPE: $4 }
+
+    // ── Enum definition ──────────────────────────────────────────
+    // enum Color { Red, Green = 5, Blue }
+    enum_def <- KW_ENUM IDENT LBRACE variant_list? RBRACE
+             => { CODE: ENUM, NAME: $2, ITEMS: $4 }
+
+    variant_list <- variant_def (COMMA variant_def)* COMMA?
+                 => { ITEMS: $... }
+
+    variant_def <- IDENT ASSIGN INTEGER
+                => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
+                 / IDENT
+                => { CODE: VARIANT_DEF, NAME: $1 }
 
     // ── Struct definition ────────────────────────────────────────
     struct_def <- KW_STRUCT IDENT LBRACE field_def* method_def* RBRACE
@@ -251,6 +277,7 @@
           / break_stmt
           / continue_stmt
           / if_expr
+          / match_stmt
           / field_write_stmt
           / index_write_stmt
           / assign_stmt
@@ -271,6 +298,26 @@
 
     continue_stmt <- KW_CONTINUE SEMI
                   => { CODE: CONTINUE }
+
+    // match expr { Pat => stmt_or_block, ... }
+    match_stmt <- KW_MATCH expr LBRACE match_arm* RBRACE
+               => { CODE: MATCH, VALUE: $2, ITEMS: $... }
+
+    match_arm <- pattern FATARROW block COMMA?
+              => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
+              / pattern FATARROW stmt
+              => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
+
+    pattern <- IDENT COLONCOLON IDENT
+            => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
+             / INTEGER
+            => { CODE: PAT_INT, VALUE: $1 }
+             / KW_TRUE
+            => { CODE: PAT_BOOL, VALUE: true }
+             / KW_FALSE
+            => { CODE: PAT_BOOL, VALUE: false }
+             / IDENT
+            => { CODE: PAT_WILD, NAME: $1 }
 
     // arr[idx] = expr;
     index_write_stmt <- IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
@@ -353,12 +400,17 @@
     primary_expr <- struct_lit       // IDENT { fields }  — before plain IDENT
                   / arr_lit          // [e1, e2, ...]
                   / paren_expr       // (expr)
+                  / enum_lit         // IDENT::VARIANT     — before plain IDENT
                   / call_expr        // IDENT(args)        — before plain IDENT
                   / STRING   => { CODE: LIT_STR,  VALUE: $1 }
                   / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                   / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
                   / INTEGER  => { CODE: LIT_INT,  VALUE: $1 }
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
+
+    // ── Enum variant literal: Color::Red ─────────────────────────
+    enum_lit <- IDENT COLONCOLON IDENT
+             => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
 
     // ── Struct literal: TypeName { field: expr, ... } ─────────────
     struct_lit <- IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
