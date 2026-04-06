@@ -1,0 +1,29 @@
+package animals;
+
+class Animal {
+    value: i32;
+
+    fn speak(self: *mut Animal) -> i32 {
+        return self.value;
+    }
+}
+
+class Dog extends Animal {
+    fn fetch(self: *mut Dog) -> i32 {
+        return self.value + 100;
+    }
+}
+
+fn main() -> i32 {
+    let a: *mut Animal = new Animal { value: 5 };
+    let d: *mut Dog = new Dog { value: 7 };
+
+    let r1: i32 = a.speak();
+    let r2: i32 = d.speak();
+    let r3: i32 = d.fetch();
+
+    delete a;
+    delete d;
+
+    return r1 + r2 + r3;
+}

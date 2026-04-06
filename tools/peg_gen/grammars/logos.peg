@@ -48,6 +48,8 @@
     IS_MUT      = 25
     INCLUSIVE   = 26
     TYPE_PARAMS = 27
+    PARENT      = 28
+    IS_ABSTRACT = 29
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -107,35 +109,44 @@
     TYPE_PARAM  = 90
     GENERIC_CALL = 91
     GENERIC_INST = 92
+    CLASS        = 93
+    NEW_EXPR     = 94
+    DELETE_STMT  = 95
+    ABSTRACT_FN  = 96
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
 %tokens {
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
+    KW_ABSTRACT = "abstract"
     KW_PACKAGE  = "package"
+    KW_EXTENDS  = "extends"
     KW_STATIC   = "static"
-    KW_MATCH    = "match"
-    KW_TYPE     = "type"
-    KW_ENUM     = "enum"
-    KW_FOR      = "for"
-    KW_IN       = "in"
-    KW_STRUCT   = "struct"
-    KW_EXTERN   = "extern"
+    KW_DELETE   = "delete"
     KW_RETURN   = "return"
-    KW_BREAK    = "break"
+    KW_EXTERN   = "extern"
+    KW_STRUCT   = "struct"
+    KW_MATCH    = "match"
     KW_WHILE    = "while"
+    KW_BREAK    = "break"
     KW_FALSE    = "false"
     KW_CONST    = "const"
+    KW_CLASS    = "class"
+    KW_TYPE     = "type"
+    KW_ENUM     = "enum"
     KW_LOOP     = "loop"
-    KW_TRUE     = "true"
     KW_ELSE     = "else"
+    KW_TRUE     = "true"
+    KW_FOR      = "for"
     KW_USE      = "use"
     KW_MUT      = "mut"
     KW_LET      = "let"
     KW_PUB      = "pub"
+    KW_NEW      = "new"
     KW_FN       = "fn"
     KW_IF       = "if"
+    KW_IN       = "in"
     KW_AS       = "as"
     KW_WHERE    = "where"
 
@@ -197,7 +208,7 @@
     use_decl <- KW_USE IDENT DOT IDENT SEMI
              => { CODE: USE, NAME: $2, PATH: $4 }
 
-    item <- const_def / type_alias / enum_def / struct_def / extern_fn_def / pub_fn_def / fn_def
+    item <- const_def / type_alias / enum_def / class_def / struct_def / extern_fn_def / pub_fn_def / fn_def
 
     // const NAME: type = expr;
     const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
@@ -220,6 +231,29 @@
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
                  / IDENT
                 => { CODE: VARIANT_DEF, NAME: $1 }
+
+    // ── Class definition ─────────────────────────────────────────
+    // class ClassName { ... }
+    // class ClassName extends ParentName { ... }
+    // abstract class ClassName { ... }
+    // abstract class ClassName extends ParentName { ... }
+    class_def <- KW_ABSTRACT KW_CLASS IDENT KW_EXTENDS IDENT LBRACE class_member* RBRACE
+              => { CODE: CLASS, NAME: $3, PARENT: $5, IS_ABSTRACT: true, ITEMS: $7 }
+               / KW_ABSTRACT KW_CLASS IDENT LBRACE class_member* RBRACE
+              => { CODE: CLASS, NAME: $3, IS_ABSTRACT: true, ITEMS: $5 }
+               / KW_CLASS IDENT KW_EXTENDS IDENT LBRACE class_member* RBRACE
+              => { CODE: CLASS, NAME: $2, PARENT: $4, ITEMS: $6 }
+               / KW_CLASS IDENT LBRACE class_member* RBRACE
+              => { CODE: CLASS, NAME: $2, ITEMS: $4 }
+
+    // class member: abstract method, concrete method, or field
+    class_member <- abstract_method_def / pub_fn_def / fn_def / field_def
+
+    // abstract fn name(params) -> ret_type;
+    abstract_method_def <- KW_ABSTRACT KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
+                        => { CODE: ABSTRACT_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
+                         / KW_ABSTRACT KW_FN IDENT LPAREN param_list? RPAREN SEMI
+                        => { CODE: ABSTRACT_FN, NAME: $3, PARAMS: $5 }
 
     // ── Struct definition ────────────────────────────────────────
     struct_def <- KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
@@ -286,6 +320,7 @@
           / continue_stmt
           / if_expr
           / match_stmt
+          / delete_stmt
           / field_write_stmt
           / index_write_stmt
           / assign_stmt
@@ -349,6 +384,9 @@
     assign_stmt <- IDENT ASSIGN expr SEMI
                 => { CODE: ASSIGN, NAME: $1, VALUE: $3 }
 
+    delete_stmt <- KW_DELETE expr SEMI
+               => { CODE: DELETE_STMT, VALUE: $2 }
+
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
 
@@ -358,9 +396,9 @@
             => { CODE: IF, COND: $2, THEN: $3 }
 
     // ── Expressions (precedence via rule nesting) ─────────────────
-    // Each binary level is deliberately non-associative: chains require
-    // explicit parentheses, e.g. (a + b) + c.  This keeps the grammar
-    // unambiguous and easy for LLMs to reason about.
+    // Binary levels use left-associative fold chains so that a + b + c
+    // parses as (a + b) + c without requiring explicit parentheses.
+    // Comparison and logical operators remain single-level (non-chainable).
     expr <- log_expr
 
     log_expr <- cmp_expr (AND / OR) cmp_expr
@@ -371,13 +409,17 @@
                 => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
               / add_expr
 
-    add_expr <- mul_expr (PLUS / MINUS) mul_expr
-                => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+    add_expr <- mul_expr
+                ( (PLUS / MINUS) mul_expr
+                    => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                )+
               / mul_expr
 
     // unary_expr inserted between mul_expr and atom for prefix ops
-    mul_expr <- unary_expr (STAR / SLASH / PERCENT) unary_expr
-                => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+    mul_expr <- unary_expr
+                ( (STAR / SLASH / PERCENT) unary_expr
+                    => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                )+
               / unary_expr
 
     unary_expr <- STAR  unary_expr => { CODE: DEREF,  VALUE: $2 }
@@ -405,7 +447,8 @@
             )*
 
     // ── Primary expressions (base of a postfix chain) ─────────────
-    primary_expr <- struct_lit       // IDENT { fields }  — before plain IDENT
+    primary_expr <- new_expr         // new ClassName { fields }  — before struct_lit
+                  / struct_lit       // IDENT { fields }  — before plain IDENT
                   / arr_lit          // [e1, e2, ...]
                   / paren_expr       // (expr)
                   / enum_lit         // IDENT::VARIANT     — before plain IDENT
@@ -415,6 +458,10 @@
                   / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
                   / INTEGER  => { CODE: LIT_INT,  VALUE: $1 }
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
+
+    // ── Class new expression: new ClassName { field: expr, ... } ──
+    new_expr <- KW_NEW IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
+             => { CODE: NEW_EXPR, NAME: $2, ITEMS: $... }
 
     // ── Enum variant literal: Color::Red ─────────────────────────
     enum_lit <- IDENT COLONCOLON IDENT

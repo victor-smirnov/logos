@@ -47,6 +47,7 @@ public:
         in_ = std::move(in);
 
         out_.enums        = std::move(in_.enums);
+        out_.classes      = std::move(in_.classes);
         out_.consts       = std::move(in_.consts);
         out_.type_aliases = std::move(in_.type_aliases);
         // Move type_pool — will be extended with new types during mono
@@ -252,8 +253,10 @@ private:
 
             } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {
                 lir::EMethodCall nm;
-                nm.receiver = subst_expr(*k.receiver, s);
-                nm.method   = k.method;
+                nm.receiver      = subst_expr(*k.receiver, s);
+                nm.method        = k.method;
+                nm.vtable_index  = k.vtable_index;
+                nm.resolved_type = k.resolved_type;
                 for (auto& a : k.args)
                     nm.args.push_back(subst_expr(*a, s));
                 result->kind = std::move(nm);
@@ -297,6 +300,13 @@ private:
 
             } else if constexpr (std::is_same_v<K, lir::ECast>) {
                 result->kind = lir::ECast{subst_expr(*k.operand, s)};
+
+            } else if constexpr (std::is_same_v<K, lir::ENew>) {
+                lir::ENew nn;
+                nn.class_name = k.class_name;
+                for (auto& [fn, fv] : k.fields)
+                    nn.fields.push_back({fn, subst_expr(*fv, s)});
+                result->kind = std::move(nn);
             }
         }, e.kind);
 
@@ -371,6 +381,9 @@ private:
             } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
                 ns.kind = lir::SExprStmt{subst_expr(*k.expr, s)};
 
+            } else if constexpr (std::is_same_v<K, lir::SDelete>) {
+                ns.kind = lir::SDelete{subst_expr(*k.expr, s)};
+
             } else if constexpr (std::is_same_v<K, lir::SMatch>) {
                 lir::SMatch nm;
                 nm.scrut = subst_expr(*k.scrut, s);
@@ -436,6 +449,8 @@ private:
                 scan_expr(*k.index); scan_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
                 scan_expr(*k.expr);
+            } else if constexpr (std::is_same_v<K, lir::SDelete>) {
+                scan_expr(*k.expr);
             } else if constexpr (std::is_same_v<K, lir::SMatch>) {
                 scan_expr(*k.scrut);
                 for (auto& arm : k.arms) scan_block(*arm.body);
@@ -474,6 +489,8 @@ private:
                 for (auto& elem : k.elems) scan_expr(*elem);
             } else if constexpr (std::is_same_v<K, lir::ECast>) {
                 scan_expr(*k.operand);
+            } else if constexpr (std::is_same_v<K, lir::ENew>) {
+                for (auto& [fn, fv] : k.fields) scan_expr(*fv);
             }
         }, e.kind);
     }
@@ -712,6 +729,8 @@ private:
                 collect_struct_needs_from_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
                 collect_struct_needs_from_expr(*k.expr);
+            } else if constexpr (std::is_same_v<K, lir::SDelete>) {
+                collect_struct_needs_from_expr(*k.expr);
             } else if constexpr (std::is_same_v<K, lir::SMatch>) {
                 collect_struct_needs_from_expr(*k.scrut);
                 for (auto& arm : k.arms) collect_struct_needs_from_block(*arm.body);
@@ -746,6 +765,8 @@ private:
                 for (auto& elem : k.elems) collect_struct_needs_from_expr(*elem);
             } else if constexpr (std::is_same_v<K, lir::ECast>) {
                 collect_struct_needs_from_expr(*k.operand);
+            } else if constexpr (std::is_same_v<K, lir::ENew>) {
+                for (auto& [fn, fv] : k.fields) collect_struct_needs_from_expr(*fv);
             }
         }, e.kind);
     }

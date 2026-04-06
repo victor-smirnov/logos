@@ -27,6 +27,7 @@ struct LogosType {
         Ptr,                      // *const T / *mut T
         Array,                    // [T; N]
         Struct,                   // user-defined struct
+        Class,                    // user-defined class (virtual dispatch via vtable)
         Enum,                     // discriminant enum (stored as i32)
         TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)

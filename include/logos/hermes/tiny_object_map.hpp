@@ -67,21 +67,26 @@ public:
         uint8_t sz  = size();
         uint8_t cap = capacity();
 
+        TinyObjectMap* self = this;
         if (sz >= cap) {
+            // grow() may realloc the arena buffer, making `this` stale.
+            ptrdiff_t self_off = reinterpret_cast<uint8_t*>(this) - arena.head().data();
             auto r = grow(arena, cap == 0 ? 4 : cap * 2);
             if (!r) return r;
             base = arena.head().data(); // re-derive after potential realloc
-            cap  = capacity();
+            self = reinterpret_cast<TinyObjectMap*>(base + self_off);
+            cap  = self->capacity();
+            sz   = self->size();
         }
 
-        uint8_t  pos  = index_of(key);
-        AnyVal*  vals = values(base);
+        uint8_t  pos  = self->index_of(key);
+        AnyVal*  vals = self->values(base);
         for (uint8_t i = sz; i > pos; --i) vals[i] = vals[i - 1];
         vals[pos] = value;
 
-        header_ = (header_ & BITMAP_MASK) | (1ULL << key);
-        header_ |= (static_cast<uint64_t>(cap)      << 52);
-        header_ |= (static_cast<uint64_t>(sz + 1)   << 58);
+        self->header_ = (self->header_ & BITMAP_MASK) | (1ULL << key);
+        self->header_ |= (static_cast<uint64_t>(cap)      << 52);
+        self->header_ |= (static_cast<uint64_t>(sz + 1)   << 58);
         return {};
     }
 
@@ -110,11 +115,13 @@ public:
         if (!mem_exp) return std::unexpected(std::move(mem_exp.error()));
 
         auto* map = new (*mem_exp) TinyObjectMap();
+        // Save offset after allocation so we can recompute if grow() reallocs the buffer.
+        ptrdiff_t map_off = reinterpret_cast<uint8_t*>(map) - arena.head().data();
         if (initial_capacity > 0) {
             auto r = map->grow(arena, initial_capacity);
             if (!r) return std::unexpected(std::move(r.error()));
         }
-        return map;
+        return reinterpret_cast<TinyObjectMap*>(arena.head().data() + map_off);
     }
 
 private:
@@ -131,20 +138,30 @@ private:
     [[nodiscard]] logos::expected<void> grow(Arena& arena, uint8_t new_cap) noexcept {
         if (new_cap > MAX_KEYS) new_cap = MAX_KEYS;
 
+        // Save our offset from the arena base BEFORE allocating.
+        // GrowableSingleChunk may realloc its buffer during allocate_raw,
+        // making `this` a dangling pointer.  Recompute self from new base after.
+        uint8_t* base_before = arena.head().data();
+        ptrdiff_t self_off = reinterpret_cast<uint8_t*>(this) - base_before;
+
         auto mem_exp = arena.allocate_raw(new_cap * sizeof(AnyVal), alignof(AnyVal));
         if (!mem_exp) return std::unexpected(std::move(mem_exp.error()));
 
         auto* new_vals = static_cast<AnyVal*>(*mem_exp);
         for (uint8_t i = 0; i < new_cap; ++i) new_vals[i] = AnyVal{};
 
-        uint8_t  sz   = size();
         uint8_t* base = arena.head().data();
-        if (sz > 0 && !data_.is_null()) {
-            std::memcpy(new_vals, values(base), sz * sizeof(AnyVal));
+        // Recompute self — for MultiChunk base never moves so self == this;
+        // for GrowableSingleChunk after realloc, self points into the new buffer.
+        auto* self = reinterpret_cast<TinyObjectMap*>(base + self_off);
+
+        uint8_t sz = self->size();
+        if (sz > 0 && !self->data_.is_null()) {
+            std::memcpy(new_vals, self->values(base), sz * sizeof(AnyVal));
         }
 
-        data_.set(new_vals, base);
-        header_ = bitmap()
+        self->data_.set(new_vals, base);
+        self->header_ = self->bitmap()
                 | (static_cast<uint64_t>(new_cap) << 52)
                 | (static_cast<uint64_t>(sz)       << 58);
         return {};

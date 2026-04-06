@@ -53,6 +53,8 @@ inline constexpr Key SRC_LINE  {"SRC_LINE",  24};  // source line number (uint32
 inline constexpr Key IS_MUT    {"IS_MUT",    25};  // mutability flag (uint8_t, 1 = mut)
 inline constexpr Key INCLUSIVE  {"INCLUSIVE",  26};  // for range: inclusive end (..=)
 inline constexpr Key TYPE_PARAMS{"TYPE_PARAMS", 27}; // generic type parameter list
+inline constexpr Key PARENT     {"PARENT",      28}; // parent class name (string)
+inline constexpr Key IS_ABSTRACT{"IS_ABSTRACT", 29}; // abstract flag (bool)
 
 // ── Node codes ───────────────────────────────────────────────────────────
 
@@ -126,6 +128,12 @@ inline constexpr Code TRAIT_BOUND {"TRAIT_BOUND",  89};   // bound in T: Trait1 
 inline constexpr Code TYPE_PARAM  {"TYPE_PARAM",   90};   // type parameter T or T: Bound
 inline constexpr Code GENERIC_CALL{"GENERIC_CALL", 91};   // foo::<T>(args)
 inline constexpr Code GENERIC_INST{"GENERIC_INST", 92};   // Vec<T> in type position
+
+// Batch H — classes
+inline constexpr Code CLASS       {"CLASS",        93};   // class definition
+inline constexpr Code NEW_EXPR    {"NEW_EXPR",     94};   // new ClassName { ... }
+inline constexpr Code DELETE_STMT {"DELETE_STMT",  95};   // delete expr;
+inline constexpr Code ABSTRACT_FN {"ABSTRACT_FN",  96};   // abstract fn declaration
 
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;

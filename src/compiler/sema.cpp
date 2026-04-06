@@ -44,6 +44,8 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
             if (!a.type_args[i] || !b.type_args[i] ||
                 !types_equal(*a.type_args[i], *b.type_args[i])) return false;
         return true;
+    case LogosType::Kind::Class:
+        return a.struct_name == b.struct_name;
     case LogosType::Kind::Enum:
         return a.enum_name == b.enum_name;
     case LogosType::Kind::TypeVar:
@@ -97,6 +99,8 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
         to->kind   == LogosType::Kind::Ptr   &&
         from->elem && to->pointee)
         return types_equal(*from->elem, *to->pointee);
+    // Class pointer covariance: *mut/const Derived is compatible with *const/mut Class
+    // (same class — exact equality handled above; hierarchy checked in SemaChecker::compat)
     return false;
 }
 
@@ -130,6 +134,7 @@ std::string type_str(const LogosType* t) {
               r += type_str(t->type_args[i]);
           }
           return r + ">"; }
+    case LogosType::Kind::Class:   return t->struct_name;  // struct_name holds class name
     case LogosType::Kind::Enum:    return t->enum_name;
     case LogosType::Kind::TypeVar: return std::string(t->type_var_name);
     case LogosType::Kind::Error:   return "<error>";
@@ -176,9 +181,9 @@ private:
 
     TypePool pool_;
 
-    // prims_[int(Kind)] for primitive kinds.  Size 16 (Kind::Error = 15).
-    // TypeVar is not a primitive — use make_typevar(name) instead.
-    std::array<const LogosType*, 16> prims_{};
+    // prims_[int(Kind)] for primitive kinds.  Class and TypeVar are not primitives.
+    // Size = int(Kind::Error) + 1 to cover all Kind values.
+    std::array<const LogosType*, int(LogosType::Kind::Error) + 1> prims_{};
 
     void init_primitives() {
         auto ap = [&](LogosType::Kind k) {
@@ -218,6 +223,10 @@ private:
     }
     const LogosType* make_struct_type(std::string_view name) {
         LogosType t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
+        return pool_.alloc(std::move(t));
+    }
+    const LogosType* make_class_type(std::string_view name) {
+        LogosType t; t.kind = LogosType::Kind::Class; t.struct_name = std::string(name);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_generic_struct(std::string_view name,
@@ -358,6 +367,44 @@ private:
         return {};
     }
 
+    // Returns class name if the type is a class or a pointer to a class.
+    std::string_view class_name_from_type(const LogosType* t) {
+        if (!t) return {};
+        if (t->kind == LogosType::Kind::Class) return t->struct_name;
+        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
+            t->pointee->kind == LogosType::Kind::Class)
+            return t->pointee->struct_name;
+        return {};
+    }
+
+    // Check if `derived` is the same as or a subclass of `base`.
+    bool is_subclass(std::string_view derived, std::string_view base) const {
+        if (derived == base) return true;
+        auto it = classes_.find(std::string(derived));
+        if (it == classes_.end()) return false;
+        if (it->second.parent_name.empty()) return false;
+        return is_subclass(it->second.parent_name, base);
+    }
+
+    // Field type for a class (walks the all_fields list).
+    const LogosType* class_field_type(std::string_view cname, std::string_view fname) const {
+        auto it = classes_.find(std::string(cname));
+        if (it == classes_.end()) return nullptr;
+        for (auto& [fn, ft] : it->second.all_fields)
+            if (fn == fname) return ft;
+        return nullptr;
+    }
+
+    // vtable index of a method in a class (returns -1 if not found).
+    int32_t vtable_index_of(std::string_view cname, std::string_view mangled_method) const {
+        auto it = classes_.find(std::string(cname));
+        if (it == classes_.end()) return -1;
+        auto& order = it->second.vtable_order;
+        for (int32_t i = 0; i < (int32_t)order.size(); ++i)
+            if (order[i] == mangled_method) return i;
+        return -1;
+    }
+
     // ── Module-level symbol tables ───────────────────────────────
 
     struct SemaFieldInfo  { std::string_view name; const LogosType* type; };
@@ -366,6 +413,15 @@ private:
                             std::vector<TypeParam> type_params; };
     struct SemaVariantInfo{ std::string_view name; int32_t value; };
     struct SemaEnumInfo   { std::vector<SemaVariantInfo> variants; };
+    struct SemaClassInfo  {
+        std::string parent_name;
+        bool is_abstract = false;
+        // All fields accessible on this class (parent fields first, then own).
+        std::vector<std::pair<std::string, const LogosType*>> all_fields;
+        // vtable_order: full vtable including inherited slots (parent methods first).
+        // Each entry is the mangled method name, e.g. "Animal__speak".
+        std::vector<std::string> vtable_order;
+    };
 
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
@@ -375,6 +431,7 @@ private:
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
     std::unordered_map<std::string, SemaStructInfo>   struct_specs_sema_;
     std::unordered_map<std::string, SemaEnumInfo>     enums_;
+    std::unordered_map<std::string, SemaClassInfo>    classes_;
     std::unordered_map<std::string, SemaFuncInfo>     funcs_;
     std::unordered_map<std::string, const LogosType*> type_aliases_;
     std::unordered_map<std::string, const LogosType*> module_consts_;
@@ -460,6 +517,22 @@ private:
         }
     }
 
+    // ── Compatibility with class hierarchy ───────────────────────
+    // Use this inside SemaChecker instead of static types_compatible when
+    // class pointer upcasting should be allowed.
+    bool compat(const LogosType* from, const LogosType* to) const {
+        if (types_compatible(from, to)) return true;
+        // *mut/const Derived compatible with *const/mut Base (upcast)
+        if (from && to &&
+            from->kind == LogosType::Kind::Ptr && to->kind == LogosType::Kind::Ptr &&
+            from->pointee && to->pointee &&
+            from->pointee->kind == LogosType::Kind::Class &&
+            to->pointee->kind   == LogosType::Kind::Class) {
+            return is_subclass(from->pointee->struct_name, to->pointee->struct_name);
+        }
+        return false;
+    }
+
     // ── Type resolution ──────────────────────────────────────────
 
     const LogosType* resolve_type(TinyMapView node) {
@@ -504,6 +577,7 @@ private:
             auto ait = type_aliases_.find(std::string(name));
             if (ait != type_aliases_.end()) return ait->second;
             if (structs_.count(std::string(name))) return make_struct_type(name);
+            if (classes_.count(std::string(name))) return make_class_type(name);
             if (enums_.count(std::string(name)))   return make_enum_type(name);
             error(std::format("unknown type '{}'", name));
             return error_t();
@@ -551,6 +625,10 @@ private:
                     auto ename = std::string(str_of(item.get(la::NAME.code)));
                     if (enums_.count(ename)) error(std::format("duplicate enum '{}'", ename));
                     else enums_[ename] = {};
+                } else if (ic == la::CLASS) {
+                    auto cname = std::string(str_of(item.get(la::NAME.code)));
+                    if (classes_.count(cname)) error(std::format("duplicate class '{}'", cname));
+                    else classes_[cname] = {};
                 }
             }
         }
@@ -560,6 +638,9 @@ private:
             auto root = ast.root_object().as_tiny_map();
             collect_module(root);
         }
+
+        // Third pass: build class inheritance (all_fields + full vtable_order).
+        finalize_classes();
     }
 
     void collect_module(TinyMapView mod) {
@@ -572,6 +653,7 @@ private:
                 if (is_specialization_struct(item)) collect_struct_spec(item);
                 else                                collect_struct(item);
             } else if (c == la::ENUM)                       collect_enum(item);
+            else if (c == la::CLASS)                        collect_class(item);
             else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
             else if (c == la::TYPE_ALIAS)                 collect_type_alias(item);
             else if (c == la::CONST_DEF)                  collect_const(item);
@@ -690,6 +772,93 @@ private:
         // Clean up pattern TypeVars.
         for (auto& tp : pattern_tvars)
             current_type_params_.erase(tp.name);
+    }
+
+    // ── collect_class ─────────────────────────────────────────────
+    // Phase 1: register own fields, method signatures, parent name, is_abstract.
+    // Phase 2 (finalize_classes): build all_fields and full vtable_order.
+    void collect_class(TinyMapView node) {
+        auto cname = std::string(str_of(node.get(la::NAME.code)));
+        ctx_ = std::format("class {}", cname);
+
+        SemaClassInfo& info = classes_[cname];
+
+        // Read IS_ABSTRACT flag
+        if (node.has_key(la::IS_ABSTRACT)) {
+            AnyVal av = node.get(la::IS_ABSTRACT.code);
+            info.is_abstract = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        }
+
+        // Read parent class
+        if (node.has_key(la::PARENT)) {
+            info.parent_name = std::string(str_of(node.get(la::PARENT.code)));
+            if (!classes_.count(info.parent_name))
+                error(std::format("class '{}': unknown parent '{}'", cname, info.parent_name));
+        }
+
+        // Process class members: collect own fields and method signatures
+        if (node.has_key(la::ITEMS)) {
+            auto members = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < members.size(); ++i) {
+                auto m = map_of(members.get(i));
+                int32_t mc = code_of(m);
+
+                if (mc == la::FIELD_DEF) {
+                    auto fname = str_of(m.get(la::NAME.code));
+                    auto ftype = resolve_type(map_of(m.get(la::TYPE.code)));
+                    // Own fields (all_fields built in finalize_classes)
+                    info.all_fields.push_back({std::string(fname), ftype});
+
+                } else if (mc == la::FN || mc == la::ABSTRACT_FN) {
+                    collect_fn(m, cname);
+                }
+            }
+        }
+    }
+
+    // Phase 2: walk class hierarchy (assumes parent before child) to build
+    // all_fields (parent fields first) and full vtable_order.
+    void finalize_classes() {
+        // We process in order they appear in classes_ — but to correctly inherit,
+        // we do a simple recursive helper that resolves each class at most once.
+        std::unordered_map<std::string, bool> done;
+
+        std::function<void(const std::string&)> resolve = [&](const std::string& cname) {
+            if (done.count(cname)) return;
+            done[cname] = true;
+
+            auto it = classes_.find(cname);
+            if (it == classes_.end()) return;
+            auto& info = it->second;
+
+            // Resolve parent first
+            if (!info.parent_name.empty()) {
+                resolve(info.parent_name);
+                auto pit = classes_.find(info.parent_name);
+                if (pit != classes_.end()) {
+                    // Prepend parent's all_fields to own
+                    auto own_fields = std::move(info.all_fields);
+                    info.all_fields = pit->second.all_fields;
+                    for (auto& f : own_fields) info.all_fields.push_back(f);
+                    // Start vtable from parent
+                    info.vtable_order = pit->second.vtable_order;
+                }
+            }
+
+            // Add own methods to vtable (skip if already present = override)
+            for (auto& [fname, finfo] : funcs_) {
+                // Check if this method belongs to cname
+                std::string prefix = cname + "__";
+                if (fname.rfind(prefix, 0) != 0) continue;
+                auto mangled = fname;
+                auto vit = std::find(info.vtable_order.begin(), info.vtable_order.end(), mangled);
+                if (vit == info.vtable_order.end())
+                    info.vtable_order.push_back(mangled);
+            }
+        };
+
+        for (auto& [cname, _] : classes_)
+            resolve(cname);
     }
 
     void collect_struct(TinyMapView node) {
@@ -1196,6 +1365,7 @@ private:
         case la::INDEX_READ:  return lower_index_read(expr);
         case la::ARR_LIT:     return lower_arr_lit(expr);
         case la::ENUM_LIT:    return lower_enum_lit(expr);
+        case la::NEW_EXPR:    return lower_new_expr(expr);
 
         default:
             return error_expr();
@@ -1421,9 +1591,83 @@ private:
         return make_expr(ret, lir::ECall{std::string(callee), std::move(type_args), std::move(arg_exprs)});
     }
 
+    lir::LExprPtr lower_class_method_call(lir::LExprPtr recv,
+                                           std::string_view cname,
+                                           std::string_view method_name,
+                                           TinyMapView node) {
+        // Walk inheritance chain to find the method.
+        std::string resolved_class;
+        std::string mangled;
+        {
+            std::string cur = std::string(cname);
+            while (!cur.empty()) {
+                auto candidate = cur + "__" + std::string(method_name);
+                if (funcs_.count(candidate)) {
+                    resolved_class = cur;
+                    mangled = candidate;
+                    break;
+                }
+                auto cit = classes_.find(cur);
+                if (cit == classes_.end()) break;
+                cur = cit->second.parent_name;
+            }
+        }
+        auto fit = funcs_.find(mangled);
+        if (fit == funcs_.end()) {
+            error(std::format("class '{}' has no method '{}'", cname, method_name));
+            std::vector<lir::LExprPtr> dummy_args;
+            return make_expr(error_t(),
+                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(dummy_args), -1});
+        }
+
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            auto args = arr_of(node.get(la::ARGS.code));
+            for (uint64_t i = 0; i < args.size(); ++i)
+                arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+        }
+
+        auto& fi = fit->second;
+        uint64_t explicit_args = arg_exprs.size();
+        size_t expected_explicit = fi.param_types.size() > 0 ? fi.param_types.size() - 1 : 0;
+        if (explicit_args != expected_explicit)
+            error(std::format("method call '{}': expected {} args, got {}",
+                  mangled, expected_explicit, explicit_args));
+        else {
+            for (uint64_t i = 0; i < explicit_args; ++i) {
+                auto* at = arg_exprs[i]->type;
+                size_t pi = i + 1;
+                if (pi < fi.param_types.size()) {
+                    auto* pt = fi.param_types[pi];
+                    if (at->kind != LogosType::Kind::Error && pt->kind != LogosType::Kind::Error &&
+                        !compat(at, pt))
+                        error(std::format("method '{}' arg {}: expected {}, got {}",
+                              mangled, i + 1, type_str(pt), type_str(at)));
+                }
+            }
+        }
+
+        int32_t vidx = vtable_index_of(cname, mangled);
+
+        lir::EMethodCall mc;
+        mc.receiver      = std::move(recv);
+        mc.method        = std::string(method_name);
+        mc.args          = std::move(arg_exprs);
+        mc.vtable_index  = vidx;
+        mc.resolved_type = resolved_class;
+        return make_expr(fi.ret_type, std::move(mc));
+    }
+
     lir::LExprPtr lower_method_call(TinyMapView node) {
         auto method_name = str_of(node.get(la::NAME.code));
         auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+
+        // Check if receiver is a class type → virtual dispatch
+        auto cname = class_name_from_type(recv->type);
+        if (!cname.empty()) {
+            return lower_class_method_call(std::move(recv), cname, method_name, node);
+        }
+
         auto sname = struct_name_from_type(recv->type);
 
         std::vector<lir::LExprPtr> arg_exprs;
@@ -1494,9 +1738,21 @@ private:
     lir::LExprPtr lower_field_read(TinyMapView node) {
         auto field_name = str_of(node.get(la::FIELD.code));
         auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+
+        // Check for class receiver
+        auto cname_sv = class_name_from_type(recv->type);
+        if (!cname_sv.empty()) {
+            auto* ft = class_field_type(cname_sv, field_name);
+            if (!ft) {
+                error(std::format("field read: class '{}' has no field '{}'", cname_sv, field_name));
+                return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
+            }
+            return make_expr(ft, lir::EFieldRead{std::move(recv), std::string(field_name)});
+        }
+
         auto sname = struct_name_from_type(recv->type);
         if (sname.empty()) {
-            error(std::format("field read: receiver is not a struct (got {})",
+            error(std::format("field read: receiver is not a struct or class (got {})",
                   type_str(recv->type)));
             return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
         }
@@ -1694,6 +1950,62 @@ private:
             lir::EEnumLit{std::string(ename), std::string(vname), disc});
     }
 
+    lir::LExprPtr lower_new_expr(TinyMapView node) {
+        auto cname = str_of(node.get(la::NAME.code));
+        auto cit = classes_.find(std::string(cname));
+        if (cit == classes_.end()) {
+            error(std::format("'new': unknown class '{}'", cname));
+            return error_expr();
+        }
+        auto& cinfo = cit->second;
+        if (cinfo.is_abstract) {
+            error(std::format("'new': cannot instantiate abstract class '{}'", cname));
+            return error_expr();
+        }
+
+        std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+        if (node.has_key(la::ITEMS)) {
+            auto inits = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < inits.size(); ++i) {
+                auto init = map_of(inits.get(i));
+                auto fname = str_of(init.get(la::NAME.code));
+                lir::LExprPtr val = init.has_key(la::VALUE)
+                    ? lower_expr(map_of(init.get(la::VALUE.code)))
+                    : error_expr();
+                fields.push_back({std::string(fname), std::move(val)});
+            }
+        }
+
+        // Validate all fields are initialized and no extras
+        std::unordered_map<std::string, bool> initialized;
+        for (auto& [fn, ft] : cinfo.all_fields) initialized[fn] = false;
+        for (auto& [fname, fval] : fields) {
+            auto it = initialized.find(fname);
+            if (it == initialized.end()) {
+                error(std::format("'new {}': unknown field '{}'", cname, fname));
+            } else {
+                it->second = true;
+                // Find expected type
+                for (auto& [fn, ft] : cinfo.all_fields) {
+                    if (fn == fname && ft->kind != LogosType::Kind::Error &&
+                        fval->type->kind != LogosType::Kind::Error &&
+                        !compat(fval->type, ft)) {
+                        error(std::format("'new {}' field '{}': expected {}, got {}",
+                              cname, fname, type_str(ft), type_str(fval->type)));
+                    }
+                }
+            }
+        }
+        for (auto& [fn, init] : initialized)
+            if (!init)
+                error(std::format("'new {}': field '{}' not initialized", cname, fn));
+
+        // Result type: *mut ClassName
+        auto* class_t = make_class_type(cname);
+        auto* result_t = make_ptr(true, class_t);
+        return make_expr(result_t, lir::ENew{std::string(cname), std::move(fields)});
+    }
+
     // ── lower_stmt and friends ───────────────────────────────────
 
     lir::LStmt lower_stmt(TinyMapView stmt) {
@@ -1723,6 +2035,19 @@ private:
         if (c == la::CONTINUE) {
             if (loop_depth_ == 0) error("'continue' outside loop");
             return make_stmt(node_line_, lir::SContinue{});
+        }
+        if (c == la::DELETE_STMT) {
+            lir::LExprPtr expr = stmt.has_key(la::VALUE)
+                ? lower_expr(map_of(stmt.get(la::VALUE.code)))
+                : error_expr();
+            auto* et = expr->type;
+            if (et->kind != LogosType::Kind::Ptr || !et->pointee ||
+                (et->pointee->kind != LogosType::Kind::Class &&
+                 et->pointee->kind != LogosType::Kind::Error)) {
+                error(std::format("'delete' requires a class pointer, got {}",
+                      type_str(et)));
+            }
+            return make_stmt(node_line_, lir::SDelete{std::move(expr)});
         }
         // Unknown stmt — emit dummy expr stmt
         return make_stmt(node_line_, lir::SExprStmt{error_expr()});
@@ -2210,6 +2535,46 @@ private:
         return ta;
     }
 
+    // ── lower_class_def ──────────────────────────────────────────
+
+    lir::LClassDef lower_class_def(TinyMapView node) {
+        auto cname = std::string(str_of(node.get(la::NAME.code)));
+        ctx_ = std::format("class {}", cname);
+
+        lir::LClassDef cd;
+        cd.name = cname;
+
+        auto& cinfo = classes_[cname];
+        cd.is_abstract  = cinfo.is_abstract;
+        cd.parent_name  = cinfo.parent_name;
+        cd.vtable_order = cinfo.vtable_order;
+
+        // Own fields (not all_fields — parent fields are in parent's LClassDef)
+        size_t parent_field_count = 0;
+        if (!cinfo.parent_name.empty()) {
+            auto pit = classes_.find(cinfo.parent_name);
+            if (pit != classes_.end())
+                parent_field_count = pit->second.all_fields.size();
+        }
+        for (size_t i = parent_field_count; i < cinfo.all_fields.size(); ++i) {
+            auto& [fname, ftype] = cinfo.all_fields[i];
+            cd.own_fields.push_back({fname, ftype});
+        }
+
+        // Lower concrete methods
+        if (node.has_key(la::ITEMS)) {
+            auto members = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t m = 0; m < members.size(); ++m) {
+                auto member = map_of(members.get(m));
+                if (code_of(member) == la::FN)
+                    cd.methods.push_back(lower_fn(member, cname));
+                // ABSTRACT_FN: no body to lower
+            }
+        }
+
+        return cd;
+    }
+
     // ── lower_program ────────────────────────────────────────────
 
     void lower_program(const std::vector<hermes::HermesCtr>& asts, lir::LProgram& prog) {
@@ -2234,6 +2599,7 @@ private:
                     prog.structs.push_back(lower_struct_def(item));
             }
             else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
+            else if (c == la::CLASS)      prog.classes.push_back(lower_class_def(item));
             else if (c == la::FN || c == la::EXTERN_FN) {
                 if (is_specialization_fn(item))
                     prog.specializations.push_back(lower_spec_fn(item));

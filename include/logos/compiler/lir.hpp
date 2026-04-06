@@ -75,6 +75,8 @@ struct EMethodCall {
     LExprPtr               receiver;
     std::string            method;
     std::vector<LExprPtr>  args;
+    int32_t                vtable_index = -1;  // -1 = direct (struct), >=0 = virtual (class)
+    std::string            resolved_type;      // class/struct where method is defined (for inherited methods)
 };
 
 struct EBinOp {
@@ -122,6 +124,13 @@ struct ECast {
     // target type is LExpr::type
 };
 
+// Class heap allocation: new ClassName { field: val, ... }
+// Returns a *mut ClassName (pointer to heap-allocated class instance).
+struct ENew {
+    std::string class_name;
+    std::vector<std::pair<std::string, LExprPtr>> fields;
+};
+
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
@@ -129,7 +138,7 @@ struct LExpr {
     std::variant<
         ELitInt, ELitBool, ELitStr, EVarRef, EEnumLit,
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
-        EFieldRead, EIndexRead, EStructLit, EArrLit, ECast
+        EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew
     > kind;
 };
 
@@ -184,6 +193,8 @@ struct SIndexWrite {
 
 struct SExprStmt  { LExprPtr expr; };
 
+struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class pointer
+
 struct SMatch {
     LExprPtr               scrut;
     std::vector<LMatchArm> arms;
@@ -195,7 +206,7 @@ struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
-        SBreak, SContinue, SFieldWrite, SIndexWrite, SExprStmt, SMatch
+        SBreak, SContinue, SFieldWrite, SIndexWrite, SExprStmt, SMatch, SDelete
     > kind;
 };
 
@@ -244,6 +255,27 @@ struct LStructDef {
     std::vector<const LogosType*> spec_patterns;
 };
 
+// ── Class definition ──────────────────────────────────────────────────────
+//
+// A class has:
+//   - An optional parent class (single inheritance).
+//   - Own fields (user-defined; the compiler prepends a hidden vtable pointer).
+//   - A vtable_order listing the mangled method names in vtable slot order
+//     (parent's slots first, then new/overriding slots).
+//   - All method bodies (including overrides of parent methods).
+//
+// Concrete (non-abstract) classes have a global vtable constant in the
+// generated module.  Abstract classes omit the vtable.
+
+struct LClassDef {
+    std::string              name;
+    bool                     is_abstract  = false;
+    std::string              parent_name;             // empty if no parent
+    std::vector<LField>      own_fields;              // fields declared in this class
+    std::vector<std::string> vtable_order;            // full vtable: mangled method names
+    std::vector<LFunction>   methods;                 // method bodies (non-abstract)
+};
+
 struct LVariant {
     std::string name;
     int32_t     disc;
@@ -278,6 +310,7 @@ struct LProgram {
 
     std::vector<LStructDef>  structs;
     std::vector<LStructDef>  struct_specializations;  // struct specs (consumed by mono)
+    std::vector<LClassDef>   classes;
     std::vector<LEnumDef>    enums;
     std::vector<LFunction>   functions;        // free functions and extern fn
     std::vector<LFunction>   specializations;  // fn specialisations (consumed by mono)

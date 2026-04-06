@@ -71,6 +71,10 @@ public:
         for (auto& sd : prog.structs)
             if (!register_struct(sd)) return nullptr;
 
+        // Pass 0a: register class LLVM types (with prepended vtable pointer).
+        for (auto& cd : prog.classes)
+            if (!register_class(mod, cd)) return nullptr;
+
         // Pass 0.5: register enum types and module constants.
         for (auto& ed : prog.enums)
             enum_types_[ed.name] = &ed;
@@ -81,18 +85,35 @@ public:
         for (auto& c : prog.consts)
             module_consts_[c.name] = &c;
 
-        // Pass 1: forward-declare all functions.
+        // Declare malloc and free for 'new' and 'delete'.
+        ensure_malloc_free(mod);
+
+        // Pass 1: forward-declare all functions (structs, classes, free fns).
         for (auto& sd : prog.structs)
             for (auto& m : sd.methods)
                 forward_declare(mod, m);
 
-        for (auto& fn : prog.functions) {
-            forward_declare(mod, fn);
-        }
+        for (auto& cd : prog.classes)
+            for (auto& m : cd.methods)
+                forward_declare(mod, m);
 
-        // Pass 2: fill function bodies.
+        for (auto& fn : prog.functions)
+            forward_declare(mod, fn);
+
+        // Pass 1a: emit vtable globals for concrete classes.
+        for (auto& cd : prog.classes)
+            if (!cd.is_abstract)
+                emit_vtable(mod, cd);
+
+        // Pass 2: fill function bodies (structs, classes, free fns).
         for (auto& sd : prog.structs) {
             for (auto& m : sd.methods) {
+                auto func = mod.lookupSymbol<mlir::func::FuncOp>(m.name);
+                if (!gen_function_body(func, m)) return nullptr;
+            }
+        }
+        for (auto& cd : prog.classes) {
+            for (auto& m : cd.methods) {
                 auto func = mod.lookupSymbol<mlir::func::FuncOp>(m.name);
                 if (!gen_function_body(func, m)) return nullptr;
             }
@@ -119,6 +140,9 @@ private:
     std::unordered_map<std::string, const LEnumDef*>   enum_types_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
     std::unordered_map<std::string, const LConst*>     module_consts_;
+
+    // Per-function: tracks class name for variables/params holding class pointers.
+    std::unordered_map<std::string, std::string>       var_class_;
 
     // Per-function state.
     std::unordered_map<std::string, mlir::Value>  scope_;
@@ -193,6 +217,9 @@ private:
             if (struct_types_.count(cname)) return ptr_type();
             return nullptr;
         }
+        case LogosType::Kind::Class:
+            // Classes are always passed by pointer (heap allocated via 'new').
+            return ptr_type();
         case LogosType::Kind::TypeVar:
             // TypeVar should have been eliminated by mono_pass.
             // Treat as error type to produce a clear diagnostic.
@@ -234,6 +261,113 @@ private:
         return true;
     }
 
+    // ── Class registration (Pass 0a) ─────────────────────────────
+    // Registers a class as an LLVM struct type with:
+    //   field 0..N: user fields (all_fields = parent fields + own fields)
+    // NOTE: Vtable pointer omitted for Batch H — all calls are direct.
+    // Stores in struct_types_ so existing gep/field helpers work.
+
+    bool register_class(mlir::ModuleOp /*mod*/, const LClassDef& cd) {
+        if (struct_types_.count(cd.name)) return true;
+
+        auto struct_type = mlir::LLVM::LLVMStructType::getIdentified(
+            builder_.getContext(), cd.name);
+        StructInfo info;
+        info.name      = cd.name;
+        info.llvm_type = struct_type;
+
+        std::vector<mlir::Type> field_types;
+
+        // Parent fields first (from parent's StructInfo)
+        if (!cd.parent_name.empty()) {
+            auto pit = struct_types_.find(cd.parent_name);
+            if (pit != struct_types_.end()) {
+                for (auto& pf : pit->second.fields) {
+                    uint32_t idx = uint32_t(info.fields.size());
+                    info.fields.push_back({pf.name, pf.type, idx, pf.struct_name});
+                    field_types.push_back(pf.type);
+                }
+            }
+        }
+
+        // Own fields
+        for (auto& f : cd.own_fields) {
+            auto ft = logos_to_mlir(f.type);
+            if (!ft) {
+                std::fprintf(stderr, "mlir_gen: unknown field type in class '%s'\n",
+                             cd.name.c_str());
+                return false;
+            }
+            std::string fsname;
+            if (f.type && f.type->kind == LogosType::Kind::Struct)
+                fsname = concrete_struct_name(f.type);
+            else if (f.type && f.type->kind == LogosType::Kind::Class)
+                fsname = f.type->struct_name;
+            uint32_t idx = uint32_t(info.fields.size());
+            info.fields.push_back({f.name, ft, idx, fsname});
+            field_types.push_back(ft);
+        }
+
+        if (!field_types.empty()) {
+            if (mlir::failed(struct_type.setBody(field_types, false))) {
+                std::fprintf(stderr, "mlir_gen: failed to set body for class '%s'\n",
+                             cd.name.c_str());
+                return false;
+            }
+        }
+        struct_types_[cd.name] = std::move(info);
+        return true;
+    }
+
+    // ── Vtable emission (Pass 1a) ─────────────────────────────────
+    // Batch H: direct calls only — vtable dispatch deferred to Batch I.
+    void emit_vtable(mlir::ModuleOp /*mod*/, const LClassDef& /*cd*/) {}
+
+    // ── malloc / free helpers ─────────────────────────────────────
+
+    void ensure_malloc_free(mlir::ModuleOp mod) {
+        if (!mod.lookupSymbol("malloc")) {
+            auto fn_type = builder_.getFunctionType(
+                {builder_.getI64Type()}, {ptr_type()});
+            auto fn = mlir::func::FuncOp::create(loc_, "malloc", fn_type);
+            fn.setPrivate();
+            mod.push_back(fn);
+        }
+        if (!mod.lookupSymbol("free")) {
+            auto fn_type = builder_.getFunctionType({ptr_type()}, {});
+            auto fn = mlir::func::FuncOp::create(loc_, "free", fn_type);
+            fn.setPrivate();
+            mod.push_back(fn);
+        }
+    }
+
+    mlir::Value call_malloc(mlir::Value size) {
+        auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto malloc_fn = mod.lookupSymbol<mlir::func::FuncOp>("malloc");
+        if (!malloc_fn) return nullptr;
+        auto call = builder_.create<mlir::func::CallOp>(
+            loc_, malloc_fn, mlir::ValueRange{size});
+        return call.getResult(0);
+    }
+
+    void call_free(mlir::Value ptr) {
+        auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto free_fn = mod.lookupSymbol<mlir::func::FuncOp>("free");
+        if (!free_fn) return;
+        builder_.create<mlir::func::CallOp>(loc_, free_fn, mlir::ValueRange{ptr});
+    }
+
+    // Compute sizeof an LLVM struct type via GEP null trick.
+    mlir::Value sizeof_struct(mlir::LLVM::LLVMStructType struct_type) {
+        mlir::Value zero64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        mlir::Value null   = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), zero64);
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(1)};
+        mlir::Value gep = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), struct_type, null, idx);
+        return builder_.create<mlir::LLVM::PtrToIntOp>(
+            loc_, builder_.getI64Type(), gep);
+    }
+
     // ── Function type from LFunction ─────────────────────────────
 
     mlir::FunctionType make_fn_type(const LFunction& fn) {
@@ -267,6 +401,7 @@ private:
         let_vars_.clear();
         var_elem_types_.clear();
         var_struct_.clear();
+        var_class_.clear();
         var_subscript_.clear();
         loop_stack_.clear();
 
@@ -281,7 +416,7 @@ private:
                 if (et) var_subscript_[p.name] = et;
             }
 
-            // Track struct type for all struct parameters (including 'self').
+            // Track struct / class type for parameters (including 'self').
             if (p.type) {
                 std::string sname;
                 if (p.type->kind == LogosType::Kind::Struct)
@@ -289,7 +424,15 @@ private:
                 else if (p.type->kind == LogosType::Kind::Ptr && p.type->pointee &&
                          p.type->pointee->kind == LogosType::Kind::Struct)
                     sname = concrete_struct_name(p.type->pointee);
-                if (!sname.empty()) var_struct_[p.name] = std::move(sname);
+                if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
+
+                std::string cname;
+                if (p.type->kind == LogosType::Kind::Class)
+                    cname = p.type->struct_name;
+                else if (p.type->kind == LogosType::Kind::Ptr && p.type->pointee &&
+                         p.type->pointee->kind == LogosType::Kind::Class)
+                    cname = p.type->pointee->struct_name;
+                if (!cname.empty()) var_class_[p.name] = std::move(cname);
             }
         }
 
@@ -332,6 +475,7 @@ private:
     void gen_stmt_kind(const SIndexWrite& s)  { gen_index_write(s); }
     void gen_stmt_kind(const SExprStmt& s)    { gen_expr(*s.expr); }
     void gen_stmt_kind(const SMatch& s)       { gen_match(s); }
+    void gen_stmt_kind(const SDelete& s)      { gen_delete(s); }
 
     void gen_let(const SLet& s) {
         // ── Struct literal ────────────────────────────────────────
@@ -368,6 +512,19 @@ private:
             scope_[s.name]    = val;
             let_vars_.insert(s.name);
             var_struct_[s.name] = concrete_struct_name(s.type);
+            return;
+        }
+
+        // ── Class pointer (from 'new') ────────────────────────────
+        // 'new ClassName { ... }' returns *mut ClassName.  Store the
+        // heap pointer directly — no alloca wrapper needed.
+        if (s.type && s.type->kind == LogosType::Kind::Ptr &&
+            s.type->pointee && s.type->pointee->kind == LogosType::Kind::Class) {
+            auto val = gen_expr(*s.value);
+            if (!val) return;
+            scope_[s.name]  = val;
+            let_vars_.insert(s.name);
+            var_class_[s.name] = s.type->pointee->struct_name;
             return;
         }
 
@@ -792,9 +949,12 @@ private:
     }
 
     mlir::Value gen_expr_kind(const EMethodCall& e, const LogosType*) {
-        auto [ptr, sname] = gen_recv_struct(*e.receiver);
-        if (!ptr || sname.empty()) return nullptr;
-        auto mangled    = sname + "__" + e.method;
+        auto [ptr, tname] = gen_recv_struct(*e.receiver);
+        if (!ptr || tname.empty()) return nullptr;
+        // Direct call: mangled name = TypeName__method
+        // If resolved_type is set (inherited method), use the defining class name.
+        const std::string& defining = e.resolved_type.empty() ? tname : e.resolved_type;
+        auto mangled    = defining + "__" + e.method;
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
         auto callee_fn  = parent_mod.lookupSymbol<mlir::func::FuncOp>(mangled);
         if (!callee_fn) {
@@ -888,6 +1048,45 @@ private:
         return nullptr;
     }
 
+    // ── Class new / delete ────────────────────────────────────────
+
+    mlir::Value gen_expr_kind(const ENew& e, const LogosType*) {
+        auto sit = struct_types_.find(e.class_name);
+        if (sit == struct_types_.end()) {
+            std::fprintf(stderr, "mlir_gen: unknown class '%s'\n", e.class_name.c_str());
+            return nullptr;
+        }
+        auto& info = sit->second;
+
+        // Allocate heap memory: malloc(sizeof(ClassType))
+        mlir::Value size;
+        if (info.fields.empty()) {
+            // Zero-field class — allocate 1 byte
+            size = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+        } else {
+            size = sizeof_struct(info.llvm_type);
+        }
+        auto raw = call_malloc(size);
+        if (!raw) return nullptr;
+
+        // Initialize user fields
+        for (auto& [fname, fval] : e.fields) {
+            auto val = gen_expr(*fval);
+            if (!val) return nullptr;
+            auto gep = gep_field(raw, info, fname);
+            if (!gep) return nullptr;
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+        }
+
+        return raw;  // *mut ClassName
+    }
+
+    void gen_delete(const SDelete& s) {
+        auto ptr = gen_expr(*s.expr);
+        if (!ptr) return;
+        call_free(ptr);
+    }
+
     // ── Struct helpers ────────────────────────────────────────────
 
     mlir::Value get_struct_ptr(const std::string& name) {
@@ -913,15 +1112,21 @@ private:
         return nullptr;
     }
 
-    // Resolve receiver expr → (struct_ptr, struct_name).
+    // Resolve receiver expr → (object_ptr, type_name).
+    // Works for both structs (var_struct_) and classes (var_class_).
     std::pair<mlir::Value, std::string> gen_recv_struct(const LExpr& recv) {
         if (auto* vr = std::get_if<EVarRef>(&recv.kind)) {
             auto& name = vr->name;
-            if (!var_struct_.count(name)) {
-                std::fprintf(stderr, "mlir_gen: '%s' is not a struct var\n", name.c_str());
-                return {nullptr, {}};
-            }
-            return {get_struct_ptr(name), var_struct_[name]};
+            // Check class first
+            auto cit = var_class_.find(name);
+            if (cit != var_class_.end())
+                return {get_struct_ptr(name), cit->second};
+            // Then struct
+            auto sit = var_struct_.find(name);
+            if (sit != var_struct_.end())
+                return {get_struct_ptr(name), sit->second};
+            std::fprintf(stderr, "mlir_gen: '%s' is not a struct/class var\n", name.c_str());
+            return {nullptr, {}};
         }
         if (auto* fr = std::get_if<EFieldRead>(&recv.kind)) {
             auto [base_ptr, base_sname] = gen_recv_struct(*fr->receiver);
@@ -934,18 +1139,18 @@ private:
             for (auto& f : info.fields) {
                 if (f.name == fr->field) {
                     if (!f.struct_name.empty()) {
-                        auto struct_ptr = builder_.create<mlir::LLVM::LoadOp>(
-                                              loc_, ptr_type(), gep);
-                        return {struct_ptr, f.struct_name};
+                        auto obj_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                                           loc_, ptr_type(), gep);
+                        return {obj_ptr, f.struct_name};
                     }
-                    std::fprintf(stderr, "mlir_gen: field '%s' is not a struct type\n",
+                    std::fprintf(stderr, "mlir_gen: field '%s' is not a struct/class type\n",
                                  fr->field.c_str());
                     return {nullptr, {}};
                 }
             }
             return {nullptr, {}};
         }
-        std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct access\n");
+        std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct/class access\n");
         return {nullptr, {}};
     }
 
