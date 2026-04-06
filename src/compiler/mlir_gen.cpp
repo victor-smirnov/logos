@@ -715,9 +715,16 @@ private:
     void gen_field_write(const SFieldWrite& s) {
         auto ptr = get_struct_ptr(s.receiver);
         if (!ptr) return;
-        auto sname = var_struct_.find(s.receiver);
-        if (sname == var_struct_.end()) return;
-        auto& info = struct_types_[sname->second];
+        // Look up struct info: check var_struct_ first, then var_class_.
+        auto sit = var_struct_.find(s.receiver);
+        auto cit = sit == var_struct_.end() ? var_class_.find(s.receiver) : var_class_.end();
+        if (sit == var_struct_.end() && cit == var_class_.end()) {
+            std::fprintf(stderr, "mlir_gen: field write: '%s' is not a struct/class\n",
+                         s.receiver.c_str());
+            return;
+        }
+        const std::string& type_name = (sit != var_struct_.end()) ? sit->second : cit->second;
+        auto& info = struct_types_[type_name];
         auto gep = gep_field(ptr, info, s.field);
         if (!gep) return;
         auto val = gen_expr(*s.value);
@@ -848,8 +855,8 @@ private:
             std::fprintf(stderr, "mlir_gen: undefined '%s'\n", e.name.c_str());
             return nullptr;
         }
-        // Struct/array variables: return pointer directly.
-        if (var_struct_.count(e.name) || var_subscript_.count(e.name))
+        // Struct/class/array variables: return pointer directly.
+        if (var_struct_.count(e.name) || var_subscript_.count(e.name) || var_class_.count(e.name))
             return it->second;
         // Let-bound scalar: load from alloca.
         if (let_vars_.count(e.name)) {
