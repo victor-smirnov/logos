@@ -43,6 +43,7 @@
     RECEIVER    = 20
     FIELD       = 21
     FIELDS      = 22
+    SIZE        = 23
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -77,6 +78,10 @@
     WHILE       = 58
     DEREF       = 59
     PAREN_EXPR  = 60
+    INDEX_READ  = 62
+    INDEX_WRITE = 63
+    ARR_TYPE    = 64
+    ARR_LIT     = 65
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -101,6 +106,8 @@
     // Punctuation
     LBRACE      = "{"
     RBRACE      = "}"
+    LBRACKET    = "["
+    RBRACKET    = "]"
     LPAREN      = "("
     RPAREN      = ")"
     COLON       = ":"
@@ -183,12 +190,16 @@
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
 
     // ── Type reference ───────────────────────────────────────────
-    type_ref <- ptr_type / simple_type
+    type_ref <- ptr_type / arr_type / simple_type
 
     ptr_type <- STAR KW_CONST simple_type
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: false }
               / STAR KW_MUT simple_type
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
+
+    // [T; N] — fixed-size array type
+    arr_type <- LBRACKET simple_type SEMI INTEGER RBRACKET
+             => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
 
     simple_type <- IDENT
                 => { CODE: TYPE_REF, NAME: $1 }
@@ -203,9 +214,14 @@
           / return_stmt
           / if_expr
           / field_write_stmt
+          / index_write_stmt
           / assign_stmt
           / expr SEMI
             => { CODE: EXPR_STMT, VALUE: $1 }
+
+    // arr[idx] = expr;
+    index_write_stmt <- IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
+                     => { CODE: INDEX_WRITE, NAME: $1, LHS: $3, VALUE: $6 }
 
     let_stmt <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, TYPE: $4, VALUE: $6 }
@@ -248,10 +264,12 @@
 
     // ── Atoms ────────────────────────────────────────────────────
     // Order matters: more-specific patterns before plain IDENT.
-    atom <- method_call_expr   // IDENT.IDENT(args) — before field_read
-          / field_read_expr    // IDENT.IDENT        — before plain IDENT
+    atom <- method_call_expr   // IDENT.IDENT(args)  — before field_read
+          / field_read_expr    // IDENT.IDENT         — before plain IDENT
+          / index_read_expr    // IDENT[expr]         — before call and var_ref
           / call_expr          // IDENT(args)         — before plain IDENT
           / struct_lit         // IDENT { fields }    — before plain IDENT
+          / arr_lit            // [e1, e2, ...]
           / paren_expr         // (expr)
           / STRING     => { CODE: LIT_STR,  VALUE: $1 }
           / KW_TRUE    => { CODE: LIT_BOOL, VALUE: true }
@@ -273,6 +291,14 @@
 
     field_init <- IDENT COLON expr
                => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
+
+    // ── Array subscript read: arr[i] ─────────────────────────────
+    index_read_expr <- IDENT LBRACKET expr RBRACKET
+                    => { CODE: INDEX_READ, NAME: $1, VALUE: $3 }
+
+    // ── Array literal: [e1, e2, ...] ─────────────────────────────
+    arr_lit <- LBRACKET (expr (COMMA expr)*)? RBRACKET
+            => { CODE: ARR_LIT, ITEMS: $... }
 
     // ── Parenthesised expression ──────────────────────────────────
     paren_expr <- LPAREN expr RPAREN

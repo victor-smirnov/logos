@@ -48,6 +48,7 @@ inline constexpr Key MUTPTR   {"MUTPTR",   19};  // pointer mutability (bool)
 inline constexpr Key RECEIVER {"RECEIVER", 20};  // receiver of field read / method call
 inline constexpr Key FIELD    {"FIELD",    21};  // field name (string)
 inline constexpr Key FIELDS   {"FIELDS",   22};  // field definitions array (in struct)
+inline constexpr Key SIZE     {"SIZE",     23};  // array size (integer literal)
 
 // ── Node codes ───────────────────────────────────────────────────────────
 
@@ -92,6 +93,10 @@ inline constexpr Code ASSIGN      {"ASSIGN",      57};   // name = expr (local r
 inline constexpr Code WHILE       {"WHILE",       58};   // while cond { body }
 inline constexpr Code DEREF       {"DEREF",       59};   // *ptr
 inline constexpr Code PAREN_EXPR  {"PAREN_EXPR",  60};   // (expr) — parenthesised
+inline constexpr Code INDEX_READ  {"INDEX_READ",  62};   // arr[i]
+inline constexpr Code INDEX_WRITE {"INDEX_WRITE", 63};   // arr[i] = val
+inline constexpr Code ARR_TYPE    {"ARR_TYPE",    64};   // [T; N] array type
+inline constexpr Code ARR_LIT     {"ARR_LIT",     65};   // [e1, e2, ...] array literal
 
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;

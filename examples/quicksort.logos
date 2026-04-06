@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos iteration 4 — quicksort + print sorted array.
+//
+// Sorts [5, 2, 8, 1, 9, 3, 7, 4, 6] in-place, prints each element.
+// Expected output:
+//   1 2 3 4 5 6 7 8 9
+
+package quicksort;
+
+extern fn putchar(c: i32) -> i32;
+
+// ── swap arr[a] ↔ arr[b] ─────────────────────────────────────────────────
+fn swap(arr: *mut i32, a: i32, b: i32) {
+    let tmp: i32 = arr[a];
+    arr[a] = arr[b];
+    arr[b] = tmp;
+}
+
+// ── Lomuto partition: pivot = arr[hi], returns pivot index ───────────────
+fn partition(arr: *mut i32, lo: i32, hi: i32) -> i32 {
+    let pivot: i32 = arr[hi];
+    let i: i32 = lo;
+    let j: i32 = lo;
+    while j < hi {
+        if arr[j] <= pivot {
+            swap(arr, i, j);
+            i = i + 1;
+        }
+        j = j + 1;
+    }
+    swap(arr, i, hi);
+    return i;
+}
+
+// ── Recursive quicksort ──────────────────────────────────────────────────
+fn qsort(arr: *mut i32, lo: i32, hi: i32) {
+    if lo < hi {
+        let p: i32 = partition(arr, lo, hi);
+        qsort(arr, lo, p - 1);
+        qsort(arr, p + 1, hi);
+    }
+}
+
+// ── Print a non-negative integer followed by a space ────────────────────
+fn print_int_rec(n: i32) {
+    if n >= 10 {
+        print_int_rec(n / 10);
+    }
+    putchar((n - (n / 10) * 10) + 48);
+}
+
+fn print_int(n: i32) {
+    print_int_rec(n);
+    putchar(32);   // space
+}
+
+// ── main ─────────────────────────────────────────────────────────────────
+fn main() -> i32 {
+    let arr: [i32; 9] = [5, 2, 8, 1, 9, 3, 7, 4, 6];
+    qsort(arr, 0, 8);
+    print_int(arr[0]);
+    print_int(arr[1]);
+    print_int(arr[2]);
+    print_int(arr[3]);
+    print_int(arr[4]);
+    print_int(arr[5]);
+    print_int(arr[6]);
+    print_int(arr[7]);
+    print_int(arr[8]);
+    putchar(10);   // newline
+    return 0;
+}
