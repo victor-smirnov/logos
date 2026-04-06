@@ -2,19 +2,14 @@
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Semantic analysis pass for the Logos compiler.
+// Semantic analysis types: LogosType, TypePool, SemaResult, Diag.
 //
-// sema_check() runs BEFORE mlir_gen. It builds a symbol table from all
-// loaded module ASTs and type-checks every function body.  Any error is
-// recorded as a Diag; the caller should abort compilation when ok() == false.
-//
-// No source-location tracking yet — errors report context by name
-// (e.g. "fn quicksort", "struct Point").
+// The entry point for semantic analysis + L-IR lowering is sema_lower(),
+// declared in lir.hpp (which includes this header).
 
 #pragma once
 
-#include <logos/hermes/view.hpp>
-
+#include <deque>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -59,6 +54,28 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept;
 // Human-readable name for error messages.
 std::string type_str(const LogosType* t);
 
+// ── TypePool ───────────────────────────────────────────────────────────────
+//
+// Owns all LogosType objects.  std::deque gives pointer stability on push_back.
+// Moved into LProgram so pointers remain valid after sema_lower() returns.
+
+class TypePool {
+    std::deque<LogosType> pool_;
+public:
+    TypePool() = default;
+    TypePool(TypePool&&) = default;
+    TypePool& operator=(TypePool&&) = default;
+
+    // Non-copyable — pointer stability requires unique ownership.
+    TypePool(const TypePool&) = delete;
+    TypePool& operator=(const TypePool&) = delete;
+
+    const LogosType* alloc(LogosType t) {
+        pool_.push_back(std::move(t));
+        return &pool_.back();
+    }
+};
+
 // ── Diagnostics ────────────────────────────────────────────────────────────
 
 struct Diag {
@@ -92,13 +109,5 @@ struct SemaResult {
         }
     }
 };
-
-// ── Entry point ────────────────────────────────────────────────────────────
-
-// Run semantic analysis over all parsed module ASTs.
-// ASTs must remain alive for the duration of this call (string_views into them).
-// filenames[i] is the source path for asts[i] — used in diagnostics.
-SemaResult sema_check(const std::vector<logos::hermes::HermesCtr>& asts,
-                      const std::vector<std::string>& filenames = {});
 
 } // namespace logos::compiler

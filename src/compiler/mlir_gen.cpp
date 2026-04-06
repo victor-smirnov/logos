@@ -2,21 +2,16 @@
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// MLIRGen — lower Logos Hermes AST to MLIR.
+// MLIRGen — lower Logos L-IR to MLIR.
 //
-// Iteration 4: arrays ([T;N] type, [e,...] literal, arr[i] subscript).
-// All let bindings use alloca so that reassignment and loop-carried state
-// work correctly (LLVM mem2reg handles the cleanup).
+// Input: lir::LProgram (typed IR produced by sema_lower()).
+// Output: mlir::ModuleOp.
+//
+// All type information is pre-computed in L-IR — no Hermes lookups here.
 
 #include "mlir_gen.hpp"
 
-#include <logos/compiler/ast.hpp>
-#include <logos/hermes/document.hpp>
-#include <logos/hermes/view.hpp>
-#include <logos/hermes/tiny_object_map.hpp>
-#include <logos/hermes/object_array.hpp>
-#include <logos/hermes/arena_string.hpp>
-#include <logos/hermes/any_val.hpp>
+#include <logos/compiler/lir.hpp>
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -34,26 +29,22 @@
 #include <string>
 #include <vector>
 #include <cstdio>
-#include <cstdlib>
+#include <variant>
 
 namespace logos::compiler {
 namespace {
 
-namespace la = logos::compiler::ast;
-using hermes::TinyMapView;
-using hermes::ArrayView;
-using hermes::StringView;
-using hermes::AnyVal;
-using hermes::MemHolder;
+using namespace lir;
 
 // ---------------------------------------------------------------------------
-// Struct type registry
+// Struct type registry (MLIR-level)
 // ---------------------------------------------------------------------------
+
 struct FieldInfo {
-    std::string  name;
-    mlir::Type   type;
-    uint32_t     index;
-    std::string  struct_name; // non-empty if this field is a pointer to a struct
+    std::string name;
+    mlir::Type  type;
+    uint32_t    index;
+    std::string struct_name;   // non-empty if field is *struct
 };
 
 struct StructInfo {
@@ -63,153 +54,52 @@ struct StructInfo {
 };
 
 // ---------------------------------------------------------------------------
-// Enum type registry
+// MLIRGenImpl
 // ---------------------------------------------------------------------------
-struct EnumVariantInfo {
-    std::string name;
-    int32_t     value;
-};
 
-struct EnumInfo {
-    std::string                   name;
-    std::vector<EnumVariantInfo>  variants;
-};
-
-// ---------------------------------------------------------------------------
-// MLIRGenImpl — stateful AST walker
-// ---------------------------------------------------------------------------
 class MLIRGenImpl {
 public:
     explicit MLIRGenImpl(mlir::MLIRContext& ctx)
         : builder_(&ctx)
         , loc_(builder_.getUnknownLoc())
-        , holder_(nullptr)
     {}
 
-    mlir::OwningOpRef<mlir::ModuleOp> generate(const std::vector<hermes::HermesCtr>& asts) {
+    mlir::OwningOpRef<mlir::ModuleOp> generate(const LProgram& prog) {
         auto mod = mlir::ModuleOp::create(loc_);
 
-        struct ModItems { hermes::MemHolder* holder; ArrayView items; };
-        std::vector<ModItems> all_modules;
+        // Pass 0: register struct LLVM types.
+        for (auto& sd : prog.structs)
+            if (!register_struct(sd)) return nullptr;
 
-        for (auto& ast : asts) {
-            auto h = ast.holder();
-            holder_ = h;
-            auto root_obj = ast.root_object();
-            auto root = root_obj.as_tiny_map();
-            int32_t code = code_of(root);
-            if (code != la::MODULE) {
-                std::fprintf(stderr, "mlir_gen: expected MODULE node, got code %d\n", code);
-                return nullptr;
-            }
-            AnyVal items_av = root.get(la::ITEMS);
-            if (items_av.is_null() || !items_av.is_pointer()) continue;
-            all_modules.push_back({h, ArrayView(items_av.to_offset(), h)});
-        }
+        // Pass 0.5: register enum types and module constants.
+        for (auto& ed : prog.enums)
+            enum_types_[ed.name] = &ed;
 
-        // Pass 0: register struct types.
-        for (auto& [h, items] : all_modules) {
-            holder_ = h;
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto item = map_of(items.get(i));
-                if (code_of(item) == la::STRUCT)
-                    if (!register_struct(item)) return nullptr;
-            }
-        }
+        for (auto& ta : prog.type_aliases)
+            type_aliases_[ta.name] = logos_to_mlir(ta.type);
 
-        // Pass 0.5: collect enums, type aliases and module-level constants.
-        for (auto& [h, items] : all_modules) {
-            holder_ = h;
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto item = map_of(items.get(i));
-                int32_t ic = code_of(item);
-                if (ic == la::ENUM) {
-                    register_enum(item);
-                } else if (ic == la::TYPE_ALIAS) {
-                    auto name = std::string(str_of(item.get(la::NAME)));
-                    if (item.has_key(la::TYPE)) {
-                        auto t = resolve_type(map_of(item.get(la::TYPE)));
-                        if (t) type_aliases_[name] = t;
-                    }
-                } else if (ic == la::CONST_DEF) {
-                    auto name = std::string(str_of(item.get(la::NAME)));
-                    if (!item.has_key(la::VALUE)) continue;
-                    mlir::Type ctype = builder_.getI32Type();
-                    if (item.has_key(la::TYPE))
-                        ctype = resolve_type(map_of(item.get(la::TYPE)));
-                    module_consts_[name] = {h, item.get(la::VALUE), ctype};
-                }
-            }
-        }
+        for (auto& c : prog.consts)
+            module_consts_[c.name] = &c;
 
-        // Pass 1: forward-declare all functions and methods.
-        for (auto& [h, items] : all_modules) {
-            holder_ = h;
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto item = map_of(items.get(i));
-                int32_t item_code = code_of(item);
+        // Pass 1: forward-declare all functions.
+        for (auto& sd : prog.structs)
+            for (auto& m : sd.methods)
+                forward_declare(mod, m);
 
-                if (item_code == la::EXTERN_FN) {
-                    auto name = std::string(str_of(item.get(la::NAME)));
-                    if (!mod.lookupSymbol<mlir::func::FuncOp>(name)) {
-                        auto fn = gen_extern_fn(item);
-                        if (!fn) return nullptr;
-                        mod.push_back(fn);
-                    }
-                } else if (item_code == la::FN) {
-                    auto name = std::string(str_of(item.get(la::NAME)));
-                    if (!mod.lookupSymbol<mlir::func::FuncOp>(name)) {
-                        auto decl = mlir::func::FuncOp::create(loc_, name, make_fn_type(item));
-                        mod.push_back(decl);
-                    }
-                } else if (item_code == la::STRUCT) {
-                    auto struct_name = std::string(str_of(item.get(la::NAME)));
-                    if (!item.has_key(la::ITEMS)) continue;
-                    auto methods_av = item.get(la::ITEMS);
-                    if (methods_av.is_null() || !methods_av.is_pointer()) continue;
-                    auto methods = arr_of(methods_av);
-                    for (uint64_t m = 0; m < methods.size(); ++m) {
-                        auto method = map_of(methods.get(m));
-                        if (code_of(method) != la::FN) continue;
-                        auto method_name = struct_name + "__" +
-                                           std::string(str_of(method.get(la::NAME)));
-                        if (!mod.lookupSymbol<mlir::func::FuncOp>(method_name)) {
-                            auto decl = mlir::func::FuncOp::create(
-                                loc_, method_name, make_fn_type(method));
-                            mod.push_back(decl);
-                        }
-                    }
-                }
-            }
-        }
+        for (auto& fn : prog.functions)
+            forward_declare(mod, fn);
 
         // Pass 2: fill function bodies.
-        for (auto& [h, items] : all_modules) {
-            holder_ = h;
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto item = map_of(items.get(i));
-                int32_t item_code = code_of(item);
-
-                if (item_code == la::FN) {
-                    auto name = std::string(str_of(item.get(la::NAME)));
-                    auto func = mod.lookupSymbol<mlir::func::FuncOp>(name);
-                    if (!gen_function_body(func, item, {})) return nullptr;
-                } else if (item_code == la::STRUCT) {
-                    auto struct_name = std::string(str_of(item.get(la::NAME)));
-                    if (!item.has_key(la::ITEMS)) continue;
-                    auto methods_av = item.get(la::ITEMS);
-                    if (methods_av.is_null() || !methods_av.is_pointer()) continue;
-                    auto methods = arr_of(methods_av);
-                    for (uint64_t m = 0; m < methods.size(); ++m) {
-                        auto method = map_of(methods.get(m));
-                        if (code_of(method) != la::FN) continue;
-                        auto method_name = struct_name + "__" +
-                                           std::string(str_of(method.get(la::NAME)));
-                        auto func = mod.lookupSymbol<mlir::func::FuncOp>(method_name);
-                        if (!gen_function_body(func, method, struct_name)) return nullptr;
-                    }
-                }
+        for (auto& sd : prog.structs) {
+            for (auto& m : sd.methods) {
+                auto func = mod.lookupSymbol<mlir::func::FuncOp>(m.name);
+                if (!gen_function_body(func, m)) return nullptr;
             }
+        }
+        for (auto& fn : prog.functions) {
+            if (fn.is_extern) continue;
+            auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn.name);
+            if (!gen_function_body(func, fn)) return nullptr;
         }
 
         if (mlir::failed(mlir::verify(mod))) {
@@ -217,35 +107,26 @@ public:
             mod.dump();
             return nullptr;
         }
-
         return mod;
     }
 
 private:
-    mlir::OpBuilder  builder_;
-    mlir::Location   loc_;
-    MemHolder*       holder_;
+    mlir::OpBuilder builder_;
+    mlir::Location  loc_;
 
-    // Struct type registry (module-level).
-    std::unordered_map<std::string, StructInfo> struct_types_;
-    // Enum type registry (module-level).
-    std::unordered_map<std::string, EnumInfo>   enum_types_;
-    // Module-level constants: name → (holder, VALUE node AnyVal).
-    // The expression is re-evaluated (as constant) at each use site.
-    struct ConstEntry { MemHolder* holder; AnyVal value_av; mlir::Type type; };
-    std::unordered_map<std::string, ConstEntry> module_consts_;
-    // Type aliases: name → resolved mlir::Type.
-    std::unordered_map<std::string, mlir::Type> type_aliases_;
+    std::unordered_map<std::string, StructInfo>        struct_types_;
+    std::unordered_map<std::string, const LEnumDef*>   enum_types_;
+    std::unordered_map<std::string, mlir::Type>        type_aliases_;
+    std::unordered_map<std::string, const LConst*>     module_consts_;
 
-    // Per-function state — cleared for each function body.
-    std::unordered_map<std::string, mlir::Value> scope_;         // name → ptr or SSA value
-    std::unordered_set<std::string>              let_vars_;      // let-bound (alloca-backed)
-    std::unordered_map<std::string, mlir::Type>  var_elem_types_;// scalar alloca elem type
-    std::unordered_map<std::string, std::string> var_struct_;    // var → struct type name
-    std::unordered_map<std::string, mlir::Type>  var_subscript_; // var → subscript elem type
-    mlir::Type cur_ret_type_;                                    // current function return type (null = void)
+    // Per-function state.
+    std::unordered_map<std::string, mlir::Value>  scope_;
+    std::unordered_set<std::string>               let_vars_;
+    std::unordered_map<std::string, mlir::Type>   var_elem_types_;
+    std::unordered_map<std::string, std::string>  var_struct_;
+    std::unordered_map<std::string, mlir::Type>   var_subscript_;
+    mlir::Type                                    cur_ret_type_;
 
-    // Loop stack: {cond_block (or loop_block), exit_block}
     struct LoopBlocks { mlir::Block* cont; mlir::Block* exit; };
     std::vector<LoopBlocks> loop_stack_;
 
@@ -253,251 +134,124 @@ private:
 
     // ── MLIR helpers ─────────────────────────────────────────────
 
-    // Block::getTerminator() in MLIR 21 returns the last op unconditionally.
-    // Use hasTrait<IsTerminator> to check for actual terminators.
     static bool is_terminated(mlir::Block* block) noexcept {
         if (!block || block->empty()) return false;
         return block->back().hasTrait<mlir::OpTrait::IsTerminator>();
     }
 
     mlir::Value i32_zero() {
-        return builder_.create<mlir::arith::ConstantIntOp>(loc_, int64_t(0), 32);
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
     }
-
-    // Sign-extend or truncate integer value to target type.
-    // Returns v unchanged if types are equal or either is not an integer type.
-    mlir::Value coerce_int(mlir::Value v, mlir::Type to) {
-        if (!v || !to || v.getType() == to) return v;
-        auto from_int = mlir::dyn_cast<mlir::IntegerType>(v.getType());
-        auto to_int   = mlir::dyn_cast<mlir::IntegerType>(to);
-        if (!from_int || !to_int) return v;
-        if (to_int.getWidth() > from_int.getWidth())
-            return builder_.create<mlir::arith::ExtSIOp>(loc_, to, v);
-        if (to_int.getWidth() < from_int.getWidth())
-            return builder_.create<mlir::arith::TruncIOp>(loc_, to, v);
-        return v;
-    }
-
     mlir::Value i64_one() {
-        return builder_.create<mlir::arith::ConstantIntOp>(loc_, int64_t(1), 64);
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
     }
-
     mlir::LLVM::LLVMPointerType ptr_type() {
         return mlir::LLVM::LLVMPointerType::get(builder_.getContext());
     }
 
-    // ── Hermes helpers ───────────────────────────────────────────
-
-    int32_t code_of(TinyMapView node) noexcept {
-        AnyVal av = node.get(la::CODE);
-        if (av.is_null()) return -1;
-        return av.as_value<int32_t>();
+    mlir::Value coerce_int(mlir::Value v, mlir::Type to) {
+        if (!v || !to || v.getType() == to) return v;
+        auto fi = mlir::dyn_cast<mlir::IntegerType>(v.getType());
+        auto ti = mlir::dyn_cast<mlir::IntegerType>(to);
+        if (!fi || !ti) return v;
+        if (ti.getWidth() > fi.getWidth())
+            return builder_.create<mlir::arith::ExtSIOp>(loc_, to, v);
+        if (ti.getWidth() < fi.getWidth())
+            return builder_.create<mlir::arith::TruncIOp>(loc_, to, v);
+        return v;
     }
 
-    std::string_view str_of(AnyVal av) noexcept {
-        return StringView(av.to_offset(), holder_).view();
-    }
+    // ── Type conversion: LogosType → mlir::Type ──────────────────
 
-    TinyMapView map_of(AnyVal av) noexcept {
-        return TinyMapView(av.to_offset(), holder_);
-    }
-
-    ArrayView arr_of(AnyVal av) noexcept {
-        return ArrayView(av.to_offset(), holder_);
-    }
-
-    // ── Type resolution ──────────────────────────────────────────
-
-    mlir::Type resolve_type(TinyMapView type_ref) {
-        int32_t tc = code_of(type_ref);
-
-        if (tc == la::PTR_TYPE)
-            return ptr_type();
-
-        if (tc == la::ARR_TYPE) {
-            // [T; N] — returns LLVM array type
-            auto elem = resolve_type(map_of(type_ref.get(la::TYPE)));
+    mlir::Type logos_to_mlir(const LogosType* t) {
+        if (!t) return nullptr;
+        switch (t->kind) {
+        case LogosType::Kind::Void:   return nullptr;
+        case LogosType::Kind::I32:    return builder_.getI32Type();
+        case LogosType::Kind::I64:    return builder_.getI64Type();
+        case LogosType::Kind::F64:    return builder_.getF64Type();
+        case LogosType::Kind::Bool:   return builder_.getI1Type();
+        case LogosType::Kind::U8:     return builder_.getIntegerType(8);
+        case LogosType::Kind::I8:     return builder_.getIntegerType(8);
+        case LogosType::Kind::U32:    return builder_.getIntegerType(32);
+        case LogosType::Kind::U64:    return builder_.getIntegerType(64);
+        case LogosType::Kind::IntLit: return builder_.getI32Type();
+        case LogosType::Kind::Enum:   return builder_.getI32Type();
+        case LogosType::Kind::Ptr:    return ptr_type();
+        case LogosType::Kind::Array: {
+            auto elem = logos_to_mlir(t->elem);
             if (!elem) return nullptr;
-            auto size_sv = str_of(type_ref.get(la::SIZE));
-            uint64_t n = std::strtoull(size_sv.data(), nullptr, 10);
-            return mlir::LLVM::LLVMArrayType::get(elem, n);
+            return mlir::LLVM::LLVMArrayType::get(elem, t->arr_size);
         }
-
-        if (tc == la::TYPE_REF) {
-            if (!type_ref.has_key(la::NAME) || type_ref.get(la::NAME).is_null())
-                return nullptr;
-            auto name = str_of(type_ref.get(la::NAME));
-            if (name == "i32")  return builder_.getI32Type();
-            if (name == "i64")  return builder_.getI64Type();
-            if (name == "f64")  return builder_.getF64Type();
-            if (name == "bool") return builder_.getI1Type();
-            if (name == "u8")   return builder_.getIntegerType(8);
-            if (name == "i8")   return builder_.getIntegerType(8);
-            if (name == "u32")  return builder_.getIntegerType(32);
-            if (name == "u64")  return builder_.getIntegerType(64);
-            // Type alias
-            auto ait = type_aliases_.find(std::string(name));
+        case LogosType::Kind::Struct: {
+            // Check type alias first.
+            auto ait = type_aliases_.find(std::string(t->struct_name));
             if (ait != type_aliases_.end()) return ait->second;
-            // Enum type → stored as i32
-            if (enum_types_.count(std::string(name)))
-                return builder_.getI32Type();
-            // Struct type → pass by pointer
-            if (struct_types_.count(std::string(name)))
-                return ptr_type();
-            std::fprintf(stderr, "mlir_gen: unknown type '%.*s'\n",
-                         (int)name.size(), name.data());
+            // Struct passed by pointer.
+            if (struct_types_.count(std::string(t->struct_name))) return ptr_type();
             return nullptr;
         }
-
-        std::fprintf(stderr, "mlir_gen: unexpected type code %d\n", tc);
-        return nullptr;
-    }
-
-    bool is_struct_type(TinyMapView type_ref, std::string& out_name) {
-        if (code_of(type_ref) != la::TYPE_REF) return false;
-        if (!type_ref.has_key(la::NAME) || type_ref.get(la::NAME).is_null()) return false;
-        auto name = std::string(str_of(type_ref.get(la::NAME)));
-        if (struct_types_.count(name)) { out_name = name; return true; }
-        return false;
-    }
-
-    // ── Enum registration (Pass 0.5) ─────────────────────────────
-
-    void register_enum(TinyMapView node) {
-        auto ename = std::string(str_of(node.get(la::NAME)));
-        if (enum_types_.count(ename)) return;
-        EnumInfo info;
-        info.name = ename;
-        int32_t next_val = 0;
-        if (node.has_key(la::ITEMS)) {
-            auto items_av = node.get(la::ITEMS);
-            if (items_av.is_pointer()) {
-                auto list_node = map_of(items_av);
-                if (list_node.has_key(la::ITEMS)) {
-                    auto variants = arr_of(list_node.get(la::ITEMS));
-                    for (uint64_t i = 0; i < variants.size(); ++i) {
-                        auto v = map_of(variants.get(i));
-                        auto vname = std::string(str_of(v.get(la::NAME)));
-                        int32_t vval = next_val;
-                        if (v.has_key(la::VALUE)) {
-                            auto sv = str_of(v.get(la::VALUE));
-                            vval = (int32_t)std::strtol(sv.data(), nullptr, 10);
-                        }
-                        info.variants.push_back({vname, vval});
-                        next_val = vval + 1;
-                    }
-                }
-            }
+        case LogosType::Kind::Error:  return nullptr;
         }
-        enum_types_[ename] = std::move(info);
+        return nullptr;
     }
 
     // ── Struct registration (Pass 0) ─────────────────────────────
 
-    bool register_struct(TinyMapView node) {
-        auto name = std::string(str_of(node.get(la::NAME)));
-        if (struct_types_.count(name)) return true;
-
+    bool register_struct(const LStructDef& sd) {
+        if (struct_types_.count(sd.name)) return true;
         auto struct_type = mlir::LLVM::LLVMStructType::getIdentified(
-                               builder_.getContext(), name);
+            builder_.getContext(), sd.name);
         StructInfo info;
-        info.name = name;
+        info.name      = sd.name;
         info.llvm_type = struct_type;
 
-        if (node.has_key(la::FIELDS)) {
-            AnyVal fields_av = node.get(la::FIELDS);
-            if (!fields_av.is_null() && fields_av.is_pointer()) {
-                auto fields_arr = arr_of(fields_av);
-                llvm::SmallVector<mlir::Type> field_types;
-                for (uint64_t i = 0; i < fields_arr.size(); ++i) {
-                    auto fnode = map_of(fields_arr.get(i));
-                    if (code_of(fnode) != la::FIELD_DEF) continue;
-                    auto fname = std::string(str_of(fnode.get(la::NAME)));
-                    auto ftype_node = map_of(fnode.get(la::TYPE));
-                    auto ftype = resolve_type(ftype_node);
-                    if (!ftype) {
-                        std::fprintf(stderr, "mlir_gen: unknown field type in '%s'\n",
-                                     name.c_str());
-                        return false;
-                    }
-                    std::string fsname;
-                    is_struct_type(ftype_node, fsname);
-                    info.fields.push_back({fname, ftype, uint32_t(info.fields.size()), fsname});
-                    field_types.push_back(ftype);
-                }
-                if (mlir::failed(struct_type.setBody(field_types, false))) {
-                    std::fprintf(stderr, "mlir_gen: failed to set struct body for '%s'\n",
-                                 name.c_str());
-                    return false;
-                }
+        std::vector<mlir::Type> field_types;
+        for (auto& f : sd.fields) {
+            auto ft = logos_to_mlir(f.type);
+            if (!ft) {
+                std::fprintf(stderr, "mlir_gen: unknown field type in '%s'\n", sd.name.c_str());
+                return false;
             }
+            std::string fsname;
+            if (f.type->kind == LogosType::Kind::Struct) fsname = std::string(f.type->struct_name);
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname});
+            field_types.push_back(ft);
         }
-
-        struct_types_[name] = std::move(info);
+        if (mlir::failed(struct_type.setBody(field_types, false))) {
+            std::fprintf(stderr, "mlir_gen: failed to set struct body for '%s'\n", sd.name.c_str());
+            return false;
+        }
+        struct_types_[sd.name] = std::move(info);
         return true;
     }
 
-    // ── Parameter helpers ────────────────────────────────────────
+    // ── Function type from LFunction ─────────────────────────────
 
-    // Extract parameter AST nodes (raw) to inspect their types.
-    void parse_params_raw(TinyMapView node,
-                          std::vector<TinyMapView>& out_param_nodes) {
-        if (!node.has_key(la::PARAMS)) return;
-        AnyVal params_av = node.get(la::PARAMS);
-        if (params_av.is_null() || !params_av.is_pointer()) return;
-        auto wrapper = map_of(params_av);
-        if (!wrapper.has_key(la::ITEMS)) return;
-        AnyVal items_av = wrapper.get(la::ITEMS);
-        if (items_av.is_null() || !items_av.is_pointer()) return;
-        auto params = arr_of(items_av);
-        for (uint64_t i = 0; i < params.size(); ++i)
-            out_param_nodes.push_back(map_of(params.get(i)));
-    }
-
-    void parse_params(TinyMapView node,
-                      llvm::SmallVectorImpl<mlir::Type>& types,
-                      llvm::SmallVectorImpl<std::string>& names) {
-        std::vector<TinyMapView> param_nodes;
-        parse_params_raw(node, param_nodes);
-        for (auto& p : param_nodes) {
-            auto ptype = resolve_type(map_of(p.get(la::TYPE)));
-            if (ptype) {
-                types.push_back(ptype);
-                names.push_back(std::string(str_of(p.get(la::NAME))));
-            }
-        }
-    }
-
-    mlir::FunctionType make_fn_type(TinyMapView node) {
+    mlir::FunctionType make_fn_type(const LFunction& fn) {
         llvm::SmallVector<mlir::Type> param_types;
-        llvm::SmallVector<std::string> param_names;
-        parse_params(node, param_types, param_names);
-
+        for (auto& p : fn.params) {
+            auto t = logos_to_mlir(p.type);
+            if (t) param_types.push_back(t);
+        }
         llvm::SmallVector<mlir::Type> ret_types;
-        if (node.has_key(la::RET_TYPE) && !node.get(la::RET_TYPE).is_null()) {
-            auto rt = resolve_type(map_of(node.get(la::RET_TYPE)));
+        if (fn.ret_type) {
+            auto rt = logos_to_mlir(fn.ret_type);
             if (rt) ret_types.push_back(rt);
         }
         return builder_.getFunctionType(param_types, ret_types);
     }
 
-    // ── Extern function ──────────────────────────────────────────
-
-    mlir::func::FuncOp gen_extern_fn(TinyMapView node) {
-        auto name = std::string(str_of(node.get(la::NAME)));
-        auto fn = mlir::func::FuncOp::create(loc_, name, make_fn_type(node));
-        fn.setPrivate();
-        return fn;
+    void forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
+        if (mod.lookupSymbol<mlir::func::FuncOp>(fn.name)) return;
+        auto f = mlir::func::FuncOp::create(loc_, fn.name, make_fn_type(fn));
+        if (fn.is_extern) f.setPrivate();
+        mod.push_back(f);
     }
 
-    // ── Function / method body ───────────────────────────────────
+    // ── Function body ─────────────────────────────────────────────
 
-    bool gen_function_body(mlir::func::FuncOp func, TinyMapView node,
-                           const std::string& struct_ctx) {
-        llvm::SmallVector<mlir::Type> param_types;
-        llvm::SmallVector<std::string> param_names;
-        parse_params(node, param_types, param_names);
-
+    bool gen_function_body(mlir::func::FuncOp func, const LFunction& fn) {
         auto* entry = func.addEntryBlock();
         builder_.setInsertionPointToStart(entry);
 
@@ -506,34 +260,34 @@ private:
         var_elem_types_.clear();
         var_struct_.clear();
         var_subscript_.clear();
+        loop_stack_.clear();
 
-        // Bind parameters as SSA values (not alloca-backed).
-        std::vector<TinyMapView> param_nodes;
-        parse_params_raw(node, param_nodes);
-
-        for (size_t i = 0; i < param_names.size(); ++i) {
-            scope_[param_names[i]] = entry->getArgument(i);
+        // Bind parameters.
+        for (size_t i = 0; i < fn.params.size(); ++i) {
+            auto& p = fn.params[i];
+            scope_[p.name] = entry->getArgument(i);
 
             // Track subscript element type for pointer parameters.
-            if (i < param_nodes.size()) {
-                auto type_node = map_of(param_nodes[i].get(la::TYPE));
-                if (code_of(type_node) == la::PTR_TYPE) {
-                    // *mut T or *const T — infer element type for subscript
-                    auto elem = resolve_type(map_of(type_node.get(la::POINTEE)));
-                    if (elem) var_subscript_[param_names[i]] = elem;
-                }
+            if (p.type && p.type->kind == LogosType::Kind::Ptr && p.type->pointee) {
+                auto et = logos_to_mlir(p.type->pointee);
+                if (et) var_subscript_[p.name] = et;
             }
 
-            // Track struct type for 'self' parameter.
-            if (!struct_ctx.empty() && param_names[i] == "self")
-                var_struct_[param_names[i]] = struct_ctx;
+            // Track struct type for 'self'.
+            if (p.name == "self" && p.type) {
+                std::string_view sname;
+                if (p.type->kind == LogosType::Kind::Struct) sname = p.type->struct_name;
+                else if (p.type->kind == LogosType::Kind::Ptr && p.type->pointee &&
+                         p.type->pointee->kind == LogosType::Kind::Struct)
+                    sname = p.type->pointee->struct_name;
+                if (!sname.empty()) var_struct_["self"] = std::string(sname);
+            }
         }
 
-        auto body = map_of(node.get(la::BODY));
         auto ret_types = func.getFunctionType().getResults();
         cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
-        loop_stack_.clear();
-        gen_block(body, cur_ret_type_);
+
+        gen_block(fn.body);
 
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::func::ReturnOp>(loc_);
@@ -541,212 +295,173 @@ private:
         return true;
     }
 
-    // ── Block ────────────────────────────────────────────────────
+    // ── Block ─────────────────────────────────────────────────────
 
-    // Returns the last produced value (may be null for void blocks).
-    mlir::Value gen_block(TinyMapView block, mlir::Type /*hint*/) {
-        auto items = arr_of(block.get(la::ITEMS));
-        mlir::Value last = nullptr;
-        for (uint64_t i = 0; i < items.size(); ++i)
-            last = gen_stmt(map_of(items.get(i)));
-        return last;
-    }
-
-    // ── Statements ───────────────────────────────────────────────
-
-    mlir::Value gen_stmt(TinyMapView node) {
-        int32_t code = code_of(node);
-        switch (code) {
-            case la::LET:         return gen_let(node);
-            case la::RETURN:      return gen_return(node);
-            case la::IF:          return gen_if_stmt(node);
-            case la::WHILE:       return gen_while(node);
-            case la::FOR:         return gen_for(node);
-            case la::LOOP:        return gen_loop(node);
-            case la::BREAK:       return gen_break();
-            case la::CONTINUE:    return gen_continue();
-            case la::ASSIGN:      return gen_assign(node);
-            case la::FIELD_WRITE: return gen_field_write(node);
-            case la::INDEX_WRITE: return gen_index_write(node);
-            case la::MATCH:       return gen_match(node);
-            case la::EXPR_STMT:   return gen_expr(map_of(node.get(la::VALUE)));
-            default:              return gen_expr(node);
+    void gen_block(const LBlock& block) {
+        for (auto& s : block.stmts) {
+            if (is_terminated(builder_.getBlock())) break;
+            gen_stmt(s);
         }
     }
 
-    mlir::Value gen_let(TinyMapView node) {
-        auto name = std::string(str_of(node.get(la::NAME)));
-        auto val_node = map_of(node.get(la::VALUE));
-        int32_t val_code = code_of(val_node);
+    // ── Statements ────────────────────────────────────────────────
 
-        // ── Struct literal ─────────────────────────────────────────────
-        if (val_code == la::STRUCT_LIT) {
-            auto struct_name = std::string(str_of(val_node.get(la::NAME)));
-            if (!struct_types_.count(struct_name)) {
-                std::fprintf(stderr, "mlir_gen: unknown struct '%s'\n", struct_name.c_str());
-                return nullptr;
-            }
-            auto alloca = gen_struct_lit(val_node);
-            if (!alloca) return nullptr;
-            scope_[name] = alloca;
-            let_vars_.insert(name);
-            var_struct_[name] = struct_name;
-            return alloca;
+    void gen_stmt(const LStmt& stmt) {
+        std::visit([&](auto& s) { gen_stmt_kind(s); }, stmt.kind);
+    }
+
+    void gen_stmt_kind(const SLet& s)        { gen_let(s); }
+    void gen_stmt_kind(const SAssign& s)      { gen_assign(s); }
+    void gen_stmt_kind(const SReturn& s)      { gen_return(s); }
+    void gen_stmt_kind(const SIf& s)          { gen_if(s); }
+    void gen_stmt_kind(const SWhile& s)       { gen_while(s); }
+    void gen_stmt_kind(const SFor& s)         { gen_for(s); }
+    void gen_stmt_kind(const SLoop& s)        { gen_loop(s); }
+    void gen_stmt_kind(const SBreak&)         { gen_break(); }
+    void gen_stmt_kind(const SContinue&)      { gen_continue(); }
+    void gen_stmt_kind(const SFieldWrite& s)  { gen_field_write(s); }
+    void gen_stmt_kind(const SIndexWrite& s)  { gen_index_write(s); }
+    void gen_stmt_kind(const SExprStmt& s)    { gen_expr(*s.expr); }
+    void gen_stmt_kind(const SMatch& s)       { gen_match(s); }
+
+    void gen_let(const SLet& s) {
+        // ── Struct literal ────────────────────────────────────────
+        if (std::holds_alternative<EStructLit>(s.value->kind)) {
+            auto& lit = std::get<EStructLit>(s.value->kind);
+            auto alloca = gen_struct_lit(lit);
+            if (!alloca) return;
+            scope_[s.name] = alloca;
+            let_vars_.insert(s.name);
+            var_struct_[s.name] = lit.name;
+            return;
         }
 
-        // ── Array literal ──────────────────────────────────────────────
-        if (val_code == la::ARR_LIT) {
-            // Get element type from type annotation [T; N].
-            mlir::Type elem_type = builder_.getI32Type();  // default
-            if (node.has_key(la::TYPE) && !node.get(la::TYPE).is_null()) {
-                auto tn = map_of(node.get(la::TYPE));
-                if (code_of(tn) == la::ARR_TYPE)
-                    elem_type = resolve_type(map_of(tn.get(la::TYPE)));
-            }
-            auto alloca = gen_arr_lit(val_node, elem_type);
-            if (!alloca) return nullptr;
-            scope_[name] = alloca;
-            let_vars_.insert(name);
-            var_subscript_[name] = elem_type;
-            return alloca;
+        // ── Array literal ─────────────────────────────────────────
+        if (std::holds_alternative<EArrLit>(s.value->kind)) {
+            auto& lit = std::get<EArrLit>(s.value->kind);
+            auto elem_type = logos_to_mlir(s.type->elem ? s.type->elem : nullptr);
+            if (!elem_type) elem_type = builder_.getI32Type();
+            auto alloca = gen_arr_lit(lit, elem_type);
+            if (!alloca) return;
+            scope_[s.name] = alloca;
+            let_vars_.insert(s.name);
+            var_elem_types_[s.name] = elem_type;
+            var_subscript_[s.name]  = elem_type;
+            return;
         }
 
-        // ── Scalar value ───────────────────────────────────────────────
-        auto val = gen_expr(val_node);
-        if (!val) return nullptr;
+        // ── Scalar ───────────────────────────────────────────────
+        auto val = gen_expr(*s.value);
+        if (!val) return;
 
-        // If explicit type annotation, coerce (e.g. i32 literal → i64).
-        if (node.has_key(la::TYPE) && !node.get(la::TYPE).is_null()) {
-            auto tn = map_of(node.get(la::TYPE));
-            if (code_of(tn) != la::ARR_TYPE) {  // arrays handled above
-                auto ann = resolve_type(tn);
-                if (ann) val = coerce_int(val, ann);
-            }
+        auto var_type = logos_to_mlir(s.type);
+        if (!var_type) {
+            // Struct value — handled above; should not reach here.
+            scope_[s.name] = val;
+            return;
         }
 
-        auto elem_type = val.getType();
-        auto alloca    = builder_.create<mlir::LLVM::AllocaOp>(
-                             loc_, ptr_type(), elem_type, i64_one());
+        val = coerce_int(val, var_type);
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), var_type, i64_one());
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-
-        scope_[name] = alloca;
-        let_vars_.insert(name);
-        var_elem_types_[name] = elem_type;
-
-        // Detect struct via type annotation.
-        if (node.has_key(la::TYPE) && !node.get(la::TYPE).is_null()) {
-            std::string sname;
-            if (is_struct_type(map_of(node.get(la::TYPE)), sname))
-                var_struct_[name] = sname;
-        }
-        return val;
+        scope_[s.name]          = alloca;
+        let_vars_.insert(s.name);
+        var_elem_types_[s.name] = var_type;
     }
 
-    mlir::Value gen_return(TinyMapView node) {
-        if (node.has_key(la::VALUE) && !node.get(la::VALUE).is_null()) {
-            auto val = gen_expr(map_of(node.get(la::VALUE)));
-            if (val) {
-                if (cur_ret_type_) val = coerce_int(val, cur_ret_type_);
-                builder_.create<mlir::func::ReturnOp>(loc_, val);
-            } else {
-                builder_.create<mlir::func::ReturnOp>(loc_);
-            }
+    void gen_assign(const SAssign& s) {
+        auto val = gen_expr(*s.value);
+        if (!val) return;
+        auto it = scope_.find(s.name);
+        if (it == scope_.end()) {
+            std::fprintf(stderr, "mlir_gen: assign to undefined '%s'\n", s.name.c_str());
+            return;
+        }
+        auto et = var_elem_types_.find(s.name);
+        if (et != var_elem_types_.end())
+            val = coerce_int(val, et->second);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, it->second);
+    }
+
+    void gen_return(const SReturn& s) {
+        if (s.value) {
+            auto val = gen_expr(*s.value);
+            if (!val) return;
+            if (cur_ret_type_) val = coerce_int(val, cur_ret_type_);
+            builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
         } else {
             builder_.create<mlir::func::ReturnOp>(loc_);
         }
-        return nullptr;
     }
 
-    mlir::Value gen_assign(TinyMapView node) {
-        auto name = std::string(str_of(node.get(la::NAME)));
-        if (!let_vars_.count(name)) {
-            std::fprintf(stderr, "mlir_gen: assignment to non-let var '%s'\n", name.c_str());
-            return nullptr;
-        }
-        auto val = gen_expr(map_of(node.get(la::VALUE)));
-        if (!val) return nullptr;
-        builder_.create<mlir::LLVM::StoreOp>(loc_, val, scope_[name]);
-        return val;
-    }
+    void gen_if(const SIf& s) {
+        auto cond = gen_expr(*s.cond);
+        if (!cond) return;
 
-    mlir::Value gen_field_write(TinyMapView node) {
-        auto recv  = std::string(str_of(node.get(la::RECEIVER)));
-        auto field = std::string(str_of(node.get(la::FIELD)));
-        auto ptr   = get_struct_ptr(recv);
-        if (!ptr) return nullptr;
-        auto& info = struct_types_[var_struct_[recv]];
-        auto gep   = gep_field(ptr, info, field);
-        if (!gep) return nullptr;
-        auto val   = gen_expr(map_of(node.get(la::VALUE)));
-        if (!val) return nullptr;
-        builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-        return val;
-    }
-
-    mlir::Value gen_index_write(TinyMapView node) {
-        auto name  = std::string(str_of(node.get(la::NAME)));
-        auto idx   = gen_expr(map_of(node.get(la::LHS)));
-        auto val   = gen_expr(map_of(node.get(la::VALUE)));
-        if (!idx || !val) return nullptr;
-        auto arr_ptr = get_subscript_ptr(name);
-        if (!arr_ptr) return nullptr;
-        auto elem_type = subscript_elem_type(name);
-        auto gep = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), elem_type, arr_ptr,
-            llvm::ArrayRef<mlir::LLVM::GEPArg>{idx});
-        builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-        return val;
-    }
-
-    mlir::Value gen_while(TinyMapView node) {
         auto* region      = builder_.getBlock()->getParent();
-        auto* cond_block  = new mlir::Block();
-        auto* body_block  = new mlir::Block();
-        auto* exit_block  = new mlir::Block();
+        auto* then_block  = new mlir::Block();
+        auto* else_block  = new mlir::Block();
+        auto* merge_block = new mlir::Block();
+        region->push_back(then_block);
+        region->push_back(else_block);
+        region->push_back(merge_block);
+
+        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
+
+        builder_.setInsertionPointToStart(then_block);
+        gen_block(*s.then_);
+        bool then_falls = !is_terminated(builder_.getBlock());
+        if (then_falls) builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        builder_.setInsertionPointToStart(else_block);
+        if (s.else_) gen_block(**s.else_);
+        bool else_falls = !is_terminated(builder_.getBlock());
+        if (else_falls) builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        if (!then_falls && !else_falls) {
+            merge_block->erase();
+            return;
+        }
+        builder_.setInsertionPointToStart(merge_block);
+    }
+
+    void gen_while(const SWhile& s) {
+        auto* region     = builder_.getBlock()->getParent();
+        auto* cond_block = new mlir::Block();
+        auto* body_block = new mlir::Block();
+        auto* exit_block = new mlir::Block();
         region->push_back(cond_block);
         region->push_back(body_block);
         region->push_back(exit_block);
 
         builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
-
         builder_.setInsertionPointToStart(cond_block);
-        auto cond = gen_expr(map_of(node.get(la::COND)));
-        if (!cond) return nullptr;
+        auto cond = gen_expr(*s.cond);
+        if (!cond) return;
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
         builder_.setInsertionPointToStart(body_block);
         loop_stack_.push_back({cond_block, exit_block});
-        gen_block(map_of(node.get(la::BODY)), nullptr);
+        gen_block(*s.body);
         loop_stack_.pop_back();
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
 
         builder_.setInsertionPointToStart(exit_block);
-        return nullptr;
     }
 
-    // for i in lo..hi / lo..=hi
-    // Lowers to: i = lo; while i < hi (or <=): body; i += 1
-    mlir::Value gen_for(TinyMapView node) {
-        auto var_name = std::string(str_of(node.get(la::NAME)));
-        auto lo       = gen_expr(map_of(node.get(la::LHS)));
-        auto hi       = gen_expr(map_of(node.get(la::RHS)));
-        if (!lo || !hi) return nullptr;
+    void gen_for(const SFor& s) {
+        auto lo = gen_expr(*s.lo);
+        auto hi = gen_expr(*s.hi);
+        if (!lo || !hi) return;
 
-        bool inclusive = false;
-        if (node.has_key(la::INCLUSIVE)) {
-            AnyVal av = node.get(la::INCLUSIVE);
-            if (!av.is_null() && av.is_value())
-                inclusive = av.as_value<uint8_t>() != 0;
-        }
-
-        // Allocate loop variable.
         auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
                             loc_, ptr_type(), builder_.getI32Type(), i64_one());
         builder_.create<mlir::LLVM::StoreOp>(loc_, lo, i_alloca);
-        scope_[var_name] = i_alloca;
-        let_vars_.insert(var_name);
-        var_elem_types_[var_name] = builder_.getI32Type();
+        scope_[s.var] = i_alloca;
+        let_vars_.insert(s.var);
+        var_elem_types_[s.var] = builder_.getI32Type();
 
         auto* region     = builder_.getBlock()->getParent();
         auto* cond_block = new mlir::Block();
@@ -758,46 +473,43 @@ private:
 
         builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
 
-        // Condition: i < hi (exclusive) or i <= hi (inclusive).
         builder_.setInsertionPointToStart(cond_block);
-        auto i_val = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
+        auto i_val = builder_.create<mlir::LLVM::LoadOp>(
+                         loc_, builder_.getI32Type(), i_alloca);
+        auto hi_i32 = coerce_int(hi, builder_.getI32Type());
         mlir::Value cond;
-        if (inclusive)
+        if (s.inclusive)
             cond = builder_.create<mlir::arith::CmpIOp>(
-                       loc_, mlir::arith::CmpIPredicate::sle, i_val, hi);
+                       loc_, mlir::arith::CmpIPredicate::sle, i_val, hi_i32);
         else
             cond = builder_.create<mlir::arith::CmpIOp>(
-                       loc_, mlir::arith::CmpIPredicate::slt, i_val, hi);
+                       loc_, mlir::arith::CmpIPredicate::slt, i_val, hi_i32);
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
-        // Body.
         builder_.setInsertionPointToStart(body_block);
         loop_stack_.push_back({cond_block, exit_block});
-        gen_block(map_of(node.get(la::BODY)), nullptr);
+        gen_block(*s.body);
         loop_stack_.pop_back();
-        // Increment: i += 1.
         if (!is_terminated(builder_.getBlock())) {
-            auto i_cur  = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
-            auto one    = builder_.create<mlir::arith::ConstantOp>(
-                              loc_, builder_.getI32Type(),
-                              builder_.getI32IntegerAttr(1));
+            auto i_cur = builder_.create<mlir::LLVM::LoadOp>(
+                             loc_, builder_.getI32Type(), i_alloca);
+            auto one = builder_.create<mlir::arith::ConstantOp>(
+                           loc_, builder_.getI32Type(), builder_.getI32IntegerAttr(1));
             auto i_next = builder_.create<mlir::arith::AddIOp>(loc_, i_cur, one);
             builder_.create<mlir::LLVM::StoreOp>(loc_, i_next, i_alloca);
             builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
         }
 
         builder_.setInsertionPointToStart(exit_block);
-        // Remove loop var from scope after loop.
-        scope_.erase(var_name);
-        let_vars_.erase(var_name);
-        var_elem_types_.erase(var_name);
-        return nullptr;
+        scope_.erase(s.var);
+        let_vars_.erase(s.var);
+        var_elem_types_.erase(s.var);
     }
 
-    mlir::Value gen_loop(TinyMapView node) {
-        auto* region      = builder_.getBlock()->getParent();
-        auto* loop_block  = new mlir::Block();
-        auto* exit_block  = new mlir::Block();
+    void gen_loop(const SLoop& s) {
+        auto* region     = builder_.getBlock()->getParent();
+        auto* loop_block = new mlir::Block();
+        auto* exit_block = new mlir::Block();
         region->push_back(loop_block);
         region->push_back(exit_block);
 
@@ -805,159 +517,130 @@ private:
 
         builder_.setInsertionPointToStart(loop_block);
         loop_stack_.push_back({loop_block, exit_block});
-        gen_block(map_of(node.get(la::BODY)), nullptr);
+        gen_block(*s.body);
         loop_stack_.pop_back();
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
 
         builder_.setInsertionPointToStart(exit_block);
-        return nullptr;
     }
 
-    mlir::Value gen_break() {
-        if (loop_stack_.empty()) {
-            std::fprintf(stderr, "mlir_gen: break outside loop\n");
-            return nullptr;
-        }
+    void gen_break() {
+        if (loop_stack_.empty()) return;
         builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_.back().exit);
-        return nullptr;
     }
 
-    mlir::Value gen_continue() {
-        if (loop_stack_.empty()) {
-            std::fprintf(stderr, "mlir_gen: continue outside loop\n");
-            return nullptr;
-        }
+    void gen_continue() {
+        if (loop_stack_.empty()) return;
         builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_.back().cont);
-        return nullptr;
     }
 
-    // if-as-statement: no block argument on merge block.
-    mlir::Value gen_if_stmt(TinyMapView node) {
-        auto cond = gen_expr(map_of(node.get(la::COND)));
-        if (!cond) return nullptr;
+    void gen_field_write(const SFieldWrite& s) {
+        auto ptr = get_struct_ptr(s.receiver);
+        if (!ptr) return;
+        auto sname = var_struct_.find(s.receiver);
+        if (sname == var_struct_.end()) return;
+        auto& info = struct_types_[sname->second];
+        auto gep = gep_field(ptr, info, s.field);
+        if (!gep) return;
+        auto val = gen_expr(*s.value);
+        if (!val) return;
+        for (auto& f : info.fields)
+            if (f.name == s.field) { val = coerce_int(val, f.type); break; }
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+    }
 
+    void gen_index_write(const SIndexWrite& s) {
+        auto it = scope_.find(s.arr);
+        if (it == scope_.end()) {
+            std::fprintf(stderr, "mlir_gen: index write: undefined '%s'\n", s.arr.c_str());
+            return;
+        }
+        auto et = var_elem_types_.find(s.arr);
+        mlir::Type elem_type = (et != var_elem_types_.end())
+                               ? et->second : builder_.getI32Type();
+
+        auto idx = gen_expr(*s.index);
+        auto val = gen_expr(*s.value);
+        if (!idx || !val) return;
+        val = coerce_int(val, elem_type);
+
+        llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
+        auto gep = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), elem_type, it->second, indices);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+    }
+
+    void gen_match(const SMatch& s) {
         auto* region      = builder_.getBlock()->getParent();
-        auto* then_block  = new mlir::Block();
-        auto* else_block  = new mlir::Block();
         auto* merge_block = new mlir::Block();
-        region->push_back(then_block);
-        region->push_back(else_block);
-        region->push_back(merge_block);
 
-        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
-
-        // Then.
-        builder_.setInsertionPointToStart(then_block);
-        gen_block(map_of(node.get(la::THEN)), nullptr);
-        bool then_falls_through = !is_terminated(builder_.getBlock());
-        if (then_falls_through)
+        auto scrut = gen_expr(*s.scrut);
+        if (!scrut) {
+            region->push_back(merge_block);
             builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+            builder_.setInsertionPointToStart(merge_block);
+            return;
+        }
+        auto scrut_i32 = coerce_int(scrut, builder_.getI32Type());
 
-        // Else.
-        builder_.setInsertionPointToStart(else_block);
-        bool has_else = node.has_key(la::ELSE) && !node.get(la::ELSE).is_null();
-        if (has_else)
-            gen_block(map_of(node.get(la::ELSE)), nullptr);
-        bool else_falls_through = !is_terminated(builder_.getBlock());
-        if (else_falls_through)
-            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+        // Build if-else chain from last arm to first.
+        mlir::Block* else_block = merge_block;
+        for (int i = (int)s.arms.size() - 1; i >= 0; --i) {
+            auto& arm = s.arms[i];
+            auto* body_block = new mlir::Block();
+            region->push_back(body_block);
+            {
+                mlir::OpBuilder::InsertionGuard guard(builder_);
+                builder_.setInsertionPointToStart(body_block);
+                gen_block(*arm.body);
+                if (!is_terminated(builder_.getBlock()))
+                    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+            }
 
-        // If both branches terminated, merge_block is unreachable — drop it.
-        // The caller will see the current block is terminated and won't add
-        // a spurious trailing return.
-        if (!then_falls_through && !else_falls_through) {
-            merge_block->erase();
-            return nullptr;
+            bool is_wild = std::holds_alternative<PatWild>(arm.pat);
+            if (is_wild) {
+                else_block = body_block;
+            } else {
+                int32_t disc = 0;
+                if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;
+                else if (auto* pi = std::get_if<PatInt>(&arm.pat))  disc = pi->value;
+                else if (auto* pb = std::get_if<PatBool>(&arm.pat)) disc = pb->value ? 1 : 0;
+
+                auto* test_block = new mlir::Block();
+                region->push_back(test_block);
+                {
+                    mlir::OpBuilder::InsertionGuard guard(builder_);
+                    builder_.setInsertionPointToStart(test_block);
+                    auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, scrut_i32, disc_val);
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, body_block, else_block);
+                }
+                else_block = test_block;
+            }
         }
 
-        builder_.setInsertionPointToStart(merge_block);
-        return nullptr;
-    }
-
-    // if-as-expression (e.g. let x = if c { 1 } else { 2 }): block argument.
-    mlir::Value gen_if_expr(TinyMapView node) {
-        auto cond = gen_expr(map_of(node.get(la::COND)));
-        if (!cond) return nullptr;
-
-        auto* region      = builder_.getBlock()->getParent();
-        auto* then_block  = new mlir::Block();
-        auto* else_block  = new mlir::Block();
-        auto* merge_block = new mlir::Block();
-        region->push_back(then_block);
-        region->push_back(else_block);
+        builder_.create<mlir::cf::BranchOp>(loc_, else_block);
         region->push_back(merge_block);
-
-        mlir::Type res_type = builder_.getI32Type();
-        merge_block->addArgument(res_type, loc_);
-
-        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
-
-        auto branch_with_val = [&](mlir::Value v) {
-            if (!v) v = i32_zero();
-            builder_.create<mlir::cf::BranchOp>(loc_, merge_block, mlir::ValueRange{v});
-        };
-
-        builder_.setInsertionPointToStart(then_block);
-        auto then_val = gen_block(map_of(node.get(la::THEN)), res_type);
-        if (!is_terminated(builder_.getBlock())) branch_with_val(then_val);
-
-        builder_.setInsertionPointToStart(else_block);
-        bool has_else = node.has_key(la::ELSE) && !node.get(la::ELSE).is_null();
-        if (has_else) {
-            auto else_val = gen_block(map_of(node.get(la::ELSE)), res_type);
-            if (!is_terminated(builder_.getBlock())) branch_with_val(else_val);
-        } else {
-            branch_with_val(nullptr);  // no else → zero
-        }
-
         builder_.setInsertionPointToStart(merge_block);
-        return merge_block->getArgument(0);
     }
 
-    // ── Expressions ──────────────────────────────────────────────
+    // ── Expressions ───────────────────────────────────────────────
 
-    mlir::Value gen_expr(TinyMapView node) {
-        int32_t code = code_of(node);
-        switch (code) {
-            case la::LIT_INT:    return gen_lit_int(node);
-            case la::LIT_BOOL:   return gen_lit_bool(node);
-            case la::LIT_STR:    return gen_lit_str(node);
-            case la::VAR_REF:    return gen_var_ref(node);
-            case la::CALL:       return gen_call(node);
-            case la::BINOP:      return gen_binop(node);
-            case la::BLOCK:      return gen_block(node, nullptr);
-            case la::IF:         return gen_if_expr(node);
-            case la::FIELD_READ: return gen_field_read(node);
-            case la::METHOD_CALL:return gen_method_call(node);
-            case la::STRUCT_LIT: return gen_struct_lit(node);
-            case la::INDEX_READ: return gen_index_read(node);
-            case la::ARR_LIT:    return gen_arr_lit(node, builder_.getI32Type());
-            case la::DEREF:      return gen_deref(node);
-            case la::UNARY:      return gen_unary(node);
-            case la::PAREN_EXPR: return gen_expr(map_of(node.get(la::VALUE)));
-            case la::CAST:       return gen_cast(node);
-            case la::ENUM_LIT:   return gen_enum_lit(node);
-            default:
-                std::fprintf(stderr, "mlir_gen: unknown expr code %d\n", code);
-                return nullptr;
-        }
+    mlir::Value gen_expr(const LExpr& e) {
+        return std::visit([&](auto& k) { return gen_expr_kind(k, e.type); }, e.kind);
     }
 
-    mlir::Value gen_lit_int(TinyMapView node) {
-        auto text = str_of(node.get(la::VALUE));
-        int64_t val = std::strtoll(text.data(), nullptr, 10);
-        return builder_.create<mlir::arith::ConstantIntOp>(loc_, val, 32);
+    mlir::Value gen_expr_kind(const ELitInt& e, const LogosType*) {
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value, 32);
     }
-
-    mlir::Value gen_lit_bool(TinyMapView node) {
-        bool val = node.get(la::VALUE).as_value<uint8_t>() != 0;
-        return builder_.create<mlir::arith::ConstantIntOp>(loc_, val ? 1 : 0, 1);
+    mlir::Value gen_expr_kind(const ELitBool& e, const LogosType*) {
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value ? 1 : 0, 1);
     }
-
-    mlir::Value gen_lit_str(TinyMapView node) {
-        auto raw = str_of(node.get(la::VALUE));
-        std::string text(raw);
+    mlir::Value gen_expr_kind(const ELitStr& e, const LogosType*) {
+        std::string text = e.value;
+        // Strip surrounding quotes.
         if (text.size() >= 2 && text.front() == '"' && text.back() == '"')
             text = text.substr(1, text.size() - 2);
         text.push_back('\0');
@@ -977,74 +660,39 @@ private:
         return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
     }
 
-    mlir::Value gen_var_ref(TinyMapView node) {
-        auto name = std::string(str_of(node.get(la::NAME)));
+    mlir::Value gen_expr_kind(const EVarRef& e, const LogosType*) {
+        // Module constant: re-evaluate inline.
+        auto cit = module_consts_.find(e.name);
+        if (cit != module_consts_.end())
+            return gen_expr(*cit->second->value);
 
-        // Module-level constant: evaluate expression inline.
-        auto cit = module_consts_.find(name);
-        if (cit != module_consts_.end()) {
-            auto& ce = cit->second;
-            auto saved_holder = holder_;
-            holder_ = ce.holder;
-            auto val = gen_expr(map_of(ce.value_av));
-            holder_ = saved_holder;
-            return val;
-        }
-
-        auto it = scope_.find(name);
+        auto it = scope_.find(e.name);
         if (it == scope_.end()) {
-            std::fprintf(stderr, "mlir_gen: undefined variable '%s'\n", name.c_str());
+            std::fprintf(stderr, "mlir_gen: undefined '%s'\n", e.name.c_str());
             return nullptr;
         }
-
-        // Struct / array variables: return the pointer directly.
-        if (var_struct_.count(name) || var_subscript_.count(name))
+        // Struct/array variables: return pointer directly.
+        if (var_struct_.count(e.name) || var_subscript_.count(e.name))
             return it->second;
-
         // Let-bound scalar: load from alloca.
-        if (let_vars_.count(name)) {
-            auto et = var_elem_types_.find(name);
-            if (et == var_elem_types_.end()) {
-                std::fprintf(stderr, "mlir_gen: no elem type for '%s'\n", name.c_str());
-                return nullptr;
-            }
+        if (let_vars_.count(e.name)) {
+            auto et = var_elem_types_.find(e.name);
+            if (et == var_elem_types_.end()) return nullptr;
             return builder_.create<mlir::LLVM::LoadOp>(loc_, et->second, it->second);
         }
-
-        // Parameter: return SSA value directly.
+        // Parameter SSA value.
         return it->second;
     }
 
-    mlir::Value gen_call(TinyMapView node) {
-        auto callee = std::string(str_of(node.get(la::CALLEE)));
-        llvm::SmallVector<mlir::Value> args;
-        if (node.has_key(la::ARGS)) {
-            auto arg_arr = arr_of(node.get(la::ARGS));
-            for (uint64_t i = 0; i < arg_arr.size(); ++i) {
-                auto v = gen_expr(map_of(arg_arr.get(i)));
-                if (!v) return nullptr;
-                args.push_back(v);
-            }
-        }
-        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-        auto callee_fn  = parent_mod.lookupSymbol<mlir::func::FuncOp>(callee);
-        if (!callee_fn) {
-            std::fprintf(stderr, "mlir_gen: undefined function '%s'\n", callee.c_str());
-            return nullptr;
-        }
-        // Coerce integer arguments to expected param types.
-        auto param_types = callee_fn.getFunctionType().getInputs();
-        for (size_t i = 0; i < args.size() && i < param_types.size(); ++i)
-            args[i] = coerce_int(args[i], param_types[i]);
-        auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
-        return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
+    mlir::Value gen_expr_kind(const EEnumLit& e, const LogosType*) {
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
     }
 
-    mlir::Value gen_binop(TinyMapView node) {
-        auto lhs = gen_expr(map_of(node.get(la::LHS)));
-        auto rhs = gen_expr(map_of(node.get(la::RHS)));
+    mlir::Value gen_expr_kind(const EBinOp& e, const LogosType*) {
+        auto lhs = gen_expr(*e.lhs);
+        auto rhs = gen_expr(*e.rhs);
         if (!lhs || !rhs) return nullptr;
-        // Widen narrower integer operand so MLIR types match.
+        // Widen narrower integer operand.
         if (auto li = mlir::dyn_cast<mlir::IntegerType>(lhs.getType())) {
             if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType())) {
                 if (li.getWidth() < ri.getWidth())
@@ -1053,7 +701,7 @@ private:
                     rhs = builder_.create<mlir::arith::ExtSIOp>(loc_, lhs.getType(), rhs);
             }
         }
-        auto op = str_of(node.get(la::OP));
+        auto& op = e.op;
         if (op == "+")  return builder_.create<mlir::arith::AddIOp>(loc_, lhs, rhs);
         if (op == "-")  return builder_.create<mlir::arith::SubIOp>(loc_, lhs, rhs);
         if (op == "*")  return builder_.create<mlir::arith::MulIOp>(loc_, lhs, rhs);
@@ -1067,7 +715,156 @@ private:
         if (op == ">")  return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sgt, lhs, rhs);
         if (op == "<=") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sle, lhs, rhs);
         if (op == ">=") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sge, lhs, rhs);
-        std::fprintf(stderr, "mlir_gen: unknown op '%.*s'\n", (int)op.size(), op.data());
+        std::fprintf(stderr, "mlir_gen: unknown op '%s'\n", op.c_str());
+        return nullptr;
+    }
+
+    mlir::Value gen_expr_kind(const EUnary& e, const LogosType*) {
+        auto val = gen_expr(*e.operand);
+        if (!val) return nullptr;
+        if (e.op == "-") {
+            auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+            return builder_.create<mlir::arith::SubIOp>(loc_, zero, val);
+        }
+        if (e.op == "!") {
+            auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
+            return builder_.create<mlir::arith::XOrIOp>(loc_, val, one);
+        }
+        std::fprintf(stderr, "mlir_gen: unknown unary op '%s'\n", e.op.c_str());
+        return nullptr;
+    }
+
+    mlir::Value gen_expr_kind(const EAddrOf& e, const LogosType*) {
+        // Address-of: return the alloca pointer directly.
+        auto it = scope_.find(e.var_name);
+        if (it == scope_.end()) {
+            std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", e.var_name.c_str());
+            return nullptr;
+        }
+        return it->second;
+    }
+
+    mlir::Value gen_expr_kind(const EDeref& e, const LogosType* type) {
+        auto ptr = gen_expr(*e.operand);
+        if (!ptr) return nullptr;
+        auto pointee = logos_to_mlir(type);
+        if (!pointee) pointee = builder_.getI32Type();
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, pointee, ptr);
+    }
+
+    mlir::Value gen_expr_kind(const ECall& e, const LogosType*) {
+        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto callee_fn  = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.callee);
+        if (!callee_fn) {
+            std::fprintf(stderr, "mlir_gen: undefined function '%s'\n", e.callee.c_str());
+            return nullptr;
+        }
+        llvm::SmallVector<mlir::Value> args;
+        auto param_types = callee_fn.getFunctionType().getInputs();
+        for (size_t i = 0; i < e.args.size(); ++i) {
+            auto v = gen_expr(*e.args[i]);
+            if (!v) return nullptr;
+            if (i < param_types.size()) v = coerce_int(v, param_types[i]);
+            args.push_back(v);
+        }
+        auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
+        return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
+    }
+
+    mlir::Value gen_expr_kind(const EMethodCall& e, const LogosType*) {
+        auto [ptr, sname] = gen_recv_struct(*e.receiver);
+        if (!ptr || sname.empty()) return nullptr;
+        auto mangled    = sname + "__" + e.method;
+        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto callee_fn  = parent_mod.lookupSymbol<mlir::func::FuncOp>(mangled);
+        if (!callee_fn) {
+            std::fprintf(stderr, "mlir_gen: method '%s' not found\n", mangled.c_str());
+            return nullptr;
+        }
+        llvm::SmallVector<mlir::Value> args;
+        args.push_back(ptr);
+        auto param_types = callee_fn.getFunctionType().getInputs();
+        for (size_t i = 0; i < e.args.size(); ++i) {
+            auto v = gen_expr(*e.args[i]);
+            if (!v) return nullptr;
+            size_t pi = i + 1;
+            if (pi < param_types.size()) v = coerce_int(v, param_types[pi]);
+            args.push_back(v);
+        }
+        auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
+        return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
+    }
+
+    mlir::Value gen_expr_kind(const EFieldRead& e, const LogosType* type) {
+        auto [ptr, sname] = gen_recv_struct(*e.receiver);
+        if (!ptr || sname.empty()) return nullptr;
+        auto& info = struct_types_[sname];
+        auto gep   = gep_field(ptr, info, e.field);
+        if (!gep) return nullptr;
+        for (auto& f : info.fields)
+            if (f.name == e.field)
+                return builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, gep);
+        return nullptr;
+    }
+
+    mlir::Value gen_expr_kind(const EIndexRead& e, const LogosType* type) {
+        // Receiver: try to get the alloca pointer directly for VAR_REF.
+        mlir::Value arr_ptr;
+        mlir::Type  elem_type;
+
+        if (auto* vr = std::get_if<EVarRef>(&e.receiver->kind)) {
+            arr_ptr   = get_subscript_ptr(vr->name);
+            elem_type = subscript_elem_type(vr->name);
+        } else {
+            arr_ptr   = gen_expr(*e.receiver);
+            elem_type = logos_to_mlir(type);
+            if (!elem_type) elem_type = builder_.getI32Type();
+        }
+
+        auto idx = gen_expr(*e.index);
+        if (!idx || !arr_ptr) return nullptr;
+        llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
+        auto gep = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), elem_type, arr_ptr, indices);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, gep);
+    }
+
+    mlir::Value gen_expr_kind(const EStructLit& e, const LogosType*) {
+        return gen_struct_lit(e);
+    }
+
+    mlir::Value gen_expr_kind(const EArrLit& e, const LogosType* type) {
+        mlir::Type elem_type = builder_.getI32Type();
+        if (type && type->elem) {
+            auto et = logos_to_mlir(type->elem);
+            if (et) elem_type = et;
+        }
+        return gen_arr_lit(e, elem_type);
+    }
+
+    mlir::Value gen_expr_kind(const ECast& e, const LogosType* type) {
+        auto val    = gen_expr(*e.operand);
+        if (!val) return nullptr;
+        auto target = logos_to_mlir(type);
+        if (!target || val.getType() == target) return val;
+
+        auto fi = mlir::dyn_cast<mlir::IntegerType>(val.getType());
+        auto ti = mlir::dyn_cast<mlir::IntegerType>(target);
+        if (fi && ti) {
+            if (ti.getWidth() > fi.getWidth())
+                return builder_.create<mlir::arith::ExtSIOp>(loc_, target, val);
+            if (ti.getWidth() < fi.getWidth())
+                return builder_.create<mlir::arith::TruncIOp>(loc_, target, val);
+            return val;
+        }
+        if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) &&
+            mlir::dyn_cast<mlir::FloatType>(target))
+            return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
+        if (mlir::dyn_cast<mlir::FloatType>(val.getType()) &&
+            mlir::dyn_cast<mlir::IntegerType>(target))
+            return builder_.create<mlir::arith::FPToSIOp>(loc_, target, val);
+
+        std::fprintf(stderr, "mlir_gen: unsupported cast\n");
         return nullptr;
     }
 
@@ -1077,10 +874,6 @@ private:
         auto it = scope_.find(name);
         if (it == scope_.end()) {
             std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
-            return nullptr;
-        }
-        if (!var_struct_.count(name)) {
-            std::fprintf(stderr, "mlir_gen: '%s' is not a struct var\n", name.c_str());
             return nullptr;
         }
         return it->second;
@@ -1100,123 +893,63 @@ private:
         return nullptr;
     }
 
-    // Resolve a RECEIVER expression node to (struct_ptr, struct_name).
-    // Handles VAR_REF (simple variable) and chained FIELD_READ (a.b.c).
-    std::pair<mlir::Value, std::string> gen_recv_struct(TinyMapView recv_node) {
-        int32_t code = code_of(recv_node);
-
-        if (code == la::VAR_REF) {
-            auto name = std::string(str_of(recv_node.get(la::NAME)));
+    // Resolve receiver expr → (struct_ptr, struct_name).
+    std::pair<mlir::Value, std::string> gen_recv_struct(const LExpr& recv) {
+        if (auto* vr = std::get_if<EVarRef>(&recv.kind)) {
+            auto& name = vr->name;
             if (!var_struct_.count(name)) {
                 std::fprintf(stderr, "mlir_gen: '%s' is not a struct var\n", name.c_str());
                 return {nullptr, {}};
             }
             return {get_struct_ptr(name), var_struct_[name]};
         }
-
-        if (code == la::FIELD_READ) {
-            auto field = std::string(str_of(recv_node.get(la::FIELD)));
-            auto [base_ptr, base_sname] = gen_recv_struct(map_of(recv_node.get(la::RECEIVER)));
+        if (auto* fr = std::get_if<EFieldRead>(&recv.kind)) {
+            auto [base_ptr, base_sname] = gen_recv_struct(*fr->receiver);
             if (!base_ptr || base_sname.empty()) return {nullptr, {}};
             auto it = struct_types_.find(base_sname);
             if (it == struct_types_.end()) return {nullptr, {}};
             auto& info = it->second;
-            auto gep = gep_field(base_ptr, info, field);
+            auto gep = gep_field(base_ptr, info, fr->field);
             if (!gep) return {nullptr, {}};
-            // Determine the struct type of this field.
             for (auto& f : info.fields) {
-                if (f.name == field) {
+                if (f.name == fr->field) {
                     if (!f.struct_name.empty()) {
-                        // Struct fields are stored as pointers; load the pointer
-                        // to get the actual struct alloca before further GEP.
                         auto struct_ptr = builder_.create<mlir::LLVM::LoadOp>(
                                               loc_, ptr_type(), gep);
                         return {struct_ptr, f.struct_name};
                     }
                     std::fprintf(stderr, "mlir_gen: field '%s' is not a struct type\n",
-                                 field.c_str());
+                                 fr->field.c_str());
                     return {nullptr, {}};
                 }
             }
             return {nullptr, {}};
         }
-
-        std::fprintf(stderr, "mlir_gen: unsupported receiver kind %d for struct access\n", code);
+        std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct access\n");
         return {nullptr, {}};
     }
 
-    mlir::Value gen_field_read(TinyMapView node) {
-        auto field = std::string(str_of(node.get(la::FIELD)));
-        auto [ptr, sname] = gen_recv_struct(map_of(node.get(la::RECEIVER)));
-        if (!ptr || sname.empty()) return nullptr;
-        auto& info = struct_types_[sname];
-        auto gep   = gep_field(ptr, info, field);
-        if (!gep) return nullptr;
-        for (auto& f : info.fields)
-            if (f.name == field)
-                return builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, gep);
-        return nullptr;
-    }
-
-    mlir::Value gen_method_call(TinyMapView node) {
-        auto method = std::string(str_of(node.get(la::NAME)));
-        auto [ptr, sname] = gen_recv_struct(map_of(node.get(la::RECEIVER)));
-        if (!ptr || sname.empty()) return nullptr;
-        auto mangled    = sname + "__" + method;
-        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-        auto callee_fn  = parent_mod.lookupSymbol<mlir::func::FuncOp>(mangled);
-        if (!callee_fn) {
-            std::fprintf(stderr, "mlir_gen: method '%s' not found\n", mangled.c_str());
-            return nullptr;
-        }
-        llvm::SmallVector<mlir::Value> args;
-        args.push_back(ptr);
-        if (node.has_key(la::ARGS)) {
-            auto arg_arr = arr_of(node.get(la::ARGS));
-            for (uint64_t i = 0; i < arg_arr.size(); ++i) {
-                auto v = gen_expr(map_of(arg_arr.get(i)));
-                if (!v) return nullptr;
-                args.push_back(v);
-            }
-        }
-        auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
-        return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
-    }
-
-    mlir::Value gen_struct_lit(TinyMapView node) {
-        auto sname = std::string(str_of(node.get(la::NAME)));
-        auto sit   = struct_types_.find(sname);
+    mlir::Value gen_struct_lit(const EStructLit& e) {
+        auto sit = struct_types_.find(e.name);
         if (sit == struct_types_.end()) {
-            std::fprintf(stderr, "mlir_gen: unknown struct '%s'\n", sname.c_str());
+            std::fprintf(stderr, "mlir_gen: unknown struct '%s'\n", e.name.c_str());
             return nullptr;
         }
         auto& info  = sit->second;
         auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
                           loc_, ptr_type(), info.llvm_type, i64_one());
-        if (node.has_key(la::ITEMS)) {
-            AnyVal items_av = node.get(la::ITEMS);
-            if (!items_av.is_null() && items_av.is_pointer()) {
-                auto inits = arr_of(items_av);
-                for (uint64_t i = 0; i < inits.size(); ++i) {
-                    auto init = map_of(inits.get(i));
-                    if (code_of(init) != la::FIELD_INIT) continue;
-                    auto fname = std::string(str_of(init.get(la::NAME)));
-                    auto val   = gen_expr(map_of(init.get(la::VALUE)));
-                    if (!val) return nullptr;
-                    auto gep = gep_field(alloca, info, fname);
-                    if (!gep) return nullptr;
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-                }
-            }
+        for (auto& [fname, fval] : e.fields) {
+            auto val = gen_expr(*fval);
+            if (!val) return nullptr;
+            auto gep = gep_field(alloca, info, fname);
+            if (!gep) return nullptr;
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
         }
         return alloca;
     }
 
     // ── Array helpers ─────────────────────────────────────────────
 
-    // Get pointer to arr[0] for subscript operations.
-    // For let-bound arrays: scope_ holds the alloca (ptr to [N x T]).
-    // For pointer params: scope_ holds the param pointer (ptr to T).
     mlir::Value get_subscript_ptr(const std::string& name) {
         auto it = scope_.find(name);
         if (it == scope_.end()) {
@@ -1227,258 +960,28 @@ private:
     }
 
     mlir::Type subscript_elem_type(const std::string& name) {
-        auto it = var_subscript_.find(name);
-        if (it != var_subscript_.end()) return it->second;
-        return builder_.getI32Type();  // default
+        auto it = var_elem_types_.find(name);
+        if (it != var_elem_types_.end()) return it->second;
+        auto sit = var_subscript_.find(name);
+        if (sit != var_subscript_.end()) return sit->second;
+        return builder_.getI32Type();
     }
 
-    // Generate array literal: alloca [N x T] and store each element.
-    // Returns the alloca pointer.
-    mlir::Value gen_arr_lit(TinyMapView node, mlir::Type elem_type) {
-        if (!node.has_key(la::ITEMS)) return nullptr;
-        AnyVal items_av = node.get(la::ITEMS);
-        if (items_av.is_null() || !items_av.is_pointer()) return nullptr;
-        auto items = arr_of(items_av);
-        uint64_t n = items.size();
-
+    mlir::Value gen_arr_lit(const EArrLit& e, mlir::Type elem_type) {
+        uint64_t n = e.elems.size();
         auto arr_type = mlir::LLVM::LLVMArrayType::get(elem_type, n);
         auto alloca   = builder_.create<mlir::LLVM::AllocaOp>(
                             loc_, ptr_type(), arr_type, i64_one());
-
         for (uint64_t i = 0; i < n; ++i) {
-            auto val = gen_expr(map_of(items.get(i)));
+            auto val = gen_expr(*e.elems[i]);
             if (!val) return nullptr;
-            // GEP with constant index for initialization.
+            val = coerce_int(val, elem_type);
             llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(i)};
             auto gep = builder_.create<mlir::LLVM::GEPOp>(
                 loc_, ptr_type(), elem_type, alloca, idx);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
         }
         return alloca;
-    }
-
-    mlir::Value gen_index_read(TinyMapView node) {
-        // RECEIVER is now an expression node (postfix-chain refactor).
-        // For array vars it's a VAR_REF; get the variable name from it.
-        TinyMapView recv_node = map_of(node.get(la::RECEIVER));
-        mlir::Value arr_ptr;
-        mlir::Type  elem_type;
-        if (code_of(recv_node) == la::VAR_REF) {
-            auto name  = std::string(str_of(recv_node.get(la::NAME)));
-            arr_ptr    = get_subscript_ptr(name);
-            elem_type  = subscript_elem_type(name);
-        } else {
-            // General expression receiver — evaluate and use as pointer.
-            arr_ptr   = gen_expr(recv_node);
-            elem_type = builder_.getI32Type(); // default; sema catches type errors
-        }
-        auto idx = gen_expr(map_of(node.get(la::VALUE)));
-        if (!idx || !arr_ptr) return nullptr;
-        llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
-        auto gep = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), elem_type, arr_ptr, indices);
-        return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, gep);
-    }
-
-    mlir::Value gen_deref(TinyMapView node) {
-        auto ptr_val = gen_expr(map_of(node.get(la::VALUE)));
-        if (!ptr_val) return nullptr;
-        return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), ptr_val);
-    }
-
-    mlir::Value gen_cast(TinyMapView node) {
-        auto val = gen_expr(map_of(node.get(la::VALUE)));
-        if (!val) return nullptr;
-        auto target = resolve_type(map_of(node.get(la::TYPE)));
-        if (!target) {
-            std::fprintf(stderr, "mlir_gen: cast: unknown target type\n");
-            return nullptr;
-        }
-        if (val.getType() == target) return val;
-        // Integer ↔ integer: sign-extend or truncate.
-        if (auto from_int = mlir::dyn_cast<mlir::IntegerType>(val.getType())) {
-            if (auto to_int = mlir::dyn_cast<mlir::IntegerType>(target)) {
-                if (to_int.getWidth() > from_int.getWidth())
-                    return builder_.create<mlir::arith::ExtSIOp>(loc_, target, val);
-                if (to_int.getWidth() < from_int.getWidth())
-                    return builder_.create<mlir::arith::TruncIOp>(loc_, target, val);
-                return val;
-            }
-        }
-        // Integer → float.
-        if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) && mlir::dyn_cast<mlir::FloatType>(target))
-            return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
-        // Float → integer.
-        if (mlir::dyn_cast<mlir::FloatType>(val.getType()) && mlir::dyn_cast<mlir::IntegerType>(target))
-            return builder_.create<mlir::arith::FPToSIOp>(loc_, target, val);
-        std::fprintf(stderr, "mlir_gen: unsupported cast\n");
-        return nullptr;
-    }
-
-    mlir::Value gen_unary(TinyMapView node) {
-        auto op = str_of(node.get(la::OP));
-
-        // & (address-of) — does not evaluate operand, returns alloca pointer
-        if (op == "&") {
-            auto child = map_of(node.get(la::VALUE));
-            if (code_of(child) != la::VAR_REF) {
-                std::fprintf(stderr, "mlir_gen: & operand must be a variable\n");
-                return nullptr;
-            }
-            auto name = std::string(str_of(child.get(la::NAME)));
-            auto it = scope_.find(name);
-            if (it == scope_.end()) {
-                std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", name.c_str());
-                return nullptr;
-            }
-            return it->second;   // alloca pointer
-        }
-
-        auto val = gen_expr(map_of(node.get(la::VALUE)));
-        if (!val) return nullptr;
-
-        // - (arithmetic negation, i32)
-        if (op == "-") {
-            auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-            return builder_.create<mlir::arith::SubIOp>(loc_, zero, val);
-        }
-
-        // ! (logical NOT, i1)
-        if (op == "!") {
-            auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
-            return builder_.create<mlir::arith::XOrIOp>(loc_, val, one);
-        }
-
-        std::fprintf(stderr, "mlir_gen: unknown unary op '%.*s'\n",
-                     (int)op.size(), op.data());
-        return nullptr;
-    }
-
-    // ── Enum literal: Color::Red → i32 constant ──────────────────
-
-    mlir::Value gen_enum_lit(TinyMapView node) {
-        auto ename = std::string(str_of(node.get(la::NAME)));
-        auto vname = std::string(str_of(node.get(la::FIELD)));
-        auto eit = enum_types_.find(ename);
-        if (eit == enum_types_.end()) {
-            std::fprintf(stderr, "mlir_gen: unknown enum '%s'\n", ename.c_str());
-            return nullptr;
-        }
-        for (auto& v : eit->second.variants) {
-            if (v.name == vname)
-                return builder_.create<mlir::arith::ConstantIntOp>(loc_, v.value, 32);
-        }
-        std::fprintf(stderr, "mlir_gen: enum '%s' has no variant '%s'\n",
-                     ename.c_str(), vname.c_str());
-        return nullptr;
-    }
-
-    // ── Match statement: if-else chain on i32 discriminant ───────
-
-    mlir::Value gen_match(TinyMapView node) {
-        auto* region = builder_.getBlock()->getParent();
-        auto* merge_block = new mlir::Block();
-
-        auto scrut = gen_expr(map_of(node.get(la::VALUE)));
-        if (!scrut) return nullptr;
-
-        if (!node.has_key(la::ITEMS)) {
-            region->push_back(merge_block);
-            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
-            builder_.setInsertionPointToStart(merge_block);
-            return nullptr;
-        }
-        auto arms = arr_of(node.get(la::ITEMS));
-
-        // Resolve each arm's discriminant value.
-        // Arms are processed in order; the last PAT_WILD arm becomes the fallback.
-        // We lower to: cond0 ? body0 : (cond1 ? body1 : (... else fallback ...))
-        // Build the chain from last arm to first so we can set else targets.
-        mlir::Block* else_block = merge_block;
-        // First, collect arm info.
-        struct ArmInfo {
-            bool     is_wild;
-            int32_t  disc_val;   // valid only when !is_wild
-            TinyMapView body;
-        };
-        std::vector<ArmInfo> arm_infos;
-        for (uint64_t i = 0; i < arms.size(); ++i) {
-            auto arm = map_of(arms.get(i));
-            if (code_of(arm) != la::MATCH_ARM) continue;
-            ArmInfo ai;
-            ai.body = arm.has_key(la::BODY) ? map_of(arm.get(la::BODY)) : TinyMapView{};
-            ai.is_wild = false;
-            ai.disc_val = 0;
-            if (arm.has_key(la::LHS)) {
-                auto pat = map_of(arm.get(la::LHS));
-                int32_t pc = code_of(pat);
-                if (pc == la::PAT_WILD) {
-                    ai.is_wild = true;
-                } else if (pc == la::PAT_VARIANT) {
-                    auto pename = std::string(str_of(pat.get(la::NAME)));
-                    auto pvname = std::string(str_of(pat.get(la::FIELD)));
-                    auto eit = enum_types_.find(pename);
-                    if (eit != enum_types_.end()) {
-                        for (auto& v : eit->second.variants)
-                            if (v.name == pvname) { ai.disc_val = v.value; break; }
-                    }
-                } else if (pc == la::PAT_INT) {
-                    auto sv = str_of(pat.get(la::VALUE));
-                    ai.disc_val = (int32_t)std::strtol(sv.data(), nullptr, 10);
-                } else if (pc == la::PAT_BOOL) {
-                    AnyVal bv = pat.get(la::VALUE);
-                    ai.disc_val = (!bv.is_null() && bv.is_value() && bv.as_value<uint8_t>()) ? 1 : 0;
-                }
-            }
-            arm_infos.push_back(ai);
-        }
-
-        // Generate body blocks and collect which have terminators after generation.
-        // We iterate arms in reverse and chain else_block.
-        for (int i = (int)arm_infos.size() - 1; i >= 0; --i) {
-            auto& ai = arm_infos[i];
-            auto* body_block = new mlir::Block();
-            region->push_back(body_block);
-            {
-                mlir::OpBuilder::InsertionGuard guard(builder_);
-                builder_.setInsertionPointToStart(body_block);
-                if (!ai.body.is_null()) {
-                    if (code_of(ai.body) == la::BLOCK)
-                        gen_block(ai.body, nullptr);
-                    else
-                        gen_stmt(ai.body);
-                }
-                if (!is_terminated(builder_.getBlock()))
-                    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
-            }
-
-            if (ai.is_wild) {
-                // Wild arm becomes the new else_block — jump directly to body_block.
-                else_block = body_block;
-            } else {
-                // Conditional branch: if scrut == disc_val goto body_block else else_block.
-                auto* test_block = new mlir::Block();
-                region->push_back(test_block);
-                {
-                    mlir::OpBuilder::InsertionGuard guard(builder_);
-                    builder_.setInsertionPointToStart(test_block);
-                    auto disc = builder_.create<mlir::arith::ConstantIntOp>(
-                        loc_, ai.disc_val, 32);
-                    auto scrut_i32 = coerce_int(scrut, builder_.getI32Type());
-                    auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, scrut_i32, disc);
-                    builder_.create<mlir::cf::CondBranchOp>(
-                        loc_, eq, body_block, else_block);
-                }
-                else_block = test_block;
-            }
-        }
-
-        // Branch from current block to the first test (or wild) block.
-        builder_.create<mlir::cf::BranchOp>(loc_, else_block);
-        region->push_back(merge_block);
-        builder_.setInsertionPointToStart(merge_block);
-        return nullptr;
     }
 };
 
@@ -1487,11 +990,12 @@ private:
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
 mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
-                                            const std::vector<hermes::HermesCtr>& asts) noexcept
+                                            const lir::LProgram& prog) noexcept
 {
     MLIRGenImpl gen(ctx);
-    return gen.generate(asts);
+    return gen.generate(prog);
 }
 
 } // namespace logos::compiler

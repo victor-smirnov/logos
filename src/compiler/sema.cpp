@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
+//
+// Semantic analysis + L-IR lowering.
+//
+// One pass over the AST: validates the program AND produces a fully-typed
+// lir::LProgram.  All LogosType* inside LProgram are owned by
+// LProgram::type_pool (moved out of SemaChecker at the end of run()).
 
-#include <logos/compiler/sema.hpp>
+#include <logos/compiler/lir.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/hermes/view.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
@@ -10,7 +16,6 @@
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/any_val.hpp>
 
-#include <deque>
 #include <format>
 #include <string>
 #include <string_view>
@@ -34,14 +39,13 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
                types_equal(*a.elem, *b.elem);
     case LogosType::Kind::Struct:
         return a.struct_name == b.struct_name;
+    case LogosType::Kind::Enum:
+        return a.enum_name == b.enum_name;
     default:
-        return true;   // primitive kinds equal by kind alone
+        return true;
     }
 }
 
-// Structural assignment/argument compatibility.
-// Extends types_equal with:
-//   [T; N] → *T  and  [T; N] → *mut T   (array-to-pointer coercion)
 static bool is_integer_kind(LogosType::Kind k) noexcept {
     return k == LogosType::Kind::I32   || k == LogosType::Kind::I64 ||
            k == LogosType::Kind::U8    || k == LogosType::Kind::I8  ||
@@ -52,16 +56,9 @@ static bool is_integer_kind(LogosType::Kind k) noexcept {
 static bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
     if (!from || !to) return false;
     if (types_equal(*from, *to)) return true;
-    // IntLit widens to any concrete integer type.
-    if (from->kind == LogosType::Kind::IntLit && is_integer_kind(to->kind))
-        return true;
-    // Enum → integer coercion (discriminant enums are C-style i32 constants).
-    if (from->kind == LogosType::Kind::Enum && is_integer_kind(to->kind))
-        return true;
-    // Integer → Enum coercion (for assigning discriminant values).
-    if (is_integer_kind(from->kind) && to->kind == LogosType::Kind::Enum)
-        return true;
-    // Array → pointer coercion: [T; N] is compatible with *const T or *mut T
+    if (from->kind == LogosType::Kind::IntLit && is_integer_kind(to->kind)) return true;
+    if (from->kind == LogosType::Kind::Enum   && is_integer_kind(to->kind)) return true;
+    if (is_integer_kind(from->kind) && to->kind == LogosType::Kind::Enum)   return true;
     if (from->kind == LogosType::Kind::Array &&
         to->kind   == LogosType::Kind::Ptr   &&
         from->elem && to->pointee)
@@ -69,8 +66,6 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
     return false;
 }
 
-// Return the concrete integer type when one operand is an unresolved literal.
-// Precondition: both are integer kinds.
 static const LogosType* unify_int(const LogosType* a, const LogosType* b) noexcept {
     if (a->kind == LogosType::Kind::IntLit) return b;
     return a;
@@ -90,14 +85,11 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::U64:    return "u64";
     case LogosType::Kind::IntLit: return "{integer}";
     case LogosType::Kind::Ptr:
-        return std::string(t->mut_ptr ? "*mut " : "*const ") +
-               type_str(t->pointee);
+        return std::string(t->mut_ptr ? "*mut " : "*const ") + type_str(t->pointee);
     case LogosType::Kind::Array:
         return std::format("[{}; {}]", type_str(t->elem), t->arr_size);
-    case LogosType::Kind::Struct:
-        return std::string(t->struct_name);
-    case LogosType::Kind::Enum:
-        return std::string(t->enum_name);
+    case LogosType::Kind::Struct: return std::string(t->struct_name);
+    case LogosType::Kind::Enum:   return std::string(t->enum_name);
     case LogosType::Kind::Error:  return "<error>";
     }
     return "<unknown>";
@@ -114,30 +106,27 @@ using hermes::StringView;
 using hermes::AnyVal;
 using hermes::MemHolder;
 
-// ── TypePool ──────────────────────────────────────────────────────────────
-// Owns all LogosType objects.  std::deque provides pointer-stable push_back.
-
-class TypePool {
-    std::deque<LogosType> pool_;
-public:
-    const LogosType* alloc(LogosType t) {
-        pool_.push_back(std::move(t));
-        return &pool_.back();
-    }
-};
-
 // ── SemaChecker ───────────────────────────────────────────────────────────
 
 class SemaChecker {
 public:
-    SemaResult run(const std::vector<hermes::HermesCtr>& asts,
-                   const std::vector<std::string>& filenames) {
+    lir::LProgram run(const std::vector<hermes::HermesCtr>& asts,
+                      const std::vector<std::string>& filenames) {
         filenames_ = &filenames;
         init_primitives();
         collect(asts);
-        if (!result_.ok()) return result_;  // stop if collection failed
-        check(asts);
-        return result_;
+
+        lir::LProgram prog;
+        if (!result_.ok()) {
+            prog.diags = std::move(result_);
+            prog.type_pool = std::move(pool_);
+            return prog;
+        }
+
+        lower_program(asts, prog);
+        prog.diags      = std::move(result_);
+        prog.type_pool  = std::move(pool_);
+        return prog;
     }
 
 private:
@@ -145,31 +134,28 @@ private:
 
     TypePool pool_;
 
-    // Indexed by Kind ordinal.  Kind goes 0..14 (Void..Error), so size 15.
-    // Only primitive kinds (Void, I32..U64, IntLit, Error) are populated;
-    // compound kinds (Ptr=9, Array=10, Struct=11, Enum=12) are created via make_* helpers.
+    // prims_[int(Kind)] for primitive kinds.  Size 15 (Kind::Error = 14).
     std::array<const LogosType*, 15> prims_{};
 
     void init_primitives() {
-        auto alloc_prim = [&](LogosType::Kind k) {
-            LogosType t;
-            t.kind = k;
+        auto ap = [&](LogosType::Kind k) {
+            LogosType t; t.kind = k;
             prims_[int(k)] = pool_.alloc(t);
         };
-        alloc_prim(LogosType::Kind::Void);
-        alloc_prim(LogosType::Kind::I32);
-        alloc_prim(LogosType::Kind::I64);
-        alloc_prim(LogosType::Kind::F64);
-        alloc_prim(LogosType::Kind::Bool);
-        alloc_prim(LogosType::Kind::U8);
-        alloc_prim(LogosType::Kind::I8);
-        alloc_prim(LogosType::Kind::U32);
-        alloc_prim(LogosType::Kind::U64);
-        alloc_prim(LogosType::Kind::IntLit);
-        alloc_prim(LogosType::Kind::Error);
+        ap(LogosType::Kind::Void);
+        ap(LogosType::Kind::I32);
+        ap(LogosType::Kind::I64);
+        ap(LogosType::Kind::F64);
+        ap(LogosType::Kind::Bool);
+        ap(LogosType::Kind::U8);
+        ap(LogosType::Kind::I8);
+        ap(LogosType::Kind::U32);
+        ap(LogosType::Kind::U64);
+        ap(LogosType::Kind::IntLit);
+        ap(LogosType::Kind::Error);
     }
 
-    const LogosType* prim(LogosType::Kind k)   { return prims_[int(k)]; }
+    const LogosType* prim(LogosType::Kind k)  { return prims_[int(k)]; }
     const LogosType* void_t()    { return prim(LogosType::Kind::Void); }
     const LogosType* i32_t()     { return prim(LogosType::Kind::I32); }
     const LogosType* bool_t()    { return prim(LogosType::Kind::Bool); }
@@ -178,40 +164,50 @@ private:
     const LogosType* error_t()   { return prim(LogosType::Kind::Error); }
 
     const LogosType* make_ptr(bool mut, const LogosType* pointee) {
-        LogosType t;
-        t.kind    = LogosType::Kind::Ptr;
-        t.mut_ptr = mut;
-        t.pointee = pointee;
+        LogosType t; t.kind = LogosType::Kind::Ptr;
+        t.mut_ptr = mut; t.pointee = pointee;
         return pool_.alloc(t);
     }
-
     const LogosType* make_array(const LogosType* elem, uint64_t n) {
-        LogosType t;
-        t.kind     = LogosType::Kind::Array;
-        t.elem     = elem;
-        t.arr_size = n;
+        LogosType t; t.kind = LogosType::Kind::Array;
+        t.elem = elem; t.arr_size = n;
         return pool_.alloc(t);
     }
-
     const LogosType* make_struct_type(std::string_view name) {
-        LogosType t;
-        t.kind        = LogosType::Kind::Struct;
-        t.struct_name = name;
+        LogosType t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
+        return pool_.alloc(t);
+    }
+    const LogosType* make_enum_type(std::string_view name) {
+        LogosType t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
         return pool_.alloc(t);
     }
 
-    const LogosType* make_enum_type(std::string_view name) {
-        LogosType t;
-        t.kind      = LogosType::Kind::Enum;
-        t.enum_name = name;
-        return pool_.alloc(t);
+    // ── L-IR node factories ──────────────────────────────────────
+
+    template<typename K>
+    static lir::LExprPtr make_expr(const LogosType* t, K&& k) {
+        auto e = std::make_unique<lir::LExpr>();
+        e->type = t;
+        e->kind = std::forward<K>(k);
+        return e;
+    }
+
+    lir::LExprPtr error_expr() {
+        return make_expr(error_t(), lir::ELitInt{0});
+    }
+
+    template<typename K>
+    static lir::LStmt make_stmt(uint32_t line, K&& k) {
+        lir::LStmt s; s.line = line;
+        s.kind = std::forward<K>(k);
+        return s;
     }
 
     // ── File / line tracking ─────────────────────────────────────
 
     const std::vector<std::string>* filenames_ = nullptr;
-    std::string  file_;       // current module's source file
-    uint32_t     node_line_ = 0;  // line of the node currently being checked
+    std::string  file_;
+    uint32_t     node_line_ = 0;
 
     uint32_t get_line(TinyMapView node) noexcept {
         if (node.is_null()) return 0;
@@ -220,13 +216,13 @@ private:
         return av.as_value<uint32_t>();
     }
 
-    // ── Hermes navigation ────────────────────────────────────────
+    // ── Hermes helpers ───────────────────────────────────────────
 
     MemHolder* holder_ = nullptr;
 
     int32_t code_of(TinyMapView node) noexcept {
         if (node.is_null()) return -1;
-        AnyVal av = node.get(la::CODE.code);  // unchecked uint8_t overload
+        AnyVal av = node.get(la::CODE.code);
         return av.is_null() ? -1 : av.as_value<int32_t>();
     }
 
@@ -235,7 +231,6 @@ private:
         return StringView(av.to_offset(), holder_).view();
     }
 
-    // Returns a null TinyMapView if av is null — prevents asserting on empty nodes.
     TinyMapView map_of(AnyVal av) noexcept {
         if (av.is_null()) return TinyMapView{};
         return TinyMapView(av.to_offset(), holder_);
@@ -248,51 +243,39 @@ private:
     // ── Diagnostics ──────────────────────────────────────────────
 
     SemaResult result_;
-    std::string ctx_;   // current context string for error messages
+    std::string ctx_;
 
     void error(std::string msg) {
         result_.diags.push_back({Diag::Level::Error, ctx_, std::move(msg), file_, node_line_});
     }
-
     void warn(std::string msg) {
         result_.diags.push_back({Diag::Level::Warning, ctx_, std::move(msg), file_, node_line_});
     }
 
     // ── Scope management ─────────────────────────────────────────
 
-    struct VarInfo {
-        const LogosType* type;
-        bool is_mut = false;
-    };
-    struct Frame {
-        std::unordered_map<std::string, VarInfo> vars;
-    };
+    struct VarInfo { const LogosType* type; bool is_mut = false; };
+    struct Frame   { std::unordered_map<std::string, VarInfo> vars; };
     std::vector<Frame> scope_;
 
     void push_scope() { scope_.emplace_back(); }
-
-    void pop_scope() {
-        if (!scope_.empty()) scope_.pop_back();
-    }
+    void pop_scope()  { if (!scope_.empty()) scope_.pop_back(); }
 
     void define(std::string_view name, const LogosType* t, bool is_mut = false) {
         if (!scope_.empty())
             scope_.back().vars[std::string(name)] = {t, is_mut};
     }
 
-    // Returns nullptr if not found.
     const LogosType* lookup(std::string_view name) const {
         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
             auto f = it->vars.find(std::string(name));
             if (f != it->vars.end()) return f->second.type;
         }
-        // Fall through to module-level constants.
         auto cit = module_consts_.find(std::string(name));
         if (cit != module_consts_.end()) return cit->second;
         return nullptr;
     }
 
-    // Returns false if not found or not mutable.
     bool lookup_is_mut(std::string_view name) const {
         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
             auto f = it->vars.find(std::string(name));
@@ -301,14 +284,20 @@ private:
         return false;
     }
 
-    // For field / method access: unwrap *Struct → Struct, return struct_name.
-    // Returns empty if var is not a struct or pointer-to-struct.
     std::string_view struct_name_of(std::string_view var_name) {
         auto* t = lookup(var_name);
         if (!t) return {};
         if (t->kind == LogosType::Kind::Struct) return t->struct_name;
-        if (t->kind == LogosType::Kind::Ptr &&
-            t->pointee &&
+        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
+            t->pointee->kind == LogosType::Kind::Struct)
+            return t->pointee->struct_name;
+        return {};
+    }
+
+    std::string_view struct_name_from_type(const LogosType* t) {
+        if (!t) return {};
+        if (t->kind == LogosType::Kind::Struct) return t->struct_name;
+        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
             t->pointee->kind == LogosType::Kind::Struct)
             return t->pointee->struct_name;
         return {};
@@ -316,30 +305,17 @@ private:
 
     // ── Module-level symbol tables ───────────────────────────────
 
-    struct SemaFieldInfo {
-        std::string_view name;       // view into Hermes arena
-        const LogosType* type;
-    };
-    struct SemaStructInfo {
-        std::vector<SemaFieldInfo> fields;
-    };
-    struct SemaFuncInfo {
-        std::vector<const LogosType*> param_types;
-        const LogosType* ret_type;
-    };
-    struct SemaVariantInfo {
-        std::string_view name;
-        int32_t          value;
-    };
-    struct SemaEnumInfo {
-        std::vector<SemaVariantInfo> variants;
-    };
+    struct SemaFieldInfo  { std::string_view name; const LogosType* type; };
+    struct SemaStructInfo { std::vector<SemaFieldInfo> fields; };
+    struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type; };
+    struct SemaVariantInfo{ std::string_view name; int32_t value; };
+    struct SemaEnumInfo   { std::vector<SemaVariantInfo> variants; };
 
-    std::unordered_map<std::string, SemaStructInfo>    structs_;
-    std::unordered_map<std::string, SemaEnumInfo>      enums_;
-    std::unordered_map<std::string, SemaFuncInfo>      funcs_;
-    std::unordered_map<std::string, const LogosType*>  type_aliases_;  // type Name = T
-    std::unordered_map<std::string, const LogosType*>  module_consts_; // const NAME: T
+    std::unordered_map<std::string, SemaStructInfo>   structs_;
+    std::unordered_map<std::string, SemaEnumInfo>     enums_;
+    std::unordered_map<std::string, SemaFuncInfo>     funcs_;
+    std::unordered_map<std::string, const LogosType*> type_aliases_;
+    std::unordered_map<std::string, const LogosType*> module_consts_;
 
     // ── Type resolution ──────────────────────────────────────────
 
@@ -348,9 +324,8 @@ private:
 
         if (tc == la::PTR_TYPE) {
             bool mut = false;
-            AnyVal mut_av = node.get(la::MUTPTR.code);
-            if (!mut_av.is_null() && mut_av.is_value())
-                mut = mut_av.as_value<uint8_t>() != 0;
+            AnyVal mv = node.get(la::MUTPTR.code);
+            if (!mv.is_null() && mv.is_value()) mut = mv.as_value<uint8_t>() != 0;
             auto* inner = node.has_key(la::POINTEE)
                           ? resolve_type(map_of(node.get(la::POINTEE.code)))
                           : error_t();
@@ -380,15 +355,10 @@ private:
             if (name == "u32")  return prim(LogosType::Kind::U32);
             if (name == "u64")  return prim(LogosType::Kind::U64);
             if (name == "void") return prim(LogosType::Kind::Void);
-            // Type alias
             auto ait = type_aliases_.find(std::string(name));
             if (ait != type_aliases_.end()) return ait->second;
-            // User-defined struct
-            if (structs_.count(std::string(name)))
-                return make_struct_type(name);
-            // User-defined enum
-            if (enums_.count(std::string(name)))
-                return make_enum_type(name);
+            if (structs_.count(std::string(name))) return make_struct_type(name);
+            if (enums_.count(std::string(name)))   return make_enum_type(name);
             error(std::format("unknown type '{}'", name));
             return error_t();
         }
@@ -398,11 +368,9 @@ private:
     }
 
     // ── Collection phase ─────────────────────────────────────────
-    // Builds structs_ and funcs_ from all modules.  Must run before check().
 
     void collect(const std::vector<hermes::HermesCtr>& asts) {
-        // First pass: collect all struct names (so struct fields can reference
-        // structs defined later in the same or another module).
+        // First pass: register names (so forward references work).
         for (auto& ast : asts) {
             holder_ = ast.holder();
             auto root = ast.root_object().as_tiny_map();
@@ -413,21 +381,16 @@ private:
                 int32_t ic = code_of(item);
                 if (ic == la::STRUCT) {
                     auto sname = std::string(str_of(item.get(la::NAME.code)));
-                    if (structs_.count(sname))
-                        error(std::format("duplicate struct '{}'", sname));
-                    else
-                        structs_[sname] = {};  // placeholder
+                    if (structs_.count(sname)) error(std::format("duplicate struct '{}'", sname));
+                    else structs_[sname] = {};
                 } else if (ic == la::ENUM) {
                     auto ename = std::string(str_of(item.get(la::NAME.code)));
-                    if (enums_.count(ename))
-                        error(std::format("duplicate enum '{}'", ename));
-                    else
-                        enums_[ename] = {};   // placeholder
+                    if (enums_.count(ename)) error(std::format("duplicate enum '{}'", ename));
+                    else enums_[ename] = {};
                 }
             }
         }
-
-        // Second pass: collect struct fields and all function signatures.
+        // Second pass: fill in fields, variants, function signatures.
         for (auto& ast : asts) {
             holder_ = ast.holder();
             auto root = ast.root_object().as_tiny_map();
@@ -441,12 +404,11 @@ private:
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             int32_t c = code_of(item);
-            if (c == la::STRUCT)           collect_struct(item);
-            else if (c == la::ENUM)        collect_enum(item);
-            else if (c == la::FN || c == la::EXTERN_FN)
-                collect_fn(item);
-            else if (c == la::TYPE_ALIAS)  collect_type_alias(item);
-            else if (c == la::CONST_DEF)   collect_const(item);
+            if      (c == la::STRUCT)                     collect_struct(item);
+            else if (c == la::ENUM)                       collect_enum(item);
+            else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
+            else if (c == la::TYPE_ALIAS)                 collect_type_alias(item);
+            else if (c == la::CONST_DEF)                  collect_const(item);
         }
     }
 
@@ -456,11 +418,11 @@ private:
         SemaEnumInfo info;
         int32_t next_val = 0;
         if (node.has_key(la::ITEMS)) {
-            auto items_av = node.get(la::ITEMS.code);
-            if (items_av.is_pointer()) {
-                auto list_node = map_of(items_av);
-                if (list_node.has_key(la::ITEMS)) {
-                    auto variants = arr_of(list_node.get(la::ITEMS.code));
+            auto av = node.get(la::ITEMS.code);
+            if (av.is_pointer()) {
+                auto list = map_of(av);
+                if (list.has_key(la::ITEMS)) {
+                    auto variants = arr_of(list.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < variants.size(); ++i) {
                         auto v = map_of(variants.get(i));
                         auto vname = str_of(v.get(la::NAME.code));
@@ -481,8 +443,7 @@ private:
     void collect_type_alias(TinyMapView node) {
         auto name = std::string(str_of(node.get(la::NAME.code)));
         if (!node.has_key(la::TYPE)) return;
-        auto* t = resolve_type(map_of(node.get(la::TYPE.code)));
-        type_aliases_[name] = t;
+        type_aliases_[name] = resolve_type(map_of(node.get(la::TYPE.code)));
     }
 
     void collect_const(TinyMapView node) {
@@ -491,8 +452,9 @@ private:
         if (node.has_key(la::TYPE)) {
             t = resolve_type(map_of(node.get(la::TYPE.code)));
         } else if (node.has_key(la::VALUE)) {
-            t = check_expr(map_of(node.get(la::VALUE.code)));
-            if (t->kind == LogosType::Kind::IntLit) t = i32_t();
+            // Evaluate type of the value expression lazily.
+            // We just store an i32 as placeholder for now.
+            t = i32_t();
         }
         if (t) module_consts_[name] = t;
     }
@@ -500,10 +462,7 @@ private:
     void collect_struct(TinyMapView node) {
         auto sname = std::string(str_of(node.get(la::NAME.code)));
         ctx_ = std::format("struct {}", sname);
-
         SemaStructInfo info;
-
-        // Collect field definitions.
         if (node.has_key(la::FIELDS)) {
             auto fields = arr_of(node.get(la::FIELDS.code));
             for (uint64_t i = 0; i < fields.size(); ++i) {
@@ -514,14 +473,11 @@ private:
             }
         }
         structs_[sname] = std::move(info);
-
-        // Collect methods as mangled free functions.
         if (node.has_key(la::ITEMS)) {
             auto methods = arr_of(node.get(la::ITEMS.code));
             for (uint64_t m = 0; m < methods.size(); ++m) {
                 auto method = map_of(methods.get(m));
-                if (code_of(method) == la::FN)
-                    collect_fn(method, sname);
+                if (code_of(method) == la::FN) collect_fn(method, sname);
             }
         }
     }
@@ -531,114 +487,60 @@ private:
         std::string mangled = struct_ctx.empty()
             ? std::string(raw_name)
             : std::string(struct_ctx) + "__" + std::string(raw_name);
-
         ctx_ = std::format("fn {}", mangled);
-
         if (funcs_.count(mangled)) {
             error(std::format("duplicate function '{}'", mangled));
             return;
         }
-
         SemaFuncInfo info;
-
-        // Parameters.
         if (node.has_key(la::PARAMS)) {
             auto params_av = node.get(la::PARAMS.code);
             if (params_av.is_pointer()) {
                 auto params_node = map_of(params_av);
-                // PARAM_LIST node has ITEMS array, or it's a single PARAM.
-                // The grammar wraps params in a node with ITEMS: $...
                 if (params_node.has_key(la::ITEMS)) {
                     auto arr = arr_of(params_node.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < arr.size(); ++i) {
                         auto p = map_of(arr.get(i));
                         if (code_of(p) != la::PARAM) continue;
-                        info.param_types.push_back(
-                            resolve_type(map_of(p.get(la::TYPE.code))));
+                        info.param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
                     }
                 }
             }
         }
-
-        // Return type.
-        if (node.has_key(la::RET_TYPE)) {
-            info.ret_type = resolve_type(map_of(node.get(la::RET_TYPE.code)));
-        } else {
-            info.ret_type = void_t();
-        }
-
+        info.ret_type = node.has_key(la::RET_TYPE)
+            ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
+            : void_t();
         funcs_[mangled] = std::move(info);
     }
 
-    // ── Loop depth tracking ──────────────────────────────────────
+    // ── Loop depth / return type ─────────────────────────────────
+
     int loop_depth_ = 0;
+    const LogosType* ret_type_ = nullptr;
 
-    // ── Current function state ────────────────────────────────────
-
-    const LogosType* ret_type_ = nullptr;  // expected return type
-
-    // ── Check phase ──────────────────────────────────────────────
-
-    void check(const std::vector<hermes::HermesCtr>& asts) {
-        for (size_t i = 0; i < asts.size(); ++i) {
-            holder_ = asts[i].holder();
-            file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
-            auto root = asts[i].root_object().as_tiny_map();
-            check_module(root);
-        }
-    }
-
-    void check_module(TinyMapView mod) {
-        if (!mod.has_key(la::ITEMS)) return;
-        auto items = arr_of(mod.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < items.size(); ++i) {
-            auto item = map_of(items.get(i));
-            int32_t c = code_of(item);
-            if (c == la::FN)        check_fn(item);
-            else if (c == la::STRUCT) {
-                // Check methods inside structs.
-                auto sname = str_of(item.get(la::NAME.code));
-                if (item.has_key(la::ITEMS)) {
-                    auto methods = arr_of(item.get(la::ITEMS.code));
-                    for (uint64_t m = 0; m < methods.size(); ++m) {
-                        auto method = map_of(methods.get(m));
-                        if (code_of(method) == la::FN)
-                            check_fn(method, sname);
-                    }
-                }
-            }
-            // EXTERN_FN: no body to check.
-        }
-    }
-
-    // ── Return-reachability analysis ─────────────────────────────
-    // Returns true if every execution path through the node reaches a `return`.
+    // ── Return reachability (on AST nodes) ───────────────────────
 
     bool stmt_always_returns(TinyMapView stmt) {
         int32_t c = code_of(stmt);
         if (c == la::RETURN) return true;
-        // loop {} always returns if its body always returns (i.e. no break).
         if (c == la::LOOP) {
             return stmt.has_key(la::BODY) &&
                    block_always_returns(map_of(stmt.get(la::BODY.code)));
         }
         if (c == la::IF) {
-            // Only guarantees a return if BOTH branches always return.
             if (!stmt.has_key(la::ELSE)) return false;
             bool then_ret = stmt.has_key(la::THEN) &&
                             block_always_returns(map_of(stmt.get(la::THEN.code)));
             auto else_node = map_of(stmt.get(la::ELSE.code));
             bool else_ret  = (code_of(else_node) == la::BLOCK)
                              ? block_always_returns(else_node)
-                             : stmt_always_returns(else_node);   // else-if
+                             : stmt_always_returns(else_node);
             return then_ret && else_ret;
         }
-        // match: returns if every arm returns and there's a wildcard (simplified).
         if (c == la::MATCH) {
             if (!stmt.has_key(la::ITEMS)) return false;
             auto arms = arr_of(stmt.get(la::ITEMS.code));
-            bool has_wild = false;
-            bool all_ret  = true;
+            bool has_wild = false, all_ret = true;
             for (uint64_t i = 0; i < arms.size(); ++i) {
                 auto arm = map_of(arms.get(i));
                 if (code_of(arm) != la::MATCH_ARM) continue;
@@ -652,13 +554,10 @@ private:
                                    ? block_always_returns(body)
                                    : stmt_always_returns(body);
                     if (!arm_ret) all_ret = false;
-                } else {
-                    all_ret = false;
-                }
+                } else { all_ret = false; }
             }
             return has_wild && all_ret;
         }
-        // while, let, assign, expr_stmt, field_write, index_write — no guarantee.
         return false;
     }
 
@@ -666,135 +565,491 @@ private:
         if (!block.has_key(la::ITEMS)) return false;
         auto stmts = arr_of(block.get(la::ITEMS.code));
         for (uint64_t i = 0; i < stmts.size(); ++i) {
-            auto stmt = map_of(stmts.get(i));
-            if (!stmt.is_null() && stmt_always_returns(stmt))
-                return true;   // rest of block is unreachable
+            auto s = map_of(stmts.get(i));
+            if (!s.is_null() && stmt_always_returns(s)) return true;
         }
         return false;
     }
 
-    void check_fn(TinyMapView node, std::string_view struct_ctx = {}) {
-        auto raw_name = str_of(node.get(la::NAME.code));
-        std::string mangled = struct_ctx.empty()
-            ? std::string(raw_name)
-            : std::string(struct_ctx) + "__" + std::string(raw_name);
+    // ── Lowering helpers ─────────────────────────────────────────
 
-        ctx_ = std::format("fn {}", mangled);
-        node_line_ = get_line(node);
+    static bool is_numeric(const LogosType* t) noexcept {
+        if (!t) return false;
+        return t->kind == LogosType::Kind::F64 || is_integer_kind(t->kind);
+    }
+    static bool is_integer(const LogosType* t) noexcept {
+        return t && is_integer_kind(t->kind);
+    }
 
+    const LogosType* field_type_of(std::string_view sname, std::string_view fname) {
+        auto sit = structs_.find(std::string(sname));
+        if (sit == structs_.end()) return nullptr;
+        for (auto& f : sit->second.fields)
+            if (f.name == fname) return f.type;
+        return nullptr;
+    }
+
+    // ── lower_expr ───────────────────────────────────────────────
+
+    lir::LExprPtr lower_expr(TinyMapView expr) {
+        if (expr.is_null()) return error_expr();
+        node_line_ = get_line(expr);
+        int32_t c = code_of(expr);
+
+        switch (c) {
+
+        case la::LIT_INT: {
+            auto sv = str_of(expr.get(la::VALUE.code));
+            int64_t v = std::strtoll(sv.data(), nullptr, 10);
+            return make_expr(intlit_t(), lir::ELitInt{v});
+        }
+        case la::LIT_BOOL: {
+            AnyVal av = expr.get(la::VALUE.code);
+            bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+            return make_expr(bool_t(), lir::ELitBool{v});
+        }
+        case la::LIT_STR: {
+            auto sv = str_of(expr.get(la::VALUE.code));
+            return make_expr(make_ptr(false, u8_t()), lir::ELitStr{std::string(sv)});
+        }
+
+        case la::VAR_REF: {
+            auto name = str_of(expr.get(la::NAME.code));
+            auto* t = lookup(name);
+            if (!t) {
+                error(std::format("undefined variable '{}'", name));
+                return error_expr();
+            }
+            return make_expr(t, lir::EVarRef{std::string(name)});
+        }
+
+        case la::PAREN_EXPR:
+            if (expr.has_key(la::VALUE))
+                return lower_expr(map_of(expr.get(la::VALUE.code)));
+            return error_expr();
+
+        case la::CAST: {
+            lir::LExprPtr inner = expr.has_key(la::VALUE)
+                ? lower_expr(map_of(expr.get(la::VALUE.code)))
+                : error_expr();
+            const LogosType* target = expr.has_key(la::TYPE)
+                ? resolve_type(map_of(expr.get(la::TYPE.code)))
+                : error_t();
+            return make_expr(target, lir::ECast{std::move(inner)});
+        }
+
+        case la::BINOP:       return lower_binop(expr);
+        case la::UNARY:       return lower_unary(expr);
+        case la::DEREF:       return lower_deref(expr);
+        case la::CALL:        return lower_call(expr);
+        case la::METHOD_CALL: return lower_method_call(expr);
+        case la::FIELD_READ:  return lower_field_read(expr);
+        case la::STRUCT_LIT:  return lower_struct_lit(expr);
+        case la::INDEX_READ:  return lower_index_read(expr);
+        case la::ARR_LIT:     return lower_arr_lit(expr);
+        case la::ENUM_LIT:    return lower_enum_lit(expr);
+
+        default:
+            return error_expr();
+        }
+    }
+
+    lir::LExprPtr lower_binop(TinyMapView node) {
+        auto op  = str_of(node.get(la::OP.code));
+        auto lhs = lower_expr(map_of(node.get(la::LHS.code)));
+        auto rhs = lower_expr(map_of(node.get(la::RHS.code)));
+        auto* lt = lhs->type;
+        auto* rt = rhs->type;
+
+        const LogosType* result_type = error_t();
+
+        if (lt->kind == LogosType::Kind::Error || rt->kind == LogosType::Kind::Error) {
+            result_type = error_t();
+        } else if (op == "&&" || op == "||") {
+            if (lt->kind != LogosType::Kind::Bool)
+                error(std::format("operator '{}': left must be bool, got {}", op, type_str(lt)));
+            if (rt->kind != LogosType::Kind::Bool)
+                error(std::format("operator '{}': right must be bool, got {}", op, type_str(rt)));
+            result_type = bool_t();
+        } else if (op == "==" || op == "!=" ||
+                   op == "<"  || op == "<=" || op == ">" || op == ">=") {
+            bool ok = types_compatible(lt, rt) || types_compatible(rt, lt);
+            if (!ok)
+                error(std::format("operator '{}': type mismatch ({} vs {})",
+                      op, type_str(lt), type_str(rt)));
+            result_type = bool_t();
+        } else if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%") {
+            if (!is_numeric(lt))
+                error(std::format("operator '{}': left must be numeric, got {}", op, type_str(lt)));
+            if (!is_numeric(rt))
+                error(std::format("operator '{}': right must be numeric, got {}", op, type_str(rt)));
+            bool both_int = is_integer_kind(lt->kind) && is_integer_kind(rt->kind);
+            if (!both_int) {
+                if (is_numeric(lt) && is_numeric(rt) && !types_equal(*lt, *rt))
+                    error(std::format("operator '{}': type mismatch ({} vs {})",
+                          op, type_str(lt), type_str(rt)));
+                result_type = lt;
+            } else {
+                if (!types_compatible(lt, rt) && !types_compatible(rt, lt))
+                    error(std::format("operator '{}': type mismatch ({} vs {})",
+                          op, type_str(lt), type_str(rt)));
+                result_type = unify_int(lt, rt);
+            }
+        } else {
+            error(std::format("unknown binary operator '{}'", op));
+        }
+
+        return make_expr(result_type, lir::EBinOp{std::string(op), std::move(lhs), std::move(rhs)});
+    }
+
+    lir::LExprPtr lower_unary(TinyMapView node) {
+        auto op  = str_of(node.get(la::OP.code));
+
+        // & — address-of: return alloca pointer without evaluating operand
+        if (op == "&") {
+            auto child = map_of(node.get(la::VALUE.code));
+            if (code_of(child) != la::VAR_REF) {
+                error("'&' operand must be a variable");
+                return error_expr();
+            }
+            auto var_name = str_of(child.get(la::NAME.code));
+            auto* vt = lookup(var_name);
+            if (!vt) {
+                error(std::format("'&': undefined variable '{}'", var_name));
+                return error_expr();
+            }
+            return make_expr(make_ptr(false, vt), lir::EAddrOf{std::string(var_name)});
+        }
+
+        auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
+        auto* vt = operand->type;
+        if (vt->kind == LogosType::Kind::Error)
+            return make_expr(error_t(), lir::EUnary{std::string(op), std::move(operand)});
+
+        const LogosType* result_type = error_t();
+        if (op == "-") {
+            if (!is_numeric(vt))
+                error(std::format("unary '-': operand must be numeric, got {}", type_str(vt)));
+            result_type = vt;
+        } else if (op == "!") {
+            if (vt->kind != LogosType::Kind::Bool)
+                error(std::format("unary '!': operand must be bool, got {}", type_str(vt)));
+            result_type = bool_t();
+        } else {
+            error(std::format("unknown unary operator '{}'", op));
+        }
+
+        return make_expr(result_type, lir::EUnary{std::string(op), std::move(operand)});
+    }
+
+    lir::LExprPtr lower_deref(TinyMapView node) {
+        auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
+        auto* vt = operand->type;
+        if (vt->kind == LogosType::Kind::Error)
+            return make_expr(error_t(), lir::EDeref{std::move(operand)});
+        if (vt->kind != LogosType::Kind::Ptr) {
+            error(std::format("dereference of non-pointer type {}", type_str(vt)));
+            return make_expr(error_t(), lir::EDeref{std::move(operand)});
+        }
+        auto* res = vt->pointee ? vt->pointee : error_t();
+        return make_expr(res, lir::EDeref{std::move(operand)});
+    }
+
+    lir::LExprPtr lower_call(TinyMapView node) {
+        auto callee = str_of(node.get(la::CALLEE.code));
+        auto fit = funcs_.find(std::string(callee));
+
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            auto args = arr_of(node.get(la::ARGS.code));
+            for (uint64_t i = 0; i < args.size(); ++i)
+                arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+        }
+
+        if (fit == funcs_.end()) {
+            error(std::format("call to undefined function '{}'", callee));
+            return make_expr(error_t(), lir::ECall{std::string(callee), std::move(arg_exprs)});
+        }
+
+        auto& fi = fit->second;
+        uint64_t n_args = arg_exprs.size();
+
+        if (n_args != fi.param_types.size()) {
+            error(std::format("call to '{}': expected {} args, got {}",
+                  callee, fi.param_types.size(), n_args));
+        } else {
+            for (uint64_t i = 0; i < n_args; ++i) {
+                auto* at = arg_exprs[i]->type;
+                auto* pt = fi.param_types[i];
+                if (at->kind != LogosType::Kind::Error &&
+                    pt->kind != LogosType::Kind::Error &&
+                    !types_compatible(at, pt))
+                    error(std::format("call to '{}' arg {}: expected {}, got {}",
+                          callee, i + 1, type_str(pt), type_str(at)));
+            }
+        }
+
+        return make_expr(fi.ret_type, lir::ECall{std::string(callee), std::move(arg_exprs)});
+    }
+
+    lir::LExprPtr lower_method_call(TinyMapView node) {
+        auto method_name = str_of(node.get(la::NAME.code));
+        auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+        auto sname = struct_name_from_type(recv->type);
+
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            auto args = arr_of(node.get(la::ARGS.code));
+            for (uint64_t i = 0; i < args.size(); ++i)
+                arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+        }
+
+        if (sname.empty()) {
+            error(std::format("method call: receiver is not a struct (got {})",
+                  type_str(recv->type)));
+            return make_expr(error_t(),
+                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs)});
+        }
+
+        auto mangled = std::string(sname) + "__" + std::string(method_name);
         auto fit = funcs_.find(mangled);
-        if (fit == funcs_.end()) return;  // shouldn't happen after collect
+        if (fit == funcs_.end()) {
+            error(std::format("method call: '{}' has no method '{}'", sname, method_name));
+            return make_expr(error_t(),
+                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs)});
+        }
 
-        ret_type_ = fit->second.ret_type;
-
-        // Build initial scope from parameters.
-        scope_.clear();
-        push_scope();
-
-        if (node.has_key(la::PARAMS)) {
-            auto params_av = node.get(la::PARAMS.code);
-            if (params_av.is_pointer()) {
-                auto params_node = map_of(params_av);
-                if (params_node.has_key(la::ITEMS)) {
-                    auto arr = arr_of(params_node.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < arr.size(); ++i) {
-                        auto p = map_of(arr.get(i));
-                        if (code_of(p) != la::PARAM) continue;
-                        auto pname = str_of(p.get(la::NAME.code));
-                        auto ptype = fit->second.param_types[i];
-                        define(pname, ptype);
-                    }
+        auto& fi = fit->second;
+        uint64_t explicit_args = arg_exprs.size();
+        size_t expected_explicit = fi.param_types.size() > 0 ? fi.param_types.size() - 1 : 0;
+        if (explicit_args != expected_explicit)
+            error(std::format("method call '{}': expected {} args, got {}",
+                  mangled, expected_explicit, explicit_args));
+        else {
+            for (uint64_t i = 0; i < explicit_args; ++i) {
+                auto* at = arg_exprs[i]->type;
+                size_t pi = i + 1;
+                if (pi < fi.param_types.size()) {
+                    auto* pt = fi.param_types[pi];
+                    if (at->kind != LogosType::Kind::Error && pt->kind != LogosType::Kind::Error &&
+                        !types_compatible(at, pt))
+                        error(std::format("method '{}' arg {}: expected {}, got {}",
+                              mangled, i + 1, type_str(pt), type_str(at)));
                 }
             }
         }
 
-        // Check body.
-        if (node.has_key(la::BODY)) {
-            auto body = map_of(node.get(la::BODY.code));
-            check_block(body);
-
-            // Return-reachability: every path must return for non-void functions.
-            if (ret_type_ && ret_type_->kind != LogosType::Kind::Void &&
-                ret_type_->kind != LogosType::Kind::Error &&
-                !block_always_returns(body)) {
-                error("not all paths return a value");
-            }
-        }
-
-        pop_scope();
+        return make_expr(fi.ret_type,
+            lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs)});
     }
 
-    void check_block(TinyMapView block) {
+    lir::LExprPtr lower_field_read(TinyMapView node) {
+        auto field_name = str_of(node.get(la::FIELD.code));
+        auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+        auto sname = struct_name_from_type(recv->type);
+        if (sname.empty()) {
+            error(std::format("field read: receiver is not a struct (got {})",
+                  type_str(recv->type)));
+            return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
+        }
+        auto* ft = field_type_of(sname, field_name);
+        if (!ft) {
+            error(std::format("field read: struct '{}' has no field '{}'", sname, field_name));
+            return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
+        }
+        return make_expr(ft, lir::EFieldRead{std::move(recv), std::string(field_name)});
+    }
+
+    lir::LExprPtr lower_struct_lit(TinyMapView node) {
+        auto sname = str_of(node.get(la::NAME.code));
+        auto sit = structs_.find(std::string(sname));
+        if (sit == structs_.end()) {
+            error(std::format("struct literal: unknown struct '{}'", sname));
+            return error_expr();
+        }
+        auto& sinfo = sit->second;
+
+        std::unordered_map<std::string, bool> initialized;
+        for (auto& f : sinfo.fields) initialized[std::string(f.name)] = false;
+
+        std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+        if (node.has_key(la::ITEMS)) {
+            auto inits = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < inits.size(); ++i) {
+                auto init = map_of(inits.get(i));
+                auto fname = str_of(init.get(la::NAME.code));
+                auto it = initialized.find(std::string(fname));
+                if (it == initialized.end()) {
+                    error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
+                } else {
+                    it->second = true;
+                }
+                lir::LExprPtr val = init.has_key(la::VALUE)
+                    ? lower_expr(map_of(init.get(la::VALUE.code)))
+                    : error_expr();
+                if (it != initialized.end()) {
+                    auto* ft = field_type_of(sname, fname);
+                    if (ft && ft->kind != LogosType::Kind::Error &&
+                        val->type->kind != LogosType::Kind::Error &&
+                        !types_compatible(val->type, ft)) {
+                        error(std::format("struct literal '{}' field '{}': expected {}, got {}",
+                              sname, fname, type_str(ft), type_str(val->type)));
+                    }
+                }
+                fields.push_back({std::string(fname), std::move(val)});
+            }
+        }
+        for (auto& [fname, init] : initialized)
+            if (!init)
+                error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
+
+        return make_expr(make_struct_type(sname),
+            lir::EStructLit{std::string(sname), std::move(fields)});
+    }
+
+    lir::LExprPtr lower_index_read(TinyMapView node) {
+        auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+        auto* arr_type = recv->type;
+
+        if (arr_type->kind != LogosType::Kind::Array &&
+            arr_type->kind != LogosType::Kind::Ptr &&
+            arr_type->kind != LogosType::Kind::Error) {
+            error(std::format("index read: receiver is not an array or pointer (got {})",
+                  type_str(arr_type)));
+        }
+
+        lir::LExprPtr idx = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code)))
+            : error_expr();
+        if (!is_integer(idx->type))
+            error(std::format("array index must be integer, got {}", type_str(idx->type)));
+
+        const LogosType* elem = error_t();
+        if (arr_type->kind == LogosType::Kind::Array && arr_type->elem)  elem = arr_type->elem;
+        if (arr_type->kind == LogosType::Kind::Ptr   && arr_type->pointee) elem = arr_type->pointee;
+
+        return make_expr(elem, lir::EIndexRead{std::move(recv), std::move(idx)});
+    }
+
+    lir::LExprPtr lower_arr_lit(TinyMapView node) {
+        if (!node.has_key(la::ITEMS)) {
+            warn("empty array literal: element type unknown");
+            return error_expr();
+        }
+        auto items = arr_of(node.get(la::ITEMS.code));
+        if (items.size() == 0) {
+            warn("empty array literal: element type unknown");
+            return error_expr();
+        }
+        std::vector<lir::LExprPtr> elems;
+        for (uint64_t i = 0; i < items.size(); ++i)
+            elems.push_back(lower_expr(map_of(items.get(i))));
+
+        const LogosType* elem_type = elems[0]->type;
+        for (uint64_t i = 1; i < elems.size(); ++i) {
+            auto* t = elems[i]->type;
+            if (t->kind != LogosType::Kind::Error && elem_type->kind != LogosType::Kind::Error) {
+                if (!types_compatible(t, elem_type) && !types_compatible(elem_type, t)) {
+                    error(std::format("array literal: element {} has type {}, expected {}",
+                          i, type_str(t), type_str(elem_type)));
+                } else {
+                    elem_type = unify_int(elem_type, t);
+                }
+            }
+        }
+        if (elem_type->kind == LogosType::Kind::IntLit) elem_type = i32_t();
+
+        return make_expr(make_array(elem_type, elems.size()), lir::EArrLit{std::move(elems)});
+    }
+
+    lir::LExprPtr lower_enum_lit(TinyMapView node) {
+        auto ename = str_of(node.get(la::NAME.code));
+        auto vname = str_of(node.get(la::FIELD.code));
+        auto eit = enums_.find(std::string(ename));
+        if (eit == enums_.end()) {
+            error(std::format("unknown enum '{}'", ename));
+            return error_expr();
+        }
+        int32_t disc = 0;
+        bool found = false;
+        for (auto& v : eit->second.variants)
+            if (v.name == vname) { disc = v.value; found = true; break; }
+        if (!found) {
+            error(std::format("enum '{}' has no variant '{}'", ename, vname));
+            return error_expr();
+        }
+        return make_expr(make_enum_type(ename),
+            lir::EEnumLit{std::string(ename), std::string(vname), disc});
+    }
+
+    // ── lower_stmt and friends ───────────────────────────────────
+
+    lir::LStmt lower_stmt(TinyMapView stmt) {
+        node_line_ = get_line(stmt);
+        int32_t c = code_of(stmt);
+
+        if (c == la::LET)          return lower_let(stmt);
+        if (c == la::ASSIGN)       return lower_assign(stmt);
+        if (c == la::RETURN)       return lower_return(stmt);
+        if (c == la::IF)           return lower_if(stmt);
+        if (c == la::WHILE)        return lower_while(stmt);
+        if (c == la::FOR)          return lower_for(stmt);
+        if (c == la::LOOP)         return lower_loop(stmt);
+        if (c == la::FIELD_WRITE)  return lower_field_write(stmt);
+        if (c == la::INDEX_WRITE)  return lower_index_write(stmt);
+        if (c == la::MATCH)        return lower_match(stmt);
+        if (c == la::EXPR_STMT) {
+            lir::LExprPtr e = stmt.has_key(la::VALUE)
+                ? lower_expr(map_of(stmt.get(la::VALUE.code)))
+                : error_expr();
+            return make_stmt(node_line_, lir::SExprStmt{std::move(e)});
+        }
+        if (c == la::BREAK) {
+            if (loop_depth_ == 0) error("'break' outside loop");
+            return make_stmt(node_line_, lir::SBreak{});
+        }
+        if (c == la::CONTINUE) {
+            if (loop_depth_ == 0) error("'continue' outside loop");
+            return make_stmt(node_line_, lir::SContinue{});
+        }
+        // Unknown stmt — emit dummy expr stmt
+        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+    }
+
+    lir::LBlock lower_block(TinyMapView block) {
+        lir::LBlock result;
         push_scope();
         if (block.has_key(la::ITEMS)) {
             auto stmts = arr_of(block.get(la::ITEMS.code));
             for (uint64_t i = 0; i < stmts.size(); ++i) {
-                auto stmt = map_of(stmts.get(i));
-                if (!stmt.is_null()) check_stmt(stmt);
+                auto s = map_of(stmts.get(i));
+                if (!s.is_null()) result.stmts.push_back(lower_stmt(s));
             }
         }
         pop_scope();
+        return result;
     }
 
-    void check_stmt(TinyMapView stmt) {
-        node_line_ = get_line(stmt);
-        int32_t c = code_of(stmt);
-
-        if (c == la::LET) {
-            check_let(stmt);
-        } else if (c == la::ASSIGN) {
-            check_assign(stmt);
-        } else if (c == la::RETURN) {
-            check_return(stmt);
-        } else if (c == la::IF) {
-            check_if(stmt);
-        } else if (c == la::WHILE) {
-            check_while(stmt);
-        } else if (c == la::EXPR_STMT) {
-            if (stmt.has_key(la::VALUE))
-                check_expr(map_of(stmt.get(la::VALUE.code)));
-        } else if (c == la::FIELD_WRITE) {
-            check_field_write(stmt);
-        } else if (c == la::INDEX_WRITE) {
-            check_index_write(stmt);
-        } else if (c == la::LOOP) {
-            if (stmt.has_key(la::BODY)) {
-                ++loop_depth_;
-                check_block(map_of(stmt.get(la::BODY.code)));
-                --loop_depth_;
-            }
-        } else if (c == la::FOR) {
-            check_for(stmt);
-        } else if (c == la::MATCH) {
-            check_match(stmt);
-        } else if (c == la::BREAK || c == la::CONTINUE) {
-            if (loop_depth_ == 0)
-                error(c == la::BREAK ? "'break' outside loop" : "'continue' outside loop");
-        } else {
-            // Unknown statement kind — silently skip.
-        }
-    }
-
-    void check_let(TinyMapView node) {
+    lir::LStmt lower_let(TinyMapView node) {
         auto name = str_of(node.get(la::NAME.code));
-
         bool is_mut = false;
         if (node.has_key(la::IS_MUT)) {
             AnyVal av = node.get(la::IS_MUT.code);
-            if (!av.is_null() && av.is_value())
-                is_mut = av.as_value<uint8_t>() != 0;
+            if (!av.is_null() && av.is_value()) is_mut = av.as_value<uint8_t>() != 0;
         }
 
-        // Check RHS expression.
-        const LogosType* rhs_type = nullptr;
+        lir::LExprPtr rhs;
+        const LogosType* rhs_type;
         if (node.has_key(la::VALUE)) {
-            rhs_type = check_expr(map_of(node.get(la::VALUE.code)));
+            rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
+            rhs_type = rhs->type;
         } else {
             error(std::format("let '{}': missing value", name));
+            rhs      = error_expr();
             rhs_type = error_t();
         }
 
-        // If explicit type annotation, check compatibility.
+        const LogosType* var_type;
         if (node.has_key(la::TYPE)) {
             auto* ann = resolve_type(map_of(node.get(la::TYPE.code)));
             if (ann->kind != LogosType::Kind::Error &&
@@ -803,156 +1058,210 @@ private:
                 error(std::format("let '{}': type mismatch — expected {}, got {}",
                       name, type_str(ann), type_str(rhs_type)));
             }
-            define(name, ann, is_mut);
+            var_type = ann;
         } else {
-            // Default unresolved integer literals to i32.
-            const LogosType* actual = rhs_type;
-            if (actual->kind == LogosType::Kind::IntLit) actual = i32_t();
-            define(name, actual, is_mut);
+            var_type = rhs_type;
+            if (var_type->kind == LogosType::Kind::IntLit) var_type = i32_t();
         }
+
+        define(name, var_type, is_mut);
+
+        lir::SLet slet;
+        slet.name   = std::string(name);
+        slet.type   = var_type;
+        slet.is_mut = is_mut;
+        slet.value  = std::move(rhs);
+        return make_stmt(node_line_, std::move(slet));
     }
 
-    void check_assign(TinyMapView node) {
+    lir::LStmt lower_assign(TinyMapView node) {
         auto name = str_of(node.get(la::NAME.code));
         auto* var_type = lookup(name);
         if (!var_type) {
             error(std::format("assignment to undefined variable '{}'", name));
-            if (node.has_key(la::VALUE))
-                check_expr(map_of(node.get(la::VALUE.code)));
-            return;
+            lir::LExprPtr dummy = node.has_key(la::VALUE)
+                ? lower_expr(map_of(node.get(la::VALUE.code)))
+                : error_expr();
+            return make_stmt(node_line_, lir::SAssign{std::string(name), std::move(dummy)});
         }
-        if (!lookup_is_mut(name)) {
+        if (!lookup_is_mut(name))
             error(std::format("assignment to immutable variable '{}'", name));
+
+        lir::LExprPtr rhs = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code)))
+            : error_expr();
+        if (var_type->kind != LogosType::Kind::Error &&
+            rhs->type->kind != LogosType::Kind::Error &&
+            !types_compatible(rhs->type, var_type)) {
+            error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
+                  name, type_str(var_type), type_str(rhs->type)));
         }
-        if (node.has_key(la::VALUE)) {
-            auto* rhs = check_expr(map_of(node.get(la::VALUE.code)));
-            if (var_type->kind != LogosType::Kind::Error &&
-                rhs->kind     != LogosType::Kind::Error &&
-                !types_compatible(rhs, var_type)) {
-                error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
-                      name, type_str(var_type), type_str(rhs)));
-            }
-        }
+        return make_stmt(node_line_, lir::SAssign{std::string(name), std::move(rhs)});
     }
 
-    void check_return(TinyMapView node) {
+    lir::LStmt lower_return(TinyMapView node) {
+        lir::LExprPtr val;
         if (node.has_key(la::VALUE)) {
-            auto val_av = node.get(la::VALUE.code);
-            if (!val_av.is_null()) {
-                auto* t = check_expr(map_of(val_av));
+            AnyVal vav = node.get(la::VALUE.code);
+            if (!vav.is_null()) {
+                val = lower_expr(map_of(vav));
                 if (ret_type_ && ret_type_->kind != LogosType::Kind::Error &&
-                    t->kind != LogosType::Kind::Error &&
-                    !types_compatible(t, ret_type_)) {
+                    val->type->kind != LogosType::Kind::Error &&
+                    !types_compatible(val->type, ret_type_)) {
                     error(std::format("return type mismatch — expected {}, got {}",
-                          type_str(ret_type_), type_str(t)));
+                          type_str(ret_type_), type_str(val->type)));
                 }
-                return;
+                return make_stmt(node_line_, lir::SReturn{std::move(val)});
             }
         }
-        // return; with no value — must match void
+        // void return
         if (ret_type_ && ret_type_->kind != LogosType::Kind::Void &&
             ret_type_->kind != LogosType::Kind::Error) {
             error(std::format("return without value in function returning {}",
                   type_str(ret_type_)));
         }
+        return make_stmt(node_line_, lir::SReturn{nullptr});
     }
 
-    void check_if(TinyMapView node) {
+    lir::LStmt lower_if(TinyMapView node) {
+        lir::LExprPtr cond;
         if (node.has_key(la::COND)) {
-            auto* ct = check_expr(map_of(node.get(la::COND.code)));
-            if (ct->kind != LogosType::Kind::Bool &&
-                ct->kind != LogosType::Kind::Error) {
-                error(std::format("if condition must be bool, got {}",
-                      type_str(ct)));
-            }
+            cond = lower_expr(map_of(node.get(la::COND.code)));
+            if (cond->type->kind != LogosType::Kind::Bool &&
+                cond->type->kind != LogosType::Kind::Error)
+                error(std::format("if condition must be bool, got {}", type_str(cond->type)));
+        } else {
+            cond = error_expr();
         }
+
+        auto then_block = std::make_unique<lir::LBlock>();
         if (node.has_key(la::THEN))
-            check_block(map_of(node.get(la::THEN.code)));
+            *then_block = lower_block(map_of(node.get(la::THEN.code)));
+
+        std::optional<lir::LBlockPtr> else_opt;
         if (node.has_key(la::ELSE)) {
             auto else_node = map_of(node.get(la::ELSE.code));
-            if (code_of(else_node) == la::BLOCK)
-                check_block(else_node);
-            else
-                check_stmt(else_node);  // else-if
+            if (code_of(else_node) == la::BLOCK) {
+                else_opt = std::make_unique<lir::LBlock>(lower_block(else_node));
+            } else {
+                // else if: wrap single SIf in a block
+                auto inner_if = lower_if(else_node);
+                auto b = std::make_unique<lir::LBlock>();
+                b->stmts.push_back(std::move(inner_if));
+                else_opt = std::move(b);
+            }
         }
+
+        lir::SIf sif;
+        sif.cond  = std::move(cond);
+        sif.then_ = std::move(then_block);
+        sif.else_ = std::move(else_opt);
+        return make_stmt(node_line_, std::move(sif));
     }
 
-    void check_for(TinyMapView node) {
-        auto var_name = str_of(node.get(la::NAME.code));
-        // Check lo and hi are integers.
-        if (node.has_key(la::LHS)) {
-            auto* lt = check_expr(map_of(node.get(la::LHS.code)));
-            if (!is_integer(lt) && lt->kind != LogosType::Kind::Error)
-                error(std::format("for range start must be integer, got {}", type_str(lt)));
-        }
-        if (node.has_key(la::RHS)) {
-            auto* rt = check_expr(map_of(node.get(la::RHS.code)));
-            if (!is_integer(rt) && rt->kind != LogosType::Kind::Error)
-                error(std::format("for range end must be integer, got {}", type_str(rt)));
-        }
-        // Loop variable is i32 (mutable, loop-scoped).
-        push_scope();
-        define(var_name, i32_t(), /*is_mut=*/true);
+    lir::LStmt lower_while(TinyMapView node) {
+        lir::LExprPtr cond;
+        if (node.has_key(la::COND)) {
+            cond = lower_expr(map_of(node.get(la::COND.code)));
+            if (cond->type->kind != LogosType::Kind::Bool &&
+                cond->type->kind != LogosType::Kind::Error)
+                error(std::format("while condition must be bool, got {}", type_str(cond->type)));
+        } else { cond = error_expr(); }
+
+        auto body = std::make_unique<lir::LBlock>();
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
-            check_block(map_of(node.get(la::BODY.code)));
+            *body = lower_block(map_of(node.get(la::BODY.code)));
+            --loop_depth_;
+        }
+        lir::SWhile sw; sw.cond = std::move(cond); sw.body = std::move(body);
+        return make_stmt(node_line_, std::move(sw));
+    }
+
+    lir::LStmt lower_for(TinyMapView node) {
+        auto var_name = str_of(node.get(la::NAME.code));
+
+        lir::LExprPtr lo = node.has_key(la::LHS)
+            ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+        lir::LExprPtr hi = node.has_key(la::RHS)
+            ? lower_expr(map_of(node.get(la::RHS.code))) : error_expr();
+
+        if (!is_integer(lo->type) && lo->type->kind != LogosType::Kind::Error)
+            error(std::format("for range start must be integer, got {}", type_str(lo->type)));
+        if (!is_integer(hi->type) && hi->type->kind != LogosType::Kind::Error)
+            error(std::format("for range end must be integer, got {}", type_str(hi->type)));
+
+        bool inclusive = false;
+        if (node.has_key(la::INCLUSIVE)) {
+            AnyVal av = node.get(la::INCLUSIVE.code);
+            if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
+        }
+
+        push_scope();
+        define(var_name, i32_t(), true);
+        auto body = std::make_unique<lir::LBlock>();
+        if (node.has_key(la::BODY)) {
+            ++loop_depth_;
+            *body = lower_block(map_of(node.get(la::BODY.code)));
             --loop_depth_;
         }
         pop_scope();
+
+        lir::SFor sf;
+        sf.var       = std::string(var_name);
+        sf.lo        = std::move(lo);
+        sf.hi        = std::move(hi);
+        sf.inclusive = inclusive;
+        sf.body      = std::move(body);
+        return make_stmt(node_line_, std::move(sf));
     }
 
-    void check_while(TinyMapView node) {
-        if (node.has_key(la::COND)) {
-            auto* ct = check_expr(map_of(node.get(la::COND.code)));
-            if (ct->kind != LogosType::Kind::Bool &&
-                ct->kind != LogosType::Kind::Error) {
-                error(std::format("while condition must be bool, got {}",
-                      type_str(ct)));
-            }
-        }
+    lir::LStmt lower_loop(TinyMapView node) {
+        auto body = std::make_unique<lir::LBlock>();
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
-            check_block(map_of(node.get(la::BODY.code)));
+            *body = lower_block(map_of(node.get(la::BODY.code)));
             --loop_depth_;
         }
+        return make_stmt(node_line_, lir::SLoop{std::move(body)});
     }
 
-    void check_field_write(TinyMapView node) {
+    lir::LStmt lower_field_write(TinyMapView node) {
         auto recv_name  = str_of(node.get(la::RECEIVER.code));
         auto field_name = str_of(node.get(la::FIELD.code));
         auto sname = struct_name_of(recv_name);
         if (sname.empty()) {
             error(std::format("field write: '{}' is not a struct", recv_name));
-            if (node.has_key(la::VALUE))
-                check_expr(map_of(node.get(la::VALUE.code)));
-            return;
-        }
-        // Mutability check: immutable struct variable or *const ptr.
-        auto* recv_type = lookup(recv_name);
-        if (recv_type && recv_type->kind == LogosType::Kind::Ptr) {
-            if (!recv_type->mut_ptr)
-                error(std::format("field write to '{}': receiver is *const pointer",
-                      recv_name));
-        } else if (!lookup_is_mut(recv_name)) {
-            error(std::format("field write to immutable variable '{}'", recv_name));
-        }
-        auto* field_type = field_type_of(sname, field_name);
-        if (!field_type) {
-            error(std::format("field write: struct '{}' has no field '{}'",
-                  sname, field_name));
-        }
-        if (node.has_key(la::VALUE)) {
-            auto* vt = check_expr(map_of(node.get(la::VALUE.code)));
-            if (field_type && field_type->kind != LogosType::Kind::Error &&
-                vt->kind != LogosType::Kind::Error &&
-                !types_compatible(vt, field_type)) {
-                error(std::format("field write '{}.{}': expected {}, got {}",
-                      recv_name, field_name, type_str(field_type), type_str(vt)));
+        } else {
+            auto* recv_type = lookup(recv_name);
+            if (recv_type && recv_type->kind == LogosType::Kind::Ptr) {
+                if (!recv_type->mut_ptr)
+                    error(std::format("field write to '{}': receiver is *const pointer", recv_name));
+            } else if (!lookup_is_mut(recv_name)) {
+                error(std::format("field write to immutable variable '{}'", recv_name));
             }
         }
+        auto* ft = sname.empty() ? nullptr : field_type_of(sname, field_name);
+        if (!sname.empty() && !ft)
+            error(std::format("field write: struct '{}' has no field '{}'", sname, field_name));
+
+        lir::LExprPtr val = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code)))
+            : error_expr();
+        if (ft && ft->kind != LogosType::Kind::Error &&
+            val->type->kind != LogosType::Kind::Error &&
+            !types_compatible(val->type, ft)) {
+            error(std::format("field write '{}.{}': expected {}, got {}",
+                  recv_name, field_name, type_str(ft), type_str(val->type)));
+        }
+        lir::SFieldWrite sfw;
+        sfw.receiver = std::string(recv_name);
+        sfw.field    = std::string(field_name);
+        sfw.value    = std::move(val);
+        return make_stmt(node_line_, std::move(sfw));
     }
 
-    void check_index_write(TinyMapView node) {
+    lir::LStmt lower_index_write(TinyMapView node) {
         auto arr_name = str_of(node.get(la::NAME.code));
         auto* arr_type = lookup(arr_name);
         if (!arr_type) {
@@ -968,517 +1277,246 @@ private:
             error(std::format("index write through *const pointer '{}'", arr_name));
         }
 
-        // Check index is integer.
-        if (node.has_key(la::LHS)) {
-            auto* it = check_expr(map_of(node.get(la::LHS.code)));
-            if (!is_integer(it)) {
-                error(std::format("array index must be an integer, got {}", type_str(it)));
-            }
-        }
+        lir::LExprPtr idx = node.has_key(la::LHS)
+            ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+        if (!is_integer(idx->type))
+            error(std::format("array index must be an integer, got {}", type_str(idx->type)));
 
-        // Determine element type: array → elem, pointer → pointee.
         const LogosType* elem_type = nullptr;
         if (arr_type) {
-            if (arr_type->kind == LogosType::Kind::Array)
-                elem_type = arr_type->elem;
-            else if (arr_type->kind == LogosType::Kind::Ptr)
-                elem_type = arr_type->pointee;
+            if (arr_type->kind == LogosType::Kind::Array) elem_type = arr_type->elem;
+            else if (arr_type->kind == LogosType::Kind::Ptr) elem_type = arr_type->pointee;
         }
 
-        // Check value type matches element type.
-        if (node.has_key(la::VALUE) && elem_type) {
-            auto* vt = check_expr(map_of(node.get(la::VALUE.code)));
-            if (elem_type->kind != LogosType::Kind::Error &&
-                vt->kind != LogosType::Kind::Error &&
-                !types_compatible(vt, elem_type)) {
-                error(std::format("index write to '{}': expected {}, got {}",
-                      arr_name, type_str(elem_type), type_str(vt)));
-            }
-        } else if (node.has_key(la::VALUE)) {
-            check_expr(map_of(node.get(la::VALUE.code)));
+        lir::LExprPtr val = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+        if (elem_type && elem_type->kind != LogosType::Kind::Error &&
+            val->type->kind != LogosType::Kind::Error &&
+            !types_compatible(val->type, elem_type)) {
+            error(std::format("index write to '{}': expected {}, got {}",
+                  arr_name, type_str(elem_type), type_str(val->type)));
         }
+
+        lir::SIndexWrite siw;
+        siw.arr   = std::string(arr_name);
+        siw.index = std::move(idx);
+        siw.value = std::move(val);
+        return make_stmt(node_line_, std::move(siw));
     }
 
-    // ── Expression type checking ─────────────────────────────────
-    // Returns error_t() on failure (never nullptr).
+    lir::LStmt lower_match(TinyMapView node) {
+        lir::LExprPtr scrut;
+        const LogosType* scrut_type = error_t();
+        if (node.has_key(la::VALUE)) {
+            scrut = lower_expr(map_of(node.get(la::VALUE.code)));
+            scrut_type = scrut->type;
+        } else { scrut = error_expr(); }
 
-    const LogosType* check_expr(TinyMapView expr) {
-        if (expr.is_null()) return error_t();
-        node_line_ = get_line(expr);
-        int32_t c = code_of(expr);
-
-        switch (c) {
-        case la::LIT_INT:   return intlit_t();
-        case la::LIT_BOOL:  return bool_t();
-        case la::LIT_STR:   return make_ptr(false, u8_t());  // *const u8
-
-        case la::VAR_REF: {
-            auto name = str_of(expr.get(la::NAME.code));
-            auto* t = lookup(name);
-            if (!t) {
-                error(std::format("undefined variable '{}'", name));
-                return error_t();
-            }
-            return t;
-        }
-
-        case la::PAREN_EXPR:
-            if (expr.has_key(la::VALUE))
-                return check_expr(map_of(expr.get(la::VALUE.code)));
-            return error_t();
-
-        case la::CAST: {
-            if (expr.has_key(la::VALUE))
-                check_expr(map_of(expr.get(la::VALUE.code)));
-            if (expr.has_key(la::TYPE))
-                return resolve_type(map_of(expr.get(la::TYPE.code)));
-            return error_t();
-        }
-        case la::BINOP:   return check_binop(expr);
-        case la::UNARY:   return check_unary(expr);
-        case la::DEREF:   return check_deref(expr);
-        case la::CALL:    return check_call(expr);
-        case la::METHOD_CALL: return check_method_call(expr);
-        case la::FIELD_READ:  return check_field_read(expr);
-        case la::STRUCT_LIT:  return check_struct_lit(expr);
-        case la::INDEX_READ:  return check_index_read(expr);
-        case la::ARR_LIT:     return check_arr_lit(expr);
-        case la::ENUM_LIT:    return check_enum_lit(expr);
-
-        default:
-            // Unknown expression — silently treat as error type.
-            return error_t();
-        }
-    }
-
-    const LogosType* check_binop(TinyMapView node) {
-        auto op = str_of(node.get(la::OP.code));
-        auto* lhs = check_expr(map_of(node.get(la::LHS.code)));
-        auto* rhs = check_expr(map_of(node.get(la::RHS.code)));
-        if (lhs->kind == LogosType::Kind::Error ||
-            rhs->kind == LogosType::Kind::Error)
-            return error_t();
-
-        // Logical operators: bool × bool → bool
-        if (op == "&&" || op == "||") {
-            if (lhs->kind != LogosType::Kind::Bool)
-                error(std::format("operator '{}': left operand must be bool, got {}", op, type_str(lhs)));
-            if (rhs->kind != LogosType::Kind::Bool)
-                error(std::format("operator '{}': right operand must be bool, got {}", op, type_str(rhs)));
-            return bool_t();
-        }
-
-        // Comparison operators: T × T → bool
-        // Integer literals are compatible with any integer type.
-        if (op == "==" || op == "!=" ||
-            op == "<"  || op == "<=" ||
-            op == ">"  || op == ">=") {
-            bool ok = types_compatible(lhs, rhs) || types_compatible(rhs, lhs);
-            if (!ok)
-                error(std::format("operator '{}': operand type mismatch ({} vs {})",
-                      op, type_str(lhs), type_str(rhs)));
-            return bool_t();
-        }
-
-        // Arithmetic: numeric × numeric → result type (unified if one is IntLit)
-        if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%") {
-            if (!is_numeric(lhs))
-                error(std::format("operator '{}': left operand must be numeric, got {}", op, type_str(lhs)));
-            if (!is_numeric(rhs))
-                error(std::format("operator '{}': right operand must be numeric, got {}", op, type_str(rhs)));
-            bool both_int = is_integer_kind(lhs->kind) && is_integer_kind(rhs->kind);
-            if (!both_int) {
-                // For f64: types must match exactly.
-                if (is_numeric(lhs) && is_numeric(rhs) && !types_equal(*lhs, *rhs))
-                    error(std::format("operator '{}': operand type mismatch ({} vs {})",
-                          op, type_str(lhs), type_str(rhs)));
-                return lhs;
-            }
-            // Integer operands: IntLit widens to the concrete side.
-            if (!types_compatible(lhs, rhs) && !types_compatible(rhs, lhs))
-                error(std::format("operator '{}': operand type mismatch ({} vs {})",
-                      op, type_str(lhs), type_str(rhs)));
-            return unify_int(lhs, rhs);
-        }
-
-        error(std::format("unknown binary operator '{}'", op));
-        return error_t();
-    }
-
-    const LogosType* check_unary(TinyMapView node) {
-        auto op  = str_of(node.get(la::OP.code));
-        auto* vt = check_expr(map_of(node.get(la::VALUE.code)));
-        if (vt->kind == LogosType::Kind::Error) return error_t();
-
-        if (op == "-") {
-            if (!is_numeric(vt))
-                error(std::format("unary '-': operand must be numeric, got {}", type_str(vt)));
-            return vt;
-        }
-        if (op == "!") {
-            if (vt->kind != LogosType::Kind::Bool)
-                error(std::format("unary '!': operand must be bool, got {}", type_str(vt)));
-            return bool_t();
-        }
-        if (op == "&") {
-            // Address-of: result is *const T
-            return make_ptr(false, vt);
-        }
-        error(std::format("unknown unary operator '{}'", op));
-        return error_t();
-    }
-
-    const LogosType* check_deref(TinyMapView node) {
-        auto* vt = check_expr(map_of(node.get(la::VALUE.code)));
-        if (vt->kind == LogosType::Kind::Error) return error_t();
-        if (vt->kind != LogosType::Kind::Ptr) {
-            error(std::format("dereference of non-pointer type {}", type_str(vt)));
-            return error_t();
-        }
-        return vt->pointee ? vt->pointee : error_t();
-    }
-
-    const LogosType* check_call(TinyMapView node) {
-        auto callee = str_of(node.get(la::CALLEE.code));
-        auto fit = funcs_.find(std::string(callee));
-        if (fit == funcs_.end()) {
-            error(std::format("call to undefined function '{}'", callee));
-            // Still type-check args to catch nested errors.
-            if (node.has_key(la::ARGS)) {
-                auto args = arr_of(node.get(la::ARGS.code));
-                for (uint64_t i = 0; i < args.size(); ++i)
-                    check_expr(map_of(args.get(i)));
-            }
-            return error_t();
-        }
-
-        auto& fi = fit->second;
-        uint64_t n_args = 0;
-        if (node.has_key(la::ARGS)) {
-            auto args = arr_of(node.get(la::ARGS.code));
-            n_args = args.size();
-            if (n_args != fi.param_types.size()) {
-                error(std::format("call to '{}': expected {} args, got {}",
-                      callee, fi.param_types.size(), n_args));
-            }
-            for (uint64_t i = 0; i < args.size(); ++i) {
-                auto* at = check_expr(map_of(args.get(i)));
-                if (i < fi.param_types.size()) {
-                    auto* pt = fi.param_types[i];
-                    if (at->kind != LogosType::Kind::Error &&
-                        pt->kind != LogosType::Kind::Error &&
-                        !types_compatible(at, pt)) {
-                        error(std::format("call to '{}' arg {}: expected {}, got {}",
-                              callee, i + 1, type_str(pt), type_str(at)));
-                    }
-                }
-            }
-        } else if (!fi.param_types.empty()) {
-            error(std::format("call to '{}': expected {} args, got 0",
-                  callee, fi.param_types.size()));
-        }
-
-        return fi.ret_type;
-    }
-
-    // Extract struct name from a LogosType (Struct or *Struct).
-    std::string_view struct_name_from_type(const LogosType* t) {
-        if (!t) return {};
-        if (t->kind == LogosType::Kind::Struct) return t->struct_name;
-        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
-            t->pointee->kind == LogosType::Kind::Struct)
-            return t->pointee->struct_name;
-        return {};
-    }
-
-    const LogosType* check_method_call(TinyMapView node) {
-        auto method_name = str_of(node.get(la::NAME.code));
-        // RECEIVER is an expression node (not a bare name string).
-        auto* recv_type = check_expr(map_of(node.get(la::RECEIVER.code)));
-        auto sname = struct_name_from_type(recv_type);
-        if (sname.empty()) {
-            error(std::format("method call: receiver is not a struct (got {})",
-                  type_str(recv_type)));
-            return error_t();
-        }
-        auto mangled = std::string(sname) + "__" + std::string(method_name);
-        auto fit = funcs_.find(mangled);
-        if (fit == funcs_.end()) {
-            error(std::format("method call: '{}' has no method '{}'",
-                  sname, method_name));
-            return error_t();
-        }
-
-        auto& fi = fit->second;
-        // First param is implicit 'self' — caller provides explicit args for the rest.
-        uint64_t explicit_args = 0;
-        if (node.has_key(la::ARGS))
-            explicit_args = arr_of(node.get(la::ARGS.code)).size();
-
-        size_t expected_explicit = fi.param_types.size() > 0
-                                   ? fi.param_types.size() - 1 : 0;
-        if (explicit_args != expected_explicit) {
-            error(std::format("method call '{}': expected {} args, got {}",
-                  mangled, expected_explicit, explicit_args));
-        }
-
-        // Check explicit arg types (params[1..]).
-        if (node.has_key(la::ARGS)) {
-            auto args = arr_of(node.get(la::ARGS.code));
-            for (uint64_t i = 0; i < args.size(); ++i) {
-                auto* at = check_expr(map_of(args.get(i)));
-                size_t pi = i + 1;  // skip self param
-                if (pi < fi.param_types.size()) {
-                    auto* pt = fi.param_types[pi];
-                    if (at->kind != LogosType::Kind::Error &&
-                        pt->kind != LogosType::Kind::Error &&
-                        !types_compatible(at, pt)) {
-                        error(std::format("method '{}' arg {}: expected {}, got {}",
-                              mangled, i + 1, type_str(pt), type_str(at)));
-                    }
-                }
-            }
-        }
-
-        return fi.ret_type;
-    }
-
-    const LogosType* check_field_read(TinyMapView node) {
-        auto field_name = str_of(node.get(la::FIELD.code));
-        // RECEIVER is an expression node (not a bare name string).
-        auto* recv_type = check_expr(map_of(node.get(la::RECEIVER.code)));
-        auto sname = struct_name_from_type(recv_type);
-        if (sname.empty()) {
-            error(std::format("field read: receiver is not a struct (got {})",
-                  type_str(recv_type)));
-            return error_t();
-        }
-        auto* ft = field_type_of(sname, field_name);
-        if (!ft) {
-            error(std::format("field read: struct '{}' has no field '{}'",
-                  sname, field_name));
-            return error_t();
-        }
-        return ft;
-    }
-
-    const LogosType* check_struct_lit(TinyMapView node) {
-        auto sname = str_of(node.get(la::NAME.code));
-        auto sit = structs_.find(std::string(sname));
-        if (sit == structs_.end()) {
-            error(std::format("struct literal: unknown struct '{}'", sname));
-            return error_t();
-        }
-        auto& sinfo = sit->second;
-
-        // Track which fields are initialized.
-        std::unordered_map<std::string, bool> initialized;
-        for (auto& f : sinfo.fields) initialized[std::string(f.name)] = false;
+        lir::SMatch smatch;
+        smatch.scrut = std::move(scrut);
 
         if (node.has_key(la::ITEMS)) {
-            auto inits = arr_of(node.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < inits.size(); ++i) {
-                auto init = map_of(inits.get(i));
-                auto fname = str_of(init.get(la::NAME.code));
+            auto arms = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < arms.size(); ++i) {
+                auto arm = map_of(arms.get(i));
+                if (code_of(arm) != la::MATCH_ARM) continue;
 
-                auto it = initialized.find(std::string(fname));
-                if (it == initialized.end()) {
-                    error(std::format("struct literal '{}': unknown field '{}'",
-                          sname, fname));
-                } else {
-                    it->second = true;
-                }
-
-                if (init.has_key(la::VALUE)) {
-                    auto* vt = check_expr(map_of(init.get(la::VALUE.code)));
-                    auto* ft = field_type_of(sname, fname);
-                    if (ft && ft->kind != LogosType::Kind::Error &&
-                        vt->kind != LogosType::Kind::Error &&
-                        !types_compatible(vt, ft)) {
-                        error(std::format("struct literal '{}' field '{}': expected {}, got {}",
-                              sname, fname, type_str(ft), type_str(vt)));
-                    }
-                }
-            }
-        }
-
-        // Check for uninitialized fields.
-        for (auto& [fname, init] : initialized) {
-            if (!init)
-                error(std::format("struct literal '{}': field '{}' not initialized",
-                      sname, fname));
-        }
-
-        return make_struct_type(sname);
-    }
-
-    const LogosType* check_index_read(TinyMapView node) {
-        // RECEIVER is an expression node (was NAME string before postfix-chain refactor).
-        auto* arr_type = check_expr(map_of(node.get(la::RECEIVER.code)));
-        if (!arr_type) {
-            if (node.has_key(la::VALUE))
-                check_expr(map_of(node.get(la::VALUE.code)));
-            return error_t();
-        }
-        if (arr_type->kind != LogosType::Kind::Array &&
-            arr_type->kind != LogosType::Kind::Ptr &&
-            arr_type->kind != LogosType::Kind::Error) {
-            error(std::format("index read: receiver is not an array or pointer (got {})",
-                  type_str(arr_type)));
-        }
-        if (node.has_key(la::VALUE)) {
-            auto* it = check_expr(map_of(node.get(la::VALUE.code)));
-            if (!is_integer(it))
-                error(std::format("array index must be integer, got {}", type_str(it)));
-        }
-        if (arr_type->kind == LogosType::Kind::Array && arr_type->elem)
-            return arr_type->elem;
-        if (arr_type->kind == LogosType::Kind::Ptr && arr_type->pointee)
-            return arr_type->pointee;
-        return error_t();
-    }
-
-    const LogosType* check_arr_lit(TinyMapView node) {
-        if (!node.has_key(la::ITEMS)) {
-            // Empty array literal — type cannot be inferred.
-            warn("empty array literal: element type unknown");
-            return error_t();
-        }
-        auto items = arr_of(node.get(la::ITEMS.code));
-        if (items.size() == 0) {
-            warn("empty array literal: element type unknown");
-            return error_t();
-        }
-        auto* elem_type = check_expr(map_of(items.get(0)));
-        for (uint64_t i = 1; i < items.size(); ++i) {
-            auto* t = check_expr(map_of(items.get(i)));
-            if (t->kind != LogosType::Kind::Error &&
-                elem_type->kind != LogosType::Kind::Error) {
-                if (!types_compatible(t, elem_type) && !types_compatible(elem_type, t)) {
-                    error(std::format("array literal: element {} has type {}, expected {}",
-                          i, type_str(t), type_str(elem_type)));
-                } else {
-                    elem_type = unify_int(elem_type, t);
-                }
-            }
-        }
-        // Default unresolved integer literals to i32.
-        if (elem_type->kind == LogosType::Kind::IntLit)
-            elem_type = i32_t();
-        return make_array(elem_type, items.size());
-    }
-
-    const LogosType* check_enum_lit(TinyMapView node) {
-        auto ename = str_of(node.get(la::NAME.code));
-        auto vname = str_of(node.get(la::FIELD.code));
-        auto eit = enums_.find(std::string(ename));
-        if (eit == enums_.end()) {
-            error(std::format("unknown enum '{}'", ename));
-            return error_t();
-        }
-        bool found = false;
-        for (auto& v : eit->second.variants)
-            if (v.name == vname) { found = true; break; }
-        if (!found) {
-            error(std::format("enum '{}' has no variant '{}'", ename, vname));
-            return error_t();
-        }
-        return make_enum_type(ename);
-    }
-
-    void check_match(TinyMapView node) {
-        // Type-check the scrutinee.
-        const LogosType* scrut_type = error_t();
-        if (node.has_key(la::VALUE))
-            scrut_type = check_expr(map_of(node.get(la::VALUE.code)));
-
-        bool has_wild = false;
-        if (!node.has_key(la::ITEMS)) return;
-        auto arms = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < arms.size(); ++i) {
-            auto arm = map_of(arms.get(i));
-            if (code_of(arm) != la::MATCH_ARM) continue;
-
-            // Check pattern against scrutinee type.
-            if (arm.has_key(la::LHS)) {
-                auto pat = map_of(arm.get(la::LHS.code));
-                int32_t pc = code_of(pat);
-                if (pc == la::PAT_VARIANT) {
-                    auto pename = str_of(pat.get(la::NAME.code));
-                    auto pvname = str_of(pat.get(la::FIELD.code));
-                    auto eit = enums_.find(std::string(pename));
-                    if (eit == enums_.end()) {
-                        error(std::format("match pattern: unknown enum '{}'", pename));
-                    } else {
-                        // Scrutinee must be same enum.
-                        if (scrut_type->kind == LogosType::Kind::Enum &&
-                            scrut_type->enum_name != pename) {
-                            error(std::format("match pattern: enum '{}' does not match scrutinee type '{}'",
-                                  pename, type_str(scrut_type)));
+                // Build pattern
+                lir::Pattern pat = lir::PatWild{"_"};
+                if (arm.has_key(la::LHS)) {
+                    auto pnode = map_of(arm.get(la::LHS.code));
+                    int32_t pc = code_of(pnode);
+                    if (pc == la::PAT_VARIANT) {
+                        auto pename = std::string(str_of(pnode.get(la::NAME.code)));
+                        auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+                        int32_t disc = 0;
+                        auto eit = enums_.find(pename);
+                        if (eit == enums_.end()) {
+                            error(std::format("match pattern: unknown enum '{}'", pename));
+                        } else {
+                            if (scrut_type->kind == LogosType::Kind::Enum &&
+                                scrut_type->enum_name != pename)
+                                error(std::format("match: enum '{}' != scrutinee '{}'",
+                                      pename, type_str(scrut_type)));
+                            bool found = false;
+                            for (auto& v : eit->second.variants)
+                                if (v.name == pvname) { disc = v.value; found = true; break; }
+                            if (!found)
+                                error(std::format("match: enum '{}' has no variant '{}'",
+                                      pename, pvname));
                         }
-                        bool found = false;
-                        for (auto& v : eit->second.variants)
-                            if (v.name == pvname) { found = true; break; }
-                        if (!found)
-                            error(std::format("match pattern: enum '{}' has no variant '{}'",
-                                  pename, pvname));
+                        pat = lir::PatVariant{pename, pvname, disc};
+                    } else if (pc == la::PAT_INT) {
+                        auto sv = str_of(pnode.get(la::VALUE.code));
+                        pat = lir::PatInt{(int32_t)std::strtol(sv.data(), nullptr, 10)};
+                    } else if (pc == la::PAT_BOOL) {
+                        AnyVal bv = pnode.get(la::VALUE.code);
+                        bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
+                        pat = lir::PatBool{bval};
+                    } else if (pc == la::PAT_WILD) {
+                        auto wname = str_of(pnode.get(la::NAME.code));
+                        pat = lir::PatWild{std::string(wname)};
                     }
-                } else if (pc == la::PAT_INT) {
-                    if (scrut_type->kind != LogosType::Kind::Error &&
-                        !is_integer(scrut_type) &&
-                        scrut_type->kind != LogosType::Kind::Enum) {
-                        error(std::format("match pattern: integer pattern on non-integer scrutinee (got {})",
-                              type_str(scrut_type)));
-                    }
-                } else if (pc == la::PAT_BOOL) {
-                    if (scrut_type->kind != LogosType::Kind::Error &&
-                        scrut_type->kind != LogosType::Kind::Bool) {
-                        error(std::format("match pattern: bool pattern on non-bool scrutinee (got {})",
-                              type_str(scrut_type)));
-                    }
-                } else if (pc == la::PAT_WILD) {
-                    has_wild = true;
                 }
-            }
 
-            // Check arm body.
-            if (arm.has_key(la::BODY)) {
-                auto body = map_of(arm.get(la::BODY.code));
-                if (code_of(body) == la::BLOCK)
-                    check_block(body);
-                else
-                    check_stmt(body);
+                // Build body block
+                lir::LBlockPtr body = std::make_unique<lir::LBlock>();
+                if (arm.has_key(la::BODY)) {
+                    auto body_node = map_of(arm.get(la::BODY.code));
+                    if (code_of(body_node) == la::BLOCK) {
+                        *body = lower_block(body_node);
+                    } else {
+                        body->stmts.push_back(lower_stmt(body_node));
+                    }
+                }
+                smatch.arms.push_back({std::move(pat), std::move(body)});
             }
         }
-        (void)has_wild;  // exhaustiveness checks deferred
+        return make_stmt(node_line_, std::move(smatch));
     }
 
-    // ── Helpers ──────────────────────────────────────────────────
+    // ── lower_fn ─────────────────────────────────────────────────
 
-    static bool is_numeric(const LogosType* t) noexcept {
-        if (!t) return false;
-        return t->kind == LogosType::Kind::F64 || is_integer_kind(t->kind);
+    lir::LFunction lower_fn(TinyMapView node, std::string_view struct_ctx = {}) {
+        auto raw_name = str_of(node.get(la::NAME.code));
+        std::string mangled = struct_ctx.empty()
+            ? std::string(raw_name)
+            : std::string(struct_ctx) + "__" + std::string(raw_name);
+
+        ctx_       = std::format("fn {}", mangled);
+        node_line_ = get_line(node);
+
+        lir::LFunction fn;
+        fn.name      = mangled;
+        fn.is_extern = (code_of(node) == la::EXTERN_FN);
+
+        auto fit = funcs_.find(mangled);
+        if (fit == funcs_.end()) return fn;   // shouldn't happen after collect
+
+        fn.ret_type = fit->second.ret_type;
+        ret_type_   = fn.ret_type;
+
+        scope_.clear();
+        push_scope();
+
+        // Parameters
+        if (node.has_key(la::PARAMS)) {
+            auto params_av = node.get(la::PARAMS.code);
+            if (params_av.is_pointer()) {
+                auto params_node = map_of(params_av);
+                if (params_node.has_key(la::ITEMS)) {
+                    auto arr = arr_of(params_node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < arr.size(); ++i) {
+                        auto p = map_of(arr.get(i));
+                        if (code_of(p) != la::PARAM) continue;
+                        auto pname = str_of(p.get(la::NAME.code));
+                        auto ptype = fit->second.param_types[i];
+                        define(pname, ptype);
+                        fn.params.push_back({std::string(pname), ptype});
+                    }
+                }
+            }
+        }
+
+        // Body (extern fns have no body)
+        if (!fn.is_extern && node.has_key(la::BODY)) {
+            auto body_node = map_of(node.get(la::BODY.code));
+            fn.body = lower_block(body_node);
+            // Return reachability check (on AST node — before scope is gone)
+            if (fn.ret_type && fn.ret_type->kind != LogosType::Kind::Void &&
+                fn.ret_type->kind != LogosType::Kind::Error &&
+                !block_always_returns(body_node)) {
+                error("not all paths return a value");
+            }
+        }
+
+        pop_scope();
+        return fn;
     }
 
-    static bool is_integer(const LogosType* t) noexcept {
-        return t && is_integer_kind(t->kind);
+    // ── lower_struct/enum/const/alias ────────────────────────────
+
+    lir::LStructDef lower_struct_def(TinyMapView node) {
+        auto sname = std::string(str_of(node.get(la::NAME.code)));
+        lir::LStructDef sd;
+        sd.name = sname;
+        auto& sinfo = structs_[sname];
+        for (auto& f : sinfo.fields)
+            sd.fields.push_back({std::string(f.name), f.type});
+        if (node.has_key(la::ITEMS)) {
+            auto methods = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t m = 0; m < methods.size(); ++m) {
+                auto method = map_of(methods.get(m));
+                if (code_of(method) == la::FN)
+                    sd.methods.push_back(lower_fn(method, sname));
+            }
+        }
+        return sd;
     }
 
-    // Look up a field's type in a struct (returns nullptr if not found).
-    const LogosType* field_type_of(std::string_view sname,
-                                   std::string_view fname) {
-        auto sit = structs_.find(std::string(sname));
-        if (sit == structs_.end()) return nullptr;
-        for (auto& f : sit->second.fields)
-            if (f.name == fname) return f.type;
-        return nullptr;
+    lir::LEnumDef lower_enum_def(TinyMapView node) {
+        auto ename = std::string(str_of(node.get(la::NAME.code)));
+        lir::LEnumDef ed;
+        ed.name = ename;
+        auto& einfo = enums_[ename];
+        for (auto& v : einfo.variants)
+            ed.variants.push_back({std::string(v.name), v.value});
+        return ed;
+    }
+
+    lir::LConst lower_const_def(TinyMapView node) {
+        auto name = std::string(str_of(node.get(la::NAME.code)));
+        lir::LConst lc;
+        lc.name = name;
+        auto cit = module_consts_.find(name);
+        lc.type = (cit != module_consts_.end()) ? cit->second : error_t();
+        if (node.has_key(la::VALUE))
+            lc.value = lower_expr(map_of(node.get(la::VALUE.code)));
+        else
+            lc.value = error_expr();
+        return lc;
+    }
+
+    lir::LTypeAlias lower_type_alias_def(TinyMapView node) {
+        auto name = std::string(str_of(node.get(la::NAME.code)));
+        lir::LTypeAlias ta;
+        ta.name = name;
+        auto ait = type_aliases_.find(name);
+        ta.type = (ait != type_aliases_.end()) ? ait->second : error_t();
+        return ta;
+    }
+
+    // ── lower_program ────────────────────────────────────────────
+
+    void lower_program(const std::vector<hermes::HermesCtr>& asts, lir::LProgram& prog) {
+        for (size_t i = 0; i < asts.size(); ++i) {
+            holder_ = asts[i].holder();
+            file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
+            auto root = asts[i].root_object().as_tiny_map();
+            lower_module_items(root, prog);
+        }
+    }
+
+    void lower_module_items(TinyMapView mod, lir::LProgram& prog) {
+        if (!mod.has_key(la::ITEMS)) return;
+        auto items = arr_of(mod.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto item = map_of(items.get(i));
+            int32_t c = code_of(item);
+            if      (c == la::STRUCT)     prog.structs.push_back(lower_struct_def(item));
+            else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
+            else if (c == la::FN || c == la::EXTERN_FN)
+                                          prog.functions.push_back(lower_fn(item));
+            else if (c == la::CONST_DEF)  prog.consts.push_back(lower_const_def(item));
+            else if (c == la::TYPE_ALIAS) prog.type_aliases.push_back(lower_type_alias_def(item));
+        }
     }
 };
 
 } // anonymous namespace
 
-SemaResult sema_check(const std::vector<logos::hermes::HermesCtr>& asts,
-                      const std::vector<std::string>& filenames) {
+lir::LProgram sema_lower(const std::vector<logos::hermes::HermesCtr>& asts,
+                          const std::vector<std::string>& filenames) {
     SemaChecker checker;
     return checker.run(asts, filenames);
 }

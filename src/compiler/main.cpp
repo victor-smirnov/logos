@@ -8,7 +8,7 @@
 
 #include "mlir_gen.hpp"
 #include "module_loader.hpp"
-#include <logos/compiler/sema.hpp>
+#include <logos/compiler/lir.hpp>
 
 #include <logos/hermes/document.hpp>
 
@@ -81,14 +81,12 @@ int main(int argc, char** argv) {
         asts.push_back(std::move(m.ast));
     }
 
-    // ── Step 2b: Semantic analysis ──────────────────────────────
-    {
-        auto sema = logos::compiler::sema_check(asts, filenames);
-        sema.print(stderr);
-        if (!sema.ok()) return 1;
-    }
+    // ── Step 2b: Semantic analysis + L-IR lowering ──────────────
+    auto prog = logos::compiler::sema_lower(asts, filenames);
+    prog.print_diags(stderr);
+    if (!prog.ok()) return 1;
 
-    // ── Step 3: Hermes AST → MLIR ───────────────────────────────
+    // ── Step 3: L-IR → MLIR ─────────────────────────────────────
     mlir::MLIRContext mlir_ctx;
     mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
     mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
@@ -96,7 +94,7 @@ int main(int argc, char** argv) {
     mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
     mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
 
-    auto mlir_module = logos::compiler::mlir_gen(mlir_ctx, asts);
+    auto mlir_module = logos::compiler::mlir_gen(mlir_ctx, prog);
     if (!mlir_module) {
         std::fprintf(stderr, "logosc: MLIR generation failed\n");
         return 1;
