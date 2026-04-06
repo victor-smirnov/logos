@@ -47,7 +47,6 @@ public:
         in_ = std::move(in);
 
         out_.enums        = std::move(in_.enums);
-        out_.classes      = std::move(in_.classes);
         out_.consts       = std::move(in_.consts);
         out_.type_aliases = std::move(in_.type_aliases);
         // Move type_pool — will be extended with new types during mono
@@ -64,6 +63,16 @@ public:
                 out_.structs.push_back(clone_struct_def(sd, {}, sd.name));
         }
 
+        // Index generic class templates; pass-through concrete classes immediately.
+        for (auto& cd : in_.classes) {
+            if (!cd.type_params.empty())
+                class_templates_[cd.name] = &cd;  // stable: in_.classes not moved
+        }
+        for (auto& cd : in_.classes) {
+            if (cd.type_params.empty())
+                out_.classes.push_back(clone_class_def(cd, {}, cd.name));
+        }
+
         // Index generic fn templates.
         for (auto& fn : in_.functions) {
             if (!fn.type_params.empty())
@@ -78,7 +87,8 @@ public:
         for (auto& ss : in_.struct_specializations)
             struct_specs_[ss.name].push_back(&ss);
 
-        // Process non-generic free functions.
+        // Process non-generic free functions (also scans class method bodies for
+        // concrete class methods needed via scan_fn on each non-generic class).
         for (auto& fn : in_.functions) {
             if (!fn.type_params.empty()) continue;
             auto cloned = clone_fn(fn, {});
@@ -97,6 +107,9 @@ public:
 
         // Instantiate all generic structs referenced by the output.
         instantiate_struct_templates();
+
+        // Instantiate all generic classes referenced by the output.
+        instantiate_class_templates();
 
         out_.diags = std::move(in_.diags);
         return std::move(out_);
@@ -125,6 +138,15 @@ private:
 
     // Already-instantiated struct names (prevent duplicates)
     std::unordered_set<std::string> struct_done_;
+
+    // name → pointer into in_.classes (generic class templates)
+    std::unordered_map<std::string, const lir::LClassDef*> class_templates_;
+
+    // concrete_name → LogosType* of needed generic class instantiations
+    std::unordered_map<std::string, const LogosType*> needed_class_insts_;
+
+    // Already-instantiated class names (prevent duplicates)
+    std::unordered_set<std::string> class_done_;
 
     // Already-instantiated mangled names (prevent duplicate generation)
     std::unordered_set<std::string> done_;
@@ -174,6 +196,22 @@ private:
             record_needed_struct(result);
             return result;
         }
+        case LogosType::Kind::Class: {
+            if (t->type_args.empty()) return t;
+            std::vector<const LogosType*> new_args;
+            bool changed = false;
+            for (auto* a : t->type_args) {
+                auto* na = subst_type(a, s);
+                changed |= (na != a);
+                new_args.push_back(na);
+            }
+            if (!changed) return t;
+            LogosType nt = *t;
+            nt.type_args = std::move(new_args);
+            const LogosType* result = out_.type_pool.alloc(nt);
+            record_needed_class(result);
+            return result;
+        }
         default:
             return t;
         }
@@ -188,6 +226,15 @@ private:
         auto cname = concrete_struct_name(t);
         if (!struct_done_.count(cname))
             needed_struct_insts_[cname] = t;
+    }
+
+    void record_needed_class(const LogosType* t) {
+        if (!t || t->kind != LogosType::Kind::Class || t->type_args.empty()) return;
+        for (auto* a : t->type_args)
+            if (a->kind == LogosType::Kind::TypeVar) return;
+        auto cname = concrete_class_name(t);
+        if (!class_done_.count(cname))
+            needed_class_insts_[cname] = t;
     }
 
     // ── Mangling ──────────────────────────────────────────────────
@@ -303,7 +350,16 @@ private:
 
             } else if constexpr (std::is_same_v<K, lir::ENew>) {
                 lir::ENew nn;
-                nn.class_name = k.class_name;
+                // If the result type is a generic class inst, use the concrete name.
+                if (result->type && result->type->kind == LogosType::Kind::Ptr &&
+                    result->type->pointee &&
+                    result->type->pointee->kind == LogosType::Kind::Class &&
+                    !result->type->pointee->type_args.empty()) {
+                    nn.class_name = concrete_class_name(result->type->pointee);
+                    record_needed_class(result->type->pointee);
+                } else {
+                    nn.class_name = k.class_name;
+                }
                 for (auto& [fn, fv] : k.fields)
                     nn.fields.push_back({fn, subst_expr(*fv, s)});
                 result->kind = std::move(nn);
@@ -806,6 +862,85 @@ private:
                 // Collect field types of new struct for further instantiation.
                 for (auto& f : inst.fields) collect_type_for_structs(f.type);
                 out_.structs.push_back(std::move(inst));
+            }
+        }
+    }
+
+    // ── Class monomorphization ────────────────────────────────────
+
+    // Clone a class def with substitution; rename to new_name.
+    // Mirrors clone_struct_def but preserves vtable_order, parent_name, etc.
+    lir::LClassDef clone_class_def(const lir::LClassDef& tmpl,
+                                    const SubstMap& s,
+                                    const std::string& new_name) {
+        lir::LClassDef nd;
+        nd.name         = new_name;
+        nd.is_abstract  = tmpl.is_abstract;
+        nd.parent_name  = tmpl.parent_name;
+        // Rewrite vtable entries: "OldBase__method" → "new_name__method"
+        for (auto& entry : tmpl.vtable_order) {
+            auto sep = entry.find("__");
+            if (sep != std::string::npos && entry.substr(0, sep) == tmpl.name)
+                nd.vtable_order.push_back(new_name + entry.substr(sep));
+            else
+                nd.vtable_order.push_back(entry);
+        }
+        // type_params cleared: result is monomorphic.
+        for (auto& f : tmpl.own_fields)
+            nd.own_fields.push_back({f.name, subst_type(f.type, s)});
+        for (auto& m : tmpl.methods) {
+            auto nm = clone_fn(m, s);
+            auto sep = m.name.find("__");
+            if (sep != std::string::npos)
+                nm.name = new_name + m.name.substr(sep);
+            nd.methods.push_back(std::move(nm));
+        }
+        return nd;
+    }
+
+    void collect_type_for_classes(const LogosType* t) {
+        if (!t) return;
+        switch (t->kind) {
+        case LogosType::Kind::Ptr:   collect_type_for_classes(t->pointee); break;
+        case LogosType::Kind::Array: collect_type_for_classes(t->elem);    break;
+        case LogosType::Kind::Class:
+            record_needed_class(t);
+            for (auto* a : t->type_args) collect_type_for_classes(a);
+            break;
+        default: break;
+        }
+    }
+
+    void instantiate_class_templates() {
+        // Seed: collect class types referenced in output functions and classes.
+        for (auto& fn : out_.functions) {
+            collect_type_for_classes(fn.ret_type);
+            for (auto& p : fn.params) collect_type_for_classes(p.type);
+        }
+        for (auto& cd : out_.classes)
+            for (auto& f : cd.own_fields) collect_type_for_classes(f.type);
+
+        while (!needed_class_insts_.empty()) {
+            auto current = std::move(needed_class_insts_);
+            needed_class_insts_.clear();
+
+            for (auto& [cname, class_t] : current) {
+                if (class_done_.count(cname)) continue;
+                class_done_.insert(cname);
+
+                const std::string& base = class_t->struct_name;
+                auto it = class_templates_.find(base);
+                if (it == class_templates_.end()) continue;
+                const lir::LClassDef* tmpl = it->second;
+
+                SubstMap subst;
+                for (size_t i = 0; i < tmpl->type_params.size() &&
+                                   i < class_t->type_args.size(); ++i)
+                    subst[tmpl->type_params[i].name] = class_t->type_args[i];
+
+                auto inst = clone_class_def(*tmpl, subst, cname);
+                for (auto& f : inst.own_fields) collect_type_for_classes(f.type);
+                out_.classes.push_back(std::move(inst));
             }
         }
     }

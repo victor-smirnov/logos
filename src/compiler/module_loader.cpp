@@ -137,6 +137,19 @@ std::vector<ParsedModule> load_modules(
             std::fprintf(stderr, "module_loader: parse failed for '%s'\n", canonical.c_str());
             continue;
         }
+        // Detect partially-parsed module: if the parser stopped before EOF, some
+        // top-level item failed to parse (e.g. a generic class not yet supported).
+        // Report the stray token so the user gets a non-zero exit instead of a
+        // silent empty object file.
+        if (!parser.at_eof()) {
+            std::fprintf(stderr,
+                "error [%s]: unexpected token '%.*s' at line %u — "
+                "module parse stopped here (unsupported syntax?)\n",
+                canonical.c_str(),
+                static_cast<int>(parser.next_text().size()), parser.next_text().data(),
+                parser.next_line());
+            continue;
+        }
 
         // Extract use declarations and queue dependencies.
         auto uses = extract_uses(ast);

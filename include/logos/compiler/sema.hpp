@@ -79,6 +79,9 @@ std::string type_str(const LogosType* t);
 // Used by mono and mlir_gen to look up instantiated struct definitions.
 std::string concrete_struct_name(const LogosType* t);
 
+// Concrete class name: same mangling scheme for generic classes.
+std::string concrete_class_name(const LogosType* t);
+
 // ── TypePool ───────────────────────────────────────────────────────────────
 //
 // Owns all LogosType objects.  std::deque gives pointer stability on push_back.

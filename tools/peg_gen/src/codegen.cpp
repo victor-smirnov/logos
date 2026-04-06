@@ -516,6 +516,16 @@ private:
             w.line();
         }
 
+        if (!g_.tokens.empty()) {
+            w.line("// Returns true when all input tokens have been consumed.");
+            w.line("bool at_eof() { return peek_token().kind == TK::Eof; }");
+            w.line("// Line number of the next unconsumed token (1-based).");
+            w.line("uint32_t next_line() { return peek_token().line; }");
+            w.line("// Text of the next unconsumed token.");
+            w.line("std::string_view next_text() { return peek_token().text; }");
+            w.line();
+        }
+
         w.dedent();
         w.line("private:");
         w.indent();

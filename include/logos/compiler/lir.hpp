@@ -274,6 +274,13 @@ struct LClassDef {
     std::vector<LField>      own_fields;              // fields declared in this class
     std::vector<std::string> vtable_order;            // full vtable: mangled method names
     std::vector<LFunction>   methods;                 // method bodies (non-abstract)
+
+    // Generic class support (mirrors LStructDef).
+    // type_params non-empty  → this is a template; mono expands it.
+    // is_specialization true → produced by mono from a template.
+    std::vector<TypeParam>        type_params;
+    bool                          is_specialization = false;
+    std::vector<const LogosType*> spec_patterns;
 };
 
 struct LVariant {

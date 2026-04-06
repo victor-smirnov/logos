@@ -1,0 +1,21 @@
+package generic_class;
+
+class Box<T> {
+    value: T;
+
+    fn get(self: *mut Box<T>) -> T {
+        return self.value;
+    }
+}
+
+fn main() -> i32 {
+    let a: *mut Box<i32> = new Box { value: 10 };
+    let b: *mut Box<i32> = new Box<i32> { value: 32 };
+
+    let result: i32 = a.get() + b.get();
+
+    delete a;
+    delete b;
+
+    return result;
+}

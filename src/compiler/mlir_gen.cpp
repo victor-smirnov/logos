@@ -428,10 +428,10 @@ private:
 
                 std::string cname;
                 if (p.type->kind == LogosType::Kind::Class)
-                    cname = p.type->struct_name;
+                    cname = concrete_class_name(p.type);
                 else if (p.type->kind == LogosType::Kind::Ptr && p.type->pointee &&
                          p.type->pointee->kind == LogosType::Kind::Class)
-                    cname = p.type->pointee->struct_name;
+                    cname = concrete_class_name(p.type->pointee);
                 if (!cname.empty()) var_class_[p.name] = std::move(cname);
             }
         }
@@ -524,7 +524,7 @@ private:
             if (!val) return;
             scope_[s.name]  = val;
             let_vars_.insert(s.name);
-            var_class_[s.name] = s.type->pointee->struct_name;
+            var_class_[s.name] = concrete_class_name(s.type->pointee);
             return;
         }
 

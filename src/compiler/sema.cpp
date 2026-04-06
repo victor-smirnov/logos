@@ -67,6 +67,14 @@ std::string concrete_struct_name(const LogosType* t) {
     return r;
 }
 
+std::string concrete_class_name(const LogosType* t) {
+    if (!t || t->kind != LogosType::Kind::Class) return {};
+    if (t->type_args.empty()) return t->struct_name;
+    std::string r = t->struct_name;
+    for (auto* a : t->type_args) { r += "__"; r += mangle_type_for_name(a); }
+    return r;
+}
+
 static std::string mangle_type_for_name(const LogosType* t) {
     if (!t) return "null";
     switch (t->kind) {
@@ -233,6 +241,13 @@ private:
                                           std::vector<const LogosType*> args) {
         LogosType t; t.kind = LogosType::Kind::Struct;
         t.struct_name = std::string(name);
+        t.type_args   = std::move(args);
+        return pool_.alloc(std::move(t));
+    }
+    const LogosType* make_generic_class(std::string_view name,
+                                         std::vector<const LogosType*> args) {
+        LogosType t; t.kind = LogosType::Kind::Class;
+        t.struct_name = std::string(name);   // struct_name holds class name
         t.type_args   = std::move(args);
         return pool_.alloc(std::move(t));
     }
@@ -421,6 +436,8 @@ private:
         // vtable_order: full vtable including inherited slots (parent methods first).
         // Each entry is the mangled method name, e.g. "Animal__speak".
         std::vector<std::string> vtable_order;
+        // Generic class support: non-empty when class has type parameters.
+        std::vector<TypeParam> type_params;
     };
 
     // Type params in scope for the function/struct currently being processed.
@@ -585,7 +602,9 @@ private:
 
         if (tc == la::GENERIC_INST) {
             auto name = str_of(node.get(la::NAME.code));
-            if (!structs_.count(std::string(name))) {
+            bool is_struct = structs_.count(std::string(name)) > 0;
+            bool is_class  = classes_.count(std::string(name)) > 0;
+            if (!is_struct && !is_class) {
                 error(std::format("unknown generic type '{}'", name));
                 return error_t();
             }
@@ -595,6 +614,10 @@ private:
                 auto items = arr_of(node.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i)
                     args.push_back(resolve_type(map_of(items.get(i))));
+            }
+            if (is_class) {
+                if (args.empty()) return make_class_type(name);
+                return make_generic_class(name, std::move(args));
             }
             if (args.empty()) return make_struct_type(name);  // degenerate: no args
             return make_generic_struct(name, std::move(args));
@@ -783,6 +806,10 @@ private:
 
         SemaClassInfo& info = classes_[cname];
 
+        // Read type parameters (generic classes: class Box<T> { ... })
+        info.type_params = read_type_params(node);
+        push_type_params(info.type_params);
+
         // Read IS_ABSTRACT flag
         if (node.has_key(la::IS_ABSTRACT)) {
             AnyVal av = node.get(la::IS_ABSTRACT.code);
@@ -814,6 +841,8 @@ private:
                 }
             }
         }
+
+        pop_type_params(classes_[cname].type_params);
     }
 
     // Phase 2: walk class hierarchy (assumes parent before child) to build
@@ -1599,11 +1628,16 @@ private:
         std::string resolved_class;
         std::string mangled;
         {
-            std::string cur = std::string(cname);
+            std::string start_class = std::string(cname);
+            std::string cur = start_class;
             while (!cur.empty()) {
                 auto candidate = cur + "__" + std::string(method_name);
                 if (funcs_.count(candidate)) {
-                    resolved_class = cur;
+                    // Only set resolved_class for inherited methods (found on a parent).
+                    // When found on the class itself, leave it empty so mlir_gen uses
+                    // the concrete type name (e.g., "Box__i32") from gen_recv_struct.
+                    if (cur != start_class)
+                        resolved_class = cur;
                     mangled = candidate;
                     break;
                 }
@@ -1628,6 +1662,23 @@ private:
         }
 
         auto& fi = fit->second;
+
+        // Build substitution map for generic class: T → i32, etc.
+        SemaSubst class_subst;
+        {
+            const LogosType* cls_t = recv->type;
+            if (cls_t->kind == LogosType::Kind::Ptr && cls_t->pointee)
+                cls_t = cls_t->pointee;
+            if (cls_t->kind == LogosType::Kind::Class && !cls_t->type_args.empty()) {
+                auto cit = classes_.find(std::string(cname));
+                if (cit != classes_.end()) {
+                    auto& tps = cit->second.type_params;
+                    for (size_t i = 0; i < tps.size() && i < cls_t->type_args.size(); ++i)
+                        class_subst[tps[i].name] = cls_t->type_args[i];
+                }
+            }
+        }
+
         uint64_t explicit_args = arg_exprs.size();
         size_t expected_explicit = fi.param_types.size() > 0 ? fi.param_types.size() - 1 : 0;
         if (explicit_args != expected_explicit)
@@ -1638,7 +1689,8 @@ private:
                 auto* at = arg_exprs[i]->type;
                 size_t pi = i + 1;
                 if (pi < fi.param_types.size()) {
-                    auto* pt = fi.param_types[pi];
+                    auto* pt = class_subst.empty() ? fi.param_types[pi]
+                                                   : subst_type_sema(fi.param_types[pi], class_subst);
                     if (at->kind != LogosType::Kind::Error && pt->kind != LogosType::Kind::Error &&
                         !compat(at, pt))
                         error(std::format("method '{}' arg {}: expected {}, got {}",
@@ -1646,6 +1698,9 @@ private:
                 }
             }
         }
+
+        const LogosType* ret_t = class_subst.empty() ? fi.ret_type
+                                                      : subst_type_sema(fi.ret_type, class_subst);
 
         int32_t vidx = vtable_index_of(cname, mangled);
 
@@ -1655,7 +1710,7 @@ private:
         mc.args          = std::move(arg_exprs);
         mc.vtable_index  = vidx;
         mc.resolved_type = resolved_class;
-        return make_expr(fi.ret_type, std::move(mc));
+        return make_expr(ret_t, std::move(mc));
     }
 
     lir::LExprPtr lower_method_call(TinyMapView node) {
@@ -1968,6 +2023,7 @@ private:
             auto inits = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < inits.size(); ++i) {
                 auto init = map_of(inits.get(i));
+                if (code_of(init) != la::FIELD_INIT) continue;  // skip type_arg_list or other non-field items
                 auto fname = str_of(init.get(la::NAME.code));
                 lir::LExprPtr val = init.has_key(la::VALUE)
                     ? lower_expr(map_of(init.get(la::VALUE.code)))
@@ -2000,8 +2056,44 @@ private:
             if (!init)
                 error(std::format("'new {}': field '{}' not initialized", cname, fn));
 
-        // Result type: *mut ClassName
-        auto* class_t = make_class_type(cname);
+        // For generic classes, use explicit type args if provided, else infer from fields.
+        const LogosType* class_t = nullptr;
+        if (!cinfo.type_params.empty()) {
+            std::vector<const LogosType*> args;
+            if (node.has_key(la::TYPE_PARAMS)) {
+                // Explicit: new Box<i32> { ... }
+                // TYPE_PARAMS is a type_arg_list node: { ITEMS: [type_ref, ...] }
+                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+                auto type_items = tplist.has_key(la::ITEMS)
+                                    ? arr_of(tplist.get(la::ITEMS.code))
+                                    : arr_of(node.get(la::TYPE_PARAMS.code));
+                for (uint64_t i = 0; i < type_items.size(); ++i)
+                    args.push_back(resolve_type(map_of(type_items.get(i))));
+            } else {
+                // Infer from field values
+                SemaSubst inferred;
+                for (auto& [fname, fval] : fields) {
+                    for (auto& [fn, ft] : cinfo.all_fields) {
+                        if (fn != fname) continue;
+                        if (ft->kind == LogosType::Kind::TypeVar) {
+                            auto& tv = ft->type_var_name;
+                            if (!inferred.count(tv)) {
+                                auto* vt = fval->type;
+                                if (vt->kind == LogosType::Kind::IntLit) vt = i32_t();
+                                inferred[tv] = vt;
+                            }
+                        }
+                    }
+                }
+                for (auto& tp : cinfo.type_params) {
+                    auto it = inferred.find(tp.name);
+                    args.push_back(it != inferred.end() ? it->second : error_t());
+                }
+            }
+            class_t = make_generic_class(cname, std::move(args));
+        } else {
+            class_t = make_class_type(cname);
+        }
         auto* result_t = make_ptr(true, class_t);
         return make_expr(result_t, lir::ENew{std::string(cname), std::move(fields)});
     }
@@ -2548,6 +2640,9 @@ private:
         cd.is_abstract  = cinfo.is_abstract;
         cd.parent_name  = cinfo.parent_name;
         cd.vtable_order = cinfo.vtable_order;
+        cd.type_params  = cinfo.type_params;
+
+        push_type_params(cd.type_params);
 
         // Own fields (not all_fields — parent fields are in parent's LClassDef)
         size_t parent_field_count = 0;
@@ -2572,6 +2667,7 @@ private:
             }
         }
 
+        pop_type_params(cd.type_params);
         return cd;
     }
 
