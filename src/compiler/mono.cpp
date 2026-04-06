@@ -303,7 +303,45 @@ private:
                 nm.receiver      = subst_expr(*k.receiver, s);
                 nm.method        = k.method;
                 nm.vtable_index  = k.vtable_index;
-                nm.resolved_type = k.resolved_type;
+                // Translate resolved_type (generic class template name) to
+                // concrete name using the current substitution.
+                // e.g. resolved_type="Container", s={T:i32} → "Container__i32"
+                if (!k.resolved_type.empty() && !s.empty()) {
+                    auto tit = class_templates_.find(k.resolved_type);
+                    if (tit != class_templates_.end()) {
+                        const lir::LClassDef* rt_tmpl = tit->second;
+                        // Build concrete type args by substituting the template's
+                        // type params according to the current subst map.
+                        // We use the receiver type to get the type args for this class.
+                        // The receiver type after subst is nm.receiver->type.
+                        // But we also need to know which type args rt_tmpl was instantiated with.
+                        // Look at rt_tmpl's type_params and find matching entries in s.
+                        std::vector<const LogosType*> concrete_args;
+                        bool all_concrete = true;
+                        for (auto& tp : rt_tmpl->type_params) {
+                            auto sit2 = s.find(tp.name);
+                            if (sit2 != s.end())
+                                concrete_args.push_back(sit2->second);
+                            else
+                                all_concrete = false;
+                        }
+                        if (all_concrete && !concrete_args.empty()) {
+                            LogosType parent_t;
+                            parent_t.kind = LogosType::Kind::Class;
+                            parent_t.struct_name = k.resolved_type;
+                            parent_t.type_args = concrete_args;
+                            nm.resolved_type = concrete_class_name(&parent_t);
+                        } else if (rt_tmpl->type_params.empty()) {
+                            nm.resolved_type = k.resolved_type;  // non-generic parent
+                        } else {
+                            nm.resolved_type = k.resolved_type;  // fallback
+                        }
+                    } else {
+                        nm.resolved_type = k.resolved_type;
+                    }
+                } else {
+                    nm.resolved_type = k.resolved_type;
+                }
                 for (auto& a : k.args)
                     nm.args.push_back(subst_expr(*a, s));
                 result->kind = std::move(nm);
@@ -876,7 +914,22 @@ private:
         lir::LClassDef nd;
         nd.name         = new_name;
         nd.is_abstract  = tmpl.is_abstract;
-        nd.parent_name  = tmpl.parent_name;
+        // Compute concrete parent name by applying subst to parent_type_args
+        if (!tmpl.parent_name.empty() && !tmpl.parent_type_args.empty()) {
+            std::vector<const LogosType*> concrete_parent_args;
+            for (auto* arg : tmpl.parent_type_args)
+                concrete_parent_args.push_back(subst_type(arg, s));
+            LogosType parent_cls;
+            parent_cls.kind = LogosType::Kind::Class;
+            parent_cls.struct_name = tmpl.parent_name;
+            parent_cls.type_args = concrete_parent_args;
+            nd.parent_name = concrete_class_name(&parent_cls);
+            // Trigger instantiation of parent
+            const LogosType* parent_t = out_.type_pool.alloc(parent_cls);
+            record_needed_class(parent_t);
+        } else {
+            nd.parent_name = tmpl.parent_name;
+        }
         // Rewrite vtable entries: "OldBase__method" → "new_name__method"
         for (auto& entry : tmpl.vtable_order) {
             auto sep = entry.find("__");
@@ -911,6 +964,43 @@ private:
         }
     }
 
+    // Instantiate a single generic class by concrete name + type.
+    // Ensures the parent class is instantiated first (DFS order = parent before child).
+    void instantiate_one_class(const std::string& cname, const LogosType* class_t) {
+        if (class_done_.count(cname)) return;
+        class_done_.insert(cname);
+
+        const std::string& base = class_t->struct_name;
+        auto it = class_templates_.find(base);
+        if (it == class_templates_.end()) return;
+        const lir::LClassDef* tmpl = it->second;
+
+        SubstMap subst;
+        for (size_t i = 0; i < tmpl->type_params.size() &&
+                           i < class_t->type_args.size(); ++i)
+            subst[tmpl->type_params[i].name] = class_t->type_args[i];
+
+        // Compute concrete parent name and instantiate parent FIRST (DFS).
+        if (!tmpl->parent_name.empty() && !tmpl->parent_type_args.empty()) {
+            std::vector<const LogosType*> concrete_parent_args;
+            for (auto* arg : tmpl->parent_type_args)
+                concrete_parent_args.push_back(subst_type(arg, subst));
+            LogosType parent_cls;
+            parent_cls.kind = LogosType::Kind::Class;
+            parent_cls.struct_name = tmpl->parent_name;
+            parent_cls.type_args = concrete_parent_args;
+            std::string parent_cname = concrete_class_name(&parent_cls);
+            if (!class_done_.count(parent_cname)) {
+                const LogosType* parent_t = out_.type_pool.alloc(parent_cls);
+                instantiate_one_class(parent_cname, parent_t);
+            }
+        }
+
+        auto inst = clone_class_def(*tmpl, subst, cname);
+        for (auto& f : inst.own_fields) collect_type_for_classes(f.type);
+        out_.classes.push_back(std::move(inst));
+    }
+
     void instantiate_class_templates() {
         // Seed: collect class types referenced in output functions and classes.
         for (auto& fn : out_.functions) {
@@ -924,24 +1014,8 @@ private:
             auto current = std::move(needed_class_insts_);
             needed_class_insts_.clear();
 
-            for (auto& [cname, class_t] : current) {
-                if (class_done_.count(cname)) continue;
-                class_done_.insert(cname);
-
-                const std::string& base = class_t->struct_name;
-                auto it = class_templates_.find(base);
-                if (it == class_templates_.end()) continue;
-                const lir::LClassDef* tmpl = it->second;
-
-                SubstMap subst;
-                for (size_t i = 0; i < tmpl->type_params.size() &&
-                                   i < class_t->type_args.size(); ++i)
-                    subst[tmpl->type_params[i].name] = class_t->type_args[i];
-
-                auto inst = clone_class_def(*tmpl, subst, cname);
-                for (auto& f : inst.own_fields) collect_type_for_classes(f.type);
-                out_.classes.push_back(std::move(inst));
-            }
+            for (auto& [cname, class_t] : current)
+                instantiate_one_class(cname, class_t);
         }
     }
 };

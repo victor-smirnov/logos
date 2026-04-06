@@ -209,13 +209,12 @@ private:
             return mlir::LLVM::LLVMArrayType::get(elem, t->arr_size);
         }
         case LogosType::Kind::Struct: {
-            auto cname = concrete_struct_name(t);
             // Check type alias first.
+            auto cname = concrete_struct_name(t);
             auto ait = type_aliases_.find(cname);
             if (ait != type_aliases_.end()) return ait->second;
-            // Struct passed by pointer.
-            if (struct_types_.count(cname)) return ptr_type();
-            return nullptr;
+            // Structs are always passed by pointer; no need to wait for registration.
+            return ptr_type();
         }
         case LogosType::Kind::Class:
             // Classes are always passed by pointer (heap allocated via 'new').
@@ -1156,6 +1155,17 @@ private:
                 }
             }
             return {nullptr, {}};
+        }
+        // General case: evaluate expression, derive type name from LExpr.type
+        auto ptr = gen_expr(recv);
+        if (!ptr) return {nullptr, {}};
+        if (recv.type) {
+            const LogosType* t = recv.type;
+            if (t->kind == LogosType::Kind::Ptr && t->pointee) t = t->pointee;
+            if (t->kind == LogosType::Kind::Struct)
+                return {ptr, concrete_struct_name(t)};
+            if (t->kind == LogosType::Kind::Class)
+                return {ptr, concrete_class_name(t)};
         }
         std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct/class access\n");
         return {nullptr, {}};

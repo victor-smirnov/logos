@@ -271,6 +271,7 @@ struct LClassDef {
     std::string              name;
     bool                     is_abstract  = false;
     std::string              parent_name;             // empty if no parent
+    std::vector<const LogosType*> parent_type_args;  // type args passed to parent (e.g. [TypeVar(T)])
     std::vector<LField>      own_fields;              // fields declared in this class
     std::vector<std::string> vtable_order;            // full vtable: mangled method names
     std::vector<LFunction>   methods;                 // method bodies (non-abstract)

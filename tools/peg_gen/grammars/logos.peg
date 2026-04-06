@@ -237,11 +237,11 @@
     // class ClassName extends ParentName { ... }
     // abstract class ClassName { ... }
     // abstract class ClassName extends ParentName { ... }
-    class_def <- KW_ABSTRACT KW_CLASS IDENT type_param_list? KW_EXTENDS IDENT LBRACE class_member* RBRACE
+    class_def <- KW_ABSTRACT KW_CLASS IDENT type_param_list? KW_EXTENDS simple_type LBRACE class_member* RBRACE
               => { CODE: CLASS, NAME: $3, TYPE_PARAMS: $4, PARENT: $6, IS_ABSTRACT: true, ITEMS: $8 }
                / KW_ABSTRACT KW_CLASS IDENT type_param_list? LBRACE class_member* RBRACE
               => { CODE: CLASS, NAME: $3, TYPE_PARAMS: $4, IS_ABSTRACT: true, ITEMS: $6 }
-               / KW_CLASS IDENT type_param_list? KW_EXTENDS IDENT LBRACE class_member* RBRACE
+               / KW_CLASS IDENT type_param_list? KW_EXTENDS simple_type LBRACE class_member* RBRACE
               => { CODE: CLASS, NAME: $2, TYPE_PARAMS: $3, PARENT: $5, ITEMS: $7 }
                / KW_CLASS IDENT type_param_list? LBRACE class_member* RBRACE
               => { CODE: CLASS, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }

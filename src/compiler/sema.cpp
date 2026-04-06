@@ -84,6 +84,8 @@ static std::string mangle_type_for_name(const LogosType* t) {
         return "arr" + std::to_string(t->arr_size) + "_" + mangle_type_for_name(t->elem);
     case LogosType::Kind::Struct:
         return concrete_struct_name(t);
+    case LogosType::Kind::Class:
+        return concrete_class_name(t);
     default:
         return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
     }
@@ -142,7 +144,14 @@ std::string type_str(const LogosType* t) {
               r += type_str(t->type_args[i]);
           }
           return r + ">"; }
-    case LogosType::Kind::Class:   return t->struct_name;  // struct_name holds class name
+    case LogosType::Kind::Class:
+        if (t->type_args.empty()) return t->struct_name;
+        { std::string r = t->struct_name + "<";
+          for (size_t i = 0; i < t->type_args.size(); ++i) {
+              if (i) r += ", ";
+              r += type_str(t->type_args[i]);
+          }
+          return r + ">"; }
     case LogosType::Kind::Enum:    return t->enum_name;
     case LogosType::Kind::TypeVar: return std::string(t->type_var_name);
     case LogosType::Kind::Error:   return "<error>";
@@ -441,6 +450,7 @@ private:
     struct SemaEnumInfo   { std::vector<SemaVariantInfo> variants; };
     struct SemaClassInfo  {
         std::string parent_name;
+        std::vector<const LogosType*> parent_type_args;  // type args passed to parent (e.g. [TypeVar(T)])
         bool is_abstract = false;
         // All fields accessible on this class (parent fields first, then own).
         std::vector<std::pair<std::string, const LogosType*>> all_fields;
@@ -829,7 +839,16 @@ private:
 
         // Read parent class
         if (node.has_key(la::PARENT)) {
-            info.parent_name = std::string(str_of(node.get(la::PARENT.code)));
+            auto parent_av = node.get(la::PARENT.code);
+            // PARENT is now a simple_type node: TYPE_REF or GENERIC_INST
+            auto parent_node = map_of(parent_av);
+            info.parent_name = std::string(str_of(parent_node.get(la::NAME.code)));
+            // Read parent type args if generic (e.g. extends Container<T>)
+            if (code_of(parent_node) == la::GENERIC_INST && parent_node.has_key(la::ITEMS)) {
+                auto items = arr_of(parent_node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    info.parent_type_args.push_back(resolve_type(map_of(items.get(i))));
+            }
             if (!classes_.count(info.parent_name))
                 error(std::format("class '{}': unknown parent '{}'", cname, info.parent_name));
         }
@@ -1641,14 +1660,46 @@ private:
         {
             std::string start_class = std::string(cname);
             std::string cur = start_class;
+            // Build subst: start_class type params → receiver's concrete type args
+            SemaSubst recv_subst;
+            {
+                const LogosType* recv_t = recv->type;
+                if (recv_t && recv_t->kind == LogosType::Kind::Ptr && recv_t->pointee)
+                    recv_t = recv_t->pointee;
+                if (recv_t && recv_t->kind == LogosType::Kind::Class &&
+                    !recv_t->type_args.empty()) {
+                    auto cit = classes_.find(start_class);
+                    if (cit != classes_.end()) {
+                        auto& tps = cit->second.type_params;
+                        for (size_t i = 0; i < tps.size() && i < recv_t->type_args.size(); ++i)
+                            recv_subst[tps[i].name] = recv_t->type_args[i];
+                    }
+                }
+            }
             while (!cur.empty()) {
                 auto candidate = cur + "__" + std::string(method_name);
                 if (funcs_.count(candidate)) {
                     // Only set resolved_class for inherited methods (found on a parent).
                     // When found on the class itself, leave it empty so mlir_gen uses
                     // the concrete type name (e.g., "Box__i32") from gen_recv_struct.
-                    if (cur != start_class)
-                        resolved_class = cur;
+                    if (cur != start_class) {
+                        // Compute concrete parent class name using parent_type_args
+                        auto sit = classes_.find(start_class);
+                        if (!recv_subst.empty() && sit != classes_.end() &&
+                            !sit->second.parent_type_args.empty()) {
+                            // Substitute parent_type_args to get concrete parent type args
+                            std::vector<const LogosType*> concrete_args;
+                            for (auto* arg : sit->second.parent_type_args)
+                                concrete_args.push_back(subst_type_sema(arg, recv_subst));
+                            LogosType parent_t;
+                            parent_t.kind = LogosType::Kind::Class;
+                            parent_t.struct_name = cur;
+                            parent_t.type_args = concrete_args;
+                            resolved_class = concrete_class_name(&parent_t);
+                        } else {
+                            resolved_class = cur;
+                        }
+                    }
                     mangled = candidate;
                     break;
                 }
@@ -2052,9 +2103,10 @@ private:
                 error(std::format("'new {}': unknown field '{}'", cname, fname));
             } else {
                 it->second = true;
-                // Find expected type
+                // Find expected type; skip check if field type is TypeVar (checked post-mono)
                 for (auto& [fn, ft] : cinfo.all_fields) {
                     if (fn == fname && ft->kind != LogosType::Kind::Error &&
+                        ft->kind != LogosType::Kind::TypeVar &&
                         fval->type->kind != LogosType::Kind::Error &&
                         !compat(fval->type, ft)) {
                         error(std::format("'new {}' field '{}': expected {}, got {}",
@@ -2666,10 +2718,11 @@ private:
         cd.name = cname;
 
         auto& cinfo = classes_[cname];
-        cd.is_abstract  = cinfo.is_abstract;
-        cd.parent_name  = cinfo.parent_name;
-        cd.vtable_order = cinfo.vtable_order;
-        cd.type_params  = cinfo.type_params;
+        cd.is_abstract       = cinfo.is_abstract;
+        cd.parent_name       = cinfo.parent_name;
+        cd.parent_type_args  = cinfo.parent_type_args;
+        cd.vtable_order      = cinfo.vtable_order;
+        cd.type_params       = cinfo.type_params;
 
         push_type_params(cd.type_params);
 
