@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos iteration 3 — while loop + assignment.
+//
+// sum_range(5) = 0+1+2+3+4 = 10
+// Expected exit code: 10
+
+package while_test;
+
+fn sum_range(n: i32) -> i32 {
+    let result: i32 = 0;
+    let i: i32 = 0;
+    while i < n {
+        result = result + i;
+        i = i + 1;
+    }
+    return result;
+}
+
+fn main() -> i32 {
+    return sum_range(5);
+}

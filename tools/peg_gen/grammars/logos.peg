@@ -2,14 +2,16 @@
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Logos language grammar — Iteration 2.
+// Logos language grammar — Iteration 3.
 //
 // Rust-like syntax. Packages, use declarations, extern fn, pub visibility,
-// string literals, pointer types, free functions, let, if/else, return.
+// string literals, pointer types, free functions, let, if/else, return,
+// while loops, assignment, structs with fields and methods, field access,
+// method calls, struct literals, parenthesised expressions.
 
 %meta {
     name:      "logos"
-    version:   "0.2"
+    version:   "0.3"
     namespace: "logos::compiler"
     output:    "logos_parser"
 }
@@ -38,6 +40,9 @@
     USES        = 17
     POINTEE     = 18
     MUTPTR      = 19
+    RECEIVER    = 20
+    FIELD       = 21
+    FIELDS      = 22
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -61,24 +66,37 @@
     LIT_STR     = 35
     TYPE_REF    = 40
     PTR_TYPE    = 41
+    STRUCT      = 50
+    FIELD_DEF   = 51
+    FIELD_INIT  = 52
+    STRUCT_LIT  = 53
+    FIELD_READ  = 54
+    FIELD_WRITE = 55
+    METHOD_CALL = 56
+    ASSIGN      = 57
+    WHILE       = 58
+    DEREF       = 59
+    PAREN_EXPR  = 60
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
 %tokens {
-    // Keywords
+    // Keywords (longest-match first within same length)
     KW_PACKAGE  = "package"
-    KW_USE      = "use"
-    KW_PUB      = "pub"
-    KW_FN       = "fn"
+    KW_STRUCT   = "struct"
     KW_EXTERN   = "extern"
-    KW_LET      = "let"
-    KW_IF       = "if"
-    KW_ELSE     = "else"
     KW_RETURN   = "return"
-    KW_TRUE     = "true"
+    KW_WHILE    = "while"
     KW_FALSE    = "false"
     KW_CONST    = "const"
+    KW_TRUE     = "true"
+    KW_ELSE     = "else"
+    KW_USE      = "use"
     KW_MUT      = "mut"
+    KW_LET      = "let"
+    KW_PUB      = "pub"
+    KW_FN       = "fn"
+    KW_IF       = "if"
 
     // Punctuation
     LBRACE      = "{"
@@ -91,6 +109,7 @@
     ARROW       = "->"
     DOT         = "."
     STAR        = "*"
+    AMP         = "&"
 
     // Operators (multi-char first)
     EQ          = "=="
@@ -127,7 +146,17 @@
     use_decl <- KW_USE IDENT DOT IDENT SEMI
              => { CODE: USE, NAME: $2, PATH: $4 }
 
-    item <- extern_fn_def / pub_fn_def / fn_def
+    item <- struct_def / extern_fn_def / pub_fn_def / fn_def
+
+    // ── Struct definition ────────────────────────────────────────
+    struct_def <- KW_STRUCT IDENT LBRACE field_def* method_def* RBRACE
+               => { CODE: STRUCT, NAME: $2, FIELDS: $4, ITEMS: $5 }
+
+    field_def <- IDENT COLON type_ref SEMI
+              => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
+
+    // method_def: passthrough — pub_fn_def or fn_def (each has its own action)
+    method_def <- pub_fn_def / fn_def
 
     // ── Extern function (FFI) ────────────────────────────────────
     extern_fn_def <- KW_EXTERN KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
@@ -170,16 +199,30 @@
 
     // ── Statements ───────────────────────────────────────────────
     stmt <- let_stmt
+          / while_stmt
           / return_stmt
           / if_expr
+          / field_write_stmt
+          / assign_stmt
           / expr SEMI
             => { CODE: EXPR_STMT, VALUE: $1 }
 
     let_stmt <- KW_LET IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, TYPE: $4, VALUE: $6 }
+              / KW_LET IDENT ASSIGN expr SEMI
+             => { CODE: LET, NAME: $2, VALUE: $4 }
+
+    while_stmt <- KW_WHILE expr block
+               => { CODE: WHILE, COND: $2, BODY: $3 }
 
     return_stmt <- KW_RETURN expr? SEMI
                 => { CODE: RETURN, VALUE: $2 }
+
+    assign_stmt <- IDENT ASSIGN expr SEMI
+                => { CODE: ASSIGN, NAME: $1, VALUE: $3 }
+
+    field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
+                     => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
 
     if_expr <- KW_IF expr block (KW_ELSE (if_expr / block))?
             => { CODE: IF, COND: $2, THEN: $3, ELSE: $4 }
@@ -195,18 +238,47 @@
                 => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
               / mul_expr
 
-    mul_expr <- atom (STAR / SLASH) atom
+    // unary_expr inserted between mul_expr and atom for prefix * (deref)
+    mul_expr <- unary_expr (STAR / SLASH) unary_expr
                 => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
-              / atom
+              / unary_expr
 
-    atom <- call_expr
-          / LPAREN expr RPAREN
+    unary_expr <- STAR unary_expr => { CODE: DEREF, VALUE: $2 }
+                / atom
+
+    // ── Atoms ────────────────────────────────────────────────────
+    // Order matters: more-specific patterns before plain IDENT.
+    atom <- method_call_expr   // IDENT.IDENT(args) — before field_read
+          / field_read_expr    // IDENT.IDENT        — before plain IDENT
+          / call_expr          // IDENT(args)         — before plain IDENT
+          / struct_lit         // IDENT { fields }    — before plain IDENT
+          / paren_expr         // (expr)
           / STRING     => { CODE: LIT_STR,  VALUE: $1 }
           / KW_TRUE    => { CODE: LIT_BOOL, VALUE: true }
           / KW_FALSE   => { CODE: LIT_BOOL, VALUE: false }
           / INTEGER    => { CODE: LIT_INT,  VALUE: $1 }
           / IDENT      => { CODE: VAR_REF,  NAME: $1 }
 
+    // ── Method call: receiver.method(args) ───────────────────────
+    method_call_expr <- IDENT DOT IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+                     => { CODE: METHOD_CALL, RECEIVER: $1, NAME: $3, ARGS: $... }
+
+    // ── Field read: receiver.field ────────────────────────────────
+    field_read_expr <- IDENT DOT IDENT
+                    => { CODE: FIELD_READ, RECEIVER: $1, FIELD: $3 }
+
+    // ── Struct literal: TypeName { field: expr, ... } ─────────────
+    struct_lit <- IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
+               => { CODE: STRUCT_LIT, NAME: $1, ITEMS: $... }
+
+    field_init <- IDENT COLON expr
+               => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
+
+    // ── Parenthesised expression ──────────────────────────────────
+    paren_expr <- LPAREN expr RPAREN
+               => { CODE: PAREN_EXPR, VALUE: $2 }
+
+    // ── Free function call: fn(args) ─────────────────────────────
     call_expr <- IDENT LPAREN (expr (COMMA expr)*)? RPAREN
               => { CODE: CALL, CALLEE: $1, ARGS: $... }
 }

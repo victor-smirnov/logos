@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos iteration 3 — struct, methods, field access, while loop.
+//
+// Expected exit code: 7  (Point{3,4}.sum() = 7)
+
+package point;
+
+struct Point {
+    x: i32;
+    y: i32;
+
+    fn sum(self: *const Point) -> i32 {
+        return self.x + self.y;
+    }
+
+    fn product(self: *const Point) -> i32 {
+        return self.x * self.y;
+    }
+}
+
+fn sum_range(n: i32) -> i32 {
+    let result: i32 = 0;
+    let i: i32 = 0;
+    while i < n {
+        result = result + i;
+        i = i + 1;
+    }
+    return result;
+}
+
+fn main() -> i32 {
+    let p: Point = Point { x: 3, y: 4 };
+    let s: i32 = p.sum();
+    return s;
+}

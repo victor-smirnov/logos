@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos Hello World — regression test for iteration 2 features.
+
+package hello;
+
+use std.io;
+
+fn main() -> i32 {
+    println("Hello from Logos!");
+    return 0;
+}
