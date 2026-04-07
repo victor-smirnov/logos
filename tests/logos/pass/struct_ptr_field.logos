@@ -1,0 +1,17 @@
+package struct_ptr_field;
+// struct holding a pointer field — manual fat-slice
+struct Span { ptr: *mut i32; len: i32; }
+fn span_sum(s: Span) -> i32 {
+    let mut t: i32 = 0;
+    let mut i: i32 = 0;
+    while i < s.len {
+        t = t + s.ptr[i as i64];
+        i = i + 1;
+    }
+    return t;
+}
+fn main() -> i32 {
+    let mut a: [i32; 4] = [5, 10, 15, 12];
+    let s: Span = Span { ptr: &mut a, len: 4 };
+    return span_sum(s);  // 42
+}

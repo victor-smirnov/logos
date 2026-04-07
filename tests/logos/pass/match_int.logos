@@ -1,0 +1,14 @@
+package match_int;
+// match on plain integer value (not enum)
+fn score(n: i32) -> i32 {
+    match n {
+        1  => { return 10; }
+        2  => { return 20; }
+        3  => { return 12; }
+        _  => { return 0;  }
+    }
+}
+fn main() -> i32 {
+    return score(1) + score(2) + score(3) + score(99);
+    // 10+20+12+0 = 42
+}

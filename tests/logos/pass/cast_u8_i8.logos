@@ -1,0 +1,11 @@
+package cast_u8_i8;
+// u8 <-> i32 casts, including values > 127
+fn main() -> i32 {
+    let a: u8 = 250;
+    let b: i32 = a as i32;         // 250
+    let c: u8 = b as u8;           // 250 (roundtrip)
+    let d: i32 = c as i32;         // 250
+    let small: u8 = 42;
+    let e: i32 = small as i32;     // 42
+    return e + d - 250;            // 42+250-250=42
+}

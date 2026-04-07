@@ -1,0 +1,10 @@
+package u8_ops;
+// u8 arithmetic and cast to i32
+fn main() -> i32 {
+    let a: u8 = 200;
+    let b: u8 = 55;
+    let sum: i32 = a as i32 + b as i32;   // 255
+    let c: u8 = 100;
+    let d: u8 = c + 1;                     // 101
+    return sum - d as i32 - 112;           // 255-101-112=42
+}

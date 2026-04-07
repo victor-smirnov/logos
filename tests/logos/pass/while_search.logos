@@ -1,0 +1,15 @@
+package while_search;
+// early return from while: linear search
+fn find(a: *mut i32, n: i32, target: i32) -> i32 {
+    let mut i: i32 = 0;
+    while i < n {
+        if a[i as i64] == target { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+fn main() -> i32 {
+    let mut arr: [i32; 5] = [10, 20, 42, 30, 5];
+    let idx: i32 = find(&mut arr, 5, 42);  // 2
+    return idx + 40;  // 42
+}

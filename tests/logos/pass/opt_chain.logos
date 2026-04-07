@@ -1,0 +1,18 @@
+package opt_chain;
+// tagged enum Option-style: Some(T) / None
+enum Opt { Some(i32), None }
+fn safe_div(a: i32, b: i32) -> Opt {
+    if b == 0 { return Opt::None; }
+    return Opt::Some(a / b);
+}
+fn unwrap_or(o: Opt, def: i32) -> i32 {
+    match o {
+        Opt::Some(v) => { return v; }
+        Opt::None    => { return def; }
+    }
+}
+fn main() -> i32 {
+    let a: i32 = unwrap_or(safe_div(84, 2), 0);  // 42
+    let b: i32 = unwrap_or(safe_div(10, 0), 99); // 99 (but we don't need it)
+    return a;  // 42
+}

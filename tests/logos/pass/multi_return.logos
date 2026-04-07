@@ -1,0 +1,15 @@
+package multi_return;
+// function with multiple early return paths
+fn classify(n: i32) -> i32 {
+    if n < 0  { return -1; }
+    if n == 0 { return 0; }
+    if n < 10 { return 1; }
+    return 2;
+}
+fn main() -> i32 {
+    let a: i32 = classify(-5);   // -1
+    let b: i32 = classify(0);    //  0
+    let c: i32 = classify(7);    //  1
+    let d: i32 = classify(100);  //  2
+    return a + b + c + d + 40;   // -1+0+1+2+40 = 42
+}

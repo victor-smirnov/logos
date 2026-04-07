@@ -1,0 +1,15 @@
+package op_div;
+// operator overloading: Div trait
+trait Div { fn div(self: Self, rhs: Self) -> Self; }
+struct Frac { num: i32; den: i32; }
+impl Div for Frac {
+    fn div(self: Frac, rhs: Frac) -> Frac {
+        return Frac { num: self.num * rhs.den, den: self.den * rhs.num };
+    }
+}
+fn main() -> i32 {
+    let a: Frac = Frac { num: 84, den: 1 };
+    let b: Frac = Frac { num: 2,  den: 1 };
+    let c: Frac = a / b;
+    return c.num / c.den;  // (84*1)/(1*2)=42
+}

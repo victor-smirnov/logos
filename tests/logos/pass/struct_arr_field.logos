@@ -1,0 +1,13 @@
+package struct_arr_field;
+// struct with fixed-size array field
+struct Matrix { row0: [i32; 3]; row1: [i32; 3]; }
+fn trace(m: Matrix) -> i32 {
+    return m.row0[0] + m.row1[1];
+}
+fn main() -> i32 {
+    let m: Matrix = Matrix {
+        row0: [10, 0, 0],
+        row1: [0, 32, 0]
+    };
+    return trace(m);  // 10+32=42
+}

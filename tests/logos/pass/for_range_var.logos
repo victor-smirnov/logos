@@ -1,0 +1,12 @@
+package for_range_var;
+// for range with variable bounds passed as parameters
+fn range_sum(lo: i32, hi: i32) -> i32 {
+    let mut s: i32 = 0;
+    for i in lo..hi { s = s + i; }
+    return s;
+}
+fn main() -> i32 {
+    let a: i32 = range_sum(1, 10);   // 1+2+...+9 = 45
+    let b: i32 = range_sum(0, 3);    // 0+1+2 = 3
+    return a - b;                    // 45-3=42
+}

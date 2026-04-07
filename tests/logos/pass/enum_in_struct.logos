@@ -1,0 +1,17 @@
+package enum_in_struct;
+// C-style enum stored as a struct field
+enum Dir { North = 0, East = 1, South = 2, West = 3 }
+struct Walker { x: i32; y: i32; dir: Dir; }
+fn step(w: Walker) -> i32 {
+    match w.dir {
+        Dir::North => { return w.y + 1; }
+        Dir::East  => { return w.x + 1; }
+        Dir::South => { return w.y - 1; }
+        Dir::West  => { return w.x - 1; }
+    }
+}
+fn main() -> i32 {
+    let w1: Walker = Walker { x: 10, y: 30, dir: Dir::North };  // 31
+    let w2: Walker = Walker { x: 10, y: 20, dir: Dir::East };   // 11
+    return step(w1) + step(w2);  // 31+11=42
+}
