@@ -131,6 +131,25 @@ struct ENew {
     std::vector<std::pair<std::string, LExprPtr>> fields;
 };
 
+// if cond { then_val } else { else_val }  — used when if is an expression.
+// Both branches must yield the same type.
+struct EIfExpr {
+    LExprPtr cond;
+    LExprPtr then_val;
+    LExprPtr else_val;
+};
+
+// Tuple literal: (a, b, c)
+struct ETupleLit {
+    std::vector<LExprPtr> elems;
+};
+
+// Tuple element access: t.0, t.1
+struct ETupleIndex {
+    LExprPtr  receiver;
+    uint32_t  index;
+};
+
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
@@ -138,7 +157,8 @@ struct LExpr {
     std::variant<
         ELitInt, ELitBool, ELitStr, EVarRef, EEnumLit,
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
-        EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew
+        EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
+        ETupleLit, ETupleIndex
     > kind;
 };
 
@@ -195,6 +215,15 @@ struct SExprStmt  { LExprPtr expr; };
 
 struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class pointer
 
+// for item in array { body } — iterates over a fixed-size array
+struct SForEach {
+    std::string      var;         // loop variable name (item)
+    LExprPtr         iter;        // the array expression
+    const LogosType* elem_type;   // element type
+    int64_t          arr_size;    // static array size
+    LBlockPtr        body;
+};
+
 struct SMatch {
     LExprPtr               scrut;
     std::vector<LMatchArm> arms;
@@ -206,7 +235,7 @@ struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
-        SBreak, SContinue, SFieldWrite, SIndexWrite, SExprStmt, SMatch, SDelete
+        SBreak, SContinue, SFieldWrite, SIndexWrite, SExprStmt, SMatch, SDelete, SForEach
     > kind;
 };
 
@@ -230,6 +259,7 @@ struct LFunction {
     const LogosType*         ret_type  = nullptr;
     LBlock                   body;
     bool                     is_extern = false;
+    bool                     is_vararg = false;
 
     // Specialisation support (set by sema, cleared by mono after instantiation).
     // is_specialization == true  →  this is a specialisation of `name`.
@@ -275,6 +305,7 @@ struct LClassDef {
     std::vector<LField>      own_fields;              // fields declared in this class
     std::vector<std::string> vtable_order;            // full vtable: mangled method names
     std::vector<LFunction>   methods;                 // method bodies (non-abstract)
+    std::vector<LFunction>   static_methods;          // static method bodies (no self)
 
     // Generic class support (mirrors LStructDef).
     // type_params non-empty  → this is a template; mono expands it.

@@ -212,6 +212,19 @@ private:
             record_needed_class(result);
             return result;
         }
+        case LogosType::Kind::Tuple: {
+            std::vector<const LogosType*> new_elems;
+            bool changed = false;
+            for (auto* e : t->tuple_elems) {
+                auto* ne = subst_type(e, s);
+                changed |= (ne != e);
+                new_elems.push_back(ne);
+            }
+            if (!changed) return t;
+            LogosType nt; nt.kind = LogosType::Kind::Tuple;
+            nt.tuple_elems = std::move(new_elems);
+            return out_.type_pool.alloc(std::move(nt));
+        }
         default:
             return t;
         }
@@ -401,6 +414,22 @@ private:
                 for (auto& [fn, fv] : k.fields)
                     nn.fields.push_back({fn, subst_expr(*fv, s)});
                 result->kind = std::move(nn);
+
+            } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
+                lir::EIfExpr ni;
+                ni.cond      = subst_expr(*k.cond, s);
+                ni.then_val  = subst_expr(*k.then_val, s);
+                ni.else_val  = subst_expr(*k.else_val, s);
+                result->kind = std::move(ni);
+
+            } else if constexpr (std::is_same_v<K, lir::ETupleLit>) {
+                lir::ETupleLit nt;
+                for (auto& elem : k.elems)
+                    nt.elems.push_back(subst_expr(*elem, s));
+                result->kind = std::move(nt);
+
+            } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
+                result->kind = lir::ETupleIndex{subst_expr(*k.receiver, s), k.index};
             }
         }, e.kind);
 
@@ -488,6 +517,15 @@ private:
                     nm.arms.push_back(std::move(na));
                 }
                 ns.kind = std::move(nm);
+
+            } else if constexpr (std::is_same_v<K, lir::SForEach>) {
+                lir::SForEach nf;
+                nf.var       = k.var;
+                nf.iter      = subst_expr(*k.iter, s);
+                nf.elem_type = subst_type(k.elem_type, s);
+                nf.arr_size  = k.arr_size;
+                nf.body      = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
+                ns.kind      = std::move(nf);
             }
         }, st.kind);
 
@@ -500,6 +538,7 @@ private:
         lir::LFunction nf;
         nf.name      = fn.name;
         nf.is_extern = fn.is_extern;
+        nf.is_vararg = fn.is_vararg;
         nf.ret_type  = subst_type(fn.ret_type, s);
         for (auto& p : fn.params)
             nf.params.push_back({p.name, subst_type(p.type, s)});
@@ -548,6 +587,8 @@ private:
             } else if constexpr (std::is_same_v<K, lir::SMatch>) {
                 scan_expr(*k.scrut);
                 for (auto& arm : k.arms) scan_block(*arm.body);
+            } else if constexpr (std::is_same_v<K, lir::SForEach>) {
+                scan_expr(*k.iter); scan_block(*k.body);
             }
         }, st.kind);
     }
@@ -585,6 +626,12 @@ private:
                 scan_expr(*k.operand);
             } else if constexpr (std::is_same_v<K, lir::ENew>) {
                 for (auto& [fn, fv] : k.fields) scan_expr(*fv);
+            } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
+                scan_expr(*k.cond); scan_expr(*k.then_val); scan_expr(*k.else_val);
+            } else if constexpr (std::is_same_v<K, lir::ETupleLit>) {
+                for (auto& elem : k.elems) scan_expr(*elem);
+            } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
+                scan_expr(*k.receiver);
             }
         }, e.kind);
     }

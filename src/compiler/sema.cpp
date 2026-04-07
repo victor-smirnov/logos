@@ -48,6 +48,12 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
         return a.struct_name == b.struct_name;
     case LogosType::Kind::Enum:
         return a.enum_name == b.enum_name;
+    case LogosType::Kind::Tuple:
+        if (a.tuple_elems.size() != b.tuple_elems.size()) return false;
+        for (size_t i = 0; i < a.tuple_elems.size(); ++i)
+            if (!a.tuple_elems[i] || !b.tuple_elems[i] ||
+                !types_equal(*a.tuple_elems[i], *b.tuple_elems[i])) return false;
+        return true;
     case LogosType::Kind::TypeVar:
         return a.type_var_name == b.type_var_name;
     default:
@@ -86,6 +92,11 @@ static std::string mangle_type_for_name(const LogosType* t) {
         return concrete_struct_name(t);
     case LogosType::Kind::Class:
         return concrete_class_name(t);
+    case LogosType::Kind::Tuple: {
+        std::string r = "tup";
+        for (auto* e : t->tuple_elems) { r += "_"; r += mangle_type_for_name(e); }
+        return r;
+    }
     default:
         return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
     }
@@ -109,6 +120,13 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
         to->kind   == LogosType::Kind::Ptr   &&
         from->elem && to->pointee)
         return types_equal(*from->elem, *to->pointee);
+    // Tuple: element-wise compatibility (e.g. ({integer}, {integer}) → (i32, i32))
+    if (from->kind == LogosType::Kind::Tuple && to->kind == LogosType::Kind::Tuple) {
+        if (from->tuple_elems.size() != to->tuple_elems.size()) return false;
+        for (size_t i = 0; i < from->tuple_elems.size(); ++i)
+            if (!types_compatible(from->tuple_elems[i], to->tuple_elems[i])) return false;
+        return true;
+    }
     // Class pointer covariance: *mut/const Derived is compatible with *const/mut Class
     // (same class — exact equality handled above; hierarchy checked in SemaChecker::compat)
     return false;
@@ -152,6 +170,13 @@ std::string type_str(const LogosType* t) {
               r += type_str(t->type_args[i]);
           }
           return r + ">"; }
+    case LogosType::Kind::Tuple: {
+        std::string r = "(";
+        for (size_t i = 0; i < t->tuple_elems.size(); ++i) {
+            if (i) r += ", ";
+            r += type_str(t->tuple_elems[i]);
+        }
+        return r + ")"; }
     case LogosType::Kind::Enum:    return t->enum_name;
     case LogosType::Kind::TypeVar: return std::string(t->type_var_name);
     case LogosType::Kind::Error:   return "<error>";
@@ -262,6 +287,11 @@ private:
     }
     const LogosType* make_enum_type(std::string_view name) {
         LogosType t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
+        return pool_.alloc(std::move(t));
+    }
+    const LogosType* make_tuple_type(std::vector<const LogosType*> elems) {
+        LogosType t; t.kind = LogosType::Kind::Tuple;
+        t.tuple_elems = std::move(elems);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_typevar(std::string_view name) {
@@ -445,7 +475,7 @@ private:
     struct SemaFieldInfo  { std::string_view name; const LogosType* type; };
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params; };
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
-                            std::vector<TypeParam> type_params; };
+                            std::vector<TypeParam> type_params; bool is_vararg = false; };
     struct SemaVariantInfo{ std::string_view name; int32_t value; };
     struct SemaEnumInfo   { std::vector<SemaVariantInfo> variants; };
     struct SemaClassInfo  {
@@ -551,6 +581,17 @@ private:
             if (!changed) return t;
             return make_generic_struct(t->struct_name, std::move(new_args));
         }
+        case LogosType::Kind::Tuple: {
+            std::vector<const LogosType*> new_elems;
+            bool changed = false;
+            for (auto* e : t->tuple_elems) {
+                auto* ne = subst_type_sema(e, s);
+                changed |= (ne != e);
+                new_elems.push_back(ne);
+            }
+            if (!changed) return t;
+            return make_tuple_type(std::move(new_elems));
+        }
         default: return t;
         }
     }
@@ -584,6 +625,16 @@ private:
                           ? resolve_type(map_of(node.get(la::POINTEE.code)))
                           : error_t();
             return make_ptr(mut, inner);
+        }
+
+        if (tc == la::TUPLE_TYPE) {
+            std::vector<const LogosType*> elems;
+            if (node.has_key(la::ITEMS)) {
+                auto items = arr_of(node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    elems.push_back(resolve_type(map_of(items.get(i))));
+            }
+            return make_tuple_type(std::move(elems));
         }
 
         if (tc == la::ARR_TYPE) {
@@ -868,6 +919,9 @@ private:
 
                 } else if (mc == la::FN || mc == la::ABSTRACT_FN) {
                     collect_fn(m, cname);
+                } else if (mc == la::STATIC_FN) {
+                    // Static methods: collected as free functions with class prefix
+                    collect_fn(m, cname);
                 }
             }
         }
@@ -943,7 +997,8 @@ private:
             auto methods = arr_of(node.get(la::ITEMS.code));
             for (uint64_t m = 0; m < methods.size(); ++m) {
                 auto method = map_of(methods.get(m));
-                if (code_of(method) == la::FN) collect_fn(method, sname);
+                int32_t mc = code_of(method);
+                if (mc == la::FN || mc == la::STATIC_FN) collect_fn(method, sname);
             }
         }
         pop_type_params(structs_[sname].type_params);
@@ -1255,6 +1310,11 @@ private:
         info.ret_type = node.has_key(la::RET_TYPE)
             ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
             : void_t();
+        // Vararg flag (for extern fn with ... params)
+        if (node.has_key(la::IS_VARARG)) {
+            AnyVal av = node.get(la::IS_VARARG.code);
+            info.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        }
         pop_type_params(info.type_params);
         funcs_[mangled] = std::move(info);
     }
@@ -1286,14 +1346,10 @@ private:
         if (c == la::MATCH) {
             if (!stmt.has_key(la::ITEMS)) return false;
             auto arms = arr_of(stmt.get(la::ITEMS.code));
-            bool has_wild = false, all_ret = true;
+            bool all_ret = true;
             for (uint64_t i = 0; i < arms.size(); ++i) {
                 auto arm = map_of(arms.get(i));
                 if (code_of(arm) != la::MATCH_ARM) continue;
-                if (arm.has_key(la::LHS)) {
-                    auto pat = map_of(arm.get(la::LHS.code));
-                    if (code_of(pat) == la::PAT_WILD) has_wild = true;
-                }
                 if (arm.has_key(la::BODY)) {
                     auto body = map_of(arm.get(la::BODY.code));
                     bool arm_ret = (code_of(body) == la::BLOCK)
@@ -1302,7 +1358,10 @@ private:
                     if (!arm_ret) all_ret = false;
                 } else { all_ret = false; }
             }
-            return has_wild && all_ret;
+            // Match always returns if all arms return. This covers both the
+            // classic wildcard-arm case and exhaustive enum matches without _.
+            // Guard against empty arm list (all_ret stays true vacuously).
+            return all_ret && arms.size() > 0;
         }
         return false;
     }
@@ -1419,12 +1478,47 @@ private:
         case la::CALL:         return lower_call(expr);
         case la::GENERIC_CALL: return lower_generic_call(expr);
         case la::METHOD_CALL:  return lower_method_call(expr);
+        case la::STATIC_CALL:  return lower_static_call(expr);
         case la::FIELD_READ:  return lower_field_read(expr);
         case la::STRUCT_LIT:  return lower_struct_lit(expr);
         case la::INDEX_READ:  return lower_index_read(expr);
         case la::ARR_LIT:     return lower_arr_lit(expr);
         case la::ENUM_LIT:    return lower_enum_lit(expr);
         case la::NEW_EXPR:    return lower_new_expr(expr);
+        case la::IF:          return lower_if_expr(expr);
+
+        case la::TUPLE_LIT: {
+            if (!expr.has_key(la::ITEMS)) return error_expr();
+            auto items = arr_of(expr.get(la::ITEMS.code));
+            std::vector<lir::LExprPtr> elems;
+            std::vector<const LogosType*> elem_types;
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto e = lower_expr(map_of(items.get(i)));
+                elem_types.push_back(e->type);
+                elems.push_back(std::move(e));
+            }
+            auto* tt = make_tuple_type(std::move(elem_types));
+            return make_expr(tt, lir::ETupleLit{std::move(elems)});
+        }
+
+        case la::TUPLE_INDEX: {
+            auto recv = expr.has_key(la::RECEIVER)
+                ? lower_expr(map_of(expr.get(la::RECEIVER.code)))
+                : error_expr();
+            if (recv->type->kind != LogosType::Kind::Tuple) {
+                error(std::format("tuple index on non-tuple type '{}'", type_str(recv->type)));
+                return error_expr();
+            }
+            auto sv = str_of(expr.get(la::FIELD.code));
+            uint32_t idx = (uint32_t)std::strtoul(sv.data(), nullptr, 10);
+            if (idx >= recv->type->tuple_elems.size()) {
+                error(std::format("tuple index {} out of range (tuple has {} elements)",
+                      idx, recv->type->tuple_elems.size()));
+                return error_expr();
+            }
+            auto* elem_t = recv->type->tuple_elems[idx];
+            return make_expr(elem_t, lir::ETupleIndex{std::move(recv), idx});
+        }
 
         default:
             return error_expr();
@@ -1555,7 +1649,23 @@ private:
         auto& fi = fit->second;
         uint64_t n_args = arg_exprs.size();
 
-        if (n_args != fi.param_types.size()) {
+        if (fi.is_vararg) {
+            // Vararg functions: only check the declared (fixed) args
+            if (n_args < fi.param_types.size()) {
+                error(std::format("call to vararg '{}': expected at least {} args, got {}",
+                      callee, fi.param_types.size(), n_args));
+            } else {
+                for (uint64_t i = 0; i < fi.param_types.size(); ++i) {
+                    auto* at = arg_exprs[i]->type;
+                    auto* pt = fi.param_types[i];
+                    if (at->kind != LogosType::Kind::Error &&
+                        pt->kind != LogosType::Kind::Error &&
+                        !types_compatible(at, pt))
+                        error(std::format("call to '{}' arg {}: expected {}, got {}",
+                              callee, i + 1, type_str(pt), type_str(at)));
+                }
+            }
+        } else if (n_args != fi.param_types.size()) {
             error(std::format("call to '{}': expected {} args, got {}",
                   callee, fi.param_types.size(), n_args));
         } else {
@@ -2161,6 +2271,128 @@ private:
         return make_expr(result_t, lir::ENew{std::string(cname), std::move(fields)});
     }
 
+    // ── lower_static_call: ClassName::method(args) ───────────────
+    lir::LExprPtr lower_static_call(TinyMapView node) {
+        auto class_name = str_of(node.get(la::RECEIVER.code));
+        auto method_name = str_of(node.get(la::NAME.code));
+        std::string mangled = std::string(class_name) + "__" + std::string(method_name);
+
+        auto fit = funcs_.find(mangled);
+
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            AnyVal args_av = node.get(la::ARGS.code);
+            if (!args_av.is_null()) {
+                auto args = map_of(args_av);
+                if (args.has_key(la::ITEMS)) {
+                    auto items = arr_of(args.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+
+        if (fit == funcs_.end()) {
+            error(std::format("call to undefined static method '{}::{}'", class_name, method_name));
+            return make_expr(error_t(), lir::ECall{mangled, {}, std::move(arg_exprs)});
+        }
+
+        auto& fi = fit->second;
+        uint64_t n_args = arg_exprs.size();
+        if (n_args != fi.param_types.size()) {
+            error(std::format("static call '{}': expected {} args, got {}",
+                  mangled, fi.param_types.size(), n_args));
+        } else {
+            for (uint64_t i = 0; i < n_args; ++i) {
+                auto* at = arg_exprs[i]->type;
+                auto* pt = fi.param_types[i];
+                if (at->kind != LogosType::Kind::Error &&
+                    pt->kind != LogosType::Kind::Error &&
+                    !types_compatible(at, pt))
+                    error(std::format("static call '{}' arg {}: expected {}, got {}",
+                          mangled, i + 1, type_str(pt), type_str(at)));
+            }
+        }
+
+        return make_expr(fi.ret_type, lir::ECall{mangled, {}, std::move(arg_exprs)});
+    }
+
+    // ── lower_if_expr: if cond { expr } else { expr } ────────────
+    lir::LExprPtr lower_if_expr(TinyMapView node) {
+        lir::LExprPtr cond;
+        if (node.has_key(la::COND)) {
+            cond = lower_expr(map_of(node.get(la::COND.code)));
+            if (cond->type->kind != LogosType::Kind::Bool &&
+                cond->type->kind != LogosType::Kind::Error)
+                error(std::format("if condition must be bool, got {}", type_str(cond->type)));
+        } else {
+            cond = error_expr();
+        }
+
+        // Both branches must be single-expression blocks (last expr is the value)
+        // For simplicity: require both THEN and ELSE branches (else is required for expr form)
+        if (!node.has_key(la::ELSE)) {
+            error("if-as-expression requires an else branch");
+            return error_expr();
+        }
+
+        // Lower the last expression from each block
+        lir::LExprPtr then_val = error_expr();
+        lir::LExprPtr else_val = error_expr();
+
+        auto lower_block_last_expr = [&](TinyMapView blk) -> lir::LExprPtr {
+            if (blk.is_null() || !blk.has_key(la::ITEMS)) return error_expr();
+            auto stmts = arr_of(blk.get(la::ITEMS.code));
+            if (stmts.size() == 0) { error("if-as-expression: empty branch"); return error_expr(); }
+            // Last statement must be a bare expression (no semicolon → no EXPR_STMT wrapper in grammar)
+            // In our grammar, the items in a block are stmts; bare expr has CODE: EXPR_STMT with VALUE.
+            // But if used as expression, the last item should be a raw expr node (not EXPR_STMT).
+            // Actually in our grammar, `if expr block` — blocks contain stmts, and stmts always end
+            // with semicolons. The grammar doesn't support bare expression at end of block.
+            // So lower_if_expr treats the block's stmts as statements and the last
+            // EXPR_STMT's VALUE as the branch value.
+            auto last = map_of(stmts.get(stmts.size() - 1));
+            int32_t lc = code_of(last);
+            if (lc == la::EXPR_STMT && last.has_key(la::VALUE)) {
+                // Lower all preceding stmts as side effects (ignored in expr mode)
+                return lower_expr(map_of(last.get(la::VALUE.code)));
+            }
+            // Otherwise, try treating it as a direct expression (for inline if_expr in primary_expr)
+            return lower_expr(last);
+        };
+
+        if (node.has_key(la::THEN)) {
+            auto then_node = map_of(node.get(la::THEN.code));
+            if (code_of(then_node) == la::BLOCK)
+                then_val = lower_block_last_expr(then_node);
+            else
+                then_val = lower_expr(then_node);
+        }
+
+        auto else_node = map_of(node.get(la::ELSE.code));
+        if (code_of(else_node) == la::BLOCK)
+            else_val = lower_block_last_expr(else_node);
+        else
+            else_val = lower_expr(else_node);
+
+        // Determine result type
+        const LogosType* result_type = then_val->type;
+        if (then_val->type->kind == LogosType::Kind::Error)
+            result_type = else_val->type;
+        else if (else_val->type->kind != LogosType::Kind::Error &&
+                 !types_compatible(then_val->type, else_val->type) &&
+                 !types_compatible(else_val->type, then_val->type)) {
+            error(std::format("if-expression branches have incompatible types: {} vs {}",
+                  type_str(then_val->type), type_str(else_val->type)));
+        }
+
+        lir::EIfExpr eif;
+        eif.cond      = std::move(cond);
+        eif.then_val  = std::move(then_val);
+        eif.else_val  = std::move(else_val);
+        return make_expr(result_type, std::move(eif));
+    }
+
     // ── lower_stmt and friends ───────────────────────────────────
 
     lir::LStmt lower_stmt(TinyMapView stmt) {
@@ -2173,6 +2405,7 @@ private:
         if (c == la::IF)           return lower_if(stmt);
         if (c == la::WHILE)        return lower_while(stmt);
         if (c == la::FOR)          return lower_for(stmt);
+        if (c == la::FOR_EACH)     return lower_for_each(stmt);
         if (c == la::LOOP)         return lower_loop(stmt);
         if (c == la::FIELD_WRITE)  return lower_field_write(stmt);
         if (c == la::INDEX_WRITE)  return lower_index_write(stmt);
@@ -2408,6 +2641,47 @@ private:
         return make_stmt(node_line_, std::move(sf));
     }
 
+    // ── for item in array — lowered to SForEach ─────────────────────
+    lir::LStmt lower_for_each(TinyMapView node) {
+        auto var_name = str_of(node.get(la::NAME.code));
+
+        lir::LExprPtr iter = node.has_key(la::ITER)
+            ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
+
+        // Determine array size from type
+        const LogosType* iter_type = iter->type;
+        int64_t arr_size = 0;
+        const LogosType* elem_type = i32_t();
+
+        if (iter_type->kind == LogosType::Kind::Array) {
+            arr_size = (int64_t)iter_type->arr_size;
+            elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        } else if (iter_type->kind != LogosType::Kind::Error) {
+            error(std::format("for-each: '{}' is not an array type, got {}",
+                  var_name, type_str(iter_type)));
+        }
+
+        push_scope();
+        define(var_name, elem_type, false);
+
+        auto body = std::make_unique<lir::LBlock>();
+        if (node.has_key(la::BODY)) {
+            ++loop_depth_;
+            *body = lower_block(map_of(node.get(la::BODY.code)));
+            --loop_depth_;
+        }
+
+        pop_scope();
+
+        lir::SForEach sfe;
+        sfe.var       = std::string(var_name);
+        sfe.iter      = std::move(iter);
+        sfe.elem_type = elem_type;
+        sfe.arr_size  = arr_size;
+        sfe.body      = std::move(body);
+        return make_stmt(node_line_, std::move(sfe));
+    }
+
     lir::LStmt lower_loop(TinyMapView node) {
         auto body = std::make_unique<lir::LBlock>();
         if (node.has_key(la::BODY)) {
@@ -2602,7 +2876,14 @@ private:
 
         lir::LFunction fn;
         fn.name      = mangled;
-        fn.is_extern = (code_of(node) == la::EXTERN_FN);
+        int32_t node_code = code_of(node);
+        fn.is_extern = (node_code == la::EXTERN_FN);
+
+        // Check is_vararg for extern fn with variadic params
+        if (fn.is_extern && node.has_key(la::IS_VARARG)) {
+            AnyVal av = node.get(la::IS_VARARG.code);
+            fn.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        }
 
         auto fit = funcs_.find(mangled);
         if (fit == funcs_.end()) return fn;   // shouldn't happen after collect
@@ -2668,7 +2949,8 @@ private:
             auto methods = arr_of(node.get(la::ITEMS.code));
             for (uint64_t m = 0; m < methods.size(); ++m) {
                 auto method = map_of(methods.get(m));
-                if (code_of(method) == la::FN)
+                int32_t mc = code_of(method);
+                if (mc == la::FN || mc == la::STATIC_FN)
                     sd.methods.push_back(lower_fn(method, sname));
             }
         }
@@ -2738,13 +3020,16 @@ private:
             cd.own_fields.push_back({fname, ftype});
         }
 
-        // Lower concrete methods
+        // Lower concrete methods and collect static methods separately
         if (node.has_key(la::ITEMS)) {
             auto members = arr_of(node.get(la::ITEMS.code));
             for (uint64_t m = 0; m < members.size(); ++m) {
                 auto member = map_of(members.get(m));
-                if (code_of(member) == la::FN)
+                int32_t mc = code_of(member);
+                if (mc == la::FN)
                     cd.methods.push_back(lower_fn(member, cname));
+                else if (mc == la::STATIC_FN)
+                    cd.static_methods.push_back(lower_fn(member, cname));
                 // ABSTRACT_FN: no body to lower
             }
         }
@@ -2777,7 +3062,14 @@ private:
                     prog.structs.push_back(lower_struct_def(item));
             }
             else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
-            else if (c == la::CLASS)      prog.classes.push_back(lower_class_def(item));
+            else if (c == la::CLASS) {
+                auto cd = lower_class_def(item);
+                // Static methods are free functions — emit them to prog.functions
+                for (auto& sm : cd.static_methods)
+                    prog.functions.push_back(std::move(sm));
+                cd.static_methods.clear();
+                prog.classes.push_back(std::move(cd));
+            }
             else if (c == la::FN || c == la::EXTERN_FN) {
                 if (is_specialization_fn(item))
                     prog.specializations.push_back(lower_spec_fn(item));

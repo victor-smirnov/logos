@@ -1,0 +1,18 @@
+package static_method;
+
+struct Counter {
+    val: i32;
+
+    static fn create(v: i32) -> Counter {
+        return Counter { val: v };
+    }
+
+    fn get(self: Counter) -> i32 {
+        return self.val;
+    }
+}
+
+fn main() -> i32 {
+    let c: Counter = Counter::create(42);
+    return c.get();
+}

@@ -50,6 +50,8 @@
     TYPE_PARAMS = 27
     PARENT      = 28
     IS_ABSTRACT = 29
+    IS_VARARG   = 30
+    ITER        = 31
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -113,6 +115,12 @@
     NEW_EXPR     = 94
     DELETE_STMT  = 95
     ABSTRACT_FN  = 96
+    STATIC_FN    = 97
+    STATIC_CALL  = 98
+    FOR_EACH     = 99
+    TUPLE_TYPE   = 100
+    TUPLE_LIT    = 101
+    TUPLE_INDEX  = 102
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -172,6 +180,7 @@
     NE          = "!="
     LE          = "<="
     GE          = ">="
+    DOTDOTDOT   = "..."
     DOTDOTEQ    = "..="
     DOTDOT      = ".."
     LT          = "<"
@@ -246,8 +255,14 @@
                / KW_CLASS IDENT type_param_list? LBRACE class_member* RBRACE
               => { CODE: CLASS, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }
 
-    // class member: abstract method, concrete method, or field
-    class_member <- abstract_method_def / pub_fn_def / fn_def / field_def
+    // class member: abstract method, static method, concrete method, or field
+    class_member <- abstract_method_def / static_fn_def / pub_fn_def / fn_def / field_def
+
+    // static fn name(params) -> ret_type { ... }
+    static_fn_def <- KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+                  => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
+                   / KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN block
+                  => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
 
     // abstract fn name(params) -> ret_type;
     abstract_method_def <- KW_ABSTRACT KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
@@ -262,11 +277,13 @@
     field_def <- IDENT COLON type_ref SEMI
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
 
-    // method_def: passthrough — pub_fn_def or fn_def (each has its own action)
-    method_def <- pub_fn_def / fn_def
+    // method_def: passthrough — static, pub, or regular fn
+    method_def <- static_fn_def / pub_fn_def / fn_def
 
     // ── Extern function (FFI) ────────────────────────────────────
-    extern_fn_def <- KW_EXTERN KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
+    extern_fn_def <- KW_EXTERN KW_FN IDENT LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type_ref SEMI
+                  => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5, RET_TYPE: $10, IS_VARARG: true }
+                   / KW_EXTERN KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
                   => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
                    / KW_EXTERN KW_FN IDENT LPAREN param_list? RPAREN SEMI
                   => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5 }
@@ -290,7 +307,11 @@
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
 
     // ── Type reference ───────────────────────────────────────────
-    type_ref <- ptr_type / arr_type / simple_type
+    type_ref <- ptr_type / arr_type / tuple_type / simple_type
+
+    // (T1, T2, ...) — tuple type (2+ elements)
+    tuple_type <- LPAREN type_ref COMMA type_ref (COMMA type_ref)* RPAREN
+               => { CODE: TUPLE_TYPE, ITEMS: $... }
 
     ptr_type <- STAR KW_CONST simple_type
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: false }
@@ -328,10 +349,13 @@
             => { CODE: EXPR_STMT, VALUE: $1 }
 
     // for i in lo..hi { }  (exclusive) and  for i in lo..=hi { }  (inclusive)
+    // for item in array { }  (for-each over fixed-size array)
     for_stmt <- KW_FOR IDENT KW_IN expr DOTDOTEQ expr block
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: true }
               / KW_FOR IDENT KW_IN expr DOTDOT expr block
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: false }
+              / KW_FOR IDENT KW_IN expr block
+             => { CODE: FOR_EACH, NAME: $2, ITER: $4, BODY: $5 }
 
     loop_stmt     <- KW_LOOP block
                   => { CODE: LOOP, BODY: $2 }
@@ -440,6 +464,8 @@
     atom <- primary_expr
             ( DOT IDENT LPAREN (expr (COMMA expr)*)? RPAREN
                 => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
+            / DOT INTEGER
+                => { CODE: TUPLE_INDEX, RECEIVER: $0, FIELD: $2 }
             / DOT IDENT
                 => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
             / LBRACKET expr RBRACKET
@@ -450,9 +476,11 @@
     primary_expr <- new_expr         // new ClassName { fields }  — before struct_lit
                   / struct_lit       // IDENT { fields }  — before plain IDENT
                   / arr_lit          // [e1, e2, ...]
+                  / tuple_lit        // (a, b, ...) — before paren_expr
                   / paren_expr       // (expr)
-                  / enum_lit         // IDENT::VARIANT     — before plain IDENT
-                  / call_expr        // IDENT(args)        — before plain IDENT
+                  / if_expr          // if cond { ... } else { ... }  — as expression
+                  / call_expr        // IDENT(args) / Class::method(args) — before enum_lit/IDENT
+                  / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
                   / STRING   => { CODE: LIT_STR,  VALUE: $1 }
                   / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                   / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
@@ -479,6 +507,10 @@
     // ── Array literal: [e1, e2, ...] ─────────────────────────────
     arr_lit <- LBRACKET (expr (COMMA expr)*)? RBRACKET
             => { CODE: ARR_LIT, ITEMS: $... }
+
+    // ── Tuple literal: (expr, expr, ...) — 2+ elements ────────────
+    tuple_lit <- LPAREN expr COMMA expr (COMMA expr)* RPAREN
+              => { CODE: TUPLE_LIT, ITEMS: $... }
 
     // ── Parenthesised expression ──────────────────────────────────
     paren_expr <- LPAREN expr RPAREN
@@ -508,9 +540,11 @@
     call_arg_list <- expr (COMMA expr)*
                   => { ITEMS: $... }
 
-    // ── Free function call: fn(args) or fn::<T>(args) ────────────
+    // ── Free function call: fn(args) or fn::<T>(args) or Class::method(args) ─
     call_expr <- IDENT COLONCOLON LT type_arg_list GT LPAREN call_arg_list? RPAREN
               => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
+               / IDENT COLONCOLON IDENT LPAREN call_arg_list? RPAREN
+              => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }
                / IDENT LPAREN (expr (COMMA expr)*)? RPAREN
               => { CODE: CALL, CALLEE: $1, ARGS: $... }
 }

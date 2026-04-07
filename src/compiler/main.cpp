@@ -101,6 +101,7 @@ int main(int argc, char** argv) {
     mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
 
     auto mlir_module = logos::compiler::mlir_gen(mlir_ctx, prog);
+    if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
     if (!mlir_module) {
         std::fprintf(stderr, "logosc: MLIR generation failed\n");
         return 1;

@@ -55,6 +55,8 @@ inline constexpr Key INCLUSIVE  {"INCLUSIVE",  26};  // for range: inclusive end
 inline constexpr Key TYPE_PARAMS{"TYPE_PARAMS", 27}; // generic type parameter list
 inline constexpr Key PARENT     {"PARENT",      28}; // parent class name (string)
 inline constexpr Key IS_ABSTRACT{"IS_ABSTRACT", 29}; // abstract flag (bool)
+inline constexpr Key IS_VARARG  {"IS_VARARG",   30}; // vararg flag for extern fn (bool)
+inline constexpr Key ITER       {"ITER",        31}; // iterable expr for for-each
 
 // ── Node codes ───────────────────────────────────────────────────────────
 
@@ -134,6 +136,14 @@ inline constexpr Code CLASS       {"CLASS",        93};   // class definition
 inline constexpr Code NEW_EXPR    {"NEW_EXPR",     94};   // new ClassName { ... }
 inline constexpr Code DELETE_STMT {"DELETE_STMT",  95};   // delete expr;
 inline constexpr Code ABSTRACT_FN {"ABSTRACT_FN",  96};   // abstract fn declaration
+inline constexpr Code STATIC_FN   {"STATIC_FN",    97};   // static fn in class
+inline constexpr Code STATIC_CALL {"STATIC_CALL",  98};   // ClassName::method(args)
+inline constexpr Code FOR_EACH    {"FOR_EACH",     99};   // for item in array { }
+
+// Batch J — tuples
+inline constexpr Code TUPLE_TYPE  {"TUPLE_TYPE",  100};   // (i32, bool) in type position
+inline constexpr Code TUPLE_LIT   {"TUPLE_LIT",   101};   // (1, true) expression
+inline constexpr Code TUPLE_INDEX {"TUPLE_INDEX", 102};   // t.0, t.1 — numeric field access
 
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;

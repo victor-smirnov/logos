@@ -1,0 +1,8 @@
+package varargs;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn main() -> i32 {
+    printf("hello %d\n", 42);
+    return 0;
+}

@@ -35,6 +35,11 @@ foreach(EXPECTED IN ITEMS
     pass/generic_methods.expected
     pass/classes.expected
     pass/generic_class.expected
+    pass/if_expr.expected
+    pass/for_each.expected
+    pass/static_method.expected
+    pass/varargs.expected
+    pass/tuple.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)

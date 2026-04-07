@@ -140,6 +140,7 @@ private:
     std::unordered_map<std::string, const LEnumDef*>   enum_types_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
     std::unordered_map<std::string, const LConst*>     module_consts_;
+    std::unordered_set<std::string>                    vararg_fns_;  // names of vararg extern fns
 
     // Per-function: tracks class name for variables/params holding class pointers.
     std::unordered_map<std::string, std::string>       var_class_;
@@ -150,6 +151,7 @@ private:
     std::unordered_map<std::string, mlir::Type>   var_elem_types_;
     std::unordered_map<std::string, std::string>  var_struct_;
     std::unordered_map<std::string, mlir::Type>   var_subscript_;
+    std::unordered_set<std::string>              var_tuple_;
     mlir::Type                                    cur_ret_type_;
 
     struct LoopBlocks { mlir::Block* cont; mlir::Block* exit; };
@@ -219,6 +221,16 @@ private:
         case LogosType::Kind::Class:
             // Classes are always passed by pointer (heap allocated via 'new').
             return ptr_type();
+        case LogosType::Kind::Tuple: {
+            // Tuples are anonymous LLVM struct types, passed by pointer (like structs).
+            llvm::SmallVector<mlir::Type> fields;
+            for (auto* e : t->tuple_elems) {
+                auto ft = logos_to_mlir(e);
+                if (!ft) return nullptr;
+                fields.push_back(ft);
+            }
+            return ptr_type();
+        }
         case LogosType::Kind::TypeVar:
             // TypeVar should have been eliminated by mono_pass.
             // Treat as error type to produce a clear diagnostic.
@@ -372,18 +384,47 @@ private:
     mlir::FunctionType make_fn_type(const LFunction& fn) {
         llvm::SmallVector<mlir::Type> param_types;
         for (auto& p : fn.params) {
-            auto t = logos_to_mlir(p.type);
-            if (t) param_types.push_back(t);
+            // Arrays (like structs) are passed by pointer.
+            if (p.type && p.type->kind == LogosType::Kind::Array)
+                param_types.push_back(ptr_type());
+            else {
+                auto t = logos_to_mlir(p.type);
+                if (t) param_types.push_back(t);
+            }
         }
         llvm::SmallVector<mlir::Type> ret_types;
         if (fn.ret_type) {
-            auto rt = logos_to_mlir(fn.ret_type);
-            if (rt) ret_types.push_back(rt);
+            // Tuples are returned by value (as LLVM struct), not by pointer.
+            if (fn.ret_type->kind == LogosType::Kind::Tuple) {
+                auto rt = tuple_llvm_type(fn.ret_type);
+                if (rt) ret_types.push_back(rt);
+            } else {
+                auto rt = logos_to_mlir(fn.ret_type);
+                if (rt) ret_types.push_back(rt);
+            }
         }
         return builder_.getFunctionType(param_types, ret_types);
     }
 
     void forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
+        if (fn.is_vararg) {
+            // Vararg extern fns use llvm.func (func dialect doesn't support varargs)
+            if (mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(fn.name)) return;
+            llvm::SmallVector<mlir::Type> param_types;
+            for (auto& p : fn.params) {
+                auto t = logos_to_mlir(p.type);
+                if (t) param_types.push_back(t);
+            }
+            mlir::Type ret = fn.ret_type ? logos_to_mlir(fn.ret_type) : nullptr;
+            if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+            auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types,
+                                                                    /*isVarArg=*/true);
+            auto llvm_fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, fn.name, llvm_fn_type);
+            llvm_fn.setLinkage(mlir::LLVM::Linkage::External);
+            mod.push_back(llvm_fn);
+            vararg_fns_.insert(fn.name);
+            return;
+        }
         if (mod.lookupSymbol<mlir::func::FuncOp>(fn.name)) return;
         auto f = mlir::func::FuncOp::create(loc_, fn.name, make_fn_type(fn));
         if (fn.is_extern) f.setPrivate();
@@ -402,6 +443,7 @@ private:
         var_struct_.clear();
         var_class_.clear();
         var_subscript_.clear();
+        var_tuple_.clear();
         loop_stack_.clear();
 
         // Bind parameters.
@@ -475,6 +517,7 @@ private:
     void gen_stmt_kind(const SExprStmt& s)    { gen_expr(*s.expr); }
     void gen_stmt_kind(const SMatch& s)       { gen_match(s); }
     void gen_stmt_kind(const SDelete& s)      { gen_delete(s); }
+    void gen_stmt_kind(const SForEach& s)     { gen_for_each(s); }
 
     void gen_let(const SLet& s) {
         // ── Struct literal ────────────────────────────────────────
@@ -499,6 +542,36 @@ private:
             let_vars_.insert(s.name);
             var_elem_types_[s.name] = elem_type;
             var_subscript_[s.name]  = elem_type;
+            return;
+        }
+
+        // ── Tuple literal ────────────────────────────────────────
+        if (std::holds_alternative<ETupleLit>(s.value->kind)) {
+            auto val = gen_expr(*s.value);
+            if (!val) return;
+            scope_[s.name] = val;
+            let_vars_.insert(s.name);
+            var_tuple_.insert(s.name);
+            return;
+        }
+
+        // ── Tuple value (from call or variable) ──────────────────
+        // If the value is already a pointer (tuple literal, variable), use directly.
+        // If the value is a struct by-value (from function return), store into alloca.
+        if (s.type && s.type->kind == LogosType::Kind::Tuple) {
+            auto val = gen_expr(*s.value);
+            if (!val) return;
+            auto stype = tuple_llvm_type(s.type);
+            if (stype && val.getType() != ptr_type()) {
+                // By-value struct (e.g. from function call) — store into alloca.
+                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                    loc_, ptr_type(), stype, i64_one());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                val = alloca;
+            }
+            scope_[s.name] = val;
+            let_vars_.insert(s.name);
+            var_tuple_.insert(s.name);
             return;
         }
 
@@ -528,18 +601,25 @@ private:
         }
 
         // ── Scalar ───────────────────────────────────────────────
+        // Pre-allocate the slot BEFORE generating the RHS expression.
+        // This ensures the AllocaOp is in the current block (entry-reachable)
+        // even when the RHS is an if-expression that creates new blocks.
+        auto var_type = logos_to_mlir(s.type);
+        mlir::Value alloca;
+        if (var_type) {
+            alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), var_type, i64_one());
+        }
+
         auto val = gen_expr(*s.value);
         if (!val) return;
 
-        auto var_type = logos_to_mlir(s.type);
         if (!var_type) {
             scope_[s.name] = val;
             return;
         }
 
         val = coerce_int(val, var_type);
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), var_type, i64_one());
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
         scope_[s.name]          = alloca;
         let_vars_.insert(s.name);
@@ -564,7 +644,11 @@ private:
         if (s.value) {
             auto val = gen_expr(*s.value);
             if (!val) return;
-            if (cur_ret_type_) val = coerce_int(val, cur_ret_type_);
+            // Tuple return: val is a pointer — load the struct value.
+            if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_))
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
+            else if (cur_ret_type_)
+                val = coerce_int(val, cur_ret_type_);
             builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
         } else {
             builder_.create<mlir::func::ReturnOp>(loc_);
@@ -706,6 +790,78 @@ private:
         builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_.back().exit);
     }
 
+    // ── for item in array ─────────────────────────────────────────
+    // Allocate the array on the stack, fill with the iter value, then
+    // loop over indices 0..arr_size using the existing gen_for pattern.
+    void gen_for_each(const SForEach& s) {
+        // Evaluate the iter (array) expression — yields a pointer to the array data.
+        mlir::Type elem_mlir = logos_to_mlir(s.elem_type);
+        if (!elem_mlir) return;
+
+        // The source expression evaluates to a pointer (alloca or parameter).
+        auto arr_alloca = gen_expr(*s.iter);
+        if (!arr_alloca) return;
+
+        // Alloca for the index
+        auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), builder_.getI32Type(), i64_one());
+        auto zero32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, zero32, i_alloca);
+
+        auto hi_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, s.arr_size, 32);
+
+        auto* region     = builder_.getBlock()->getParent();
+        auto* cond_block = new mlir::Block();
+        auto* body_block = new mlir::Block();
+        auto* exit_block = new mlir::Block();
+        region->push_back(cond_block);
+        region->push_back(body_block);
+        region->push_back(exit_block);
+
+        builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
+
+        builder_.setInsertionPointToStart(cond_block);
+        auto i_val = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
+        auto cond  = builder_.create<mlir::arith::CmpIOp>(
+            loc_, mlir::arith::CmpIPredicate::slt, i_val, hi_val);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
+
+        builder_.setInsertionPointToStart(body_block);
+        // Alloca for the loop variable (element copy)
+        auto elem_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), elem_mlir, i64_one());
+        // Load arr[i] → elem_alloca
+        // Use elem_type (flat pointer) GEP — same as gen_index_read
+        mlir::Value i_cur = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
+        llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{i_cur};
+        auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), elem_mlir, arr_alloca, arr_idx);
+        auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, elem_val, elem_alloca);
+
+        scope_[s.var]         = elem_alloca;
+        let_vars_.insert(s.var);
+        var_elem_types_[s.var] = elem_mlir;
+
+        loop_stack_.push_back({cond_block, exit_block});
+        gen_block(*s.body);
+        loop_stack_.pop_back();
+
+        if (!is_terminated(builder_.getBlock())) {
+            auto i_inc = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
+            auto one32 = builder_.create<mlir::arith::ConstantOp>(
+                loc_, builder_.getI32Type(), builder_.getI32IntegerAttr(1));
+            auto i_next = builder_.create<mlir::arith::AddIOp>(loc_, i_inc, one32);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, i_next, i_alloca);
+            builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
+        }
+
+        builder_.setInsertionPointToStart(exit_block);
+        scope_.erase(s.var);
+        let_vars_.erase(s.var);
+        var_elem_types_.erase(s.var);
+    }
+
     void gen_continue() {
         if (loop_stack_.empty()) return;
         builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_.back().cont);
@@ -767,9 +923,36 @@ private:
         }
         auto scrut_i32 = coerce_int(scrut, builder_.getI32Type());
 
-        // Build if-else chain from last arm to first.
+        // Determine if any arm is a wildcard.
+        bool has_wild = false;
+        for (auto& arm : s.arms)
+            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
+
+        // When there is no wildcard arm, treat the LAST arm (in source order,
+        // i.e., index arms.size()-1) as a catch-all to handle exhaustive matches
+        // (e.g. all enum variants covered). We pre-generate its body block and
+        // use it as the initial else_block so no edge goes to merge_block.
+        int last_tested = (int)s.arms.size() - 1; // last arm index that gets a test block
         mlir::Block* else_block = merge_block;
-        for (int i = (int)s.arms.size() - 1; i >= 0; --i) {
+
+        if (!has_wild && !s.arms.empty()) {
+            // Pre-generate the last arm's body as the initial else target.
+            auto& last_arm = s.arms.back();
+            auto* last_body = new mlir::Block();
+            region->push_back(last_body);
+            {
+                mlir::OpBuilder::InsertionGuard guard(builder_);
+                builder_.setInsertionPointToStart(last_body);
+                gen_block(*last_arm.body);
+                if (!is_terminated(builder_.getBlock()))
+                    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+            }
+            else_block = last_body;
+            last_tested = (int)s.arms.size() - 2; // skip last arm in the main loop
+        }
+
+        // Build if-else chain from second-to-last arm down to first.
+        for (int i = last_tested; i >= 0; --i) {
             auto& arm = s.arms[i];
             auto* body_block = new mlir::Block();
             region->push_back(body_block);
@@ -806,6 +989,14 @@ private:
 
         builder_.create<mlir::cf::BranchOp>(loc_, else_block);
         region->push_back(merge_block);
+        // If all arms terminated (return/break/continue), merge_block has no
+        // predecessors and is unreachable. Erase it so the builder stays at
+        // the last block (which is already terminated), preventing a spurious
+        // bare func.return() from being inserted.
+        if (merge_block->hasNoPredecessors()) {
+            merge_block->erase();
+            return;
+        }
         builder_.setInsertionPointToStart(merge_block);
     }
 
@@ -822,10 +1013,27 @@ private:
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value ? 1 : 0, 1);
     }
     mlir::Value gen_expr_kind(const ELitStr& e, const LogosType*) {
-        std::string text = e.value;
+        std::string raw = e.value;
         // Strip surrounding quotes.
-        if (text.size() >= 2 && text.front() == '"' && text.back() == '"')
-            text = text.substr(1, text.size() - 2);
+        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+            raw = raw.substr(1, raw.size() - 2);
+        // Process escape sequences.
+        std::string text;
+        for (size_t i = 0; i < raw.size(); ++i) {
+            if (raw[i] == '\\' && i + 1 < raw.size()) {
+                switch (raw[i + 1]) {
+                    case 'n':  text.push_back('\n'); ++i; break;
+                    case 't':  text.push_back('\t'); ++i; break;
+                    case 'r':  text.push_back('\r'); ++i; break;
+                    case '\\': text.push_back('\\'); ++i; break;
+                    case '0':  text.push_back('\0'); ++i; break;
+                    case '"':  text.push_back('"');  ++i; break;
+                    default:   text.push_back(raw[i]); break;
+                }
+            } else {
+                text.push_back(raw[i]);
+            }
+        }
         text.push_back('\0');
 
         auto global_name = ".str." + std::to_string(str_counter_++);
@@ -854,8 +1062,9 @@ private:
             std::fprintf(stderr, "mlir_gen: undefined '%s'\n", e.name.c_str());
             return nullptr;
         }
-        // Struct/class/array variables: return pointer directly.
-        if (var_struct_.count(e.name) || var_subscript_.count(e.name) || var_class_.count(e.name))
+        // Struct/class/array/tuple variables: return pointer directly.
+        if (var_struct_.count(e.name) || var_subscript_.count(e.name) ||
+            var_class_.count(e.name) || var_tuple_.count(e.name))
             return it->second;
         // Let-bound scalar: load from alloca.
         if (let_vars_.count(e.name)) {
@@ -935,8 +1144,34 @@ private:
         return builder_.create<mlir::LLVM::LoadOp>(loc_, pointee, ptr);
     }
 
-    mlir::Value gen_expr_kind(const ECall& e, const LogosType*) {
+    mlir::Value gen_expr_kind(const ECall& e, const LogosType* ret_logos_type) {
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+
+        // Check if this is a vararg extern fn (declared as llvm.func)
+        if (vararg_fns_.count(e.callee)) {
+            auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(e.callee);
+            if (!callee_fn) {
+                std::fprintf(stderr, "mlir_gen: undefined vararg function '%s'\n", e.callee.c_str());
+                return nullptr;
+            }
+            llvm::SmallVector<mlir::Value> args;
+            auto fn_type   = callee_fn.getFunctionType();
+            auto fixed_inputs = fn_type.getParams();
+            for (size_t i = 0; i < e.args.size(); ++i) {
+                auto v = gen_expr(*e.args[i]);
+                if (!v) return nullptr;
+                if (i < fixed_inputs.size()) v = coerce_int(v, fixed_inputs[i]);
+                args.push_back(v);
+            }
+            mlir::Type ret_type = fn_type.getReturnType();
+            bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(ret_type);
+            auto call = builder_.create<mlir::LLVM::CallOp>(
+                loc_, fn_type, callee_fn.getName(), mlir::ValueRange(args));
+            if (is_void) return nullptr;
+            mlir::Value res = call.getResult();
+            return res ? res : nullptr;
+        }
+
         auto callee_fn  = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.callee);
         if (!callee_fn) {
             std::fprintf(stderr, "mlir_gen: undefined function '%s'\n", e.callee.c_str());
@@ -1001,6 +1236,28 @@ private:
         if (auto* vr = std::get_if<EVarRef>(&e.receiver->kind)) {
             arr_ptr   = get_subscript_ptr(vr->name);
             elem_type = subscript_elem_type(vr->name);
+        } else if (auto* fr = std::get_if<EFieldRead>(&e.receiver->kind)) {
+            // When the receiver is a field access (e.g. c.arr[0]) and the field
+            // is an array type, we must GEP to the field and use that pointer as
+            // the array base — NOT load the field value (which would yield an
+            // LLVM array value, not a pointer).
+            auto [struct_ptr, sname] = gen_recv_struct(*fr->receiver);
+            if (struct_ptr && !sname.empty()) {
+                auto& info = struct_types_[sname];
+                auto field_ptr = gep_field(struct_ptr, info, fr->field);
+                if (field_ptr) {
+                    arr_ptr = field_ptr;
+                    // Determine element type from LExpr type (element of the array).
+                    elem_type = logos_to_mlir(type);
+                    if (!elem_type) elem_type = builder_.getI32Type();
+                }
+            }
+            if (!arr_ptr) {
+                // Fallback: evaluate as expression (may fail for array-valued fields).
+                arr_ptr   = gen_expr(*e.receiver);
+                elem_type = logos_to_mlir(type);
+                if (!elem_type) elem_type = builder_.getI32Type();
+            }
         } else {
             arr_ptr   = gen_expr(*e.receiver);
             elem_type = logos_to_mlir(type);
@@ -1093,6 +1350,93 @@ private:
         call_free(ptr);
     }
 
+    // ── if-as-expression ─────────────────────────────────────────
+    // Generates a conditional branch with a merge block that takes a
+    // block argument (the result value).
+    mlir::Value gen_expr_kind(const EIfExpr& e, const LogosType* type) {
+        auto cond = gen_expr(*e.cond);
+        if (!cond) return nullptr;
+
+        mlir::Type result_type = logos_to_mlir(type);
+        if (!result_type) return nullptr;
+
+        // Allocate result slot in the current (entry-reachable) block.
+        auto result_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), result_type, i64_one());
+
+        auto* region      = builder_.getBlock()->getParent();
+        auto* then_block  = new mlir::Block();
+        auto* else_block  = new mlir::Block();
+        auto* merge_block = new mlir::Block();
+        region->push_back(then_block);
+        region->push_back(else_block);
+        region->push_back(merge_block);
+
+        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
+
+        builder_.setInsertionPointToStart(then_block);
+        auto then_val = gen_expr(*e.then_val);
+        if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        then_val = coerce_int(then_val, result_type);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        builder_.setInsertionPointToStart(else_block);
+        auto else_val = gen_expr(*e.else_val);
+        if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        else_val = coerce_int(else_val, result_type);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        builder_.setInsertionPointToStart(merge_block);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
+    }
+
+    // ── Tuple helpers ────────────────────────────────────────────
+
+    // Build the anonymous LLVM struct type for a tuple.
+    mlir::Type tuple_llvm_type(const LogosType* t) {
+        if (!t || t->kind != LogosType::Kind::Tuple) return nullptr;
+        llvm::SmallVector<mlir::Type> fields;
+        for (auto* e : t->tuple_elems) {
+            auto ft = logos_to_mlir(e);
+            if (!ft) return nullptr;
+            fields.push_back(ft);
+        }
+        return mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), fields);
+    }
+
+    mlir::Value gen_expr_kind(const ETupleLit& e, const LogosType* type) {
+        auto stype = tuple_llvm_type(type);
+        if (!stype) return nullptr;
+        // Allocate tuple on stack, store each element via GEP.
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), stype, i64_one());
+        for (uint32_t i = 0; i < e.elems.size(); ++i) {
+            auto val = gen_expr(*e.elems[i]);
+            if (!val) return nullptr;
+            if (type->tuple_elems[i]) {
+                auto et = logos_to_mlir(type->tuple_elems[i]);
+                if (et) val = coerce_int(val, et);
+            }
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
+            auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, idx);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+        }
+        return alloca;
+    }
+
+    mlir::Value gen_expr_kind(const ETupleIndex& e, const LogosType* type) {
+        auto recv = gen_expr(*e.receiver);
+        if (!recv) return nullptr;
+        auto stype = tuple_llvm_type(e.receiver->type);
+        if (!stype) return nullptr;
+        auto elem_mlir = logos_to_mlir(type);
+        if (!elem_mlir) return nullptr;
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(e.index)};
+        auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, recv, idx);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
+    }
+
     // ── Struct helpers ────────────────────────────────────────────
 
     mlir::Value get_struct_ptr(const std::string& name) {
@@ -1181,10 +1525,35 @@ private:
         auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
                           loc_, ptr_type(), info.llvm_type, i64_one());
         for (auto& [fname, fval] : e.fields) {
-            auto val = gen_expr(*fval);
-            if (!val) return nullptr;
+            // Find field metadata.
+            const FieldInfo* fi = nullptr;
+            for (auto& f : info.fields) if (f.name == fname) { fi = &f; break; }
+
             auto gep = gep_field(alloca, info, fname);
             if (!gep) return nullptr;
+
+            // Special case: if the field is an inline array (LLVMArrayType) and
+            // the initialiser is an EArrLit, copy elements one-by-one into the
+            // struct field instead of storing a pointer returned by gen_arr_lit.
+            auto arr_llvm = fi ? mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(fi->type)
+                               : mlir::LLVM::LLVMArrayType{};
+            if (arr_llvm && std::holds_alternative<EArrLit>(fval->kind)) {
+                auto& arr_lit = std::get<EArrLit>(fval->kind);
+                auto elem_type = arr_llvm.getElementType();
+                for (uint64_t i = 0; i < arr_lit.elems.size(); ++i) {
+                    auto val = gen_expr(*arr_lit.elems[i]);
+                    if (!val) return nullptr;
+                    val = coerce_int(val, elem_type);
+                    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
+                    auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), arr_llvm, gep, idx);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, elem_gep);
+                }
+                continue;
+            }
+
+            auto val = gen_expr(*fval);
+            if (!val) return nullptr;
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
         }
         return alloca;

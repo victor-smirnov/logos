@@ -29,6 +29,7 @@ struct LogosType {
         Struct,                   // user-defined struct
         Class,                    // user-defined class (virtual dispatch via vtable)
         Enum,                     // discriminant enum (stored as i32)
+        Tuple,                    // (T1, T2, ...) — anonymous product type
         TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)
         Error                     // sentinel for ill-typed expressions
@@ -51,6 +52,9 @@ struct LogosType {
     // Generic struct instantiation: Pair<i32> → struct_name="Pair", type_args=[i32]
     // Empty for plain (non-generic) structs.
     std::vector<const LogosType*> type_args;
+
+    // Tuple
+    std::vector<const LogosType*> tuple_elems;  // element types (Tuple kind only)
 
     // TypeVar — name stored as a std::string (owns its storage)
     std::string      type_var_name;       // e.g. "T" (TypeVar kind only)
