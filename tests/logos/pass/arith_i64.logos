@@ -1,0 +1,10 @@
+package arith_i64;
+// F02: i64 arithmetic
+fn main() -> i32 {
+    let a: i64 = 1000000000;
+    let b: i64 = 2;
+    let c: i64 = a / b;         // 500000000
+    let d: i64 = c % 100;       // 0
+    let e: i64 = 42;
+    return (e + d) as i32;      // 42
+}

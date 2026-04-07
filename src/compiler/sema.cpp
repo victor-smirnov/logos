@@ -1650,6 +1650,28 @@ private:
         case la::BINOP:       return lower_binop(expr);
         case la::UNARY:       return lower_unary(expr);
         case la::DEREF:       return lower_deref(expr);
+
+        case la::ADDR_OF_MUT: {
+            // &mut var — mutable address-of; same semantics as &var but produces *mut T
+            auto child = map_of(expr.get(la::VALUE.code));
+            if (code_of(child) != la::VAR_REF) {
+                error("'&mut' operand must be a variable");
+                return error_expr();
+            }
+            auto var_name = str_of(child.get(la::NAME.code));
+            auto* vt = lookup(var_name);
+            if (!vt) {
+                error(std::format("'&mut': undefined variable '{}'", var_name));
+                return error_expr();
+            }
+            // For arrays, produce *mut elem (pointer to first element)
+            if (vt->kind == LogosType::Kind::Array)
+                return make_expr(make_ptr(true, vt->elem), lir::EAddrOf{std::string(var_name)});
+            // For structs, produce *mut T
+            if (vt->kind == LogosType::Kind::Struct)
+                return make_expr(make_ptr(true, vt), lir::EAddrOf{std::string(var_name)});
+            return make_expr(make_ptr(true, vt), lir::EAddrOf{std::string(var_name)});
+        }
         case la::CALL:         return lower_call(expr);
         case la::GENERIC_CALL: return lower_generic_call(expr);
         case la::METHOD_CALL:  return lower_method_call(expr);
@@ -3011,6 +3033,20 @@ private:
         if (c == la::CONTINUE) {
             if (loop_depth_ == 0) error("'continue' outside loop");
             return make_stmt(node_line_, lir::SContinue{});
+        }
+        if (c == la::DEREF_WRITE) {
+            // *ptr = value;
+            lir::LExprPtr ptr = stmt.has_key(la::NAME)
+                ? lower_expr(map_of(stmt.get(la::NAME.code)))
+                : error_expr();
+            lir::LExprPtr val = stmt.has_key(la::VALUE)
+                ? lower_expr(map_of(stmt.get(la::VALUE.code)))
+                : error_expr();
+            auto* pt = ptr->type;
+            if (pt->kind != LogosType::Kind::Ptr || !pt->pointee) {
+                error("deref-write: '=' left side must be a pointer");
+            }
+            return make_stmt(node_line_, lir::SDerefWrite{std::move(ptr), std::move(val)});
         }
         if (c == la::DELETE_STMT) {
             lir::LExprPtr expr = stmt.has_key(la::VALUE)

@@ -1,0 +1,15 @@
+package loop_continue;
+// F07: loop + continue + break with counter
+fn main() -> i32 {
+    let mut i: i32 = 0;
+    let mut sum: i32 = 0;
+    loop {
+        i = i + 1;
+        if i % 3 == 0 { continue; }  // skip multiples of 3
+        sum = sum + i;
+        if i >= 10 { break; }
+    }
+    // i=1..10, skip 3,6,9: sum = 1+2+4+5+7+8+10 = 37
+    // 37 + 5 = 42
+    return sum + 5;
+}

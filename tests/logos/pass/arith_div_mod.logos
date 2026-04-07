@@ -1,0 +1,9 @@
+package arith_div_mod;
+// F02: division, modulo, mixed expressions
+fn main() -> i32 {
+    let a: i32 = 100 / 5;      // 20
+    let b: i32 = 107 % 10;     // 7
+    let c: i32 = a + b;        // 27
+    let d: i32 = c * 2 - 12;   // 42
+    return d;
+}

@@ -1,0 +1,22 @@
+package logic_and_or;
+// F04: &&, ||, ! in conditions
+fn check(a: bool, b: bool, c: bool) -> bool {
+    return (a && b) || c;
+}
+fn main() -> i32 {
+    let t: bool = true;
+    let f: bool = false;
+    // (t&&t)||f = true => 1
+    // (t&&f)||t = true => 1
+    // (f&&f)||f = false => 0
+    // !f = true => 1
+    // !t = false => 0
+    let mut sum: i32 = 0;
+    if check(t, t, f) { sum = sum + 10; }
+    if check(t, f, t) { sum = sum + 10; }
+    if check(f, f, f) { sum = sum + 10; }  // false, skip
+    if !f             { sum = sum + 10; }
+    if !t             { sum = sum + 10; }  // false, skip
+    // sum = 30, need 42: return sum + 12
+    return sum + 12;
+}

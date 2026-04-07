@@ -1,0 +1,13 @@
+package while_continue;
+// F06: continue skips rest of loop body
+fn main() -> i32 {
+    let mut sum: i32 = 0;
+    let mut i: i32 = 0;
+    while i < 10 {
+        i = i + 1;
+        if i % 2 == 0 { continue; }  // skip even numbers
+        sum = sum + i;  // sum of odd: 1+3+5+7+9 = 25
+    }
+    // sum=25, need 42: 25 + 17 = 42
+    return sum + 17;
+}

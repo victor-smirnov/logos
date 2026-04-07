@@ -1,0 +1,9 @@
+package for_inclusive;
+// F08: for i in lo..=hi (inclusive range)
+fn main() -> i32 {
+    let mut sum: i32 = 0;
+    for i in 1..=6 {
+        sum = sum + i;   // 1+2+3+4+5+6 = 21
+    }
+    return sum * 2;     // 42
+}

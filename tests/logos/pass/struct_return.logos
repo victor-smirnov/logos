@@ -1,0 +1,23 @@
+package struct_return;
+// F17: struct as return value from function
+struct Stats { min: i32; max: i32; sum: i32; }
+
+fn analyze(a: &[i32]) -> Stats {
+    let mut mn: i32 = a[0];
+    let mut mx: i32 = a[0];
+    let mut s: i32 = 0;
+    let mut i: i64 = 0;
+    while i < a.len() {
+        if a[i] < mn { mn = a[i]; }
+        if a[i] > mx { mx = a[i]; }
+        s = s + a[i];
+        i = i + 1;
+    }
+    return Stats { min: mn, max: mx, sum: s };
+}
+fn main() -> i32 {
+    let data: [i32; 4] = [5, 15, 10, 12];
+    let st: Stats = analyze(&data);
+    // min=5, max=15, sum=42
+    return st.sum;
+}

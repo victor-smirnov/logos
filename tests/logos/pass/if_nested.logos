@@ -1,0 +1,22 @@
+package if_nested;
+// F05: deeply nested if/else
+fn sign_product(a: i32, b: i32) -> i32 {
+    if a > 0 {
+        if b > 0 { return 1; }
+        else     { return -1; }
+    } else {
+        if b > 0 { return -1; }
+        else     { return 1; }
+    }
+}
+fn main() -> i32 {
+    // (+)(+) = 1, (-)(+) = -1, (+)(-) = -1, (-)(-) = 1
+    let a: i32 = sign_product(3, 5);    // 1
+    let b: i32 = sign_product(-3, 5);   // -1
+    let c: i32 = sign_product(3, -5);   // -1
+    let d: i32 = sign_product(-3, -5);  // 1
+    // sum = 0, that's boring. 1 + (-1)*(-1) + (-1)*(-1) + 1 ... let's use abs
+    // a==1, d==1, b==-1, c==-1. (a+d-b-c)*21 = (2+2)*21=84, /2=42
+    // simpler: a*21 + d*21 = 42
+    return a * 21 + d * 21;
+}

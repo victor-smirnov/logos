@@ -162,6 +162,8 @@ inline constexpr Code CLOSURE_EXPR    {"CLOSURE_EXPR",    109};  // |x: i32| -> 
 
 // Misc
 inline constexpr Code FIELD_INDEX_WRITE {"FIELD_INDEX_WRITE", 113}; // a.ptr[i] = val
+inline constexpr Code ADDR_OF_MUT       {"ADDR_OF_MUT",       114}; // &mut expr
+inline constexpr Code DEREF_WRITE       {"DEREF_WRITE",       115}; // *ptr = val;
 
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;

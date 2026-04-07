@@ -1,0 +1,11 @@
+package logic_nested_bool;
+// F04: nested && || with explicit parens
+fn main() -> i32 {
+    let a: i32 = 1;
+    let b: i32 = 2;
+    let c: i32 = 3;
+    // (a<b && b<c) || (c<a)  =>  (1<2 && 2<3) || (3<1) = (true && true) || false = true
+    let ok: bool = (a < b && b < c) || c < a;
+    if ok { return 42; }
+    return 0;
+}

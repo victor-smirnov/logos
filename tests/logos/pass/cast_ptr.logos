@@ -1,0 +1,12 @@
+package cast_ptr;
+// F13: ptr casts between types — u8* to i32* via cast
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+fn main() -> i32 {
+    let buf: *mut u8 = malloc(4);
+    let p: *mut i32 = buf as *mut i32;
+    *p = 42;
+    let v: i32 = *p;
+    free(buf);
+    return v;
+}

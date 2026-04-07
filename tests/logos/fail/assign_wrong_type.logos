@@ -1,0 +1,6 @@
+package assign_wrong_type;
+fn main() -> i32 {
+    let mut x: i32 = 10;
+    x = true;   // error: bool assigned to i32
+    return x;
+}

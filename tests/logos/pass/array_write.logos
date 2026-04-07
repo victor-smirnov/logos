@@ -1,0 +1,11 @@
+package array_write;
+// F14: array index write (mutation)
+fn main() -> i32 {
+    let mut a: [i32; 5] = [0, 0, 0, 0, 0];
+    a[0] = 10;
+    a[1] = 11;
+    a[2] = 12;
+    a[3] = 4;
+    a[4] = 5;
+    return a[0] + a[1] + a[2] + a[3] + a[4];  // 42
+}

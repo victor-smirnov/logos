@@ -1,0 +1,14 @@
+package struct_nested;
+// F17: nested structs
+struct Inner { a: i32; b: i32; }
+struct Outer { x: Inner; y: Inner; }
+
+fn sum_outer(o: Outer) -> i32 {
+    return o.x.a + o.x.b + o.y.a + o.y.b;
+}
+fn main() -> i32 {
+    let i1: Inner = Inner { a: 10, b: 11 };
+    let i2: Inner = Inner { a: 12, b: 9 };
+    let o: Outer = Outer { x: i1, y: i2 };
+    return sum_outer(o);  // 10+11+12+9 = 42
+}

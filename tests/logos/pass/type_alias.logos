@@ -1,0 +1,20 @@
+package type_alias;
+// F12: type aliases
+type Idx = i64;
+type Score = i32;
+
+fn compute(scores: &[i32], n: Idx) -> Score {
+    let mut total: Score = 0;
+    let mut i: Idx = 0;
+    while i < n {
+        total = total + scores[i];
+        i = i + 1;
+    }
+    return total;
+}
+
+fn main() -> i32 {
+    let data: [i32; 5] = [10, 8, 7, 9, 8];
+    let result: Score = compute(&data, 5);
+    return result;   // 10+8+7+9+8 = 42
+}

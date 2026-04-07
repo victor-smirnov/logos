@@ -129,6 +129,9 @@
     SLICE_TYPE           = 111
     RANGE_EXPR           = 112
     FIELD_INDEX_WRITE    = 113
+    ADDR_OF_MUT          = 114
+    DEREF_WRITE          = 115
+    IMPL_TYPE            = 116
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -381,6 +384,7 @@
           / return_stmt
           / break_stmt
           / continue_stmt
+          / deref_write_stmt
           / if_expr
           / match_stmt
           / delete_stmt
@@ -469,6 +473,10 @@
     field_index_write_stmt <- IDENT DOT IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
                            => { CODE: FIELD_INDEX_WRITE, RECEIVER: $1, FIELD: $3, LHS: $5, VALUE: $8 }
 
+    // *ptr = val;  — dereference write
+    deref_write_stmt <- STAR unary_expr ASSIGN expr SEMI
+                     => { CODE: DEREF_WRITE, NAME: $2, VALUE: $4 }
+
     if_expr <- KW_IF expr block KW_ELSE (if_expr / block)
             => { CODE: IF, COND: $2, THEN: $3, ELSE: $5 }
              / KW_IF expr block
@@ -480,8 +488,10 @@
     // Comparison and logical operators remain single-level (non-chainable).
     expr <- log_expr
 
-    log_expr <- cmp_expr (AND / OR) cmp_expr
-                => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
+    log_expr <- cmp_expr
+                ( (AND / OR) cmp_expr
+                    => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                )+
               / cmp_expr
 
     cmp_expr <- add_expr (EQ / NE / LE / GE / LT / GT) add_expr
@@ -501,7 +511,8 @@
                 )+
               / unary_expr
 
-    unary_expr <- STAR  unary_expr => { CODE: DEREF,  VALUE: $2 }
+    unary_expr <- STAR  unary_expr => { CODE: DEREF,      VALUE: $2 }
+                / AMP KW_MUT unary_expr => { CODE: ADDR_OF_MUT, VALUE: $3 }
                 / MINUS unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / BANG  unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / AMP   unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }

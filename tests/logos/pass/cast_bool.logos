@@ -1,0 +1,11 @@
+package cast_bool;
+// F13: bool cast to int, int to bool-like
+fn main() -> i32 {
+    let t: bool = true;
+    let f: bool = false;
+    let ti: i32 = t as i32;    // 1
+    let fi: i32 = f as i32;    // 0
+    // ti=1, fi=0
+    // 1 * 42 = 42
+    return ti * 42 + fi;
+}

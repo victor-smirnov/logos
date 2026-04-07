@@ -1,0 +1,16 @@
+package foreach_struct;
+// F09: for-each over array of structs
+struct Point { x: i32; y: i32; }
+fn main() -> i32 {
+    let pts: [Point; 3] = [
+        Point { x: 1, y: 10 },
+        Point { x: 2, y: 20 },
+        Point { x: 3, y: 30 }
+    ];
+    let mut sum: i32 = 0;
+    for p in pts {
+        sum = sum + p.x + p.y;   // (1+10)+(2+20)+(3+30) = 66
+    }
+    // 66 / ? nope. 66 - 24 = 42
+    return sum - 24;
+}

@@ -1,0 +1,16 @@
+package if_no_else;
+// F05: if without else (void branch)
+fn bump_if_positive(x: i32, bump: i32) -> i32 {
+    let mut r: i32 = x;
+    if x > 0 {
+        r = r + bump;
+    }
+    return r;
+}
+fn main() -> i32 {
+    let a: i32 = bump_if_positive(30, 12);   // 42
+    let b: i32 = bump_if_positive(-10, 12);  // -10 (no bump)
+    // a + (-b) = 42 - (-10) = 52, -10 = a + b + 20
+    // a = 42, b = -10: 42 + (-10) + 10 = 42
+    return a + b + 10;
+}

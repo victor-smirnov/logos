@@ -1,0 +1,25 @@
+package tagged_nested;
+// F22: nested tagged enum usage (enum inside function args)
+enum MaybeI32 {
+    Just(i32),
+    Nothing,
+}
+fn map_add(m: MaybeI32, delta: i32) -> MaybeI32 {
+    match m {
+        MaybeI32::Just(v) => { return MaybeI32::Just(v + delta); }
+        MaybeI32::Nothing => { return MaybeI32::Nothing; }
+    }
+}
+fn get_or(m: MaybeI32, def: i32) -> i32 {
+    match m {
+        MaybeI32::Just(v) => { return v; }
+        MaybeI32::Nothing => { return def; }
+    }
+}
+fn main() -> i32 {
+    let a: MaybeI32 = MaybeI32::Just(20);
+    let b: MaybeI32 = map_add(a, 22);  // Just(42)
+    let c: MaybeI32 = MaybeI32::Nothing;
+    let d: MaybeI32 = map_add(c, 99);  // Nothing
+    return get_or(b, 0) + get_or(d, 0);  // 42 + 0 = 42
+}

@@ -1,0 +1,7 @@
+package field_index_write_const;
+struct Buf { data: *const i32; len: i64; }
+fn main() -> i32 {
+    let b: Buf = Buf { data: 0 as *const i32, len: 0 };
+    b.data[0] = 42;   // error: *const field cannot be written
+    return 0;
+}

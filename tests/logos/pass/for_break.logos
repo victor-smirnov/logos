@@ -1,0 +1,11 @@
+package for_break;
+// F08: break inside for loop
+fn main() -> i32 {
+    let mut sum: i32 = 0;
+    for i in 0..100 {
+        if i == 10 { break; }
+        sum = sum + i;   // 0+1+...+9 = 45
+    }
+    // 45 - 3 = 42
+    return sum - 3;
+}

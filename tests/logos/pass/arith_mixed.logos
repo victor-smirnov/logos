@@ -1,0 +1,10 @@
+package arith_mixed;
+// F02: mixed arithmetic in fn calls and returns
+fn double(x: i32) -> i32 { return x * 2; }
+fn half(x: i32) -> i32 { return x / 2; }
+fn main() -> i32 {
+    let x: i32 = double(3) + double(5) + double(11); // 6+10+22=38
+    let y: i32 = half(x) + half(10);  // 19+5=24
+    // 38 + 24 - 20 = 42
+    return x + y - 20;
+}

@@ -1,0 +1,19 @@
+package enum_int_pattern;
+// F21: match on integer value with int patterns
+fn fib_small(n: i32) -> i32 {
+    match n {
+        0 => { return 0; }
+        1 => { return 1; }
+        2 => { return 1; }
+        3 => { return 2; }
+        4 => { return 3; }
+        _ => { return -1; }
+    }
+}
+fn main() -> i32 {
+    // fib(0)+fib(1)+fib(2)+fib(3)+fib(4) = 0+1+1+2+3 = 7
+    let sum: i32 = fib_small(0) + fib_small(1) + fib_small(2) +
+                   fib_small(3) + fib_small(4);
+    // 7 * 6 = 42
+    return sum * 6;
+}

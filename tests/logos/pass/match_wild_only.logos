@@ -1,0 +1,15 @@
+package match_wild_only;
+// F33: wildcard pattern in tagged enum match
+enum Status { Active(i32), Inactive, Pending(i32) }
+fn process(s: Status) -> i32 {
+    match s {
+        Status::Active(v) => { return v; }
+        _                 => { return 0; }
+    }
+}
+fn main() -> i32 {
+    let a: i32 = process(Status::Active(42));   // 42
+    let b: i32 = process(Status::Inactive);     // 0
+    let c: i32 = process(Status::Pending(99));  // 0
+    return a + b + c;   // 42
+}

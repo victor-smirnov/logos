@@ -1,0 +1,24 @@
+package array_ref;
+// F14: array passed by pointer to functions
+fn fill(a: *mut i32, n: i32, val: i32) {
+    let mut i: i32 = 0;
+    while i < n {
+        a[i as i64] = val;
+        i = i + 1;
+    }
+}
+fn sum_arr(a: *mut i32, n: i32) -> i32 {
+    let mut s: i32 = 0;
+    let mut i: i32 = 0;
+    while i < n {
+        s = s + a[i as i64];
+        i = i + 1;
+    }
+    return s;
+}
+fn main() -> i32 {
+    let mut a: [i32; 6] = [0, 0, 0, 0, 0, 0];
+    let p: *mut i32 = &mut a;
+    fill(p, 6, 7);         // [7,7,7,7,7,7]
+    return sum_arr(p, 6);  // 42
+}

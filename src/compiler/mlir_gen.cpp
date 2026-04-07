@@ -199,8 +199,12 @@ private:
         auto fi = mlir::dyn_cast<mlir::IntegerType>(v.getType());
         auto ti = mlir::dyn_cast<mlir::IntegerType>(to);
         if (!fi || !ti) return v;
-        if (ti.getWidth() > fi.getWidth())
+        if (ti.getWidth() > fi.getWidth()) {
+            // i1 (bool) must be zero-extended; other integers sign-extended.
+            if (fi.getWidth() == 1)
+                return builder_.create<mlir::arith::ExtUIOp>(loc_, to, v);
             return builder_.create<mlir::arith::ExtSIOp>(loc_, to, v);
+        }
         if (ti.getWidth() < fi.getWidth())
             return builder_.create<mlir::arith::TruncIOp>(loc_, to, v);
         return v;
@@ -585,6 +589,18 @@ private:
     void gen_stmt_kind(const SMatch& s)       { gen_match(s); }
     void gen_stmt_kind(const SDelete& s)      { gen_delete(s); }
     void gen_stmt_kind(const SForEach& s)     { gen_for_each(s); }
+    void gen_stmt_kind(const SDerefWrite& s) {
+        auto ptr = gen_expr(*s.ptr);
+        auto val = gen_expr(*s.value);
+        if (!ptr || !val) return;
+        // Determine element type from pointer's pointee type
+        mlir::Type elem_type = nullptr;
+        if (s.ptr->type && s.ptr->type->kind == LogosType::Kind::Ptr && s.ptr->type->pointee)
+            elem_type = logos_to_mlir(s.ptr->type->pointee);
+        if (!elem_type) elem_type = builder_.getI32Type();
+        val = coerce_int(val, elem_type);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, ptr);
+    }
 
     void gen_let(const SLet& s) {
         // ── Struct literal ────────────────────────────────────────
@@ -890,9 +906,11 @@ private:
         auto* region     = builder_.getBlock()->getParent();
         auto* cond_block = new mlir::Block();
         auto* body_block = new mlir::Block();
+        auto* incr_block = new mlir::Block();   // increment i, then back to cond
         auto* exit_block = new mlir::Block();
         region->push_back(cond_block);
         region->push_back(body_block);
+        region->push_back(incr_block);
         region->push_back(exit_block);
 
         builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
@@ -911,10 +929,16 @@ private:
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
         builder_.setInsertionPointToStart(body_block);
-        loop_stack_.push_back({cond_block, exit_block});
+        // continue → incr_block (so that i is incremented before re-checking)
+        loop_stack_.push_back({incr_block, exit_block});
         gen_block(*s.body);
         loop_stack_.pop_back();
-        if (!is_terminated(builder_.getBlock())) {
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::cf::BranchOp>(loc_, incr_block);
+
+        // Increment block: i += 1, branch back to condition.
+        builder_.setInsertionPointToStart(incr_block);
+        {
             auto i_cur = builder_.create<mlir::LLVM::LoadOp>(
                              loc_, builder_.getI32Type(), i_alloca);
             auto one = builder_.create<mlir::arith::ConstantOp>(
@@ -991,27 +1015,51 @@ private:
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
         builder_.setInsertionPointToStart(body_block);
-        // Alloca for the loop variable (element copy)
-        auto elem_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), elem_mlir, i64_one());
-        // Load arr[i] → elem_alloca
-        // Use elem_type (flat pointer) GEP — same as gen_index_read
+        // Load arr[i]: GEP to element, then load.
         mlir::Value i_cur = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
         llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx{i_cur};
         auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), elem_mlir, arr_alloca, arr_idx);
-        auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, elem_val, elem_alloca);
 
-        scope_[s.var]         = elem_alloca;
+        bool is_struct_elem = s.elem_type &&
+            (s.elem_type->kind == LogosType::Kind::Struct ||
+             s.elem_type->kind == LogosType::Kind::Class);
+
+        if (is_struct_elem) {
+            // Struct elements are stored as pointers in the array ([N x ptr]).
+            // Load the pointer — it IS the struct pointer, matching the struct convention
+            // (scope_ holds a direct struct pointer for struct variables).
+            auto struct_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), elem_ptr);
+            scope_[s.var] = struct_ptr;
+            if (s.elem_type->kind == LogosType::Kind::Struct)
+                var_struct_[s.var] = concrete_struct_name(s.elem_type);
+            else
+                var_class_[s.var] = s.elem_type->struct_name;
+        } else {
+            // Scalar: alloca + store so the body can read (and mutate) via scope_.
+            auto elem_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), elem_mlir, i64_one());
+            auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, elem_val, elem_alloca);
+            scope_[s.var]          = elem_alloca;
+            var_elem_types_[s.var] = elem_mlir;
+        }
         let_vars_.insert(s.var);
-        var_elem_types_[s.var] = elem_mlir;
 
-        loop_stack_.push_back({cond_block, exit_block});
+        // Create a separate increment block so that `continue` increments i first.
+        auto* incr_block = new mlir::Block();
+        region->push_back(incr_block);
+
+        loop_stack_.push_back({incr_block, exit_block});
         gen_block(*s.body);
         loop_stack_.pop_back();
 
-        if (!is_terminated(builder_.getBlock())) {
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::cf::BranchOp>(loc_, incr_block);
+
+        // Increment block: i += 1, reload element, branch back to condition.
+        builder_.setInsertionPointToStart(incr_block);
+        {
             auto i_inc = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
             auto one32 = builder_.create<mlir::arith::ConstantOp>(
                 loc_, builder_.getI32Type(), builder_.getI32IntegerAttr(1));
@@ -1024,6 +1072,8 @@ private:
         scope_.erase(s.var);
         let_vars_.erase(s.var);
         var_elem_types_.erase(s.var);
+        var_struct_.erase(s.var);
+        var_class_.erase(s.var);
     }
 
     void gen_continue() {
@@ -1666,8 +1716,13 @@ private:
         auto fi = mlir::dyn_cast<mlir::IntegerType>(val.getType());
         auto ti = mlir::dyn_cast<mlir::IntegerType>(target);
         if (fi && ti) {
-            if (ti.getWidth() > fi.getWidth())
+            if (ti.getWidth() > fi.getWidth()) {
+                // bool (i1) → int: use zero-extend to preserve 0/1 semantics.
+                // Other ints: sign-extend.
+                if (fi.getWidth() == 1)
+                    return builder_.create<mlir::arith::ExtUIOp>(loc_, target, val);
                 return builder_.create<mlir::arith::ExtSIOp>(loc_, target, val);
+            }
             if (ti.getWidth() < fi.getWidth())
                 return builder_.create<mlir::arith::TruncIOp>(loc_, target, val);
             return val;

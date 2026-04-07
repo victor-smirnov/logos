@@ -1,0 +1,9 @@
+package closure_as_arg;
+// F30: closure with multiple captures, called multiple times
+fn main() -> i32 {
+    let base: i32 = 10;
+    let step: i32 = 4;
+    let f = |x: i32| -> i32 { return base + x * step; };
+    // f(0)=10, f(1)=14, f(2)=18: sum = 42
+    return f(0) + f(1) + f(2);
+}

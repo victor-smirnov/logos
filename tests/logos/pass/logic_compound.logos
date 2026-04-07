@@ -1,0 +1,20 @@
+package logic_compound;
+// F04: compound boolean expressions
+fn in_range(x: i32, lo: i32, hi: i32) -> bool {
+    return x >= lo && x <= hi;
+}
+fn main() -> i32 {
+    let mut count: i32 = 0;
+    let mut i: i32 = 0;
+    while i <= 100 {
+        if in_range(i, 40, 50) {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    // values 40..=50 = 11 values
+    // count = 11, return count * ? = 42: not clean
+    // Let's count 40..=46 = 7, then *6 = 42
+    // Actually count = 11, 11+31 = 42
+    return count + 31;
+}

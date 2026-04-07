@@ -1,0 +1,18 @@
+package slice_len;
+// F15: .len() method on slices, length-based loops
+fn count_positive(s: &[i32]) -> i32 {
+    let mut cnt: i32 = 0;
+    let mut i: i64 = 0;
+    while i < s.len() {
+        if s[i] > 0 { cnt = cnt + 1; }
+        i = i + 1;
+    }
+    return cnt;
+}
+fn main() -> i32 {
+    let data: [i32; 8] = [1, -2, 3, -4, 5, -6, 7, 8];
+    let s: &[i32] = &data;
+    let pos: i32 = count_positive(s);  // 1,3,5,7,8 = 5 positive
+    // pos=5, len=8: 5*8+2=42
+    return pos * 8 + 2;
+}

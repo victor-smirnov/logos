@@ -1,0 +1,18 @@
+package for_nested_range;
+// F08: nested for ranges
+fn main() -> i32 {
+    let mut count: i32 = 0;
+    for i in 0..4 {
+        for j in 0..4 {
+            if i != j {
+                count = count + 1;
+            }
+        }
+    }
+    // 4*4 - 4 = 12, 12 * ? = 42: not clean
+    // 4*3 = 12 (i != j pairs), 12 * ? = 42: nope
+    // Let's use 1..7 nested 1..7: 6*6=36 - 6 = 30, not 42
+    // Let's use count of pairs with i < j in 0..9: 9*8/2=36, not 42
+    // count = 12, 12 + 30 = 42 ✓
+    return count + 30;
+}

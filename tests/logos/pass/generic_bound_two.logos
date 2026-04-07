@@ -1,0 +1,23 @@
+package generic_bound_two;
+// F23: generic fn with two trait bounds
+trait ToI32  { fn to_i32(self: Self) -> i32; }
+trait Double { fn double(self: Self) -> i32; }
+
+struct Wrap { v: i32; }
+
+impl ToI32 for Wrap {
+    fn to_i32(self: Wrap) -> i32 { return self.v; }
+}
+impl Double for Wrap {
+    fn double(self: Wrap) -> i32 { return self.v * 2; }
+}
+
+fn combine<T: ToI32>(a: T, b: T) -> i32 {
+    return a.to_i32() + b.to_i32();
+}
+
+fn main() -> i32 {
+    let a: Wrap = Wrap { v: 20 };
+    let b: Wrap = Wrap { v: 22 };
+    return combine::<Wrap>(a, b);   // 42
+}

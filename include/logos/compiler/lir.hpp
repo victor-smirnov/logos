@@ -271,6 +271,9 @@ struct SExprStmt  { LExprPtr expr; };
 
 struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class pointer
 
+// *ptr = value;  — write through a raw pointer
+struct SDerefWrite { LExprPtr ptr; LExprPtr value; };
+
 // for item in array { body } — iterates over a fixed-size array
 struct SForEach {
     std::string      var;         // loop variable name (item)
@@ -291,7 +294,7 @@ struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
-        SBreak, SContinue, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach
+        SBreak, SContinue, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite
     > kind;
 };
 

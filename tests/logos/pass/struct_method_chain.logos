@@ -1,0 +1,20 @@
+package struct_method_chain;
+// F18: method chaining, self-mutation via *mut
+struct Counter { n: i32; }
+
+impl Counter {
+    static fn create() -> Counter { return Counter { n: 0 }; }
+    fn value(self: Counter) -> i32 { return self.n; }
+}
+
+fn inc(c: *mut Counter, by: i32) {
+    c.n = c.n + by;
+}
+
+fn main() -> i32 {
+    let mut c: Counter = Counter::create();
+    inc(&mut c, 10);
+    inc(&mut c, 15);
+    inc(&mut c, 17);
+    return c.value();  // 42
+}

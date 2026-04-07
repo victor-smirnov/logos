@@ -1,0 +1,7 @@
+package slice_index_nonint;
+fn main() -> i32 {
+    let a: [i32; 3] = [1, 2, 3];
+    let s: &[i32] = &a;
+    let x: bool = true;
+    return s[x];   // error: index must be integer
+}

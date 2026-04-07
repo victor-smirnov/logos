@@ -1,0 +1,25 @@
+package slice_fn_arg;
+// F15: slice passed to generic function via type parameter
+fn sum_slice(s: &[i32]) -> i32 {
+    let mut t: i32 = 0;
+    let mut i: i64 = 0;
+    while i < s.len() {
+        t = t + s[i];
+        i = i + 1;
+    }
+    return t;
+}
+fn first(s: &[i32]) -> i32 {
+    return s[0];
+}
+fn last(s: &[i32]) -> i32 {
+    return s[s.len() - 1];
+}
+fn main() -> i32 {
+    let a: [i32; 5] = [5, 8, 10, 11, 8];
+    let s: &[i32] = &a;
+    let total: i32 = sum_slice(s);     // 42
+    let f: i32 = first(s);             // 5
+    let l: i32 = last(s);              // 8
+    return total;
+}

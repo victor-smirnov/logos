@@ -1,0 +1,19 @@
+package loop_nested;
+// F07: nested loop with break
+fn main() -> i32 {
+    let mut outer: i32 = 0;
+    let mut i: i32 = 0;
+    while i < 7 {
+        let mut j: i32 = 0;
+        loop {
+            j = j + 1;
+            if j > i { break; }
+        }
+        // j = i+1 after break
+        outer = outer + j;
+        i = i + 1;
+    }
+    // j values: 1,2,3,4,5,6,7 sum = 28
+    // 28 + 14 = 42
+    return outer + 14;
+}

@@ -1,0 +1,15 @@
+package cmp_bool_var;
+// F03: bool variables, comparison results stored
+fn main() -> i32 {
+    let x: i32 = 10;
+    let y: i32 = 20;
+    let lt: bool = x < y;       // true
+    let eq: bool = x == x;      // true
+    let ne: bool = x != y;      // true
+    let ge: bool = y >= x;      // true
+    let ab: bool = lt && eq;    // true
+    let cd: bool = ne && ge;    // true
+    let all_true: bool = ab && cd;  // true
+    if all_true { return 42; }
+    return 0;
+}

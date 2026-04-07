@@ -1,0 +1,5 @@
+package method_on_nonexistent_struct;
+fn main() -> i32 {
+    let x: i32 = 42;
+    return x.foo();   // error: method call on non-struct
+}

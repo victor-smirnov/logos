@@ -1,0 +1,17 @@
+package fn_multi_args;
+// F10: functions with many arguments
+fn sum5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32 {
+    return a + b + c + d + e;
+}
+fn max3(a: i32, b: i32, c: i32) -> i32 {
+    let mut m: i32 = a;
+    if b > m { m = b; }
+    if c > m { m = c; }
+    return m;
+}
+fn main() -> i32 {
+    let s: i32 = sum5(1, 2, 3, 4, 5);   // 15
+    let m: i32 = max3(10, 42, 7);        // 42
+    // s == 15, m == 42: return m - s + 15 = 42
+    return m;
+}

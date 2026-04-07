@@ -1,0 +1,6 @@
+package trait_unknown;
+struct Foo { x: i32; }
+impl NonExistentTrait for Foo {
+    fn do_thing(self: Foo) -> i32 { return self.x; }
+}
+fn main() -> i32 { return 0; }

@@ -1,0 +1,15 @@
+package generic_two_params;
+// F23: generic function with two independent type params (via mono)
+struct Pair<A, B> { first: A; second: B; }
+
+fn make_pair_ii(a: i32, b: i32) -> Pair<i32, i32> {
+    return Pair { first: a, second: b };
+}
+fn sum_pair_ii(p: Pair<i32, i32>) -> i32 {
+    return p.first + p.second;
+}
+
+fn main() -> i32 {
+    let p: Pair<i32, i32> = make_pair_ii(20, 22);
+    return sum_pair_ii(p);  // 42
+}

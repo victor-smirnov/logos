@@ -79,6 +79,30 @@ foreach(EXPECTED IN ITEMS
     )
 endforeach()
 
+# ── Pass tests (new: .logos lives next to .expected in tests/logos/pass/) ─────
+
+file(GLOB LOCAL_PASS_EXPECTED CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/pass/*.expected)
+
+foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
+    get_filename_component(BASE ${EXP_FILE} NAME_WE)
+    set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/pass/${BASE}.logos)
+
+    if (NOT EXISTS ${LOGOS_FILE})
+        continue()   # .expected belongs to examples/ test above — skip
+    endif()
+
+    add_test(
+        NAME  logos_pass_local_${BASE}
+        COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc>
+                ${LOGOS_FILE} ${EXP_FILE}
+    )
+    set_tests_properties(logos_pass_local_${BASE} PROPERTIES
+        TIMEOUT 30
+        LABELS  "logos;pass"
+    )
+endforeach()
+
 # ── Fail tests ────────────────────────────────────────────────────────────────
 # Each .expected file in fail/ matches a .logos file in the same directory.
 

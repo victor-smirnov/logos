@@ -1,0 +1,15 @@
+package const_in_expr;
+// F12: constants used in expressions, loops
+const LIMIT: i32 = 10;
+const FACTOR: i32 = 7;
+const OFFSET: i32 = -28;
+
+fn main() -> i32 {
+    let mut sum: i32 = 0;
+    for i in 0..LIMIT {
+        sum = sum + i;   // 0+1+...+9 = 45
+    }
+    // 45 * FACTOR = 315, too big
+    // sum = 45, return sum - 3 = 42
+    return sum - 3;
+}
