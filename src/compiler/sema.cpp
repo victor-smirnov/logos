@@ -912,16 +912,21 @@ private:
     }
 
     void collect_impl(TinyMapView node) {
-        auto trait_name = std::string(str_of(node.get(la::NAME.code)));
+        std::string trait_name;
+        if (node.has_key(la::NAME))
+            trait_name = std::string(str_of(node.get(la::NAME.code)));
         // TYPE is the target type (simple_type: IDENT or GENERIC_INST)
         std::string target;
         if (node.has_key(la::TYPE)) {
             auto tnode = map_of(node.get(la::TYPE.code));
             target = std::string(str_of(tnode.get(la::NAME.code)));
         }
-        ctx_ = std::format("impl {} for {}", trait_name, target);
-        // Verify trait exists
-        if (!traits_.count(trait_name))
+        if (trait_name.empty())
+            ctx_ = std::format("impl {}", target);
+        else
+            ctx_ = std::format("impl {} for {}", trait_name, target);
+        // Verify trait exists (only for trait impls)
+        if (!trait_name.empty() && !traits_.count(trait_name))
             error(std::format("impl: unknown trait '{}'", trait_name));
         // Register impl methods as free functions with mangled names: Target__method
         // Skip if already registered (e.g. class methods defined inline).
@@ -937,8 +942,9 @@ private:
                 }
             }
         }
-        // Register the impl mapping
-        impls_[trait_name + "::" + target] = {trait_name, target};
+        // Register the impl mapping (only for trait impls)
+        if (!trait_name.empty())
+            impls_[trait_name + "::" + target] = {trait_name, target};
     }
 
     // Collect a struct specialization into struct_specs_sema_.
@@ -3473,7 +3479,9 @@ private:
     }
 
     void lower_impl_block(TinyMapView node, lir::LProgram& prog) {
-        auto trait_name = std::string(str_of(node.get(la::NAME.code)));
+        std::string trait_name;
+        if (node.has_key(la::NAME))
+            trait_name = std::string(str_of(node.get(la::NAME.code)));
         std::string target;
         if (node.has_key(la::TYPE)) {
             auto tnode = map_of(node.get(la::TYPE.code));
@@ -3483,9 +3491,9 @@ private:
         ib.trait_name   = trait_name;
         ib.target_type  = target;
         // Lower impl methods as free functions (Target__method).
-        // Skip if already lowered (e.g. class methods defined inline).
-        bool is_class = classes_.count(target) > 0;
-        if (!is_class && node.has_key(la::ITEMS)) {
+        // Skip for class trait impls (methods already defined in class body).
+        bool skip_lower = !trait_name.empty() && classes_.count(target) > 0;
+        if (!skip_lower && node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto m = map_of(items.get(i));

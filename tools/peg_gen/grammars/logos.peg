@@ -264,8 +264,11 @@
 
     // ── Impl block ──────────────────────────────────────────────
     // impl Trait for Type { fn method(...) { ... } }
+    // impl Type { fn method(...) { ... } }   — standalone (no trait)
     impl_block <- KW_IMPL IDENT KW_FOR simple_type LBRACE method_def* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
+                / KW_IMPL simple_type LBRACE method_def* RBRACE
+               => { CODE: IMPL_BLOCK, TYPE: $2, ITEMS: $... }
 
     // ── Class definition ─────────────────────────────────────────
     // class ClassName { ... }
@@ -333,11 +336,17 @@
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
 
     // ── Type reference ───────────────────────────────────────────
-    type_ref <- ptr_type / arr_type / slice_type / tuple_type / simple_type
+    type_ref <- ptr_type / arr_type / slice_type / ref_type / tuple_type / simple_type
 
     // &[T] — slice type (fat pointer: ptr + len)
     slice_type <- AMP LBRACKET type_ref RBRACKET
                => { CODE: SLICE_TYPE, TYPE: $3 }
+
+    // &mut T → *mut T, &T → *const T (reference sugar)
+    ref_type <- AMP KW_MUT simple_type
+             => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
+              / AMP simple_type
+             => { CODE: PTR_TYPE, POINTEE: $2, MUTPTR: false }
 
     // (T1, T2, ...) — tuple type (2+ elements)
     tuple_type <- LPAREN type_ref COMMA type_ref (COMMA type_ref)* RPAREN

@@ -1,0 +1,21 @@
+package impl_block;
+
+struct Point {
+    x: i32;
+    y: i32;
+}
+
+impl Point {
+    fn sum(self: Point) -> i32 {
+        return self.x + self.y;
+    }
+
+    static fn create(a: i32, b: i32) -> Point {
+        return Point { x: a, y: b };
+    }
+}
+
+fn main() -> i32 {
+    let p: Point = Point::create(10, 32);
+    return p.sum();
+}
