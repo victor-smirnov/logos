@@ -782,7 +782,27 @@ private:
         if (s.value) {
             auto val = gen_expr(*s.value);
             if (!val) return;
-            if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_))
+            // Tagged enum None returning i32 but function expects ptr:
+            // wrap in alloca like gen_let does.
+            if (cur_ret_type_ && cur_ret_type_ == ptr_type() && val.getType() != ptr_type()) {
+                // Find the tagged enum info from the return value's LIR type
+                if (s.value->type && s.value->type->kind == LogosType::Kind::Enum) {
+                    // The value is a discriminant — need to figure out the enum struct type.
+                    // Look through all registered tagged enums to find a matching one.
+                    // For now: create a generic {i32, [4 x i8]} wrapper.
+                    auto i32t = builder_.getI32Type();
+                    auto pad = mlir::LLVM::LLVMArrayType::get(builder_.getIntegerType(8), 4);
+                    auto wrap = mlir::LLVM::LLVMStructType::getLiteral(
+                        builder_.getContext(), {i32t, pad});
+                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                        loc_, ptr_type(), wrap, i64_one());
+                    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                    auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), wrap, alloca, di);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
+                    val = alloca;
+                }
+            } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_))
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
             else if (cur_ret_type_)
                 val = coerce_int(val, cur_ret_type_);

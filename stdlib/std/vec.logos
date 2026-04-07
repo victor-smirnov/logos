@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.vec
+//
+// Vec_i32 — growable heap-allocated array of i32.
+// Uses class (heap-allocated) so methods can mutate.
+
+package std.vec;
+
+use std.mem;
+
+class Vec_i32 {
+    ptr: *mut i32;
+    len: i64;
+    cap: i64;
+
+    static fn create() -> *mut Vec_i32 {
+        let buf: *mut u8 = malloc(32);
+        return new Vec_i32 { ptr: buf as *mut i32, len: 0, cap: 8 };
+    }
+
+    fn push(self: *mut Vec_i32, val: i32) {
+        if self.len == self.cap {
+            let new_cap: i64 = self.cap * 2;
+            let new_buf: *mut u8 = realloc(self.ptr as *mut u8, new_cap * 4);
+            self.ptr = new_buf as *mut i32;
+            self.cap = new_cap;
+        }
+        self.ptr[self.len] = val;
+        self.len = self.len + 1;
+    }
+
+    fn get(self: *mut Vec_i32, i: i64) -> i32 {
+        return self.ptr[i];
+    }
+
+    fn length(self: *mut Vec_i32) -> i64 {
+        return self.len;
+    }
+}
+
+fn vec_free(v: *mut Vec_i32) {
+    free(v.ptr as *mut u8);
+    delete v;
+}

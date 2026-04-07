@@ -1,0 +1,21 @@
+package stdlib_demo;
+
+use std.option;
+use std.io;
+
+fn find_first_gt(arr: &[i32], threshold: i32) -> Option<i32> {
+    let mut i: i64 = 0;
+    while i < arr.len() {
+        if arr[i] > threshold {
+            return Option::Some(arr[i]);
+        }
+        i = i + 1;
+    }
+    return Option::None;
+}
+
+fn main() -> i32 {
+    let data: [i32; 5] = [10, 20, 30, 40, 50];
+    let result: Option<i32> = find_first_gt(&data, 25);
+    return unwrap_or_i32(result, 0);
+}

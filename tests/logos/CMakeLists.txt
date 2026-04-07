@@ -47,12 +47,13 @@ foreach(EXPECTED IN ITEMS
     pass/op_overload.expected
     pass/impl_block.expected
     pass/closure.expected
+    pass/stdlib_demo.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)
     set(EXP_FILE   ${CMAKE_CURRENT_SOURCE_DIR}/${EXPECTED})
 
-    if (BASE STREQUAL "hello")
+    if (BASE STREQUAL "hello" OR BASE STREQUAL "stdlib_demo")
         set(EXTRA -I ${STDLIB})
     else()
         set(EXTRA "")

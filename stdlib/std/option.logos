@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.option
+//
+// Option<T> — optional value type (Some(T) or None).
+
+package std.option;
+
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+fn unwrap_or_i32(opt: Option<i32>, def: i32) -> i32 {
+    match opt {
+        Option::Some(v) => { return v; }
+        Option::None => { return def; }
+    }
+}
+
+fn is_some_i32(opt: Option<i32>) -> bool {
+    match opt {
+        Option::Some(v) => { return true; }
+        Option::None => { return false; }
+    }
+}
