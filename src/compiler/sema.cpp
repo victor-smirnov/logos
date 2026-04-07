@@ -1674,6 +1674,37 @@ private:
 
         const LogosType* result_type = error_t();
 
+        // Operator overloading: if LHS is a struct/class, desugar to trait method call.
+        if (lt->kind == LogosType::Kind::Struct || lt->kind == LogosType::Kind::Class) {
+            // Map operator to trait name and method
+            std::string trait_name, method_name;
+            if      (op == "+")  { trait_name = "Add"; method_name = "add"; }
+            else if (op == "-")  { trait_name = "Sub"; method_name = "sub"; }
+            else if (op == "*")  { trait_name = "Mul"; method_name = "mul"; }
+            else if (op == "/")  { trait_name = "Div"; method_name = "div"; }
+            else if (op == "%")  { trait_name = "Rem"; method_name = "rem"; }
+            else if (op == "==") { trait_name = "Eq";  method_name = "eq"; }
+            else if (op == "!=") { trait_name = "Eq";  method_name = "ne"; }
+            else if (op == "<")  { trait_name = "Ord"; method_name = "lt"; }
+            else if (op == "<=") { trait_name = "Ord"; method_name = "le"; }
+            else if (op == ">")  { trait_name = "Ord"; method_name = "gt"; }
+            else if (op == ">=") { trait_name = "Ord"; method_name = "ge"; }
+            if (!trait_name.empty()) {
+                auto type_name = (lt->kind == LogosType::Kind::Struct)
+                    ? concrete_struct_name(lt) : concrete_class_name(lt);
+                auto mangled = type_name + "__" + method_name;
+                auto fit = funcs_.find(mangled);
+                if (fit != funcs_.end()) {
+                    std::vector<lir::LExprPtr> args;
+                    args.push_back(std::move(lhs));
+                    args.push_back(std::move(rhs));
+                    return make_expr(fit->second.ret_type,
+                        lir::ECall{mangled, {}, std::move(args)});
+                }
+                // No impl found — fall through to normal type checking
+            }
+        }
+
         if (lt->kind == LogosType::Kind::Error || rt->kind == LogosType::Kind::Error) {
             result_type = error_t();
         } else if (op == "&&" || op == "||") {
@@ -1747,6 +1778,25 @@ private:
         auto* vt = operand->type;
         if (vt->kind == LogosType::Kind::Error)
             return make_expr(error_t(), lir::EUnary{std::string(op), std::move(operand)});
+
+        // Unary operator overloading for struct/class types
+        if (vt->kind == LogosType::Kind::Struct || vt->kind == LogosType::Kind::Class) {
+            std::string trait_name, method_name;
+            if      (op == "-") { trait_name = "Neg"; method_name = "neg"; }
+            else if (op == "!") { trait_name = "Not"; method_name = "not_"; }
+            if (!trait_name.empty()) {
+                auto type_name = (vt->kind == LogosType::Kind::Struct)
+                    ? concrete_struct_name(vt) : concrete_class_name(vt);
+                auto mangled = type_name + "__" + method_name;
+                auto fit = funcs_.find(mangled);
+                if (fit != funcs_.end()) {
+                    std::vector<lir::LExprPtr> args;
+                    args.push_back(std::move(operand));
+                    return make_expr(fit->second.ret_type,
+                        lir::ECall{mangled, {}, std::move(args)});
+                }
+            }
+        }
 
         const LogosType* result_type = error_t();
         if (op == "-") {

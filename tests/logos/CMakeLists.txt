@@ -44,6 +44,7 @@ foreach(EXPECTED IN ITEMS
     pass/slice.expected
     pass/string.expected
     pass/trait.expected
+    pass/op_overload.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)
