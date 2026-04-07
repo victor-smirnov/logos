@@ -366,6 +366,25 @@ struct LEnumDef {
     }
 };
 
+// ── Trait definition ──────────────────────────────────────────────────────
+
+struct LTraitMethodSig {
+    std::string              name;
+    std::vector<LParam>      params;
+    const LogosType*         ret_type = nullptr;
+};
+
+struct LTraitDef {
+    std::string                    name;
+    std::vector<LTraitMethodSig>   methods;
+};
+
+struct LImplBlock {
+    std::string              trait_name;
+    std::string              target_type;  // concrete type name (e.g. "Point")
+    std::vector<LFunction>   methods;
+};
+
 struct LConst {
     std::string      name;
     const LogosType* type;
@@ -396,6 +415,8 @@ struct LProgram {
     std::vector<LFunction>   specializations;  // fn specialisations (consumed by mono)
     std::vector<LConst>      consts;
     std::vector<LTypeAlias>  type_aliases;
+    std::vector<LTraitDef>   traits;
+    std::vector<LImplBlock>  impls;
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }

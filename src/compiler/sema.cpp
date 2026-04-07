@@ -513,6 +513,21 @@ private:
         std::vector<TypeParam> type_params;
     };
 
+    // ── Trait info ───────────────────────────────────────────────
+    struct SemaTraitMethodInfo {
+        std::string name;
+        std::vector<const LogosType*> param_types;  // includes self
+        const LogosType* ret_type = nullptr;
+    };
+    struct SemaTraitInfo {
+        std::string name;
+        std::vector<SemaTraitMethodInfo> methods;
+    };
+    struct SemaImplInfo {
+        std::string trait_name;
+        std::string target_type;
+    };
+
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
     std::unordered_map<std::string, const LogosType*> current_type_params_;
@@ -525,6 +540,9 @@ private:
     std::unordered_map<std::string, SemaFuncInfo>     funcs_;
     std::unordered_map<std::string, const LogosType*> type_aliases_;
     std::unordered_map<std::string, const LogosType*> module_consts_;
+    std::unordered_map<std::string, SemaTraitInfo>    traits_;
+    // "TraitName::TypeName" → impl info
+    std::unordered_map<std::string, SemaImplInfo>     impls_;
 
     // ── Type parameter helpers ────────────────────────────────────
 
@@ -794,6 +812,8 @@ private:
             else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
             else if (c == la::TYPE_ALIAS)                 collect_type_alias(item);
             else if (c == la::CONST_DEF)                  collect_const(item);
+            else if (c == la::TRAIT_DEF)                  collect_trait(item);
+            else if (c == la::IMPL_BLOCK)                 collect_impl(item);
         }
     }
 
@@ -852,6 +872,68 @@ private:
             t = i32_t();
         }
         if (t) module_consts_[name] = t;
+    }
+
+    void collect_trait(TinyMapView node) {
+        auto tname = std::string(str_of(node.get(la::NAME.code)));
+        ctx_ = std::format("trait {}", tname);
+        // Push "Self" as a type param so trait method signatures can reference it.
+        current_type_params_["Self"] = make_typevar("Self");
+        SemaTraitInfo info;
+        info.name = tname;
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto m = map_of(items.get(i));
+                if (code_of(m) != la::FN) continue;
+                SemaTraitMethodInfo mi;
+                mi.name = std::string(str_of(m.get(la::NAME.code)));
+                if (m.has_key(la::PARAMS)) {
+                    auto pav = m.get(la::PARAMS.code);
+                    if (!pav.is_null() && pav.is_pointer()) {
+                        auto plist = map_of(pav);
+                        if (plist.has_key(la::ITEMS)) {
+                            auto params = arr_of(plist.get(la::ITEMS.code));
+                            for (uint64_t j = 0; j < params.size(); ++j) {
+                                auto p = map_of(params.get(j));
+                                if (p.has_key(la::TYPE))
+                                    mi.param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
+                            }
+                        }
+                    }
+                }
+                mi.ret_type = m.has_key(la::RET_TYPE)
+                    ? resolve_type(map_of(m.get(la::RET_TYPE.code))) : void_t();
+                info.methods.push_back(std::move(mi));
+            }
+        }
+        current_type_params_.erase("Self");
+        traits_[tname] = std::move(info);
+    }
+
+    void collect_impl(TinyMapView node) {
+        auto trait_name = std::string(str_of(node.get(la::NAME.code)));
+        // TYPE is the target type (simple_type: IDENT or GENERIC_INST)
+        std::string target;
+        if (node.has_key(la::TYPE)) {
+            auto tnode = map_of(node.get(la::TYPE.code));
+            target = std::string(str_of(tnode.get(la::NAME.code)));
+        }
+        ctx_ = std::format("impl {} for {}", trait_name, target);
+        // Verify trait exists
+        if (!traits_.count(trait_name))
+            error(std::format("impl: unknown trait '{}'", trait_name));
+        // Register impl methods as free functions with mangled names: Target__method
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto m = map_of(items.get(i));
+                if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN)
+                    collect_fn(m, target);
+            }
+        }
+        // Register the impl mapping
+        impls_[trait_name + "::" + target] = {trait_name, target};
     }
 
     // Collect a struct specialization into struct_specs_sema_.
@@ -1957,6 +2039,47 @@ private:
             }
             error(std::format("slice has no method '{}'", method_name));
             return error_expr();
+        }
+
+        // TypeVar with trait bounds: look up trait method signature.
+        // The actual impl method will be resolved during monomorphization.
+        if (recv->type->kind == LogosType::Kind::TypeVar) {
+            // Find trait bounds for this type var
+            for (auto& [tvn, tv] : current_type_params_) {
+                if (tvn != recv->type->type_var_name) continue;
+                // tvn matches — but we need the TypeParam with bounds.
+                // Search the current function's type params.
+            }
+            // Search all type params in scope for this TypeVar's bounds
+            const LogosType* ret_type = error_t();
+            bool found = false;
+            // Walk all currently in-scope functions' type params
+            // For now, look through all known traits for the method
+            for (auto& [tname, tinfo] : traits_) {
+                for (auto& m : tinfo.methods) {
+                    if (m.name == method_name) {
+                        ret_type = m.ret_type;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+            if (found) {
+                std::vector<lir::LExprPtr> arg_exprs;
+                if (node.has_key(la::ARGS)) {
+                    auto args = arr_of(node.get(la::ARGS.code));
+                    for (uint64_t i = 0; i < args.size(); ++i)
+                        arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+                }
+                // Use EMethodCall — mono will resolve to concrete impl.
+                lir::EMethodCall mc;
+                mc.receiver = std::move(recv);
+                mc.method   = std::string(method_name);
+                mc.args     = std::move(arg_exprs);
+                mc.vtable_index = -1;
+                return make_expr(ret_type, std::move(mc));
+            }
         }
 
         // Check if receiver is a class type → virtual dispatch
@@ -3273,6 +3396,47 @@ private:
         return ta;
     }
 
+    lir::LTraitDef lower_trait_def(TinyMapView node) {
+        auto tname = std::string(str_of(node.get(la::NAME.code)));
+        lir::LTraitDef td;
+        td.name = tname;
+        auto tit = traits_.find(tname);
+        if (tit != traits_.end()) {
+            for (auto& m : tit->second.methods) {
+                lir::LTraitMethodSig sig;
+                sig.name     = m.name;
+                sig.ret_type = m.ret_type;
+                // We don't lower params here since they may contain Self
+                td.methods.push_back(std::move(sig));
+            }
+        }
+        return td;
+    }
+
+    void lower_impl_block(TinyMapView node, lir::LProgram& prog) {
+        auto trait_name = std::string(str_of(node.get(la::NAME.code)));
+        std::string target;
+        if (node.has_key(la::TYPE)) {
+            auto tnode = map_of(node.get(la::TYPE.code));
+            target = std::string(str_of(tnode.get(la::NAME.code)));
+        }
+        lir::LImplBlock ib;
+        ib.trait_name   = trait_name;
+        ib.target_type  = target;
+        // Lower impl methods as free functions (Target__method)
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto m = map_of(items.get(i));
+                if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
+                    auto fn = lower_fn(m, target);
+                    prog.functions.push_back(std::move(fn));
+                }
+            }
+        }
+        prog.impls.push_back(std::move(ib));
+    }
+
     // ── lower_class_def ──────────────────────────────────────────
 
     lir::LClassDef lower_class_def(TinyMapView node) {
@@ -3361,6 +3525,8 @@ private:
             }
             else if (c == la::CONST_DEF)  prog.consts.push_back(lower_const_def(item));
             else if (c == la::TYPE_ALIAS) prog.type_aliases.push_back(lower_type_alias_def(item));
+            else if (c == la::TRAIT_DEF)  prog.traits.push_back(lower_trait_def(item));
+            else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);
         }
     }
 };

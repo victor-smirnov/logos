@@ -153,6 +153,10 @@ inline constexpr Code PAT_VARIANT_DATA{"PAT_VARIANT_DATA", 105}; // Some(x) in m
 inline constexpr Code SLICE_TYPE      {"SLICE_TYPE",      111};  // &[T] type
 inline constexpr Code RANGE_EXPR      {"RANGE_EXPR",      112};  // lo..hi expression
 
+// Batch L — traits
+inline constexpr Code TRAIT_DEF       {"TRAIT_DEF",       106};  // trait Name { ... }
+inline constexpr Code IMPL_BLOCK      {"IMPL_BLOCK",      107};  // impl Trait for Type { ... }
+
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

@@ -48,6 +48,8 @@ public:
 
         out_.consts       = std::move(in_.consts);
         out_.type_aliases = std::move(in_.type_aliases);
+        out_.traits       = std::move(in_.traits);
+        out_.impls        = std::move(in_.impls);
         // Move type_pool — will be extended with new types during mono
         out_.type_pool    = std::move(in_.type_pool);
 
@@ -380,8 +382,23 @@ private:
                 result->kind = std::move(nc);
 
             } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {
+                // Check if this is a trait method call on a TypeVar that got resolved.
+                // If so, rewrite to a direct ECall.
+                auto* orig_recv_type = k.receiver->type;
+                auto  new_recv = subst_expr(*k.receiver, s);
+                if (orig_recv_type && orig_recv_type->kind == LogosType::Kind::TypeVar &&
+                    new_recv->type && new_recv->type->kind == LogosType::Kind::Struct) {
+                    // Trait method → direct call: StructName__method(self, args...)
+                    auto cname = concrete_struct_name(new_recv->type);
+                    lir::ECall nc;
+                    nc.callee = cname + "__" + k.method;
+                    nc.args.push_back(std::move(new_recv));
+                    for (auto& a : k.args)
+                        nc.args.push_back(subst_expr(*a, s));
+                    result->kind = std::move(nc);
+                } else {
                 lir::EMethodCall nm;
-                nm.receiver      = subst_expr(*k.receiver, s);
+                nm.receiver      = std::move(new_recv);
                 nm.method        = k.method;
                 nm.vtable_index  = k.vtable_index;
                 // Translate resolved_type (generic class template name) to
@@ -426,6 +443,7 @@ private:
                 for (auto& a : k.args)
                     nm.args.push_back(subst_expr(*a, s));
                 result->kind = std::move(nm);
+                } // end else (non-trait method call)
 
             } else if constexpr (std::is_same_v<K, lir::EBinOp>) {
                 result->kind = lir::EBinOp{k.op,

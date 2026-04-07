@@ -123,6 +123,8 @@
     TUPLE_INDEX  = 102
     ENUM_LIT_DATA    = 104
     PAT_VARIANT_DATA = 105
+    TRAIT_DEF        = 106
+    IMPL_BLOCK       = 107
     SLICE_TYPE       = 111
     RANGE_EXPR       = 112
 }
@@ -143,9 +145,11 @@
     KW_WHILE    = "while"
     KW_BREAK    = "break"
     KW_FALSE    = "false"
+    KW_TRAIT    = "trait"
     KW_CONST    = "const"
     KW_CLASS    = "class"
     KW_TYPE     = "type"
+    KW_IMPL     = "impl"
     KW_ENUM     = "enum"
     KW_LOOP     = "loop"
     KW_ELSE     = "else"
@@ -221,7 +225,7 @@
     use_decl <- KW_USE IDENT DOT IDENT SEMI
              => { CODE: USE, NAME: $2, PATH: $4 }
 
-    item <- const_def / type_alias / enum_def / class_def / struct_def / extern_fn_def / pub_fn_def / fn_def
+    item <- const_def / type_alias / enum_def / class_def / struct_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // const NAME: type = expr;
     const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
@@ -247,6 +251,21 @@
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
                  / IDENT
                 => { CODE: VARIANT_DEF, NAME: $1 }
+
+    // ── Trait definition ─────────────────────────────────────────
+    // trait Name { fn method(self: Self) -> T; }
+    trait_def <- KW_TRAIT IDENT LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, NAME: $2, ITEMS: $... }
+
+    trait_method <- KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
+                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+                  / KW_FN IDENT LPAREN param_list? RPAREN SEMI
+                 => { CODE: FN, NAME: $2, PARAMS: $4 }
+
+    // ── Impl block ──────────────────────────────────────────────
+    // impl Trait for Type { fn method(...) { ... } }
+    impl_block <- KW_IMPL IDENT KW_FOR simple_type LBRACE method_def* RBRACE
+               => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
 
     // ── Class definition ─────────────────────────────────────────
     // class ClassName { ... }
