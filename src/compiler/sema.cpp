@@ -124,6 +124,11 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
         to->kind   == LogosType::Kind::Ptr   &&
         from->elem && to->pointee)
         return types_equal(*from->elem, *to->pointee);
+    // *const u8 → &[u8] (string literal to str coercion)
+    if (from->kind == LogosType::Kind::Ptr && to->kind == LogosType::Kind::Slice &&
+        from->pointee && to->elem &&
+        from->pointee->kind == LogosType::Kind::U8 && to->elem->kind == LogosType::Kind::U8)
+        return true;
     // Tuple: element-wise compatibility (e.g. ({integer}, {integer}) → (i32, i32))
     if (from->kind == LogosType::Kind::Tuple && to->kind == LogosType::Kind::Tuple) {
         if (from->tuple_elems.size() != to->tuple_elems.size()) return false;
@@ -689,6 +694,7 @@ private:
             if (name == "u32")  return prim(LogosType::Kind::U32);
             if (name == "u64")  return prim(LogosType::Kind::U64);
             if (name == "void") return prim(LogosType::Kind::Void);
+            if (name == "str")  return make_slice_type(u8_t());
             // Check if it's a type variable in scope
             auto tvit = current_type_params_.find(std::string(name));
             if (tvit != current_type_params_.end()) return tvit->second;
