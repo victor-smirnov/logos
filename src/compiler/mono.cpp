@@ -593,6 +593,13 @@ private:
                 for (auto& a : k.payload)
                     ne.payload.push_back(subst_expr(*a, s));
                 result->kind = std::move(ne);
+            } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
+                lir::EFormatCall nf;
+                nf.fmt = subst_expr(*k.fmt, s);
+                nf.arg_types = k.arg_types;
+                for (auto& a : k.args)
+                    nf.args.push_back(subst_expr(*a, s));
+                result->kind = std::move(nf);
             }
         }, e.kind);
 
@@ -827,6 +834,9 @@ private:
                 scan_expr(*k.slice);
             } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
                 for (auto& a : k.payload) scan_expr(*a);
+            } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
+                scan_expr(*k.fmt);
+                for (auto& a : k.args) scan_expr(*a);
             }
         }, e.kind);
     }
@@ -1109,6 +1119,9 @@ private:
                 collect_struct_needs_from_expr(*k.operand);
             } else if constexpr (std::is_same_v<K, lir::ENew>) {
                 for (auto& [fn, fv] : k.fields) collect_struct_needs_from_expr(*fv);
+            } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
+                collect_struct_needs_from_expr(*k.fmt);
+                for (auto& a : k.args) collect_struct_needs_from_expr(*a);
             }
         }, e.kind);
     }

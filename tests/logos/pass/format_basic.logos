@@ -1,0 +1,11 @@
+// format() built-in — std.string runtime
+package format_basic;
+
+use std.string;
+use std.io;
+
+fn main() -> i32 {
+    let s: *mut u8 = format("n={}, m={}", 40, 2);
+    println(s as *const u8);
+    return 42;
+}

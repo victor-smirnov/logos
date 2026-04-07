@@ -197,6 +197,15 @@ struct ESliceLen {
     LExprPtr slice;
 };
 
+// format() compiler built-in: format("x={}, y={}", x, y)
+// Returns *mut u8 (heap-allocated, caller frees via format_free).
+// The compiler builds tags[] and data[] arrays and calls __format_impl.
+struct EFormatCall {
+    LExprPtr                    fmt;        // format string expr
+    std::vector<LExprPtr>       args;       // arguments (without fmt)
+    std::vector<const LogosType*> arg_types; // parallel to args, resolved at sema
+};
+
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
@@ -206,7 +215,7 @@ struct LExpr {
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
-        EClosureBox, EClosureCall
+        EClosureBox, EClosureCall, EFormatCall
     > kind;
 };
 

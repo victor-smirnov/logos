@@ -84,6 +84,8 @@ endforeach()
 file(GLOB LOCAL_PASS_EXPECTED CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/pass/*.expected)
 
+set(LOCAL_STDLIB_USERS format_basic format_types)
+
 foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
     get_filename_component(BASE ${EXP_FILE} NAME_WE)
     set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/pass/${BASE}.logos)
@@ -92,10 +94,16 @@ foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
         continue()   # .expected belongs to examples/ test above — skip
     endif()
 
+    if (BASE IN_LIST LOCAL_STDLIB_USERS)
+        set(EXTRA -I ${STDLIB})
+    else()
+        set(EXTRA "")
+    endif()
+
     add_test(
         NAME  logos_pass_local_${BASE}
         COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc>
-                ${LOGOS_FILE} ${EXP_FILE}
+                ${LOGOS_FILE} ${EXP_FILE} ${EXTRA}
     )
     set_tests_properties(logos_pass_local_${BASE} PROPERTIES
         TIMEOUT 30

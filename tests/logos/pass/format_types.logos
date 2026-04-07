@@ -1,0 +1,11 @@
+// format() — multiple types: i32, str, bool, negative
+package format_types;
+
+use std.string;
+use std.io;
+
+fn main() -> i32 {
+    let s: *mut u8 = format("{} {} {} {}", 0 - 1, "hi", true, 0);
+    println(s as *const u8);
+    return 42;
+}

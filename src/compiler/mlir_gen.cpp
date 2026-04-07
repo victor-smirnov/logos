@@ -169,6 +169,9 @@ private:
     std::unordered_map<std::string, mlir::Type>   var_subscript_;
     std::unordered_set<std::string>              var_tuple_;
     std::unordered_set<std::string>              var_tagged_enum_;
+    // Local let-bound pointer variables (*mut T / *const T): maps name → pointee MLIR type.
+    // Needed because scope_[name] is an alloca(ptr), so indexing requires a load first.
+    std::unordered_map<std::string, mlir::Type>   var_local_ptrs_;
     mlir::Type                                    cur_ret_type_;
     bool                                          in_llvm_func_ = false;
 
@@ -514,6 +517,7 @@ private:
         var_subscript_.clear();
         var_tuple_.clear();
         var_tagged_enum_.clear();
+        var_local_ptrs_.clear();
         loop_stack_.clear();
 
         // Bind parameters.
@@ -779,6 +783,11 @@ private:
         scope_[s.name]          = alloca;
         let_vars_.insert(s.name);
         var_elem_types_[s.name] = var_type;
+        // Track local pointer variables so indexing can load the ptr before GEP.
+        if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee) {
+            auto pt = logos_to_mlir(s.type->pointee);
+            if (pt) var_local_ptrs_[s.name] = pt;
+        }
     }
 
     void gen_assign(const SAssign& s) {
@@ -1109,9 +1118,17 @@ private:
             std::fprintf(stderr, "mlir_gen: index write: undefined '%s'\n", s.arr.c_str());
             return;
         }
-        auto et = var_elem_types_.find(s.arr);
-        mlir::Type elem_type = (et != var_elem_types_.end())
-                               ? et->second : builder_.getI32Type();
+        // Local pointer variables: scope_ holds an alloca(ptr); load the actual ptr first.
+        mlir::Value base_ptr;
+        mlir::Type  elem_type;
+        auto lpit = var_local_ptrs_.find(s.arr);
+        if (lpit != var_local_ptrs_.end()) {
+            base_ptr  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
+            elem_type = lpit->second;
+        } else {
+            base_ptr  = it->second;
+            elem_type = subscript_elem_type(s.arr);
+        }
 
         auto idx = gen_expr(*s.index);
         auto val = gen_expr(*s.value);
@@ -1120,7 +1137,7 @@ private:
 
         llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), elem_type, it->second, indices);
+            loc_, ptr_type(), elem_type, base_ptr, indices);
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
     }
 
@@ -1648,8 +1665,16 @@ private:
         mlir::Type  elem_type;
 
         if (auto* vr = std::get_if<EVarRef>(&e.receiver->kind)) {
-            arr_ptr   = get_subscript_ptr(vr->name);
-            elem_type = subscript_elem_type(vr->name);
+            // Local pointer variable: scope_ holds alloca(ptr), load actual ptr first.
+            auto lpit = var_local_ptrs_.find(vr->name);
+            if (lpit != var_local_ptrs_.end()) {
+                auto alloca = get_subscript_ptr(vr->name);
+                arr_ptr   = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), alloca);
+                elem_type = lpit->second;
+            } else {
+                arr_ptr   = get_subscript_ptr(vr->name);
+                elem_type = subscript_elem_type(vr->name);
+            }
         } else if (auto* fr = std::get_if<EFieldRead>(&e.receiver->kind)) {
             // Field index read: field may be an array or a pointer.
             // - Array field: GEP to the field → use as base (no load needed)
@@ -1733,6 +1758,15 @@ private:
         if (mlir::dyn_cast<mlir::FloatType>(val.getType()) &&
             mlir::dyn_cast<mlir::IntegerType>(target))
             return builder_.create<mlir::arith::FPToSIOp>(loc_, target, val);
+
+        // int → ptr
+        if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) && target == ptr_type()) {
+            auto v64 = coerce_int(val, builder_.getI64Type());
+            return builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), v64);
+        }
+        // ptr → int
+        if (val.getType() == ptr_type() && mlir::dyn_cast<mlir::IntegerType>(target))
+            return builder_.create<mlir::LLVM::PtrToIntOp>(loc_, target, val);
 
         std::fprintf(stderr, "mlir_gen: unsupported cast\n");
         return nullptr;
@@ -2094,6 +2128,81 @@ private:
         llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
         auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, li);
         return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+    }
+
+    // ── format() built-in ─────────────────────────────────────────
+
+    static int format_type_tag(const LogosType* t) noexcept {
+        if (!t) return 0;
+        switch (t->kind) {
+            case LogosType::Kind::I32:    return 0;
+            case LogosType::Kind::I64:    return 1;
+            case LogosType::Kind::Ptr:    return 2;
+            case LogosType::Kind::Slice:  return 2;
+            case LogosType::Kind::Bool:   return 3;
+            case LogosType::Kind::U8:     return 4;
+            case LogosType::Kind::U32:    return 5;
+            case LogosType::Kind::U64:    return 6;
+            case LogosType::Kind::I8:     return 7;
+            case LogosType::Kind::IntLit: return 0;
+            default:                      return 0;
+        }
+    }
+
+    mlir::Value gen_expr_kind(const EFormatCall& e, const LogosType*) {
+        auto fmt_val = gen_expr(*e.fmt);
+        if (!fmt_val) return nullptr;
+
+        int n = (int)e.args.size();
+        auto i32_type = builder_.getI32Type();
+        auto i64_type = builder_.getI64Type();
+
+        // Allocate [n x i32] tags and [n x i64] data arrays on stack.
+        // Use at least 1 for zero-arg case to avoid zero-size alloca.
+        mlir::Value n_alloc = builder_.create<mlir::arith::ConstantIntOp>(loc_, n > 0 ? n : 1, 64);
+        auto tags_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), i32_type, n_alloc);
+        auto data_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), i64_type, n_alloc);
+
+        for (int i = 0; i < n; ++i) {
+            int tag = format_type_tag(e.arg_types[i]);
+
+            // Store tag at tags[i]
+            llvm::SmallVector<mlir::LLVM::GEPArg> ti{int32_t(i)};
+            auto tgep = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), i32_type, tags_alloca, ti);
+            auto tag_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, tag, 32);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, tag_val, tgep);
+
+            // Evaluate arg and widen to i64
+            auto arg_val = gen_expr(*e.args[i]);
+            if (!arg_val) return nullptr;
+            mlir::Value as_i64;
+            if (arg_val.getType() == ptr_type())
+                as_i64 = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_type, arg_val);
+            else
+                as_i64 = coerce_int(arg_val, i64_type);
+
+            // Store data at data[i]
+            llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(i)};
+            auto dgep = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), i64_type, data_alloca, di);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, as_i64, dgep);
+        }
+
+        // Call __format_impl(fmt, tags_ptr, data_ptr, nargs)
+        auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto impl_fn = mod.lookupSymbol<mlir::func::FuncOp>("__format_impl");
+        if (!impl_fn) {
+            std::fprintf(stderr,
+                "mlir_gen: format() requires 'use std.string;' to be imported\n");
+            return nullptr;
+        }
+        auto n_i32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, n, 32);
+        llvm::SmallVector<mlir::Value> call_args{fmt_val, tags_alloca, data_alloca, n_i32};
+        auto call = builder_.create<mlir::func::CallOp>(loc_, impl_fn, call_args);
+        return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
 
     // ── Struct helpers ────────────────────────────────────────────

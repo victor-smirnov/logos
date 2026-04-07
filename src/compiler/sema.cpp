@@ -1903,6 +1903,29 @@ private:
                 lir::EClosureCall{std::move(callee_expr), std::move(arg_exprs)});
         }
 
+        // ── format() compiler built-in ─────────────────────────────────────────
+        if (callee == "format") {
+            std::vector<lir::LExprPtr> all_args;
+            if (node.has_key(la::ARGS)) {
+                auto arr = arr_of(node.get(la::ARGS.code));
+                for (uint64_t i = 0; i < arr.size(); ++i)
+                    all_args.push_back(lower_expr(map_of(arr.get(i))));
+            }
+            if (all_args.empty()) {
+                error("format: requires at least a format string argument");
+                return error_expr();
+            }
+            auto fmt_expr = std::move(all_args[0]);
+            std::vector<lir::LExprPtr> fmt_args;
+            std::vector<const LogosType*> fmt_types;
+            for (size_t i = 1; i < all_args.size(); ++i) {
+                fmt_types.push_back(all_args[i]->type);
+                fmt_args.push_back(std::move(all_args[i]));
+            }
+            return make_expr(make_ptr(true, u8_t()),
+                lir::EFormatCall{std::move(fmt_expr), std::move(fmt_args), std::move(fmt_types)});
+        }
+
         auto fit = funcs_.find(std::string(callee));
 
         std::vector<lir::LExprPtr> arg_exprs;
