@@ -924,12 +924,17 @@ private:
         if (!traits_.count(trait_name))
             error(std::format("impl: unknown trait '{}'", trait_name));
         // Register impl methods as free functions with mangled names: Target__method
+        // Skip if already registered (e.g. class methods defined inline).
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto m = map_of(items.get(i));
-                if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN)
-                    collect_fn(m, target);
+                if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
+                    auto mname = std::string(str_of(m.get(la::NAME.code)));
+                    auto mangled = target + "__" + mname;
+                    if (!funcs_.count(mangled))
+                        collect_fn(m, target);
+                }
             }
         }
         // Register the impl mapping
@@ -2043,7 +2048,11 @@ private:
 
         // TypeVar with trait bounds: look up trait method signature.
         // The actual impl method will be resolved during monomorphization.
-        if (recv->type->kind == LogosType::Kind::TypeVar) {
+        // Handle both T and *mut T / *const T receivers.
+        const LogosType* recv_inner = recv->type;
+        if (recv_inner->kind == LogosType::Kind::Ptr && recv_inner->pointee)
+            recv_inner = recv_inner->pointee;
+        if (recv_inner->kind == LogosType::Kind::TypeVar) {
             // Find trait bounds for this type var
             for (auto& [tvn, tv] : current_type_params_) {
                 if (tvn != recv->type->type_var_name) continue;
@@ -3423,8 +3432,10 @@ private:
         lir::LImplBlock ib;
         ib.trait_name   = trait_name;
         ib.target_type  = target;
-        // Lower impl methods as free functions (Target__method)
-        if (node.has_key(la::ITEMS)) {
+        // Lower impl methods as free functions (Target__method).
+        // Skip if already lowered (e.g. class methods defined inline).
+        bool is_class = classes_.count(target) > 0;
+        if (!is_class && node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto m = map_of(items.get(i));

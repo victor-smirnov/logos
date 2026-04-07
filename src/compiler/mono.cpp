@@ -386,16 +386,43 @@ private:
                 // If so, rewrite to a direct ECall.
                 auto* orig_recv_type = k.receiver->type;
                 auto  new_recv = subst_expr(*k.receiver, s);
-                if (orig_recv_type && orig_recv_type->kind == LogosType::Kind::TypeVar &&
-                    new_recv->type && new_recv->type->kind == LogosType::Kind::Struct) {
-                    // Trait method → direct call: StructName__method(self, args...)
-                    auto cname = concrete_struct_name(new_recv->type);
-                    lir::ECall nc;
-                    nc.callee = cname + "__" + k.method;
-                    nc.args.push_back(std::move(new_recv));
-                    for (auto& a : k.args)
-                        nc.args.push_back(subst_expr(*a, s));
-                    result->kind = std::move(nc);
+                // Unwrap pointer for TypeVar check (handles *mut T → *mut Class)
+                auto* orig_inner = orig_recv_type;
+                if (orig_inner && orig_inner->kind == LogosType::Kind::Ptr && orig_inner->pointee)
+                    orig_inner = orig_inner->pointee;
+                if (orig_inner && orig_inner->kind == LogosType::Kind::TypeVar &&
+                    new_recv->type) {
+                    // Trait method → direct call: TypeName__method(self, args...)
+                    std::string cname;
+                    auto* rt = new_recv->type;
+                    if (rt->kind == LogosType::Kind::Struct)
+                        cname = concrete_struct_name(rt);
+                    else if (rt->kind == LogosType::Kind::Class)
+                        cname = concrete_class_name(rt);
+                    else if (rt->kind == LogosType::Kind::Ptr && rt->pointee) {
+                        if (rt->pointee->kind == LogosType::Kind::Class)
+                            cname = concrete_class_name(rt->pointee);
+                        else if (rt->pointee->kind == LogosType::Kind::Struct)
+                            cname = concrete_struct_name(rt->pointee);
+                    }
+                    if (!cname.empty()) {
+                        lir::ECall nc;
+                        nc.callee = cname + "__" + k.method;
+                        nc.args.push_back(std::move(new_recv));
+                        for (auto& a : k.args)
+                            nc.args.push_back(subst_expr(*a, s));
+                        result->kind = std::move(nc);
+                    } else {
+                        // Fallback: keep as method call
+                        lir::EMethodCall nm;
+                        nm.receiver = std::move(new_recv);
+                        nm.method   = k.method;
+                        nm.vtable_index = k.vtable_index;
+                        nm.resolved_type = k.resolved_type;
+                        for (auto& a : k.args)
+                            nm.args.push_back(subst_expr(*a, s));
+                        result->kind = std::move(nm);
+                    }
                 } else {
                 lir::EMethodCall nm;
                 nm.receiver      = std::move(new_recv);
