@@ -44,7 +44,16 @@ struct PatInt     { int32_t value; };
 struct PatBool    { bool value; };
 struct PatWild    { std::string name; };   // _ or named wildcard (name may be "_")
 
-using Pattern = std::variant<PatVariant, PatInt, PatBool, PatWild>;
+// Pattern with payload bindings: Option::Some(x) => { use x }
+struct PatVariantData {
+    std::string enum_name;
+    std::string variant;
+    int32_t     disc;
+    std::vector<std::string>        bindings;      // bound variable names
+    std::vector<const LogosType*>   binding_types;  // their types
+};
+
+using Pattern = std::variant<PatVariant, PatInt, PatBool, PatWild, PatVariantData>;
 
 struct LMatchArm {
     Pattern   pat;
@@ -63,6 +72,14 @@ struct EEnumLit   {
     std::string enum_name;
     std::string variant;
     int32_t     disc;           // discriminant value (i32)
+};
+
+// Enum variant with payload: Option::Some(42)
+struct EEnumLitData {
+    std::string           enum_name;
+    std::string           variant;
+    int32_t               disc;
+    std::vector<LExprPtr> payload;  // payload values
 };
 
 struct ECall      {
@@ -155,7 +172,7 @@ struct ETupleIndex {
 struct LExpr {
     const LogosType* type = nullptr;   // always set; error_t() on ill-typed nodes
     std::variant<
-        ELitInt, ELitBool, ELitStr, EVarRef, EEnumLit,
+        ELitInt, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex
@@ -318,11 +335,18 @@ struct LClassDef {
 struct LVariant {
     std::string name;
     int32_t     disc;
+    std::vector<const LogosType*> payload_types;  // empty = no payload (C-style)
 };
 
 struct LEnumDef {
-    std::string            name;
-    std::vector<LVariant>  variants;
+    std::string              name;
+    std::vector<TypeParam>   type_params;   // empty for non-generic enums
+    std::vector<LVariant>    variants;
+    bool has_payload() const {
+        for (auto& v : variants)
+            if (!v.payload_types.empty()) return true;
+        return false;
+    }
 };
 
 struct LConst {

@@ -46,7 +46,6 @@ public:
     lir::LProgram run(lir::LProgram&& in, int /*max_depth*/) {
         in_ = std::move(in);
 
-        out_.enums        = std::move(in_.enums);
         out_.consts       = std::move(in_.consts);
         out_.type_aliases = std::move(in_.type_aliases);
         // Move type_pool — will be extended with new types during mono
@@ -71,6 +70,15 @@ public:
         for (auto& cd : in_.classes) {
             if (cd.type_params.empty())
                 out_.classes.push_back(clone_class_def(cd, {}, cd.name));
+        }
+
+        // Index generic enum templates; pass-through plain enums.
+        for (auto& ed : in_.enums) {
+            if (!ed.type_params.empty()) {
+                enum_templates_[ed.name] = &ed;
+            } else {
+                out_.enums.push_back(ed);
+            }
         }
 
         // Index generic fn templates.
@@ -108,6 +116,9 @@ public:
         // Instantiate all generic structs referenced by the output.
         instantiate_struct_templates();
 
+        // Instantiate all generic enums referenced by the output.
+        instantiate_enum_templates();
+
         // Instantiate all generic classes referenced by the output.
         instantiate_class_templates();
 
@@ -138,6 +149,13 @@ private:
 
     // Already-instantiated struct names (prevent duplicates)
     std::unordered_set<std::string> struct_done_;
+
+    // name → pointer into in_.enums (generic enum templates)
+    std::unordered_map<std::string, const lir::LEnumDef*> enum_templates_;
+
+    // concrete_name → type_args for needed generic enum instantiations
+    std::unordered_map<std::string, std::vector<const LogosType*>> needed_enum_insts_;
+    std::unordered_set<std::string> enum_done_;
 
     // name → pointer into in_.classes (generic class templates)
     std::unordered_map<std::string, const lir::LClassDef*> class_templates_;
@@ -212,6 +230,28 @@ private:
             record_needed_class(result);
             return result;
         }
+        case LogosType::Kind::Enum: {
+            if (t->type_args.empty()) return t;
+            std::vector<const LogosType*> new_args;
+            bool changed = false;
+            for (auto* a : t->type_args) {
+                auto* na = subst_type(a, s);
+                changed |= (na != a);
+                new_args.push_back(na);
+            }
+            if (!changed) {
+                // Still record the need even if types didn't change
+                // (e.g., non-generic function using Option<i32>).
+                record_needed_enum(t);
+                return t;
+            }
+            LogosType nt; nt.kind = LogosType::Kind::Enum;
+            nt.enum_name = t->enum_name;
+            nt.type_args = std::move(new_args);
+            const LogosType* result = out_.type_pool.alloc(std::move(nt));
+            record_needed_enum(result);
+            return result;
+        }
         case LogosType::Kind::Tuple: {
             std::vector<const LogosType*> new_elems;
             bool changed = false;
@@ -248,6 +288,17 @@ private:
         auto cname = concrete_class_name(t);
         if (!class_done_.count(cname))
             needed_class_insts_[cname] = t;
+    }
+
+    void record_needed_enum(const LogosType* t) {
+        if (!t || t->kind != LogosType::Kind::Enum || t->type_args.empty()) return;
+        for (auto* a : t->type_args)
+            if (a->kind == LogosType::Kind::TypeVar) return;
+        // Build concrete enum name: Option__i32
+        std::string cname = t->enum_name;
+        for (auto* a : t->type_args) { cname += "__"; cname += mangle_type(a); }
+        if (!enum_done_.count(cname))
+            needed_enum_insts_[cname] = t->type_args;
     }
 
     // ── Mangling ──────────────────────────────────────────────────
@@ -292,9 +343,19 @@ private:
             if constexpr (std::is_same_v<K, lir::ELitInt> ||
                           std::is_same_v<K, lir::ELitBool> ||
                           std::is_same_v<K, lir::ELitStr>  ||
-                          std::is_same_v<K, lir::EEnumLit> ||
                           std::is_same_v<K, lir::EAddrOf>) {
                 result->kind = k;
+
+            } else if constexpr (std::is_same_v<K, lir::EEnumLit>) {
+                lir::EEnumLit ne = k;
+                if (result->type && result->type->kind == LogosType::Kind::Enum &&
+                    !result->type->type_args.empty()) {
+                    std::string cname = result->type->enum_name;
+                    for (auto* a : result->type->type_args) { cname += "__"; cname += mangle_type(a); }
+                    ne.enum_name = cname;
+                    record_needed_enum(result->type);
+                }
+                result->kind = std::move(ne);
 
             } else if constexpr (std::is_same_v<K, lir::EVarRef>) {
                 result->kind = k;
@@ -430,6 +491,24 @@ private:
 
             } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
                 result->kind = lir::ETupleIndex{subst_expr(*k.receiver, s), k.index};
+
+            } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
+                lir::EEnumLitData ne;
+                // Use concrete enum name if type has type_args
+                if (result->type && result->type->kind == LogosType::Kind::Enum &&
+                    !result->type->type_args.empty()) {
+                    std::string cname = result->type->enum_name;
+                    for (auto* a : result->type->type_args) { cname += "__"; cname += mangle_type(a); }
+                    ne.enum_name = cname;
+                    record_needed_enum(result->type);
+                } else {
+                    ne.enum_name = k.enum_name;
+                }
+                ne.variant   = k.variant;
+                ne.disc      = k.disc;
+                for (auto& a : k.payload)
+                    ne.payload.push_back(subst_expr(*a, s));
+                result->kind = std::move(ne);
             }
         }, e.kind);
 
@@ -512,7 +591,15 @@ private:
                 nm.scrut = subst_expr(*k.scrut, s);
                 for (auto& arm : k.arms) {
                     lir::LMatchArm na;
-                    na.pat  = arm.pat;
+                    // Substitute types in PatVariantData bindings
+                    if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat)) {
+                        lir::PatVariantData npvd = *pvd;
+                        for (auto& bt : npvd.binding_types)
+                            bt = subst_type(bt, s);
+                        na.pat = std::move(npvd);
+                    } else {
+                        na.pat = arm.pat;
+                    }
                     na.body = std::make_unique<lir::LBlock>(subst_block(*arm.body, s));
                     nm.arms.push_back(std::move(na));
                 }
@@ -632,6 +719,8 @@ private:
                 for (auto& elem : k.elems) scan_expr(*elem);
             } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
                 scan_expr(*k.receiver);
+            } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
+                for (auto& a : k.payload) scan_expr(*a);
             }
         }, e.kind);
     }
@@ -1046,6 +1135,46 @@ private:
         auto inst = clone_class_def(*tmpl, subst, cname);
         for (auto& f : inst.own_fields) collect_type_for_classes(f.type);
         out_.classes.push_back(std::move(inst));
+    }
+
+    void instantiate_enum_templates() {
+        // Instantiate generic enums that were recorded during function cloning.
+        // Simple approach: iterate until no more needed (fixed-point).
+        while (true) {
+            std::vector<std::pair<std::string, std::vector<const LogosType*>>> todo;
+            for (auto& [cname, args] : needed_enum_insts_) {
+                if (enum_done_.count(cname)) continue;
+                todo.push_back({cname, args});
+            }
+            if (todo.empty()) break;
+            for (auto& [cname, args] : todo) {
+                enum_done_.insert(cname);
+                // Find the template
+                // Extract base name from cname (before first __)
+                std::string base = cname;
+                auto pos = base.find("__");
+                if (pos != std::string::npos) base = base.substr(0, pos);
+                auto tit = enum_templates_.find(base);
+                if (tit == enum_templates_.end()) continue;
+                auto* tmpl = tit->second;
+                // Build substitution map
+                SubstMap subst;
+                for (size_t i = 0; i < tmpl->type_params.size() && i < args.size(); ++i)
+                    subst[tmpl->type_params[i].name] = args[i];
+                // Instantiate: substitute payload types
+                lir::LEnumDef inst;
+                inst.name = cname;
+                for (auto& v : tmpl->variants) {
+                    lir::LVariant nv;
+                    nv.name = v.name;
+                    nv.disc = v.disc;
+                    for (auto* pt : v.payload_types)
+                        nv.payload_types.push_back(subst_type(pt, subst));
+                    inst.variants.push_back(std::move(nv));
+                }
+                out_.enums.push_back(std::move(inst));
+            }
+        }
     }
 
     void instantiate_class_templates() {

@@ -145,6 +145,10 @@ inline constexpr Code TUPLE_TYPE  {"TUPLE_TYPE",  100};   // (i32, bool) in type
 inline constexpr Code TUPLE_LIT   {"TUPLE_LIT",   101};   // (1, true) expression
 inline constexpr Code TUPLE_INDEX {"TUPLE_INDEX", 102};   // t.0, t.1 — numeric field access
 
+// Batch K — tagged unions (enums with data)
+inline constexpr Code ENUM_LIT_DATA   {"ENUM_LIT_DATA",   104};  // Option::Some(42)
+inline constexpr Code PAT_VARIANT_DATA{"PAT_VARIANT_DATA", 105}; // Some(x) in match
+
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

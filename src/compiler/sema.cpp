@@ -476,8 +476,14 @@ private:
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params; };
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false; };
-    struct SemaVariantInfo{ std::string_view name; int32_t value; };
-    struct SemaEnumInfo   { std::vector<SemaVariantInfo> variants; };
+    struct SemaVariantInfo{
+        std::string_view name; int32_t value;
+        std::vector<const LogosType*> payload_types;  // empty = no payload
+    };
+    struct SemaEnumInfo   {
+        std::vector<SemaVariantInfo> variants;
+        std::vector<TypeParam> type_params;  // for generic enums
+    };
     struct SemaClassInfo  {
         std::string parent_name;
         std::vector<const LogosType*> parent_type_args;  // type args passed to parent (e.g. [TypeVar(T)])
@@ -676,7 +682,8 @@ private:
             auto name = str_of(node.get(la::NAME.code));
             bool is_struct = structs_.count(std::string(name)) > 0;
             bool is_class  = classes_.count(std::string(name)) > 0;
-            if (!is_struct && !is_class) {
+            bool is_enum   = enums_.count(std::string(name)) > 0;
+            if (!is_struct && !is_class && !is_enum) {
                 error(std::format("unknown generic type '{}'", name));
                 return error_t();
             }
@@ -686,6 +693,12 @@ private:
                 auto items = arr_of(node.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i)
                     args.push_back(resolve_type(map_of(items.get(i))));
+            }
+            if (is_enum) {
+                LogosType t; t.kind = LogosType::Kind::Enum;
+                t.enum_name = std::string(name);
+                t.type_args = std::move(args);
+                return pool_.alloc(std::move(t));
             }
             if (is_class) {
                 if (args.empty()) return make_class_type(name);
@@ -759,6 +772,8 @@ private:
         auto ename = std::string(str_of(node.get(la::NAME.code)));
         ctx_ = std::format("enum {}", ename);
         SemaEnumInfo info;
+        info.type_params = read_type_params(node);
+        push_type_params(info.type_params);
         int32_t next_val = 0;
         if (node.has_key(la::ITEMS)) {
             auto av = node.get(la::ITEMS.code);
@@ -774,12 +789,20 @@ private:
                             auto sv = str_of(v.get(la::VALUE.code));
                             vval = (int32_t)std::strtol(sv.data(), nullptr, 10);
                         }
-                        info.variants.push_back({vname, vval});
+                        // Read payload types for tagged union variants
+                        std::vector<const LogosType*> payload;
+                        if (v.has_key(la::ITEMS)) {
+                            auto pitems = arr_of(v.get(la::ITEMS.code));
+                            for (uint64_t j = 0; j < pitems.size(); ++j)
+                                payload.push_back(resolve_type(map_of(pitems.get(j))));
+                        }
+                        info.variants.push_back({vname, vval, std::move(payload)});
                         next_val = vval + 1;
                     }
                 }
             }
         }
+        pop_type_params(info.type_params);
         enums_[ename] = std::move(info);
     }
 
@@ -1484,6 +1507,7 @@ private:
         case la::INDEX_READ:  return lower_index_read(expr);
         case la::ARR_LIT:     return lower_arr_lit(expr);
         case la::ENUM_LIT:    return lower_enum_lit(expr);
+        case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
         case la::NEW_EXPR:    return lower_new_expr(expr);
         case la::IF:          return lower_if_expr(expr);
 
@@ -2177,6 +2201,145 @@ private:
             lir::EEnumLit{std::string(ename), std::string(vname), disc});
     }
 
+    lir::LExprPtr lower_enum_lit_data(TinyMapView node) {
+        auto ename = str_of(node.get(la::NAME.code));
+        auto vname = str_of(node.get(la::FIELD.code));
+        auto eit = enums_.find(std::string(ename));
+        if (eit == enums_.end()) {
+            error(std::format("unknown enum '{}'", ename));
+            return error_expr();
+        }
+        const SemaVariantInfo* vinfo = nullptr;
+        for (auto& v : eit->second.variants)
+            if (v.name == vname) { vinfo = &v; break; }
+        if (!vinfo) {
+            error(std::format("enum '{}' has no variant '{}'", ename, vname));
+            return error_expr();
+        }
+
+        // Lower payload arguments
+        std::vector<lir::LExprPtr> payload;
+        if (node.has_key(la::ARGS)) {
+            auto args = arr_of(node.get(la::ARGS.code));
+            for (uint64_t i = 0; i < args.size(); ++i)
+                payload.push_back(lower_expr(map_of(args.get(i))));
+        }
+
+        // Resolve payload types — substitute TypeVars if generic enum
+        auto& einfo = eit->second;
+        std::vector<const LogosType*> resolved_payload_types = vinfo->payload_types;
+
+        // Build the enum type (may be generic, e.g. Option<i32>)
+        // For now, if the enum has type params, we need to infer them from payload types.
+        // Simple inference: match payload args to payload type params.
+        const LogosType* result_type = make_enum_type(ename);
+        if (!einfo.type_params.empty() && !payload.empty()) {
+            // Build substitution from payload args
+            SemaSubst subst;
+            for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i) {
+                auto* pt = vinfo->payload_types[i];
+                if (pt && pt->kind == LogosType::Kind::TypeVar) {
+                    auto* inferred = payload[i]->type;
+                    if (inferred->kind == LogosType::Kind::IntLit) inferred = i32_t();
+                    subst[pt->type_var_name] = inferred;
+                }
+            }
+            // Build concrete type args
+            std::vector<const LogosType*> type_args;
+            for (auto& tp : einfo.type_params) {
+                auto sit = subst.find(tp.name);
+                type_args.push_back(sit != subst.end() ? sit->second : error_t());
+            }
+            LogosType et; et.kind = LogosType::Kind::Enum;
+            et.enum_name = std::string(ename);
+            et.type_args = std::move(type_args);
+            result_type = pool_.alloc(std::move(et));
+            // Resolve payload types with substitution
+            for (size_t i = 0; i < resolved_payload_types.size(); ++i)
+                resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
+        }
+
+        // Type-check payload args against expected types
+        if (payload.size() != vinfo->payload_types.size()) {
+            error(std::format("{}::{} expects {} args, got {}",
+                  ename, vname, vinfo->payload_types.size(), payload.size()));
+        } else {
+            for (size_t i = 0; i < payload.size(); ++i) {
+                if (payload[i]->type->kind != LogosType::Kind::Error &&
+                    resolved_payload_types[i] &&
+                    resolved_payload_types[i]->kind != LogosType::Kind::Error &&
+                    !types_compatible(payload[i]->type, resolved_payload_types[i]))
+                    error(std::format("{}::{} arg {}: expected {}, got {}",
+                          ename, vname, i, type_str(resolved_payload_types[i]),
+                          type_str(payload[i]->type)));
+            }
+        }
+
+        return make_expr(result_type,
+            lir::EEnumLitData{std::string(ename), std::string(vname),
+                              vinfo->value, std::move(payload)});
+    }
+
+    // Helper: handle STATIC_CALL that's actually an enum variant with data.
+    lir::LExprPtr lower_enum_lit_data_from_static(
+            TinyMapView node, std::string_view ename, std::string_view vname) {
+        auto eit = enums_.find(std::string(ename));
+        if (eit == enums_.end()) return error_expr();
+        const SemaVariantInfo* vinfo = nullptr;
+        for (auto& v : eit->second.variants)
+            if (v.name == vname) { vinfo = &v; break; }
+        if (!vinfo) {
+            error(std::format("enum '{}' has no variant '{}'", ename, vname));
+            return error_expr();
+        }
+        // Lower args
+        std::vector<lir::LExprPtr> payload;
+        if (node.has_key(la::ARGS)) {
+            AnyVal args_av = node.get(la::ARGS.code);
+            if (!args_av.is_null()) {
+                auto args = map_of(args_av);
+                if (args.has_key(la::ITEMS)) {
+                    auto items = arr_of(args.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        payload.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+        // Build result type + type-check (same logic as lower_enum_lit_data)
+        auto& einfo = eit->second;
+        std::vector<const LogosType*> resolved_payload_types = vinfo->payload_types;
+        const LogosType* result_type = make_enum_type(ename);
+        if (!einfo.type_params.empty() && !payload.empty()) {
+            SemaSubst subst;
+            for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i) {
+                auto* pt = vinfo->payload_types[i];
+                if (pt && pt->kind == LogosType::Kind::TypeVar) {
+                    auto* inferred = payload[i]->type;
+                    if (inferred->kind == LogosType::Kind::IntLit) inferred = i32_t();
+                    subst[pt->type_var_name] = inferred;
+                }
+            }
+            std::vector<const LogosType*> type_args;
+            for (auto& tp : einfo.type_params) {
+                auto sit = subst.find(tp.name);
+                type_args.push_back(sit != subst.end() ? sit->second : error_t());
+            }
+            LogosType et; et.kind = LogosType::Kind::Enum;
+            et.enum_name = std::string(ename);
+            et.type_args = std::move(type_args);
+            result_type = pool_.alloc(std::move(et));
+            for (size_t i = 0; i < resolved_payload_types.size(); ++i)
+                resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
+        }
+        if (payload.size() != vinfo->payload_types.size()) {
+            error(std::format("{}::{} expects {} args, got {}",
+                  ename, vname, vinfo->payload_types.size(), payload.size()));
+        }
+        return make_expr(result_type,
+            lir::EEnumLitData{std::string(ename), std::string(vname),
+                              vinfo->value, std::move(payload)});
+    }
+
     lir::LExprPtr lower_new_expr(TinyMapView node) {
         auto cname = str_of(node.get(la::NAME.code));
         auto cit = classes_.find(std::string(cname));
@@ -2275,6 +2438,14 @@ private:
     lir::LExprPtr lower_static_call(TinyMapView node) {
         auto class_name = str_of(node.get(la::RECEIVER.code));
         auto method_name = str_of(node.get(la::NAME.code));
+
+        // If "class_name" is actually an enum, redirect to enum lit with data.
+        if (enums_.count(std::string(class_name))) {
+            // Reinterpret as ENUM_LIT_DATA: NAME=class_name, FIELD=method_name
+            // Build a fake node view... or just inline the logic.
+            return lower_enum_lit_data_from_static(node, class_name, method_name);
+        }
+
         std::string mangled = std::string(class_name) + "__" + std::string(method_name);
 
         auto fit = funcs_.find(mangled);
@@ -2834,6 +3005,58 @@ private:
                                       pename, pvname));
                         }
                         pat = lir::PatVariant{pename, pvname, disc};
+                    } else if (pc == la::PAT_VARIANT_DATA) {
+                        auto pename = std::string(str_of(pnode.get(la::NAME.code)));
+                        auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+                        int32_t disc = 0;
+                        const SemaVariantInfo* vinfo = nullptr;
+                        auto eit = enums_.find(pename);
+                        if (eit == enums_.end()) {
+                            error(std::format("match pattern: unknown enum '{}'", pename));
+                        } else {
+                            for (auto& v : eit->second.variants)
+                                if (v.name == pvname) { vinfo = &v; disc = v.value; break; }
+                            if (!vinfo)
+                                error(std::format("match: enum '{}' has no variant '{}'",
+                                      pename, pvname));
+                        }
+                        // Read binding names from ARGS (pat_binding_list)
+                        std::vector<std::string> bindings;
+                        if (pnode.has_key(la::ARGS)) {
+                            AnyVal aav = pnode.get(la::ARGS.code);
+                            if (!aav.is_null() && aav.is_pointer()) {
+                                auto blist = map_of(aav);
+                                if (blist.has_key(la::ITEMS)) {
+                                    auto bitems = arr_of(blist.get(la::ITEMS.code));
+                                    for (uint64_t j = 0; j < bitems.size(); ++j) {
+                                        auto bnode = map_of(bitems.get(j));
+                                        bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
+                                    }
+                                }
+                            }
+                        }
+                        // Resolve binding types from variant payload
+                        std::vector<const LogosType*> binding_types;
+                        if (vinfo) {
+                            // Substitute TypeVars using scrut's type_args
+                            SemaSubst subst;
+                            if (scrut_type->kind == LogosType::Kind::Enum &&
+                                !scrut_type->type_args.empty()) {
+                                auto& einfo = eit->second;
+                                for (size_t k = 0; k < einfo.type_params.size() &&
+                                                    k < scrut_type->type_args.size(); ++k)
+                                    subst[einfo.type_params[k].name] = scrut_type->type_args[k];
+                            }
+                            for (auto* pt : vinfo->payload_types)
+                                binding_types.push_back(subst.empty() ? pt : subst_type_sema(pt, subst));
+                        }
+                        if (bindings.size() != binding_types.size()) {
+                            error(std::format("match {}::{}: expected {} bindings, got {}",
+                                  pename, pvname,
+                                  binding_types.size(), bindings.size()));
+                        }
+                        pat = lir::PatVariantData{pename, pvname, disc,
+                                                   std::move(bindings), std::move(binding_types)};
                     } else if (pc == la::PAT_INT) {
                         auto sv = str_of(pnode.get(la::VALUE.code));
                         pat = lir::PatInt{(int32_t)std::strtol(sv.data(), nullptr, 10)};
@@ -2847,7 +3070,13 @@ private:
                     }
                 }
 
-                // Build body block
+                // Build body block — push pattern bindings into scope
+                push_scope();
+                if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
+                    for (size_t bi = 0; bi < pvd->bindings.size() &&
+                                        bi < pvd->binding_types.size(); ++bi)
+                        define(pvd->bindings[bi], pvd->binding_types[bi]);
+                }
                 lir::LBlockPtr body = std::make_unique<lir::LBlock>();
                 if (arm.has_key(la::BODY)) {
                     auto body_node = map_of(arm.get(la::BODY.code));
@@ -2857,6 +3086,7 @@ private:
                         body->stmts.push_back(lower_stmt(body_node));
                     }
                 }
+                pop_scope();
                 smatch.arms.push_back({std::move(pat), std::move(body)});
             }
         }
@@ -2963,8 +3193,9 @@ private:
         lir::LEnumDef ed;
         ed.name = ename;
         auto& einfo = enums_[ename];
+        ed.type_params = einfo.type_params;
         for (auto& v : einfo.variants)
-            ed.variants.push_back({std::string(v.name), v.value});
+            ed.variants.push_back({std::string(v.name), v.value, v.payload_types});
         return ed;
     }
 

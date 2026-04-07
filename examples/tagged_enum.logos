@@ -1,0 +1,19 @@
+package tagged_enum;
+
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+fn unwrap_or(opt: Option<i32>, def: i32) -> i32 {
+    match opt {
+        Option::Some(x) => { return x; }
+        Option::None => { return def; }
+    }
+}
+
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(42);
+    let b: Option<i32> = Option::None;
+    return unwrap_or(a, 0) + unwrap_or(b, 10);
+}

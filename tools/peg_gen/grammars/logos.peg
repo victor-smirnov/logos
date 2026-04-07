@@ -121,6 +121,8 @@
     TUPLE_TYPE   = 100
     TUPLE_LIT    = 101
     TUPLE_INDEX  = 102
+    ENUM_LIT_DATA    = 104
+    PAT_VARIANT_DATA = 105
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -230,13 +232,16 @@
 
     // ── Enum definition ──────────────────────────────────────────
     // enum Color { Red, Green = 5, Blue }
-    enum_def <- KW_ENUM IDENT LBRACE variant_list? RBRACE
-             => { CODE: ENUM, NAME: $2, ITEMS: $4 }
+    // enum Option<T> { Some(T), None }
+    enum_def <- KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
+             => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }
 
     variant_list <- variant_def (COMMA variant_def)* COMMA?
                  => { ITEMS: $... }
 
-    variant_def <- IDENT ASSIGN INTEGER
+    variant_def <- IDENT LPAREN type_ref (COMMA type_ref)* RPAREN
+                => { CODE: VARIANT_DEF, NAME: $1, ITEMS: $... }
+                 / IDENT ASSIGN INTEGER
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
                  / IDENT
                 => { CODE: VARIANT_DEF, NAME: $1 }
@@ -375,7 +380,15 @@
               / pattern FATARROW stmt
               => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
 
-    pattern <- IDENT COLONCOLON IDENT
+    pat_binding <- IDENT
+                => { CODE: PAT_WILD, NAME: $1 }
+
+    pat_binding_list <- pat_binding (COMMA pat_binding)*
+                     => { ITEMS: $... }
+
+    pattern <- IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
+            => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
+             / IDENT COLONCOLON IDENT
             => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
              / INTEGER
             => { CODE: PAT_INT, VALUE: $1 }
@@ -493,8 +506,10 @@
               / KW_NEW IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
              => { CODE: NEW_EXPR, NAME: $2, ITEMS: $... }
 
-    // ── Enum variant literal: Color::Red ─────────────────────────
-    enum_lit <- IDENT COLONCOLON IDENT
+    // ── Enum variant literal: Color::Red or Option::Some(42) ──────
+    enum_lit <- IDENT COLONCOLON IDENT LPAREN (expr (COMMA expr)*)? RPAREN
+             => { CODE: ENUM_LIT_DATA, NAME: $1, FIELD: $3, ARGS: $... }
+              / IDENT COLONCOLON IDENT
              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
 
     // ── Struct literal: TypeName { field: expr, ... } ─────────────

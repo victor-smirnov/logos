@@ -53,6 +53,19 @@ struct StructInfo {
     std::vector<FieldInfo>       fields;
 };
 
+// Tagged enum registry: { i32 discriminant, [payload_bytes x i8] }
+struct TaggedEnumInfo {
+    std::string                         name;
+    mlir::LLVM::LLVMStructType          llvm_type;
+    uint64_t                            payload_bytes = 0;
+    // Per-variant payload LLVM types (for bitcasting the payload area)
+    struct VariantPayload {
+        int32_t disc;
+        std::vector<mlir::Type> field_types;  // empty = no payload
+    };
+    std::vector<VariantPayload> variants;
+};
+
 // ---------------------------------------------------------------------------
 // MLIRGenImpl
 // ---------------------------------------------------------------------------
@@ -76,8 +89,10 @@ public:
             if (!register_class(mod, cd)) return nullptr;
 
         // Pass 0.5: register enum types and module constants.
-        for (auto& ed : prog.enums)
+        for (auto& ed : prog.enums) {
             enum_types_[ed.name] = &ed;
+            if (ed.has_payload()) register_tagged_enum(ed);
+        }
 
         for (auto& ta : prog.type_aliases)
             type_aliases_[ta.name] = logos_to_mlir(ta.type);
@@ -138,6 +153,7 @@ private:
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
     std::unordered_map<std::string, const LEnumDef*>   enum_types_;
+    std::unordered_map<std::string, TaggedEnumInfo>    tagged_enums_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
     std::unordered_map<std::string, const LConst*>     module_consts_;
     std::unordered_set<std::string>                    vararg_fns_;  // names of vararg extern fns
@@ -152,6 +168,7 @@ private:
     std::unordered_map<std::string, std::string>  var_struct_;
     std::unordered_map<std::string, mlir::Type>   var_subscript_;
     std::unordered_set<std::string>              var_tuple_;
+    std::unordered_set<std::string>              var_tagged_enum_;
     mlir::Type                                    cur_ret_type_;
 
     struct LoopBlocks { mlir::Block* cont; mlir::Block* exit; };
@@ -203,7 +220,11 @@ private:
         case LogosType::Kind::U32:    return builder_.getIntegerType(32);
         case LogosType::Kind::U64:    return builder_.getIntegerType(64);
         case LogosType::Kind::IntLit: return builder_.getI32Type();
-        case LogosType::Kind::Enum:   return builder_.getI32Type();
+        case LogosType::Kind::Enum: {
+            // Tagged enums are passed by pointer; C-style enums are i32.
+            if (resolve_tagged_enum(t->enum_name, t)) return ptr_type();
+            return builder_.getI32Type();
+        }
         case LogosType::Kind::Ptr:    return ptr_type();
         case LogosType::Kind::Array: {
             auto elem = logos_to_mlir(t->elem);
@@ -270,6 +291,43 @@ private:
         }
         struct_types_[sd.name] = std::move(info);
         return true;
+    }
+
+    // ── Tagged enum registration ────────────────────────────────
+    // Layout: { i32 disc, [max_payload_bytes x i8] }
+    void register_tagged_enum(const LEnumDef& ed) {
+        if (tagged_enums_.count(ed.name)) return;
+        TaggedEnumInfo info;
+        info.name = ed.name;
+        uint64_t max_bytes = 0;
+        for (auto& v : ed.variants) {
+            TaggedEnumInfo::VariantPayload vp;
+            vp.disc = v.disc;
+            uint64_t variant_bytes = 0;
+            for (auto* pt : v.payload_types) {
+                auto ft = logos_to_mlir(pt);
+                if (!ft) ft = builder_.getI32Type();
+                vp.field_types.push_back(ft);
+                // Estimate size: i32=4, i64=8, ptr=8, bool=1, etc.
+                if (ft.isInteger(1)) variant_bytes += 1;
+                else if (ft.isInteger(8)) variant_bytes += 1;
+                else if (ft.isInteger(32)) variant_bytes += 4;
+                else if (ft.isInteger(64)) variant_bytes += 8;
+                else if (ft == ptr_type()) variant_bytes += 8;
+                else variant_bytes += 8; // default
+            }
+            if (variant_bytes > max_bytes) max_bytes = variant_bytes;
+            info.variants.push_back(std::move(vp));
+        }
+        info.payload_bytes = max_bytes;
+        auto i32 = builder_.getI32Type();
+        auto payload = mlir::LLVM::LLVMArrayType::get(
+            builder_.getIntegerType(8), max_bytes > 0 ? max_bytes : 1);
+        auto enum_type = mlir::LLVM::LLVMStructType::getIdentified(
+            builder_.getContext(), "enum." + ed.name);
+        (void)enum_type.setBody({i32, payload}, false);
+        info.llvm_type = enum_type;
+        tagged_enums_[ed.name] = std::move(info);
     }
 
     // ── Class registration (Pass 0a) ─────────────────────────────
@@ -444,6 +502,7 @@ private:
         var_class_.clear();
         var_subscript_.clear();
         var_tuple_.clear();
+        var_tagged_enum_.clear();
         loop_stack_.clear();
 
         // Bind parameters.
@@ -573,6 +632,30 @@ private:
             let_vars_.insert(s.name);
             var_tuple_.insert(s.name);
             return;
+        }
+
+        // ── Tagged enum value ────────────────────────────────────
+        if (s.type && s.type->kind == LogosType::Kind::Enum) {
+            auto* te = resolve_tagged_enum(s.type->enum_name, s.type);
+            if (te) {
+                auto val = gen_expr(*s.value);
+                if (!val) return;
+                // If gen_expr returned a plain i32 (e.g. Option::None with no type_args
+                // on the expression), create the tagged enum alloca manually.
+                if (val.getType() != ptr_type()) {
+                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                        loc_, ptr_type(), te->llvm_type, i64_one());
+                    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                    auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), te->llvm_type, alloca, di);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
+                    val = alloca;
+                }
+                scope_[s.name] = val;
+                let_vars_.insert(s.name);
+                var_tagged_enum_.insert(s.name);
+                return;
+            }
         }
 
         // ── Struct value (from call or variable) ─────────────────
@@ -921,6 +1004,20 @@ private:
             builder_.setInsertionPointToStart(merge_block);
             return;
         }
+
+        // Detect tagged enum: scrut is a pointer, load discriminant.
+        mlir::Value scrut_ptr = nullptr;  // non-null for tagged enums
+        const TaggedEnumInfo* te_info = nullptr;
+        if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Enum) {
+            te_info = resolve_tagged_enum(s.scrut->type->enum_name, s.scrut->type);
+            if (te_info) {
+                scrut_ptr = scrut;  // pointer to enum struct
+                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
+                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+            }
+        }
         auto scrut_i32 = coerce_int(scrut, builder_.getI32Type());
 
         // Determine if any arm is a wildcard.
@@ -959,6 +1056,40 @@ private:
             {
                 mlir::OpBuilder::InsertionGuard guard(builder_);
                 builder_.setInsertionPointToStart(body_block);
+                // Extract payload bindings for tagged enum patterns
+                if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) {
+                    if (te_info && scrut_ptr) {
+                        // GEP to payload area
+                        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+                        auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
+                        // Find variant payload types
+                        const TaggedEnumInfo::VariantPayload* vp = nullptr;
+                        for (auto& v : te_info->variants)
+                            if (v.disc == pvd->disc) { vp = &v; break; }
+                        if (vp && !pvd->bindings.empty()) {
+                            llvm::SmallVector<mlir::Type> ft;
+                            for (auto& t : vp->field_types) ft.push_back(t);
+                            auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
+                                builder_.getContext(), ft);
+                            for (size_t bi = 0; bi < pvd->bindings.size() &&
+                                                 bi < vp->field_types.size(); ++bi) {
+                                llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
+                                auto fp = builder_.create<mlir::LLVM::GEPOp>(
+                                    loc_, ptr_type(), pay_struct, pay_ptr, fi);
+                                auto val = builder_.create<mlir::LLVM::LoadOp>(
+                                    loc_, vp->field_types[bi], fp);
+                                // Bind as let variable
+                                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                                    loc_, ptr_type(), vp->field_types[bi], i64_one());
+                                builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                                scope_[pvd->bindings[bi]] = alloca;
+                                let_vars_.insert(pvd->bindings[bi]);
+                                var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
+                            }
+                        }
+                    }
+                }
                 gen_block(*arm.body);
                 if (!is_terminated(builder_.getBlock()))
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -970,6 +1101,7 @@ private:
             } else {
                 int32_t disc = 0;
                 if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;
+                else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) disc = pvd->disc;
                 else if (auto* pi = std::get_if<PatInt>(&arm.pat))  disc = pi->value;
                 else if (auto* pb = std::get_if<PatBool>(&arm.pat)) disc = pb->value ? 1 : 0;
 
@@ -1062,9 +1194,10 @@ private:
             std::fprintf(stderr, "mlir_gen: undefined '%s'\n", e.name.c_str());
             return nullptr;
         }
-        // Struct/class/array/tuple variables: return pointer directly.
+        // Struct/class/array/tuple/tagged-enum variables: return pointer directly.
         if (var_struct_.count(e.name) || var_subscript_.count(e.name) ||
-            var_class_.count(e.name) || var_tuple_.count(e.name))
+            var_class_.count(e.name) || var_tuple_.count(e.name) ||
+            var_tagged_enum_.count(e.name))
             return it->second;
         // Let-bound scalar: load from alloca.
         if (let_vars_.count(e.name)) {
@@ -1076,8 +1209,82 @@ private:
         return it->second;
     }
 
-    mlir::Value gen_expr_kind(const EEnumLit& e, const LogosType*) {
+    // Resolve a tagged enum name from the expression type (handles generic enums).
+    const TaggedEnumInfo* resolve_tagged_enum(const std::string& name, const LogosType* type) {
+        auto tit = tagged_enums_.find(name);
+        if (tit != tagged_enums_.end()) return &tit->second;
+        // For generic enums: compute concrete name from type_args
+        if (type && type->kind == LogosType::Kind::Enum && !type->type_args.empty()) {
+            std::string cname = type->enum_name;
+            for (auto* a : type->type_args) { cname += "__"; cname += type_str(a); }
+            tit = tagged_enums_.find(cname);
+            if (tit != tagged_enums_.end()) return &tit->second;
+        }
+        return nullptr;
+    }
+
+    mlir::Value gen_expr_kind(const EEnumLit& e, const LogosType* type) {
+        // Tagged enum without payload (e.g. Option::None): alloca + store disc
+        auto* te = resolve_tagged_enum(e.enum_name, type);
+        if (te) {
+            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), te->llvm_type, i64_one());
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(0)};
+            auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), te->llvm_type, alloca, idx);
+            auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
+            return alloca;
+        }
+        // C-style enum: just the discriminant
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
+    }
+
+    mlir::Value gen_expr_kind(const EEnumLitData& e, const LogosType* type) {
+        auto* te = resolve_tagged_enum(e.enum_name, type);
+        if (!te) {
+            std::fprintf(stderr, "mlir_gen: unknown tagged enum '%s'\n", e.enum_name.c_str());
+            return nullptr;
+        }
+        auto& info = *te;
+        // Alloca the enum struct
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), info.llvm_type, i64_one());
+        // Store discriminant at field 0
+        llvm::SmallVector<mlir::LLVM::GEPArg> disc_idx{int32_t(0), int32_t(0)};
+        auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), info.llvm_type, alloca, disc_idx);
+        auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
+        // Store payload into field 1 (the [N x i8] area), bitcasted
+        if (!e.payload.empty()) {
+            // GEP to the payload area (field index 1)
+            llvm::SmallVector<mlir::LLVM::GEPArg> pay_idx{int32_t(0), int32_t(1)};
+            auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), info.llvm_type, alloca, pay_idx);
+            // Find the variant's field types
+            const TaggedEnumInfo::VariantPayload* vp = nullptr;
+            for (auto& v : info.variants)
+                if (v.disc == e.disc) { vp = &v; break; }
+            if (vp) {
+                // Build a struct type for this variant's payload
+                llvm::SmallVector<mlir::Type> ft;
+                for (auto& t : vp->field_types) ft.push_back(t);
+                auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
+                    builder_.getContext(), ft);
+                // Store each field via GEP into the payload struct
+                for (size_t i = 0; i < e.payload.size() && i < vp->field_types.size(); ++i) {
+                    auto val = gen_expr(*e.payload[i]);
+                    if (!val) return nullptr;
+                    val = coerce_int(val, vp->field_types[i]);
+                    llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(i)};
+                    auto fp = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), pay_struct, pay_ptr, fi);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, fp);
+                }
+            }
+        }
+        return alloca;
     }
 
     mlir::Value gen_expr_kind(const EBinOp& e, const LogosType*) {
