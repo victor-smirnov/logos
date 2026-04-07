@@ -167,6 +167,19 @@ struct ETupleIndex {
     uint32_t  index;
 };
 
+// Closure: wrapper for the full EClosure (defined after LBlock).
+// Uses unique_ptr to break the dependency cycle.
+struct EClosure;
+struct EClosureBox {
+    std::unique_ptr<EClosure> inner;
+};
+
+// Closure call: closure(args...)
+struct EClosureCall {
+    LExprPtr              callee;
+    std::vector<LExprPtr> args;
+};
+
 // Slice construction: &arr (whole array → slice) or &arr[lo..hi]
 struct ESliceLit {
     LExprPtr base;    // pointer to first element
@@ -192,7 +205,8 @@ struct LExpr {
         ELitInt, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
-        ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen
+        ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
+        EClosureBox, EClosureCall
     > kind;
 };
 
@@ -284,6 +298,16 @@ struct LBlock {
 struct LParam {
     std::string      name;
     const LogosType* type;
+};
+
+// EClosure — defined after LParam and LBlock (both needed).
+struct EClosure {
+    std::string                     closure_id;
+    std::vector<LParam>             params;
+    const LogosType*                ret_type = nullptr;
+    LBlock                          body;
+    std::vector<std::string>        captures;
+    std::vector<const LogosType*>   capture_types;
 };
 
 struct LFunction {

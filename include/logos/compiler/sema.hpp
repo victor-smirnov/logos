@@ -31,6 +31,7 @@ struct LogosType {
         Enum,                     // discriminant enum (stored as i32)
         Tuple,                    // (T1, T2, ...) — anonymous product type
         Slice,                    // &[T] — fat pointer (ptr, len)
+        Closure,                  // |params| -> ret (closure type)
         TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)
         Error                     // sentinel for ill-typed expressions
@@ -56,6 +57,10 @@ struct LogosType {
 
     // Tuple
     std::vector<const LogosType*> tuple_elems;  // element types (Tuple kind only)
+
+    // Closure
+    std::vector<const LogosType*> closure_params;  // parameter types
+    const LogosType* closure_ret = nullptr;         // return type
 
     // TypeVar — name stored as a std::string (owns its storage)
     std::string      type_var_name;       // e.g. "T" (TypeVar kind only)

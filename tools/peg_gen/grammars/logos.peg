@@ -125,6 +125,7 @@
     PAT_VARIANT_DATA = 105
     TRAIT_DEF        = 106
     IMPL_BLOCK       = 107
+    CLOSURE_EXPR     = 109
     SLICE_TYPE       = 111
     RANGE_EXPR       = 112
 }
@@ -184,6 +185,7 @@
     // Operators (multi-char first)
     AND         = "&&"
     OR          = "||"
+    PIPE        = "|"
     EQ          = "=="
     NE          = "!="
     LE          = "<="
@@ -525,6 +527,7 @@
                   / arr_lit          // [e1, e2, ...]
                   / tuple_lit        // (a, b, ...) — before paren_expr
                   / paren_expr       // (expr)
+                  / closure_expr     // |x: i32| -> i32 { ... }
                   / if_expr          // if cond { ... } else { ... }  — as expression
                   / call_expr        // IDENT(args) / Class::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
@@ -560,6 +563,15 @@
     // ── Tuple literal: (expr, expr, ...) — 2+ elements ────────────
     tuple_lit <- LPAREN expr COMMA expr (COMMA expr)* RPAREN
               => { CODE: TUPLE_LIT, ITEMS: $... }
+
+    // ── Closure expression ────────────────────────────────────────
+    // |x: i32, y: i32| -> i32 { return x + y; }
+    // |x: i32| { return x + 1; }
+    // || -> i32 { return 42; }
+    closure_expr <- PIPE param_list? PIPE ARROW type_ref block
+                 => { CODE: CLOSURE_EXPR, PARAMS: $2, RET_TYPE: $5, BODY: $6 }
+                  / PIPE param_list? PIPE block
+                 => { CODE: CLOSURE_EXPR, PARAMS: $2, BODY: $4 }
 
     // ── Parenthesised expression ──────────────────────────────────
     paren_expr <- LPAREN expr RPAREN

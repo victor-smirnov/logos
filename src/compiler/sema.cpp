@@ -20,7 +20,9 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+#include <functional>
 
 namespace logos::compiler {
 
@@ -188,6 +190,15 @@ std::string type_str(const LogosType* t) {
         return r + ")"; }
     case LogosType::Kind::Slice:
         return std::format("&[{}]", type_str(t->elem));
+    case LogosType::Kind::Closure: {
+        std::string r = "|";
+        for (size_t i = 0; i < t->closure_params.size(); ++i) {
+            if (i) r += ", ";
+            r += type_str(t->closure_params[i]);
+        }
+        r += "| -> ";
+        r += type_str(t->closure_ret);
+        return r; }
     case LogosType::Kind::Enum:    return t->enum_name;
     case LogosType::Kind::TypeVar: return std::string(t->type_var_name);
     case LogosType::Kind::Error:   return "<error>";
@@ -305,6 +316,12 @@ private:
         t.tuple_elems = std::move(elems);
         return pool_.alloc(std::move(t));
     }
+    const LogosType* make_closure_type(std::vector<const LogosType*> params, const LogosType* ret) {
+        LogosType t; t.kind = LogosType::Kind::Closure;
+        t.closure_params = std::move(params);
+        t.closure_ret = ret;
+        return pool_.alloc(std::move(t));
+    }
     const LogosType* make_slice_type(const LogosType* elem) {
         LogosType t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
@@ -378,6 +395,7 @@ private:
 
     SemaResult result_;
     std::string ctx_;
+    int         closure_counter_ = 0;
 
     void error(std::string msg) {
         result_.diags.push_back({Diag::Level::Error, ctx_, std::move(msg), file_, node_line_});
@@ -1632,6 +1650,7 @@ private:
         case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
         case la::NEW_EXPR:    return lower_new_expr(expr);
         case la::IF:          return lower_if_expr(expr);
+        case la::CLOSURE_EXPR: return lower_closure_expr(expr);
 
         case la::TUPLE_LIT: {
             if (!expr.has_key(la::ITEMS)) return error_expr();
@@ -1835,6 +1854,21 @@ private:
 
     lir::LExprPtr lower_call(TinyMapView node) {
         auto callee = str_of(node.get(la::CALLEE.code));
+
+        // Check if callee is a closure variable
+        auto* callee_type = lookup(callee);
+        if (callee_type && callee_type->kind == LogosType::Kind::Closure) {
+            std::vector<lir::LExprPtr> arg_exprs;
+            if (node.has_key(la::ARGS)) {
+                auto args = arr_of(node.get(la::ARGS.code));
+                for (uint64_t i = 0; i < args.size(); ++i)
+                    arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+            }
+            auto callee_expr = make_expr(callee_type, lir::EVarRef{std::string(callee)});
+            return make_expr(callee_type->closure_ret ? callee_type->closure_ret : void_t(),
+                lir::EClosureCall{std::move(callee_expr), std::move(arg_exprs)});
+        }
+
         auto fit = funcs_.find(std::string(callee));
 
         std::vector<lir::LExprPtr> arg_exprs;
@@ -2802,6 +2836,136 @@ private:
         eif.then_val  = std::move(then_val);
         eif.else_val  = std::move(else_val);
         return make_expr(result_type, std::move(eif));
+    }
+
+    // ── lower_closure_expr ────────────────────────────────────────
+    lir::LExprPtr lower_closure_expr(TinyMapView node) {
+        auto closure_id = "__closure_" + std::to_string(closure_counter_++);
+
+        // Parse parameters
+        std::vector<lir::LParam> params;
+        std::vector<const LogosType*> param_types;
+        if (node.has_key(la::PARAMS)) {
+            AnyVal pav = node.get(la::PARAMS.code);
+            if (!pav.is_null() && pav.is_pointer()) {
+                auto plist = map_of(pav);
+                if (plist.has_key(la::ITEMS)) {
+                    auto pitems = arr_of(plist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < pitems.size(); ++i) {
+                        auto p = map_of(pitems.get(i));
+                        auto pname = std::string(str_of(p.get(la::NAME.code)));
+                        const LogosType* ptype = p.has_key(la::TYPE)
+                            ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
+                        params.push_back({pname, ptype});
+                        param_types.push_back(ptype);
+                    }
+                }
+            }
+        }
+
+        const LogosType* ret_type = node.has_key(la::RET_TYPE)
+            ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
+
+        // Push a new scope with closure params
+        push_scope();
+        for (auto& p : params)
+            define(p.name, p.type);
+
+        // Collect current scope variables (for capture detection)
+        std::unordered_set<std::string> param_names;
+        for (auto& p : params) param_names.insert(p.name);
+
+        // Lower body
+        auto saved_ret = ret_type_;
+        ret_type_ = ret_type;
+        lir::LBlock body;
+        if (node.has_key(la::BODY)) {
+            auto body_node = map_of(node.get(la::BODY.code));
+            if (code_of(body_node) == la::BLOCK)
+                body = lower_block(body_node);
+        }
+        ret_type_ = saved_ret;
+        pop_scope();
+
+        // Capture detection: find variables used in body that are not params
+        // and exist in the enclosing scope.
+        std::vector<std::string> captures;
+        std::vector<const LogosType*> capture_types;
+        std::unordered_set<std::string> seen;
+        std::function<void(const lir::LExpr&)> scan_captures;
+        scan_captures = [&](const lir::LExpr& e) {
+            if (auto* vr = std::get_if<lir::EVarRef>(&e.kind)) {
+                if (!param_names.count(vr->name) && !seen.count(vr->name)) {
+                    auto* t = lookup(vr->name);
+                    if (t) {
+                        captures.push_back(vr->name);
+                        capture_types.push_back(t);
+                        seen.insert(vr->name);
+                    }
+                }
+            }
+            // Recurse into sub-expressions
+            std::visit([&](const auto& k) {
+                using K = std::decay_t<decltype(k)>;
+                if constexpr (std::is_same_v<K, lir::EBinOp>) {
+                    scan_captures(*k.lhs); scan_captures(*k.rhs);
+                } else if constexpr (std::is_same_v<K, lir::EUnary>) {
+                    scan_captures(*k.operand);
+                } else if constexpr (std::is_same_v<K, lir::ECall>) {
+                    for (auto& a : k.args) scan_captures(*a);
+                } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {
+                    scan_captures(*k.receiver);
+                    for (auto& a : k.args) scan_captures(*a);
+                } else if constexpr (std::is_same_v<K, lir::EFieldRead>) {
+                    scan_captures(*k.receiver);
+                } else if constexpr (std::is_same_v<K, lir::EIndexRead>) {
+                    scan_captures(*k.receiver); scan_captures(*k.index);
+                } else if constexpr (std::is_same_v<K, lir::EDeref>) {
+                    scan_captures(*k.operand);
+                } else if constexpr (std::is_same_v<K, lir::ECast>) {
+                    scan_captures(*k.operand);
+                } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
+                    scan_captures(*k.cond); scan_captures(*k.then_val); scan_captures(*k.else_val);
+                }
+            }, e.kind);
+        };
+        // Scan all statements in body for variable references
+        std::function<void(const lir::LBlock&)> scan_block;
+        std::function<void(const lir::LStmt&)> scan_stmt;
+        scan_block = [&](const lir::LBlock& b) {
+            for (auto& s : b.stmts) scan_stmt(s);
+        };
+        scan_stmt = [&](const lir::LStmt& s) {
+            std::visit([&](const auto& k) {
+                using K = std::decay_t<decltype(k)>;
+                if constexpr (std::is_same_v<K, lir::SLet>) {
+                    scan_captures(*k.value);
+                } else if constexpr (std::is_same_v<K, lir::SAssign>) {
+                    scan_captures(*k.value);
+                } else if constexpr (std::is_same_v<K, lir::SReturn>) {
+                    if (k.value) scan_captures(*k.value);
+                } else if constexpr (std::is_same_v<K, lir::SIf>) {
+                    scan_captures(*k.cond); scan_block(*k.then_);
+                    if (k.else_) scan_block(**k.else_);
+                } else if constexpr (std::is_same_v<K, lir::SWhile>) {
+                    scan_captures(*k.cond); scan_block(*k.body);
+                } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
+                    scan_captures(*k.expr);
+                }
+            }, s.kind);
+        };
+        scan_block(body);
+
+        auto ec = std::make_unique<lir::EClosure>();
+        ec->closure_id    = closure_id;
+        ec->params        = std::move(params);
+        ec->ret_type      = ret_type;
+        ec->body          = std::move(body);
+        ec->captures      = std::move(captures);
+        ec->capture_types = std::move(capture_types);
+
+        auto* ctype = make_closure_type(std::move(param_types), ret_type);
+        return make_expr(ctype, lir::EClosureBox{std::move(ec)});
     }
 
     // ── lower_stmt and friends ───────────────────────────────────

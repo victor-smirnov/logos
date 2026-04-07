@@ -170,6 +170,7 @@ private:
     std::unordered_set<std::string>              var_tuple_;
     std::unordered_set<std::string>              var_tagged_enum_;
     mlir::Type                                    cur_ret_type_;
+    bool                                          in_llvm_func_ = false;
 
     struct LoopBlocks { mlir::Block* cont; mlir::Block* exit; };
     std::vector<LoopBlocks> loop_stack_;
@@ -241,6 +242,9 @@ private:
         }
         case LogosType::Kind::Class:
             // Classes are always passed by pointer (heap allocated via 'new').
+            return ptr_type();
+        case LogosType::Kind::Closure:
+            // Closures are {fn_ptr, env_ptr}, passed by pointer.
             return ptr_type();
         case LogosType::Kind::Slice:
             // Slices are fat pointers {ptr, i64}, passed by pointer (like structs/tuples).
@@ -637,6 +641,16 @@ private:
             return;
         }
 
+        // ── Closure value ─────────────────────────────────────────
+        if (s.type && s.type->kind == LogosType::Kind::Closure) {
+            auto val = gen_expr(*s.value);
+            if (!val) return;
+            scope_[s.name] = val;
+            let_vars_.insert(s.name);
+            var_tuple_.insert(s.name);  // return ptr directly
+            return;
+        }
+
         // ── Slice value ──────────────────────────────────────────
         if (s.type && s.type->kind == LogosType::Kind::Slice) {
             auto val = gen_expr(*s.value);
@@ -768,14 +782,19 @@ private:
         if (s.value) {
             auto val = gen_expr(*s.value);
             if (!val) return;
-            // Tuple return: val is a pointer — load the struct value.
             if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_))
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
             else if (cur_ret_type_)
                 val = coerce_int(val, cur_ret_type_);
-            builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
+            if (in_llvm_func_)
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{val});
+            else
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
         } else {
-            builder_.create<mlir::func::ReturnOp>(loc_);
+            if (in_llvm_func_)
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+            else
+                builder_.create<mlir::func::ReturnOp>(loc_);
         }
     }
 
@@ -1683,6 +1702,183 @@ private:
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(e.index)};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, recv, idx);
         return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
+    }
+
+    // ── Closure helpers ────────────────────────────────────────────
+
+    // Closure value layout: { fn_ptr: ptr, env_ptr: ptr }
+    mlir::Type closure_llvm_type() {
+        return mlir::LLVM::LLVMStructType::getLiteral(
+            builder_.getContext(), {ptr_type(), ptr_type()});
+    }
+
+    mlir::Value gen_expr_kind(const EClosureBox& box, const LogosType* type) {
+        if (!box.inner) return nullptr;
+        return gen_closure(*box.inner, type);
+    }
+
+    mlir::Value gen_closure(const EClosure& e, const LogosType*) {
+        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto save_pt = builder_.saveInsertionPoint();
+
+        // Build capture struct type
+        llvm::SmallVector<mlir::Type> cap_fields;
+        for (auto* ct : e.capture_types) {
+            auto ft = logos_to_mlir(ct);
+            if (!ft) ft = builder_.getI32Type();
+            cap_fields.push_back(ft);
+        }
+        auto cap_struct = cap_fields.empty()
+            ? mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), {builder_.getI8Type()})
+            : mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), cap_fields);
+
+        // Build function type: (env_ptr, params...) -> ret
+        llvm::SmallVector<mlir::Type> fn_params;
+        fn_params.push_back(ptr_type());  // env pointer
+        for (auto& p : e.params) {
+            auto pt = logos_to_mlir(p.type);
+            if (pt) fn_params.push_back(pt);
+        }
+        llvm::SmallVector<mlir::Type> fn_rets;
+        if (e.ret_type) {
+            auto rt = logos_to_mlir(e.ret_type);
+            if (rt) fn_rets.push_back(rt);
+        }
+        auto fn_type = builder_.getFunctionType(fn_params, fn_rets);
+
+        // Create the closure function as llvm.func (so llvm.mlir.addressof works)
+        builder_.setInsertionPointToEnd(parent_mod.getBody());
+        mlir::Type llvm_ret = fn_rets.empty()
+            ? mlir::LLVM::LLVMVoidType::get(builder_.getContext()) : fn_rets[0];
+        auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(llvm_ret, fn_params, false);
+        auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, e.closure_id, llvm_fn_type);
+        fn.setLinkage(mlir::LLVM::Linkage::Private);
+        auto* entry = fn.addEntryBlock(builder_);
+        builder_.setInsertionPointToStart(entry);
+
+        // Save/restore mlir_gen state
+        auto saved_scope = scope_;
+        auto saved_lets  = let_vars_;
+        auto saved_elems = var_elem_types_;
+        auto saved_ret   = cur_ret_type_;
+        scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
+
+        bool ret_is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(llvm_ret);
+        cur_ret_type_ = ret_is_void ? mlir::Type{} : llvm_ret;
+
+        // Unpack captures from env pointer (arg 0)
+        auto env_ptr = entry->getArgument(0);
+        for (size_t i = 0; i < e.captures.size(); ++i) {
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
+            auto fp = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), cap_struct, env_ptr, idx);
+            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i], fp);
+            // Store in alloca for let-variable semantics
+            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), cap_fields[i], i64_one());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+            scope_[e.captures[i]] = alloca;
+            let_vars_.insert(e.captures[i]);
+            var_elem_types_[e.captures[i]] = cap_fields[i];
+        }
+
+        // Bind params (starting from arg 1)
+        for (size_t i = 0; i < e.params.size(); ++i) {
+            scope_[e.params[i].name] = entry->getArgument(i + 1);
+        }
+
+        // Generate body (inside llvm.func — use llvm.return)
+        in_llvm_func_ = true;
+        gen_block(e.body);
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+        in_llvm_func_ = false;
+
+        // Restore state
+        scope_ = saved_scope;
+        let_vars_ = saved_lets;
+        var_elem_types_ = saved_elems;
+        cur_ret_type_ = saved_ret;
+        builder_.restoreInsertionPoint(save_pt);
+
+        // At the creation site: alloca capture struct, store captures
+        auto env_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), cap_struct, i64_one());
+        for (size_t i = 0; i < e.captures.size(); ++i) {
+            auto it = scope_.find(e.captures[i]);
+            if (it == scope_.end()) continue;
+            mlir::Value cap_val;
+            auto eit = var_elem_types_.find(e.captures[i]);
+            if (let_vars_.count(e.captures[i]) && eit != var_elem_types_.end())
+                cap_val = builder_.create<mlir::LLVM::LoadOp>(loc_, eit->second, it->second);
+            else
+                cap_val = it->second;
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
+            auto fp = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), cap_struct, env_alloca, idx);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, cap_val, fp);
+        }
+
+        // Build closure value: { fn_ptr, env_ptr }
+        auto ctype = closure_llvm_type();
+        auto closure_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), ctype, i64_one());
+        // Store fn_ptr
+        auto fn_addr = builder_.create<mlir::LLVM::AddressOfOp>(
+            loc_, ptr_type(), e.closure_id);
+        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
+        auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure_alloca, fi);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, fn_addr, fp);
+        // Store env_ptr
+        llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(1)};
+        auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure_alloca, ei);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, env_alloca, ep);
+
+        return closure_alloca;
+    }
+
+    mlir::Value gen_expr_kind(const EClosureCall& e, const LogosType* type) {
+        auto closure = gen_expr(*e.callee);
+        if (!closure) return nullptr;
+
+        auto ctype = closure_llvm_type();
+        // Load fn_ptr from field 0
+        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
+        auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure, fi);
+        auto fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp);
+        // Load env_ptr from field 1
+        llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(1)};
+        auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure, ei);
+        auto env_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), ep);
+
+        // Build args: env_ptr first, then user args
+        llvm::SmallVector<mlir::Value> args;
+        args.push_back(env_ptr);
+
+        // Build LLVM function type for indirect call
+        llvm::SmallVector<mlir::Type> param_types;
+        param_types.push_back(ptr_type());  // env
+        for (auto& a : e.args) {
+            auto val = gen_expr(*a);
+            if (!val) return nullptr;
+            args.push_back(val);
+            param_types.push_back(val.getType());
+        }
+
+        mlir::Type ret = type ? logos_to_mlir(type) : nullptr;
+        if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+        bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(ret);
+        auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types, false);
+
+        // Indirect call via function pointer
+        llvm::SmallVector<mlir::Value> all_operands;
+        all_operands.push_back(fn_ptr);
+        all_operands.append(args.begin(), args.end());
+        auto call = builder_.create<mlir::LLVM::CallOp>(
+            loc_, llvm_fn_type, mlir::FlatSymbolRefAttr{},
+            mlir::ValueRange(all_operands));
+        if (is_void) return nullptr;
+        return call.getResult();
     }
 
     // ── Slice helpers ─────────────────────────────────────────────

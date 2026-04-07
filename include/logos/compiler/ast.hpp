@@ -157,6 +157,9 @@ inline constexpr Code RANGE_EXPR      {"RANGE_EXPR",      112};  // lo..hi expre
 inline constexpr Code TRAIT_DEF       {"TRAIT_DEF",       106};  // trait Name { ... }
 inline constexpr Code IMPL_BLOCK      {"IMPL_BLOCK",      107};  // impl Trait for Type { ... }
 
+// Batch N — closures
+inline constexpr Code CLOSURE_EXPR    {"CLOSURE_EXPR",    109};  // |x: i32| -> i32 { ... }
+
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

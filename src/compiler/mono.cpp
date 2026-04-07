@@ -544,6 +544,29 @@ private:
             } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
                 result->kind = lir::ETupleIndex{subst_expr(*k.receiver, s), k.index};
 
+            } else if constexpr (std::is_same_v<K, lir::EClosureBox>) {
+                if (k.inner) {
+                    auto nc = std::make_unique<lir::EClosure>();
+                    nc->closure_id = k.inner->closure_id;
+                    for (auto& p : k.inner->params)
+                        nc->params.push_back({p.name, subst_type(p.type, s)});
+                    nc->ret_type = subst_type(k.inner->ret_type, s);
+                    nc->body = subst_block(k.inner->body, s);
+                    nc->captures = k.inner->captures;
+                    for (auto* ct : k.inner->capture_types)
+                        nc->capture_types.push_back(subst_type(ct, s));
+                    result->kind = lir::EClosureBox{std::move(nc)};
+                } else {
+                    result->kind = lir::EClosureBox{nullptr};
+                }
+
+            } else if constexpr (std::is_same_v<K, lir::EClosureCall>) {
+                lir::EClosureCall nc;
+                nc.callee = subst_expr(*k.callee, s);
+                for (auto& a : k.args)
+                    nc.args.push_back(subst_expr(*a, s));
+                result->kind = std::move(nc);
+
             } else if constexpr (std::is_same_v<K, lir::ESliceLit>) {
                 result->kind = lir::ESliceLit{subst_expr(*k.base, s), subst_expr(*k.len, s)};
 
@@ -780,6 +803,11 @@ private:
                 for (auto& elem : k.elems) scan_expr(*elem);
             } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
                 scan_expr(*k.receiver);
+            } else if constexpr (std::is_same_v<K, lir::EClosureBox>) {
+                if (k.inner) for (auto& st : k.inner->body.stmts) scan_stmt(st);
+            } else if constexpr (std::is_same_v<K, lir::EClosureCall>) {
+                scan_expr(*k.callee);
+                for (auto& a : k.args) scan_expr(*a);
             } else if constexpr (std::is_same_v<K, lir::ESliceLit>) {
                 scan_expr(*k.base); scan_expr(*k.len);
             } else if constexpr (std::is_same_v<K, lir::ESliceIndex>) {
