@@ -48,12 +48,21 @@ foreach(EXPECTED IN ITEMS
     pass/impl_block.expected
     pass/closure.expected
     pass/stdlib_demo.expected
+    pass/nested_tuple.expected
+    pass/multi_trait.expected
+    pass/option_chain.expected
+    pass/vec_usage.expected
+    pass/closure_multi.expected
+    pass/generic_trait.expected
+    pass/match_multi_variant.expected
+    pass/slice_ops.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)
     set(EXP_FILE   ${CMAKE_CURRENT_SOURCE_DIR}/${EXPECTED})
 
-    if (BASE STREQUAL "hello" OR BASE STREQUAL "stdlib_demo")
+    set(STDLIB_USERS hello stdlib_demo option_chain vec_usage)
+    if (BASE IN_LIST STDLIB_USERS)
         set(EXTRA -I ${STDLIB})
     else()
         set(EXTRA "")

@@ -160,6 +160,9 @@ inline constexpr Code IMPL_BLOCK      {"IMPL_BLOCK",      107};  // impl Trait f
 // Batch N — closures
 inline constexpr Code CLOSURE_EXPR    {"CLOSURE_EXPR",    109};  // |x: i32| -> i32 { ... }
 
+// Misc
+inline constexpr Code FIELD_INDEX_WRITE {"FIELD_INDEX_WRITE", 113}; // a.ptr[i] = val
+
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

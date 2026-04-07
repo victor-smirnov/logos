@@ -126,8 +126,9 @@
     TRAIT_DEF        = 106
     IMPL_BLOCK       = 107
     CLOSURE_EXPR     = 109
-    SLICE_TYPE       = 111
-    RANGE_EXPR       = 112
+    SLICE_TYPE           = 111
+    RANGE_EXPR           = 112
+    FIELD_INDEX_WRITE    = 113
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -383,6 +384,7 @@
           / if_expr
           / match_stmt
           / delete_stmt
+          / field_index_write_stmt
           / field_write_stmt
           / index_write_stmt
           / assign_stmt
@@ -462,6 +464,10 @@
 
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
+
+    // a.ptr[i] = val;  — field index write (pointer field)
+    field_index_write_stmt <- IDENT DOT IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
+                           => { CODE: FIELD_INDEX_WRITE, RECEIVER: $1, FIELD: $3, LHS: $5, VALUE: $8 }
 
     if_expr <- KW_IF expr block KW_ELSE (if_expr / block)
             => { CODE: IF, COND: $2, THEN: $3, ELSE: $5 }

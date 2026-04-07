@@ -1,0 +1,8 @@
+package bad_variant;
+
+enum Color { Red, Green, Blue }
+
+fn main() -> i32 {
+    let c: Color = Color::Purple;
+    return 0;
+}

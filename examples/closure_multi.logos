@@ -1,0 +1,10 @@
+package closure_multi;
+
+fn main() -> i32 {
+    let a: i32 = 10;
+    let b: i32 = 15;
+    let c: i32 = 17;
+    let sum_three = |x: i32| -> i32 { return x + a + b + c; };
+    // 0 + 10 + 15 + 17 = 42
+    return sum_three(0);
+}

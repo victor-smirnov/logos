@@ -13,6 +13,7 @@ CMakeUserPresets.json
 build*
 /memoria*
 /vcpkg_installed
+*.o
 
 # Test artifacts
 *.sqlite

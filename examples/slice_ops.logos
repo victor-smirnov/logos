@@ -1,0 +1,31 @@
+package slice_ops;
+
+fn max_val(s: &[i32]) -> i32 {
+    let mut m: i32 = s[0];
+    let mut i: i64 = 1;
+    while i < s.len() {
+        if s[i] > m {
+            m = s[i];
+        }
+        i = i + 1;
+    }
+    return m;
+}
+
+fn sum(s: &[i32]) -> i32 {
+    let mut t: i32 = 0;
+    let mut i: i64 = 0;
+    while i < s.len() {
+        t = t + s[i];
+        i = i + 1;
+    }
+    return t;
+}
+
+fn main() -> i32 {
+    let a: [i32; 5] = [3, 1, 41, 10, 5];
+    let s: &[i32] = &a;
+    // max = 41, sum = 60 => 41 + sum(small) = ?
+    // we want 42: max(a) = 41, first element = a[0] = 3, 41 + 3 - 2 = 42
+    return max_val(s) + a[0] - 2;
+}

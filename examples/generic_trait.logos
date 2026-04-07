@@ -1,0 +1,23 @@
+package generic_trait;
+
+// Tests generic function with trait bound over concrete struct types.
+trait Measure { fn measure(self: Self) -> i32; }
+
+struct Rect { w: i32; h: i32; }
+struct Circle { r: i32; }
+
+impl Measure for Rect {
+    fn measure(self: Rect) -> i32 { return self.w * self.h; }
+}
+
+impl Measure for Circle {
+    fn measure(self: Circle) -> i32 { return self.r * self.r; }
+}
+
+fn total<S: Measure>(s: S) -> i32 { return s.measure(); }
+
+fn main() -> i32 {
+    let rect: Rect = Rect { w: 6, h: 7 };      // area = 42
+    let circ: Circle = Circle { r: 0 };         // area = 0 (just for dispatch test)
+    return total::<Rect>(rect) + total::<Circle>(circ);
+}

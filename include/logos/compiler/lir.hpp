@@ -259,6 +259,14 @@ struct SIndexWrite {
     LExprPtr    value;
 };
 
+// a.field[index] = value — field index write (e.g. self.ptr[i] = val)
+struct SFieldIndexWrite {
+    std::string receiver;   // struct/class variable
+    std::string field;      // pointer-typed field name
+    LExprPtr    index;
+    LExprPtr    value;
+};
+
 struct SExprStmt  { LExprPtr expr; };
 
 struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class pointer
@@ -283,7 +291,7 @@ struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
-        SBreak, SContinue, SFieldWrite, SIndexWrite, SExprStmt, SMatch, SDelete, SForEach
+        SBreak, SContinue, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach
     > kind;
 };
 

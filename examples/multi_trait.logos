@@ -1,0 +1,25 @@
+package multi_trait;
+
+trait Scale { fn scale(self: Self, factor: i32) -> Self; }
+trait Dot   { fn dot(self: Self, other: Self) -> i32; }
+
+struct Vec2 { x: i32; y: i32; }
+
+impl Scale for Vec2 {
+    fn scale(self: Vec2, factor: i32) -> Vec2 {
+        return Vec2 { x: self.x * factor, y: self.y * factor };
+    }
+}
+
+impl Dot for Vec2 {
+    fn dot(self: Vec2, other: Vec2) -> i32 {
+        return self.x * other.x + self.y * other.y;
+    }
+}
+
+fn main() -> i32 {
+    let a: Vec2 = Vec2 { x: 5, y: 2 };
+    let b: Vec2 = a.scale(3);    // {15, 6}
+    let c: Vec2 = Vec2 { x: 2, y: 2 };
+    return b.dot(c);              // 15*2 + 6*2 = 30 + 12 = 42
+}

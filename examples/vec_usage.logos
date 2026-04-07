@@ -1,0 +1,14 @@
+package vec_usage;
+
+use std.vec;
+use std.mem;
+
+fn main() -> i32 {
+    let v: *mut Vec_i32 = Vec_i32::create();
+    v.push(10);
+    v.push(15);
+    v.push(17);
+    let total: i32 = v.get(0) + v.get(1) + v.get(2);
+    vec_free(v);
+    return total;
+}

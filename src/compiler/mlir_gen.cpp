@@ -578,8 +578,9 @@ private:
     void gen_stmt_kind(const SLoop& s)        { gen_loop(s); }
     void gen_stmt_kind(const SBreak&)         { gen_break(); }
     void gen_stmt_kind(const SContinue&)      { gen_continue(); }
-    void gen_stmt_kind(const SFieldWrite& s)  { gen_field_write(s); }
-    void gen_stmt_kind(const SIndexWrite& s)  { gen_index_write(s); }
+    void gen_stmt_kind(const SFieldWrite& s)       { gen_field_write(s); }
+    void gen_stmt_kind(const SIndexWrite& s)       { gen_index_write(s); }
+    void gen_stmt_kind(const SFieldIndexWrite& s)  { gen_field_index_write(s); }
     void gen_stmt_kind(const SExprStmt& s)    { gen_expr(*s.expr); }
     void gen_stmt_kind(const SMatch& s)       { gen_match(s); }
     void gen_stmt_kind(const SDelete& s)      { gen_delete(s); }
@@ -1073,6 +1074,51 @@ private:
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
     }
 
+    void gen_field_index_write(const SFieldIndexWrite& s) {
+        // Get pointer to the struct/class.
+        auto struct_ptr = get_struct_ptr(s.receiver);
+        if (!struct_ptr) return;
+
+        // Get struct type info to find the field.
+        auto sit = var_struct_.find(s.receiver);
+        auto cit = sit == var_struct_.end() ? var_class_.find(s.receiver) : var_class_.end();
+        if (sit == var_struct_.end() && cit == var_class_.end()) {
+            std::fprintf(stderr, "mlir_gen: field index write: '%s' not struct/class\n",
+                         s.receiver.c_str());
+            return;
+        }
+        const std::string& type_name = (sit != var_struct_.end()) ? sit->second : cit->second;
+        auto& info = struct_types_[type_name];
+
+        // GEP to the field (which is a pointer).
+        auto field_gep = gep_field(struct_ptr, info, s.field);
+        if (!field_gep) return;
+
+        // Load the pointer value from the field.
+        auto field_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_gep);
+
+        // Determine element type from field info.
+        mlir::Type elem_type = builder_.getI32Type();
+        for (auto& f : info.fields) {
+            if (f.name == s.field) { elem_type = f.type; break; }
+        }
+
+        // GEP into the pointer at the given index.
+        // elem_type is the type of the value being stored (pointee of the field pointer).
+        mlir::Type val_type = s.value->type ? logos_to_mlir(s.value->type) : builder_.getI32Type();
+        if (!val_type) val_type = builder_.getI32Type();
+
+        auto idx = gen_expr(*s.index);
+        auto val = gen_expr(*s.value);
+        if (!idx || !val) return;
+        val = coerce_int(val, val_type);
+
+        llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
+        auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), val_type, field_ptr, indices);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, elem_gep);
+    }
+
     void gen_match(const SMatch& s) {
         auto* region      = builder_.getBlock()->getParent();
         auto* merge_block = new mlir::Block();
@@ -1120,6 +1166,37 @@ private:
             {
                 mlir::OpBuilder::InsertionGuard guard(builder_);
                 builder_.setInsertionPointToStart(last_body);
+                // Extract payload bindings for tagged enum patterns (same as loop body).
+                if (auto* pvd = std::get_if<PatVariantData>(&last_arm.pat)) {
+                    if (te_info && scrut_ptr) {
+                        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+                        auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
+                        const TaggedEnumInfo::VariantPayload* vp = nullptr;
+                        for (auto& v : te_info->variants)
+                            if (v.disc == pvd->disc) { vp = &v; break; }
+                        if (vp && !pvd->bindings.empty()) {
+                            llvm::SmallVector<mlir::Type> ft;
+                            for (auto& t : vp->field_types) ft.push_back(t);
+                            auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
+                                builder_.getContext(), ft);
+                            for (size_t bi = 0; bi < pvd->bindings.size() &&
+                                                 bi < vp->field_types.size(); ++bi) {
+                                llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
+                                auto fp = builder_.create<mlir::LLVM::GEPOp>(
+                                    loc_, ptr_type(), pay_struct, pay_ptr, fi);
+                                auto val = builder_.create<mlir::LLVM::LoadOp>(
+                                    loc_, vp->field_types[bi], fp);
+                                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                                    loc_, ptr_type(), vp->field_types[bi], i64_one());
+                                builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                                scope_[pvd->bindings[bi]] = alloca;
+                                let_vars_.insert(pvd->bindings[bi]);
+                                var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
+                            }
+                        }
+                    }
+                }
                 gen_block(*last_arm.body);
                 if (!is_terminated(builder_.getBlock()))
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -1524,19 +1601,27 @@ private:
             arr_ptr   = get_subscript_ptr(vr->name);
             elem_type = subscript_elem_type(vr->name);
         } else if (auto* fr = std::get_if<EFieldRead>(&e.receiver->kind)) {
-            // When the receiver is a field access (e.g. c.arr[0]) and the field
-            // is an array type, we must GEP to the field and use that pointer as
-            // the array base — NOT load the field value (which would yield an
-            // LLVM array value, not a pointer).
+            // Field index read: field may be an array or a pointer.
+            // - Array field: GEP to the field → use as base (no load needed)
+            // - Pointer field: GEP to the field → LOAD → use as base
             auto [struct_ptr, sname] = gen_recv_struct(*fr->receiver);
             if (struct_ptr && !sname.empty()) {
                 auto& info = struct_types_[sname];
                 auto field_ptr = gep_field(struct_ptr, info, fr->field);
                 if (field_ptr) {
-                    arr_ptr = field_ptr;
-                    // Determine element type from LExpr type (element of the array).
                     elem_type = logos_to_mlir(type);
                     if (!elem_type) elem_type = builder_.getI32Type();
+                    // Determine if field is a pointer type (load needed) or array type.
+                    // e.receiver is the field-read expression whose type is the field type.
+                    bool field_is_ptr = e.receiver->type &&
+                                        e.receiver->type->kind == LogosType::Kind::Ptr;
+                    if (field_is_ptr) {
+                        // Load the pointer stored in the field, then index into it.
+                        arr_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_ptr);
+                    } else {
+                        // Array field: GEP to the field, use directly as base.
+                        arr_ptr = field_ptr;
+                    }
                 }
             }
             if (!arr_ptr) {

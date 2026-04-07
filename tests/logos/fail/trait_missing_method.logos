@@ -1,0 +1,15 @@
+package trait_missing_method;
+
+trait Greet {
+    fn hello(self: Self) -> i32;
+    fn bye(self: Self) -> i32;
+}
+
+struct Foo { x: i32; }
+
+impl Greet for Foo {
+    fn hello(self: Foo) -> i32 { return self.x; }
+    // bye is missing
+}
+
+fn main() -> i32 { return 0; }

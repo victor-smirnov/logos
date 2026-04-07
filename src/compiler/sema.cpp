@@ -960,6 +960,18 @@ private:
                 }
             }
         }
+        // Check completeness: every required trait method must be in the impl.
+        if (!trait_name.empty()) {
+            auto tit = traits_.find(trait_name);
+            if (tit != traits_.end()) {
+                for (auto& m : tit->second.methods) {
+                    auto mangled = target + "__" + m.name;
+                    if (!funcs_.count(mangled))
+                        error(std::format("impl {} for {}: missing method '{}'",
+                              trait_name, target, m.name));
+                }
+            }
+        }
         // Register the impl mapping (only for trait impls)
         if (!trait_name.empty())
             impls_[trait_name + "::" + target] = {trait_name, target};
@@ -2982,8 +2994,9 @@ private:
         if (c == la::FOR)          return lower_for(stmt);
         if (c == la::FOR_EACH)     return lower_for_each(stmt);
         if (c == la::LOOP)         return lower_loop(stmt);
-        if (c == la::FIELD_WRITE)  return lower_field_write(stmt);
-        if (c == la::INDEX_WRITE)  return lower_index_write(stmt);
+        if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
+        if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
+        if (c == la::FIELD_INDEX_WRITE)  return lower_field_index_write(stmt);
         if (c == la::MATCH)        return lower_match(stmt);
         if (c == la::EXPR_STMT) {
             lir::LExprPtr e = stmt.has_key(la::VALUE)
@@ -3365,6 +3378,62 @@ private:
         siw.index = std::move(idx);
         siw.value = std::move(val);
         return make_stmt(node_line_, std::move(siw));
+    }
+
+    // a.field[index] = value;  (e.g. self.ptr[i] = val)
+    lir::LStmt lower_field_index_write(TinyMapView node) {
+        auto recv_name  = str_of(node.get(la::RECEIVER.code));
+        auto field_name = str_of(node.get(la::FIELD.code));
+
+        // Resolve field type — must be *mut T.
+        auto* recv_t = lookup(recv_name);
+        if (!recv_t) error(std::format("field index write: undefined variable '{}'", recv_name));
+
+        // Unwrap pointer receiver (class/struct-via-ptr).
+        const LogosType* base_t = recv_t;
+        if (base_t && base_t->kind == LogosType::Kind::Ptr) base_t = base_t->pointee;
+
+        const LogosType* field_t = nullptr;
+        if (base_t) {
+            auto sname = struct_name_from_type(base_t);
+            auto cname = class_name_from_type(base_t);
+            if (!sname.empty())       field_t = field_type_of_for_type(base_t, field_name);
+            else if (!cname.empty())  field_t = class_field_type(cname, field_name);
+        }
+
+        if (!field_t)
+            error(std::format("field index write: cannot resolve field '{}.{}'", recv_name, field_name));
+
+        if (field_t && field_t->kind != LogosType::Kind::Ptr)
+            error(std::format("field index write: field '{}.{}' is not a pointer (got {})",
+                  recv_name, field_name, type_str(field_t)));
+        if (field_t && field_t->kind == LogosType::Kind::Ptr && !field_t->mut_ptr)
+            error(std::format("field index write: field '{}.{}' is *const, cannot write",
+                  recv_name, field_name));
+
+        const LogosType* elem_t = (field_t && field_t->kind == LogosType::Kind::Ptr)
+                                   ? field_t->pointee : nullptr;
+
+        lir::LExprPtr idx = node.has_key(la::LHS)
+            ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+        if (!is_integer(idx->type))
+            error(std::format("field index write: index must be integer, got {}", type_str(idx->type)));
+
+        lir::LExprPtr val = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+        if (elem_t && elem_t->kind != LogosType::Kind::Error &&
+            val->type->kind != LogosType::Kind::Error &&
+            !types_compatible(val->type, elem_t)) {
+            error(std::format("field index write '{}.{}[i]': expected {}, got {}",
+                  recv_name, field_name, type_str(elem_t), type_str(val->type)));
+        }
+
+        lir::SFieldIndexWrite sfiw;
+        sfiw.receiver = std::string(recv_name);
+        sfiw.field    = std::string(field_name);
+        sfiw.index    = std::move(idx);
+        sfiw.value    = std::move(val);
+        return make_stmt(node_line_, std::move(sfiw));
     }
 
     lir::LStmt lower_match(TinyMapView node) {

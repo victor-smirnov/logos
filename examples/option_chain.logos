@@ -1,0 +1,21 @@
+package option_chain;
+
+use std.option;
+
+fn double_if_some(opt: Option<i32>) -> Option<i32> {
+    match opt {
+        Option::Some(v) => { return Option::Some(v * 2); }
+        Option::None    => { return Option::None; }
+    }
+}
+
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(10);
+    let b: Option<i32> = double_if_some(a);  // Some(20)
+    let c: Option<i32> = double_if_some(b);  // Some(40)
+    let d: Option<i32> = Option::None;
+    let e: Option<i32> = double_if_some(d);  // None
+
+    // unwrap_or_i32(Some(40), 0) + unwrap_or_i32(None, 2) = 40 + 2 = 42
+    return unwrap_or_i32(c, 0) + unwrap_or_i32(e, 2);
+}

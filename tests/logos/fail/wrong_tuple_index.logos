@@ -1,0 +1,6 @@
+package wrong_tuple_index;
+
+fn main() -> i32 {
+    let t: (i32, i32) = (1, 2);
+    return t.5;
+}
