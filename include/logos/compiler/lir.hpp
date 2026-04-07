@@ -167,6 +167,23 @@ struct ETupleIndex {
     uint32_t  index;
 };
 
+// Slice construction: &arr (whole array → slice) or &arr[lo..hi]
+struct ESliceLit {
+    LExprPtr base;    // pointer to first element
+    LExprPtr len;     // length as i64
+};
+
+// Slice element access: s[i]
+struct ESliceIndex {
+    LExprPtr slice;
+    LExprPtr index;
+};
+
+// Slice length: s.len()
+struct ESliceLen {
+    LExprPtr slice;
+};
+
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
@@ -175,7 +192,7 @@ struct LExpr {
         ELitInt, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
-        ETupleLit, ETupleIndex
+        ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen
     > kind;
 };
 

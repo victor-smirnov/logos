@@ -41,6 +41,7 @@ foreach(EXPECTED IN ITEMS
     pass/varargs.expected
     pass/tuple.expected
     pass/tagged_enum.expected
+    pass/slice.expected
 )
     get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
     set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)

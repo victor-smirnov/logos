@@ -252,6 +252,13 @@ private:
             record_needed_enum(result);
             return result;
         }
+        case LogosType::Kind::Slice: {
+            auto* elem = subst_type(t->elem, s);
+            if (elem == t->elem) return t;
+            LogosType nt; nt.kind = LogosType::Kind::Slice;
+            nt.elem = elem;
+            return out_.type_pool.alloc(std::move(nt));
+        }
         case LogosType::Kind::Tuple: {
             std::vector<const LogosType*> new_elems;
             bool changed = false;
@@ -492,6 +499,15 @@ private:
             } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
                 result->kind = lir::ETupleIndex{subst_expr(*k.receiver, s), k.index};
 
+            } else if constexpr (std::is_same_v<K, lir::ESliceLit>) {
+                result->kind = lir::ESliceLit{subst_expr(*k.base, s), subst_expr(*k.len, s)};
+
+            } else if constexpr (std::is_same_v<K, lir::ESliceIndex>) {
+                result->kind = lir::ESliceIndex{subst_expr(*k.slice, s), subst_expr(*k.index, s)};
+
+            } else if constexpr (std::is_same_v<K, lir::ESliceLen>) {
+                result->kind = lir::ESliceLen{subst_expr(*k.slice, s)};
+
             } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
                 lir::EEnumLitData ne;
                 // Use concrete enum name if type has type_args
@@ -719,6 +735,12 @@ private:
                 for (auto& elem : k.elems) scan_expr(*elem);
             } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
                 scan_expr(*k.receiver);
+            } else if constexpr (std::is_same_v<K, lir::ESliceLit>) {
+                scan_expr(*k.base); scan_expr(*k.len);
+            } else if constexpr (std::is_same_v<K, lir::ESliceIndex>) {
+                scan_expr(*k.slice); scan_expr(*k.index);
+            } else if constexpr (std::is_same_v<K, lir::ESliceLen>) {
+                scan_expr(*k.slice);
             } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
                 for (auto& a : k.payload) scan_expr(*a);
             }

@@ -149,6 +149,10 @@ inline constexpr Code TUPLE_INDEX {"TUPLE_INDEX", 102};   // t.0, t.1 — numeri
 inline constexpr Code ENUM_LIT_DATA   {"ENUM_LIT_DATA",   104};  // Option::Some(42)
 inline constexpr Code PAT_VARIANT_DATA{"PAT_VARIANT_DATA", 105}; // Some(x) in match
 
+// Batch O — slices
+inline constexpr Code SLICE_TYPE      {"SLICE_TYPE",      111};  // &[T] type
+inline constexpr Code RANGE_EXPR      {"RANGE_EXPR",      112};  // lo..hi expression
+
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

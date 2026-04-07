@@ -54,6 +54,8 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
             if (!a.tuple_elems[i] || !b.tuple_elems[i] ||
                 !types_equal(*a.tuple_elems[i], *b.tuple_elems[i])) return false;
         return true;
+    case LogosType::Kind::Slice:
+        return a.elem && b.elem && types_equal(*a.elem, *b.elem);
     case LogosType::Kind::TypeVar:
         return a.type_var_name == b.type_var_name;
     default:
@@ -97,6 +99,8 @@ static std::string mangle_type_for_name(const LogosType* t) {
         for (auto* e : t->tuple_elems) { r += "_"; r += mangle_type_for_name(e); }
         return r;
     }
+    case LogosType::Kind::Slice:
+        return "slice_" + mangle_type_for_name(t->elem);
     default:
         return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
     }
@@ -177,6 +181,8 @@ std::string type_str(const LogosType* t) {
             r += type_str(t->tuple_elems[i]);
         }
         return r + ")"; }
+    case LogosType::Kind::Slice:
+        return std::format("&[{}]", type_str(t->elem));
     case LogosType::Kind::Enum:    return t->enum_name;
     case LogosType::Kind::TypeVar: return std::string(t->type_var_name);
     case LogosType::Kind::Error:   return "<error>";
@@ -292,6 +298,11 @@ private:
     const LogosType* make_tuple_type(std::vector<const LogosType*> elems) {
         LogosType t; t.kind = LogosType::Kind::Tuple;
         t.tuple_elems = std::move(elems);
+        return pool_.alloc(std::move(t));
+    }
+    const LogosType* make_slice_type(const LogosType* elem) {
+        LogosType t; t.kind = LogosType::Kind::Slice;
+        t.elem = elem;
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_typevar(std::string_view name) {
@@ -598,6 +609,11 @@ private:
             if (!changed) return t;
             return make_tuple_type(std::move(new_elems));
         }
+        case LogosType::Kind::Slice: {
+            auto* elem = subst_type_sema(t->elem, s);
+            if (elem == t->elem) return t;
+            return make_slice_type(elem);
+        }
         default: return t;
         }
     }
@@ -631,6 +647,13 @@ private:
                           ? resolve_type(map_of(node.get(la::POINTEE.code)))
                           : error_t();
             return make_ptr(mut, inner);
+        }
+
+        if (tc == la::SLICE_TYPE) {
+            auto* elem = node.has_key(la::TYPE)
+                ? resolve_type(map_of(node.get(la::TYPE.code)))
+                : error_t();
+            return make_slice_type(elem);
         }
 
         if (tc == la::TUPLE_TYPE) {
@@ -1604,7 +1627,7 @@ private:
     lir::LExprPtr lower_unary(TinyMapView node) {
         auto op  = str_of(node.get(la::OP.code));
 
-        // & — address-of: return alloca pointer without evaluating operand
+        // & — address-of or array-to-slice
         if (op == "&") {
             auto child = map_of(node.get(la::VALUE.code));
             if (code_of(child) != la::VAR_REF) {
@@ -1616,6 +1639,13 @@ private:
             if (!vt) {
                 error(std::format("'&': undefined variable '{}'", var_name));
                 return error_expr();
+            }
+            // &array → slice: &[T] with len = array size
+            if (vt->kind == LogosType::Kind::Array) {
+                auto addr = make_expr(make_ptr(false, vt->elem), lir::EAddrOf{std::string(var_name)});
+                auto len  = make_expr(prim(LogosType::Kind::I64), lir::ELitInt{(int64_t)vt->arr_size});
+                return make_expr(make_slice_type(vt->elem),
+                    lir::ESliceLit{std::move(addr), std::move(len)});
             }
             return make_expr(make_ptr(false, vt), lir::EAddrOf{std::string(var_name)});
         }
@@ -1913,6 +1943,16 @@ private:
         auto method_name = str_of(node.get(la::NAME.code));
         auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
 
+        // Slice built-in methods: .len()
+        if (recv->type->kind == LogosType::Kind::Slice) {
+            if (method_name == "len") {
+                return make_expr(prim(LogosType::Kind::I64),
+                    lir::ESliceLen{std::move(recv)});
+            }
+            error(std::format("slice has no method '{}'", method_name));
+            return error_expr();
+        }
+
         // Check if receiver is a class type → virtual dispatch
         auto cname = class_name_from_type(recv->type);
         if (!cname.empty()) {
@@ -2130,18 +2170,24 @@ private:
         auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
         auto* arr_type = recv->type;
 
-        if (arr_type->kind != LogosType::Kind::Array &&
-            arr_type->kind != LogosType::Kind::Ptr &&
-            arr_type->kind != LogosType::Kind::Error) {
-            error(std::format("index read: receiver is not an array or pointer (got {})",
-                  type_str(arr_type)));
-        }
-
         lir::LExprPtr idx = node.has_key(la::VALUE)
             ? lower_expr(map_of(node.get(la::VALUE.code)))
             : error_expr();
         if (!is_integer(idx->type))
             error(std::format("array index must be integer, got {}", type_str(idx->type)));
+
+        // Slice indexing: s[i] → ESliceIndex
+        if (arr_type->kind == LogosType::Kind::Slice) {
+            auto* elem = arr_type->elem ? arr_type->elem : error_t();
+            return make_expr(elem, lir::ESliceIndex{std::move(recv), std::move(idx)});
+        }
+
+        if (arr_type->kind != LogosType::Kind::Array &&
+            arr_type->kind != LogosType::Kind::Ptr &&
+            arr_type->kind != LogosType::Kind::Error) {
+            error(std::format("index read: receiver is not an array, slice, or pointer (got {})",
+                  type_str(arr_type)));
+        }
 
         const LogosType* elem = error_t();
         if (arr_type->kind == LogosType::Kind::Array && arr_type->elem)  elem = arr_type->elem;

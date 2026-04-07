@@ -242,6 +242,9 @@ private:
         case LogosType::Kind::Class:
             // Classes are always passed by pointer (heap allocated via 'new').
             return ptr_type();
+        case LogosType::Kind::Slice:
+            // Slices are fat pointers {ptr, i64}, passed by pointer (like structs/tuples).
+            return ptr_type();
         case LogosType::Kind::Tuple: {
             // Tuples are anonymous LLVM struct types, passed by pointer (like structs).
             llvm::SmallVector<mlir::Type> fields;
@@ -631,6 +634,16 @@ private:
             scope_[s.name] = val;
             let_vars_.insert(s.name);
             var_tuple_.insert(s.name);
+            return;
+        }
+
+        // ── Slice value ──────────────────────────────────────────
+        if (s.type && s.type->kind == LogosType::Kind::Slice) {
+            auto val = gen_expr(*s.value);
+            if (!val) return;
+            scope_[s.name] = val;
+            let_vars_.insert(s.name);
+            var_tuple_.insert(s.name);  // reuse tuple tracking (return ptr directly)
             return;
         }
 
@@ -1642,6 +1655,61 @@ private:
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(e.index)};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, recv, idx);
         return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
+    }
+
+    // ── Slice helpers ─────────────────────────────────────────────
+
+    // Slice LLVM type: { ptr, i64 } (data pointer + length)
+    mlir::Type slice_llvm_type() {
+        return mlir::LLVM::LLVMStructType::getLiteral(
+            builder_.getContext(), {ptr_type(), builder_.getI64Type()});
+    }
+
+    mlir::Value gen_expr_kind(const ESliceLit& e, const LogosType*) {
+        auto base = gen_expr(*e.base);
+        auto len  = gen_expr(*e.len);
+        if (!base || !len) return nullptr;
+        auto stype = slice_llvm_type();
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), stype, i64_one());
+        // Store ptr at field 0
+        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+        auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, base, pp);
+        // Store len at field 1
+        llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+        auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, li);
+        auto len64 = coerce_int(len, builder_.getI64Type());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, len64, lp);
+        return alloca;
+    }
+
+    mlir::Value gen_expr_kind(const ESliceIndex& e, const LogosType* type) {
+        auto slice = gen_expr(*e.slice);
+        auto index = gen_expr(*e.index);
+        if (!slice || !index) return nullptr;
+        auto elem_type = logos_to_mlir(type);
+        if (!elem_type) elem_type = builder_.getI32Type();
+        auto stype = slice_llvm_type();
+        // Load ptr from field 0
+        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+        auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, pi);
+        auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+        // GEP into data array by index
+        auto idx32 = coerce_int(index, builder_.getI32Type());
+        llvm::SmallVector<mlir::LLVM::GEPArg> di{idx32};
+        auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), elem_type, data_ptr, di);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, elem_ptr);
+    }
+
+    mlir::Value gen_expr_kind(const ESliceLen& e, const LogosType*) {
+        auto slice = gen_expr(*e.slice);
+        if (!slice) return nullptr;
+        auto stype = slice_llvm_type();
+        // Load len from field 1
+        llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+        auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, li);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
     }
 
     // ── Struct helpers ────────────────────────────────────────────

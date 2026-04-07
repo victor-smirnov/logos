@@ -1,0 +1,17 @@
+package slice;
+
+fn sum(s: &[i32]) -> i32 {
+    let mut total: i32 = 0;
+    let mut i: i64 = 0;
+    while i < s.len() {
+        total = total + s[i];
+        i = i + 1;
+    }
+    return total;
+}
+
+fn main() -> i32 {
+    let a: [i32; 4] = [10, 11, 12, 9];
+    let s: &[i32] = &a;
+    return sum(s);
+}

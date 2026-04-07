@@ -30,6 +30,7 @@ struct LogosType {
         Class,                    // user-defined class (virtual dispatch via vtable)
         Enum,                     // discriminant enum (stored as i32)
         Tuple,                    // (T1, T2, ...) — anonymous product type
+        Slice,                    // &[T] — fat pointer (ptr, len)
         TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)
         Error                     // sentinel for ill-typed expressions
