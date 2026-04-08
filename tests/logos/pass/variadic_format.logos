@@ -1,76 +1,13 @@
-// Variadic format: trait-based formatting with recursive pack expansion
+// format() via std.fmt — variadic generics + Format trait
 package variadic_format;
 
-use std.mem;
+use std.fmt;
 use std.io;
-use std.string;
-
-trait Format {
-    fn fmt(self: Self, buf: *mut u8, off: i64) -> i64;
-}
-
-impl Format for i32 {
-    fn fmt(self: i32, buf: *mut u8, off: i64) -> i64 {
-        return write_i32(buf, off, self);
-    }
-}
-
-impl Format for bool {
-    fn fmt(self: bool, buf: *mut u8, off: i64) -> i64 {
-        return write_bool(buf, off, self);
-    }
-}
-
-impl Format for *const u8 {
-    fn fmt(self: *const u8, buf: *mut u8, off: i64) -> i64 {
-        let slen: i64 = str_len(self);
-        mem_copy(buf, off, self, slen);
-        return slen;
-    }
-}
-
-fn fmt_impl(fmt: *const u8, fi: i64, flen: i64, buf: *mut u8, pos: i64) -> i64 {
-    let mut p: i64 = pos;
-    let mut i: i64 = fi;
-    while i < flen {
-        buf[p] = fmt[i];
-        p = p + 1;
-        i = i + 1;
-    }
-    return p;
-}
-
-fn fmt_impl<H: Format, T...>(fmt: *const u8, fi: i64, flen: i64,
-                              buf: *mut u8, pos: i64,
-                              first: H, rest: T...) -> i64 {
-    let mut p: i64 = pos;
-    let mut i: i64 = fi;
-    while i < flen {
-        if (fmt[i] as i32) == 123 {
-            if i + 1 as i64 < flen {
-                if (fmt[i + 1 as i64] as i32) == 125 {
-                    let wrote: i64 = first.fmt(buf, p);
-                    p = p + wrote;
-                    return fmt_impl(fmt, i + 2 as i64, flen, buf, p, rest...);
-                }
-            }
-        }
-        buf[p] = fmt[i];
-        p = p + 1;
-        i = i + 1;
-    }
-    return p;
-}
+use std.mem;
 
 fn main() -> i32 {
-    let f: *const u8 = "{} says: x={}, ok={}";
-    let flen: i64 = str_len(f);
-    let buf: *mut u8 = malloc(256 as i64);
-    let pos: i64 = fmt_impl::<*const u8, i32, bool>(
-        f, 0 as i64, flen, buf, 0 as i64,
-        "logos", 42, true);
-    buf[pos] = 0 as u8;
-    println(buf as *const u8);
-    free(buf);
+    let s: *mut u8 = format::<*const u8, i32, bool>("{} says: x={}, ok={}", "logos", 42, true);
+    println(s as *const u8);
+    free(s);
     return 42;
 }
