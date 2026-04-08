@@ -9,7 +9,7 @@ target_include_directories(logos_verification PUBLIC
 )
 
 target_link_libraries(logos_verification PUBLIC
-    unofficial::sqlite3::sqlite3
+    PkgConfig::SQLite3
     ${CMAKE_DL_LIBS}
 )
 

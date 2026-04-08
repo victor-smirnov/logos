@@ -1,12 +1,8 @@
 cmake_minimum_required(VERSION 3.28)
 
-# Jenny toolchain must be set before vcpkg (vcpkg chains it in).
-set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/toolchains/jenny.cmake"
+# Jenny toolchain (custom Clang 21).
+set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/toolchains/jenny.cmake"
     CACHE STRING "Jenny (custom Clang 21) compiler toolchain")
-
-# vcpkg toolchain — includes VCPKG_CHAINLOAD_TOOLCHAIN_FILE internally.
-set(CMAKE_TOOLCHAIN_FILE "/home/victor/cxx/vcpkg/scripts/buildsystems/vcpkg.cmake"
-    CACHE STRING "Vcpkg toolchain file")
 
 project(logos LANGUAGES CXX C ASM)
 
@@ -19,7 +15,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 
 # Find dependencies
-find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SQLite3 REQUIRED IMPORTED_TARGET sqlite3)
 
 # Global includes
 include_directories(include)

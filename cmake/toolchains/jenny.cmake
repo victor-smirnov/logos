@@ -1,7 +1,6 @@
 # cmake/toolchains/jenny.cmake
 #
 # Jenny toolchain: Victor Smirnov's Clang 21 fork.
-# Loaded via VCPKG_CHAINLOAD_TOOLCHAIN_FILE so vcpkg integration still works.
 
 set(JENNY_ROOT "/opt/jenny-21x" CACHE PATH "Jenny (Clang 21) installation root")
 
