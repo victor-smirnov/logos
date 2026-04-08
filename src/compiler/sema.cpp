@@ -1950,6 +1950,8 @@ private:
     // of a function body (so EXPR arms should be returned, not discarded).
     bool match_in_tail_position_ = false;
     const LogosType* impl_ret_type_inferred_ = nullptr;  // set when lowering impl Trait return fn
+    // Type hint for enum literal construction (set from let annotation or return type)
+    const LogosType* hint_enum_type_ = nullptr;
 
     // ── Return reachability (on AST nodes) ───────────────────────
 
@@ -3406,7 +3408,7 @@ private:
         // For now, if the enum has type params, we need to infer them from payload types.
         // Simple inference: match payload args to payload type params.
         const LogosType* result_type = make_enum_type(ename);
-        if (!einfo.type_params.empty() && !payload.empty()) {
+        if (!einfo.type_params.empty()) {
             // Build substitution from payload args
             SemaSubst subst;
             for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i) {
@@ -3415,6 +3417,16 @@ private:
                     auto* inferred = payload[i]->type;
                     if (inferred->kind == LogosType::Kind::IntLit) inferred = i32_t();
                     subst[pt->type_var_name] = inferred;
+                }
+            }
+            // Fill any still-unresolved type params from hint (e.g. let e: Result<i32,i32> = Result::Err(-1))
+            if (hint_enum_type_ && hint_enum_type_->enum_name == std::string(ename)) {
+                for (size_t i = 0; i < einfo.type_params.size() && i < hint_enum_type_->type_args.size(); ++i) {
+                    if (subst.find(einfo.type_params[i].name) == subst.end()) {
+                        auto* hta = hint_enum_type_->type_args[i];
+                        if (hta && hta->kind != LogosType::Kind::Error)
+                            subst[einfo.type_params[i].name] = hta;
+                    }
                 }
             }
             // Build concrete type args
@@ -3482,7 +3494,7 @@ private:
         auto& einfo = eit->second;
         std::vector<const LogosType*> resolved_payload_types = vinfo->payload_types;
         const LogosType* result_type = make_enum_type(ename);
-        if (!einfo.type_params.empty() && !payload.empty()) {
+        if (!einfo.type_params.empty()) {
             SemaSubst subst;
             for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i) {
                 auto* pt = vinfo->payload_types[i];
@@ -3490,6 +3502,16 @@ private:
                     auto* inferred = payload[i]->type;
                     if (inferred->kind == LogosType::Kind::IntLit) inferred = i32_t();
                     subst[pt->type_var_name] = inferred;
+                }
+            }
+            // Fill any still-unresolved type params from hint
+            if (hint_enum_type_ && hint_enum_type_->enum_name == std::string(ename)) {
+                for (size_t i = 0; i < einfo.type_params.size() && i < hint_enum_type_->type_args.size(); ++i) {
+                    if (subst.find(einfo.type_params[i].name) == subst.end()) {
+                        auto* hta = hint_enum_type_->type_args[i];
+                        if (hta && hta->kind != LogosType::Kind::Error)
+                            subst[einfo.type_params[i].name] = hta;
+                    }
                 }
             }
             std::vector<const LogosType*> type_args;
@@ -4040,6 +4062,16 @@ private:
             if (!av.is_null() && av.is_value()) is_mut = av.as_value<uint8_t>() != 0;
         }
 
+        // Parse type annotation first so we can use it as a hint for enum literal inference
+        const LogosType* ann = nullptr;
+        if (node.has_key(la::TYPE))
+            ann = resolve_type(map_of(node.get(la::TYPE.code)));
+
+        // Set enum hint so lower_enum_lit_data can fill in unresolved type params
+        auto* saved_hint = hint_enum_type_;
+        if (ann && ann->kind == LogosType::Kind::Enum && !ann->type_args.empty())
+            hint_enum_type_ = ann;
+
         lir::LExprPtr rhs;
         const LogosType* rhs_type;
         if (node.has_key(la::VALUE)) {
@@ -4051,9 +4083,10 @@ private:
             rhs_type = error_t();
         }
 
+        hint_enum_type_ = saved_hint;
+
         const LogosType* var_type;
-        if (node.has_key(la::TYPE)) {
-            auto* ann = resolve_type(map_of(node.get(la::TYPE.code)));
+        if (ann != nullptr) {
             if (ann->kind != LogosType::Kind::Error &&
                 rhs_type->kind != LogosType::Kind::Error &&
                 !types_compatible(rhs_type, ann)) {
@@ -4141,7 +4174,12 @@ private:
         if (node.has_key(la::VALUE)) {
             AnyVal vav = node.get(la::VALUE.code);
             if (!vav.is_null()) {
+                // Set enum hint from return type so enum literals can fill in unresolved type params
+                auto* saved_hint = hint_enum_type_;
+                if (ret_type_ && ret_type_->kind == LogosType::Kind::Enum && !ret_type_->type_args.empty())
+                    hint_enum_type_ = ret_type_;
                 val = lower_expr(map_of(vav));
+                hint_enum_type_ = saved_hint;
                 if (ret_type_ && ret_type_->kind == LogosType::Kind::ImplTrait) {
                     // Infer concrete return type from first return expression.
                     if (!impl_ret_type_inferred_ &&

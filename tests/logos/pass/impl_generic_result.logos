@@ -1,0 +1,35 @@
+package impl_generic_result;
+// impl<T, E> on two-parameter generic enum — methods on Result<T, E>-style enums.
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+enum Result<T, E> { Ok(T), Err(E) }
+
+impl<T, E> Result<T, E> {
+    fn unwrap_or(self: Result<T, E>, def: T) -> T {
+        match self {
+            Result::Ok(v)  => { return v; }
+            Result::Err(_) => { return def; }
+        }
+    }
+    fn is_ok(self: Result<T, E>) -> bool {
+        match self {
+            Result::Ok(_)  => { return true; }
+            Result::Err(_) => { return false; }
+        }
+    }
+}
+
+fn divide(a: i32, b: i32) -> Result<i32, i32> {
+    if b == 0 { return Result::Err(-1); }
+    return Result::Ok(a / b);
+}
+
+fn main() -> i32 {
+    let r1 = divide(10, 2);
+    let r2 = divide(10, 0);
+    printf("%d\n", r1.unwrap_or(0));    // 5
+    printf("%d\n", r2.unwrap_or(0));    // 0
+    if r1.is_ok() { printf("ok\n"); }   // ok
+    if !r2.is_ok() { printf("err\n"); } // err
+    return 0;
+}
