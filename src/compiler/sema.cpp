@@ -4274,6 +4274,9 @@ private:
             error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
                   name, type_str(var_type), type_str(rhs->type)));
         }
+        // Re-assignment revives the variable (the old value was already consumed).
+        moved_vars_.erase(std::string(name));
+
         return make_stmt(node_line_, lir::SAssign{std::string(name), std::move(rhs)});
     }
 
