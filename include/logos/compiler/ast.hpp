@@ -192,6 +192,7 @@ inline constexpr Key GUARD  {"GUARD",  35};            // guard condition in mat
 inline constexpr Key EXPR   {"EXPR",   36};            // expression-body match arm value
 inline constexpr Key NAMES  {"NAMES",  37};            // name list for tuple destructuring
 inline constexpr Key WHERE  {"WHERE",  38};            // where clause node
+inline constexpr Key IS_CONST{"IS_CONST", 39};          // const fn marker
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;
 

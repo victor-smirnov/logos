@@ -630,7 +630,8 @@ private:
                             bool is_pub = false; std::string source_file; };
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
-                            bool is_pub = false; std::string source_file; };
+                            bool is_pub = false; bool is_const = false;
+                            std::string source_file; };
     struct SemaVariantInfo{
         std::string_view name; int32_t value;
         std::vector<const LogosType*> payload_types;  // empty = no payload
@@ -688,6 +689,9 @@ private:
     std::unordered_map<std::string, SemaClassInfo>    classes_;
     std::unordered_map<std::string, SemaFuncInfo>     funcs_;
     std::unordered_map<std::string, SemaFuncInfo>     generic_funcs_; // overloaded generic variants
+    // const fn bodies: mangled_name → (body_block, param_names)
+    struct ConstFnBody { TinyMapView body; std::vector<std::string> param_names; };
+    std::unordered_map<std::string, ConstFnBody>      const_fn_bodies_;
     std::unordered_map<std::string, const LogosType*> type_aliases_;
     std::unordered_map<std::string, const LogosType*> module_consts_;
     std::unordered_map<std::string, SemaTraitInfo>    traits_;
@@ -1930,6 +1934,11 @@ private:
             AnyVal av = node.get(la::IS_PUB.code);
             info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
+        // const fn marker
+        if (node.has_key(la::IS_CONST)) {
+            AnyVal av = node.get(la::IS_CONST.code);
+            info.is_const = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        }
         info.source_file = file_;
         pop_type_params(info.type_params);
         // Prepend impl-level type params AFTER the push/pop cycle so they remain
@@ -1939,7 +1948,29 @@ private:
             combined.insert(combined.end(), info.type_params.begin(), info.type_params.end());
             info.type_params = std::move(combined);
         }
-        funcs_[mangled] = std::move(info);
+        // Store body AST for const fn evaluation.
+        bool became_const = info.is_const;
+        if (became_const && node.has_key(la::BODY)) {
+            ConstFnBody cfb;
+            cfb.body = map_of(node.get(la::BODY.code));
+            // Read parameter names.
+            if (node.has_key(la::PARAMS)) {
+                auto params_av = node.get(la::PARAMS.code);
+                if (params_av.is_pointer()) {
+                    auto params_node = map_of(params_av);
+                    if (params_node.has_key(la::ITEMS)) {
+                        auto arr = arr_of(params_node.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < arr.size(); ++i) {
+                            auto p = map_of(arr.get(i));
+                            if (code_of(p) != la::PARAM) continue;
+                            cfb.param_names.push_back(std::string(str_of(p.get(la::NAME.code))));
+                        }
+                    }
+                }
+            }
+            const_fn_bodies_[mangled] = std::move(cfb);
+        }
+        funcs_[mangled] = std::move(info);  // must come after body storage (info.is_const read above)
     }
 
     // ── Loop depth / return type ─────────────────────────────────
@@ -5200,16 +5231,157 @@ private:
         return ed;
     }
 
+    // ── Const fn evaluator ──────────────────────────────────────────────────
+    // Simple tree-walking interpreter on the AST; only handles integer arithmetic,
+    // local lets, if/else, and return.  Returns nullopt if not foldable.
+
+    using ConstEnv = std::unordered_map<std::string, int64_t>;
+
+    std::optional<int64_t> const_eval_expr(TinyMapView e, const ConstEnv& env) {
+        if (!e.ptr()) return std::nullopt;
+        auto c = code_of(e);
+
+        if (c == la::LIT_INT) {
+            auto sv = str_of(e.get(la::VALUE.code));
+            return (int64_t)std::strtoull(sv.data(), nullptr, 10);
+        }
+        if (c == la::LIT_BOOL) {
+            auto sv = str_of(e.get(la::VALUE.code));
+            return sv == "true" ? (int64_t)1 : (int64_t)0;
+        }
+        if (c == la::VAR_REF) {
+            auto name = str_of(e.get(la::NAME.code));
+            auto it = env.find(std::string(name));
+            return it != env.end() ? std::optional<int64_t>(it->second) : std::nullopt;
+        }
+        if (c == la::PAREN_EXPR)
+            return const_eval_expr(map_of(e.get(la::VALUE.code)), env);
+        if (c == la::CAST)
+            return const_eval_expr(map_of(e.get(la::VALUE.code)), env);
+        if (c == la::UNARY) {
+            auto op  = str_of(e.get(la::OP.code));
+            auto val = const_eval_expr(map_of(e.get(la::VALUE.code)), env);
+            if (!val) return std::nullopt;
+            if (op == "-") return -*val;
+            if (op == "!") return *val ? (int64_t)0 : (int64_t)1;
+            return std::nullopt;
+        }
+        if (c == la::BINOP) {
+            auto op = str_of(e.get(la::OP.code));
+            auto l  = const_eval_expr(map_of(e.get(la::LHS.code)), env);
+            auto r  = const_eval_expr(map_of(e.get(la::RHS.code)), env);
+            if (!l || !r) return std::nullopt;
+            if (op == "+")  return *l + *r;
+            if (op == "-")  return *l - *r;
+            if (op == "*")  return *l * *r;
+            if (op == "/" && *r != 0) return *l / *r;
+            if (op == "%" && *r != 0) return *l % *r;
+            if (op == "<")  return *l < *r  ? (int64_t)1 : (int64_t)0;
+            if (op == ">")  return *l > *r  ? (int64_t)1 : (int64_t)0;
+            if (op == "<=") return *l <= *r ? (int64_t)1 : (int64_t)0;
+            if (op == ">=") return *l >= *r ? (int64_t)1 : (int64_t)0;
+            if (op == "==") return *l == *r ? (int64_t)1 : (int64_t)0;
+            if (op == "!=") return *l != *r ? (int64_t)1 : (int64_t)0;
+            if (op == "&&") return (*l && *r) ? (int64_t)1 : (int64_t)0;
+            if (op == "||") return (*l || *r) ? (int64_t)1 : (int64_t)0;
+            return std::nullopt;
+        }
+        if (c == la::IF) {
+            auto cond = e.has_key(la::COND)
+                ? const_eval_expr(map_of(e.get(la::COND.code)), env)
+                : std::nullopt;
+            if (!cond) return std::nullopt;
+            AnyVal branch = *cond ? e.get(la::THEN.code) : e.get(la::ELSE.code);
+            if (branch.is_null()) return std::nullopt;
+            return const_eval_block(map_of(branch), env);
+        }
+        return std::nullopt;
+    }
+
+    std::optional<int64_t> const_eval_block(TinyMapView block, ConstEnv env) {
+        if (!block.ptr() || !block.has_key(la::ITEMS)) return std::nullopt;
+        auto stmts = arr_of(block.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < stmts.size(); ++i) {
+            auto stmt = map_of(stmts.get(i));
+            auto c = code_of(stmt);
+            if (c == la::RETURN) {
+                if (stmt.has_key(la::VALUE))
+                    return const_eval_expr(map_of(stmt.get(la::VALUE.code)), env);
+                return (int64_t)0;
+            }
+            if (c == la::LET) {
+                auto name = str_of(stmt.get(la::NAME.code));
+                if (!stmt.has_key(la::VALUE)) return std::nullopt;
+                auto v = const_eval_expr(map_of(stmt.get(la::VALUE.code)), env);
+                if (!v) return std::nullopt;
+                env[std::string(name)] = *v;
+                continue;
+            }
+            if (c == la::IF) {
+                auto cond = stmt.has_key(la::COND)
+                    ? const_eval_expr(map_of(stmt.get(la::COND.code)), env)
+                    : std::nullopt;
+                if (!cond) return std::nullopt;
+                if (*cond) {
+                    auto res = const_eval_block(map_of(stmt.get(la::THEN.code)), env);
+                    if (res) return res;  // returned from branch
+                } else if (stmt.has_key(la::ELSE)) {
+                    auto res = const_eval_block(map_of(stmt.get(la::ELSE.code)), env);
+                    if (res) return res;
+                }
+                continue;
+            }
+            // Other statements not supported in const context — give up
+            return std::nullopt;
+        }
+        return std::nullopt;
+    }
+
+    // Try to evaluate a CALL expression as a const fn call.
+    // Returns a folded integer literal LExprPtr on success, or nullptr.
+    lir::LExprPtr try_const_fold_call(TinyMapView call_node) {
+        if (!call_node.ptr() || code_of(call_node) != la::CALL) return nullptr;
+        auto callee_name = str_of(call_node.get(la::CALLEE.code));
+        auto fit = funcs_.find(std::string(callee_name));
+        if (fit == funcs_.end() || !fit->second.is_const) return nullptr;
+        auto bit = const_fn_bodies_.find(std::string(callee_name));
+        if (bit == const_fn_bodies_.end()) return nullptr;
+
+        // Evaluate arguments as constants.
+        ConstEnv env;
+        if (call_node.has_key(la::ARGS)) {
+            auto args_arr = arr_of(call_node.get(la::ARGS.code));
+            auto& pnames = bit->second.param_names;
+            if (args_arr.size() != pnames.size()) return nullptr;
+            for (uint64_t i = 0; i < args_arr.size(); ++i) {
+                auto arg_val = const_eval_expr(map_of(args_arr.get(i)), {});
+                if (!arg_val) return nullptr;
+                env[pnames[i]] = *arg_val;
+            }
+        }
+
+        auto result = const_eval_block(bit->second.body, env);
+        if (!result) return nullptr;
+        return make_expr(i32_t(), lir::ELitInt{*result});
+    }
+
     lir::LConst lower_const_def(TinyMapView node) {
         auto name = std::string(str_of(node.get(la::NAME.code)));
         lir::LConst lc;
         lc.name = name;
         auto cit = module_consts_.find(name);
         lc.type = (cit != module_consts_.end()) ? cit->second : error_t();
-        if (node.has_key(la::VALUE))
-            lc.value = lower_expr(map_of(node.get(la::VALUE.code)));
-        else
+        if (node.has_key(la::VALUE)) {
+            auto val_node = map_of(node.get(la::VALUE.code));
+            // Try to fold const fn calls at compile time.
+            if (auto folded = try_const_fold_call(val_node)) {
+                lc.value = std::move(folded);
+            } else {
+                lc.value = lower_expr(val_node);
+            }
+        } else {
             lc.value = error_expr();
+        }
         return lc;
     }
 

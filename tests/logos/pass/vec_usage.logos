@@ -1,0 +1,32 @@
+package vec_usage;
+// Vec<i32>: class with fixed backing array and static constructor
+class Vec {
+    data: [i32; 64];
+    len_: i64;
+}
+
+impl Vec {
+    static fn new() -> *mut Vec {
+        return new Vec { data: [0; 64], len_: 0 };
+    }
+    fn push(self: *mut Vec, val: i32) {
+        self.data[self.len_ as u64] = val;
+        self.len_ = self.len_ + 1;
+    }
+    fn get(self: *mut Vec, i: i64) -> i32 {
+        return self.data[i as u64];
+    }
+    fn len(self: *mut Vec) -> i64 {
+        return self.len_;
+    }
+}
+
+fn main() -> i32 {
+    let v: *mut Vec = Vec::new();
+    v.push(10);
+    v.push(20);
+    v.push(12);
+    let sum: i32 = v.get(0) + v.get(1) + v.get(2);
+    delete v;
+    return sum;  // 42
+}

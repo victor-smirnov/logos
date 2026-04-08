@@ -1,0 +1,36 @@
+package const_fn;
+// const fn: compile-time evaluated functions
+
+const fn double(x: i32) -> i32 {
+    return x * 2;
+}
+
+const fn max(a: i32, b: i32) -> i32 {
+    if a > b {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+const fn factorial(n: i32) -> i32 {
+    if n <= 1 {
+        return 1;
+    } else {
+        let prev: i32 = factorial(n - 1);
+        return n * prev;
+    }
+}
+
+const DOUBLE_21: i32 = double(21);          // 42
+const MAX_VAL: i32   = max(10, 37);         // 37
+const FACT_5: i32    = factorial(5);        // 120
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn main() -> i32 {
+    printf("%d\n", DOUBLE_21);
+    printf("%d\n", MAX_VAL);
+    printf("%d\n", FACT_5);
+    return 0;
+}
