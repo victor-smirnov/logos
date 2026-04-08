@@ -1,0 +1,31 @@
+package trait_bounds;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Printable {
+    fn print_val(self: Self) -> i32;
+}
+
+fn print_twice<T: Printable>(x: T) -> i32 {
+    let a = x.print_val();
+    let b = x.print_val();
+    return a + b;
+}
+
+struct Num {
+    val: i32;
+}
+
+impl Printable for Num {
+    fn print_val(self: Num) -> i32 {
+        printf("%d\n", self.val);
+        return self.val;
+    }
+}
+
+fn main() -> i32 {
+    let n = Num { val: 7 };
+    let total = print_twice(n);
+    printf("total: %d\n", total);
+    return 0;
+}

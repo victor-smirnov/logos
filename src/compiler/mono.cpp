@@ -719,6 +719,17 @@ private:
                 nt.ok_disc  = k.ok_disc;
                 nt.err_disc = k.err_disc;
                 result->kind = std::move(nt);
+            } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
+                lir::EMatchExpr nm;
+                nm.scrut = subst_expr(*k.scrut, s);
+                for (auto& arm : k.arms) {
+                    lir::EMatchArm na;
+                    na.pat = arm.pat;
+                    if (arm.guard) na.guard = subst_expr(**arm.guard, s);
+                    na.value = subst_expr(*arm.value, s);
+                    nm.arms.push_back(std::move(na));
+                }
+                result->kind = std::move(nm);
             }
         }, e.kind);
 
@@ -780,6 +791,10 @@ private:
                 ns.kind = lir::SLoop{
                     std::make_unique<lir::LBlock>(subst_block(*k.body, s))};
 
+            } else if constexpr (std::is_same_v<K, lir::SBlock>) {
+                ns.kind = lir::SBlock{
+                    std::make_unique<lir::LBlock>(subst_block(*k.body, s))};
+
             } else if constexpr (std::is_same_v<K, lir::SBreak> ||
                                  std::is_same_v<K, lir::SContinue>) {
                 ns.kind = k;
@@ -822,6 +837,8 @@ private:
                         na.pat = arm.pat;
                     }
                     na.body = std::make_unique<lir::LBlock>(subst_block(*arm.body, s));
+                    if (arm.guard)
+                        na.guard = subst_expr(**arm.guard, s);
                     nm.arms.push_back(std::move(na));
                 }
                 ns.kind = std::move(nm);
@@ -901,6 +918,8 @@ private:
             } else if constexpr (std::is_same_v<K, lir::SFor>) {
                 scan_expr(*k.lo); scan_expr(*k.hi); scan_block(*k.body);
             } else if constexpr (std::is_same_v<K, lir::SLoop>) {
+                scan_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SBlock>) {
                 scan_block(*k.body);
             } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
                 scan_expr(*k.value);
@@ -984,6 +1003,12 @@ private:
                 // nothing to scan
             } else if constexpr (std::is_same_v<K, lir::ETry>) {
                 scan_expr(*k.inner);
+            } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
+                scan_expr(*k.scrut);
+                for (auto& arm : k.arms) {
+                    if (arm.guard) scan_expr(**arm.guard);
+                    scan_expr(*arm.value);
+                }
             }
         }, e.kind);
     }
@@ -1225,6 +1250,8 @@ private:
                 collect_struct_needs_from_block(*k.body);
             } else if constexpr (std::is_same_v<K, lir::SLoop>) {
                 collect_struct_needs_from_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SBlock>) {
+                collect_struct_needs_from_block(*k.body);
             } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
                 collect_struct_needs_from_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
@@ -1283,6 +1310,12 @@ private:
                 for (auto& a : k.args) collect_struct_needs_from_expr(*a);
             } else if constexpr (std::is_same_v<K, lir::EPackExpand>) {
                 // nothing
+            } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
+                collect_struct_needs_from_expr(*k.scrut);
+                for (auto& arm : k.arms) {
+                    if (arm.guard) collect_struct_needs_from_expr(**arm.guard);
+                    collect_struct_needs_from_expr(*arm.value);
+                }
             }
         }, e.kind);
     }

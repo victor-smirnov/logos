@@ -1,0 +1,54 @@
+package match_expr;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+impl Direction {
+    fn to_int(self: Direction) -> i32 {
+        return match self {
+            Direction::North => 0,
+            Direction::South => 1,
+            Direction::East  => 2,
+            Direction::West  => 3,
+        };
+    }
+    fn opposite(self: Direction) -> Direction {
+        return match self {
+            Direction::North => Direction::South,
+            Direction::South => Direction::North,
+            Direction::East  => Direction::West,
+            Direction::West  => Direction::East,
+        };
+    }
+}
+
+fn classify(x: i32) -> i32 {
+    return match x {
+        0 => 0,
+        _ => 1,
+    };
+}
+
+fn main() -> i32 {
+    let d = Direction::East;
+    let opp = d.opposite();
+    printf("%d\n", opp.to_int());
+
+    let n = match Direction::South {
+        Direction::North => 0,
+        Direction::South => 1,
+        Direction::East  => 2,
+        Direction::West  => 3,
+    };
+    printf("%d\n", n);
+
+    printf("%d\n", classify(0));
+    printf("%d\n", classify(42));
+    return 0;
+}

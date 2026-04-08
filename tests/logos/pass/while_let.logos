@@ -1,0 +1,22 @@
+package while_let;
+// while let: loop until None, counting iterations
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+enum Opt { Some(i32), None }
+
+fn next_opt(n: i32) -> Opt {
+    if n > 0 { return Opt::Some(n - 1); }
+    return Opt::None;
+}
+
+fn main() -> i32 {
+    let mut cur = Opt::Some(3);
+    let mut sum = 0;
+    while let Opt::Some(v) = cur {
+        sum = sum + v;
+        cur = next_opt(v);
+    }
+    // sum = 3+2+1+0 = 6
+    printf("%d\n", sum);
+    return 0;
+}

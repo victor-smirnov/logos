@@ -1,0 +1,23 @@
+package match_guard;
+extern fn printf(fmt: *const u8, ...) -> i32;
+enum Opt { Some(i32), None }
+fn sign(n: i32) -> i32 {
+    match n {
+        x if x < 0  => { return -1; }
+        x if x == 0 => { return 0; }
+        x            => { return 1; }
+    }
+}
+fn opt_sign(o: Opt) -> i32 {
+    match o {
+        Opt::Some(v) if v > 0 => { return 1; }
+        Opt::Some(v)          => { return -1; }
+        Opt::None             => { return 0; }
+    }
+}
+fn main() -> i32 {
+    let a = sign(-5); let b = sign(0); let c = sign(7);
+    let d = opt_sign(Opt::Some(10)); let e = opt_sign(Opt::Some(-3)); let f = opt_sign(Opt::None);
+    printf("%d %d %d %d %d %d\n", a, b, c, d, e, f);
+    return 0;
+}

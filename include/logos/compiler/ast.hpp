@@ -180,6 +180,9 @@ inline constexpr Code TRY_EXPR        {"TRY_EXPR",        122};  // expr? — pr
 
 // Visibility
 inline constexpr Key IS_PUB {"IS_PUB", 33};           // visibility flag (1 = pub)
+inline constexpr Key PAT    {"PAT",    34};            // pattern for if let / while let
+inline constexpr Key GUARD  {"GUARD",  35};            // guard condition in match arm
+inline constexpr Key EXPR   {"EXPR",   36};            // expression-body match arm value
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;
 

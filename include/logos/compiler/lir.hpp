@@ -57,8 +57,9 @@ struct PatVariantData {
 using Pattern = std::variant<PatVariant, PatInt, PatBool, PatWild, PatVariantData>;
 
 struct LMatchArm {
-    Pattern   pat;
-    LBlockPtr body;   // arm body (single stmts are wrapped in a 1-stmt block)
+    Pattern                  pat;
+    LBlockPtr                body;   // arm body (single stmts are wrapped in a 1-stmt block)
+    std::optional<LExprPtr>  guard;  // if-guard: arm only matches when guard is true
 };
 
 // ── Expression node payloads ──────────────────────────────────────────────
@@ -157,6 +158,19 @@ struct EIfExpr {
     LExprPtr else_val;
 };
 
+// Match expression arm: pattern [guard] => expr
+struct EMatchArm {
+    Pattern                  pat;
+    std::optional<LExprPtr>  guard;
+    LExprPtr                 value;
+};
+
+// match expr { pat => val, ... } — produces a value
+struct EMatchExpr {
+    LExprPtr               scrut;
+    std::vector<EMatchArm> arms;
+};
+
 // Tuple literal: (a, b, c)
 struct ETupleLit {
     std::vector<LExprPtr> elems;
@@ -233,7 +247,7 @@ struct LExpr {
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
         EClosureBox, EClosureCall, EFormatCall, EPackExpand,
-        ETry
+        ETry, EMatchExpr
     > kind;
 };
 
@@ -273,6 +287,7 @@ struct SFor {
 struct SLoop      { LBlockPtr body; };
 struct SBreak     {};
 struct SContinue  {};
+struct SBlock     { LBlockPtr body; };  // scoping block statement
 
 struct SFieldWrite {
     std::string receiver;
@@ -329,7 +344,7 @@ struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
-        SBreak, SContinue, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
+        SBreak, SContinue, SBlock, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
         SDrop
     > kind;
 };

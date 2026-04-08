@@ -54,6 +54,9 @@
     ITER        = 31
     IS_VARIADIC = 32
     IS_PUB      = 33
+    PAT         = 34
+    GUARD       = 35
+    EXPR        = 36
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -466,10 +469,18 @@
     match_stmt <- KW_MATCH expr LBRACE match_arm* RBRACE
                => { CODE: MATCH, VALUE: $2, ITEMS: $... }
 
-    match_arm <- pattern FATARROW block COMMA?
+    match_arm <- pattern KW_IF expr FATARROW block COMMA?
+              => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, BODY: $5 }
+              / pattern KW_IF expr FATARROW stmt
+              => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, BODY: $5 }
+              / pattern FATARROW block COMMA?
               => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
               / pattern FATARROW stmt
               => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
+              / pattern KW_IF expr FATARROW expr COMMA?
+              => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, EXPR: $5 }
+              / pattern FATARROW expr COMMA?
+              => { CODE: MATCH_ARM, LHS: $1, EXPR: $3 }
 
     pat_binding <- IDENT
                 => { CODE: PAT_WILD, NAME: $1 }
@@ -503,7 +514,9 @@
               / KW_LET IDENT ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, VALUE: $4 }
 
-    while_stmt <- KW_WHILE expr block
+    while_stmt <- KW_WHILE KW_LET pattern ASSIGN expr block
+               => { CODE: WHILE, PAT: $3, VALUE: $5, BODY: $6 }
+             / KW_WHILE expr block
                => { CODE: WHILE, COND: $2, BODY: $3 }
 
     return_stmt <- KW_RETURN expr? SEMI
@@ -526,7 +539,11 @@
     deref_write_stmt <- STAR unary_expr ASSIGN expr SEMI
                      => { CODE: DEREF_WRITE, NAME: $2, VALUE: $4 }
 
-    if_expr <- KW_IF expr block KW_ELSE (if_expr / block)
+    if_expr <- KW_IF KW_LET pattern ASSIGN expr block KW_ELSE (if_expr / block)
+            => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6, ELSE: $8 }
+             / KW_IF KW_LET pattern ASSIGN expr block
+            => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6 }
+             / KW_IF expr block KW_ELSE (if_expr / block)
             => { CODE: IF, COND: $2, THEN: $3, ELSE: $5 }
              / KW_IF expr block
             => { CODE: IF, COND: $2, THEN: $3 }
@@ -597,6 +614,7 @@
                   / paren_expr       // (expr)
                   / closure_expr     // |x: i32| -> i32 { ... }
                   / if_expr          // if cond { ... } else { ... }  — as expression
+                  / match_stmt       // match expr { ... }  — as expression
                   / call_expr        // IDENT(args) / Class::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
                   / STRING   => { CODE: LIT_STR,  VALUE: $1 }

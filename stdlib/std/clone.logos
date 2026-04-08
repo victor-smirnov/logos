@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.clone
+//
+// Clone — explicit deep copy.
+// Copy  — marker trait for types that can be bitwise-copied.
+
+package std.clone;
+
+trait Clone {
+    fn clone(self: Self) -> Self;
+}
+
+// Copy is a marker trait — no methods.
+// Types implementing Copy are safe to bitwise-copy without invalidating the original.
+trait Copy {}

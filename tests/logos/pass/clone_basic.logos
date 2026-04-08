@@ -1,0 +1,19 @@
+package clone_test;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Clone { fn clone(self: Self) -> Self; }
+
+struct Point { x: i32; y: i32; }
+
+impl Clone for Point {
+    fn clone(self: Point) -> Point {
+        return Point { x: self.x, y: self.y };
+    }
+}
+
+fn main() -> i32 {
+    let p1 = Point { x: 3, y: 7 };
+    let p2 = p1.clone();
+    printf("%d %d\n", p2.x, p2.y);
+    return 0;
+}

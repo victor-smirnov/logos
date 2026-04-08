@@ -374,6 +374,7 @@ private:
     const std::vector<std::string>* filenames_ = nullptr;
     std::string  file_;
     uint32_t     node_line_ = 0;
+    uint32_t     tmp_var_count_ = 0;   // for generating unique internal names
 
     uint32_t get_line(TinyMapView node) noexcept {
         if (node.is_null()) return 0;
@@ -2049,6 +2050,7 @@ private:
         case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
         case la::NEW_EXPR:    return lower_new_expr(expr);
         case la::IF:          return lower_if_expr(expr);
+        case la::MATCH:       return lower_match_expr(expr);
         case la::CLOSURE_EXPR: return lower_closure_expr(expr);
 
         case la::TUPLE_LIT: {
@@ -3858,7 +3860,142 @@ private:
         return make_stmt(node_line_, lir::SReturn{nullptr});
     }
 
+    // Build a LIR pattern from a pattern AST node + scrutinee type.
+    // Shared by lower_match, lower_if_let, lower_while_let.
+    lir::Pattern build_pattern(TinyMapView pnode, const LogosType* scrut_type) {
+        int32_t pc = code_of(pnode);
+        if (pc == la::PAT_VARIANT) {
+            auto pename = std::string(str_of(pnode.get(la::NAME.code)));
+            auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+            int32_t disc = 0;
+            auto eit = enums_.find(pename);
+            if (eit == enums_.end()) {
+                error(std::format("pattern: unknown enum '{}'", pename));
+            } else {
+                if (scrut_type->kind == LogosType::Kind::Enum &&
+                    scrut_type->enum_name != pename)
+                    error(std::format("pattern: enum '{}' != scrutinee '{}'",
+                          pename, type_str(scrut_type)));
+                bool found = false;
+                for (auto& v : eit->second.variants)
+                    if (v.name == pvname) { disc = v.value; found = true; break; }
+                if (!found)
+                    error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
+            }
+            return lir::PatVariant{pename, pvname, disc};
+        }
+        if (pc == la::PAT_VARIANT_DATA) {
+            auto pename = std::string(str_of(pnode.get(la::NAME.code)));
+            auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+            int32_t disc = 0;
+            const SemaVariantInfo* vinfo = nullptr;
+            auto eit = enums_.find(pename);
+            if (eit == enums_.end()) {
+                error(std::format("pattern: unknown enum '{}'", pename));
+            } else {
+                for (auto& v : eit->second.variants)
+                    if (v.name == pvname) { vinfo = &v; disc = v.value; break; }
+                if (!vinfo)
+                    error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
+            }
+            std::vector<std::string> bindings;
+            if (pnode.has_key(la::ARGS)) {
+                AnyVal aav = pnode.get(la::ARGS.code);
+                if (!aav.is_null() && aav.is_pointer()) {
+                    auto blist = map_of(aav);
+                    if (blist.has_key(la::ITEMS)) {
+                        auto bitems = arr_of(blist.get(la::ITEMS.code));
+                        for (uint64_t j = 0; j < bitems.size(); ++j) {
+                            auto bnode = map_of(bitems.get(j));
+                            bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
+                        }
+                    }
+                }
+            }
+            std::vector<const LogosType*> binding_types;
+            if (vinfo) {
+                SemaSubst subst;
+                if (scrut_type->kind == LogosType::Kind::Enum &&
+                    !scrut_type->type_args.empty()) {
+                    auto& einfo = eit->second;
+                    for (size_t k = 0; k < einfo.type_params.size() &&
+                                        k < scrut_type->type_args.size(); ++k)
+                        subst[einfo.type_params[k].name] = scrut_type->type_args[k];
+                }
+                for (auto* pt : vinfo->payload_types)
+                    binding_types.push_back(subst.empty() ? pt : subst_type_sema(pt, subst));
+            }
+            if (bindings.size() != binding_types.size())
+                error(std::format("pattern {}::{}: expected {} bindings, got {}",
+                      pename, pvname, binding_types.size(), bindings.size()));
+            return lir::PatVariantData{pename, pvname, disc,
+                                       std::move(bindings), std::move(binding_types)};
+        }
+        if (pc == la::PAT_INT) {
+            auto sv = str_of(pnode.get(la::VALUE.code));
+            return lir::PatInt{(int32_t)std::strtol(sv.data(), nullptr, 10)};
+        }
+        if (pc == la::PAT_BOOL) {
+            AnyVal bv = pnode.get(la::VALUE.code);
+            bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
+            return lir::PatBool{bval};
+        }
+        // PAT_WILD or fallback
+        auto wname = str_of(pnode.get(la::NAME.code));
+        return lir::PatWild{std::string(wname)};
+    }
+
+    // Push pattern bindings into current scope (call after push_scope()).
+    // scrut_type is needed to bind named wildcards (e.g. `n` in `n if n > 0 =>`).
+    void bind_pattern(const lir::Pattern& pat,
+                      const LogosType* scrut_type = nullptr) {
+        if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
+            for (size_t i = 0; i < pvd->bindings.size() &&
+                                i < pvd->binding_types.size(); ++i)
+                define(pvd->bindings[i], pvd->binding_types[i]);
+        } else if (auto* pw = std::get_if<lir::PatWild>(&pat)) {
+            if (pw->name != "_" && scrut_type)
+                define(pw->name, scrut_type);
+        }
+    }
+
     lir::LStmt lower_if(TinyMapView node) {
+        // ── if let pattern = expr { ... } ─────────────────────────────
+        if (node.has_key(la::PAT)) {
+            auto scrut = node.has_key(la::VALUE)
+                ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+            const LogosType* scrut_type = scrut->type;
+
+            auto pat = build_pattern(map_of(node.get(la::PAT.code)), scrut_type);
+
+            // Then arm: pattern → then block
+            push_scope();
+            bind_pattern(pat, scrut_type);
+            lir::LBlockPtr then_body = std::make_unique<lir::LBlock>();
+            if (node.has_key(la::THEN))
+                *then_body = lower_block(map_of(node.get(la::THEN.code)));
+            pop_scope();
+
+            // Else arm: wildcard → else block (or empty)
+            lir::LBlockPtr else_body = std::make_unique<lir::LBlock>();
+            if (node.has_key(la::ELSE)) {
+                auto else_node = map_of(node.get(la::ELSE.code));
+                if (code_of(else_node) == la::BLOCK) {
+                    *else_body = lower_block(else_node);
+                } else {
+                    // else if: wrap in block
+                    else_body->stmts.push_back(lower_if(else_node));
+                }
+            }
+
+            lir::SMatch sm;
+            sm.scrut = std::move(scrut);
+            sm.arms.push_back({std::move(pat), std::move(then_body)});
+            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body)});
+            return make_stmt(node_line_, std::move(sm));
+        }
+
+        // ── regular if cond { ... } ────────────────────────────────────
         lir::LExprPtr cond;
         if (node.has_key(la::COND)) {
             cond = lower_expr(map_of(node.get(la::COND.code)));
@@ -3895,6 +4032,42 @@ private:
     }
 
     lir::LStmt lower_while(TinyMapView node) {
+        // ── while let pattern = expr { ... } ──────────────────────────
+        // Desugars to: loop { match expr { PAT => body, _ => break } }
+        if (node.has_key(la::PAT)) {
+            auto scrut = node.has_key(la::VALUE)
+                ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+            const LogosType* scrut_type = scrut->type;
+
+            auto pat = build_pattern(map_of(node.get(la::PAT.code)), scrut_type);
+
+            // Then arm: pattern → loop body
+            push_scope();
+            bind_pattern(pat, scrut_type);
+            lir::LBlockPtr then_body = std::make_unique<lir::LBlock>();
+            if (node.has_key(la::BODY)) {
+                ++loop_depth_;
+                *then_body = lower_block(map_of(node.get(la::BODY.code)));
+                --loop_depth_;
+            }
+            pop_scope();
+
+            // Else arm: wildcard → break
+            lir::LBlockPtr else_body = std::make_unique<lir::LBlock>();
+            else_body->stmts.push_back(make_stmt(node_line_, lir::SBreak{}));
+
+            lir::SMatch sm;
+            sm.scrut = std::move(scrut);
+            sm.arms.push_back({std::move(pat), std::move(then_body)});
+            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body)});
+
+            auto loop_body = std::make_unique<lir::LBlock>();
+            loop_body->stmts.push_back(make_stmt(node_line_, std::move(sm)));
+            lir::SLoop sl; sl.body = std::move(loop_body);
+            return make_stmt(node_line_, std::move(sl));
+        }
+
+        // ── regular while cond { ... } ─────────────────────────────────
         lir::LExprPtr cond;
         if (node.has_key(la::COND)) {
             cond = lower_expr(map_of(node.get(la::COND.code)));
@@ -3952,44 +4125,157 @@ private:
     }
 
     // ── for item in array — lowered to SForEach ─────────────────────
+    // ── for item in iterator — desugared to while-let loop ──────────
     lir::LStmt lower_for_each(TinyMapView node) {
         auto var_name = str_of(node.get(la::NAME.code));
 
         lir::LExprPtr iter = node.has_key(la::ITER)
             ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
 
-        // Determine array size from type
         const LogosType* iter_type = iter->type;
-        int64_t arr_size = 0;
-        const LogosType* elem_type = i32_t();
 
+        // ── array path (original) ────────────────────────────────────
         if (iter_type->kind == LogosType::Kind::Array) {
-            arr_size = (int64_t)iter_type->arr_size;
-            elem_type = iter_type->elem ? iter_type->elem : i32_t();
-        } else if (iter_type->kind != LogosType::Kind::Error) {
-            error(std::format("for-each: '{}' is not an array type, got {}",
-                  var_name, type_str(iter_type)));
+            int64_t arr_size = (int64_t)iter_type->arr_size;
+            const LogosType* elem_type = iter_type->elem ? iter_type->elem : i32_t();
+
+            push_scope();
+            define(var_name, elem_type, false);
+            auto body = std::make_unique<lir::LBlock>();
+            if (node.has_key(la::BODY)) {
+                ++loop_depth_;
+                *body = lower_block(map_of(node.get(la::BODY.code)));
+                --loop_depth_;
+            }
+            pop_scope();
+
+            lir::SForEach sfe;
+            sfe.var       = std::string(var_name);
+            sfe.iter      = std::move(iter);
+            sfe.elem_type = elem_type;
+            sfe.arr_size  = arr_size;
+            sfe.body      = std::move(body);
+            return make_stmt(node_line_, std::move(sfe));
         }
 
-        push_scope();
-        define(var_name, elem_type, false);
+        // ── iterator path: desugar to while-let loop ─────────────────
+        // Requires: iter_type has a `next()` method returning Option<T>
+        // Desugars: for x in iter { body }
+        //        → { let mut __iter = iter; while let Opt::Some(x) = __iter.next() { body } }
+        if (iter_type->kind != LogosType::Kind::Error) {
+            auto sname = struct_name_from_type(iter_type);
+            if (sname.empty()) {
+                error(std::format("for-in: '{}' is not iterable (not a struct)", type_str(iter_type)));
+                return make_stmt(node_line_, lir::SBreak{});
+            }
 
-        auto body = std::make_unique<lir::LBlock>();
-        if (node.has_key(la::BODY)) {
-            ++loop_depth_;
-            *body = lower_block(map_of(node.get(la::BODY.code)));
-            --loop_depth_;
+            auto mangled_next = std::string(sname) + "__next";
+            auto fit = funcs_.find(mangled_next);
+            if (fit == funcs_.end()) {
+                error(std::format("for-in: type '{}' has no `next()` method", sname));
+                return make_stmt(node_line_, lir::SBreak{});
+            }
+
+            // next() must return an enum (Option-like)
+            const LogosType* next_ret = fit->second.ret_type;
+            // Substitute type args if iterator is generic
+            if (!iter_type->type_args.empty()) {
+                auto sit = structs_.find(std::string(sname));
+                if (sit != structs_.end()) {
+                    SemaSubst subst;
+                    auto& tps = sit->second.type_params;
+                    for (size_t i = 0; i < tps.size() && i < iter_type->type_args.size(); ++i)
+                        subst[tps[i].name] = iter_type->type_args[i];
+                    next_ret = subst_type_sema(next_ret, subst);
+                }
+            }
+            if (next_ret->kind != LogosType::Kind::Enum) {
+                error(std::format("for-in: `{}.next()` must return an enum, got {}",
+                      sname, type_str(next_ret)));
+                return make_stmt(node_line_, lir::SBreak{});
+            }
+
+            // Find the payload variant (Some-like: first variant with payload)
+            const SemaVariantInfo* some_variant = nullptr;
+            auto eit = enums_.find(next_ret->enum_name);
+            if (eit == enums_.end()) {
+                error(std::format("for-in: enum '{}' not found", next_ret->enum_name));
+                return make_stmt(node_line_, lir::SBreak{});
+            }
+            for (auto& v : eit->second.variants)
+                if (!v.payload_types.empty()) { some_variant = &v; break; }
+            if (!some_variant) {
+                error(std::format("for-in: enum '{}' has no payload variant", next_ret->enum_name));
+                return make_stmt(node_line_, lir::SBreak{});
+            }
+
+            // Resolve element type (substitute generics from next_ret's type_args)
+            const LogosType* elem_type = some_variant->payload_types[0];
+            if (!next_ret->type_args.empty()) {
+                SemaSubst subst;
+                auto& tps = eit->second.type_params;
+                for (size_t i = 0; i < tps.size() && i < next_ret->type_args.size(); ++i)
+                    subst[tps[i].name] = next_ret->type_args[i];
+                elem_type = subst_type_sema(elem_type, subst);
+            }
+
+            // Synthesize: let mut __iter = iter
+            std::string iter_var = "__for_iter_" + std::to_string(tmp_var_count_++);
+            lir::SLet let_iter;
+            let_iter.name   = iter_var;
+            let_iter.type   = iter_type;
+            let_iter.is_mut = true;
+            let_iter.value  = std::move(iter);
+
+            // Build outer block: { let mut __iter = iter; loop { match __iter.next() ... } }
+            auto outer_block = std::make_unique<lir::LBlock>();
+            outer_block->stmts.push_back(make_stmt(node_line_, std::move(let_iter)));
+
+            // Synthesize __iter.next() call expression (inside the loop)
+            auto make_next_call = [&]() -> lir::LExprPtr {
+                auto iter_ref = make_expr(iter_type, lir::EVarRef{iter_var});
+                return make_expr(next_ret,
+                    lir::EMethodCall{std::move(iter_ref), "next", {}, -1});
+            };
+
+            // Then arm: Some(x) → body
+            lir::PatVariantData some_pat;
+            some_pat.enum_name = next_ret->enum_name;
+            some_pat.variant   = some_variant->name;
+            some_pat.disc         = some_variant->value;
+            some_pat.bindings     = {std::string(var_name)};
+            some_pat.binding_types = {elem_type};
+
+            push_scope();
+            define(iter_var, iter_type, true);
+            define(std::string(var_name), elem_type, false);
+            auto then_body = std::make_unique<lir::LBlock>();
+            if (node.has_key(la::BODY)) {
+                ++loop_depth_;
+                *then_body = lower_block(map_of(node.get(la::BODY.code)));
+                --loop_depth_;
+            }
+            pop_scope();
+
+            // Else arm: _ → break
+            auto else_body = std::make_unique<lir::LBlock>();
+            else_body->stmts.push_back(make_stmt(node_line_, lir::SBreak{}));
+
+            lir::SMatch sm;
+            sm.scrut = make_next_call();
+            sm.arms.push_back({lir::Pattern{std::move(some_pat)}, std::move(then_body)});
+            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body)});
+
+            auto loop_body = std::make_unique<lir::LBlock>();
+            loop_body->stmts.push_back(make_stmt(node_line_, std::move(sm)));
+            lir::SLoop sl; sl.body = std::move(loop_body);
+            outer_block->stmts.push_back(make_stmt(node_line_, std::move(sl)));
+
+            // Wrap in a block statement
+            return make_stmt(node_line_, lir::SBlock{std::move(outer_block)});
         }
 
-        pop_scope();
-
-        lir::SForEach sfe;
-        sfe.var       = std::string(var_name);
-        sfe.iter      = std::move(iter);
-        sfe.elem_type = elem_type;
-        sfe.arr_size  = arr_size;
-        sfe.body      = std::move(body);
-        return make_stmt(node_line_, std::move(sfe));
+        return make_stmt(node_line_, lir::SBreak{});
     }
 
     lir::LStmt lower_loop(TinyMapView node) {
@@ -4176,102 +4462,24 @@ private:
                 if (code_of(arm) != la::MATCH_ARM) continue;
 
                 // Build pattern
-                lir::Pattern pat = lir::PatWild{"_"};
-                if (arm.has_key(la::LHS)) {
-                    auto pnode = map_of(arm.get(la::LHS.code));
-                    int32_t pc = code_of(pnode);
-                    if (pc == la::PAT_VARIANT) {
-                        auto pename = std::string(str_of(pnode.get(la::NAME.code)));
-                        auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
-                        int32_t disc = 0;
-                        auto eit = enums_.find(pename);
-                        if (eit == enums_.end()) {
-                            error(std::format("match pattern: unknown enum '{}'", pename));
-                        } else {
-                            if (scrut_type->kind == LogosType::Kind::Enum &&
-                                scrut_type->enum_name != pename)
-                                error(std::format("match: enum '{}' != scrutinee '{}'",
-                                      pename, type_str(scrut_type)));
-                            bool found = false;
-                            for (auto& v : eit->second.variants)
-                                if (v.name == pvname) { disc = v.value; found = true; break; }
-                            if (!found)
-                                error(std::format("match: enum '{}' has no variant '{}'",
-                                      pename, pvname));
-                        }
-                        pat = lir::PatVariant{pename, pvname, disc};
-                    } else if (pc == la::PAT_VARIANT_DATA) {
-                        auto pename = std::string(str_of(pnode.get(la::NAME.code)));
-                        auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
-                        int32_t disc = 0;
-                        const SemaVariantInfo* vinfo = nullptr;
-                        auto eit = enums_.find(pename);
-                        if (eit == enums_.end()) {
-                            error(std::format("match pattern: unknown enum '{}'", pename));
-                        } else {
-                            for (auto& v : eit->second.variants)
-                                if (v.name == pvname) { vinfo = &v; disc = v.value; break; }
-                            if (!vinfo)
-                                error(std::format("match: enum '{}' has no variant '{}'",
-                                      pename, pvname));
-                        }
-                        // Read binding names from ARGS (pat_binding_list)
-                        std::vector<std::string> bindings;
-                        if (pnode.has_key(la::ARGS)) {
-                            AnyVal aav = pnode.get(la::ARGS.code);
-                            if (!aav.is_null() && aav.is_pointer()) {
-                                auto blist = map_of(aav);
-                                if (blist.has_key(la::ITEMS)) {
-                                    auto bitems = arr_of(blist.get(la::ITEMS.code));
-                                    for (uint64_t j = 0; j < bitems.size(); ++j) {
-                                        auto bnode = map_of(bitems.get(j));
-                                        bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
-                                    }
-                                }
-                            }
-                        }
-                        // Resolve binding types from variant payload
-                        std::vector<const LogosType*> binding_types;
-                        if (vinfo) {
-                            // Substitute TypeVars using scrut's type_args
-                            SemaSubst subst;
-                            if (scrut_type->kind == LogosType::Kind::Enum &&
-                                !scrut_type->type_args.empty()) {
-                                auto& einfo = eit->second;
-                                for (size_t k = 0; k < einfo.type_params.size() &&
-                                                    k < scrut_type->type_args.size(); ++k)
-                                    subst[einfo.type_params[k].name] = scrut_type->type_args[k];
-                            }
-                            for (auto* pt : vinfo->payload_types)
-                                binding_types.push_back(subst.empty() ? pt : subst_type_sema(pt, subst));
-                        }
-                        if (bindings.size() != binding_types.size()) {
-                            error(std::format("match {}::{}: expected {} bindings, got {}",
-                                  pename, pvname,
-                                  binding_types.size(), bindings.size()));
-                        }
-                        pat = lir::PatVariantData{pename, pvname, disc,
-                                                   std::move(bindings), std::move(binding_types)};
-                    } else if (pc == la::PAT_INT) {
-                        auto sv = str_of(pnode.get(la::VALUE.code));
-                        pat = lir::PatInt{(int32_t)std::strtol(sv.data(), nullptr, 10)};
-                    } else if (pc == la::PAT_BOOL) {
-                        AnyVal bv = pnode.get(la::VALUE.code);
-                        bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
-                        pat = lir::PatBool{bval};
-                    } else if (pc == la::PAT_WILD) {
-                        auto wname = str_of(pnode.get(la::NAME.code));
-                        pat = lir::PatWild{std::string(wname)};
-                    }
-                }
+                lir::Pattern pat = arm.has_key(la::LHS)
+                    ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
+                    : lir::PatWild{"_"};
 
                 // Build body block — push pattern bindings into scope
                 push_scope();
-                if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
-                    for (size_t bi = 0; bi < pvd->bindings.size() &&
-                                        bi < pvd->binding_types.size(); ++bi)
-                        define(pvd->bindings[bi], pvd->binding_types[bi]);
+                bind_pattern(pat, scrut_type);
+
+                // Optional guard: `pattern if expr =>`
+                std::optional<lir::LExprPtr> guard;
+                if (arm.has_key(la::GUARD)) {
+                    auto g = lower_expr(map_of(arm.get(la::GUARD.code)));
+                    if (g->type->kind != LogosType::Kind::Bool &&
+                        g->type->kind != LogosType::Kind::Error)
+                        error("match guard must be bool");
+                    guard = std::move(g);
                 }
+
                 lir::LBlockPtr body = std::make_unique<lir::LBlock>();
                 if (arm.has_key(la::BODY)) {
                     auto body_node = map_of(arm.get(la::BODY.code));
@@ -4280,9 +4488,13 @@ private:
                     } else {
                         body->stmts.push_back(lower_stmt(body_node));
                     }
+                } else if (arm.has_key(la::EXPR)) {
+                    // Expression-body arm in statement context: evaluate and discard
+                    auto val = lower_expr(map_of(arm.get(la::EXPR.code)));
+                    body->stmts.push_back(make_stmt(node_line_, lir::SExprStmt{std::move(val)}));
                 }
                 pop_scope();
-                smatch.arms.push_back({std::move(pat), std::move(body)});
+                smatch.arms.push_back({std::move(pat), std::move(body), std::move(guard)});
             }
         }
         // ── Exhaustiveness check ─────────────────────────────────
@@ -4331,6 +4543,73 @@ private:
         }
 
         return make_stmt(node_line_, std::move(smatch));
+    }
+
+    // ── lower_match_expr: match used as an expression (all arms have EXPR) ──
+    lir::LExprPtr lower_match_expr(TinyMapView node) {
+        lir::LExprPtr scrut;
+        const LogosType* scrut_type = error_t();
+        if (node.has_key(la::VALUE)) {
+            scrut = lower_expr(map_of(node.get(la::VALUE.code)));
+            scrut_type = scrut->type;
+        } else { scrut = error_expr(); }
+
+        // Check that all arms use EXPR (expression body).
+        // Note: ITEMS includes the scrutinee as first element; skip non-MATCH_ARM.
+        bool all_expr = true;
+        if (node.has_key(la::ITEMS)) {
+            auto arms = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < arms.size(); ++i) {
+                auto arm = map_of(arms.get(i));
+                if (code_of(arm) != la::MATCH_ARM) continue;
+                if (!arm.has_key(la::EXPR)) { all_expr = false; break; }
+            }
+        }
+        if (!all_expr) {
+            error("match as expression requires all arms to have expression bodies (pattern => expr,)");
+            return error_expr();
+        }
+
+        lir::EMatchExpr me;
+        me.scrut = std::move(scrut);
+        const LogosType* result_type = error_t();
+
+        if (node.has_key(la::ITEMS)) {
+            auto arms = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < arms.size(); ++i) {
+                auto arm = map_of(arms.get(i));
+                if (code_of(arm) != la::MATCH_ARM) continue;
+
+                lir::Pattern pat = arm.has_key(la::LHS)
+                    ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
+                    : lir::PatWild{"_"};
+
+                push_scope();
+                bind_pattern(pat, scrut_type);
+
+                std::optional<lir::LExprPtr> guard;
+                if (arm.has_key(la::GUARD)) {
+                    auto g = lower_expr(map_of(arm.get(la::GUARD.code)));
+                    if (g->type->kind != LogosType::Kind::Bool &&
+                        g->type->kind != LogosType::Kind::Error)
+                        error("match guard must be bool");
+                    guard = std::move(g);
+                }
+
+                lir::LExprPtr val = lower_expr(map_of(arm.get(la::EXPR.code)));
+                if (result_type->kind == LogosType::Kind::Error)
+                    result_type = val->type;
+
+                pop_scope();
+                lir::EMatchArm ema;
+                ema.pat   = std::move(pat);
+                ema.guard = std::move(guard);
+                ema.value = std::move(val);
+                me.arms.push_back(std::move(ema));
+            }
+        }
+
+        return make_expr(result_type, std::move(me));
     }
 
     // ── lower_fn ─────────────────────────────────────────────────
