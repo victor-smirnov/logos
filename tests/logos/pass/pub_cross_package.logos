@@ -1,0 +1,9 @@
+// Cross-package: calling a pub function from another package is allowed
+package pub_cross_package;
+
+use mylib;
+
+fn main() -> i32 {
+    let result = make_point(3, 4);
+    return result;
+}

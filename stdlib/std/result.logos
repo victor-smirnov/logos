@@ -12,7 +12,7 @@ enum Result<T, E> {
 }
 
 // Unwrap Ok value or return a default.
-fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {
+pub fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {
     match r {
         Result::Ok(v)  => { return v; }
         Result::Err(e) => { return def; }
@@ -20,7 +20,7 @@ fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {
 }
 
 // Return true if the result is Ok.
-fn is_ok_i32(r: Result<i32, i32>) -> bool {
+pub fn is_ok_i32(r: Result<i32, i32>) -> bool {
     match r {
         Result::Ok(v)  => { return true; }
         Result::Err(e) => { return false; }
@@ -28,7 +28,7 @@ fn is_ok_i32(r: Result<i32, i32>) -> bool {
 }
 
 // Return true if the result is Err.
-fn is_err_i32(r: Result<i32, i32>) -> bool {
+pub fn is_err_i32(r: Result<i32, i32>) -> bool {
     match r {
         Result::Ok(v)  => { return false; }
         Result::Err(e) => { return true; }

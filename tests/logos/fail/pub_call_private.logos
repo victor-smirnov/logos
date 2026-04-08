@@ -1,0 +1,9 @@
+// Cross-package: calling a private function should fail
+package pub_call_private;
+
+use mylib;
+
+fn main() -> i32 {
+    let r = internal_helper(5);  // private fn — should error
+    return r;
+}

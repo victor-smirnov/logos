@@ -1,0 +1,13 @@
+// Bug: reassigning ref variable to local should be caught
+package assign_ref_dangling;
+
+struct Val { x: i32; }
+
+fn bad<'a>(p: &'a Val) -> &'a Val {
+    let mut r: &'a Val = p;
+    let local = Val { x: 7 };
+    r = &local;  // rebind r to local — should error: provenance is local
+    return r;
+}
+
+fn main() -> i32 { return 0; }

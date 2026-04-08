@@ -323,6 +323,12 @@ class BorrowChecker {
                 return prov_of(k.receiver);
             if constexpr (std::is_same_v<K, lir::EIfExpr>)
                 return merge_prov(prov_of(k.then_val), prov_of(k.else_val));
+            if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
+                RefProv merged = {};
+                for (auto& arm : k.arms)
+                    merged = merge_prov(merged, prov_of(arm.value));
+                return merged;
+            }
             // ECall / EMethodCall / EStructLit / literals — value is caller-owned,
             // not a borrowed reference; leave provenance empty (= unknown/safe).
             return {};
@@ -477,6 +483,9 @@ class BorrowChecker {
                 }
                 if (states_.count(s.name))
                     states_[s.name] = VarState{};  // re-own
+                // Update provenance for ref variable reassignment.
+                if (s.value && (prov_.count(s.name) || is_ref_kind(s.value->type)))
+                    prov_[s.name] = prov_of(s.value);
 
             // ── Return ───────────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SReturn>) {

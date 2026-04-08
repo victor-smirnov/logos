@@ -419,6 +419,7 @@ private:
 
     const std::vector<std::string>* filenames_ = nullptr;
     std::string  file_;
+    std::string  cur_package_;
     uint32_t     node_line_ = 0;
     uint32_t     tmp_var_count_ = 0;   // for generating unique internal names
 
@@ -660,8 +661,8 @@ private:
     const LogosType* class_field_type(std::string_view cname, std::string_view fname) const {
         auto it = classes_.find(std::string(cname));
         if (it == classes_.end()) return nullptr;
-        for (auto& [fn, ft] : it->second.all_fields)
-            if (fn == fname) return ft;
+        for (auto& f : it->second.all_fields)
+            if (f.name == fname) return f.type;
         return nullptr;
     }
 
@@ -679,11 +680,12 @@ private:
 
     struct SemaFieldInfo  { std::string_view name; const LogosType* type; bool is_pub = false; };
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params;
-                            bool is_pub = false; std::string source_file; };
+                            bool is_pub = false; std::string source_file;
+                            std::string package; };
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             bool is_pub = false; bool is_const = false;
-                            std::string source_file; };
+                            std::string source_file; std::string package; };
     struct SemaVariantInfo{
         std::string_view name; int32_t value;
         std::vector<const LogosType*> payload_types;  // empty = no payload
@@ -692,12 +694,14 @@ private:
         std::vector<SemaVariantInfo> variants;
         std::vector<TypeParam> type_params;  // for generic enums
     };
+    struct ClassFieldInfo { std::string name; const LogosType* type; bool is_pub = false; };
     struct SemaClassInfo  {
         std::string parent_name;
         std::vector<const LogosType*> parent_type_args;  // type args passed to parent (e.g. [TypeVar(T)])
         bool is_abstract = false;
+        std::string package;
         // All fields accessible on this class (parent fields first, then own).
-        std::vector<std::pair<std::string, const LogosType*>> all_fields;
+        std::vector<ClassFieldInfo> all_fields;
         // vtable_order: full vtable including inherited slots (parent methods first).
         // Each entry is the mangled method name, e.g. "Animal__speak".
         std::vector<std::string> vtable_order;
@@ -1195,11 +1199,27 @@ private:
             holder_ = asts[ai].holder();
             file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
             auto root = asts[ai].root_object().as_tiny_map();
+            cur_package_ = read_package_name(root);
             collect_module(root);
         }
+        cur_package_ = {};
 
         // Third pass: build class inheritance (all_fields + full vtable_order).
         finalize_classes();
+    }
+
+    // Extract the package name from a module root node (la::NAME field).
+    std::string read_package_name(TinyMapView mod) {
+        if (!mod.has_key(la::NAME)) return {};
+        return std::string(str_of(mod.get(la::NAME.code)));
+    }
+
+    // Report error if item is private and caller is in a different package.
+    void check_pub_access(bool is_pub, const std::string& def_package,
+                          std::string_view item_name) {
+        if (is_pub || def_package.empty() || cur_package_.empty()) return;
+        if (def_package != cur_package_)
+            error(std::format("'{}' is private to package '{}'", item_name, def_package));
     }
 
     void collect_module(TinyMapView mod) {
@@ -1527,13 +1547,17 @@ private:
             std::string concrete = concrete_struct_name(inst_type);
 
             SemaStructInfo info;
+            info.package = cur_package_;
             if (node.has_key(la::FIELDS)) {
                 auto fields = arr_of(node.get(la::FIELDS.code));
                 for (uint64_t i = 0; i < fields.size(); ++i) {
                     auto fnode = map_of(fields.get(i));
                     auto fname = str_of(fnode.get(la::NAME.code));
                     auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
-                    info.fields.push_back({fname, ftype});
+                    bool fpub = fnode.has_key(la::IS_PUB) &&
+                                fnode.get(la::IS_PUB.code).is_value() &&
+                                fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+                    info.fields.push_back({fname, ftype, fpub});
                 }
             }
             struct_specs_sema_[std::move(concrete)] = std::move(info);
@@ -1552,6 +1576,7 @@ private:
         ctx_ = std::format("class {}", cname);
 
         SemaClassInfo& info = classes_[cname];
+        info.package = cur_package_;
 
         // Read type parameters (generic classes: class Box<T> { ... })
         info.type_params = read_type_params(node);
@@ -1589,8 +1614,11 @@ private:
                 if (mc == la::FIELD_DEF) {
                     auto fname = str_of(m.get(la::NAME.code));
                     auto ftype = resolve_type(map_of(m.get(la::TYPE.code)));
+                    bool fpub = m.has_key(la::IS_PUB) &&
+                                m.get(la::IS_PUB.code).is_value() &&
+                                m.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
                     // Own fields (all_fields built in finalize_classes)
-                    info.all_fields.push_back({std::string(fname), ftype});
+                    info.all_fields.push_back({std::string(fname), ftype, fpub});
 
                 } else if (mc == la::FN || mc == la::ABSTRACT_FN) {
                     collect_fn(m, cname);
@@ -1656,6 +1684,7 @@ private:
         ctx_ = std::format("struct {}", sname);
         SemaStructInfo info;
         info.type_params = read_type_params(node);
+        info.package = cur_package_;
         push_type_params(info.type_params);
         if (node.has_key(la::FIELDS)) {
             auto fields = arr_of(node.get(la::FIELDS.code));
@@ -2035,8 +2064,10 @@ private:
             AnyVal av = node.get(la::IS_VARARG.code);
             info.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
-        // Visibility: pub fn → is_pub = true
-        if (node.has_key(la::IS_PUB)) {
+        // Visibility: pub fn → is_pub = true; extern fn is always pub (C FFI).
+        if (code_of(node) == la::EXTERN_FN) {
+            info.is_pub = true;
+        } else if (node.has_key(la::IS_PUB)) {
             AnyVal av = node.get(la::IS_PUB.code);
             info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
@@ -2046,6 +2077,7 @@ private:
             info.is_const = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
         info.source_file = file_;
+        info.package = cur_package_;
         pop_type_params(info.type_params);
         // Prepend impl-level type params AFTER the push/pop cycle so they remain
         // in current_type_params_ (managed by collect_impl's push/pop).
@@ -2583,6 +2615,12 @@ private:
             error(std::format("call to undefined function '{}'", callee));
             return make_expr(error_t(), lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
         }
+        // Pub check.
+        {
+            const SemaFuncInfo* fi_chk = (fit != funcs_.end()) ? &fit->second
+                                       : &git->second;
+            check_pub_access(fi_chk->is_pub, fi_chk->package, callee);
+        }
 
         // Determine if we should try inference
         bool try_inference = false;
@@ -2922,6 +2960,7 @@ private:
             error(std::format("call to undefined function '{}'", callee));
             return make_expr(error_t(), lir::ECall{std::string(callee), {}, {}});
         }
+        check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
 
         // Resolve explicit type arguments from TYPE_PARAMS
         std::vector<const LogosType*> type_args;
@@ -3028,6 +3067,7 @@ private:
         }
 
         auto& fi = fit->second;
+        check_pub_access(fi.is_pub, fi.package, mangled);
 
         // Build substitution map for generic class: T → i32, etc.
         SemaSubst class_subst;
@@ -3249,6 +3289,7 @@ private:
         }
 
         auto& fi = fit->second;
+        check_pub_access(fi.is_pub, fi.package, mangled);
 
         // Build TypeVar→concrete substitution from the receiver's struct type args.
         // This lets us check e.g. Vec<i32>::push(val: T) with T resolved to i32.
@@ -3306,6 +3347,18 @@ private:
                 error(std::format("field read: class '{}' has no field '{}'", cname_sv, field_name));
                 return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
             }
+            // Pub check for class field reads.
+            {
+                auto cit = classes_.find(std::string(cname_sv));
+                if (cit != classes_.end()) {
+                    for (auto& f : cit->second.all_fields) {
+                        if (f.name == field_name) {
+                            check_pub_access(f.is_pub, cit->second.package, field_name);
+                            break;
+                        }
+                    }
+                }
+            }
             return make_expr(ft, lir::EFieldRead{std::move(recv), std::string(field_name)});
         }
 
@@ -3324,6 +3377,30 @@ private:
             error(std::format("field read: struct '{}' has no field '{}'", sname, field_name));
             return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
         }
+        // Pub check: private fields are accessible only within the defining package.
+        {
+            auto sit = structs_.find(std::string(sname));
+            if (sit != structs_.end()) {
+                for (auto& f : sit->second.fields) {
+                    if (f.name == field_name) {
+                        check_pub_access(f.is_pub, sit->second.package, field_name);
+                        break;
+                    }
+                }
+            }
+            // Specs: check against their own SemaStructInfo (which also stores package).
+            else {
+                auto spec_it = struct_specs_sema_.find(std::string(sname));
+                if (spec_it != struct_specs_sema_.end()) {
+                    for (auto& f : spec_it->second.fields) {
+                        if (f.name == field_name) {
+                            check_pub_access(f.is_pub, spec_it->second.package, field_name);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         return make_expr(ft, lir::EFieldRead{std::move(recv), std::string(field_name)});
     }
 
@@ -3335,6 +3412,17 @@ private:
             return error_expr();
         }
         auto& sinfo = sit->second;
+
+        // Pub check: struct with private fields can only be constructed within its package.
+        if (sinfo.package != cur_package_ && !sinfo.package.empty() && !cur_package_.empty()) {
+            for (auto& f : sinfo.fields) {
+                if (!f.is_pub) {
+                    error(std::format("cannot construct '{}' from package '{}': field '{}' is private",
+                          sname, cur_package_, f.name));
+                    break;
+                }
+            }
+        }
 
         // Lower all field values first (without validation), collecting names and types.
         std::vector<std::pair<std::string, lir::LExprPtr>> fields;
@@ -3781,7 +3869,7 @@ private:
 
         // Validate all fields are initialized and no extras
         std::unordered_map<std::string, bool> initialized;
-        for (auto& [fn, ft] : cinfo.all_fields) initialized[fn] = false;
+        for (auto& f : cinfo.all_fields) initialized[f.name] = false;
         for (auto& [fname, fval] : fields) {
             auto it = initialized.find(fname);
             if (it == initialized.end()) {
@@ -3789,13 +3877,13 @@ private:
             } else {
                 it->second = true;
                 // Find expected type; skip check if field type is TypeVar (checked post-mono)
-                for (auto& [fn, ft] : cinfo.all_fields) {
-                    if (fn == fname && ft->kind != LogosType::Kind::Error &&
-                        ft->kind != LogosType::Kind::TypeVar &&
+                for (auto& f : cinfo.all_fields) {
+                    if (f.name == fname && f.type->kind != LogosType::Kind::Error &&
+                        f.type->kind != LogosType::Kind::TypeVar &&
                         fval->type->kind != LogosType::Kind::Error &&
-                        !compat(fval->type, ft)) {
+                        !compat(fval->type, f.type)) {
                         error(std::format("'new {}' field '{}': expected {}, got {}",
-                              cname, fname, type_str(ft), type_str(fval->type)));
+                              cname, fname, type_str(f.type), type_str(fval->type)));
                     }
                 }
             }
@@ -3821,10 +3909,10 @@ private:
                 // Infer from field values
                 SemaSubst inferred;
                 for (auto& [fname, fval] : fields) {
-                    for (auto& [fn, ft] : cinfo.all_fields) {
-                        if (fn != fname) continue;
-                        if (ft->kind == LogosType::Kind::TypeVar) {
-                            auto& tv = ft->type_var_name;
+                    for (auto& f : cinfo.all_fields) {
+                        if (f.name != fname) continue;
+                        if (f.type->kind == LogosType::Kind::TypeVar) {
+                            auto& tv = f.type->type_var_name;
                             if (!inferred.count(tv)) {
                                 auto* vt = fval->type;
                                 if (vt->kind == LogosType::Kind::IntLit) vt = i32_t();
@@ -3881,6 +3969,7 @@ private:
         }
 
         auto& fi = fit->second;
+        check_pub_access(fi.is_pub, fi.package, mangled);
 
         uint64_t n_args = arg_exprs.size();
         if (n_args != fi.param_types.size()) {
@@ -4922,6 +5011,30 @@ private:
             error(std::format("field write: struct '{}' has no field '{}'", sname, field_name));
         if (!cname.empty() && !ft)
             error(std::format("field write: class '{}' has no field '{}'", cname, field_name));
+        // Pub check for struct field writes.
+        if (!sname.empty() && ft) {
+            auto sit = structs_.find(std::string(sname));
+            if (sit != structs_.end()) {
+                for (auto& f : sit->second.fields) {
+                    if (f.name == field_name) {
+                        check_pub_access(f.is_pub, sit->second.package, field_name);
+                        break;
+                    }
+                }
+            }
+        }
+        // Pub check for class field writes.
+        if (!cname.empty() && ft) {
+            auto cit = classes_.find(std::string(cname));
+            if (cit != classes_.end()) {
+                for (auto& f : cit->second.all_fields) {
+                    if (f.name == field_name) {
+                        check_pub_access(f.is_pub, cit->second.package, field_name);
+                        break;
+                    }
+                }
+            }
+        }
 
         lir::LExprPtr val = node.has_key(la::VALUE)
             ? lower_expr(map_of(node.get(la::VALUE.code)))
@@ -4975,6 +5088,30 @@ private:
         if (pointee && ft == nullptr) {
             error(std::format("deref-field-write: type '{}' has no field '{}'",
                               type_name, field_name));
+        }
+        // Pub check for struct fields.
+        if (pointee && pointee->kind == LogosType::Kind::Struct && ft) {
+            auto sit = structs_.find(std::string(pointee->struct_name));
+            if (sit != structs_.end()) {
+                for (auto& f : sit->second.fields) {
+                    if (f.name == field_name) {
+                        check_pub_access(f.is_pub, sit->second.package, field_name);
+                        break;
+                    }
+                }
+            }
+        }
+        // Pub check for class fields.
+        if (pointee && pointee->kind == LogosType::Kind::Class && ft) {
+            auto cit = classes_.find(std::string(type_name));
+            if (cit != classes_.end()) {
+                for (auto& f : cit->second.all_fields) {
+                    if (f.name == field_name) {
+                        check_pub_access(f.is_pub, cit->second.package, field_name);
+                        break;
+                    }
+                }
+            }
         }
 
         lir::LExprPtr val = node.has_key(la::VALUE)
@@ -5067,6 +5204,35 @@ private:
 
         if (!field_t)
             error(std::format("field index write: cannot resolve field '{}.{}'", recv_name, field_name));
+
+        // Pub check for struct fields.
+        if (base_t && field_t) {
+            auto sname = struct_name_from_type(base_t);
+            if (!sname.empty()) {
+                auto sit = structs_.find(std::string(sname));
+                if (sit != structs_.end()) {
+                    for (auto& f : sit->second.fields) {
+                        if (f.name == field_name) {
+                            check_pub_access(f.is_pub, sit->second.package, field_name);
+                            break;
+                        }
+                    }
+                }
+            }
+            // Pub check for class fields.
+            auto cname = class_name_from_type(base_t);
+            if (!cname.empty()) {
+                auto cit = classes_.find(std::string(cname));
+                if (cit != classes_.end()) {
+                    for (auto& f : cit->second.all_fields) {
+                        if (f.name == field_name) {
+                            check_pub_access(f.is_pub, cit->second.package, field_name);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
 
         if (field_t && field_t->kind != LogosType::Kind::Ptr &&
                        field_t->kind != LogosType::Kind::Ref &&
@@ -5807,8 +5973,8 @@ private:
                 parent_field_count = pit->second.all_fields.size();
         }
         for (size_t i = parent_field_count; i < cinfo.all_fields.size(); ++i) {
-            auto& [fname, ftype] = cinfo.all_fields[i];
-            cd.own_fields.push_back({fname, ftype});
+            auto& f = cinfo.all_fields[i];
+            cd.own_fields.push_back({f.name, f.type});
         }
 
         // Lower concrete methods and collect static methods separately
@@ -5836,8 +6002,10 @@ private:
             holder_ = asts[i].holder();
             file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
             auto root = asts[i].root_object().as_tiny_map();
+            cur_package_ = read_package_name(root);
             lower_module_items(root, prog);
         }
+        cur_package_ = {};
     }
 
     void lower_module_items(TinyMapView mod, lir::LProgram& prog) {

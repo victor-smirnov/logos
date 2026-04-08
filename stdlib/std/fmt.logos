@@ -87,7 +87,7 @@ fn fmt_into<H: Format, T...>(fmt: *const u8, fi: i64, flen: i64,
 
 // format::<T...>(pattern, args...) -> *mut u8
 // Returns a malloc-allocated, null-terminated string. Caller must free().
-fn format<T...: Format>(pattern: *const u8, args: T...) -> *mut u8 {
+pub fn format<T...: Format>(pattern: *const u8, args: T...) -> *mut u8 {
     let flen: i64 = str_len(pattern);
     let est: i64 = flen + 256;
     let buf: *mut u8 = malloc(est);

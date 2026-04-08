@@ -1,0 +1,9 @@
+// Cross-package: constructing a struct with private fields should fail
+package pub_private_field_access;
+
+use mylib;
+
+fn main() -> i32 {
+    let s = Secret { hidden: 42 };  // private struct with private field — should error
+    return 0;
+}

@@ -1,0 +1,1 @@
+error [fn main]: 'internal_helper' is private to package 'mylib'

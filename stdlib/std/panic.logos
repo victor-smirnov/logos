@@ -7,7 +7,7 @@ package std.panic;
 
 extern fn abort();
 
-fn panic(msg: *const u8) {
+pub fn panic(msg: *const u8) {
     // Call abort to halt execution.
     // In a real implementation, we would print the message first.
     abort();

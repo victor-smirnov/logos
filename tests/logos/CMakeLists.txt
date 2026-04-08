@@ -85,6 +85,8 @@ file(GLOB LOCAL_PASS_EXPECTED CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/pass/*.expected)
 
 set(LOCAL_STDLIB_USERS format_basic format_types variadic_format)
+set(LOCAL_PUBLIB_USERS pub_cross_package)
+set(PUB_LIB ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
 
 foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
     get_filename_component(BASE ${EXP_FILE} NAME_WE)
@@ -96,6 +98,8 @@ foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
 
     if (BASE IN_LIST LOCAL_STDLIB_USERS)
         set(EXTRA -I ${STDLIB})
+    elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
+        set(EXTRA -I ${PUB_LIB})
     else()
         set(EXTRA "")
     endif()
@@ -126,10 +130,17 @@ foreach(EXP_FILE IN LISTS FAIL_EXPECTED)
         continue()
     endif()
 
+    set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access)
+    if (BASE IN_LIST FAIL_PUBLIB_USERS)
+        set(FAIL_EXTRA -I ${PUB_LIB})
+    else()
+        set(FAIL_EXTRA "")
+    endif()
+
     add_test(
         NAME  logos_fail_${BASE}
         COMMAND ${TEST_RUNNER} fail $<TARGET_FILE:logosc>
-                ${LOGOS_FILE} ${EXP_FILE}
+                ${LOGOS_FILE} ${EXP_FILE} ${FAIL_EXTRA}
     )
     set_tests_properties(logos_fail_${BASE} PROPERTIES
         TIMEOUT 15

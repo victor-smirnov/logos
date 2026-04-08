@@ -1,0 +1,3 @@
+exit: 1
+stderr:
+error [fn bad]: cannot return reference to local variable 'r': dangling reference

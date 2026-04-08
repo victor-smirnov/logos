@@ -270,6 +270,8 @@
 
     use_decl <- KW_USE IDENT DOT IDENT SEMI
              => { CODE: USE, NAME: $2, PATH: $4 }
+              / KW_USE IDENT SEMI
+             => { CODE: USE, NAME: $2 }
 
     item <- const_def / type_alias / pub_enum_def / enum_def / class_def / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 

@@ -10,14 +10,14 @@ enum Option<T> {
     None,
 }
 
-fn unwrap_or_i32(opt: Option<i32>, def: i32) -> i32 {
+pub fn unwrap_or_i32(opt: Option<i32>, def: i32) -> i32 {
     match opt {
         Option::Some(v) => { return v; }
         Option::None => { return def; }
     }
 }
 
-fn is_some_i32(opt: Option<i32>) -> bool {
+pub fn is_some_i32(opt: Option<i32>) -> bool {
     match opt {
         Option::Some(v) => { return true; }
         Option::None => { return false; }
