@@ -1,0 +1,24 @@
+package enum_struct_field;
+// Edge case: tagged enum with struct-valued payload, enum stored in array
+enum Shape {
+    Circle(i32),
+    Square(i32),
+    Rect(i32),
+}
+
+fn area(s: Shape) -> i32 {
+    match s {
+        Shape::Circle(r) => { return r * r * 3; }  // approx pi*r^2
+        Shape::Square(s) => { return s * s; }
+        Shape::Rect(w)   => { return w * 2; }       // simplified
+    }
+}
+
+fn main() -> i32 {
+    // Circle(2)=12, Square(3)=9, Rect(10)=20, Square(1)=1
+    let a: i32 = area(Shape::Circle(2));   // 12
+    let b: i32 = area(Shape::Square(3));   // 9
+    let c: i32 = area(Shape::Rect(10));    // 20
+    let d: i32 = area(Shape::Square(1));   // 1
+    return a + b + c + d;  // 12+9+20+1 = 42
+}

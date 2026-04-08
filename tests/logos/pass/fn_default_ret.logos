@@ -1,0 +1,17 @@
+package fn_default_ret;
+// Edge case: function with multiple return paths including early returns
+fn gcd(a: i32, b: i32) -> i32 {
+    if b == 0 { return a; }
+    return gcd(b, a % b);
+}
+
+fn lcm(a: i32, b: i32) -> i32 {
+    let g: i32 = gcd(a, b);
+    return a / g * b;
+}
+
+fn main() -> i32 {
+    // gcd(6, 14) = 2
+    // lcm(6, 14) = 6/2*14 = 42
+    return lcm(6, 14);
+}

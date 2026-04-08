@@ -1,8 +1,11 @@
-// Trait impl for class, dispatched through generic bound
+// Trait impl for class, dispatched through generic bound — edge cases:
+//   1. type inference  2. two classes same trait  3. multi-trait bound on class
 package trait_class_bound;
 
 trait Score { fn score(self: Self) -> i32; }
+trait Power { fn power(self: Self) -> i32; }
 
+// --- class 1: Player implements Score ---
 class Player {
     hp: i32;
     xp: i32;
@@ -10,16 +13,57 @@ class Player {
         return new Player { hp: hp, xp: xp };
     }
 }
-
 impl Score for Player {
     fn score(self: *mut Player) -> i32 { return self.hp + self.xp; }
 }
 
+// --- class 2: Enemy implements Score (different class, same trait) ---
+class Enemy {
+    strength: i32;
+    static fn create(s: i32) -> *mut Enemy {
+        return new Enemy { strength: s };
+    }
+}
+impl Score for Enemy {
+    fn score(self: *mut Enemy) -> i32 { return self.strength; }
+}
+
+// --- class 3: Versatile implements both Score and Power ---
+class Versatile {
+    s: i32;
+    p: i32;
+    static fn create(s: i32, p: i32) -> *mut Versatile {
+        return new Versatile { s: s, p: p };
+    }
+}
+impl Score for Versatile {
+    fn score(self: *mut Versatile) -> i32 { return self.s; }
+}
+impl Power for Versatile {
+    fn power(self: *mut Versatile) -> i32 { return self.p; }
+}
+
+// Single-bound generic
 fn eval<T: Score>(x: T) -> i32 { return x.score(); }
 
+// Multi-bound generic: T must implement both Score and Power
+fn eval2<T: Score + Power>(x: T) -> i32 { return x.score() + x.power(); }
+
 fn main() -> i32 {
-    let p: *mut Player = Player::create(20, 22);
-    let r: i32 = eval::<*mut Player>(p);
+    // Edge case 1: type inference — T = *mut Player inferred from arg
+    let p: *mut Player = Player::create(10, 10);
+    let a: i32 = eval(p);   // inferred, 20
     delete p;
-    return r;
+
+    // Edge case 2: second class with same trait, explicit type arg
+    let e: *mut Enemy = Enemy::create(12);
+    let b: i32 = eval::<*mut Enemy>(e);  // 12
+    delete e;
+
+    // Edge case 3: multi-trait bound on class
+    let v: *mut Versatile = Versatile::create(5, 5);
+    let c: i32 = eval2::<*mut Versatile>(v);  // 5 + 5 = 10
+    delete v;
+
+    return a + b + c;  // 20 + 12 + 10 = 42
 }

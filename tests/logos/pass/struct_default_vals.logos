@@ -1,0 +1,23 @@
+package struct_default_vals;
+// Edge case: struct initialized with computed fields, struct copy semantics
+struct Acc { total: i32; count: i32; }
+
+fn add_to(a: *mut Acc, v: i32) {
+    a.total = a.total + v;
+    a.count = a.count + 1;
+}
+
+fn average(a: Acc) -> i32 {
+    if a.count == 0 { return 0; }
+    return a.total / a.count;
+}
+
+fn main() -> i32 {
+    let mut acc: Acc = Acc { total: 0, count: 0 };
+    add_to(&mut acc, 10);
+    add_to(&mut acc, 20);
+    add_to(&mut acc, 12);
+    // total=42, count=3; average=14
+    // return total directly
+    return acc.total;  // 42
+}

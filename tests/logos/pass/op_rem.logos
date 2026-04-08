@@ -1,0 +1,18 @@
+package op_rem;
+// Edge case: operator overloading for Rem (modulo/remainder)
+trait Rem { fn rem(self: Self, rhs: Self) -> Self; }
+
+struct Modular { val: i32; modulus: i32; }
+
+impl Rem for Modular {
+    fn rem(self: Modular, rhs: Modular) -> Modular {
+        return Modular { val: self.val % rhs.val, modulus: self.modulus };
+    }
+}
+
+fn main() -> i32 {
+    let a: Modular = Modular { val: 142, modulus: 100 };
+    let b: Modular = Modular { val: 100, modulus: 100 };
+    let c: Modular = a % b;  // 142 % 100 = 42
+    return c.val;
+}

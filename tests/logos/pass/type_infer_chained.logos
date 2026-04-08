@@ -1,0 +1,16 @@
+// Chained generic calls — inner result feeds outer inference
+package type_infer_chained;
+
+fn identity<T>(x: T) -> T { return x; }
+
+fn add<T>(a: T, b: T) -> T { return a + b; }
+
+fn main() -> i32 {
+    // identity(identity(42)): inner T=i32, outer T=i32
+    let a: i32 = identity(identity(21));
+
+    // add inferred with T=i32 from both args
+    let b: i32 = add(identity(10), identity(11));
+
+    return a + b;
+}

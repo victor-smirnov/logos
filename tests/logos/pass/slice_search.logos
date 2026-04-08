@@ -1,0 +1,29 @@
+package slice_search;
+// Edge cases: searching slice, returning from within loop on slice
+fn find_first(s: &[i32], target: i32) -> i32 {
+    let mut i: i64 = 0;
+    while i < s.len() {
+        if s[i] == target { return i as i32; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn max_elem(s: &[i32]) -> i32 {
+    let mut m: i32 = s[0];
+    let mut i: i64 = 1;
+    while i < s.len() {
+        if s[i] > m { m = s[i]; }
+        i = i + 1;
+    }
+    return m;
+}
+
+fn main() -> i32 {
+    let data: [i32; 6] = [5, 99, 42, 17, 8, 3];
+    let s: &[i32] = &data;
+    let idx: i32 = find_first(s, 42);   // 2
+    let mx: i32 = max_elem(s);           // 99
+    // idx=2, mx=99: 2*20 + 99-99 + 2 = 42
+    return idx * 20 + 2;
+}

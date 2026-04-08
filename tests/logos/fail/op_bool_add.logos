@@ -1,0 +1,8 @@
+package op_bool_add;
+// Sema fail: arithmetic on booleans (+ not defined for bool)
+fn main() -> i32 {
+    let a: bool = true;
+    let b: bool = false;
+    let c: bool = a + b;  // error: + requires numeric type
+    return 0;
+}

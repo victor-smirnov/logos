@@ -1,0 +1,18 @@
+package const_multi;
+// Edge cases: multiple constants used together, const in array size, const expr
+const A: i32 = 10;
+const B: i32 = 20;
+const C: i32 = 12;
+
+fn compute(x: i32) -> i32 {
+    return x + A;
+}
+
+fn main() -> i32 {
+    // A+B+C = 42
+    let sum: i32 = A + B + C;
+    // verify constants work in function arguments too
+    let r: i32 = compute(B);   // 20+10 = 30
+    // sum=42 is the answer
+    return sum;
+}

@@ -1,0 +1,5 @@
+package undef_fn;
+// Sema fail: calling a function that doesn't exist
+fn main() -> i32 {
+    return no_such_function(42);
+}

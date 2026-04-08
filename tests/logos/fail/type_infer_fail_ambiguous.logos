@@ -1,0 +1,10 @@
+// Error: T cannot be inferred when there are no value params to unify against
+package type_infer_fail_ambiguous;
+
+// No params of type T — nothing to infer from
+fn make<T>() -> T { return 0; }
+
+fn main() -> i32 {
+    let x: i32 = make();  // T not inferrable
+    return x;
+}

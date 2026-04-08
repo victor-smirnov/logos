@@ -1,0 +1,16 @@
+package for_sum_product;
+// Edge case: for loop computing sum, various range forms
+fn sum_range(lo: i32, hi: i32) -> i32 {
+    let mut s: i32 = 0;
+    for i in lo..hi {
+        s = s + i;
+    }
+    return s;
+}
+
+fn main() -> i32 {
+    let a: i32 = sum_range(1, 8);    // 1+2+3+4+5+6+7 = 28
+    let b: i32 = sum_range(5, 10);   // 5+6+7+8+9 = 35
+    // a+b = 63; 63-21 = 42
+    return a + b - 21;
+}

@@ -1,0 +1,25 @@
+// Type inference with assoc type as second param: put(bag, 22) without ::<NumBag>
+package assoc_infer;
+
+trait Container {
+    type Item;
+    fn store(self: Self, item: Self::Item) -> i32;
+}
+
+struct NumBag { val: i32; }
+
+impl Container for NumBag {
+    type Item = i32;
+    fn store(self: NumBag, item: i32) -> i32 { return self.val + item; }
+}
+
+// T::Item appears as both a param and return computation
+fn put<T: Container>(c: T, item: T::Item) -> i32 {
+    return c.store(item);
+}
+
+fn main() -> i32 {
+    let bag: NumBag = NumBag { val: 20 };
+    // T inferred as NumBag from first arg, T::Item = i32 for second arg
+    return put(bag, 22);
+}

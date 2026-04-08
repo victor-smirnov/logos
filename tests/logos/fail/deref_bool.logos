@@ -1,0 +1,7 @@
+package deref_bool;
+// Sema fail: dereference of a bool (non-pointer type)
+fn main() -> i32 {
+    let flag: bool = true;
+    let v: bool = *flag;  // error: cannot deref bool
+    return 0;
+}

@@ -1,10 +1,30 @@
 package arith_i64;
-// F02: i64 arithmetic
+// F02: i64 arithmetic edge cases
 fn main() -> i32 {
+    // --- original ---
     let a: i64 = 1000000000;
     let b: i64 = 2;
     let c: i64 = a / b;         // 500000000
     let d: i64 = c % 100;       // 0
     let e: i64 = 42;
-    return (e + d) as i32;      // 42
+    // (e + d) = 42 — keep as the base
+
+    // --- edge 1: result exceeds i32 max (2_147_483_647) ---
+    // Each operand fits in i32, but sum does not
+    let big: i64 = 2000000000;
+    let big2: i64 = big + big;              // 4_000_000_000 — only valid as i64
+
+    // --- edge 2: negative large i64 and truncation-toward-zero div ---
+    let neg: i64 = 0 - big2;               // -4_000_000_000
+    let neg_div: i64 = neg / big;           // -4_000_000_000 / 2_000_000_000 = -2
+
+    // --- edge 3: i32 → i64 widening cast ---
+    let small: i32 = 46;
+    let wide: i64 = small as i64;           // 46, now i64
+
+    // --- edge 4: i64 % with large value (remainder of big2) ---
+    let big_mod: i64 = big2 % 10;          // 4_000_000_000 % 10 = 0
+
+    // combine: neg_div(-2) + wide(46) - 2 + big_mod(0) = 42
+    return (neg_div + wide - 2 + big_mod) as i32;
 }

@@ -1,0 +1,25 @@
+// Type inference when return type is T::Inner: get_inner(b) without ::<BoxI32>
+package assoc_return_infer;
+
+trait Wrap {
+    type Inner;
+    fn unwrap(self: Self) -> Self::Inner;
+}
+
+struct BoxI32 { val: i32; }
+
+impl Wrap for BoxI32 {
+    type Inner = i32;
+    fn unwrap(self: BoxI32) -> i32 { return self.val; }
+}
+
+fn get_inner<T: Wrap>(w: T) -> T::Inner {
+    return w.unwrap();
+}
+
+fn main() -> i32 {
+    let b: BoxI32 = BoxI32 { val: 42 };
+    // T inferred as BoxI32, return type T::Inner = i32
+    let result: i32 = get_inner(b);
+    return result;
+}

@@ -1,0 +1,28 @@
+// Two independent type params both inferred from args
+package type_infer_multi;
+
+// A and B inferred independently
+fn pair_first<A, B>(a: A, b: B) -> A { return a; }
+fn pair_second<A, B>(a: A, b: B) -> B { return b; }
+
+trait HasVal { fn val(self: Self) -> i32; }
+struct Num { n: i32; }
+impl HasVal for Num {
+    fn val(self: Num) -> i32 { return self.n; }
+}
+
+// A: HasVal, B: unconstrained — both inferred
+fn extract_first<A: HasVal, B>(a: A, b: B) -> i32 {
+    return a.val();
+}
+
+fn main() -> i32 {
+    // A=i32, B=bool (bool param ignored at runtime)
+    let x: i32 = pair_first(21, true);
+
+    // A=Num (HasVal), B=i32 — bound checked automatically
+    let s: Num = Num { n: 21 };
+    let y: i32 = extract_first(s, 99);
+
+    return x + y;
+}

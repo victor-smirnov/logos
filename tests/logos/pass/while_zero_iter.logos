@@ -1,0 +1,12 @@
+package while_zero_iter;
+// Edge case: while loop that never executes (condition false from start)
+fn main() -> i32 {
+    let mut sum: i32 = 42;
+    let mut i: i32 = 10;
+    // Condition false immediately — body never runs
+    while i < 5 {
+        sum = sum + 1000;  // must not execute
+        i = i + 1;
+    }
+    return sum;  // must still be 42
+}

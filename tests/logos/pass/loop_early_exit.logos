@@ -1,0 +1,18 @@
+package loop_early_exit;
+// Edge case: loop with multiple break paths, counting iterations before break
+fn find_multiple(start: i32, factor: i32) -> i32 {
+    // Find the first multiple of 'factor' >= start
+    let mut n: i32 = start;
+    loop {
+        if n % factor == 0 { break; }
+        n = n + 1;
+    }
+    return n;
+}
+
+fn main() -> i32 {
+    let a: i32 = find_multiple(40, 6);   // 42 (42 = 6*7)
+    let b: i32 = find_multiple(10, 5);   // 10 (already multiple)
+    // a = 42, b = 10
+    return a;
+}

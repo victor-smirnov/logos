@@ -1,0 +1,6 @@
+package type_mismatch_arg;
+// Sema fail: wrong type passed to function argument
+fn add(a: i32, b: i32) -> i32 { return a + b; }
+fn main() -> i32 {
+    return add(true, 1);  // error: bool where i32 expected
+}

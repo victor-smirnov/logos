@@ -1,0 +1,18 @@
+package enum_all_variants;
+// Edge case: matching all variants (no wildcard needed for exhaustive match)
+enum Season { Spring, Summer, Autumn, Winter }
+
+fn score(s: Season) -> i32 {
+    match s {
+        Season::Spring => { return 10; }
+        Season::Summer => { return 11; }
+        Season::Autumn => { return 12; }
+        Season::Winter => { return 9; }
+    }
+}
+
+fn main() -> i32 {
+    // 10+11+12+9 = 42
+    return score(Season::Spring) + score(Season::Summer) +
+           score(Season::Autumn) + score(Season::Winter);
+}

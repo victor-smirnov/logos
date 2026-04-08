@@ -1,0 +1,7 @@
+package op_not_numeric;
+// Sema fail: logical not on a non-bool type
+fn main() -> i32 {
+    let x: i32 = 5;
+    let b: bool = !x;  // error: ! requires bool
+    return 0;
+}

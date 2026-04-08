@@ -1,0 +1,16 @@
+package arith_mixed_edge;
+// Edge cases: associativity, chained function calls, mixed signs
+fn add(a: i32, b: i32) -> i32 { return a + b; }
+fn mul(a: i32, b: i32) -> i32 { return a * b; }
+fn sub(a: i32, b: i32) -> i32 { return a - b; }
+
+fn main() -> i32 {
+    // Left-associativity of subtraction: 10-3-2 = 5 (not 10-(3-2)=9)
+    let a: i32 = 10 - 3 - 2;          // 5
+    // Chained function call results in arithmetic
+    let b: i32 = add(mul(3, 4), mul(5, 6));  // 12+30 = 42
+    // Mixed signs with precedence
+    let c: i32 = -2 * -3;             // 6
+    // sub(b, a) = 42-5 = 37, + c = 43 - 1 = 42
+    return sub(b, a) + c - 1;
+}

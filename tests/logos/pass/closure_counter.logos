@@ -1,0 +1,23 @@
+package closure_counter;
+// Edge case: closure capturing mutable state from enclosing function
+fn count_evens(limit: i32) -> i32 {
+    let mut count: i32 = 0;
+    let is_even = |x: i32| -> bool { return x % 2 == 0; };
+    let mut i: i32 = 0;
+    while i < limit {
+        if is_even(i) {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+fn main() -> i32 {
+    // 0..20 has 10 even numbers (0,2,4,6,8,10,12,14,16,18)
+    let evens: i32 = count_evens(20);  // 10
+    // 0..4 has 2 even numbers (0,2)
+    let small: i32 = count_evens(4);   // 2
+    // 10 * 4 + 2 = 42
+    return evens * 4 + small;
+}

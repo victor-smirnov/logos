@@ -1,0 +1,17 @@
+package foreach_mixed;
+// Edge case: for-each over struct array computing multiple fields
+struct Item { price: i32; qty: i32; }
+
+fn main() -> i32 {
+    let items: [Item; 3] = [
+        Item { price: 5, qty: 3 },    // 15
+        Item { price: 4, qty: 4 },    // 16
+        Item { price: 11, qty: 1 }    // 11 — no trailing comma (not supported)
+    ];
+    let mut total: i32 = 0;
+    for item in items {
+        total = total + item.price * item.qty;
+    }
+    // 15+16+11 = 42
+    return total;
+}

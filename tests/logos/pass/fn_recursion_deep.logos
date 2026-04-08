@@ -1,0 +1,16 @@
+package fn_recursion_deep;
+// Edge case: deep recursion (tail-like) to test stack handling
+fn sum_n(n: i32) -> i32 {
+    if n <= 0 { return 0; }
+    return n + sum_n(n - 1);
+}
+fn power_of_two(n: i32) -> i32 {
+    if n == 0 { return 1; }
+    return 2 * power_of_two(n - 1);
+}
+fn main() -> i32 {
+    let s: i32 = sum_n(9);       // 1+2+...+9 = 45
+    let p: i32 = power_of_two(3); // 8
+    // 45 - 8 + 5 = 42
+    return s - p + 5;
+}

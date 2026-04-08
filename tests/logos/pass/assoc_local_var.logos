@@ -1,0 +1,25 @@
+// T::Item used in local variable type annotation inside a generic function
+package assoc_local_var;
+
+trait Wrap {
+    type Inner;
+    fn unwrap(self: Self) -> Self::Inner;
+}
+
+struct BoxI32 { val: i32; }
+
+impl Wrap for BoxI32 {
+    type Inner = i32;
+    fn unwrap(self: BoxI32) -> i32 { return self.val; }
+}
+
+// T::Inner used as local var type — resolved by mono to i32 when T=BoxI32
+fn extract<T: Wrap>(w: T) -> T::Inner {
+    let v: T::Inner = w.unwrap();
+    return v;
+}
+
+fn main() -> i32 {
+    let b: BoxI32 = BoxI32 { val: 42 };
+    return extract::<BoxI32>(b);
+}

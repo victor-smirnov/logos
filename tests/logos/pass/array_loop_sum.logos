@@ -1,0 +1,18 @@
+package array_loop_sum;
+// Edge cases: array indexed in for loop, array of zeros, array boundary access
+fn main() -> i32 {
+    let mut a: [i32; 7] = [1, 2, 3, 4, 5, 6, 7];
+    // sum via index for loop
+    let mut sum: i32 = 0;
+    let mut i: i32 = 0;
+    while i < 7 {
+        sum = sum + a[i as i64];
+        i = i + 1;
+    }
+    // sum = 1+2+3+4+5+6+7 = 28
+    // access first and last
+    let first: i32 = a[0];   // 1
+    let last: i32 = a[6];    // 7
+    // 28 + 1 + 7 + 6 = 42
+    return sum + first + last + 6;
+}

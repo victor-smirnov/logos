@@ -1,0 +1,24 @@
+package logic_short_circuit;
+// Edge cases: && and || with side-effect-free functions that test short-circuit behavior
+fn always_true() -> bool { return true; }
+fn always_false() -> bool { return false; }
+
+fn main() -> i32 {
+    // De Morgan: !(a && b) == !a || !b
+    let t: bool = always_true();
+    let f: bool = always_false();
+
+    // true || anything => true
+    let a: bool = t || f;     // true
+    // false && anything => false
+    let b: bool = f && t;     // false
+    // false || true => true
+    let c: bool = f || t;     // true
+    // true && true => true
+    let d: bool = t && t;     // true
+
+    // !b = true, so a && !b && c && d = true
+    let ok: bool = a && !b && c && d;
+    if ok { return 42; }
+    return 0;
+}

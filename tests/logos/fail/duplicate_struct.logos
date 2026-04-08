@@ -1,0 +1,6 @@
+package duplicate_struct;
+// Check what happens with duplicate struct definition
+struct Foo { x: i32; }
+struct Foo { y: i32; }
+
+fn main() -> i32 { return 0; }

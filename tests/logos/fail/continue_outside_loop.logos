@@ -1,0 +1,6 @@
+package continue_outside_loop;
+// Sema fail: continue used outside a loop
+fn main() -> i32 {
+    continue;
+    return 0;
+}

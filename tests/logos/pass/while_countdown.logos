@@ -1,0 +1,26 @@
+package while_countdown;
+// Edge case: while loop counting downward, accumulating product
+fn countdown_sum(n: i32) -> i32 {
+    let mut i: i32 = n;
+    let mut sum: i32 = 0;
+    while i > 0 {
+        sum = sum + i;
+        i = i - 1;
+    }
+    return sum;
+}
+
+fn main() -> i32 {
+    // 1+2+...+9 = 45 (descending: 9+8+...+1 = same)
+    let s: i32 = countdown_sum(9);  // 45
+    // while with complex condition: exit when sum >= 42
+    let mut acc: i32 = 0;
+    let mut j: i32 = 1;
+    while acc < 42 {
+        acc = acc + j;
+        j = j + 1;
+    }
+    // acc is first triangular number >= 42: 1+2+...+9=45
+    // 45 - 3 = 42
+    return acc - 3;
+}

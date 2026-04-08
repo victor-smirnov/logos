@@ -1,0 +1,10 @@
+// Error: T inferred as i32 from first arg, but second arg is bool — type conflict
+package type_infer_fail_conflict;
+
+fn first_of<T>(a: T, b: T) -> T { return a; }
+
+fn main() -> i32 {
+    // T=i32 from first arg (0), second arg true is bool — mismatch
+    let x: i32 = first_of(0, true);
+    return x;
+}

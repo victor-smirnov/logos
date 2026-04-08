@@ -1,0 +1,20 @@
+package dyn_trait_multi;
+// Edge case: &dyn Trait with 3 different implementations
+trait Shape { fn area(self: Self) -> i32; }
+
+struct Tri   { base: i32; height: i32; }
+struct Rect2 { w: i32; h: i32; }
+struct Circ  { r: i32; }  // approx area = r*r*3
+
+impl Shape for Tri   { fn area(self: Tri)   -> i32 { return self.base * self.height / 2; } }
+impl Shape for Rect2 { fn area(self: Rect2) -> i32 { return self.w * self.h; } }
+impl Shape for Circ  { fn area(self: Circ)  -> i32 { return self.r * self.r * 3; } }
+
+fn compute_area(s: &dyn Shape) -> i32 { return s.area(); }
+
+fn main() -> i32 {
+    let t: Tri   = Tri   { base: 4, height: 6 };   // 4*6/2 = 12
+    let r: Rect2 = Rect2 { w: 5, h: 6 };            // 30
+    // 12 + 30 = 42
+    return compute_area(t) + compute_area(r);
+}

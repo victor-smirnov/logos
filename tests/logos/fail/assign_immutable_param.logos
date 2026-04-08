@@ -1,0 +1,8 @@
+package assign_immutable_param;
+// Sema fail: assigning to an immutable (non-mut) let binding in a fn
+fn bump(x: i32) -> i32 {
+    let result: i32 = x + 1;
+    result = result + 1;  // error: result is immutable
+    return result;
+}
+fn main() -> i32 { return bump(40); }

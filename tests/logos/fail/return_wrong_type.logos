@@ -1,0 +1,7 @@
+package return_wrong_type;
+// Sema fail: function returning bool when i32 is expected
+fn compute() -> i32 {
+    let x: i32 = 5;
+    return x > 3;  // error: bool returned, expected i32
+}
+fn main() -> i32 { return compute(); }

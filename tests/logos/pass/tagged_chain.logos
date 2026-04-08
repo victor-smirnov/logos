@@ -1,0 +1,34 @@
+package tagged_chain;
+// Edge case: tagged enum: chain of transformations using match
+enum Val {
+    Int(i32),
+    Neg(i32),
+    None,
+}
+
+fn negate(v: Val) -> Val {
+    match v {
+        Val::Int(x)  => { return Val::Neg(x); }
+        Val::Neg(x)  => { return Val::Int(x); }
+        Val::None    => { return Val::None; }
+    }
+}
+
+fn get(v: Val) -> i32 {
+    match v {
+        Val::Int(x)  => { return x; }
+        Val::Neg(x)  => { return 0 - x; }
+        Val::None    => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    let a: Val = Val::Int(21);
+    let b: Val = negate(a);    // Neg(21) => get = -21
+    let c: Val = negate(b);    // Int(21) => get = 21
+    let d: Val = Val::None;
+    // get(c) = 21, get(b) = -21, get(d) = 0
+    // 21 + (-21) + 0 = 0; not useful.
+    // get(c)*2 = 42
+    return get(c) * 2;
+}

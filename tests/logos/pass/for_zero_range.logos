@@ -1,0 +1,16 @@
+package for_zero_range;
+// Edge case: for over empty range (lo >= hi), single iteration range
+fn main() -> i32 {
+    let mut sum: i32 = 42;
+    // Empty range: 5..5 — body never executes
+    for i in 5..5 {
+        sum = sum + i * 1000;  // must not execute
+    }
+    // Single-element range: 0..1
+    let mut count: i32 = 0;
+    for i in 0..1 {
+        count = count + 1;  // executes exactly once, i=0
+    }
+    // sum=42, count=1; return sum + count - 1 = 42
+    return sum + count - 1;
+}

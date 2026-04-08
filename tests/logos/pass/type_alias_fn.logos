@@ -1,0 +1,18 @@
+package type_alias_fn;
+// Edge case: type aliases used in function signatures and return types
+type Count = i32;
+type Value = i64;
+
+fn make_value(c: Count) -> Value {
+    return c as i64 * 2;
+}
+
+fn sum_counts(a: Count, b: Count) -> Count {
+    return a + b;
+}
+
+fn main() -> i32 {
+    let c: Count = sum_counts(10, 11);  // 21
+    let v: Value = make_value(c);        // 42
+    return v as i32;
+}

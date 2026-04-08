@@ -1,9 +1,28 @@
 package arith_div_mod;
-// F02: division, modulo, mixed expressions
+// F02: division and modulo edge cases
 fn main() -> i32 {
+    // --- original ---
     let a: i32 = 100 / 5;      // 20
     let b: i32 = 107 % 10;     // 7
     let c: i32 = a + b;        // 27
-    let d: i32 = c * 2 - 12;   // 42
-    return d;
+    let base: i32 = c * 2 - 12; // 42
+
+    // --- edge 1: negative dividend, truncation toward zero ---
+    // -6 / 2 = -3  (toward zero, not floor)
+    let neg_div: i32 = 0 - (-6 / 2);   // 0-(-3) = 3
+
+    // --- edge 2: negative divisor, sign follows dividend ---
+    // 14 % (-3): trunc(14/-3)=-4, rem=14-(-4*-3)=14-12=2
+    let neg_mod: i32 = 14 % (-3);       // 2
+
+    // --- edge 3: chained division is left-associative ---
+    // 48 / 4 / 3  ==>  (48/4)/3  = 12/3 = 4
+    let chained: i32 = 48 / 4 / 3;     // 4
+
+    // --- edge 4: % and / bind tighter than + ---
+    // 1 + 6 % 4  ==>  1 + (6%4)  = 1+2 = 3
+    let prec: i32 = 1 + 6 % 4;         // 3
+
+    // base(42) + 3 + 2 + 4 + 3 - 12 = 42
+    return base + neg_div + neg_mod + chained + prec - 12;
 }

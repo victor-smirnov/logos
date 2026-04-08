@@ -1,0 +1,18 @@
+package class_inherit_method;
+// Edge case: derived class calling inherited method, multiple fields
+class Base {
+    x: i32;
+    y: i32;
+    fn sum(self: *mut Base) -> i32 { return self.x + self.y; }
+}
+class Derived extends Base {
+    z: i32;
+    fn total(self: *mut Derived) -> i32 { return self.sum() + self.z; }
+}
+
+fn main() -> i32 {
+    let d: *mut Derived = new Derived { x: 10, y: 15, z: 17 };
+    let r: i32 = d.total();   // 10+15+17 = 42
+    delete d;
+    return r;
+}

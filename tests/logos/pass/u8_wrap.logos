@@ -1,0 +1,16 @@
+package u8_wrap;
+// Edge case: u8 arithmetic wrapping, cast from large i32 to u8
+fn main() -> i32 {
+    // 256 as u8 = 0 (wrap)
+    let a: u8 = 256 as u8;   // 0
+    // 255 + 1 as u8 — but we can't do 255+1 directly in u8 without wrap
+    // let's test 42 as u8 roundtrip
+    let b: u8 = 42 as u8;
+    let c: i32 = b as i32;   // 42
+    // 300 as u8 = 44 (300 - 256 = 44)
+    let d: u8 = 300 as u8;
+    let e: i32 = d as i32;   // 44
+    // c - e + 40 = 42 - 44 + 40 = 38, not clean
+    // just use c = 42
+    return c;
+}

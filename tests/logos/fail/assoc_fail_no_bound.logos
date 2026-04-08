@@ -1,0 +1,8 @@
+// Error: T::Item referenced but T has no trait bound declaring Item
+package assoc_fail_no_bound;
+
+fn f<T>(x: T) -> T::Item {
+    return x;
+}
+
+fn main() -> i32 { return 0; }

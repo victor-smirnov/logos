@@ -1,0 +1,6 @@
+package wrong_arg_count_few;
+// Sema fail: too few arguments to function call
+fn triple(a: i32, b: i32, c: i32) -> i32 { return a + b + c; }
+fn main() -> i32 {
+    return triple(1, 2);  // missing third arg
+}

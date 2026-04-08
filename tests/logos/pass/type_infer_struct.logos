@@ -1,0 +1,14 @@
+// Infer T=struct from a struct literal argument
+package type_infer_struct;
+
+struct Point { x: i32; y: i32; }
+
+fn identity<T>(x: T) -> T { return x; }
+
+fn sum_point(p: Point) -> i32 { return p.x + p.y; }
+
+fn main() -> i32 {
+    // T inferred as Point from struct literal
+    let p: Point = identity(Point { x: 19, y: 23 });
+    return sum_point(p);
+}

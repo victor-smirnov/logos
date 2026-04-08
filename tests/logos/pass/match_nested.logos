@@ -1,0 +1,28 @@
+package match_nested;
+// Edge case: match inside match (nested), match in loop
+enum Color { Red, Green, Blue }
+enum Size  { Small, Large }
+
+fn classify(c: Color, s: Size) -> i32 {
+    match c {
+        Color::Red => {
+            match s {
+                Size::Small => { return 1; }
+                Size::Large => { return 2; }
+            }
+        }
+        Color::Green => { return 10; }
+        Color::Blue  => { return 20; }
+    }
+}
+
+fn main() -> i32 {
+    // classify(Red,Small)=1, classify(Red,Large)=2
+    // classify(Green,Small)=10 (size ignored), classify(Blue,Large)=20
+    let a: i32 = classify(Color::Red, Size::Small);    // 1
+    let b: i32 = classify(Color::Red, Size::Large);    // 2
+    let c: i32 = classify(Color::Green, Size::Small);  // 10
+    let d: i32 = classify(Color::Blue, Size::Large);   // 20
+    // 1+2+10+20 = 33, +9 = 42
+    return a + b + c + d + 9;
+}

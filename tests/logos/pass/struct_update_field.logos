@@ -1,0 +1,23 @@
+package struct_update_field;
+// Edge case: updating struct fields through pointer, reading back
+struct Point { x: i32; y: i32; }
+
+fn shift(p: *mut Point, dx: i32, dy: i32) {
+    p.x = p.x + dx;
+    p.y = p.y + dy;
+}
+
+fn dist_from_origin(p: Point) -> i32 {
+    // Manhattan distance
+    let ax: i32 = if p.x < 0 { 0 - p.x; } else { p.x; };
+    let ay: i32 = if p.y < 0 { 0 - p.y; } else { p.y; };
+    return ax + ay;
+}
+
+fn main() -> i32 {
+    let mut p: Point = Point { x: 0, y: 0 };
+    shift(&mut p, 10, 15);   // (10, 15)
+    shift(&mut p, 5, 12);    // (15, 27)
+    // dist_from_origin = 15+27 = 42
+    return dist_from_origin(p);
+}
