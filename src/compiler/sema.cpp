@@ -2176,7 +2176,8 @@ private:
         case la::FIELD_READ:  return lower_field_read(expr);
         case la::STRUCT_LIT:  return lower_struct_lit(expr);
         case la::INDEX_READ:  return lower_index_read(expr);
-        case la::ARR_LIT:     return lower_arr_lit(expr);
+        case la::ARR_LIT:      return lower_arr_lit(expr);
+        case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
         case la::ENUM_LIT:    return lower_enum_lit(expr);
         case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
         case la::NEW_EXPR:    return lower_new_expr(expr);
@@ -3162,6 +3163,16 @@ private:
                         if (vt->kind == LogosType::Kind::IntLit) vt = i32_t();
                         inferred[tv] = vt;
                     }
+                } else if (raw_ft->kind == LogosType::Kind::Array && raw_ft->elem &&
+                           raw_ft->elem->kind == LogosType::Kind::TypeVar) {
+                    // [T; N] field — infer T from element type of the value.
+                    auto& tv = raw_ft->elem->type_var_name;
+                    if (!inferred.count(tv) && fval->type->kind == LogosType::Kind::Array &&
+                        fval->type->elem) {
+                        auto* vt = fval->type->elem;
+                        if (vt->kind == LogosType::Kind::IntLit) vt = i32_t();
+                        inferred[tv] = vt;
+                    }
                 }
             }
             std::vector<const LogosType*> args;
@@ -3190,9 +3201,12 @@ private:
                     const LogosType* ft = nullptr;
                     for (auto& ef : effective->fields)
                         if (ef.name == fname) { ft = ef.type; break; }
+                    bool ft_has_typevar = ft && (ft->kind == LogosType::Kind::TypeVar ||
+                        (ft->kind == LogosType::Kind::Array && ft->elem &&
+                         ft->elem->kind == LogosType::Kind::TypeVar));
                     if (ft && ft->kind != LogosType::Kind::Error &&
                         fval->type->kind != LogosType::Kind::Error &&
-                        ft->kind != LogosType::Kind::TypeVar &&
+                        !ft_has_typevar &&
                         !types_compatible(fval->type, ft)) {
                         error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                               sname, fname, type_str(ft), type_str(fval->type)));
@@ -3291,6 +3305,21 @@ private:
         if (elem_type->kind == LogosType::Kind::IntLit) elem_type = i32_t();
 
         return make_expr(make_array(elem_type, elems.size()), lir::EArrLit{std::move(elems)});
+    }
+
+    lir::LExprPtr lower_arr_fill_lit(TinyMapView node) {
+        auto val_node = map_of(node.get(la::VALUE.code));
+        auto fill_val = lower_expr(val_node);
+        auto sv = str_of(node.get(la::SIZE.code));
+        int64_t n = (int64_t)std::strtoull(sv.data(), nullptr, 10);
+        if (n <= 0) error(std::format("array fill literal: size must be positive, got {}", n));
+        const LogosType* elem_type = fill_val->type;
+        if (elem_type->kind == LogosType::Kind::IntLit) elem_type = i32_t();
+        std::vector<lir::LExprPtr> elems;
+        elems.push_back(std::move(fill_val));
+        for (int64_t i = 1; i < n; ++i)
+            elems.push_back(lower_expr(val_node));  // re-lower for each slot (simple literals)
+        return make_expr(make_array(elem_type, (size_t)n), lir::EArrLit{std::move(elems)});
     }
 
     lir::LExprPtr lower_enum_lit(TinyMapView node) {
@@ -4679,15 +4708,19 @@ private:
         if (!field_t)
             error(std::format("field index write: cannot resolve field '{}.{}'", recv_name, field_name));
 
-        if (field_t && field_t->kind != LogosType::Kind::Ptr)
-            error(std::format("field index write: field '{}.{}' is not a pointer (got {})",
+        if (field_t && field_t->kind != LogosType::Kind::Ptr &&
+                       field_t->kind != LogosType::Kind::Array)
+            error(std::format("field index write: field '{}.{}' is not a pointer or array (got {})",
                   recv_name, field_name, type_str(field_t)));
         if (field_t && field_t->kind == LogosType::Kind::Ptr && !field_t->mut_ptr)
             error(std::format("field index write: field '{}.{}' is *const, cannot write",
                   recv_name, field_name));
 
-        const LogosType* elem_t = (field_t && field_t->kind == LogosType::Kind::Ptr)
-                                   ? field_t->pointee : nullptr;
+        const LogosType* elem_t = nullptr;
+        if (field_t) {
+            if (field_t->kind == LogosType::Kind::Ptr)   elem_t = field_t->pointee;
+            else if (field_t->kind == LogosType::Kind::Array) elem_t = field_t->elem;
+        }
 
         lir::LExprPtr idx = node.has_key(la::LHS)
             ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
@@ -5143,10 +5176,14 @@ private:
         // Lower impl methods as free functions (Target__method).
         // For `impl<T> GenericClass<T>` blocks, add methods to the class template instead of
         // prog.functions so mono's instantiate_one_class can clone them with T substituted.
-        lir::LClassDef* target_class_tmpl = nullptr;
+        lir::LClassDef*  target_class_tmpl  = nullptr;
+        lir::LStructDef* target_struct_tmpl = nullptr;
         if (!impl_tps.empty()) {
             for (auto& cd : prog.classes)
                 if (cd.name == target) { target_class_tmpl = &cd; break; }
+            if (!target_class_tmpl)
+                for (auto& sd : prog.structs)
+                    if (sd.name == target) { target_struct_tmpl = &sd; break; }
         }
         std::unordered_set<std::string> overridden;
         if (node.has_key(la::ITEMS)) {
@@ -5160,6 +5197,10 @@ private:
                         // Add to class template so mono clones it during class instantiation.
                         fn.type_params.clear();  // T is provided by the class template
                         target_class_tmpl->methods.push_back(std::move(fn));
+                    } else if (target_struct_tmpl) {
+                        // Same for struct templates.
+                        fn.type_params.clear();
+                        target_struct_tmpl->methods.push_back(std::move(fn));
                     } else {
                         prog.functions.push_back(std::move(fn));
                     }

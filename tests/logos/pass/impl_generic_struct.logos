@@ -1,0 +1,34 @@
+package impl_generic_struct;
+// impl<T> on generic struct — standalone impl block with type parameter.
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+struct Stack<T> {
+    data: [T; 8];
+    top: i32;
+}
+
+impl<T> Stack<T> {
+    fn push(self: *mut Stack<T>, val: T) {
+        self.data[self.top as u64] = val;
+        self.top = self.top + 1;
+    }
+    fn pop(self: *mut Stack<T>) -> T {
+        self.top = self.top - 1;
+        return self.data[self.top as u64];
+    }
+    fn size(self: *mut Stack<T>) -> i32 {
+        return self.top;
+    }
+}
+
+fn main() -> i32 {
+    let mut s: Stack<i32> = Stack { data: [0; 8], top: 0 };
+    s.push(10);
+    s.push(20);
+    s.push(30);
+    printf("%d\n", s.size());  // 3
+    printf("%d\n", s.pop());   // 30
+    printf("%d\n", s.pop());   // 20
+    printf("%d\n", s.size());  // 1
+    return 0;
+}

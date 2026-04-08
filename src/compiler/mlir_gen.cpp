@@ -1498,21 +1498,23 @@ private:
         const std::string& type_name = (sit != var_struct_.end()) ? sit->second : cit->second;
         auto& info = struct_types_[type_name];
 
-        // GEP to the field (which is a pointer).
+        // GEP to the field.
         auto field_gep = gep_field(struct_ptr, info, s.field);
         if (!field_gep) return;
 
-        // Load the pointer value from the field.
-        auto field_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_gep);
-
-        // Determine element type from field info.
-        mlir::Type elem_type = builder_.getI32Type();
+        // Determine element type and base pointer.
+        // For pointer fields (*mut T): load the pointer, then GEP to element.
+        // For array fields ([T; N]):   field_gep IS the array base; GEP to element.
+        mlir::Type field_mlir_type = builder_.getI32Type();  // dummy default
+        bool       is_array_field  = false;
         for (auto& f : info.fields) {
-            if (f.name == s.field) { elem_type = f.type; break; }
+            if (f.name == s.field) {
+                field_mlir_type = f.type;
+                is_array_field  = mlir::isa<mlir::LLVM::LLVMArrayType>(f.type);
+                break;
+            }
         }
 
-        // GEP into the pointer at the given index.
-        // elem_type is the type of the value being stored (pointee of the field pointer).
         mlir::Type val_type = s.value->type ? logos_to_mlir(s.value->type) : builder_.getI32Type();
         if (!val_type) val_type = builder_.getI32Type();
 
@@ -1521,10 +1523,24 @@ private:
         if (!idx || !val) return;
         val = coerce_int(val, val_type);
 
-        llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
-        auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), val_type, field_ptr, indices);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, val, elem_gep);
+        mlir::Value base_ptr;
+        if (is_array_field) {
+            // field_gep points to the array — index directly into it.
+            // GEP with {0, idx} to reach element idx.
+            llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx;
+            arr_idx.push_back(mlir::LLVM::GEPArg(int32_t(0)));
+            auto idx_i32 = coerce_int(idx, builder_.getIntegerType(32));
+            arr_idx.push_back(mlir::LLVM::GEPArg(idx_i32));
+            base_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), field_mlir_type, field_gep, arr_idx);
+        } else {
+            // Pointer field: load the stored pointer, then GEP to element.
+            auto field_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_gep);
+            llvm::SmallVector<mlir::LLVM::GEPArg> ptr_idx{idx};
+            base_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), val_type, field_ptr, ptr_idx);
+        }
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, base_ptr);
     }
 
     void gen_match(const SMatch& s) {
