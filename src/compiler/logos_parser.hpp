@@ -128,6 +128,9 @@ namespace logos_ast {
     inline constexpr Code IMPL_TYPE            {"IMPL_TYPE", 116};
     inline constexpr Code PACK_EXPAND          {"PACK_EXPAND", 117};
     inline constexpr Code DYN_TYPE             {"DYN_TYPE", 118};
+    inline constexpr Code ASSOC_TYPE_DEF       {"ASSOC_TYPE_DEF", 119};
+    inline constexpr Code ASSOC_TYPE_IMPL      {"ASSOC_TYPE_IMPL", 120};
+    inline constexpr Code ASSOC_TYPE_REF       {"ASSOC_TYPE_REF", 121};
 
 } // namespace logos_ast
 
@@ -233,6 +236,7 @@ private:
     logos::hermes::AnyVal rule_trait_def();
     logos::hermes::AnyVal rule_trait_method();
     logos::hermes::AnyVal rule_impl_block();
+    logos::hermes::AnyVal rule_impl_item();
     logos::hermes::AnyVal rule_class_def();
     logos::hermes::AnyVal rule_class_member();
     logos::hermes::AnyVal rule_static_fn_def();
@@ -246,6 +250,7 @@ private:
     logos::hermes::AnyVal rule_param_list();
     logos::hermes::AnyVal rule_param();
     logos::hermes::AnyVal rule_type_ref();
+    logos::hermes::AnyVal rule_assoc_type_ref();
     logos::hermes::AnyVal rule_dyn_type();
     logos::hermes::AnyVal rule_slice_type();
     logos::hermes::AnyVal rule_ref_type();

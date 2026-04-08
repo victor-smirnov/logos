@@ -54,6 +54,14 @@ public:
         // Move type_pool — will be extended with new types during mono
         out_.type_pool    = std::move(in_.type_pool);
 
+        // Index associated type impls for subst_type resolution
+        for (auto& impl : out_.impls) {
+            for (auto& [aname, atype] : impl.assoc_types) {
+                std::string key = impl.trait_name + "::" + impl.target_type + "::" + aname;
+                assoc_impls_[key] = atype;
+            }
+        }
+
         // Index generic struct templates; pass-through plain structs immediately.
         for (auto& sd : in_.structs) {
             if (!sd.type_params.empty())
@@ -173,6 +181,9 @@ private:
     // Already-instantiated mangled names (prevent duplicate generation)
     std::unordered_set<std::string> done_;
 
+    // Associated type impls: "TraitName::TypeName::AssocName" → concrete LogosType*
+    std::unordered_map<std::string, const LogosType*> assoc_impls_;
+
     struct WorkItem {
         std::string                mangled;
         const lir::LFunction*      tmpl;
@@ -276,6 +287,17 @@ private:
             LogosType nt; nt.kind = LogosType::Kind::Tuple;
             nt.tuple_elems = std::move(new_elems);
             return out_.type_pool.alloc(std::move(nt));
+        }
+        case LogosType::Kind::AssocType: {
+            // Resolve: T → concrete type, then look up TraitName::ConcreteType::AssocName
+            auto it = s.find(t->type_var_name);
+            if (it != s.end()) {
+                std::string concrete_name = concrete_struct_name(it->second);
+                std::string key = t->trait_name + "::" + concrete_name + "::" + t->assoc_type_name;
+                auto ait = assoc_impls_.find(key);
+                if (ait != assoc_impls_.end()) return ait->second;
+            }
+            return t;  // unresolved — keep as-is (will surface as error in mlir_gen)
         }
         default:
             return t;

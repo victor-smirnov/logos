@@ -135,6 +135,9 @@
     IMPL_TYPE            = 116
     PACK_EXPAND          = 117
     DYN_TYPE             = 118
+    ASSOC_TYPE_DEF       = 119
+    ASSOC_TYPE_IMPL      = 120
+    ASSOC_TYPE_REF       = 121
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -277,18 +280,25 @@
                  => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
                   / KW_FN IDENT LPAREN param_list? RPAREN SEMI
                  => { CODE: FN, NAME: $2, PARAMS: $4 }
+                  / KW_TYPE IDENT SEMI
+                 => { CODE: ASSOC_TYPE_DEF, NAME: $2 }
 
     // ── Impl block ──────────────────────────────────────────────
     // impl Trait for Type { fn method(...) { ... } }
     // impl Type { fn method(...) { ... } }   — standalone (no trait)
-    impl_block <- KW_IMPL IDENT LT type_arg_list GT KW_FOR simple_type LBRACE method_def* RBRACE
+    impl_block <- KW_IMPL IDENT LT type_arg_list GT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, ITEMS: $... }
-                / KW_IMPL IDENT KW_FOR ptr_type LBRACE method_def* RBRACE
+                / KW_IMPL IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
-                / KW_IMPL IDENT KW_FOR simple_type LBRACE method_def* RBRACE
+                / KW_IMPL IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
-                / KW_IMPL simple_type LBRACE method_def* RBRACE
+                / KW_IMPL simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, TYPE: $2, ITEMS: $... }
+
+    // impl_item: method or associated type definition
+    impl_item <- method_def
+               / KW_TYPE IDENT ASSIGN type_ref SEMI
+              => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE: $4 }
 
     // ── Class definition ─────────────────────────────────────────
     // class ClassName { ... }
@@ -358,7 +368,12 @@
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
 
     // ── Type reference ───────────────────────────────────────────
-    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / tuple_type / simple_type
+    // assoc_type_ref must come before simple_type to match T::Item before T
+    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / tuple_type / assoc_type_ref / simple_type
+
+    // T::Item — associated type reference (type param :: assoc type name)
+    assoc_type_ref <- IDENT COLONCOLON IDENT
+                   => { CODE: ASSOC_TYPE_REF, NAME: $1, FIELD: $3 }
 
     // &dyn Trait — trait object (fat pointer: data + vtable)
     dyn_type <- AMP KW_DYN IDENT

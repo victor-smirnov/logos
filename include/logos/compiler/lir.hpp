@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -425,8 +426,13 @@ struct LTraitMethodSig {
     const LogosType*         ret_type = nullptr;
 };
 
+struct LAssocTypeDef {
+    std::string name;  // e.g. "Item"
+};
+
 struct LTraitDef {
     std::string                    name;
+    std::vector<LAssocTypeDef>     assoc_types;  // associated type declarations
     std::vector<LTraitMethodSig>   methods;
 };
 
@@ -434,6 +440,8 @@ struct LImplBlock {
     std::string              trait_name;
     std::string              target_type;  // concrete type name (e.g. "Point")
     std::vector<LFunction>   methods;
+    // Associated type definitions: "Item" → i32
+    std::unordered_map<std::string, const LogosType*> assoc_types;
 };
 
 struct LConst {

@@ -35,6 +35,7 @@ struct LogosType {
         TraitObject,              // &dyn Trait — fat pointer {data, vtable}
         TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)
+        AssocType,                // T::Item — type param's associated type (resolved by mono)
         Error                     // sentinel for ill-typed expressions
     };
 
@@ -67,7 +68,12 @@ struct LogosType {
     std::string      trait_name;          // e.g. "Display" (TraitObject kind only)
 
     // TypeVar — name stored as a std::string (owns its storage)
-    std::string      type_var_name;       // e.g. "T" (TypeVar kind only)
+    std::string      type_var_name;       // e.g. "T" (TypeVar and AssocType kind)
+
+    // AssocType — associated type: T::Item
+    // type_var_name: the type param ("T")
+    // trait_name:    the trait that declares it ("Iterator")
+    std::string      assoc_type_name;     // e.g. "Item" (AssocType kind only)
 };
 
 // ── Trait bound (for type parameter bounds) ────────────────────────────────

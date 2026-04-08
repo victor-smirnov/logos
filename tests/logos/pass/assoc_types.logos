@@ -1,0 +1,36 @@
+// Associated types — type Item; in trait, type Item = T; in impl
+// Monomorphizer resolves T::Item at instantiation time.
+package assoc_types;
+
+// Trait with an associated type
+trait Wrap {
+    type Inner;
+    fn unwrap(self: Self) -> Self::Inner;
+    fn rewrap(self: Self, val: Self::Inner) -> Self::Inner;
+}
+
+struct BoxI32 { val: i32; }
+struct BoxBool { val: bool; }
+
+impl Wrap for BoxI32 {
+    type Inner = i32;
+    fn unwrap(self: BoxI32) -> i32 { return self.val; }
+    fn rewrap(self: BoxI32, val: i32) -> i32 { return val; }
+}
+
+impl Wrap for BoxBool {
+    type Inner = bool;
+    fn unwrap(self: BoxBool) -> bool { return self.val; }
+    fn rewrap(self: BoxBool, val: bool) -> bool { return val; }
+}
+
+// Generic function using T::Inner as return type
+fn get_inner<T: Wrap>(w: T) -> T::Inner {
+    return w.unwrap();
+}
+
+fn main() -> i32 {
+    let b: BoxI32 = BoxI32 { val: 42 };
+    // get_inner resolves T::Inner = i32 when T = BoxI32
+    return get_inner::<BoxI32>(b);
+}

@@ -209,6 +209,7 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::Enum:        return t->enum_name;
     case LogosType::Kind::TraitObject: return "&dyn " + t->trait_name;
     case LogosType::Kind::TypeVar:     return std::string(t->type_var_name);
+    case LogosType::Kind::AssocType:   return std::string(t->type_var_name) + "::" + t->assoc_type_name;
     case LogosType::Kind::Error:   return "<error>";
     }
     return "<unknown>";
@@ -552,10 +553,14 @@ private:
         bool has_default = false;   // trait method has a default body
         AnyVal default_ast{};       // AST node for default method (valid when has_default)
     };
+    struct SemaAssocTypeInfo {
+        std::string name;  // e.g. "Item"
+    };
     struct SemaTraitInfo {
         std::string name;
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
+        std::vector<SemaAssocTypeInfo> assoc_types;
     };
     struct SemaImplInfo {
         std::string trait_name;
@@ -578,6 +583,13 @@ private:
     std::unordered_map<std::string, SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
     std::unordered_map<std::string, SemaImplInfo>     impls_;
+    // "TraitName::TypeName::AssocName" → concrete type
+    std::unordered_map<std::string, const LogosType*> assoc_type_impls_;
+
+    // Current trait being defined (set during collect_trait for Self::Item resolution)
+    std::string current_trait_name_;
+    // Bounds per type param name (set alongside current_type_params_ during push_type_params)
+    std::unordered_map<std::string, std::vector<TraitBound>> current_type_bounds_;
 
     // ── Type parameter helpers ────────────────────────────────────
 
@@ -623,12 +635,16 @@ private:
 
     // Push type params into current_type_params_ (call before resolving fn/struct body).
     void push_type_params(const std::vector<TypeParam>& tps) {
-        for (auto& tp : tps)
+        for (auto& tp : tps) {
             current_type_params_[tp.name] = make_typevar(tp.name);
+            current_type_bounds_[tp.name] = tp.bounds;
+        }
     }
     void pop_type_params(const std::vector<TypeParam>& tps) {
-        for (auto& tp : tps)
+        for (auto& tp : tps) {
             current_type_params_.erase(tp.name);
+            current_type_bounds_.erase(tp.name);
+        }
     }
 
     // ── Sema-side type substitution (TypeVar → concrete) ────────────
@@ -679,6 +695,17 @@ private:
             auto* elem = subst_type_sema(t->elem, s);
             if (elem == t->elem) return t;
             return make_slice_type(elem);
+        }
+        case LogosType::Kind::AssocType: {
+            // Try resolving: if T is substituted to a concrete type, look up impl
+            auto it = s.find(t->type_var_name);
+            if (it != s.end()) {
+                std::string concrete_name = concrete_struct_name(it->second);
+                std::string key = t->trait_name + "::" + concrete_name + "::" + t->assoc_type_name;
+                auto ait = assoc_type_impls_.find(key);
+                if (ait != assoc_type_impls_.end()) return ait->second;
+            }
+            return t;
         }
         default: return t;
         }
@@ -749,6 +776,46 @@ private:
                 n = std::strtoull(sv.data(), nullptr, 10);
             }
             return make_array(elem, n);
+        }
+
+        if (tc == la::ASSOC_TYPE_REF) {
+            // T::Item — associated type reference
+            auto tp_name = std::string(str_of(node.get(la::NAME.code)));   // "T" or "Self"
+            auto assoc   = std::string(str_of(node.get(la::FIELD.code)));  // "Item"
+            std::string trait_for_assoc;
+            if (tp_name == "Self" && !current_trait_name_.empty()) {
+                // Inside a trait definition: Self::Item refers to this trait's assoc type
+                trait_for_assoc = current_trait_name_;
+            } else {
+                // Find which trait (among T's bounds) declares this assoc type
+                auto bit = current_type_bounds_.find(tp_name);
+                if (bit == current_type_bounds_.end()) {
+                    error(std::format("unknown type parameter '{}' in '{}'::'{}'", tp_name, tp_name, assoc));
+                    return error_t();
+                }
+                for (auto& bound : bit->second) {
+                    auto tit = traits_.find(bound.trait_name);
+                    if (tit != traits_.end()) {
+                        for (auto& at : tit->second.assoc_types) {
+                            if (at.name == assoc) {
+                                trait_for_assoc = bound.trait_name;
+                                break;
+                            }
+                        }
+                    }
+                    if (!trait_for_assoc.empty()) break;
+                }
+            }
+            if (trait_for_assoc.empty()) {
+                error(std::format("no associated type '{}' found for '{}'", assoc, tp_name));
+                return error_t();
+            }
+            LogosType t;
+            t.kind            = LogosType::Kind::AssocType;
+            t.type_var_name   = tp_name;
+            t.trait_name      = trait_for_assoc;
+            t.assoc_type_name = assoc;
+            return pool_.alloc(std::move(t));
         }
 
         if (tc == la::TYPE_REF) {
@@ -929,6 +996,7 @@ private:
         ctx_ = std::format("trait {}", tname);
         // Push "Self" as a type param so trait method signatures can reference it.
         current_type_params_["Self"] = make_typevar("Self");
+        current_trait_name_ = tname;
         SemaTraitInfo info;
         info.name = tname;
         // Read trait type params (e.g. trait Into<T>)
@@ -938,6 +1006,12 @@ private:
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto m = map_of(items.get(i));
+                if (code_of(m) == la::ASSOC_TYPE_DEF) {
+                    SemaAssocTypeInfo at;
+                    at.name = std::string(str_of(m.get(la::NAME.code)));
+                    info.assoc_types.push_back(std::move(at));
+                    continue;
+                }
                 if (code_of(m) != la::FN) continue;
                 SemaTraitMethodInfo mi;
                 mi.name = std::string(str_of(m.get(la::NAME.code)));
@@ -965,6 +1039,7 @@ private:
         }
         pop_type_params(info.type_params);
         current_type_params_.erase("Self");
+        current_trait_name_.clear();
         traits_[tname] = std::move(info);
     }
 
@@ -1012,6 +1087,7 @@ private:
             }
         }
         // Register impl methods as free functions with mangled names: Target__method
+        // Also collect associated type definitions.
         // Skip if already registered (e.g. class methods defined inline).
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
@@ -1022,6 +1098,11 @@ private:
                     auto mangled = target + "__" + mname;
                     if (!funcs_.count(mangled))
                         collect_fn(m, target);
+                } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
+                    auto aname = std::string(str_of(m.get(la::NAME.code)));
+                    auto* atype = resolve_type(map_of(m.get(la::TYPE.code)));
+                    std::string key = trait_name + "::" + target + "::" + aname;
+                    assoc_type_impls_[key] = atype;
                 }
             }
         }
@@ -1050,6 +1131,18 @@ private:
                                   trait_name, target, m.name));
                         }
                     }
+                }
+            }
+        }
+        // Check associated type completeness
+        if (!trait_name.empty()) {
+            auto tit = traits_.find(trait_name);
+            if (tit != traits_.end()) {
+                for (auto& at : tit->second.assoc_types) {
+                    std::string key = trait_name + "::" + target + "::" + at.name;
+                    if (!assoc_type_impls_.count(key))
+                        error(std::format("impl {} for {}: missing associated type '{}'",
+                              trait_name, target, at.name));
                 }
             }
         }
@@ -4024,6 +4117,8 @@ private:
         td.name = tname;
         auto tit = traits_.find(tname);
         if (tit != traits_.end()) {
+            for (auto& at : tit->second.assoc_types)
+                td.assoc_types.push_back({at.name});
             for (auto& m : tit->second.methods) {
                 lir::LTraitMethodSig sig;
                 sig.name     = m.name;
@@ -4109,6 +4204,16 @@ private:
             if (tit != traits_.end()) {
                 for (auto& tp : tit->second.type_params)
                     current_type_params_.erase(tp.name);
+            }
+        }
+        // Copy associated type mappings
+        if (!trait_name.empty()) {
+            auto prefix = trait_name + "::" + target + "::";
+            for (auto& [key, type] : assoc_type_impls_) {
+                if (key.rfind(prefix, 0) == 0) {
+                    auto assoc_name = key.substr(prefix.size());
+                    ib.assoc_types[assoc_name] = type;
+                }
             }
         }
         prog.impls.push_back(std::move(ib));
