@@ -1,0 +1,25 @@
+// Test: Drop trait — automatic cleanup at scope exit
+package drop_basic;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop {
+    fn drop(self: Self);
+}
+
+struct Resource {
+    id: i32;
+}
+
+impl Drop for Resource {
+    fn drop(self: Resource) {
+        printf("dropped %d\n", self.id);
+    }
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let r: Resource = Resource { id: 7 };
+    // r should be dropped before return
+    return result;
+}

@@ -677,6 +677,16 @@ private:
     void gen_stmt_kind(const SMatch& s)       { gen_match(s); }
     void gen_stmt_kind(const SDelete& s)      { gen_delete(s); }
     void gen_stmt_kind(const SForEach& s)     { gen_for_each(s); }
+    void gen_stmt_kind(const SDrop& s) {
+        // Call Type__drop(var) for automatic scope cleanup
+        auto it = scope_.find(s.var_name);
+        if (it == scope_.end()) return;
+        auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto fn = mod.lookupSymbol<mlir::func::FuncOp>(s.drop_fn);
+        if (!fn) return;  // drop function not found — skip silently
+        // Struct methods receive the alloca pointer directly (same as method calls)
+        builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{it->second});
+    }
     void gen_stmt_kind(const SDerefWrite& s) {
         auto ptr = gen_expr(*s.ptr);
         auto val = gen_expr(*s.value);

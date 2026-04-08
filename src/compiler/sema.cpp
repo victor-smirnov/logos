@@ -428,6 +428,44 @@ private:
     void push_scope() { scope_.emplace_back(); }
     void pop_scope()  { if (!scope_.empty()) scope_.pop_back(); }
 
+    // Check if a type has a Drop impl (Type__drop exists in funcs_).
+    std::string drop_fn_for(const LogosType* t) const {
+        if (!t) return {};
+        std::string type_name;
+        if (t->kind == LogosType::Kind::Struct) type_name = t->struct_name;
+        else if (t->kind == LogosType::Kind::Class) type_name = t->struct_name;
+        if (type_name.empty()) return {};
+        std::string mangled = type_name + "__drop";
+        if (funcs_.count(mangled)) return mangled;
+        return {};
+    }
+
+    // Collect SDrop statements for all droppable variables in the current scope frame.
+    std::vector<lir::LStmt> collect_drops() const {
+        std::vector<lir::LStmt> drops;
+        if (scope_.empty()) return drops;
+        auto& frame = scope_.back();
+        for (auto& [name, info] : frame.vars) {
+            auto dfn = drop_fn_for(info.type);
+            if (!dfn.empty())
+                drops.push_back({node_line_, lir::SDrop{name, dfn, info.type}});
+        }
+        return drops;
+    }
+
+    // Collect SDrop statements for ALL enclosing scopes (for early return).
+    std::vector<lir::LStmt> collect_all_drops() const {
+        std::vector<lir::LStmt> drops;
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
+            for (auto& [name, info] : it->vars) {
+                auto dfn = drop_fn_for(info.type);
+                if (!dfn.empty())
+                    drops.push_back({node_line_, lir::SDrop{name, dfn, info.type}});
+            }
+        }
+        return drops;
+    }
+
     void define(std::string_view name, const LogosType* t, bool is_mut = false) {
         if (!scope_.empty())
             scope_.back().vars[std::string(name)] = {t, is_mut};
@@ -3628,8 +3666,27 @@ private:
             auto stmts = arr_of(block.get(la::ITEMS.code));
             for (uint64_t i = 0; i < stmts.size(); ++i) {
                 auto s = map_of(stmts.get(i));
-                if (!s.is_null()) result.stmts.push_back(lower_stmt(s));
+                if (s.is_null()) continue;
+                auto lowered = lower_stmt(s);
+                // Insert drops before return/break/continue
+                if (std::holds_alternative<lir::SReturn>(lowered.kind)) {
+                    for (auto& d : collect_all_drops())
+                        result.stmts.push_back(std::move(d));
+                } else if (std::holds_alternative<lir::SBreak>(lowered.kind) ||
+                           std::holds_alternative<lir::SContinue>(lowered.kind)) {
+                    for (auto& d : collect_drops())
+                        result.stmts.push_back(std::move(d));
+                }
+                result.stmts.push_back(std::move(lowered));
             }
+        }
+        // Insert drops for normal block exit (no return/break/continue)
+        if (result.stmts.empty() ||
+            (!std::holds_alternative<lir::SReturn>(result.stmts.back().kind) &&
+             !std::holds_alternative<lir::SBreak>(result.stmts.back().kind) &&
+             !std::holds_alternative<lir::SContinue>(result.stmts.back().kind))) {
+            for (auto& d : collect_drops())
+                result.stmts.push_back(std::move(d));
         }
         pop_scope();
         return result;

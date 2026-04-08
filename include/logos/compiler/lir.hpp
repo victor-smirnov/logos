@@ -315,13 +315,21 @@ struct SMatch {
     std::vector<LMatchArm> arms;
 };
 
+// Auto-generated drop call: Type__drop(var) at scope exit
+struct SDrop {
+    std::string      var_name;
+    std::string      drop_fn;    // mangled name: "MyStruct__drop"
+    const LogosType* type;
+};
+
 // ── Statement node ────────────────────────────────────────────────────────
 
 struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
-        SBreak, SContinue, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite
+        SBreak, SContinue, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
+        SDrop
     > kind;
 };
 

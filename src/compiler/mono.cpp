@@ -804,6 +804,9 @@ private:
             } else if constexpr (std::is_same_v<K, lir::SDelete>) {
                 ns.kind = lir::SDelete{subst_expr(*k.expr, s)};
 
+            } else if constexpr (std::is_same_v<K, lir::SDrop>) {
+                ns.kind = lir::SDrop{k.var_name, k.drop_fn, subst_type(k.type, s)};
+
             } else if constexpr (std::is_same_v<K, lir::SMatch>) {
                 lir::SMatch nm;
                 nm.scrut = subst_expr(*k.scrut, s);
@@ -911,6 +914,8 @@ private:
                 scan_expr(*k.expr);
             } else if constexpr (std::is_same_v<K, lir::SDelete>) {
                 scan_expr(*k.expr);
+            } else if constexpr (std::is_same_v<K, lir::SDrop>) {
+                // no-op: SDrop only references a variable name, not an expression
             } else if constexpr (std::is_same_v<K, lir::SMatch>) {
                 scan_expr(*k.scrut);
                 for (auto& arm : k.arms) scan_block(*arm.body);
@@ -1235,6 +1240,8 @@ private:
                 collect_struct_needs_from_expr(*k.expr);
             } else if constexpr (std::is_same_v<K, lir::SDelete>) {
                 collect_struct_needs_from_expr(*k.expr);
+            } else if constexpr (std::is_same_v<K, lir::SDrop>) {
+                // no-op
             } else if constexpr (std::is_same_v<K, lir::SMatch>) {
                 collect_struct_needs_from_expr(*k.scrut);
                 for (auto& arm : k.arms) collect_struct_needs_from_block(*arm.body);

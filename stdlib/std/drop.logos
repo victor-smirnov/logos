@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.drop
+//
+// Drop — called automatically when a value goes out of scope.
+// Implement for types that need cleanup (e.g., heap-allocated resources).
+
+package std.drop;
+
+trait Drop {
+    fn drop(self: Self);
+}
