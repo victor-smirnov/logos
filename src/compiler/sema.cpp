@@ -129,6 +129,11 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
         to->kind   == LogosType::Kind::Ptr   &&
         from->elem && to->pointee)
         return types_equal(*from->elem, *to->pointee);
+    // Array with IntLit elements is compatible with Array of any integer element type.
+    if (from->kind == LogosType::Kind::Array && to->kind == LogosType::Kind::Array &&
+        from->arr_size == to->arr_size && from->elem && to->elem &&
+        from->elem->kind == LogosType::Kind::IntLit && is_integer_kind(to->elem->kind))
+        return true;
     // *const u8 → &[u8] (string literal to str coercion)
     if (from->kind == LogosType::Kind::Ptr && to->kind == LogosType::Kind::Slice &&
         from->pointee && to->elem &&
@@ -1986,6 +1991,8 @@ private:
     const LogosType* impl_ret_type_inferred_ = nullptr;  // set when lowering impl Trait return fn
     // Type hint for enum literal construction (set from let annotation or return type)
     const LogosType* hint_enum_type_ = nullptr;
+    // Type hint for generic struct literal construction (set from let annotation)
+    const LogosType* hint_struct_type_ = nullptr;
 
     // ── Return reachability (on AST nodes) ───────────────────────
 
@@ -2778,6 +2785,22 @@ private:
 
     lir::LExprPtr lower_generic_call(TinyMapView node) {
         auto callee = str_of(node.get(la::CALLEE.code));
+
+        // sizeof::<T>() — compiler builtin, returns i64 byte size of T.
+        if (callee == "sizeof") {
+            const LogosType* elem = nullptr;
+            if (node.has_key(la::TYPE_PARAMS)) {
+                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    if (items.size() == 1)
+                        elem = resolve_type(map_of(items.get(0)));
+                }
+            }
+            if (!elem) error("sizeof::<T>() requires exactly one type argument");
+            return make_expr(prim(LogosType::Kind::I64), lir::ESizeOf{elem});
+        }
+
         // Prefer the generic overload (for variadic base case overloading)
         SemaFuncInfo* fi_ptr = nullptr;
         {
@@ -3119,6 +3142,23 @@ private:
         }
 
         auto& fi = fit->second;
+
+        // Build TypeVar→concrete substitution from the receiver's struct type args.
+        // This lets us check e.g. Vec<i32>::push(val: T) with T resolved to i32.
+        SemaSubst struct_subst;
+        {
+            const LogosType* rst = recv->type;
+            if (rst->kind == LogosType::Kind::Ptr && rst->pointee) rst = rst->pointee;
+            if (rst->kind == LogosType::Kind::Struct && !rst->type_args.empty()) {
+                auto sit2 = structs_.find(rst->struct_name);
+                if (sit2 != structs_.end()) {
+                    auto& tps = sit2->second.type_params;
+                    for (size_t i = 0; i < tps.size() && i < rst->type_args.size(); ++i)
+                        struct_subst[tps[i].name] = rst->type_args[i];
+                }
+            }
+        }
+
         uint64_t explicit_args = arg_exprs.size();
         size_t expected_explicit = fi.param_types.size() > 0 ? fi.param_types.size() - 1 : 0;
         if (explicit_args != expected_explicit)
@@ -3130,6 +3170,7 @@ private:
                 size_t pi = i + 1;
                 if (pi < fi.param_types.size()) {
                     auto* pt = fi.param_types[pi];
+                    if (!struct_subst.empty()) pt = subst_type_sema(pt, struct_subst);
                     if (at->kind != LogosType::Kind::Error && pt->kind != LogosType::Kind::Error &&
                         !types_compatible(at, pt))
                         error(std::format("method '{}' arg {}: expected {}, got {}",
@@ -3138,24 +3179,9 @@ private:
             }
         }
 
-        // Substitute struct type params (TypeVars) in return type and param types
-        // using the actual type_args of the receiver.  Handles e.g. Pair<T>.swap()
-        // where the receiver is Pair<i32> and ret_type is Pair<T> → Pair<i32>.
-        const LogosType* recv_struct_t = recv->type;
-        if (recv_struct_t->kind == LogosType::Kind::Ptr && recv_struct_t->pointee)
-            recv_struct_t = recv_struct_t->pointee;
-        const LogosType* ret = fi.ret_type;
-        if (recv_struct_t->kind == LogosType::Kind::Struct &&
-            !recv_struct_t->type_args.empty()) {
-            auto sit = structs_.find(recv_struct_t->struct_name);
-            if (sit != structs_.end()) {
-                SemaSubst subst;
-                auto& tps = sit->second.type_params;
-                for (size_t i = 0; i < tps.size() && i < recv_struct_t->type_args.size(); ++i)
-                    subst[tps[i].name] = recv_struct_t->type_args[i];
-                ret = subst_type_sema(fi.ret_type, subst);
-            }
-        }
+        // Substitute TypeVars in return type using the same substitution.
+        const LogosType* ret = struct_subst.empty()
+            ? fi.ret_type : subst_type_sema(fi.ret_type, struct_subst);
 
         return make_expr(ret,
             lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs)});
@@ -3219,6 +3245,17 @@ private:
 
         // For generic structs: infer type args and resolve to spec or template.
         if (!sinfo.type_params.empty()) {
+            // Helper: get the hint type for a TypeVar from hint_struct_type_ annotation.
+            auto hint_for_tv = [&](const std::string& tv_name) -> const LogosType* {
+                if (!hint_struct_type_ || hint_struct_type_->struct_name != std::string(sname))
+                    return nullptr;
+                for (size_t i = 0; i < sinfo.type_params.size(); ++i)
+                    if (sinfo.type_params[i].name == tv_name &&
+                        i < hint_struct_type_->type_args.size())
+                        return hint_struct_type_->type_args[i];
+                return nullptr;
+            };
+
             // Infer type args from field values against the generic template.
             SemaSubst inferred;
             for (auto& [fname, fval] : fields) {
@@ -3228,7 +3265,10 @@ private:
                     auto& tv = raw_ft->type_var_name;
                     if (!inferred.count(tv)) {
                         auto* vt = fval->type;
-                        if (vt->kind == LogosType::Kind::IntLit) vt = i32_t();
+                        if (vt->kind == LogosType::Kind::IntLit) {
+                            auto* h = hint_for_tv(tv);
+                            vt = (h && h->kind != LogosType::Kind::Error) ? h : i32_t();
+                        }
                         inferred[tv] = vt;
                     }
                 } else if (raw_ft->kind == LogosType::Kind::Array && raw_ft->elem &&
@@ -3238,9 +3278,30 @@ private:
                     if (!inferred.count(tv) && fval->type->kind == LogosType::Kind::Array &&
                         fval->type->elem) {
                         auto* vt = fval->type->elem;
-                        if (vt->kind == LogosType::Kind::IntLit) vt = i32_t();
+                        if (vt->kind == LogosType::Kind::IntLit) {
+                            auto* h = hint_for_tv(tv);
+                            vt = (h && h->kind != LogosType::Kind::Error) ? h : i32_t();
+                        }
                         inferred[tv] = vt;
                     }
+                } else if (raw_ft->kind == LogosType::Kind::Ptr && raw_ft->pointee &&
+                           raw_ft->pointee->kind == LogosType::Kind::TypeVar) {
+                    // *mut T / *const T field — infer T from the value's pointee type.
+                    auto& tv = raw_ft->pointee->type_var_name;
+                    if (!inferred.count(tv) && fval->type->kind == LogosType::Kind::Ptr &&
+                        fval->type->pointee) {
+                        auto* vt = fval->type->pointee;
+                        if (vt->kind != LogosType::Kind::Error)
+                            inferred[tv] = vt;
+                    }
+                }
+            }
+            // For any TypeVar still not inferred from fields, fall back to hint.
+            for (auto& tp : sinfo.type_params) {
+                if (!inferred.count(tp.name)) {
+                    auto* h = hint_for_tv(tp.name);
+                    if (h && h->kind != LogosType::Kind::Error)
+                        inferred[tp.name] = h;
                 }
             }
             std::vector<const LogosType*> args;
@@ -3382,7 +3443,8 @@ private:
         int64_t n = (int64_t)std::strtoull(sv.data(), nullptr, 10);
         if (n <= 0) error(std::format("array fill literal: size must be positive, got {}", n));
         const LogosType* elem_type = fill_val->type;
-        if (elem_type->kind == LogosType::Kind::IntLit) elem_type = i32_t();
+        // Keep IntLit unresolved so that struct-literal type inference (hint_struct_type_)
+        // can widen the element to the correct concrete type (e.g. i64 for Vec<i64>).
         std::vector<lir::LExprPtr> elems;
         elems.push_back(std::move(fill_val));
         for (int64_t i = 1; i < n; ++i)
@@ -4102,10 +4164,13 @@ private:
         if (node.has_key(la::TYPE))
             ann = resolve_type(map_of(node.get(la::TYPE.code)));
 
-        // Set enum hint so lower_enum_lit_data can fill in unresolved type params
+        // Set enum/struct hints so literal lowering can fill in unresolved type params
         auto* saved_hint = hint_enum_type_;
         if (ann && ann->kind == LogosType::Kind::Enum && !ann->type_args.empty())
             hint_enum_type_ = ann;
+        auto* saved_struct_hint = hint_struct_type_;
+        if (ann && ann->kind == LogosType::Kind::Struct && !ann->type_args.empty())
+            hint_struct_type_ = ann;
 
         lir::LExprPtr rhs;
         const LogosType* rhs_type;
@@ -4119,6 +4184,7 @@ private:
         }
 
         hint_enum_type_ = saved_hint;
+        hint_struct_type_ = saved_struct_hint;
 
         const LogosType* var_type;
         if (ann != nullptr) {

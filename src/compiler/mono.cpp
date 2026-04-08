@@ -730,6 +730,8 @@ private:
                     nm.arms.push_back(std::move(na));
                 }
                 result->kind = std::move(nm);
+            } else if constexpr (std::is_same_v<K, lir::ESizeOf>) {
+                result->kind = lir::ESizeOf{subst_type(k.elem_type, s)};
             }
         }, e.kind);
 

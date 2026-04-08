@@ -227,6 +227,11 @@ struct EPackExpand {
     std::string var_name;  // the pack variable being expanded (e.g. "rest")
 };
 
+// sizeof::<T>() — size in bytes of type T, computed at compile time via GEP trick.
+struct ESizeOf {
+    const LogosType* elem_type = nullptr;
+};
+
 // Try expression: expr? — extract Ok(v) or early-return Err(e).
 // inner must have enum type "Result" with 2 type args [T, E].
 // ok_disc / err_disc are the discriminant values for Ok and Err variants.
@@ -247,7 +252,7 @@ struct LExpr {
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
         EClosureBox, EClosureCall, EFormatCall, EPackExpand,
-        ETry, EMatchExpr
+        ETry, EMatchExpr, ESizeOf
     > kind;
 };
 

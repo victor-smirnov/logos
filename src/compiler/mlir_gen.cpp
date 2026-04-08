@@ -2971,6 +2971,25 @@ private:
         return nullptr;
     }
 
+    // sizeof::<T>() — GEP null trick: ptrtoint(GEP(null, 1)) = sizeof(T) in bytes.
+    mlir::Value gen_expr_kind(const ESizeOf& e, const LogosType*) {
+        auto elem_mlir = logos_to_mlir(e.elem_type);
+        if (!elem_mlir) {
+            // Fallback: return 8 (pointer size) for unknown types.
+            return builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
+        }
+        // null pointer as i64 0 → ptr
+        mlir::Value zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        mlir::Value null_ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), zero);
+        // GEP(null, 1) — advance by one element
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(1)};
+        auto size_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), elem_mlir, null_ptr, idx);
+        // ptrtoint → i64
+        return builder_.create<mlir::LLVM::PtrToIntOp>(
+            loc_, builder_.getI64Type(), size_ptr);
+    }
+
     // ── Try expression: expr? ─────────────────────────────────────
     // inner : *Result<T,E>  →  ok_block: yields T  /  err_block: early return Err(E)
     mlir::Value gen_expr_kind(const ETry& e, const LogosType* type) {
@@ -3198,6 +3217,9 @@ private:
 
             auto val = gen_expr(*fval);
             if (!val) return nullptr;
+            // Coerce scalar literals to the field's declared type (e.g. IntLit→i64).
+            if (fi && fi->type && !mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type))
+                val = coerce_int(val, fi->type);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
         }
         return alloca;

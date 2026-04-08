@@ -1,32 +1,29 @@
 package vec_usage;
-// Vec<i32>: class with fixed backing array and static constructor
-class Vec {
-    data: [i32; 64];
-    len_: i64;
+// Vec<T>: generic stack-allocated struct with inline array backing
+
+struct Vec<T> {
+    data: [T; 64];
+    len: i64;
 }
 
-impl Vec {
-    static fn new() -> *mut Vec {
-        return new Vec { data: [0; 64], len_: 0 };
+impl<T> Vec<T> {
+    fn push(self: *mut Vec<T>, val: T) {
+        self.data[self.len as u64] = val;
+        self.len = self.len + 1;
     }
-    fn push(self: *mut Vec, val: i32) {
-        self.data[self.len_ as u64] = val;
-        self.len_ = self.len_ + 1;
-    }
-    fn get(self: *mut Vec, i: i64) -> i32 {
+    fn get(self: *mut Vec<T>, i: i64) -> T {
         return self.data[i as u64];
     }
-    fn len(self: *mut Vec) -> i64 {
-        return self.len_;
+    fn len(self: *mut Vec<T>) -> i64 {
+        return self.len;
     }
 }
 
 fn main() -> i32 {
-    let v: *mut Vec = Vec::new();
+    let mut v: Vec<i32> = Vec { data: [0; 64], len: 0 };
     v.push(10);
     v.push(20);
     v.push(12);
     let sum: i32 = v.get(0) + v.get(1) + v.get(2);
-    delete v;
     return sum;  // 42
 }
