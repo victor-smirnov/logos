@@ -2030,6 +2030,33 @@ private:
         for (size_t i = 0; i < n_subst; ++i)
             subst[fi.type_params[i].name] = type_args[i];
 
+        // Validate trait bounds: for each type param with bounds, check that
+        // the concrete type has an impl for each required trait.
+        for (size_t i = 0; i < n_subst; ++i) {
+            auto& tp = fi.type_params[i];
+            auto* concrete = type_args[i];
+            // Unwrap pointer for class types (*mut T → T)
+            const LogosType* inner = concrete;
+            if (inner->kind == LogosType::Kind::Ptr && inner->pointee)
+                inner = inner->pointee;
+            std::string type_name;
+            if (inner->kind == LogosType::Kind::Struct)
+                type_name = concrete_struct_name(inner);
+            else if (inner->kind == LogosType::Kind::Class)
+                type_name = concrete_class_name(inner);
+            for (auto& bound : tp.bounds) {
+                if (type_name.empty()) {
+                    error(std::format("call to '{}': type arg {} ({}) cannot satisfy trait bound '{}'",
+                          callee, i + 1, type_str(concrete), bound.trait_name));
+                    continue;
+                }
+                auto key = bound.trait_name + "::" + type_name;
+                if (!impls_.count(key))
+                    error(std::format("call to '{}': {} does not implement trait '{}'",
+                          callee, type_str(concrete), bound.trait_name));
+            }
+        }
+
         // Determine concrete return type by substituting TypeVars (recursive)
         const LogosType* ret = subst_type_sema(fi.ret_type, subst);
 
@@ -2214,7 +2241,12 @@ private:
             for (auto& [tname, tinfo] : traits_) {
                 for (auto& m : tinfo.methods) {
                     if (m.name == method_name) {
-                        ret_type = m.ret_type;
+                        // Substitute Self → receiver's TypeVar type
+                        if (m.ret_type && m.ret_type->kind == LogosType::Kind::TypeVar &&
+                            m.ret_type->type_var_name == "Self")
+                            ret_type = recv_inner;
+                        else
+                            ret_type = m.ret_type;
                         found = true;
                         break;
                     }
@@ -3783,9 +3815,7 @@ private:
         ib.trait_name   = trait_name;
         ib.target_type  = target;
         // Lower impl methods as free functions (Target__method).
-        // Skip for class trait impls (methods already defined in class body).
-        bool skip_lower = !trait_name.empty() && classes_.count(target) > 0;
-        if (!skip_lower && node.has_key(la::ITEMS)) {
+        if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto m = map_of(items.get(i));

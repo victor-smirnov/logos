@@ -1,0 +1,8 @@
+package trait_bound_missing;
+trait Value { fn val(self: Self) -> i32; }
+struct Empty {}
+fn get<T: Value>(t: T) -> i32 { return t.val(); }
+fn main() -> i32 {
+    let e: Empty = Empty {};
+    return get::<Empty>(e);
+}

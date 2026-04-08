@@ -1,0 +1,25 @@
+// Trait impl for class, dispatched through generic bound
+package trait_class_bound;
+
+trait Score { fn score(self: Self) -> i32; }
+
+class Player {
+    hp: i32;
+    xp: i32;
+    static fn create(hp: i32, xp: i32) -> *mut Player {
+        return new Player { hp: hp, xp: xp };
+    }
+}
+
+impl Score for Player {
+    fn score(self: *mut Player) -> i32 { return self.hp + self.xp; }
+}
+
+fn eval<T: Score>(x: T) -> i32 { return x.score(); }
+
+fn main() -> i32 {
+    let p: *mut Player = Player::create(20, 22);
+    let r: i32 = eval::<*mut Player>(p);
+    delete p;
+    return r;
+}

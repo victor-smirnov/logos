@@ -1,0 +1,20 @@
+// Trait method returning Self through generic bound
+package trait_self_return;
+
+trait Clone { fn clone(self: Self) -> Self; }
+
+struct Pt { x: i32; y: i32; }
+
+impl Clone for Pt {
+    fn clone(self: Pt) -> Pt {
+        return Pt { x: self.x, y: self.y };
+    }
+}
+
+fn dup<T: Clone>(x: T) -> T { return x.clone(); }
+
+fn main() -> i32 {
+    let a: Pt = Pt { x: 20, y: 22 };
+    let b: Pt = dup::<Pt>(a);
+    return b.x + b.y;
+}
