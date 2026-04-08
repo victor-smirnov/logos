@@ -995,6 +995,15 @@ private:
 
         if (tc == la::GENERIC_INST) {
             auto name = str_of(node.get(la::NAME.code));
+            // Special case: Box<dyn Trait> = owned trait object (same layout as &dyn Trait)
+            if (name == "Box" && node.has_key(la::ITEMS)) {
+                auto items = arr_of(node.get(la::ITEMS.code));
+                if (items.size() == 1) {
+                    auto* inner = resolve_type(map_of(items.get(0)));
+                    if (inner && inner->kind == LogosType::Kind::TraitObject)
+                        return inner;  // Box<dyn T> ≡ &dyn T in our type system
+                }
+            }
             bool is_struct = structs_.count(std::string(name)) > 0;
             bool is_class  = classes_.count(std::string(name)) > 0;
             bool is_enum   = enums_.count(std::string(name)) > 0;
@@ -3977,7 +3986,7 @@ private:
                         impl_ret_type_inferred_ = val->type;
                 } else if (ret_type_ && ret_type_->kind != LogosType::Kind::Error &&
                     val->type->kind != LogosType::Kind::Error &&
-                    !types_compatible(val->type, ret_type_)) {
+                    !compat(val->type, ret_type_)) {
                     error(std::format("return type mismatch — expected {}, got {}",
                           type_str(ret_type_), type_str(val->type)));
                 }

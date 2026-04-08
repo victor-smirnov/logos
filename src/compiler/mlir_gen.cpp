@@ -184,6 +184,7 @@ private:
     // Needed because scope_[name] is an alloca(ptr), so indexing requires a load first.
     std::unordered_map<std::string, mlir::Type>   var_local_ptrs_;
     mlir::Type                                    cur_ret_type_;
+    const LogosType*                              cur_fn_ret_logos_type_ = nullptr;
     bool                                          in_llvm_func_ = false;
 
     struct LoopBlocks { mlir::Block* cont; mlir::Block* exit; };
@@ -453,8 +454,9 @@ private:
     // "Trait::Type" → mangled method names in vtable slot order
     std::unordered_map<std::string, std::vector<std::string>> dyn_vtable_methods_;
 
-    // Build a vtable [N x ptr] on the stack for a concrete type implementing a trait.
-    // Returns a pointer to the stack-allocated vtable array.
+    // Build a vtable [N x ptr] heap-allocated for a concrete type implementing a trait.
+    // Vtable is heap-allocated so it outlives any creating function's stack frame —
+    // this is required for Box<dyn Trait> returned from functions.
     mlir::Value build_inline_vtable(const std::string& trait_name,
                                      const std::string& type_name) {
         auto key = trait_name + "::" + type_name;
@@ -462,9 +464,11 @@ private:
         if (vit == dyn_vtable_methods_.end()) return nullptr;
         auto& methods = vit->second;
         size_t n = methods.size();
-        auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_type(), n);
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), arr_type, i64_one());
+        // Heap-allocate: n pointers × 8 bytes each.
+        auto size_val = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, static_cast<int64_t>(n * 8), 64);
+        auto vtable = call_malloc(size_val);
+        if (!vtable) return nullptr;
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
         for (size_t i = 0; i < n; ++i) {
             auto callee = parent_mod.lookupSymbol<mlir::func::FuncOp>(methods[i]);
@@ -473,29 +477,18 @@ private:
                              methods[i].c_str());
                 continue;
             }
-            // Get function pointer via constant(funcref) → inttoptr trick
-            // Actually: use func.constant to get a function reference, then cast.
-            // Simpler: use LLVM addressof on an llvm.func. But our funcs are func.func.
-            // Workaround: declare an llvm.func wrapper for the address.
-            // Get function address using func.constant + unrealized_conversion_cast.
-            auto func_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(methods[i]);
-            if (!func_fn) {
-                std::fprintf(stderr, "mlir_gen: vtable: method '%s' not found\n",
-                             methods[i].c_str());
-                continue;
-            }
-            auto func_type = func_fn.getFunctionType();
+            auto func_type = callee.getFunctionType();
             auto fn_ref = builder_.create<mlir::func::ConstantOp>(
                 loc_, func_type, methods[i]);
-            // Cast function ref to ptr for storage in vtable
             auto fn_addr = builder_.create<mlir::UnrealizedConversionCastOp>(
                 loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
-            llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
+            // GEP: vtable is ptr to array of ptrs; element i at offset i*sizeof(ptr).
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(i)};
             auto slot = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), arr_type, alloca, idx);
+                loc_, ptr_type(), ptr_type(), vtable, idx);
             builder_.create<mlir::LLVM::StoreOp>(loc_, fn_addr, slot);
         }
-        return alloca;
+        return vtable;
     }
 
     // ── malloc / free helpers ─────────────────────────────────────
@@ -668,6 +661,7 @@ private:
 
         auto ret_types = func.getFunctionType().getResults();
         cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
+        cur_fn_ret_logos_type_ = fn.ret_type;
 
         gen_block(fn.body);
 
@@ -936,12 +930,25 @@ private:
             return;
         }
 
-        // ── &dyn Trait coercion ───────────────────────────────────
+        // ── &dyn Trait / Box<dyn Trait> coercion ─────────────────
         if (s.type && s.type->kind == LogosType::Kind::TraitObject) {
             auto data_ptr = gen_expr(*s.value);
             if (!data_ptr) return;
-            std::string src_type = type_str(s.value->type);
-            auto alloca = coerce_to_dyn(data_ptr, s.type->trait_name, src_type);
+            mlir::Value alloca;
+            if (s.value->type && s.value->type->kind == LogosType::Kind::TraitObject) {
+                // RHS is already a fat pointer (e.g., returned from a Box<dyn T> function).
+                // Use it directly — no need to rebuild the fat struct.
+                alloca = data_ptr;
+            } else {
+                // Concrete type → build fat pointer from scratch.
+                // For &dyn T from `new Foo {}`, value type is *mut Foo — strip the pointer.
+                const LogosType* src_logos_type = s.value->type;
+                if (src_logos_type && src_logos_type->kind == LogosType::Kind::Ptr &&
+                    src_logos_type->pointee)
+                    src_logos_type = src_logos_type->pointee;
+                std::string src_type = type_str(src_logos_type);
+                alloca = coerce_to_dyn(data_ptr, s.type->trait_name, src_type);
+            }
             scope_[s.name] = alloca;
             let_vars_.insert(s.name);
             var_dyn_trait_[s.name] = s.type->trait_name;
@@ -1002,6 +1009,40 @@ private:
 
     void gen_return(const SReturn& s) {
         if (s.value) {
+            // Box<dyn Trait> / &dyn Trait return: coerce concrete type to heap fat pointer.
+            if (cur_fn_ret_logos_type_ &&
+                cur_fn_ret_logos_type_->kind == LogosType::Kind::TraitObject &&
+                s.value->type &&
+                s.value->type->kind != LogosType::Kind::TraitObject) {
+                auto val = gen_expr(*s.value);
+                if (!val) return;
+                const LogosType* src_lt = s.value->type;
+                if (src_lt->kind == LogosType::Kind::Ptr && src_lt->pointee)
+                    src_lt = src_lt->pointee;
+                auto vtable = build_inline_vtable(
+                    cur_fn_ret_logos_type_->trait_name, type_str(src_lt));
+                // Heap-allocate the fat struct so it survives past this function's frame.
+                auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 16LL, 64);
+                auto fat_ptr = call_malloc(size16);
+                auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
+                    builder_.getContext(), {ptr_type(), ptr_type()});
+                llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val,
+                    builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), dyn_struct, fat_ptr, idx0));
+                if (vtable) {
+                    llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, vtable,
+                        builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), dyn_struct, fat_ptr, idx1));
+                }
+                if (in_llvm_func_)
+                    builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{fat_ptr});
+                else
+                    builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fat_ptr});
+                return;
+            }
+
             auto val = gen_expr(*s.value);
             if (!val) return;
             // Tagged enum None returning i32 but function expects ptr:

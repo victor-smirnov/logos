@@ -406,6 +406,8 @@
     // &dyn Trait — trait object (fat pointer: data + vtable)
     dyn_type <- AMP KW_DYN IDENT
              => { CODE: DYN_TYPE, NAME: $3 }
+              / KW_DYN IDENT
+             => { CODE: DYN_TYPE, NAME: $2 }
 
     // &[T] — slice type (fat pointer: ptr + len)
     slice_type <- AMP LBRACKET type_ref RBRACKET
