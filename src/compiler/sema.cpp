@@ -625,7 +625,7 @@ private:
 
     // ── Module-level symbol tables ───────────────────────────────
 
-    struct SemaFieldInfo  { std::string_view name; const LogosType* type; };
+    struct SemaFieldInfo  { std::string_view name; const LogosType* type; bool is_pub = false; };
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params;
                             bool is_pub = false; std::string source_file; };
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
@@ -1562,7 +1562,10 @@ private:
                 auto fnode = map_of(fields.get(i));
                 auto fname = str_of(fnode.get(la::NAME.code));
                 auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
-                info.fields.push_back({fname, ftype});
+                bool fpub = fnode.has_key(la::IS_PUB) &&
+                            fnode.get(la::IS_PUB.code).is_value() &&
+                            fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+                info.fields.push_back({fname, ftype, fpub});
             }
         }
         structs_[sname] = std::move(info);

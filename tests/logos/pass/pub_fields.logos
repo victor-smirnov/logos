@@ -1,0 +1,34 @@
+package pub_fields;
+// pub fields: syntax and accessibility within same package
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+struct Point {
+    pub x: i32;
+    pub y: i32;
+}
+
+struct Counter {
+    pub  value: i32;   // public — accessible everywhere
+    step: i32;         // private — accessible only within package (same file)
+}
+
+impl Counter {
+    static fn new(step: i32) -> Counter {
+        return Counter { value: 0, step: step };
+    }
+    fn tick(self: *mut Counter) {
+        self.value = self.value + self.step;
+    }
+}
+
+fn main() -> i32 {
+    let p = Point { x: 3, y: 4 };
+    printf("%d %d\n", p.x, p.y);
+
+    let mut c = Counter::new(5);
+    c.tick();
+    c.tick();
+    printf("%d\n", c.value);   // 10
+
+    return 0;
+}
