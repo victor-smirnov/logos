@@ -1,0 +1,20 @@
+package static_new;
+// `static fn new(...)` constructor pattern — 'new' used as a method name.
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+struct Point { x: i32; y: i32; }
+
+impl Point {
+    static fn new(x: i32, y: i32) -> Point {
+        return Point { x: x, y: y };
+    }
+    fn dist2(self: *mut Point) -> i32 {
+        return self.x * self.x + self.y * self.y;
+    }
+}
+
+fn main() -> i32 {
+    let mut p = Point::new(3, 4);
+    printf("%d\n", p.dist2());   // 25
+    return 0;
+}

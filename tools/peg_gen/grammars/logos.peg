@@ -355,9 +355,14 @@
     class_member <- abstract_method_def / static_fn_def / pub_fn_def / fn_def / field_def
 
     // static fn name(params) -> ret_type { ... }
-    static_fn_def <- KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+    // 'new' and 'delete' are allowed as method names (common constructor/destructor conventions).
+    static_fn_def <- KW_STATIC KW_FN IDENT  LPAREN param_list? RPAREN ARROW type_ref block
                   => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
-                   / KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN block
+                   / KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN ARROW type_ref block
+                  => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
+                   / KW_STATIC KW_FN IDENT  LPAREN param_list? RPAREN block
+                  => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
+                   / KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN block
                   => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
 
     // abstract fn name(params) -> ret_type;
@@ -398,9 +403,13 @@
                => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
 
     // ── Private function ─────────────────────────────────────────
-    fn_def <- KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+    fn_def <- KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
-            / KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
+            / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
+            / KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
+           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
+            / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
 
     param_list <- param (COMMA param)*
@@ -758,7 +767,9 @@
     // ── Free function call: fn(args) or fn::<T>(args) or Class::method(args) ─
     call_expr <- IDENT COLONCOLON LT type_arg_list GT LPAREN call_arg_list? RPAREN
               => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
-               / IDENT COLONCOLON IDENT LPAREN call_arg_list? RPAREN
+               / IDENT COLONCOLON IDENT  LPAREN call_arg_list? RPAREN
+              => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }
+               / IDENT COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }
                / IDENT LPAREN (expr (COMMA expr)*)? RPAREN
               => { CODE: CALL, CALLEE: $1, ARGS: $... }
