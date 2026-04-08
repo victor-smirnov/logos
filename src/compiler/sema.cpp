@@ -2298,6 +2298,13 @@ private:
                           op, type_str(lt), type_str(rt)));
                 result_type = unify_int(lt, rt);
             }
+        } else if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
+            // Bitwise and shift operators — require integer operands.
+            if (!is_integer_kind(lt->kind) && lt->kind != LogosType::Kind::IntLit)
+                error(std::format("operator '{}': left must be integer, got {}", op, type_str(lt)));
+            if (!is_integer_kind(rt->kind) && rt->kind != LogosType::Kind::IntLit)
+                error(std::format("operator '{}': right must be integer, got {}", op, type_str(rt)));
+            result_type = unify_int(lt, rt);
         } else {
             error(std::format("unknown binary operator '{}'", op));
         }

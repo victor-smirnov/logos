@@ -211,6 +211,8 @@
     NE          = "!="
     LE          = "<="
     GE          = ">="
+    SHL         = "<<"
+    SHR         = ">>"
     DOTDOTDOT   = "..."
     DOTDOTEQ    = "..="
     DOTDOT      = ".."
@@ -225,6 +227,7 @@
     ASSIGN      = "="
     FATARROW    = "=>"
     COLONCOLON  = "::"
+    CARET       = "^"
 
     // Literals & identifiers
     STRING      = /"([^"\\]|\\.)*"/
@@ -589,9 +592,16 @@
                 )+
               / cmp_expr
 
-    cmp_expr <- add_expr (EQ / NE / LE / GE / LT / GT) add_expr
+    cmp_expr <- bitwise_expr (EQ / NE / LE / GE / LT / GT) bitwise_expr
                 => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
-              / add_expr
+              / bitwise_expr
+
+    // Bitwise and shift operators (higher precedence than comparison)
+    bitwise_expr <- add_expr
+                    ( (SHL / SHR / AMP / CARET / PIPE) add_expr
+                        => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                    )+
+                  / add_expr
 
     add_expr <- mul_expr
                 ( (PLUS / MINUS) mul_expr

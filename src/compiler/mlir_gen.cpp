@@ -1917,6 +1917,11 @@ private:
         if (op == "%")  return builder_.create<mlir::arith::RemSIOp>(loc_, lhs, rhs);
         if (op == "&&") return builder_.create<mlir::arith::AndIOp>(loc_, lhs, rhs);
         if (op == "||") return builder_.create<mlir::arith::OrIOp> (loc_, lhs, rhs);
+        if (op == "&")  return builder_.create<mlir::arith::AndIOp>(loc_, lhs, rhs);
+        if (op == "|")  return builder_.create<mlir::arith::OrIOp> (loc_, lhs, rhs);
+        if (op == "^")  return builder_.create<mlir::arith::XOrIOp>(loc_, lhs, rhs);
+        if (op == "<<") return builder_.create<mlir::arith::ShLIOp>(loc_, lhs, rhs);
+        if (op == ">>") return builder_.create<mlir::arith::ShRSIOp>(loc_, lhs, rhs);
         if (op == "==") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq,  lhs, rhs);
         if (op == "!=") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne,  lhs, rhs);
         if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::slt, lhs, rhs);

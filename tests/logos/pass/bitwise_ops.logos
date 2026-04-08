@@ -1,0 +1,22 @@
+package bitwise_ops;
+// Bitwise operators: &, |, ^, <<, >>
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn popcount(n: i32) -> i32 {
+    let mut c = 0;
+    let mut x = n;
+    while x != 0 {
+        c = c + (x & 1);
+        x = x >> 1;
+    }
+    return c;
+}
+
+fn main() -> i32 {
+    let a: i32 = 12;
+    let b: i32 = 10;
+    printf("%d %d %d\n", a & b, a | b, a ^ b);
+    printf("%d %d\n", a << 2, a >> 1);
+    printf("%d\n", popcount(255));
+    return 0;
+}
