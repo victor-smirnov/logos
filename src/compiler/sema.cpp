@@ -3371,6 +3371,13 @@ private:
             if (!init)
                 error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
 
+        // Move semantics: mark Move-typed field values as consumed.
+        for (auto& [fname, fval] : fields) {
+            if (fval && is_move_type(fval->type))
+                if (auto* vr = std::get_if<lir::EVarRef>(&fval->kind))
+                    mark_moved(vr->name);
+        }
+
         return make_expr(make_struct_type(std::string(sname)),
             lir::EStructLit{std::string(sname), std::move(fields)});
     }

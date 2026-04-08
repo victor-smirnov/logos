@@ -45,6 +45,7 @@ add_custom_command(
 # ---------------------------------------------------------------------------
 add_executable(logosc
     main.cpp
+    borrow_check.cpp
     mlir_gen.cpp
     module_loader.cpp
     mono.cpp

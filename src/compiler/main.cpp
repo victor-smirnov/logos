@@ -8,6 +8,7 @@
 
 #include "mlir_gen.hpp"
 #include "module_loader.hpp"
+#include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/mono.hpp>
 
@@ -89,6 +90,11 @@ int main(int argc, char** argv) {
 
     // ── Step 2c: Monomorphization ────────────────────────────────
     prog = logos::compiler::mono_pass(std::move(prog));
+    prog.print_diags(stderr);
+    if (!prog.ok()) return 1;
+
+    // ── Step 2d: Borrow checking ─────────────────────────────────
+    prog = logos::compiler::borrow_check(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
 

@@ -1,17 +1,11 @@
-// Fail: use of moved variable
 package use_after_move;
-
 trait Drop { fn drop(self: Self); }
-
+extern fn printf(fmt: *const u8, ...) -> i32;
 struct Res { id: i32; }
-impl Drop for Res {
-    fn drop(self: Res) { }
-}
-
-fn consume(r: Res) { }
-
+impl Drop for Res { fn drop(self: Res) { printf("%d\n", self.id); } }
+fn consume(r: Res) -> i32 { return r.id; }
 fn main() -> i32 {
-    let a: Res = Res { id: 1 };
-    consume(a);
-    return a.id;
+    let r = Res { id: 42 };
+    consume(r);
+    return consume(r);   // error: use of moved value 'r'
 }
