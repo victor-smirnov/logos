@@ -1,0 +1,32 @@
+// Type inference for generic functions — no explicit ::<T> needed
+package type_infer;
+
+// Simple identity: T inferred from arg
+fn identity<T>(x: T) -> T { return x; }
+
+// Trait-bound: T inferred from struct type, bound checked automatically
+trait Describable { fn describe(self: Self) -> i32; }
+
+struct Thing { val: i32; }
+impl Describable for Thing {
+    fn describe(self: Thing) -> i32 { return self.val; }
+}
+
+fn describe_it<T: Describable>(x: T) -> i32 { return x.describe(); }
+
+// Two params same type: T inferred consistently from first arg
+fn first_of<T>(a: T, b: T) -> T { return a; }
+
+fn main() -> i32 {
+    // identity: T inferred as i32 from literal
+    let a: i32 = identity(21);
+
+    // describe_it: T inferred as Thing, bound Describable checked
+    let t: Thing = Thing { val: 21 };
+    let b: i32 = describe_it(t);
+
+    // first_of: T inferred as i32
+    let c: i32 = first_of(0, 1);
+
+    return a + b + c;
+}

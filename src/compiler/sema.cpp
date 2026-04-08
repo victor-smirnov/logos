@@ -2135,8 +2135,7 @@ private:
         // The old intrinsic path (EFormatCall) is retained for future intrinsics but
         // no longer intercepts the "format" name.
 
-        auto fit = funcs_.find(std::string(callee));
-
+        // Lower arguments first — needed for type inference
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args = arr_of(node.get(la::ARGS.code));
@@ -2144,16 +2143,75 @@ private:
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
         }
 
-        if (fit == funcs_.end()) {
+        auto fit  = funcs_.find(std::string(callee));
+        auto git  = generic_funcs_.find(std::string(callee));
+        uint64_t n_args = arg_exprs.size();
+
+        // Resolve the "best" SemaFuncInfo to try.
+        // Priority:
+        //   1. generic_funcs_ (variadic overload, or overloaded name) if callee is there
+        //   2. funcs_ with non-empty type_params (plain generic fn, stored in funcs_)
+        //   3. funcs_ with empty type_params (concrete fn)
+        // If the function is generic (by either map or non-empty type_params in funcs_),
+        // try to infer type args from the actual argument types.
+
+        // Identify which entry to use
+        const SemaFuncInfo* infer_fi = nullptr;
+        if (fit == funcs_.end() && git == generic_funcs_.end()) {
             error(std::format("call to undefined function '{}'", callee));
             return make_expr(error_t(), lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
         }
 
-        auto& fi = fit->second;
-        uint64_t n_args = arg_exprs.size();
+        // Determine if we should try inference
+        bool try_inference = false;
+        if (fit == funcs_.end()) {
+            // Only in generic_funcs_
+            infer_fi = &git->second;
+            try_inference = true;
+        } else if (!fit->second.type_params.empty()) {
+            // In funcs_ but is a generic function (no non-generic overload exists)
+            infer_fi = &fit->second;
+            try_inference = true;
+        } else if (git != generic_funcs_.end()) {
+            // Non-generic in funcs_, generic overload in generic_funcs_.
+            // Try generic when arity doesn't match the non-generic.
+            bool arity_ok = fit->second.is_vararg
+                ? n_args >= fit->second.param_types.size()
+                : n_args == fit->second.param_types.size();
+            if (!arity_ok) {
+                infer_fi = &git->second;
+                try_inference = true;
+            }
+        }
 
-        // If any arg is a pack expansion, skip arg count/type checking
-        // (mono will expand the pack and resolve types)
+        if (try_inference && infer_fi) {
+            // Don't infer inside generic bodies: pack expansions or TypeVar/AssocType args
+            // indicate we're in a partially-substituted context — defer to mono.
+            bool in_generic_context = false;
+            for (auto& a : arg_exprs) {
+                if (std::holds_alternative<lir::EPackExpand>(a->kind)) {
+                    in_generic_context = true; break;
+                }
+                auto* t = a->type;
+                if (t && (t->kind == LogosType::Kind::TypeVar ||
+                          t->kind == LogosType::Kind::AssocType)) {
+                    in_generic_context = true; break;
+                }
+            }
+            if (!in_generic_context) {
+                std::vector<const LogosType*> inferred;
+                if (infer_type_args(*infer_fi, arg_exprs, inferred))
+                    return finish_generic_call(callee, *infer_fi, std::move(inferred), std::move(arg_exprs));
+                error(std::format("call to '{}': could not infer all type arguments — use explicit f::<T>(...) syntax", callee));
+                return make_expr(error_t(), lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
+            }
+            // Fall through to non-generic path (mono will handle instantiation)
+        }
+
+        // Non-generic path
+        auto& fi = fit->second;
+
+        // If any arg is a pack expansion, skip checking — mono will expand
         bool has_pack_expand = false;
         for (auto& a : arg_exprs)
             if (std::holds_alternative<lir::EPackExpand>(a->kind))
@@ -2162,7 +2220,6 @@ private:
         if (has_pack_expand) {
             // Pass through — mono will expand and validate
         } else if (fi.is_vararg) {
-            // Vararg functions: only check the declared (fixed) args
             if (n_args < fi.param_types.size()) {
                 error(std::format("call to vararg '{}': expected at least {} args, got {}",
                       callee, fi.param_types.size(), n_args));
@@ -2195,60 +2252,110 @@ private:
         return make_expr(fi.ret_type, lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
     }
 
-    // ── lower_generic_call: foo::<T1, T2>(args) ──────────────────
+    // ── Type inference helpers ────────────────────────────────────
 
-    lir::LExprPtr lower_generic_call(TinyMapView node) {
-        auto callee = str_of(node.get(la::CALLEE.code));
-        // Prefer the generic overload (for variadic base case overloading)
-        SemaFuncInfo* fi_ptr = nullptr;
-        {
-            auto git = generic_funcs_.find(std::string(callee));
-            if (git != generic_funcs_.end()) fi_ptr = &git->second;
-            else {
-                auto fit2 = funcs_.find(std::string(callee));
-                if (fit2 != funcs_.end()) fi_ptr = &fit2->second;
+    // Recursively unify a formal parameter type (may contain TypeVars) against
+    // a concrete actual type, populating bindings.  On conflict keeps the first
+    // binding (first-wins semantics; callers may validate consistency later).
+    void unify_types(const LogosType* formal, const LogosType* actual,
+                     std::unordered_map<std::string, const LogosType*>& bindings) {
+        if (!formal || !actual) return;
+        if (actual->kind == LogosType::Kind::Error ||
+            formal->kind == LogosType::Kind::Error) return;
+
+        // Widen IntLit to i32 before any binding
+        const LogosType* actual_norm = actual;
+        if (actual->kind == LogosType::Kind::IntLit)
+            actual_norm = prim(LogosType::Kind::I32);
+
+        if (formal->kind == LogosType::Kind::TypeVar) {
+            if (formal->type_var_name == "Self") return;  // skip implicit Self
+            if (!bindings.count(formal->type_var_name))
+                bindings[formal->type_var_name] = actual_norm;
+            return;
+        }
+
+        switch (formal->kind) {
+        case LogosType::Kind::Ptr:
+            if (actual_norm->kind == LogosType::Kind::Ptr)
+                unify_types(formal->pointee, actual_norm->pointee, bindings);
+            break;
+        case LogosType::Kind::Array:
+            if (actual_norm->kind == LogosType::Kind::Array)
+                unify_types(formal->elem, actual_norm->elem, bindings);
+            break;
+        case LogosType::Kind::Slice:
+            if (actual_norm->kind == LogosType::Kind::Slice)
+                unify_types(formal->elem, actual_norm->elem, bindings);
+            break;
+        case LogosType::Kind::Struct:
+            if (actual_norm->kind == LogosType::Kind::Struct &&
+                formal->struct_name == actual_norm->struct_name) {
+                for (size_t i = 0; i < formal->type_args.size() &&
+                                    i < actual_norm->type_args.size(); ++i)
+                    unify_types(formal->type_args[i], actual_norm->type_args[i], bindings);
             }
-        }
-
-        // Resolve type arguments from TYPE_PARAMS (type_arg_list with ITEMS)
-        std::vector<const LogosType*> type_args;
-        if (node.has_key(la::TYPE_PARAMS)) {
-            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
-            if (!tpav.is_null()) {
-                auto tplist = map_of(tpav);
-                if (tplist.has_key(la::ITEMS)) {
-                    auto items = arr_of(tplist.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        type_args.push_back(resolve_type(map_of(items.get(i))));
-                }
+            break;
+        case LogosType::Kind::Tuple:
+            if (actual_norm->kind == LogosType::Kind::Tuple) {
+                for (size_t i = 0; i < formal->tuple_elems.size() &&
+                                    i < actual_norm->tuple_elems.size(); ++i)
+                    unify_types(formal->tuple_elems[i], actual_norm->tuple_elems[i], bindings);
             }
+            break;
+        default:
+            break;  // concrete type — nothing to bind
         }
+    }
 
-        // Resolve value arguments from ARGS (call_arg_list? with ITEMS, or null)
-        std::vector<lir::LExprPtr> arg_exprs;
-        if (node.has_key(la::ARGS)) {
-            AnyVal args_av = node.get(la::ARGS.code);
-            if (!args_av.is_null()) {
-                auto args_list = map_of(args_av);
-                if (args_list.has_key(la::ITEMS)) {
-                    auto items = arr_of(args_list.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        arg_exprs.push_back(lower_expr(map_of(items.get(i))));
-                }
-            }
-        }
-
-        if (!fi_ptr) {
-            error(std::format("call to undefined function '{}'", callee));
-            return make_expr(error_t(), lir::ECall{std::string(callee), std::move(type_args), std::move(arg_exprs)});
-        }
-
-        auto& fi = *fi_ptr;
-
-        // Validate type argument count against type parameters.
-        // If last type param is variadic, accept >= (non_variadic_count) type args.
+    // Try to infer type_args for a generic call from the actual argument types.
+    // Returns true when every required type param (non-variadic) was resolved.
+    // For variadic packs, each extra arg contributes one pack element type.
+    bool infer_type_args(const SemaFuncInfo& fi,
+                         const std::vector<lir::LExprPtr>& arg_exprs,
+                         std::vector<const LogosType*>& out_type_args) {
+        std::unordered_map<std::string, const LogosType*> bindings;
         bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
         size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
+        size_t fixed_params = fi.param_types.size() - (has_variadic ? 1 : 0);
+
+        // Unify fixed params against arg types
+        for (size_t i = 0; i < fixed_params && i < arg_exprs.size(); ++i)
+            unify_types(fi.param_types[i], arg_exprs[i]->type, bindings);
+
+        // Build type_args: non-variadic params first
+        out_type_args.clear();
+        for (size_t i = 0; i < non_variadic_count; ++i) {
+            auto it = bindings.find(fi.type_params[i].name);
+            if (it == bindings.end()) return false;  // param not inferrable
+            out_type_args.push_back(it->second);
+        }
+
+        // Variadic pack: each arg beyond fixed_params contributes one pack element
+        if (has_variadic) {
+            for (size_t i = fixed_params; i < arg_exprs.size(); ++i) {
+                auto* t = arg_exprs[i]->type;
+                if (t->kind == LogosType::Kind::IntLit)
+                    t = prim(LogosType::Kind::I32);
+                out_type_args.push_back(t);
+            }
+        }
+        return true;
+    }
+
+    // ── Shared generic call validation + emission ─────────────────
+    // Called from lower_generic_call (explicit types) and from lower_call
+    // (inferred types).  Validates bounds, arity, arg types, computes ret.
+
+    lir::LExprPtr finish_generic_call(std::string_view callee_sv,
+                                       const SemaFuncInfo& fi,
+                                       std::vector<const LogosType*> type_args,
+                                       std::vector<lir::LExprPtr> arg_exprs) {
+        std::string callee{callee_sv};
+        bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
+        size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
+
+        // Validate type arg count
         if (!fi.type_params.empty()) {
             if (has_variadic) {
                 if (type_args.size() < non_variadic_count)
@@ -2260,23 +2367,16 @@ private:
             }
         }
 
-        // Build substitution map: type param name → concrete type arg.
-        // For variadic params, the SubstMap maps the variadic name to the FIRST
-        // pack element (for type_str etc.), but the full type_args list is preserved
-        // in ECall for mono to use.
+        // Build substitution map for non-variadic type params
         std::unordered_map<std::string, const LogosType*> subst;
         for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i)
             subst[fi.type_params[i].name] = type_args[i];
 
-        // Validate trait bounds: for each non-variadic type param with bounds,
-        // check that the concrete type has an impl for each required trait.
-        // (Variadic bounds are checked per-element during monomorphization.)
+        // Validate trait bounds for non-variadic type params
         for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i) {
             auto& tp = fi.type_params[i];
             auto* concrete = type_args[i];
-            // Try the full type first, then unwrap for class pattern (*mut Class).
             std::string type_name = type_str(concrete);
-            // Also check unwrapped form for class types: *mut Class → Class
             std::string unwrapped_name;
             if (concrete->kind == LogosType::Kind::Ptr && concrete->pointee) {
                 auto* inner = concrete->pointee;
@@ -2298,19 +2398,24 @@ private:
             }
         }
 
-        // Determine concrete return type by substituting TypeVars (recursive)
+        // Substitute return type
         const LogosType* ret = subst_type_sema(fi.ret_type, subst);
 
-        // Validate value argument count.
-        // Variadic functions: template has N fixed + 1 variadic param,
-        // but call site has N fixed + K variadic args.
+        // Validate value argument count and types
         uint64_t n_args = arg_exprs.size();
-        if (has_variadic) {
-            size_t fixed_params = fi.param_types.size() - 1;  // minus the variadic param
+        bool has_pack_expand = false;
+        for (auto& a : arg_exprs)
+            if (std::holds_alternative<lir::EPackExpand>(a->kind)) {
+                has_pack_expand = true; break;
+            }
+
+        if (has_pack_expand) {
+            // pass — mono expands
+        } else if (has_variadic) {
+            size_t fixed_params = fi.param_types.size() - 1;
             if (n_args < fixed_params)
                 error(std::format("call to '{}': expected at least {} args, got {}",
                       callee, fixed_params, n_args));
-            // Type-check fixed params only (variadic args are checked at mono time)
             for (uint64_t i = 0; i < fixed_params && i < n_args; ++i) {
                 auto* at = arg_exprs[i]->type;
                 auto* pt = subst_type_sema(fi.param_types[i], subst);
@@ -2332,6 +2437,7 @@ private:
                     if (at->kind != LogosType::Kind::Error &&
                         pt->kind != LogosType::Kind::Error &&
                         pt->kind != LogosType::Kind::TypeVar &&
+                        pt->kind != LogosType::Kind::AssocType &&
                         !types_compatible(at, pt))
                         error(std::format("call to '{}' arg {}: expected {}, got {}",
                               callee, i + 1, type_str(pt), type_str(at)));
@@ -2339,7 +2445,57 @@ private:
             }
         }
 
-        return make_expr(ret, lir::ECall{std::string(callee), std::move(type_args), std::move(arg_exprs)});
+        return make_expr(ret, lir::ECall{callee, std::move(type_args), std::move(arg_exprs)});
+    }
+
+    // ── lower_generic_call: foo::<T1, T2>(args) ──────────────────
+
+    lir::LExprPtr lower_generic_call(TinyMapView node) {
+        auto callee = str_of(node.get(la::CALLEE.code));
+        // Prefer the generic overload (for variadic base case overloading)
+        SemaFuncInfo* fi_ptr = nullptr;
+        {
+            auto git = generic_funcs_.find(std::string(callee));
+            if (git != generic_funcs_.end()) fi_ptr = &git->second;
+            else {
+                auto fit2 = funcs_.find(std::string(callee));
+                if (fit2 != funcs_.end()) fi_ptr = &fit2->second;
+            }
+        }
+        if (!fi_ptr) {
+            error(std::format("call to undefined function '{}'", callee));
+            return make_expr(error_t(), lir::ECall{std::string(callee), {}, {}});
+        }
+
+        // Resolve explicit type arguments from TYPE_PARAMS
+        std::vector<const LogosType*> type_args;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        type_args.push_back(resolve_type(map_of(items.get(i))));
+                }
+            }
+        }
+
+        // Resolve value arguments
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            AnyVal args_av = node.get(la::ARGS.code);
+            if (!args_av.is_null()) {
+                auto args_list = map_of(args_av);
+                if (args_list.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_list.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+
+        return finish_generic_call(callee, *fi_ptr, std::move(type_args), std::move(arg_exprs));
     }
 
     lir::LExprPtr lower_class_method_call(lir::LExprPtr recv,
