@@ -3024,8 +3024,40 @@ private:
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
         }
 
-        // For primitive types (i32, bool, etc.), try trait impls: TypeName__method
+        // For primitive types, non-generic enums, etc.: try TypeName__method
         if (sname.empty()) {
+            // For generic enums (Enum<T> with type_args): instantiate method with concrete types.
+            // type_str returns just the base name (e.g. "Option" for Option<i32>), so we must
+            // handle this BEFORE the generic lookup to avoid calling the uninstantiated template.
+            if (recv->type->kind == LogosType::Kind::Enum &&
+                !recv->type->type_args.empty()) {
+                const std::string& base = recv->type->enum_name;
+                auto generic_key = base + "__" + std::string(method_name);
+                auto git = funcs_.find(generic_key);
+                if (git != funcs_.end() && !git->second.type_params.empty()) {
+                    // Build concrete name from enum base + type args + method
+                    // e.g. "Option__i32__unwrap_or"
+                    SemaSubst subst;
+                    auto eit = enums_.find(base);
+                    if (eit != enums_.end()) {
+                        auto& tps = eit->second.type_params;
+                        for (size_t i = 0; i < tps.size() && i < recv->type->type_args.size(); ++i)
+                            subst[tps[i].name] = recv->type->type_args[i];
+                    }
+                    const LogosType* ret = subst_type_sema(git->second.ret_type, subst);
+                    // Mangle: "Option__i32" is the concrete enum name
+                    std::string concrete_enum = base;
+                    for (auto* ta : recv->type->type_args) {
+                        concrete_enum += "__";
+                        concrete_enum += type_str(ta);
+                    }
+                    std::string concrete_mangled = concrete_enum + "__" + std::string(method_name);
+                    std::vector<lir::LExprPtr> pargs;
+                    pargs.push_back(std::move(recv));
+                    for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+                    return make_expr(ret, lir::ECall{concrete_mangled, {}, std::move(pargs)});
+                }
+            }
             auto tname = type_str(recv->type);
             auto mangled_prim = tname + "__" + std::string(method_name);
             auto pfit = funcs_.find(mangled_prim);
@@ -5178,12 +5210,16 @@ private:
         // prog.functions so mono's instantiate_one_class can clone them with T substituted.
         lir::LClassDef*  target_class_tmpl  = nullptr;
         lir::LStructDef* target_struct_tmpl = nullptr;
+        lir::LEnumDef*   target_enum_tmpl   = nullptr;
         if (!impl_tps.empty()) {
             for (auto& cd : prog.classes)
                 if (cd.name == target) { target_class_tmpl = &cd; break; }
             if (!target_class_tmpl)
                 for (auto& sd : prog.structs)
                     if (sd.name == target) { target_struct_tmpl = &sd; break; }
+            if (!target_class_tmpl && !target_struct_tmpl)
+                for (auto& ed : prog.enums)
+                    if (ed.name == target) { target_enum_tmpl = &ed; break; }
         }
         std::unordered_set<std::string> overridden;
         if (node.has_key(la::ITEMS)) {

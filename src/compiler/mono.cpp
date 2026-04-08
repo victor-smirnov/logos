@@ -1481,7 +1481,7 @@ private:
                 SubstMap subst;
                 for (size_t i = 0; i < tmpl->type_params.size() && i < args.size(); ++i)
                     subst[tmpl->type_params[i].name] = args[i];
-                // Instantiate: substitute payload types
+                // Instantiate: substitute payload types and methods
                 lir::LEnumDef inst;
                 inst.name = cname;
                 for (auto& v : tmpl->variants) {
@@ -1491,6 +1491,26 @@ private:
                     for (auto* pt : v.payload_types)
                         nv.payload_types.push_back(subst_type(pt, subst));
                     inst.variants.push_back(std::move(nv));
+                }
+                // Instantiate any impl<T> methods stored as generic functions in prog.functions.
+                // Convention: function name starts with "Base__" and has matching type params.
+                std::string prefix = base + "__";
+                for (auto& fn : in_.functions) {
+                    if (fn.type_params.empty()) continue;
+                    if (fn.name.substr(0, prefix.size()) != prefix) continue;
+                    // Match type params to subst keys
+                    bool matches = fn.type_params.size() == tmpl->type_params.size();
+                    if (!matches) continue;
+                    std::string inst_name = cname + fn.name.substr(base.size());
+                    if (done_.count(inst_name)) continue;
+                    SubstMap fn_subst = subst;
+                    // Override type params with the enum's type param names if different
+                    for (size_t i = 0; i < fn.type_params.size(); ++i)
+                        fn_subst[fn.type_params[i].name] = args[i];
+                    auto nm = clone_fn(fn, fn_subst);
+                    nm.name = inst_name;
+                    done_.insert(inst_name);
+                    out_.functions.push_back(std::move(nm));
                 }
                 out_.enums.push_back(std::move(inst));
             }
