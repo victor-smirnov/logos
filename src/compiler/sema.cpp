@@ -3811,7 +3811,8 @@ private:
 
         if (c == la::LET)          return lower_let(stmt);
         if (c == la::LET_DESTRUCT) return lower_let_destruct(stmt);
-        if (c == la::ASSIGN)       return lower_assign(stmt);
+        if (c == la::ASSIGN)          return lower_assign(stmt);
+        if (c == la::COMPOUND_ASSIGN) return lower_compound_assign(stmt);
         if (c == la::RETURN)       return lower_return(stmt);
         if (c == la::IF)           return lower_if(stmt);
         if (c == la::WHILE)        return lower_while(stmt);
@@ -4014,6 +4015,35 @@ private:
         slet.is_mut = is_mut;
         slet.value  = std::move(rhs);
         return make_stmt(node_line_, std::move(slet));
+    }
+
+    lir::LStmt lower_compound_assign(TinyMapView node) {
+        auto name = str_of(node.get(la::NAME.code));
+        auto op_tok = str_of(node.get(la::OP.code));
+        // Strip trailing '=' to get the base operator
+        std::string base_op;
+        if (op_tok.size() >= 2 && op_tok.back() == '=')
+            base_op = std::string(op_tok.substr(0, op_tok.size() - 1));
+        else
+            base_op = std::string(op_tok);  // fallback
+
+        auto* var_type = lookup(name);
+        if (!var_type) {
+            error(std::format("compound assignment to undefined variable '{}'", name));
+            if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+            return make_stmt(node_line_, lir::SBreak{});
+        }
+        if (!lookup_is_mut(name))
+            error(std::format("compound assignment to immutable variable '{}'", name));
+
+        // Desugar: `x op= expr` → `x = x op expr`
+        auto lhs_ref = make_expr(var_type, lir::EVarRef{std::string(name)});
+        auto rhs = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+
+        // Synthesize the binop LIR node
+        auto binop = make_expr(var_type, lir::EBinOp{base_op, std::move(lhs_ref), std::move(rhs)});
+        return make_stmt(node_line_, lir::SAssign{std::string(name), std::move(binop)});
     }
 
     lir::LStmt lower_assign(TinyMapView node) {

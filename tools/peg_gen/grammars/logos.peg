@@ -148,6 +148,7 @@
     LET_DESTRUCT         = 123
     WHERE_CLAUSE         = 124
     CLOSURE_TYPE         = 125
+    COMPOUND_ASSIGN      = 126
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -206,13 +207,23 @@
     // Operators (multi-char first)
     AND         = "&&"
     OR          = "||"
-    PIPE        = "|"
     EQ          = "=="
     NE          = "!="
     LE          = "<="
     GE          = ">="
+    SHL_EQ      = "<<="
+    SHR_EQ      = ">>="
     SHL         = "<<"
     SHR         = ">>"
+    PLUS_EQ     = "+="
+    MINUS_EQ    = "-="
+    STAR_EQ     = "*="
+    SLASH_EQ    = "/="
+    PERCENT_EQ  = "%="
+    AMP_EQ      = "&="
+    PIPE_EQ     = "|="
+    CARET_EQ    = "^="
+    PIPE        = "|"
     DOTDOTDOT   = "..."
     DOTDOTEQ    = "..="
     DOTDOT      = ".."
@@ -473,6 +484,7 @@
           / field_index_write_stmt
           / field_write_stmt
           / index_write_stmt
+          / compound_assign_stmt
           / assign_stmt
           / expr SEMI
             => { CODE: EXPR_STMT, VALUE: $1 }
@@ -556,6 +568,12 @@
 
     assign_stmt <- IDENT ASSIGN expr SEMI
                 => { CODE: ASSIGN, NAME: $1, VALUE: $3 }
+
+    // Compound assignment: x += expr → x = x + expr
+    compound_assign_op <- PLUS_EQ / MINUS_EQ / STAR_EQ / SLASH_EQ / PERCENT_EQ
+                        / AMP_EQ / PIPE_EQ / CARET_EQ / SHL_EQ / SHR_EQ
+    compound_assign_stmt <- IDENT compound_assign_op expr SEMI
+                         => { CODE: COMPOUND_ASSIGN, NAME: $1, OP: $2, VALUE: $3 }
 
     delete_stmt <- KW_DELETE expr SEMI
                => { CODE: DELETE_STMT, VALUE: $2 }

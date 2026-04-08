@@ -1,0 +1,22 @@
+package compound_assign;
+// Compound assignment: +=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn main() -> i32 {
+    let mut x = 10;
+    x += 5;   // 15
+    x -= 2;   // 13
+    x *= 3;   // 39
+    x /= 3;   // 13
+    x %= 10;  // 3
+    printf("%d\n", x);  // 3
+
+    let mut b = 15;  // 0b1111
+    b &= 12;  // 0b1100 = 12
+    b |= 2;   // 0b1110 = 14
+    b ^= 3;   // 0b1101 = 13
+    b <<= 1;  // 0b11010 = 26
+    b >>= 2;  // 0b110 = 6
+    printf("%d\n", b);  // 6
+    return 0;
+}
