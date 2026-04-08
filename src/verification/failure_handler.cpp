@@ -20,7 +20,7 @@ namespace logos {
     std::string_view condition,
     std::string_view message,
     const char* file,
-    int line) noexcept
+    int line)
 {
     auto now = std::chrono::steady_clock::now().time_since_epoch();
     uint64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();

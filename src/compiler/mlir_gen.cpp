@@ -302,7 +302,8 @@ private:
             std::fprintf(stderr, "mlir_gen: unresolved AssocType '%s::%s' — mono_pass required\n",
                          t->type_var_name.c_str(), t->assoc_type_name.c_str());
             return nullptr;
-        case LogosType::Kind::Error:  return nullptr;
+        case LogosType::Kind::Error:     return nullptr;
+        case LogosType::Kind::ImplTrait: return nullptr;
         }
         return nullptr;
     }
@@ -2698,8 +2699,6 @@ private:
             auto rt = logos_to_mlir(e.ret_type);
             if (rt) fn_rets.push_back(rt);
         }
-        auto fn_type = builder_.getFunctionType(fn_params, fn_rets);
-
         // Create the closure function as llvm.func (so llvm.mlir.addressof works)
         builder_.setInsertionPointToEnd(parent_mod.getBody());
         mlir::Type llvm_ret = fn_rets.empty()

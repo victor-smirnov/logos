@@ -15,7 +15,7 @@ namespace logos {
     std::string_view condition,
     std::string_view message,
     const char* file,
-    int line) noexcept;
+    int line);
 
 } // namespace logos
 

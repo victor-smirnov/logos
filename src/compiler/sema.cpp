@@ -2910,7 +2910,7 @@ private:
             error(std::format("class '{}' has no method '{}'", cname, method_name));
             std::vector<lir::LExprPtr> dummy_args;
             return make_expr(error_t(),
-                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(dummy_args), -1});
+                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(dummy_args), -1, ""});
         }
 
         std::vector<lir::LExprPtr> arg_exprs;
@@ -3130,7 +3130,7 @@ private:
             error(std::format("method call: receiver is not a struct (got {})",
                   type_str(recv->type)));
             return make_expr(error_t(),
-                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs)});
+                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs), -1, ""});
         }
 
         auto mangled = std::string(sname) + "__" + std::string(method_name);
@@ -3138,7 +3138,7 @@ private:
         if (fit == funcs_.end()) {
             error(std::format("method call: '{}' has no method '{}'", sname, method_name));
             return make_expr(error_t(),
-                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs)});
+                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs), -1, ""});
         }
 
         auto& fi = fit->second;
@@ -3184,7 +3184,7 @@ private:
             ? fi.ret_type : subst_type_sema(fi.ret_type, struct_subst);
 
         return make_expr(ret,
-            lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs)});
+            lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs), -1, ""});
     }
 
     lir::LExprPtr lower_field_read(TinyMapView node) {
@@ -4445,8 +4445,8 @@ private:
 
             lir::SMatch sm;
             sm.scrut = std::move(scrut);
-            sm.arms.push_back({std::move(pat), std::move(then_body)});
-            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body)});
+            sm.arms.push_back({std::move(pat), std::move(then_body), std::nullopt});
+            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
             return make_stmt(node_line_, std::move(sm));
         }
 
@@ -4513,8 +4513,8 @@ private:
 
             lir::SMatch sm;
             sm.scrut = std::move(scrut);
-            sm.arms.push_back({std::move(pat), std::move(then_body)});
-            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body)});
+            sm.arms.push_back({std::move(pat), std::move(then_body), std::nullopt});
+            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
 
             auto loop_body = std::make_unique<lir::LBlock>();
             loop_body->stmts.push_back(make_stmt(node_line_, std::move(sm)));
@@ -4712,7 +4712,7 @@ private:
             auto make_next_call = [&]() -> lir::LExprPtr {
                 auto iter_ref = make_expr(iter_type, lir::EVarRef{iter_var});
                 return make_expr(next_ret,
-                    lir::EMethodCall{std::move(iter_ref), "next", {}, -1});
+                    lir::EMethodCall{std::move(iter_ref), "next", {}, -1, ""});
             };
 
             // Then arm: Some(x) → body
@@ -4740,8 +4740,8 @@ private:
 
             lir::SMatch sm;
             sm.scrut = make_next_call();
-            sm.arms.push_back({lir::Pattern{std::move(some_pat)}, std::move(then_body)});
-            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body)});
+            sm.arms.push_back({lir::Pattern{std::move(some_pat)}, std::move(then_body), std::nullopt});
+            sm.arms.push_back({lir::PatWild{"_"}, std::move(else_body), std::nullopt});
 
             auto loop_body = std::make_unique<lir::LBlock>();
             loop_body->stmts.push_back(make_stmt(node_line_, std::move(sm)));
@@ -5573,16 +5573,12 @@ private:
         // prog.functions so mono's instantiate_one_class can clone them with T substituted.
         lir::LClassDef*  target_class_tmpl  = nullptr;
         lir::LStructDef* target_struct_tmpl = nullptr;
-        lir::LEnumDef*   target_enum_tmpl   = nullptr;
         if (!impl_tps.empty()) {
             for (auto& cd : prog.classes)
                 if (cd.name == target) { target_class_tmpl = &cd; break; }
             if (!target_class_tmpl)
                 for (auto& sd : prog.structs)
                     if (sd.name == target) { target_struct_tmpl = &sd; break; }
-            if (!target_class_tmpl && !target_struct_tmpl)
-                for (auto& ed : prog.enums)
-                    if (ed.name == target) { target_enum_tmpl = &ed; break; }
         }
         std::unordered_set<std::string> overridden;
         if (node.has_key(la::ITEMS)) {
