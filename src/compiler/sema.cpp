@@ -921,6 +921,23 @@ private:
             return pool_.alloc(std::move(t));
         }
 
+        if (tc == la::CLOSURE_TYPE) {
+            LogosType t;
+            t.kind = LogosType::Kind::Closure;
+            if (node.has_key(la::PARAMS)) {
+                auto params_node = map_of(node.get(la::PARAMS.code));
+                if (params_node.has_key(la::ITEMS)) {
+                    auto items = arr_of(params_node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        t.closure_params.push_back(resolve_type(map_of(items.get(i))));
+                }
+            }
+            t.closure_ret = node.has_key(la::RET_TYPE)
+                ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
+                : void_t();
+            return pool_.alloc(std::move(t));
+        }
+
         if (tc == la::ARR_TYPE) {
             auto* elem = node.has_key(la::TYPE)
                          ? resolve_type(map_of(node.get(la::TYPE.code)))
