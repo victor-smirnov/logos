@@ -176,6 +176,7 @@ inline constexpr Code DYN_TYPE    {"DYN_TYPE",    118};    // &dyn Trait type
 inline constexpr Code ASSOC_TYPE_DEF  {"ASSOC_TYPE_DEF",  119};  // type Item; in trait
 inline constexpr Code ASSOC_TYPE_IMPL {"ASSOC_TYPE_IMPL", 120};  // type Item = T; in impl
 inline constexpr Code ASSOC_TYPE_REF  {"ASSOC_TYPE_REF",  121};  // T::Item type reference
+inline constexpr Code TRY_EXPR        {"TRY_EXPR",        122};  // expr? — propagate Err early
 
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;

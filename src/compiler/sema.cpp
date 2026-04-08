@@ -1900,6 +1900,36 @@ private:
                 return make_expr(make_ptr(true, vt), lir::EAddrOf{std::string(var_name)});
             return make_expr(make_ptr(true, vt), lir::EAddrOf{std::string(var_name)});
         }
+        case la::TRY_EXPR: {
+            // expr? — extract Ok(v) or early-return Err(e).
+            // Requires: inner : Result<T, E>, current fn return type : Result<?, E>.
+            auto inner = expr.has_key(la::VALUE)
+                ? lower_expr(map_of(expr.get(la::VALUE.code)))
+                : error_expr();
+            auto* inner_t = inner->type;
+            if (inner_t->kind != LogosType::Kind::Enum || inner_t->enum_name != "Result"
+                || inner_t->type_args.size() < 2) {
+                error("'?' operator requires a Result<T, E> expression");
+                return error_expr();
+            }
+            if (!ret_type_ || ret_type_->kind != LogosType::Kind::Enum
+                || ret_type_->enum_name != "Result") {
+                error("'?' operator used in function that does not return Result<T, E>");
+                return error_expr();
+            }
+            // Find Ok and Err discriminants from the enum definition.
+            int32_t ok_disc = 0, err_disc = 1;  // default: Ok first, Err second
+            auto eit = enums_.find("Result");
+            if (eit != enums_.end()) {
+                for (auto& v : eit->second.variants) {
+                    if (v.name == "Ok")  ok_disc  = v.value;
+                    if (v.name == "Err") err_disc = v.value;
+                }
+            }
+            auto* ok_type = inner_t->type_args[0];  // T
+            return make_expr(ok_type, lir::ETry{std::move(inner), ok_disc, err_disc});
+        }
+
         case la::CALL:         return lower_call(expr);
         case la::GENERIC_CALL: return lower_generic_call(expr);
         case la::METHOD_CALL:  return lower_method_call(expr);

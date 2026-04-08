@@ -713,6 +713,12 @@ private:
                 // Pack expansion is handled specially in the ECall case.
                 // If we reach here, it's a standalone expansion — just clone it.
                 result->kind = lir::EPackExpand{k.var_name};
+            } else if constexpr (std::is_same_v<K, lir::ETry>) {
+                lir::ETry nt;
+                nt.inner    = subst_expr(*k.inner, s);
+                nt.ok_disc  = k.ok_disc;
+                nt.err_disc = k.err_disc;
+                result->kind = std::move(nt);
             }
         }, e.kind);
 
@@ -971,6 +977,8 @@ private:
                 for (auto& a : k.args) scan_expr(*a);
             } else if constexpr (std::is_same_v<K, lir::EPackExpand>) {
                 // nothing to scan
+            } else if constexpr (std::is_same_v<K, lir::ETry>) {
+                scan_expr(*k.inner);
             }
         }, e.kind);
     }

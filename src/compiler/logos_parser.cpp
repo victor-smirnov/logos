@@ -100,6 +100,10 @@ LogosParser::Token LogosParser::lex_one() {
         (pos_ + 6 >= source_.size() || (!std::isalnum(source_[pos_ + 6]) && source_[pos_ + 6] != '_'))) {
         pos_ += 6; return {TK::KW_STRUCT, source_.substr(start, 6), start_line_}; }
     if (source_.substr(pos_, 5).size() == 5 &&
+        source_.substr(pos_, 5) == "match" &&
+        (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
+        pos_ += 5; return {TK::KW_MATCH, source_.substr(start, 5), start_line_}; }
+    if (source_.substr(pos_, 5).size() == 5 &&
         source_.substr(pos_, 5) == "where" &&
         (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
         pos_ += 5; return {TK::KW_WHERE, source_.substr(start, 5), start_line_}; }
@@ -116,6 +120,10 @@ LogosParser::Token LogosParser::lex_one() {
         (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
         pos_ += 5; return {TK::KW_TRAIT, source_.substr(start, 5), start_line_}; }
     if (source_.substr(pos_, 5).size() == 5 &&
+        source_.substr(pos_, 5) == "false" &&
+        (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
+        pos_ += 5; return {TK::KW_FALSE, source_.substr(start, 5), start_line_}; }
+    if (source_.substr(pos_, 5).size() == 5 &&
         source_.substr(pos_, 5) == "break" &&
         (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
         pos_ += 5; return {TK::KW_BREAK, source_.substr(start, 5), start_line_}; }
@@ -123,22 +131,14 @@ LogosParser::Token LogosParser::lex_one() {
         source_.substr(pos_, 5) == "while" &&
         (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
         pos_ += 5; return {TK::KW_WHILE, source_.substr(start, 5), start_line_}; }
-    if (source_.substr(pos_, 5).size() == 5 &&
-        source_.substr(pos_, 5) == "match" &&
-        (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
-        pos_ += 5; return {TK::KW_MATCH, source_.substr(start, 5), start_line_}; }
-    if (source_.substr(pos_, 5).size() == 5 &&
-        source_.substr(pos_, 5) == "false" &&
-        (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
-        pos_ += 5; return {TK::KW_FALSE, source_.substr(start, 5), start_line_}; }
     if (source_.substr(pos_, 4).size() == 4 &&
-        source_.substr(pos_, 4) == "type" &&
+        source_.substr(pos_, 4) == "true" &&
         (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
-        pos_ += 4; return {TK::KW_TYPE, source_.substr(start, 4), start_line_}; }
+        pos_ += 4; return {TK::KW_TRUE, source_.substr(start, 4), start_line_}; }
     if (source_.substr(pos_, 4).size() == 4 &&
-        source_.substr(pos_, 4) == "impl" &&
+        source_.substr(pos_, 4) == "else" &&
         (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
-        pos_ += 4; return {TK::KW_IMPL, source_.substr(start, 4), start_line_}; }
+        pos_ += 4; return {TK::KW_ELSE, source_.substr(start, 4), start_line_}; }
     if (source_.substr(pos_, 4).size() == 4 &&
         source_.substr(pos_, 4) == "enum" &&
         (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
@@ -148,17 +148,17 @@ LogosParser::Token LogosParser::lex_one() {
         (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
         pos_ += 4; return {TK::KW_LOOP, source_.substr(start, 4), start_line_}; }
     if (source_.substr(pos_, 4).size() == 4 &&
-        source_.substr(pos_, 4) == "else" &&
+        source_.substr(pos_, 4) == "type" &&
         (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
-        pos_ += 4; return {TK::KW_ELSE, source_.substr(start, 4), start_line_}; }
+        pos_ += 4; return {TK::KW_TYPE, source_.substr(start, 4), start_line_}; }
     if (source_.substr(pos_, 4).size() == 4 &&
-        source_.substr(pos_, 4) == "true" &&
+        source_.substr(pos_, 4) == "impl" &&
         (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
-        pos_ += 4; return {TK::KW_TRUE, source_.substr(start, 4), start_line_}; }
+        pos_ += 4; return {TK::KW_IMPL, source_.substr(start, 4), start_line_}; }
     if (source_.substr(pos_, 3).size() == 3 &&
-        source_.substr(pos_, 3) == "pub" &&
+        source_.substr(pos_, 3) == "new" &&
         (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
-        pos_ += 3; return {TK::KW_PUB, source_.substr(start, 3), start_line_}; }
+        pos_ += 3; return {TK::KW_NEW, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 3).size() == 3 &&
         source_.substr(pos_, 3) == "...") {
         pos_ += 3; return {TK::DOTDOTDOT, source_.substr(start, 3), start_line_}; }
@@ -166,9 +166,9 @@ LogosParser::Token LogosParser::lex_one() {
         source_.substr(pos_, 3) == "..=") {
         pos_ += 3; return {TK::DOTDOTEQ, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 3).size() == 3 &&
-        source_.substr(pos_, 3) == "new" &&
+        source_.substr(pos_, 3) == "pub" &&
         (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
-        pos_ += 3; return {TK::KW_NEW, source_.substr(start, 3), start_line_}; }
+        pos_ += 3; return {TK::KW_PUB, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 3).size() == 3 &&
         source_.substr(pos_, 3) == "dyn" &&
         (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
@@ -190,35 +190,39 @@ LogosParser::Token LogosParser::lex_one() {
         (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
         pos_ += 3; return {TK::KW_FOR, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "::") {
-        pos_ += 2; return {TK::COLONCOLON, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "=>") {
-        pos_ += 2; return {TK::FATARROW, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "..") {
-        pos_ += 2; return {TK::DOTDOT, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == ">=") {
-        pos_ += 2; return {TK::GE, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "<=") {
-        pos_ += 2; return {TK::LE, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "!=") {
-        pos_ += 2; return {TK::NE, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "==") {
-        pos_ += 2; return {TK::EQ, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "||") {
-        pos_ += 2; return {TK::OR, source_.substr(start, 2), start_line_}; }
+        source_.substr(pos_, 2) == "->") {
+        pos_ += 2; return {TK::ARROW, source_.substr(start, 2), start_line_}; }
     if (source_.substr(pos_, 2).size() == 2 &&
         source_.substr(pos_, 2) == "&&") {
         pos_ += 2; return {TK::AND, source_.substr(start, 2), start_line_}; }
     if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "->") {
-        pos_ += 2; return {TK::ARROW, source_.substr(start, 2), start_line_}; }
+        source_.substr(pos_, 2) == "||") {
+        pos_ += 2; return {TK::OR, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "==") {
+        pos_ += 2; return {TK::EQ, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "!=") {
+        pos_ += 2; return {TK::NE, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "<=") {
+        pos_ += 2; return {TK::LE, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == ">=") {
+        pos_ += 2; return {TK::GE, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "..") {
+        pos_ += 2; return {TK::DOTDOT, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "=>") {
+        pos_ += 2; return {TK::FATARROW, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "::") {
+        pos_ += 2; return {TK::COLONCOLON, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "as" &&
+        (pos_ + 2 >= source_.size() || (!std::isalnum(source_[pos_ + 2]) && source_[pos_ + 2] != '_'))) {
+        pos_ += 2; return {TK::KW_AS, source_.substr(start, 2), start_line_}; }
     if (source_.substr(pos_, 2).size() == 2 &&
         source_.substr(pos_, 2) == "fn" &&
         (pos_ + 2 >= source_.size() || (!std::isalnum(source_[pos_ + 2]) && source_[pos_ + 2] != '_'))) {
@@ -231,20 +235,21 @@ LogosParser::Token LogosParser::lex_one() {
         source_.substr(pos_, 2) == "in" &&
         (pos_ + 2 >= source_.size() || (!std::isalnum(source_[pos_ + 2]) && source_[pos_ + 2] != '_'))) {
         pos_ += 2; return {TK::KW_IN, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "as" &&
-        (pos_ + 2 >= source_.size() || (!std::isalnum(source_[pos_ + 2]) && source_[pos_ + 2] != '_'))) {
-        pos_ += 2; return {TK::KW_AS, source_.substr(start, 2), start_line_}; }
-    if (c == '{') { ++pos_; return {TK::LBRACE, source_.substr(start, 1), start_line_}; }
+    if (c == '<') { ++pos_; return {TK::LT, source_.substr(start, 1), start_line_}; }
+    if (c == ',') { ++pos_; return {TK::COMMA, source_.substr(start, 1), start_line_}; }
+    if (c == '.') { ++pos_; return {TK::DOT, source_.substr(start, 1), start_line_}; }
     if (c == '=') { ++pos_; return {TK::ASSIGN, source_.substr(start, 1), start_line_}; }
+    if (c == '?') { ++pos_; return {TK::QUESTION, source_.substr(start, 1), start_line_}; }
     if (c == '!') { ++pos_; return {TK::BANG, source_.substr(start, 1), start_line_}; }
     if (c == '%') { ++pos_; return {TK::PERCENT, source_.substr(start, 1), start_line_}; }
     if (c == '/') { ++pos_; return {TK::SLASH, source_.substr(start, 1), start_line_}; }
     if (c == '-') { ++pos_; return {TK::MINUS, source_.substr(start, 1), start_line_}; }
     if (c == '+') { ++pos_; return {TK::PLUS, source_.substr(start, 1), start_line_}; }
     if (c == '>') { ++pos_; return {TK::GT, source_.substr(start, 1), start_line_}; }
-    if (c == '<') { ++pos_; return {TK::LT, source_.substr(start, 1), start_line_}; }
+    if (c == '&') { ++pos_; return {TK::AMP, source_.substr(start, 1), start_line_}; }
+    if (c == '*') { ++pos_; return {TK::STAR, source_.substr(start, 1), start_line_}; }
     if (c == ';') { ++pos_; return {TK::SEMI, source_.substr(start, 1), start_line_}; }
+    if (c == '{') { ++pos_; return {TK::LBRACE, source_.substr(start, 1), start_line_}; }
     if (c == '}') { ++pos_; return {TK::RBRACE, source_.substr(start, 1), start_line_}; }
     if (c == '[') { ++pos_; return {TK::LBRACKET, source_.substr(start, 1), start_line_}; }
     if (c == ']') { ++pos_; return {TK::RBRACKET, source_.substr(start, 1), start_line_}; }
@@ -252,10 +257,6 @@ LogosParser::Token LogosParser::lex_one() {
     if (c == '|') { ++pos_; return {TK::PIPE, source_.substr(start, 1), start_line_}; }
     if (c == ')') { ++pos_; return {TK::RPAREN, source_.substr(start, 1), start_line_}; }
     if (c == ':') { ++pos_; return {TK::COLON, source_.substr(start, 1), start_line_}; }
-    if (c == '&') { ++pos_; return {TK::AMP, source_.substr(start, 1), start_line_}; }
-    if (c == '*') { ++pos_; return {TK::STAR, source_.substr(start, 1), start_line_}; }
-    if (c == '.') { ++pos_; return {TK::DOT, source_.substr(start, 1), start_line_}; }
-    if (c == ',') { ++pos_; return {TK::COMMA, source_.substr(start, 1), start_line_}; }
 
     // STRING = /"([^"\\]|\\.)*"/
     if (c == '"') {
@@ -7356,6 +7357,27 @@ AnyVal LogosParser::rule_atom() {
                                     goto grp_done_1;
                                 }
                                 grp_fail_1_3: ;
+                                pos_ = grp_pos_; have_la_ = grp_la_; la_ = grp_tok_; doc_.arena_rollback(grp_doc_); line_ = grp_line_;
+                            }
+                            // Group alt 5
+                            {
+                                grp_pos_ = pos_; grp_la_ = have_la_; grp_tok_ = la_; grp_doc_ = doc_.arena_checkpoint(); grp_line_ = line_;
+                                {
+                                    if (peek_token().kind != TK::QUESTION) goto grp_fail_1_4;
+                                    Token tok_rep_item_0_gi4_s0_ = next_token();
+                                    [[maybe_unused]] AnyVal rep_item_0_gi4_s0 = doc_.make_string(tok_rep_item_0_gi4_s0_.text).get().to_anyval();
+                                    auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, 4).get();
+                                    node->put(logos_ast::VALUE, fold_acc_0, logos::hermes::HermesCtrAccess::arena(doc_)).get();
+                                    node->put(logos_ast::CODE, AnyVal::from_value(logos_ast::TRY_EXPR), logos::hermes::HermesCtrAccess::arena(doc_)).get();
+                                    node->put(logos_ast::SRC_LINE, AnyVal::from_value(first_line_), logos::hermes::HermesCtrAccess::arena(doc_)).get();
+                                    {
+                                        AnyVal result_;
+                                        result_.set_pointer(node, logos::hermes::HermesCtrAccess::base(doc_));
+                                        rep_item_0 = result_;
+                                    }
+                                    goto grp_done_1;
+                                }
+                                grp_fail_1_4: ;
                                 pos_ = grp_pos_; have_la_ = grp_la_; la_ = grp_tok_; doc_.arena_rollback(grp_doc_); line_ = grp_line_;
                             }
                             goto rep_fail_0;  // no group alternative matched

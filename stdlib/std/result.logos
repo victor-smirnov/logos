@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.result
+//
+// Result<T, E> — value-or-error type (Ok(T) or Err(E)).
+// Use ? operator to propagate Err early from functions returning Result<_, E>.
+
+package std.result;
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+// Unwrap Ok value or return a default.
+fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {
+    match r {
+        Result::Ok(v)  => { return v; }
+        Result::Err(e) => { return def; }
+    }
+}
+
+// Return true if the result is Ok.
+fn is_ok_i32(r: Result<i32, i32>) -> bool {
+    match r {
+        Result::Ok(v)  => { return true; }
+        Result::Err(e) => { return false; }
+    }
+}
+
+// Return true if the result is Err.
+fn is_err_i32(r: Result<i32, i32>) -> bool {
+    match r {
+        Result::Ok(v)  => { return false; }
+        Result::Err(e) => { return true; }
+    }
+}

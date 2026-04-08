@@ -138,6 +138,7 @@
     ASSOC_TYPE_DEF       = 119
     ASSOC_TYPE_IMPL      = 120
     ASSOC_TYPE_REF       = 121
+    TRY_EXPR             = 122
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -211,6 +212,7 @@
     SLASH       = "/"
     PERCENT     = "%"
     BANG        = "!"
+    QUESTION    = "?"
     ASSIGN      = "="
     FATARROW    = "=>"
     COLONCOLON  = "::"
@@ -571,6 +573,8 @@
                 => { CODE: FIELD_READ, RECEIVER: $0, FIELD: $2 }
             / LBRACKET expr RBRACKET
                 => { CODE: INDEX_READ, RECEIVER: $0, VALUE: $2 }
+            / QUESTION
+                => { CODE: TRY_EXPR, VALUE: $0 }
             )*
 
     // ── Primary expressions (base of a postfix chain) ─────────────

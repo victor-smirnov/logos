@@ -213,6 +213,16 @@ struct EPackExpand {
     std::string var_name;  // the pack variable being expanded (e.g. "rest")
 };
 
+// Try expression: expr? — extract Ok(v) or early-return Err(e).
+// inner must have enum type "Result" with 2 type args [T, E].
+// ok_disc / err_disc are the discriminant values for Ok and Err variants.
+// The ETry expression itself has type T (the Ok payload type).
+struct ETry {
+    LExprPtr inner;
+    int32_t  ok_disc  = 0;   // discriminant of Ok  (typically 0)
+    int32_t  err_disc = 1;   // discriminant of Err (typically 1)
+};
+
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
@@ -222,7 +232,8 @@ struct LExpr {
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
-        EClosureBox, EClosureCall, EFormatCall, EPackExpand
+        EClosureBox, EClosureCall, EFormatCall, EPackExpand,
+        ETry
     > kind;
 };
 

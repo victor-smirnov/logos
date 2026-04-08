@@ -1567,9 +1567,10 @@ private:
             return nullptr;
         }
         auto& info = *te;
-        // Alloca the enum struct
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), info.llvm_type, i64_one());
+        // Allocate the enum struct on the heap (malloc) so it survives function returns
+        mlir::Value size = sizeof_struct(info.llvm_type);
+        auto alloca = call_malloc(size);
+        if (!alloca) return nullptr;
         // Store discriminant at field 0
         llvm::SmallVector<mlir::LLVM::GEPArg> disc_idx{int32_t(0), int32_t(0)};
         auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
@@ -1593,6 +1594,8 @@ private:
                 auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
                     builder_.getContext(), ft);
                 // Store each field via GEP into the payload struct
+                // Note: pay_ptr points to the [N x i8] payload area; using the same pattern
+                // as extraction (match arms), where this works correctly.
                 for (size_t i = 0; i < e.payload.size() && i < vp->field_types.size(); ++i) {
                     auto val = gen_expr(*e.payload[i]);
                     if (!val) return nullptr;
@@ -2413,6 +2416,111 @@ private:
         // EPackExpand should be eliminated by mono before reaching mlir_gen.
         std::fprintf(stderr, "mlir_gen: unexpected EPackExpand (should be expanded by mono)\n");
         return nullptr;
+    }
+
+    // ── Try expression: expr? ─────────────────────────────────────
+    // inner : *Result<T,E>  →  ok_block: yields T  /  err_block: early return Err(E)
+    mlir::Value gen_expr_kind(const ETry& e, const LogosType* type) {
+        auto inner_ptr = gen_expr(*e.inner);
+        if (!inner_ptr) return nullptr;
+
+        auto* te = resolve_tagged_enum(e.inner->type->enum_name, e.inner->type);
+        if (!te) {
+            std::fprintf(stderr, "mlir_gen: ETry: cannot resolve Result enum\n");
+            return nullptr;
+        }
+
+        // Load discriminant at offset (0,0)
+        llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+        auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, inner_ptr, di);
+        auto disc     = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), disc_ptr);
+        auto ok_cst   = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.ok_disc, 32);
+        auto is_ok    = builder_.create<mlir::arith::CmpIOp>(
+                            loc_, mlir::arith::CmpIPredicate::eq, disc, ok_cst);
+
+        auto ok_mlir = logos_to_mlir(type);
+        if (!ok_mlir) return nullptr;
+        auto result_alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), ok_mlir, i64_one());
+
+        auto* region      = builder_.getBlock()->getParent();
+        auto* ok_block    = new mlir::Block();
+        auto* err_block   = new mlir::Block();
+        auto* merge_block = new mlir::Block();
+        region->push_back(ok_block);
+        region->push_back(err_block);
+        region->push_back(merge_block);
+
+        builder_.create<mlir::cf::CondBranchOp>(loc_, is_ok, ok_block, err_block);
+
+        // ── ok_block: extract T payload → store to result_alloca ──────────
+        builder_.setInsertionPointToStart(ok_block);
+        {
+            const TaggedEnumInfo::VariantPayload* ok_vp = nullptr;
+            for (auto& v : te->variants) if (v.disc == e.ok_disc) { ok_vp = &v; break; }
+
+            llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+            auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), te->llvm_type, inner_ptr, pi);
+            if (ok_vp && !ok_vp->field_types.empty()) {
+                auto ps  = mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), ok_vp->field_types);
+                llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
+                auto fp  = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ps, pay_ptr, fi);
+                auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, ok_vp->field_types[0], fp);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(val, ok_mlir), result_alloca);
+            }
+            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+        }
+
+        // ── err_block: extract E payload, build Err return, early func.return ──
+        builder_.setInsertionPointToStart(err_block);
+        {
+            const TaggedEnumInfo::VariantPayload* err_vp = nullptr;
+            for (auto& v : te->variants) if (v.disc == e.err_disc) { err_vp = &v; break; }
+
+            llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+            auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), te->llvm_type, inner_ptr, pi);
+
+            // Build the early-return value: alloc a Result struct, fill Err(e), return
+            // Use the inner Result's te info (same layout since T/E match the fn return).
+            auto ret_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), te->llvm_type, i64_one());
+            // Store err discriminant
+            llvm::SmallVector<mlir::LLVM::GEPArg> di2{int32_t(0), int32_t(0)};
+            auto rdp = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), te->llvm_type, ret_alloca, di2);
+            auto edc = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.err_disc, 32);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, edc, rdp);
+            // Copy E payload if it exists
+            if (err_vp && !err_vp->field_types.empty()) {
+                auto src_ps = mlir::LLVM::LLVMStructType::getLiteral(
+                    builder_.getContext(), err_vp->field_types);
+                llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
+                auto src_fp  = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), src_ps, pay_ptr, fi);
+                auto err_val = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, err_vp->field_types[0], src_fp);
+                llvm::SmallVector<mlir::LLVM::GEPArg> rpi{int32_t(0), int32_t(1)};
+                auto rpp = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), te->llvm_type, ret_alloca, rpi);
+                auto dst_ps = mlir::LLVM::LLVMStructType::getLiteral(
+                    builder_.getContext(), err_vp->field_types);
+                auto dst_fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dst_ps, rpp, fi);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, err_val, dst_fp);
+            }
+            // Return: enums are returned as *ptr; struct-return is also handled
+            if (cur_ret_type_ == ptr_type()) {
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{ret_alloca});
+            } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_)) {
+                auto ret_val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, ret_alloca);
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{ret_val});
+            } else {
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{});
+            }
+        }
+
+        // ── merge_block: yield Ok value ────────────────────────────────────
+        builder_.setInsertionPointToStart(merge_block);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ok_mlir, result_alloca);
     }
 
     // ── Struct helpers ────────────────────────────────────────────

@@ -131,6 +131,7 @@ namespace logos_ast {
     inline constexpr Code ASSOC_TYPE_DEF       {"ASSOC_TYPE_DEF", 119};
     inline constexpr Code ASSOC_TYPE_IMPL      {"ASSOC_TYPE_IMPL", 120};
     inline constexpr Code ASSOC_TYPE_REF       {"ASSOC_TYPE_REF", 121};
+    inline constexpr Code TRY_EXPR             {"TRY_EXPR", 122};
 
 } // namespace logos_ast
 
@@ -201,6 +202,7 @@ enum class TK_LOGOS : int {
     SLASH,   // "/"
     PERCENT,   // "%"
     BANG,   // "!"
+    QUESTION,   // "?"
     ASSIGN,   // "="
     FATARROW,   // "=>"
     COLONCOLON,   // "::"
