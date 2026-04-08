@@ -1,0 +1,25 @@
+// Test: struct with droppable fields but no explicit Drop — fields auto-dropped
+package drop_nested_fields;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct Inner { id: i32; }
+
+impl Drop for Inner {
+    fn drop(self: Inner) { printf("d%d ", self.id); }
+}
+
+// Pair has NO explicit Drop impl, but has droppable fields
+struct Pair {
+    a: Inner;
+    b: Inner;
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let p: Pair = Pair { a: Inner { id: 1 }, b: Inner { id: 2 } };
+    // p goes out of scope → fields b then a should be auto-dropped (reverse field order)
+    return result;
+}

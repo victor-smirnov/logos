@@ -678,14 +678,39 @@ private:
     void gen_stmt_kind(const SDelete& s)      { gen_delete(s); }
     void gen_stmt_kind(const SForEach& s)     { gen_for_each(s); }
     void gen_stmt_kind(const SDrop& s) {
-        // Call Type__drop(var) for automatic scope cleanup
         auto it = scope_.find(s.var_name);
         if (it == scope_.end()) return;
         auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-        auto fn = mod.lookupSymbol<mlir::func::FuncOp>(s.drop_fn);
-        if (!fn) return;  // drop function not found — skip silently
-        // Struct methods receive the alloca pointer directly (same as method calls)
-        builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{it->second});
+
+        // 1. Call user's explicit drop function (if any)
+        if (!s.drop_fn.empty()) {
+            auto fn = mod.lookupSymbol<mlir::func::FuncOp>(s.drop_fn);
+            if (fn)
+                builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{it->second});
+        }
+
+        // 2. Auto-drop droppable fields (reverse field order)
+        if (s.drop_fields && s.type && s.type->kind == LogosType::Kind::Struct) {
+            auto sit = struct_types_.find(s.type->struct_name);
+            if (sit != struct_types_.end()) {
+                auto& info = sit->second;
+                for (int fi = (int)info.fields.size() - 1; fi >= 0; --fi) {
+                    auto& f = info.fields[fi];
+                    std::string field_drop = f.struct_name.empty()
+                        ? std::string{} : f.struct_name + "__drop";
+                    if (field_drop.empty()) continue;
+                    auto field_fn = mod.lookupSymbol<mlir::func::FuncOp>(field_drop);
+                    if (!field_fn) continue;
+                    // GEP to field, load the struct pointer, then pass to drop
+                    auto field_gep = gep_field(it->second, info, f.name);
+                    if (!field_gep) continue;
+                    // Struct fields are stored as pointers to allocas
+                    auto field_val = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), field_gep);
+                    builder_.create<mlir::func::CallOp>(loc_, field_fn, mlir::ValueRange{field_val});
+                }
+            }
+        }
     }
     void gen_stmt_kind(const SDerefWrite& s) {
         auto ptr = gen_expr(*s.ptr);
@@ -2025,6 +2050,17 @@ private:
     void gen_delete(const SDelete& s) {
         auto ptr = gen_expr(*s.expr);
         if (!ptr) return;
+        // Call Drop before free (if the class/struct has a drop function)
+        if (s.expr->type && s.expr->type->kind == LogosType::Kind::Ptr &&
+            s.expr->type->pointee) {
+            auto& tname = s.expr->type->pointee->struct_name;
+            if (!tname.empty()) {
+                auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+                auto drop_fn = mod.lookupSymbol<mlir::func::FuncOp>(tname + "__drop");
+                if (drop_fn)
+                    builder_.create<mlir::func::CallOp>(loc_, drop_fn, mlir::ValueRange{ptr});
+            }
+        }
         call_free(ptr);
     }
 

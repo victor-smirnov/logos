@@ -1,0 +1,24 @@
+// Test: move semantics — moved variable is not double-dropped
+package drop_move_basic;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct Res { id: i32; }
+
+impl Drop for Res {
+    fn drop(self: Res) { printf("d%d ", self.id); }
+}
+
+fn consume(r: Res) {
+    printf("c%d ", r.id);
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let a: Res = Res { id: 1 };
+    consume(a);
+    // a is moved — should NOT be dropped at scope exit
+    return result;
+}

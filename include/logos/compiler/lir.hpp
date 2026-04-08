@@ -318,8 +318,9 @@ struct SMatch {
 // Auto-generated drop call: Type__drop(var) at scope exit
 struct SDrop {
     std::string      var_name;
-    std::string      drop_fn;    // mangled name: "MyStruct__drop"
+    std::string      drop_fn;          // user's explicit drop (may be empty)
     const LogosType* type;
+    bool             drop_fields = false;  // auto-drop droppable fields after drop_fn
 };
 
 // ── Statement node ────────────────────────────────────────────────────────

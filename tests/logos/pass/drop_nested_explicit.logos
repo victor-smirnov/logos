@@ -1,0 +1,29 @@
+// Test: struct with explicit Drop AND droppable fields — user drop body runs, then fields
+package drop_nested_explicit;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct Inner { id: i32; }
+
+impl Drop for Inner {
+    fn drop(self: Inner) { printf("i%d ", self.id); }
+}
+
+struct Outer {
+    x: Inner;
+    y: Inner;
+    tag: i32;
+}
+
+impl Drop for Outer {
+    fn drop(self: Outer) { printf("o%d ", self.tag); }
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let w: Outer = Outer { x: Inner { id: 1 }, y: Inner { id: 2 }, tag: 9 };
+    // w goes out of scope → explicit Outer::drop runs first (o9), then fields y then x (i2 i1)
+    return result;
+}

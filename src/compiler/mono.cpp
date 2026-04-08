@@ -805,7 +805,7 @@ private:
                 ns.kind = lir::SDelete{subst_expr(*k.expr, s)};
 
             } else if constexpr (std::is_same_v<K, lir::SDrop>) {
-                ns.kind = lir::SDrop{k.var_name, k.drop_fn, subst_type(k.type, s)};
+                ns.kind = lir::SDrop{k.var_name, k.drop_fn, subst_type(k.type, s), k.drop_fields};
 
             } else if constexpr (std::is_same_v<K, lir::SMatch>) {
                 lir::SMatch nm;

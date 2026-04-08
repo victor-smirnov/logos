@@ -1,0 +1,25 @@
+// Test: delete calls Drop before free on class instances
+package drop_class_delete;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+class Handle {
+    id: i32;
+    static fn create(id: i32) -> *mut Handle {
+        return new Handle { id: id };
+    }
+}
+
+impl Drop for Handle {
+    fn drop(self: *mut Handle) {
+        printf("drop_handle_%d ", self.id);
+    }
+}
+
+fn main() -> i32 {
+    let h: *mut Handle = Handle::create(7);
+    delete h;
+    return 42;
+}

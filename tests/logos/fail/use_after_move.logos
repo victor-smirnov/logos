@@ -1,0 +1,17 @@
+// Fail: use of moved variable
+package use_after_move;
+
+trait Drop { fn drop(self: Self); }
+
+struct Res { id: i32; }
+impl Drop for Res {
+    fn drop(self: Res) { }
+}
+
+fn consume(r: Res) { }
+
+fn main() -> i32 {
+    let a: Res = Res { id: 1 };
+    consume(a);
+    return a.id;
+}

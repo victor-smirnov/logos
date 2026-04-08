@@ -422,11 +422,33 @@ private:
     // ── Scope management ─────────────────────────────────────────
 
     struct VarInfo { const LogosType* type; bool is_mut = false; };
-    struct Frame   { std::unordered_map<std::string, VarInfo> vars; };
+    struct Frame {
+        std::unordered_map<std::string, VarInfo> vars;  // O(1) lookup
+        std::vector<std::string> var_order;              // declaration order
+    };
     std::vector<Frame> scope_;
 
+    std::set<std::string> moved_vars_;   // variables consumed by move
+
     void push_scope() { scope_.emplace_back(); }
-    void pop_scope()  { if (!scope_.empty()) scope_.pop_back(); }
+    void pop_scope() {
+        if (!scope_.empty()) {
+            // Remove popped variables from moved set
+            for (auto& name : scope_.back().var_order)
+                moved_vars_.erase(name);
+            scope_.pop_back();
+        }
+    }
+
+    // Types with Drop (or droppable fields) are move-only (not copyable).
+    bool is_move_type(const LogosType* t) const {
+        return needs_drop(t);
+    }
+
+    // Mark a variable as moved (consumed). It will not be dropped at scope exit.
+    void mark_moved(const std::string& name) {
+        moved_vars_.insert(name);
+    }
 
     // Check if a type has a Drop impl (Type__drop exists in funcs_).
     std::string drop_fn_for(const LogosType* t) const {
@@ -440,35 +462,70 @@ private:
         return {};
     }
 
-    // Collect SDrop statements for all droppable variables in the current scope frame.
+    // Check if a struct has droppable fields (even without explicit Drop impl).
+    bool has_droppable_fields(const LogosType* t) const {
+        if (!t || t->kind != LogosType::Kind::Struct) return false;
+        auto sit = structs_.find(t->struct_name);
+        if (sit == structs_.end()) return false;
+        for (auto& f : sit->second.fields) {
+            if (!drop_fn_for(f.type).empty()) return true;
+            if (has_droppable_fields(f.type)) return true;
+        }
+        return false;
+    }
+
+    // Check if a type needs any drop action (explicit Drop or droppable fields).
+    bool needs_drop(const LogosType* t) const {
+        return !drop_fn_for(t).empty() || has_droppable_fields(t);
+    }
+
+    // Build SDrop for a variable, handling both explicit Drop and droppable fields.
+    std::optional<lir::LStmt> make_drop_stmt(const std::string& name, const VarInfo& info) const {
+        auto dfn = drop_fn_for(info.type);
+        bool df  = has_droppable_fields(info.type);
+        if (dfn.empty() && !df) return std::nullopt;
+        return lir::LStmt{node_line_, lir::SDrop{name, dfn, info.type, df}};
+    }
+
+    // Collect SDrop statements for current scope frame (reverse declaration order).
+    // Skips moved variables.
     std::vector<lir::LStmt> collect_drops() const {
         std::vector<lir::LStmt> drops;
         if (scope_.empty()) return drops;
         auto& frame = scope_.back();
-        for (auto& [name, info] : frame.vars) {
-            auto dfn = drop_fn_for(info.type);
-            if (!dfn.empty())
-                drops.push_back({node_line_, lir::SDrop{name, dfn, info.type}});
+        for (auto it = frame.var_order.rbegin(); it != frame.var_order.rend(); ++it) {
+            if (moved_vars_.count(*it)) continue;
+            auto vit = frame.vars.find(*it);
+            if (vit == frame.vars.end()) continue;
+            if (auto d = make_drop_stmt(*it, vit->second))
+                drops.push_back(std::move(*d));
         }
         return drops;
     }
 
-    // Collect SDrop statements for ALL enclosing scopes (for early return).
+    // Collect SDrop statements for ALL enclosing scopes (reverse order, for early return).
+    // Skips moved variables.
     std::vector<lir::LStmt> collect_all_drops() const {
         std::vector<lir::LStmt> drops;
-        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
-            for (auto& [name, info] : it->vars) {
-                auto dfn = drop_fn_for(info.type);
-                if (!dfn.empty())
-                    drops.push_back({node_line_, lir::SDrop{name, dfn, info.type}});
+        for (auto fit = scope_.rbegin(); fit != scope_.rend(); ++fit) {
+            for (auto it = fit->var_order.rbegin(); it != fit->var_order.rend(); ++it) {
+                if (moved_vars_.count(*it)) continue;
+                auto vit = fit->vars.find(*it);
+                if (vit == fit->vars.end()) continue;
+                if (auto d = make_drop_stmt(*it, vit->second))
+                    drops.push_back(std::move(*d));
             }
         }
         return drops;
     }
 
     void define(std::string_view name, const LogosType* t, bool is_mut = false) {
-        if (!scope_.empty())
-            scope_.back().vars[std::string(name)] = {t, is_mut};
+        if (!scope_.empty()) {
+            auto sname = std::string(name);
+            if (!scope_.back().vars.count(sname))
+                scope_.back().var_order.push_back(sname);
+            scope_.back().vars[sname] = {t, is_mut};
+        }
     }
 
     const LogosType* lookup(std::string_view name) const {
@@ -1894,6 +1951,8 @@ private:
                 error(std::format("undefined variable '{}'", name));
                 return error_expr();
             }
+            if (moved_vars_.count(std::string(name)))
+                error(std::format("use of moved variable '{}'", name));
             return make_expr(t, lir::EVarRef{std::string(name)});
         }
 
@@ -2324,6 +2383,14 @@ private:
                     !types_compatible(at, pt))
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, type_str(pt), type_str(at)));
+            }
+        }
+
+        // Move semantics: mark by-value move-type args as moved
+        for (auto& a : arg_exprs) {
+            if (is_move_type(a->type)) {
+                if (auto* vr = std::get_if<lir::EVarRef>(&a->kind))
+                    mark_moved(vr->name);
             }
         }
 
@@ -3727,6 +3794,12 @@ private:
         }
 
         define(name, var_type, is_mut);
+
+        // Move semantics: if RHS is a variable reference to a move type, mark it moved
+        if (rhs && is_move_type(rhs_type)) {
+            if (auto* vr = std::get_if<lir::EVarRef>(&rhs->kind))
+                mark_moved(vr->name);
+        }
 
         lir::SLet slet;
         slet.name   = std::string(name);
