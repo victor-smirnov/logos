@@ -1821,6 +1821,9 @@ private:
 
     int loop_depth_ = 0;
     const LogosType* ret_type_ = nullptr;
+    // Set to true only when lowering a match that is the last statement
+    // of a function body (so EXPR arms should be returned, not discarded).
+    bool match_in_tail_position_ = false;
 
     // ── Return reachability (on AST nodes) ───────────────────────
 
@@ -1854,6 +1857,8 @@ private:
                                    ? block_always_returns(body)
                                    : stmt_always_returns(body);
                     if (!arm_ret) all_ret = false;
+                } else if (arm.has_key(la::EXPR)) {
+                    // Expression arm (pattern => expr,) always provides a value.
                 } else { all_ret = false; }
             }
             // Match always returns if all arms return. This covers both the
@@ -4489,9 +4494,16 @@ private:
                         body->stmts.push_back(lower_stmt(body_node));
                     }
                 } else if (arm.has_key(la::EXPR)) {
-                    // Expression-body arm in statement context: evaluate and discard
                     auto val = lower_expr(map_of(arm.get(la::EXPR.code)));
-                    body->stmts.push_back(make_stmt(node_line_, lir::SExprStmt{std::move(val)}));
+                    if (match_in_tail_position_) {
+                        // Tail-position match: EXPR arms produce the function's return value.
+                        lir::SReturn ret; ret.value = std::move(val);
+                        body->stmts.push_back(make_stmt(node_line_, std::move(ret)));
+                    } else {
+                        // Statement-position match: EXPR arms are evaluated for side effects.
+                        lir::SExprStmt es; es.expr = std::move(val);
+                        body->stmts.push_back(make_stmt(node_line_, std::move(es)));
+                    }
                 }
                 pop_scope();
                 smatch.arms.push_back({std::move(pat), std::move(body), std::move(guard)});
@@ -4691,7 +4703,23 @@ private:
         // Body (extern fns have no body)
         if (!fn.is_extern && node.has_key(la::BODY)) {
             auto body_node = map_of(node.get(la::BODY.code));
+            // Detect if the last stmt in the function body is a match.
+            // If so, set the flag so lower_match treats EXPR arms as return values.
+            if (fn.ret_type && fn.ret_type->kind != LogosType::Kind::Void) {
+                if (body_node.has_key(la::ITEMS)) {
+                    auto stmts = arr_of(body_node.get(la::ITEMS.code));
+                    // Find last non-null stmt
+                    for (int64_t si = (int64_t)stmts.size() - 1; si >= 0; --si) {
+                        auto s = map_of(stmts.get(si));
+                        if (!s.is_null()) {
+                            match_in_tail_position_ = (code_of(s) == la::MATCH);
+                            break;
+                        }
+                    }
+                }
+            }
             fn.body = lower_block(body_node);
+            match_in_tail_position_ = false;
             // Return reachability check (on AST node — before scope is gone)
             if (fn.ret_type && fn.ret_type->kind != LogosType::Kind::Void &&
                 fn.ret_type->kind != LogosType::Kind::Error &&

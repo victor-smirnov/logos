@@ -208,6 +208,16 @@ private:
         return mlir::LLVM::LLVMPointerType::get(builder_.getContext());
     }
 
+    // Spill an aggregate value (struct/enum returned by value) to an alloca.
+    // Used when passing such a value to a function that expects a pointer.
+    mlir::Value spill_to_alloca(mlir::Value v) {
+        auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(v.getType());
+        if (!st) return v;
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), st, i64_one());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, v, alloca);
+        return alloca;
+    }
+
     mlir::Value coerce_int(mlir::Value v, mlir::Type to) {
         if (!v || !to || v.getType() == to) return v;
         auto fi = mlir::dyn_cast<mlir::IntegerType>(v.getType());
@@ -548,10 +558,27 @@ private:
         }
         llvm::SmallVector<mlir::Type> ret_types;
         if (fn.ret_type) {
-            // Tuples are returned by value (as LLVM struct), not by pointer.
+            // Tuples and structs are returned by value (as LLVM struct), not by pointer.
+            // Returning a pointer to a local alloca would be a dangling pointer after return.
             if (fn.ret_type->kind == LogosType::Kind::Tuple) {
                 auto rt = tuple_llvm_type(fn.ret_type);
                 if (rt) ret_types.push_back(rt);
+            } else if (fn.ret_type->kind == LogosType::Kind::Struct) {
+                auto cname = concrete_struct_name(fn.ret_type);
+                auto sit = struct_types_.find(cname);
+                if (sit != struct_types_.end())
+                    ret_types.push_back(sit->second.llvm_type);
+                else
+                    ret_types.push_back(ptr_type()); // fallback (struct not yet registered)
+            } else if (fn.ret_type->kind == LogosType::Kind::Enum) {
+                // Tagged enums must also be returned by value (aggregate), not by pointer.
+                auto* te = resolve_tagged_enum(fn.ret_type->enum_name, fn.ret_type);
+                if (te)
+                    ret_types.push_back(te->llvm_type);
+                else {
+                    // C-style (non-payload) enum — return i32.
+                    ret_types.push_back(builder_.getI32Type());
+                }
             } else {
                 auto rt = logos_to_mlir(fn.ret_type);
                 if (rt) ret_types.push_back(rt);
@@ -840,15 +867,20 @@ private:
             if (te) {
                 auto val = gen_expr(*s.value);
                 if (!val) return;
-                // If gen_expr returned a plain i32 (e.g. Option::None with no type_args
-                // on the expression), create the tagged enum alloca manually.
+                // If gen_expr returned a non-pointer value, create the tagged enum alloca.
                 if (val.getType() != ptr_type()) {
                     auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
                         loc_, ptr_type(), te->llvm_type, i64_one());
-                    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-                    auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                        loc_, ptr_type(), te->llvm_type, alloca, di);
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
+                    if (val.getType() == te->llvm_type) {
+                        // Aggregate returned by value from a function — store whole struct.
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                    } else {
+                        // Plain i32 discriminant (e.g. Option::None with no type_args).
+                        llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                        auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), te->llvm_type, alloca, di);
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
+                    }
                     val = alloca;
                 }
                 if (s.is_mut) {
@@ -868,11 +900,23 @@ private:
         }
 
         // ── Struct value (from call or variable) ─────────────────
-        // Structs are represented as pointers — store the pointer directly,
-        // no wrapper alloca needed.
+        // Structs are always held as pointers (alloca).
+        // If the value is a by-value aggregate (e.g. returned from a function),
+        // store it into a fresh alloca so the rest of the pipeline sees a pointer.
         if (s.type && s.type->kind == LogosType::Kind::Struct) {
             auto val = gen_expr(*s.value);
             if (!val) return;
+            if (val.getType() != ptr_type()) {
+                // By-value struct from function return — spill to alloca.
+                auto sname = concrete_struct_name(s.type);
+                auto sit = struct_types_.find(sname);
+                if (sit != struct_types_.end()) {
+                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                        loc_, ptr_type(), sit->second.llvm_type, i64_one());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                    val = alloca;
+                }
+            }
             scope_[s.name]    = val;
             let_vars_.insert(s.name);
             var_struct_[s.name] = concrete_struct_name(s.type);
@@ -945,6 +989,8 @@ private:
         }
         // Mutable tagged enum: val is a new struct ptr; store to pointer slot.
         if (var_tagged_enum_ptr_.count(s.name)) {
+            // If val is an aggregate (returned by value), spill to alloca first.
+            val = spill_to_alloca(val);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, it->second);
             return;
         }
@@ -978,8 +1024,22 @@ private:
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
                     val = alloca;
                 }
-            } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_))
-                val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
+            } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_)) {
+                if (val.getType() == ptr_type()) {
+                    // val is a pointer (to struct/enum alloca) — load the aggregate.
+                    val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
+                } else {
+                    // val is a scalar (i32 discriminant) — wrap in a struct alloca and load.
+                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                        loc_, ptr_type(), cur_ret_type_, i64_one());
+                    auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), cur_ret_type_, alloca,
+                        llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
+                    builder_.create<mlir::LLVM::StoreOp>(
+                        loc_, coerce_int(val, builder_.getI32Type()), disc_ptr);
+                    val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, alloca);
+                }
+            }
             else if (cur_ret_type_)
                 val = coerce_int(val, cur_ret_type_);
             if (in_llvm_func_)
@@ -1354,6 +1414,14 @@ private:
         if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Enum) {
             te_info = resolve_tagged_enum(s.scrut->type->enum_name, s.scrut->type);
             if (te_info) {
+                // If scrut is an aggregate (returned by value from a function),
+                // spill it to an alloca so GEP works below.
+                if (scrut.getType() != ptr_type()) {
+                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                        loc_, ptr_type(), te_info->llvm_type, i64_one());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, alloca);
+                    scrut = alloca;
+                }
                 scrut_ptr = scrut;  // pointer to enum struct
                 llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
                 auto dp = builder_.create<mlir::LLVM::GEPOp>(
@@ -1822,7 +1890,15 @@ private:
                     v = coerce_to_dyn(v, param_lt->trait_name, type_str(arg_lt));
                 }
             }
-            if (i < param_types.size()) v = coerce_int(v, param_types[i]);
+            if (i < param_types.size()) {
+                // Aggregate returned by value but param expects pointer — spill to alloca.
+                if (v.getType() != param_types[i] &&
+                    param_types[i] == ptr_type() &&
+                    mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
+                    v = spill_to_alloca(v);
+                else
+                    v = coerce_int(v, param_types[i]);
+            }
             args.push_back(v);
         }
         auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
@@ -1946,7 +2022,14 @@ private:
             auto v = gen_expr(*e.args[i]);
             if (!v) return nullptr;
             size_t pi = i + 1;
-            if (pi < param_types.size()) v = coerce_int(v, param_types[pi]);
+            if (pi < param_types.size()) {
+                if (v.getType() != param_types[pi] &&
+                    param_types[pi] == ptr_type() &&
+                    mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
+                    v = spill_to_alloca(v);
+                else
+                    v = coerce_int(v, param_types[pi]);
+            }
             args.push_back(v);
         }
         auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
@@ -2695,6 +2778,8 @@ private:
     mlir::Value gen_expr_kind(const ETry& e, const LogosType* type) {
         auto inner_ptr = gen_expr(*e.inner);
         if (!inner_ptr) return nullptr;
+        // Aggregate returned by value — spill to alloca so GEP works below.
+        inner_ptr = spill_to_alloca(inner_ptr);
 
         auto* te = resolve_tagged_enum(e.inner->type->enum_name, e.inner->type);
         if (!te) {

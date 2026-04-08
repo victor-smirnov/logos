@@ -1,0 +1,21 @@
+package for_in_iter_call;
+// Iterator created from a static factory method (struct returned by value)
+extern fn printf(fmt: *const u8, ...) -> i32;
+enum Option<T> { None, Some(T), }
+struct Range { current: i32; end: i32; }
+impl Range {
+    fn make(start: i32, end: i32) -> Range {
+        return Range { current: start, end: end };
+    }
+    fn next(self: *mut Range) -> Option<i32> {
+        if self.current >= self.end { return Option::None; }
+        let v = self.current; self.current = self.current + 1;
+        return Option::Some(v);
+    }
+}
+fn main() -> i32 {
+    let mut sum = 0;
+    for x in Range::make(0, 4) { sum = sum + x; }
+    printf("%d\n", sum);
+    return 0;
+}

@@ -459,10 +459,10 @@
     loop_stmt     <- KW_LOOP block
                   => { CODE: LOOP, BODY: $2 }
 
-    break_stmt    <- KW_BREAK SEMI
+    break_stmt    <- KW_BREAK (SEMI / COMMA)
                   => { CODE: BREAK }
 
-    continue_stmt <- KW_CONTINUE SEMI
+    continue_stmt <- KW_CONTINUE (SEMI / COMMA)
                   => { CODE: CONTINUE }
 
     // match expr { Pat => stmt_or_block, ... }
@@ -519,7 +519,7 @@
              / KW_WHILE expr block
                => { CODE: WHILE, COND: $2, BODY: $3 }
 
-    return_stmt <- KW_RETURN expr? SEMI
+    return_stmt <- KW_RETURN expr? (SEMI / COMMA)
                 => { CODE: RETURN, VALUE: $2 }
 
     assign_stmt <- IDENT ASSIGN expr SEMI
