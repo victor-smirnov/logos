@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.convert
+//
+// From<T> — construct Self from T.
+// Into<T> — convert Self into T.
+
+package std.convert;
+
+trait From<T> {
+    fn from(val: T) -> Self;
+}
+
+trait Into<T> {
+    fn into(self: Self) -> T;
+}

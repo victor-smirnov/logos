@@ -1,0 +1,16 @@
+// Test: pub fn is parsed correctly and callable
+package pub_fn;
+
+pub fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+pub struct Pair {
+    x: i32;
+    y: i32;
+}
+
+fn main() -> i32 {
+    let p: Pair = Pair { x: 20, y: 22 };
+    return add(p.x, p.y);
+}

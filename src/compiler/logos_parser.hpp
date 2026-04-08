@@ -48,6 +48,7 @@ namespace logos_ast {
     inline constexpr Key  IS_VARARG            {"IS_VARARG", 30};
     inline constexpr Key  ITER                 {"ITER", 31};
     inline constexpr Key  IS_VARIADIC          {"IS_VARIADIC", 32};
+    inline constexpr Key  IS_PUB               {"IS_PUB", 33};
 
     // Node type discriminants
     inline constexpr Code MODULE               {"MODULE", 1};
@@ -232,9 +233,11 @@ private:
     logos::hermes::AnyVal rule_item();
     logos::hermes::AnyVal rule_const_def();
     logos::hermes::AnyVal rule_type_alias();
+    logos::hermes::AnyVal rule_pub_enum_def();
     logos::hermes::AnyVal rule_enum_def();
     logos::hermes::AnyVal rule_variant_list();
     logos::hermes::AnyVal rule_variant_def();
+    logos::hermes::AnyVal rule_pub_trait_def();
     logos::hermes::AnyVal rule_trait_def();
     logos::hermes::AnyVal rule_trait_method();
     logos::hermes::AnyVal rule_impl_block();
@@ -243,6 +246,7 @@ private:
     logos::hermes::AnyVal rule_class_member();
     logos::hermes::AnyVal rule_static_fn_def();
     logos::hermes::AnyVal rule_abstract_method_def();
+    logos::hermes::AnyVal rule_pub_struct_def();
     logos::hermes::AnyVal rule_struct_def();
     logos::hermes::AnyVal rule_field_def();
     logos::hermes::AnyVal rule_method_def();

@@ -179,6 +179,7 @@ inline constexpr Code ASSOC_TYPE_REF  {"ASSOC_TYPE_REF",  121};  // T::Item type
 inline constexpr Code TRY_EXPR        {"TRY_EXPR",        122};  // expr? — propagate Err early
 
 // Visibility
+inline constexpr Key IS_PUB {"IS_PUB", 33};           // visibility flag (1 = pub)
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;
 

@@ -1,0 +1,9 @@
+// Fail: match on bool with only true arm
+package match_bool_nonexhaustive;
+
+fn main() -> i32 {
+    let x: bool = true;
+    match x {
+        true => { return 1; }
+    }
+}

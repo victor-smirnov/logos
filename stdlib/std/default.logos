@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.default
+//
+// Default — construct default value for a type.
+
+package std.default;
+
+trait Default {
+    fn default() -> Self;
+}

@@ -357,6 +357,7 @@ struct LFunction {
     LBlock                   body;
     bool                     is_extern = false;
     bool                     is_vararg = false;
+    bool                     is_pub    = false;
 
     // Specialisation support (set by sema, cleared by mono after instantiation).
     // is_specialization == true  →  this is a specialisation of `name`.
@@ -376,6 +377,7 @@ struct LStructDef {
     std::vector<TypeParam>   type_params;  // empty for non-generic structs
     std::vector<LField>      fields;
     std::vector<LFunction>   methods;
+    bool                     is_pub    = false;
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;

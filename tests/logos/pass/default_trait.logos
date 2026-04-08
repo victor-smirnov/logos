@@ -1,0 +1,22 @@
+// Test: Default trait implementation
+package default_trait;
+
+trait Default {
+    fn default() -> Self;
+}
+
+struct Point {
+    x: i32;
+    y: i32;
+}
+
+impl Default for Point {
+    fn default() -> Point {
+        return Point { x: 0, y: 0 };
+    }
+}
+
+fn main() -> i32 {
+    let p: Point = Point::default();
+    return p.x + p.y + 42;
+}

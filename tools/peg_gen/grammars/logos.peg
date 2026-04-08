@@ -53,6 +53,7 @@
     IS_VARARG   = 30
     ITER        = 31
     IS_VARIADIC = 32
+    IS_PUB      = 33
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -240,7 +241,7 @@
     use_decl <- KW_USE IDENT DOT IDENT SEMI
              => { CODE: USE, NAME: $2, PATH: $4 }
 
-    item <- const_def / type_alias / enum_def / class_def / struct_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- const_def / type_alias / pub_enum_def / enum_def / class_def / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // const NAME: type = expr;
     const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
@@ -254,6 +255,9 @@
     // ── Enum definition ──────────────────────────────────────────
     // enum Color { Red, Green = 5, Blue }
     // enum Option<T> { Some(T), None }
+    pub_enum_def <- KW_PUB KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $6 }
+
     enum_def <- KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }
 
@@ -269,6 +273,11 @@
 
     // ── Trait definition ─────────────────────────────────────────
     // trait Name { fn method(self: Self) -> T; }
+    pub_trait_def <- KW_PUB KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
+                  / KW_PUB KW_TRAIT IDENT LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, ITEMS: $... }
+
     trait_def <- KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
               / KW_TRAIT IDENT LBRACE trait_method* RBRACE
@@ -332,6 +341,9 @@
                         => { CODE: ABSTRACT_FN, NAME: $3, PARAMS: $5 }
 
     // ── Struct definition ────────────────────────────────────────
+    pub_struct_def <- KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
+
     struct_def <- KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6 }
 
@@ -351,9 +363,9 @@
 
     // ── Public function ──────────────────────────────────────────
     pub_fn_def <- KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
-               => { CODE: FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
+               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
                 / KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
-               => { CODE: FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
+               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
 
     // ── Private function ─────────────────────────────────────────
     fn_def <- KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block

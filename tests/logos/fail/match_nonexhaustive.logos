@@ -1,0 +1,16 @@
+// Fail: match on 3-variant enum with only 2 arms, no wildcard
+package match_nonexhaustive;
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn main() -> i32 {
+    let c: Color = Color::Red;
+    match c {
+        Color::Red   => { return 1; }
+        Color::Green => { return 2; }
+    }
+}

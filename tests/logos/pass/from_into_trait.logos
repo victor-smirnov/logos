@@ -1,0 +1,31 @@
+// Test: From and Into trait implementations
+package from_into_trait;
+
+trait From<T> {
+    fn from(val: T) -> Self;
+}
+
+trait Into<T> {
+    fn into(self: Self) -> T;
+}
+
+struct Wrapper {
+    value: i32;
+}
+
+impl From<i32> for Wrapper {
+    fn from(val: i32) -> Wrapper {
+        return Wrapper { value: val };
+    }
+}
+
+impl Into<i32> for Wrapper {
+    fn into(self: Wrapper) -> i32 {
+        return self.value;
+    }
+}
+
+fn main() -> i32 {
+    let w: Wrapper = Wrapper::from(42);
+    return w.into();
+}

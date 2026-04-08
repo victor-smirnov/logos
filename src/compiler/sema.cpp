@@ -17,6 +17,7 @@
 #include <logos/hermes/any_val.hpp>
 
 #include <format>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -521,9 +522,11 @@ private:
     // ── Module-level symbol tables ───────────────────────────────
 
     struct SemaFieldInfo  { std::string_view name; const LogosType* type; };
-    struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params; };
+    struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params;
+                            bool is_pub = false; std::string source_file; };
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
-                            std::vector<TypeParam> type_params; bool is_vararg = false; };
+                            std::vector<TypeParam> type_params; bool is_vararg = false;
+                            bool is_pub = false; std::string source_file; };
     struct SemaVariantInfo{
         std::string_view name; int32_t value;
         std::vector<const LogosType*> payload_types;  // empty = no payload
@@ -905,9 +908,10 @@ private:
             }
         }
         // Second pass: fill in fields, variants, function signatures.
-        for (auto& ast : asts) {
-            holder_ = ast.holder();
-            auto root = ast.root_object().as_tiny_map();
+        for (size_t ai = 0; ai < asts.size(); ++ai) {
+            holder_ = asts[ai].holder();
+            file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
+            auto root = asts[ai].root_object().as_tiny_map();
             collect_module(root);
         }
 
@@ -1707,6 +1711,12 @@ private:
             AnyVal av = node.get(la::IS_VARARG.code);
             info.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
+        // Visibility: pub fn → is_pub = true
+        if (node.has_key(la::IS_PUB)) {
+            AnyVal av = node.get(la::IS_PUB.code);
+            info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        }
+        info.source_file = file_;
         pop_type_params(info.type_params);
         funcs_[mangled] = std::move(info);
     }
@@ -3322,6 +3332,7 @@ private:
         }
 
         auto& fi = fit->second;
+
         uint64_t n_args = arg_exprs.size();
         if (n_args != fi.param_types.size()) {
             error(std::format("static call '{}': expected {} args, got {}",
@@ -4144,6 +4155,51 @@ private:
                 smatch.arms.push_back({std::move(pat), std::move(body)});
             }
         }
+        // ── Exhaustiveness check ─────────────────────────────────
+        // Verify all variants of an enum (or bool) are covered.
+        {
+            bool has_wild = false;
+            for (auto& arm : smatch.arms) {
+                if (std::holds_alternative<lir::PatWild>(arm.pat)) {
+                    has_wild = true;
+                    break;
+                }
+            }
+            if (!has_wild && scrut_type->kind == LogosType::Kind::Enum) {
+                auto eit = enums_.find(scrut_type->enum_name);
+                if (eit != enums_.end()) {
+                    std::set<int32_t> covered;
+                    for (auto& arm : smatch.arms) {
+                        if (auto* pv = std::get_if<lir::PatVariant>(&arm.pat))
+                            covered.insert(pv->disc);
+                        else if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat))
+                            covered.insert(pvd->disc);
+                    }
+                    std::string missing;
+                    for (auto& v : eit->second.variants) {
+                        if (covered.find(v.value) == covered.end()) {
+                            if (!missing.empty()) missing += ", ";
+                            missing += std::string(v.name);
+                        }
+                    }
+                    if (!missing.empty())
+                        error(std::format("match is not exhaustive — missing variant(s): {}",
+                              missing));
+                }
+            }
+            if (!has_wild && scrut_type->kind == LogosType::Kind::Bool) {
+                bool has_true = false, has_false = false;
+                for (auto& arm : smatch.arms) {
+                    if (auto* pb = std::get_if<lir::PatBool>(&arm.pat)) {
+                        if (pb->value) has_true = true; else has_false = true;
+                    }
+                }
+                if (!has_true || !has_false)
+                    error("match on bool is not exhaustive — missing "
+                          + std::string(!has_true ? "true" : "false"));
+            }
+        }
+
         return make_stmt(node_line_, std::move(smatch));
     }
 
