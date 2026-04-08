@@ -260,18 +260,26 @@
 
     // ── Trait definition ─────────────────────────────────────────
     // trait Name { fn method(self: Self) -> T; }
-    trait_def <- KW_TRAIT IDENT LBRACE trait_method* RBRACE
+    trait_def <- KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
+              / KW_TRAIT IDENT LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, ITEMS: $... }
 
-    trait_method <- KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
+    trait_method <- KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
+                  / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
                  => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+                  / KW_FN IDENT LPAREN param_list? RPAREN block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
                   / KW_FN IDENT LPAREN param_list? RPAREN SEMI
                  => { CODE: FN, NAME: $2, PARAMS: $4 }
 
     // ── Impl block ──────────────────────────────────────────────
     // impl Trait for Type { fn method(...) { ... } }
     // impl Type { fn method(...) { ... } }   — standalone (no trait)
-    impl_block <- KW_IMPL IDENT KW_FOR simple_type LBRACE method_def* RBRACE
+    impl_block <- KW_IMPL IDENT LT type_arg_list GT KW_FOR simple_type LBRACE method_def* RBRACE
+               => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, ITEMS: $... }
+                / KW_IMPL IDENT KW_FOR simple_type LBRACE method_def* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
                 / KW_IMPL simple_type LBRACE method_def* RBRACE
                => { CODE: IMPL_BLOCK, TYPE: $2, ITEMS: $... }

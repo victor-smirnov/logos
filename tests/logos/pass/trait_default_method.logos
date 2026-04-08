@@ -1,0 +1,27 @@
+// Trait with default method implementation
+package trait_default_method;
+
+trait Greet {
+    fn hello(self: Self) -> i32 { return 42; }
+    fn name(self: Self) -> i32;
+}
+
+struct A { v: i32; }
+struct B { v: i32; }
+
+impl Greet for A {
+    fn name(self: A) -> i32 { return self.v; }
+}
+
+impl Greet for B {
+    fn name(self: B) -> i32 { return self.v; }
+    fn hello(self: B) -> i32 { return self.v + 10; }
+}
+
+fn main() -> i32 {
+    let a: A = A { v: 99 };
+    let b: B = B { v: 32 };
+    // a.hello()=42 (default), b.hello()=42 (override: 32+10)
+    // Use only b to get 42
+    return b.hello();
+}

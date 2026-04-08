@@ -536,9 +536,12 @@ private:
         std::string name;
         std::vector<const LogosType*> param_types;  // includes self
         const LogosType* ret_type = nullptr;
+        bool has_default = false;   // trait method has a default body
+        AnyVal default_ast{};       // AST node for default method (valid when has_default)
     };
     struct SemaTraitInfo {
         std::string name;
+        std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
     };
     struct SemaImplInfo {
@@ -899,6 +902,9 @@ private:
         current_type_params_["Self"] = make_typevar("Self");
         SemaTraitInfo info;
         info.name = tname;
+        // Read trait type params (e.g. trait Into<T>)
+        info.type_params = read_type_params(node);
+        push_type_params(info.type_params);
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
@@ -922,9 +928,13 @@ private:
                 }
                 mi.ret_type = m.has_key(la::RET_TYPE)
                     ? resolve_type(map_of(m.get(la::RET_TYPE.code))) : void_t();
+                mi.has_default = m.has_key(la::BODY);
+                if (mi.has_default)
+                    mi.default_ast = items.get(i);
                 info.methods.push_back(std::move(mi));
             }
         }
+        pop_type_params(info.type_params);
         current_type_params_.erase("Self");
         traits_[tname] = std::move(info);
     }
@@ -946,6 +956,26 @@ private:
         // Verify trait exists (only for trait impls)
         if (!trait_name.empty() && !traits_.count(trait_name))
             error(std::format("impl: unknown trait '{}'", trait_name));
+        // Resolve trait type args (e.g. impl Into<i32> for Celsius → T=i32)
+        // and push them into current_type_params_ so method sigs resolve correctly.
+        std::vector<const LogosType*> trait_type_args;
+        if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        trait_type_args.push_back(resolve_type(map_of(items.get(i))));
+                }
+            }
+            auto tit = traits_.find(trait_name);
+            if (tit != traits_.end()) {
+                for (size_t i = 0; i < tit->second.type_params.size() &&
+                                    i < trait_type_args.size(); ++i)
+                    current_type_params_[tit->second.type_params[i].name] = trait_type_args[i];
+            }
+        }
         // Register impl methods as free functions with mangled names: Target__method
         // Skip if already registered (e.g. class methods defined inline).
         if (node.has_key(la::ITEMS)) {
@@ -961,15 +991,39 @@ private:
             }
         }
         // Check completeness: every required trait method must be in the impl.
+        // Default methods are registered as Target__method if not overridden.
         if (!trait_name.empty()) {
             auto tit = traits_.find(trait_name);
             if (tit != traits_.end()) {
                 for (auto& m : tit->second.methods) {
                     auto mangled = target + "__" + m.name;
-                    if (!funcs_.count(mangled))
-                        error(std::format("impl {} for {}: missing method '{}'",
-                              trait_name, target, m.name));
+                    if (!funcs_.count(mangled)) {
+                        if (m.has_default) {
+                            // Register default method as Target__method.
+                            // Push Self → target type so parameter types resolve correctly.
+                            const LogosType* self_type = nullptr;
+                            if (structs_.count(target))
+                                self_type = make_struct_type(target);
+                            else if (classes_.count(target))
+                                self_type = make_ptr(true, make_class_type(target));
+                            if (self_type)
+                                current_type_params_["Self"] = self_type;
+                            collect_fn(map_of(m.default_ast), target);
+                            current_type_params_.erase("Self");
+                        } else {
+                            error(std::format("impl {} for {}: missing method '{}'",
+                                  trait_name, target, m.name));
+                        }
+                    }
                 }
+            }
+        }
+        // Clean up trait type params from scope
+        if (!trait_name.empty() && !trait_type_args.empty()) {
+            auto tit = traits_.find(trait_name);
+            if (tit != traits_.end()) {
+                for (auto& tp : tit->second.type_params)
+                    current_type_params_.erase(tp.name);
             }
         }
         // Register the impl mapping (only for trait impls)
@@ -3814,15 +3868,63 @@ private:
         lir::LImplBlock ib;
         ib.trait_name   = trait_name;
         ib.target_type  = target;
+        // Resolve trait type args and push into scope
+        if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    auto tit = traits_.find(trait_name);
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        auto resolved = resolve_type(map_of(items.get(i)));
+                        if (tit != traits_.end() && i < tit->second.type_params.size())
+                            current_type_params_[tit->second.type_params[i].name] = resolved;
+                    }
+                }
+            }
+        }
         // Lower impl methods as free functions (Target__method).
+        std::unordered_set<std::string> overridden;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto m = map_of(items.get(i));
                 if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                     auto fn = lower_fn(m, target);
+                    overridden.insert(fn.name);
                     prog.functions.push_back(std::move(fn));
                 }
+            }
+        }
+        // Lower default methods from the trait that weren't overridden.
+        if (!trait_name.empty()) {
+            auto tit = traits_.find(trait_name);
+            if (tit != traits_.end()) {
+                for (auto& m : tit->second.methods) {
+                    auto mangled = target + "__" + m.name;
+                    if (m.has_default && !overridden.count(mangled)) {
+                        // Push Self → target type so default body resolves Self correctly.
+                        const LogosType* self_type = nullptr;
+                        if (structs_.count(target))
+                            self_type = make_struct_type(target);
+                        else if (classes_.count(target))
+                            self_type = make_ptr(true, make_class_type(target));
+                        if (self_type)
+                            current_type_params_["Self"] = self_type;
+                        auto fn = lower_fn(map_of(m.default_ast), target);
+                        prog.functions.push_back(std::move(fn));
+                        current_type_params_.erase("Self");
+                    }
+                }
+            }
+        }
+        // Clean up trait type params
+        if (!trait_name.empty()) {
+            auto tit = traits_.find(trait_name);
+            if (tit != traits_.end()) {
+                for (auto& tp : tit->second.type_params)
+                    current_type_params_.erase(tp.name);
             }
         }
         prog.impls.push_back(std::move(ib));
