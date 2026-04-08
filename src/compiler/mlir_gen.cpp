@@ -919,14 +919,26 @@ private:
 
         // ── Class pointer (from 'new') ────────────────────────────
         // 'new ClassName { ... }' returns *mut ClassName.  Store the
-        // heap pointer directly — no alloca wrapper needed.
+        // heap pointer directly — no alloca wrapper needed (immutable).
+        // Mutable class pointer (let mut p: *mut C): needs alloca so the
+        // pointer itself can be reassigned.  Field access via (*p).f uses
+        // gen_recv_struct's general EDeref path, so var_class_ is not set.
         if (s.type && s.type->kind == LogosType::Kind::Ptr &&
             s.type->pointee && s.type->pointee->kind == LogosType::Kind::Class) {
             auto val = gen_expr(*s.value);
             if (!val) return;
-            scope_[s.name]  = val;
-            let_vars_.insert(s.name);
-            var_class_[s.name] = concrete_class_name(s.type->pointee);
+            if (s.is_mut) {
+                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                    loc_, ptr_type(), ptr_type(), i64_one());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                scope_[s.name]          = alloca;
+                let_vars_.insert(s.name);
+                var_elem_types_[s.name] = ptr_type();
+            } else {
+                scope_[s.name]  = val;
+                let_vars_.insert(s.name);
+                var_class_[s.name] = concrete_class_name(s.type->pointee);
+            }
             return;
         }
 
@@ -1922,8 +1934,20 @@ private:
         if (op == "^")  return builder_.create<mlir::arith::XOrIOp>(loc_, lhs, rhs);
         if (op == "<<") return builder_.create<mlir::arith::ShLIOp>(loc_, lhs, rhs);
         if (op == ">>") return builder_.create<mlir::arith::ShRSIOp>(loc_, lhs, rhs);
-        if (op == "==") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq,  lhs, rhs);
-        if (op == "!=") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne,  lhs, rhs);
+        // For pointer comparisons, use llvm.icmp instead of arith.cmpi
+        bool is_ptr_cmp = mlir::isa<mlir::LLVM::LLVMPointerType>(lhs.getType());
+        if (op == "==") {
+            if (is_ptr_cmp)
+                return builder_.create<mlir::LLVM::ICmpOp>(
+                    loc_, mlir::LLVM::ICmpPredicate::eq, lhs, rhs);
+            return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq,  lhs, rhs);
+        }
+        if (op == "!=") {
+            if (is_ptr_cmp)
+                return builder_.create<mlir::LLVM::ICmpOp>(
+                    loc_, mlir::LLVM::ICmpPredicate::ne, lhs, rhs);
+            return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne,  lhs, rhs);
+        }
         if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::slt, lhs, rhs);
         if (op == ">")  return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sgt, lhs, rhs);
         if (op == "<=") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sle, lhs, rhs);
@@ -1960,6 +1984,10 @@ private:
     mlir::Value gen_expr_kind(const EDeref& e, const LogosType* type) {
         auto ptr = gen_expr(*e.operand);
         if (!ptr) return nullptr;
+        // Class objects are always pointer-represented in MLIR/LLVM.
+        // Dereferencing *mut ClassName just yields the same pointer — no load needed.
+        if (type && type->kind == LogosType::Kind::Class)
+            return ptr;
         auto pointee = logos_to_mlir(type);
         if (!pointee) pointee = builder_.getI32Type();
         return builder_.create<mlir::LLVM::LoadOp>(loc_, pointee, ptr);

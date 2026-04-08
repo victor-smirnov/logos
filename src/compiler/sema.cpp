@@ -2272,7 +2272,11 @@ private:
             result_type = bool_t();
         } else if (op == "==" || op == "!=" ||
                    op == "<"  || op == "<=" || op == ">" || op == ">=") {
-            bool ok = types_compatible(lt, rt) || types_compatible(rt, lt);
+            // Allow pointer-vs-integer-literal comparison (null check: ptr == 0)
+            bool ptr_null_cmp =
+                (lt->kind == LogosType::Kind::Ptr && rt->kind == LogosType::Kind::IntLit) ||
+                (rt->kind == LogosType::Kind::Ptr && lt->kind == LogosType::Kind::IntLit);
+            bool ok = ptr_null_cmp || types_compatible(lt, rt) || types_compatible(rt, lt);
             if (!ok)
                 error(std::format("operator '{}': type mismatch ({} vs {})",
                       op, type_str(lt), type_str(rt)));

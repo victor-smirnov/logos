@@ -1,0 +1,25 @@
+package linked_list;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+class Node {
+    val: i32;
+    next: *mut Node;
+}
+
+fn main() -> i32 {
+    let n3 = new Node { val: 3, next: 0 as *mut Node };
+    let n2 = new Node { val: 2, next: n3 };
+    let n1 = new Node { val: 1, next: n2 };
+
+    // traverse
+    let mut cur: *mut Node = n1;
+    while cur != 0 as *mut Node {
+        printf("%d\n", (*cur).val);
+        cur = (*cur).next;
+    }
+
+    delete n3;
+    delete n2;
+    delete n1;
+    return 0;
+}
