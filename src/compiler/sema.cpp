@@ -430,6 +430,7 @@ private:
     std::vector<Frame> scope_;
 
     std::set<std::string> moved_vars_;   // variables consumed by move
+    std::set<std::string> copy_types_;   // types with impl Copy — never move-only
 
     void push_scope() { scope_.emplace_back(); }
     void pop_scope() {
@@ -441,9 +442,15 @@ private:
         }
     }
 
-    // Types with Drop (or droppable fields) are move-only (not copyable).
+    // Types with Drop (or droppable fields) are move-only (not copyable),
+    // unless they explicitly implement Copy.
     bool is_move_type(const LogosType* t) const {
-        return needs_drop(t);
+        if (!needs_drop(t)) return false;
+        // Copy overrides move semantics.
+        std::string name;
+        if (t->kind == LogosType::Kind::Struct || t->kind == LogosType::Kind::Class)
+            name = t->struct_name;
+        return name.empty() || !copy_types_.count(name);
     }
 
     // Mark a variable as moved (consumed). It will not be dropped at scope exit.
@@ -1246,6 +1253,9 @@ private:
                 }
             }
         }
+        // Register Copy types so is_move_type() can respect them.
+        if (trait_name == "Copy" && !target.empty())
+            copy_types_.insert(target);
         // Clean up trait type params from scope
         if (!trait_name.empty() && !trait_type_args.empty()) {
             auto tit = traits_.find(trait_name);
