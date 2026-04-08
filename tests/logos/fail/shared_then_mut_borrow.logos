@@ -1,0 +1,10 @@
+package shared_then_mut_borrow;
+// Phase 2: cannot &mut while shared borrows active
+struct Point { x: i32; y: i32; }
+fn read(p: &Point) -> i32 { return 0; }
+fn main() -> i32 {
+    let mut p = Point { x: 1, y: 2 };
+    let r1: &Point = &p;
+    let r2: &mut Point = &mut p;   // error: shared borrows active
+    return 0;
+}

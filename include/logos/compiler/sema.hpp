@@ -24,7 +24,9 @@ struct LogosType {
         Void,                     // no return value
         I32, I64, F64, Bool, U8,  // signed/float/bool primitives
         I8, U32, U64,             // additional integer types
-        Ptr,                      // *const T / *mut T
+        Ptr,                      // *const T / *mut T  (raw/unsafe pointer)
+        Ref,                      // &T     — shared reference (borrow-checked)
+        MutRef,                   // &mut T — exclusive mutable reference (borrow-checked)
         Array,                    // [T; N]
         Struct,                   // user-defined struct
         Class,                    // user-defined class (virtual dispatch via vtable)
@@ -42,9 +44,12 @@ struct LogosType {
 
     Kind kind = Kind::Error;
 
-    // Ptr
-    bool             mut_ptr  = false;    // true → *mut, false → *const
+    // Ptr / Ref / MutRef — all use pointee
+    bool             mut_ptr  = false;    // Ptr only: true → *mut, false → *const
     const LogosType* pointee  = nullptr;  // non-owning, pool-allocated
+
+    // Ref / MutRef — lifetime annotation
+    std::string      lifetime;            // "'a", "'static", "'_", "" = elided
 
     // Array
     const LogosType* elem     = nullptr;  // non-owning, pool-allocated

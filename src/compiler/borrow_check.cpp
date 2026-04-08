@@ -2,26 +2,27 @@
 // Copyright 2026 Victor Smirnov
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Borrow checker — Phase 1: linear ownership / use-after-move.
+// Borrow checker — affine ownership + reference exclusivity + dangling detection.
 //
-// Rules:
-//   Copy types  — primitives, raw pointers, arrays, enums, class ptrs.
-//   Move types  — struct (all structs are affine; they may own heap resources).
+// Phase 1 — Linear ownership (use-after-move):
+//   Move types  — structs with Drop impl and no Copy impl.
+//   Copy types  — everything else (primitives, raw pointers, enums, &T, &mut T).
+//   A Move variable is consumed on first EVarRef in value position; re-use is an error.
 //
-// For every Move-typed variable we track two states:
-//   Owned  — value is valid and available.
-//   Moved  — value has been consumed; further use is a compile error.
+// Phase 2 — Borrow exclusivity:
+//   &T   (Ref)    — shared borrow: multiple allowed, blocks moves and &mut.
+//   &mut T (MutRef) — exclusive borrow: one at a time, blocks moves and all other borrows.
+//   Borrows are scoped lexically; they end when the scope containing the let binding ends.
+//   Call-site borrows (&x in function args) are transient (released after the call).
 //
-// A variable is consumed when it appears as a direct EVarRef in a
-// value-producing position (function arg, assignment RHS, return) and its
-// type is a Move type.  Taking its address (&x) or reading a field (x.field)
-// is *not* a consuming use — the variable remains Owned.
+// Phase 3 — Dangling reference detection:
+//   A function returning &T / &mut T must not return a reference to a local variable.
+//   Parameters are safe to borrow from; locals are not.
 //
-// Branch merging: if any branch moves a variable, it is considered dead
-// after the merge point (conservative / correct).
+// Branch merging: moves (from Phase 1) are propagated conservatively (union).
+//   Borrows are scope-local and released by pop_scope, so they don't survive merges.
 //
-// Loops: the body is analysed once; any outer variable moved inside is
-// considered dead after the loop (conservative).
+// Loops: outer variables moved inside the body are dead after the loop.
 
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
@@ -40,27 +41,18 @@ namespace logos::compiler {
 using namespace lir;
 
 // ── Copy/Move classification ────────────────────────────────────────────────
-//
-// Mirrors sema's is_move_type() logic:
-//   Move iff the type needs_drop (has an explicit Drop impl or droppable fields)
-//   AND does not implement Copy.
-//
-// This is computed once per borrow_check() invocation from LProgram data.
 
 struct TypeSets {
-    std::unordered_set<std::string> drop_types;  // struct names with Type__drop function
-    std::unordered_set<std::string> copy_types;  // struct names implementing Copy trait
+    std::unordered_set<std::string> drop_types;
+    std::unordered_set<std::string> copy_types;
 };
 
 static TypeSets build_type_sets(const lir::LProgram& prog) {
     TypeSets ts;
-
-    // Find Drop implementations: any function named "StructName__drop" in prog.
     auto scan_fns = [&](const std::vector<LFunction>& fns) {
-        for (auto& fn : fns) {
+        for (auto& fn : fns)
             if (fn.name.size() > 6 && fn.name.ends_with("__drop"))
                 ts.drop_types.insert(fn.name.substr(0, fn.name.size() - 6));
-        }
     };
     scan_fns(prog.functions);
     scan_fns(prog.specializations);
@@ -68,34 +60,22 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         for (auto& m : sd.methods)
             if (m.name.ends_with("__drop"))
                 ts.drop_types.insert(sd.name);
-
-    // Find Copy implementations: impl blocks with trait_name == "Copy".
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);
-
     return ts;
 }
 
-// Forward-declare so is_move_type can check droppable fields recursively.
-static bool has_droppable_fields(const LogosType* t,
-                                  const lir::LProgram& prog,
-                                  const TypeSets& ts);
+static bool has_droppable_fields(const LogosType*, const lir::LProgram&, const TypeSets&);
 
-static bool needs_drop(const LogosType* t,
-                        const lir::LProgram& prog,
-                        const TypeSets& ts) {
-    if (!t) return false;
-    if (t->kind != LogosType::Kind::Struct) return false;
-    return ts.drop_types.count(t->struct_name) ||
-           has_droppable_fields(t, prog, ts);
+static bool needs_drop(const LogosType* t, const lir::LProgram& prog, const TypeSets& ts) {
+    if (!t || t->kind != LogosType::Kind::Struct) return false;
+    return ts.drop_types.count(t->struct_name) || has_droppable_fields(t, prog, ts);
 }
 
-static bool has_droppable_fields(const LogosType* t,
-                                  const lir::LProgram& prog,
+static bool has_droppable_fields(const LogosType* t, const lir::LProgram& prog,
                                   const TypeSets& ts) {
     if (!t || t->kind != LogosType::Kind::Struct) return false;
-    // Search in both template defs and specializations.
     auto check = [&](const std::vector<LStructDef>& defs) -> bool {
         for (auto& sd : defs) {
             if (sd.name != t->struct_name) continue;
@@ -108,28 +88,40 @@ static bool has_droppable_fields(const LogosType* t,
     return check(prog.structs) || check(prog.struct_specializations);
 }
 
-static bool is_move_type(const LogosType* t,
-                          const lir::LProgram& prog,
-                          const TypeSets& ts) {
+static bool is_move_type(const LogosType* t, const lir::LProgram& prog, const TypeSets& ts) {
     if (!t || t->kind != LogosType::Kind::Struct) return false;
-    if (!needs_drop(t, prog, ts)) return false;          // no Drop → Copy
-    return !ts.copy_types.count(t->struct_name);         // Copy overrides Move
+    if (!needs_drop(t, prog, ts)) return false;
+    return !ts.copy_types.count(t->struct_name);
 }
 
-// ── Ownership state ─────────────────────────────────────────────────────────
+// ── Variable state ───────────────────────────────────────────────────────────
 
-struct MoveInfo {
-    bool     moved      = false;
-    uint32_t moved_line = 0;
+struct VarState {
+    // Phase 1 — ownership
+    bool     moved          = false;
+    uint32_t moved_line     = 0;
+    // Phase 2 — borrow tracking
+    int      shared_borrows = 0;     // # active &T borrows on this var
+    bool     mut_borrowed   = false; // has an active &mut borrow
 };
 
-using OwnerMap = std::unordered_map<std::string, MoveInfo>;
+using StateMap = std::unordered_map<std::string, VarState>;
 
-// Merge: any variable moved in 'other' is also marked moved in 'base'.
-static void merge_moves(OwnerMap& base, const OwnerMap& other) {
-    for (auto& [name, info] : other)
-        if (info.moved)
-            base[name] = info;  // propagate move
+struct BorrowRecord {
+    std::string target;
+    bool        is_mut;
+};
+
+struct ScopeFrame {
+    std::vector<std::string>  declared;  // vars declared in this scope
+    std::vector<BorrowRecord> borrows;   // borrows held in this scope
+};
+
+// Merge Phase-1 move state from 'other' into 'base' (union of moved sets).
+// Borrows are scope-local and do not survive merges.
+static void merge_moves(StateMap& base, const StateMap& other) {
+    for (auto& [name, st] : other)
+        if (st.moved) base[name] = st;
 }
 
 // ── BorrowChecker ───────────────────────────────────────────────────────────
@@ -140,7 +132,12 @@ class BorrowChecker {
     const lir::LProgram& prog_;
     const TypeSets&      ts_;
 
-    OwnerMap states_;   // current per-variable ownership
+    StateMap                 states_;
+    std::vector<ScopeFrame>  scopes_;
+    // Phase 3: local variables (not params) — cannot be returned by reference.
+    std::unordered_set<std::string> local_vars_;
+    // Phase 3: return type of current function.
+    const LogosType*         ret_type_ = nullptr;
 
     void report(uint32_t line, std::string msg) {
         Diag d;
@@ -151,14 +148,75 @@ class BorrowChecker {
         diags_.diags.push_back(std::move(d));
     }
 
-    void declare(const std::string& name) {
-        states_[name] = MoveInfo{};         // Owned
+    // ── Scope management ───────────────────────────────────────────────────
+
+    void push_scope() { scopes_.push_back({}); }
+
+    void pop_scope() {
+        if (scopes_.empty()) return;
+        auto& frame = scopes_.back();
+        // Release borrows held by this scope.
+        for (auto& br : frame.borrows) {
+            auto it = states_.find(br.target);
+            if (it != states_.end()) {
+                if (br.is_mut)
+                    it->second.mut_borrowed = false;
+                else if (it->second.shared_borrows > 0)
+                    --it->second.shared_borrows;
+            }
+        }
+        // Remove variables declared in this scope.
+        for (auto& name : frame.declared)
+            states_.erase(name);
+        scopes_.pop_back();
     }
 
-    // Mark a variable as consumed.  Returns false if it was already moved.
+    void declare_var(const std::string& name) {
+        states_[name] = VarState{};
+        if (!scopes_.empty()) scopes_.back().declared.push_back(name);
+    }
+
+    // ── Borrow operations ─────────────────────────────────────────────────
+
+    // Take a borrow of 'target'. Registers it in the current scope for cleanup.
+    void take_borrow(const std::string& target, bool is_mut, uint32_t line) {
+        auto it = states_.find(target);
+        if (it == states_.end()) return;  // unknown / extern
+        if (it->second.moved) {
+            report(line, std::format(
+                "cannot borrow moved value '{}'", target));
+            return;
+        }
+        if (is_mut) {
+            if (it->second.mut_borrowed) {
+                report(line, std::format(
+                    "cannot borrow '{}' as mutable: already mutably borrowed", target));
+                return;
+            }
+            if (it->second.shared_borrows > 0) {
+                report(line, std::format(
+                    "cannot borrow '{}' as mutable: {} shared borrow(s) active",
+                    target, it->second.shared_borrows));
+                return;
+            }
+            it->second.mut_borrowed = true;
+        } else {
+            if (it->second.mut_borrowed) {
+                report(line, std::format(
+                    "cannot borrow '{}' as shared: already mutably borrowed", target));
+                return;
+            }
+            ++it->second.shared_borrows;
+        }
+        if (!scopes_.empty())
+            scopes_.back().borrows.push_back({target, is_mut});
+    }
+
+    // ── Ownership operations ───────────────────────────────────────────────
+
     bool consume(const std::string& name, uint32_t line) {
         auto it = states_.find(name);
-        if (it == states_.end()) return true;   // unknown (extern / outer scope)
+        if (it == states_.end()) return true;
         if (it->second.moved) {
             uint32_t prev = it->second.moved_line;
             if (prev)
@@ -168,14 +226,17 @@ class BorrowChecker {
                 report(line, std::format("use of moved value '{}'", name));
             return false;
         }
-        it->second = MoveInfo{true, line};
+        if (it->second.mut_borrowed || it->second.shared_borrows > 0) {
+            report(line, std::format("cannot move '{}' while it is borrowed", name));
+            return false;
+        }
+        it->second = VarState{true, line};
         return true;
     }
 
-    // Check a variable is live (for borrows / field reads).
     void check_live(const std::string& name, uint32_t line) {
         auto it = states_.find(name);
-        if (it == states_.end()) return;        // unknown
+        if (it == states_.end()) return;
         if (it->second.moved) {
             uint32_t prev = it->second.moved_line;
             if (prev)
@@ -186,42 +247,71 @@ class BorrowChecker {
         }
     }
 
-    // ── Expression visitor ──────────────────────────────────────────────────
-    //
-    // consuming = true  → the value produced by this expr is being moved out
-    //                     (function arg, assignment RHS, return value).
-    //             false → the expr is accessed but ownership is not transferred
-    //                     (borrow, field read receiver, index receiver, …).
-    //
-    // An EVarRef(x) in consuming position with a Move type consumes x.
+    // ── Phase 3: dangling reference check ─────────────────────────────────
+
+    // Is the expression a borrow of a local variable (potentially dangling)?
+    bool is_local_borrow(const LExprPtr& e) const {
+        if (!e) return false;
+        if (auto* addr = std::get_if<lir::EAddrOf>(&e->kind))
+            return local_vars_.count(addr->var_name) > 0;
+        return false;
+    }
+
+    void check_return_value(const LExprPtr& e, uint32_t line) {
+        if (!ret_type_) return;
+        if (ret_type_->kind != LogosType::Kind::Ref &&
+            ret_type_->kind != LogosType::Kind::MutRef) return;
+        if (is_local_borrow(e)) {
+            auto* addr = std::get_if<lir::EAddrOf>(&e->kind);
+            report(line, std::format(
+                "cannot return reference to local variable '{}': dangling reference",
+                addr->var_name));
+        }
+    }
+
+    // ── Expression visitor ─────────────────────────────────────────────────
 
     void visit(const LExprPtr& e, bool consuming, uint32_t line);
 
-    void visit_args(const std::vector<LExprPtr>& args, uint32_t line) {
-        for (auto& a : args) visit(a, /*consuming=*/true, line);
+    // Visit a sequence of call arguments, handling borrows transiently.
+    // Each EAddrOf arg creates a call-site borrow (released when scope pops).
+    void visit_call_args(const std::vector<LExprPtr>& args, uint32_t line) {
+        push_scope();  // call-site borrow scope
+        for (auto& a : args) {
+            if (a && std::holds_alternative<lir::EAddrOf>(a->kind)) {
+                auto& k = std::get<lir::EAddrOf>(a->kind);
+                bool is_mut = a->type && a->type->kind == LogosType::Kind::MutRef;
+                take_borrow(k.var_name, is_mut, line);
+            } else {
+                visit(a, /*consuming=*/true, line);
+            }
+        }
+        pop_scope();
     }
 
-    // ── Statement visitor ───────────────────────────────────────────────────
+    // ── Statement visitor ─────────────────────────────────────────────────
 
     void visit_block(const LBlock& blk) {
+        push_scope();
         for (auto& s : blk.stmts) visit_stmt(s);
+        pop_scope();
     }
 
-    // Analyse a loop body conservatively:
-    //  – Any outer variable moved inside the body is dead after the loop.
-    //  – loop_vars are local to the loop; they are removed from state afterwards.
+    // Analyse a loop body: outer variables moved/borrowed inside are propagated.
+    // loop_vars are local to the loop iteration.
     void visit_loop_body(const LBlock& body,
                          const std::vector<std::string>& loop_vars = {}) {
         auto pre = states_;
-        for (auto& v : loop_vars) declare(v);
-        visit_block(body);
+        push_scope();
+        for (auto& v : loop_vars) declare_var(v);
+        for (auto& s : body.stmts) visit_stmt(s);
+        pop_scope();
+        // Borrows are released by pop_scope; propagate only moves of outer vars.
         auto post = states_;
         states_ = pre;
-        // Propagate moves of pre-existing (outer) variables.
-        for (auto& [name, info] : post) {
-            if (info.moved && pre.count(name))
-                states_[name] = info;
-        }
+        for (auto& [name, st] : post)
+            if (st.moved && pre.count(name))
+                states_[name] = st;
     }
 
     void visit_stmt(const LStmt& stmt) {
@@ -231,19 +321,37 @@ class BorrowChecker {
 
             // ── Let binding ──────────────────────────────────────────────
             if constexpr (std::is_same_v<S, SLet>) {
-                visit(s.value, /*consuming=*/true, ln);
-                declare(s.name);        // binding owns the value
+                if (s.value && std::holds_alternative<lir::EAddrOf>(s.value->kind)) {
+                    // let r = &x / &mut x — scoped borrow
+                    auto& k = std::get<lir::EAddrOf>(s.value->kind);
+                    bool is_mut = s.value->type &&
+                                  s.value->type->kind == LogosType::Kind::MutRef;
+                    take_borrow(k.var_name, is_mut, ln);
+                } else if (s.value) {
+                    visit(s.value, /*consuming=*/true, ln);
+                }
+                declare_var(s.name);
+                local_vars_.insert(s.name);
 
             // ── Assignment ───────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SAssign>) {
-                visit(s.value, /*consuming=*/true, ln);
-                // Re-own the variable (re-assignment restores liveness).
+                if (s.value && std::holds_alternative<lir::EAddrOf>(s.value->kind)) {
+                    auto& k = std::get<lir::EAddrOf>(s.value->kind);
+                    bool is_mut = s.value->type &&
+                                  s.value->type->kind == LogosType::Kind::MutRef;
+                    take_borrow(k.var_name, is_mut, ln);
+                } else {
+                    visit(s.value, /*consuming=*/true, ln);
+                }
                 if (states_.count(s.name))
-                    states_[s.name] = MoveInfo{};
+                    states_[s.name] = VarState{};  // re-own
 
             // ── Return ───────────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SReturn>) {
-                if (s.value) visit(s.value, /*consuming=*/true, ln);
+                if (s.value) {
+                    check_return_value(s.value, ln);
+                    visit(s.value, /*consuming=*/true, ln);
+                }
 
             // ── Expression statement ─────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SExprStmt>) {
@@ -273,7 +381,6 @@ class BorrowChecker {
 
             // ── Deref write: *ptr = value ─────────────────────────────────
             } else if constexpr (std::is_same_v<S, SDerefWrite>) {
-                // The pointer is accessed (not moved); the value is consumed.
                 visit(s.ptr, /*consuming=*/false, ln);
                 visit(s.value, /*consuming=*/true, ln);
 
@@ -281,14 +388,9 @@ class BorrowChecker {
             } else if constexpr (std::is_same_v<S, SDelete>) {
                 visit(s.expr, /*consuming=*/true, ln);
 
-            // ── Auto-drop at scope exit ───────────────────────────────────
-            // SDrop is compiler-generated and inserted before SReturn by sema.
-            // The return value is computed at runtime before the drop fires, so
-            // SDrop must NOT mark the variable as moved in the borrow checker —
-            // doing so would produce false positives for "return x.field" patterns.
-            // The borrow checker only tracks explicit (user-visible) moves.
+            // ── SDrop — compiler-generated, no-op in borrow checker ───────
             } else if constexpr (std::is_same_v<S, SDrop>) {
-                (void)s;  // no-op
+                (void)s;
 
             // ── If / else ────────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SIf>) {
@@ -298,7 +400,6 @@ class BorrowChecker {
                 auto then_st = states_;
                 states_ = saved;
                 if (s.else_) visit_block(**s.else_);
-                // Merge: vars moved in then-branch are dead.
                 merge_moves(states_, then_st);
 
             // ── While loop ───────────────────────────────────────────────
@@ -310,7 +411,7 @@ class BorrowChecker {
             } else if constexpr (std::is_same_v<S, SFor>) {
                 visit(s.lo, /*consuming=*/true, ln);
                 visit(s.hi, /*consuming=*/true, ln);
-                visit_loop_body(*s.body, {s.var});   // var is Copy (i64)
+                visit_loop_body(*s.body, {s.var});
 
             // ── Infinite loop ─────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SLoop>) {
@@ -322,44 +423,38 @@ class BorrowChecker {
 
             // ── For-each loop ─────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SForEach>) {
-                // The iterated collection is borrowed, not consumed.
                 visit(s.iter, /*consuming=*/false, ln);
                 visit_loop_body(*s.body, {s.var});
 
             // ── Match statement ───────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SMatch>) {
-                // Scrutinee is accessed (not consumed by the match itself).
                 visit(s.scrut, /*consuming=*/false, ln);
                 auto saved = states_;
-                std::optional<OwnerMap> merged;
+                std::optional<StateMap> merged;
                 for (auto& arm : s.arms) {
                     states_ = saved;
-                    // Declare pattern bindings as Owned inside this arm.
                     std::visit([&](auto& p) {
                         if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
                                                      PatVariantData>) {
-                            for (auto& b : p.bindings) declare(b);
+                            for (auto& b : p.bindings) declare_var(b);
                         } else if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
                                                              PatWild>) {
-                            if (!p.name.empty() && p.name != "_") declare(p.name);
+                            if (!p.name.empty() && p.name != "_") declare_var(p.name);
                         }
                     }, arm.pat);
-                    if (arm.guard)
-                        visit(*arm.guard, /*consuming=*/true, ln);
+                    if (arm.guard) visit(*arm.guard, /*consuming=*/true, ln);
                     visit_block(*arm.body);
                     if (!merged) {
                         merged = states_;
                     } else {
-                        // Union of moves across arms (for outer-scope vars only).
-                        for (auto& [name, info] : states_)
-                            if (info.moved && saved.count(name))
-                                (*merged)[name] = info;
+                        for (auto& [name, st] : states_)
+                            if (st.moved && saved.count(name))
+                                (*merged)[name] = st;
                     }
                 }
                 if (merged) {
-                    // Apply merged moves back, keeping outer-scope vars.
-                    for (auto& [name, info] : *merged)
-                        if (saved.count(name)) states_[name] = info;
+                    for (auto& [name, st] : *merged)
+                        if (saved.count(name)) states_[name] = st;
                 }
             }
             // SBreak, SContinue — no variable effects.
@@ -373,105 +468,111 @@ public:
 
     void check(const LFunction& fn) {
         states_.clear();
-        // Parameters start Owned.
+        scopes_.clear();
+        local_vars_.clear();
+        ret_type_ = fn.ret_type;
+
+        push_scope();  // function scope
         for (auto& p : fn.params)
-            declare(p.name);
+            declare_var(p.name);
+        // Params are NOT local — clear them from local_vars_
+        // (declare_var adds to local_vars_ only via SLet, not here)
+
         visit_block(fn.body);
+        pop_scope();
     }
 };
 
-// Expression visitor — defined out-of-line so it can call visit_stmt via
-// forward declaration (EIfExpr, EMatchExpr need to visit blocks).
+// Expression visitor — out-of-line.
 
 void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
     if (!e) return;
     std::visit([&](auto& k) {
         using K = std::decay_t<decltype(k)>;
 
-        // ── Variable reference ────────────────────────────────────────────
+        // ── Variable reference ─────────────────────────────────────────
         if constexpr (std::is_same_v<K, EVarRef>) {
             if (consuming && is_move_type(e->type, prog_, ts_))
                 consume(k.name, line);
             else
                 check_live(k.name, line);
 
-        // ── Address-of: &x or &mut x ─────────────────────────────────────
-        // Creates a borrow — x remains Owned, but must be live.
+        // ── Address-of: &x or &mut x ──────────────────────────────────
+        // When EAddrOf appears directly in visit (not as SLet/SAssign RHS),
+        // this is a transient borrow — caller handles scope (visit_call_args).
+        // We just verify the source is alive.
         } else if constexpr (std::is_same_v<K, EAddrOf>) {
             check_live(k.var_name, line);
 
-        // ── Dereference: *ptr ─────────────────────────────────────────────
-        // Dereferencing accesses through the pointer; the pointer is not moved.
+        // ── Dereference: *ptr ──────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EDeref>) {
             visit(k.operand, /*consuming=*/false, line);
 
-        // ── Field read: recv.field ────────────────────────────────────────
-        // Accessing a field does not consume the struct (Phase 1 simplification).
+        // ── Field read: recv.field ─────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EFieldRead>) {
             visit(k.receiver, /*consuming=*/false, line);
 
-        // ── Index read: arr[i] or ptr[i] ─────────────────────────────────
+        // ── Index read: arr[i] ─────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EIndexRead>) {
             visit(k.receiver, /*consuming=*/false, line);
             visit(k.index,    /*consuming=*/true,  line);
 
-        // ── Tuple index: t.N ──────────────────────────────────────────────
+        // ── Tuple index: t.N ──────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, ETupleIndex>) {
             visit(k.receiver, /*consuming=*/false, line);
 
-        // ── Method call: recv.method(args...) ─────────────────────────────
-        // Receiver is accessed (typically &mut self — already wrapped in EAddrOf
-        // by sema), not consumed.
+        // ── Method call: recv.method(args) ────────────────────────────
+        // Receiver is typically &mut self — already wrapped in EAddrOf.
         } else if constexpr (std::is_same_v<K, EMethodCall>) {
             visit(k.receiver, /*consuming=*/false, line);
-            visit_args(k.args, line);
+            visit_call_args(k.args, line);
 
-        // ── Free function call: f(args...) ────────────────────────────────
+        // ── Free function call: f(args) ───────────────────────────────
         } else if constexpr (std::is_same_v<K, ECall>) {
-            visit_args(k.args, line);
+            visit_call_args(k.args, line);
 
-        // ── Closure call ──────────────────────────────────────────────────
+        // ── Closure call ───────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EClosureCall>) {
             visit(k.callee, /*consuming=*/false, line);
-            visit_args(k.args, line);
+            visit_call_args(k.args, line);
 
-        // ── Binary / Unary ────────────────────────────────────────────────
+        // ── Binary / Unary ─────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EBinOp>) {
             visit(k.lhs, /*consuming=*/true, line);
             visit(k.rhs, /*consuming=*/true, line);
         } else if constexpr (std::is_same_v<K, EUnary>) {
             visit(k.operand, /*consuming=*/true, line);
 
-        // ── Cast ──────────────────────────────────────────────────────────
+        // ── Cast ───────────────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, ECast>) {
             visit(k.operand, consuming, line);
 
-        // ── Struct literal: Vec { ptr: p, len: 0, cap: 0 } ───────────────
+        // ── Struct literal ─────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EStructLit>) {
             for (auto& [fname, fval] : k.fields)
                 visit(fval, /*consuming=*/true, line);
 
-        // ── New: new Foo { ... } ──────────────────────────────────────────
+        // ── New: new Foo { ... } ───────────────────────────────────────
         } else if constexpr (std::is_same_v<K, ENew>) {
             for (auto& [fname, fval] : k.fields)
                 visit(fval, /*consuming=*/true, line);
 
-        // ── Array literal ─────────────────────────────────────────────────
+        // ── Array literal ──────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EArrLit>) {
             for (auto& elem : k.elems)
                 visit(elem, /*consuming=*/true, line);
 
-        // ── Tuple literal ─────────────────────────────────────────────────
+        // ── Tuple literal ──────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, ETupleLit>) {
             for (auto& elem : k.elems)
                 visit(elem, /*consuming=*/true, line);
 
-        // ── Enum literal with payload ─────────────────────────────────────
+        // ── Enum literal with payload ──────────────────────────────────
         } else if constexpr (std::is_same_v<K, EEnumLitData>) {
             for (auto& pl : k.payload)
                 visit(pl, /*consuming=*/true, line);
 
-        // ── If expression ─────────────────────────────────────────────────
+        // ── If expression ──────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EIfExpr>) {
             visit(k.cond, /*consuming=*/true, line);
             auto saved = states_;
@@ -481,36 +582,35 @@ void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
             visit(k.else_val, consuming, line);
             merge_moves(states_, then_st);
 
-        // ── Match expression ──────────────────────────────────────────────
+        // ── Match expression ───────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EMatchExpr>) {
             visit(k.scrut, /*consuming=*/false, line);
             auto saved = states_;
-            std::optional<OwnerMap> merged;
+            std::optional<StateMap> merged;
             for (auto& arm : k.arms) {
                 states_ = saved;
-                if (arm.guard)
-                    visit(*arm.guard, /*consuming=*/true, line);
+                if (arm.guard) visit(*arm.guard, /*consuming=*/true, line);
                 visit(arm.value, consuming, line);
                 if (!merged) {
                     merged = states_;
                 } else {
-                    for (auto& [name, info] : states_)
-                        if (info.moved && saved.count(name))
-                            (*merged)[name] = info;
+                    for (auto& [name, st] : states_)
+                        if (st.moved && saved.count(name))
+                            (*merged)[name] = st;
                 }
             }
             if (merged) {
-                for (auto& [name, info] : *merged)
-                    if (saved.count(name)) states_[name] = info;
+                for (auto& [name, st] : *merged)
+                    if (saved.count(name)) states_[name] = st;
             }
 
-        // ── Try expression: expr? ─────────────────────────────────────────
+        // ── Try expression: expr? ──────────────────────────────────────
         } else if constexpr (std::is_same_v<K, ETry>) {
             visit(k.inner, consuming, line);
 
-        // ── Slice ─────────────────────────────────────────────────────────
+        // ── Slice ──────────────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, ESliceLit>) {
-            visit(k.base, /*consuming=*/false, line);  // base is borrowed
+            visit(k.base, /*consuming=*/false, line);
             visit(k.len,  /*consuming=*/true,  line);
         } else if constexpr (std::is_same_v<K, ESliceIndex>) {
             visit(k.slice, /*consuming=*/false, line);
@@ -518,23 +618,21 @@ void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
         } else if constexpr (std::is_same_v<K, ESliceLen>) {
             visit(k.slice, /*consuming=*/false, line);
 
-        // ── Format call ───────────────────────────────────────────────────
+        // ── Format call ────────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EFormatCall>) {
             visit(k.fmt, /*consuming=*/false, line);
-            visit_args(k.args, line);
+            visit_call_args(k.args, line);
 
-        // ── Closure box ───────────────────────────────────────────────────
-        // Captures are borrows; check they're live.
+        // ── Closure box ────────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EClosureBox>) {
             if (k.inner) {
                 for (auto& cap : k.inner->captures)
                     check_live(cap, line);
             }
 
-        // ── Literals and compile-time constants — no ownership effects ────
-        // ELitInt, ELitBool, ELitStr, EEnumLit, ESizeOf, EPackExpand
+        // ── Literals / compile-time nodes — no ownership effects ───────
         } else {
-            (void)k;  // no variable references
+            (void)k;
         }
     }, e->kind);
 }

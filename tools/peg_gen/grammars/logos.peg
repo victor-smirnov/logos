@@ -60,6 +60,7 @@
     NAMES       = 37
     WHERE       = 38
     IS_CONST    = 39
+    LIFETIME    = 40
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -152,6 +153,9 @@
     COMPOUND_ASSIGN      = 126
     ARR_FILL_LIT         = 127
     DEREF_FIELD_WRITE    = 128
+    REF_TYPE             = 129
+    MUT_REF_TYPE         = 130
+    LIFETIME_PARAM       = 131
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -246,6 +250,7 @@
     // Literals & identifiers
     STRING      = /"([^"\\]|\\.)*"/
     INTEGER     = /[-]?[0-9]+/
+    LIFETIME    = /'[a-z][a-z0-9_]*/
     IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
 
     // Skip
@@ -455,11 +460,15 @@
     slice_type <- AMP LBRACKET type_ref RBRACKET
                => { CODE: SLICE_TYPE, TYPE: $3 }
 
-    // &mut T → *mut T, &T → *const T (reference sugar)
-    ref_type <- AMP KW_MUT simple_type
-             => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
+    // &'a mut T / &mut T / &'a T / &T — safe reference types (borrow-checked)
+    ref_type <- AMP LIFETIME KW_MUT simple_type
+             => { CODE: MUT_REF_TYPE, POINTEE: $4, LIFETIME: $2 }
+              / AMP KW_MUT simple_type
+             => { CODE: MUT_REF_TYPE, POINTEE: $3 }
+              / AMP LIFETIME simple_type
+             => { CODE: REF_TYPE, POINTEE: $3, LIFETIME: $2 }
               / AMP simple_type
-             => { CODE: PTR_TYPE, POINTEE: $2, MUTPTR: false }
+             => { CODE: REF_TYPE, POINTEE: $2 }
 
     // |T1, T2| -> R — closure type (used in function parameter type annotations)
     closure_type_args <- type_ref (COMMA type_ref)*
@@ -764,7 +773,12 @@
     trait_bound <- IDENT
                 => { CODE: TRAIT_BOUND, NAME: $1 }
 
-    type_param <- ptr_type
+    // Lifetime parameter: 'a
+    lifetime_param <- LIFETIME
+                   => { CODE: LIFETIME_PARAM, NAME: $1 }
+
+    type_param <- lifetime_param
+                / ptr_type
                 / arr_type
                 / IDENT DOTDOTDOT COLON trait_bound (PLUS trait_bound)*
                => { CODE: TYPE_PARAM, NAME: $1, IS_VARIADIC: true, ITEMS: $... }

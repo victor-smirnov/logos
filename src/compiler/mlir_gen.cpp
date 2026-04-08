@@ -256,6 +256,8 @@ private:
             return builder_.getI32Type();
         }
         case LogosType::Kind::Ptr:    return ptr_type();
+        case LogosType::Kind::Ref:    return ptr_type();  // &T — same layout as *const T
+        case LogosType::Kind::MutRef: return ptr_type();  // &mut T — same layout as *mut T
         case LogosType::Kind::Array: {
             auto elem = logos_to_mlir(t->elem);
             if (!elem) return nullptr;
@@ -634,8 +636,13 @@ private:
             auto& p = fn.params[i];
             scope_[p.name] = entry->getArgument(i);
 
-            // Track subscript element type for pointer parameters.
-            if (p.type && p.type->kind == LogosType::Kind::Ptr && p.type->pointee) {
+            // Track subscript element type for pointer / reference parameters.
+            auto is_ptr_kind = [](LogosType::Kind k) {
+                return k == LogosType::Kind::Ptr ||
+                       k == LogosType::Kind::Ref ||
+                       k == LogosType::Kind::MutRef;
+            };
+            if (p.type && is_ptr_kind(p.type->kind) && p.type->pointee) {
                 auto et = logos_to_mlir(p.type->pointee);
                 if (et) var_subscript_[p.name] = et;
             }
@@ -645,7 +652,7 @@ private:
                 std::string sname;
                 if (p.type->kind == LogosType::Kind::Struct)
                     sname = concrete_struct_name(p.type);
-                else if (p.type->kind == LogosType::Kind::Ptr && p.type->pointee &&
+                else if (is_ptr_kind(p.type->kind) && p.type->pointee &&
                          p.type->pointee->kind == LogosType::Kind::Struct)
                     sname = concrete_struct_name(p.type->pointee);
                 if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
@@ -653,7 +660,7 @@ private:
                 std::string cname;
                 if (p.type->kind == LogosType::Kind::Class)
                     cname = concrete_class_name(p.type);
-                else if (p.type->kind == LogosType::Kind::Ptr && p.type->pointee &&
+                else if (is_ptr_kind(p.type->kind) && p.type->pointee &&
                          p.type->pointee->kind == LogosType::Kind::Class)
                     cname = concrete_class_name(p.type->pointee);
                 if (!cname.empty()) var_class_[p.name] = std::move(cname);

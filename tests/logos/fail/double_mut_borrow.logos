@@ -1,0 +1,9 @@
+package double_mut_borrow;
+// Phase 2: cannot have two &mut borrows simultaneously
+struct Counter { val: i32; }
+fn main() -> i32 {
+    let mut c = Counter { val: 0 };
+    let r1: &mut Counter = &mut c;
+    let r2: &mut Counter = &mut c;   // error: already mutably borrowed
+    return 0;
+}

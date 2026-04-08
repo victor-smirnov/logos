@@ -201,7 +201,9 @@ private:
             auto it = s.find(t->type_var_name);
             return (it != s.end()) ? it->second : t;
         }
-        case LogosType::Kind::Ptr: {
+        case LogosType::Kind::Ptr:
+        case LogosType::Kind::Ref:
+        case LogosType::Kind::MutRef: {
             auto* inner = subst_type(t->pointee, s);
             if (inner == t->pointee) return t;
             LogosType nt = *t; nt.pointee = inner;
@@ -345,6 +347,8 @@ private:
         switch (t->kind) {
         case LogosType::Kind::Ptr:
             return (t->mut_ptr ? "pmut_" : "pcst_") + mangle_type(t->pointee);
+        case LogosType::Kind::Ref:    return "ref_"    + mangle_type(t->pointee);
+        case LogosType::Kind::MutRef: return "refmut_" + mangle_type(t->pointee);
         case LogosType::Kind::Array:
             return "arr" + std::to_string(t->arr_size) + "_" + mangle_type(t->elem);
         case LogosType::Kind::Struct:
@@ -1040,6 +1044,9 @@ private:
         case LogosType::Kind::Ptr:
             return pattern->mut_ptr == concrete->mut_ptr &&
                    match_type(concrete->pointee, pattern->pointee, bindings);
+        case LogosType::Kind::Ref:
+        case LogosType::Kind::MutRef:
+            return match_type(concrete->pointee, pattern->pointee, bindings);
         case LogosType::Kind::Array:
             return pattern->arr_size == concrete->arr_size &&
                    match_type(concrete->elem, pattern->elem, bindings);
@@ -1212,7 +1219,9 @@ private:
     void collect_type_for_structs(const LogosType* t) {
         if (!t) return;
         switch (t->kind) {
-        case LogosType::Kind::Ptr:   collect_type_for_structs(t->pointee); break;
+        case LogosType::Kind::Ptr:
+        case LogosType::Kind::Ref:
+        case LogosType::Kind::MutRef:   collect_type_for_structs(t->pointee); break;
         case LogosType::Kind::Array: collect_type_for_structs(t->elem);    break;
         case LogosType::Kind::Struct:
             record_needed_struct(t);
@@ -1419,7 +1428,9 @@ private:
     void collect_type_for_classes(const LogosType* t) {
         if (!t) return;
         switch (t->kind) {
-        case LogosType::Kind::Ptr:   collect_type_for_classes(t->pointee); break;
+        case LogosType::Kind::Ptr:
+        case LogosType::Kind::Ref:
+        case LogosType::Kind::MutRef:   collect_type_for_classes(t->pointee); break;
         case LogosType::Kind::Array: collect_type_for_classes(t->elem);    break;
         case LogosType::Kind::Class:
             record_needed_class(t);

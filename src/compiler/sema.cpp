@@ -36,6 +36,11 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
         return a.mut_ptr == b.mut_ptr &&
                a.pointee && b.pointee &&
                types_equal(*a.pointee, *b.pointee);
+    case LogosType::Kind::Ref:
+    case LogosType::Kind::MutRef:
+        return a.pointee && b.pointee &&
+               types_equal(*a.pointee, *b.pointee);
+        // Note: we intentionally ignore lifetime in equality — structural type equality
     case LogosType::Kind::Array:
         return a.arr_size == b.arr_size &&
                a.elem && b.elem &&
@@ -93,6 +98,10 @@ static std::string mangle_type_for_name(const LogosType* t) {
     switch (t->kind) {
     case LogosType::Kind::Ptr:
         return (t->mut_ptr ? "pmut_" : "pcst_") + mangle_type_for_name(t->pointee);
+    case LogosType::Kind::Ref:
+        return "ref_" + mangle_type_for_name(t->pointee);
+    case LogosType::Kind::MutRef:
+        return "refmut_" + mangle_type_for_name(t->pointee);
     case LogosType::Kind::Array:
         return "arr" + std::to_string(t->arr_size) + "_" + mangle_type_for_name(t->elem);
     case LogosType::Kind::Struct:
@@ -151,6 +160,20 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
         (from->kind == LogosType::Kind::Struct || from->kind == LogosType::Kind::Class ||
          (from->kind == LogosType::Kind::Ptr && from->pointee)))
         return true;
+    // &T / &mut T → *const T / *mut T coercions (for backward compat with existing raw-ptr code)
+    if ((from->kind == LogosType::Kind::Ref || from->kind == LogosType::Kind::MutRef) &&
+        to->kind == LogosType::Kind::Ptr &&
+        from->pointee && to->pointee)
+        return types_compatible(from->pointee, to->pointee);
+    // *const T / *mut T → &T (reverse coercion — less safe but needed for existing code)
+    if (from->kind == LogosType::Kind::Ptr &&
+        (to->kind == LogosType::Kind::Ref || to->kind == LogosType::Kind::MutRef) &&
+        from->pointee && to->pointee)
+        return types_compatible(from->pointee, to->pointee);
+    // &mut T → &T coercion (shared ref from exclusive ref)
+    if (from->kind == LogosType::Kind::MutRef && to->kind == LogosType::Kind::Ref &&
+        from->pointee && to->pointee)
+        return types_compatible(from->pointee, to->pointee);
     // Class pointer covariance: *mut/const Derived is compatible with *const/mut Class
     // (same class — exact equality handled above; hierarchy checked in SemaChecker::compat)
     return false;
@@ -176,6 +199,16 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::IntLit: return "{integer}";
     case LogosType::Kind::Ptr:
         return std::string(t->mut_ptr ? "*mut " : "*const ") + type_str(t->pointee);
+    case LogosType::Kind::Ref: {
+        std::string s = "&";
+        if (!t->lifetime.empty()) s += t->lifetime + " ";
+        return s + type_str(t->pointee);
+    }
+    case LogosType::Kind::MutRef: {
+        std::string s = "&";
+        if (!t->lifetime.empty()) s += t->lifetime + " ";
+        return s + "mut " + type_str(t->pointee);
+    }
     case LogosType::Kind::Array:
         return std::format("[{}; {}]", type_str(t->elem), t->arr_size);
     case LogosType::Kind::Struct:
@@ -295,6 +328,13 @@ private:
         LogosType t; t.kind = LogosType::Kind::Ptr;
         t.mut_ptr = mut; t.pointee = pointee;
         return pool_.alloc(t);
+    }
+    const LogosType* make_ref(bool mut, const LogosType* pointee, std::string lifetime = "") {
+        LogosType t;
+        t.kind = mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
+        t.pointee = pointee;
+        t.lifetime = std::move(lifetime);
+        return pool_.alloc(std::move(t));
     }
     const LogosType* make_array(const LogosType* elem, uint64_t n) {
         LogosType t; t.kind = LogosType::Kind::Array;
@@ -560,22 +600,29 @@ private:
         return false;
     }
 
+    // Returns true when a type acts as a pointer/reference (Ptr, Ref, or MutRef).
+    static bool is_ref_like(LogosType::Kind k) noexcept {
+        return k == LogosType::Kind::Ptr ||
+               k == LogosType::Kind::Ref ||
+               k == LogosType::Kind::MutRef;
+    }
+
     std::string_view struct_name_of(std::string_view var_name) {
         auto* t = lookup(var_name);
         if (!t) return {};
         if (t->kind == LogosType::Kind::Struct) return t->struct_name;
-        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
+        if (is_ref_like(t->kind) && t->pointee &&
             t->pointee->kind == LogosType::Kind::Struct)
             return t->pointee->struct_name;
         return {};
     }
 
-    // Returns class name (base name) if the var is a class or *class.
+    // Returns class name (base name) if the var is a class or *class / &class.
     std::string_view class_name_of(std::string_view var_name) {
         auto* t = lookup(var_name);
         if (!t) return {};
         if (t->kind == LogosType::Kind::Class) return t->struct_name;
-        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
+        if (is_ref_like(t->kind) && t->pointee &&
             t->pointee->kind == LogosType::Kind::Class)
             return t->pointee->struct_name;
         return {};
@@ -584,17 +631,17 @@ private:
     std::string_view struct_name_from_type(const LogosType* t) {
         if (!t) return {};
         if (t->kind == LogosType::Kind::Struct) return t->struct_name;
-        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
+        if (is_ref_like(t->kind) && t->pointee &&
             t->pointee->kind == LogosType::Kind::Struct)
             return t->pointee->struct_name;
         return {};
     }
 
-    // Returns class name if the type is a class or a pointer to a class.
+    // Returns class name if the type is a class or a pointer/reference to a class.
     std::string_view class_name_from_type(const LogosType* t) {
         if (!t) return {};
         if (t->kind == LogosType::Kind::Class) return t->struct_name;
-        if (t->kind == LogosType::Kind::Ptr && t->pointee &&
+        if (is_ref_like(t->kind) && t->pointee &&
             t->pointee->kind == LogosType::Kind::Class)
             return t->pointee->struct_name;
         return {};
@@ -724,6 +771,8 @@ private:
         auto tpitems = arr_of(tplist.get(la::ITEMS.code));
         for (uint64_t i = 0; i < tpitems.size(); ++i) {
             auto tpnode = map_of(tpitems.get(i));
+            // Skip lifetime params ('a) — deferred to borrow checker.
+            if (code_of(tpnode) == la::LIFETIME_PARAM) continue;
             if (code_of(tpnode) != la::TYPE_PARAM) continue;
             TypeParam tp;
             tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
@@ -818,6 +867,12 @@ private:
             if (inner == t->pointee) return t;
             return make_ptr(t->mut_ptr, inner);
         }
+        case LogosType::Kind::Ref:
+        case LogosType::Kind::MutRef: {
+            auto* inner = subst_type_sema(t->pointee, s);
+            if (inner == t->pointee) return t;
+            return make_ref(t->kind == LogosType::Kind::MutRef, inner, t->lifetime);
+        }
         case LogosType::Kind::Array: {
             auto* elem = subst_type_sema(t->elem, s);
             if (elem == t->elem) return t;
@@ -871,9 +926,9 @@ private:
     // class pointer upcasting should be allowed.
     bool compat(const LogosType* from, const LogosType* to) const {
         if (types_compatible(from, to)) return true;
-        // *mut/const Derived compatible with *const/mut Base (upcast)
+        // *mut/const Derived / &Derived / &mut Derived compatible with *const/mut Base (upcast)
         if (from && to &&
-            from->kind == LogosType::Kind::Ptr && to->kind == LogosType::Kind::Ptr &&
+            is_ref_like(from->kind) && is_ref_like(to->kind) &&
             from->pointee && to->pointee &&
             from->pointee->kind == LogosType::Kind::Class &&
             to->pointee->kind   == LogosType::Kind::Class) {
@@ -895,6 +950,26 @@ private:
                           ? resolve_type(map_of(node.get(la::POINTEE.code)))
                           : error_t();
             return make_ptr(mut, inner);
+        }
+
+        if (tc == la::REF_TYPE) {
+            auto* inner = node.has_key(la::POINTEE)
+                          ? resolve_type(map_of(node.get(la::POINTEE.code)))
+                          : error_t();
+            std::string lt;
+            if (node.has_key(la::LIFETIME))
+                lt = std::string(str_of(node.get(la::LIFETIME.code)));
+            return make_ref(false, inner, std::move(lt));
+        }
+
+        if (tc == la::MUT_REF_TYPE) {
+            auto* inner = node.has_key(la::POINTEE)
+                          ? resolve_type(map_of(node.get(la::POINTEE.code)))
+                          : error_t();
+            std::string lt;
+            if (node.has_key(la::LIFETIME))
+                lt = std::string(str_of(node.get(la::LIFETIME.code)));
+            return make_ref(true, inner, std::move(lt));
         }
 
         if (tc == la::SLICE_TYPE) {
@@ -1622,7 +1697,7 @@ private:
     void extract_typevars_from_type_node(TinyMapView node,
                                           std::vector<TypeParam>& out_tvars) {
         int32_t tc = code_of(node);
-        if (tc == la::PTR_TYPE) {
+        if (tc == la::PTR_TYPE || tc == la::REF_TYPE || tc == la::MUT_REF_TYPE) {
             if (node.has_key(la::POINTEE))
                 extract_typevars_from_type_node(
                     map_of(node.get(la::POINTEE.code)), out_tvars);
@@ -1691,6 +1766,7 @@ private:
                     for (uint64_t i = 0; i < tpitems.size(); ++i) {
                         auto tpnode = map_of(tpitems.get(i));
                         int32_t tc  = code_of(tpnode);
+                        if (tc == la::LIFETIME_PARAM) continue;  // skip — deferred to borrow checker
                         if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
                             extract_typevars_from_type_node(tpnode, pattern_tvars);
                             sd.spec_patterns.push_back(resolve_type(tpnode));
@@ -1771,6 +1847,7 @@ private:
                         auto tpnode = map_of(tpitems.get(i));
                         int32_t tc  = code_of(tpnode);
 
+                        if (tc == la::LIFETIME_PARAM) continue;  // skip — deferred to borrow checker
                         if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
                             // Structured pattern: extract TypeVars then resolve.
                             extract_typevars_from_type_node(tpnode, pattern_tvars);
@@ -2162,7 +2239,7 @@ private:
         case la::DEREF:       return lower_deref(expr);
 
         case la::ADDR_OF_MUT: {
-            // &mut var — mutable address-of; same semantics as &var but produces *mut T
+            // &mut var — exclusive mutable reference
             auto child = map_of(expr.get(la::VALUE.code));
             if (code_of(child) != la::VAR_REF) {
                 error("'&mut' operand must be a variable");
@@ -2174,13 +2251,10 @@ private:
                 error(std::format("'&mut': undefined variable '{}'", var_name));
                 return error_expr();
             }
-            // For arrays, produce *mut elem (pointer to first element)
+            // For arrays, produce &mut elem (reference to first element)
             if (vt->kind == LogosType::Kind::Array)
-                return make_expr(make_ptr(true, vt->elem), lir::EAddrOf{std::string(var_name)});
-            // For structs, produce *mut T
-            if (vt->kind == LogosType::Kind::Struct)
-                return make_expr(make_ptr(true, vt), lir::EAddrOf{std::string(var_name)});
-            return make_expr(make_ptr(true, vt), lir::EAddrOf{std::string(var_name)});
+                return make_expr(make_ref(true, vt->elem), lir::EAddrOf{std::string(var_name)});
+            return make_expr(make_ref(true, vt), lir::EAddrOf{std::string(var_name)});
         }
         case la::TRY_EXPR: {
             // expr? — extract Ok(v) or early-return Err(e).
@@ -2378,12 +2452,12 @@ private:
             }
             // &array → slice: &[T] with len = array size
             if (vt->kind == LogosType::Kind::Array) {
-                auto addr = make_expr(make_ptr(false, vt->elem), lir::EAddrOf{std::string(var_name)});
+                auto addr = make_expr(make_ref(false, vt->elem), lir::EAddrOf{std::string(var_name)});
                 auto len  = make_expr(prim(LogosType::Kind::I64), lir::ELitInt{(int64_t)vt->arr_size});
                 return make_expr(make_slice_type(vt->elem),
                     lir::ESliceLit{std::move(addr), std::move(len)});
             }
-            return make_expr(make_ptr(false, vt), lir::EAddrOf{std::string(var_name)});
+            return make_expr(make_ref(false, vt), lir::EAddrOf{std::string(var_name)});
         }
 
         auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
@@ -2431,7 +2505,9 @@ private:
         auto* vt = operand->type;
         if (vt->kind == LogosType::Kind::Error)
             return make_expr(error_t(), lir::EDeref{std::move(operand)});
-        if (vt->kind != LogosType::Kind::Ptr) {
+        if (vt->kind != LogosType::Kind::Ptr &&
+            vt->kind != LogosType::Kind::Ref &&
+            vt->kind != LogosType::Kind::MutRef) {
             error(std::format("dereference of non-pointer type {}", type_str(vt)));
             return make_expr(error_t(), lir::EDeref{std::move(operand)});
         }
@@ -2612,6 +2688,16 @@ private:
         case LogosType::Kind::Ptr:
             if (actual_norm->kind == LogosType::Kind::Ptr)
                 unify_types(formal->pointee, actual_norm->pointee, bindings);
+            else if (actual_norm->kind == LogosType::Kind::Ref ||
+                     actual_norm->kind == LogosType::Kind::MutRef)
+                unify_types(formal->pointee, actual_norm->pointee, bindings);
+            break;
+        case LogosType::Kind::Ref:
+        case LogosType::Kind::MutRef:
+            if (actual_norm->kind == LogosType::Kind::Ref ||
+                actual_norm->kind == LogosType::Kind::MutRef ||
+                actual_norm->kind == LogosType::Kind::Ptr)
+                unify_types(formal->pointee, actual_norm->pointee, bindings);
             break;
         case LogosType::Kind::Array:
             if (actual_norm->kind == LogosType::Kind::Array)
@@ -2711,7 +2797,7 @@ private:
             auto* concrete = type_args[i];
             std::string type_name = type_str(concrete);
             std::string unwrapped_name;
-            if (concrete->kind == LogosType::Kind::Ptr && concrete->pointee) {
+            if (is_ref_like(concrete->kind) && concrete->pointee) {
                 auto* inner = concrete->pointee;
                 if (inner->kind == LogosType::Kind::Class)
                     unwrapped_name = concrete_class_name(inner);
@@ -2861,7 +2947,7 @@ private:
             SemaSubst recv_subst;
             {
                 const LogosType* recv_t = recv->type;
-                if (recv_t && recv_t->kind == LogosType::Kind::Ptr && recv_t->pointee)
+                if (recv_t && is_ref_like(recv_t->kind) && recv_t->pointee)
                     recv_t = recv_t->pointee;
                 if (recv_t && recv_t->kind == LogosType::Kind::Class &&
                     !recv_t->type_args.empty()) {
@@ -2926,7 +3012,7 @@ private:
         SemaSubst class_subst;
         {
             const LogosType* cls_t = recv->type;
-            if (cls_t->kind == LogosType::Kind::Ptr && cls_t->pointee)
+            if (is_ref_like(cls_t->kind) && cls_t->pointee)
                 cls_t = cls_t->pointee;
             if (cls_t->kind == LogosType::Kind::Class && !cls_t->type_args.empty()) {
                 auto cit = classes_.find(std::string(cname));
@@ -3020,9 +3106,9 @@ private:
 
         // TypeVar with trait bounds: look up trait method signature.
         // The actual impl method will be resolved during monomorphization.
-        // Handle both T and *mut T / *const T receivers.
+        // Handle both T and *mut T / *const T / &T / &mut T receivers.
         const LogosType* recv_inner = recv->type;
-        if (recv_inner->kind == LogosType::Kind::Ptr && recv_inner->pointee)
+        if (is_ref_like(recv_inner->kind) && recv_inner->pointee)
             recv_inner = recv_inner->pointee;
         if (recv_inner->kind == LogosType::Kind::TypeVar) {
             // Find trait bounds for this type var
@@ -3148,7 +3234,7 @@ private:
         SemaSubst struct_subst;
         {
             const LogosType* rst = recv->type;
-            if (rst->kind == LogosType::Kind::Ptr && rst->pointee) rst = rst->pointee;
+            if (is_ref_like(rst->kind) && rst->pointee) rst = rst->pointee;
             if (rst->kind == LogosType::Kind::Struct && !rst->type_args.empty()) {
                 auto sit2 = structs_.find(rst->struct_name);
                 if (sit2 != structs_.end()) {
@@ -3208,9 +3294,9 @@ private:
                   type_str(recv->type)));
             return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
         }
-        // Resolve the actual struct type (receiver may be a pointer to a struct).
+        // Resolve the actual struct type (receiver may be a pointer/reference to a struct).
         const LogosType* recv_struct_t = recv->type;
-        if (recv_struct_t->kind == LogosType::Kind::Ptr)
+        if (is_ref_like(recv_struct_t->kind))
             recv_struct_t = recv_struct_t->pointee;
         auto* ft = field_type_of_for_type(recv_struct_t, field_name);
         if (!ft) {
@@ -3284,11 +3370,13 @@ private:
                         }
                         inferred[tv] = vt;
                     }
-                } else if (raw_ft->kind == LogosType::Kind::Ptr && raw_ft->pointee &&
+                } else if ((raw_ft->kind == LogosType::Kind::Ptr ||
+                            raw_ft->kind == LogosType::Kind::Ref ||
+                            raw_ft->kind == LogosType::Kind::MutRef) && raw_ft->pointee &&
                            raw_ft->pointee->kind == LogosType::Kind::TypeVar) {
-                    // *mut T / *const T field — infer T from the value's pointee type.
+                    // *T / &T / &mut T field — infer T from the value's pointee type.
                     auto& tv = raw_ft->pointee->type_var_name;
-                    if (!inferred.count(tv) && fval->type->kind == LogosType::Kind::Ptr &&
+                    if (!inferred.count(tv) && is_ref_like(fval->type->kind) &&
                         fval->type->pointee) {
                         auto* vt = fval->type->pointee;
                         if (vt->kind != LogosType::Kind::Error)
@@ -3400,6 +3488,8 @@ private:
 
         if (arr_type->kind != LogosType::Kind::Array &&
             arr_type->kind != LogosType::Kind::Ptr &&
+            arr_type->kind != LogosType::Kind::Ref &&
+            arr_type->kind != LogosType::Kind::MutRef &&
             arr_type->kind != LogosType::Kind::Error) {
             error(std::format("index read: receiver is not an array, slice, or pointer (got {})",
                   type_str(arr_type)));
@@ -3407,7 +3497,10 @@ private:
 
         const LogosType* elem = error_t();
         if (arr_type->kind == LogosType::Kind::Array && arr_type->elem)  elem = arr_type->elem;
-        if (arr_type->kind == LogosType::Kind::Ptr   && arr_type->pointee) elem = arr_type->pointee;
+        if ((arr_type->kind == LogosType::Kind::Ptr ||
+             arr_type->kind == LogosType::Kind::Ref ||
+             arr_type->kind == LogosType::Kind::MutRef) && arr_type->pointee)
+            elem = arr_type->pointee;
 
         return make_expr(elem, lir::EIndexRead{std::move(recv), std::move(idx)});
     }
@@ -4778,12 +4871,15 @@ private:
             if (recv_type && recv_type->kind == LogosType::Kind::Ptr) {
                 if (!recv_type->mut_ptr)
                     error(std::format("field write to '{}': receiver is *const pointer", recv_name));
-            } else if (!is_class && !lookup_is_mut(recv_name)) {
+            } else if (recv_type && recv_type->kind == LogosType::Kind::Ref) {
+                error(std::format("field write to '{}': receiver is &T (shared reference)", recv_name));
+            } else if (!is_class && !lookup_is_mut(recv_name) &&
+                       !(recv_type && recv_type->kind == LogosType::Kind::MutRef)) {
                 error(std::format("field write to immutable variable '{}'", recv_name));
             }
         }
         const LogosType* recv_struct_t = (sname.empty() && cname.empty()) ? nullptr : lookup(recv_name);
-        if (recv_struct_t && recv_struct_t->kind == LogosType::Kind::Ptr)
+        if (recv_struct_t && is_ref_like(recv_struct_t->kind))
             recv_struct_t = recv_struct_t->pointee;
         const LogosType* ft = nullptr;
         if (recv_struct_t) {
@@ -4829,11 +4925,14 @@ private:
         const LogosType* ptr_type = lookup(recv_name);
         if (!ptr_type) {
             error(std::format("deref-field-write: undefined variable '{}'", recv_name));
-        } else if (ptr_type->kind != LogosType::Kind::Ptr || !ptr_type->pointee) {
-            error(std::format("deref-field-write: '{}' is not a pointer (got {})",
+        } else if (!is_ref_like(ptr_type->kind) || !ptr_type->pointee) {
+            error(std::format("deref-field-write: '{}' is not a pointer or reference (got {})",
                               recv_name, type_str(ptr_type)));
-        } else if (!ptr_type->mut_ptr) {
+        } else if (ptr_type->kind == LogosType::Kind::Ptr && !ptr_type->mut_ptr) {
             error(std::format("deref-field-write: '{}' is a *const pointer (need *mut)",
+                              recv_name));
+        } else if (ptr_type->kind == LogosType::Kind::Ref) {
+            error(std::format("deref-field-write: '{}' is a &T (shared reference, need &mut T)",
                               recv_name));
         }
 
@@ -4882,6 +4981,8 @@ private:
             error(std::format("index write: undefined variable '{}'", arr_name));
         } else if (arr_type->kind != LogosType::Kind::Array &&
                    arr_type->kind != LogosType::Kind::Ptr &&
+                   arr_type->kind != LogosType::Kind::Ref &&
+                   arr_type->kind != LogosType::Kind::MutRef &&
                    arr_type->kind != LogosType::Kind::Error) {
             error(std::format("index write: '{}' is not an array or pointer (got {})",
                   arr_name, type_str(arr_type)));
@@ -4889,6 +4990,8 @@ private:
             error(std::format("index write to immutable array '{}'", arr_name));
         } else if (arr_type->kind == LogosType::Kind::Ptr && !arr_type->mut_ptr) {
             error(std::format("index write through *const pointer '{}'", arr_name));
+        } else if (arr_type->kind == LogosType::Kind::Ref) {
+            error(std::format("index write through &T (shared reference) '{}'", arr_name));
         }
 
         lir::LExprPtr idx = node.has_key(la::LHS)
@@ -4899,7 +5002,9 @@ private:
         const LogosType* elem_type = nullptr;
         if (arr_type) {
             if (arr_type->kind == LogosType::Kind::Array) elem_type = arr_type->elem;
-            else if (arr_type->kind == LogosType::Kind::Ptr) elem_type = arr_type->pointee;
+            else if (arr_type->kind == LogosType::Kind::Ptr ||
+                     arr_type->kind == LogosType::Kind::Ref ||
+                     arr_type->kind == LogosType::Kind::MutRef) elem_type = arr_type->pointee;
         }
 
         lir::LExprPtr val = node.has_key(la::VALUE)
@@ -4927,9 +5032,9 @@ private:
         auto* recv_t = lookup(recv_name);
         if (!recv_t) error(std::format("field index write: undefined variable '{}'", recv_name));
 
-        // Unwrap pointer receiver (class/struct-via-ptr).
+        // Unwrap pointer/reference receiver (class/struct-via-ptr/ref).
         const LogosType* base_t = recv_t;
-        if (base_t && base_t->kind == LogosType::Kind::Ptr) base_t = base_t->pointee;
+        if (base_t && is_ref_like(base_t->kind)) base_t = base_t->pointee;
 
         const LogosType* field_t = nullptr;
         if (base_t) {
@@ -4943,16 +5048,23 @@ private:
             error(std::format("field index write: cannot resolve field '{}.{}'", recv_name, field_name));
 
         if (field_t && field_t->kind != LogosType::Kind::Ptr &&
+                       field_t->kind != LogosType::Kind::Ref &&
+                       field_t->kind != LogosType::Kind::MutRef &&
                        field_t->kind != LogosType::Kind::Array)
-            error(std::format("field index write: field '{}.{}' is not a pointer or array (got {})",
+            error(std::format("field index write: field '{}.{}' is not a pointer/reference or array (got {})",
                   recv_name, field_name, type_str(field_t)));
         if (field_t && field_t->kind == LogosType::Kind::Ptr && !field_t->mut_ptr)
             error(std::format("field index write: field '{}.{}' is *const, cannot write",
                   recv_name, field_name));
+        if (field_t && field_t->kind == LogosType::Kind::Ref)
+            error(std::format("field index write: field '{}.{}' is &T (shared reference), cannot write",
+                  recv_name, field_name));
 
         const LogosType* elem_t = nullptr;
         if (field_t) {
-            if (field_t->kind == LogosType::Kind::Ptr)   elem_t = field_t->pointee;
+            if (field_t->kind == LogosType::Kind::Ptr ||
+                field_t->kind == LogosType::Kind::Ref ||
+                field_t->kind == LogosType::Kind::MutRef) elem_t = field_t->pointee;
             else if (field_t->kind == LogosType::Kind::Array) elem_t = field_t->elem;
         }
 

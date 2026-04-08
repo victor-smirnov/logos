@@ -185,6 +185,12 @@ inline constexpr Code COMPOUND_ASSIGN   {"COMPOUND_ASSIGN",   126};  // x += exp
 inline constexpr Code ARR_FILL_LIT     {"ARR_FILL_LIT",     127};  // [value; N] array fill literal
 inline constexpr Code DEREF_FIELD_WRITE{"DEREF_FIELD_WRITE", 128};  // (*ptr).field = expr;
 
+// Safe references (borrow-checked)
+inline constexpr Code REF_TYPE        {"REF_TYPE",          129};  // &T    (shared reference)
+inline constexpr Code MUT_REF_TYPE    {"MUT_REF_TYPE",      130};  // &mut T (exclusive mutable reference)
+inline constexpr Code LIFETIME_PARAM  {"LIFETIME_PARAM",    131};  // 'a in <'a, T> type parameter list
+inline constexpr Key  LIFETIME        {"LIFETIME",           40};   // lifetime string on Ref/MutRef nodes
+
 // Visibility
 inline constexpr Key IS_PUB {"IS_PUB", 33};           // visibility flag (1 = pub)
 inline constexpr Key PAT    {"PAT",    34};            // pattern for if let / while let
