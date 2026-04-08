@@ -677,6 +677,9 @@ private:
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
     std::unordered_map<std::string, const LogosType*> current_type_params_;
+    // Set by collect_impl/lower_impl_block for `impl<T>` blocks so that
+    // collect_fn/lower_fn include the impl-level type params in the function.
+    std::vector<TypeParam> impl_type_params_;
 
     std::unordered_map<std::string, SemaStructInfo>   structs_;
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
@@ -1209,6 +1212,13 @@ private:
         std::string trait_name;
         if (node.has_key(la::NAME))
             trait_name = std::string(str_of(node.get(la::NAME.code)));
+        // If standalone impl with own type params (impl<T> Pair<T>), push them first.
+        std::vector<TypeParam> impl_tps;
+        if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
+            impl_tps = read_type_params(node);
+            push_type_params(impl_tps);
+            impl_type_params_ = impl_tps;  // so collect_fn includes them in fn.type_params
+        }
         // TYPE is the target type (simple_type, ptr_type, or GENERIC_INST)
         std::string target;
         if (node.has_key(la::TYPE)) {
@@ -1217,10 +1227,29 @@ private:
                 // *const T or *mut T → resolve full type string
                 auto* resolved = resolve_type(tnode);
                 target = type_str(resolved);
+            } else if (code_of(tnode) == la::GENERIC_INST) {
+                // Concrete generic (e.g. Pair<i32>) → use mangled name; generic (Pair<T>) → base name.
+                target = std::string(str_of(tnode.get(la::NAME.code)));
+                if (impl_tps.empty()) {
+                    // No own type params — may be a concrete specialization like impl Pair<i32>.
+                    auto* resolved = resolve_type(tnode);
+                    if (resolved && !resolved->type_args.empty()) {
+                        bool concrete = true;
+                        for (auto* a : resolved->type_args)
+                            if (a && a->kind == LogosType::Kind::TypeVar) { concrete = false; break; }
+                        if (concrete) {
+                            if (resolved->kind == LogosType::Kind::Struct)
+                                target = concrete_struct_name(resolved);
+                            else if (resolved->kind == LogosType::Kind::Class)
+                                target = concrete_class_name(resolved);
+                        }
+                    }
+                }
             } else {
                 target = std::string(str_of(tnode.get(la::NAME.code)));
             }
         }
+        // Note: impl_tps are left in current_type_params_ until after collect_fn calls below.
         if (trait_name.empty())
             ctx_ = std::format("impl {}", target);
         else
@@ -1319,6 +1348,8 @@ private:
                     current_type_params_.erase(tp.name);
             }
         }
+        // Clean up impl's own type params (pushed at top for standalone generic impl)
+        if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
         // Register the impl mapping (only for trait impls)
         if (!trait_name.empty())
             impls_[trait_name + "::" + target] = {trait_name, target};
@@ -1842,6 +1873,11 @@ private:
                 info.ret_type = node.has_key(la::RET_TYPE)
                     ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
                 pop_type_params(info.type_params);
+                if (!impl_type_params_.empty()) {
+                    auto combined = impl_type_params_;
+                    combined.insert(combined.end(), info.type_params.begin(), info.type_params.end());
+                    info.type_params = std::move(combined);
+                }
                 generic_funcs_[mangled] = std::move(info);
                 return;
             }
@@ -1879,6 +1915,13 @@ private:
         }
         info.source_file = file_;
         pop_type_params(info.type_params);
+        // Prepend impl-level type params AFTER the push/pop cycle so they remain
+        // in current_type_params_ (managed by collect_impl's push/pop).
+        if (!impl_type_params_.empty()) {
+            auto combined = impl_type_params_;
+            combined.insert(combined.end(), info.type_params.begin(), info.type_params.end());
+            info.type_params = std::move(combined);
+        }
         funcs_[mangled] = std::move(info);
     }
 
@@ -4965,12 +5008,35 @@ private:
         std::string trait_name;
         if (node.has_key(la::NAME))
             trait_name = std::string(str_of(node.get(la::NAME.code)));
+        // If standalone impl with own type params (impl<T> Pair<T>), push them first.
+        std::vector<TypeParam> impl_tps;
+        if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
+            impl_tps = read_type_params(node);
+            push_type_params(impl_tps);
+            impl_type_params_ = impl_tps;  // so lower_fn includes them in fn.type_params
+        }
         std::string target;
         if (node.has_key(la::TYPE)) {
             auto tnode = map_of(node.get(la::TYPE.code));
             if (code_of(tnode) == la::PTR_TYPE) {
                 auto* resolved = resolve_type(tnode);
                 target = type_str(resolved);
+            } else if (code_of(tnode) == la::GENERIC_INST) {
+                target = std::string(str_of(tnode.get(la::NAME.code)));
+                if (impl_tps.empty()) {
+                    auto* resolved = resolve_type(tnode);
+                    if (resolved && !resolved->type_args.empty()) {
+                        bool concrete = true;
+                        for (auto* a : resolved->type_args)
+                            if (a && a->kind == LogosType::Kind::TypeVar) { concrete = false; break; }
+                        if (concrete) {
+                            if (resolved->kind == LogosType::Kind::Struct)
+                                target = concrete_struct_name(resolved);
+                            else if (resolved->kind == LogosType::Kind::Class)
+                                target = concrete_class_name(resolved);
+                        }
+                    }
+                }
             } else {
                 target = std::string(str_of(tnode.get(la::NAME.code)));
             }
@@ -4995,6 +5061,13 @@ private:
             }
         }
         // Lower impl methods as free functions (Target__method).
+        // For `impl<T> GenericClass<T>` blocks, add methods to the class template instead of
+        // prog.functions so mono's instantiate_one_class can clone them with T substituted.
+        lir::LClassDef* target_class_tmpl = nullptr;
+        if (!impl_tps.empty()) {
+            for (auto& cd : prog.classes)
+                if (cd.name == target) { target_class_tmpl = &cd; break; }
+        }
         std::unordered_set<std::string> overridden;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
@@ -5003,7 +5076,13 @@ private:
                 if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                     auto fn = lower_fn(m, target);
                     overridden.insert(fn.name);
-                    prog.functions.push_back(std::move(fn));
+                    if (target_class_tmpl) {
+                        // Add to class template so mono clones it during class instantiation.
+                        fn.type_params.clear();  // T is provided by the class template
+                        target_class_tmpl->methods.push_back(std::move(fn));
+                    } else {
+                        prog.functions.push_back(std::move(fn));
+                    }
                 }
             }
         }
@@ -5037,6 +5116,8 @@ private:
                     current_type_params_.erase(tp.name);
             }
         }
+        // Clean up impl's own type params
+        if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
         // Copy associated type mappings
         if (!trait_name.empty()) {
             auto prefix = trait_name + "::" + target + "::";
