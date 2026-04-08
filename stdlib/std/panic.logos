@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.panic
+//
+// panic() — unrecoverable error: aborts execution (does not return).
+
+package std.panic;
+
+extern fn abort();
+
+fn panic(msg: *const u8) {
+    // Call abort to halt execution.
+    // In a real implementation, we would print the message first.
+    abort();
+}
