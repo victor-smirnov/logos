@@ -47,6 +47,7 @@ namespace logos_ast {
     inline constexpr Key  IS_ABSTRACT          {"IS_ABSTRACT", 29};
     inline constexpr Key  IS_VARARG            {"IS_VARARG", 30};
     inline constexpr Key  ITER                 {"ITER", 31};
+    inline constexpr Key  IS_VARIADIC          {"IS_VARIADIC", 32};
 
     // Node type discriminants
     inline constexpr Code MODULE               {"MODULE", 1};
@@ -125,6 +126,7 @@ namespace logos_ast {
     inline constexpr Code ADDR_OF_MUT          {"ADDR_OF_MUT", 114};
     inline constexpr Code DEREF_WRITE          {"DEREF_WRITE", 115};
     inline constexpr Code IMPL_TYPE            {"IMPL_TYPE", 116};
+    inline constexpr Code PACK_EXPAND          {"PACK_EXPAND", 117};
 
 } // namespace logos_ast
 

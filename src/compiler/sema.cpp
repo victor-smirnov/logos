@@ -559,6 +559,7 @@ private:
     std::unordered_map<std::string, SemaEnumInfo>     enums_;
     std::unordered_map<std::string, SemaClassInfo>    classes_;
     std::unordered_map<std::string, SemaFuncInfo>     funcs_;
+    std::unordered_map<std::string, SemaFuncInfo>     generic_funcs_; // overloaded generic variants
     std::unordered_map<std::string, const LogosType*> type_aliases_;
     std::unordered_map<std::string, const LogosType*> module_consts_;
     std::unordered_map<std::string, SemaTraitInfo>    traits_;
@@ -582,6 +583,11 @@ private:
             if (code_of(tpnode) != la::TYPE_PARAM) continue;
             TypeParam tp;
             tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
+            // Check variadic flag (T...)
+            if (tpnode.has_key(la::IS_VARIADIC)) {
+                AnyVal av = tpnode.get(la::IS_VARIADIC.code);
+                tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+            }
             // Optional bounds: ITEMS contains TRAIT_BOUND nodes
             if (tpnode.has_key(la::ITEMS)) {
                 auto bounds = arr_of(tpnode.get(la::ITEMS.code));
@@ -594,6 +600,9 @@ private:
                     }
                 }
             }
+            // Validate: variadic param must be last
+            if (tp.is_variadic && i + 1 < tpitems.size())
+                error("variadic type parameter must be last in the type parameter list");
             result.push_back(std::move(tp));
         }
         return result;
@@ -1515,12 +1524,47 @@ private:
         // skip collection-phase registration entirely.
         if (is_specialization_fn(node)) return;
 
-        if (funcs_.count(mangled)) {
-            error(std::format("duplicate function '{}'", mangled));
-            return;
-        }
         SemaFuncInfo info;
         info.type_params = read_type_params(node);
+        // Allow overloading: a non-generic base case and a generic version
+        // can coexist with the same name (for variadic recursion base cases).
+        if (funcs_.count(mangled)) {
+            bool new_is_generic = !info.type_params.empty();
+            bool old_is_generic = !funcs_[mangled].type_params.empty();
+            if (new_is_generic == old_is_generic) {
+                error(std::format("duplicate function '{}'", mangled));
+                return;
+            }
+            // Store the generic version separately; non-generic stays in funcs_.
+            if (new_is_generic) {
+                // Continue with collection, but store under generic_funcs_
+                push_type_params(info.type_params);
+                if (node.has_key(la::PARAMS)) {
+                    auto params_av = node.get(la::PARAMS.code);
+                    if (params_av.is_pointer()) {
+                        auto params_node = map_of(params_av);
+                        if (params_node.has_key(la::ITEMS)) {
+                            auto arr = arr_of(params_node.get(la::ITEMS.code));
+                            for (uint64_t i = 0; i < arr.size(); ++i) {
+                                auto p = map_of(arr.get(i));
+                                if (code_of(p) != la::PARAM) continue;
+                                auto pt = p.has_key(la::TYPE)
+                                    ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
+                                info.param_types.push_back(pt);
+                            }
+                        }
+                    }
+                }
+                info.ret_type = node.has_key(la::RET_TYPE)
+                    ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
+                pop_type_params(info.type_params);
+                generic_funcs_[mangled] = std::move(info);
+                return;
+            }
+            // else: new is non-generic, old is generic — move old to generic_funcs_
+            generic_funcs_[mangled] = std::move(funcs_[mangled]);
+            funcs_.erase(mangled);
+        }
         push_type_params(info.type_params);
         if (node.has_key(la::PARAMS)) {
             auto params_av = node.get(la::PARAMS.code);
@@ -1684,6 +1728,17 @@ private:
                 return error_expr();
             }
             return make_expr(t, lir::EVarRef{std::string(name)});
+        }
+
+        case la::PACK_EXPAND: {
+            auto name = str_of(expr.get(la::NAME.code));
+            // Type is the variadic TypeVar — mono will expand this
+            auto* t = lookup(name);
+            if (!t) {
+                error(std::format("pack expand: undefined variable '{}'", name));
+                return error_expr();
+            }
+            return make_expr(t, lir::EPackExpand{std::string(name)});
         }
 
         case la::PAREN_EXPR:
@@ -1997,7 +2052,16 @@ private:
         auto& fi = fit->second;
         uint64_t n_args = arg_exprs.size();
 
-        if (fi.is_vararg) {
+        // If any arg is a pack expansion, skip arg count/type checking
+        // (mono will expand the pack and resolve types)
+        bool has_pack_expand = false;
+        for (auto& a : arg_exprs)
+            if (std::holds_alternative<lir::EPackExpand>(a->kind))
+                has_pack_expand = true;
+
+        if (has_pack_expand) {
+            // Pass through — mono will expand and validate
+        } else if (fi.is_vararg) {
             // Vararg functions: only check the declared (fixed) args
             if (n_args < fi.param_types.size()) {
                 error(std::format("call to vararg '{}': expected at least {} args, got {}",
@@ -2035,7 +2099,16 @@ private:
 
     lir::LExprPtr lower_generic_call(TinyMapView node) {
         auto callee = str_of(node.get(la::CALLEE.code));
-        auto fit = funcs_.find(std::string(callee));
+        // Prefer the generic overload (for variadic base case overloading)
+        SemaFuncInfo* fi_ptr = nullptr;
+        {
+            auto git = generic_funcs_.find(std::string(callee));
+            if (git != generic_funcs_.end()) fi_ptr = &git->second;
+            else {
+                auto fit2 = funcs_.find(std::string(callee));
+                if (fit2 != funcs_.end()) fi_ptr = &fit2->second;
+            }
+        }
 
         // Resolve type arguments from TYPE_PARAMS (type_arg_list with ITEMS)
         std::vector<const LogosType*> type_args;
@@ -2065,28 +2138,40 @@ private:
             }
         }
 
-        if (fit == funcs_.end()) {
+        if (!fi_ptr) {
             error(std::format("call to undefined function '{}'", callee));
             return make_expr(error_t(), lir::ECall{std::string(callee), std::move(type_args), std::move(arg_exprs)});
         }
 
-        auto& fi = fit->second;
+        auto& fi = *fi_ptr;
 
-        // Validate type argument count against type parameters
-        if (!fi.type_params.empty() && type_args.size() != fi.type_params.size()) {
-            error(std::format("call to '{}': expected {} type arg(s), got {}",
-                  callee, fi.type_params.size(), type_args.size()));
+        // Validate type argument count against type parameters.
+        // If last type param is variadic, accept >= (non_variadic_count) type args.
+        bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
+        size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
+        if (!fi.type_params.empty()) {
+            if (has_variadic) {
+                if (type_args.size() < non_variadic_count)
+                    error(std::format("call to '{}': expected at least {} type arg(s), got {}",
+                          callee, non_variadic_count, type_args.size()));
+            } else if (type_args.size() != fi.type_params.size()) {
+                error(std::format("call to '{}': expected {} type arg(s), got {}",
+                      callee, fi.type_params.size(), type_args.size()));
+            }
         }
 
-        // Build substitution map: type param name → concrete type arg
+        // Build substitution map: type param name → concrete type arg.
+        // For variadic params, the SubstMap maps the variadic name to the FIRST
+        // pack element (for type_str etc.), but the full type_args list is preserved
+        // in ECall for mono to use.
         std::unordered_map<std::string, const LogosType*> subst;
-        size_t n_subst = std::min(fi.type_params.size(), type_args.size());
-        for (size_t i = 0; i < n_subst; ++i)
+        for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i)
             subst[fi.type_params[i].name] = type_args[i];
 
-        // Validate trait bounds: for each type param with bounds, check that
-        // the concrete type has an impl for each required trait.
-        for (size_t i = 0; i < n_subst; ++i) {
+        // Validate trait bounds: for each non-variadic type param with bounds,
+        // check that the concrete type has an impl for each required trait.
+        // (Variadic bounds are checked per-element during monomorphization.)
+        for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i) {
             auto& tp = fi.type_params[i];
             auto* concrete = type_args[i];
             // Unwrap pointer for class types (*mut T → T)
@@ -2114,13 +2199,17 @@ private:
         // Determine concrete return type by substituting TypeVars (recursive)
         const LogosType* ret = subst_type_sema(fi.ret_type, subst);
 
-        // Validate value argument count
+        // Validate value argument count.
+        // Variadic functions: template has N fixed + 1 variadic param,
+        // but call site has N fixed + K variadic args.
         uint64_t n_args = arg_exprs.size();
-        if (n_args != fi.param_types.size()) {
-            error(std::format("call to '{}': expected {} args, got {}",
-                  callee, fi.param_types.size(), n_args));
-        } else {
-            for (uint64_t i = 0; i < n_args; ++i) {
+        if (has_variadic) {
+            size_t fixed_params = fi.param_types.size() - 1;  // minus the variadic param
+            if (n_args < fixed_params)
+                error(std::format("call to '{}': expected at least {} args, got {}",
+                      callee, fixed_params, n_args));
+            // Type-check fixed params only (variadic args are checked at mono time)
+            for (uint64_t i = 0; i < fixed_params && i < n_args; ++i) {
                 auto* at = arg_exprs[i]->type;
                 auto* pt = subst_type_sema(fi.param_types[i], subst);
                 if (at->kind != LogosType::Kind::Error &&
@@ -2129,6 +2218,22 @@ private:
                     !types_compatible(at, pt))
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, type_str(pt), type_str(at)));
+            }
+        } else {
+            if (n_args != fi.param_types.size()) {
+                error(std::format("call to '{}': expected {} args, got {}",
+                      callee, fi.param_types.size(), n_args));
+            } else {
+                for (uint64_t i = 0; i < n_args; ++i) {
+                    auto* at = arg_exprs[i]->type;
+                    auto* pt = subst_type_sema(fi.param_types[i], subst);
+                    if (at->kind != LogosType::Kind::Error &&
+                        pt->kind != LogosType::Kind::Error &&
+                        pt->kind != LogosType::Kind::TypeVar &&
+                        !types_compatible(at, pt))
+                        error(std::format("call to '{}' arg {}: expected {}, got {}",
+                              callee, i + 1, type_str(pt), type_str(at)));
+                }
             }
         }
 
@@ -3733,11 +3838,27 @@ private:
             fn.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
 
-        auto fit = funcs_.find(mangled);
-        if (fit == funcs_.end()) return fn;   // shouldn't happen after collect
+        SemaFuncInfo* fi_ptr = nullptr;
+        {
+            // If this AST node actually has type params, prefer generic_funcs_.
+            auto node_tparams = read_type_params(node);
+            if (!node_tparams.empty()) {
+                auto git = generic_funcs_.find(mangled);
+                if (git != generic_funcs_.end()) fi_ptr = &git->second;
+            }
+            if (!fi_ptr) {
+                auto it = funcs_.find(mangled);
+                if (it != funcs_.end()) fi_ptr = &it->second;
+            }
+            if (!fi_ptr) {
+                auto git = generic_funcs_.find(mangled);
+                if (git != generic_funcs_.end()) fi_ptr = &git->second;
+            }
+        }
+        if (!fi_ptr) return fn;   // shouldn't happen after collect
 
-        fn.type_params = fit->second.type_params;
-        fn.ret_type    = fit->second.ret_type;
+        fn.type_params = fi_ptr->type_params;
+        fn.ret_type    = fi_ptr->ret_type;
         ret_type_      = fn.ret_type;
 
         // Put type params in scope for the duration of the function body
@@ -3757,9 +3878,15 @@ private:
                         auto p = map_of(arr.get(i));
                         if (code_of(p) != la::PARAM) continue;
                         auto pname = str_of(p.get(la::NAME.code));
-                        auto ptype = fit->second.param_types[i];
+                        auto ptype = (i < fi_ptr->param_types.size())
+                            ? fi_ptr->param_types[i] : error_t();
+                        bool p_variadic = false;
+                        if (p.has_key(la::IS_VARIADIC)) {
+                            AnyVal av = p.get(la::IS_VARIADIC.code);
+                            p_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+                        }
                         define(pname, ptype);
-                        fn.params.push_back({std::string(pname), ptype});
+                        fn.params.push_back({std::string(pname), ptype, p_variadic});
                     }
                 }
             }

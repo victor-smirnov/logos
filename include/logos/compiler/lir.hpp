@@ -206,6 +206,12 @@ struct EFormatCall {
     std::vector<const LogosType*> arg_types; // parallel to args, resolved at sema
 };
 
+// Variadic pack expansion: args... in function body.
+// Expanded by mono into individual EVarRef nodes.
+struct EPackExpand {
+    std::string var_name;  // the pack variable being expanded (e.g. "rest")
+};
+
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
@@ -215,7 +221,7 @@ struct LExpr {
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
-        EClosureBox, EClosureCall, EFormatCall
+        EClosureBox, EClosureCall, EFormatCall, EPackExpand
     > kind;
 };
 
@@ -318,6 +324,7 @@ struct LBlock {
 struct LParam {
     std::string      name;
     const LogosType* type;
+    bool             is_variadic = false;  // variadic pack parameter
 };
 
 // EClosure — defined after LParam and LBlock (both needed).

@@ -34,6 +34,7 @@ namespace logos::compiler {
 // ── Substitution map ──────────────────────────────────────────────────────
 
 using SubstMap = std::unordered_map<std::string, const LogosType*>;
+using PackMap  = std::unordered_map<std::string, std::vector<const LogosType*>>;
 
 // ── Monomorphizer ─────────────────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ public:
         while (!worklist_.empty()) {
             auto item = std::move(worklist_.back());
             worklist_.pop_back();
-            auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst);
+            auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
             scan_fn(inst);
             out_.functions.push_back(std::move(inst));
         }
@@ -133,6 +134,7 @@ private:
     lir::LProgram  out_;
     int            max_depth_;
     int            depth_ = 0;
+    PackMap        cur_packs_;  // current variadic pack map (set during clone_fn)
 
     // name → pointer into in_.functions (generic templates only)
     std::unordered_map<std::string, const lir::LFunction*> templates_;
@@ -175,6 +177,7 @@ private:
         std::string                mangled;
         const lir::LFunction*      tmpl;
         SubstMap                   subst;
+        PackMap                    packs;  // variadic type packs
     };
     std::vector<WorkItem> worklist_;
 
@@ -342,7 +345,9 @@ private:
 
     // ── Expression cloning / substitution ────────────────────────
 
-    lir::LExprPtr subst_expr(const lir::LExpr& e, const SubstMap& s) {
+    lir::LExprPtr subst_expr(const lir::LExpr& e, const SubstMap& s,
+                              const PackMap& /*unused*/ = {}) {
+        // packs are stored in cur_packs_ (set by clone_fn)
         auto result = std::make_unique<lir::LExpr>();
         result->type = subst_type(e.type, s);
 
@@ -374,8 +379,33 @@ private:
                 nc.callee = k.callee;
                 for (auto* ta : k.type_args)
                     nc.type_args.push_back(subst_type(ta, s));
-                for (auto& a : k.args)
-                    nc.args.push_back(subst_expr(*a, s));
+                for (auto& a : k.args) {
+                    // Pack expansion: args... → expand into individual args
+                    if (auto* pe = std::get_if<lir::EPackExpand>(&a->kind)) {
+                        // Find which type pack this var belongs to.
+                        // The var's type is a TypeVar whose name is in cur_packs_.
+                        std::string pack_name;
+                        if (a->type && a->type->kind == LogosType::Kind::TypeVar)
+                            pack_name = a->type->type_var_name;
+                        auto pit = cur_packs_.find(pack_name);
+                        if (pit != cur_packs_.end()) {
+                            for (size_t pi = 0; pi < pit->second.size(); ++pi) {
+                                auto ref = std::make_unique<lir::LExpr>();
+                                ref->type = pit->second[pi];
+                                ref->kind = lir::EVarRef{pe->var_name + "_" + std::to_string(pi)};
+                                nc.args.push_back(std::move(ref));
+                            }
+                            // If callee is a template, add pack types as type_args
+                            // so mono enqueues the recursive instantiation.
+                            if (templates_.count(nc.callee)) {
+                                for (auto* pt : pit->second)
+                                    nc.type_args.push_back(pt);
+                            }
+                        }
+                    } else {
+                        nc.args.push_back(subst_expr(*a, s));
+                    }
+                }
                 // Rewrite callee if it's a generic call that was already instantiated
                 if (!nc.type_args.empty())
                     nc.callee = mangle(nc.callee, nc.type_args);
@@ -600,13 +630,18 @@ private:
                 for (auto& a : k.args)
                     nf.args.push_back(subst_expr(*a, s));
                 result->kind = std::move(nf);
+            } else if constexpr (std::is_same_v<K, lir::EPackExpand>) {
+                // Pack expansion is handled specially in the ECall case.
+                // If we reach here, it's a standalone expansion — just clone it.
+                result->kind = lir::EPackExpand{k.var_name};
             }
         }, e.kind);
 
         return result;
     }
 
-    lir::LBlock subst_block(const lir::LBlock& b, const SubstMap& s) {
+    lir::LBlock subst_block(const lir::LBlock& b, const SubstMap& s,
+                             const PackMap& /*unused*/ = {}) {
         lir::LBlock nb;
         for (auto& st : b.stmts)
             nb.stmts.push_back(subst_stmt(st, s));
@@ -719,15 +754,33 @@ private:
 
     // ── Clone a function with substitution (empty SubstMap = verbatim copy) ─
 
-    lir::LFunction clone_fn(const lir::LFunction& fn, const SubstMap& s) {
+    lir::LFunction clone_fn(const lir::LFunction& fn, const SubstMap& s,
+                             const PackMap& packs = {}) {
+        cur_packs_ = packs;  // make available to subst_expr
         lir::LFunction nf;
         nf.name      = fn.name;
         nf.is_extern = fn.is_extern;
         nf.is_vararg = fn.is_vararg;
         nf.ret_type  = subst_type(fn.ret_type, s);
-        for (auto& p : fn.params)
-            nf.params.push_back({p.name, subst_type(p.type, s)});
-        nf.body = subst_block(fn.body, s);
+        for (auto& p : fn.params) {
+            if (p.is_variadic) {
+                // Expand variadic param into N concrete params.
+                // Find the pack type for this param's TypeVar name.
+                std::string pack_name;
+                if (p.type && p.type->kind == LogosType::Kind::TypeVar)
+                    pack_name = p.type->type_var_name;
+                auto pit = packs.find(pack_name);
+                if (pit != packs.end()) {
+                    for (size_t i = 0; i < pit->second.size(); ++i) {
+                        auto expanded_name = p.name + "_" + std::to_string(i);
+                        nf.params.push_back({expanded_name, pit->second[i]});
+                    }
+                }
+            } else {
+                nf.params.push_back({p.name, subst_type(p.type, s)});
+            }
+        }
+        nf.body = subst_block(fn.body, s, packs);
         // type_params left empty: instantiated functions are monomorphic
         return nf;
     }
@@ -837,6 +890,8 @@ private:
             } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
                 scan_expr(*k.fmt);
                 for (auto& a : k.args) scan_expr(*a);
+            } else if constexpr (std::is_same_v<K, lir::EPackExpand>) {
+                // nothing to scan
             }
         }, e.kind);
     }
@@ -939,7 +994,7 @@ private:
             SubstMap subst;
             for (size_t i = 0; i < spec->spec_patterns.size(); ++i)
                 match_type(type_args[i], spec->spec_patterns[i], subst);
-            worklist_.push_back({mangled_callee, spec, std::move(subst)});
+            worklist_.push_back({mangled_callee, spec, std::move(subst), {}});
             return;
         }
 
@@ -949,19 +1004,29 @@ private:
         const lir::LFunction* tmpl = tit->second;
 
         SubstMap subst;
-        size_t n = std::min(tmpl->type_params.size(), type_args.size());
-        for (size_t i = 0; i < n; ++i)
+        PackMap  packs;
+        bool has_variadic = !tmpl->type_params.empty() && tmpl->type_params.back().is_variadic;
+        size_t non_variadic_count = tmpl->type_params.size() - (has_variadic ? 1 : 0);
+        for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i)
             subst[tmpl->type_params[i].name] = type_args[i];
-        worklist_.push_back({mangled_callee, tmpl, std::move(subst)});
+        if (has_variadic) {
+            auto& vtp = tmpl->type_params.back();
+            std::vector<const LogosType*> pack_types;
+            for (size_t i = non_variadic_count; i < type_args.size(); ++i)
+                pack_types.push_back(type_args[i]);
+            packs[vtp.name] = std::move(pack_types);
+        }
+        worklist_.push_back({mangled_callee, tmpl, std::move(subst), std::move(packs)});
     }
 
     // ── Instantiate a function template with a concrete SubstMap ─
 
     lir::LFunction instantiate_fn(const lir::LFunction& tmpl,
                                    const std::string& mangled_name,
-                                   const SubstMap& subst) {
+                                   const SubstMap& subst,
+                                   const PackMap& packs = {}) {
         ++depth_;
-        auto fn = clone_fn(tmpl, subst);
+        auto fn = clone_fn(tmpl, subst, packs);
         fn.name = mangled_name;
         --depth_;
         return fn;
@@ -1122,6 +1187,8 @@ private:
             } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
                 collect_struct_needs_from_expr(*k.fmt);
                 for (auto& a : k.args) collect_struct_needs_from_expr(*a);
+            } else if constexpr (std::is_same_v<K, lir::EPackExpand>) {
+                // nothing
             }
         }, e.kind);
     }

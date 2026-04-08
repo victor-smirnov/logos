@@ -2205,6 +2205,12 @@ private:
         return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
 
+    mlir::Value gen_expr_kind(const EPackExpand&, const LogosType*) {
+        // EPackExpand should be eliminated by mono before reaching mlir_gen.
+        std::fprintf(stderr, "mlir_gen: unexpected EPackExpand (should be expanded by mono)\n");
+        return nullptr;
+    }
+
     // ── Struct helpers ────────────────────────────────────────────
 
     mlir::Value get_struct_ptr(const std::string& name) {

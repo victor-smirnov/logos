@@ -52,6 +52,7 @@
     IS_ABSTRACT = 29
     IS_VARARG   = 30
     ITER        = 31
+    IS_VARIADIC = 32
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -132,6 +133,7 @@
     ADDR_OF_MUT          = 114
     DEREF_WRITE          = 115
     IMPL_TYPE            = 116
+    PACK_EXPAND          = 117
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -346,7 +348,9 @@
     param_list <- param (COMMA param)*
               => { ITEMS: $... }
 
-    param <- IDENT COLON type_ref
+    param <- IDENT COLON type_ref DOTDOTDOT
+          => { CODE: PARAM, NAME: $1, TYPE: $3, IS_VARIADIC: true }
+           / IDENT COLON type_ref
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
 
     // ── Type reference ───────────────────────────────────────────
@@ -560,6 +564,7 @@
                   / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                   / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
                   / INTEGER  => { CODE: LIT_INT,  VALUE: $1 }
+                  / IDENT DOTDOTDOT => { CODE: PACK_EXPAND, NAME: $1 }
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
     // ── Class new expression: new ClassName { field: expr, ... } ──
@@ -613,6 +618,10 @@
 
     type_param <- ptr_type
                 / arr_type
+                / IDENT DOTDOTDOT COLON trait_bound (PLUS trait_bound)*
+               => { CODE: TYPE_PARAM, NAME: $1, IS_VARIADIC: true, ITEMS: $... }
+                / IDENT DOTDOTDOT
+               => { CODE: TYPE_PARAM, NAME: $1, IS_VARIADIC: true }
                 / IDENT COLON trait_bound (PLUS trait_bound)*
                => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $... }
                 / IDENT

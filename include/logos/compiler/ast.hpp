@@ -165,6 +165,10 @@ inline constexpr Code FIELD_INDEX_WRITE {"FIELD_INDEX_WRITE", 113}; // a.ptr[i] 
 inline constexpr Code ADDR_OF_MUT       {"ADDR_OF_MUT",       114}; // &mut expr
 inline constexpr Code DEREF_WRITE       {"DEREF_WRITE",       115}; // *ptr = val;
 
+// Variadic generics
+inline constexpr Key IS_VARIADIC  {"IS_VARIADIC",  32};    // variadic type param / param flag
+inline constexpr Code PACK_EXPAND {"PACK_EXPAND", 117};    // args... pack expansion
+
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

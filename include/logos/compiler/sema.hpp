@@ -75,8 +75,9 @@ struct TraitBound {
 // ── Type parameter ────────────────────────────────────────────────────────
 
 struct TypeParam {
-    std::string              name;     // e.g. "T"
-    std::vector<TraitBound>  bounds;   // e.g. [Ord, Clone]
+    std::string              name;          // e.g. "T"
+    std::vector<TraitBound>  bounds;        // e.g. [Ord, Clone]
+    bool                     is_variadic = false;  // T... variadic pack
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).

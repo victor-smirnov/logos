@@ -1,0 +1,12 @@
+// Variadic generics: pack forwarding
+package variadic_forward;
+
+fn sum(a: i32, b: i32) -> i32 { return a + b; }
+
+fn forward<T...>(args: T...) -> i32 {
+    return sum(args...);
+}
+
+fn main() -> i32 {
+    return forward::<i32, i32>(20, 22);
+}
