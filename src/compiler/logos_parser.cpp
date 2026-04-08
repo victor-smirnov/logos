@@ -1656,7 +1656,7 @@ AnyVal LogosParser::rule_impl_block() {
         doc_.arena_rollback(saved_doc_);
     }
 
-    // Alternative 2: KW_IMPL IDENT KW_FOR simple_type LBRACE method_def* RBRACE => {...}
+    // Alternative 2: KW_IMPL IDENT KW_FOR ptr_type LBRACE method_def* RBRACE => {...}
     {
         saved_pos  = pos_;
         saved_la   = have_la_;
@@ -1676,7 +1676,7 @@ AnyVal LogosParser::rule_impl_block() {
             if (peek_token().kind != TK::KW_FOR) goto bt_impl_block_1;
             Token tok_cap3_ = next_token();
             [[maybe_unused]] AnyVal cap3 = doc_.make_string(tok_cap3_.text).get().to_anyval();
-            [[maybe_unused]] AnyVal cap4 = rule_simple_type();
+            [[maybe_unused]] AnyVal cap4 = rule_ptr_type();
             if (cap4.is_null()) goto bt_impl_block_1;
             rcap_2.push_back(cap4).get();
             if (peek_token().kind != TK::LBRACE) goto bt_impl_block_1;
@@ -1724,7 +1724,7 @@ AnyVal LogosParser::rule_impl_block() {
         doc_.arena_rollback(saved_doc_);
     }
 
-    // Alternative 3: KW_IMPL simple_type LBRACE method_def* RBRACE => {...}
+    // Alternative 3: KW_IMPL IDENT KW_FOR simple_type LBRACE method_def* RBRACE => {...}
     {
         saved_pos  = pos_;
         saved_la   = have_la_;
@@ -1738,12 +1738,18 @@ AnyVal LogosParser::rule_impl_block() {
             if (peek_token().kind != TK::KW_IMPL) goto bt_impl_block_2;
             Token tok_cap1_ = next_token();
             [[maybe_unused]] AnyVal cap1 = doc_.make_string(tok_cap1_.text).get().to_anyval();
-            [[maybe_unused]] AnyVal cap2 = rule_simple_type();
-            if (cap2.is_null()) goto bt_impl_block_2;
-            rcap_4.push_back(cap2).get();
-            if (peek_token().kind != TK::LBRACE) goto bt_impl_block_2;
+            if (peek_token().kind != TK::IDENT) goto bt_impl_block_2;
+            Token tok_cap2_ = next_token();
+            [[maybe_unused]] AnyVal cap2 = doc_.make_string(tok_cap2_.text).get().to_anyval();
+            if (peek_token().kind != TK::KW_FOR) goto bt_impl_block_2;
             Token tok_cap3_ = next_token();
             [[maybe_unused]] AnyVal cap3 = doc_.make_string(tok_cap3_.text).get().to_anyval();
+            [[maybe_unused]] AnyVal cap4 = rule_simple_type();
+            if (cap4.is_null()) goto bt_impl_block_2;
+            rcap_4.push_back(cap4).get();
+            if (peek_token().kind != TK::LBRACE) goto bt_impl_block_2;
+            Token tok_cap5_ = next_token();
+            [[maybe_unused]] AnyVal cap5 = doc_.make_string(tok_cap5_.text).get().to_anyval();
             auto arr_5 = doc_.make_array(4).get();
             {
                 while (true) {
@@ -1762,13 +1768,14 @@ AnyVal LogosParser::rule_impl_block() {
                     break;
                 }
             }
-            [[maybe_unused]] AnyVal cap4 = arr_5.to_anyval();
+            [[maybe_unused]] AnyVal cap6 = arr_5.to_anyval();
             if (peek_token().kind != TK::RBRACE) goto bt_impl_block_2;
-            Token tok_cap5_ = next_token();
-            [[maybe_unused]] AnyVal cap5 = doc_.make_string(tok_cap5_.text).get().to_anyval();
-            auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, 5).get();
+            Token tok_cap7_ = next_token();
+            [[maybe_unused]] AnyVal cap7 = doc_.make_string(tok_cap7_.text).get().to_anyval();
+            auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, 6).get();
             node->put(logos_ast::CODE, AnyVal::from_value(logos_ast::IMPL_BLOCK), logos::hermes::HermesCtrAccess::arena(doc_)).get();
-            node->put(logos_ast::TYPE, cap2, logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            node->put(logos_ast::TYPE, cap4, logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            node->put(logos_ast::NAME, cap2, logos::hermes::HermesCtrAccess::arena(doc_)).get();
             node->put(logos_ast::ITEMS, rcap_4.to_anyval(), logos::hermes::HermesCtrAccess::arena(doc_)).get();
             node->put(logos_ast::SRC_LINE, AnyVal::from_value(first_line_), logos::hermes::HermesCtrAccess::arena(doc_)).get();
             {
@@ -1778,6 +1785,67 @@ AnyVal LogosParser::rule_impl_block() {
             }
         }
         [[maybe_unused]] bt_impl_block_2:
+        pos_      = saved_pos;
+        have_la_  = saved_la;
+        la_       = saved_tok_;
+        line_     = saved_line_;
+        doc_.arena_rollback(saved_doc_);
+    }
+
+    // Alternative 4: KW_IMPL simple_type LBRACE method_def* RBRACE => {...}
+    {
+        saved_pos  = pos_;
+        saved_la   = have_la_;
+        saved_doc_ = doc_.arena_checkpoint();
+        Token    saved_tok_  = la_;
+        uint32_t saved_line_ = line_;
+
+        {
+            [[maybe_unused]] uint32_t first_line_ = peek_token().line;
+            auto rcap_6 = doc_.make_array(4).get();
+            if (peek_token().kind != TK::KW_IMPL) goto bt_impl_block_3;
+            Token tok_cap1_ = next_token();
+            [[maybe_unused]] AnyVal cap1 = doc_.make_string(tok_cap1_.text).get().to_anyval();
+            [[maybe_unused]] AnyVal cap2 = rule_simple_type();
+            if (cap2.is_null()) goto bt_impl_block_3;
+            rcap_6.push_back(cap2).get();
+            if (peek_token().kind != TK::LBRACE) goto bt_impl_block_3;
+            Token tok_cap3_ = next_token();
+            [[maybe_unused]] AnyVal cap3 = doc_.make_string(tok_cap3_.text).get().to_anyval();
+            auto arr_7 = doc_.make_array(4).get();
+            {
+                while (true) {
+                    size_t rep_pos_ = pos_; bool rep_la_ = have_la_; Token rep_tok_ = la_; uint32_t rep_line_ = line_;
+                    size_t rep_doc_ = doc_.arena_checkpoint();
+                    {
+                        [[maybe_unused]] AnyVal rep_item_7 = rule_method_def();
+                        if (rep_item_7.is_null()) goto rep_fail_7;
+                        rcap_6.push_back(rep_item_7).get();
+                        if (!rep_item_7.is_null()) arr_7.push_back(rep_item_7).get();
+                        continue;
+                    }
+                    rep_fail_7: ;
+                    pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;
+                    doc_.arena_rollback(rep_doc_);
+                    break;
+                }
+            }
+            [[maybe_unused]] AnyVal cap4 = arr_7.to_anyval();
+            if (peek_token().kind != TK::RBRACE) goto bt_impl_block_3;
+            Token tok_cap5_ = next_token();
+            [[maybe_unused]] AnyVal cap5 = doc_.make_string(tok_cap5_.text).get().to_anyval();
+            auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, 5).get();
+            node->put(logos_ast::CODE, AnyVal::from_value(logos_ast::IMPL_BLOCK), logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            node->put(logos_ast::TYPE, cap2, logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            node->put(logos_ast::ITEMS, rcap_6.to_anyval(), logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            node->put(logos_ast::SRC_LINE, AnyVal::from_value(first_line_), logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            {
+                AnyVal result_;
+                result_.set_pointer(node, logos::hermes::HermesCtrAccess::base(doc_));
+                return result_;
+            }
+        }
+        [[maybe_unused]] bt_impl_block_3:
         pos_      = saved_pos;
         have_la_  = saved_la;
         la_       = saved_tok_;

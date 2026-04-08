@@ -281,6 +281,8 @@
     // impl Type { fn method(...) { ... } }   — standalone (no trait)
     impl_block <- KW_IMPL IDENT LT type_arg_list GT KW_FOR simple_type LBRACE method_def* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, ITEMS: $... }
+                / KW_IMPL IDENT KW_FOR ptr_type LBRACE method_def* RBRACE
+               => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR simple_type LBRACE method_def* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
                 / KW_IMPL simple_type LBRACE method_def* RBRACE

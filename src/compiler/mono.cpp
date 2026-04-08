@@ -434,7 +434,12 @@ private:
                             cname = concrete_class_name(rt->pointee);
                         else if (rt->pointee->kind == LogosType::Kind::Struct)
                             cname = concrete_struct_name(rt->pointee);
+                        else
+                            cname = type_str(rt);  // full ptr type: *const u8, *mut i32
                     }
+                    // Fallback: primitive types (i32, bool, etc.)
+                    if (cname.empty())
+                        cname = type_str(rt);
                     if (!cname.empty()) {
                         lir::ECall nc;
                         nc.callee = cname + "__" + k.method;

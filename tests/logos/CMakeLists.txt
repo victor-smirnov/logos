@@ -84,7 +84,7 @@ endforeach()
 file(GLOB LOCAL_PASS_EXPECTED CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/pass/*.expected)
 
-set(LOCAL_STDLIB_USERS format_basic format_types)
+set(LOCAL_STDLIB_USERS format_basic format_types variadic_format)
 
 foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
     get_filename_component(BASE ${EXP_FILE} NAME_WE)

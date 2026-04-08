@@ -952,11 +952,17 @@ private:
         std::string trait_name;
         if (node.has_key(la::NAME))
             trait_name = std::string(str_of(node.get(la::NAME.code)));
-        // TYPE is the target type (simple_type: IDENT or GENERIC_INST)
+        // TYPE is the target type (simple_type, ptr_type, or GENERIC_INST)
         std::string target;
         if (node.has_key(la::TYPE)) {
             auto tnode = map_of(node.get(la::TYPE.code));
-            target = std::string(str_of(tnode.get(la::NAME.code)));
+            if (code_of(tnode) == la::PTR_TYPE) {
+                // *const T or *mut T → resolve full type string
+                auto* resolved = resolve_type(tnode);
+                target = type_str(resolved);
+            } else {
+                target = std::string(str_of(tnode.get(la::NAME.code)));
+            }
         }
         if (trait_name.empty())
             ctx_ = std::format("impl {}", target);
@@ -2174,23 +2180,25 @@ private:
         for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i) {
             auto& tp = fi.type_params[i];
             auto* concrete = type_args[i];
-            // Unwrap pointer for class types (*mut T → T)
-            const LogosType* inner = concrete;
-            if (inner->kind == LogosType::Kind::Ptr && inner->pointee)
-                inner = inner->pointee;
-            std::string type_name;
-            if (inner->kind == LogosType::Kind::Struct)
-                type_name = concrete_struct_name(inner);
-            else if (inner->kind == LogosType::Kind::Class)
-                type_name = concrete_class_name(inner);
+            // Try the full type first, then unwrap for class pattern (*mut Class).
+            std::string type_name = type_str(concrete);
+            // Also check unwrapped form for class types: *mut Class → Class
+            std::string unwrapped_name;
+            if (concrete->kind == LogosType::Kind::Ptr && concrete->pointee) {
+                auto* inner = concrete->pointee;
+                if (inner->kind == LogosType::Kind::Class)
+                    unwrapped_name = concrete_class_name(inner);
+                else if (inner->kind == LogosType::Kind::Struct)
+                    unwrapped_name = concrete_struct_name(inner);
+            } else if (concrete->kind == LogosType::Kind::Struct) {
+                unwrapped_name = concrete_struct_name(concrete);
+            } else if (concrete->kind == LogosType::Kind::Class) {
+                unwrapped_name = concrete_class_name(concrete);
+            }
             for (auto& bound : tp.bounds) {
-                if (type_name.empty()) {
-                    error(std::format("call to '{}': type arg {} ({}) cannot satisfy trait bound '{}'",
-                          callee, i + 1, type_str(concrete), bound.trait_name));
-                    continue;
-                }
-                auto key = bound.trait_name + "::" + type_name;
-                if (!impls_.count(key))
+                auto key1 = bound.trait_name + "::" + type_name;
+                auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
+                if (!impls_.count(key1) && (key2.empty() || !impls_.count(key2)))
                     error(std::format("call to '{}': {} does not implement trait '{}'",
                           callee, type_str(concrete), bound.trait_name));
             }
@@ -2444,7 +2452,18 @@ private:
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
         }
 
+        // For primitive types (i32, bool, etc.), try trait impls: TypeName__method
         if (sname.empty()) {
+            auto tname = type_str(recv->type);
+            auto mangled_prim = tname + "__" + std::string(method_name);
+            auto pfit = funcs_.find(mangled_prim);
+            if (pfit != funcs_.end()) {
+                std::vector<lir::LExprPtr> pargs;
+                pargs.push_back(std::move(recv));
+                for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+                return make_expr(pfit->second.ret_type,
+                    lir::ECall{mangled_prim, {}, std::move(pargs)});
+            }
             error(std::format("method call: receiver is not a struct (got {})",
                   type_str(recv->type)));
             return make_expr(error_t(),
@@ -3990,7 +4009,12 @@ private:
         std::string target;
         if (node.has_key(la::TYPE)) {
             auto tnode = map_of(node.get(la::TYPE.code));
-            target = std::string(str_of(tnode.get(la::NAME.code)));
+            if (code_of(tnode) == la::PTR_TYPE) {
+                auto* resolved = resolve_type(tnode);
+                target = type_str(resolved);
+            } else {
+                target = std::string(str_of(tnode.get(la::NAME.code)));
+            }
         }
         lir::LImplBlock ib;
         ib.trait_name   = trait_name;
