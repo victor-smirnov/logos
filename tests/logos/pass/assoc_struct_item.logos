@@ -1,0 +1,28 @@
+// Associated type = struct type (not just primitives)
+package assoc_struct_item;
+
+struct Pair { a: i32; b: i32; }
+
+trait Maker {
+    type Product;
+    fn make(self: Self) -> Self::Product;
+}
+
+struct PairFactory { x: i32; y: i32; }
+
+impl Maker for PairFactory {
+    type Product = Pair;
+    fn make(self: PairFactory) -> Pair {
+        return Pair { a: self.x, b: self.y };
+    }
+}
+
+fn build<T: Maker>(factory: T) -> T::Product {
+    return factory.make();
+}
+
+fn main() -> i32 {
+    let f: PairFactory = PairFactory { x: 19, y: 23 };
+    let p: Pair = build::<PairFactory>(f);
+    return p.a + p.b;
+}

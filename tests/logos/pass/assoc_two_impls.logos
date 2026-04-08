@@ -1,0 +1,37 @@
+// Same generic fn dispatched to two different impl types
+package assoc_two_impls;
+
+trait Doubled {
+    type Value;
+    fn get(self: Self) -> Self::Value;
+    fn doubled(self: Self) -> Self::Value;
+}
+
+struct I32Box { n: i32; }
+struct I64Box { n: i64; }
+
+impl Doubled for I32Box {
+    type Value = i32;
+    fn get(self: I32Box) -> i32 { return self.n; }
+    fn doubled(self: I32Box) -> i32 { return self.n * 2; }
+}
+
+impl Doubled for I64Box {
+    type Value = i64;
+    fn get(self: I64Box) -> i64 { return self.n; }
+    fn doubled(self: I64Box) -> i64 { return self.n * 2; }
+}
+
+fn twice<T: Doubled>(b: T) -> T::Value {
+    return b.doubled();
+}
+
+fn main() -> i32 {
+    let a: I32Box = I32Box { n: 21 };
+    let b: I64Box = I64Box { n: 100 };
+    // twice::<I32Box>(a) → 42, twice::<I64Box>(b) → 200
+    // cast i64 → i32: 200 as i32 = 200
+    let r32: i32 = twice::<I32Box>(a);
+    let r64: i64 = twice::<I64Box>(b);
+    return r32 + (r64 as i32) - 200;
+}

@@ -1,0 +1,27 @@
+// Multiple associated types in one trait
+package assoc_multi;
+
+trait Convert {
+    type Input;
+    type Output;
+    fn convert(self: Self, val: Self::Input) -> Self::Output;
+}
+
+struct I32ToI32 {}
+
+impl Convert for I32ToI32 {
+    type Input = i32;
+    type Output = i32;
+    fn convert(self: I32ToI32, val: i32) -> i32 { return val * 2; }
+}
+
+fn apply<T: Convert>(c: T, val: T::Input) -> T::Output {
+    return c.convert(val);
+}
+
+fn main() -> i32 {
+    let c: I32ToI32 = I32ToI32 {};
+    // apply resolves Input=i32, Output=i32 when T=I32ToI32
+    // 21 * 2 = 42
+    return apply::<I32ToI32>(c, 21);
+}

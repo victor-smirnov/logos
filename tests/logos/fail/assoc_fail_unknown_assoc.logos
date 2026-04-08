@@ -1,0 +1,21 @@
+// Error: referencing an assoc type that the trait doesn't declare
+package assoc_fail_unknown_assoc;
+
+trait Wrap {
+    type Inner;
+    fn unwrap(self: Self) -> Self::Inner;
+}
+
+struct MyBox { val: i32; }
+
+impl Wrap for MyBox {
+    type Inner = i32;
+    fn unwrap(self: MyBox) -> i32 { return self.val; }
+}
+
+// T::Ghost is not declared in Wrap — should error
+fn bad<T: Wrap>(w: T) -> T::Ghost {
+    return w.unwrap();
+}
+
+fn main() -> i32 { return 0; }

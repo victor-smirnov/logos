@@ -1,0 +1,16 @@
+// Error: impl is missing an associated type definition
+package assoc_fail_missing;
+
+trait Wrapper {
+    type Inner;
+    fn unwrap(self: Self) -> Self::Inner;
+}
+
+struct BadBox { val: i32; }
+
+// Missing: type Inner = i32;
+impl Wrapper for BadBox {
+    fn unwrap(self: BadBox) -> i32 { return self.val; }
+}
+
+fn main() -> i32 { return 0; }

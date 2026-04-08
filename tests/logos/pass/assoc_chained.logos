@@ -1,0 +1,30 @@
+// T::Item result passed through multiple function calls
+// Tests: generic fn calling another generic fn, assoc type flows through
+package assoc_chained;
+
+trait Source {
+    type Out;
+    fn produce(self: Self) -> Self::Out;
+}
+
+struct Forty2 {}
+
+impl Source for Forty2 {
+    type Out = i32;
+    fn produce(self: Forty2) -> i32 { return 42; }
+}
+
+fn extract<T: Source>(s: T) -> T::Out {
+    return s.produce();
+}
+
+// Call extract and add 0 — verifies T::Out resolves at call site
+fn identity_extract<T: Source>(s: T) -> i32 {
+    let v: i32 = extract::<Forty2>(Forty2 {});
+    return v;
+}
+
+fn main() -> i32 {
+    let s: Forty2 = Forty2 {};
+    return identity_extract::<Forty2>(s);
+}

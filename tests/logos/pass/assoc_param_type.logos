@@ -1,0 +1,24 @@
+// T::Item used as a parameter type (not just return type)
+package assoc_param_type;
+
+trait Container {
+    type Item;
+    fn store(self: Self, item: Self::Item) -> i32;
+}
+
+struct NumBag { val: i32; }
+
+impl Container for NumBag {
+    type Item = i32;
+    fn store(self: NumBag, item: i32) -> i32 { return self.val + item; }
+}
+
+// T::Item appears in param position
+fn put<T: Container>(c: T, item: T::Item) -> i32 {
+    return c.store(item);
+}
+
+fn main() -> i32 {
+    let bag: NumBag = NumBag { val: 20 };
+    return put::<NumBag>(bag, 22);
+}
