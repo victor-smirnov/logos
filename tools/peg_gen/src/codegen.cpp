@@ -944,6 +944,33 @@ private:
                 w.dedent();
                 w.line("}");
             }
+            // LIFETIME-like: starts with apostrophe, then [a-z][a-z0-9_]*
+            // Matches Rust-style lifetime annotations: 'a, 'static, 'lifetime_name
+            // NOTE: c = source_[pos_] is read WITHOUT incrementing pos_, so pos_
+            // still points at the apostrophe.  We must check pos_+1 for the letter
+            // after it, then advance pos_ past the apostrophe before the while loop.
+            else if (pat.size() >= 2 && pat.front() == '\'' && pat[1] == '[') {
+                bool lower_start = pat.find("[a-z") != std::string::npos;
+                bool alnum_rest  = pat.find("[a-z0-9_]") != std::string::npos
+                                || pat.find("[a-zA-Z0-9_]") != std::string::npos;
+                w.fmt("// {} = /{}/", t.name, pat);
+                if (lower_start) {
+                    w.line("if (c == '\\'' && pos_ + 1 < source_.size() && std::islower(source_[pos_ + 1])) {");
+                } else {
+                    w.line("if (c == '\\'' && pos_ + 1 < source_.size() && std::isalpha(source_[pos_ + 1])) {");
+                }
+                w.indent();
+                w.line("++pos_;  // advance past apostrophe");
+                if (alnum_rest) {
+                    w.line("while (pos_ < source_.size() && (std::isalnum(source_[pos_]) || source_[pos_] == '_'))");
+                    w.line("    ++pos_;");
+                } else {
+                    w.line("if (pos_ < source_.size() && std::isalpha(source_[pos_])) ++pos_;");
+                }
+                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+                w.dedent();
+                w.line("}");
+            }
             else {
                 w.fmt("// TODO: {} = /{}/  — add hand-coded matcher", t.name, pat);
             }

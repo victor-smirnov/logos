@@ -107,6 +107,37 @@ struct VarState {
 
 using StateMap = std::unordered_map<std::string, VarState>;
 
+// Phase 4 — lifetime provenance.
+// For each reference-typed variable, tracks which function parameters it
+// ultimately dereferences into (params are guaranteed to outlive the call).
+// is_local = true  → at least one path originates from a local variable
+//                    (returning such a ref is a dangling reference).
+// params.empty() && !is_local → provenance unknown / comes from a global or
+//                                a function return value; assume safe to return.
+struct RefProv {
+    std::unordered_set<std::string> params;    // param names this ref may alias
+    bool                            is_local = false;
+};
+
+using ProvMap = std::unordered_map<std::string, RefProv>;
+
+static RefProv merge_prov(const RefProv& a, const RefProv& b) {
+    RefProv r;
+    for (auto& s : a.params) r.params.insert(s);
+    for (auto& s : b.params) r.params.insert(s);
+    r.is_local = a.is_local || b.is_local;
+    return r;
+}
+
+static void merge_provs(ProvMap& base, const ProvMap& other) {
+    for (auto& [name, p] : other)
+        base[name] = merge_prov(base[name], p);
+}
+
+static bool is_ref_kind(const LogosType* t) {
+    return t && (t->kind == LogosType::Kind::Ref || t->kind == LogosType::Kind::MutRef);
+}
+
 struct BorrowRecord {
     std::string target;
     bool        is_mut;
@@ -134,9 +165,12 @@ class BorrowChecker {
 
     StateMap                 states_;
     std::vector<ScopeFrame>  scopes_;
-    // Phase 3: local variables (not params) — cannot be returned by reference.
-    std::unordered_set<std::string> local_vars_;
-    // Phase 3: return type of current function.
+    // Phase 4: provenance tracking for reference-typed variables.
+    ProvMap                              prov_;
+    std::unordered_set<std::string>      param_names_;
+    // param name → lifetime annotation of that param's type (e.g. "'a", "")
+    std::unordered_map<std::string, std::string> param_lifetimes_;
+    // Phase 3/4: return type of current function.
     const LogosType*         ret_type_ = nullptr;
 
     void report(uint32_t line, std::string msg) {
@@ -166,8 +200,10 @@ class BorrowChecker {
             }
         }
         // Remove variables declared in this scope.
-        for (auto& name : frame.declared)
+        for (auto& name : frame.declared) {
             states_.erase(name);
+            prov_.erase(name);
+        }
         scopes_.pop_back();
     }
 
@@ -247,26 +283,95 @@ class BorrowChecker {
         }
     }
 
-    // ── Phase 3: dangling reference check ─────────────────────────────────
+    // ── Phase 4: provenance of a reference expression ─────────────────────
+    //
+    // Returns the set of function parameters the expression borrows from.
+    // is_local = true  → at least one source is a local variable (dangling if returned).
+    // params.empty() && !is_local → unknown/global — assumed safe (e.g. static data,
+    //   or result of a function call where we don't track cross-call lifetimes).
 
-    // Is the expression a borrow of a local variable (potentially dangling)?
-    bool is_local_borrow(const LExprPtr& e) const {
-        if (!e) return false;
-        if (auto* addr = std::get_if<lir::EAddrOf>(&e->kind))
-            return local_vars_.count(addr->var_name) > 0;
-        return false;
+    RefProv prov_of(const LExprPtr& e) const {
+        if (!e) return {};
+        return std::visit([&](auto& k) -> RefProv {
+            using K = std::decay_t<decltype(k)>;
+
+            if constexpr (std::is_same_v<K, lir::EVarRef>) {
+                // A param variable used directly as a reference value.
+                if (param_names_.count(k.name) && is_ref_kind(e->type))
+                    return {{k.name}, false};
+                // A local ref variable whose provenance we've already computed.
+                auto it = prov_.find(k.name);
+                if (it != prov_.end()) return it->second;
+                return {};   // unknown non-ref or untracked — assume safe
+            }
+            if constexpr (std::is_same_v<K, lir::EAddrOf>) {
+                if (param_names_.count(k.var_name)) return {{k.var_name}, false};
+                if (states_.count(k.var_name))      return {{},           true};
+                return {};  // &global — safe
+            }
+            if constexpr (std::is_same_v<K, lir::EFieldRead>)
+                return prov_of(k.receiver);
+            if constexpr (std::is_same_v<K, lir::EDeref>)
+                return prov_of(k.operand);
+            if constexpr (std::is_same_v<K, lir::ETupleIndex>)
+                return prov_of(k.receiver);
+            if constexpr (std::is_same_v<K, lir::ECast>)
+                return prov_of(k.operand);
+            if constexpr (std::is_same_v<K, lir::EIndexRead>)
+                return prov_of(k.receiver);
+            if constexpr (std::is_same_v<K, lir::EIfExpr>)
+                return merge_prov(prov_of(k.then_val), prov_of(k.else_val));
+            // ECall / EMethodCall / EStructLit / literals — value is caller-owned,
+            // not a borrowed reference; leave provenance empty (= unknown/safe).
+            return {};
+        }, e->kind);
     }
 
+    // ── Phase 3 + 4: dangling / lifetime check on return ──────────────────
+
     void check_return_value(const LExprPtr& e, uint32_t line) {
-        if (!ret_type_) return;
-        if (ret_type_->kind != LogosType::Kind::Ref &&
-            ret_type_->kind != LogosType::Kind::MutRef) return;
-        if (is_local_borrow(e)) {
-            auto* addr = std::get_if<lir::EAddrOf>(&e->kind);
+        if (!ret_type_ || !is_ref_kind(ret_type_)) return;
+
+        RefProv prov = prov_of(e);
+
+        // 1. Definitely local → always dangling.
+        if (prov.is_local) {
+            std::string src;
+            if (auto* a = std::get_if<lir::EAddrOf>(&e->kind))  src = a->var_name;
+            else if (auto* v = std::get_if<lir::EVarRef>(&e->kind)) src = v->name;
             report(line, std::format(
                 "cannot return reference to local variable '{}': dangling reference",
-                addr->var_name));
+                src.empty() ? "?" : src));
+            return;
         }
+
+        // 2. Explicit lifetime on return type — check sources match.
+        const std::string& ret_lt = ret_type_->lifetime;
+        if (!ret_lt.empty() && ret_lt != "'_") {
+            if (prov.params.empty()) {
+                report(line, std::format(
+                    "cannot determine provenance of returned reference "
+                    "(expected lifetime {})", ret_lt));
+                return;
+            }
+            for (auto& src : prov.params) {
+                auto it = param_lifetimes_.find(src);
+                const std::string src_lt = (it != param_lifetimes_.end()) ? it->second : "";
+                if (src_lt != ret_lt)
+                    report(line, std::format(
+                        "lifetime mismatch: return type has lifetime {} "
+                        "but '{}' has lifetime {}",
+                        ret_lt, src, src_lt.empty() ? "(elided)" : src_lt));
+            }
+            return;
+        }
+
+        // 3. Elided return lifetime — must come from at least one param.
+        //    (empty prov.params + !is_local = global/unknown, which is safe)
+        //    Only an EVarRef or EAddrOf with no param source and no known global
+        //    signals a problem we can detect statically.
+        if (!prov.params.empty()) return;   // fine — derives from a param
+        // prov is empty AND !is_local: either unknown (call result) or global — let it pass.
     }
 
     // ── Expression visitor ─────────────────────────────────────────────────
@@ -301,17 +406,22 @@ class BorrowChecker {
     // loop_vars are local to the loop iteration.
     void visit_loop_body(const LBlock& body,
                          const std::vector<std::string>& loop_vars = {}) {
-        auto pre = states_;
+        auto pre_s = states_;
+        auto pre_p = prov_;
         push_scope();
         for (auto& v : loop_vars) declare_var(v);
         for (auto& s : body.stmts) visit_stmt(s);
         pop_scope();
-        // Borrows are released by pop_scope; propagate only moves of outer vars.
-        auto post = states_;
-        states_ = pre;
-        for (auto& [name, st] : post)
-            if (st.moved && pre.count(name))
+        // Borrows released by pop_scope; propagate only moves of outer vars.
+        // For provenance, merge conservatively (loop may run 0 or more times).
+        auto post_s = states_;
+        auto post_p = prov_;
+        states_ = pre_s;
+        prov_   = pre_p;
+        for (auto& [name, st] : post_s)
+            if (st.moved && pre_s.count(name))
                 states_[name] = st;
+        merge_provs(prov_, post_p);
     }
 
     void visit_stmt(const LStmt& stmt) {
@@ -331,7 +441,8 @@ class BorrowChecker {
                     visit(s.value, /*consuming=*/true, ln);
                 }
                 declare_var(s.name);
-                local_vars_.insert(s.name);
+                if (is_ref_kind(s.type))
+                    prov_[s.name] = prov_of(s.value);
 
             // ── Assignment ───────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SAssign>) {
@@ -395,12 +506,16 @@ class BorrowChecker {
             // ── If / else ────────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SIf>) {
                 visit(s.cond, /*consuming=*/true, ln);
-                auto saved = states_;
+                auto saved_s = states_;
+                auto saved_p = prov_;
                 visit_block(*s.then_);
-                auto then_st = states_;
-                states_ = saved;
+                auto then_s = states_;
+                auto then_p = prov_;
+                states_ = saved_s;
+                prov_   = saved_p;
                 if (s.else_) visit_block(**s.else_);
-                merge_moves(states_, then_st);
+                merge_moves(states_, then_s);
+                merge_provs(prov_,   then_p);
 
             // ── While loop ───────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SWhile>) {
@@ -429,10 +544,13 @@ class BorrowChecker {
             // ── Match statement ───────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SMatch>) {
                 visit(s.scrut, /*consuming=*/false, ln);
-                auto saved = states_;
-                std::optional<StateMap> merged;
+                auto saved_s = states_;
+                auto saved_p = prov_;
+                std::optional<StateMap> merged_s;
+                std::optional<ProvMap>  merged_p;
                 for (auto& arm : s.arms) {
-                    states_ = saved;
+                    states_ = saved_s;
+                    prov_   = saved_p;
                     std::visit([&](auto& p) {
                         if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
                                                      PatVariantData>) {
@@ -444,17 +562,20 @@ class BorrowChecker {
                     }, arm.pat);
                     if (arm.guard) visit(*arm.guard, /*consuming=*/true, ln);
                     visit_block(*arm.body);
-                    if (!merged) {
-                        merged = states_;
+                    if (!merged_s) {
+                        merged_s = states_;
+                        merged_p = prov_;
                     } else {
                         for (auto& [name, st] : states_)
-                            if (st.moved && saved.count(name))
-                                (*merged)[name] = st;
+                            if (st.moved && saved_s.count(name))
+                                (*merged_s)[name] = st;
+                        merge_provs(*merged_p, prov_);
                     }
                 }
-                if (merged) {
-                    for (auto& [name, st] : *merged)
-                        if (saved.count(name)) states_[name] = st;
+                if (merged_s) {
+                    for (auto& [name, st] : *merged_s)
+                        if (saved_s.count(name)) states_[name] = st;
+                    merge_provs(prov_, *merged_p);
                 }
             }
             // SBreak, SContinue — no variable effects.
@@ -469,14 +590,18 @@ public:
     void check(const LFunction& fn) {
         states_.clear();
         scopes_.clear();
-        local_vars_.clear();
+        prov_.clear();
+        param_names_.clear();
+        param_lifetimes_.clear();
         ret_type_ = fn.ret_type;
 
         push_scope();  // function scope
-        for (auto& p : fn.params)
+        for (auto& p : fn.params) {
             declare_var(p.name);
-        // Params are NOT local — clear them from local_vars_
-        // (declare_var adds to local_vars_ only via SLet, not here)
+            param_names_.insert(p.name);
+            if (is_ref_kind(p.type))
+                param_lifetimes_[p.name] = p.type->lifetime;
+        }
 
         visit_block(fn.body);
         pop_scope();
@@ -575,33 +700,43 @@ void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
         // ── If expression ──────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EIfExpr>) {
             visit(k.cond, /*consuming=*/true, line);
-            auto saved = states_;
+            auto saved_s = states_;
+            auto saved_p = prov_;
             visit(k.then_val, consuming, line);
-            auto then_st = states_;
-            states_ = saved;
+            auto then_s = states_;
+            auto then_p = prov_;
+            states_ = saved_s;
+            prov_   = saved_p;
             visit(k.else_val, consuming, line);
-            merge_moves(states_, then_st);
+            merge_moves(states_, then_s);
+            merge_provs(prov_,   then_p);
 
         // ── Match expression ───────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EMatchExpr>) {
             visit(k.scrut, /*consuming=*/false, line);
-            auto saved = states_;
-            std::optional<StateMap> merged;
+            auto saved_s = states_;
+            auto saved_p = prov_;
+            std::optional<StateMap> merged_s;
+            std::optional<ProvMap>  merged_p;
             for (auto& arm : k.arms) {
-                states_ = saved;
+                states_ = saved_s;
+                prov_   = saved_p;
                 if (arm.guard) visit(*arm.guard, /*consuming=*/true, line);
                 visit(arm.value, consuming, line);
-                if (!merged) {
-                    merged = states_;
+                if (!merged_s) {
+                    merged_s = states_;
+                    merged_p = prov_;
                 } else {
                     for (auto& [name, st] : states_)
-                        if (st.moved && saved.count(name))
-                            (*merged)[name] = st;
+                        if (st.moved && saved_s.count(name))
+                            (*merged_s)[name] = st;
+                    merge_provs(*merged_p, prov_);
                 }
             }
-            if (merged) {
-                for (auto& [name, st] : *merged)
-                    if (saved.count(name)) states_[name] = st;
+            if (merged_s) {
+                for (auto& [name, st] : *merged_s)
+                    if (saved_s.count(name)) states_[name] = st;
+                merge_provs(prov_, *merged_p);
             }
 
         // ── Try expression: expr? ──────────────────────────────────────

@@ -1,0 +1,6 @@
+package lifetime_mismatch;
+// Named lifetime: return must come from param with matching lifetime
+fn first<'a>(x: &'a i32, y: &i32) -> &'a i32 {
+    return y;   // error: y has no lifetime 'a
+}
+fn main() -> i32 { return 0; }
