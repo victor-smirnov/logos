@@ -310,6 +310,9 @@
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
+                // impl<T> Pair<T> { ... } — standalone impl with own type parameters
+                / KW_IMPL type_param_list simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, TYPE_PARAMS: $2, TYPE: $3, ITEMS: $... }
                 / KW_IMPL simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, TYPE: $2, ITEMS: $... }
 
