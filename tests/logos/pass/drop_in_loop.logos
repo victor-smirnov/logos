@@ -1,0 +1,27 @@
+// Test: Droppable var created inside loop body, dropped each iteration
+package drop_in_loop;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop {
+    fn drop(self: Self);
+}
+
+struct Resource {
+    id: i32;
+}
+
+impl Drop for Resource {
+    fn drop(self: Resource) {
+        printf("d%d ", self.id);
+    }
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    for i in 0..3 {
+        let r: Resource = Resource { id: i };
+        printf("a%d ", r.id);
+    }
+    return result;
+}

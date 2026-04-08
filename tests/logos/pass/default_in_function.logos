@@ -1,0 +1,26 @@
+// Test: use Default::default() to initialize inside a function, compute with it
+package default_in_function;
+
+trait Default {
+    fn default() -> Self;
+}
+
+struct Accum {
+    total: i32;
+}
+
+impl Default for Accum {
+    fn default() -> Accum {
+        return Accum { total: 0 };
+    }
+}
+
+fn compute() -> i32 {
+    let a: Accum = Accum::default();
+    let result: i32 = a.total + 42;
+    return result;
+}
+
+fn main() -> i32 {
+    return compute();
+}

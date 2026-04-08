@@ -1,0 +1,32 @@
+// Test: chain From conversions (From<i32> for A, From<A> for B)
+package from_chain;
+
+trait From<T> {
+    fn from(val: T) -> Self;
+}
+
+struct A {
+    value: i32;
+}
+
+struct B {
+    value: i32;
+}
+
+impl From<i32> for A {
+    fn from(val: i32) -> A {
+        return A { value: val };
+    }
+}
+
+impl From<A> for B {
+    fn from(val: A) -> B {
+        return B { value: val.value + 2 };
+    }
+}
+
+fn main() -> i32 {
+    let a: A = A::from(40);
+    let b: B = B::from(a);
+    return b.value;
+}

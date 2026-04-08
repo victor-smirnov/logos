@@ -1,0 +1,29 @@
+// Test: Droppable var in inner block, dropped when inner block exits
+package drop_nested_scope;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop {
+    fn drop(self: Self);
+}
+
+struct Resource {
+    id: i32;
+}
+
+impl Drop for Resource {
+    fn drop(self: Resource) {
+        printf("d%d ", self.id);
+    }
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let outer: Resource = Resource { id: 1 };
+    if true {
+        let inner: Resource = Resource { id: 2 };
+        printf("in ");
+    }
+    printf("out ");
+    return result;
+}

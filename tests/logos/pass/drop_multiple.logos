@@ -1,0 +1,28 @@
+// Test: Two droppable variables in same scope, both should be dropped
+package drop_multiple;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop {
+    fn drop(self: Self);
+}
+
+// Use a global counter via extern
+extern fn putchar(c: i32) -> i32;
+
+struct Resource {
+    id: i32;
+}
+
+impl Drop for Resource {
+    fn drop(self: Resource) {
+        printf("d%d ", self.id);
+    }
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let a: Resource = Resource { id: 1 };
+    let b: Resource = Resource { id: 2 };
+    return result;
+}

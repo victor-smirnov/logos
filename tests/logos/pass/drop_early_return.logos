@@ -1,0 +1,33 @@
+// Test: Early return from if condition, drops should still fire
+package drop_early_return;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop {
+    fn drop(self: Self);
+}
+
+struct Resource {
+    id: i32;
+}
+
+impl Drop for Resource {
+    fn drop(self: Resource) {
+        printf("d%d ", self.id);
+    }
+}
+
+fn early(flag: i32) -> i32 {
+    let result: i32 = 42;
+    let a: Resource = Resource { id: 1 };
+    if flag == 1 {
+        let b: Resource = Resource { id: 2 };
+        return result;
+    }
+    printf("not-taken ");
+    return result;
+}
+
+fn main() -> i32 {
+    return early(1);
+}

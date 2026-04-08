@@ -1,0 +1,17 @@
+// Fail: match on generic enum Result<i32, i32> missing Err variant
+package match_generic_enum_nonexhaustive;
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+fn check(r: Result<i32, i32>) -> i32 {
+    match r {
+        Result::Ok(v) => { return v; }
+    }
+}
+
+fn main() -> i32 {
+    return check(Result::Ok(42));
+}

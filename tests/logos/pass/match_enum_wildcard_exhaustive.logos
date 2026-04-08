@@ -1,0 +1,22 @@
+// Pass: match on enum with wildcard covers all variants
+package match_enum_wildcard_exhaustive;
+
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+fn to_code(d: Direction) -> i32 {
+    match d {
+        Direction::North => { return 10; }
+        _ => { return 32; }
+    }
+}
+
+fn main() -> i32 {
+    let a: i32 = to_code(Direction::North);  // 10
+    let b: i32 = to_code(Direction::South);  // 32
+    return a + b;  // 42
+}

@@ -1,0 +1,9 @@
+// Fail: match on bool with only false arm (missing true)
+package match_bool_missing_true;
+
+fn main() -> i32 {
+    let x: bool = false;
+    match x {
+        false => { return 0; }
+    }
+}

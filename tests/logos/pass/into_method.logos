@@ -1,0 +1,22 @@
+// Test: use .into() method syntax on struct
+package into_method;
+
+trait Into<T> {
+    fn into(self: Self) -> T;
+}
+
+struct Celsius {
+    temp: i32;
+}
+
+impl Into<i32> for Celsius {
+    fn into(self: Celsius) -> i32 {
+        return self.temp;
+    }
+}
+
+fn main() -> i32 {
+    let c: Celsius = Celsius { temp: 42 };
+    let val: i32 = c.into();
+    return val;
+}

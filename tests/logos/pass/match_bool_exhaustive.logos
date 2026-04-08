@@ -1,0 +1,15 @@
+// Pass: match on bool with both true and false arms
+package match_bool_exhaustive;
+
+fn to_int(b: bool) -> i32 {
+    match b {
+        true  => { return 42; }
+        false => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    let a: i32 = to_int(true);   // 42
+    let b: i32 = to_int(false);  // 0
+    return a + b;  // 42
+}

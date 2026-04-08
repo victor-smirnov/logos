@@ -1,0 +1,14 @@
+// Fail: match on 2-variant enum with only 1 of 2 arms
+package match_enum_empty;
+
+enum Toggle {
+    On,
+    Off,
+}
+
+fn main() -> i32 {
+    let t: Toggle = Toggle::On;
+    match t {
+        Toggle::On => { return 1; }
+    }
+}

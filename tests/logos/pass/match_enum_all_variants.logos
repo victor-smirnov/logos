@@ -1,0 +1,26 @@
+// Pass: match on 4-variant enum with all variants explicitly listed
+package match_enum_all_variants;
+
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+fn to_code(d: Direction) -> i32 {
+    match d {
+        Direction::North => { return 10; }
+        Direction::South => { return 20; }
+        Direction::East  => { return 5; }
+        Direction::West  => { return 7; }
+    }
+}
+
+fn main() -> i32 {
+    let a: i32 = to_code(Direction::North);  // 10
+    let b: i32 = to_code(Direction::South);  // 20
+    let c: i32 = to_code(Direction::East);   // 5
+    let d: i32 = to_code(Direction::West);   // 7
+    return a + b + c + d;  // 42
+}

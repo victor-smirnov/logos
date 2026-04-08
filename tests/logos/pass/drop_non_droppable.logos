@@ -1,0 +1,31 @@
+// Test: Mix of droppable and non-droppable variables, only droppable get dropped
+package drop_non_droppable;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop {
+    fn drop(self: Self);
+}
+
+struct Resource {
+    id: i32;
+}
+
+impl Drop for Resource {
+    fn drop(self: Resource) {
+        printf("d%d ", self.id);
+    }
+}
+
+struct Plain {
+    value: i32;
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let p: Plain = Plain { value: 99 };
+    let r: Resource = Resource { id: 1 };
+    let x: i32 = 10;
+    printf("p%d x%d ", p.value, x);
+    return result;
+}

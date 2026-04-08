@@ -1,0 +1,23 @@
+// Test: Default for struct with multiple fields, verify all initialized
+package default_struct_fields;
+
+trait Default {
+    fn default() -> Self;
+}
+
+struct Config {
+    width: i32;
+    height: i32;
+    depth: i32;
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        return Config { width: 10, height: 20, depth: 12 };
+    }
+}
+
+fn main() -> i32 {
+    let c: Config = Config::default();
+    return c.width + c.height + c.depth;
+}
