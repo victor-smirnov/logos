@@ -1,0 +1,10 @@
+// Variadic: count elements via recursion (tests zero-element tail)
+package variadic_count;
+fn count() -> i32 { return 0; }
+fn count<H, T...>(first: H, rest: T...) -> i32 {
+    return 1 + count(rest...);
+}
+fn main() -> i32 {
+    let c: i32 = count::<i32, i32, i32>(1, 2, 3);
+    return c + 39;
+}

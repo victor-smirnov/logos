@@ -1,0 +1,9 @@
+// Trait with only a default method, impl is empty
+package trait_default_only;
+trait Answer { fn answer(self: Self) -> i32 { return 42; } }
+struct Q {}
+impl Answer for Q {}
+fn main() -> i32 {
+    let q: Q = Q {};
+    return q.answer();
+}

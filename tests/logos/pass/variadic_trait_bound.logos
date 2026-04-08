@@ -1,0 +1,16 @@
+// Variadic with trait bound on head type parameter
+package variadic_trait_bound;
+trait ToI32 { fn to_i32(self: Self) -> i32; }
+struct A { v: i32; }
+struct B { v: i32; }
+impl ToI32 for A { fn to_i32(self: A) -> i32 { return self.v; } }
+impl ToI32 for B { fn to_i32(self: B) -> i32 { return self.v; } }
+fn sum_vals() -> i32 { return 0; }
+fn sum_vals<H: ToI32, T...>(first: H, rest: T...) -> i32 {
+    return first.to_i32() + sum_vals(rest...);
+}
+fn main() -> i32 {
+    let a: A = A { v: 20 };
+    let b: B = B { v: 22 };
+    return sum_vals::<A, B>(a, b);
+}

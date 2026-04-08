@@ -1,0 +1,5 @@
+// Variadic pack with single element
+package variadic_single;
+fn wrap<T...>(args: T...) -> i32 { return id(args...); }
+fn id(x: i32) -> i32 { return x; }
+fn main() -> i32 { return wrap::<i32>(42); }

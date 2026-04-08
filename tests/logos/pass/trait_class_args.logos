@@ -1,0 +1,17 @@
+// Trait impl for class with method args, dispatched through generic
+package trait_class_args;
+trait Scale { fn scale(self: Self, factor: i32) -> i32; }
+class Obj {
+    val: i32;
+    static fn create(v: i32) -> *mut Obj { return new Obj { val: v }; }
+}
+impl Scale for Obj {
+    fn scale(self: *mut Obj, factor: i32) -> i32 { return self.val * factor; }
+}
+fn do_scale<T: Scale>(x: T, f: i32) -> i32 { return x.scale(f); }
+fn main() -> i32 {
+    let o: *mut Obj = Obj::create(6);
+    let r: i32 = do_scale::<*mut Obj>(o, 7);
+    delete o;
+    return r;
+}
