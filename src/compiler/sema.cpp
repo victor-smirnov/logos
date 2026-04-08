@@ -699,7 +699,7 @@ private:
 
     // ── Type parameter helpers ────────────────────────────────────
 
-    // Read type_param_list from an AST node that may have TYPE_PARAMS.
+    // Read type_param_list from an AST node that may have TYPE_PARAMS and/or WHERE clause.
     std::vector<TypeParam> read_type_params(TinyMapView node) {
         std::vector<TypeParam> result;
         if (!node.has_key(la::TYPE_PARAMS)) return result;
@@ -735,6 +735,42 @@ private:
             if (tp.is_variadic && i + 1 < tpitems.size())
                 error("variadic type parameter must be last in the type parameter list");
             result.push_back(std::move(tp));
+        }
+        // Merge bounds from `where T: Trait, U: Trait2` clause.
+        if (node.has_key(la::WHERE)) {
+            AnyVal wav = node.get(la::WHERE.code);
+            if (!wav.is_null()) {
+                auto wnode = map_of(wav);
+                if (wnode.has_key(la::ITEMS)) {
+                    auto witems = arr_of(wnode.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < witems.size(); ++i) {
+                        auto constraint = map_of(witems.get(i));
+                        if (code_of(constraint) != la::TYPE_PARAM) continue;
+                        auto tname = std::string(str_of(constraint.get(la::NAME.code)));
+                        // Find the type param in result and add bounds.
+                        TypeParam* tp_ptr = nullptr;
+                        for (auto& tp : result)
+                            if (tp.name == tname) { tp_ptr = &tp; break; }
+                        if (!tp_ptr) {
+                            // type param in where clause not in param list — add it
+                            TypeParam tp; tp.name = tname;
+                            result.push_back(std::move(tp));
+                            tp_ptr = &result.back();
+                        }
+                        if (constraint.has_key(la::ITEMS)) {
+                            auto bounds = arr_of(constraint.get(la::ITEMS.code));
+                            for (uint64_t b = 0; b < bounds.size(); ++b) {
+                                auto bnode = map_of(bounds.get(b));
+                                if (code_of(bnode) == la::TRAIT_BOUND) {
+                                    TraitBound tb;
+                                    tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                                    tp_ptr->bounds.push_back(std::move(tb));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         return result;
     }

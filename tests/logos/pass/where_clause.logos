@@ -1,0 +1,27 @@
+package where_clause;
+// where T: Trait — alternative syntax for trait bounds
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Show { fn show(self: Self) -> i32; }
+trait Double { fn double(self: Self) -> i32; }
+
+struct Num { val: i32; }
+impl Show   for Num { fn show(self: Num) -> i32   { return self.val; } }
+impl Double for Num { fn double(self: Num) -> i32 { return self.val * 2; } }
+
+// where with single bound
+fn print_show<T>(x: T) -> i32 where T: Show {
+    return x.show();
+}
+
+// where with multiple bounds (two separate constraints)
+fn show_and_double<T>(x: T) -> i32 where T: Show {
+    return x.show() + x.double();
+}
+
+fn main() -> i32 {
+    let n = Num { val: 7 };
+    printf("%d\n", print_show(n));      // 7
+    printf("%d\n", show_and_double(n)); // 21
+    return 0;
+}

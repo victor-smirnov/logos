@@ -58,6 +58,7 @@
     GUARD       = 35
     EXPR        = 36
     NAMES       = 37
+    WHERE       = 38
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@
     ASSOC_TYPE_REF       = 121
     TRY_EXPR             = 122
     LET_DESTRUCT         = 123
+    WHERE_CLAUSE         = 124
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -366,17 +368,21 @@
                    / KW_EXTERN KW_FN IDENT LPAREN param_list? RPAREN SEMI
                   => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5 }
 
+    // where T: Trait, U: Trait2
+    where_clause <- KW_WHERE type_param (COMMA type_param)*
+                 => { CODE: WHERE_CLAUSE, ITEMS: $... }
+
     // ── Public function ──────────────────────────────────────────
-    pub_fn_def <- KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
-               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
-                / KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
-               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
+    pub_fn_def <- KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
+                / KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
+               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
 
     // ── Private function ─────────────────────────────────────────
-    fn_def <- KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
-           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
-            / KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
-           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, BODY: $7 }
+    fn_def <- KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
+            / KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
+           => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
 
     param_list <- param (COMMA param)*
               => { ITEMS: $... }
