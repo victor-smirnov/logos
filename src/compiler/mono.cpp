@@ -503,11 +503,63 @@ private:
                 } // end else (non-trait method call)
 
             } else if constexpr (std::is_same_v<K, lir::EBinOp>) {
-                result->kind = lir::EBinOp{k.op,
-                    subst_expr(*k.lhs, s), subst_expr(*k.rhs, s)};
+                auto new_lhs = subst_expr(*k.lhs, s);
+                auto new_rhs = subst_expr(*k.rhs, s);
+                // After substitution, if LHS is a struct/class, rewrite binop
+                // to operator trait method call (e.g. v + v → Vec2__add(v, v)).
+                auto* lt = new_lhs->type;
+                if (lt && (lt->kind == LogosType::Kind::Struct ||
+                           lt->kind == LogosType::Kind::Class)) {
+                    std::string method_name;
+                    if      (k.op == "+")  method_name = "add";
+                    else if (k.op == "-")  method_name = "sub";
+                    else if (k.op == "*")  method_name = "mul";
+                    else if (k.op == "/")  method_name = "div";
+                    else if (k.op == "%")  method_name = "rem";
+                    else if (k.op == "==") method_name = "eq";
+                    else if (k.op == "!=") method_name = "ne";
+                    else if (k.op == "<")  method_name = "lt";
+                    else if (k.op == "<=") method_name = "le";
+                    else if (k.op == ">")  method_name = "gt";
+                    else if (k.op == ">=") method_name = "ge";
+                    if (!method_name.empty()) {
+                        std::string cname = (lt->kind == LogosType::Kind::Struct)
+                            ? concrete_struct_name(lt) : concrete_class_name(lt);
+                        lir::ECall nc;
+                        nc.callee = cname + "__" + method_name;
+                        nc.args.push_back(std::move(new_lhs));
+                        nc.args.push_back(std::move(new_rhs));
+                        result->kind = std::move(nc);
+                    } else {
+                        result->kind = lir::EBinOp{k.op,
+                            std::move(new_lhs), std::move(new_rhs)};
+                    }
+                } else {
+                    result->kind = lir::EBinOp{k.op,
+                        std::move(new_lhs), std::move(new_rhs)};
+                }
 
             } else if constexpr (std::is_same_v<K, lir::EUnary>) {
-                result->kind = lir::EUnary{k.op, subst_expr(*k.operand, s)};
+                auto new_op = subst_expr(*k.operand, s);
+                auto* vt = new_op->type;
+                if (vt && (vt->kind == LogosType::Kind::Struct ||
+                           vt->kind == LogosType::Kind::Class)) {
+                    std::string method_name;
+                    if      (k.op == "-") method_name = "neg";
+                    else if (k.op == "!") method_name = "not_";
+                    if (!method_name.empty()) {
+                        std::string cname = (vt->kind == LogosType::Kind::Struct)
+                            ? concrete_struct_name(vt) : concrete_class_name(vt);
+                        lir::ECall nc;
+                        nc.callee = cname + "__" + method_name;
+                        nc.args.push_back(std::move(new_op));
+                        result->kind = std::move(nc);
+                    } else {
+                        result->kind = lir::EUnary{k.op, std::move(new_op)};
+                    }
+                } else {
+                    result->kind = lir::EUnary{k.op, std::move(new_op)};
+                }
 
             } else if constexpr (std::is_same_v<K, lir::EDeref>) {
                 result->kind = lir::EDeref{subst_expr(*k.operand, s)};
