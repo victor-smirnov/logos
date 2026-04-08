@@ -389,7 +389,8 @@ struct EClosure {
 
 struct LFunction {
     std::string              name;
-    std::vector<TypeParam>   type_params;  // TypeVar names (generic def, empty otherwise)
+    std::vector<TypeParam>   type_params;    // TypeVar names (generic def, empty otherwise)
+    std::vector<std::string> lifetime_params; // Lifetime param names, e.g. ["'a", "'b"]
     std::vector<LParam>      params;
     const LogosType*         ret_type  = nullptr;
     LBlock                   body;

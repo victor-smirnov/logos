@@ -1,0 +1,1 @@
+lifetime elision: return reference must derive from 'a' (the only reference parameter)

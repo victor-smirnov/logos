@@ -760,6 +760,23 @@ private:
     // ── Type parameter helpers ────────────────────────────────────
 
     // Read type_param_list from an AST node that may have TYPE_PARAMS and/or WHERE clause.
+    // Collect LIFETIME_PARAM names from a TYPE_PARAMS node (e.g. <'a, 'b, T>).
+    std::vector<std::string> read_lifetime_params(TinyMapView node) {
+        std::vector<std::string> result;
+        if (!node.has_key(la::TYPE_PARAMS)) return result;
+        AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+        if (tpav.is_null()) return result;
+        auto tplist = map_of(tpav);
+        if (!tplist.has_key(la::ITEMS)) return result;
+        auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < tpitems.size(); ++i) {
+            auto tpnode = map_of(tpitems.get(i));
+            if (code_of(tpnode) != la::LIFETIME_PARAM) continue;
+            result.push_back(std::string(str_of(tpnode.get(la::NAME.code))));
+        }
+        return result;
+    }
+
     std::vector<TypeParam> read_type_params(TinyMapView node) {
         std::vector<TypeParam> result;
         if (!node.has_key(la::TYPE_PARAMS)) return result;
@@ -1117,11 +1134,15 @@ private:
                 return error_t();
             }
             // Resolve each type arg (TypeVars in current scope are expanded).
+            // Skip LIFETIME_PARAM items ('a) — lifetimes are erased at runtime.
             std::vector<const LogosType*> args;
             if (node.has_key(la::ITEMS)) {
                 auto items = arr_of(node.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < items.size(); ++i)
-                    args.push_back(resolve_type(map_of(items.get(i))));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto item = map_of(items.get(i));
+                    if (code_of(item) == la::LIFETIME_PARAM) continue;
+                    args.push_back(resolve_type(item));
+                }
             }
             if (is_enum) {
                 LogosType t; t.kind = LogosType::Kind::Enum;
@@ -5306,7 +5327,8 @@ private:
         }
         if (!fi_ptr) return fn;   // shouldn't happen after collect
 
-        fn.type_params = fi_ptr->type_params;
+        fn.type_params    = fi_ptr->type_params;
+        fn.lifetime_params = read_lifetime_params(node);
         fn.ret_type    = fi_ptr->ret_type;
         ret_type_      = fn.ret_type;
         // Reset impl-trait inference state for this function.

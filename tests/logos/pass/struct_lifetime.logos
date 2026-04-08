@@ -1,0 +1,10 @@
+package struct_lifetime;
+// Struct with lifetime param — stores a reference
+struct Wrapper<'a> { inner: &'a i32; }
+fn get<'a>(w: &'a Wrapper<'a>) -> &'a i32 { return w.inner; }
+fn main() -> i32 {
+    let v: i32 = 7;
+    let w = Wrapper { inner: &v };
+    let r = get(&w);
+    return 0;
+}

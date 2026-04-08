@@ -493,7 +493,14 @@
     arr_type <- LBRACKET simple_type SEMI INTEGER RBRACKET
              => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
 
-    simple_type <- IDENT LT type_ref (COMMA type_ref)* GT
+    // type_or_lt_arg: a type argument that may be a lifetime annotation or a type.
+    // Lifetimes (e.g. 'a) in generic type args are stored as LIFETIME_PARAM nodes
+    // so sema can skip them when resolving concrete type arguments.
+    type_or_lt_arg <- LIFETIME
+                   => { CODE: LIFETIME_PARAM, NAME: $1 }
+                    / type_ref
+
+    simple_type <- IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT
                 => { CODE: GENERIC_INST, NAME: $1, ITEMS: $... }
                  / IDENT
                 => { CODE: TYPE_REF, NAME: $1 }
@@ -790,7 +797,7 @@
                => { CODE: TYPE_PARAM, NAME: $1 }
 
     // ── Type argument list (for generic instantiation in types): Vec<i32> ─
-    type_arg_list <- type_ref (COMMA type_ref)*
+    type_arg_list <- type_or_lt_arg (COMMA type_or_lt_arg)*
                   => { ITEMS: $... }
 
     // ── Value argument list (for call sites) ─────────────────────

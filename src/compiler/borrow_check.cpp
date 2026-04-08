@@ -170,6 +170,8 @@ class BorrowChecker {
     std::unordered_set<std::string>      param_names_;
     // param name → lifetime annotation of that param's type (e.g. "'a", "")
     std::unordered_map<std::string, std::string> param_lifetimes_;
+    // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
+    std::vector<std::string>             fn_lifetime_params_;
     // Phase 3/4: return type of current function.
     const LogosType*         ret_type_ = nullptr;
 
@@ -366,12 +368,31 @@ class BorrowChecker {
             return;
         }
 
-        // 3. Elided return lifetime — must come from at least one param.
-        //    (empty prov.params + !is_local = global/unknown, which is safe)
-        //    Only an EVarRef or EAddrOf with no param source and no known global
-        //    signals a problem we can detect statically.
-        if (!prov.params.empty()) return;   // fine — derives from a param
-        // prov is empty AND !is_local: either unknown (call result) or global — let it pass.
+        // 3. Elided / '_ return lifetime — apply Rust elision rules.
+        //    Rule: if exactly one ref-typed parameter (with any lifetime) exists,
+        //    the return must derive from that parameter.
+        //    With multiple ref params: ambiguous — only check non-local provenance.
+        if (!prov.params.empty()) {
+            // Has param source(s). Apply elision rule if applicable.
+            if (param_lifetimes_.size() == 1) {
+                const std::string& sole_param = param_lifetimes_.begin()->first;
+                if (!prov.params.count(sole_param)) {
+                    report(line, std::format(
+                        "lifetime elision: return reference must derive from '{}' "
+                        "(the only reference parameter)", sole_param));
+                }
+            }
+            // else: multiple ref params — can't disambiguate, allow any param source.
+            return;
+        }
+        // prov.params empty && !is_local: call result, global, or untracked.
+        // If we have ref params but return doesn't trace to any: suspicious,
+        // but only report when we can clearly see an EVarRef or EAddrOf with no match.
+        if (!param_lifetimes_.empty()) {
+            // There are ref params but we can't trace the return to any of them.
+            // This can happen for complex expressions — be conservative, don't error.
+        }
+        // Empty params and no local: unknown provenance (e.g. function return) — safe.
     }
 
     // ── Expression visitor ─────────────────────────────────────────────────
@@ -593,6 +614,7 @@ public:
         prov_.clear();
         param_names_.clear();
         param_lifetimes_.clear();
+        fn_lifetime_params_ = fn.lifetime_params;
         ret_type_ = fn.ret_type;
 
         push_scope();  // function scope
