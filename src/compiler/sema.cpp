@@ -5298,6 +5298,26 @@ private:
             if (branch.is_null()) return std::nullopt;
             return const_eval_block(map_of(branch), env);
         }
+        // Nested const fn call: CALL node with a known const fn callee.
+        if (c == la::CALL) {
+            auto callee_name = str_of(e.get(la::CALLEE.code));
+            auto fit = funcs_.find(std::string(callee_name));
+            if (fit == funcs_.end() || !fit->second.is_const) return std::nullopt;
+            auto bit = const_fn_bodies_.find(std::string(callee_name));
+            if (bit == const_fn_bodies_.end()) return std::nullopt;
+            ConstEnv call_env;
+            if (e.has_key(la::ARGS)) {
+                auto args_arr = arr_of(e.get(la::ARGS.code));
+                auto& pnames = bit->second.param_names;
+                if (args_arr.size() != pnames.size()) return std::nullopt;
+                for (uint64_t i = 0; i < args_arr.size(); ++i) {
+                    auto av = const_eval_expr(map_of(args_arr.get(i)), env);
+                    if (!av) return std::nullopt;
+                    call_env[pnames[i]] = *av;
+                }
+            }
+            return const_eval_block(bit->second.body, call_env);
+        }
         return std::nullopt;
     }
 

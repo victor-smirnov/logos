@@ -354,7 +354,13 @@
               => { CODE: CLASS, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }
 
     // class member: abstract method, static method, concrete method, or field
-    class_member <- abstract_method_def / static_fn_def / pub_fn_def / fn_def / field_def
+    class_member <- abstract_method_def / pub_static_fn_def / static_fn_def / pub_fn_def / fn_def / field_def
+
+    // pub static fn name(params) -> ret_type { ... }
+    pub_static_fn_def <- KW_PUB KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
+                       / KW_PUB KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN block
+                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, BODY: $8 }
 
     // static fn name(params) -> ret_type { ... }
     // 'new' and 'delete' are allowed as method names (common constructor/destructor conventions).
@@ -386,7 +392,7 @@
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
 
     // method_def: passthrough — static, pub, or regular fn
-    method_def <- static_fn_def / pub_fn_def / fn_def
+    method_def <- pub_static_fn_def / static_fn_def / pub_fn_def / fn_def
 
     // ── Extern function (FFI) ────────────────────────────────────
     extern_fn_def <- KW_EXTERN KW_FN IDENT LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type_ref SEMI
