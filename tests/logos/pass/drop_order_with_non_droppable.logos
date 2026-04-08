@@ -1,0 +1,26 @@
+// Test: mix of droppable and non-droppable vars; only droppable ones drop in reverse declaration order
+package drop_order_with_non_droppable;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct Res { id: i32; }
+
+impl Drop for Res {
+    fn drop(self: Res) { printf("d%d ", self.id); }
+}
+
+struct Plain { value: i32; }
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let a: Res = Res { id: 1 };
+    let p1: Plain = Plain { value: 10 };
+    let b: Res = Res { id: 2 };
+    let x: i32 = 5;
+    let c: Res = Res { id: 3 };
+    let p2: Plain = Plain { value: 20 };
+    // drops should fire: d3 d2 d1 (reverse order of droppable vars only)
+    return result;
+}

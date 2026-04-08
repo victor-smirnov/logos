@@ -1,0 +1,32 @@
+// Test: three levels of nesting — C contains B contains A, explicit Drop on A and B, glue on C
+package drop_glue_three_levels;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct A { id: i32; }
+
+impl Drop for A {
+    fn drop(self: A) { printf("a%d ", self.id); }
+}
+
+// B has explicit Drop and a droppable field A
+struct B {
+    inner: A;
+    tag: i32;
+}
+
+impl Drop for B {
+    fn drop(self: B) { printf("b%d ", self.tag); }
+}
+
+// C has NO explicit Drop but has droppable field B — drop glue fires
+struct C { nested: B; }
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let c: C = C { nested: B { inner: A { id: 7 }, tag: 3 } };
+    // c drops via glue → B::drop(b3) → A::drop(a7)
+    return result;
+}

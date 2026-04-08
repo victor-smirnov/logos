@@ -1,0 +1,18 @@
+// Fail: use droppable variable after passing it to a function (moved)
+package move_in_call;
+
+trait Drop { fn drop(self: Self); }
+
+struct Res { id: i32; }
+impl Drop for Res {
+    fn drop(self: Res) { }
+}
+
+fn consume(r: Res) { }
+
+fn main() -> i32 {
+    let a: Res = Res { id: 1 };
+    consume(a);
+    consume(a);
+    return 0;
+}

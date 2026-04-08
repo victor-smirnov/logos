@@ -1,0 +1,32 @@
+// Test: class with droppable struct field; delete calls class Drop, then field drops
+package drop_delete_with_fields;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct Res { id: i32; }
+
+impl Drop for Res {
+    fn drop(self: Res) { printf("r%d ", self.id); }
+}
+
+class Holder {
+    resource: Res;
+    tag: i32;
+    static fn create(r: Res, t: i32) -> *mut Holder {
+        return new Holder { resource: r, tag: t };
+    }
+}
+
+impl Drop for Holder {
+    fn drop(self: *mut Holder) {
+        printf("h%d ", self.tag);
+    }
+}
+
+fn main() -> i32 {
+    let h: *mut Holder = Holder::create(Res { id: 5 }, 9);
+    delete h;
+    return 42;
+}

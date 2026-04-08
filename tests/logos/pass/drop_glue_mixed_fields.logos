@@ -1,0 +1,34 @@
+// Test: struct with mix of droppable and non-droppable fields; only droppable fields get dropped
+package drop_glue_mixed_fields;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct Res { id: i32; }
+
+impl Drop for Res {
+    fn drop(self: Res) { printf("d%d ", self.id); }
+}
+
+struct Plain { value: i32; }
+
+// Container has no explicit Drop; field b is droppable, fields p and tag are not
+struct Container {
+    p: Plain;
+    a: Res;
+    tag: i32;
+    b: Res;
+}
+
+fn main() -> i32 {
+    let result: i32 = 42;
+    let c: Container = Container {
+        p: Plain { value: 10 },
+        a: Res { id: 1 },
+        tag: 99,
+        b: Res { id: 2 }
+    };
+    // drop glue fires in reverse field order: b(d2) then a(d1); p and tag skipped
+    return result;
+}
