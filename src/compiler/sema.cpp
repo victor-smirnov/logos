@@ -4362,6 +4362,28 @@ private:
             return make_stmt(node_line_, std::move(sfe));
         }
 
+        // ── slice path: &[T] — iterate by index over fat pointer ────────
+        if (iter_type->kind == LogosType::Kind::Slice) {
+            const LogosType* elem_type = iter_type->elem ? iter_type->elem : i32_t();
+            push_scope();
+            define(var_name, elem_type, false);
+            auto body = std::make_unique<lir::LBlock>();
+            if (node.has_key(la::BODY)) {
+                ++loop_depth_;
+                *body = lower_block(map_of(node.get(la::BODY.code)));
+                --loop_depth_;
+            }
+            pop_scope();
+            lir::SForEach sfe;
+            sfe.var       = std::string(var_name);
+            sfe.iter      = std::move(iter);
+            sfe.elem_type = elem_type;
+            sfe.arr_size  = 0;
+            sfe.is_slice  = true;
+            sfe.body      = std::move(body);
+            return make_stmt(node_line_, std::move(sfe));
+        }
+
         // ── iterator path: desugar to while-let loop ─────────────────
         // Requires: iter_type has a `next()` method returning Option<T>
         // Desugars: for x in iter { body }

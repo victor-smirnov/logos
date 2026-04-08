@@ -319,9 +319,10 @@ struct SDerefWrite { LExprPtr ptr; LExprPtr value; };
 // for item in array { body } — iterates over a fixed-size array
 struct SForEach {
     std::string      var;         // loop variable name (item)
-    LExprPtr         iter;        // the array expression
+    LExprPtr         iter;        // the array or slice expression
     const LogosType* elem_type;   // element type
-    int64_t          arr_size;    // static array size
+    int64_t          arr_size;    // static array size; 0 for slices
+    bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
     LBlockPtr        body;
 };
 

@@ -849,6 +849,7 @@ private:
                 nf.iter      = subst_expr(*k.iter, s);
                 nf.elem_type = subst_type(k.elem_type, s);
                 nf.arr_size  = k.arr_size;
+                nf.is_slice  = k.is_slice;
                 nf.body      = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
                 ns.kind      = std::move(nf);
             }

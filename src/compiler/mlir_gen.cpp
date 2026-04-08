@@ -1242,14 +1242,92 @@ private:
     // Allocate the array on the stack, fill with the iter value, then
     // loop over indices 0..arr_size using the existing gen_for pattern.
     void gen_for_each(const SForEach& s) {
-        // Evaluate the iter (array) expression — yields a pointer to the array data.
+        // Evaluate the iter (array/slice) expression.
         mlir::Type elem_mlir = logos_to_mlir(s.elem_type);
         if (!elem_mlir) return;
 
-        // The source expression evaluates to a pointer (alloca or parameter).
         auto arr_alloca = gen_expr(*s.iter);
         if (!arr_alloca) return;
 
+        // ── Slice path: &[T] — load data_ptr and len from fat pointer ──
+        if (s.is_slice) {
+            auto stype = slice_llvm_type();
+            // Load data_ptr from field 0
+            llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+            auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, arr_alloca, pi);
+            auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+            // Load len from field 1
+            llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+            auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, arr_alloca, li);
+            auto len_val = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+
+            // i64 index
+            auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), builder_.getI64Type(), i64_one());
+            auto zero64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0LL, 64);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, zero64, i_alloca);
+
+            auto* region     = builder_.getBlock()->getParent();
+            auto* cond_block = new mlir::Block();
+            auto* body_block = new mlir::Block();
+            auto* incr_block = new mlir::Block();
+            auto* exit_block = new mlir::Block();
+            region->push_back(cond_block);
+            region->push_back(body_block);
+            region->push_back(incr_block);
+            region->push_back(exit_block);
+
+            builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
+
+            builder_.setInsertionPointToStart(cond_block);
+            auto i_val = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), i_alloca);
+            auto cond  = builder_.create<mlir::arith::CmpIOp>(
+                loc_, mlir::arith::CmpIPredicate::slt, i_val, len_val);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
+
+            builder_.setInsertionPointToStart(body_block);
+            mlir::Value i_cur = builder_.create<mlir::LLVM::LoadOp>(
+                loc_, builder_.getI64Type(), i_alloca);
+            auto i_cur32 = builder_.create<mlir::arith::TruncIOp>(
+                loc_, builder_.getI32Type(), i_cur);
+            llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx;
+            arr_idx.push_back(mlir::LLVM::GEPArg(i_cur32));
+            auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), elem_mlir, data_ptr, arr_idx);
+
+            auto elem_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), elem_mlir, i64_one());
+            auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, elem_val, elem_alloca);
+            scope_[s.var]          = elem_alloca;
+            var_elem_types_[s.var] = elem_mlir;
+            let_vars_.insert(s.var);
+
+            loop_stack_.push_back({incr_block, exit_block});
+            gen_block(*s.body);
+            loop_stack_.pop_back();
+
+            if (!is_terminated(builder_.getBlock()))
+                builder_.create<mlir::cf::BranchOp>(loc_, incr_block);
+
+            builder_.setInsertionPointToStart(incr_block);
+            {
+                auto i_inc = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, builder_.getI64Type(), i_alloca);
+                auto one64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1LL, 64);
+                auto i_next = builder_.create<mlir::arith::AddIOp>(loc_, i_inc, one64);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, i_next, i_alloca);
+                builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
+            }
+
+            builder_.setInsertionPointToStart(exit_block);
+            scope_.erase(s.var);
+            let_vars_.erase(s.var);
+            var_elem_types_.erase(s.var);
+            return;
+        }
+
+        // ── Array path (static size) ──────────────────────────────────
         // Alloca for the index
         auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
             loc_, ptr_type(), builder_.getI32Type(), i64_one());
