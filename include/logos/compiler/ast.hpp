@@ -169,6 +169,9 @@ inline constexpr Code DEREF_WRITE       {"DEREF_WRITE",       115}; // *ptr = va
 inline constexpr Key IS_VARIADIC  {"IS_VARIADIC",  32};    // variadic type param / param flag
 inline constexpr Code PACK_EXPAND {"PACK_EXPAND", 117};    // args... pack expansion
 
+// Dynamic dispatch
+inline constexpr Code DYN_TYPE    {"DYN_TYPE",    118};    // &dyn Trait type
+
 // Visibility
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

@@ -127,6 +127,7 @@ namespace logos_ast {
     inline constexpr Code DEREF_WRITE          {"DEREF_WRITE", 115};
     inline constexpr Code IMPL_TYPE            {"IMPL_TYPE", 116};
     inline constexpr Code PACK_EXPAND          {"PACK_EXPAND", 117};
+    inline constexpr Code DYN_TYPE             {"DYN_TYPE", 118};
 
 } // namespace logos_ast
 
@@ -159,6 +160,7 @@ enum class TK_LOGOS : int {
     KW_USE,   // "use"
     KW_MUT,   // "mut"
     KW_LET,   // "let"
+    KW_DYN,   // "dyn"
     KW_PUB,   // "pub"
     KW_NEW,   // "new"
     KW_FN,   // "fn"
@@ -244,6 +246,7 @@ private:
     logos::hermes::AnyVal rule_param_list();
     logos::hermes::AnyVal rule_param();
     logos::hermes::AnyVal rule_type_ref();
+    logos::hermes::AnyVal rule_dyn_type();
     logos::hermes::AnyVal rule_slice_type();
     logos::hermes::AnyVal rule_ref_type();
     logos::hermes::AnyVal rule_tuple_type();

@@ -32,6 +32,7 @@ struct LogosType {
         Tuple,                    // (T1, T2, ...) — anonymous product type
         Slice,                    // &[T] — fat pointer (ptr, len)
         Closure,                  // |params| -> ret (closure type)
+        TraitObject,              // &dyn Trait — fat pointer {data, vtable}
         TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)
         Error                     // sentinel for ill-typed expressions
@@ -61,6 +62,9 @@ struct LogosType {
     // Closure
     std::vector<const LogosType*> closure_params;  // parameter types
     const LogosType* closure_ret = nullptr;         // return type
+
+    // TraitObject — &dyn Trait
+    std::string      trait_name;          // e.g. "Display" (TraitObject kind only)
 
     // TypeVar — name stored as a std::string (owns its storage)
     std::string      type_var_name;       // e.g. "T" (TypeVar kind only)

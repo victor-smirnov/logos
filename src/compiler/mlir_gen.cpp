@@ -120,6 +120,9 @@ public:
             if (!cd.is_abstract)
                 emit_vtable(mod, cd);
 
+        // Pass 1b: emit vtable globals for trait impls (&dyn Trait support).
+        emit_trait_vtables(mod, prog);
+
         // Pass 2: fill function bodies (structs, classes, free fns).
         for (auto& sd : prog.structs) {
             for (auto& m : sd.methods) {
@@ -157,6 +160,9 @@ private:
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
     std::unordered_map<std::string, const LConst*>     module_consts_;
     std::unordered_set<std::string>                    vararg_fns_;  // names of vararg extern fns
+
+    // Per-function: variables holding &dyn Trait values (name → trait name).
+    std::unordered_map<std::string, std::string>  var_dyn_trait_;
 
     // Per-function: tracks class name for variables/params holding class pointers.
     std::unordered_map<std::string, std::string>       var_class_;
@@ -266,6 +272,9 @@ private:
             }
             return ptr_type();
         }
+        case LogosType::Kind::TraitObject:
+            // &dyn Trait is a fat pointer {data_ptr, vtable_ptr}, passed by pointer.
+            return ptr_type();
         case LogosType::Kind::TypeVar:
             // TypeVar should have been eliminated by mono_pass.
             // Treat as error type to produce a clear diagnostic.
@@ -406,6 +415,69 @@ private:
     // Batch H: direct calls only — vtable dispatch deferred to Batch I.
     void emit_vtable(mlir::ModuleOp /*mod*/, const LClassDef& /*cd*/) {}
 
+    // ── Trait vtable info (Pass 1b) ─────────────────────────────
+    // Index impl method names per (Trait, Type) for inline vtable construction.
+    // No globals emitted — vtables are built on the stack at coercion sites.
+    void emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& prog) {
+        for (auto& td : prog.traits) {
+            for (auto& ib : prog.impls) {
+                if (ib.trait_name != td.name) continue;
+                auto key = td.name + "::" + ib.target_type;
+                std::vector<std::string> methods;
+                for (auto& m : td.methods)
+                    methods.push_back(ib.target_type + "__" + m.name);
+                dyn_vtable_methods_[key] = std::move(methods);
+            }
+        }
+    }
+    // "Trait::Type" → mangled method names in vtable slot order
+    std::unordered_map<std::string, std::vector<std::string>> dyn_vtable_methods_;
+
+    // Build a vtable [N x ptr] on the stack for a concrete type implementing a trait.
+    // Returns a pointer to the stack-allocated vtable array.
+    mlir::Value build_inline_vtable(const std::string& trait_name,
+                                     const std::string& type_name) {
+        auto key = trait_name + "::" + type_name;
+        auto vit = dyn_vtable_methods_.find(key);
+        if (vit == dyn_vtable_methods_.end()) return nullptr;
+        auto& methods = vit->second;
+        size_t n = methods.size();
+        auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_type(), n);
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), arr_type, i64_one());
+        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        for (size_t i = 0; i < n; ++i) {
+            auto callee = parent_mod.lookupSymbol<mlir::func::FuncOp>(methods[i]);
+            if (!callee) {
+                std::fprintf(stderr, "mlir_gen: vtable: method '%s' not found\n",
+                             methods[i].c_str());
+                continue;
+            }
+            // Get function pointer via constant(funcref) → inttoptr trick
+            // Actually: use func.constant to get a function reference, then cast.
+            // Simpler: use LLVM addressof on an llvm.func. But our funcs are func.func.
+            // Workaround: declare an llvm.func wrapper for the address.
+            // Get function address using func.constant + unrealized_conversion_cast.
+            auto func_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(methods[i]);
+            if (!func_fn) {
+                std::fprintf(stderr, "mlir_gen: vtable: method '%s' not found\n",
+                             methods[i].c_str());
+                continue;
+            }
+            auto func_type = func_fn.getFunctionType();
+            auto fn_ref = builder_.create<mlir::func::ConstantOp>(
+                loc_, func_type, methods[i]);
+            // Cast function ref to ptr for storage in vtable
+            auto fn_addr = builder_.create<mlir::UnrealizedConversionCastOp>(
+                loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
+            auto slot = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), arr_type, alloca, idx);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, fn_addr, slot);
+        }
+        return alloca;
+    }
+
     // ── malloc / free helpers ─────────────────────────────────────
 
     void ensure_malloc_free(mlir::ModuleOp mod) {
@@ -518,6 +590,7 @@ private:
         var_tuple_.clear();
         var_tagged_enum_.clear();
         var_local_ptrs_.clear();
+        var_dyn_trait_.clear();
         loop_stack_.clear();
 
         // Bind parameters.
@@ -756,6 +829,35 @@ private:
             scope_[s.name]  = val;
             let_vars_.insert(s.name);
             var_class_[s.name] = concrete_class_name(s.type->pointee);
+            return;
+        }
+
+        // ── &dyn Trait coercion ───────────────────────────────────
+        if (s.type && s.type->kind == LogosType::Kind::TraitObject) {
+            auto data_ptr = gen_expr(*s.value);
+            if (!data_ptr) return;
+            // Build fat pointer: {data_ptr, vtable_ptr}
+            auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
+                builder_.getContext(), {ptr_type(), ptr_type()});
+            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), dyn_struct, i64_one());
+            // Store data pointer at field 0
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
+            auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), dyn_struct, alloca, idx0);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, dp);
+            // Store vtable pointer at field 1
+            std::string src_type = type_str(s.value->type);
+            auto vtable = build_inline_vtable(s.type->trait_name, src_type);
+            if (vtable) {
+                llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
+                auto vp = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), dyn_struct, alloca, idx1);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, vtable, vp);
+            }
+            scope_[s.name] = alloca;
+            let_vars_.insert(s.name);
+            var_dyn_trait_[s.name] = s.type->trait_name;
             return;
         }
 
@@ -1418,10 +1520,10 @@ private:
             std::fprintf(stderr, "mlir_gen: undefined '%s'\n", e.name.c_str());
             return nullptr;
         }
-        // Struct/class/array/tuple/tagged-enum variables: return pointer directly.
+        // Struct/class/array/tuple/tagged-enum/dyn-trait variables: return pointer directly.
         if (var_struct_.count(e.name) || var_subscript_.count(e.name) ||
             var_class_.count(e.name) || var_tuple_.count(e.name) ||
-            var_tagged_enum_.count(e.name))
+            var_tagged_enum_.count(e.name) || var_dyn_trait_.count(e.name))
             return it->second;
         // Let-bound scalar: load from alloca.
         if (let_vars_.count(e.name)) {
@@ -1620,7 +1722,80 @@ private:
         return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
 
+    // Indirect call through &dyn Trait vtable.
+    mlir::Value gen_dyn_dispatch(const EMethodCall& e) {
+        // The receiver is a &dyn Trait — a pointer to {data_ptr, vtable_ptr}.
+        // We need to: load data_ptr, load vtable_ptr, GEP to slot, load fn_ptr, call.
+
+        // Check if receiver is a variable we know is dyn
+        mlir::Value recv_alloca = nullptr;
+        if (auto* vr = std::get_if<EVarRef>(&e.receiver->kind)) {
+            auto it = scope_.find(vr->name);
+            if (it != scope_.end()) recv_alloca = it->second;
+        }
+        if (!recv_alloca) {
+            recv_alloca = gen_expr(*e.receiver);
+        }
+        if (!recv_alloca) return nullptr;
+
+        auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
+            builder_.getContext(), {ptr_type(), ptr_type()});
+
+        // Load data_ptr (field 0)
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), dyn_struct, recv_alloca, idx0);
+        auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+
+        // Load vtable_ptr (field 1)
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
+        auto vp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), dyn_struct, recv_alloca, idx1);
+        auto vtable_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vp);
+
+        // GEP into vtable array to get fn_ptr at vtable_index
+        llvm::SmallVector<mlir::LLVM::GEPArg> slot_idx{int32_t(e.vtable_index)};
+        auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), ptr_type(), vtable_ptr, slot_idx);
+        auto fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+
+        // Build args: data_ptr (self) + user args
+        llvm::SmallVector<mlir::Value> args;
+        args.push_back(data_ptr);
+        for (auto& a : e.args) {
+            auto v = gen_expr(*a);
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+
+        // Build LLVM function type for the indirect call.
+        llvm::SmallVector<mlir::Type> param_types;
+        for (auto& a : args) param_types.push_back(a.getType());
+
+        // Use i32 return type as default.
+        // TODO: look up actual return type from trait method signature.
+        auto ret_type = builder_.getI32Type();
+        auto fn_type = mlir::LLVM::LLVMFunctionType::get(ret_type, param_types);
+
+        // Indirect call via function pointer (same pattern as closure calls)
+        llvm::SmallVector<mlir::Value> all_operands;
+        all_operands.push_back(fn_ptr);
+        all_operands.append(args.begin(), args.end());
+        auto call = builder_.create<mlir::LLVM::CallOp>(
+            loc_, fn_type, mlir::FlatSymbolRefAttr{},
+            mlir::ValueRange(all_operands));
+        bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(fn_type.getReturnType());
+        if (is_void) return nullptr;
+        return call.getResult();
+    }
+
     mlir::Value gen_expr_kind(const EMethodCall& e, const LogosType*) {
+        // &dyn Trait dispatch: load vtable, GEP slot, indirect call
+        if (e.receiver->type &&
+            e.receiver->type->kind == LogosType::Kind::TraitObject &&
+            e.vtable_index >= 0) {
+            return gen_dyn_dispatch(e);
+        }
         auto [ptr, tname] = gen_recv_struct(*e.receiver);
         if (!ptr || tname.empty()) return nullptr;
         // Direct call: mangled name = TypeName__method

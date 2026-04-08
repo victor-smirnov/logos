@@ -100,10 +100,6 @@ LogosParser::Token LogosParser::lex_one() {
         (pos_ + 6 >= source_.size() || (!std::isalnum(source_[pos_ + 6]) && source_[pos_ + 6] != '_'))) {
         pos_ += 6; return {TK::KW_STRUCT, source_.substr(start, 6), start_line_}; }
     if (source_.substr(pos_, 5).size() == 5 &&
-        source_.substr(pos_, 5) == "match" &&
-        (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
-        pos_ += 5; return {TK::KW_MATCH, source_.substr(start, 5), start_line_}; }
-    if (source_.substr(pos_, 5).size() == 5 &&
         source_.substr(pos_, 5) == "where" &&
         (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
         pos_ += 5; return {TK::KW_WHERE, source_.substr(start, 5), start_line_}; }
@@ -120,10 +116,6 @@ LogosParser::Token LogosParser::lex_one() {
         (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
         pos_ += 5; return {TK::KW_TRAIT, source_.substr(start, 5), start_line_}; }
     if (source_.substr(pos_, 5).size() == 5 &&
-        source_.substr(pos_, 5) == "false" &&
-        (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
-        pos_ += 5; return {TK::KW_FALSE, source_.substr(start, 5), start_line_}; }
-    if (source_.substr(pos_, 5).size() == 5 &&
         source_.substr(pos_, 5) == "break" &&
         (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
         pos_ += 5; return {TK::KW_BREAK, source_.substr(start, 5), start_line_}; }
@@ -131,6 +123,30 @@ LogosParser::Token LogosParser::lex_one() {
         source_.substr(pos_, 5) == "while" &&
         (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
         pos_ += 5; return {TK::KW_WHILE, source_.substr(start, 5), start_line_}; }
+    if (source_.substr(pos_, 5).size() == 5 &&
+        source_.substr(pos_, 5) == "match" &&
+        (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
+        pos_ += 5; return {TK::KW_MATCH, source_.substr(start, 5), start_line_}; }
+    if (source_.substr(pos_, 5).size() == 5 &&
+        source_.substr(pos_, 5) == "false" &&
+        (pos_ + 5 >= source_.size() || (!std::isalnum(source_[pos_ + 5]) && source_[pos_ + 5] != '_'))) {
+        pos_ += 5; return {TK::KW_FALSE, source_.substr(start, 5), start_line_}; }
+    if (source_.substr(pos_, 4).size() == 4 &&
+        source_.substr(pos_, 4) == "type" &&
+        (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
+        pos_ += 4; return {TK::KW_TYPE, source_.substr(start, 4), start_line_}; }
+    if (source_.substr(pos_, 4).size() == 4 &&
+        source_.substr(pos_, 4) == "impl" &&
+        (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
+        pos_ += 4; return {TK::KW_IMPL, source_.substr(start, 4), start_line_}; }
+    if (source_.substr(pos_, 4).size() == 4 &&
+        source_.substr(pos_, 4) == "enum" &&
+        (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
+        pos_ += 4; return {TK::KW_ENUM, source_.substr(start, 4), start_line_}; }
+    if (source_.substr(pos_, 4).size() == 4 &&
+        source_.substr(pos_, 4) == "loop" &&
+        (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
+        pos_ += 4; return {TK::KW_LOOP, source_.substr(start, 4), start_line_}; }
     if (source_.substr(pos_, 4).size() == 4 &&
         source_.substr(pos_, 4) == "else" &&
         (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
@@ -139,58 +155,61 @@ LogosParser::Token LogosParser::lex_one() {
         source_.substr(pos_, 4) == "true" &&
         (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
         pos_ += 4; return {TK::KW_TRUE, source_.substr(start, 4), start_line_}; }
-    if (source_.substr(pos_, 4).size() == 4 &&
-        source_.substr(pos_, 4) == "enum" &&
-        (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
-        pos_ += 4; return {TK::KW_ENUM, source_.substr(start, 4), start_line_}; }
-    if (source_.substr(pos_, 4).size() == 4 &&
-        source_.substr(pos_, 4) == "impl" &&
-        (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
-        pos_ += 4; return {TK::KW_IMPL, source_.substr(start, 4), start_line_}; }
-    if (source_.substr(pos_, 4).size() == 4 &&
-        source_.substr(pos_, 4) == "loop" &&
-        (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
-        pos_ += 4; return {TK::KW_LOOP, source_.substr(start, 4), start_line_}; }
-    if (source_.substr(pos_, 4).size() == 4 &&
-        source_.substr(pos_, 4) == "type" &&
-        (pos_ + 4 >= source_.size() || (!std::isalnum(source_[pos_ + 4]) && source_[pos_ + 4] != '_'))) {
-        pos_ += 4; return {TK::KW_TYPE, source_.substr(start, 4), start_line_}; }
-    if (source_.substr(pos_, 3).size() == 3 &&
-        source_.substr(pos_, 3) == "for" &&
-        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
-        pos_ += 3; return {TK::KW_FOR, source_.substr(start, 3), start_line_}; }
-    if (source_.substr(pos_, 3).size() == 3 &&
-        source_.substr(pos_, 3) == "use" &&
-        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
-        pos_ += 3; return {TK::KW_USE, source_.substr(start, 3), start_line_}; }
-    if (source_.substr(pos_, 3).size() == 3 &&
-        source_.substr(pos_, 3) == "mut" &&
-        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
-        pos_ += 3; return {TK::KW_MUT, source_.substr(start, 3), start_line_}; }
-    if (source_.substr(pos_, 3).size() == 3 &&
-        source_.substr(pos_, 3) == "let" &&
-        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
-        pos_ += 3; return {TK::KW_LET, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 3).size() == 3 &&
         source_.substr(pos_, 3) == "pub" &&
         (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
         pos_ += 3; return {TK::KW_PUB, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 3).size() == 3 &&
-        source_.substr(pos_, 3) == "new" &&
-        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
-        pos_ += 3; return {TK::KW_NEW, source_.substr(start, 3), start_line_}; }
+        source_.substr(pos_, 3) == "...") {
+        pos_ += 3; return {TK::DOTDOTDOT, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 3).size() == 3 &&
         source_.substr(pos_, 3) == "..=") {
         pos_ += 3; return {TK::DOTDOTEQ, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 3).size() == 3 &&
-        source_.substr(pos_, 3) == "...") {
-        pos_ += 3; return {TK::DOTDOTDOT, source_.substr(start, 3), start_line_}; }
+        source_.substr(pos_, 3) == "new" &&
+        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
+        pos_ += 3; return {TK::KW_NEW, source_.substr(start, 3), start_line_}; }
+    if (source_.substr(pos_, 3).size() == 3 &&
+        source_.substr(pos_, 3) == "dyn" &&
+        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
+        pos_ += 3; return {TK::KW_DYN, source_.substr(start, 3), start_line_}; }
+    if (source_.substr(pos_, 3).size() == 3 &&
+        source_.substr(pos_, 3) == "let" &&
+        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
+        pos_ += 3; return {TK::KW_LET, source_.substr(start, 3), start_line_}; }
+    if (source_.substr(pos_, 3).size() == 3 &&
+        source_.substr(pos_, 3) == "mut" &&
+        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
+        pos_ += 3; return {TK::KW_MUT, source_.substr(start, 3), start_line_}; }
+    if (source_.substr(pos_, 3).size() == 3 &&
+        source_.substr(pos_, 3) == "use" &&
+        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
+        pos_ += 3; return {TK::KW_USE, source_.substr(start, 3), start_line_}; }
+    if (source_.substr(pos_, 3).size() == 3 &&
+        source_.substr(pos_, 3) == "for" &&
+        (pos_ + 3 >= source_.size() || (!std::isalnum(source_[pos_ + 3]) && source_[pos_ + 3] != '_'))) {
+        pos_ += 3; return {TK::KW_FOR, source_.substr(start, 3), start_line_}; }
     if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "==") {
-        pos_ += 2; return {TK::EQ, source_.substr(start, 2), start_line_}; }
+        source_.substr(pos_, 2) == "::") {
+        pos_ += 2; return {TK::COLONCOLON, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "=>") {
+        pos_ += 2; return {TK::FATARROW, source_.substr(start, 2), start_line_}; }
     if (source_.substr(pos_, 2).size() == 2 &&
         source_.substr(pos_, 2) == "..") {
         pos_ += 2; return {TK::DOTDOT, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == ">=") {
+        pos_ += 2; return {TK::GE, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "<=") {
+        pos_ += 2; return {TK::LE, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "!=") {
+        pos_ += 2; return {TK::NE, source_.substr(start, 2), start_line_}; }
+    if (source_.substr(pos_, 2).size() == 2 &&
+        source_.substr(pos_, 2) == "==") {
+        pos_ += 2; return {TK::EQ, source_.substr(start, 2), start_line_}; }
     if (source_.substr(pos_, 2).size() == 2 &&
         source_.substr(pos_, 2) == "||") {
         pos_ += 2; return {TK::OR, source_.substr(start, 2), start_line_}; }
@@ -200,21 +219,6 @@ LogosParser::Token LogosParser::lex_one() {
     if (source_.substr(pos_, 2).size() == 2 &&
         source_.substr(pos_, 2) == "->") {
         pos_ += 2; return {TK::ARROW, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "!=") {
-        pos_ += 2; return {TK::NE, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "<=") {
-        pos_ += 2; return {TK::LE, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == ">=") {
-        pos_ += 2; return {TK::GE, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "=>") {
-        pos_ += 2; return {TK::FATARROW, source_.substr(start, 2), start_line_}; }
-    if (source_.substr(pos_, 2).size() == 2 &&
-        source_.substr(pos_, 2) == "::") {
-        pos_ += 2; return {TK::COLONCOLON, source_.substr(start, 2), start_line_}; }
     if (source_.substr(pos_, 2).size() == 2 &&
         source_.substr(pos_, 2) == "fn" &&
         (pos_ + 2 >= source_.size() || (!std::isalnum(source_[pos_ + 2]) && source_[pos_ + 2] != '_'))) {
@@ -3570,7 +3574,7 @@ AnyVal LogosParser::rule_type_ref() {
         doc_.arena_rollback(saved_doc_);
     }
 
-    // Alternative 4: ref_type
+    // Alternative 4: dyn_type
     {
         saved_pos  = pos_;
         saved_la   = have_la_;
@@ -3580,7 +3584,7 @@ AnyVal LogosParser::rule_type_ref() {
 
         {
             [[maybe_unused]] uint32_t first_line_ = peek_token().line;
-            [[maybe_unused]] AnyVal cap1 = rule_ref_type();
+            [[maybe_unused]] AnyVal cap1 = rule_dyn_type();
             if (cap1.is_null()) goto bt_type_ref_3;
             return cap1;
         }
@@ -3592,7 +3596,7 @@ AnyVal LogosParser::rule_type_ref() {
         doc_.arena_rollback(saved_doc_);
     }
 
-    // Alternative 5: tuple_type
+    // Alternative 5: ref_type
     {
         saved_pos  = pos_;
         saved_la   = have_la_;
@@ -3602,7 +3606,7 @@ AnyVal LogosParser::rule_type_ref() {
 
         {
             [[maybe_unused]] uint32_t first_line_ = peek_token().line;
-            [[maybe_unused]] AnyVal cap1 = rule_tuple_type();
+            [[maybe_unused]] AnyVal cap1 = rule_ref_type();
             if (cap1.is_null()) goto bt_type_ref_4;
             return cap1;
         }
@@ -3614,7 +3618,29 @@ AnyVal LogosParser::rule_type_ref() {
         doc_.arena_rollback(saved_doc_);
     }
 
-    // Alternative 6: simple_type
+    // Alternative 6: tuple_type
+    {
+        saved_pos  = pos_;
+        saved_la   = have_la_;
+        saved_doc_ = doc_.arena_checkpoint();
+        Token    saved_tok_  = la_;
+        uint32_t saved_line_ = line_;
+
+        {
+            [[maybe_unused]] uint32_t first_line_ = peek_token().line;
+            [[maybe_unused]] AnyVal cap1 = rule_tuple_type();
+            if (cap1.is_null()) goto bt_type_ref_5;
+            return cap1;
+        }
+        [[maybe_unused]] bt_type_ref_5:
+        pos_      = saved_pos;
+        have_la_  = saved_la;
+        la_       = saved_tok_;
+        line_     = saved_line_;
+        doc_.arena_rollback(saved_doc_);
+    }
+
+    // Alternative 7: simple_type
     {
         saved_pos  = pos_;
         saved_la   = have_la_;
@@ -3625,10 +3651,55 @@ AnyVal LogosParser::rule_type_ref() {
         {
             [[maybe_unused]] uint32_t first_line_ = peek_token().line;
             [[maybe_unused]] AnyVal cap1 = rule_simple_type();
-            if (cap1.is_null()) goto bt_type_ref_5;
+            if (cap1.is_null()) goto bt_type_ref_6;
             return cap1;
         }
-        [[maybe_unused]] bt_type_ref_5:
+        [[maybe_unused]] bt_type_ref_6:
+        pos_      = saved_pos;
+        have_la_  = saved_la;
+        la_       = saved_tok_;
+        line_     = saved_line_;
+        doc_.arena_rollback(saved_doc_);
+    }
+
+    return AnyVal{}; // no alternative matched
+}
+
+AnyVal LogosParser::rule_dyn_type() {
+    size_t saved_pos;
+    bool   saved_la;
+    size_t saved_doc_;
+
+    // Alternative 1: AMP KW_DYN IDENT => {...}
+    {
+        saved_pos  = pos_;
+        saved_la   = have_la_;
+        saved_doc_ = doc_.arena_checkpoint();
+        Token    saved_tok_  = la_;
+        uint32_t saved_line_ = line_;
+
+        {
+            [[maybe_unused]] uint32_t first_line_ = peek_token().line;
+            if (peek_token().kind != TK::AMP) goto bt_dyn_type_0;
+            Token tok_cap1_ = next_token();
+            [[maybe_unused]] AnyVal cap1 = doc_.make_string(tok_cap1_.text).get().to_anyval();
+            if (peek_token().kind != TK::KW_DYN) goto bt_dyn_type_0;
+            Token tok_cap2_ = next_token();
+            [[maybe_unused]] AnyVal cap2 = doc_.make_string(tok_cap2_.text).get().to_anyval();
+            if (peek_token().kind != TK::IDENT) goto bt_dyn_type_0;
+            Token tok_cap3_ = next_token();
+            [[maybe_unused]] AnyVal cap3 = doc_.make_string(tok_cap3_.text).get().to_anyval();
+            auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, 4).get();
+            node->put(logos_ast::CODE, AnyVal::from_value(logos_ast::DYN_TYPE), logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            node->put(logos_ast::NAME, cap3, logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            node->put(logos_ast::SRC_LINE, AnyVal::from_value(first_line_), logos::hermes::HermesCtrAccess::arena(doc_)).get();
+            {
+                AnyVal result_;
+                result_.set_pointer(node, logos::hermes::HermesCtrAccess::base(doc_));
+                return result_;
+            }
+        }
+        [[maybe_unused]] bt_dyn_type_0:
         pos_      = saved_pos;
         have_la_  = saved_la;
         la_       = saved_tok_;

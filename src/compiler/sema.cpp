@@ -58,6 +58,8 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
         return true;
     case LogosType::Kind::Slice:
         return a.elem && b.elem && types_equal(*a.elem, *b.elem);
+    case LogosType::Kind::TraitObject:
+        return a.trait_name == b.trait_name;
     case LogosType::Kind::TypeVar:
         return a.type_var_name == b.type_var_name;
     default:
@@ -138,6 +140,11 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
             if (!types_compatible(from->tuple_elems[i], to->tuple_elems[i])) return false;
         return true;
     }
+    // Struct/Class → &dyn Trait coercion (impl check deferred to codegen)
+    if (to->kind == LogosType::Kind::TraitObject &&
+        (from->kind == LogosType::Kind::Struct || from->kind == LogosType::Kind::Class ||
+         (from->kind == LogosType::Kind::Ptr && from->pointee)))
+        return true;
     // Class pointer covariance: *mut/const Derived is compatible with *const/mut Class
     // (same class — exact equality handled above; hierarchy checked in SemaChecker::compat)
     return false;
@@ -199,8 +206,9 @@ std::string type_str(const LogosType* t) {
         r += "| -> ";
         r += type_str(t->closure_ret);
         return r; }
-    case LogosType::Kind::Enum:    return t->enum_name;
-    case LogosType::Kind::TypeVar: return std::string(t->type_var_name);
+    case LogosType::Kind::Enum:        return t->enum_name;
+    case LogosType::Kind::TraitObject: return "&dyn " + t->trait_name;
+    case LogosType::Kind::TypeVar:     return std::string(t->type_var_name);
     case LogosType::Kind::Error:   return "<error>";
     }
     return "<unknown>";
@@ -325,6 +333,11 @@ private:
     const LogosType* make_slice_type(const LogosType* elem) {
         LogosType t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
+        return pool_.alloc(std::move(t));
+    }
+    const LogosType* make_trait_object(std::string_view tname) {
+        LogosType t; t.kind = LogosType::Kind::TraitObject;
+        t.trait_name = std::string(tname);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_typevar(std::string_view name) {
@@ -717,6 +730,13 @@ private:
                     elems.push_back(resolve_type(map_of(items.get(i))));
             }
             return make_tuple_type(std::move(elems));
+        }
+
+        if (tc == la::DYN_TYPE) {
+            auto tname = std::string(str_of(node.get(la::NAME.code)));
+            if (!traits_.count(tname))
+                error(std::format("unknown trait '{}' in &dyn type", tname));
+            return make_trait_object(tname);
         }
 
         if (tc == la::ARR_TYPE) {
@@ -2365,6 +2385,38 @@ private:
                     lir::ESliceLen{std::move(recv)});
             }
             error(std::format("slice has no method '{}'", method_name));
+            return error_expr();
+        }
+
+        // &dyn Trait method call: look up trait method, emit EMethodCall with vtable dispatch.
+        if (recv->type->kind == LogosType::Kind::TraitObject) {
+            auto& tname = recv->type->trait_name;
+            auto tit = traits_.find(tname);
+            if (tit != traits_.end()) {
+                for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
+                    auto& m = tit->second.methods[mi];
+                    if (m.name == method_name) {
+                        std::vector<lir::LExprPtr> arg_exprs;
+                        if (node.has_key(la::ARGS)) {
+                            auto args = arr_of(node.get(la::ARGS.code));
+                            for (uint64_t i = 0; i < args.size(); ++i)
+                                arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+                        }
+                        // Return type: substitute Self → &dyn Trait
+                        auto* ret_type = m.ret_type;
+                        if (ret_type && ret_type->kind == LogosType::Kind::TypeVar &&
+                            ret_type->type_var_name == "Self")
+                            ret_type = recv->type;
+                        lir::EMethodCall mc;
+                        mc.receiver     = std::move(recv);
+                        mc.method       = std::string(method_name);
+                        mc.args         = std::move(arg_exprs);
+                        mc.vtable_index = (int32_t)mi;  // slot in vtable
+                        return make_expr(ret_type, std::move(mc));
+                    }
+                }
+            }
+            error(std::format("trait '{}' has no method '{}'", tname, method_name));
             return error_expr();
         }
 

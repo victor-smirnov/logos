@@ -134,6 +134,7 @@
     DEREF_WRITE          = 115
     IMPL_TYPE            = 116
     PACK_EXPAND          = 117
+    DYN_TYPE             = 118
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -165,6 +166,7 @@
     KW_USE      = "use"
     KW_MUT      = "mut"
     KW_LET      = "let"
+    KW_DYN      = "dyn"
     KW_PUB      = "pub"
     KW_NEW      = "new"
     KW_FN       = "fn"
@@ -356,7 +358,11 @@
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
 
     // ── Type reference ───────────────────────────────────────────
-    type_ref <- ptr_type / arr_type / slice_type / ref_type / tuple_type / simple_type
+    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / tuple_type / simple_type
+
+    // &dyn Trait — trait object (fat pointer: data + vtable)
+    dyn_type <- AMP KW_DYN IDENT
+             => { CODE: DYN_TYPE, NAME: $3 }
 
     // &[T] — slice type (fat pointer: ptr + len)
     slice_type <- AMP LBRACKET type_ref RBRACKET

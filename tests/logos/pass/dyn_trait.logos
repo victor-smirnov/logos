@@ -1,0 +1,25 @@
+// &dyn Trait — dynamic dispatch via vtable fat pointer
+package dyn_trait;
+
+trait Area { fn area(self: Self) -> i32; }
+
+struct Rect { w: i32; h: i32; }
+struct Square { s: i32; }
+
+impl Area for Rect {
+    fn area(self: Rect) -> i32 { return self.w * self.h; }
+}
+impl Area for Square {
+    fn area(self: Square) -> i32 { return self.s * self.s; }
+}
+
+fn get_area(obj: &dyn Area) -> i32 { return obj.area(); }
+
+fn main() -> i32 {
+    let r: Rect = Rect { w: 3, h: 5 };
+    let s: Square = Square { s: 3 };
+    let dr: &dyn Area = r;
+    let ds: &dyn Area = s;
+    // 3*5 + 3*3 + 18 = 42
+    return get_area(dr) + get_area(ds) + 18;
+}
