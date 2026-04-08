@@ -57,6 +57,7 @@
     PAT         = 34
     GUARD       = 35
     EXPR        = 36
+    NAMES       = 37
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -143,6 +144,7 @@
     ASSOC_TYPE_IMPL      = 120
     ASSOC_TYPE_REF       = 121
     TRY_EXPR             = 122
+    LET_DESTRUCT         = 123
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -505,7 +507,9 @@
     index_write_stmt <- IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
                      => { CODE: INDEX_WRITE, NAME: $1, LHS: $3, VALUE: $6 }
 
-    let_stmt <- KW_LET KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
+    let_stmt <- KW_LET LPAREN pat_binding_list RPAREN ASSIGN expr SEMI
+             => { CODE: LET_DESTRUCT, NAMES: $3, VALUE: $6 }
+              / KW_LET KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
              => { CODE: LET, IS_MUT: true, NAME: $3, TYPE: $5, VALUE: $7 }
               / KW_LET KW_MUT IDENT ASSIGN expr SEMI
              => { CODE: LET, IS_MUT: true, NAME: $3, VALUE: $5 }

@@ -3687,6 +3687,7 @@ private:
         int32_t c = code_of(stmt);
 
         if (c == la::LET)          return lower_let(stmt);
+        if (c == la::LET_DESTRUCT) return lower_let_destruct(stmt);
         if (c == la::ASSIGN)       return lower_assign(stmt);
         if (c == la::RETURN)       return lower_return(stmt);
         if (c == la::IF)           return lower_if(stmt);
@@ -3774,6 +3775,72 @@ private:
         }
         pop_scope();
         return result;
+    }
+
+    // let (a, b, ...) = expr;  — tuple destructuring
+    // Expands to: { let __destruct_N = expr; let a = __destruct_N.0; let b = __destruct_N.1; ... }
+    lir::LStmt lower_let_destruct(TinyMapView node) {
+        lir::LExprPtr rhs = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code)))
+            : error_expr();
+        const LogosType* rhs_type = rhs->type;
+        if (rhs_type->kind != LogosType::Kind::Tuple) {
+            error(std::format("let (...) = ...: right-hand side must be a tuple, got {}",
+                  type_str(rhs_type)));
+            return make_stmt(node_line_, lir::SExprStmt{std::move(rhs)});
+        }
+
+        // Collect binding names
+        std::vector<std::string> names;
+        if (node.has_key(la::NAMES)) {
+            auto nlist = map_of(node.get(la::NAMES.code));
+            if (nlist.has_key(la::ITEMS)) {
+                auto arr = arr_of(nlist.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < arr.size(); ++i) {
+                    auto bnode = map_of(arr.get(i));
+                    names.push_back(std::string(str_of(bnode.get(la::NAME.code))));
+                }
+            }
+        }
+        if (names.size() != rhs_type->tuple_elems.size()) {
+            error(std::format("let (...) = ...: expected {} bindings, got {}",
+                  rhs_type->tuple_elems.size(), names.size()));
+        }
+
+        // Build SBlock: let __destruct_N = rhs; let a = __destruct_N.0; ...
+        static int destruct_counter = 0;
+        std::string tmp = std::format("__destruct_{}", destruct_counter++);
+
+        auto blk = std::make_unique<lir::LBlock>();
+
+        // let __destruct_N = rhs
+        define(tmp, rhs_type);
+        lir::SLet tmp_let;
+        tmp_let.name    = tmp;
+        tmp_let.type    = rhs_type;
+        tmp_let.is_mut  = false;
+        tmp_let.value   = std::move(rhs);
+        blk->stmts.push_back(make_stmt(node_line_, std::move(tmp_let)));
+
+        // let name_i = __destruct_N.i
+        for (size_t i = 0; i < names.size() && i < rhs_type->tuple_elems.size(); ++i) {
+            auto* elem_t = rhs_type->tuple_elems[i];
+            define(names[i], elem_t);
+
+            auto tmp_ref = make_expr(rhs_type, lir::EVarRef{tmp});
+            auto elem_expr = make_expr(elem_t, lir::ETupleIndex{std::move(tmp_ref), (uint32_t)i});
+
+            lir::SLet elem_let;
+            elem_let.name   = names[i];
+            elem_let.type   = elem_t;
+            elem_let.is_mut = false;
+            elem_let.value  = std::move(elem_expr);
+            blk->stmts.push_back(make_stmt(node_line_, std::move(elem_let)));
+        }
+
+        lir::SBlock sb;
+        sb.body = std::move(blk);
+        return make_stmt(node_line_, std::move(sb));
     }
 
     lir::LStmt lower_let(TinyMapView node) {

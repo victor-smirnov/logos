@@ -49,6 +49,10 @@ namespace logos_ast {
     inline constexpr Key  ITER                 {"ITER", 31};
     inline constexpr Key  IS_VARIADIC          {"IS_VARIADIC", 32};
     inline constexpr Key  IS_PUB               {"IS_PUB", 33};
+    inline constexpr Key  PAT                  {"PAT",    34};
+    inline constexpr Key  GUARD                {"GUARD",  35};
+    inline constexpr Key  EXPR                 {"EXPR",   36};
+    inline constexpr Key  NAMES                {"NAMES",  37};
 
     // Node type discriminants
     inline constexpr Code MODULE               {"MODULE", 1};
@@ -133,6 +137,7 @@ namespace logos_ast {
     inline constexpr Code ASSOC_TYPE_IMPL      {"ASSOC_TYPE_IMPL", 120};
     inline constexpr Code ASSOC_TYPE_REF       {"ASSOC_TYPE_REF", 121};
     inline constexpr Code TRY_EXPR             {"TRY_EXPR", 122};
+    inline constexpr Code LET_DESTRUCT         {"LET_DESTRUCT", 123};
 
 } // namespace logos_ast
 
