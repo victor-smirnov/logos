@@ -696,6 +696,7 @@ private:
     void gen_stmt_kind(const SBreak&)         { gen_break(); }
     void gen_stmt_kind(const SContinue&)      { gen_continue(); }
     void gen_stmt_kind(const SFieldWrite& s)       { gen_field_write(s); }
+    void gen_stmt_kind(const SDerefFieldWrite& s)  { gen_deref_field_write(s); }
     void gen_stmt_kind(const SIndexWrite& s)       { gen_index_write(s); }
     void gen_stmt_kind(const SFieldIndexWrite& s)  { gen_field_index_write(s); }
     void gen_stmt_kind(const SExprStmt& s)    { gen_expr(*s.expr); }
@@ -1444,6 +1445,35 @@ private:
         }
         const std::string& type_name = (sit != var_struct_.end()) ? sit->second : cit->second;
         auto& info = struct_types_[type_name];
+        auto gep = gep_field(ptr, info, s.field);
+        if (!gep) return;
+        auto val = gen_expr(*s.value);
+        if (!val) return;
+        for (auto& f : info.fields)
+            if (f.name == s.field) { val = coerce_int(val, f.type); break; }
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+    }
+
+    void gen_deref_field_write(const SDerefFieldWrite& s) {
+        auto it = scope_.find(s.receiver);
+        if (it == scope_.end()) {
+            std::fprintf(stderr, "mlir_gen: deref-field-write: undefined '%s'\n", s.receiver.c_str());
+            return;
+        }
+        // Mutable class pointer vars store an alloca(ptr); load to get the actual object ptr.
+        // Immutable class pointer vars store the raw ptr directly.
+        mlir::Value ptr;
+        if (var_elem_types_.count(s.receiver)) {
+            ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
+        } else {
+            ptr = it->second;
+        }
+        auto sit = struct_types_.find(s.type_name);
+        if (sit == struct_types_.end()) {
+            std::fprintf(stderr, "mlir_gen: deref-field-write: unknown type '%s'\n", s.type_name.c_str());
+            return;
+        }
+        auto& info = sit->second;
         auto gep = gep_field(ptr, info, s.field);
         if (!gep) return;
         auto val = gen_expr(*s.value);

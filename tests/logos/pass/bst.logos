@@ -1,0 +1,40 @@
+package bst;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+class Node {
+    key:   i32;
+    left:  *mut Node;
+    right: *mut Node;
+}
+
+fn insert(root: *mut Node, key: i32) -> *mut Node {
+    if root == 0 as *mut Node {
+        return new Node { key: key, left: 0 as *mut Node, right: 0 as *mut Node };
+    }
+    if key < (*root).key {
+        (*root).left = insert((*root).left, key);
+    } else if key > (*root).key {
+        (*root).right = insert((*root).right, key);
+    }
+    return root;
+}
+
+fn inorder(root: *mut Node) {
+    if root == 0 as *mut Node {
+        return;
+    }
+    inorder((*root).left);
+    printf("%d\n", (*root).key);
+    inorder((*root).right);
+}
+
+fn main() -> i32 {
+    let mut root: *mut Node = 0 as *mut Node;
+    root = insert(root, 5);
+    root = insert(root, 3);
+    root = insert(root, 7);
+    root = insert(root, 1);
+    root = insert(root, 4);
+    inorder(root);
+    return 0;
+}

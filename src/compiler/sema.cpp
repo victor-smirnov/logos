@@ -3907,6 +3907,7 @@ private:
         if (c == la::FOR_EACH)     return lower_for_each(stmt);
         if (c == la::LOOP)         return lower_loop(stmt);
         if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
+        if (c == la::DEREF_FIELD_WRITE)  return lower_deref_field_write(stmt);
         if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
         if (c == la::FIELD_INDEX_WRITE)  return lower_field_index_write(stmt);
         if (c == la::MATCH)        return lower_match(stmt);
@@ -4709,6 +4710,59 @@ private:
         sfw.field    = std::string(field_name);
         sfw.value    = std::move(val);
         return make_stmt(node_line_, std::move(sfw));
+    }
+
+    lir::LStmt lower_deref_field_write(TinyMapView node) {
+        auto recv_name  = str_of(node.get(la::RECEIVER.code));
+        auto field_name = str_of(node.get(la::FIELD.code));
+
+        const LogosType* ptr_type = lookup(recv_name);
+        if (!ptr_type) {
+            error(std::format("deref-field-write: undefined variable '{}'", recv_name));
+        } else if (ptr_type->kind != LogosType::Kind::Ptr || !ptr_type->pointee) {
+            error(std::format("deref-field-write: '{}' is not a pointer (got {})",
+                              recv_name, type_str(ptr_type)));
+        } else if (!ptr_type->mut_ptr) {
+            error(std::format("deref-field-write: '{}' is a *const pointer (need *mut)",
+                              recv_name));
+        }
+
+        const LogosType* pointee = (ptr_type && ptr_type->pointee) ? ptr_type->pointee : nullptr;
+        std::string type_name;
+        const LogosType* ft = nullptr;
+        if (pointee) {
+            if (pointee->kind == LogosType::Kind::Class) {
+                type_name = pointee->struct_name;
+                ft = class_field_type(type_name, field_name);
+            } else if (pointee->kind == LogosType::Kind::Struct) {
+                type_name = concrete_struct_name(pointee);
+                ft = field_type_of_for_type(pointee, field_name);
+            } else {
+                error(std::format("deref-field-write: '{}' points to non-struct/class type {}",
+                                  recv_name, type_str(pointee)));
+            }
+        }
+        if (pointee && ft == nullptr) {
+            error(std::format("deref-field-write: type '{}' has no field '{}'",
+                              type_name, field_name));
+        }
+
+        lir::LExprPtr val = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code)))
+            : error_expr();
+        if (ft && ft->kind != LogosType::Kind::Error &&
+            val->type->kind != LogosType::Kind::Error &&
+            !types_compatible(val->type, ft)) {
+            error(std::format("deref-field-write '(*{}).{}': expected {}, got {}",
+                  recv_name, field_name, type_str(ft), type_str(val->type)));
+        }
+
+        lir::SDerefFieldWrite sdfw;
+        sdfw.receiver  = std::string(recv_name);
+        sdfw.type_name = type_name;
+        sdfw.field     = std::string(field_name);
+        sdfw.value     = std::move(val);
+        return make_stmt(node_line_, std::move(sdfw));
     }
 
     lir::LStmt lower_index_write(TinyMapView node) {

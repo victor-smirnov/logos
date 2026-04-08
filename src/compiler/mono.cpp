@@ -802,6 +802,9 @@ private:
             } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
                 ns.kind = lir::SFieldWrite{k.receiver, k.field, subst_expr(*k.value, s)};
 
+            } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
+                ns.kind = lir::SDerefFieldWrite{k.receiver, k.type_name, k.field, subst_expr(*k.value, s)};
+
             } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
                 ns.kind = lir::SIndexWrite{
                     k.arr, subst_expr(*k.index, s), subst_expr(*k.value, s)};
@@ -923,6 +926,8 @@ private:
             } else if constexpr (std::is_same_v<K, lir::SBlock>) {
                 scan_block(*k.body);
             } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
+                scan_expr(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
                 scan_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
                 scan_expr(*k.index); scan_expr(*k.value);
@@ -1254,6 +1259,8 @@ private:
             } else if constexpr (std::is_same_v<K, lir::SBlock>) {
                 collect_struct_needs_from_block(*k.body);
             } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
+                collect_struct_needs_from_expr(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
                 collect_struct_needs_from_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
                 collect_struct_needs_from_expr(*k.index);

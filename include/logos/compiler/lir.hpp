@@ -309,6 +309,14 @@ struct SFieldIndexWrite {
     LExprPtr    value;
 };
 
+// (*ptr_var).field = value  — field write through a named pointer variable
+struct SDerefFieldWrite {
+    std::string receiver;    // variable name (holds *mut ClassName)
+    std::string type_name;   // class or struct name of the pointee
+    std::string field;
+    LExprPtr    value;
+};
+
 struct SExprStmt  { LExprPtr expr; };
 
 struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class pointer
@@ -346,7 +354,7 @@ struct LStmt {
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
         SBreak, SContinue, SBlock, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
-        SDrop
+        SDrop, SDerefFieldWrite
     > kind;
 };
 

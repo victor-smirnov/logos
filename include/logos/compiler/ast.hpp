@@ -183,6 +183,7 @@ inline constexpr Code WHERE_CLAUSE    {"WHERE_CLAUSE",    124};  // where T: Tra
 inline constexpr Code CLOSURE_TYPE      {"CLOSURE_TYPE",      125};  // |T1, T2| -> R closure type
 inline constexpr Code COMPOUND_ASSIGN   {"COMPOUND_ASSIGN",   126};  // x += expr (desugared in sema)
 inline constexpr Code ARR_FILL_LIT     {"ARR_FILL_LIT",     127};  // [value; N] array fill literal
+inline constexpr Code DEREF_FIELD_WRITE{"DEREF_FIELD_WRITE", 128};  // (*ptr).field = expr;
 
 // Visibility
 inline constexpr Key IS_PUB {"IS_PUB", 33};           // visibility flag (1 = pub)

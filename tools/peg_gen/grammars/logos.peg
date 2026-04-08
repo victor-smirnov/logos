@@ -150,6 +150,7 @@
     CLOSURE_TYPE         = 125
     COMPOUND_ASSIGN      = 126
     ARR_FILL_LIT         = 127
+    DEREF_FIELD_WRITE    = 128
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -492,6 +493,7 @@
           / match_stmt
           / delete_stmt
           / field_index_write_stmt
+          / deref_field_write_stmt
           / field_write_stmt
           / index_write_stmt
           / compound_assign_stmt
@@ -590,6 +592,10 @@
 
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
+
+    // (*ptr).field = val;  — field write through a dereferenced pointer
+    deref_field_write_stmt <- LPAREN STAR IDENT RPAREN DOT IDENT ASSIGN expr SEMI
+                           => { CODE: DEREF_FIELD_WRITE, RECEIVER: $3, FIELD: $6, VALUE: $8 }
 
     // a.ptr[i] = val;  — field index write (pointer field)
     field_index_write_stmt <- IDENT DOT IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
