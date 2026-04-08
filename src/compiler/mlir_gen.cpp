@@ -328,7 +328,15 @@ private:
                 return false;
             }
             std::string fsname;
-            if (f.type->kind == LogosType::Kind::Struct) fsname = concrete_struct_name(f.type);
+            if (f.type->kind == LogosType::Kind::Struct) {
+                fsname = concrete_struct_name(f.type);
+            } else if ((f.type->kind == LogosType::Kind::Ref ||
+                        f.type->kind == LogosType::Kind::MutRef) &&
+                       f.type->pointee &&
+                       f.type->pointee->kind == LogosType::Kind::Struct) {
+                // &Struct / &mut Struct field — same layout as *Struct
+                fsname = concrete_struct_name(f.type->pointee);
+            }
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname});
             field_types.push_back(ft);
         }
@@ -415,8 +423,14 @@ private:
                 return false;
             }
             std::string fsname;
-            if (f.type && f.type->kind == LogosType::Kind::Struct)
+            if (f.type && f.type->kind == LogosType::Kind::Struct) {
                 fsname = concrete_struct_name(f.type);
+            } else if (f.type && (f.type->kind == LogosType::Kind::Ref ||
+                                   f.type->kind == LogosType::Kind::MutRef) &&
+                       f.type->pointee &&
+                       f.type->pointee->kind == LogosType::Kind::Struct) {
+                fsname = concrete_struct_name(f.type->pointee);
+            }
             else if (f.type && f.type->kind == LogosType::Kind::Class)
                 fsname = f.type->struct_name;
             uint32_t idx = uint32_t(info.fields.size());
