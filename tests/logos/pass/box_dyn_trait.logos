@@ -3,14 +3,14 @@ package box_dyn_trait;
 extern fn printf(fmt: *const u8, ...) -> i32;
 
 trait Animal {
-    fn speak(self: Self);
+    fn speak(self: Self) -> ();
 }
 
 class Dog { val: i32; }
 class Cat { val: i32; }
 
-impl Animal for Dog { fn speak(self: Dog) { printf("woof\n"); } }
-impl Animal for Cat { fn speak(self: Cat) { printf("meow\n"); } }
+impl Animal for Dog { fn speak(self: Dog) -> () { printf("woof\n"); } }
+impl Animal for Cat { fn speak(self: Cat) -> () { printf("meow\n"); } }
 
 fn make_animal(is_dog: i32) -> Box<dyn Animal> {
     if is_dog == 1 {

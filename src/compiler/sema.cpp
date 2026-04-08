@@ -893,12 +893,13 @@ private:
         }
 
         if (tc == la::TUPLE_TYPE) {
+            if (!node.has_key(la::ITEMS))
+                return void_t();  // () = unit/void type
             std::vector<const LogosType*> elems;
-            if (node.has_key(la::ITEMS)) {
-                auto items = arr_of(node.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < items.size(); ++i)
-                    elems.push_back(resolve_type(map_of(items.get(i))));
-            }
+            auto items = arr_of(node.get(la::ITEMS.code));
+            if (items.size() == 0) return void_t();
+            for (uint64_t i = 0; i < items.size(); ++i)
+                elems.push_back(resolve_type(map_of(items.get(i))));
             return make_tuple_type(std::move(elems));
         }
 

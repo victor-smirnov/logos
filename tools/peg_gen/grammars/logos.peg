@@ -397,7 +397,7 @@
     impl_type <- KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / impl_type / tuple_type / assoc_type_ref / simple_type
+    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / impl_type / unit_type / tuple_type / assoc_type_ref / simple_type
 
     // T::Item — associated type reference (type param :: assoc type name)
     assoc_type_ref <- IDENT COLONCOLON IDENT
@@ -418,6 +418,10 @@
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
               / AMP simple_type
              => { CODE: PTR_TYPE, POINTEE: $2, MUTPTR: false }
+
+    // () — unit/void type (empty tuple, equivalent to void)
+    unit_type <- LPAREN RPAREN
+              => { CODE: TUPLE_TYPE }
 
     // (T1, T2, ...) — tuple type (2+ elements)
     tuple_type <- LPAREN type_ref COMMA type_ref (COMMA type_ref)* RPAREN
