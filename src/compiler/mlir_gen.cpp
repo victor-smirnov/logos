@@ -163,6 +163,8 @@ private:
 
     // Per-function: variables holding &dyn Trait values (name → trait name).
     std::unordered_map<std::string, std::string>  var_dyn_trait_;
+    // Function name → Logos-level parameter types (for dyn coercion at call sites).
+    std::unordered_map<std::string, std::vector<const LogosType*>> fn_param_types_;
 
     // Per-function: tracks class name for variables/params holding class pointers.
     std::unordered_map<std::string, std::string>       var_class_;
@@ -573,6 +575,10 @@ private:
         auto f = mlir::func::FuncOp::create(loc_, fn.name, make_fn_type(fn));
         if (fn.is_extern) f.setPrivate();
         mod.push_back(f);
+        // Record Logos-level param types for dyn coercion at call sites.
+        std::vector<const LogosType*> ptypes;
+        for (auto& p : fn.params) ptypes.push_back(p.type);
+        fn_param_types_[fn.name] = std::move(ptypes);
     }
 
     // ── Function body ─────────────────────────────────────────────
@@ -836,25 +842,8 @@ private:
         if (s.type && s.type->kind == LogosType::Kind::TraitObject) {
             auto data_ptr = gen_expr(*s.value);
             if (!data_ptr) return;
-            // Build fat pointer: {data_ptr, vtable_ptr}
-            auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
-                builder_.getContext(), {ptr_type(), ptr_type()});
-            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_type(), dyn_struct, i64_one());
-            // Store data pointer at field 0
-            llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
-            auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), dyn_struct, alloca, idx0);
-            builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, dp);
-            // Store vtable pointer at field 1
             std::string src_type = type_str(s.value->type);
-            auto vtable = build_inline_vtable(s.type->trait_name, src_type);
-            if (vtable) {
-                llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
-                auto vp = builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_type(), dyn_struct, alloca, idx1);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, vtable, vp);
-            }
+            auto alloca = coerce_to_dyn(data_ptr, s.type->trait_name, src_type);
             scope_[s.name] = alloca;
             let_vars_.insert(s.name);
             var_dyn_trait_[s.name] = s.type->trait_name;
@@ -1712,14 +1701,49 @@ private:
         }
         llvm::SmallVector<mlir::Value> args;
         auto param_types = callee_fn.getFunctionType().getInputs();
+        // Look up Logos-level param types for dyn coercion
+        auto fpit = fn_param_types_.find(e.callee);
         for (size_t i = 0; i < e.args.size(); ++i) {
             auto v = gen_expr(*e.args[i]);
             if (!v) return nullptr;
+            // Coerce concrete struct/class → &dyn Trait if param expects it
+            if (fpit != fn_param_types_.end() && i < fpit->second.size()) {
+                auto* param_lt = fpit->second[i];
+                auto* arg_lt = e.args[i]->type;
+                if (param_lt && param_lt->kind == LogosType::Kind::TraitObject &&
+                    arg_lt && arg_lt->kind != LogosType::Kind::TraitObject) {
+                    v = coerce_to_dyn(v, param_lt->trait_name, type_str(arg_lt));
+                }
+            }
             if (i < param_types.size()) v = coerce_int(v, param_types[i]);
             args.push_back(v);
         }
         auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
         return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
+    }
+
+    // Build a &dyn Trait fat pointer from a concrete data_ptr.
+    // Returns a pointer to a stack-allocated {data_ptr, vtable_ptr}.
+    mlir::Value coerce_to_dyn(mlir::Value data_ptr, const std::string& trait_name,
+                               const std::string& src_type_name) {
+        auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
+            builder_.getContext(), {ptr_type(), ptr_type()});
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), dyn_struct, i64_one());
+        // Store data pointer at field 0
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), dyn_struct, alloca, idx0);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, dp);
+        // Store vtable pointer at field 1
+        auto vtable = build_inline_vtable(trait_name, src_type_name);
+        if (vtable) {
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
+            auto vp = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), dyn_struct, alloca, idx1);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, vtable, vp);
+        }
+        return alloca;
     }
 
     // Indirect call through &dyn Trait vtable.

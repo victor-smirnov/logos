@@ -18,8 +18,7 @@ fn get_area(obj: &dyn Area) -> i32 { return obj.area(); }
 fn main() -> i32 {
     let r: Rect = Rect { w: 3, h: 5 };
     let s: Square = Square { s: 3 };
-    let dr: &dyn Area = r;
-    let ds: &dyn Area = s;
+    // Direct coercion at call site — no let binding needed
     // 3*5 + 3*3 + 18 = 42
-    return get_area(dr) + get_area(ds) + 18;
+    return get_area(r) + get_area(s) + 18;
 }
