@@ -211,6 +211,7 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::TraitObject: return "&dyn " + t->trait_name;
     case LogosType::Kind::TypeVar:     return std::string(t->type_var_name);
     case LogosType::Kind::AssocType:   return std::string(t->type_var_name) + "::" + t->assoc_type_name;
+    case LogosType::Kind::ImplTrait:   return "impl " + t->struct_name;
     case LogosType::Kind::Error:   return "<error>";
     }
     return "<unknown>";
@@ -906,6 +907,14 @@ private:
             if (!traits_.count(tname))
                 error(std::format("unknown trait '{}' in &dyn type", tname));
             return make_trait_object(tname);
+        }
+
+        if (tc == la::IMPL_TYPE) {
+            auto tname = std::string(str_of(node.get(la::NAME.code)));
+            LogosType t;
+            t.kind = LogosType::Kind::ImplTrait;
+            t.struct_name = tname;  // reuse struct_name to store trait name
+            return pool_.alloc(std::move(t));
         }
 
         if (tc == la::ARR_TYPE) {
@@ -1870,6 +1879,7 @@ private:
     // Set to true only when lowering a match that is the last statement
     // of a function body (so EXPR arms should be returned, not discarded).
     bool match_in_tail_position_ = false;
+    const LogosType* impl_ret_type_inferred_ = nullptr;  // set when lowering impl Trait return fn
 
     // ── Return reachability (on AST nodes) ───────────────────────
 
@@ -3960,7 +3970,12 @@ private:
             AnyVal vav = node.get(la::VALUE.code);
             if (!vav.is_null()) {
                 val = lower_expr(map_of(vav));
-                if (ret_type_ && ret_type_->kind != LogosType::Kind::Error &&
+                if (ret_type_ && ret_type_->kind == LogosType::Kind::ImplTrait) {
+                    // Infer concrete return type from first return expression.
+                    if (!impl_ret_type_inferred_ &&
+                        val->type->kind != LogosType::Kind::Error)
+                        impl_ret_type_inferred_ = val->type;
+                } else if (ret_type_ && ret_type_->kind != LogosType::Kind::Error &&
                     val->type->kind != LogosType::Kind::Error &&
                     !types_compatible(val->type, ret_type_)) {
                     error(std::format("return type mismatch — expected {}, got {}",
@@ -3971,7 +3986,8 @@ private:
         }
         // void return
         if (ret_type_ && ret_type_->kind != LogosType::Kind::Void &&
-            ret_type_->kind != LogosType::Kind::Error) {
+            ret_type_->kind != LogosType::Kind::Error &&
+            ret_type_->kind != LogosType::Kind::ImplTrait) {
             error(std::format("return without value in function returning {}",
                   type_str(ret_type_)));
         }
@@ -4781,6 +4797,9 @@ private:
         fn.type_params = fi_ptr->type_params;
         fn.ret_type    = fi_ptr->ret_type;
         ret_type_      = fn.ret_type;
+        // Reset impl-trait inference state for this function.
+        if (fn.ret_type && fn.ret_type->kind == LogosType::Kind::ImplTrait)
+            impl_ret_type_inferred_ = nullptr;
 
         // Put type params in scope for the duration of the function body
         push_type_params(fn.type_params);
@@ -4833,6 +4852,16 @@ private:
             }
             fn.body = lower_block(body_node);
             match_in_tail_position_ = false;
+            // Resolve impl Trait return type to the concrete type inferred from returns.
+            if (fn.ret_type && fn.ret_type->kind == LogosType::Kind::ImplTrait) {
+                if (impl_ret_type_inferred_) {
+                    fn.ret_type       = impl_ret_type_inferred_;
+                    fi_ptr->ret_type  = impl_ret_type_inferred_;
+                    ret_type_         = impl_ret_type_inferred_;
+                } else {
+                    error("impl Trait return: could not infer concrete return type");
+                }
+            }
             // Return reachability check (on AST node — before scope is gone)
             if (fn.ret_type && fn.ret_type->kind != LogosType::Kind::Void &&
                 fn.ret_type->kind != LogosType::Kind::Error &&

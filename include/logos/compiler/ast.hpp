@@ -170,6 +170,7 @@ inline constexpr Key IS_VARIADIC  {"IS_VARIADIC",  32};    // variadic type para
 inline constexpr Code PACK_EXPAND {"PACK_EXPAND", 117};    // args... pack expansion
 
 // Dynamic dispatch
+inline constexpr Code IMPL_TYPE   {"IMPL_TYPE",   116};    // impl Trait type
 inline constexpr Code DYN_TYPE    {"DYN_TYPE",    118};    // &dyn Trait type
 
 // Associated types

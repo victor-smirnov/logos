@@ -2946,6 +2946,9 @@ private:
         // General case: evaluate expression, derive type name from LExpr.type
         auto ptr = gen_expr(recv);
         if (!ptr) return {nullptr, {}};
+        // If the result is an aggregate struct (by-value return), spill to alloca.
+        if (mlir::isa<mlir::LLVM::LLVMStructType>(ptr.getType()))
+            ptr = spill_to_alloca(ptr);
         if (recv.type) {
             const LogosType* t = recv.type;
             if (t->kind == LogosType::Kind::Ptr && t->pointee) t = t->pointee;

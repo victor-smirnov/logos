@@ -1,0 +1,26 @@
+package impl_trait_ret;
+// impl Trait in return position: concrete type inferred from return expr.
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Shape { fn area(self: Self) -> i32; }
+
+struct Rect  { w: i32; h: i32; }
+struct Circle { r: i32; }
+
+impl Shape for Rect   { fn area(self: Rect)   -> i32 { return self.w * self.h; } }
+impl Shape for Circle { fn area(self: Circle) -> i32 { return self.r * self.r; } }
+
+fn make_rect(w: i32, h: i32) -> impl Shape {
+    return Rect { w: w, h: h };
+}
+
+fn make_circle(r: i32) -> impl Shape {
+    return Circle { r: r };
+}
+
+fn main() -> i32 {
+    let r = make_rect(3, 4);
+    let c = make_circle(5);
+    printf("%d %d\n", r.area(), c.area());  // 12 25
+    return 0;
+}

@@ -36,6 +36,7 @@ struct LogosType {
         TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)
         AssocType,                // T::Item — type param's associated type (resolved by mono)
+        ImplTrait,                // impl Trait — opaque return type, resolved during lowering
         Error                     // sentinel for ill-typed expressions
     };
 

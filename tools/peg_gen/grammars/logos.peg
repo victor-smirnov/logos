@@ -394,7 +394,10 @@
 
     // ── Type reference ───────────────────────────────────────────
     // assoc_type_ref must come before simple_type to match T::Item before T
-    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / tuple_type / assoc_type_ref / simple_type
+    impl_type <- KW_IMPL IDENT
+              => { CODE: IMPL_TYPE, NAME: $2 }
+
+    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / impl_type / tuple_type / assoc_type_ref / simple_type
 
     // T::Item — associated type reference (type param :: assoc type name)
     assoc_type_ref <- IDENT COLONCOLON IDENT
