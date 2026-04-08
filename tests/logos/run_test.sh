@@ -41,14 +41,37 @@ if ! "$LOGOSC" "$TEST_LOGOS" -o "$OBJ" "${EXTRA[@]}" 2>"$TMPD/sema.err"; then
     exit 1
 fi
 
-# Parse expected file: lines of the form "key: value"
+# Parse expected file.
+# Supported formats:
+#   exit: N
+#   stdout: single line value
+#   stdout:
+#   line1
+#   line2          (multi-line: everything after a bare "stdout:" to EOF)
 WANT_EXIT=0
 WANT_STDOUT=""
-while IFS=: read -r key val; do
-    val="${val# }"      # strip one leading space
+IN_STDOUT=0
+while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    if [ "$IN_STDOUT" = 1 ]; then
+        # accumulate multi-line stdout body
+        if [ -n "$WANT_STDOUT" ]; then
+            WANT_STDOUT="${WANT_STDOUT}"$'\n'"${raw_line}"
+        else
+            WANT_STDOUT="$raw_line"
+        fi
+        continue
+    fi
+    key="${raw_line%%:*}"
+    val="${raw_line#*: }"
     case "$key" in
         exit)   WANT_EXIT="$val" ;;
-        stdout) WANT_STDOUT="$val" ;;
+        stdout)
+            if [ "$raw_line" = "stdout:" ]; then
+                IN_STDOUT=1   # multi-line mode
+            else
+                WANT_STDOUT="$val"
+            fi
+            ;;
     esac
 done < "$EXPECTED"
 
