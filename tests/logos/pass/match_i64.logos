@@ -1,0 +1,9 @@
+package match_i64;
+// Verify match on i64 values > INT32_MAX works correctly
+fn main() -> i32 {
+    let x: i64 = 3000000000;
+    match x {
+        3000000000 => { return 0; }
+        _ => { return 1; }
+    }
+}

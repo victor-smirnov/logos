@@ -1786,7 +1786,7 @@ private:
             if (is_wild) {
                 else_block = arm_entry;
             } else {
-                int32_t disc = 0;
+                int64_t disc = 0;
                 if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;
                 else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) disc = pvd->disc;
                 else if (auto* pi = std::get_if<PatInt>(&arm.pat))  disc = pi->value;
@@ -1798,7 +1798,7 @@ private:
                     mlir::OpBuilder::InsertionGuard ig(builder_);
                     builder_.setInsertionPointToStart(test_block);
                     auto disc_val = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32),
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64),
                         scrut_type);
                     auto eq = builder_.create<mlir::arith::CmpIOp>(
                         loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
@@ -2028,8 +2028,20 @@ private:
         if (op == "+")  return builder_.create<mlir::arith::AddIOp>(loc_, lhs, rhs);
         if (op == "-")  return builder_.create<mlir::arith::SubIOp>(loc_, lhs, rhs);
         if (op == "*")  return builder_.create<mlir::arith::MulIOp>(loc_, lhs, rhs);
-        if (op == "/")  return builder_.create<mlir::arith::DivSIOp>(loc_, lhs, rhs);
-        if (op == "%")  return builder_.create<mlir::arith::RemSIOp>(loc_, lhs, rhs);
+        {
+            bool is_unsigned = e.lhs->type &&
+                (e.lhs->type->kind == LogosType::Kind::U8  ||
+                 e.lhs->type->kind == LogosType::Kind::U32 ||
+                 e.lhs->type->kind == LogosType::Kind::U64);
+            if (op == "/") {
+                if (is_unsigned) return builder_.create<mlir::arith::DivUIOp>(loc_, lhs, rhs);
+                return builder_.create<mlir::arith::DivSIOp>(loc_, lhs, rhs);
+            }
+            if (op == "%") {
+                if (is_unsigned) return builder_.create<mlir::arith::RemUIOp>(loc_, lhs, rhs);
+                return builder_.create<mlir::arith::RemSIOp>(loc_, lhs, rhs);
+            }
+        }
         if (op == "&&") return builder_.create<mlir::arith::AndIOp>(loc_, lhs, rhs);
         if (op == "||") return builder_.create<mlir::arith::OrIOp> (loc_, lhs, rhs);
         if (op == "&")  return builder_.create<mlir::arith::AndIOp>(loc_, lhs, rhs);
@@ -2060,10 +2072,20 @@ private:
                     loc_, mlir::LLVM::ICmpPredicate::ne, lhs, rhs);
             return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne,  lhs, rhs);
         }
-        if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::slt, lhs, rhs);
-        if (op == ">")  return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sgt, lhs, rhs);
-        if (op == "<=") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sle, lhs, rhs);
-        if (op == ">=") return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sge, lhs, rhs);
+        {
+            bool is_unsigned_cmp = e.lhs->type &&
+                (e.lhs->type->kind == LogosType::Kind::U8  ||
+                 e.lhs->type->kind == LogosType::Kind::U32 ||
+                 e.lhs->type->kind == LogosType::Kind::U64);
+            if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_,
+                is_unsigned_cmp ? mlir::arith::CmpIPredicate::ult : mlir::arith::CmpIPredicate::slt, lhs, rhs);
+            if (op == ">")  return builder_.create<mlir::arith::CmpIOp>(loc_,
+                is_unsigned_cmp ? mlir::arith::CmpIPredicate::ugt : mlir::arith::CmpIPredicate::sgt, lhs, rhs);
+            if (op == "<=") return builder_.create<mlir::arith::CmpIOp>(loc_,
+                is_unsigned_cmp ? mlir::arith::CmpIPredicate::ule : mlir::arith::CmpIPredicate::sle, lhs, rhs);
+            if (op == ">=") return builder_.create<mlir::arith::CmpIOp>(loc_,
+                is_unsigned_cmp ? mlir::arith::CmpIPredicate::uge : mlir::arith::CmpIPredicate::sge, lhs, rhs);
+        }
         std::fprintf(stderr, "mlir_gen: unknown op '%s'\n", op.c_str());
         return nullptr;
     }
@@ -2402,8 +2424,13 @@ private:
         if (fi && ti) {
             if (ti.getWidth() > fi.getWidth()) {
                 // bool (i1) → int: use zero-extend to preserve 0/1 semantics.
-                // Other ints: sign-extend.
-                if (fi.getWidth() == 1)
+                // Unsigned source types: zero-extend. Signed: sign-extend.
+                bool src_unsigned = fi.getWidth() == 1 ||
+                    (e.operand->type &&
+                     (e.operand->type->kind == LogosType::Kind::U8  ||
+                      e.operand->type->kind == LogosType::Kind::U32 ||
+                      e.operand->type->kind == LogosType::Kind::U64));
+                if (src_unsigned)
                     return builder_.create<mlir::arith::ExtUIOp>(loc_, target, val);
                 return builder_.create<mlir::arith::ExtSIOp>(loc_, target, val);
             }
@@ -2660,7 +2687,7 @@ private:
             if (is_wild) {
                 else_block = arm_entry;
             } else {
-                int32_t disc = 0;
+                int64_t disc = 0;
                 if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;
                 else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) disc = pvd->disc;
                 else if (auto* pi = std::get_if<PatInt>(&arm.pat))  disc = pi->value;
@@ -2672,7 +2699,7 @@ private:
                     mlir::OpBuilder::InsertionGuard ig(builder_);
                     builder_.setInsertionPointToStart(test_block);
                     auto disc_val = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32),
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64),
                         scrut_type);
                     auto eq = builder_.create<mlir::arith::CmpIOp>(
                         loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);

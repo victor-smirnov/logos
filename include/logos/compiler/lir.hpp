@@ -41,7 +41,7 @@ using LBlockPtr = std::unique_ptr<LBlock>;
 // ── Patterns (for match arms) ─────────────────────────────────────────────
 
 struct PatVariant { std::string enum_name; std::string variant; int32_t disc; };
-struct PatInt     { int32_t value; };
+struct PatInt     { int64_t value; };
 struct PatBool    { bool value; };
 struct PatWild    { std::string name; };   // _ or named wildcard (name may be "_")
 

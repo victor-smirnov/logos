@@ -5319,7 +5319,7 @@ private:
         }
         if (pc == la::PAT_INT) {
             auto sv = str_of(pnode.get(la::VALUE.code));
-            return lir::PatInt{(int32_t)std::strtol(sv.data(), nullptr, 10)};
+            return lir::PatInt{(int64_t)std::strtoll(sv.data(), nullptr, 10)};
         }
         if (pc == la::PAT_BOOL) {
             AnyVal bv = pnode.get(la::VALUE.code);

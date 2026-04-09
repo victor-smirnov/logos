@@ -1,0 +1,16 @@
+package unsigned_cmp;
+// Verify u32 comparisons use unsigned predicates
+fn main() -> i32 {
+    let x: u32 = 4000000000;
+    let y: u32 = 2000000000;
+    if x > y {
+        if y < x {
+            if x >= x {
+                if y <= x {
+                    return 0;
+                }
+            }
+        }
+    }
+    return 1;
+}
