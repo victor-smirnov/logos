@@ -3,7 +3,7 @@ package array_ref;
 fn fill(a: *mut i32, n: i32, val: i32) {
     let mut i: i32 = 0;
     while i < n {
-        a[i as i64] = val;
+        unsafe { a[i as i64] = val; }
         i = i + 1;
     }
 }

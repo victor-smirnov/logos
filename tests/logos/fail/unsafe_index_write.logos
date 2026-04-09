@@ -1,0 +1,11 @@
+package unsafe_index_write;
+// Bug 2: writing through raw pointer via indexing requires unsafe context
+
+extern fn malloc(n: i64) -> *mut u8;
+fn alloc(size: i64) -> *mut u8 { unsafe { return malloc(size); } }
+
+fn main() -> i32 {
+    let p: *mut i32 = alloc(4) as *mut i32;
+    p[0] = 99;  // error: index write through raw pointer requires unsafe context
+    return 0;
+}

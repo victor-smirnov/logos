@@ -1,0 +1,9 @@
+package unsafe_generic_call;
+// Bug 1: calling unsafe generic fn without unsafe context (inferred type args)
+
+unsafe fn danger<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let v: i32 = danger(42);  // error: call to unsafe function requires unsafe context
+    return v;
+}

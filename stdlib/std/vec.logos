@@ -30,7 +30,7 @@ impl<T> Vec<T> {
             let raw: *mut u8 = realloc_buf(self.ptr as *mut u8, byte_size);
             self.ptr = raw as *mut T;
         }
-        self.ptr[self.len] = val;
+        unsafe { self.ptr[self.len] = val; }
         self.len = self.len + 1;
     }
 

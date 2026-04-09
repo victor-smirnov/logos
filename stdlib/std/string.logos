@@ -21,7 +21,7 @@ fn str_len(s: *const u8) -> i64 {
 fn mem_copy(dst: *mut u8, dst_off: i64, src: *const u8, n: i64) {
     let mut i: i64 = 0;
     while i < n {
-        dst[dst_off + i] = src[i];
+        unsafe { dst[dst_off + i] = src[i]; }
         i = i + 1;
     }
 }
@@ -29,7 +29,7 @@ fn mem_copy(dst: *mut u8, dst_off: i64, src: *const u8, n: i64) {
 // Write decimal representation of n into buf[off..], return bytes written.
 fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
     if n == 0 {
-        buf[off] = 48 as u8;
+        unsafe { buf[off] = 48 as u8; }
         return 1;
     }
     let neg: bool = n < 0;
@@ -46,12 +46,12 @@ fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
     }
     let mut out: i64 = 0;
     if neg {
-        buf[off + out] = 45 as u8;
+        unsafe { buf[off + out] = 45 as u8; }
         out = out + 1;
     }
     let mut i: i64 = pos - 1;
     while i >= 0 {
-        buf[off + out] = tmp[i] as u8;
+        unsafe { buf[off + out] = tmp[i] as u8; }
         out = out + 1;
         i = i - 1;
     }
@@ -60,7 +60,7 @@ fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
 
 fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
     if n == 0 {
-        buf[off] = 48 as u8;
+        unsafe { buf[off] = 48 as u8; }
         return 1;
     }
     let neg: bool = n < 0;
@@ -77,12 +77,12 @@ fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
     }
     let mut out: i64 = 0;
     if neg {
-        buf[off + out] = 45 as u8;
+        unsafe { buf[off + out] = 45 as u8; }
         out = out + 1;
     }
     let mut i: i64 = pos - 1;
     while i >= 0 {
-        buf[off + out] = tmp[i] as u8;
+        unsafe { buf[off + out] = tmp[i] as u8; }
         out = out + 1;
         i = i - 1;
     }
@@ -91,17 +91,17 @@ fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
 
 fn write_bool(buf: *mut u8, off: i64, v: bool) -> i64 {
     if v {
-        buf[off + 0 as i64] = 116 as u8;
-        buf[off + 1 as i64] = 114 as u8;
-        buf[off + 2 as i64] = 117 as u8;
-        buf[off + 3 as i64] = 101 as u8;
+        unsafe { buf[off + 0 as i64] = 116 as u8; }
+        unsafe { buf[off + 1 as i64] = 114 as u8; }
+        unsafe { buf[off + 2 as i64] = 117 as u8; }
+        unsafe { buf[off + 3 as i64] = 101 as u8; }
         return 4;
     } else {
-        buf[off + 0 as i64] = 102 as u8;
-        buf[off + 1 as i64] = 97  as u8;
-        buf[off + 2 as i64] = 108 as u8;
-        buf[off + 3 as i64] = 115 as u8;
-        buf[off + 4 as i64] = 101 as u8;
+        unsafe { buf[off + 0 as i64] = 102 as u8; }
+        unsafe { buf[off + 1 as i64] = 97  as u8; }
+        unsafe { buf[off + 2 as i64] = 108 as u8; }
+        unsafe { buf[off + 3 as i64] = 115 as u8; }
+        unsafe { buf[off + 4 as i64] = 101 as u8; }
         return 5;
     }
 }

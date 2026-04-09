@@ -12,14 +12,14 @@ extern fn putchar(c: i32) -> i32;
 fn emit(c: i32) { unsafe { putchar(c); } }
 
 // ── swap arr[a] ↔ arr[b] ─────────────────────────────────────────────────
-fn swap(arr: *mut i32, a: i32, b: i32) {
+unsafe fn swap(arr: *mut i32, a: i32, b: i32) {
     let tmp: i32 = arr[a];
-    arr[a] = arr[b];
-    arr[b] = tmp;
+    unsafe { arr[a] = arr[b]; }
+    unsafe { arr[b] = tmp; }
 }
 
 // ── Lomuto partition: pivot = arr[hi], returns pivot index ───────────────
-fn partition(arr: *mut i32, lo: i32, hi: i32) -> i32 {
+unsafe fn partition(arr: *mut i32, lo: i32, hi: i32) -> i32 {
     let pivot: i32 = arr[hi];
     let mut i: i32 = lo;
     let mut j: i32 = lo;
@@ -35,7 +35,7 @@ fn partition(arr: *mut i32, lo: i32, hi: i32) -> i32 {
 }
 
 // ── Recursive quicksort ──────────────────────────────────────────────────
-fn qsort(arr: *mut i32, lo: i32, hi: i32) {
+unsafe fn qsort(arr: *mut i32, lo: i32, hi: i32) {
     if lo < hi {
         let p: i32 = partition(arr, lo, hi);
         qsort(arr, lo, p - 1);
@@ -59,7 +59,7 @@ fn print_int(n: i32) {
 // ── main ─────────────────────────────────────────────────────────────────
 fn main() -> i32 {
     let arr: [i32; 9] = [5, 2, 8, 1, 9, 3, 7, 4, 6];
-    qsort(arr, 0, 8);
+    unsafe { qsort(arr, 0, 8); }
     print_int(arr[0]);
     print_int(arr[1]);
     print_int(arr[2]);

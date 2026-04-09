@@ -53,7 +53,7 @@ fn fmt_into(fmt: *const u8, fi: i64, flen: i64, buf: *mut u8, pos: i64) -> i64 {
     let mut p: i64 = pos;
     let mut i: i64 = fi;
     while i < flen {
-        buf[p] = fmt[i];
+        unsafe { buf[p] = fmt[i]; }
         p = p + 1;
         i = i + 1;
     }
@@ -76,7 +76,7 @@ fn fmt_into<H: Format, T...>(fmt: *const u8, fi: i64, flen: i64,
                 }
             }
         }
-        buf[p] = fmt[i];
+        unsafe { buf[p] = fmt[i]; }
         p = p + 1;
         i = i + 1;
     }
@@ -92,6 +92,6 @@ pub fn format<T...: Format>(pattern: *const u8, args: T...) -> *mut u8 {
     let est: i64 = flen + 256;
     let buf: *mut u8 = alloc(est);
     let pos: i64 = fmt_into(pattern, 0 as i64, flen, buf, 0 as i64, args...);
-    buf[pos] = 0 as u8;
+    unsafe { buf[pos] = 0 as u8; }
     return buf;
 }

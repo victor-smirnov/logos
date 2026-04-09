@@ -1,0 +1,17 @@
+package unsafe_closure_inherit;
+// Bug 5: closure body must NOT inherit unsafe context from enclosing unsafe fn
+
+extern fn malloc(n: i64) -> *mut u8;
+
+fn alloc(size: i64) -> *mut u8 {
+    unsafe { return malloc(size); }
+}
+
+fn apply(f: |i32| -> i32, x: i32) -> i32 { return f(x); }
+
+unsafe fn main() -> i32 {
+    let p: *mut i32 = alloc(4) as *mut i32;
+    // closure body is NOT in unsafe context even though main() is unsafe fn
+    let result: i32 = apply(|x: i32| -> i32 { return *p + x; }, 0);
+    return result;
+}

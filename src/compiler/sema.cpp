@@ -2953,6 +2953,9 @@ private:
                                        std::vector<const LogosType*> type_args,
                                        std::vector<lir::LExprPtr> arg_exprs) {
         std::string callee{callee_sv};
+        // Unsafe check: covers both inferred (lower_call) and explicit (lower_generic_call) paths.
+        if (fi.is_unsafe && !inside_unsafe_)
+            error(std::format("call to unsafe function '{}' requires unsafe context", callee_sv));
         bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
         size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
 
@@ -3374,6 +3377,9 @@ private:
                 auto generic_key = base + "__" + std::string(method_name);
                 auto git = funcs_.find(generic_key);
                 if (git != funcs_.end() && !git->second.type_params.empty()) {
+                    if (git->second.is_unsafe && !inside_unsafe_)
+                        error(std::format("call to unsafe method '{}' requires unsafe context",
+                                          generic_key));
                     // Build concrete name from enum base + type args + method
                     // e.g. "Option__i32__unwrap_or"
                     SemaSubst subst;
@@ -4251,9 +4257,11 @@ private:
         std::unordered_set<std::string> param_names;
         for (auto& p : params) param_names.insert(p.name);
 
-        // Lower body
+        // Lower body — closure body is its own unsafe scope, does NOT inherit enclosing context.
         auto saved_ret = ret_type_;
+        bool saved_unsafe = inside_unsafe_;
         ret_type_ = ret_type;
+        inside_unsafe_ = false;
         lir::LBlock body;
         if (node.has_key(la::BODY)) {
             auto body_node = map_of(node.get(la::BODY.code));
@@ -4261,6 +4269,7 @@ private:
                 body = lower_block(body_node);
         }
         ret_type_ = saved_ret;
+        inside_unsafe_ = saved_unsafe;
         pop_scope();
 
         // Capture detection: find variables used in body that are not params
@@ -5309,6 +5318,8 @@ private:
             error(std::format("index write to immutable array '{}'", arr_name));
         } else if (arr_type->kind == LogosType::Kind::Ptr && !arr_type->mut_ptr) {
             error(std::format("index write through *const pointer '{}'", arr_name));
+        } else if (arr_type->kind == LogosType::Kind::Ptr && !inside_unsafe_) {
+            error(std::format("index write through raw pointer '{}' requires unsafe context", arr_name));
         } else if (arr_type->kind == LogosType::Kind::Ref) {
             error(std::format("index write through &T (shared reference) '{}'", arr_name));
         }
@@ -5403,6 +5414,9 @@ private:
                   recv_name, field_name, type_str(field_t)));
         if (field_t && field_t->kind == LogosType::Kind::Ptr && !field_t->mut_ptr)
             error(std::format("field index write: field '{}.{}' is *const, cannot write",
+                  recv_name, field_name));
+        if (field_t && field_t->kind == LogosType::Kind::Ptr && field_t->mut_ptr && !inside_unsafe_)
+            error(std::format("field index write '{}.{}[i]' through raw pointer requires unsafe context",
                   recv_name, field_name));
         if (field_t && field_t->kind == LogosType::Kind::Ref)
             error(std::format("field index write: field '{}.{}' is &T (shared reference), cannot write",

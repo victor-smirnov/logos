@@ -1,0 +1,9 @@
+package unsafe_explicit_generic_call;
+// Bug 1 (explicit type args path): calling unsafe generic fn without unsafe context
+
+unsafe fn danger<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let v: i32 = danger::<i32>(42);  // error: explicit generic call to unsafe fn
+    return v;
+}
