@@ -1,0 +1,12 @@
+package lit_i64;
+// Verify large i64 literals are not truncated to i32
+
+fn main() -> i32 {
+    let big: i64 = 3000000000;
+    let small: i64 = 1000000000;
+    let diff: i64 = big - small;
+    if diff == 2000000000 {
+        return 0;
+    }
+    return 1;
+}

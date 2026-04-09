@@ -1,0 +1,35 @@
+package dyn_dispatch_ret_type;
+// Verify dyn trait dispatch works for non-i32 return types
+
+extern fn puts(s: *const u8) -> i32;
+fn print(s: *const u8) { unsafe { puts(s); } }
+
+trait Measure {
+    fn size(self: Self) -> i64;
+    fn name(self: Self) -> *const u8;
+}
+
+struct BigThing { n: i64; }
+
+impl Measure for BigThing {
+    fn size(self: BigThing) -> i64 {
+        return self.n;
+    }
+    fn name(self: BigThing) -> *const u8 {
+        return "BigThing\n";
+    }
+}
+
+fn report(m: &dyn Measure) -> i64 {
+    print(m.name());
+    return m.size();
+}
+
+fn main() -> i32 {
+    let t = BigThing { n: 42 };
+    let v: i64 = report(t);
+    if v == 42 {
+        return 0;
+    }
+    return 1;
+}

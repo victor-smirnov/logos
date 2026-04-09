@@ -1197,7 +1197,7 @@ private:
 
         auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
                             loc_, ptr_type(), builder_.getI32Type(), i64_one());
-        builder_.create<mlir::LLVM::StoreOp>(loc_, lo, i_alloca);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(lo, builder_.getI32Type()), i_alloca);
         scope_[s.var] = i_alloca;
         let_vars_.insert(s.var);
         var_elem_types_[s.var] = builder_.getI32Type();
@@ -1327,10 +1327,8 @@ private:
             builder_.setInsertionPointToStart(body_block);
             mlir::Value i_cur = builder_.create<mlir::LLVM::LoadOp>(
                 loc_, builder_.getI64Type(), i_alloca);
-            auto i_cur32 = builder_.create<mlir::arith::TruncIOp>(
-                loc_, builder_.getI32Type(), i_cur);
             llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx;
-            arr_idx.push_back(mlir::LLVM::GEPArg(i_cur32));
+            arr_idx.push_back(mlir::LLVM::GEPArg(i_cur));
             auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
                 loc_, ptr_type(), elem_mlir, data_ptr, arr_idx);
 
@@ -1592,7 +1590,8 @@ private:
         } else {
             // Pointer field: load the stored pointer, then GEP to element.
             auto field_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_gep);
-            llvm::SmallVector<mlir::LLVM::GEPArg> ptr_idx{idx};
+            auto idx_i32 = coerce_int(idx, builder_.getIntegerType(32));
+            llvm::SmallVector<mlir::LLVM::GEPArg> ptr_idx{idx_i32};
             base_ptr = builder_.create<mlir::LLVM::GEPOp>(
                 loc_, ptr_type(), val_type, field_ptr, ptr_idx);
         }
@@ -1825,8 +1824,23 @@ private:
         return std::visit([&](auto& k) { return gen_expr_kind(k, e.type); }, e.kind);
     }
 
-    mlir::Value gen_expr_kind(const ELitInt& e, const LogosType*) {
-        return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value, 32);
+    mlir::Value gen_expr_kind(const ELitInt& e, const LogosType* type) {
+        int width = 32;
+        if (type) {
+            switch (type->kind) {
+            case LogosType::Kind::I64:
+            case LogosType::Kind::U64: width = 64; break;
+            case LogosType::Kind::I8:
+            case LogosType::Kind::U8:  width = 8;  break;
+            case LogosType::Kind::Bool: width = 1; break;
+            case LogosType::Kind::IntLit:
+                // Untyped literal: use i64 if value doesn't fit in i32.
+                if (e.value > INT32_MAX || e.value < INT32_MIN) width = 64;
+                break;
+            default: break;
+            }
+        }
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value, width);
     }
     mlir::Value gen_expr_kind(const ELitBool& e, const LogosType*) {
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value ? 1 : 0, 1);
@@ -2032,7 +2046,10 @@ private:
         auto val = gen_expr(*e.operand);
         if (!val) return nullptr;
         if (e.op == "-") {
-            auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+            if (mlir::isa<mlir::FloatType>(val.getType()))
+                return builder_.create<mlir::arith::NegFOp>(loc_, val);
+            auto zero = builder_.create<mlir::arith::ConstantIntOp>(
+                loc_, 0, mlir::cast<mlir::IntegerType>(val.getType()).getWidth());
             return builder_.create<mlir::arith::SubIOp>(loc_, zero, val);
         }
         if (e.op == "!") {
@@ -2154,7 +2171,7 @@ private:
     }
 
     // Indirect call through &dyn Trait vtable.
-    mlir::Value gen_dyn_dispatch(const EMethodCall& e) {
+    mlir::Value gen_dyn_dispatch(const EMethodCall& e, const LogosType* ret_logos_type) {
         // The receiver is a &dyn Trait — a pointer to {data_ptr, vtable_ptr}.
         // We need to: load data_ptr, load vtable_ptr, GEP to slot, load fn_ptr, call.
 
@@ -2203,9 +2220,12 @@ private:
         llvm::SmallVector<mlir::Type> param_types;
         for (auto& a : args) param_types.push_back(a.getType());
 
-        // Use i32 return type as default.
-        // TODO: look up actual return type from trait method signature.
-        auto ret_type = builder_.getI32Type();
+        mlir::Type ret_type;
+        if (ret_logos_type && ret_logos_type->kind != LogosType::Kind::Void) {
+            ret_type = logos_to_mlir(ret_logos_type);
+        }
+        if (!ret_type)
+            ret_type = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
         auto fn_type = mlir::LLVM::LLVMFunctionType::get(ret_type, param_types);
 
         // Indirect call via function pointer (same pattern as closure calls)
@@ -2220,12 +2240,12 @@ private:
         return call.getResult();
     }
 
-    mlir::Value gen_expr_kind(const EMethodCall& e, const LogosType*) {
+    mlir::Value gen_expr_kind(const EMethodCall& e, const LogosType* ret_logos_type) {
         // &dyn Trait dispatch: load vtable, GEP slot, indirect call
         if (e.receiver->type &&
             e.receiver->type->kind == LogosType::Kind::TraitObject &&
             e.vtable_index >= 0) {
-            return gen_dyn_dispatch(e);
+            return gen_dyn_dispatch(e, ret_logos_type);
         }
         auto [ptr, tname] = gen_recv_struct(*e.receiver);
         if (!ptr || tname.empty()) return nullptr;
@@ -2735,11 +2755,23 @@ private:
         builder_.setInsertionPointToStart(entry);
 
         // Save/restore mlir_gen state
-        auto saved_scope = scope_;
-        auto saved_lets  = let_vars_;
-        auto saved_elems = var_elem_types_;
-        auto saved_ret   = cur_ret_type_;
+        auto saved_scope       = scope_;
+        auto saved_lets        = let_vars_;
+        auto saved_elems       = var_elem_types_;
+        auto saved_ret         = cur_ret_type_;
+        auto saved_struct      = var_struct_;
+        auto saved_class       = var_class_;
+        auto saved_subscript   = var_subscript_;
+        auto saved_tuple       = var_tuple_;
+        auto saved_te          = var_tagged_enum_;
+        auto saved_te_ptr      = var_tagged_enum_ptr_;
+        auto saved_local_ptrs  = var_local_ptrs_;
+        auto saved_dyn_trait   = var_dyn_trait_;
+        auto saved_loop_stack  = loop_stack_;
         scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
+        var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
+        var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
+        var_local_ptrs_.clear(); var_dyn_trait_.clear(); loop_stack_.clear();
 
         bool ret_is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(llvm_ret);
         cur_ret_type_ = ret_is_void ? mlir::Type{} : llvm_ret;
@@ -2766,17 +2798,27 @@ private:
         }
 
         // Generate body (inside llvm.func — use llvm.return)
+        bool saved_in_llvm = in_llvm_func_;
         in_llvm_func_ = true;
         gen_block(e.body);
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
-        in_llvm_func_ = false;
+        in_llvm_func_ = saved_in_llvm;
 
         // Restore state
-        scope_ = saved_scope;
-        let_vars_ = saved_lets;
-        var_elem_types_ = saved_elems;
-        cur_ret_type_ = saved_ret;
+        scope_              = saved_scope;
+        let_vars_           = saved_lets;
+        var_elem_types_     = saved_elems;
+        cur_ret_type_       = saved_ret;
+        var_struct_         = saved_struct;
+        var_class_          = saved_class;
+        var_subscript_      = saved_subscript;
+        var_tuple_          = saved_tuple;
+        var_tagged_enum_    = saved_te;
+        var_tagged_enum_ptr_ = saved_te_ptr;
+        var_local_ptrs_     = saved_local_ptrs;
+        var_dyn_trait_      = saved_dyn_trait;
+        loop_stack_         = saved_loop_stack;
         builder_.restoreInsertionPoint(save_pt);
 
         // At the creation site: alloca capture struct, store captures
