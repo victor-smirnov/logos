@@ -191,14 +191,18 @@ inline constexpr Code MUT_REF_TYPE    {"MUT_REF_TYPE",      130};  // &mut T (ex
 inline constexpr Code LIFETIME_PARAM  {"LIFETIME_PARAM",    131};  // 'a in <'a, T> type parameter list
 inline constexpr Key  LIFETIME        {"LIFETIME",           40};   // lifetime string on Ref/MutRef nodes
 
+// Unsafe
+inline constexpr Code UNSAFE_BLOCK    {"UNSAFE_BLOCK",      132};  // unsafe { ... }
+
 // Visibility
-inline constexpr Key IS_PUB {"IS_PUB", 33};           // visibility flag (1 = pub)
-inline constexpr Key PAT    {"PAT",    34};            // pattern for if let / while let
-inline constexpr Key GUARD  {"GUARD",  35};            // guard condition in match arm
-inline constexpr Key EXPR   {"EXPR",   36};            // expression-body match arm value
-inline constexpr Key NAMES  {"NAMES",  37};            // name list for tuple destructuring
-inline constexpr Key WHERE  {"WHERE",  38};            // where clause node
-inline constexpr Key IS_CONST{"IS_CONST", 39};          // const fn marker
+inline constexpr Key IS_PUB    {"IS_PUB",    33};           // visibility flag (1 = pub)
+inline constexpr Key PAT       {"PAT",       34};            // pattern for if let / while let
+inline constexpr Key GUARD     {"GUARD",     35};            // guard condition in match arm
+inline constexpr Key EXPR      {"EXPR",      36};            // expression-body match arm value
+inline constexpr Key NAMES     {"NAMES",     37};            // name list for tuple destructuring
+inline constexpr Key WHERE     {"WHERE",     38};            // where clause node
+inline constexpr Key IS_CONST  {"IS_CONST",  39};            // const fn marker
+inline constexpr Key IS_UNSAFE {"IS_UNSAFE", 42};            // unsafe fn marker
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

@@ -1,0 +1,22 @@
+package unsafe_fn;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+unsafe fn read_ptr(p: *const i32) -> i32 {
+    return *p;
+}
+
+unsafe fn write_ptr(p: *mut i32, val: i32) {
+    *p = val;
+}
+
+fn main() -> i32 {
+    let buf: *mut u8 = malloc(4);
+    let p: *mut i32 = buf as *mut i32;
+    unsafe {
+        write_ptr(p, 77);
+        let v: i32 = read_ptr(p as *const i32);
+        free(buf);
+        return v;
+    }
+}

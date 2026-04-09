@@ -6,7 +6,7 @@ class Node {
     next: *mut Node;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let n3 = new Node { val: 3, next: 0 as *mut Node };
     let n2 = new Node { val: 2, next: n3 };
     let n1 = new Node { val: 1, next: n2 };

@@ -5,8 +5,10 @@ extern fn free(p: *mut u8);
 fn main() -> i32 {
     let buf: *mut u8 = malloc(4);
     let p: *mut i32 = buf as *mut i32;
-    *p = 42;
-    let v: i32 = *p;
-    free(buf);
-    return v;
+    unsafe {
+        *p = 42;
+        let v: i32 = *p;
+        free(buf);
+        return v;
+    }
 }

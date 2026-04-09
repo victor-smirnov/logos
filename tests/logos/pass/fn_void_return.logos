@@ -1,12 +1,12 @@
 package fn_void_return;
 // F10: void functions, side-effect via pointer
-fn add_inplace(p: *mut i32, val: i32) {
+unsafe fn add_inplace(p: *mut i32, val: i32) {
     let cur: i32 = *p;
     *p = cur + val;
 }
 fn main() -> i32 {
     let mut x: i32 = 0;
-    add_inplace(&mut x, 12);
-    add_inplace(&mut x, 30);
+    unsafe { add_inplace(&mut x, 12); }
+    unsafe { add_inplace(&mut x, 30); }
     return x;  // 42
 }

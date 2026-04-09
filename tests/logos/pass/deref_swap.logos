@@ -1,6 +1,6 @@
 package deref_swap;
 // swap two variables via *mut pointers — tests deref-write + &mut
-fn swap(a: *mut i32, b: *mut i32) {
+unsafe fn swap(a: *mut i32, b: *mut i32) {
     let tmp: i32 = *a;
     *a = *b;
     *b = tmp;
@@ -8,6 +8,6 @@ fn swap(a: *mut i32, b: *mut i32) {
 fn main() -> i32 {
     let mut x: i32 = 10;
     let mut y: i32 = 32;
-    swap(&mut x, &mut y);
+    unsafe { swap(&mut x, &mut y); }
     return x + y;  // 32+10 = 42
 }

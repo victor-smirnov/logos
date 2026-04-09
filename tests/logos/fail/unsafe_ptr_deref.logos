@@ -1,0 +1,10 @@
+package unsafe_ptr_deref;
+extern fn malloc(n: i64) -> *mut u8;
+
+// Dereferencing a raw pointer outside unsafe block — should error
+fn main() -> i32 {
+    let buf: *mut u8 = malloc(4);
+    let p: *mut i32 = buf as *mut i32;
+    let v: i32 = *p;  // error: requires unsafe
+    return v;
+}

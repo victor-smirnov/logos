@@ -684,7 +684,7 @@ private:
                             std::string package; };
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
-                            bool is_pub = false; bool is_const = false;
+                            bool is_pub = false; bool is_const = false; bool is_unsafe = false;
                             std::string source_file; std::string package; };
     struct SemaVariantInfo{
         std::string_view name; int32_t value;
@@ -2151,6 +2151,11 @@ private:
             AnyVal av = node.get(la::IS_CONST.code);
             info.is_const = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
+        // unsafe fn marker
+        if (node.has_key(la::IS_UNSAFE)) {
+            AnyVal av = node.get(la::IS_UNSAFE.code);
+            info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        }
         info.source_file = file_;
         info.package = cur_package_;
         pop_type_params(info.type_params);
@@ -2189,6 +2194,7 @@ private:
     // ── Loop depth / return type ─────────────────────────────────
 
     int loop_depth_ = 0;
+    bool inside_unsafe_ = false;
     const LogosType* ret_type_ = nullptr;
     // Set to true only when lowering a match that is the last statement
     // of a function body (so EXPR arms should be returned, not discarded).
@@ -2204,6 +2210,10 @@ private:
     bool stmt_always_returns(TinyMapView stmt) {
         int32_t c = code_of(stmt);
         if (c == la::RETURN) return true;
+        if (c == la::UNSAFE_BLOCK) {
+            return stmt.has_key(la::BODY) &&
+                   block_always_returns(map_of(stmt.get(la::BODY.code)));
+        }
         if (c == la::LOOP) {
             return stmt.has_key(la::BODY) &&
                    block_always_returns(map_of(stmt.get(la::BODY.code)));
@@ -2430,6 +2440,32 @@ private:
         case la::MATCH:       return lower_match_expr(expr);
         case la::CLOSURE_EXPR: return lower_closure_expr(expr);
 
+        case la::UNSAFE_BLOCK: {
+            // unsafe { stmts... expr } — as expression: last EXPR_STMT's VALUE is the result
+            if (!expr.has_key(la::BODY)) return error_expr();
+            auto inner = map_of(expr.get(la::BODY.code));
+            bool was = inside_unsafe_;
+            inside_unsafe_ = true;
+            // Lower all stmts; return the last EXPR_STMT's value as the block result
+            lir::LExprPtr result = error_expr();
+            if (inner.has_key(la::ITEMS)) {
+                auto stmts = arr_of(inner.get(la::ITEMS.code));
+                // Lower all but last as side-effect stmts (we discard them here since
+                // unsafe-block-as-expr only cares about the final value)
+                for (uint64_t i = 0; i + 1 < stmts.size(); ++i)
+                    lower_stmt(map_of(stmts.get(i)));
+                if (stmts.size() > 0) {
+                    auto last = map_of(stmts.get(stmts.size() - 1));
+                    if (code_of(last) == la::EXPR_STMT && last.has_key(la::VALUE))
+                        result = lower_expr(map_of(last.get(la::VALUE.code)));
+                    else
+                        result = lower_expr(last);
+                }
+            }
+            inside_unsafe_ = was;
+            return result;
+        }
+
         case la::TUPLE_LIT: {
             if (!expr.has_key(la::ITEMS)) return error_expr();
             auto items = arr_of(expr.get(la::ITEMS.code));
@@ -2639,6 +2675,9 @@ private:
             error(std::format("dereference of non-pointer type {}", type_str(vt)));
             return make_expr(error_t(), lir::EDeref{std::move(operand)});
         }
+        // Raw pointer deref requires unsafe context
+        if (vt->kind == LogosType::Kind::Ptr && !inside_unsafe_)
+            error("dereference of raw pointer requires unsafe context");
         auto* res = vt->pointee ? vt->pointee : error_t();
         return make_expr(res, lir::EDeref{std::move(operand)});
     }
@@ -2690,11 +2729,13 @@ private:
             error(std::format("call to undefined function '{}'", callee));
             return make_expr(error_t(), lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
         }
-        // Pub check.
+        // Pub check and unsafe check.
         {
             const SemaFuncInfo* fi_chk = (fit != funcs_.end()) ? &fit->second
                                        : &git->second;
             check_pub_access(fi_chk->is_pub, fi_chk->package, callee);
+            if (fi_chk->is_unsafe && !inside_unsafe_)
+                error(std::format("call to unsafe function '{}' requires unsafe context", callee));
         }
 
         // Determine if we should try inference
@@ -4317,6 +4358,8 @@ private:
         }
         if (c == la::DEREF_WRITE) {
             // *ptr = value;
+            if (!inside_unsafe_)
+                error("write through raw pointer requires unsafe context");
             lir::LExprPtr ptr = stmt.has_key(la::NAME)
                 ? lower_expr(map_of(stmt.get(la::NAME.code)))
                 : error_expr();
@@ -4341,6 +4384,15 @@ private:
                       type_str(et)));
             }
             return make_stmt(node_line_, lir::SDelete{std::move(expr)});
+        }
+        if (c == la::UNSAFE_BLOCK) {
+            bool was = inside_unsafe_;
+            inside_unsafe_ = true;
+            auto inner = stmt.has_key(la::BODY)
+                ? lower_block(map_of(stmt.get(la::BODY.code)))
+                : lir::LBlock{};
+            inside_unsafe_ = was;
+            return make_stmt(node_line_, lir::SBlock{std::make_unique<lir::LBlock>(std::move(inner))});
         }
         // Unknown stmt — emit dummy expr stmt
         return make_stmt(node_line_, lir::SExprStmt{error_expr()});
@@ -5137,6 +5189,8 @@ private:
     }
 
     lir::LStmt lower_deref_field_write(TinyMapView node) {
+        if (!inside_unsafe_)
+            error("write through raw pointer field requires unsafe context");
         auto recv_name  = str_of(node.get(la::RECEIVER.code));
         auto field_name = str_of(node.get(la::FIELD.code));
 
@@ -5623,6 +5677,10 @@ private:
             }
         }
 
+        // unsafe fn body is implicitly an unsafe context
+        bool was_unsafe = inside_unsafe_;
+        if (fi_ptr->is_unsafe) inside_unsafe_ = true;
+
         // Body (extern fns have no body)
         if (!fn.is_extern && node.has_key(la::BODY)) {
             auto body_node = map_of(node.get(la::BODY.code));
@@ -5661,6 +5719,7 @@ private:
             }
         }
 
+        inside_unsafe_ = was_unsafe;
         pop_scope();
         pop_type_params(fn.type_params);
         return fn;

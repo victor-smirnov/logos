@@ -1,0 +1,10 @@
+package unsafe_fn_call;
+
+unsafe fn dangerous() -> i32 {
+    return 42;
+}
+
+// Calling an unsafe fn outside unsafe block — should error
+fn main() -> i32 {
+    return dangerous();
+}
