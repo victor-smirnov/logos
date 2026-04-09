@@ -8,7 +8,7 @@ impl Combine for Pt {
     }
 }
 fn merge<T: Combine>(a: T, b: T) -> i32 { return a.combine(b); }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Pt = Pt { x: 10, y: 10 };
     let b: Pt = Pt { x: 11, y: 11 };
     return merge::<Pt>(a, b);

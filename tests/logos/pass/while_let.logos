@@ -10,7 +10,7 @@ fn next_opt(n: i32) -> Opt {
     return Opt::None;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut cur = Opt::Some(3);
     let mut sum = 0;
     while let Opt::Some(v) = cur {

@@ -5,7 +5,7 @@ unsafe fn swap(a: *mut i32, b: *mut i32) {
     *a = *b;
     *b = tmp;
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut x: i32 = 10;
     let mut y: i32 = 32;
     unsafe { swap(&mut x, &mut y); }

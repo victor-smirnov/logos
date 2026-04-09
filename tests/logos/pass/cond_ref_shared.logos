@@ -11,6 +11,6 @@ fn test(tag: i32) -> i32 {
     return z;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     return test(1);  // expect 10
 }

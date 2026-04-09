@@ -12,7 +12,7 @@ impl<T> Wrap for Box<T> {
     fn unwrap_i32(self: Box<T>) -> i32 { return 99; }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let b = Box { val: 42 };
     return b.unwrap_i32();  // expect 99
 }

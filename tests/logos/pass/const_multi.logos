@@ -8,7 +8,7 @@ fn compute(x: i32) -> i32 {
     return x + A;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // A+B+C = 42
     let sum: i32 = A + B + C;
     // verify constants work in function arguments too

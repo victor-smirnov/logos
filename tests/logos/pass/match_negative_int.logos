@@ -10,7 +10,7 @@ fn check(n: i32) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = check(0 - 1);  // -1 → wildcard → 3
     let b: i32 = check(42);     // exact match  → 1
     let c: i32 = check(0);      // exact match  → 2

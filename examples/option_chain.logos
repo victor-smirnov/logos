@@ -9,7 +9,7 @@ fn double_if_some(opt: Option<i32>) -> Option<i32> {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Option<i32> = Option::Some(10);
     let b: Option<i32> = double_if_some(a);  // Some(20)
     let c: Option<i32> = double_if_some(b);  // Some(40)

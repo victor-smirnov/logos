@@ -1,6 +1,6 @@
 package cast_chain;
 // Edge case: chain of casts through multiple types
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i8 = 42 as i8;
     let b: i32 = a as i32;    // 42
     let c: i64 = b as i64;    // 42

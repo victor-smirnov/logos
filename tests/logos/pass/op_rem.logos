@@ -10,7 +10,7 @@ impl Rem for Modular {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Modular = Modular { val: 142, modulus: 100 };
     let b: Modular = Modular { val: 100, modulus: 100 };
     let c: Modular = a % b;  // 142 % 100 = 42

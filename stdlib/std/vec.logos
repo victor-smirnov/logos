@@ -23,7 +23,7 @@ pub fn vec_new<T>() -> Vec<T> {
 }
 
 impl<T> Vec<T> {
-    pub fn push(self: *mut Vec<T>, val: T) {
+    pub unsafe fn push(self: *mut Vec<T>, val: T) {
         if self.len == self.cap {
             self.cap = self.cap * 2;
             let byte_size: i64 = self.cap * sizeof::<T>();
@@ -34,15 +34,15 @@ impl<T> Vec<T> {
         self.len = self.len + 1;
     }
 
-    pub fn get(self: *mut Vec<T>, i: i64) -> T {
+    pub unsafe fn get(self: *mut Vec<T>, i: i64) -> T {
         return self.ptr[i];
     }
 
-    pub fn length(self: *mut Vec<T>) -> i64 {
+    pub unsafe fn length(self: *mut Vec<T>) -> i64 {
         return self.len;
     }
 }
 
-pub fn vec_free<T>(v: *mut Vec<T>) {
+pub unsafe fn vec_free<T>(v: *mut Vec<T>) {
     dealloc(v.ptr as *mut u8);
 }

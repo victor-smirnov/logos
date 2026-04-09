@@ -13,7 +13,7 @@ fn compute(scores: &[i32], n: Idx) -> Score {
     return total;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let data: [i32; 5] = [10, 8, 7, 9, 8];
     let result: Score = compute(&data, 5);
     return result;   // 10+8+7+9+8 = 42

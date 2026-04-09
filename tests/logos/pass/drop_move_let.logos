@@ -12,7 +12,7 @@ impl Drop for Res {
     fn drop(self: Res) { printi("d%d ", self.id); }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     let a: Res = Res { id: 1 };
     let b: Res = a;

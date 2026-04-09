@@ -10,7 +10,7 @@ fn describe<*const T>(x: *const T) -> i32 { return 3; }
 // Full pointer specialization: *const i32 (beats partial)
 fn describe<*const i32>(x: *const i32) -> i32 { return 4; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let v: i32 = 0;
     let p: *const i32 = &v;
     let a: i32 = describe::<i32>(v);          // full spec  → 1

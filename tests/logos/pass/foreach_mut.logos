@@ -1,6 +1,6 @@
 package foreach_mut;
 // F09: for-each over mutable array (we read, array is mutable)
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut a: [i32; 5] = [10, 8, 6, 9, 9];
     // use for-each to compute sum
     let mut sum: i32 = 0;

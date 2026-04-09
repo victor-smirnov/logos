@@ -18,12 +18,12 @@ impl Counter {
     static fn new(step: i32) -> Counter {
         return Counter { value: 0, step: step };
     }
-    fn tick(self: *mut Counter) {
+    unsafe fn tick(self: *mut Counter) {
         self.value = self.value + self.step;
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p = Point { x: 3, y: 4 };
     printii("%d %d\n", p.x, p.y);
 

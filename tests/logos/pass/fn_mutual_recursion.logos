@@ -9,7 +9,7 @@ fn fact(n: i32) -> i32 {
     if n <= 1 { return 1; }
     return n * fact(n - 1);
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let f9: i32 = fib(9);    // 34
     let f3: i32 = fact(3);   // 6
     // 34 + 6 + 2 = 42

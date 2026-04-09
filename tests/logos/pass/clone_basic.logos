@@ -12,7 +12,7 @@ impl Clone for Point {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p1 = Point { x: 3, y: 7 };
     let p2 = p1.clone();
     printii("%d %d\n", p2.x, p2.y);

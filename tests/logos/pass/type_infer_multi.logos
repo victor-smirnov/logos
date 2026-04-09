@@ -16,7 +16,7 @@ fn extract_first<A: HasVal, B>(a: A, b: B) -> i32 {
     return a.val();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // A=i32, B=bool (bool param ignored at runtime)
     let x: i32 = pair_first(21, true);
 

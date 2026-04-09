@@ -10,7 +10,7 @@ impl<T> Pair<T> {
     fn get_second(self: Pair<T>) -> T { return self.second; }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p = new Pair { first: 10, second: 20 };
     let a = p.get_first();
     let b = p.get_second();

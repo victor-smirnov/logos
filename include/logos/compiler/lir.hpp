@@ -242,6 +242,13 @@ struct ETry {
     int32_t  err_disc = 1;   // discriminant of Err (typically 1)
 };
 
+// Represents an inline block of statements returning a final value
+struct EBlockExpr {
+    std::unique_ptr<LBlock> block;
+    LExprPtr result; // may be null if it evaluates to void
+};
+
+
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
@@ -252,7 +259,7 @@ struct LExpr {
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
         EClosureBox, EClosureCall, EFormatCall, EPackExpand,
-        ETry, EMatchExpr, ESizeOf
+        ETry, EMatchExpr, ESizeOf, EBlockExpr
     > kind;
 };
 

@@ -9,12 +9,12 @@ impl Point {
     static fn new(x: i32, y: i32) -> Point {
         return Point { x: x, y: y };
     }
-    fn dist2(self: *mut Point) -> i32 {
+    unsafe fn dist2(self: *mut Point) -> i32 {
         return self.x * self.x + self.y * self.y;
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut p = Point::new(3, 4);
     printi("%d\n", p.dist2());   // 25
     return 0;

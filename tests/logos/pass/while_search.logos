@@ -8,7 +8,7 @@ fn find(a: *mut i32, n: i32, target: i32) -> i32 {
     }
     return -1;
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut arr: [i32; 5] = [10, 20, 42, 30, 5];
     let idx: i32 = find(&mut arr, 5, 42);  // 2
     return idx + 40;  // 42

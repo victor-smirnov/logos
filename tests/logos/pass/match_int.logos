@@ -8,7 +8,7 @@ fn score(n: i32) -> i32 {
         _  => { return 0;  }
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     return score(1) + score(2) + score(3) + score(99);
     // 10+20+12+0 = 42
 }

@@ -6,7 +6,7 @@ fn describe(b: bool) -> i32 {
         false => { return 0; }
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let t: i32 = describe(true);   // 1
     let f: i32 = describe(false);  // 0
     // t*42 + f*10 = 42

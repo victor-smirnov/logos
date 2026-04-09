@@ -17,7 +17,7 @@ fn describe_it<T: Describable>(x: T) -> i32 { return x.describe(); }
 // Two params same type: T inferred consistently from first arg
 fn first_of<T>(a: T, b: T) -> T { return a; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // identity: T inferred as i32 from literal
     let a: i32 = identity(21);
 

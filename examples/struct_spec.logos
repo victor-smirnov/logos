@@ -20,6 +20,6 @@ fn sum_pair(p: Pair<i32>) -> i32 {
     return (p.first + p.second) + p.bonus;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     return sum_pair(make_pair_i32(1, 2));
 }

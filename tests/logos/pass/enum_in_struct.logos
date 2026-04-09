@@ -10,7 +10,7 @@ fn step(w: Walker) -> i32 {
         Dir::West  => { return w.x - 1; }
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let w1: Walker = Walker { x: 10, y: 30, dir: Dir::North };  // 31
     let w2: Walker = Walker { x: 10, y: 20, dir: Dir::East };   // 11
     return step(w1) + step(w2);  // 31+11=42

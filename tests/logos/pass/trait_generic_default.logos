@@ -8,7 +8,7 @@ struct Num { v: i32; }
 impl Convert<i32> for Num {
     fn convert(self: Num) -> i32 { return self.v; }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let n: Num = Num { v: 41 };
     return n.convert() + n.tag();
 }

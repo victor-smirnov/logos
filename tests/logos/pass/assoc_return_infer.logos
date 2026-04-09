@@ -17,7 +17,7 @@ fn get_inner<T: Wrap>(w: T) -> T::Inner {
     return w.unwrap();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let b: BoxI32 = BoxI32 { val: 42 };
     // T inferred as BoxI32, return type T::Inner = i32
     let result: i32 = get_inner(b);

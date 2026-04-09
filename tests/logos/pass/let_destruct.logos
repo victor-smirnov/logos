@@ -9,7 +9,7 @@ fn minmax(a: i32, b: i32) -> (i32, i32) {
     return (b, a);
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let (x, y) = swap(1, 2);
     printii("%d %d\n", x, y);   // 2 1
 

@@ -1,6 +1,6 @@
 package cast_widening;
 // F13: narrowing and widening casts i32 ↔ i64 ↔ i8
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = 42;
     let b: i64 = a as i64;   // widening
     let c: i32 = b as i32;   // narrowing back

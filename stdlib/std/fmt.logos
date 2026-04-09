@@ -15,31 +15,31 @@ use std.string;
 // ── Format trait ──────────────────────────────────────────────────────────
 
 trait Format {
-    fn fmt(self: Self, buf: *mut u8, off: i64) -> i64;
+    unsafe fn fmt(self: Self, buf: *mut u8, off: i64) -> i64;
 }
 
 // ── Primitive impls ───────────────────────────────────────────────────────
 
 impl Format for i32 {
-    fn fmt(self: i32, buf: *mut u8, off: i64) -> i64 {
+    unsafe fn fmt(self: i32, buf: *mut u8, off: i64) -> i64 {
         return write_i32(buf, off, self);
     }
 }
 
 impl Format for i64 {
-    fn fmt(self: i64, buf: *mut u8, off: i64) -> i64 {
+    unsafe fn fmt(self: i64, buf: *mut u8, off: i64) -> i64 {
         return write_i64(buf, off, self);
     }
 }
 
 impl Format for bool {
-    fn fmt(self: bool, buf: *mut u8, off: i64) -> i64 {
+    unsafe fn fmt(self: bool, buf: *mut u8, off: i64) -> i64 {
         return write_bool(buf, off, self);
     }
 }
 
 impl Format for *const u8 {
-    fn fmt(self: *const u8, buf: *mut u8, off: i64) -> i64 {
+    unsafe fn fmt(self: *const u8, buf: *mut u8, off: i64) -> i64 {
         let slen: i64 = str_len(self);
         mem_copy(buf, off, self, slen);
         return slen;
@@ -49,11 +49,11 @@ impl Format for *const u8 {
 // ── Format engine (variadic) ──────────────────────────────────────────────
 
 // Base case: no more args — copy remaining format string, null-terminate.
-fn fmt_into(fmt: *const u8, fi: i64, flen: i64, buf: *mut u8, pos: i64) -> i64 {
+unsafe fn fmt_into(fmt: *const u8, fi: i64, flen: i64, buf: *mut u8, pos: i64) -> i64 {
     let mut p: i64 = pos;
     let mut i: i64 = fi;
     while i < flen {
-        unsafe { buf[p] = fmt[i]; }
+        buf[p] = fmt[i];
         p = p + 1;
         i = i + 1;
     }
@@ -61,9 +61,9 @@ fn fmt_into(fmt: *const u8, fi: i64, flen: i64, buf: *mut u8, pos: i64) -> i64 {
 }
 
 // Recursive case: find next {}, format one arg via trait, recurse on rest.
-fn fmt_into<H: Format, T...>(fmt: *const u8, fi: i64, flen: i64,
-                              buf: *mut u8, pos: i64,
-                              first: H, rest: T...) -> i64 {
+unsafe fn fmt_into<H: Format, T...>(fmt: *const u8, fi: i64, flen: i64,
+                               buf: *mut u8, pos: i64,
+                               first: H, rest: T...) -> i64 {
     let mut p: i64 = pos;
     let mut i: i64 = fi;
     while i < flen {
@@ -76,7 +76,7 @@ fn fmt_into<H: Format, T...>(fmt: *const u8, fi: i64, flen: i64,
                 }
             }
         }
-        unsafe { buf[p] = fmt[i]; }
+        buf[p] = fmt[i];
         p = p + 1;
         i = i + 1;
     }
@@ -87,7 +87,7 @@ fn fmt_into<H: Format, T...>(fmt: *const u8, fi: i64, flen: i64,
 
 // format::<T...>(pattern, args...) -> *mut u8
 // Returns a malloc-allocated, null-terminated string. Caller must free().
-pub fn format<T...: Format>(pattern: *const u8, args: T...) -> *mut u8 {
+pub unsafe fn format<T...: Format>(pattern: *const u8, args: T...) -> *mut u8 {
     let flen: i64 = str_len(pattern);
     let est: i64 = flen + 256;
     let buf: *mut u8 = alloc(est);

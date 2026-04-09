@@ -5,6 +5,6 @@ fn pow<T>(base: T, n: i32) -> T {
     return base * pow::<T>(base, n - 1);
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     return pow::<i32>(2, 6);   // 64
 }

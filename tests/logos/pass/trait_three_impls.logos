@@ -12,7 +12,7 @@ impl Score for Bronze { fn score(self: Bronze) -> i32 { return self.pts; } }
 
 fn total_score<T: Score>(x: T) -> i32 { return x.score(); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let g: Gold   = Gold   { pts: 5 };   // 15
     let s: Silver = Silver { pts: 7 };   // 14
     let b: Bronze = Bronze { pts: 13 };  // 13

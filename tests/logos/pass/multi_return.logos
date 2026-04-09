@@ -6,7 +6,7 @@ fn classify(n: i32) -> i32 {
     if n < 10 { return 1; }
     return 2;
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = classify(-5);   // -1
     let b: i32 = classify(0);    //  0
     let c: i32 = classify(7);    //  1

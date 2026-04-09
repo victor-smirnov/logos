@@ -1,6 +1,6 @@
 package cmp_bool_var;
 // F03: bool variables, comparison results stored
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let x: i32 = 10;
     let y: i32 = 20;
     let lt: bool = x < y;       // true

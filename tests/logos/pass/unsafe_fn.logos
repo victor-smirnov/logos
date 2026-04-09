@@ -12,7 +12,7 @@ unsafe fn write_ptr(p: *mut i32, val: i32) {
     *p = val;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let buf: *mut u8 = alloc(4);
     let p: *mut i32 = buf as *mut i32;
     unsafe {

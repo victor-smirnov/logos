@@ -24,7 +24,7 @@ fn sum_incl(lo: i32, hi: i32) -> i32 {
     return s;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = sum_excl(0, 10);   // 45
     let b: i32 = sum_incl(1, 5);    // 15
     return a - b;                   // 30

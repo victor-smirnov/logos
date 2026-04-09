@@ -16,7 +16,7 @@ fn get_or(m: MaybeI32, def: i32) -> i32 {
         MaybeI32::Nothing => { return def; }
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: MaybeI32 = MaybeI32::Just(20);
     let b: MaybeI32 = map_add(a, 22);  // Just(42)
     let c: MaybeI32 = MaybeI32::Nothing;

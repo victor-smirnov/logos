@@ -1,6 +1,6 @@
 package u8_ops;
 // u8 arithmetic and cast to i32
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: u8 = 200;
     let b: u8 = 55;
     let sum: i32 = a as i32 + b as i32;   // 255

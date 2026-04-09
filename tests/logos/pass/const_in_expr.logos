@@ -4,7 +4,7 @@ const LIMIT: i32 = 10;
 const FACTOR: i32 = 7;
 const OFFSET: i32 = -28;
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut sum: i32 = 0;
     for i in 0..LIMIT {
         sum = sum + i;   // 0+1+...+9 = 45

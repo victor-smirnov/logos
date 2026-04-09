@@ -15,7 +15,7 @@ fn count_positive(s: &[i32]) -> i32 {
     return n;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let data: [i32; 5] = [1, -2, 3, -4, 5];
     let total = sum_slice(&data);
     let pos   = count_positive(&data);

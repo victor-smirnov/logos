@@ -4,6 +4,6 @@ fn abs(x: i32) -> i32 {
     return if x < 0 { 0 - x; } else { x; };
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     return abs(-5) + abs(3);
 }

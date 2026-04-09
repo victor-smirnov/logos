@@ -18,7 +18,7 @@ fn put<T: Container>(c: T, item: T::Item) -> i32 {
     return c.store(item);
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let bag: NumBag = NumBag { val: 20 };
     // T inferred as NumBag from first arg, T::Item = i32 for second arg
     return put(bag, 22);

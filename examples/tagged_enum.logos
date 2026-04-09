@@ -12,7 +12,7 @@ fn unwrap_or(opt: Option<i32>, def: i32) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Option<i32> = Option::Some(42);
     let b: Option<i32> = Option::None;
     return unwrap_or(a, 0) + unwrap_or(b, 10);

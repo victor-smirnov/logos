@@ -4,4 +4,4 @@ fn total() -> i32 { return 0; }
 fn total<H, T...>(first: H, rest: T...) -> i32 {
     return (first as i32) + total(rest...);
 }
-fn main() -> i32 { return total::<i32, i32, i32, i32>(10, 11, 12, 9); }
+unsafe fn main() -> i32 { return total::<i32, i32, i32, i32>(10, 11, 12, 9); }

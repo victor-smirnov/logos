@@ -10,7 +10,7 @@ impl Val for Large { fn val(self: Large) -> i32 { return self.n * 10; } }
 
 fn get_val<T: Val>(x: T) -> i32 { return x.val(); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let s: Small = Small { n: 2 };    // val = 2
     let l: Large = Large { n: 4 };    // val = 40
     // 2 + 40 = 42

@@ -10,7 +10,7 @@ fn span_sum(s: Span) -> i32 {
     }
     return t;
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut a: [i32; 4] = [5, 10, 15, 12];
     let s: Span = Span { ptr: &mut a, len: 4 };
     return span_sum(s);  // 42

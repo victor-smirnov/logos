@@ -9,7 +9,7 @@ fn minmax(a: i32, b: i32, c: i32) -> (i32, i32) {
     if c > mx { mx = c; }
     return (mn, mx);
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let t: (i32, i32) = minmax(15, 3, 30);
     // t.0 = 3 (min), t.1 = 30 (max)
     // 3 + 30 + 9 = 42

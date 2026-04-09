@@ -10,6 +10,7 @@
 #include <tuple>
 #include <concepts>
 #include <utility>
+#include <logos/verification/call_chain.hpp>
 
 namespace logos {
 
@@ -66,8 +67,10 @@ template<typename... Args>
 template <typename... Args>
 [[gnu::no_instrument_function]] void log_trace(std::string_view tag, const char* file, int line, Args&&... args) noexcept {
     if (!is_trace_enabled(tag)) return;
+    ::logos::pause_call_ring();
     std::string json_data = detail::format_trace_data(std::forward<Args>(args)...);
     write_trace(tag, json_data, file, line);
+    ::logos::resume_call_ring();
 }
 
 } // namespace logos

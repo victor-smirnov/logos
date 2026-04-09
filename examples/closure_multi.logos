@@ -1,6 +1,6 @@
 package closure_multi;
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = 10;
     let b: i32 = 15;
     let c: i32 = 17;

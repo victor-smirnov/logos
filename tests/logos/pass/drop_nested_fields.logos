@@ -18,7 +18,7 @@ struct Pair {
     b: Inner;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     let p: Pair = Pair { a: Inner { id: 1 }, b: Inner { id: 2 } };
     // p goes out of scope → fields b then a should be auto-dropped (reverse field order)

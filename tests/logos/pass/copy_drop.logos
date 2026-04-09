@@ -16,7 +16,7 @@ impl Copy for Token {}
 
 fn use_token(t: Token) { printi("use %d\n", t.id); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let t = Token { id: 7 };
     use_token(t);   // copy passed — copy dropped at end of use_token
     use_token(t);   // original still live

@@ -23,7 +23,7 @@ fn min<T>(a: T, b: T) -> T {
     return b;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let x: i32 = max::<i32>(4, 6);       // 6
     let y: i32 = min::<i32>(7, 4);       // 4
     return x + y;                        // 10

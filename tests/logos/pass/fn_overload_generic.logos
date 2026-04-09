@@ -1,7 +1,7 @@
 package fn_overload_generic;
 // Edge case: calling same function with different concrete types
 fn identity<T>(x: T) -> T { return x; }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = identity::<i32>(42);
     let b: bool = identity::<bool>(true);
     if b { return a; }

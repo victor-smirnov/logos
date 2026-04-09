@@ -1,0 +1,20 @@
+package trait_unsafe_mismatch;
+
+trait SafeTrait {
+    fn safe_method(self: *mut Self);
+}
+
+struct MyStruct {
+    x: i32;
+}
+
+// This should FAIL because safe_method is safe in trait but unsafe in impl
+impl SafeTrait for MyStruct {
+    unsafe fn safe_method(self: *mut MyStruct) {
+        self.x = 1;
+    }
+}
+
+fn main() -> i32 {
+    return 0;
+}

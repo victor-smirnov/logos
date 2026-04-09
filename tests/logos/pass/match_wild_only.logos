@@ -7,7 +7,7 @@ fn process(s: Status) -> i32 {
         _                 => { return 0; }
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = process(Status::Active(42));   // 42
     let b: i32 = process(Status::Inactive);     // 0
     let c: i32 = process(Status::Pending(99));  // 0

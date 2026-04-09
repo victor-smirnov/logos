@@ -1,6 +1,6 @@
 package array_loop_sum;
 // Edge cases: array indexed in for loop, array of zeros, array boundary access
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut a: [i32; 7] = [1, 2, 3, 4, 5, 6, 7];
     // sum via index for loop
     let mut sum: i32 = 0;

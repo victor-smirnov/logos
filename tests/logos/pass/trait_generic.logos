@@ -11,7 +11,7 @@ impl Into<i32> for Celsius {
     fn into(self: Celsius) -> i32 { return self.v; }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let c: Celsius = Celsius { v: 42 };
     return c.into();
 }

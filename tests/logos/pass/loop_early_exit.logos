@@ -10,7 +10,7 @@ fn find_multiple(start: i32, factor: i32) -> i32 {
     return n;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = find_multiple(40, 6);   // 42 (42 = 6*7)
     let b: i32 = find_multiple(10, 5);   // 10 (already multiple)
     // a = 42, b = 10

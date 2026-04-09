@@ -24,7 +24,7 @@ impl Printable for Num {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let n = Num { val: 7 };
     let total = print_twice(n);
     printi("total: %d\n", total);

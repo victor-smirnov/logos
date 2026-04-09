@@ -8,7 +8,7 @@ enum Option<T> { None, Some(T), }
 struct Range { current: i32; end: i32; }
 
 impl Range {
-    fn next(self: *mut Range) -> Option<i32> {
+    unsafe fn next(self: *mut Range) -> Option<i32> {
         if self.current >= self.end { return Option::None; }
         let v = self.current;
         self.current = self.current + 1;
@@ -16,7 +16,7 @@ impl Range {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // break: stop at first value >= 3  → sum = 0+1+2 = 3
     let mut r = Range { current: 0, end: 10 };
     let mut sum = 0;

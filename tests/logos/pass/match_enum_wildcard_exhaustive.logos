@@ -15,7 +15,7 @@ fn to_code(d: Direction) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = to_code(Direction::North);  // 10
     let b: i32 = to_code(Direction::South);  // 32
     return a + b;  // 42

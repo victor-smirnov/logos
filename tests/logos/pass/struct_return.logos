@@ -15,7 +15,7 @@ fn analyze(a: &[i32]) -> Stats {
     }
     return Stats { min: mn, max: mx, sum: s };
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let data: [i32; 4] = [5, 15, 10, 12];
     let st: Stats = analyze(&data);
     // min=5, max=15, sum=42

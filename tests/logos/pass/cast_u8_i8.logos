@@ -1,6 +1,6 @@
 package cast_u8_i8;
 // u8 <-> i32 casts, including values > 127
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: u8 = 250;
     let b: i32 = a as i32;         // 250
     let c: u8 = b as u8;           // 250 (roundtrip)

@@ -26,7 +26,7 @@ fn twice<T: Doubled>(b: T) -> T::Value {
     return b.doubled();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: I32Box = I32Box { n: 21 };
     let b: I64Box = I64Box { n: 100 };
     // twice::<I32Box>(a) → 42, twice::<I64Box>(b) → 200

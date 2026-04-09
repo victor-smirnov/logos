@@ -5,7 +5,7 @@ fn sum_all<H, T...>(first: H, rest: T...) -> i32 {
     return (first as i32) + sum_all(rest...);
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // 5+7+9+11+10 = 42
     return sum_all::<i32, i32, i32, i32, i32>(5, 7, 9, 11, 10);
 }

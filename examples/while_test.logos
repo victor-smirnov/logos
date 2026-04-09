@@ -16,6 +16,6 @@ fn sum_range(n: i32) -> i32 {
     return result;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     return sum_range(5);
 }

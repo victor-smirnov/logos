@@ -3,7 +3,7 @@ package lifetime_pass;
 fn identity<'a>(x: &'a i32) -> &'a i32 {
     return x;
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let val: i32 = 42;
     let r = identity(&val);
     return 42;

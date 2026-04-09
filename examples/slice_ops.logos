@@ -22,7 +22,7 @@ fn sum(s: &[i32]) -> i32 {
     return t;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: [i32; 5] = [3, 1, 41, 10, 5];
     let s: &[i32] = &a;
     // max = 41, sum = 60 => 41 + sum(small) = ?

@@ -15,7 +15,7 @@ impl Point {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p: Point = Point::create(10, 32);
     return p.sum();
 }

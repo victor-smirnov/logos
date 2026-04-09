@@ -19,7 +19,7 @@ fn make_circle(r: i32) -> impl Shape {
     return Circle { r: r };
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let r = make_rect(3, 4);
     let c = make_circle(5);
     printii("%d %d\n", r.area(), c.area());  // 12 25

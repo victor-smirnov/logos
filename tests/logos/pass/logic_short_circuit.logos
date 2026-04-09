@@ -3,7 +3,7 @@ package logic_short_circuit;
 fn always_true() -> bool { return true; }
 fn always_false() -> bool { return false; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // De Morgan: !(a && b) == !a || !b
     let t: bool = always_true();
     let f: bool = always_false();

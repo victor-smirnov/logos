@@ -4,6 +4,6 @@ fn identity<T>(x: T) -> T { return x; }
 
 fn apply<T>(x: T) -> T { return identity::<T>(x); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     return apply::<i32>(42);
 }

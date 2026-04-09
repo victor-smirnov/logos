@@ -8,19 +8,22 @@ class Rectangle {
         return new Rectangle { width: w, height: h };
     }
 
-    fn area(self: *mut Rectangle) -> i32 {
+    unsafe fn area(self: *mut Rectangle) -> i32 {
         return self.width * self.height;
     }
 
-    fn perimeter(self: *mut Rectangle) -> i32 {
+    unsafe fn perimeter(self: *mut Rectangle) -> i32 {
         return 2 * (self.width + self.height);
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let r: *mut Rectangle = Rectangle::create(6, 7);
-    let a: i32 = r.area();       // 42
-    let p: i32 = r.perimeter();  // 26
-    delete r;
+    let mut a: i32 = 0; let mut p: i32 = 0;
+    unsafe {
+        a = r.area();       // 42
+        p = r.perimeter();  // 26
+        delete r;
+    }
     return a;  // 42
 }

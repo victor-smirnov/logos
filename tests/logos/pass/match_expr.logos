@@ -36,7 +36,7 @@ fn classify(x: i32) -> i32 {
     };
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let d = Direction::East;
     let opp = d.opposite();
     printi("%d\n", opp.to_int());

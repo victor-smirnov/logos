@@ -13,7 +13,7 @@ impl Clone for Pt {
 
 fn dup<T: Clone>(x: T) -> T { return x.clone(); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Pt = Pt { x: 20, y: 22 };
     let b: Pt = dup::<Pt>(a);
     return b.x + b.y;

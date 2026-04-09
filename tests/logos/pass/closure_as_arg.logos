@@ -1,6 +1,6 @@
 package closure_as_arg;
 // F30: closure with multiple captures, called multiple times
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let base: i32 = 10;
     let step: i32 = 4;
     let f = |x: i32| -> i32 { return base + x * step; };

@@ -1,6 +1,6 @@
 package for_nested_range;
 // F08: nested for ranges
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut count: i32 = 0;
     for i in 0..4 {
         for j in 0..4 {

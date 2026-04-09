@@ -25,7 +25,7 @@ impl From<A> for B {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: A = A::from(40);
     let b: B = B::from(a);
     return b.value;

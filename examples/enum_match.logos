@@ -17,7 +17,7 @@ fn color_code(c: i32) -> i32 {
     return result;
 }
 
-pub fn main() -> i32 {
+pub unsafe fn main() -> i32 {
     // Enum literals produce i32 discriminants
     let n: i32 = Direction::North;
     let s: i32 = Direction::South;

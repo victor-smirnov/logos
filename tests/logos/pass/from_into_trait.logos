@@ -25,7 +25,7 @@ impl Into<i32> for Wrapper {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let w: Wrapper = Wrapper::from(42);
     return w.into();
 }

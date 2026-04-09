@@ -3,7 +3,7 @@ package if_expr_value;
 fn select(cond: bool, a: i32, b: i32) -> i32 {
     return if cond { a; } else { b; };
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = select(true, 42, 0);    // 42
     let b: i32 = select(false, 0, 100);  // 100
     let c: i32 = select(true, 1, 2);     // 1

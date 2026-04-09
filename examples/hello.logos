@@ -5,7 +5,7 @@ package hello;
 
 use std.io;
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     println("Hello from Logos!");
     return 0;
 }

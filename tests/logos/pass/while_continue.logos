@@ -1,6 +1,6 @@
 package while_continue;
 // F06: continue skips rest of loop body
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut sum: i32 = 0;
     let mut i: i32 = 0;
     while i < 10 {

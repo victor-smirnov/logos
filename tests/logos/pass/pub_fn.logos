@@ -10,7 +10,7 @@ pub struct Pair {
     y: i32;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p: Pair = Pair { x: 20, y: 22 };
     return add(p.x, p.y);
 }

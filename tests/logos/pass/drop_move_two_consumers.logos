@@ -16,7 +16,7 @@ fn consume(r: Res) {
     printi("c%d ", r.id);
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     let a: Res = Res { id: 1 };
     let b: Res = Res { id: 2 };

@@ -6,7 +6,7 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Opt { Some(i32), None }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let s = Opt::Some(42);
     let n = Opt::None;
 

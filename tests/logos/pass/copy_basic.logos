@@ -11,7 +11,7 @@ impl Copy for Vec2 {}
 
 fn dot(a: Vec2, b: Vec2) -> i32 { return a.x * b.x + a.y * b.y; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let u = Vec2 { x: 1, y: 2 };
     let v = Vec2 { x: 3, y: 4 };
     let d1 = dot(u, v);   // u, v are Copy — not consumed

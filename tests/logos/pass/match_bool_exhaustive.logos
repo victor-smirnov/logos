@@ -8,7 +8,7 @@ fn to_int(b: bool) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = to_int(true);   // 42
     let b: i32 = to_int(false);  // 0
     return a + b;  // 42

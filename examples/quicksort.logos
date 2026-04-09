@@ -57,7 +57,7 @@ fn print_int(n: i32) {
 }
 
 // ── main ─────────────────────────────────────────────────────────────────
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let arr: [i32; 9] = [5, 2, 8, 1, 9, 3, 7, 4, 6];
     unsafe { qsort(arr, 0, 8); }
     print_int(arr[0]);

@@ -16,7 +16,7 @@ fn combine<T: ToI32>(a: T, b: T) -> i32 {
     return a.to_i32() + b.to_i32();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Wrap = Wrap { v: 20 };
     let b: Wrap = Wrap { v: 22 };
     return combine::<Wrap>(a, b);   // 42

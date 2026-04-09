@@ -14,7 +14,7 @@ fn eval(e: Expr) -> i32 {
         Expr::Dbl(v) => { return v * 2; }
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = eval(Expr::Num(10));   // 10
     let b: i32 = eval(Expr::Neg(-5));   // 5
     let c: i32 = eval(Expr::Dbl(13));   // 26

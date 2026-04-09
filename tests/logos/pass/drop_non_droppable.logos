@@ -23,7 +23,7 @@ struct Plain {
     value: i32;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     let p: Plain = Plain { value: 99 };
     let r: Resource = Resource { id: 1 };

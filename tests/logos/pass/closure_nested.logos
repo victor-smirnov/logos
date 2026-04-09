@@ -5,7 +5,7 @@ fn make_adder(n: i32) -> i32 {
     let add_n = |x: i32| -> i32 { return x + n; };
     return add_n(42 - n);  // always returns 42
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = make_adder(10);   // 42
     let b: i32 = make_adder(20);   // 42
     let c: i32 = make_adder(5);    // 42

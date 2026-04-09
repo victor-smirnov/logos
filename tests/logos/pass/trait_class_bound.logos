@@ -2,54 +2,54 @@
 //   1. type inference  2. two classes same trait  3. multi-trait bound on class
 package trait_class_bound;
 
-trait Score { fn score(self: Self) -> i32; }
-trait Power { fn power(self: Self) -> i32; }
+trait Score { unsafe fn score(self: Self) -> i32; }
+trait Power { unsafe fn power(self: Self) -> i32; }
 
 // --- class 1: Player implements Score ---
 class Player {
     hp: i32;
     xp: i32;
-    static fn create(hp: i32, xp: i32) -> *mut Player {
+    unsafe fn create(hp: i32, xp: i32) -> *mut Player {
         return new Player { hp: hp, xp: xp };
     }
 }
 impl Score for Player {
-    fn score(self: *mut Player) -> i32 { return self.hp + self.xp; }
+    unsafe fn score(self: *mut Player) -> i32 { return self.hp + self.xp; }
 }
 
 // --- class 2: Enemy implements Score (different class, same trait) ---
 class Enemy {
     strength: i32;
-    static fn create(s: i32) -> *mut Enemy {
+    unsafe fn create(s: i32) -> *mut Enemy {
         return new Enemy { strength: s };
     }
 }
 impl Score for Enemy {
-    fn score(self: *mut Enemy) -> i32 { return self.strength; }
+    unsafe fn score(self: *mut Enemy) -> i32 { return self.strength; }
 }
 
 // --- class 3: Versatile implements both Score and Power ---
 class Versatile {
     s: i32;
     p: i32;
-    static fn create(s: i32, p: i32) -> *mut Versatile {
+    unsafe fn create(s: i32, p: i32) -> *mut Versatile {
         return new Versatile { s: s, p: p };
     }
 }
 impl Score for Versatile {
-    fn score(self: *mut Versatile) -> i32 { return self.s; }
+    unsafe fn score(self: *mut Versatile) -> i32 { return self.s; }
 }
 impl Power for Versatile {
-    fn power(self: *mut Versatile) -> i32 { return self.p; }
+    unsafe fn power(self: *mut Versatile) -> i32 { return self.p; }
 }
 
 // Single-bound generic
-fn eval<T: Score>(x: T) -> i32 { return x.score(); }
+unsafe fn eval<T: Score>(x: T) -> i32 { return x.score(); }
 
 // Multi-bound generic: T must implement both Score and Power
-fn eval2<T: Score + Power>(x: T) -> i32 { return x.score() + x.power(); }
+unsafe fn eval2<T: Score + Power>(x: T) -> i32 { return x.score() + x.power(); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // Edge case 1: type inference — T = *mut Player inferred from arg
     let p: *mut Player = Player::create(10, 10);
     let a: i32 = eval(p);   // inferred, 20

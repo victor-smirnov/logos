@@ -7,11 +7,11 @@ impl Counter {
     fn value(self: Counter) -> i32 { return self.n; }
 }
 
-fn inc(c: *mut Counter, by: i32) {
+unsafe fn inc(c: *mut Counter, by: i32) {
     c.n = c.n + by;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut c: Counter = Counter::create();
     inc(&mut c, 10);
     inc(&mut c, 15);

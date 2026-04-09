@@ -14,7 +14,7 @@ fn area(s: Shape) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // Circle r=3 => 9, Rect side=5 => 25, Triangle b=2 => 2
     // 9 + 25 + 2 = 36  hmm, let me pick better numbers
     // Circle r=5 => 25, Rect side=3 => 9, Triangle b=4 => 8 => total = 42

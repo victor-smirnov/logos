@@ -1,6 +1,6 @@
 package closure;
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let offset: i32 = 40;
     let add_offset = |x: i32| -> i32 { return x + offset; };
     return add_offset(2);

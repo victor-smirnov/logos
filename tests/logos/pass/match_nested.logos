@@ -16,7 +16,7 @@ fn classify(c: Color, s: Size) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // classify(Red,Small)=1, classify(Red,Large)=2
     // classify(Green,Small)=10 (size ignored), classify(Blue,Large)=20
     let a: i32 = classify(Color::Red, Size::Small);    // 1

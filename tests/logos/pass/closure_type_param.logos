@@ -7,7 +7,7 @@ fn apply(f: |i32| -> i32, x: i32) -> i32 { return f(x); }
 fn apply2(f: |i32, i32| -> i32, x: i32, y: i32) -> i32 { return f(x, y); }
 fn map(f: |i32| -> bool, x: i32) -> bool { return f(x); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let r1 = apply(|x: i32| -> i32 { return x * 2; }, 21);
     let r2 = apply2(|a: i32, b: i32| -> i32 { return a + b; }, 10, 32);
     let r3 = map(|x: i32| -> bool { return x > 0; }, 5);

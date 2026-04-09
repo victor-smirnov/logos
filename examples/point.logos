@@ -9,11 +9,11 @@ struct Point {
     x: i32;
     y: i32;
 
-    fn sum(self: *const Point) -> i32 {
+    unsafe fn sum(self: *const Point) -> i32 {
         return self.x + self.y;
     }
 
-    fn product(self: *const Point) -> i32 {
+    unsafe fn product(self: *const Point) -> i32 {
         return self.x * self.y;
     }
 }
@@ -28,7 +28,7 @@ fn sum_range(n: i32) -> i32 {
     return result;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p: Point = Point { x: 3, y: 4 };
     let s: i32 = p.sum();
     return s;

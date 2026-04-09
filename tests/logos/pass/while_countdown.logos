@@ -10,7 +10,7 @@ fn countdown_sum(n: i32) -> i32 {
     return sum;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // 1+2+...+9 = 45 (descending: 9+8+...+1 = same)
     let s: i32 = countdown_sum(9);  // 45
     // while with complex condition: exit when sum >= 42

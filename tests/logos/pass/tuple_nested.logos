@@ -1,6 +1,6 @@
 package tuple_nested;
 // Edge case: nested tuples (tuple containing tuple)
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let inner: (i32, i32) = (10, 20);
     let outer: ((i32, i32), i32) = (inner, 12);
     // outer.0 = inner = (10,20), outer.0.0=10, outer.0.1=20, outer.1=12

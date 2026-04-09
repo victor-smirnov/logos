@@ -3,7 +3,7 @@ package compound_assign;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut x = 10;
     x += 5;   // 15
     x -= 2;   // 13

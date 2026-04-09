@@ -10,7 +10,7 @@ fn lcm(a: i32, b: i32) -> i32 {
     return a / g * b;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // gcd(6, 14) = 2
     // lcm(6, 14) = 6/2*14 = 42
     return lcm(6, 14);

@@ -3,7 +3,7 @@ package pub_cross_package;
 
 use mylib;
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result = make_point(3, 4);
     return result;
 }

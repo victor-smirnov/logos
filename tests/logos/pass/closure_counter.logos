@@ -13,7 +13,7 @@ fn count_evens(limit: i32) -> i32 {
     return count;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // 0..20 has 10 even numbers (0,2,4,6,8,10,12,14,16,18)
     let evens: i32 = count_evens(20);  // 10
     // 0..4 has 2 even numbers (0,2)

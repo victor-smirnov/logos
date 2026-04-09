@@ -1,6 +1,6 @@
 package arith_div_mod;
 // F02: division and modulo edge cases
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // --- original ---
     let a: i32 = 100 / 5;      // 20
     let b: i32 = 107 % 10;     // 7

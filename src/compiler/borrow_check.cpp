@@ -138,6 +138,10 @@ static bool is_ref_kind(const LogosType* t) {
     return t && (t->kind == LogosType::Kind::Ref || t->kind == LogosType::Kind::MutRef);
 }
 
+static bool is_mut_ref(const LogosType* t) {
+    return t && t->kind == LogosType::Kind::MutRef;
+}
+
 struct BorrowRecord {
     std::string target;
     bool        is_mut;
@@ -326,6 +330,8 @@ class BorrowChecker {
                 return prov_of(k.receiver);
             if constexpr (std::is_same_v<K, lir::EIfExpr>)
                 return merge_prov(prov_of(k.then_val), prov_of(k.else_val));
+            if constexpr (std::is_same_v<K, lir::EBlockExpr>)
+                return prov_of(k.result);
             if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
                 RefProv merged = {};
                 for (auto& arm : k.arms)
@@ -419,8 +425,7 @@ class BorrowChecker {
         std::visit([&](auto& k) {
             using K = std::decay_t<decltype(k)>;
             if constexpr (std::is_same_v<K, lir::EAddrOf>) {
-                bool is_mut = e->type && e->type->kind == LogosType::Kind::MutRef;
-                take_borrow(k.var_name, is_mut, line);
+                take_borrow(k.var_name, is_mut_ref(e->type), line);
             } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
                 visit(k.cond, /*consuming=*/true, line);
                 take_ref_borrows(k.then_val, line);
@@ -431,6 +436,9 @@ class BorrowChecker {
                     if (arm.guard) visit(*arm.guard, /*consuming=*/true, line);
                     take_ref_borrows(arm.value, line);
                 }
+            } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
+                if (k.block) visit_block(*k.block);
+                take_ref_borrows(k.result, line);
             } else {
                 // EVarRef (ref param forwarded), ECall, EMethodCall, etc.
                 visit(e, /*consuming=*/true, line);
@@ -612,6 +620,7 @@ class BorrowChecker {
                 for (auto& arm : s.arms) {
                     states_ = saved_s;
                     prov_   = saved_p;
+                    push_scope();
                     std::visit([&](auto& p) {
                         if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
                                                      PatVariantData>) {
@@ -623,6 +632,7 @@ class BorrowChecker {
                     }, arm.pat);
                     if (arm.guard) visit(*arm.guard, /*consuming=*/true, ln);
                     visit_block(*arm.body);
+                    pop_scope();
                     if (!merged_s) {
                         merged_s = states_;
                         merged_p = prov_;
@@ -783,8 +793,19 @@ void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
             for (auto& arm : k.arms) {
                 states_ = saved_s;
                 prov_   = saved_p;
+                push_scope();
+                std::visit([&](auto& p) {
+                    if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
+                                                 PatVariantData>) {
+                        for (auto& b : p.bindings) declare_var(b);
+                    } else if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
+                                                         PatWild>) {
+                        if (!p.name.empty() && p.name != "_") declare_var(p.name);
+                    }
+                }, arm.pat);
                 if (arm.guard) visit(*arm.guard, /*consuming=*/true, line);
                 visit(arm.value, consuming, line);
+                pop_scope();
                 if (!merged_s) {
                     merged_s = states_;
                     merged_p = prov_;
@@ -826,6 +847,11 @@ void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
                 for (auto& cap : k.inner->captures)
                     check_live(cap, line);
             }
+
+        // ── Block expression ───────────────────────────────────────────
+        } else if constexpr (std::is_same_v<K, EBlockExpr>) {
+            if (k.block) visit_block(*k.block);
+            if (k.result) visit(k.result, consuming, line);
 
         // ── Literals / compile-time nodes — no ownership effects ───────
         } else {

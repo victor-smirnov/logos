@@ -4,22 +4,22 @@ package drop_class_delete;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
-trait Drop { fn drop(self: Self); }
+trait Drop { unsafe fn drop(self: Self); }
 
 class Handle {
     id: i32;
-    static fn create(id: i32) -> *mut Handle {
+    unsafe fn create(id: i32) -> *mut Handle {
         return new Handle { id: id };
     }
 }
 
 impl Drop for Handle {
-    fn drop(self: *mut Handle) {
+    unsafe fn drop(self: *mut Handle) {
         printi("drop_handle_%d ", self.id);
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let h: *mut Handle = Handle::create(7);
     delete h;
     return 42;

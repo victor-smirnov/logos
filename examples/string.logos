@@ -8,7 +8,7 @@ fn str_len(s: str) -> i64 {
     return s.len();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let s: str = "hello, logos!";
     let n: i64 = str_len(s);
     printi("len = %d\n", n as i32);

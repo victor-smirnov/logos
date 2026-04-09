@@ -14,7 +14,7 @@ impl Drop for Res {
 
 struct Plain { value: i32; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     let a: Res = Res { id: 1 };
     let p1: Plain = Plain { value: 10 };

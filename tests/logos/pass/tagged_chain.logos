@@ -22,7 +22,7 @@ fn get(v: Val) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Val = Val::Int(21);
     let b: Val = negate(a);    // Neg(21) => get = -21
     let c: Val = negate(b);    // Int(21) => get = 21

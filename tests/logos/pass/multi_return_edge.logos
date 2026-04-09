@@ -15,7 +15,7 @@ fn process(x: i32) -> i32 {
     return r;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = process(-5);     // 0
     let b: i32 = process(0);      // 1
     let c: i32 = process(200);    // 100

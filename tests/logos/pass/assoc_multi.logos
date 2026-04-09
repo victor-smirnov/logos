@@ -19,7 +19,7 @@ fn apply<T: Convert>(c: T, val: T::Input) -> T::Output {
     return c.convert(val);
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let c: I32ToI32 = I32ToI32 {};
     // apply resolves Input=i32, Output=i32 when T=I32ToI32
     // 21 * 2 = 42

@@ -14,7 +14,7 @@ struct Range {
 }
 
 impl Range {
-    fn next(self: *mut Range) -> Option<i32> {
+    unsafe fn next(self: *mut Range) -> Option<i32> {
         if self.current >= self.end {
             return Option::None;
         }
@@ -24,7 +24,7 @@ impl Range {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut r = Range { current: 0, end: 4 };
     let mut sum = 0;
     for x in r {

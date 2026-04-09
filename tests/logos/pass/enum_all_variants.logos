@@ -11,7 +11,7 @@ fn score(s: Season) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // 10+11+12+9 = 42
     return score(Season::Spring) + score(Season::Summer) +
            score(Season::Autumn) + score(Season::Winter);

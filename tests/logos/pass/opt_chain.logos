@@ -11,7 +11,7 @@ fn unwrap_or(o: Opt, def: i32) -> i32 {
         Opt::None    => { return def; }
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = unwrap_or(safe_div(84, 2), 0);  // 42
     let b: i32 = unwrap_or(safe_div(10, 0), 99); // 99 (but we don't need it)
     return a;  // 42

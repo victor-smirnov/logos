@@ -20,7 +20,7 @@ fn make_animal(is_dog: i32) -> Box<dyn Animal> {
     return new Cat { val: 0 };
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let d = make_animal(1);
     let c = make_animal(0);
     d.speak();

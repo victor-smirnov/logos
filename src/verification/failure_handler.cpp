@@ -35,7 +35,8 @@ namespace logos {
               << "Requirement: " << req_id << "\n"
               << "Location:    " << file << ":" << line << "\n"
               << "Condition:   " << condition << "\n"
-              << "Message:     " << message << "\n\n";
+              << "Message:     " << message << "\n\n"
+              << format_call_chain() << "\n";
 
     // Write to SQLite
     record_assertion(timestamp, thread_id, fiber_id, req_id, condition, message, file, line, stack_json);

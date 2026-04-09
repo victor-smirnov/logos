@@ -7,7 +7,7 @@ struct Rect { w: i32; h: i32; }
 impl Area  for Rect { fn area(self: Rect)  -> i32 { return self.w * self.h; } }
 impl Perim for Rect { fn perim(self: Rect) -> i32 { return 2 * (self.w + self.h); } }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let r: Rect = Rect { w: 6, h: 5 };
     let a: i32 = r.area();   // 30
     let p: i32 = r.perim();  // 22

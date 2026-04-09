@@ -20,7 +20,7 @@ impl<T> Option<T> {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Option<i32> = Option::Some(42);
     let b: Option<i32> = Option::None;
     printi("%d\n", a.unwrap_or(0));    // 42

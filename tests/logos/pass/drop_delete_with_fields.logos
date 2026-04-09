@@ -4,29 +4,29 @@ package drop_delete_with_fields;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
-trait Drop { fn drop(self: Self); }
+trait Drop { unsafe fn drop(self: Self); }
 
 struct Res { id: i32; }
 
 impl Drop for Res {
-    fn drop(self: Res) { printi("r%d ", self.id); }
+    unsafe fn drop(self: Res) { printi("r%d ", self.id); }
 }
 
 class Holder {
     resource: Res;
     tag: i32;
-    static fn create(r: Res, t: i32) -> *mut Holder {
+    unsafe fn create(r: Res, t: i32) -> *mut Holder {
         return new Holder { resource: r, tag: t };
     }
 }
 
 impl Drop for Holder {
-    fn drop(self: *mut Holder) {
+    unsafe fn drop(self: *mut Holder) {
         printi("h%d ", self.tag);
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let h: *mut Holder = Holder::create(Res { id: 5 }, 9);
     delete h;
     return 42;

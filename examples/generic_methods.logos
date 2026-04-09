@@ -4,7 +4,7 @@ package generic_methods;
 struct Pair<T> {
     first: T;
     second: T;
-    fn swap(self: *const Pair<T>) -> Pair<T> {
+    unsafe fn swap(self: *const Pair<T>) -> Pair<T> {
         return Pair { first: self.second, second: self.first };
     }
 }
@@ -13,7 +13,7 @@ fn make<T>(a: T, b: T) -> Pair<T> {
     return Pair { first: a, second: b };
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p: Pair<i32> = make::<i32>(3, 7);
     let q: Pair<i32> = p.swap();
     return q.first;

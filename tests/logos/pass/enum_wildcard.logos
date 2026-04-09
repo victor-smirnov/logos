@@ -8,7 +8,7 @@ fn value(d: Dir) -> i32 {
         _          => { return 6; }   // East or West
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = value(Dir::North);  // 10
     let b: i32 = value(Dir::South);  // 20
     let c: i32 = value(Dir::East);   // 6

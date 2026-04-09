@@ -13,7 +13,7 @@ fn identity<T>(x: T) -> T {
     return x;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = identity::<i32>(42);
     let b: i32 = identity::<i32>(1);
     return a + b;

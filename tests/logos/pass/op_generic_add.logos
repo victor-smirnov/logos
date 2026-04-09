@@ -8,7 +8,7 @@ impl Add for Vec2 {
     }
 }
 fn double<T: Add>(v: T) -> T { return v + v; }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let v: Vec2 = Vec2 { x: 10, y: 11 };
     let d: Vec2 = double::<Vec2>(v);
     return d.x + d.y;

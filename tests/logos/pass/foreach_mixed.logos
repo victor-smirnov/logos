@@ -2,7 +2,7 @@ package foreach_mixed;
 // Edge case: for-each over struct array computing multiple fields
 struct Item { price: i32; qty: i32; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let items: [Item; 3] = [
         Item { price: 5, qty: 3 },    // 15
         Item { price: 4, qty: 4 },    // 16

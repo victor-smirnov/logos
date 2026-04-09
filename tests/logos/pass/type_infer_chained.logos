@@ -5,7 +5,7 @@ fn identity<T>(x: T) -> T { return x; }
 
 fn add<T>(a: T, b: T) -> T { return a + b; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // identity(identity(42)): inner T=i32, outer T=i32
     let a: i32 = identity(identity(21));
 

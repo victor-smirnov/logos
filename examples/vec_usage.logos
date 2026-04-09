@@ -2,7 +2,7 @@ package vec_usage;
 
 use std.vec;
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut v: Vec<i32> = vec_new::<i32>();
     v.push(10);
     v.push(15);

@@ -1,6 +1,6 @@
 package logic_nested_bool;
 // F04: nested && || with explicit parens
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = 1;
     let b: i32 = 2;
     let c: i32 = 3;

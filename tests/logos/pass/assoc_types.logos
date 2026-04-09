@@ -29,7 +29,7 @@ fn get_inner<T: Wrap>(w: T) -> T::Inner {
     return w.unwrap();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let b: BoxI32 = BoxI32 { val: 42 };
     // get_inner resolves T::Inner = i32 when T = BoxI32
     return get_inner::<BoxI32>(b);

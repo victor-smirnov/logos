@@ -3010,6 +3010,13 @@ private:
             loc_, builder_.getI64Type(), size_ptr);
     }
 
+    mlir::Value gen_expr_kind(const EBlockExpr& e, const LogosType*) {
+        if (e.block) gen_block(*e.block);
+        if (is_terminated(builder_.getBlock())) return nullptr;
+        if (e.result) return gen_expr(*e.result);
+        return nullptr;
+    }
+
     // ── Try expression: expr? ─────────────────────────────────────
     // inner : *Result<T,E>  →  ok_block: yields T  /  err_block: early return Err(E)
     mlir::Value gen_expr_kind(const ETry& e, const LogosType* type) {

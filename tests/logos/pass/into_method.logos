@@ -15,7 +15,7 @@ impl Into<i32> for Celsius {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let c: Celsius = Celsius { temp: 42 };
     let val: i32 = c.into();
     return val;

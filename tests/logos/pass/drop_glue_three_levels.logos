@@ -25,7 +25,7 @@ impl Drop for B {
 // C has NO explicit Drop but has droppable field B — drop glue fires
 struct C { nested: B; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     let c: C = C { nested: B { inner: A { id: 7 }, tag: 3 } };
     // c drops via glue → B::drop(b3) → A::drop(a7)

@@ -5,7 +5,7 @@ fn alloc(size: i64) -> *mut u8 { unsafe { return malloc(size); } }
 fn dealloc(ptr: *mut u8) { unsafe { free(ptr); } }
 
 // Basic unsafe block as statement and as expression
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let buf: *mut u8 = alloc(4);
     let p: *mut i32 = buf as *mut i32;
     unsafe { *p = 99; }

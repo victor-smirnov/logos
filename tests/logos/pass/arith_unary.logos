@@ -1,7 +1,7 @@
 package arith_unary;
 // F02: unary minus, negation in expressions
 fn negate(x: i32) -> i32 { return -x; }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = negate(-42);   // 42
     let b: i32 = -(-10);        // 10
     let c: i32 = 0 - 10;        // -10

@@ -17,7 +17,7 @@ fn to_code(d: Direction) -> i32 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = to_code(Direction::North);  // 10
     let b: i32 = to_code(Direction::South);  // 20
     let c: i32 = to_code(Direction::East);   // 5

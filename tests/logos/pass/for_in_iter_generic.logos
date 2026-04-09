@@ -14,7 +14,7 @@ struct Counter {
 }
 
 impl Counter {
-    fn next(self: *mut Counter) -> Option<i32> {
+    unsafe fn next(self: *mut Counter) -> Option<i32> {
         if self.val >= self.max {
             return Option::None;
         }
@@ -24,7 +24,7 @@ impl Counter {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut c = Counter { val: 1, max: 5 };
     let mut product = 1;
     for x in c {

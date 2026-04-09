@@ -16,7 +16,7 @@ impl Measure for Circle {
 
 fn total<S: Measure>(s: S) -> i32 { return s.measure(); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let rect: Rect = Rect { w: 6, h: 7 };      // area = 42
     let circ: Circle = Circle { r: 0 };         // area = 0 (just for dispatch test)
     return total::<Rect>(rect) + total::<Circle>(circ);

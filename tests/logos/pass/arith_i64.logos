@@ -1,6 +1,6 @@
 package arith_i64;
 // F02: i64 arithmetic edge cases
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // --- original ---
     let a: i64 = 1000000000;
     let b: i64 = 2;

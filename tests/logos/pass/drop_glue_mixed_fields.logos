@@ -22,7 +22,7 @@ struct Container {
     b: Res;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     let c: Container = Container {
         p: Plain { value: 10 },

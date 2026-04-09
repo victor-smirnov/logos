@@ -5,7 +5,7 @@ struct Box<T> { val: T; }
 fn unbox_i32(b: Box<i32>) -> i32 { return b.val; }
 fn unbox_bool(b: Box<bool>) -> bool { return b.val; }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let bi: Box<i32> = Box { val: 42 };
     let bb: Box<bool> = Box { val: true };
     let v: i32 = unbox_i32(bi);

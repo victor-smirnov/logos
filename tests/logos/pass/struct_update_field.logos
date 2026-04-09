@@ -2,7 +2,7 @@ package struct_update_field;
 // Edge case: updating struct fields through pointer, reading back
 struct Point { x: i32; y: i32; }
 
-fn shift(p: *mut Point, dx: i32, dy: i32) {
+unsafe fn shift(p: *mut Point, dx: i32, dy: i32) {
     p.x = p.x + dx;
     p.y = p.y + dy;
 }
@@ -14,7 +14,7 @@ fn dist_from_origin(p: Point) -> i32 {
     return ax + ay;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut p: Point = Point { x: 0, y: 0 };
     shift(&mut p, 10, 15);   // (10, 15)
     shift(&mut p, 5, 12);    // (15, 27)

@@ -1,7 +1,7 @@
 package cmp_boundary;
 // Edge cases: comparing at boundary values, zero, equal operands
 fn bool_to_int(b: bool) -> i32 { if b { return 1; } return 0; }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // zero boundary comparisons
     let a: i32 = bool_to_int(0 == 0);   // 1
     let b: i32 = bool_to_int(0 < 1);    // 1

@@ -10,7 +10,7 @@ impl HasVal for Five {
     fn val(self: Five) -> i32 { return self.n; }
 }
 fn get<T: HasVal>(x: T) -> i32 { return x.val(); }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let z: Zero = Zero {};
     let f: Five = Five { n: 42 };
     return get::<Zero>(z) + get::<Five>(f);

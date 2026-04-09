@@ -6,7 +6,7 @@ fn inc(c: &mut Counter) -> i32 {
     c.val = c.val + 1;
     return c.val;
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut c = Counter { val: 0 };
     // &mut c is a call-site borrow — released after inc() returns
     let a: i32 = inc(&mut c);

@@ -33,6 +33,12 @@ Memory safety in Memoria's decentralized and highly parallel environments relies
 - The Borrow Checker enforces rules statically. The AI is highly adept at satisfying lifetime constraints mathematically.
 - This entirely eliminates garbage collection overhead for Logos runtime execution, except where underlying Hermes documents utilize their specific copying GC.
 
+### 3.4 Safe Structs vs. Unsafe Classes
+Memory management in Logos explicitly separates stack-allocated safe types from heap-allocated manual types:
+- `struct`: Stack-allocated, passed by value (or by safe reference `&T` / `&mut T`). Interactions with `struct` types are verified by the Borrow Checker and are **100% safe by default**.
+- `class` (and `new` keyword): Heap-allocated objects that yield raw pointers (`*mut T`). Because their memory must be managed manually (using the `delete` keyword), accessing their fields or invoking methods via implicit dereferencing requires an explicit `unsafe { ... }` context. 
+- In the future, safe smart pointers (e.g., `Box<T>`, `Rc<T>`) will be introduced to allow safe interactions with heap-allocated objects without requiring `unsafe`.
+
 ## 4. First-Class Data Structures
 Logos code natively manipulates Memoria's powerful data primitives:
 - Native syntax for `TinyObjectMap` dynamic objects.

@@ -12,7 +12,7 @@ impl Shape for Circ  { fn area(self: Circ)  -> i32 { return self.r * self.r * 3;
 
 fn compute_area(s: &dyn Shape) -> i32 { return s.area(); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let t: Tri   = Tri   { base: 4, height: 6 };   // 4*6/2 = 12
     let r: Rect2 = Rect2 { w: 5, h: 6 };            // 30
     // 12 + 30 = 42

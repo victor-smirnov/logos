@@ -15,7 +15,7 @@ impl Area for Square {
 
 fn get_area(obj: &dyn Area) -> i32 { return obj.area(); }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let r: Rect = Rect { w: 3, h: 5 };
     let s: Square = Square { s: 3 };
     // Direct coercion at call site — no let binding needed

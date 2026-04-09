@@ -12,7 +12,7 @@ struct Counter {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let c: Counter = Counter::create(42);
     return c.get();
 }

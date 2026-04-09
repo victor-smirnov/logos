@@ -18,7 +18,7 @@ impl Greet for B {
     fn hello(self: B) -> i32 { return self.v + 10; }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: A = A { v: 99 };
     let b: B = B { v: 32 };
     // a.hello()=42 (default), b.hello()=42 (override: 32+10)

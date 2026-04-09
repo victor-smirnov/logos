@@ -3,16 +3,23 @@ package class_inherit_method;
 class Base {
     x: i32;
     y: i32;
-    fn sum(self: *mut Base) -> i32 { return self.x + self.y; }
+    unsafe fn sum(self: *mut Base) -> i32 { return self.x + self.y; }
 }
 class Derived extends Base {
     z: i32;
-    fn total(self: *mut Derived) -> i32 { return self.sum() + self.z; }
+    unsafe fn total(self: *mut Derived) -> i32 { 
+        let mut sum_val: i32 = 0;
+        unsafe { sum_val = self.sum(); }
+        return sum_val + self.z; 
+    }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let d: *mut Derived = new Derived { x: 10, y: 15, z: 17 };
-    let r: i32 = d.total();   // 10+15+17 = 42
-    delete d;
+    let mut r: i32 = 0;
+    unsafe {
+        r = d.total();   // 10+15+17 = 42
+        delete d;
+    }
     return r;
 }

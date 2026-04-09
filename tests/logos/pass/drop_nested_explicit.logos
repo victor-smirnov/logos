@@ -22,7 +22,7 @@ impl Drop for Outer {
     fn drop(self: Outer) { printi("o%d ", self.tag); }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     let w: Outer = Outer { x: Inner { id: 1 }, y: Inner { id: 2 }, tag: 9 };
     // w goes out of scope → explicit Outer::drop runs first (o9), then fields y then x (i2 i1)

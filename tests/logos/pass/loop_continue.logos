@@ -1,6 +1,6 @@
 package loop_continue;
 // F07: loop + continue + break with counter
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut i: i32 = 0;
     let mut sum: i32 = 0;
     loop {

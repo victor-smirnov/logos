@@ -9,4 +9,4 @@ impl Summable for Triple {
     fn sum(self: Triple) -> i32 { return self.a + self.b + self.c; }
 }
 fn total<T: Summable>(v: T) -> i32 { return v.sum(); }
-fn main() -> i32 { return total::<Pair>(Pair { x: 10, y: 20 }) + total::<Triple>(Triple { a: 1, b: 2, c: 9 }); }
+unsafe fn main() -> i32 { return total::<Pair>(Pair { x: 10, y: 20 }) + total::<Triple>(Triple { a: 1, b: 2, c: 9 }); }

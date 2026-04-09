@@ -18,7 +18,7 @@ impl Drop for Resource {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let result: i32 = 42;
     for i in 0..3 {
         let r: Resource = Resource { id: i };

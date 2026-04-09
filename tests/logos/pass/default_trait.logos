@@ -16,7 +16,7 @@ impl Default for Point {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p: Point = Point::default();
     return p.x + p.y + 42;
 }

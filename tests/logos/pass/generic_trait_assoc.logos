@@ -19,7 +19,7 @@ fn get_output<P: Produce>(p: P) -> P::Output {
     return p.produce();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let m = Maker { val: 55 };
     return m.produce();  // direct method call: expect 55
 }

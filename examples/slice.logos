@@ -10,7 +10,7 @@ fn sum(s: &[i32]) -> i32 {
     return total;
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: [i32; 4] = [10, 11, 12, 9];
     let s: &[i32] = &a;
     return sum(s);

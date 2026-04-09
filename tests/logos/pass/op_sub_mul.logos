@@ -16,7 +16,7 @@ impl Mul for Vec2 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Vec2 = Vec2 { x: 10, y: 8 };
     let b: Vec2 = Vec2 { x: 4, y: 2 };
     let c: Vec2 = a - b;   // {6, 6}

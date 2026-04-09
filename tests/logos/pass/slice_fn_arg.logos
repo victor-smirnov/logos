@@ -15,7 +15,7 @@ fn first(s: &[i32]) -> i32 {
 fn last(s: &[i32]) -> i32 {
     return s[s.len() - 1];
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: [i32; 5] = [5, 8, 10, 11, 8];
     let s: &[i32] = &a;
     let total: i32 = sum_slice(s);     // 42

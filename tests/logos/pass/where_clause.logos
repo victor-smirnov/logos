@@ -20,7 +20,7 @@ fn show_and_double<T>(x: T) -> i32 where T: Show {
     return x.show() + x.double();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let n = Num { val: 7 };
     printi("%d\n", print_show(n));      // 7
     printi("%d\n", show_and_double(n)); // 21

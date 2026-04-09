@@ -7,7 +7,7 @@ fn bump_if_positive(x: i32, bump: i32) -> i32 {
     }
     return r;
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: i32 = bump_if_positive(30, 12);   // 42
     let b: i32 = bump_if_positive(-10, 12);  // -10 (no bump)
     // a + (-b) = 42 - (-10) = 52, -10 = a + b + 20

@@ -1517,6 +1517,15 @@ private:
             if (tit != traits_.end()) {
                 for (auto& m : tit->second.methods) {
                     auto mangled = target + "__" + m.name;
+                    if (funcs_.count(mangled)) {
+                        auto& impl_fn = funcs_[mangled];
+                        if (m.is_unsafe != impl_fn.is_unsafe) {
+                            error(std::format("impl {} for {}: method '{}' has mismatched unsafe parity (trait: {}, impl: {})",
+                                trait_name, target, m.name, 
+                                m.is_unsafe ? "unsafe" : "safe", 
+                                impl_fn.is_unsafe ? "unsafe" : "safe"));
+                        }
+                    }
                     if (!funcs_.count(mangled)) {
                         if (m.has_default) {
                             // Register default method as Target__method.
@@ -2108,6 +2117,22 @@ private:
                 }
                 info.ret_type = node.has_key(la::RET_TYPE)
                     ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
+                if (node.has_key(la::IS_PUB)) {
+                    AnyVal av = node.get(la::IS_PUB.code);
+                    info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+                }
+                if (node.has_key(la::IS_UNSAFE)) {
+                    AnyVal av = node.get(la::IS_UNSAFE.code);
+                    info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+                }
+                if (code_of(node) == la::EXTERN_FN) {
+                    info.is_pub = true;
+                    info.is_unsafe = true;
+                }
+                if (node.has_key(la::IS_CONST)) {
+                    AnyVal av = node.get(la::IS_CONST.code);
+                    info.is_const = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+                }
                 pop_type_params(info.type_params);
                 if (!impl_type_params_.empty()) {
                     auto combined = impl_type_params_;
@@ -2448,29 +2473,34 @@ private:
         case la::CLOSURE_EXPR: return lower_closure_expr(expr);
 
         case la::UNSAFE_BLOCK: {
-            // unsafe { stmts... expr } — as expression: last EXPR_STMT's VALUE is the result
             if (!expr.has_key(la::BODY)) return error_expr();
             auto inner = map_of(expr.get(la::BODY.code));
             bool was = inside_unsafe_;
             inside_unsafe_ = true;
-            // Lower all stmts; return the last EXPR_STMT's value as the block result
-            lir::LExprPtr result = error_expr();
+            lir::LExprPtr result = nullptr;
+            auto block = std::make_unique<lir::LBlock>();
             if (inner.has_key(la::ITEMS)) {
                 auto stmts = arr_of(inner.get(la::ITEMS.code));
-                // Lower all but last as side-effect stmts (we discard them here since
-                // unsafe-block-as-expr only cares about the final value)
-                for (uint64_t i = 0; i + 1 < stmts.size(); ++i)
-                    lower_stmt(map_of(stmts.get(i)));
-                if (stmts.size() > 0) {
-                    auto last = map_of(stmts.get(stmts.size() - 1));
-                    if (code_of(last) == la::EXPR_STMT && last.has_key(la::VALUE))
-                        result = lower_expr(map_of(last.get(la::VALUE.code)));
-                    else
-                        result = lower_expr(last);
+                for (uint64_t i = 0; i < stmts.size(); ++i) {
+                    auto s = map_of(stmts.get(i));
+                    if (i == stmts.size() - 1) {
+                        int32_t lc = code_of(s);
+                        if (lc == la::EXPR_STMT && s.has_key(la::VALUE)) {
+                            result = lower_expr(map_of(s.get(la::VALUE.code)));
+                        } else if (lc != la::EXPR_STMT && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
+                            result = lower_expr(s);
+                        } else {
+                            block->stmts.push_back(lower_stmt(s));
+                        }
+                    } else {
+                        block->stmts.push_back(lower_stmt(s));
+                    }
                 }
             }
             inside_unsafe_ = was;
-            return result;
+            if (!result) return make_expr(void_t(), lir::EBlockExpr{std::move(block), nullptr});
+            const LogosType* rt = result->type;
+            return make_expr(rt, lir::EBlockExpr{std::move(block), std::move(result)});
         }
 
         case la::TUPLE_LIT: {
@@ -3300,8 +3330,13 @@ private:
         // The actual impl method will be resolved during monomorphization.
         // Handle both T and *mut T / *const T / &T / &mut T receivers.
         const LogosType* recv_inner = recv->type;
-        if (is_ref_like(recv_inner->kind) && recv_inner->pointee)
+        if (recv_inner && recv_inner->kind == LogosType::Kind::Ptr) {
+            if (!inside_unsafe_)
+                error("method call through raw pointer requires unsafe context");
             recv_inner = recv_inner->pointee;
+        } else if (recv_inner && is_ref_like(recv_inner->kind) && recv_inner->pointee) {
+            recv_inner = recv_inner->pointee;
+        }
         if (recv_inner->kind == LogosType::Kind::TypeVar) {
             // Find trait bounds for this type var
             for (auto& [tvn, tv] : current_type_params_) {
@@ -3439,7 +3474,13 @@ private:
         SemaSubst struct_subst;
         {
             const LogosType* rst = recv->type;
-            if (is_ref_like(rst->kind) && rst->pointee) rst = rst->pointee;
+            if (rst && rst->kind == LogosType::Kind::Ptr) {
+                if (!inside_unsafe_)
+                    error("method call through raw pointer requires unsafe context");
+                if (rst->pointee) rst = rst->pointee;
+            } else if (rst && is_ref_like(rst->kind) && rst->pointee) {
+                rst = rst->pointee;
+            }
             if (rst->kind == LogosType::Kind::Struct && !rst->type_args.empty()) {
                 auto sit2 = structs_.find(rst->struct_name);
                 if (sit2 != structs_.end()) {
@@ -3513,8 +3554,13 @@ private:
         }
         // Resolve the actual struct type (receiver may be a pointer/reference to a struct).
         const LogosType* recv_struct_t = recv->type;
-        if (is_ref_like(recv_struct_t->kind))
+        if (recv_struct_t && recv_struct_t->kind == LogosType::Kind::Ptr) {
+            if (!inside_unsafe_)
+                error("field read through raw pointer requires unsafe context");
             recv_struct_t = recv_struct_t->pointee;
+        } else if (recv_struct_t && is_ref_like(recv_struct_t->kind)) {
+            recv_struct_t = recv_struct_t->pointee;
+        }
         auto* ft = field_type_of_for_type(recv_struct_t, field_name);
         if (!ft) {
             error(std::format("field read: struct '{}' has no field '{}'", sname, field_name));
@@ -4170,22 +4216,27 @@ private:
         auto lower_block_last_expr = [&](TinyMapView blk) -> lir::LExprPtr {
             if (blk.is_null() || !blk.has_key(la::ITEMS)) return error_expr();
             auto stmts = arr_of(blk.get(la::ITEMS.code));
-            if (stmts.size() == 0) { error("if-as-expression: empty branch"); return error_expr(); }
-            // Last statement must be a bare expression (no semicolon → no EXPR_STMT wrapper in grammar)
-            // In our grammar, the items in a block are stmts; bare expr has CODE: EXPR_STMT with VALUE.
-            // But if used as expression, the last item should be a raw expr node (not EXPR_STMT).
-            // Actually in our grammar, `if expr block` — blocks contain stmts, and stmts always end
-            // with semicolons. The grammar doesn't support bare expression at end of block.
-            // So lower_if_expr treats the block's stmts as statements and the last
-            // EXPR_STMT's VALUE as the branch value.
-            auto last = map_of(stmts.get(stmts.size() - 1));
-            int32_t lc = code_of(last);
-            if (lc == la::EXPR_STMT && last.has_key(la::VALUE)) {
-                // Lower all preceding stmts as side effects (ignored in expr mode)
-                return lower_expr(map_of(last.get(la::VALUE.code)));
+            if (stmts.size() == 0) { error("block-as-expression: empty branch"); return error_expr(); }
+            lir::LExprPtr result = nullptr;
+            auto block = std::make_unique<lir::LBlock>();
+            for (uint64_t i = 0; i < stmts.size(); ++i) {
+                auto s = map_of(stmts.get(i));
+                if (i == stmts.size() - 1) {
+                    int32_t lc = code_of(s);
+                    if (lc == la::EXPR_STMT && s.has_key(la::VALUE)) {
+                        result = lower_expr(map_of(s.get(la::VALUE.code)));
+                    } else if (lc != la::EXPR_STMT && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
+                        result = lower_expr(s);
+                    } else {
+                        block->stmts.push_back(lower_stmt(s));
+                    }
+                } else {
+                    block->stmts.push_back(lower_stmt(s));
+                }
             }
-            // Otherwise, try treating it as a direct expression (for inline if_expr in primary_expr)
-            return lower_expr(last);
+            if (!result) return make_expr(void_t(), lir::EBlockExpr{std::move(block), nullptr});
+            const LogosType* rt = result->type;
+            return make_expr(rt, lir::EBlockExpr{std::move(block), std::move(result)});
         };
 
         if (node.has_key(la::THEN)) {
@@ -4405,6 +4456,8 @@ private:
             return make_stmt(node_line_, lir::SDerefWrite{std::move(ptr), std::move(val)});
         }
         if (c == la::DELETE_STMT) {
+            if (!inside_unsafe_)
+                error("'delete' operation requires unsafe context");
             lir::LExprPtr expr = stmt.has_key(la::VALUE)
                 ? lower_expr(map_of(stmt.get(la::VALUE.code)))
                 : error_expr();
@@ -5157,8 +5210,13 @@ private:
             }
         }
         const LogosType* recv_struct_t = (sname.empty() && cname.empty()) ? nullptr : lookup(recv_name);
-        if (recv_struct_t && is_ref_like(recv_struct_t->kind))
+        if (recv_struct_t && recv_struct_t->kind == LogosType::Kind::Ptr) {
+            if (!inside_unsafe_)
+                error("field write through raw pointer requires unsafe context");
             recv_struct_t = recv_struct_t->pointee;
+        } else if (recv_struct_t && is_ref_like(recv_struct_t->kind)) {
+            recv_struct_t = recv_struct_t->pointee;
+        }
         const LogosType* ft = nullptr;
         if (recv_struct_t) {
             if (is_class) {

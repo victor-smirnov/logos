@@ -8,7 +8,7 @@ impl Notify for Msg {
     fn notify(self: Msg) { print("notified"); }
 }
 fn send<T: Notify>(x: T) { x.notify(); }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let m: Msg = Msg { code: 42 };
     send::<Msg>(m);
     return m.code;

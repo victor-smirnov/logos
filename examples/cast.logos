@@ -7,7 +7,7 @@
 
 package cast;
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // u8 to i32
     let byte: u8 = 200;
     let wide: i32 = byte as i32;      // 200

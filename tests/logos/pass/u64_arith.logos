@@ -1,6 +1,6 @@
 package u64_arith;
 // u64 and u32 arithmetic, downcast to i32
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: u64 = 1000000000000;
     let b: u64 = a + 1;
     let delta: i32 = (b - a) as i32;  // 1

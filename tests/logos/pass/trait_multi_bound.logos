@@ -12,7 +12,7 @@ fn combine<T: ToVal + Name>(t: T) -> i32 {
     return t.to_val() + t.name();
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let p: Pair = Pair { x: 20, y: 22 };
     return combine::<Pair>(p);
 }

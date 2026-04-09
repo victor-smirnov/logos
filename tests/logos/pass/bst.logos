@@ -29,7 +29,7 @@ unsafe fn inorder(root: *mut Node) {
     inorder((*root).right);
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let mut root: *mut Node = 0 as *mut Node;
     unsafe {
         root = insert(root, 5);

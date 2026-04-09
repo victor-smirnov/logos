@@ -9,7 +9,7 @@ fn sign_product(a: i32, b: i32) -> i32 {
         else     { return 1; }
     }
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     // (+)(+) = 1, (-)(+) = -1, (+)(-) = -1, (-)(-) = 1
     let a: i32 = sign_product(3, 5);    // 1
     let b: i32 = sign_product(-3, 5);   // -1

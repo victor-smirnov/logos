@@ -3,7 +3,7 @@ package logic_and_or;
 fn check(a: bool, b: bool, c: bool) -> bool {
     return (a && b) || c;
 }
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let t: bool = true;
     let f: bool = false;
     // (t&&t)||f = true => 1

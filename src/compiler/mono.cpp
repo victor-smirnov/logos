@@ -736,6 +736,11 @@ private:
                 result->kind = std::move(nm);
             } else if constexpr (std::is_same_v<K, lir::ESizeOf>) {
                 result->kind = lir::ESizeOf{subst_type(k.elem_type, s)};
+            } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
+                lir::EBlockExpr nb;
+                if (k.block) nb.block = std::make_unique<lir::LBlock>(subst_block(*k.block, s));
+                if (k.result) nb.result = subst_expr(*k.result, s);
+                result->kind = std::move(nb);
             }
         }, e.kind);
 
@@ -1021,6 +1026,9 @@ private:
                     if (arm.guard) scan_expr(**arm.guard);
                     scan_expr(*arm.value);
                 }
+            } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
+                if (k.block) scan_block(*k.block);
+                if (k.result) scan_expr(*k.result);
             }
         }, e.kind);
     }
@@ -1335,6 +1343,9 @@ private:
                     if (arm.guard) collect_struct_needs_from_expr(**arm.guard);
                     collect_struct_needs_from_expr(*arm.value);
                 }
+            } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
+                if (k.block) collect_struct_needs_from_block(*k.block);
+                if (k.result) collect_struct_needs_from_expr(*k.result);
             }
         }, e.kind);
     }

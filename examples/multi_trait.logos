@@ -17,7 +17,7 @@ impl Dot for Vec2 {
     }
 }
 
-fn main() -> i32 {
+unsafe fn main() -> i32 {
     let a: Vec2 = Vec2 { x: 5, y: 2 };
     let b: Vec2 = a.scale(3);    // {15, 6}
     let c: Vec2 = Vec2 { x: 2, y: 2 };

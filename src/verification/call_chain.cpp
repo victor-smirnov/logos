@@ -99,6 +99,39 @@ std::string __attribute__((no_instrument_function)) capture_call_chain_json() {
     return json;
 }
 
+std::string __attribute__((no_instrument_function)) format_call_chain() {
+    auto chain = get_thread_call_chain();
+    std::string out = "Call chain:\n";
+    
+    // Process in reverse order for a typical stack trace view
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        const auto& ev = *it;
+        Dl_info info;
+        std::string func_name = "unknown";
+        if (dladdr(ev.func_addr, &info) && info.dli_sname) {
+            std::string_view mangled(info.dli_sname);
+            // Ignore stdlib and gnu_cxx 
+            if (mangled.starts_with("_ZSt") || mangled.starts_with("_ZNSt") || 
+                mangled.starts_with("_ZNKSt") || mangled.find("allocator") != std::string_view::npos ||
+                mangled.find("char_traits") != std::string_view::npos) {
+                continue;
+            }
+            func_name = demangle(info.dli_sname);
+        } else {
+            // Unresolved symbol
+            continue;
+        }
+        
+        // Skip noisy standard library frames from demangled names as an extra fallback
+        if (func_name.find("std::") != std::string::npos && func_name.find("logos::") == std::string::npos) {
+            continue;
+        }
+
+        out += std::format("  {} (addr: {})\n", func_name, ev.func_addr);
+    }
+    return out;
+}
+
 void __attribute__((no_instrument_function)) pause_call_ring() noexcept {
     t_call_ring_paused = true;
 }
