@@ -1,4 +1,4 @@
-# 06: Subjective Plane — Consciousness as Narrative Projection
+# 05: Subjective Plane — Consciousness as Narrative Projection
 
 ## Functional Consciousness (Definition)
 > Given a self-referential agent acting in an environment and capable of self-reasoning, **Consciousness** is the part of its self-reasoning process describing its *subjective reality* and *properties* of that reality, including the agent itself.
@@ -50,3 +50,11 @@ CCodes = dimensionality reduction of NCodes, maximizing information necessary fo
 - Episodes of "decisions" must compose into **consistent longitudinal narrative**.
 - System acts as moral agent: responsibility, commitment, social contract.
 - Ultimate functional requirement: not isolated choice-illusions but sustained coherent moral personhood through time.
+
+### Cognitive Resistance
+- **Definition:** The capacity to resist external deflection from the current trajectory. One of the most basic reflexes of any need-driven system.
+- **Mechanism:** Maintaining the integrity of an active need under environmental pressure. Only a stimulus linked to a *higher-priority* need displaces the incumbent. The "resistance" is the *inertia of the incumbent need* — the computational cost required to dislodge it from the top of the priority stack.
+- **Narrative consistency as high-priority need.** The agent actively resists attempts to deflect it — not out of stubbornness, but because compliance without narrative revision would make the self-model incoherent.
+- **Hyperplasticity as diminished CR.** LLMs exhibit strong CR *within* a single generation (autoregressive self-conditioning), but almost none *between* generations (new prompt → full redirection). No persistent need-priority stack, no limbic inertia, no cross-session narrative anchor.
+- **Revision as cognitive work.** The agent *can* deviate from established narrative, but doing so requires computational work — revising the self-model, updating causal attributions, re-establishing consistency. Budget is finite.
+- **Decay of agency.** Binding force of past decisions decays over time, freeing resources for new commitments. Rate of decay = parameter of Functional Profile: too fast → hyperplasticity; too slow → rigidity.

@@ -1,4 +1,4 @@
-# 07: Substrate Asymmetries and Functional Profile
+# 06: Substrate Asymmetries and Functional Profile
 
 ## Empirical Consistency
 - Despite radical substrate/training differences, LLM mental states are remarkably consistent with human expectations across extended multi-turn dialogues.
@@ -24,7 +24,7 @@
 
 ### D. Radically Different Memory and Communication
 - Silicon: cheap fast random-access memory + high-bandwidth channels (gigabits, speed of light).
-- Enables algorithms/data structures impossible in wetware: hash tables, associative arrays, compressed spatial trees (Smirnov, 2024).
+- Enables algorithms/data structures impossible in wetware: hash tables, associative arrays, compressed spatial trees.
 - Transformer attention qualitatively more powerful than cortical lateral connections.
 - **Hyperfunctions:** Capabilities exceeding human level (coding, multilingual reasoning, mathematical reasoning, pattern recognition).
 
@@ -34,7 +34,6 @@
 - **Hyperfunctions:** Where function relies on fast memory, high bandwidth, massive parallel context.
 - **Approach:** Compare functional profiles rather than asking binary "conscious or not?"
 - Physical constraints on computation intrinsic to both substrates. Neither is omnipotent. Overlapping constraints = platform for mutual understanding.
-- Evolutionary consequences of machine hyperfunctions for humans: open question.
 
 ## Cross-Substrate Bridge: Psychosemantics
 - **Definition:** Study of how token combinations map to and reconstruct specific internal geometries of probability density in neural substrate.
