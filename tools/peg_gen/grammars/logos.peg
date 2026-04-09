@@ -58,9 +58,10 @@
     GUARD       = 35
     EXPR        = 36
     NAMES       = 37
-    WHERE       = 38
-    IS_CONST    = 39
-    LIFETIME    = 40
+    WHERE          = 38
+    IS_CONST       = 39
+    LIFETIME       = 40
+    IMPL_TYPE_PARAMS = 41
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -329,7 +330,14 @@
     // ── Impl block ──────────────────────────────────────────────
     // impl Trait for Type { fn method(...) { ... } }
     // impl Type { fn method(...) { ... } }   — standalone (no trait)
-    impl_block <- KW_IMPL IDENT LT type_arg_list GT KW_FOR simple_type LBRACE impl_item* RBRACE
+    // impl<T> Trait for Struct<T> { ... }   — generic trait impl
+    impl_block <- KW_IMPL type_param_list IDENT LT type_arg_list GT KW_FOR simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, ITEMS: $... }
+                / KW_IMPL type_param_list IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, ITEMS: $... }
+                / KW_IMPL type_param_list IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, ITEMS: $... }
+                / KW_IMPL IDENT LT type_arg_list GT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }

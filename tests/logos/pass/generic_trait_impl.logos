@@ -1,0 +1,18 @@
+// impl<T> Trait for Struct<T> — generic trait impl block.
+// Methods should receive the concrete type args at call site.
+package generic_trait_impl;
+
+trait Wrap {
+    fn unwrap_i32(self: Self) -> i32;
+}
+
+struct Box<T> { val: T; }
+
+impl<T> Wrap for Box<T> {
+    fn unwrap_i32(self: Box<T>) -> i32 { return 99; }
+}
+
+fn main() -> i32 {
+    let b = Box { val: 42 };
+    return b.unwrap_i32();  // expect 99
+}

@@ -753,8 +753,15 @@ private:
     std::unordered_map<std::string, SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
     std::unordered_map<std::string, SemaImplInfo>     impls_;
-    // "TraitName::TypeName::AssocName" → concrete type
-    std::unordered_map<std::string, const LogosType*> assoc_type_impls_;
+    // "TraitName::TypeName::AssocName" → assoc type + impl's own type params for substitution.
+    // For non-generic impls, impl_type_params is empty and type is concrete.
+    // For generic impls (impl<T> Trait for Struct<T>), impl_type_params = [T] and
+    // type may contain TypeVar("T"); lookup substitutes T → concrete arg.
+    struct AssocTypeEntry {
+        const LogosType*       type;
+        std::vector<TypeParam> impl_type_params;
+    };
+    std::unordered_map<std::string, AssocTypeEntry> assoc_type_impls_;
 
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;
@@ -777,6 +784,40 @@ private:
             auto tpnode = map_of(tpitems.get(i));
             if (code_of(tpnode) != la::LIFETIME_PARAM) continue;
             result.push_back(std::string(str_of(tpnode.get(la::NAME.code))));
+        }
+        return result;
+    }
+
+    // Read type params from a specific field (TYPE_PARAMS or IMPL_TYPE_PARAMS).
+    std::vector<TypeParam> read_type_params_from(TinyMapView node, int32_t field_code) {
+        std::vector<TypeParam> result;
+        AnyVal tpav = node.get(field_code);
+        if (tpav.is_null()) return result;
+        auto tplist = map_of(tpav);
+        if (!tplist.has_key(la::ITEMS)) return result;
+        auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < tpitems.size(); ++i) {
+            auto tpnode = map_of(tpitems.get(i));
+            if (code_of(tpnode) == la::LIFETIME_PARAM) continue;
+            if (code_of(tpnode) != la::TYPE_PARAM) continue;
+            TypeParam tp;
+            tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
+            if (tpnode.has_key(la::IS_VARIADIC)) {
+                AnyVal av = tpnode.get(la::IS_VARIADIC.code);
+                tp.is_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+            }
+            if (tpnode.has_key(la::ITEMS)) {
+                auto bounds = arr_of(tpnode.get(la::ITEMS.code));
+                for (uint64_t b = 0; b < bounds.size(); ++b) {
+                    auto bnode = map_of(bounds.get(b));
+                    if (code_of(bnode) == la::TRAIT_BOUND) {
+                        TraitBound tb;
+                        tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                        tp.bounds.push_back(std::move(tb));
+                    }
+                }
+            }
+            result.push_back(std::move(tp));
         }
         return result;
     }
@@ -928,13 +969,33 @@ private:
             return make_slice_type(elem);
         }
         case LogosType::Kind::AssocType: {
-            // Try resolving: if T is substituted to a concrete type, look up impl
+            // Try resolving: if T is substituted to a concrete type, look up impl.
             auto it = s.find(t->type_var_name);
             if (it != s.end()) {
-                std::string concrete_name = concrete_struct_name(it->second);
+                const LogosType* concrete = it->second;
+                std::string concrete_name = concrete_struct_name(concrete);
+                // 1. Direct lookup (non-generic impls: key stored under concrete name).
                 std::string key = t->trait_name + "::" + concrete_name + "::" + t->assoc_type_name;
                 auto ait = assoc_type_impls_.find(key);
-                if (ait != assoc_type_impls_.end()) return ait->second;
+                if (ait != assoc_type_impls_.end()) return ait->second.type;
+                // 2. Base-name fallback (generic impls: impl<T> Trait for Struct<T> stores
+                //    under base name "Struct", not concrete "Struct__i32").
+                if (!concrete_name.empty() && !concrete->struct_name.empty() &&
+                    concrete->struct_name != concrete_name) {
+                    std::string base_key = t->trait_name + "::" + concrete->struct_name
+                                          + "::" + t->assoc_type_name;
+                    auto ait2 = assoc_type_impls_.find(base_key);
+                    if (ait2 != assoc_type_impls_.end()) {
+                        auto& entry = ait2->second;
+                        if (entry.impl_type_params.empty()) return entry.type;
+                        // Substitute impl type params → concrete struct type args.
+                        SemaSubst impl_subst;
+                        for (size_t i = 0; i < entry.impl_type_params.size() &&
+                                           i < concrete->type_args.size(); ++i)
+                            impl_subst[entry.impl_type_params[i].name] = concrete->type_args[i];
+                        return subst_type_sema(entry.type, impl_subst);
+                    }
+                }
             }
             return t;
         }
@@ -1354,9 +1415,14 @@ private:
         std::string trait_name;
         if (node.has_key(la::NAME))
             trait_name = std::string(str_of(node.get(la::NAME.code)));
-        // If standalone impl with own type params (impl<T> Pair<T>), push them first.
+        // Push impl's own type params: either from IMPL_TYPE_PARAMS (new generic trait impl
+        // form: impl<T> Trait for Struct<T>) or from TYPE_PARAMS (standalone: impl<T> Pair<T>).
         std::vector<TypeParam> impl_tps;
-        if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
+        if (node.has_key(la::IMPL_TYPE_PARAMS)) {
+            impl_tps = read_type_params_from(node, la::IMPL_TYPE_PARAMS.code);
+            push_type_params(impl_tps);
+            impl_type_params_ = impl_tps;
+        } else if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
             impl_tps = read_type_params(node);
             push_type_params(impl_tps);
             impl_type_params_ = impl_tps;  // so collect_fn includes them in fn.type_params
@@ -1435,7 +1501,7 @@ private:
                     auto aname = std::string(str_of(m.get(la::NAME.code)));
                     auto* atype = resolve_type(map_of(m.get(la::TYPE.code)));
                     std::string key = trait_name + "::" + target + "::" + aname;
-                    assoc_type_impls_[key] = atype;
+                    assoc_type_impls_[key] = { atype, impl_tps };
                 }
             }
         }
@@ -1450,11 +1516,20 @@ private:
                         if (m.has_default) {
                             // Register default method as Target__method.
                             // Push Self → target type so parameter types resolve correctly.
+                            // Build Self type; for generic impls include the type params as TypeVars.
                             const LogosType* self_type = nullptr;
-                            if (structs_.count(target))
-                                self_type = make_struct_type(target);
-                            else if (classes_.count(target))
+                            if (structs_.count(target)) {
+                                if (!impl_tps.empty()) {
+                                    std::vector<const LogosType*> tv_args;
+                                    for (auto& tp : impl_tps)
+                                        tv_args.push_back(make_typevar(tp.name));
+                                    self_type = make_generic_struct(target, std::move(tv_args));
+                                } else {
+                                    self_type = make_struct_type(target);
+                                }
+                            } else if (classes_.count(target)) {
                                 self_type = make_ptr(true, make_class_type(target));
+                            }
                             if (self_type)
                                 current_type_params_["Self"] = self_type;
                             collect_fn(map_of(m.default_ast), target);
@@ -3948,8 +4023,6 @@ private:
 
         std::string mangled = std::string(class_name) + "__" + std::string(method_name);
 
-        auto fit = funcs_.find(mangled);
-
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             AnyVal args_av = node.get(la::ARGS.code);
@@ -3963,12 +4036,23 @@ private:
             }
         }
 
-        if (fit == funcs_.end()) {
+        // Bug 3 fix: look in both funcs_ and generic_funcs_ (generic static methods
+        // registered with type params end up in generic_funcs_, not funcs_).
+        const SemaFuncInfo* fi_ptr = nullptr;
+        {
+            auto fit = funcs_.find(mangled);
+            if (fit != funcs_.end()) fi_ptr = &fit->second;
+            else {
+                auto git = generic_funcs_.find(mangled);
+                if (git != generic_funcs_.end()) fi_ptr = &git->second;
+            }
+        }
+        if (!fi_ptr) {
             error(std::format("call to undefined static method '{}::{}'", class_name, method_name));
             return make_expr(error_t(), lir::ECall{mangled, {}, std::move(arg_exprs)});
         }
 
-        auto& fi = fit->second;
+        auto& fi = *fi_ptr;
         check_pub_access(fi.is_pub, fi.package, mangled);
 
         uint64_t n_args = arg_exprs.size();
@@ -5823,9 +5907,14 @@ private:
         std::string trait_name;
         if (node.has_key(la::NAME))
             trait_name = std::string(str_of(node.get(la::NAME.code)));
-        // If standalone impl with own type params (impl<T> Pair<T>), push them first.
+        // Push impl's own type params: either from IMPL_TYPE_PARAMS (new generic trait impl
+        // form: impl<T> Trait for Struct<T>) or from TYPE_PARAMS (standalone: impl<T> Pair<T>).
         std::vector<TypeParam> impl_tps;
-        if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
+        if (node.has_key(la::IMPL_TYPE_PARAMS)) {
+            impl_tps = read_type_params_from(node, la::IMPL_TYPE_PARAMS.code);
+            push_type_params(impl_tps);
+            impl_type_params_ = impl_tps;
+        } else if (trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
             impl_tps = read_type_params(node);
             push_type_params(impl_tps);
             impl_type_params_ = impl_tps;  // so lower_fn includes them in fn.type_params
@@ -5916,12 +6005,20 @@ private:
                 for (auto& m : tit->second.methods) {
                     auto mangled = target + "__" + m.name;
                     if (m.has_default && !overridden.count(mangled)) {
-                        // Push Self → target type so default body resolves Self correctly.
+                        // Push Self → target type; for generic impls include type params as TypeVars.
                         const LogosType* self_type = nullptr;
-                        if (structs_.count(target))
-                            self_type = make_struct_type(target);
-                        else if (classes_.count(target))
+                        if (structs_.count(target)) {
+                            if (!impl_tps.empty()) {
+                                std::vector<const LogosType*> tv_args;
+                                for (auto& tp : impl_tps)
+                                    tv_args.push_back(make_typevar(tp.name));
+                                self_type = make_generic_struct(target, std::move(tv_args));
+                            } else {
+                                self_type = make_struct_type(target);
+                            }
+                        } else if (classes_.count(target)) {
                             self_type = make_ptr(true, make_class_type(target));
+                        }
                         if (self_type)
                             current_type_params_["Self"] = self_type;
                         auto fn = lower_fn(map_of(m.default_ast), target);
@@ -5944,10 +6041,10 @@ private:
         // Copy associated type mappings
         if (!trait_name.empty()) {
             auto prefix = trait_name + "::" + target + "::";
-            for (auto& [key, type] : assoc_type_impls_) {
+            for (auto& [key, entry] : assoc_type_impls_) {
                 if (key.rfind(prefix, 0) == 0) {
                     auto assoc_name = key.substr(prefix.size());
-                    ib.assoc_types[assoc_name] = type;
+                    ib.assoc_types[assoc_name] = entry.type;
                 }
             }
         }

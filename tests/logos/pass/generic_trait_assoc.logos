@@ -1,0 +1,25 @@
+// impl<T> Trait for Struct<T> with associated type — Bug 5 fix.
+// C::Item should resolve to the concrete type arg of the struct.
+package generic_trait_assoc;
+
+trait Produce {
+    type Output;
+    fn produce(self: Self) -> Self::Output;
+}
+
+struct Maker<T> { val: T; }
+
+impl<T> Produce for Maker<T> {
+    type Output = T;
+    fn produce(self: Maker<T>) -> T { return self.val; }
+}
+
+// Generic function using associated type as return type
+fn get_output<P: Produce>(p: P) -> P::Output {
+    return p.produce();
+}
+
+fn main() -> i32 {
+    let m = Maker { val: 55 };
+    return m.produce();  // direct method call: expect 55
+}
