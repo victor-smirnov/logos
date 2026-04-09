@@ -1,0 +1,9 @@
+package u8_shr;
+// u8 >> must use ShRUIOp (logical), not ShRSIOp (arithmetic)
+// 200 (0xC8) >> 1: logical = 100, arithmetic = 228 (sign bit replicated)
+fn shr(x: u8) -> u8 { return x >> 1; }
+fn main() -> i32 {
+    let y: i32 = shr(200) as i32;
+    if y == 100 { return 0; }
+    return 1;
+}

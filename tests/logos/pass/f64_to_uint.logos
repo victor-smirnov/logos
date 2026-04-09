@@ -1,0 +1,10 @@
+package f64_to_uint;
+// f64 as u32 must use FPToUIOp, not FPToSIOp
+fn float_to_u32(f: f64) -> u32 { return f as u32; }
+fn main() -> i32 {
+    let big: i64 = 3000000000;
+    let f: f64 = big as f64;
+    let y: u32 = float_to_u32(f);
+    if y as i64 == 3000000000 { return 0; }
+    return 1;
+}

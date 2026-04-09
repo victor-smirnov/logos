@@ -1195,12 +1195,20 @@ private:
         auto hi = gen_expr(*s.hi);
         if (!lo || !hi) return;
 
+        // Use the wider of lo/hi types so i64 bounds aren't truncated to i32.
+        mlir::Type loop_type = builder_.getI32Type();
+        if (auto hi_int = mlir::dyn_cast<mlir::IntegerType>(hi.getType()))
+            if (hi_int.getWidth() > 32) loop_type = hi.getType();
+        if (auto lo_int = mlir::dyn_cast<mlir::IntegerType>(lo.getType()))
+            if (lo_int.getWidth() > mlir::cast<mlir::IntegerType>(loop_type).getWidth())
+                loop_type = lo.getType();
+
         auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                            loc_, ptr_type(), builder_.getI32Type(), i64_one());
-        builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(lo, builder_.getI32Type()), i_alloca);
+                            loc_, ptr_type(), loop_type, i64_one());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(lo, loop_type), i_alloca);
         scope_[s.var] = i_alloca;
         let_vars_.insert(s.var);
-        var_elem_types_[s.var] = builder_.getI32Type();
+        var_elem_types_[s.var] = loop_type;
 
         auto* region     = builder_.getBlock()->getParent();
         auto* cond_block = new mlir::Block();
@@ -1215,16 +1223,15 @@ private:
         builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
 
         builder_.setInsertionPointToStart(cond_block);
-        auto i_val = builder_.create<mlir::LLVM::LoadOp>(
-                         loc_, builder_.getI32Type(), i_alloca);
-        auto hi_i32 = coerce_int(hi, builder_.getI32Type());
+        auto i_val  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
+        auto hi_val = coerce_int(hi, loop_type);
         mlir::Value cond;
         if (s.inclusive)
             cond = builder_.create<mlir::arith::CmpIOp>(
-                       loc_, mlir::arith::CmpIPredicate::sle, i_val, hi_i32);
+                       loc_, mlir::arith::CmpIPredicate::sle, i_val, hi_val);
         else
             cond = builder_.create<mlir::arith::CmpIOp>(
-                       loc_, mlir::arith::CmpIPredicate::slt, i_val, hi_i32);
+                       loc_, mlir::arith::CmpIPredicate::slt, i_val, hi_val);
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
         builder_.setInsertionPointToStart(body_block);
@@ -1238,10 +1245,9 @@ private:
         // Increment block: i += 1, branch back to condition.
         builder_.setInsertionPointToStart(incr_block);
         {
-            auto i_cur = builder_.create<mlir::LLVM::LoadOp>(
-                             loc_, builder_.getI32Type(), i_alloca);
-            auto one = builder_.create<mlir::arith::ConstantOp>(
-                           loc_, builder_.getI32Type(), builder_.getI32IntegerAttr(1));
+            auto i_cur  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
+            auto one    = builder_.create<mlir::arith::ConstantIntOp>(
+                              loc_, 1, mlir::cast<mlir::IntegerType>(loop_type).getWidth());
             auto i_next = builder_.create<mlir::arith::AddIOp>(loc_, i_cur, one);
             builder_.create<mlir::LLVM::StoreOp>(loc_, i_next, i_alloca);
             builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
@@ -2001,13 +2007,28 @@ private:
         auto lhs = gen_expr(*e.lhs);
         auto rhs = gen_expr(*e.rhs);
         if (!lhs || !rhs) return nullptr;
-        // Widen narrower integer operand.
+        // Widen narrower integer operand, using zero-extend for unsigned types.
         if (auto li = mlir::dyn_cast<mlir::IntegerType>(lhs.getType())) {
             if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType())) {
-                if (li.getWidth() < ri.getWidth())
-                    lhs = builder_.create<mlir::arith::ExtSIOp>(loc_, rhs.getType(), lhs);
-                else if (ri.getWidth() < li.getWidth())
-                    rhs = builder_.create<mlir::arith::ExtSIOp>(loc_, lhs.getType(), rhs);
+                if (li.getWidth() < ri.getWidth()) {
+                    bool lhs_unsigned = e.lhs->type &&
+                        (e.lhs->type->kind == LogosType::Kind::U8  ||
+                         e.lhs->type->kind == LogosType::Kind::U32 ||
+                         e.lhs->type->kind == LogosType::Kind::U64);
+                    if (lhs_unsigned)
+                        lhs = builder_.create<mlir::arith::ExtUIOp>(loc_, rhs.getType(), lhs);
+                    else
+                        lhs = builder_.create<mlir::arith::ExtSIOp>(loc_, rhs.getType(), lhs);
+                } else if (ri.getWidth() < li.getWidth()) {
+                    bool rhs_unsigned = e.rhs->type &&
+                        (e.rhs->type->kind == LogosType::Kind::U8  ||
+                         e.rhs->type->kind == LogosType::Kind::U32 ||
+                         e.rhs->type->kind == LogosType::Kind::U64);
+                    if (rhs_unsigned)
+                        rhs = builder_.create<mlir::arith::ExtUIOp>(loc_, lhs.getType(), rhs);
+                    else
+                        rhs = builder_.create<mlir::arith::ExtSIOp>(loc_, lhs.getType(), rhs);
+                }
             }
         }
         auto& op = e.op;
@@ -2052,7 +2073,8 @@ private:
         if (op == ">>") {
             auto it = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
             bool is_unsigned = it && (e.lhs->type &&
-                (e.lhs->type->kind == LogosType::Kind::U32 ||
+                (e.lhs->type->kind == LogosType::Kind::U8  ||
+                 e.lhs->type->kind == LogosType::Kind::U32 ||
                  e.lhs->type->kind == LogosType::Kind::U64));
             if (is_unsigned)
                 return builder_.create<mlir::arith::ShRUIOp>(loc_, lhs, rhs);
@@ -2439,11 +2461,25 @@ private:
             return val;
         }
         if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) &&
-            mlir::dyn_cast<mlir::FloatType>(target))
+            mlir::dyn_cast<mlir::FloatType>(target)) {
+            bool src_unsigned = e.operand->type &&
+                (e.operand->type->kind == LogosType::Kind::U8  ||
+                 e.operand->type->kind == LogosType::Kind::U32 ||
+                 e.operand->type->kind == LogosType::Kind::U64);
+            if (src_unsigned)
+                return builder_.create<mlir::arith::UIToFPOp>(loc_, target, val);
             return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
+        }
         if (mlir::dyn_cast<mlir::FloatType>(val.getType()) &&
-            mlir::dyn_cast<mlir::IntegerType>(target))
+            mlir::dyn_cast<mlir::IntegerType>(target)) {
+            bool dst_unsigned = type &&
+                (type->kind == LogosType::Kind::U8  ||
+                 type->kind == LogosType::Kind::U32 ||
+                 type->kind == LogosType::Kind::U64);
+            if (dst_unsigned)
+                return builder_.create<mlir::arith::FPToUIOp>(loc_, target, val);
             return builder_.create<mlir::arith::FPToSIOp>(loc_, target, val);
+        }
 
         // int → ptr
         if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) && target == ptr_type()) {

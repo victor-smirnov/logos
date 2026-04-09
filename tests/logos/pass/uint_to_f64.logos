@@ -1,0 +1,10 @@
+package uint_to_f64;
+// u32 as f64 must use UIToFPOp, not SIToFPOp
+fn cast_f(x: u32) -> i64 {
+    let f: f64 = x as f64;
+    return f as i64;
+}
+fn main() -> i32 {
+    if cast_f(3000000000) == 3000000000 { return 0; }
+    return 1;
+}

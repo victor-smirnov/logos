@@ -1,0 +1,12 @@
+package for_i64_bound;
+// for loop with i64 upper bound > INT32_MAX must not truncate to i32
+unsafe fn main() -> i32 {
+    let n: i64 = 3000000000;
+    let mut count: i32 = 0;
+    for i in 0..n {
+        count = count + 1;
+        if count == 5 { break; }
+    }
+    if count == 5 { return 0; }
+    return 1;
+}

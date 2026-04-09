@@ -1,0 +1,7 @@
+package uint_cmp_literal;
+// u32 compared with large literal (i64 in MLIR) must use ExtUIOp widening
+fn main() -> i32 {
+    let x: u32 = 4000000000;
+    if x == 4000000000 { return 0; }
+    return 1;
+}
