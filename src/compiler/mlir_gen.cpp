@@ -1631,7 +1631,8 @@ private:
                 scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
             }
         }
-        auto scrut_i32 = coerce_int(scrut, builder_.getI32Type());
+        // Keep scrut at its natural type; coerce disc constants to match it.
+        mlir::Type scrut_type = scrut.getType();
 
         // Determine if any arm is a wildcard.
         bool has_wild = false;
@@ -1796,9 +1797,11 @@ private:
                 {
                     mlir::OpBuilder::InsertionGuard ig(builder_);
                     builder_.setInsertionPointToStart(test_block);
-                    auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
+                    auto disc_val = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32),
+                        scrut_type);
                     auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, scrut_i32, disc_val);
+                        loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
                     builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
                 }
                 else_block = test_block;
@@ -2008,6 +2011,20 @@ private:
             }
         }
         auto& op = e.op;
+        bool is_float = mlir::isa<mlir::FloatType>(lhs.getType());
+        if (is_float) {
+            if (op == "+")  return builder_.create<mlir::arith::AddFOp>(loc_, lhs, rhs);
+            if (op == "-")  return builder_.create<mlir::arith::SubFOp>(loc_, lhs, rhs);
+            if (op == "*")  return builder_.create<mlir::arith::MulFOp>(loc_, lhs, rhs);
+            if (op == "/")  return builder_.create<mlir::arith::DivFOp>(loc_, lhs, rhs);
+            if (op == "%")  return builder_.create<mlir::arith::RemFOp>(loc_, lhs, rhs);
+            if (op == "==") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OEQ, lhs, rhs);
+            if (op == "!=") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::ONE, lhs, rhs);
+            if (op == "<")  return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLT, lhs, rhs);
+            if (op == ">")  return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OGT, lhs, rhs);
+            if (op == "<=") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLE, lhs, rhs);
+            if (op == ">=") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OGE, lhs, rhs);
+        }
         if (op == "+")  return builder_.create<mlir::arith::AddIOp>(loc_, lhs, rhs);
         if (op == "-")  return builder_.create<mlir::arith::SubIOp>(loc_, lhs, rhs);
         if (op == "*")  return builder_.create<mlir::arith::MulIOp>(loc_, lhs, rhs);
@@ -2019,7 +2036,16 @@ private:
         if (op == "|")  return builder_.create<mlir::arith::OrIOp> (loc_, lhs, rhs);
         if (op == "^")  return builder_.create<mlir::arith::XOrIOp>(loc_, lhs, rhs);
         if (op == "<<") return builder_.create<mlir::arith::ShLIOp>(loc_, lhs, rhs);
-        if (op == ">>") return builder_.create<mlir::arith::ShRSIOp>(loc_, lhs, rhs);
+        // Use signed or unsigned shift based on operand type.
+        if (op == ">>") {
+            auto it = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
+            bool is_unsigned = it && (e.lhs->type &&
+                (e.lhs->type->kind == LogosType::Kind::U32 ||
+                 e.lhs->type->kind == LogosType::Kind::U64));
+            if (is_unsigned)
+                return builder_.create<mlir::arith::ShRUIOp>(loc_, lhs, rhs);
+            return builder_.create<mlir::arith::ShRSIOp>(loc_, lhs, rhs);
+        }
         // For pointer comparisons, use llvm.icmp instead of arith.cmpi
         bool is_ptr_cmp = mlir::isa<mlir::LLVM::LLVMPointerType>(lhs.getType());
         if (op == "==") {
@@ -2530,7 +2556,8 @@ private:
                 scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
             }
         }
-        auto scrut_i32 = coerce_int(scrut, builder_.getI32Type());
+        // Keep scrut at its natural type; coerce disc constants to match it.
+        mlir::Type scrut_type = scrut.getType();
 
         // Extract payload bindings for a PatVariantData arm into scope.
         // Returns the set of binding names added (for cleanup).
@@ -2644,9 +2671,11 @@ private:
                 {
                     mlir::OpBuilder::InsertionGuard ig(builder_);
                     builder_.setInsertionPointToStart(test_block);
-                    auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
+                    auto disc_val = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32),
+                        scrut_type);
                     auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, scrut_i32, disc_val);
+                        loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
                     builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
                 }
                 else_block = test_block;
@@ -2721,10 +2750,17 @@ private:
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
         auto save_pt = builder_.saveInsertionPoint();
 
-        // Build capture struct type
+        // Build capture struct type.
+        // Struct/class captures are pointer-represented in scope_, so store
+        // them as ptr in the env struct rather than as the aggregate LLVM type.
         llvm::SmallVector<mlir::Type> cap_fields;
         for (auto* ct : e.capture_types) {
-            auto ft = logos_to_mlir(ct);
+            mlir::Type ft;
+            if (ct && (ct->kind == LogosType::Kind::Struct ||
+                       ct->kind == LogosType::Kind::Class))
+                ft = ptr_type();
+            else
+                ft = logos_to_mlir(ct);
             if (!ft) ft = builder_.getI32Type();
             cap_fields.push_back(ft);
         }
@@ -2783,13 +2819,26 @@ private:
             auto fp = builder_.create<mlir::LLVM::GEPOp>(
                 loc_, ptr_type(), cap_struct, env_ptr, idx);
             auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i], fp);
-            // Store in alloca for let-variable semantics
-            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_type(), cap_fields[i], i64_one());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-            scope_[e.captures[i]] = alloca;
-            let_vars_.insert(e.captures[i]);
-            var_elem_types_[e.captures[i]] = cap_fields[i];
+
+            const LogosType* ct = e.capture_types[i];
+            bool is_struct_cap = ct && ct->kind == LogosType::Kind::Struct;
+            bool is_class_cap  = ct && ct->kind == LogosType::Kind::Class;
+            if (is_struct_cap || is_class_cap) {
+                // val is a pointer to the captured struct/class — use directly.
+                scope_[e.captures[i]] = val;
+                if (is_struct_cap)
+                    var_struct_[e.captures[i]] = ct->struct_name;
+                else
+                    var_class_[e.captures[i]] = ct->struct_name;
+            } else {
+                // Scalar capture: store in alloca for let-variable semantics.
+                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                    loc_, ptr_type(), cap_fields[i], i64_one());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                scope_[e.captures[i]] = alloca;
+                let_vars_.insert(e.captures[i]);
+                var_elem_types_[e.captures[i]] = cap_fields[i];
+            }
         }
 
         // Bind params (starting from arg 1)
