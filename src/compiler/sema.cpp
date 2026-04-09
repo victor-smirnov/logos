@@ -16,6 +16,8 @@
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/any_val.hpp>
 
+#include <cstdint>
+#include <cstdio>
 #include <format>
 #include <set>
 #include <string>
@@ -24,6 +26,7 @@
 #include <unordered_set>
 #include <vector>
 #include <functional>
+#include <optional>
 
 namespace logos::compiler {
 
@@ -43,6 +46,7 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
         // Note: we intentionally ignore lifetime in equality — structural type equality
     case LogosType::Kind::Array:
         return a.arr_size == b.arr_size &&
+               a.arr_size_var == b.arr_size_var &&
                a.elem && b.elem &&
                types_equal(*a.elem, *b.elem);
     case LogosType::Kind::Struct:
@@ -66,10 +70,15 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
         return a.elem && b.elem && types_equal(*a.elem, *b.elem);
     case LogosType::Kind::TraitObject:
         return a.trait_name == b.trait_name;
-    case LogosType::Kind::TypeVar:
-        return a.type_var_name == b.type_var_name;
+    case LogosType::Kind::ImplTrait:
+        return a.struct_name == b.struct_name;
+    case LogosType::Kind::AssocType:
+        return a.assoc_type_name == b.assoc_type_name &&
+               a.trait_name == b.trait_name &&
+               a.assoc_base && b.assoc_base &&
+               types_equal(*a.assoc_base, *b.assoc_base);
     default:
-        return true;
+        return true;  // primitives
     }
 }
 
@@ -80,16 +89,16 @@ static std::string mangle_type_for_name(const LogosType* t);
 std::string concrete_struct_name(const LogosType* t) {
     if (!t || t->kind != LogosType::Kind::Struct) return {};
     if (t->type_args.empty()) return t->struct_name;
-    std::string r = t->struct_name;
-    for (auto* a : t->type_args) { r += "__"; r += mangle_type_for_name(a); }
+    std::string r = t->struct_name + "$G" + std::to_string(t->type_args.size());
+    for (auto* a : t->type_args) { r += "$"; r += mangle_type_for_name(a); }
     return r;
 }
 
 std::string concrete_class_name(const LogosType* t) {
     if (!t || t->kind != LogosType::Kind::Class) return {};
     if (t->type_args.empty()) return t->struct_name;
-    std::string r = t->struct_name;
-    for (auto* a : t->type_args) { r += "__"; r += mangle_type_for_name(a); }
+    std::string r = t->struct_name + "$C" + std::to_string(t->type_args.size());
+    for (auto* a : t->type_args) { r += "$"; r += mangle_type_for_name(a); }
     return r;
 }
 
@@ -109,12 +118,14 @@ static std::string mangle_type_for_name(const LogosType* t) {
     case LogosType::Kind::Class:
         return concrete_class_name(t);
     case LogosType::Kind::Tuple: {
-        std::string r = "tup";
-        for (auto* e : t->tuple_elems) { r += "_"; r += mangle_type_for_name(e); }
+        std::string r = "tup$" + std::to_string(t->tuple_elems.size());
+        for (auto* e : t->tuple_elems) { r += "$"; r += mangle_type_for_name(e); }
         return r;
     }
     case LogosType::Kind::Slice:
         return "slice_" + mangle_type_for_name(t->elem);
+    case LogosType::Kind::AssocType:
+        return mangle_type_for_name(t->assoc_base) + "::" + t->assoc_type_name;
     default:
         return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
     }
@@ -248,7 +259,8 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::Enum:        return t->enum_name;
     case LogosType::Kind::TraitObject: return "&dyn " + t->trait_name;
     case LogosType::Kind::TypeVar:     return std::string(t->type_var_name);
-    case LogosType::Kind::AssocType:   return std::string(t->type_var_name) + "::" + t->assoc_type_name;
+    case LogosType::Kind::ConstVar:    return std::string(t->type_var_name);
+    case LogosType::Kind::AssocType:   return type_str(t->assoc_base) + "::" + t->assoc_type_name;
     case LogosType::Kind::ImplTrait:   return "impl " + t->struct_name;
     case LogosType::Kind::Error:   return "<error>";
     }
@@ -336,10 +348,11 @@ private:
         t.lifetime = std::move(lifetime);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_array(const LogosType* elem, uint64_t n) {
+    const LogosType* make_array(const LogosType* elem, uint64_t n, std::string_view symbolic = "") {
         LogosType t; t.kind = LogosType::Kind::Array;
         t.elem = elem; t.arr_size = n;
-        return pool_.alloc(t);
+        t.arr_size_var = std::string(symbolic);
+        return pool_.alloc(std::move(t));
     }
     const LogosType* make_struct_type(std::string_view name) {
         LogosType t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
@@ -392,6 +405,27 @@ private:
         LogosType t; t.kind = LogosType::Kind::TypeVar;
         t.type_var_name = std::string(name);
         return pool_.alloc(t);
+    }
+
+    const LogosType* lookup_type_by_name(std::string_view name) {
+        if (name == "i32")  return prim(LogosType::Kind::I32);
+        if (name == "i64")  return prim(LogosType::Kind::I64);
+        if (name == "f64")  return prim(LogosType::Kind::F64);
+        if (name == "bool") return prim(LogosType::Kind::Bool);
+        if (name == "u8")   return prim(LogosType::Kind::U8);
+        if (name == "i8")   return prim(LogosType::Kind::I8);
+        if (name == "u32")  return prim(LogosType::Kind::U32);
+        if (name == "u64")  return prim(LogosType::Kind::U64);
+        if (name == "void") return prim(LogosType::Kind::Void);
+        if (name == "str")  return make_slice_type(u8_t());
+        auto tvit = current_type_params_.find(std::string(name));
+        if (tvit != current_type_params_.end()) return tvit->second;
+        auto ait = type_aliases_.find(std::string(name));
+        if (ait != type_aliases_.end()) return ait->second;
+        if (structs_.count(std::string(name))) return make_struct_type(name);
+        if (classes_.count(std::string(name))) return make_class_type(name);
+        if (enums_.count(std::string(name)))   return make_enum_type(name);
+        return nullptr;
     }
 
     // ── L-IR node factories ──────────────────────────────────────
@@ -661,8 +695,11 @@ private:
     const LogosType* class_field_type(std::string_view cname, std::string_view fname) const {
         auto it = classes_.find(std::string(cname));
         if (it == classes_.end()) return nullptr;
-        for (auto& f : it->second.all_fields)
+        for (auto& f : it->second.all_fields) {
             if (f.name == fname) return f.type;
+            if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_')
+                return f.type;
+        }
         return nullptr;
     }
 
@@ -678,7 +715,7 @@ private:
 
     // ── Module-level symbol tables ───────────────────────────────
 
-    struct SemaFieldInfo  { std::string_view name; const LogosType* type; bool is_pub = false; };
+    struct SemaFieldInfo  { std::string_view name; const LogosType* type; bool is_pub = false; bool is_variadic = false; };
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params;
                             bool is_pub = false; std::string source_file;
                             std::string package; };
@@ -689,12 +726,13 @@ private:
     struct SemaVariantInfo{
         std::string_view name; int32_t value;
         std::vector<const LogosType*> payload_types;  // empty = no payload
+        bool is_variadic = false;                     // variadic pack payload (...T)
     };
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
         std::vector<TypeParam> type_params;  // for generic enums
     };
-    struct ClassFieldInfo { std::string name; const LogosType* type; bool is_pub = false; };
+    struct ClassFieldInfo { std::string name; const LogosType* type; bool is_pub = false; bool is_variadic = false; };
     struct SemaClassInfo  {
         std::string parent_name;
         std::vector<const LogosType*> parent_type_args;  // type args passed to parent (e.g. [TypeVar(T)])
@@ -720,6 +758,7 @@ private:
     };
     struct SemaAssocTypeInfo {
         std::string name;  // e.g. "Item"
+        std::vector<TraitBound> bounds;
     };
     struct SemaTraitInfo {
         std::string name;
@@ -800,6 +839,14 @@ private:
         for (uint64_t i = 0; i < tpitems.size(); ++i) {
             auto tpnode = map_of(tpitems.get(i));
             if (code_of(tpnode) == la::LIFETIME_PARAM) continue;
+            if (code_of(tpnode) == la::CONST_PARAM) {
+                TypeParam tp;
+                tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
+                tp.is_const = true;
+                tp.const_type = resolve_type(map_of(tpnode.get(la::TYPE.code)));
+                result.push_back(std::move(tp));
+                continue;
+            }
             if (code_of(tpnode) != la::TYPE_PARAM) continue;
             TypeParam tp;
             tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
@@ -836,6 +883,14 @@ private:
             auto tpnode = map_of(tpitems.get(i));
             // Skip lifetime params ('a) — deferred to borrow checker.
             if (code_of(tpnode) == la::LIFETIME_PARAM) continue;
+            if (code_of(tpnode) == la::CONST_PARAM) {
+                TypeParam tp;
+                tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
+                tp.is_const = true;
+                tp.const_type = resolve_type(map_of(tpnode.get(la::TYPE.code)));
+                result.push_back(std::move(tp));
+                continue;
+            }
             if (code_of(tpnode) != la::TYPE_PARAM) continue;
             TypeParam tp;
             tp.name = std::string(str_of(tpnode.get(la::NAME.code)));
@@ -903,8 +958,17 @@ private:
     // Push type params into current_type_params_ (call before resolving fn/struct body).
     void push_type_params(const std::vector<TypeParam>& tps) {
         for (auto& tp : tps) {
-            current_type_params_[tp.name] = make_typevar(tp.name);
-            current_type_bounds_[tp.name] = tp.bounds;
+            if (tp.is_const) {
+                LogosType c; c.kind = LogosType::Kind::ConstVar;
+                c.type_var_name = tp.name;
+                c.pointee = tp.const_type;
+                current_type_params_[tp.name] = pool_.alloc(std::move(c));
+            } else {
+                current_type_params_[tp.name] = make_typevar(tp.name);
+            }
+            if (!tp.bounds.empty()) {
+                current_type_bounds_[tp.name] = tp.bounds;
+            }
         }
     }
     void pop_type_params(const std::vector<TypeParam>& tps) {
@@ -921,9 +985,28 @@ private:
     const LogosType* subst_type_sema(const LogosType* t, const SemaSubst& s) {
         if (!t) return t;
         switch (t->kind) {
+        case LogosType::Kind::ConstVar:
         case LogosType::Kind::TypeVar: {
             auto it = s.find(t->type_var_name);
             return (it != s.end()) ? it->second : t;
+        }
+        case LogosType::Kind::Array: {
+            auto* elem = subst_type_sema(t->elem, s);
+            uint64_t size = t->arr_size;
+            std::string symbolic = t->arr_size_var;
+            if (!symbolic.empty()) {
+                auto it = s.find(symbolic);
+                if (it != s.end()) {
+                    if (it->second->const_val) {
+                        size = (uint64_t)*it->second->const_val;
+                        symbolic = "";
+                    } else if (it->second->kind == LogosType::Kind::ConstVar) {
+                        symbolic = it->second->type_var_name;
+                    }
+                }
+            }
+            if (elem == t->elem && size == t->arr_size && symbolic == t->arr_size_var) return t;
+            return make_array(elem, size, symbolic);
         }
         case LogosType::Kind::Ptr: {
             auto* inner = subst_type_sema(t->pointee, s);
@@ -935,11 +1018,6 @@ private:
             auto* inner = subst_type_sema(t->pointee, s);
             if (inner == t->pointee) return t;
             return make_ref(t->kind == LogosType::Kind::MutRef, inner, t->lifetime);
-        }
-        case LogosType::Kind::Array: {
-            auto* elem = subst_type_sema(t->elem, s);
-            if (elem == t->elem) return t;
-            return make_array(elem, t->arr_size);
         }
         case LogosType::Kind::Struct: {
             if (t->type_args.empty()) return t;
@@ -970,26 +1048,39 @@ private:
             return make_slice_type(elem);
         }
         case LogosType::Kind::AssocType: {
-            // Try resolving: if T is substituted to a concrete type, look up impl.
-            auto it = s.find(t->type_var_name);
-            if (it != s.end()) {
-                const LogosType* concrete = it->second;
-                std::string concrete_name = concrete_struct_name(concrete);
+            // Substitute the base type first.
+            auto* subbed_base = subst_type_sema(t->assoc_base, s);
+            
+            // Try resolving: if base is substituted to a concrete type, look up impl.
+            const LogosType* concrete = nullptr;
+            if (subbed_base && subbed_base->kind != LogosType::Kind::TypeVar && subbed_base->kind != LogosType::Kind::ConstVar) {
+                concrete = subbed_base;
+            } else if (subbed_base && subbed_base->kind == LogosType::Kind::TypeVar) {
+                 // Even if it's a typevar, perhaps it is a known concrete name like "i32" (though unlikely for TypeVar)
+                 // actually if it's still a typevar, we can't resolve it yet.
+            }
+            // we should lookup concrete by name if it's still not found, but it should already be subbed.
+            if (!concrete && t->assoc_base->kind == LogosType::Kind::TypeVar) {
+               // Not in subst map; maybe it's a concrete type name (like "i32")
+               concrete = const_cast<SemaChecker*>(this)->lookup_type_by_name(t->assoc_base->type_var_name);
+            }
+
+            if (concrete) {
+                std::string concrete_name = type_str(concrete);
                 // 1. Direct lookup (non-generic impls: key stored under concrete name).
                 std::string key = t->trait_name + "::" + concrete_name + "::" + t->assoc_type_name;
                 auto ait = assoc_type_impls_.find(key);
                 if (ait != assoc_type_impls_.end()) return ait->second.type;
-                // 2. Base-name fallback (generic impls: impl<T> Trait for Struct<T> stores
-                //    under base name "Struct", not concrete "Struct__i32").
-                if (!concrete_name.empty() && !concrete->struct_name.empty() &&
-                    concrete->struct_name != concrete_name) {
-                    std::string base_key = t->trait_name + "::" + concrete->struct_name
+                // 2. Base-name fallback (generic impls).
+                std::string base_name = (concrete->kind == LogosType::Kind::Struct || concrete->kind == LogosType::Kind::Class)
+                                        ? concrete->struct_name : "";
+                if (!base_name.empty() && base_name != concrete_name) {
+                    std::string base_key = t->trait_name + "::" + base_name
                                           + "::" + t->assoc_type_name;
                     auto ait2 = assoc_type_impls_.find(base_key);
                     if (ait2 != assoc_type_impls_.end()) {
                         auto& entry = ait2->second;
                         if (entry.impl_type_params.empty()) return entry.type;
-                        // Substitute impl type params → concrete struct type args.
                         SemaSubst impl_subst;
                         for (size_t i = 0; i < entry.impl_type_params.size() &&
                                            i < concrete->type_args.size(); ++i)
@@ -997,6 +1088,11 @@ private:
                         return subst_type_sema(entry.type, impl_subst);
                     }
                 }
+            }
+            if (subbed_base != t->assoc_base) {
+                LogosType nt = *t;
+                nt.assoc_base = subbed_base;
+                return pool_.alloc(std::move(nt));
             }
             return t;
         }
@@ -1105,78 +1201,122 @@ private:
             return pool_.alloc(std::move(t));
         }
 
+        if (tc == la::LIT_INT) {
+            auto sv = str_of(node.get(la::VALUE.code));
+            LogosType t; t.kind = LogosType::Kind::IntLit;
+            t.const_val = (int64_t)std::strtoll(sv.data(), nullptr, 10);
+            return pool_.alloc(std::move(t));
+        }
+
         if (tc == la::ARR_TYPE) {
             auto* elem = node.has_key(la::TYPE)
                          ? resolve_type(map_of(node.get(la::TYPE.code)))
                          : error_t();
             uint64_t n = 0;
+            std::string symbolic;
             if (node.has_key(la::SIZE)) {
-                auto sv = str_of(node.get(la::SIZE.code));
-                n = std::strtoull(sv.data(), nullptr, 10);
+                auto av = node.get(la::SIZE.code);
+                if (av.is_value()) {
+                    auto sv = str_of(av);
+                    // If sv starts with a digit, it's a literal size.
+                    if (!sv.empty() && std::isdigit(sv[0])) {
+                        n = (uint64_t)std::strtoull(sv.data(), nullptr, 10);
+                    } else {
+                        // Otherwise, it might be a symbolic constant parameter.
+                        symbolic = std::string(sv);
+                    }
+                } else if (av.is_pointer()) {
+                    // Safety fallback: if it's somehow a string object
+                    auto sv = str_of(av);
+                    if (!sv.empty() && std::isdigit(sv[0])) {
+                        n = (uint64_t)std::strtoull(sv.data(), nullptr, 10);
+                    } else {
+                        symbolic = std::string(sv);
+                    }
+                }
             }
-            return make_array(elem, n);
+            return make_array(elem, n, symbolic);
         }
 
         if (tc == la::ASSOC_TYPE_REF) {
-            // T::Item — associated type reference
-            auto tp_name = std::string(str_of(node.get(la::NAME.code)));   // "T" or "Self"
-            auto assoc   = std::string(str_of(node.get(la::FIELD.code)));  // "Item"
+            // base::Item — associated type reference
+            auto* base_type = resolve_type(map_of(node.get(la::RECEIVER.code)));
+            auto assoc      = std::string(str_of(node.get(la::FIELD.code)));  // "Item"
             std::string trait_for_assoc;
-            if (tp_name == "Self" && !current_trait_name_.empty()) {
-                // Inside a trait definition: Self::Item refers to this trait's assoc type
-                trait_for_assoc = current_trait_name_;
-            } else {
-                // Find which trait (among T's bounds) declares this assoc type
-                auto bit = current_type_bounds_.find(tp_name);
-                if (bit == current_type_bounds_.end()) {
-                    error(std::format("unknown type parameter '{}' in '{}'::'{}'", tp_name, tp_name, assoc));
-                    return error_t();
-                }
-                for (auto& bound : bit->second) {
-                    auto tit = traits_.find(bound.trait_name);
-                    if (tit != traits_.end()) {
-                        for (auto& at : tit->second.assoc_types) {
-                            if (at.name == assoc) {
-                                trait_for_assoc = bound.trait_name;
-                                break;
+
+            if (base_type->kind == LogosType::Kind::TypeVar) {
+                auto& tp_name = base_type->type_var_name;
+                if (tp_name == "Self" && !current_trait_name_.empty()) {
+                    trait_for_assoc = current_trait_name_;
+                } else {
+                    auto bit = current_type_bounds_.find(tp_name);
+                    if (bit != current_type_bounds_.end()) {
+                        for (auto& bound : bit->second) {
+                            auto tit = traits_.find(bound.trait_name);
+                            if (tit != traits_.end()) {
+                                for (auto& at : tit->second.assoc_types) {
+                                    if (at.name == assoc) { trait_for_assoc = bound.trait_name; break; }
+                                }
                             }
+                            if (!trait_for_assoc.empty()) break;
+                        }
+                    }
+                }
+            } else if (base_type->kind == LogosType::Kind::AssocType) {
+                // T::A::B — search bounds of the associated type itself if we had them,
+                // but currently we only store trait_name for the assoc type.
+                // We'll search the trait indicated by base_type's own resolution.
+                auto tit = traits_.find(base_type->trait_name);
+                if (tit != traits_.end()) {
+                    // This is slightly wrong: T::A might be bound to traits OTHER than the one it's defined in.
+                    // But our current system doesn't support "type Item: Bound;".
+                    // So we look in the trait that owns the associated type.
+                }
+                // Fallback: check all traits implemented by the concrete type if base is already concrete,
+                // or just error if we can't find it.
+            }
+
+            if (trait_for_assoc.empty()) {
+                // Check all traits for ANY type that might have this assoc type (last resort lookup)
+                std::string cname = type_str(base_type);
+                for (auto& [tname, tinfo] : traits_) {
+                    if (impls_.count(tname + "::" + cname)) {
+                        for (auto& at : tinfo.assoc_types) {
+                            if (at.name == assoc) { trait_for_assoc = tname; break; }
                         }
                     }
                     if (!trait_for_assoc.empty()) break;
                 }
             }
+
             if (trait_for_assoc.empty()) {
-                error(std::format("no associated type '{}' found for '{}'", assoc, tp_name));
+                error(std::format("no associated type '{}' found for '{}'", assoc, type_str(base_type)));
                 return error_t();
             }
             LogosType t;
             t.kind            = LogosType::Kind::AssocType;
-            t.type_var_name   = tp_name;
+            t.assoc_base      = base_type;
             t.trait_name      = trait_for_assoc;
             t.assoc_type_name = assoc;
-            return pool_.alloc(std::move(t));
+
+            auto* result = pool_.alloc(std::move(t));
+            // Propagate bounds for T::Item back into the context
+            auto tit = traits_.find(trait_for_assoc);
+            if (tit != traits_.end()) {
+                for (auto& at : tit->second.assoc_types) {
+                    if (at.name == assoc && !at.bounds.empty()) {
+                        current_type_bounds_[type_str(result)] = at.bounds;
+                        break;
+                    }
+                }
+            }
+            return result;
         }
 
         if (tc == la::TYPE_REF) {
             auto name = str_of(node.get(la::NAME.code));
-            if (name == "i32")  return prim(LogosType::Kind::I32);
-            if (name == "i64")  return prim(LogosType::Kind::I64);
-            if (name == "f64")  return prim(LogosType::Kind::F64);
-            if (name == "bool") return prim(LogosType::Kind::Bool);
-            if (name == "u8")   return prim(LogosType::Kind::U8);
-            if (name == "i8")   return prim(LogosType::Kind::I8);
-            if (name == "u32")  return prim(LogosType::Kind::U32);
-            if (name == "u64")  return prim(LogosType::Kind::U64);
-            if (name == "void") return prim(LogosType::Kind::Void);
-            if (name == "str")  return make_slice_type(u8_t());
-            // Check if it's a type variable in scope
-            auto tvit = current_type_params_.find(std::string(name));
-            if (tvit != current_type_params_.end()) return tvit->second;
-            auto ait = type_aliases_.find(std::string(name));
-            if (ait != type_aliases_.end()) return ait->second;
-            if (structs_.count(std::string(name))) return make_struct_type(name);
-            if (classes_.count(std::string(name))) return make_class_type(name);
-            if (enums_.count(std::string(name)))   return make_enum_type(name);
+            auto* t = lookup_type_by_name(name);
+            if (t) return t;
             error(std::format("unknown type '{}'", name));
             return error_t();
         }
@@ -1217,9 +1357,13 @@ private:
                 return pool_.alloc(std::move(t));
             }
             if (is_class) {
+                auto cit = classes_.find(std::string(name));
+                if (cit != classes_.end()) check_type_bounds(std::string(name), cit->second.type_params, args);
                 if (args.empty()) return make_class_type(name);
                 return make_generic_class(name, std::move(args));
             }
+            auto sit = structs_.find(std::string(name));
+            if (sit != structs_.end()) check_type_bounds(std::string(name), sit->second.type_params, args);
             if (args.empty()) return make_struct_type(name);  // degenerate: no args
             return make_generic_struct(name, std::move(args));
         }
@@ -1256,18 +1400,51 @@ private:
                 }
             }
         }
-        // Second pass: fill in fields, variants, function signatures.
+        // Intermediate pass: type aliases and consts (Phase 2). Wait, we execute this FIRST so aliases are known for fn signatures.
         for (size_t ai = 0; ai < asts.size(); ++ai) {
             holder_ = asts[ai].holder();
             file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
             auto root = asts[ai].root_object().as_tiny_map();
             cur_package_ = read_package_name(root);
-            collect_module(root);
+            collect_module(root, 2);
+        }
+        // Second pass: fill in fields, variants, function signatures (Phase 1).
+        for (size_t ai = 0; ai < asts.size(); ++ai) {
+            holder_ = asts[ai].holder();
+            file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
+            auto root = asts[ai].root_object().as_tiny_map();
+            cur_package_ = read_package_name(root);
+            collect_module(root, 1);
         }
         cur_package_ = {};
 
         // Third pass: build class inheritance (all_fields + full vtable_order).
         finalize_classes();
+
+        // Final pass: simplify all collected types (resolve concrete associated types).
+        simplify_all_types();
+    }
+
+    void simplify_all_types() {
+        for (auto& [name, info] : structs_) {
+            for (auto& f : info.fields) f.type = subst_type_sema(f.type, {});
+        }
+        for (auto& [name, info] : classes_) {
+            for (auto& f : info.all_fields) f.type = subst_type_sema(f.type, {});
+        }
+        for (auto& [name, info] : enums_) {
+            for (auto& v : info.variants) {
+                for (auto& pt : v.payload_types) pt = subst_type_sema(pt, {});
+            }
+        }
+        auto simplify_fn = [&](SemaFuncInfo& fi) {
+            for (auto& pt : fi.param_types) pt = subst_type_sema(pt, {});
+            fi.ret_type = subst_type_sema(fi.ret_type, {});
+        };
+        for (auto& [name, info] : funcs_) simplify_fn(info);
+        for (auto& [name, info] : generic_funcs_) simplify_fn(info);
+        for (auto& [name, t] : type_aliases_)   t = subst_type_sema(t, {});
+        for (auto& [name, t] : module_consts_)   t = subst_type_sema(t, {});
     }
 
     // Extract the package name from a module root node (la::NAME field).
@@ -1284,22 +1461,68 @@ private:
             error(std::format("'{}' is private to package '{}'", item_name, def_package));
     }
 
-    void collect_module(TinyMapView mod) {
+    void check_type_bounds(const std::string& target_name,
+                           const std::vector<TypeParam>& type_params,
+                           const std::vector<const LogosType*>& args) {
+        if (type_params.empty()) return;
+        bool has_variadic = type_params.back().is_variadic;
+        size_t non_variadic_count = type_params.size() - (has_variadic ? 1 : 0);
+
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (i >= type_params.size() && !has_variadic) break;
+
+            const auto& tp = (has_variadic && i >= non_variadic_count)
+                             ? type_params.back()
+                             : type_params[i];
+
+            auto* concrete = args[i];
+            if (!concrete || concrete->kind == LogosType::Kind::Error) continue;
+            if (concrete->kind == LogosType::Kind::TypeVar) continue; // defer until mono
+
+            std::string concrete_str = type_str(concrete);
+            std::string unwrapped_name;
+            if ((concrete->kind == LogosType::Kind::Ptr || concrete->kind == LogosType::Kind::Ref || concrete->kind == LogosType::Kind::MutRef) && concrete->pointee) {
+                auto* inner = concrete->pointee;
+                if (inner->kind == LogosType::Kind::Class)
+                    unwrapped_name = concrete_class_name(inner);
+                else if (inner->kind == LogosType::Kind::Struct)
+                    unwrapped_name = concrete_struct_name(inner);
+            } else if (concrete->kind == LogosType::Kind::Struct) {
+                unwrapped_name = concrete_struct_name(concrete);
+            } else if (concrete->kind == LogosType::Kind::Class) {
+                unwrapped_name = concrete_class_name(concrete);
+            }
+
+            for (auto& bound : tp.bounds) {
+                auto key1 = bound.trait_name + "::" + concrete_str;
+                auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
+                if (!impls_.count(key1) && (key2.empty() || !impls_.count(key2))) {
+                    error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
+                          target_name, concrete_str, bound.trait_name, tp.name));
+                }
+            }
+        }
+    }
+
+    void collect_module(TinyMapView mod, int phase) {
         if (!mod.has_key(la::ITEMS)) return;
         auto items = arr_of(mod.get(la::ITEMS.code));
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             int32_t c = code_of(item);
-            if      (c == la::STRUCT) {
-                if (is_specialization_struct(item)) collect_struct_spec(item);
-                else                                collect_struct(item);
-            } else if (c == la::ENUM)                       collect_enum(item);
-            else if (c == la::CLASS)                        collect_class(item);
-            else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
-            else if (c == la::TYPE_ALIAS)                 collect_type_alias(item);
-            else if (c == la::CONST_DEF)                  collect_const(item);
-            else if (c == la::TRAIT_DEF)                  collect_trait(item);
-            else if (c == la::IMPL_BLOCK)                 collect_impl(item);
+            if (phase == 1) {
+                if      (c == la::STRUCT) {
+                    if (is_specialization_struct(item)) collect_struct_spec(item);
+                    else                                collect_struct(item);
+                } else if (c == la::ENUM)                       collect_enum(item);
+                else if (c == la::CLASS)                        collect_class(item);
+                else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
+                else if (c == la::TRAIT_DEF)                  collect_trait(item);
+                else if (c == la::IMPL_BLOCK)                 collect_impl(item);
+            } else {
+                if      (c == la::TYPE_ALIAS)                 collect_type_alias(item);
+                else if (c == la::CONST_DEF)                  collect_const(item);
+            }
         }
     }
 
@@ -1326,12 +1549,29 @@ private:
                         }
                         // Read payload types for tagged union variants
                         std::vector<const LogosType*> payload;
+                        bool is_var = false;
+                        if (v.has_key(la::IS_VARIADIC)) is_var = v.get(la::IS_VARIADIC.code).as_value<int32_t>() != 0;
+
                         if (v.has_key(la::ITEMS)) {
-                            auto pitems = arr_of(v.get(la::ITEMS.code));
-                            for (uint64_t j = 0; j < pitems.size(); ++j)
-                                payload.push_back(resolve_type(map_of(pitems.get(j))));
+                            auto av = v.get(la::ITEMS.code);
+                            if (is_var) {
+                                // Single type_ref map (variadic variant: ITEMS: $4)
+                                payload.push_back(resolve_type(map_of(av)));
+                            } else {
+                                // Nested record { ITEMS: [...] } (normal variant: ITEMS: $3)
+                                // or raw array (old grammar/other paths)
+                                TinyMapView tm(av.to_offset(), holder_);
+                                ArrayView pitems;
+                                if (tm.has_key(la::ITEMS)) {
+                                    pitems = arr_of(tm.get(la::ITEMS.code));
+                                } else {
+                                    pitems = arr_of(av);
+                                }
+                                for (uint64_t j = 0; j < pitems.size(); ++j)
+                                    payload.push_back(resolve_type(map_of(pitems.get(j))));
+                            }
                         }
-                        info.variants.push_back({vname, vval, std::move(payload)});
+                        info.variants.push_back({vname, vval, std::move(payload), is_var});
                         next_val = vval + 1;
                     }
                 }
@@ -1378,6 +1618,17 @@ private:
                 if (code_of(m) == la::ASSOC_TYPE_DEF) {
                     SemaAssocTypeInfo at;
                     at.name = std::string(str_of(m.get(la::NAME.code)));
+                    if (m.has_key(la::ITEMS)) {
+                        auto bounds = arr_of(m.get(la::ITEMS.code));
+                        for (uint64_t b = 0; b < bounds.size(); ++b) {
+                            auto bnode = map_of(bounds.get(b));
+                            if (code_of(bnode) == la::TRAIT_BOUND) {
+                                TraitBound tb;
+                                tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                                at.bounds.push_back(std::move(tb));
+                            }
+                        }
+                    }
                     info.assoc_types.push_back(std::move(at));
                     continue;
                 }
@@ -1706,8 +1957,13 @@ private:
                     bool fpub = m.has_key(la::IS_PUB) &&
                                 m.get(la::IS_PUB.code).is_value() &&
                                 m.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+                    bool fvar = false;
+                    if (m.has_key(la::IS_VARIADIC)) {
+                        AnyVal av = m.get(la::IS_VARIADIC.code);
+                        fvar = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+                    }
                     // Own fields (all_fields built in finalize_classes)
-                    info.all_fields.push_back({std::string(fname), ftype, fpub});
+                    info.all_fields.push_back({std::string(fname), ftype, fpub, fvar});
 
                 } else if (mc == la::FN || mc == la::ABSTRACT_FN) {
                     collect_fn(m, cname);
@@ -1784,7 +2040,12 @@ private:
                 bool fpub = fnode.has_key(la::IS_PUB) &&
                             fnode.get(la::IS_PUB.code).is_value() &&
                             fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
-                info.fields.push_back({fname, ftype, fpub});
+                bool fvar = false;
+                if (fnode.has_key(la::IS_VARIADIC)) {
+                    AnyVal av = fnode.get(la::IS_VARIADIC.code);
+                    fvar = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+                }
+                info.fields.push_back({fname, ftype, fpub, fvar});
             }
         }
         structs_[sname] = std::move(info);
@@ -2311,8 +2572,11 @@ private:
     const LogosType* field_type_of(std::string_view sname, std::string_view fname) {
         auto sit = structs_.find(std::string(sname));
         if (sit == structs_.end()) return nullptr;
-        for (auto& f : sit->second.fields)
+        for (auto& f : sit->second.fields) {
             if (f.name == fname) return f.type;
+            if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_')
+                return f.type;
+        }
         return nullptr;
     }
 
@@ -2325,20 +2589,51 @@ private:
             std::string concrete = concrete_struct_name(struct_t);
             auto spec_it = struct_specs_sema_.find(concrete);
             if (spec_it != struct_specs_sema_.end()) {
-                for (auto& f : spec_it->second.fields)
+                for (auto& f : spec_it->second.fields) {
                     if (f.name == fname) return f.type;
+                    if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_')
+                        return f.type;
+                }
                 return nullptr;  // field not in specialization
             }
         }
         auto* raw = field_type_of(struct_t->struct_name, fname);
         if (!raw || struct_t->type_args.empty()) return raw;
-        // Build substitution from template type_params → concrete type_args.
+
+        // If it's a variadic expansion (name_N), we need to resolve it against the type arguments.
+        if (fname.find('_') != std::string::npos) {
+            auto sit = structs_.find(struct_t->struct_name);
+            if (sit != structs_.end()) {
+                for (auto& f : sit->second.fields) {
+                    if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_') {
+                        size_t idx = std::stoull(std::string(fname.substr(f.name.size() + 1)));
+                        if (f.type && f.type->kind == LogosType::Kind::TypeVar) {
+                            for (size_t i = 0, arg_idx = 0; i < sit->second.type_params.size(); ++i) {
+                                if (sit->second.type_params[i].is_variadic) {
+                                    if (sit->second.type_params[i].name == f.type->type_var_name) {
+                                        if (arg_idx + idx < struct_t->type_args.size())
+                                            return struct_t->type_args[arg_idx + idx];
+                                    }
+                                    break;
+                                } else {
+                                    arg_idx++;
+                                }
+                            }
+                        }
+                        return raw;
+                    }
+                }
+            }
+        }
+
         auto sit = structs_.find(struct_t->struct_name);
         if (sit == structs_.end()) return raw;
         SemaSubst subst;
         auto& tps = sit->second.type_params;
-        for (size_t i = 0; i < tps.size() && i < struct_t->type_args.size(); ++i)
-            subst[tps[i].name] = struct_t->type_args[i];
+        for (size_t i = 0, j = 0; i < tps.size() && j < struct_t->type_args.size(); ++i) {
+            if (tps[i].is_variadic) break;
+            subst[tps[i].name] = struct_t->type_args[j++];
+        }
         return subst_type_sema(raw, subst);
     }
 
@@ -2944,15 +3239,19 @@ private:
     // For variadic packs, each extra arg contributes one pack element type.
     bool infer_type_args(const SemaFuncInfo& fi,
                          const std::vector<lir::LExprPtr>& arg_exprs,
-                         std::vector<const LogosType*>& out_type_args) {
-        std::unordered_map<std::string, const LogosType*> bindings;
+                         std::vector<const LogosType*>& out_type_args,
+                         const SemaSubst& context = {}) {
+        std::unordered_map<std::string, const LogosType*> bindings(context.begin(), context.end());
         bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
         size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
         size_t fixed_params = fi.param_types.size() - (has_variadic ? 1 : 0);
 
         // Unify fixed params against arg types
-        for (size_t i = 0; i < fixed_params && i < arg_exprs.size(); ++i)
-            unify_types(fi.param_types[i], arg_exprs[i]->type, bindings);
+        for (size_t i = 0; i < fixed_params && i < arg_exprs.size(); ++i) {
+            auto* pt = fi.param_types[i];
+            if (!context.empty()) pt = subst_type_sema(pt, context);
+            unify_types(pt, arg_exprs[i]->type, bindings);
+        }
 
         // Build type_args: non-variadic params first
         out_type_args.clear();
@@ -3006,31 +3305,8 @@ private:
         for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i)
             subst[fi.type_params[i].name] = type_args[i];
 
-        // Validate trait bounds for non-variadic type params
-        for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i) {
-            auto& tp = fi.type_params[i];
-            auto* concrete = type_args[i];
-            std::string type_name = type_str(concrete);
-            std::string unwrapped_name;
-            if (is_ref_like(concrete->kind) && concrete->pointee) {
-                auto* inner = concrete->pointee;
-                if (inner->kind == LogosType::Kind::Class)
-                    unwrapped_name = concrete_class_name(inner);
-                else if (inner->kind == LogosType::Kind::Struct)
-                    unwrapped_name = concrete_struct_name(inner);
-            } else if (concrete->kind == LogosType::Kind::Struct) {
-                unwrapped_name = concrete_struct_name(concrete);
-            } else if (concrete->kind == LogosType::Kind::Class) {
-                unwrapped_name = concrete_class_name(concrete);
-            }
-            for (auto& bound : tp.bounds) {
-                auto key1 = bound.trait_name + "::" + type_name;
-                auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
-                if (!impls_.count(key1) && (key2.empty() || !impls_.count(key2)))
-                    error(std::format("call to '{}': {} does not implement trait '{}'",
-                          callee, type_str(concrete), bound.trait_name));
-            }
-        }
+        // Validate trait bounds for all type params (including variadic pack elements)
+        check_type_bounds(std::string(callee), fi.type_params, type_args);
 
         // Substitute return type
         const LogosType* ret = subst_type_sema(fi.ret_type, subst);
@@ -3156,11 +3432,11 @@ private:
         // Walk inheritance chain to find the method.
         std::string resolved_class;
         std::string mangled;
+        SemaSubst recv_subst;
         {
             std::string start_class = std::string(cname);
             std::string cur = start_class;
             // Build subst: start_class type params → receiver's concrete type args
-            SemaSubst recv_subst;
             {
                 const LogosType* recv_t = recv->type;
                 if (recv_t && is_ref_like(recv_t->kind) && recv_t->pointee)
@@ -3177,7 +3453,7 @@ private:
             }
             while (!cur.empty()) {
                 auto candidate = cur + "__" + std::string(method_name);
-                if (funcs_.count(candidate)) {
+                if (funcs_.count(candidate) || generic_funcs_.count(candidate)) {
                     // Only set resolved_class for inherited methods (found on a parent).
                     // When found on the class itself, leave it empty so mlir_gen uses
                     // the concrete type name (e.g., "Box__i32") from gen_recv_struct.
@@ -3207,12 +3483,16 @@ private:
                 cur = cit->second.parent_name;
             }
         }
-        auto fit = funcs_.find(mangled);
-        if (fit == funcs_.end()) {
+
+        const SemaFuncInfo* fi_ptr = nullptr;
+        if (auto fit = funcs_.find(mangled); fit != funcs_.end()) fi_ptr = &fit->second;
+        else if (auto git = generic_funcs_.find(mangled); git != generic_funcs_.end()) fi_ptr = &git->second;
+
+        if (!fi_ptr) {
             error(std::format("class '{}' has no method '{}'", cname, method_name));
             std::vector<lir::LExprPtr> dummy_args;
             return make_expr(error_t(),
-                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(dummy_args), -1, ""});
+                lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(dummy_args), -1, ""});
         }
 
         std::vector<lir::LExprPtr> arg_exprs;
@@ -3222,26 +3502,10 @@ private:
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
         }
 
-        auto& fi = fit->second;
+        auto& fi = *fi_ptr;
         check_pub_access(fi.is_pub, fi.package, mangled);
         if (fi.is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
-
-        // Build substitution map for generic class: T → i32, etc.
-        SemaSubst class_subst;
-        {
-            const LogosType* cls_t = recv->type;
-            if (is_ref_like(cls_t->kind) && cls_t->pointee)
-                cls_t = cls_t->pointee;
-            if (cls_t->kind == LogosType::Kind::Class && !cls_t->type_args.empty()) {
-                auto cit = classes_.find(std::string(cname));
-                if (cit != classes_.end()) {
-                    auto& tps = cit->second.type_params;
-                    for (size_t i = 0; i < tps.size() && i < cls_t->type_args.size(); ++i)
-                        class_subst[tps[i].name] = cls_t->type_args[i];
-                }
-            }
-        }
 
         uint64_t explicit_args = arg_exprs.size();
         size_t expected_explicit = fi.param_types.size() > 0 ? fi.param_types.size() - 1 : 0;
@@ -3253,8 +3517,8 @@ private:
                 auto* at = arg_exprs[i]->type;
                 size_t pi = i + 1;
                 if (pi < fi.param_types.size()) {
-                    auto* pt = class_subst.empty() ? fi.param_types[pi]
-                                                   : subst_type_sema(fi.param_types[pi], class_subst);
+                    auto* pt = recv_subst.empty() ? fi.param_types[pi]
+                                                  : subst_type_sema(fi.param_types[pi], recv_subst);
                     if (at->kind != LogosType::Kind::Error && pt->kind != LogosType::Kind::Error &&
                         !compat(at, pt))
                         error(std::format("method '{}' arg {}: expected {}, got {}",
@@ -3263,14 +3527,29 @@ private:
             }
         }
 
-        const LogosType* ret_t = class_subst.empty() ? fi.ret_type
-                                                      : subst_type_sema(fi.ret_type, class_subst);
+        const LogosType* ret_t = recv_subst.empty() ? fi.ret_type
+                                                      : subst_type_sema(fi.ret_type, recv_subst);
 
         int32_t vidx = vtable_index_of(cname, mangled);
+
+        // Infer method type args if generic (Bug 12)
+        std::vector<const LogosType*> m_type_args;
+        if (!fi.type_params.empty()) {
+            if (!infer_type_args(fi, arg_exprs, m_type_args, recv_subst)) {
+                error(std::format("could not infer type arguments for generic method '{}'", mangled));
+            }
+            check_type_bounds(mangled, fi.type_params, m_type_args);
+            // Re-substitute return type with BOTH struct and method bindings
+            SemaSubst combined = recv_subst;
+            for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
+                combined[fi.type_params[i].name] = m_type_args[i];
+            ret_t = subst_type_sema(fi.ret_type, combined);
+        }
 
         lir::EMethodCall mc;
         mc.receiver      = std::move(recv);
         mc.method        = std::string(method_name);
+        mc.type_args     = std::move(m_type_args);
         mc.args          = std::move(arg_exprs);
         mc.vtable_index  = vidx;
         mc.resolved_type = resolved_class;
@@ -3316,8 +3595,10 @@ private:
                         lir::EMethodCall mc;
                         mc.receiver     = std::move(recv);
                         mc.method       = std::string(method_name);
+                        mc.type_args    = {}; // No type args for trait object calls for now
                         mc.args         = std::move(arg_exprs);
                         mc.vtable_index = (int32_t)mi;  // slot in vtable
+                        mc.resolved_type = "";
                         return make_expr(ret_type, std::move(mc));
                     }
                 }
@@ -3380,8 +3661,10 @@ private:
                 lir::EMethodCall mc;
                 mc.receiver = std::move(recv);
                 mc.method   = std::string(method_name);
+                mc.type_args = {}; // Mono will infer or we will populate this later
                 mc.args     = std::move(arg_exprs);
                 mc.vtable_index = -1;
+                mc.resolved_type = "";
                 return make_expr(ret_type, std::move(mc));
             }
         }
@@ -3410,9 +3693,12 @@ private:
                 !recv->type->type_args.empty()) {
                 const std::string& base = recv->type->enum_name;
                 auto generic_key = base + "__" + std::string(method_name);
-                auto git = funcs_.find(generic_key);
-                if (git != funcs_.end() && !git->second.type_params.empty()) {
-                    if (git->second.is_unsafe && !inside_unsafe_)
+                const SemaFuncInfo* fi_ptr = nullptr;
+                if (auto git = funcs_.find(generic_key); git != funcs_.end()) fi_ptr = &git->second;
+                else if (auto git = generic_funcs_.find(generic_key); git != generic_funcs_.end()) fi_ptr = &git->second;
+
+                if (fi_ptr && !fi_ptr->type_params.empty()) {
+                    if (fi_ptr->is_unsafe && !inside_unsafe_)
                         error(std::format("call to unsafe method '{}' requires unsafe context",
                                           generic_key));
                     // Build concrete name from enum base + type args + method
@@ -3424,7 +3710,7 @@ private:
                         for (size_t i = 0; i < tps.size() && i < recv->type->type_args.size(); ++i)
                             subst[tps[i].name] = recv->type->type_args[i];
                     }
-                    const LogosType* ret = subst_type_sema(git->second.ret_type, subst);
+                    const LogosType* ret = subst_type_sema(fi_ptr->ret_type, subst);
                     // Mangle: "Option__i32" is the concrete enum name
                     std::string concrete_enum = base;
                     for (auto* ta : recv->type->type_args) {
@@ -3440,31 +3726,37 @@ private:
             }
             auto tname = type_str(recv->type);
             auto mangled_prim = tname + "__" + std::string(method_name);
-            auto pfit = funcs_.find(mangled_prim);
-            if (pfit != funcs_.end()) {
-                if (pfit->second.is_unsafe && !inside_unsafe_)
+            const SemaFuncInfo* fi_ptr = nullptr;
+            if (auto pfit = funcs_.find(mangled_prim); pfit != funcs_.end()) fi_ptr = &pfit->second;
+            else if (auto pfit = generic_funcs_.find(mangled_prim); pfit != generic_funcs_.end()) fi_ptr = &pfit->second;
+
+            if (fi_ptr) {
+                if (fi_ptr->is_unsafe && !inside_unsafe_)
                     error(std::format("call to unsafe method '{}' requires unsafe context", mangled_prim));
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(recv));
                 for (auto& a : arg_exprs) pargs.push_back(std::move(a));
-                return make_expr(pfit->second.ret_type,
+                return make_expr(fi_ptr->ret_type,
                     lir::ECall{mangled_prim, {}, std::move(pargs)});
             }
             error(std::format("method call: receiver is not a struct (got {})",
                   type_str(recv->type)));
             return make_expr(error_t(),
-                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs), -1, ""});
+                lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1, ""});
         }
 
         auto mangled = std::string(sname) + "__" + std::string(method_name);
-        auto fit = funcs_.find(mangled);
-        if (fit == funcs_.end()) {
+        const SemaFuncInfo* fi_ptr = nullptr;
+        if (auto fit = funcs_.find(mangled); fit != funcs_.end()) fi_ptr = &fit->second;
+        else if (auto fit = generic_funcs_.find(mangled); fit != generic_funcs_.end()) fi_ptr = &fit->second;
+
+        if (!fi_ptr) {
             error(std::format("method call: '{}' has no method '{}'", sname, method_name));
             return make_expr(error_t(),
-                lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs), -1, ""});
+                lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1, ""});
         }
 
-        auto& fi = fit->second;
+        auto& fi = *fi_ptr;
         check_pub_access(fi.is_pub, fi.package, mangled);
         if (fi.is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
@@ -3511,12 +3803,30 @@ private:
             }
         }
 
-        // Substitute TypeVars in return type using the same substitution.
+        // Infer method type args if generic (Bug 12)
+        std::vector<const LogosType*> m_type_args;
+        if (!fi.type_params.empty()) {
+            if (!infer_type_args(fi, arg_exprs, m_type_args, struct_subst)) {
+                error(std::format("could not infer type arguments for generic method '{}'", mangled));
+            }
+            check_type_bounds(mangled, fi.type_params, m_type_args);
+            // Merge method bindings into struct_subst for return type substitution
+            for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
+                struct_subst[fi.type_params[i].name] = m_type_args[i];
+        }
+
+        // Substitute TypeVars in return type using the combined substitution.
         const LogosType* ret = struct_subst.empty()
             ? fi.ret_type : subst_type_sema(fi.ret_type, struct_subst);
 
-        return make_expr(ret,
-            lir::EMethodCall{std::move(recv), std::string(method_name), std::move(arg_exprs), -1, ""});
+        lir::EMethodCall mc;
+        mc.receiver     = std::move(recv);
+        mc.method       = std::string(method_name);
+        mc.type_args    = std::move(m_type_args);
+        mc.args         = std::move(arg_exprs);
+        mc.vtable_index = -1;
+        mc.resolved_type = "";
+        return make_expr(ret, std::move(mc));
     }
 
     lir::LExprPtr lower_field_read(TinyMapView node) {
@@ -3571,7 +3881,7 @@ private:
             auto sit = structs_.find(std::string(sname));
             if (sit != structs_.end()) {
                 for (auto& f : sit->second.fields) {
-                    if (f.name == field_name) {
+                    if (f.name == field_name || (f.is_variadic && field_name.starts_with(f.name) && field_name.size() > f.name.size() + 1 && field_name[f.name.size()] == '_')) {
                         check_pub_access(f.is_pub, sit->second.package, field_name);
                         break;
                     }
@@ -3582,7 +3892,7 @@ private:
                 auto spec_it = struct_specs_sema_.find(std::string(sname));
                 if (spec_it != struct_specs_sema_.end()) {
                     for (auto& f : spec_it->second.fields) {
-                        if (f.name == field_name) {
+                        if (f.name == field_name || (f.is_variadic && field_name.starts_with(f.name) && field_name.size() > f.name.size() + 1 && field_name[f.name.size()] == '_')) {
                             check_pub_access(f.is_pub, spec_it->second.package, field_name);
                             break;
                         }
@@ -3691,10 +4001,30 @@ private:
                 }
             }
             std::vector<const LogosType*> args;
-            for (auto& tp : sinfo.type_params) {
-                auto it = inferred.find(tp.name);
-                args.push_back(it != inferred.end() ? it->second : error_t());
+            for (size_t i = 0, h_idx = 0; i < sinfo.type_params.size(); ++i) {
+                auto& tp = sinfo.type_params[i];
+                if (tp.is_variadic) {
+                    if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname)) {
+                        while (h_idx < hint_struct_type_->type_args.size())
+                            args.push_back(hint_struct_type_->type_args[h_idx++]);
+                    } else {
+                        auto it = inferred.find(tp.name);
+                        args.push_back(it != inferred.end() ? it->second : error_t());
+                    }
+                    break;
+                } else {
+                    auto it = inferred.find(tp.name);
+                    if (it != inferred.end()) {
+                        args.push_back(it->second);
+                        h_idx++;
+                    } else if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname) && h_idx < hint_struct_type_->type_args.size()) {
+                        args.push_back(hint_struct_type_->type_args[h_idx++]);
+                    } else {
+                        args.push_back(error_t());
+                    }
+                }
             }
+            check_type_bounds(std::string(sname), sinfo.type_params, args);
             const LogosType* lit_type = make_generic_struct(std::string(sname), args);
 
             // Check if a concrete specialization exists for these type args.
@@ -3709,7 +4039,25 @@ private:
             for (auto& [fname, fval] : fields) {
                 auto it = initialized.find(fname);
                 if (it == initialized.end()) {
-                    error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
+                    // Check if this matches a variadic field expansion
+                    bool matched_variadic = false;
+                    for (auto& f : effective->fields) {
+                        if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_') {
+                            initialized[std::string(f.name)] = true;
+                            matched_variadic = true;
+                            // Type check against the variadic field's type
+                            if (f.type && f.type->kind != LogosType::Kind::Error &&
+                                fval->type->kind != LogosType::Kind::Error &&
+                                f.type->kind != LogosType::Kind::TypeVar &&
+                                !types_compatible(fval->type, f.type)) {
+                                error(std::format("struct literal '{}' field '{}': expected {}, got {}",
+                                      sname, fname, type_str(f.type), type_str(fval->type)));
+                            }
+                            break;
+                        }
+                    }
+                    if (!matched_variadic)
+                        error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
                 } else {
                     it->second = true;
                     // Find field type in effective definition.
@@ -3741,7 +4089,24 @@ private:
         for (auto& [fname, fval] : fields) {
             auto it = initialized.find(fname);
             if (it == initialized.end()) {
-                error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
+                // Check variadic
+                bool matched_variadic = false;
+                for (auto& f : sinfo.fields) {
+                    if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_') {
+                        initialized[std::string(f.name)] = true;
+                        matched_variadic = true;
+                        auto* ft = f.type;
+                        if (ft && ft->kind != LogosType::Kind::Error &&
+                            fval->type->kind != LogosType::Kind::Error &&
+                            !types_compatible(fval->type, ft)) {
+                            error(std::format("struct literal '{}' field '{}': expected {}, got {}",
+                                  sname, fname, type_str(ft), type_str(fval->type)));
+                        }
+                        break;
+                    }
+                }
+                if (!matched_variadic)
+                    error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
             } else {
                 it->second = true;
                 auto* ft = field_type_of(std::string(sname), fname);
@@ -3939,10 +4304,10 @@ private:
         }
 
         // Type-check payload args against expected types
-        if (payload.size() != vinfo->payload_types.size()) {
+        if (!vinfo->is_variadic && payload.size() != vinfo->payload_types.size()) {
             error(std::format("{}::{} expects {} args, got {}",
                   ename, vname, vinfo->payload_types.size(), payload.size()));
-        } else {
+        } else if (!vinfo->is_variadic) {
             for (size_t i = 0; i < payload.size(); ++i) {
                 if (payload[i]->type->kind != LogosType::Kind::Error &&
                     resolved_payload_types[i] &&
@@ -3951,6 +4316,18 @@ private:
                     error(std::format("{}::{} arg {}: expected {}, got {}",
                           ename, vname, i, type_str(resolved_payload_types[i]),
                           type_str(payload[i]->type)));
+            }
+        } else {
+            // Variadic variant: match each arg against the pack's type (if it's not a generic expansion itself).
+            if (!resolved_payload_types.empty()) {
+                auto* pack_t = resolved_payload_types[0];
+                for (size_t i = 0; i < payload.size(); ++i) {
+                    if (payload[i]->type->kind != LogosType::Kind::Error &&
+                        pack_t->kind != LogosType::Kind::Error &&
+                        !types_compatible(payload[i]->type, pack_t))
+                        error(std::format("{}::{} variadic arg {}: expected {}, got {}",
+                              ename, vname, i, type_str(pack_t), type_str(payload[i]->type)));
+                }
             }
         }
 
@@ -4020,9 +4397,30 @@ private:
             for (size_t i = 0; i < resolved_payload_types.size(); ++i)
                 resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
         }
-        if (payload.size() != vinfo->payload_types.size()) {
+        if (!vinfo->is_variadic && payload.size() != vinfo->payload_types.size()) {
             error(std::format("{}::{} expects {} args, got {}",
                   ename, vname, vinfo->payload_types.size(), payload.size()));
+        } else if (!vinfo->is_variadic) {
+            for (size_t i = 0; i < payload.size(); ++i) {
+                if (payload[i]->type->kind != LogosType::Kind::Error &&
+                    resolved_payload_types[i] &&
+                    resolved_payload_types[i]->kind != LogosType::Kind::Error &&
+                    !types_compatible(payload[i]->type, resolved_payload_types[i]))
+                    error(std::format("{}::{} arg {}: expected {}, got {}",
+                          ename, vname, i, type_str(resolved_payload_types[i]),
+                          type_str(payload[i]->type)));
+            }
+        } else {
+            if (!resolved_payload_types.empty()) {
+                auto* pack_t = resolved_payload_types[0];
+                for (size_t i = 0; i < payload.size(); ++i) {
+                    if (payload[i]->type->kind != LogosType::Kind::Error &&
+                        pack_t->kind != LogosType::Kind::Error &&
+                        !types_compatible(payload[i]->type, pack_t))
+                        error(std::format("{}::{} variadic arg {}: expected {}, got {}",
+                              ename, vname, i, type_str(pack_t), type_str(payload[i]->type)));
+                }
+            }
         }
         return make_expr(result_type,
             lir::EEnumLitData{std::string(ename), std::string(vname),
@@ -5071,14 +5469,17 @@ private:
             }
 
             auto mangled_next = std::string(sname) + "__next";
-            auto fit = funcs_.find(mangled_next);
-            if (fit == funcs_.end()) {
+            const SemaFuncInfo* fi_ptr = nullptr;
+            if (auto fit = funcs_.find(mangled_next); fit != funcs_.end()) fi_ptr = &fit->second;
+            else if (auto git = generic_funcs_.find(mangled_next); git != generic_funcs_.end()) fi_ptr = &git->second;
+
+            if (!fi_ptr) {
                 error(std::format("for-in: type '{}' has no `next()` method", sname));
                 return make_stmt(node_line_, lir::SBreak{});
             }
 
             // next() must return an enum (Option-like)
-            const LogosType* next_ret = fit->second.ret_type;
+            const LogosType* next_ret = fi_ptr->ret_type;
             // Substitute type args if iterator is generic
             if (!iter_type->type_args.empty()) {
                 auto sit = structs_.find(std::string(sname));
@@ -5136,7 +5537,7 @@ private:
             auto make_next_call = [&]() -> lir::LExprPtr {
                 auto iter_ref = make_expr(iter_type, lir::EVarRef{iter_var});
                 return make_expr(next_ret,
-                    lir::EMethodCall{std::move(iter_ref), "next", {}, -1, ""});
+                    lir::EMethodCall{std::move(iter_ref), "next", {}, {}, -1, ""});
             };
 
             // Then arm: Some(x) → body
@@ -5735,7 +6136,9 @@ private:
 
         fn.type_params    = fi_ptr->type_params;
         fn.lifetime_params = read_lifetime_params(node);
-        fn.ret_type    = fi_ptr->ret_type;
+        // Robust associated type resolution: call subst_type_sema even if subst is empty
+        // to simplify concrete AssocType nodes (e.g. i32::Item -> bool).
+        fn.ret_type    = subst_type_sema(fi_ptr->ret_type, {});
         ret_type_      = fn.ret_type;
         // Reset impl-trait inference state for this function.
         if (fn.ret_type && fn.ret_type->kind == LogosType::Kind::ImplTrait)
@@ -5765,8 +6168,10 @@ private:
                             AnyVal av = p.get(la::IS_VARIADIC.code);
                             p_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
                         }
-                        define(pname, ptype);
-                        fn.params.push_back({std::string(pname), ptype, p_variadic});
+                        // Simplify parameter type too
+                        const LogosType* pt = subst_type_sema(ptype, {});
+                        define(pname, pt);
+                        fn.params.push_back({std::string(pname), pt, p_variadic});
                     }
                 }
             }
@@ -5830,7 +6235,7 @@ private:
         sd.type_params = sinfo.type_params;
         push_type_params(sd.type_params);
         for (auto& f : sinfo.fields)
-            sd.fields.push_back({std::string(f.name), f.type});
+            sd.fields.push_back({std::string(f.name), f.type, f.is_variadic});
         if (node.has_key(la::ITEMS)) {
             auto methods = arr_of(node.get(la::ITEMS.code));
             for (uint64_t m = 0; m < methods.size(); ++m) {
@@ -5851,7 +6256,7 @@ private:
         auto& einfo = enums_[ename];
         ed.type_params = einfo.type_params;
         for (auto& v : einfo.variants)
-            ed.variants.push_back({std::string(v.name), v.value, v.payload_types});
+            ed.variants.push_back({std::string(v.name), v.value, v.payload_types, v.is_variadic});
         return ed;
     }
 
@@ -6045,7 +6450,7 @@ private:
         auto tit = traits_.find(tname);
         if (tit != traits_.end()) {
             for (auto& at : tit->second.assoc_types)
-                td.assoc_types.push_back({at.name});
+                td.assoc_types.push_back({at.name, at.bounds});
             for (auto& m : tit->second.methods) {
                 lir::LTraitMethodSig sig;
                 sig.name     = m.name;
@@ -6232,7 +6637,7 @@ private:
         }
         for (size_t i = parent_field_count; i < cinfo.all_fields.size(); ++i) {
             auto& f = cinfo.all_fields[i];
-            cd.own_fields.push_back({f.name, f.type});
+            cd.own_fields.push_back({f.name, f.type, f.is_variadic});
         }
 
         // Lower concrete methods and collect static methods separately

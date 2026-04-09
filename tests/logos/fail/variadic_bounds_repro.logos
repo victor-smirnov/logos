@@ -1,0 +1,29 @@
+package variadic_bounds_repro;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+trait Printable {
+    fn print(self: *const Self);
+}
+
+impl Printable for i32 {
+    fn print(self: *const i32) {
+        unsafe { printf("%d\n", *self); }
+    }
+}
+
+// Function with variadic pack that must implement Printable
+fn print_all<T...: Printable>(args: T...) {
+}
+
+struct NotPrintable { x: i32; }
+
+unsafe fn main() -> i32 {
+    let np: NotPrintable = NotPrintable { x: 42 };
+    let i: i32 = 10;
+
+    print_all(i);
+    print_all(np);
+
+    return 0;
+}

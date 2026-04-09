@@ -193,6 +193,7 @@ inline constexpr Key  LIFETIME        {"LIFETIME",           40};   // lifetime 
 
 // Unsafe
 inline constexpr Code UNSAFE_BLOCK    {"UNSAFE_BLOCK",      132};  // unsafe { ... }
+inline constexpr Code CONST_PARAM     {"CONST_PARAM",       133};  // const N: usize parameter
 
 // Visibility
 inline constexpr Key IS_PUB    {"IS_PUB",    33};           // visibility flag (1 = pub)

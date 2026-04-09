@@ -1,0 +1,12 @@
+package collision_repro;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn collide<T...>(args_0: i32, args: T...) {
+    unsafe { printf("args_0: %d\n", args_0); }
+}
+
+unsafe fn main() -> i32 {
+    collide::<i32>(10, 20);
+    return 0;
+}

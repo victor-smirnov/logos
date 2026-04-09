@@ -1,0 +1,10 @@
+package recursion_repro;
+
+struct S<T> {
+    val: *mut S<S<T> >;
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut S<i32> = 0 as *mut S<i32>;
+    return 0;
+}

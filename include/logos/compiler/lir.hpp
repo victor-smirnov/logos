@@ -91,11 +91,12 @@ struct ECall      {
 };
 
 struct EMethodCall {
-    LExprPtr               receiver;
-    std::string            method;
-    std::vector<LExprPtr>  args;
-    int32_t                vtable_index = -1;  // -1 = direct (struct), >=0 = virtual (class)
-    std::string            resolved_type;      // class/struct where method is defined (for inherited methods)
+    LExprPtr                      receiver;
+    std::string                   method;
+    std::vector<const LogosType*> type_args;  // [NEW] for generic methods
+    std::vector<LExprPtr>         args;
+    int32_t                       vtable_index = -1;  // -1 = direct (struct), >=0 = virtual (class)
+    std::string                   resolved_type;      // class/struct where method is defined (for inherited methods)
 };
 
 struct EBinOp {
@@ -416,6 +417,7 @@ struct LFunction {
 struct LField {
     std::string      name;
     const LogosType* type;
+    bool             is_variadic = false;
 };
 
 struct LStructDef {
@@ -464,6 +466,7 @@ struct LVariant {
     std::string name;
     int32_t     disc;
     std::vector<const LogosType*> payload_types;  // empty = no payload (C-style)
+    bool        is_variadic = false;              // variadic pack payload (...T)
 };
 
 struct LEnumDef {
@@ -486,7 +489,8 @@ struct LTraitMethodSig {
 };
 
 struct LAssocTypeDef {
-    std::string name;  // e.g. "Item"
+    std::string              name;    // e.g. "Item"
+    std::vector<TraitBound>  bounds;  // e.g. [Ord, Clone]
 };
 
 struct LTraitDef {

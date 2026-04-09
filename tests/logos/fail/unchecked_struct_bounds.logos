@@ -1,0 +1,8 @@
+package test;
+
+trait MyTrait { fn foo(self: Self); }
+struct S<T> where T: MyTrait { x: T; }
+
+fn main() {
+    let x = S<i32> { x: 42 }; 
+}

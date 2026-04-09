@@ -159,6 +159,7 @@
     MUT_REF_TYPE         = 130
     LIFETIME_PARAM       = 131
     UNSAFE_BLOCK         = 132
+    CONST_PARAM          = 133
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -300,8 +301,13 @@
     variant_list <- variant_def (COMMA variant_def)* COMMA?
                  => { ITEMS: $... }
 
-    variant_def <- IDENT LPAREN type_ref (COMMA type_ref)* RPAREN
-                => { CODE: VARIANT_DEF, NAME: $1, ITEMS: $... }
+    variant_payload_list <- type_ref (COMMA type_ref)*
+                         => { ITEMS: $... }
+
+    variant_def <- IDENT LPAREN DOTDOTDOT type_ref RPAREN
+                => { CODE: VARIANT_DEF, NAME: $1, IS_VARIADIC: 1, ITEMS: $4 }
+                 / IDENT LPAREN variant_payload_list RPAREN
+                => { CODE: VARIANT_DEF, NAME: $1, ITEMS: $3 }
                  / IDENT ASSIGN INTEGER
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
                  / IDENT
@@ -335,8 +341,8 @@
                  => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
                   / KW_FN IDENT LPAREN param_list? RPAREN SEMI
                  => { CODE: FN, NAME: $2, PARAMS: $4 }
-                  / KW_TYPE IDENT SEMI
-                 => { CODE: ASSOC_TYPE_DEF, NAME: $2 }
+                  / KW_TYPE IDENT (COLON trait_bound (PLUS trait_bound)*)? SEMI
+                 => { CODE: ASSOC_TYPE_DEF, NAME: $2, ITEMS: $... }
 
     // ── Impl block ──────────────────────────────────────────────
     // impl Trait for Type { fn method(...) { ... } }
@@ -424,6 +430,8 @@
               => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
                / IDENT COLON type_ref SEMI
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
+               / IDENT DOTDOTDOT COLON type_ref SEMI
+              => { CODE: FIELD_DEF, NAME: $1, TYPE: $4, IS_VARIADIC: 1 }
 
     // method_def: passthrough — static, pub, or regular fn
     method_def <- pub_static_fn_def / static_fn_def / pub_fn_def / fn_def
@@ -483,9 +491,9 @@
 
     type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / impl_type / unit_type / closure_type / tuple_type / assoc_type_ref / simple_type
 
-    // T::Item — associated type reference (type param :: assoc type name)
-    assoc_type_ref <- IDENT COLONCOLON IDENT
-                   => { CODE: ASSOC_TYPE_REF, NAME: $1, FIELD: $3 }
+    // T::Item — associated type reference (type ref :: assoc type name)
+    assoc_type_ref <- simple_type
+                    ( COLONCOLON IDENT => { CODE: ASSOC_TYPE_REF, RECEIVER: $0, FIELD: $2 } )+
 
     // &dyn Trait — trait object (fat pointer: data + vtable)
     dyn_type <- AMP KW_DYN IDENT
@@ -527,8 +535,8 @@
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
 
     // [T; N] — fixed-size array type
-    arr_type <- LBRACKET simple_type SEMI INTEGER RBRACKET
-             => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
+    arr_type <- LBRACKET type_ref SEMI (INTEGER / IDENT) RBRACKET
+              => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
 
     // type_or_lt_arg: a type argument that may be a lifetime annotation or a type.
     // Lifetimes (e.g. 'a) in generic type args are stored as LIFETIME_PARAM nodes
@@ -830,6 +838,8 @@
     type_param <- lifetime_param
                 / ptr_type
                 / arr_type
+                / KW_CONST IDENT COLON type_ref
+               => { CODE: CONST_PARAM, NAME: $2, TYPE: $4 }
                 / IDENT DOTDOTDOT COLON trait_bound (PLUS trait_bound)*
                => { CODE: TYPE_PARAM, NAME: $1, IS_VARIADIC: true, ITEMS: $... }
                 / IDENT DOTDOTDOT

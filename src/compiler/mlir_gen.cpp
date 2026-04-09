@@ -295,8 +295,12 @@ private:
             return ptr_type();
         case LogosType::Kind::TypeVar:
             // TypeVar should have been eliminated by mono_pass.
-            // Treat as error type to produce a clear diagnostic.
             std::fprintf(stderr, "mlir_gen: unresolved TypeVar '%s' — mono_pass required\n",
+                         t->type_var_name.c_str());
+            return nullptr;
+        case LogosType::Kind::ConstVar:
+            // ConstVar (e.g. N in [T; N]) should have been resolved by mono_pass.
+            std::fprintf(stderr, "mlir_gen: unresolved ConstVar '%s' — mono_pass required\n",
                          t->type_var_name.c_str());
             return nullptr;
         case LogosType::Kind::AssocType:

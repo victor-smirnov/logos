@@ -70,7 +70,7 @@ public:
         // Move non-generic structs to output.
         for (auto& sd : in_.structs) {
             if (sd.type_params.empty())
-                out_.structs.push_back(clone_struct_def(sd, {}, sd.name));
+                out_.structs.push_back(clone_struct_def(sd, {}, {}, sd.name));
         }
 
         // Index generic class templates; pass-through concrete classes immediately.
@@ -80,7 +80,7 @@ public:
         }
         for (auto& cd : in_.classes) {
             if (cd.type_params.empty())
-                out_.classes.push_back(clone_class_def(cd, {}, cd.name));
+                out_.classes.push_back(clone_class_def(cd, {}, {}, cd.name));
         }
 
         // Index generic enum templates; pass-through plain enums.
@@ -119,10 +119,13 @@ public:
         while (!worklist_.empty()) {
             auto item = std::move(worklist_.back());
             worklist_.pop_back();
+            // Set current depth for enqueue_if_needed during scan_fn
+            depth_ = item.depth;
             auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
             scan_fn(inst);
             out_.functions.push_back(std::move(inst));
         }
+        depth_ = 0;
 
         // Instantiate all generic structs referenced by the output.
         instantiate_struct_templates();
@@ -156,8 +159,8 @@ private:
     // name → list of struct specialisations (pointers into in_.struct_specializations)
     std::unordered_map<std::string, std::vector<const lir::LStructDef*>> struct_specs_;
 
-    // concrete_name → LogosType* of needed generic struct instantiations
-    std::unordered_map<std::string, const LogosType*> needed_struct_insts_;
+    // concrete_name → {LogosType*, depth} of needed generic struct instantiations
+    std::unordered_map<std::string, std::pair<const LogosType*, int>> needed_struct_insts_;
 
     // Already-instantiated struct names (prevent duplicates)
     std::unordered_set<std::string> struct_done_;
@@ -165,15 +168,15 @@ private:
     // name → pointer into in_.enums (generic enum templates)
     std::unordered_map<std::string, const lir::LEnumDef*> enum_templates_;
 
-    // concrete_name → type_args for needed generic enum instantiations
-    std::unordered_map<std::string, std::vector<const LogosType*>> needed_enum_insts_;
+    // concrete_name → {type_args, depth} for needed generic enum instantiations
+    std::unordered_map<std::string, std::pair<std::vector<const LogosType*>, int>> needed_enum_insts_;
     std::unordered_set<std::string> enum_done_;
 
     // name → pointer into in_.classes (generic class templates)
     std::unordered_map<std::string, const lir::LClassDef*> class_templates_;
 
-    // concrete_name → LogosType* of needed generic class instantiations
-    std::unordered_map<std::string, const LogosType*> needed_class_insts_;
+    // concrete_name → {LogosType*, depth} of needed generic class instantiations
+    std::unordered_map<std::string, std::pair<const LogosType*, int>> needed_class_insts_;
 
     // Already-instantiated class names (prevent duplicates)
     std::unordered_set<std::string> class_done_;
@@ -189,6 +192,7 @@ private:
         const lir::LFunction*      tmpl;
         SubstMap                   subst;
         PackMap                    packs;  // variadic type packs
+        int                        depth;
     };
     std::vector<WorkItem> worklist_;
 
@@ -196,23 +200,40 @@ private:
 
     const LogosType* subst_type(const LogosType* t, const SubstMap& s) noexcept {
         if (!t) return t;
-        switch (t->kind) {
-        case LogosType::Kind::TypeVar: {
+        if (t->kind == LogosType::Kind::TypeVar || t->kind == LogosType::Kind::ConstVar) {
             auto it = s.find(t->type_var_name);
-            return (it != s.end()) ? it->second : t;
+            if (it != s.end()) return it->second;
+            return t;
         }
+        if (t->kind == LogosType::Kind::Array) {
+            auto* elem = subst_type(t->elem, s);
+            uint64_t size = t->arr_size;
+            std::string symbolic = t->arr_size_var;
+            if (!symbolic.empty()) {
+                auto it = s.find(symbolic);
+                if (it != s.end()) {
+                    if (it->second->const_val) {
+                        size = (uint64_t)*it->second->const_val;
+                        symbolic = ""; // Resolved to literal
+                    } else if (it->second->kind == LogosType::Kind::ConstVar) {
+                        symbolic = it->second->type_var_name; // Still symbolic
+                    }
+                }
+            }
+            if (elem == t->elem && size == t->arr_size && symbolic == t->arr_size_var) return t;
+            LogosType nt = *t;
+            nt.elem = elem;
+            nt.arr_size = size;
+            nt.arr_size_var = symbolic;
+            return out_.type_pool.alloc(nt);
+        }
+        switch (t->kind) {
         case LogosType::Kind::Ptr:
         case LogosType::Kind::Ref:
         case LogosType::Kind::MutRef: {
             auto* inner = subst_type(t->pointee, s);
             if (inner == t->pointee) return t;
             LogosType nt = *t; nt.pointee = inner;
-            return out_.type_pool.alloc(nt);
-        }
-        case LogosType::Kind::Array: {
-            auto* elem = subst_type(t->elem, s);
-            if (elem == t->elem) return t;
-            LogosType nt = *t; nt.elem = elem;
             return out_.type_pool.alloc(nt);
         }
         case LogosType::Kind::Struct: {
@@ -291,15 +312,24 @@ private:
             return out_.type_pool.alloc(std::move(nt));
         }
         case LogosType::Kind::AssocType: {
-            // Resolve: T → concrete type, then look up TraitName::ConcreteType::AssocName
-            auto it = s.find(t->type_var_name);
-            if (it != s.end()) {
-                std::string concrete_name = concrete_struct_name(it->second);
-                std::string key = t->trait_name + "::" + concrete_name + "::" + t->assoc_type_name;
+            // Resolve: recursively substitute the base, then look up TraitName::ConcreteType::AssocName
+            auto* subbed_base = subst_type(t->assoc_base, s);
+            if (subbed_base->kind == LogosType::Kind::Struct || subbed_base->kind == LogosType::Kind::Class || subbed_base->kind == LogosType::Kind::Enum) {
+                std::string concrete_base;
+                if      (subbed_base->kind == LogosType::Kind::Class)  concrete_base = concrete_class_name(subbed_base);
+                else if (subbed_base->kind == LogosType::Kind::Struct) concrete_base = concrete_struct_name(subbed_base);
+                else                                                   concrete_base = subbed_base->enum_name;
+
+                std::string key = t->trait_name + "::" + concrete_base + "::" + t->assoc_type_name;
                 auto ait = assoc_impls_.find(key);
                 if (ait != assoc_impls_.end()) return ait->second;
             }
-            return t;  // unresolved — keep as-is (will surface as error in mlir_gen)
+            if (subbed_base != t->assoc_base) {
+                LogosType nt = *t;
+                nt.assoc_base = subbed_base;
+                return out_.type_pool.alloc(std::move(nt));
+            }
+            return t;
         }
         default:
             return t;
@@ -313,8 +343,16 @@ private:
         for (auto* a : t->type_args)
             if (a->kind == LogosType::Kind::TypeVar) return;
         auto cname = concrete_struct_name(t);
-        if (!struct_done_.count(cname))
-            needed_struct_insts_[cname] = t;
+        if (!struct_done_.count(cname)) {
+            // Check depth limit
+            if (depth_ >= max_depth_) {
+                in_.diags.diags.push_back({Diag::Level::Error, "mono",
+                    std::format("struct instantiation depth limit ({}) exceeded for '{}'",
+                                max_depth_, cname), {}, 0});
+                return;
+            }
+            needed_struct_insts_[cname] = {t, depth_ + 1};
+        }
     }
 
     void record_needed_class(const LogosType* t) {
@@ -322,8 +360,15 @@ private:
         for (auto* a : t->type_args)
             if (a->kind == LogosType::Kind::TypeVar) return;
         auto cname = concrete_class_name(t);
-        if (!class_done_.count(cname))
-            needed_class_insts_[cname] = t;
+        if (!class_done_.count(cname)) {
+            if (depth_ >= max_depth_) {
+                in_.diags.diags.push_back({Diag::Level::Error, "mono",
+                    std::format("class instantiation depth limit ({}) exceeded for '{}'",
+                                max_depth_, cname), {}, 0});
+                return;
+            }
+            needed_class_insts_[cname] = {t, depth_ + 1};
+        }
     }
 
     void record_needed_enum(const LogosType* t) {
@@ -333,8 +378,15 @@ private:
         // Build concrete enum name: Option__i32
         std::string cname = t->enum_name;
         for (auto* a : t->type_args) { cname += "__"; cname += mangle_type(a); }
-        if (!enum_done_.count(cname))
-            needed_enum_insts_[cname] = t->type_args;
+        if (!enum_done_.count(cname)) {
+            if (depth_ >= max_depth_) {
+                in_.diags.diags.push_back({Diag::Level::Error, "mono",
+                    std::format("enum instantiation depth limit ({}) exceeded for '{}'",
+                                max_depth_, cname), {}, 0});
+                return;
+            }
+            needed_enum_insts_[cname] = {t->type_args, depth_ + 1};
+        }
     }
 
     // ── Mangling ──────────────────────────────────────────────────
@@ -418,7 +470,7 @@ private:
                             for (size_t pi = 0; pi < pit->second.size(); ++pi) {
                                 auto ref = std::make_unique<lir::LExpr>();
                                 ref->type = pit->second[pi];
-                                ref->kind = lir::EVarRef{pe->var_name + "_" + std::to_string(pi)};
+                                ref->kind = lir::EVarRef{"__pack_arg_" + pe->var_name + "_" + std::to_string(pi)};
                                 nc.args.push_back(std::move(ref));
                             }
                             // If callee is a template, add pack types as type_args
@@ -470,67 +522,86 @@ private:
                         lir::ECall nc;
                         nc.callee = cname + "__" + k.method;
                         nc.args.push_back(std::move(new_recv));
-                        for (auto& a : k.args)
-                            nc.args.push_back(subst_expr(*a, s));
+                        for (auto& a : k.args) nc.args.push_back(subst_expr(*a, s));
                         result->kind = std::move(nc);
                     } else {
-                        // Fallback: keep as method call
                         lir::EMethodCall nm;
                         nm.receiver = std::move(new_recv);
-                        nm.method   = k.method;
+                        nm.method = k.method;
                         nm.vtable_index = k.vtable_index;
                         nm.resolved_type = k.resolved_type;
-                        for (auto& a : k.args)
-                            nm.args.push_back(subst_expr(*a, s));
+                        for (auto& a : k.args) nm.args.push_back(subst_expr(*a, s));
                         result->kind = std::move(nm);
                     }
                 } else {
-                lir::EMethodCall nm;
-                nm.receiver      = std::move(new_recv);
-                nm.method        = k.method;
-                nm.vtable_index  = k.vtable_index;
-                // Translate resolved_type (generic class template name) to
-                // concrete name using the current substitution.
-                // e.g. resolved_type="Container", s={T:i32} → "Container__i32"
-                if (!k.resolved_type.empty() && !s.empty()) {
-                    auto tit = class_templates_.find(k.resolved_type);
-                    if (tit != class_templates_.end()) {
-                        const lir::LClassDef* rt_tmpl = tit->second;
-                        // Build concrete type args by substituting the template's
-                        // type params according to the current subst map.
-                        // We use the receiver type to get the type args for this class.
-                        // The receiver type after subst is nm.receiver->type.
-                        // But we also need to know which type args rt_tmpl was instantiated with.
-                        // Look at rt_tmpl's type_params and find matching entries in s.
-                        std::vector<const LogosType*> concrete_args;
-                        bool all_concrete = true;
-                        for (auto& tp : rt_tmpl->type_params) {
-                            auto sit2 = s.find(tp.name);
-                            if (sit2 != s.end())
-                                concrete_args.push_back(sit2->second);
-                            else
-                                all_concrete = false;
+                    lir::EMethodCall nm;
+                    nm.receiver = std::move(new_recv);
+                    nm.method = k.method;
+                    for (auto* ta : k.type_args) nm.type_args.push_back(subst_type(ta, s));
+                    nm.vtable_index = k.vtable_index;
+
+                    // SPECIALIZATION LOOKUP (Bug 12)
+                    bool rewritten = false;
+                    if (nm.vtable_index == -1 && nm.receiver->type) {
+                        const LogosType* rt = nm.receiver->type;
+                        while (rt && (rt->kind == LogosType::Kind::Ptr ||
+                                      rt->kind == LogosType::Kind::Ref ||
+                                      rt->kind == LogosType::Kind::MutRef) && rt->pointee) {
+                            rt = rt->pointee;
                         }
-                        if (all_concrete && !concrete_args.empty()) {
-                            LogosType parent_t;
-                            parent_t.kind = LogosType::Kind::Class;
-                            parent_t.struct_name = k.resolved_type;
-                            parent_t.type_args = concrete_args;
-                            nm.resolved_type = concrete_class_name(&parent_t);
-                        } else if (rt_tmpl->type_params.empty()) {
-                            nm.resolved_type = k.resolved_type;  // non-generic parent
-                        } else {
-                            nm.resolved_type = k.resolved_type;  // fallback
+
+                        if (rt && (rt->kind == LogosType::Kind::Struct || rt->kind == LogosType::Kind::Class)) {
+                            std::vector<const LogosType*> combined_args = rt->type_args;
+                            for (auto* mta : nm.type_args) combined_args.push_back(mta);
+
+                            std::string base_struct = rt->struct_name;
+                            std::string base_name = base_struct + "__" + nm.method;
+
+                            if (auto* spec = find_best_spec(base_name, combined_args)) {
+                                // Specialized method found! Rewrite to ECall.
+                                lir::ECall nc;
+                                nc.callee = spec->name;
+                                nc.args.push_back(std::move(nm.receiver));
+                                for (auto& arg : k.args)
+                                    nc.args.push_back(subst_expr(*arg, s));
+                                result->kind = std::move(nc);
+                                rewritten = true;
+                            }
                         }
-                    } else {
-                        nm.resolved_type = k.resolved_type;
                     }
-                } else {
-                    nm.resolved_type = k.resolved_type;
-                }
-                for (auto& a : k.args)
-                    nm.args.push_back(subst_expr(*a, s));
-                result->kind = std::move(nm);
+
+                    if (!rewritten) {
+                        // Translate resolved_type (generic class template name) to
+                        // concrete name using the current substitution.
+                        if (!k.resolved_type.empty() && !s.empty()) {
+                            auto tit = class_templates_.find(k.resolved_type);
+                            if (tit != class_templates_.end()) {
+                                const lir::LClassDef* rt_tmpl = tit->second;
+                                std::vector<const LogosType*> concrete_args;
+                                bool all_concrete = true;
+                                for (auto& tp : rt_tmpl->type_params) {
+                                    auto sit2 = s.find(tp.name);
+                                    if (sit2 != s.end()) concrete_args.push_back(sit2->second);
+                                    else all_concrete = false;
+                                }
+                                if (all_concrete && !concrete_args.empty()) {
+                                    LogosType parent_t;
+                                    parent_t.kind = LogosType::Kind::Class;
+                                    parent_t.struct_name = k.resolved_type;
+                                    parent_t.type_args = concrete_args;
+                                    nm.resolved_type = concrete_class_name(&parent_t);
+                                } else {
+                                    nm.resolved_type = k.resolved_type;
+                                }
+                            } else {
+                                nm.resolved_type = k.resolved_type;
+                            }
+                        } else {
+                            nm.resolved_type = k.resolved_type;
+                        }
+                        for (auto& a : k.args) nm.args.push_back(subst_expr(*a, s));
+                        result->kind = std::move(nm);
+                    }
                 } // end else (non-trait method call)
 
             } else if constexpr (std::is_same_v<K, lir::EBinOp>) {
@@ -892,7 +963,7 @@ private:
                 auto pit = packs.find(pack_name);
                 if (pit != packs.end()) {
                     for (size_t i = 0; i < pit->second.size(); ++i) {
-                        auto expanded_name = p.name + "_" + std::to_string(i);
+                        auto expanded_name = "__pack_arg_" + p.name + "_" + std::to_string(i);
                         nf.params.push_back({expanded_name, pit->second[i]});
                     }
                 }
@@ -1088,6 +1159,7 @@ private:
 
         const lir::LFunction* best       = nullptr;
         int                   best_score = -1;
+        bool                  ambiguous  = false;
 
         for (auto* spec : sit->second) {
             if (spec->spec_patterns.size() != type_args.size()) continue;
@@ -1100,7 +1172,18 @@ private:
             }
             if (!ok) continue;
             int score = specificity_score(spec->spec_patterns);
-            if (score > best_score) { best_score = score; best = spec; }
+            if (score > best_score) {
+                best_score = score;
+                best = spec;
+                ambiguous = false;
+            } else if (score == best_score && best_score != -1) {
+                ambiguous = true;
+            }
+        }
+        if (ambiguous) {
+            in_.diags.diags.push_back({Diag::Level::Error, "mono",
+                std::format("ambiguous specializations for function '{}'", base_name),
+                "", 0});
         }
         return best;
     }
@@ -1134,7 +1217,7 @@ private:
             SubstMap subst;
             for (size_t i = 0; i < spec->spec_patterns.size(); ++i)
                 match_type(type_args[i], spec->spec_patterns[i], subst);
-            worklist_.push_back({mangled_callee, spec, std::move(subst), {}});
+            worklist_.push_back({mangled_callee, spec, std::move(subst), {}, depth_ + 1});
             return;
         }
 
@@ -1156,7 +1239,7 @@ private:
                 pack_types.push_back(type_args[i]);
             packs[vtp.name] = std::move(pack_types);
         }
-        worklist_.push_back({mangled_callee, tmpl, std::move(subst), std::move(packs)});
+        worklist_.push_back({mangled_callee, tmpl, std::move(subst), std::move(packs), depth_ + 1});
     }
 
     // ── Instantiate a function template with a concrete SubstMap ─
@@ -1178,14 +1261,28 @@ private:
     // Method names are rewritten from "Base__method" to "new_name__method".
     lir::LStructDef clone_struct_def(const lir::LStructDef& tmpl,
                                       const SubstMap& s,
+                                      const PackMap& packs,
                                       const std::string& new_name) {
         lir::LStructDef nd;
         nd.name = new_name;
         // type_params cleared: result is monomorphic
-        for (auto& f : tmpl.fields)
-            nd.fields.push_back({f.name, subst_type(f.type, s)});
+        for (auto& f : tmpl.fields) {
+            if (f.is_variadic) {
+                std::string pack_name;
+                if (f.type && f.type->kind == LogosType::Kind::TypeVar)
+                    pack_name = f.type->type_var_name;
+                auto pit = packs.find(pack_name);
+                if (pit != packs.end()) {
+                    for (size_t i = 0; i < pit->second.size(); ++i) {
+                        nd.fields.push_back({f.name + "_" + std::to_string(i), pit->second[i]});
+                    }
+                }
+            } else {
+                nd.fields.push_back({f.name, subst_type(f.type, s)});
+            }
+        }
         for (auto& m : tmpl.methods) {
-            auto nm = clone_fn(m, s);
+            auto nm = clone_fn(m, s, packs);
             // Rename method: "OldBase__methodName" → "new_name__methodName"
             // Method names are stored as "StructName__methodName".
             auto sep = m.name.find("__");
@@ -1206,6 +1303,7 @@ private:
 
         const lir::LStructDef* best       = nullptr;
         int                    best_score = -1;
+        bool                   ambiguous  = false;
 
         for (auto* spec : sit->second) {
             if (spec->spec_patterns.size() != type_args.size()) continue;
@@ -1218,7 +1316,18 @@ private:
             }
             if (!ok) continue;
             int score = specificity_score(spec->spec_patterns);
-            if (score > best_score) { best_score = score; best = spec; }
+            if (score > best_score) {
+                best_score = score;
+                best = spec;
+                ambiguous = false;
+            } else if (score == best_score && best_score != -1) {
+                ambiguous = true;
+            }
+        }
+        if (ambiguous) {
+            in_.diags.diags.push_back({Diag::Level::Error, "mono",
+                std::format("ambiguous specializations for struct '{}'", base_name),
+                "", 0});
         }
         return best;
     }
@@ -1359,14 +1468,18 @@ private:
             auto current = std::move(needed_struct_insts_);
             needed_struct_insts_.clear();
 
-            for (auto& [cname, struct_t] : current) {
+            for (auto& [cname, info] : current) {
                 if (struct_done_.count(cname)) continue;
                 struct_done_.insert(cname);
+
+                const LogosType* struct_t = info.first;
+                depth_ = info.second;
 
                 const std::string& base = struct_t->struct_name;
                 SubstMap subst;
 
                 const lir::LStructDef* tmpl = nullptr;
+                PackMap packs;
                 if (auto* spec = find_best_struct_spec(base, struct_t->type_args)) {
                     for (size_t i = 0; i < spec->spec_patterns.size() &&
                                        i < struct_t->type_args.size(); ++i)
@@ -1376,16 +1489,23 @@ private:
                     auto it = struct_templates_.find(base);
                     if (it == struct_templates_.end()) continue;
                     tmpl = it->second;
-                    for (size_t i = 0; i < tmpl->type_params.size() &&
-                                       i < struct_t->type_args.size(); ++i)
-                        subst[tmpl->type_params[i].name] = struct_t->type_args[i];
+                    for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
+                        if (tmpl->type_params[i].is_variadic) {
+                            std::vector<const LogosType*> pack;
+                            while (j < struct_t->type_args.size()) pack.push_back(struct_t->type_args[j++]);
+                            packs[tmpl->type_params[i].name] = std::move(pack);
+                        } else if (j < struct_t->type_args.size()) {
+                            subst[tmpl->type_params[i].name] = struct_t->type_args[j++];
+                        }
+                    }
                 }
 
-                auto inst = clone_struct_def(*tmpl, subst, cname);
+                auto inst = clone_struct_def(*tmpl, subst, packs, cname);
                 // Collect field types of new struct for further instantiation.
                 for (auto& f : inst.fields) collect_type_for_structs(f.type);
                 out_.structs.push_back(std::move(inst));
             }
+            depth_ = 0;
         }
     }
 
@@ -1395,6 +1515,7 @@ private:
     // Mirrors clone_struct_def but preserves vtable_order, parent_name, etc.
     lir::LClassDef clone_class_def(const lir::LClassDef& tmpl,
                                     const SubstMap& s,
+                                    const PackMap& packs,
                                     const std::string& new_name) {
         lir::LClassDef nd;
         nd.name         = new_name;
@@ -1424,10 +1545,23 @@ private:
                 nd.vtable_order.push_back(entry);
         }
         // type_params cleared: result is monomorphic.
-        for (auto& f : tmpl.own_fields)
-            nd.own_fields.push_back({f.name, subst_type(f.type, s)});
+        for (auto& f : tmpl.own_fields) {
+            if (f.is_variadic) {
+                std::string pack_name;
+                if (f.type && f.type->kind == LogosType::Kind::TypeVar)
+                    pack_name = f.type->type_var_name;
+                auto pit = packs.find(pack_name);
+                if (pit != packs.end()) {
+                    for (size_t i = 0; i < pit->second.size(); ++i) {
+                        nd.own_fields.push_back({f.name + "_" + std::to_string(i), pit->second[i]});
+                    }
+                }
+            } else {
+                nd.own_fields.push_back({f.name, subst_type(f.type, s)});
+            }
+        }
         for (auto& m : tmpl.methods) {
-            auto nm = clone_fn(m, s);
+            auto nm = clone_fn(m, s, packs);
             auto sep = m.name.find("__");
             if (sep != std::string::npos)
                 nm.name = new_name + m.name.substr(sep);
@@ -1453,9 +1587,11 @@ private:
 
     // Instantiate a single generic class by concrete name + type.
     // Ensures the parent class is instantiated first (DFS order = parent before child).
-    void instantiate_one_class(const std::string& cname, const LogosType* class_t) {
+    void instantiate_one_class(const std::string& cname, const LogosType* class_t, int depth) {
         if (class_done_.count(cname)) return;
         class_done_.insert(cname);
+
+        depth_ = depth;
 
         const std::string& base = class_t->struct_name;
         auto it = class_templates_.find(base);
@@ -1463,9 +1599,23 @@ private:
         const lir::LClassDef* tmpl = it->second;
 
         SubstMap subst;
-        for (size_t i = 0; i < tmpl->type_params.size() &&
-                           i < class_t->type_args.size(); ++i)
-            subst[tmpl->type_params[i].name] = class_t->type_args[i];
+        PackMap packs;
+        for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
+            if (tmpl->type_params[i].is_variadic) {
+                std::vector<const LogosType*> pack;
+                while (j < class_t->type_args.size()) pack.push_back(class_t->type_args[j++]);
+                packs[tmpl->type_params[i].name] = std::move(pack);
+            } else if (j < class_t->type_args.size()) {
+                subst[tmpl->type_params[i].name] = class_t->type_args[j++];
+            }
+        }
+
+        size_t class_idx = out_.classes.size();
+        {
+            lir::LClassDef seed;
+            seed.name = cname;
+            out_.classes.push_back(std::move(seed));
+        }
 
         // Compute concrete parent name and instantiate parent FIRST (DFS).
         if (!tmpl->parent_name.empty() && !tmpl->parent_type_args.empty()) {
@@ -1479,27 +1629,65 @@ private:
             std::string parent_cname = concrete_class_name(&parent_cls);
             if (!class_done_.count(parent_cname)) {
                 const LogosType* parent_t = out_.type_pool.alloc(parent_cls);
-                instantiate_one_class(parent_cname, parent_t);
+                // Inherit depth for parent instantiation (DFS)
+                instantiate_one_class(parent_cname, parent_t, depth);
             }
         }
 
-        auto inst = clone_class_def(*tmpl, subst, cname);
+        auto inst = clone_class_def(*tmpl, subst, packs, cname);
         for (auto& f : inst.own_fields) collect_type_for_classes(f.type);
-        out_.classes.push_back(std::move(inst));
+        
+        // Fill the seed
+        out_.classes[class_idx] = std::move(inst);
+    }
+
+    lir::LEnumDef clone_enum_def(const lir::LEnumDef& tmpl,
+                                  const SubstMap& s,
+                                  const PackMap& packs,
+                                  const std::string& new_name) {
+        lir::LEnumDef nd;
+        nd.name = new_name;
+        for (auto& v : tmpl.variants) {
+            lir::LVariant nv;
+            nv.name = v.name;
+            nv.disc = v.disc;
+            // Variadic expansion for variants like Multi(...T)
+            if (v.is_variadic && !v.payload_types.empty()) {
+                auto* pt = v.payload_types[0];
+                if (pt->kind == LogosType::Kind::TypeVar) {
+                    auto pit = packs.find(pt->type_var_name);
+                    if (pit != packs.end()) {
+                        for (auto* pt_in_pack : pit->second)
+                            nv.payload_types.push_back(subst_type(pt_in_pack, s));
+                    } else {
+                        nv.payload_types.push_back(subst_type(pt, s));
+                    }
+                } else {
+                    nv.payload_types.push_back(subst_type(pt, s));
+                }
+            } else {
+                for (auto* pt : v.payload_types)
+                    nv.payload_types.push_back(subst_type(pt, s));
+            }
+            nd.variants.push_back(std::move(nv));
+        }
+        return nd;
     }
 
     void instantiate_enum_templates() {
         // Instantiate generic enums that were recorded during function cloning.
         // Simple approach: iterate until no more needed (fixed-point).
         while (true) {
-            std::vector<std::pair<std::string, std::vector<const LogosType*>>> todo;
-            for (auto& [cname, args] : needed_enum_insts_) {
+            std::vector<std::pair<std::string, std::pair<std::vector<const LogosType*>, int>>> todo;
+            for (auto& [cname, info] : needed_enum_insts_) {
                 if (enum_done_.count(cname)) continue;
-                todo.push_back({cname, args});
+                todo.push_back({cname, info});
             }
             if (todo.empty()) break;
-            for (auto& [cname, args] : todo) {
+            for (auto& [cname, info] : todo) {
                 enum_done_.insert(cname);
+                const auto& args = info.first;
+                depth_ = info.second;
                 // Find the template
                 // Extract base name from cname (before first __)
                 std::string base = cname;
@@ -1508,21 +1696,21 @@ private:
                 auto tit = enum_templates_.find(base);
                 if (tit == enum_templates_.end()) continue;
                 auto* tmpl = tit->second;
-                // Build substitution map
+                // Build substitution map and packs
                 SubstMap subst;
-                for (size_t i = 0; i < tmpl->type_params.size() && i < args.size(); ++i)
-                    subst[tmpl->type_params[i].name] = args[i];
-                // Instantiate: substitute payload types and methods
-                lir::LEnumDef inst;
-                inst.name = cname;
-                for (auto& v : tmpl->variants) {
-                    lir::LVariant nv;
-                    nv.name = v.name;
-                    nv.disc = v.disc;
-                    for (auto* pt : v.payload_types)
-                        nv.payload_types.push_back(subst_type(pt, subst));
-                    inst.variants.push_back(std::move(nv));
+                PackMap packs;
+                for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
+                    if (tmpl->type_params[i].is_variadic) {
+                        std::vector<const LogosType*> pack;
+                        while (j < args.size()) pack.push_back(args[j++]);
+                        packs[tmpl->type_params[i].name] = std::move(pack);
+                    } else if (j < args.size()) {
+                        subst[tmpl->type_params[i].name] = args[j++];
+                    }
                 }
+                // Instantiate: substitute payload types and methods
+                auto inst = clone_enum_def(*tmpl, subst, packs, cname);
+
                 // Instantiate any impl<T> methods stored as generic functions in prog.functions.
                 // Convention: function name starts with "Base__" and has matching type params.
                 std::string prefix = base + "__";
@@ -1535,10 +1723,18 @@ private:
                     std::string inst_name = cname + fn.name.substr(base.size());
                     if (done_.count(inst_name)) continue;
                     SubstMap fn_subst = subst;
+                    PackMap fn_packs = packs;
                     // Override type params with the enum's type param names if different
-                    for (size_t i = 0; i < fn.type_params.size(); ++i)
-                        fn_subst[fn.type_params[i].name] = args[i];
-                    auto nm = clone_fn(fn, fn_subst);
+                    for (size_t i = 0, j = 0; i < fn.type_params.size(); ++i) {
+                        if (fn.type_params[i].is_variadic) {
+                             std::vector<const LogosType*> pack;
+                             while (j < args.size()) pack.push_back(args[j++]);
+                             fn_packs[fn.type_params[i].name] = std::move(pack);
+                        } else if (j < args.size()) {
+                            fn_subst[fn.type_params[i].name] = args[j++];
+                        }
+                    }
+                    auto nm = clone_fn(fn, fn_subst, fn_packs);
                     nm.name = inst_name;
                     done_.insert(inst_name);
                     out_.functions.push_back(std::move(nm));
@@ -1561,8 +1757,10 @@ private:
             auto current = std::move(needed_class_insts_);
             needed_class_insts_.clear();
 
-            for (auto& [cname, class_t] : current)
-                instantiate_one_class(cname, class_t);
+            for (auto& [cname, info] : current)
+                instantiate_one_class(cname, info.first, info.second);
+
+            depth_ = 0;
         }
     }
 };

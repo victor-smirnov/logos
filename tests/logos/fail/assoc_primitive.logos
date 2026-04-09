@@ -1,0 +1,21 @@
+package assoc_primitive_repro;
+
+trait Typed {
+    type Item;
+}
+
+impl Typed for i32 {
+    type Item = bool;
+}
+
+fn check_i32(val: i32::Item) -> bool {
+    return val;
+}
+
+unsafe fn main() -> i32 {
+    let b: bool = true;
+    if check_i32(b) {
+        return 0;
+    }
+    return 1;
+}

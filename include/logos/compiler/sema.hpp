@@ -12,8 +12,10 @@
 #include <deque>
 #include <cstdint>
 #include <cstdio>
-#include <string>
+#include <unordered_map>
 #include <vector>
+#include <optional>
+#include <string>
 
 namespace logos::compiler {
 
@@ -39,6 +41,7 @@ struct LogosType {
         IntLit,                   // unresolved integer literal (widens to any integer)
         AssocType,                // T::Item — type param's associated type (resolved by mono)
         ImplTrait,                // impl Trait — opaque return type, resolved during lowering
+        ConstVar,                 // [NEW] symbolic constant parameter (Bug 13)
         Error                     // sentinel for ill-typed expressions
     };
 
@@ -54,6 +57,7 @@ struct LogosType {
     // Array
     const LogosType* elem     = nullptr;  // non-owning, pool-allocated
     uint64_t         arr_size = 0;
+    std::string      arr_size_var;        // [NEW] for symbolic size 'N' (Bug 13)
 
     // Struct / Enum
     std::string      struct_name;         // base struct name (owned; never mangled)
@@ -74,12 +78,15 @@ struct LogosType {
     std::string      trait_name;          // e.g. "Display" (TraitObject kind only)
 
     // TypeVar — name stored as a std::string (owns its storage)
-    std::string      type_var_name;       // e.g. "T" (TypeVar and AssocType kind)
+    std::string      type_var_name;       // e.g. "T" (TypeVar kind only)
 
-    // AssocType — associated type: T::Item
-    // type_var_name: the type param ("T")
+    // AssocType — associated type: base::Item
     // trait_name:    the trait that declares it ("Iterator")
-    std::string      assoc_type_name;     // e.g. "Item" (AssocType kind only)
+    const LogosType* assoc_base = nullptr;  // the base type (e.g. TypeVar(T) or AssocType(T::A))
+    std::string      assoc_type_name;       // e.g. "Item" (AssocType kind only)
+
+    // Constant literal value (for monomorphized constant generics)
+    std::optional<int64_t> const_val;
 };
 
 // ── Trait bound (for type parameter bounds) ────────────────────────────────
@@ -94,6 +101,8 @@ struct TypeParam {
     std::string              name;          // e.g. "T"
     std::vector<TraitBound>  bounds;        // e.g. [Ord, Clone]
     bool                     is_variadic = false;  // T... variadic pack
+    bool                     is_const    = false;  // const N: T
+    const LogosType*         const_type  = nullptr;
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).

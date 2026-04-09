@@ -1,1 +1,1 @@
-Empty does not implement trait 'Value'
+type 'Empty' does not implement trait 'Value' required by parameter 'T'

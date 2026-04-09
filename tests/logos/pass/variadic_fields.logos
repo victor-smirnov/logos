@@ -1,0 +1,14 @@
+package variadic_fields_repro;
+
+struct Tuple<T...> {
+    fields...: T;
+}
+
+unsafe fn main() -> i32 {
+    let t: Tuple<i32, bool> = Tuple { fields_0: 42, fields_1: true };
+    // In Logos, field access on expanded variadics follows name_N convention.
+    if t.fields_0 == 42 && t.fields_1 {
+        return 0;
+    }
+    return 1;
+}

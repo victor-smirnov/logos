@@ -1,0 +1,9 @@
+package test;
+
+struct S__i32<T> { x: T; }
+struct S<T, U> { x: T; y: U; }
+
+fn main() {
+    let a = S__i32<bool> { x: true };
+    let b = S<i32, bool> { x: 42, y: true };
+}
