@@ -1,0 +1,23 @@
+package unsafe_dyn_trait_call;
+// Calling an unsafe fn through &dyn Trait without unsafe block
+
+trait Risky {
+    unsafe fn danger(self: Self) -> i32;
+}
+
+struct Bomb { val: i32; }
+
+impl Risky for Bomb {
+    unsafe fn danger(self: Bomb) -> i32 {
+        return self.val;
+    }
+}
+
+fn run(r: &dyn Risky) -> i32 {
+    return r.danger();  // error: unsafe method requires unsafe context
+}
+
+fn main() -> i32 {
+    let b = Bomb { val: 77 };
+    return run(b);
+}

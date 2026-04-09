@@ -715,6 +715,7 @@ private:
         std::vector<const LogosType*> param_types;  // includes self
         const LogosType* ret_type = nullptr;
         bool has_default = false;   // trait method has a default body
+        bool is_unsafe = false;     // declared unsafe fn in trait
         AnyVal default_ast{};       // AST node for default method (valid when has_default)
     };
     struct SemaAssocTypeInfo {
@@ -1402,6 +1403,10 @@ private:
                 mi.has_default = m.has_key(la::BODY);
                 if (mi.has_default)
                     mi.default_ast = items.get(i);
+                if (m.has_key(la::IS_UNSAFE)) {
+                    AnyVal av = m.get(la::IS_UNSAFE.code);
+                    mi.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+                }
                 info.methods.push_back(std::move(mi));
             }
         }
@@ -3259,6 +3264,9 @@ private:
                 for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
                     auto& m = tit->second.methods[mi];
                     if (m.name == method_name) {
+                        if (m.is_unsafe && !inside_unsafe_)
+                            error(std::format("call to unsafe method '{}' requires unsafe context",
+                                              std::string(method_name)));
                         std::vector<lir::LExprPtr> arg_exprs;
                         if (node.has_key(la::ARGS)) {
                             auto args = arr_of(node.get(la::ARGS.code));
@@ -3299,6 +3307,7 @@ private:
             // Search all type params in scope for this TypeVar's bounds
             const LogosType* ret_type = error_t();
             bool found = false;
+            bool found_unsafe = false;
             // Walk all currently in-scope functions' type params
             // For now, look through all known traits for the method
             for (auto& [tname, tinfo] : traits_) {
@@ -3310,6 +3319,7 @@ private:
                             ret_type = recv_inner;
                         else
                             ret_type = m.ret_type;
+                        found_unsafe = m.is_unsafe;
                         found = true;
                         break;
                     }
@@ -3317,6 +3327,9 @@ private:
                 if (found) break;
             }
             if (found) {
+                if (found_unsafe && !inside_unsafe_)
+                    error(std::format("call to unsafe method '{}' requires unsafe context",
+                                      std::string(method_name)));
                 std::vector<lir::LExprPtr> arg_exprs;
                 if (node.has_key(la::ARGS)) {
                     auto args = arr_of(node.get(la::ARGS.code));

@@ -1,0 +1,24 @@
+package unsafe_dyn_trait;
+// Calling an unsafe fn through &dyn Trait dispatch inside unsafe block
+
+trait Risky {
+    unsafe fn danger(self: Self) -> i32;
+}
+
+struct Bomb { val: i32; }
+
+impl Risky for Bomb {
+    unsafe fn danger(self: Bomb) -> i32 {
+        return self.val;
+    }
+}
+
+fn run(r: &dyn Risky) -> i32 {
+    let v: i32 = unsafe { r.danger(); };
+    return v;
+}
+
+fn main() -> i32 {
+    let b = Bomb { val: 77 };
+    return run(b);
+}
