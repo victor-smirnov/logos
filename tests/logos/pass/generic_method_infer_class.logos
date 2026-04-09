@@ -1,0 +1,14 @@
+package generic_method_infer_class;
+
+class Box {}
+
+impl Box {
+    fn id<T>(self: *mut Box, x: T) -> T {
+        return x;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let b = new Box {};
+    return b.id(42);
+}

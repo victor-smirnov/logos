@@ -1,0 +1,19 @@
+package generic_trait_method_missing_bound;
+
+trait Speak {
+    fn speak(self: Self) -> i32;
+}
+
+struct Dog {}
+
+impl Speak for Dog {
+    fn speak(self: Dog) -> i32 { return 7; }
+}
+
+fn call<T>(x: T) -> i32 {
+    return x.speak();
+}
+
+unsafe fn main() -> i32 {
+    return 0;
+}

@@ -1,0 +1,14 @@
+package generic_method_infer_struct;
+
+struct Box {}
+
+impl Box {
+    fn id<T>(self: Box, x: T) -> T {
+        return x;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let b: Box = Box {};
+    return b.id(42);
+}

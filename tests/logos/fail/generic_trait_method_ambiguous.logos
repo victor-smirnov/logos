@@ -1,0 +1,17 @@
+package generic_trait_method_ambiguous;
+
+trait A {
+    fn go(self: Self) -> i32;
+}
+
+trait B {
+    fn go(self: Self) -> i32;
+}
+
+fn call<T: A + B>(x: T) -> i32 {
+    return x.go();
+}
+
+unsafe fn main() -> i32 {
+    return 0;
+}

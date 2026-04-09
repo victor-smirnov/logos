@@ -3292,15 +3292,18 @@ private:
     bool infer_type_args(const SemaFuncInfo& fi,
                          const std::vector<lir::LExprPtr>& arg_exprs,
                          std::vector<const LogosType*>& out_type_args,
-                         const SemaSubst& context = {}) {
+                         const SemaSubst& context = {},
+                         size_t param_offset = 0) {
         std::unordered_map<std::string, const LogosType*> bindings(context.begin(), context.end());
         bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
         size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
-        size_t fixed_params = fi.param_types.size() - (has_variadic ? 1 : 0);
+        size_t fixed_params = fi.param_types.size() >= param_offset
+            ? fi.param_types.size() - param_offset - (has_variadic ? 1 : 0)
+            : 0;
 
         // Unify fixed params against arg types
         for (size_t i = 0; i < fixed_params && i < arg_exprs.size(); ++i) {
-            auto* pt = fi.param_types[i];
+            auto* pt = fi.param_types[param_offset + i];
             if (!context.empty()) pt = subst_type_sema(pt, context);
             unify_types(pt, arg_exprs[i]->type, bindings);
         }
@@ -3587,7 +3590,7 @@ private:
         // Infer method type args if generic (Bug 12)
         std::vector<const LogosType*> m_type_args;
         if (!fi.type_params.empty()) {
-            if (!infer_type_args(fi, arg_exprs, m_type_args, recv_subst)) {
+            if (!infer_type_args(fi, arg_exprs, m_type_args, recv_subst, 1)) {
                 error(std::format("could not infer type arguments for generic method '{}'", mangled));
             }
             check_type_bounds(mangled, fi.type_params, m_type_args);
@@ -3671,54 +3674,79 @@ private:
             recv_inner = recv_inner->pointee;
         }
         if (recv_inner->kind == LogosType::Kind::TypeVar) {
-            // Find trait bounds for this type var
-            for (auto& [tvn, tv] : current_type_params_) {
-                if (tvn != recv->type->type_var_name) continue;
-                // tvn matches — but we need the TypeParam with bounds.
-                // Search the current function's type params.
+            std::vector<lir::LExprPtr> arg_exprs;
+            if (node.has_key(la::ARGS)) {
+                auto args = arr_of(node.get(la::ARGS.code));
+                for (uint64_t i = 0; i < args.size(); ++i)
+                    arg_exprs.push_back(lower_expr(map_of(args.get(i))));
             }
-            // Search all type params in scope for this TypeVar's bounds
-            const LogosType* ret_type = error_t();
-            bool found = false;
-            bool found_unsafe = false;
-            // Walk all currently in-scope functions' type params
-            // For now, look through all known traits for the method
-            for (auto& [tname, tinfo] : traits_) {
-                for (auto& m : tinfo.methods) {
-                    if (m.name == method_name) {
-                        // Substitute Self → receiver's TypeVar type
-                        if (m.ret_type && m.ret_type->kind == LogosType::Kind::TypeVar &&
-                            m.ret_type->type_var_name == "Self")
-                            ret_type = recv_inner;
-                        else
-                            ret_type = m.ret_type;
-                        found_unsafe = m.is_unsafe;
-                        found = true;
-                        break;
+
+            auto bit = current_type_bounds_.find(recv_inner->type_var_name);
+            const SemaTraitMethodInfo* chosen_method = nullptr;
+            std::string chosen_trait;
+            if (bit != current_type_bounds_.end()) {
+                for (auto& bound : bit->second) {
+                auto tit = traits_.find(bound.trait_name);
+                if (tit == traits_.end()) continue;
+                for (auto& m : tit->second.methods) {
+                    if (m.name != method_name) continue;
+                    if (chosen_method && chosen_trait != bound.trait_name) {
+                        error(std::format(
+                            "method '{}' is ambiguous for type parameter '{}' (matches traits '{}' and '{}')",
+                            std::string(method_name), recv_inner->type_var_name, chosen_trait, bound.trait_name));
                     }
+                    chosen_method = &m;
+                    chosen_trait = bound.trait_name;
                 }
-                if (found) break;
             }
-            if (found) {
-                if (found_unsafe && !inside_unsafe_)
+            }
+
+            if (chosen_method) {
+                if (chosen_method->is_unsafe && !inside_unsafe_)
                     error(std::format("call to unsafe method '{}' requires unsafe context",
                                       std::string(method_name)));
-                std::vector<lir::LExprPtr> arg_exprs;
-                if (node.has_key(la::ARGS)) {
-                    auto args = arr_of(node.get(la::ARGS.code));
-                    for (uint64_t i = 0; i < args.size(); ++i)
-                        arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+
+                size_t expected_explicit = chosen_method->param_types.size() > 0
+                    ? chosen_method->param_types.size() - 1 : 0;
+                if (arg_exprs.size() != expected_explicit) {
+                    error(std::format("method call '{}': expected {} args, got {}",
+                                      std::string(method_name), expected_explicit, arg_exprs.size()));
+                } else {
+                    SemaSubst self_subst;
+                    self_subst["Self"] = recv_inner;
+                    for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
+                        auto* at = arg_exprs[i]->type;
+                        auto* pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
+                        if (at->kind != LogosType::Kind::Error &&
+                            pt->kind != LogosType::Kind::Error &&
+                            pt->kind != LogosType::Kind::TypeVar &&
+                            pt->kind != LogosType::Kind::AssocType &&
+                            !types_compatible(at, pt))
+                            error(std::format("method '{}' arg {}: expected {}, got {}",
+                                              std::string(method_name), i + 1,
+                                              type_str(pt), type_str(at)));
+                    }
                 }
+
+                SemaSubst self_subst;
+                self_subst["Self"] = recv_inner;
+                const LogosType* ret_type = subst_type_sema(chosen_method->ret_type, self_subst);
+
                 // Use EMethodCall — mono will resolve to concrete impl.
                 lir::EMethodCall mc;
                 mc.receiver = std::move(recv);
                 mc.method   = std::string(method_name);
-                mc.type_args = {}; // Mono will infer or we will populate this later
+                mc.type_args = {};
                 mc.args     = std::move(arg_exprs);
                 mc.vtable_index = -1;
                 mc.resolved_type = "";
                 return make_expr(ret_type, std::move(mc));
             }
+
+            error(std::format("type parameter '{}' has no trait bound providing method '{}'",
+                              recv_inner->type_var_name, std::string(method_name)));
+            return make_expr(error_t(),
+                lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1, ""});
         }
 
         // Check if receiver is a class type → virtual dispatch
@@ -3858,7 +3886,7 @@ private:
         // Infer method type args if generic (Bug 12)
         std::vector<const LogosType*> m_type_args;
         if (!fi.type_params.empty()) {
-            if (!infer_type_args(fi, arg_exprs, m_type_args, struct_subst)) {
+            if (!infer_type_args(fi, arg_exprs, m_type_args, struct_subst, 1)) {
                 error(std::format("could not infer type arguments for generic method '{}'", mangled));
             }
             check_type_bounds(mangled, fi.type_params, m_type_args);

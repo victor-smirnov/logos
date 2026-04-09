@@ -551,7 +551,7 @@ private:
 
                     // SPECIALIZATION LOOKUP (Bug 12)
                     bool rewritten = false;
-                    if (nm.vtable_index == -1 && nm.receiver->type) {
+                    if (nm.receiver->type) {
                         const LogosType* rt = nm.receiver->type;
                         while (rt && (rt->kind == LogosType::Kind::Ptr ||
                                       rt->kind == LogosType::Kind::Ref ||
@@ -563,13 +563,27 @@ private:
                             std::vector<const LogosType*> combined_args = rt->type_args;
                             for (auto* mta : nm.type_args) combined_args.push_back(mta);
 
-                            std::string base_struct = rt->struct_name;
+                            std::string base_struct = nm.resolved_type.empty()
+                                ? rt->struct_name : nm.resolved_type;
                             std::string base_name = base_struct + "__" + nm.method;
 
                             if (auto* spec = find_best_spec(base_name, combined_args)) {
                                 // Specialized method found! Rewrite to ECall.
                                 lir::ECall nc;
                                 nc.callee = spec->name;
+                                nc.args.push_back(std::move(nm.receiver));
+                                for (auto& arg : k.args)
+                                    nc.args.push_back(subst_expr(*arg, s));
+                                result->kind = std::move(nc);
+                                rewritten = true;
+                            } else if (!nm.type_args.empty() &&
+                                       (templates_.count(base_name) || specs_.count(base_name))) {
+                                // Generic direct method call on a concrete receiver:
+                                // rewrite to a monomorphized free-function call so it
+                                // participates in the normal generic-instantiation flow.
+                                lir::ECall nc;
+                                nc.callee = mangle(base_name, combined_args);
+                                nc.type_args = combined_args;
                                 nc.args.push_back(std::move(nm.receiver));
                                 for (auto& arg : k.args)
                                     nc.args.push_back(subst_expr(*arg, s));

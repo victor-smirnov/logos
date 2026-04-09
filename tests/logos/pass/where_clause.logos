@@ -15,8 +15,8 @@ fn print_show<T>(x: T) -> i32 where T: Show {
     return x.show();
 }
 
-// where with multiple bounds (two separate constraints)
-fn show_and_double<T>(x: T) -> i32 where T: Show {
+// where with multiple bounds
+fn show_and_double<T>(x: T) -> i32 where T: Show + Double {
     return x.show() + x.double();
 }
 

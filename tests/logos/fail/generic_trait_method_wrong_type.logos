@@ -1,0 +1,19 @@
+package generic_trait_method_wrong_type;
+
+trait Add {
+    fn add(self: Self, x: i32) -> i32;
+}
+
+struct S {}
+
+impl Add for S {
+    fn add(self: S, x: i32) -> i32 { return x + 1; }
+}
+
+fn call<T: Add>(x: T) -> i32 {
+    return x.add(true);
+}
+
+unsafe fn main() -> i32 {
+    return 0;
+}
