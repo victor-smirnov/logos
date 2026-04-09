@@ -2,6 +2,8 @@ package string;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
 
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
+
 fn str_len(s: str) -> i64 {
     return s.len();
 }
@@ -9,6 +11,6 @@ fn str_len(s: str) -> i64 {
 fn main() -> i32 {
     let s: str = "hello, logos!";
     let n: i64 = str_len(s);
-    printf("len = %d\n", n as i32);
+    printi("len = %d\n", n as i32);
     return n as i32;
 }

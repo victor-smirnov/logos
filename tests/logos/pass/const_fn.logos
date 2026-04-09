@@ -27,10 +27,11 @@ const MAX_VAL: i32   = max(10, 37);         // 37
 const FACT_5: i32    = factorial(5);        // 120
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 fn main() -> i32 {
-    printf("%d\n", DOUBLE_21);
-    printf("%d\n", MAX_VAL);
-    printf("%d\n", FACT_5);
+    printi("%d\n", DOUBLE_21);
+    printi("%d\n", MAX_VAL);
+    printi("%d\n", FACT_5);
     return 0;
 }

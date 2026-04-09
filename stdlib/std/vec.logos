@@ -17,7 +17,7 @@ struct Vec<T> {
 pub fn vec_new<T>() -> Vec<T> {
     let init_cap: i64 = 8;
     let byte_size: i64 = init_cap * sizeof::<T>();
-    let raw: *mut u8 = malloc(byte_size);
+    let raw: *mut u8 = alloc(byte_size);
     let ptr: *mut T = raw as *mut T;
     return Vec { ptr: ptr, len: 0, cap: init_cap };
 }
@@ -27,7 +27,7 @@ impl<T> Vec<T> {
         if self.len == self.cap {
             self.cap = self.cap * 2;
             let byte_size: i64 = self.cap * sizeof::<T>();
-            let raw: *mut u8 = realloc(self.ptr as *mut u8, byte_size);
+            let raw: *mut u8 = realloc_buf(self.ptr as *mut u8, byte_size);
             self.ptr = raw as *mut T;
         }
         self.ptr[self.len] = val;
@@ -44,5 +44,5 @@ impl<T> Vec<T> {
 }
 
 pub fn vec_free<T>(v: *mut Vec<T>) {
-    free(v.ptr as *mut u8);
+    dealloc(v.ptr as *mut u8);
 }

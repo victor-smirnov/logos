@@ -1,5 +1,6 @@
 package match_guard;
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printf6i(fmt: *const u8, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32) { unsafe { printf(fmt, a, b, c, d, e, f); } }
 enum Opt { Some(i32), None }
 fn sign(n: i32) -> i32 {
     match n {
@@ -18,6 +19,6 @@ fn opt_sign(o: Opt) -> i32 {
 fn main() -> i32 {
     let a = sign(-5); let b = sign(0); let c = sign(7);
     let d = opt_sign(Opt::Some(10)); let e = opt_sign(Opt::Some(-3)); let f = opt_sign(Opt::None);
-    printf("%d %d %d %d %d %d\n", a, b, c, d, e, f);
+    printf6i("%d %d %d %d %d %d\n", a, b, c, d, e, f);
     return 0;
 }

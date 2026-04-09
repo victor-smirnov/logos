@@ -1,10 +1,11 @@
 // Trait with void method dispatched through generic
 package trait_void_dispatch;
 extern fn puts(s: *const u8) -> i32;
+fn print(s: *const u8) { unsafe { puts(s); } }
 trait Notify { fn notify(self: Self); }
 struct Msg { code: i32; }
 impl Notify for Msg {
-    fn notify(self: Msg) { puts("notified"); }
+    fn notify(self: Msg) { print("notified"); }
 }
 fn send<T: Notify>(x: T) { x.notify(); }
 fn main() -> i32 {

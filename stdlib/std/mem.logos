@@ -8,3 +8,15 @@ package std.mem;
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 extern fn realloc(ptr: *mut u8, size: i64) -> *mut u8;
+
+pub fn alloc(size: i64) -> *mut u8 {
+    unsafe { return malloc(size); }
+}
+
+pub fn dealloc(ptr: *mut u8) {
+    unsafe { free(ptr); }
+}
+
+pub fn realloc_buf(ptr: *mut u8, size: i64) -> *mut u8 {
+    unsafe { return realloc(ptr, size); }
+}

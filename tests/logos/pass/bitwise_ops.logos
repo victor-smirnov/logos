@@ -1,6 +1,9 @@
 package bitwise_ops;
 // Bitwise operators: &, |, ^, <<, >>
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printiii(fmt: *const u8, a: i32, b: i32, c: i32) { unsafe { printf(fmt, a, b, c); } }
+fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 fn popcount(n: i32) -> i32 {
     let mut c = 0;
@@ -15,8 +18,8 @@ fn popcount(n: i32) -> i32 {
 fn main() -> i32 {
     let a: i32 = 12;
     let b: i32 = 10;
-    printf("%d %d %d\n", a & b, a | b, a ^ b);
-    printf("%d %d\n", a << 2, a >> 1);
-    printf("%d\n", popcount(255));
+    printiii("%d %d %d\n", a & b, a | b, a ^ b);
+    printii("%d %d\n", a << 2, a >> 1);
+    printi("%d\n", popcount(255));
     return 0;
 }

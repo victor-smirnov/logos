@@ -1,6 +1,7 @@
 package impl_generic_struct;
 // impl<T> on generic struct — standalone impl block with type parameter.
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 struct Stack<T> {
     data: [T; 8];
@@ -26,9 +27,9 @@ fn main() -> i32 {
     s.push(10);
     s.push(20);
     s.push(30);
-    printf("%d\n", s.size());  // 3
-    printf("%d\n", s.pop());   // 30
-    printf("%d\n", s.pop());   // 20
-    printf("%d\n", s.size());  // 1
+    printi("%d\n", s.size());  // 3
+    printi("%d\n", s.pop());   // 30
+    printi("%d\n", s.pop());   // 20
+    printi("%d\n", s.size());  // 1
     return 0;
 }

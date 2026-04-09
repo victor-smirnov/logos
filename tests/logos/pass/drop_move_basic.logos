@@ -2,17 +2,18 @@
 package drop_move_basic;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
 struct Res { id: i32; }
 
 impl Drop for Res {
-    fn drop(self: Res) { printf("d%d ", self.id); }
+    fn drop(self: Res) { printi("d%d ", self.id); }
 }
 
 fn consume(r: Res) {
-    printf("c%d ", r.id);
+    printi("c%d ", r.id);
 }
 
 fn main() -> i32 {

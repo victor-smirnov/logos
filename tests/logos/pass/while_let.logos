@@ -1,6 +1,7 @@
 package while_let;
 // while let: loop until None, counting iterations
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Opt { Some(i32), None }
 
@@ -17,6 +18,6 @@ fn main() -> i32 {
         cur = next_opt(v);
     }
     // sum = 3+2+1+0 = 6
-    printf("%d\n", sum);
+    printi("%d\n", sum);
     return 0;
 }

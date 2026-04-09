@@ -2,6 +2,8 @@
 package drop_nested_scope;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn print(s: *const u8) { unsafe { printf(s); } }
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop {
     fn drop(self: Self);
@@ -13,7 +15,7 @@ struct Resource {
 
 impl Drop for Resource {
     fn drop(self: Resource) {
-        printf("d%d ", self.id);
+        printi("d%d ", self.id);
     }
 }
 
@@ -22,8 +24,8 @@ fn main() -> i32 {
     let outer: Resource = Resource { id: 1 };
     if true {
         let inner: Resource = Resource { id: 2 };
-        printf("in ");
+        print("in ");
     }
-    printf("out ");
+    print("out ");
     return result;
 }

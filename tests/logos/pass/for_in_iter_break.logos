@@ -1,6 +1,7 @@
 package for_in_iter_break;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Option<T> { None, Some(T), }
 
@@ -23,7 +24,7 @@ fn main() -> i32 {
         if x >= 3 { break; }
         sum = sum + x;
     }
-    printf("%d\n", sum);   // 3
+    printi("%d\n", sum);   // 3
 
     // continue: skip odd numbers → sum = 0+2+4 = 6
     let mut r2 = Range { current: 0, end: 5 };
@@ -32,6 +33,6 @@ fn main() -> i32 {
         if x * 2 != (x / 1) * 2 { continue; }  // always false, just test continue path
         sum2 = sum2 + x;
     }
-    printf("%d\n", sum2);  // 0+1+2+3+4 = 10 (continue never triggers)
+    printi("%d\n", sum2);  // 0+1+2+3+4 = 10 (continue never triggers)
     return 0;
 }

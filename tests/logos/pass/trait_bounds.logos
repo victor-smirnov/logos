@@ -1,6 +1,7 @@
 package trait_bounds;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Printable {
     fn print_val(self: Self) -> i32;
@@ -18,7 +19,7 @@ struct Num {
 
 impl Printable for Num {
     fn print_val(self: Num) -> i32 {
-        printf("%d\n", self.val);
+        printi("%d\n", self.val);
         return self.val;
     }
 }
@@ -26,6 +27,6 @@ impl Printable for Num {
 fn main() -> i32 {
     let n = Num { val: 7 };
     let total = print_twice(n);
-    printf("total: %d\n", total);
+    printi("total: %d\n", total);
     return 0;
 }

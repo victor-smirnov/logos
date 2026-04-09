@@ -9,6 +9,8 @@ package quicksort;
 
 extern fn putchar(c: i32) -> i32;
 
+fn emit(c: i32) { unsafe { putchar(c); } }
+
 // ── swap arr[a] ↔ arr[b] ─────────────────────────────────────────────────
 fn swap(arr: *mut i32, a: i32, b: i32) {
     let tmp: i32 = arr[a];
@@ -46,12 +48,12 @@ fn print_int_rec(n: i32) {
     if n >= 10 {
         print_int_rec(n / 10);
     }
-    putchar((n - (n / 10) * 10) + 48);
+    emit((n - (n / 10) * 10) + 48);
 }
 
 fn print_int(n: i32) {
     print_int_rec(n);
-    putchar(32);   // space
+    emit(32);   // space
 }
 
 // ── main ─────────────────────────────────────────────────────────────────
@@ -67,6 +69,6 @@ fn main() -> i32 {
     print_int(arr[6]);
     print_int(arr[7]);
     print_int(arr[8]);
-    putchar(10);   // newline
+    emit(10);   // newline
     return 0;
 }

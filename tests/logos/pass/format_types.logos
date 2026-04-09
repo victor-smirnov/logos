@@ -8,6 +8,6 @@ use std.mem;
 fn main() -> i32 {
     let s: *mut u8 = format::<i32, *const u8, bool, i32>("{} {} {} {}", 0 - 1, "hi", true, 0);
     println(s as *const u8);
-    free(s);
+    dealloc(s);
     return 42;
 }

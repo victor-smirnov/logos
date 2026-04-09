@@ -1,6 +1,7 @@
 package impl_trait_ret;
 // impl Trait in return position: concrete type inferred from return expr.
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
 trait Shape { fn area(self: Self) -> i32; }
 
@@ -21,6 +22,6 @@ fn make_circle(r: i32) -> impl Shape {
 fn main() -> i32 {
     let r = make_rect(3, 4);
     let c = make_circle(5);
-    printf("%d %d\n", r.area(), c.area());  // 12 25
+    printii("%d %d\n", r.area(), c.area());  // 12 25
     return 0;
 }

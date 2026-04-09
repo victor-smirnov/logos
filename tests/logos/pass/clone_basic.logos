@@ -1,5 +1,6 @@
 package clone_test;
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
 trait Clone { fn clone(self: Self) -> Self; }
 
@@ -14,6 +15,6 @@ impl Clone for Point {
 fn main() -> i32 {
     let p1 = Point { x: 3, y: 7 };
     let p2 = p1.clone();
-    printf("%d %d\n", p2.x, p2.y);
+    printii("%d %d\n", p2.x, p2.y);
     return 0;
 }

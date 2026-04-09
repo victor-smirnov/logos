@@ -2,13 +2,14 @@
 package drop_delete_with_fields;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
 struct Res { id: i32; }
 
 impl Drop for Res {
-    fn drop(self: Res) { printf("r%d ", self.id); }
+    fn drop(self: Res) { printi("r%d ", self.id); }
 }
 
 class Holder {
@@ -21,7 +22,7 @@ class Holder {
 
 impl Drop for Holder {
     fn drop(self: *mut Holder) {
-        printf("h%d ", self.tag);
+        printi("h%d ", self.tag);
     }
 }
 

@@ -2,13 +2,14 @@
 package drop_reverse_order;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
 struct Res { id: i32; }
 
 impl Drop for Res {
-    fn drop(self: Res) { printf("d%d ", self.id); }
+    fn drop(self: Res) { printi("d%d ", self.id); }
 }
 
 fn main() -> i32 {

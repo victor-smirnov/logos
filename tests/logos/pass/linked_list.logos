@@ -1,5 +1,6 @@
 package linked_list;
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 class Node {
     val: i32;
@@ -14,7 +15,7 @@ unsafe fn main() -> i32 {
     // traverse
     let mut cur: *mut Node = n1;
     while cur != 0 as *mut Node {
-        printf("%d\n", (*cur).val);
+        printi("%d\n", (*cur).val);
         cur = (*cur).next;
     }
 

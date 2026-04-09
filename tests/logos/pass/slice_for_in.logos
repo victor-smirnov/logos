@@ -1,6 +1,7 @@
 package slice_for_in;
 // for-in over &[T] slice: iterate by index using dynamic length from fat pointer.
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
 fn sum_slice(s: &[i32]) -> i32 {
     let mut total = 0;
@@ -18,6 +19,6 @@ fn main() -> i32 {
     let data: [i32; 5] = [1, -2, 3, -4, 5];
     let total = sum_slice(&data);
     let pos   = count_positive(&data);
-    printf("%d %d\n", total, pos);
+    printii("%d %d\n", total, pos);
     return 0;
 }

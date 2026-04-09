@@ -2,6 +2,7 @@ package copy_basic;
 // Copy trait: types implementing Copy are not move-only.
 // Assignment and passing by value keep the original usable.
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
 trait Copy {}
 
@@ -15,6 +16,6 @@ fn main() -> i32 {
     let v = Vec2 { x: 3, y: 4 };
     let d1 = dot(u, v);   // u, v are Copy — not consumed
     let d2 = dot(u, v);   // still usable
-    printf("%d %d\n", d1, d2);
+    printii("%d %d\n", d1, d2);
     return 0;
 }

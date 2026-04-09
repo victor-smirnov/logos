@@ -2,6 +2,7 @@
 package drop_class_delete;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
@@ -14,7 +15,7 @@ class Handle {
 
 impl Drop for Handle {
     fn drop(self: *mut Handle) {
-        printf("drop_handle_%d ", self.id);
+        printi("drop_handle_%d ", self.id);
     }
 }
 

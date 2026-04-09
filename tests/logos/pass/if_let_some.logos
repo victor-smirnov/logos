@@ -1,6 +1,8 @@
 package if_let_some;
 // if let: extract payload from Opt::Some
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn print(s: *const u8) { unsafe { printf(s); } }
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Opt { Some(i32), None }
 
@@ -10,16 +12,16 @@ fn main() -> i32 {
 
     // if let Some(x) = s → prints x, else prints -1
     if let Opt::Some(x) = s {
-        printf("%d ", x);
+        printi("%d ", x);
     } else {
-        printf("-1 ");
+        print("-1 ");
     }
 
     // if let Some(y) = n → not taken, prints 0
     if let Opt::Some(y) = n {
-        printf("%d\n", y);
+        printi("%d\n", y);
     } else {
-        printf("0\n");
+        print("0\n");
     }
 
     return 0;

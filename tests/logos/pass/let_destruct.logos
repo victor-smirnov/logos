@@ -1,6 +1,7 @@
 package let_destruct;
 // let (a, b) = tuple;  — tuple destructuring
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
 fn swap(a: i32, b: i32) -> (i32, i32) { return (b, a); }
 fn minmax(a: i32, b: i32) -> (i32, i32) {
@@ -10,15 +11,15 @@ fn minmax(a: i32, b: i32) -> (i32, i32) {
 
 fn main() -> i32 {
     let (x, y) = swap(1, 2);
-    printf("%d %d\n", x, y);   // 2 1
+    printii("%d %d\n", x, y);   // 2 1
 
     let (lo, hi) = minmax(7, 3);
-    printf("%d %d\n", lo, hi); // 3 7
+    printii("%d %d\n", lo, hi); // 3 7
 
     // nested tuple return used inline
     let t = swap(10, 20);
     let (a, b) = t;
-    printf("%d %d\n", a, b);   // 20 10
+    printii("%d %d\n", a, b);   // 20 10
 
     return 0;
 }

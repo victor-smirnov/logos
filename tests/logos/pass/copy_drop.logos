@@ -2,6 +2,7 @@ package copy_drop;
 // A Copy type with Drop: each copy gets its own destructor call.
 // Original is not consumed by pass-by-value.
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 trait Copy {}
@@ -9,11 +10,11 @@ trait Copy {}
 struct Token { id: i32; }
 
 impl Drop for Token {
-    fn drop(self: Token) { printf("drop %d\n", self.id); }
+    fn drop(self: Token) { printi("drop %d\n", self.id); }
 }
 impl Copy for Token {}
 
-fn use_token(t: Token) { printf("use %d\n", t.id); }
+fn use_token(t: Token) { printi("use %d\n", t.id); }
 
 fn main() -> i32 {
     let t = Token { id: 7 };

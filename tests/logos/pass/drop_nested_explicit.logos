@@ -2,13 +2,14 @@
 package drop_nested_explicit;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
 struct Inner { id: i32; }
 
 impl Drop for Inner {
-    fn drop(self: Inner) { printf("i%d ", self.id); }
+    fn drop(self: Inner) { printi("i%d ", self.id); }
 }
 
 struct Outer {
@@ -18,7 +19,7 @@ struct Outer {
 }
 
 impl Drop for Outer {
-    fn drop(self: Outer) { printf("o%d ", self.tag); }
+    fn drop(self: Outer) { printi("o%d ", self.tag); }
 }
 
 fn main() -> i32 {

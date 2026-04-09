@@ -2,13 +2,14 @@
 package drop_nested_fields;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
 struct Inner { id: i32; }
 
 impl Drop for Inner {
-    fn drop(self: Inner) { printf("d%d ", self.id); }
+    fn drop(self: Inner) { printi("d%d ", self.id); }
 }
 
 // Pair has NO explicit Drop impl, but has droppable fields

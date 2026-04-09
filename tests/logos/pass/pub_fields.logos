@@ -1,6 +1,8 @@
 package pub_fields;
 // pub fields: syntax and accessibility within same package
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 struct Point {
     pub x: i32;
@@ -23,12 +25,12 @@ impl Counter {
 
 fn main() -> i32 {
     let p = Point { x: 3, y: 4 };
-    printf("%d %d\n", p.x, p.y);
+    printii("%d %d\n", p.x, p.y);
 
     let mut c = Counter::new(5);
     c.tick();
     c.tick();
-    printf("%d\n", c.value);   // 10
+    printi("%d\n", c.value);   // 10
 
     return 0;
 }

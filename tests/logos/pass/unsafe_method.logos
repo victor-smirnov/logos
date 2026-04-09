@@ -10,13 +10,15 @@ impl Buf {
 
 extern fn malloc(n: i64) -> *mut u8;
 extern fn free(p: *mut u8);
+fn alloc(size: i64) -> *mut u8 { unsafe { return malloc(size); } }
+fn dealloc(ptr: *mut u8) { unsafe { free(ptr); } }
 
 fn main() -> i32 {
-    let raw: *mut u8 = malloc(4);
+    let raw: *mut u8 = alloc(4);
     let p: *mut i32 = raw as *mut i32;
     unsafe { *p = 55; }
     let b = Buf { ptr: p };
     let v: i32 = unsafe { b.read(); };
-    free(raw);
+    dealloc(raw);
     return v;
 }

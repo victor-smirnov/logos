@@ -2145,8 +2145,10 @@ private:
             info.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
         }
         // Visibility: pub fn → is_pub = true; extern fn is always pub (C FFI).
+        // extern fn is also always unsafe (FFI calls require unsafe context, like Rust).
         if (code_of(node) == la::EXTERN_FN) {
             info.is_pub = true;
+            info.is_unsafe = true;
         } else if (node.has_key(la::IS_PUB)) {
             AnyVal av = node.get(la::IS_PUB.code);
             info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;

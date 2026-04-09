@@ -1,13 +1,15 @@
 package unsafe_block;
 extern fn malloc(n: i64) -> *mut u8;
 extern fn free(p: *mut u8);
+fn alloc(size: i64) -> *mut u8 { unsafe { return malloc(size); } }
+fn dealloc(ptr: *mut u8) { unsafe { free(ptr); } }
 
 // Basic unsafe block as statement and as expression
 fn main() -> i32 {
-    let buf: *mut u8 = malloc(4);
+    let buf: *mut u8 = alloc(4);
     let p: *mut i32 = buf as *mut i32;
     unsafe { *p = 99; }
     let v: i32 = unsafe { *p; };
-    free(buf);
+    dealloc(buf);
     return v;
 }

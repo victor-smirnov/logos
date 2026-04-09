@@ -90,7 +90,7 @@ fn fmt_into<H: Format, T...>(fmt: *const u8, fi: i64, flen: i64,
 pub fn format<T...: Format>(pattern: *const u8, args: T...) -> *mut u8 {
     let flen: i64 = str_len(pattern);
     let est: i64 = flen + 256;
-    let buf: *mut u8 = malloc(est);
+    let buf: *mut u8 = alloc(est);
     let pos: i64 = fmt_into(pattern, 0 as i64, flen, buf, 0 as i64, args...);
     buf[pos] = 0 as u8;
     return buf;

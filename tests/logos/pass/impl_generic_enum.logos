@@ -1,6 +1,7 @@
 package impl_generic_enum;
 // impl<T> on generic enum — methods on Option<T>-style enums.
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Option<T> { Some(T), None }
 
@@ -22,7 +23,7 @@ impl<T> Option<T> {
 fn main() -> i32 {
     let a: Option<i32> = Option::Some(42);
     let b: Option<i32> = Option::None;
-    printf("%d\n", a.unwrap_or(0));    // 42
-    printf("%d\n", b.unwrap_or(99));   // 99
+    printi("%d\n", a.unwrap_or(0));    // 42
+    printi("%d\n", b.unwrap_or(99));   // 99
     return 0;
 }

@@ -1,6 +1,7 @@
 package static_new;
 // `static fn new(...)` constructor pattern — 'new' used as a method name.
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 struct Point { x: i32; y: i32; }
 
@@ -15,6 +16,6 @@ impl Point {
 
 fn main() -> i32 {
     let mut p = Point::new(3, 4);
-    printf("%d\n", p.dist2());   // 25
+    printi("%d\n", p.dist2());   // 25
     return 0;
 }

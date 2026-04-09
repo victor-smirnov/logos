@@ -8,5 +8,5 @@ package std.io;
 extern fn puts(s: *const u8) -> i32;
 
 pub fn println(s: *const u8) -> i32 {
-    return puts(s);
+    unsafe { return puts(s); }
 }

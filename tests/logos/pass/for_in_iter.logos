@@ -1,6 +1,7 @@
 package for_in_iter;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Option<T> {
     None,
@@ -29,6 +30,6 @@ fn main() -> i32 {
     for x in r {
         sum = sum + x;
     }
-    printf("%d\n", sum);
+    printi("%d\n", sum);
     return 0;
 }

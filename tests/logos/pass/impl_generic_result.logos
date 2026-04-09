@@ -1,6 +1,8 @@
 package impl_generic_result;
 // impl<T, E> on two-parameter generic enum — methods on Result<T, E>-style enums.
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn print(s: *const u8) { unsafe { printf(s); } }
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Result<T, E> { Ok(T), Err(E) }
 
@@ -27,9 +29,9 @@ fn divide(a: i32, b: i32) -> Result<i32, i32> {
 fn main() -> i32 {
     let r1 = divide(10, 2);
     let r2 = divide(10, 0);
-    printf("%d\n", r1.unwrap_or(0));    // 5
-    printf("%d\n", r2.unwrap_or(0));    // 0
-    if r1.is_ok() { printf("ok\n"); }   // ok
-    if !r2.is_ok() { printf("err\n"); } // err
+    printi("%d\n", r1.unwrap_or(0));    // 5
+    printi("%d\n", r2.unwrap_or(0));    // 0
+    if r1.is_ok() { print("ok\n"); }   // ok
+    if !r2.is_ok() { print("err\n"); } // err
     return 0;
 }

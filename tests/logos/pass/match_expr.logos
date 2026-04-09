@@ -1,6 +1,7 @@
 package match_expr;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Direction {
     North,
@@ -38,7 +39,7 @@ fn classify(x: i32) -> i32 {
 fn main() -> i32 {
     let d = Direction::East;
     let opp = d.opposite();
-    printf("%d\n", opp.to_int());
+    printi("%d\n", opp.to_int());
 
     let n = match Direction::South {
         Direction::North => 0,
@@ -46,9 +47,9 @@ fn main() -> i32 {
         Direction::East  => 2,
         Direction::West  => 3,
     };
-    printf("%d\n", n);
+    printi("%d\n", n);
 
-    printf("%d\n", classify(0));
-    printf("%d\n", classify(42));
+    printi("%d\n", classify(0));
+    printi("%d\n", classify(42));
     return 0;
 }

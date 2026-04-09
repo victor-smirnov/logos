@@ -1,5 +1,6 @@
 package bst;
 extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 class Node {
     key:   i32;
@@ -24,7 +25,7 @@ unsafe fn inorder(root: *mut Node) {
         return;
     }
     inorder((*root).left);
-    printf("%d\n", (*root).key);
+    printi("%d\n", (*root).key);
     inorder((*root).right);
 }
 
