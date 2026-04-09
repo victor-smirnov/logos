@@ -1,0 +1,14 @@
+package for_u32_lo_i64;
+// for i in lo..hi where lo: u32 = 3000000000, hi: i64 = 3000000005
+// loop_type = i64 (hi is i64); coerce_int(i32(-1294967296), i64) via ExtSIOp
+// gave i64(-1294967296) instead of i64(3000000000) → wrong start value
+unsafe fn main() -> i32 {
+    let lo: u32 = 3000000000;
+    let hi: i64 = 3000000005;
+    let mut count: i32 = 0;
+    for i in lo..hi {
+        count = count + 1;
+    }
+    if count == 5 { return 0; }
+    return 1;
+}

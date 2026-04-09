@@ -1,0 +1,13 @@
+package for_u8_lo;
+// for i in lo..hi where lo: u8 = 200, hi: u8 = 210
+// coerce_int(i8(-56), i32) via ExtSIOp gave i32(-56); ult(0,-56)=false → loop never ran
+unsafe fn main() -> i32 {
+    let lo: u8 = 200;
+    let hi: u8 = 210;
+    let mut count: i32 = 0;
+    for i in lo..hi {
+        count = count + 1;
+    }
+    if count == 10 { return 0; }
+    return 1;
+}

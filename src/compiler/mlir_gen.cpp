@@ -1205,7 +1205,16 @@ private:
 
         auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
                             loc_, ptr_type(), loop_type, i64_one());
-        builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(lo, loop_type), i_alloca);
+        bool lo_unsigned = s.lo->type &&
+            (s.lo->type->kind == LogosType::Kind::U8  ||
+             s.lo->type->kind == LogosType::Kind::U32 ||
+             s.lo->type->kind == LogosType::Kind::U64);
+        mlir::Value lo_coerced;
+        if (lo_unsigned && lo.getType() != loop_type)
+            lo_coerced = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, lo);
+        else
+            lo_coerced = coerce_int(lo, loop_type);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, lo_coerced, i_alloca);
         scope_[s.var] = i_alloca;
         let_vars_.insert(s.var);
         var_elem_types_[s.var] = loop_type;
@@ -2436,6 +2445,13 @@ private:
 
         auto idx = gen_expr(*e.index);
         if (!idx || !arr_ptr) return nullptr;
+        // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
+        bool idx_unsigned = e.index->type &&
+            (e.index->type->kind == LogosType::Kind::U8  ||
+             e.index->type->kind == LogosType::Kind::U32 ||
+             e.index->type->kind == LogosType::Kind::U64);
+        if (idx_unsigned && idx.getType() != builder_.getI64Type())
+            idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
         llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), elem_type, arr_ptr, indices);
@@ -3078,9 +3094,18 @@ private:
         llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
         auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, pi);
         auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
-        // GEP into data array by index
-        auto idx32 = coerce_int(index, builder_.getI32Type());
-        llvm::SmallVector<mlir::LLVM::GEPArg> di{idx32};
+        // GEP into data array by index.
+        // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
+        bool idx_unsigned = e.index->type &&
+            (e.index->type->kind == LogosType::Kind::U8  ||
+             e.index->type->kind == LogosType::Kind::U32 ||
+             e.index->type->kind == LogosType::Kind::U64);
+        mlir::Value gep_idx;
+        if (idx_unsigned && index.getType() != builder_.getI64Type())
+            gep_idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), index);
+        else
+            gep_idx = index;
+        llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
         auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), elem_type, data_ptr, di);
         return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, elem_ptr);
