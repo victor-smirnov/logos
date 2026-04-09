@@ -5437,8 +5437,15 @@ private:
                 }
 
                 lir::LExprPtr val = lower_expr(map_of(arm.get(la::EXPR.code)));
-                if (result_type->kind == LogosType::Kind::Error)
+                if (result_type->kind == LogosType::Kind::Error) {
                     result_type = val->type;
+                } else if (val->type->kind != LogosType::Kind::Error &&
+                           !types_compatible(val->type, result_type) &&
+                           !types_compatible(result_type, val->type)) {
+                    error(std::format(
+                        "match expression: arm type '{}' is incompatible with '{}'",
+                        type_str(val->type), type_str(result_type)));
+                }
 
                 pop_scope();
                 lir::EMatchArm ema;

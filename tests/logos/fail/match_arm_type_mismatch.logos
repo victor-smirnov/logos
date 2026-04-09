@@ -1,0 +1,15 @@
+// Match expression arms must all have compatible types.
+package match_arm_type_mismatch;
+
+fn test(x: i32) -> i32 {
+    // First arm is i32, second arm is bool — incompatible.
+    let r: i32 = match x {
+        1 => 1,
+        _ => true,
+    };
+    return r;
+}
+
+fn main() -> i32 {
+    return test(1);
+}
