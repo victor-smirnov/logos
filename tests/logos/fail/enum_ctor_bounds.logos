@@ -1,0 +1,14 @@
+package enum_ctor_bounds;
+
+trait Valid {}
+
+enum GenericEnum<T: Valid> {
+    Item(T)
+}
+
+struct Invalid {}
+
+fn main() -> i32 {
+    let e = GenericEnum::Item(Invalid {});
+    return 0;
+}

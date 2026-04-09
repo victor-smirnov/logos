@@ -1,0 +1,26 @@
+package assoc_enum_wrap;
+
+trait Source {
+    type Out;
+}
+
+struct Producer {}
+
+impl Source for Producer {
+    type Out = i32;
+}
+
+enum Wrap<T> {
+    Item(T)
+}
+
+fn wrap<S: Source>(x: S::Out) -> Wrap<S::Out> {
+    return Wrap::Item(x);
+}
+
+unsafe fn main() -> i32 {
+    let w = wrap::<Producer>(42);
+    match w {
+        Wrap::Item(v) => { return v; }
+    }
+}

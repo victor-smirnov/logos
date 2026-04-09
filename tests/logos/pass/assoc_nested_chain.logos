@@ -1,0 +1,28 @@
+package assoc_nested_chain;
+
+trait B { type Y; }
+trait A {
+    type X;
+    fn make(self: Self) -> Self::X;
+}
+
+struct S {}
+
+impl B for S {
+    type Y = i32;
+}
+
+impl A for S {
+    type X = S::Y;
+    fn make(self: S) -> S::Y {
+        return 42;
+    }
+}
+
+fn get<T: A>(x: T) -> T::X {
+    return x.make();
+}
+
+unsafe fn main() -> i32 {
+    return get::<S>(S {});
+}

@@ -40,6 +40,11 @@ using PackMap  = std::unordered_map<std::string, std::vector<const LogosType*>>;
 
 namespace {
 
+static std::string make_pack_arg_name(std::string_view base, size_t idx) {
+    // Use '$' so generated pack names can never collide with source identifiers.
+    return std::string("$pack_arg$") + std::string(base) + "$" + std::to_string(idx);
+}
+
 class Mono {
 public:
     explicit Mono(int max_depth) : max_depth_(max_depth) {}
@@ -322,7 +327,11 @@ private:
 
                 std::string key = t->trait_name + "::" + concrete_base + "::" + t->assoc_type_name;
                 auto ait = assoc_impls_.find(key);
-                if (ait != assoc_impls_.end()) return ait->second;
+                if (ait != assoc_impls_.end()) {
+                    // Collapse nested associated-type chains fully
+                    // (e.g. T::X -> S::Y -> i32), not just one lookup step.
+                    return subst_type(ait->second, {});
+                }
             }
             if (subbed_base != t->assoc_base) {
                 LogosType nt = *t;
@@ -470,7 +479,7 @@ private:
                             for (size_t pi = 0; pi < pit->second.size(); ++pi) {
                                 auto ref = std::make_unique<lir::LExpr>();
                                 ref->type = pit->second[pi];
-                                ref->kind = lir::EVarRef{"__pack_arg_" + pe->var_name + "_" + std::to_string(pi)};
+                                ref->kind = lir::EVarRef{make_pack_arg_name(pe->var_name, pi)};
                                 nc.args.push_back(std::move(ref));
                             }
                             // If callee is a template, add pack types as type_args
@@ -963,7 +972,7 @@ private:
                 auto pit = packs.find(pack_name);
                 if (pit != packs.end()) {
                     for (size_t i = 0; i < pit->second.size(); ++i) {
-                        auto expanded_name = "__pack_arg_" + p.name + "_" + std::to_string(i);
+                        auto expanded_name = make_pack_arg_name(p.name, i);
                         nf.params.push_back({expanded_name, pit->second[i]});
                     }
                 }

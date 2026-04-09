@@ -1,0 +1,9 @@
+package variadic_name_collision;
+
+fn f<T...>(__pack_arg_args_0: i32, args: T...) -> i32 {
+    return __pack_arg_args_0;
+}
+
+unsafe fn main() -> i32 {
+    return f::<i32>(7, 9);
+}

@@ -1031,6 +1031,34 @@ private:
             if (!changed) return t;
             return make_generic_struct(t->struct_name, std::move(new_args));
         }
+        case LogosType::Kind::Class: {
+            if (t->type_args.empty()) return t;
+            std::vector<const LogosType*> new_args;
+            bool changed = false;
+            for (auto* a : t->type_args) {
+                auto* na = subst_type_sema(a, s);
+                changed |= (na != a);
+                new_args.push_back(na);
+            }
+            if (!changed) return t;
+            return make_generic_class(t->struct_name, std::move(new_args));
+        }
+        case LogosType::Kind::Enum: {
+            if (t->type_args.empty()) return t;
+            std::vector<const LogosType*> new_args;
+            bool changed = false;
+            for (auto* a : t->type_args) {
+                auto* na = subst_type_sema(a, s);
+                changed |= (na != a);
+                new_args.push_back(na);
+            }
+            if (!changed) return t;
+            LogosType nt;
+            nt.kind = LogosType::Kind::Enum;
+            nt.enum_name = t->enum_name;
+            nt.type_args = std::move(new_args);
+            return pool_.alloc(std::move(nt));
+        }
         case LogosType::Kind::Tuple: {
             std::vector<const LogosType*> new_elems;
             bool changed = false;
@@ -1046,6 +1074,24 @@ private:
             auto* elem = subst_type_sema(t->elem, s);
             if (elem == t->elem) return t;
             return make_slice_type(elem);
+        }
+        case LogosType::Kind::Closure: {
+            std::vector<const LogosType*> new_params;
+            bool changed = false;
+            for (auto* p : t->closure_params) {
+                auto* np = subst_type_sema(p, s);
+                changed |= (np != p);
+                new_params.push_back(np);
+            }
+            auto* new_ret = subst_type_sema(t->closure_ret, s);
+            changed |= (new_ret != t->closure_ret);
+            if (!changed) return t;
+            
+            LogosType nt;
+            nt.kind = LogosType::Kind::Closure;
+            nt.closure_params = std::move(new_params);
+            nt.closure_ret = new_ret;
+            return pool_.alloc(std::move(nt));
         }
         case LogosType::Kind::AssocType: {
             // Substitute the base type first.
@@ -1070,7 +1116,11 @@ private:
                 // 1. Direct lookup (non-generic impls: key stored under concrete name).
                 std::string key = t->trait_name + "::" + concrete_name + "::" + t->assoc_type_name;
                 auto ait = assoc_type_impls_.find(key);
-                if (ait != assoc_type_impls_.end()) return ait->second.type;
+                if (ait != assoc_type_impls_.end()) {
+                    // Re-run substitution so nested associated types collapse fully
+                    // (e.g. T::X -> S::Y -> i32), not just one lookup step.
+                    return subst_type_sema(ait->second.type, {});
+                }
                 // 2. Base-name fallback (generic impls).
                 std::string base_name = (concrete->kind == LogosType::Kind::Struct || concrete->kind == LogosType::Kind::Class)
                                         ? concrete->struct_name : "";
@@ -1080,7 +1130,7 @@ private:
                     auto ait2 = assoc_type_impls_.find(base_key);
                     if (ait2 != assoc_type_impls_.end()) {
                         auto& entry = ait2->second;
-                        if (entry.impl_type_params.empty()) return entry.type;
+                        if (entry.impl_type_params.empty()) return subst_type_sema(entry.type, {});
                         SemaSubst impl_subst;
                         for (size_t i = 0; i < entry.impl_type_params.size() &&
                                            i < concrete->type_args.size(); ++i)
@@ -1351,6 +1401,8 @@ private:
                 }
             }
             if (is_enum) {
+                auto eit = enums_.find(std::string(name));
+                if (eit != enums_.end()) check_type_bounds(std::string(name), eit->second.type_params, args);
                 LogosType t; t.kind = LogosType::Kind::Enum;
                 t.enum_name = std::string(name);
                 t.type_args = std::move(args);
@@ -4294,6 +4346,7 @@ private:
                 auto sit = subst.find(tp.name);
                 type_args.push_back(sit != subst.end() ? sit->second : error_t());
             }
+            check_type_bounds(std::string(ename), einfo.type_params, type_args);
             LogosType et; et.kind = LogosType::Kind::Enum;
             et.enum_name = std::string(ename);
             et.type_args = std::move(type_args);
@@ -4390,6 +4443,7 @@ private:
                 auto sit = subst.find(tp.name);
                 type_args.push_back(sit != subst.end() ? sit->second : error_t());
             }
+            check_type_bounds(std::string(ename), einfo.type_params, type_args);
             LogosType et; et.kind = LogosType::Kind::Enum;
             et.enum_name = std::string(ename);
             et.type_args = std::move(type_args);
@@ -4513,6 +4567,7 @@ private:
                     args.push_back(it != inferred.end() ? it->second : error_t());
                 }
             }
+            check_type_bounds(std::string(cname), cinfo.type_params, args);
             class_t = make_generic_class(cname, std::move(args));
         } else {
             class_t = make_class_type(cname);

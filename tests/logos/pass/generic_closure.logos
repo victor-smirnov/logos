@@ -1,0 +1,7 @@
+package generic_closure;
+
+fn apply<T>(f: |T| -> T, x: T) -> T { return f(x); }
+
+unsafe fn main() -> i32 {
+    return apply::<i32>(|x: i32| -> i32 { return x * 2; }, 21);
+}
