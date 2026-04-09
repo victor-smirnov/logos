@@ -1,0 +1,13 @@
+package for_u8_bound;
+// for i in 0..n where n: u8 = 200
+// coerce_int(i8(-56), i32) via ExtSIOp gave i32(-56); slt(0,-56) = false
+unsafe fn main() -> i32 {
+    let n: u8 = 200;
+    let mut count: i32 = 0;
+    for i in 0..n {
+        count = count + 1;
+        if count == 5 { break; }
+    }
+    if count == 5 { return 0; }
+    return 1;
+}

@@ -1,0 +1,12 @@
+package for_u32_bound;
+// for i in 0..n where n: u32 > INT32_MAX used slt, making loop never run
+unsafe fn main() -> i32 {
+    let n: u32 = 3000000000;
+    let mut count: i32 = 0;
+    for i in 0..n {
+        count = count + 1;
+        if count == 3 { break; }
+    }
+    if count == 3 { return 0; }
+    return 1;
+}

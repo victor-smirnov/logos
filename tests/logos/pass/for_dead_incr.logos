@@ -1,0 +1,14 @@
+package for_dead_incr;
+// for body always returns → incr_block has no predecessors
+// MLIR LLVM lowering failed on arith.constant in dead block
+fn first_pos(n: i32) -> i32 {
+    for i in 0..n {
+        return i;
+    }
+    return -1;
+}
+fn main() -> i32 {
+    let v: i32 = first_pos(5);
+    if v == 0 { return 0; }
+    return 1;
+}

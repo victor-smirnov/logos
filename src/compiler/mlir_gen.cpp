@@ -1224,14 +1224,26 @@ private:
 
         builder_.setInsertionPointToStart(cond_block);
         auto i_val  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
-        auto hi_val = coerce_int(hi, loop_type);
+        bool hi_unsigned = s.hi->type &&
+            (s.hi->type->kind == LogosType::Kind::U8  ||
+             s.hi->type->kind == LogosType::Kind::U32 ||
+             s.hi->type->kind == LogosType::Kind::U64);
+        mlir::Value hi_val;
+        if (hi_unsigned && hi.getType() != loop_type)
+            hi_val = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, hi);
+        else
+            hi_val = coerce_int(hi, loop_type);
         mlir::Value cond;
         if (s.inclusive)
-            cond = builder_.create<mlir::arith::CmpIOp>(
-                       loc_, mlir::arith::CmpIPredicate::sle, i_val, hi_val);
+            cond = builder_.create<mlir::arith::CmpIOp>(loc_,
+                hi_unsigned ? mlir::arith::CmpIPredicate::ule
+                            : mlir::arith::CmpIPredicate::sle,
+                i_val, hi_val);
         else
-            cond = builder_.create<mlir::arith::CmpIOp>(
-                       loc_, mlir::arith::CmpIPredicate::slt, i_val, hi_val);
+            cond = builder_.create<mlir::arith::CmpIOp>(loc_,
+                hi_unsigned ? mlir::arith::CmpIPredicate::ult
+                            : mlir::arith::CmpIPredicate::slt,
+                i_val, hi_val);
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
         builder_.setInsertionPointToStart(body_block);
@@ -1243,8 +1255,11 @@ private:
             builder_.create<mlir::cf::BranchOp>(loc_, incr_block);
 
         // Increment block: i += 1, branch back to condition.
+        // If no predecessor (body always terminates, no continue), mark unreachable.
         builder_.setInsertionPointToStart(incr_block);
-        {
+        if (incr_block->hasNoPredecessors()) {
+            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        } else {
             auto i_cur  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
             auto one    = builder_.create<mlir::arith::ConstantIntOp>(
                               loc_, 1, mlir::cast<mlir::IntegerType>(loop_type).getWidth());
@@ -1354,7 +1369,9 @@ private:
                 builder_.create<mlir::cf::BranchOp>(loc_, incr_block);
 
             builder_.setInsertionPointToStart(incr_block);
-            {
+            if (incr_block->hasNoPredecessors()) {
+                builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+            } else {
                 auto i_inc = builder_.create<mlir::LLVM::LoadOp>(
                     loc_, builder_.getI64Type(), i_alloca);
                 auto one64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1LL, 64);
@@ -1439,8 +1456,11 @@ private:
             builder_.create<mlir::cf::BranchOp>(loc_, incr_block);
 
         // Increment block: i += 1, reload element, branch back to condition.
+        // If no predecessor (body always terminates, no continue), mark unreachable.
         builder_.setInsertionPointToStart(incr_block);
-        {
+        if (incr_block->hasNoPredecessors()) {
+            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        } else {
             auto i_inc = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
             auto one32 = builder_.create<mlir::arith::ConstantOp>(
                 loc_, builder_.getI32Type(), builder_.getI32IntegerAttr(1));
@@ -2481,9 +2501,17 @@ private:
             return builder_.create<mlir::arith::FPToSIOp>(loc_, target, val);
         }
 
-        // int → ptr
+        // int → ptr: zero-extend unsigned sources, sign-extend signed.
         if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) && target == ptr_type()) {
-            auto v64 = coerce_int(val, builder_.getI64Type());
+            mlir::Value v64;
+            bool src_unsigned = e.operand->type &&
+                (e.operand->type->kind == LogosType::Kind::U8  ||
+                 e.operand->type->kind == LogosType::Kind::U32 ||
+                 e.operand->type->kind == LogosType::Kind::U64);
+            if (src_unsigned && val.getType() != builder_.getI64Type())
+                v64 = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), val);
+            else
+                v64 = coerce_int(val, builder_.getI64Type());
             return builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), v64);
         }
         // ptr → int

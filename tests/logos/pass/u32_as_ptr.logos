@@ -1,0 +1,10 @@
+package u32_as_ptr;
+// u32 cast to pointer was sign-extended (ExtSIOp) instead of zero-extended (ExtUIOp)
+// u32(2147483648) as *const u8 gave 0xFFFFFFFF80000000 instead of 0x80000000
+unsafe fn main() -> i32 {
+    let x: u32 = 2147483648;
+    let p: *const u8 = x as *const u8;
+    let back: u64 = p as u64;
+    if back == 2147483648 { return 0; }
+    return 1;
+}

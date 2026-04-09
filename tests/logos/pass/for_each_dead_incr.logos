@@ -1,0 +1,10 @@
+package for_each_dead_incr;
+// for x in array { return x; } — incr_block has no predecessors when body always terminates
+// MLIR LLVM lowering failed on arith.constant in dead incr_block
+fn main() -> i32 {
+    let arr: [i32; 3] = [0, 1, 2];
+    for x in arr {
+        return x;
+    }
+    return 1;
+}
