@@ -1,0 +1,14 @@
+package unsafe_static_call;
+// Calling an unsafe fn via static call ClassName::method outside unsafe block
+struct Helper {}
+
+impl Helper {
+    unsafe fn compute(self: Helper) -> i32 {
+        return 42;
+    }
+}
+
+fn main() -> i32 {
+    let h = Helper {};
+    return h.compute();  // error: unsafe method requires unsafe context
+}

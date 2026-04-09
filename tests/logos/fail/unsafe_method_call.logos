@@ -1,0 +1,14 @@
+package unsafe_method_call;
+struct Buf { val: i32; }
+
+impl Buf {
+    unsafe fn get(self: Buf) -> i32 {
+        return self.val;
+    }
+}
+
+// Calling unsafe method outside unsafe block — should error
+fn main() -> i32 {
+    let b = Buf { val: 7 };
+    return b.get();
+}

@@ -3184,6 +3184,8 @@ private:
 
         auto& fi = fit->second;
         check_pub_access(fi.is_pub, fi.package, mangled);
+        if (fi.is_unsafe && !inside_unsafe_)
+            error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 
         // Build substitution map for generic class: T → i32, etc.
         SemaSubst class_subst;
@@ -3384,6 +3386,8 @@ private:
             auto mangled_prim = tname + "__" + std::string(method_name);
             auto pfit = funcs_.find(mangled_prim);
             if (pfit != funcs_.end()) {
+                if (pfit->second.is_unsafe && !inside_unsafe_)
+                    error(std::format("call to unsafe method '{}' requires unsafe context", mangled_prim));
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(recv));
                 for (auto& a : arg_exprs) pargs.push_back(std::move(a));
@@ -3406,6 +3410,8 @@ private:
 
         auto& fi = fit->second;
         check_pub_access(fi.is_pub, fi.package, mangled);
+        if (fi.is_unsafe && !inside_unsafe_)
+            error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 
         // Build TypeVar→concrete substitution from the receiver's struct type args.
         // This lets us check e.g. Vec<i32>::push(val: T) with T resolved to i32.
@@ -4095,6 +4101,8 @@ private:
 
         auto& fi = *fi_ptr;
         check_pub_access(fi.is_pub, fi.package, mangled);
+        if (fi.is_unsafe && !inside_unsafe_)
+            error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 
         uint64_t n_args = arg_exprs.size();
         if (n_args != fi.param_types.size()) {

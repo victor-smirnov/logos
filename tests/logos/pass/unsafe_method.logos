@@ -1,0 +1,22 @@
+package unsafe_method;
+// unsafe fn as struct method — must be called from unsafe context
+struct Buf { ptr: *mut i32; }
+
+impl Buf {
+    unsafe fn read(self: Buf) -> i32 {
+        return *self.ptr;
+    }
+}
+
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+fn main() -> i32 {
+    let raw: *mut u8 = malloc(4);
+    let p: *mut i32 = raw as *mut i32;
+    unsafe { *p = 55; }
+    let b = Buf { ptr: p };
+    let v: i32 = unsafe { b.read(); };
+    free(raw);
+    return v;
+}
