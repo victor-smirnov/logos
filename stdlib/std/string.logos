@@ -12,7 +12,7 @@ use std.mem;
 
 fn str_len(s: *const u8) -> i64 {
     let mut n: i64 = 0;
-    while (s[n] as i32) != 0 {
+    while (unsafe { s[n]; } as i32) != 0 {
         n = n + 1;
     }
     return n;

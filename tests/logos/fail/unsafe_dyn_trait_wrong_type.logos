@@ -1,0 +1,20 @@
+package unsafe_dyn_trait_wrong_type;
+
+trait Risky {
+    unsafe fn danger(self: Self, x: i32) -> i32;
+}
+
+struct Bomb { val: i32; }
+
+impl Risky for Bomb {
+    unsafe fn danger(self: Bomb, x: i32) -> i32 { return self.val + x; }
+}
+
+fn run(r: &dyn Risky) -> i32 {
+    return unsafe { r.danger(true); };
+}
+
+fn main() -> i32 {
+    let b = Bomb { val: 77 };
+    return run(b);
+}

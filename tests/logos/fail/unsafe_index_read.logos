@@ -1,0 +1,10 @@
+package unsafe_index_read;
+
+extern fn malloc(n: i64) -> *mut u8;
+fn alloc(size: i64) -> *mut u8 { unsafe { return malloc(size); } }
+
+fn main() -> i32 {
+    let buf: *mut u8 = alloc(4);
+    let p: *mut i32 = buf as *mut i32;
+    return p[0];
+}

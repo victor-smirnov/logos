@@ -3642,6 +3642,28 @@ private:
                             for (uint64_t i = 0; i < args.size(); ++i)
                                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
                         }
+                        uint64_t explicit_args = arg_exprs.size();
+                        size_t expected_explicit = m.param_types.size() > 0
+                            ? m.param_types.size() - 1 : 0;
+                        if (explicit_args != expected_explicit) {
+                            error(std::format("method call '{}': expected {} args, got {}",
+                                              std::string(method_name), expected_explicit, explicit_args));
+                        } else {
+                            SemaSubst self_subst;
+                            self_subst["Self"] = recv->type;
+                            for (uint64_t i = 0; i < explicit_args; ++i) {
+                                auto* at = arg_exprs[i]->type;
+                                auto* pt = subst_type_sema(m.param_types[i + 1], self_subst);
+                                if (at->kind != LogosType::Kind::Error &&
+                                    pt->kind != LogosType::Kind::Error &&
+                                    pt->kind != LogosType::Kind::TypeVar &&
+                                    pt->kind != LogosType::Kind::AssocType &&
+                                    !types_compatible(at, pt))
+                                    error(std::format("method '{}' arg {}: expected {}, got {}",
+                                                      std::string(method_name), i + 1,
+                                                      type_str(pt), type_str(at)));
+                            }
+                        }
                         // Return type: substitute Self → &dyn Trait
                         auto* ret_type = m.ret_type;
                         if (ret_type && ret_type->kind == LogosType::Kind::TypeVar &&
@@ -3912,9 +3934,17 @@ private:
     lir::LExprPtr lower_field_read(TinyMapView node) {
         auto field_name = str_of(node.get(la::FIELD.code));
         auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+        const LogosType* recv_base_t = recv->type;
+        if (recv_base_t && recv_base_t->kind == LogosType::Kind::Ptr) {
+            if (!inside_unsafe_)
+                error("field read through raw pointer requires unsafe context");
+            recv_base_t = recv_base_t->pointee;
+        } else if (recv_base_t && is_ref_like(recv_base_t->kind)) {
+            recv_base_t = recv_base_t->pointee;
+        }
 
         // Check for class receiver
-        auto cname_sv = class_name_from_type(recv->type);
+        auto cname_sv = class_name_from_type(recv_base_t);
         if (!cname_sv.empty()) {
             auto* ft = class_field_type(cname_sv, field_name);
             if (!ft) {
@@ -3936,21 +3966,14 @@ private:
             return make_expr(ft, lir::EFieldRead{std::move(recv), std::string(field_name)});
         }
 
-        auto sname = struct_name_from_type(recv->type);
+        auto sname = struct_name_from_type(recv_base_t);
         if (sname.empty()) {
             error(std::format("field read: receiver is not a struct or class (got {})",
                   type_str(recv->type)));
             return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
         }
         // Resolve the actual struct type (receiver may be a pointer/reference to a struct).
-        const LogosType* recv_struct_t = recv->type;
-        if (recv_struct_t && recv_struct_t->kind == LogosType::Kind::Ptr) {
-            if (!inside_unsafe_)
-                error("field read through raw pointer requires unsafe context");
-            recv_struct_t = recv_struct_t->pointee;
-        } else if (recv_struct_t && is_ref_like(recv_struct_t->kind)) {
-            recv_struct_t = recv_struct_t->pointee;
-        }
+        const LogosType* recv_struct_t = recv_base_t;
         auto* ft = field_type_of_for_type(recv_struct_t, field_name);
         if (!ft) {
             error(std::format("field read: struct '{}' has no field '{}'", sname, field_name));
@@ -4236,6 +4259,9 @@ private:
             arr_type->kind != LogosType::Kind::Error) {
             error(std::format("index read: receiver is not an array, slice, or pointer (got {})",
                   type_str(arr_type)));
+        }
+        if (arr_type->kind == LogosType::Kind::Ptr && !inside_unsafe_) {
+            error("index read through raw pointer requires unsafe context");
         }
 
         const LogosType* elem = error_t();

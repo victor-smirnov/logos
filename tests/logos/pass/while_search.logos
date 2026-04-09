@@ -3,7 +3,7 @@ package while_search;
 fn find(a: *mut i32, n: i32, target: i32) -> i32 {
     let mut i: i32 = 0;
     while i < n {
-        if a[i as i64] == target { return i; }
+        if unsafe { a[i as i64]; } == target { return i; }
         i = i + 1;
     }
     return -1;

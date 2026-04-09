@@ -5,7 +5,7 @@ fn span_sum(s: Span) -> i32 {
     let mut t: i32 = 0;
     let mut i: i32 = 0;
     while i < s.len {
-        t = t + s.ptr[i as i64];
+        t = t + unsafe { s.ptr[i as i64]; };
         i = i + 1;
     }
     return t;

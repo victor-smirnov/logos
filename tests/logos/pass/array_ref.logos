@@ -11,7 +11,7 @@ fn sum_arr(a: *mut i32, n: i32) -> i32 {
     let mut s: i32 = 0;
     let mut i: i32 = 0;
     while i < n {
-        s = s + a[i as i64];
+        s = s + unsafe { a[i as i64]; };
         i = i + 1;
     }
     return s;
