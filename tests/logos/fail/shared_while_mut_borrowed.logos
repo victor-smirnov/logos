@@ -1,0 +1,15 @@
+// Cannot create a shared borrow while a mutable borrow is active.
+package shared_while_mut_borrowed;
+
+fn read(p: &i32) -> i32 { return 0; }
+
+fn test() -> i32 {
+    let mut x: i32 = 5;
+    let mut r: &mut i32 = &mut x;  // mut borrow of x
+    let q: &i32 = &x;              // error: x is mutably borrowed
+    return 0;
+}
+
+fn main() -> i32 {
+    return test();
+}

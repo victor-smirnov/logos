@@ -283,6 +283,9 @@ class BorrowChecker {
             else
                 report(line, std::format("use of moved value '{}'", name));
         }
+        if (it->second.mut_borrowed)
+            report(line, std::format(
+                "cannot use '{}' while it is mutably borrowed", name));
     }
 
     // ── Phase 4: provenance of a reference expression ─────────────────────
@@ -405,15 +408,44 @@ class BorrowChecker {
 
     void visit(const LExprPtr& e, bool consuming, uint32_t line);
 
+    // Take scoped borrows for all EAddrOf nodes reachable through a ref
+    // expression.  Handles the case where the ref is formed conditionally:
+    //   let r = if c { &mut x } else { &mut y };   ← both x and y must be
+    //   let r = match tag { A => &x, _ => &y };      borrowed for the scope.
+    // For non-borrow sub-expressions (condition of if, scrutinee of match,
+    // function calls, etc.) we fall through to a regular visit().
+    void take_ref_borrows(const LExprPtr& e, uint32_t line) {
+        if (!e) return;
+        std::visit([&](auto& k) {
+            using K = std::decay_t<decltype(k)>;
+            if constexpr (std::is_same_v<K, lir::EAddrOf>) {
+                bool is_mut = e->type && e->type->kind == LogosType::Kind::MutRef;
+                take_borrow(k.var_name, is_mut, line);
+            } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
+                visit(k.cond, /*consuming=*/true, line);
+                take_ref_borrows(k.then_val, line);
+                take_ref_borrows(k.else_val, line);
+            } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
+                visit(k.scrut, /*consuming=*/false, line);
+                for (auto& arm : k.arms) {
+                    if (arm.guard) visit(*arm.guard, /*consuming=*/true, line);
+                    take_ref_borrows(arm.value, line);
+                }
+            } else {
+                // EVarRef (ref param forwarded), ECall, EMethodCall, etc.
+                visit(e, /*consuming=*/true, line);
+            }
+        }, e->kind);
+    }
+
     // Visit a sequence of call arguments, handling borrows transiently.
-    // Each EAddrOf arg creates a call-site borrow (released when scope pops).
+    // EAddrOf args (including those nested in if/match) create call-site
+    // borrows released when the scope pops after the call.
     void visit_call_args(const std::vector<LExprPtr>& args, uint32_t line) {
         push_scope();  // call-site borrow scope
         for (auto& a : args) {
-            if (a && std::holds_alternative<lir::EAddrOf>(a->kind)) {
-                auto& k = std::get<lir::EAddrOf>(a->kind);
-                bool is_mut = a->type && a->type->kind == LogosType::Kind::MutRef;
-                take_borrow(k.var_name, is_mut, line);
+            if (a && is_ref_kind(a->type)) {
+                take_ref_borrows(a, line);
             } else {
                 visit(a, /*consuming=*/true, line);
             }
@@ -458,12 +490,10 @@ class BorrowChecker {
 
             // ── Let binding ──────────────────────────────────────────────
             if constexpr (std::is_same_v<S, SLet>) {
-                if (s.value && std::holds_alternative<lir::EAddrOf>(s.value->kind)) {
-                    // let r = &x / &mut x — scoped borrow
-                    auto& k = std::get<lir::EAddrOf>(s.value->kind);
-                    bool is_mut = s.value->type &&
-                                  s.value->type->kind == LogosType::Kind::MutRef;
-                    take_borrow(k.var_name, is_mut, ln);
+                if (s.value && is_ref_kind(s.type)) {
+                    // Ref binding: take scoped borrows for all EAddrOf sources,
+                    // including those nested inside if/match arms.
+                    take_ref_borrows(s.value, ln);
                 } else if (s.value) {
                     visit(s.value, /*consuming=*/true, ln);
                 }
@@ -473,18 +503,19 @@ class BorrowChecker {
 
             // ── Assignment ───────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SAssign>) {
-                if (s.value && std::holds_alternative<lir::EAddrOf>(s.value->kind)) {
-                    auto& k = std::get<lir::EAddrOf>(s.value->kind);
-                    bool is_mut = s.value->type &&
-                                  s.value->type->kind == LogosType::Kind::MutRef;
-                    take_borrow(k.var_name, is_mut, ln);
-                } else {
+                bool is_ref_assign = s.value &&
+                    (prov_.count(s.name) || is_ref_kind(s.value->type));
+                if (is_ref_assign) {
+                    // Ref reassignment: take scoped borrows for all EAddrOf
+                    // sources (may be conditional).
+                    take_ref_borrows(s.value, ln);
+                } else if (s.value) {
                     visit(s.value, /*consuming=*/true, ln);
                 }
                 if (states_.count(s.name))
                     states_[s.name] = VarState{};  // re-own
                 // Update provenance for ref variable reassignment.
-                if (s.value && (prov_.count(s.name) || is_ref_kind(s.value->type)))
+                if (is_ref_assign)
                     prov_[s.name] = prov_of(s.value);
 
             // ── Return ───────────────────────────────────────────────────

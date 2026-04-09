@@ -1,0 +1,15 @@
+// Verify that using a variable while it is mutably borrowed is an error.
+package use_while_mut_borrowed;
+
+fn inc(p: &mut i32) -> i32 { return 0; }
+
+fn test() -> i32 {
+    let mut x: i32 = 5;
+    let mut r: &mut i32 = &mut x;  // scoped mut borrow of x
+    let y: i32 = x;                 // error: x is mutably borrowed
+    return y;
+}
+
+fn main() -> i32 {
+    return test();
+}

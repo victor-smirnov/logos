@@ -1,0 +1,16 @@
+// Shared ref bound through if-expression: both sources are shared-borrowed,
+// so direct reads of Copy values still work, but &mut takes are blocked.
+package cond_ref_shared;
+
+fn test(tag: i32) -> i32 {
+    let x: i32 = 10;
+    let y: i32 = 20;
+    // r borrows either x or y (shared) — reads of x/y are still valid.
+    let r: &i32 = if tag > 0 { &x; } else { &y; };
+    let z: i32 = x;   // OK: shared borrow doesn't block Copy reads
+    return z;
+}
+
+fn main() -> i32 {
+    return test(1);  // expect 10
+}
