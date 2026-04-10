@@ -3,7 +3,7 @@ package trait_self_return;
 
 trait Clone { fn clone(self: Self) -> Self; }
 
-struct Pt { x: i32; y: i32; }
+struct Pt { x: i32, y: i32, }
 
 impl Clone for Pt {
     fn clone(self: Pt) -> Pt {

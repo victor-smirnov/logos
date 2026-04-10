@@ -5,7 +5,7 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 enum Option<T> { None, Some(T), }
 
-struct Range { current: i32; end: i32; }
+struct Range { current: i32, end: i32, }
 
 impl Range {
     unsafe fn next(self: *mut Range) -> Option<i32> {

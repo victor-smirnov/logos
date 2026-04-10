@@ -1,0 +1,16 @@
+package nested_generic;
+// Nested generic types: Foo<Bar<T>> — >> must not be lexed as SHR
+enum Option<T> { Some(T), None }
+struct Wrapper<T> { inner: T, }
+
+fn unwrap_or(w: Wrapper<Option<i32>>, default: i32) -> i32 {
+    match w.inner {
+        Option::Some(v) => { return v; }
+        Option::None    => { return default; }
+    }
+}
+
+fn main() -> i32 {
+    let w: Wrapper<Option<i32>> = Wrapper { inner: Option::Some(42) };
+    return unwrap_or(w, 0);
+}

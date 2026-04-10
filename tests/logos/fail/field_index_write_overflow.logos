@@ -1,5 +1,5 @@
 package field_index_write_overflow;
-struct Buf { data: *mut i32; len: i64; }
+struct Buf { data: *mut i32, len: i64, }
 fn main() -> i32 {
     let b: Buf = Buf { data: 0 as *mut i32, len: 0 };
     unsafe { b.data[0] = 10000000000; }

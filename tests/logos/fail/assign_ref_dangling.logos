@@ -1,7 +1,7 @@
 // Bug: reassigning ref variable to local should be caught
 package assign_ref_dangling;
 
-struct Val { x: i32; }
+struct Val { x: i32, }
 
 fn bad<'a>(p: &'a Val) -> &'a Val {
     let mut r: &'a Val = p;

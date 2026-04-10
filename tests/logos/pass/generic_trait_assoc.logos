@@ -7,7 +7,7 @@ trait Produce {
     fn produce(self: Self) -> Self::Output;
 }
 
-struct Maker<T> { val: T; }
+struct Maker<T> { val: T, }
 
 impl<T> Produce for Maker<T> {
     type Output = T;

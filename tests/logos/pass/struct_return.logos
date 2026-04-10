@@ -1,6 +1,6 @@
 package struct_return;
 // F17: struct as return value from function
-struct Stats { min: i32; max: i32; sum: i32; }
+struct Stats { min: i32, max: i32, sum: i32, }
 
 fn analyze(a: &[i32]) -> Stats {
     let mut mn: i32 = a[0];

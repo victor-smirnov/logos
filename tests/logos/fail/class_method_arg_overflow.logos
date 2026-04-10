@@ -1,6 +1,6 @@
 package class_method_arg_overflow;
 class Counter {
-    val: i32;
+    val: i32,
     unsafe fn add(self: *mut Counter, n: i32) -> i32 {
         return self.val + n;
     }

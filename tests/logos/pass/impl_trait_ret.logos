@@ -5,8 +5,8 @@ fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
 trait Shape { fn area(self: Self) -> i32; }
 
-struct Rect  { w: i32; h: i32; }
-struct Circle { r: i32; }
+struct Rect  { w: i32, h: i32, }
+struct Circle { r: i32, }
 
 impl Shape for Rect   { fn area(self: Rect)   -> i32 { return self.w * self.h; } }
 impl Shape for Circle { fn area(self: Circle) -> i32 { return self.r * self.r; } }

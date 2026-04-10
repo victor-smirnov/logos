@@ -2,7 +2,7 @@ package op_rem;
 // Edge case: operator overloading for Rem (modulo/remainder)
 trait Rem { fn rem(self: Self, rhs: Self) -> Self; }
 
-struct Modular { val: i32; modulus: i32; }
+struct Modular { val: i32, modulus: i32, }
 
 impl Rem for Modular {
     fn rem(self: Modular, rhs: Modular) -> Modular {

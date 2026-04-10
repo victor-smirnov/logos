@@ -6,15 +6,15 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { unsafe fn drop(self: Self); }
 
-struct Res { id: i32; }
+struct Res { id: i32, }
 
 impl Drop for Res {
     unsafe fn drop(self: Res) { printi("r%d ", self.id); }
 }
 
 class Holder {
-    resource: Res;
-    tag: i32;
+    resource: Res,
+    tag: i32,
     unsafe fn create(r: Res, t: i32) -> *mut Holder {
         return new Holder { resource: r, tag: t };
     }

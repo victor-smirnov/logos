@@ -6,7 +6,7 @@ trait Default {
 }
 
 struct Accum {
-    total: i32;
+    total: i32,
 }
 
 impl Default for Accum {

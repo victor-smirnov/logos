@@ -1,7 +1,7 @@
 package generic_static_constructor;
 // Regression: generic static constructor returning concrete type
 struct Box<T> {
-    val: T;
+    val: T,
 }
 impl<T> Box<T> {
     fn wrap(v: T) -> Box<T> {

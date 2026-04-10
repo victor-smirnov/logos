@@ -10,7 +10,7 @@ trait Drop {
 }
 
 struct Resource {
-    id: i32;
+    id: i32,
 }
 
 impl Drop for Resource {
@@ -20,7 +20,7 @@ impl Drop for Resource {
 }
 
 struct Plain {
-    value: i32;
+    value: i32,
 }
 
 unsafe fn main() -> i32 {

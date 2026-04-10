@@ -6,7 +6,7 @@ trait Wrap {
     fn unwrap_i32(self: Self) -> i32;
 }
 
-struct Box<T> { val: T; }
+struct Box<T> { val: T, }
 
 impl<T> Wrap for Box<T> {
     fn unwrap_i32(self: Box<T>) -> i32 { return 99; }

@@ -7,8 +7,8 @@ trait Animal {
     fn speak(self: Self) -> ();
 }
 
-class Dog { val: i32; }
-class Cat { val: i32; }
+class Dog { val: i32, }
+class Cat { val: i32, }
 
 impl Animal for Dog { fn speak(self: Dog) -> () { print("woof\n"); } }
 impl Animal for Cat { fn speak(self: Cat) -> () { print("meow\n"); } }

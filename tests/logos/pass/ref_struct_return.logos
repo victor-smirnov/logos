@@ -2,8 +2,8 @@ package ref_struct_return;
 // Returning &Struct and binding to let r: &Struct should work
 
 struct Data {
-    value: i32;
-    extra: i32;
+    value: i32,
+    extra: i32,
 }
 
 fn get_ref(d: &Data) -> &Data {

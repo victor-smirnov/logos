@@ -1,5 +1,5 @@
 package struct_tuple_field_overflow;
-struct S { pair: (i8, i32); }
+struct S { pair: (i8, i32), }
 fn main() -> i32 {
     let s = S { pair: (200, 5) };
     return 0;

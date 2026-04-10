@@ -1,5 +1,5 @@
 package deref_field_tuple_overflow;
-struct S { pair: (i8, i8); }
+struct S { pair: (i8, i8), }
 fn write_it(p: *mut S) -> i32 {
     unsafe { (*p).pair = (200, 5); }
     return 0;

@@ -6,16 +6,16 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
-struct Inner { id: i32; }
+struct Inner { id: i32, }
 
 impl Drop for Inner {
     fn drop(self: Inner) { printi("i%d ", self.id); }
 }
 
 struct Outer {
-    x: Inner;
-    y: Inner;
-    tag: i32;
+    x: Inner,
+    y: Inner,
+    tag: i32,
 }
 
 impl Drop for Outer {

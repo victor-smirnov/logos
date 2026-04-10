@@ -3,7 +3,7 @@ package unsafe_struct_ptr_field_index_read;
 extern fn malloc(n: i64) -> *mut u8;
 fn alloc(size: i64) -> *mut u8 { unsafe { return malloc(size); } }
 
-struct Box { ptr: *mut i32; }
+struct Box { ptr: *mut i32, }
 
 fn main() -> i32 {
     let buf: *mut u8 = alloc(4);

@@ -3,7 +3,7 @@ package multi_trait;
 trait Scale { fn scale(self: Self, factor: i32) -> Self; }
 trait Dot   { fn dot(self: Self, other: Self) -> i32; }
 
-struct Vec2 { x: i32; y: i32; }
+struct Vec2 { x: i32, y: i32, }
 
 impl Scale for Vec2 {
     fn scale(self: Vec2, factor: i32) -> Vec2 {

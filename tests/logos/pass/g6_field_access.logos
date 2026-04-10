@@ -1,8 +1,8 @@
 package g6_field_access;
 
 struct Vec2 {
-    x: i32;
-    y: i32;
+    x: i32,
+    y: i32,
 }
 
 fn dot(a: Vec2, b: Vec2) -> i32 {

@@ -1,9 +1,9 @@
 package g6_multi_methods;
 
 struct Stack {
-    a: i32;
-    b: i32;
-    size: i32;
+    a: i32,
+    b: i32,
+    size: i32,
 }
 
 impl Stack {

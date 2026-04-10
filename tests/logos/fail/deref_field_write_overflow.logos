@@ -1,5 +1,5 @@
 package deref_field_write_overflow;
-struct Box { val: i32; }
+struct Box { val: i32, }
 fn write_val(p: *mut Box) -> i32 {
     unsafe {
         (*p).val = 10000000000;

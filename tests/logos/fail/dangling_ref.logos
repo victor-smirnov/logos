@@ -1,6 +1,6 @@
 package dangling_ref;
 // Phase 3: cannot return reference to local variable
-struct Val { x: i32; }
+struct Val { x: i32, }
 fn bad() -> &Val {
     let v = Val { x: 42 };
     return &v;   // error: dangling reference

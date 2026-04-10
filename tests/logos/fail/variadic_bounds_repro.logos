@@ -16,7 +16,7 @@ impl Printable for i32 {
 fn print_all<T...: Printable>(args: T...) {
 }
 
-struct NotPrintable { x: i32; }
+struct NotPrintable { x: i32, }
 
 unsafe fn main() -> i32 {
     let np: NotPrintable = NotPrintable { x: 42 };

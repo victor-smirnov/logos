@@ -1,6 +1,6 @@
 package struct_default_vals;
 // Edge case: struct initialized with computed fields, struct copy semantics
-struct Acc { total: i32; count: i32; }
+struct Acc { total: i32, count: i32, }
 
 unsafe fn add_to(a: *mut Acc, v: i32) {
     a.total = a.total + v;

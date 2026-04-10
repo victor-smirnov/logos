@@ -6,8 +6,8 @@ trait Greet {
     fn name(self: Self) -> i32;
 }
 
-struct A { v: i32; }
-struct B { v: i32; }
+struct A { v: i32, }
+struct B { v: i32, }
 
 impl Greet for A {
     fn name(self: A) -> i32 { return self.v; }

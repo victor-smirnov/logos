@@ -1,5 +1,5 @@
 package field_write_tuple_arr_overflow;
-struct S { pair: ([i8; 3], i32); }
+struct S { pair: ([i8; 3], i32), }
 fn main() -> i32 {
     let mut s = S { pair: ([0, 0, 0], 0) };
     s.pair = ([1, 200, 3], 0);

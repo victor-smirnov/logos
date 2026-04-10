@@ -3,8 +3,8 @@ package generic_trait;
 // Tests generic function with trait bound over concrete struct types.
 trait Measure { fn measure(self: Self) -> i32; }
 
-struct Rect { w: i32; h: i32; }
-struct Circle { r: i32; }
+struct Rect { w: i32, h: i32, }
+struct Circle { r: i32, }
 
 impl Measure for Rect {
     fn measure(self: Rect) -> i32 { return self.w * self.h; }

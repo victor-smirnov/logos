@@ -6,7 +6,7 @@ trait Wrapper {
     fn unwrap(self: Self) -> Self::Inner;
 }
 
-struct BadBox { val: i32; }
+struct BadBox { val: i32, }
 
 // Missing: type Inner = i32;
 impl Wrapper for BadBox {

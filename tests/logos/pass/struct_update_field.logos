@@ -1,6 +1,6 @@
 package struct_update_field;
 // Edge case: updating struct fields through pointer, reading back
-struct Point { x: i32; y: i32; }
+struct Point { x: i32, y: i32, }
 
 unsafe fn shift(p: *mut Point, dx: i32, dy: i32) {
     p.x = p.x + dx;

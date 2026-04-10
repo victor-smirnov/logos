@@ -2,8 +2,8 @@ package type_alias_struct_lit;
 // Regression: type alias for generic struct should work in struct literals
 
 struct Pair<T> {
-    first: T;
-    second: T;
+    first: T,
+    second: T,
 }
 
 type IntPair = Pair<i32>;

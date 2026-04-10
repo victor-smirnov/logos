@@ -2,8 +2,8 @@ package mut_ref_field_write;
 // Writing a field through &mut Struct should not require unsafe
 
 struct Counter {
-    value: i32;
-    step: i32;
+    value: i32,
+    step: i32,
 }
 
 fn increment(c: &mut Counter) {

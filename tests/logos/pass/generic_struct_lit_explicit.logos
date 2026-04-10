@@ -1,0 +1,33 @@
+package generic_struct_lit_explicit;
+
+// Regression test: Struct::<T> { ... } syntax was not in grammar.
+// Also tests generic fn returning generic struct with explicit type args.
+
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+fn make_pair<A, B>(a: A, b: B) -> Pair<A, B> {
+    return Pair::<A, B> { first: a, second: b };
+}
+
+struct Wrap<T> {
+    val: T,
+}
+
+fn main() -> i32 {
+    // Explicit type args in struct literal
+    let w = Wrap::<i32> { val: 42 };
+    if w.val \!= 42 { return 1; }
+
+    // Generic fn returning generic struct
+    let p = make_pair::<i32, i32>(10, 32);
+    if p.first + p.second \!= 42 { return 2, }
+
+    // Explicit type args for struct with 2 params
+    let q = Pair::<i32, bool> { first: 42, second: true };
+    if q.first \!= 42 { return 3; }
+
+    return 42;
+}

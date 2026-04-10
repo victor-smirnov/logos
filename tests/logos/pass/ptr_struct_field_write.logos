@@ -1,7 +1,7 @@
 package ptr_struct_field_write;
 // Regression: field write through *mut T pointer
 struct Cell {
-    val: i32;
+    val: i32,
 }
 unsafe fn main() -> i32 {
     let mut c: Cell = Cell { val: 0 };

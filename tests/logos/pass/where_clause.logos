@@ -6,7 +6,7 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 trait Show { fn show(self: Self) -> i32; }
 trait Double { fn double(self: Self) -> i32; }
 
-struct Num { val: i32; }
+struct Num { val: i32, }
 impl Show   for Num { fn show(self: Num) -> i32   { return self.val; } }
 impl Double for Num { fn double(self: Num) -> i32 { return self.val * 2; } }
 

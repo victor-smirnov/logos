@@ -1,7 +1,7 @@
 // Trait method with args beyond self, dispatched through generic bound
 package trait_method_args;
 trait Combine { fn combine(self: Self, other: Self) -> i32; }
-struct Pt { x: i32; y: i32; }
+struct Pt { x: i32, y: i32, }
 impl Combine for Pt {
     fn combine(self: Pt, other: Pt) -> i32 {
         return self.x + self.y + other.x + other.y;

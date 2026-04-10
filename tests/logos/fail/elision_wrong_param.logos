@@ -1,5 +1,5 @@
 package elision_wrong_param;
 // Elision: one ref param 'a' but returning address of non-param
-struct Val { x: i32; }
+struct Val { x: i32, }
 fn wrong(a: &Val, b: Val) -> &Val { return &b; }
 fn main() -> i32 { return 0; }

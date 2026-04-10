@@ -6,8 +6,8 @@
 package point;
 
 struct Point {
-    x: i32;
-    y: i32;
+    x: i32,
+    y: i32,
 
     unsafe fn sum(self: *const Point) -> i32 {
         return self.x + self.y;

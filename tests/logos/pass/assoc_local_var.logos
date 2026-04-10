@@ -6,7 +6,7 @@ trait Wrap {
     fn unwrap(self: Self) -> Self::Inner;
 }
 
-struct BoxI32 { val: i32; }
+struct BoxI32 { val: i32, }
 
 impl Wrap for BoxI32 {
     type Inner = i32;

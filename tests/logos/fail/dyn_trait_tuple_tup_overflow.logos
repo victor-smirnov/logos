@@ -1,6 +1,6 @@
 package dyn_trait_tuple_tup_overflow;
 trait Foo { fn bar(self: &Self, pair: ((i8, i32), i32)) -> i32; }
-struct S { x: i32; }
+struct S { x: i32, }
 impl Foo for S { fn bar(self: &S, pair: ((i8, i32), i32)) -> i32 { return self.x; } }
 fn call_it(x: &dyn Foo) -> i32 { return x.bar(((200, 5), 0)); }
 fn main() -> i32 { return 0; }

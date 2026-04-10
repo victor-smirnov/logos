@@ -354,13 +354,13 @@
     // impl Trait for Type { fn method(...) { ... } }
     // impl Type { fn method(...) { ... } }   — standalone (no trait)
     // impl<T> Trait for Struct<T> { ... }   — generic trait impl
-    impl_block <- KW_IMPL type_param_list IDENT LT type_arg_list GT KW_FOR simple_type LBRACE impl_item* RBRACE
+    impl_block <- KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, ITEMS: $... }
-                / KW_IMPL IDENT LT type_arg_list GT KW_FOR simple_type LBRACE impl_item* RBRACE
+                / KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE_PARAMS: $4, TYPE: $7, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, ITEMS: $... }
@@ -432,11 +432,11 @@
     struct_def <- KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6 }
 
-    field_def <- KW_PUB IDENT COLON type_ref SEMI
+    field_def <- KW_PUB IDENT COLON type_ref COMMA
               => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
-               / IDENT COLON type_ref SEMI
+               / IDENT COLON type_ref COMMA
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
-               / IDENT DOTDOTDOT COLON type_ref SEMI
+               / IDENT DOTDOTDOT COLON type_ref COMMA
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $4, IS_VARIADIC: 1 }
 
     // method_def: passthrough — static, pub, or regular fn
@@ -553,7 +553,7 @@
                    => { CODE: LIFETIME_PARAM, NAME: $1 }
                     / type_ref
 
-    simple_type <- IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT
+    simple_type <- IDENT LT type_or_lt_arg (COMMA type_or_lt_arg)* GT_TYPE
                 => { CODE: GENERIC_INST, NAME: $1, ITEMS: $... }
                  / IDENT
                 => { CODE: TYPE_REF, NAME: $1 }
@@ -783,6 +783,7 @@
 
     // ── Primary expressions (base of a postfix chain) ─────────────
     primary_expr <- new_expr         // new ClassName { fields }  — before struct_lit
+                  / generic_struct_lit // IDENT::<T> { fields } — before struct_lit
                   / struct_lit       // IDENT { fields }  — before plain IDENT
                   / arr_fill_lit     // [value; N]  — before arr_lit (avoids ambiguity)
                   / arr_lit          // [e1, e2, ...]
@@ -803,7 +804,7 @@
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
     // ── Class new expression: new ClassName { field: expr, ... } ──
-    new_expr <- KW_NEW IDENT LT type_arg_list GT LBRACE (field_init (COMMA field_init)*)? RBRACE
+    new_expr <- KW_NEW IDENT LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)*)? RBRACE
              => { CODE: NEW_EXPR, NAME: $2, TYPE_PARAMS: $4, ITEMS: $... }
               / KW_NEW IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
              => { CODE: NEW_EXPR, NAME: $2, ITEMS: $... }
@@ -815,6 +816,10 @@
              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
 
     // ── Struct literal: TypeName { field: expr, ... } ─────────────
+    // Generic form: TypeName::<T, U> { field: expr, ... }
+    generic_struct_lit <- IDENT COLONCOLON LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)*)? RBRACE
+                       => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, ITEMS: $... }
+
     struct_lit <- IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
                => { CODE: STRUCT_LIT, NAME: $1, ITEMS: $... }
 
@@ -882,7 +887,7 @@
                   => { ITEMS: $... }
 
     // ── Free function call: fn(args) or fn::<T>(args) or Class::method(args) ─
-    call_expr <- IDENT COLONCOLON LT type_arg_list GT LPAREN call_arg_list? RPAREN
+    call_expr <- IDENT COLONCOLON LT type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
               => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
                / IDENT COLONCOLON IDENT  LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }

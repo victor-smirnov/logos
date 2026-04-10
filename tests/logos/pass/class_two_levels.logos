@@ -1,7 +1,7 @@
 package class_two_levels;
 // F27: 2-level class hierarchy with method override
 class Animal {
-    val: i32;
+    val: i32,
     unsafe fn speak(self: *mut Animal) -> i32 { return self.val; }
 }
 class Dog extends Animal {

@@ -4,7 +4,7 @@ trait Risky {
     unsafe fn danger(self: Self) -> i32;
 }
 
-struct Bomb { val: i32; }
+struct Bomb { val: i32, }
 
 impl Risky for Bomb {
     unsafe fn danger(self: Bomb) -> i32 { return self.val; }

@@ -1,7 +1,7 @@
 package class_abstract;
 // F27: class with inheritance — methods on derived type
 class Animal {
-    val: i32;
+    val: i32,
     unsafe fn get(self: *mut Animal) -> i32 { return self.val; }
     unsafe fn doubled(self: *mut Animal) -> i32 { return self.val * 2; }
 }

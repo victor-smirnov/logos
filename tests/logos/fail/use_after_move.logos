@@ -2,7 +2,7 @@ package use_after_move;
 trait Drop { fn drop(self: Self); }
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
-struct Res { id: i32; }
+struct Res { id: i32, }
 impl Drop for Res { fn drop(self: Res) { printi("%d\n", self.id); } }
 fn consume(r: Res) -> i32 { return r.id; }
 fn main() -> i32 {

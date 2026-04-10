@@ -1,5 +1,5 @@
 package method_tuple_arr_overflow;
-struct S { x: i32; }
+struct S { x: i32, }
 impl S {
     fn take(self: S, pair: ([i8; 3], i32)) -> i32 { return self.x; }
 }

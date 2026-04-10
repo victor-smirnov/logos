@@ -3,7 +3,7 @@ package trait_void_dispatch;
 extern fn puts(s: *const u8) -> i32;
 fn print(s: *const u8) { unsafe { puts(s); } }
 trait Notify { fn notify(self: Self); }
-struct Msg { code: i32; }
+struct Msg { code: i32, }
 impl Notify for Msg {
     fn notify(self: Msg) { print("notified"); }
 }

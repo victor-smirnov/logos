@@ -1,6 +1,6 @@
 package unsafe_method;
 // unsafe fn as struct method — must be called from unsafe context
-struct Buf { ptr: *mut i32; }
+struct Buf { ptr: *mut i32, }
 
 impl Buf {
     unsafe fn read(self: Buf) -> i32 {

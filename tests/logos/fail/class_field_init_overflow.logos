@@ -1,6 +1,6 @@
 package class_field_init_overflow;
 class Box {
-    val: i32;
+    val: i32,
     static fn create(v: i32) -> *mut Box {
         return new Box { val: v };
     }

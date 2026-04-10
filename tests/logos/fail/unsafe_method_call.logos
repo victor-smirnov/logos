@@ -1,5 +1,5 @@
 package unsafe_method_call;
-struct Buf { val: i32; }
+struct Buf { val: i32, }
 
 impl Buf {
     unsafe fn get(self: Buf) -> i32 {

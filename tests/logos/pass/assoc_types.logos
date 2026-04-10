@@ -9,8 +9,8 @@ trait Wrap {
     fn rewrap(self: Self, val: Self::Inner) -> Self::Inner;
 }
 
-struct BoxI32 { val: i32; }
-struct BoxBool { val: bool; }
+struct BoxI32 { val: i32, }
+struct BoxBool { val: bool, }
 
 impl Wrap for BoxI32 {
     type Inner = i32;

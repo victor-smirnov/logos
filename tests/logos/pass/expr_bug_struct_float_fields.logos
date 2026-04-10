@@ -2,8 +2,8 @@ package expr_bug_struct_float_fields;
 // Bug fix: struct fields of type f32/f64 should accept FloatLit (f64) values
 
 struct Vec2 {
-    x: f32;
-    y: f32;
+    x: f32,
+    y: f32,
 }
 
 fn dot(a: Vec2, b: Vec2) -> f32 {

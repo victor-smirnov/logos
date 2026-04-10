@@ -4,8 +4,8 @@ trait Area {
     fn area(self: Self) -> i32;
 }
 
-struct Square { side: i32; }
-struct Triangle { base: i32; height: i32; }
+struct Square { side: i32, }
+struct Triangle { base: i32, height: i32, }
 
 impl Area for Square {
     fn area(self: Square) -> i32 {

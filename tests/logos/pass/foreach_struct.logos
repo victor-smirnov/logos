@@ -1,6 +1,6 @@
 package foreach_struct;
 // F09: for-each over array of structs
-struct Point { x: i32; y: i32; }
+struct Point { x: i32, y: i32, }
 unsafe fn main() -> i32 {
     let pts: [Point; 3] = [
         Point { x: 1, y: 10 },

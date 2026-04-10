@@ -5,7 +5,7 @@ trait SafeTrait {
 }
 
 struct MyStruct {
-    x: i32;
+    x: i32,
 }
 
 // This should FAIL because safe_method is safe in trait but unsafe in impl

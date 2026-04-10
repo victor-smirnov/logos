@@ -9,7 +9,7 @@ trait Drop {
 }
 
 struct Resource {
-    id: i32;
+    id: i32,
 }
 
 impl Drop for Resource {

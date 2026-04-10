@@ -1,5 +1,5 @@
 package struct_method_arr_overflow;
-struct S { x: i32; }
+struct S { x: i32, }
 impl S {
     fn take_arr(self: S, arr: [i8; 3]) -> i32 { return self.x; }
 }

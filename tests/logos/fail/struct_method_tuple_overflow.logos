@@ -1,5 +1,5 @@
 package struct_method_tuple_overflow;
-struct S { x: i32; }
+struct S { x: i32, }
 impl S {
     fn take_pair(self: S, p: (i8, i8)) -> i32 { return self.x; }
 }

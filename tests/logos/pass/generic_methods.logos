@@ -2,8 +2,8 @@
 package generic_methods;
 
 struct Pair<T> {
-    first: T;
-    second: T;
+    first: T,
+    second: T,
     unsafe fn swap(self: *const Pair<T>) -> Pair<T> {
         return Pair { first: self.second, second: self.first };
     }

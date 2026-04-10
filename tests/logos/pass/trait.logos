@@ -1,10 +1,10 @@
 package t;
 trait Summable { fn sum(self: Self) -> i32; }
-struct Pair { x: i32; y: i32; }
+struct Pair { x: i32, y: i32, }
 impl Summable for Pair {
     fn sum(self: Pair) -> i32 { return self.x + self.y; }
 }
-struct Triple { a: i32; b: i32; c: i32; }
+struct Triple { a: i32, b: i32, c: i32, }
 impl Summable for Triple {
     fn sum(self: Triple) -> i32 { return self.a + self.b + self.c; }
 }

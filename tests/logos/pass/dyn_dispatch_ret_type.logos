@@ -9,7 +9,7 @@ trait Measure {
     fn name(self: Self) -> *const u8;
 }
 
-struct BigThing { n: i64; }
+struct BigThing { n: i64, }
 
 impl Measure for BigThing {
     fn size(self: BigThing) -> i64 {

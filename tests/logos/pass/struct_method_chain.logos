@@ -1,6 +1,6 @@
 package struct_method_chain;
 // F18: method chaining, self-mutation via *mut
-struct Counter { n: i32; }
+struct Counter { n: i32, }
 
 impl Counter {
     static fn create() -> Counter { return Counter { n: 0 }; }

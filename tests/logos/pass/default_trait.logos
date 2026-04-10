@@ -6,8 +6,8 @@ trait Default {
 }
 
 struct Point {
-    x: i32;
-    y: i32;
+    x: i32,
+    y: i32,
 }
 
 impl Default for Point {

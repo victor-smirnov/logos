@@ -9,8 +9,8 @@ enum Option<T> {
 }
 
 struct Range {
-    current: i32;
-    end: i32;
+    current: i32,
+    end: i32,
 }
 
 impl Range {

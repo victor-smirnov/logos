@@ -3,7 +3,7 @@ package move_in_call;
 
 trait Drop { fn drop(self: Self); }
 
-struct Res { id: i32; }
+struct Res { id: i32, }
 impl Drop for Res {
     fn drop(self: Res) { }
 }

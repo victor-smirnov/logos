@@ -2,8 +2,8 @@
 package generic_struct;
 
 struct Pair<T> {
-    first: T;
-    second: T;
+    first: T,
+    second: T,
 }
 
 fn make_pair<T>(a: T, b: T) -> Pair<T> {

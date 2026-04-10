@@ -1,7 +1,7 @@
 // Operator overloading through generic trait bound: v + v on TypeVar
 package op_generic_add;
 trait Add { fn add(self: Self, rhs: Self) -> Self; }
-struct Vec2 { x: i32; y: i32; }
+struct Vec2 { x: i32, y: i32, }
 impl Add for Vec2 {
     fn add(self: Vec2, rhs: Vec2) -> Vec2 {
         return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };

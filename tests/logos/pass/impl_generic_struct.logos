@@ -4,8 +4,8 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 struct Stack<T> {
-    data: [T; 8];
-    top: i32;
+    data: [T; 8],
+    top: i32,
 }
 
 impl<T> Stack<T> {

@@ -3,7 +3,7 @@ package op_overload;
 trait Add { fn add(self: Self, rhs: Self) -> Self; }
 trait Eq { fn eq(self: Self, rhs: Self) -> bool; }
 
-struct Vec2 { x: i32; y: i32; }
+struct Vec2 { x: i32, y: i32, }
 
 impl Add for Vec2 {
     fn add(self: Vec2, rhs: Vec2) -> Vec2 {

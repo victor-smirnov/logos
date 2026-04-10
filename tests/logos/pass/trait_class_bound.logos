@@ -7,8 +7,8 @@ trait Power { unsafe fn power(self: Self) -> i32; }
 
 // --- class 1: Player implements Score ---
 class Player {
-    hp: i32;
-    xp: i32;
+    hp: i32,
+    xp: i32,
     unsafe fn create(hp: i32, xp: i32) -> *mut Player {
         return new Player { hp: hp, xp: xp };
     }
@@ -19,7 +19,7 @@ impl Score for Player {
 
 // --- class 2: Enemy implements Score (different class, same trait) ---
 class Enemy {
-    strength: i32;
+    strength: i32,
     unsafe fn create(s: i32) -> *mut Enemy {
         return new Enemy { strength: s };
     }
@@ -30,8 +30,8 @@ impl Score for Enemy {
 
 // --- class 3: Versatile implements both Score and Power ---
 class Versatile {
-    s: i32;
-    p: i32;
+    s: i32,
+    p: i32,
     unsafe fn create(s: i32, p: i32) -> *mut Versatile {
         return new Versatile { s: s, p: p };
     }

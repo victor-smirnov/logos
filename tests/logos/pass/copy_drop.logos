@@ -7,7 +7,7 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 trait Drop { fn drop(self: Self); }
 trait Copy {}
 
-struct Token { id: i32; }
+struct Token { id: i32, }
 
 impl Drop for Token {
     fn drop(self: Token) { printi("drop %d\n", self.id); }

@@ -1,7 +1,7 @@
 package enum_in_struct;
 // C-style enum stored as a struct field
 enum Dir { North = 0, East = 1, South = 2, West = 3 }
-struct Walker { x: i32; y: i32; dir: Dir; }
+struct Walker { x: i32, y: i32, dir: Dir, }
 fn step(w: Walker) -> i32 {
     match w.dir {
         Dir::North => { return w.y + 1; }

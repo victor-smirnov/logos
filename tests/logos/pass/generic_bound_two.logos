@@ -3,7 +3,7 @@ package generic_bound_two;
 trait ToI32  { fn to_i32(self: Self) -> i32; }
 trait Double { fn double(self: Self) -> i32; }
 
-struct Wrap { v: i32; }
+struct Wrap { v: i32, }
 
 impl ToI32 for Wrap {
     fn to_i32(self: Wrap) -> i32 { return self.v; }

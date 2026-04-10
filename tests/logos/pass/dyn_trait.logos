@@ -3,8 +3,8 @@ package dyn_trait;
 
 trait Area { fn area(self: Self) -> i32; }
 
-struct Rect { w: i32; h: i32; }
-struct Square { s: i32; }
+struct Rect { w: i32, h: i32, }
+struct Square { s: i32, }
 
 impl Area for Rect {
     fn area(self: Rect) -> i32 { return self.w * self.h; }

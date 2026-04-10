@@ -1,6 +1,6 @@
 package generic_struct_method;
 // Edge case: generic struct with methods, multiple instantiations
-struct Box<T> { val: T; }
+struct Box<T> { val: T, }
 
 fn unbox_i32(b: Box<i32>) -> i32 { return b.val; }
 fn unbox_bool(b: Box<bool>) -> bool { return b.val; }

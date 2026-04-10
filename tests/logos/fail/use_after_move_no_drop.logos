@@ -1,0 +1,9 @@
+package use_after_move_no_drop;
+// Regression: move tracking must work for structs without Drop impl
+struct Owned { val: i32, }
+fn consume(o: Owned) -> i32 { return o.val; }
+fn main() -> i32 {
+    let x = Owned { val: 42 };
+    let _ = consume(x);
+    return x.val;  // error: use of moved variable 'x'
+}

@@ -7,7 +7,7 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 trait Drop { unsafe fn drop(self: Self); }
 
 class Handle {
-    id: i32;
+    id: i32,
     unsafe fn create(id: i32) -> *mut Handle {
         return new Handle { id: id };
     }

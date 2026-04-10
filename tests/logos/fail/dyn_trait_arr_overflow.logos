@@ -1,6 +1,6 @@
 package dyn_trait_arr_overflow;
 trait Foo { fn bar(self: &Self, arr: [i8; 3]) -> i32; }
-struct S { x: i32; }
+struct S { x: i32, }
 impl Foo for S { fn bar(self: &S, arr: [i8; 3]) -> i32 { return self.x; } }
 fn call_it(x: &dyn Foo) -> i32 { return x.bar([1, 200, 3]); }
 fn main() -> i32 { return 0; }

@@ -3,9 +3,9 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 class Node {
-    key:   i32;
-    left:  *mut Node;
-    right: *mut Node;
+    key:   i32,
+    left:  *mut Node,
+    right: *mut Node,
 }
 
 unsafe fn insert(root: *mut Node, key: i32) -> *mut Node {

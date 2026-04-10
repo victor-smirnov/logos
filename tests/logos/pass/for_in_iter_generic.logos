@@ -9,8 +9,8 @@ enum Option<T> {
 }
 
 struct Counter {
-    val: i32;
-    max: i32;
+    val: i32,
+    max: i32,
 }
 
 impl Counter {

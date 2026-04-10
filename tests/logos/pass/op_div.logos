@@ -1,7 +1,7 @@
 package op_div;
 // operator overloading: Div trait
 trait Div { fn div(self: Self, rhs: Self) -> Self; }
-struct Frac { num: i32; den: i32; }
+struct Frac { num: i32, den: i32, }
 impl Div for Frac {
     fn div(self: Frac, rhs: Frac) -> Frac {
         return Frac { num: self.num * rhs.den, den: self.den * rhs.num };

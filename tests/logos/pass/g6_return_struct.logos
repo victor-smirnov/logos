@@ -1,8 +1,8 @@
 package g6_return_struct;
 
 struct Pair {
-    first: i32;
-    second: i32;
+    first: i32,
+    second: i32,
 }
 
 fn make_pair(a: i32, b: i32) -> Pair {

@@ -7,7 +7,7 @@ fn identity<T>(x: T) -> T { return x; }
 // Trait-bound: T inferred from struct type, bound checked automatically
 trait Describable { fn describe(self: Self) -> i32; }
 
-struct Thing { val: i32; }
+struct Thing { val: i32, }
 impl Describable for Thing {
     fn describe(self: Thing) -> i32 { return self.val; }
 }

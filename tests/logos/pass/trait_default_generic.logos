@@ -4,7 +4,7 @@ trait HasVal {
     fn val(self: Self) -> i32 { return 0; }
 }
 struct Zero {}
-struct Five { n: i32; }
+struct Five { n: i32, }
 impl HasVal for Zero {}
 impl HasVal for Five {
     fn val(self: Five) -> i32 { return self.n; }

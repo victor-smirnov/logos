@@ -1,9 +1,10 @@
 package tuple_in_struct;
 // F20: tuple as struct field
 struct Segment {
-    start: (i32, i32);
-    end:   (i32, i32);
+    start: (i32, i32),
+    end:   (i32, i32),
 }
+impl Copy for Segment {}
 fn dx(s: Segment) -> i32 { return s.end.0 - s.start.0; }
 fn dy(s: Segment) -> i32 { return s.end.1 - s.start.1; }
 unsafe fn main() -> i32 {

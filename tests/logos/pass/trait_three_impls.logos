@@ -2,9 +2,9 @@ package trait_three_impls;
 // Edge case: same trait implemented by three types, selected by generic
 trait Score { fn score(self: Self) -> i32; }
 
-struct Gold   { pts: i32; }
-struct Silver { pts: i32; }
-struct Bronze { pts: i32; }
+struct Gold   { pts: i32, }
+struct Silver { pts: i32, }
+struct Bronze { pts: i32, }
 
 impl Score for Gold   { fn score(self: Gold)   -> i32 { return self.pts * 3; } }
 impl Score for Silver { fn score(self: Silver) -> i32 { return self.pts * 2; } }

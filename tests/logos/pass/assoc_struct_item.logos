@@ -1,14 +1,14 @@
 // Associated type = struct type (not just primitives)
 package assoc_struct_item;
 
-struct Pair { a: i32; b: i32; }
+struct Pair { a: i32, b: i32, }
 
 trait Maker {
     type Product;
     fn make(self: Self) -> Self::Product;
 }
 
-struct PairFactory { x: i32; y: i32; }
+struct PairFactory { x: i32, y: i32, }
 
 impl Maker for PairFactory {
     type Product = Pair;

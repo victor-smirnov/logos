@@ -6,7 +6,7 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
-struct A { id: i32; }
+struct A { id: i32, }
 
 impl Drop for A {
     fn drop(self: A) { printi("a%d ", self.id); }
@@ -14,8 +14,8 @@ impl Drop for A {
 
 // B has explicit Drop and a droppable field A
 struct B {
-    inner: A;
-    tag: i32;
+    inner: A,
+    tag: i32,
 }
 
 impl Drop for B {
@@ -23,7 +23,7 @@ impl Drop for B {
 }
 
 // C has NO explicit Drop but has droppable field B — drop glue fires
-struct C { nested: B; }
+struct C { nested: B, }
 
 unsafe fn main() -> i32 {
     let result: i32 = 42;

@@ -3,7 +3,7 @@ package mut_borrow_blocks_move;
 trait Drop { fn drop(self: Self); }
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
-struct Buf { data: i32; }
+struct Buf { data: i32, }
 impl Drop for Buf { fn drop(self: Buf) { printi("%d\n", self.data); } }
 fn consume(b: Buf) -> i32 { return b.data; }
 fn main() -> i32 {

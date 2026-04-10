@@ -2,8 +2,8 @@ package vec_usage;
 // Vec<T>: generic stack-allocated struct with inline array backing
 
 struct Vec<T> {
-    data: [T; 64];
-    len: i64;
+    data: [T; 64],
+    len: i64,
 }
 
 impl<T> Vec<T> {

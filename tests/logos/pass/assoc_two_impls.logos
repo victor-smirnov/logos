@@ -7,8 +7,8 @@ trait Doubled {
     fn doubled(self: Self) -> Self::Value;
 }
 
-struct I32Box { n: i32; }
-struct I64Box { n: i64; }
+struct I32Box { n: i32, }
+struct I64Box { n: i64, }
 
 impl Doubled for I32Box {
     type Value = i32;

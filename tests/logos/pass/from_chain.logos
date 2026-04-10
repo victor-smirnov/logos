@@ -6,11 +6,11 @@ trait From<T> {
 }
 
 struct A {
-    value: i32;
+    value: i32,
 }
 
 struct B {
-    value: i32;
+    value: i32,
 }
 
 impl From<i32> for A {

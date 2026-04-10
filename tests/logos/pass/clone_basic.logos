@@ -4,7 +4,7 @@ fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
 trait Clone { fn clone(self: Self) -> Self; }
 
-struct Point { x: i32; y: i32; }
+struct Point { x: i32, y: i32, }
 
 impl Clone for Point {
     fn clone(self: Point) -> Point {

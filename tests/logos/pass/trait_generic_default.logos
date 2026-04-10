@@ -4,7 +4,7 @@ trait Convert<T> {
     fn convert(self: Self) -> T;
     fn tag(self: Self) -> i32 { return 1; }
 }
-struct Num { v: i32; }
+struct Num { v: i32, }
 impl Convert<i32> for Num {
     fn convert(self: Num) -> i32 { return self.v; }
 }

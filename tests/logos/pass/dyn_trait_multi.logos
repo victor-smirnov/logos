@@ -2,9 +2,9 @@ package dyn_trait_multi;
 // Edge case: &dyn Trait with 3 different implementations
 trait Shape { fn area(self: Self) -> i32; }
 
-struct Tri   { base: i32; height: i32; }
-struct Rect2 { w: i32; h: i32; }
-struct Circ  { r: i32; }  // approx area = r*r*3
+struct Tri   { base: i32, height: i32, }
+struct Rect2 { w: i32, h: i32, }
+struct Circ  { r: i32, }  // approx area = r*r*3
 
 impl Shape for Tri   { fn area(self: Tri)   -> i32 { return self.base * self.height / 2; } }
 impl Shape for Rect2 { fn area(self: Rect2) -> i32 { return self.w * self.h; } }

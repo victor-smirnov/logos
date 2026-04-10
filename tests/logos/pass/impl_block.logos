@@ -1,8 +1,8 @@
 package impl_block;
 
 struct Point {
-    x: i32;
-    y: i32;
+    x: i32,
+    y: i32,
 }
 
 impl Point {

@@ -1,0 +1,1 @@
+error [fn main]: use of moved variable 'x'

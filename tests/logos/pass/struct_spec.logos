@@ -2,14 +2,14 @@
 package struct_spec;
 
 struct Pair<T> {
-    first: T;
-    second: T;
+    first: T,
+    second: T,
 }
 
 struct Pair<i32> {
-    first: i32;
-    second: i32;
-    bonus: i32;
+    first: i32,
+    second: i32,
+    bonus: i32,
 }
 
 fn make_pair_i32(a: i32, b: i32) -> Pair<i32> {

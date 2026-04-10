@@ -5,8 +5,8 @@ trait Compute {
 }
 
 struct Adder {
-    a: i32;
-    b: i32;
+    a: i32,
+    b: i32,
 }
 
 impl Compute for Adder {

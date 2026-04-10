@@ -3,7 +3,7 @@ package op_sub_mul;
 trait Sub { fn sub(self: Self, rhs: Self) -> Self; }
 trait Mul { fn mul(self: Self, rhs: Self) -> Self; }
 
-struct Vec2 { x: i32; y: i32; }
+struct Vec2 { x: i32, y: i32, }
 
 impl Sub for Vec2 {
     fn sub(self: Vec2, rhs: Vec2) -> Vec2 {

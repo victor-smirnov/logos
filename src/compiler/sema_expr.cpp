@@ -1732,6 +1732,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         auto inits = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < inits.size(); ++i) {
             auto init = map_of(inits.get(i));
+            // Skip non-FIELD_INIT items (e.g. type_arg_list node from Struct::<T>{} syntax)
+            if (code_of(init) != la::FIELD_INIT) continue;
             auto fname = str_of(init.get(la::NAME.code));
             lir::LExprPtr val = init.has_key(la::VALUE)
                 ? lower_expr(map_of(init.get(la::VALUE.code)))
@@ -1755,6 +1757,23 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
 
         // Infer type args from field values against the generic template.
         SemaSubst inferred;
+
+        // If explicit type args were supplied (Struct::<T1, T2> { ... }), seed inferred from them.
+        if (node.has_key(la::TYPE_PARAMS)) {
+            AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size() && i < sinfo.type_params.size(); ++i) {
+                        auto* resolved = resolve_type(map_of(items.get(i)));
+                        if (resolved && resolved->kind != LogosType::Kind::Error)
+                            inferred[sinfo.type_params[i].name] = resolved;
+                    }
+                }
+            }
+        }
+
         for (auto& [fname, fval] : fields) {
             auto* raw_ft = field_type_of(std::string(sname), fname);
             if (!raw_ft) continue;

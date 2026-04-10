@@ -393,7 +393,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
             current_type_params_["Self"] = self_type;
     }
     // Verify trait exists (only for trait impls)
-    if (!trait_name.empty() && !traits_.count(trait_name))
+    // Copy is a built-in marker trait — not declared in source but always valid.
+    if (!trait_name.empty() && trait_name != "Copy" && !traits_.count(trait_name))
         error(std::format("impl: unknown trait '{}'", trait_name));
     // Resolve trait type args (e.g. impl Into<i32> for Celsius → T=i32)
     // and push them into current_type_params_ so method sigs resolve correctly.

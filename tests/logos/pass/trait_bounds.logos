@@ -14,7 +14,7 @@ fn print_twice<T: Printable>(x: T) -> i32 {
 }
 
 struct Num {
-    val: i32;
+    val: i32,
 }
 
 impl Printable for Num {

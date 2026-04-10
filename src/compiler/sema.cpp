@@ -335,12 +335,11 @@ const LogosType* SemaChecker::lookup_type_by_name(std::string_view name) {
 // ── Drop/move helpers ────────────────────────────────────────────────────────
 
 bool SemaChecker::is_move_type(const LogosType* t) const {
-    if (!needs_drop(t)) return false;
-    // Copy overrides move semantics.
-    std::string name;
-    if (t->kind == LogosType::Kind::Struct || t->kind == LogosType::Kind::Class)
-        name = t->struct_name;
-    return name.empty() || !copy_types_.count(name);
+    if (!t) return false;
+    // All struct/class types are move types unless they implement Copy.
+    if (t->kind != LogosType::Kind::Struct && t->kind != LogosType::Kind::Class)
+        return false;
+    return !copy_types_.count(t->struct_name);
 }
 
 std::string SemaChecker::drop_fn_for(const LogosType* t) const {

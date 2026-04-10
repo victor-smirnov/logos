@@ -6,7 +6,7 @@ fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
 trait Copy {}
 
-struct Vec2 { x: i32; y: i32; }
+struct Vec2 { x: i32, y: i32, }
 impl Copy for Vec2 {}
 
 fn dot(a: Vec2, b: Vec2) -> i32 { return a.x * b.x + a.y * b.y; }

@@ -1,8 +1,8 @@
 package ptr_struct_field_read;
 // Regression: field read through *mut T pointer
 struct Point {
-    x: i32;
-    y: i32;
+    x: i32,
+    y: i32,
 }
 unsafe fn main() -> i32 {
     let mut p: Point = Point { x: 20, y: 22 };

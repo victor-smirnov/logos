@@ -1,7 +1,7 @@
 package borrow_scope;
 // Borrow at call site is transient — variable available again after call
 extern fn printf(fmt: *const u8, ...) -> i32;
-struct Counter { val: i32; }
+struct Counter { val: i32, }
 fn inc(c: &mut Counter) -> i32 {
     c.val = c.val + 1;
     return c.val;

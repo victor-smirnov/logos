@@ -2,7 +2,7 @@
 package trait_class_args;
 trait Scale { unsafe fn scale(self: Self, factor: i32) -> i32; }
 class Obj {
-    val: i32;
+    val: i32,
     unsafe fn create(v: i32) -> *mut Obj { return new Obj { val: v }; }
 }
 impl Scale for Obj {

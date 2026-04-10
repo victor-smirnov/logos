@@ -5,13 +5,13 @@ fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 struct Point {
-    pub x: i32;
-    pub y: i32;
+    pub x: i32,
+    pub y: i32,
 }
 
 struct Counter {
-    pub  value: i32;   // public — accessible everywhere
-    step: i32;         // private — accessible only within package (same file)
+    pub  value: i32,   // public — accessible everywhere
+    step: i32,         // private — accessible only within package (same file)
 }
 
 impl Counter {

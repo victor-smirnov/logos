@@ -415,6 +415,26 @@ private:
     // Returns a unique label suffix string within the current rule.
     std::string fresh() { return std::to_string(lc_++); }
 
+    // Returns true if any item tree references the GT_TYPE pseudo-token.
+    static bool items_use_gt_type(const std::vector<Item>& items) {
+        for (const auto& item : items) {
+            if (item.kind == int32_t(ast::TOKEN_REF) && item.name == "GT_TYPE")
+                return true;
+            if (items_use_gt_type(item.sub_items)) return true;
+            for (const auto& sa : item.sub_alts)
+                if (items_use_gt_type(sa.seq)) return true;
+        }
+        return false;
+    }
+
+    // Returns true if any rule in the grammar references the GT_TYPE pseudo-token.
+    static bool grammar_uses_gt_type(const GrammarInfo& g) {
+        for (const auto& rule : g.rules)
+            for (const auto& alt : rule.alts)
+                if (items_use_gt_type(alt.seq)) return true;
+        return false;
+    }
+
     static bool action_has_array_capture(const Action& action) {
         for (const auto& f : action.fields)
             if (f.expr.kind == int32_t(ast::ARRAY_CAPTURE)) return true;
@@ -550,6 +570,8 @@ private:
             w.line("Token peek_token();");
             w.line("bool  try_token(TK kind);");
             w.line("Token expect_token(TK kind, std::string_view what);");
+            if (grammar_uses_gt_type(g_))
+                w.line("bool  try_token_gt(); // GT_TYPE pseudo-token: also splits SHR (>>) into two GTs");
         }
 
         w.line();
@@ -646,6 +668,27 @@ private:
         w.dedent();
         w.line("}");
         w.line();
+
+        // GT_TYPE pseudo-token: accepts TK::GT or splits TK::SHR (>>) into GT + pushed-back GT.
+        // Only emitted for grammars that actually use the GT_TYPE pseudo-token.
+        if (grammar_uses_gt_type(g_)) {
+            w.fmt("bool {0}::try_token_gt() {{", parser_class_);
+            w.indent();
+            w.line("Token t = peek_token();");
+            w.line("if (t.kind == TK::GT) { next_token(); return true; }");
+            w.line("if (t.kind == TK::SHR) {");
+            w.indent();
+            w.line("next_token();");
+            w.line("la_ = Token{TK::GT, t.text.substr(1, 1), t.line};");
+            w.line("have_la_ = true;");
+            w.line("return true;");
+            w.dedent();
+            w.line("}");
+            w.line("return false;");
+            w.dedent();
+            w.line("}");
+            w.line();
+        }
 
         w.fmt("{0}::Token {0}::expect_token(TK kind, std::string_view what) {{", parser_class_);
         w.indent();
@@ -1110,6 +1153,13 @@ private:
         switch (item.kind) {
 
         case int32_t(ast::TOKEN_REF): {
+            // GT_TYPE is a pseudo-token: matches '>' but also splits '>>' (SHR)
+            // into two '>' tokens to allow nested generics like Foo<Bar<T>>.
+            if (item.name == "GT_TYPE") {
+                w.fmt("if (!try_token_gt()) goto {};", fail_label);
+                w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
+                break;
+            }
             // Match token, intern text as arena string → AnyVal offset.
             w.fmt("if (peek_token().kind != TK::{}) goto {};",
                   safe_tok_name(item.name), fail_label);

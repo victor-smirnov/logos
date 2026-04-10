@@ -1,7 +1,7 @@
 package nested_field_write;
 // o.inner.v = x  — nested lvalue not supported in grammar
-struct Inner { v: i32; }
-struct Outer { inner: Inner; }
+struct Inner { v: i32, }
+struct Outer { inner: Inner, }
 fn bump(o: *mut Outer) {
     o.inner.v = 42;
 }

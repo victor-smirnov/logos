@@ -1,7 +1,7 @@
 package variadic_fields_repro;
 
 struct Tuple<T...> {
-    fields...: T;
+    fields...: T,
 }
 
 unsafe fn main() -> i32 {

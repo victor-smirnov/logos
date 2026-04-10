@@ -1,5 +1,5 @@
 package deref_field_arr_overflow;
-struct S { data: [i8; 3]; }
+struct S { data: [i8; 3], }
 fn write_it(p: *mut S) -> i32 {
     unsafe { (*p).data = [1, 200, 3]; }
     return 0;

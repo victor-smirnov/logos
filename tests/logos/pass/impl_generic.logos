@@ -3,7 +3,7 @@ package impl_generic;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
 
-class Pair<T> { first: T; second: T; }
+class Pair<T> { first: T, second: T, }
 
 impl<T> Pair<T> {
     fn get_first(self: Pair<T>) -> T { return self.first; }

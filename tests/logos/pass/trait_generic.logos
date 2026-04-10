@@ -5,7 +5,7 @@ trait Into<T> {
     fn into(self: Self) -> T;
 }
 
-struct Celsius { v: i32; }
+struct Celsius { v: i32, }
 
 impl Into<i32> for Celsius {
     fn into(self: Celsius) -> i32 { return self.v; }

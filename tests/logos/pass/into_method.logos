@@ -6,7 +6,7 @@ trait Into<T> {
 }
 
 struct Celsius {
-    temp: i32;
+    temp: i32,
 }
 
 impl Into<i32> for Celsius {

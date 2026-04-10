@@ -6,7 +6,7 @@ trait Container {
     fn store(self: Self, item: Self::Item) -> i32;
 }
 
-struct NumBag { val: i32; }
+struct NumBag { val: i32, }
 
 impl Container for NumBag {
     type Item = i32;

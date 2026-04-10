@@ -1,8 +1,8 @@
 package class_fields_method;
 // Edge case: class with multiple fields and methods accessing them
 class Rectangle {
-    width: i32;
-    height: i32;
+    width: i32,
+    height: i32,
 
     static fn create(w: i32, h: i32) -> *mut Rectangle {
         return new Rectangle { width: w, height: h };

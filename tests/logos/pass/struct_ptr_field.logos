@@ -1,6 +1,6 @@
 package struct_ptr_field;
 // struct holding a pointer field — manual fat-slice
-struct Span { ptr: *mut i32; len: i32; }
+struct Span { ptr: *mut i32, len: i32, }
 fn span_sum(s: Span) -> i32 {
     let mut t: i32 = 0;
     let mut i: i32 = 0;

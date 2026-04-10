@@ -1,7 +1,7 @@
 // Infer T=struct from a struct literal argument
 package type_infer_struct;
 
-struct Point { x: i32; y: i32; }
+struct Point { x: i32, y: i32, }
 
 fn identity<T>(x: T) -> T { return x; }
 

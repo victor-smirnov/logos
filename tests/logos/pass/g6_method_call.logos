@@ -1,7 +1,7 @@
 package g6_method_call;
 
 struct Circle {
-    radius: i32;
+    radius: i32,
 }
 
 impl Circle {

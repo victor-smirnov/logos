@@ -6,9 +6,9 @@ trait Default {
 }
 
 struct Config {
-    width: i32;
-    height: i32;
-    depth: i32;
+    width: i32,
+    height: i32,
+    depth: i32,
 }
 
 impl Default for Config {

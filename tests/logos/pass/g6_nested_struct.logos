@@ -1,7 +1,7 @@
 package g6_nested_struct;
 
-struct Point { x: i32; y: i32; }
-struct Line { start: Point; end: Point; }
+struct Point { x: i32, y: i32, }
+struct Line { start: Point, end: Point, }
 
 fn main() -> i32 {
     let s: Point = Point { x: 0, y: 0 };

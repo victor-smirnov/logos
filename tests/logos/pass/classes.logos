@@ -1,7 +1,7 @@
 package animals;
 
 class Animal {
-    value: i32;
+    value: i32,
 
     unsafe fn speak(self: *mut Animal) -> i32 {
         return self.value;

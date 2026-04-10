@@ -1,6 +1,6 @@
 package class_method_tuple_overflow;
 class C {
-    val: i32;
+    val: i32,
     unsafe fn take_pair(self: *mut C, p: (i8, i8)) -> i32 { return self.val; }
 }
 unsafe fn main() -> i32 {

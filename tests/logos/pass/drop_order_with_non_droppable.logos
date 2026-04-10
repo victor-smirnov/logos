@@ -6,13 +6,13 @@ fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
 trait Drop { fn drop(self: Self); }
 
-struct Res { id: i32; }
+struct Res { id: i32, }
 
 impl Drop for Res {
     fn drop(self: Res) { printi("d%d ", self.id); }
 }
 
-struct Plain { value: i32; }
+struct Plain { value: i32, }
 
 unsafe fn main() -> i32 {
     let result: i32 = 42;

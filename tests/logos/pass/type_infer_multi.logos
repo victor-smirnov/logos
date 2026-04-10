@@ -6,7 +6,7 @@ fn pair_first<A, B>(a: A, b: B) -> A { return a; }
 fn pair_second<A, B>(a: A, b: B) -> B { return b; }
 
 trait HasVal { fn val(self: Self) -> i32; }
-struct Num { n: i32; }
+struct Num { n: i32, }
 impl HasVal for Num {
     fn val(self: Num) -> i32 { return self.n; }
 }

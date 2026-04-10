@@ -4,7 +4,7 @@ package unsafe_field_index_write;
 extern fn malloc(n: i64) -> *mut u8;
 fn alloc(size: i64) -> *mut u8 { unsafe { return malloc(size); } }
 
-struct Buf { ptr: *mut i32; }
+struct Buf { ptr: *mut i32, }
 
 fn main() -> i32 {
     let p: *mut i32 = alloc(4) as *mut i32;

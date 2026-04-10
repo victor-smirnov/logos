@@ -1,6 +1,6 @@
 package dangling_ref_indirect;
 // Provenance tracking: let r = &local; return r — indirect dangling ref
-struct Val { x: i32; }
+struct Val { x: i32, }
 fn bad() -> &Val {
     let v = Val { x: 42 };
     let r = &v;

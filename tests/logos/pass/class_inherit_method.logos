@@ -1,12 +1,12 @@
 package class_inherit_method;
 // Edge case: derived class calling inherited method, multiple fields
 class Base {
-    x: i32;
-    y: i32;
+    x: i32,
+    y: i32,
     unsafe fn sum(self: *mut Base) -> i32 { return self.x + self.y; }
 }
 class Derived extends Base {
-    z: i32;
+    z: i32,
     unsafe fn total(self: *mut Derived) -> i32 { 
         let mut sum_val: i32 = 0;
         unsafe { sum_val = self.sum(); }

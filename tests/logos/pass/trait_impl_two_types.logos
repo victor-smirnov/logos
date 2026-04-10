@@ -2,8 +2,8 @@ package trait_impl_two_types;
 // Edge case: same trait impl for two different types, dispatch via generic
 trait Val { fn val(self: Self) -> i32; }
 
-struct Small { n: i32; }
-struct Large { n: i32; }
+struct Small { n: i32, }
+struct Large { n: i32, }
 
 impl Val for Small { fn val(self: Small) -> i32 { return self.n; } }
 impl Val for Large { fn val(self: Large) -> i32 { return self.n * 10; } }

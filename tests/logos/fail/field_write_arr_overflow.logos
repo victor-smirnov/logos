@@ -1,5 +1,5 @@
 package field_write_arr_overflow;
-struct S { data: [i8; 3]; }
+struct S { data: [i8; 3], }
 fn main() -> i32 {
     let mut s = S { data: [0, 0, 0] };
     s.data = [1, 200, 3];

@@ -6,8 +6,8 @@ pub fn add(a: i32, b: i32) -> i32 {
 }
 
 pub struct Pair {
-    x: i32;
-    y: i32;
+    x: i32,
+    y: i32,
 }
 
 unsafe fn main() -> i32 {

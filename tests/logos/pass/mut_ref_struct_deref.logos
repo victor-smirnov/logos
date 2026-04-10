@@ -2,8 +2,8 @@ package mut_ref_struct_deref;
 // (*p).field read and write through &mut Struct without unsafe
 
 struct Vec2 {
-    x: i32;
-    y: i32;
+    x: i32,
+    y: i32,
 }
 
 fn translate(v: &mut Vec2, dx: i32, dy: i32) {
