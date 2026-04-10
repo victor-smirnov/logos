@@ -16,6 +16,12 @@ build*
 *.o
 /sandbox
 
+# Generated parser (peg_gen output — do not edit, edit logos.peg instead)
+logos_parser.cpp
+logos_parser.hpp
+src/compiler/logos_parser.cpp
+src/compiler/logos_parser.hpp
+
 # Test artifacts
 *.sqlite
 
