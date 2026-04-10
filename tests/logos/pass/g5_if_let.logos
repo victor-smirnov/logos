@@ -1,0 +1,15 @@
+package g5_if_let;
+
+enum Res { Ok(i32), Err }
+
+fn get_ok(r: Res) -> i32 {
+    if let Res::Ok(v) = r {
+        return v;
+    }
+    return 0 - 1;
+}
+
+fn main() -> i32 {
+    let r: Res = Res::Ok(42);
+    return get_ok(r);
+}

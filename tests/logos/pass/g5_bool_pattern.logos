@@ -1,0 +1,12 @@
+package g5_bool_pattern;
+
+fn bool_to_int(b: bool) -> i32 {
+    match b {
+        true => { return 42; }
+        false => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    return bool_to_int(true);
+}

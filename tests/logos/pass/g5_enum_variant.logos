@@ -1,0 +1,15 @@
+package g5_enum_variant;
+
+enum Status { Ok = 0, Error = 1, Pending = 2 }
+
+fn process(s: Status) -> i32 {
+    match s {
+        Status::Ok => { return 42; }
+        Status::Error => { return 1; }
+        Status::Pending => { return 2; }
+    }
+}
+
+fn main() -> i32 {
+    return process(Status::Ok);
+}

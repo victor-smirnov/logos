@@ -1,0 +1,26 @@
+package g5_while_let;
+
+enum Counter { More(i32), Done }
+
+fn next(c: Counter) -> Counter {
+    match c {
+        Counter::More(n) => {
+            if n <= 0 {
+                return Counter::Done;
+            }
+            return Counter::More(n - 1);
+        }
+        Counter::Done => { return Counter::Done; }
+    }
+}
+
+fn main() -> i32 {
+    let mut c: Counter = Counter::More(5);
+    let mut count: i32 = 0;
+    while let Counter::More(n) = c {
+        count += 1;
+        c = next(Counter::More(n));
+    }
+    // count should be 6 (5,4,3,2,1,0) then Done
+    return count * 7;  // 6 * 7 = 42
+}

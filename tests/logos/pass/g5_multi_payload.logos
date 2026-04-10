@@ -1,0 +1,16 @@
+package g5_multi_payload;
+
+enum Pair { Both(i32, i32), One(i32), Neither }
+
+fn sum_pair(p: Pair) -> i32 {
+    match p {
+        Pair::Both(a, b) => { return a + b; }
+        Pair::One(x) => { return x; }
+        Pair::Neither => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    let p: Pair = Pair::Both(20, 22);
+    return sum_pair(p);
+}

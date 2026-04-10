@@ -1,0 +1,11 @@
+package g5_wildcard;
+
+enum Color { Red = 0, Green = 1, Blue = 2 }
+
+fn main() -> i32 {
+    let c: Color = Color::Blue;
+    match c {
+        Color::Red => { return 0; }
+        _ => { return 42; }
+    }
+}

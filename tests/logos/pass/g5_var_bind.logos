@@ -1,0 +1,11 @@
+package g5_var_bind;
+
+enum Opt { Some(i32), None }
+
+fn main() -> i32 {
+    let v: Opt = Opt::Some(42);
+    match v {
+        Opt::Some(x) => { return x; }
+        Opt::None => { return 0; }
+    }
+}

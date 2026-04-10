@@ -1,0 +1,15 @@
+package g5_int_pattern;
+
+fn decode(x: i32) -> i32 {
+    match x {
+        0 => { return 0; }
+        1 => { return 10; }
+        2 => { return 20; }
+        42 => { return 42; }
+        _ => { return 99; }
+    }
+}
+
+fn main() -> i32 {
+    return decode(42);
+}
