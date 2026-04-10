@@ -108,9 +108,23 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         lir::LExprPtr bval;
         if (stmt.has_key(la::VALUE)) {
             bval = lower_expr(map_of(stmt.get(la::VALUE.code)));
-            // Record type for the enclosing loop to pick up
-            if (bval && bval->type && bval->type->kind != LogosType::Kind::Error)
-                break_value_type_ = bval->type;
+            if (break_without_value_) {
+                error("loop break mixes value and no-value breaks");
+            } else if (bval && bval->type && bval->type->kind != LogosType::Kind::Error) {
+                if (!break_value_type_) {
+                    break_value_type_ = bval->type;
+                } else if (!types_compatible(bval->type, break_value_type_) &&
+                           !types_compatible(break_value_type_, bval->type)) {
+                    error(std::format("loop break values have incompatible types: {} vs {}",
+                          type_str(break_value_type_), type_str(bval->type)));
+                } else {
+                    break_value_type_ = unify_int(break_value_type_, bval->type);
+                }
+            }
+        } else {
+            if (break_value_type_)
+                error("loop break mixes value and no-value breaks");
+            break_without_value_ = true;
         }
         return make_stmt(node_line_, lir::SBreak{std::move(bval)});
     }
@@ -1098,7 +1112,9 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     auto body = std::make_unique<lir::LBlock>();
     const LogosType* saved_break_type = break_value_type_;
+    bool saved_break_without_value = break_without_value_;
     break_value_type_ = nullptr;
+    break_without_value_ = false;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         *body = lower_block(map_of(node.get(la::BODY.code)));
@@ -1111,6 +1127,7 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
         sl.break_slot  = "__loop_val_" + std::to_string(tmp_var_count_++);
     }
     break_value_type_ = saved_break_type;  // restore for outer loops
+    break_without_value_ = saved_break_without_value;
     return make_stmt(node_line_, std::move(sl));
 }
 
@@ -1831,7 +1848,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     {
         bool has_wild = false;
         for (auto& arm : smatch.arms) {
-            if (std::holds_alternative<lir::PatWild>(arm.pat)) {
+            if (!arm.guard && std::holds_alternative<lir::PatWild>(arm.pat)) {
                 has_wild = true;
                 break;
             }
@@ -1841,6 +1858,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
                 for (auto& arm : smatch.arms) {
+                    if (arm.guard) continue;
                     if (auto* pv = std::get_if<lir::PatVariant>(&arm.pat))
                         covered.insert(pv->disc);
                     else if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat))
@@ -1861,6 +1879,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         if (!has_wild && scrut_type->kind == LogosType::Kind::Bool) {
             bool has_true = false, has_false = false;
             for (auto& arm : smatch.arms) {
+                if (arm.guard) continue;
                 if (auto* pb = std::get_if<lir::PatBool>(&arm.pat)) {
                     if (pb->value) has_true = true; else has_false = true;
                 }
@@ -1955,6 +1974,51 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             ema.guard = std::move(guard);
             ema.value = std::move(val);
             me.arms.push_back(std::move(ema));
+        }
+    }
+
+    {
+        bool has_wild = false;
+        for (auto& arm : me.arms) {
+            if (!arm.guard && std::holds_alternative<lir::PatWild>(arm.pat)) {
+                has_wild = true;
+                break;
+            }
+        }
+        if (!has_wild && scrut_type->kind == LogosType::Kind::Enum) {
+            auto eit = enums_.find(scrut_type->enum_name);
+            if (eit != enums_.end()) {
+                std::set<int32_t> covered;
+                for (auto& arm : me.arms) {
+                    if (arm.guard) continue;
+                    if (auto* pv = std::get_if<lir::PatVariant>(&arm.pat))
+                        covered.insert(pv->disc);
+                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat))
+                        covered.insert(pvd->disc);
+                }
+                std::string missing;
+                for (auto& v : eit->second.variants) {
+                    if (covered.find(v.value) == covered.end()) {
+                        if (!missing.empty()) missing += ", ";
+                        missing += std::string(v.name);
+                    }
+                }
+                if (!missing.empty())
+                    error(std::format("match is not exhaustive — missing variant(s): {}",
+                          missing));
+            }
+        }
+        if (!has_wild && scrut_type->kind == LogosType::Kind::Bool) {
+            bool has_true = false, has_false = false;
+            for (auto& arm : me.arms) {
+                if (arm.guard) continue;
+                if (auto* pb = std::get_if<lir::PatBool>(&arm.pat)) {
+                    if (pb->value) has_true = true; else has_false = true;
+                }
+            }
+            if (!has_true || !has_false)
+                error("match on bool is not exhaustive — missing "
+                      + std::string(!has_true ? "true" : "false"));
         }
     }
 

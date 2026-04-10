@@ -31,11 +31,17 @@ set(LOGOS_SMOKE_TESTS
     closure_capture_match_stmt
     closure_capture_struct_lit
     closure_capture_tuple
+    closure_call_wrong_arg_count
+    closure_call_wrong_arg_type
     fn_default_ret
     if_expr
     invalid_char_after_package
     invalid_char_before_return
     invalid_char_in_struct_lit
+    loop_break_type_mismatch
+    match_expr_nonexhaustive_bool
+    match_guard_nonexhaustive_bool
+    ptr_compare_nonzero
     stray_token_at_between_items
     stray_token_at_eof
     stray_token_dollar_between_items

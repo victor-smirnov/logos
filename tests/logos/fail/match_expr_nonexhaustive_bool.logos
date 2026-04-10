@@ -1,0 +1,8 @@
+package match_expr_nonexhaustive_bool;
+
+fn main() -> i32 {
+    let x = match true {
+        true => 42,
+    };
+    return x;
+}

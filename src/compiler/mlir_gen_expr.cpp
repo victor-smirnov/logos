@@ -963,34 +963,59 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
         return added;
     };
 
-    bool has_wild = false;
-    for (auto& arm : e.arms)
-        if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
-
-    int last_tested = (int)e.arms.size() - 1;
     mlir::Block* else_block = merge_block;
-
-    if (!has_wild && !e.arms.empty()) {
-        auto& last_arm = e.arms.back();
-        auto* last_body = new mlir::Block();
-        region->push_back(last_body);
-        {
-            mlir::OpBuilder::InsertionGuard guard(builder_);
-            builder_.setInsertionPointToStart(last_body);
-            auto added = extract_arm_payload(last_arm);
-            auto val = gen_expr(*last_arm.value);
-            for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
-            if (val) {
-                val = coerce_numeric(val, result_type);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
+    bool exhaustive_discrete = false;
+    if (e.scrut->type && e.scrut->type->kind == LogosType::Kind::Bool) {
+        bool has_true = false, has_false = false, has_wild = false;
+        for (auto& arm : e.arms) {
+            if (arm.guard) continue;
+            if (std::holds_alternative<PatWild>(arm.pat)) {
+                has_wild = true;
+                break;
             }
-            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+            if (auto* pb = std::get_if<PatBool>(&arm.pat)) {
+                if (pb->value) has_true = true; else has_false = true;
+            }
         }
-        else_block = last_body;
-        last_tested = (int)e.arms.size() - 2;
+        exhaustive_discrete = has_wild || (has_true && has_false);
+    } else if (e.scrut->type && e.scrut->type->kind == LogosType::Kind::Enum) {
+        std::set<int32_t> covered;
+        bool has_wild = false;
+        for (auto& arm : e.arms) {
+            if (arm.guard) continue;
+            if (std::holds_alternative<PatWild>(arm.pat)) {
+                has_wild = true;
+                break;
+            }
+            if (auto* pv = std::get_if<PatVariant>(&arm.pat)) covered.insert(pv->disc);
+            else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) covered.insert(pvd->disc);
+        }
+        if (has_wild) {
+            exhaustive_discrete = true;
+        } else {
+            auto eit = enum_types_.find(e.scrut->type->enum_name);
+            if (eit != enum_types_.end() && eit->second) {
+                exhaustive_discrete = std::all_of(
+                    eit->second->variants.begin(), eit->second->variants.end(),
+                    [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
+            } else if (auto* te = resolve_tagged_enum(e.scrut->type->enum_name, e.scrut->type)) {
+                exhaustive_discrete = std::all_of(
+                    te->variants.begin(), te->variants.end(),
+                    [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });
+            }
+        }
     }
-
-    for (int i = last_tested; i >= 0; --i) {
+    if (exhaustive_discrete) {
+        auto* default_block = new mlir::Block();
+        region->push_back(default_block);
+        {
+            mlir::OpBuilder::InsertionGuard ig(builder_);
+            builder_.setInsertionPointToStart(default_block);
+            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        }
+        else_block = default_block;
+    }
+    for (int i = (int)e.arms.size() - 1; i >= 0; --i) {
         auto& arm = e.arms[i];
         auto* body_block = new mlir::Block();
         region->push_back(body_block);

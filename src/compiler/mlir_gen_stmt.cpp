@@ -112,7 +112,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         if (!alloca) return;
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = lit.name;
+        var_struct_[s.name] = s.type ? concrete_struct_name(s.type) : lit.name;
         return;
     }
 
@@ -1124,59 +1124,57 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
     // Keep scrut at its natural type; coerce disc constants to match it.
     mlir::Type scrut_type = scrut.getType();
 
-    // Determine if any arm is a wildcard.
-    bool has_wild = false;
-    for (auto& arm : s.arms)
-        if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
-
-    int last_tested = (int)s.arms.size() - 1;
     mlir::Block* else_block = merge_block;
-
-    if (!has_wild && !s.arms.empty()) {
-        // Pre-generate the last arm's body as the initial else target.
-        auto& last_arm = s.arms.back();
-        auto* last_body = new mlir::Block();
-        region->push_back(last_body);
-        {
-            mlir::OpBuilder::InsertionGuard guard(builder_);
-            builder_.setInsertionPointToStart(last_body);
-            // Extract payload bindings for tagged enum patterns (same as loop body).
-            if (auto* pvd = std::get_if<PatVariantData>(&last_arm.pat)) {
-                if (te_info && scrut_ptr) {
-                    llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
-                    auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
-                        loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
-                    const TaggedEnumInfo::VariantPayload* vp = nullptr;
-                    for (auto& v : te_info->variants)
-                        if (v.disc == pvd->disc) { vp = &v; break; }
-                    if (vp && !pvd->bindings.empty()) {
-                        llvm::SmallVector<mlir::Type> ft;
-                        for (auto& t : vp->field_types) ft.push_back(t);
-                        auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
-                            builder_.getContext(), ft);
-                        for (size_t bi = 0; bi < pvd->bindings.size() &&
-                                             bi < vp->field_types.size(); ++bi) {
-                            llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
-                            auto fp = builder_.create<mlir::LLVM::GEPOp>(
-                                loc_, ptr_type(), pay_struct, pay_ptr, fi);
-                            auto val = builder_.create<mlir::LLVM::LoadOp>(
-                                loc_, vp->field_types[bi], fp);
-                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                                loc_, ptr_type(), vp->field_types[bi], i64_one());
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                            scope_[pvd->bindings[bi]] = alloca;
-                            let_vars_.insert(pvd->bindings[bi]);
-                            var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
-                        }
-                    }
-                }
+    bool exhaustive_discrete = false;
+    if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Bool) {
+        bool has_true = false, has_false = false, has_wild = false;
+        for (auto& arm : s.arms) {
+            if (arm.guard) continue;
+            if (std::holds_alternative<PatWild>(arm.pat)) {
+                has_wild = true;
+                break;
             }
-            gen_block(*last_arm.body);
-            if (!is_terminated(builder_.getBlock()))
-                builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+            if (auto* pb = std::get_if<PatBool>(&arm.pat)) {
+                if (pb->value) has_true = true; else has_false = true;
+            }
         }
-        else_block = last_body;
-        last_tested = (int)s.arms.size() - 2;
+        exhaustive_discrete = has_wild || (has_true && has_false);
+    } else if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Enum) {
+        std::set<int32_t> covered;
+        bool has_wild = false;
+        for (auto& arm : s.arms) {
+            if (arm.guard) continue;
+            if (std::holds_alternative<PatWild>(arm.pat)) {
+                has_wild = true;
+                break;
+            }
+            if (auto* pv = std::get_if<PatVariant>(&arm.pat)) covered.insert(pv->disc);
+            else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) covered.insert(pvd->disc);
+        }
+        if (has_wild) {
+            exhaustive_discrete = true;
+        } else {
+            auto eit = enum_types_.find(s.scrut->type->enum_name);
+            if (eit != enum_types_.end() && eit->second) {
+                exhaustive_discrete = std::all_of(
+                    eit->second->variants.begin(), eit->second->variants.end(),
+                    [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
+            } else if (auto* te = resolve_tagged_enum(s.scrut->type->enum_name, s.scrut->type)) {
+                exhaustive_discrete = std::all_of(
+                    te->variants.begin(), te->variants.end(),
+                    [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });
+            }
+        }
+    }
+    if (exhaustive_discrete) {
+        auto* default_block = new mlir::Block();
+        region->push_back(default_block);
+        {
+            mlir::OpBuilder::InsertionGuard ig(builder_);
+            builder_.setInsertionPointToStart(default_block);
+            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        }
+        else_block = default_block;
     }
 
     // Helper: extract PatVariantData payload bindings into scope (call inside a block).
@@ -1224,8 +1222,8 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         }
     };
 
-    // Build if-else chain from second-to-last arm down to first.
-    for (int i = last_tested; i >= 0; --i) {
+    // Build if-else chain from last arm down to first.
+    for (int i = (int)s.arms.size() - 1; i >= 0; --i) {
         auto& arm = s.arms[i];
         auto* body_block = new mlir::Block();
         region->push_back(body_block);

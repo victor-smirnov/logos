@@ -1,0 +1,6 @@
+package closure_call_wrong_arg_count;
+
+fn main() -> i32 {
+    let f = || -> i32 { return 42; };
+    return f(1);
+}

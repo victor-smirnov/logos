@@ -359,6 +359,14 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         if (!ok)
             error(std::format("operator '{}': type mismatch ({} vs {})",
                   op, type_str(lt), type_str(rt)));
+        if (ptr_null_cmp) {
+            const lir::LExpr* lit_expr = (lt->kind == LogosType::Kind::IntLit) ? lhs.get() : rhs.get();
+            if (auto v = get_intlit_value(lit_expr)) {
+                if (*v != 0)
+                    error(std::format(
+                        "operator '{}': pointer can only be compared with integer literal 0", op));
+            }
+        }
         // Detect comparisons against IntLit values that can't fit in the other operand.
         // E.g. x: i32 == 10000000000 — the literal can never equal any i32 value.
         if (lt->kind == LogosType::Kind::IntLit && is_integer_kind(rt->kind)) {
@@ -531,6 +539,22 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             auto args = arr_of(node.get(la::ARGS.code));
             for (uint64_t i = 0; i < args.size(); ++i)
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+        }
+        uint64_t n_args = arg_exprs.size();
+        uint64_t n_params = callee_type->closure_params.size();
+        if (n_args != n_params) {
+            error(std::format("closure call: expected {} args, got {}", n_params, n_args));
+        } else {
+            for (uint64_t i = 0; i < n_args; ++i) {
+                auto* at = arg_exprs[i]->type;
+                auto* pt = callee_type->closure_params[i];
+                if (at->kind != LogosType::Kind::Error &&
+                    pt->kind != LogosType::Kind::Error &&
+                    !types_compatible(at, pt)) {
+                    error(std::format("closure call arg {}: expected {}, got {}",
+                          i + 1, type_str(pt), type_str(at)));
+                }
+            }
         }
         auto callee_expr = make_expr(callee_type, lir::EVarRef{std::string(callee)});
         return make_expr(callee_type->closure_ret ? callee_type->closure_ret : void_t(),

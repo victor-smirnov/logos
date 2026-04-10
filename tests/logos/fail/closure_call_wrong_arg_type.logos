@@ -1,0 +1,6 @@
+package closure_call_wrong_arg_type;
+
+fn main() -> i32 {
+    let f = |x: i32| -> i32 { return x; };
+    return f(true);
+}

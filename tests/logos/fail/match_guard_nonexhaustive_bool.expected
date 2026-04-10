@@ -1,0 +1,1 @@
+match on bool is not exhaustive — missing true

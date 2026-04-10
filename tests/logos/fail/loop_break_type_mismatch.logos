@@ -1,0 +1,12 @@
+package loop_break_type_mismatch;
+
+fn main() -> i32 {
+    let x = loop {
+        if true {
+            break 42;
+        } else {
+            break false;
+        }
+    };
+    return x;
+}

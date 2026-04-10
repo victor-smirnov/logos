@@ -26,19 +26,20 @@ using namespace lir;
 mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     auto mod = mlir::ModuleOp::create(loc_);
 
-    // Pass 0: register struct LLVM types.
+    // Pass 0: register enum types first so tagged enum fields in structs/classes
+    // get the correct pointer layout during aggregate registration.
+    for (auto& ed : prog.enums) {
+        enum_types_[ed.name] = &ed;
+        if (ed.has_payload()) register_tagged_enum(ed);
+    }
+
+    // Pass 0.5: register struct LLVM types.
     for (auto& sd : prog.structs)
         if (!register_struct(sd)) return nullptr;
 
     // Pass 0a: register class LLVM types (with prepended vtable pointer).
     for (auto& cd : prog.classes)
         if (!register_class(mod, cd)) return nullptr;
-
-    // Pass 0.5: register enum types and module constants.
-    for (auto& ed : prog.enums) {
-        enum_types_[ed.name] = &ed;
-        if (ed.has_payload()) register_tagged_enum(ed);
-    }
 
     for (auto& ta : prog.type_aliases)
         type_aliases_[ta.name] = logos_to_mlir(ta.type);

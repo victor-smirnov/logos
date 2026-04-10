@@ -1,0 +1,8 @@
+package match_guard_nonexhaustive_bool;
+
+fn main() -> i32 {
+    match true {
+        true if false => return 1,
+        false => return 2,
+    }
+}
