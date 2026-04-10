@@ -8,83 +8,17 @@ if (NOT TARGET logosc)
 endif()
 
 set(TEST_RUNNER ${CMAKE_CURRENT_SOURCE_DIR}/run_test.sh)
-set(EXAMPLES    ${CMAKE_SOURCE_DIR}/examples)
 set(STDLIB      ${CMAKE_SOURCE_DIR}/stdlib)
 
 # ── Pass tests ────────────────────────────────────────────────────────────────
-# Each .expected file in pass/ matches a .logos file in examples/.
-
-foreach(EXPECTED IN ITEMS
-    pass/quicksort.expected
-    pass/while_test.expected
-    pass/point.expected
-    pass/hello.expected
-    pass/enum_match.expected
-    pass/generic_identity.expected
-    pass/fibonacci.expected
-    pass/for_sum.expected
-    pass/cast.expected
-    pass/const_def.expected
-    pass/loop_break.expected
-    pass/generic_max.expected
-    pass/generic_pow.expected
-    pass/generic_nested.expected
-    pass/spec_dispatch.expected
-    pass/generic_struct.expected
-    pass/struct_spec.expected
-    pass/generic_methods.expected
-    pass/classes.expected
-    pass/generic_class.expected
-    pass/if_expr.expected
-    pass/for_each.expected
-    pass/static_method.expected
-    pass/varargs.expected
-    pass/tuple.expected
-    pass/tagged_enum.expected
-    pass/slice.expected
-    pass/string.expected
-    pass/trait.expected
-    pass/op_overload.expected
-    pass/impl_block.expected
-    pass/closure.expected
-    pass/stdlib_demo.expected
-    pass/nested_tuple.expected
-    pass/multi_trait.expected
-    pass/option_chain.expected
-    pass/vec_usage.expected
-    pass/closure_multi.expected
-    pass/generic_trait.expected
-    pass/match_multi_variant.expected
-    pass/slice_ops.expected
-)
-    get_filename_component(BASE ${EXPECTED} NAME_WE)  # e.g. "quicksort"
-    set(LOGOS_FILE ${EXAMPLES}/${BASE}.logos)
-    set(EXP_FILE   ${CMAKE_CURRENT_SOURCE_DIR}/${EXPECTED})
-
-    set(STDLIB_USERS hello stdlib_demo option_chain vec_usage)
-    if (BASE IN_LIST STDLIB_USERS)
-        set(EXTRA -I ${STDLIB})
-    else()
-        set(EXTRA "")
-    endif()
-
-    add_test(
-        NAME  logos_pass_${BASE}
-        COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc>
-                ${LOGOS_FILE} ${EXP_FILE} ${EXTRA}
-    )
-    set_tests_properties(logos_pass_${BASE} PROPERTIES
-        TIMEOUT 30
-        LABELS  "logos;pass"
-    )
-endforeach()
-
-# ── Pass tests (new: .logos lives next to .expected in tests/logos/pass/) ─────
+# Both .logos and .expected live in tests/logos/pass/.
 
 file(GLOB LOCAL_PASS_EXPECTED CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/pass/*.expected)
 
-set(LOCAL_STDLIB_USERS format_basic format_types variadic_format)
+set(LOCAL_STDLIB_USERS
+    format_basic format_types variadic_format
+    hello stdlib_demo option_chain)
 set(LOCAL_PUBLIB_USERS pub_cross_package)
 set(PUB_LIB ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
 
@@ -93,7 +27,8 @@ foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
     set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/pass/${BASE}.logos)
 
     if (NOT EXISTS ${LOGOS_FILE})
-        continue()   # .expected belongs to examples/ test above — skip
+        message(WARNING "logos test: no .logos for ${EXP_FILE}, skipping")
+        continue()
     endif()
 
     if (BASE IN_LIST LOCAL_STDLIB_USERS)
@@ -105,11 +40,11 @@ foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
     endif()
 
     add_test(
-        NAME  logos_pass_local_${BASE}
+        NAME  logos_pass_${BASE}
         COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc>
                 ${LOGOS_FILE} ${EXP_FILE} ${EXTRA}
     )
-    set_tests_properties(logos_pass_local_${BASE} PROPERTIES
+    set_tests_properties(logos_pass_${BASE} PROPERTIES
         TIMEOUT 30
         LABELS  "logos;pass"
     )
