@@ -544,6 +544,11 @@ private:
             w.line("uint32_t next_line() { return peek_token().line; }");
             w.line("// Text of the next unconsumed token.");
             w.line("std::string_view next_text() { return peek_token().text; }");
+            w.line("// Furthest token the parser ever successfully consumed.");
+            w.line("// Points to the deepest parse position before backtracking —");
+            w.line("// use this for error reporting instead of next_text()/next_line().");
+            w.line("uint32_t         furthest_line() const { return furthest_.line ? furthest_.line : 1; }");
+            w.line("std::string_view furthest_text() const { return furthest_.text; }");
             w.line();
         }
 
@@ -583,6 +588,7 @@ private:
         if (!g_.tokens.empty()) {
             w.line("Token                    la_{};");
             w.line("bool                     have_la_ = false;");
+            w.line("Token                    furthest_{}; // furthest successfully consumed token");
         }
 
         // Sub-parser fields for imported grammars.
@@ -648,8 +654,14 @@ private:
         w.line();
         w.fmt("{0}::Token {0}::next_token() {{", parser_class_);
         w.indent();
-        w.line("if (have_la_) { have_la_ = false; return la_; }");
-        w.line("return lex_one();");
+        w.line("Token t;");
+        w.line("if (have_la_) { have_la_ = false; t = la_; } else { t = lex_one(); }");
+        w.line("// Track furthest consumed position for error reporting.");
+        w.line("if (t.kind != TK::Eof &&");
+        w.line("    (t.line > furthest_.line ||");
+        w.line("     (t.line == furthest_.line && t.text.data() >= furthest_.text.data())))");
+        w.line("    furthest_ = t;");
+        w.line("return t;");
         w.dedent();
         w.line("}");
         w.line();
@@ -664,7 +676,14 @@ private:
 
         w.fmt("bool {0}::try_token(TK kind) {{", parser_class_);
         w.indent();
-        w.line("if (peek_token().kind == kind) { next_token(); return true; }");
+        w.line("Token t = peek_token();");
+        w.line("if (t.kind == kind) {");
+        w.indent();
+        w.line("if (t.line > furthest_.line || (t.line == furthest_.line && t.text.data() >= furthest_.text.data()))");
+        w.line("    furthest_ = t;");
+        w.line("next_token(); return true;");
+        w.dedent();
+        w.line("}");
         w.line("return false;");
         w.dedent();
         w.line("}");
@@ -676,9 +695,17 @@ private:
             w.fmt("bool {0}::try_token_gt() {{", parser_class_);
             w.indent();
             w.line("Token t = peek_token();");
-            w.line("if (t.kind == TK::GT) { next_token(); return true; }");
+            w.line("if (t.kind == TK::GT) {");
+            w.indent();
+            w.line("if (t.line > furthest_.line || (t.line == furthest_.line && t.text.data() >= furthest_.text.data()))");
+            w.line("    furthest_ = t;");
+            w.line("next_token(); return true;");
+            w.dedent();
+            w.line("}");
             w.line("if (t.kind == TK::SHR) {");
             w.indent();
+            w.line("if (t.line > furthest_.line || (t.line == furthest_.line && t.text.data() >= furthest_.text.data()))");
+            w.line("    furthest_ = t;");
             w.line("next_token();");
             w.line("la_ = Token{TK::GT, t.text.substr(1, 1), t.line};");
             w.line("have_la_ = true;");

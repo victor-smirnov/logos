@@ -142,12 +142,28 @@ std::vector<ParsedModule> load_modules(
         // Report the stray token so the user gets a non-zero exit instead of a
         // silent empty object file.
         if (!parser.at_eof()) {
+            // Choose the deepest position in the source for the error message:
+            // - furthest_*: last token the parser successfully consumed before
+            //   backtracking — points inside a function body on deep errors.
+            // - next_*: where the parser stopped after backtracking — points at
+            //   the stray/invalid token when it appears after valid top-level items.
+            // Rule: use whichever is further in the file.
+            auto fur_line = parser.furthest_line();
+            auto nxt_line = parser.next_line();
+            std::string_view err_text;
+            uint32_t         err_line;
+            if (fur_line > nxt_line && !parser.furthest_text().empty()) {
+                err_text = parser.furthest_text();
+                err_line = fur_line;
+            } else {
+                err_text = parser.next_text();
+                err_line = nxt_line;
+            }
             std::fprintf(stderr,
-                "error [%s]: unexpected token '%.*s' at line %u — "
-                "module parse stopped here (unsupported syntax?)\n",
+                "error [%s]: syntax error near '%.*s' at line %u\n",
                 canonical.c_str(),
-                static_cast<int>(parser.next_text().size()), parser.next_text().data(),
-                parser.next_line());
+                static_cast<int>(err_text.size()), err_text.data(),
+                err_line);
             continue;
         }
 
