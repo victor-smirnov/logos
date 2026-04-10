@@ -855,10 +855,11 @@ private:
                 const bool flt_sfx = pat_has_float_suffix(float_pat);
 
                 w.fmt("// {} = /{}/", t.name, pat);
-                // Entry condition: digit, negative-digit, or dot-digit (for floats like .5)
+                // Entry condition: digit or negative-digit. Dot-digit (.5) is NOT used
+                // because '.' is already the DOT token and t.1.0 would otherwise be
+                // lexed as FLOAT(".1") instead of DOT + INTEGER("1") + DOT + INTEGER("0").
                 if (!float_tok.empty()) {
-                    w.fmt("if (std::isdigit(c) || (c == '-' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))"
-                          " || (c == '.' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))) {{");
+                    w.fmt("if (std::isdigit(c) || (c == '-' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))) {{");
                 } else {
                     w.fmt("if (std::isdigit(c) || (c == '-' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))) {{");
                 }
@@ -892,12 +893,14 @@ private:
 
                 if (!float_tok.empty()) {
                     // Longest-match: decimal-only → if next is '.' followed by digit, it's a float.
+                    // But NOT if the token started right after a '.': that's a tuple index (t.1.0).
                     if (hex || bin || oct) {
                         w.line("if (base == 10 && pos_ < source_.size() && source_[pos_] == '.'");
                     } else {
                         w.line("if (pos_ < source_.size() && source_[pos_] == '.'");
                     }
-                    w.line("    && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])) {");
+                    w.line("    && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])");
+                    w.line("    && !(start > 0 && source_[start - 1] == '.')) {");
                     w.indent();
                     w.line("++pos_; // consume '.'");
                     w.line("while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
