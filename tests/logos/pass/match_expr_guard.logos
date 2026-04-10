@@ -11,10 +11,10 @@ fn double_if_even(x: i32) -> i32 {
 
 fn main() -> i32 {
     // 21 is odd → returned as-is
-    if double_if_even(21) \!= 21 { return 1; }
+    if double_if_even(21) != 21 { return 1; }
     // 10 is even → doubled to 20
-    if double_if_even(10) \!= 20 { return 2; }
+    if double_if_even(10) != 20 { return 2; }
     // 0 is even → doubled to 0
-    if double_if_even(0) \!= 0 { return 3; }
+    if double_if_even(0) != 0 { return 3; }
     return 42;
 }

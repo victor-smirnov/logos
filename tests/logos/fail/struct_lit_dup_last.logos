@@ -1,0 +1,11 @@
+package struct_lit_dup_last;
+
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn main() -> i32 {
+    let p: Pair = Pair { a: 1, b: 2, b: 3 };
+    return p.b;
+}

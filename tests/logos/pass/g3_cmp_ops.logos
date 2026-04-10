@@ -8,7 +8,7 @@ fn main() -> i32 {
     if b > a { result += 1; }
     if a <= a { result += 1; }
     if b >= b { result += 1; }
-    if a \!= b { result += 1; }
+    if a != b { result += 1; }
     if a == a { result += 1; }
     return result * 7;
 }

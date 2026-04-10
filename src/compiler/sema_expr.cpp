@@ -1947,6 +1947,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (!matched_variadic)
                     error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
             } else {
+                if (it->second) {
+                    error(std::format("struct literal '{}': duplicate field '{}'", sname, fname));
+                    continue;
+                }
                 it->second = true;
                 // Find field type in effective definition.
                 const LogosType* ft = nullptr;
@@ -2008,6 +2012,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             if (!matched_variadic)
                 error(std::format("struct literal '{}': unknown field '{}'", sname, fname));
         } else {
+            if (it->second) {
+                error(std::format("struct literal '{}': duplicate field '{}'", sname, fname));
+                continue;
+            }
             it->second = true;
             auto* ft = field_type_of(std::string(sname), fname);
             if (ft && ft->kind != LogosType::Kind::Error &&
@@ -2639,6 +2647,10 @@ lir::LExprPtr SemaChecker::lower_new_expr(TinyMapView node) {
         if (it == initialized.end()) {
             error(std::format("'new {}': unknown field '{}'", cname, fname));
         } else {
+            if (it->second) {
+                error(std::format("'new {}': duplicate field '{}'", cname, fname));
+                continue;
+            }
             it->second = true;
             // Find expected type; skip check if field type is TypeVar (checked post-mono)
             for (auto& f : cinfo.all_fields) {

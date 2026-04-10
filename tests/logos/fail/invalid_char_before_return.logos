@@ -1,0 +1,6 @@
+package invalid_char_before_return;
+
+fn main() -> i32 {
+    @
+    return 7;
+}

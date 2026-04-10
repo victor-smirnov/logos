@@ -33,6 +33,16 @@ set(LOGOS_SMOKE_TESTS
     closure_capture_tuple
     fn_default_ret
     if_expr
+    invalid_char_after_package
+    invalid_char_before_return
+    invalid_char_in_struct_lit
+    stray_token_at_between_items
+    stray_token_at_eof
+    stray_token_dollar_between_items
+    stray_token_hash_top
+    struct_lit_dup_field
+    struct_lit_dup_last
+    struct_lit_dup_nested
     while_test
     for_sum
     g6_struct_lit

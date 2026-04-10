@@ -1,0 +1,7 @@
+package stray_token_hash_top;
+
+#
+
+fn main() -> i32 {
+    return 7;
+}

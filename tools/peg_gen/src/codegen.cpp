@@ -511,6 +511,7 @@ private:
             w.fmt("enum class TK_{} : int {{", to_upper(g_.name));
             w.indent();
             w.line("Eof = 0,");
+            w.line("Invalid,");
             for (const auto& t : g_.tokens) {
                 if (t.kind == skip_code) continue; // skips are not tokens
                 w.fmt("{},   // {}", safe_tok_name(t.name), t.pattern);
@@ -801,8 +802,8 @@ private:
         // Well-known regex patterns — generated as hand-coded matchers.
         emit_regex_tokens(w);
 
-        w.line("++pos_; // unknown character — skip");
-        w.line("goto restart;");
+        w.line("++pos_; // unknown character — surface it to the parser");
+        w.line("return {TK::Invalid, source_.substr(start, 1), start_line_};");
         w.dedent();
         w.line("}");
         w.line();

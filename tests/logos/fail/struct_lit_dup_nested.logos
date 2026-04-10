@@ -1,0 +1,14 @@
+package struct_lit_dup_nested;
+
+struct Inner {
+    x: i32,
+}
+
+struct Outer {
+    inner: Inner,
+}
+
+fn main() -> i32 {
+    let o: Outer = Outer { inner: Inner { x: 1, x: 7 } };
+    return o.inner.x;
+}

@@ -1,0 +1,11 @@
+package stray_token_dollar_between_items;
+
+fn helper() -> i32 {
+    return 1;
+}
+
+$
+
+fn main() -> i32 {
+    return helper();
+}
