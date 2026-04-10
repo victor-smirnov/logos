@@ -1,0 +1,26 @@
+package impl_trait_let_ann;
+// impl Trait as explicit let annotation should use concrete type for method calls
+
+trait Compute {
+    fn compute(self: Self) -> i32;
+}
+
+struct Adder {
+    x: i32;
+    y: i32;
+}
+
+impl Compute for Adder {
+    fn compute(self: Adder) -> i32 {
+        return self.x + self.y;
+    }
+}
+
+fn make_adder(x: i32, y: i32) -> impl Compute {
+    return Adder { x: x, y: y };
+}
+
+fn main() -> i32 {
+    let a: impl Compute = make_adder(10, 32);
+    return a.compute();
+}

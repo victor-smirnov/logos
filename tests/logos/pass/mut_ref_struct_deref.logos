@@ -1,0 +1,26 @@
+package mut_ref_struct_deref;
+// (*p).field read and write through &mut Struct without unsafe
+
+struct Vec2 {
+    x: i32;
+    y: i32;
+}
+
+fn translate(v: &mut Vec2, dx: i32, dy: i32) {
+    let nx: i32 = (*v).x + dx;
+    let ny: i32 = (*v).y + dy;
+    (*v).x = nx;
+    (*v).y = ny;
+}
+
+fn dot(a: &Vec2, b: &Vec2) -> i32 {
+    return (*a).x * (*b).x + (*a).y * (*b).y;
+}
+
+fn main() -> i32 {
+    let mut v: Vec2 = Vec2 { x: 3, y: 4 };
+    translate(&mut v, 1, 2);
+    // v is now (4, 6), dot(v, v) = 16 + 36 = 52 - 10 = 42
+    let d: i32 = dot(&v, &v);
+    return d - 10;
+}

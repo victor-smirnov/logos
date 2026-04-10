@@ -49,10 +49,16 @@ namespace logos_ast {
     inline constexpr Key  ITER                 {"ITER", 31};
     inline constexpr Key  IS_VARIADIC          {"IS_VARIADIC", 32};
     inline constexpr Key  IS_PUB               {"IS_PUB", 33};
-    inline constexpr Key  PAT                  {"PAT",    34};
-    inline constexpr Key  GUARD                {"GUARD",  35};
-    inline constexpr Key  EXPR                 {"EXPR",   36};
-    inline constexpr Key  NAMES                {"NAMES",  37};
+    inline constexpr Key  PAT                  {"PAT", 34};
+    inline constexpr Key  GUARD                {"GUARD", 35};
+    inline constexpr Key  EXPR                 {"EXPR", 36};
+    inline constexpr Key  NAMES                {"NAMES", 37};
+    inline constexpr Key  WHERE                {"WHERE", 38};
+    inline constexpr Key  IS_CONST             {"IS_CONST", 39};
+    inline constexpr Key  LIFETIME             {"LIFETIME", 40};
+    inline constexpr Key  IMPL_TYPE_PARAMS     {"IMPL_TYPE_PARAMS", 41};
+    inline constexpr Key  IS_UNSAFE            {"IS_UNSAFE", 42};
+    inline constexpr Key  INDEX                {"INDEX", 43};
 
     // Node type discriminants
     inline constexpr Code MODULE               {"MODULE", 1};
@@ -138,6 +144,17 @@ namespace logos_ast {
     inline constexpr Code ASSOC_TYPE_REF       {"ASSOC_TYPE_REF", 121};
     inline constexpr Code TRY_EXPR             {"TRY_EXPR", 122};
     inline constexpr Code LET_DESTRUCT         {"LET_DESTRUCT", 123};
+    inline constexpr Code WHERE_CLAUSE         {"WHERE_CLAUSE", 124};
+    inline constexpr Code CLOSURE_TYPE         {"CLOSURE_TYPE", 125};
+    inline constexpr Code COMPOUND_ASSIGN      {"COMPOUND_ASSIGN", 126};
+    inline constexpr Code ARR_FILL_LIT         {"ARR_FILL_LIT", 127};
+    inline constexpr Code DEREF_FIELD_WRITE    {"DEREF_FIELD_WRITE", 128};
+    inline constexpr Code REF_TYPE             {"REF_TYPE", 129};
+    inline constexpr Code MUT_REF_TYPE         {"MUT_REF_TYPE", 130};
+    inline constexpr Code LIFETIME_PARAM       {"LIFETIME_PARAM", 131};
+    inline constexpr Code UNSAFE_BLOCK         {"UNSAFE_BLOCK", 132};
+    inline constexpr Code CONST_PARAM          {"CONST_PARAM", 133};
+    inline constexpr Code TUPLE_FIELD_WRITE    {"TUPLE_FIELD_WRITE", 134};
 
 } // namespace logos_ast
 
@@ -178,6 +195,7 @@ enum class TK_LOGOS : int {
     KW_IN,   // "in"
     KW_AS,   // "as"
     KW_WHERE,   // "where"
+    KW_UNSAFE,   // "unsafe"
     LBRACE,   // "{"
     RBRACE,   // "}"
     LBRACKET,   // "["
@@ -193,11 +211,23 @@ enum class TK_LOGOS : int {
     AMP,   // "&"
     AND,   // "&&"
     OR,   // "||"
-    PIPE,   // "|"
     EQ,   // "=="
     NE,   // "!="
     LE,   // "<="
     GE,   // ">="
+    SHL_EQ,   // "<<="
+    SHR_EQ,   // ">>="
+    SHL,   // "<<"
+    SHR,   // ">>"
+    PLUS_EQ,   // "+="
+    MINUS_EQ,   // "-="
+    STAR_EQ,   // "*="
+    SLASH_EQ,   // "/="
+    PERCENT_EQ,   // "%="
+    AMP_EQ,   // "&="
+    PIPE_EQ,   // "|="
+    CARET_EQ,   // "^="
+    PIPE,   // "|"
     DOTDOTDOT,   // "..."
     DOTDOTEQ,   // "..="
     DOTDOT,   // ".."
@@ -212,8 +242,10 @@ enum class TK_LOGOS : int {
     ASSIGN,   // "="
     FATARROW,   // "=>"
     COLONCOLON,   // "::"
+    CARET,   // "^"
     STRING,   // /"([^"\\]|\\.)*"/
     INTEGER,   // /[-]?[0-9]+/
+    LIFETIME,   // /'[a-z][a-z0-9_]*/
     IDENT,   // /[a-zA-Z_][a-zA-Z0-9_]*/
 };
 
@@ -241,6 +273,7 @@ private:
     logos::hermes::AnyVal rule_pub_enum_def();
     logos::hermes::AnyVal rule_enum_def();
     logos::hermes::AnyVal rule_variant_list();
+    logos::hermes::AnyVal rule_variant_payload_list();
     logos::hermes::AnyVal rule_variant_def();
     logos::hermes::AnyVal rule_pub_trait_def();
     logos::hermes::AnyVal rule_trait_def();
@@ -249,6 +282,7 @@ private:
     logos::hermes::AnyVal rule_impl_item();
     logos::hermes::AnyVal rule_class_def();
     logos::hermes::AnyVal rule_class_member();
+    logos::hermes::AnyVal rule_pub_static_fn_def();
     logos::hermes::AnyVal rule_static_fn_def();
     logos::hermes::AnyVal rule_abstract_method_def();
     logos::hermes::AnyVal rule_pub_struct_def();
@@ -256,20 +290,27 @@ private:
     logos::hermes::AnyVal rule_field_def();
     logos::hermes::AnyVal rule_method_def();
     logos::hermes::AnyVal rule_extern_fn_def();
+    logos::hermes::AnyVal rule_where_clause();
     logos::hermes::AnyVal rule_pub_fn_def();
     logos::hermes::AnyVal rule_fn_def();
     logos::hermes::AnyVal rule_param_list();
     logos::hermes::AnyVal rule_param();
+    logos::hermes::AnyVal rule_impl_type();
     logos::hermes::AnyVal rule_type_ref();
     logos::hermes::AnyVal rule_assoc_type_ref();
     logos::hermes::AnyVal rule_dyn_type();
     logos::hermes::AnyVal rule_slice_type();
     logos::hermes::AnyVal rule_ref_type();
+    logos::hermes::AnyVal rule_closure_type_args();
+    logos::hermes::AnyVal rule_closure_type();
+    logos::hermes::AnyVal rule_unit_type();
     logos::hermes::AnyVal rule_tuple_type();
     logos::hermes::AnyVal rule_ptr_type();
     logos::hermes::AnyVal rule_arr_type();
+    logos::hermes::AnyVal rule_type_or_lt_arg();
     logos::hermes::AnyVal rule_simple_type();
     logos::hermes::AnyVal rule_block();
+    logos::hermes::AnyVal rule_unsafe_block();
     logos::hermes::AnyVal rule_stmt();
     logos::hermes::AnyVal rule_for_stmt();
     logos::hermes::AnyVal rule_loop_stmt();
@@ -285,14 +326,19 @@ private:
     logos::hermes::AnyVal rule_while_stmt();
     logos::hermes::AnyVal rule_return_stmt();
     logos::hermes::AnyVal rule_assign_stmt();
+    logos::hermes::AnyVal rule_compound_assign_op();
+    logos::hermes::AnyVal rule_compound_assign_stmt();
     logos::hermes::AnyVal rule_delete_stmt();
+    logos::hermes::AnyVal rule_tuple_field_write_stmt();
     logos::hermes::AnyVal rule_field_write_stmt();
+    logos::hermes::AnyVal rule_deref_field_write_stmt();
     logos::hermes::AnyVal rule_field_index_write_stmt();
     logos::hermes::AnyVal rule_deref_write_stmt();
     logos::hermes::AnyVal rule_if_expr();
     logos::hermes::AnyVal rule_expr();
     logos::hermes::AnyVal rule_log_expr();
     logos::hermes::AnyVal rule_cmp_expr();
+    logos::hermes::AnyVal rule_bitwise_expr();
     logos::hermes::AnyVal rule_add_expr();
     logos::hermes::AnyVal rule_mul_expr();
     logos::hermes::AnyVal rule_unary_expr();
@@ -303,12 +349,14 @@ private:
     logos::hermes::AnyVal rule_enum_lit();
     logos::hermes::AnyVal rule_struct_lit();
     logos::hermes::AnyVal rule_field_init();
+    logos::hermes::AnyVal rule_arr_fill_lit();
     logos::hermes::AnyVal rule_arr_lit();
     logos::hermes::AnyVal rule_tuple_lit();
     logos::hermes::AnyVal rule_closure_expr();
     logos::hermes::AnyVal rule_paren_expr();
     logos::hermes::AnyVal rule_type_param_list();
     logos::hermes::AnyVal rule_trait_bound();
+    logos::hermes::AnyVal rule_lifetime_param();
     logos::hermes::AnyVal rule_type_param();
     logos::hermes::AnyVal rule_type_arg_list();
     logos::hermes::AnyVal rule_call_arg_list();

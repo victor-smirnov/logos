@@ -1,0 +1,21 @@
+package ref_struct_return;
+// Returning &Struct and binding to let r: &Struct should work
+
+struct Data {
+    value: i32;
+    extra: i32;
+}
+
+fn get_ref(d: &Data) -> &Data {
+    return d;
+}
+
+fn get_value(d: &Data) -> i32 {
+    return d.value;
+}
+
+fn main() -> i32 {
+    let obj: Data = Data { value: 20, extra: 22 };
+    let r: &Data = get_ref(&obj);
+    return r.value + r.extra;
+}

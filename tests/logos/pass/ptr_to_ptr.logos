@@ -1,0 +1,24 @@
+package ptr_to_ptr;
+// Pointer-to-pointer type: *const *const T
+// Tests that the parser accepts nested pointer types
+
+fn deref_ptr(p: *const i32) -> i32 {
+    unsafe {
+        return *p;
+    }
+}
+
+fn get_through_pp(pp: *const *const i32) -> i32 {
+    unsafe {
+        let inner: *const i32 = *pp;
+        return *inner;
+    }
+}
+
+fn main() -> i32 {
+    let x: i32 = 42;
+    let p: *const i32 = &x;
+    let pp: *const *const i32 = &p;
+    let result: i32 = unsafe { get_through_pp(pp); };
+    return result;
+}

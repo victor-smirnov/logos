@@ -1,0 +1,19 @@
+package mut_ref_deref_write;
+// Writing through &mut T should not require unsafe
+fn add_to(x: &mut i32, delta: i32) {
+    *x = *x + delta;
+}
+
+fn swap(a: &mut i32, b: &mut i32) {
+    let tmp: i32 = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+fn main() -> i32 {
+    let mut a: i32 = 35;
+    let mut b: i32 = 10;
+    add_to(&mut a, 7);
+    swap(&mut a, &mut b);
+    return a + b;
+}

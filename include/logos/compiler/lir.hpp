@@ -337,6 +337,14 @@ struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class p
 // *ptr = value;  — write through a raw pointer
 struct SDerefWrite { LExprPtr ptr; LExprPtr value; };
 
+// var.N = value;  — tuple field write (N is a small integer index)
+struct STupleWrite {
+    std::string      receiver;      // local variable holding the tuple
+    uint32_t         index;         // field index (0, 1, ...)
+    LExprPtr         value;
+    const LogosType* recv_type = nullptr;  // LogosType of the tuple variable
+};
+
 // for item in array { body } — iterates over a fixed-size array
 struct SForEach {
     std::string      var;         // loop variable name (item)
@@ -367,7 +375,7 @@ struct LStmt {
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
         SBreak, SContinue, SBlock, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
-        SDrop, SDerefFieldWrite
+        SDrop, SDerefFieldWrite, STupleWrite
     > kind;
 };
 

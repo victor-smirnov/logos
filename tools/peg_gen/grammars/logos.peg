@@ -63,6 +63,7 @@
     LIFETIME       = 40
     IMPL_TYPE_PARAMS = 41
     IS_UNSAFE      = 42
+    INDEX          = 43
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -160,6 +161,7 @@
     LIFETIME_PARAM       = 131
     UNSAFE_BLOCK         = 132
     CONST_PARAM          = 133
+    TUPLE_FIELD_WRITE    = 134
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -501,8 +503,10 @@
               / KW_DYN IDENT
              => { CODE: DYN_TYPE, NAME: $2 }
 
-    // &[T] — slice type (fat pointer: ptr + len)
-    slice_type <- AMP LBRACKET type_ref RBRACKET
+    // &[T] and &mut [T] — slice types (fat pointer: ptr + len)
+    slice_type <- AMP KW_MUT LBRACKET type_ref RBRACKET
+               => { CODE: SLICE_TYPE, TYPE: $4, MUTPTR: true }
+               / AMP LBRACKET type_ref RBRACKET
                => { CODE: SLICE_TYPE, TYPE: $3 }
 
     // &'a mut T / &mut T / &'a T / &T — safe reference types (borrow-checked)
@@ -529,9 +533,9 @@
     tuple_type <- LPAREN type_ref COMMA type_ref (COMMA type_ref)* RPAREN
                => { CODE: TUPLE_TYPE, ITEMS: $... }
 
-    ptr_type <- STAR KW_CONST simple_type
+    ptr_type <- STAR KW_CONST type_ref
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: false }
-              / STAR KW_MUT simple_type
+              / STAR KW_MUT type_ref
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
 
     // [T; N] — fixed-size array type
@@ -572,6 +576,7 @@
           / delete_stmt
           / field_index_write_stmt
           / deref_field_write_stmt
+          / tuple_field_write_stmt
           / field_write_stmt
           / index_write_stmt
           / compound_assign_stmt
@@ -668,6 +673,10 @@
 
     delete_stmt <- KW_DELETE expr SEMI
                => { CODE: DELETE_STMT, VALUE: $2 }
+
+    // var.N = value;  — tuple field write (N is an integer index literal)
+    tuple_field_write_stmt <- IDENT DOT INTEGER ASSIGN expr SEMI
+                           => { CODE: TUPLE_FIELD_WRITE, RECEIVER: $1, INDEX: $3, VALUE: $5 }
 
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }

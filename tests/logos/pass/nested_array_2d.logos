@@ -1,0 +1,12 @@
+package nested_array_2d;
+// [[T; M]; N] - 2D arrays with proper indexing
+
+fn main() -> i32 {
+    let matrix: [[i32; 3]; 2] = [[1, 2, 3], [10, 20, 30]];
+    // matrix[0] = [1, 2, 3], matrix[1] = [10, 20, 30]
+    // matrix[0][0] + matrix[0][2] + matrix[1][1] = 1 + 3 + 20 = 24
+    let a: i32 = matrix[0][0];
+    let b: i32 = matrix[0][2];
+    let c: i32 = matrix[1][1];
+    return a + b + c + 18;
+}

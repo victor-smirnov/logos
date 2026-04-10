@@ -921,6 +921,9 @@ private:
             } else if constexpr (std::is_same_v<K, lir::SDerefWrite>) {
                 ns.kind = lir::SDerefWrite{subst_expr(*k.ptr, s), subst_expr(*k.value, s)};
 
+            } else if constexpr (std::is_same_v<K, lir::STupleWrite>) {
+                ns.kind = lir::STupleWrite{k.receiver, k.index, subst_expr(*k.value, s), k.recv_type};
+
             } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
                 ns.kind = lir::SExprStmt{subst_expr(*k.expr, s)};
 
@@ -1040,6 +1043,8 @@ private:
                 scan_expr(*k.index); scan_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SDerefWrite>) {
                 scan_expr(*k.ptr); scan_expr(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::STupleWrite>) {
+                scan_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
                 scan_expr(*k.expr);
             } else if constexpr (std::is_same_v<K, lir::SDelete>) {
@@ -1421,6 +1426,8 @@ private:
                 collect_struct_needs_from_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SDerefWrite>) {
                 collect_struct_needs_from_expr(*k.ptr);
+                collect_struct_needs_from_expr(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::STupleWrite>) {
                 collect_struct_needs_from_expr(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
                 collect_struct_needs_from_expr(*k.expr);

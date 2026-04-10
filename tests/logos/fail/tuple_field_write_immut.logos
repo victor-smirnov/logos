@@ -1,0 +1,8 @@
+package tuple_field_write_immut;
+// Writing to a non-mut tuple field should fail
+
+fn main() -> i32 {
+    let p: (i32, i32) = (10, 32);
+    p.0 = 99;
+    return p.0;
+}

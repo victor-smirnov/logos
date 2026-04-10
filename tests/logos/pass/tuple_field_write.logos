@@ -1,0 +1,16 @@
+package tuple_field_write;
+// Mutable tuple field assignment: p.0 = val, p.1 = val
+
+fn swap(a: i32, b: i32) -> (i32, i32) {
+    return (b, a);
+}
+
+fn main() -> i32 {
+    let mut p: (i32, i32) = (10, 32);
+    // swap elements via tuple field write
+    let tmp: i32 = p.0;
+    p.0 = p.1;
+    p.1 = tmp;
+    // p is now (32, 10), sum = 42
+    return p.0 + p.1;
+}

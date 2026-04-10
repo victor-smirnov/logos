@@ -1,0 +1,25 @@
+package mut_ref_field_write;
+// Writing a field through &mut Struct should not require unsafe
+
+struct Counter {
+    value: i32;
+    step: i32;
+}
+
+fn increment(c: &mut Counter) {
+    let v: i32 = (*c).value;
+    let s: i32 = (*c).step;
+    (*c).value = v + s;
+}
+
+fn reset(c: &mut Counter) {
+    (*c).value = 0;
+}
+
+fn main() -> i32 {
+    let mut cnt: Counter = Counter { value: 0, step: 14 };
+    increment(&mut cnt);
+    increment(&mut cnt);
+    increment(&mut cnt);
+    return cnt.value;
+}

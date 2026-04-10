@@ -149,11 +149,10 @@ static bool types_compatible(const LogosType* from, const LogosType* to) noexcep
         to->kind   == LogosType::Kind::Ptr   &&
         from->elem && to->pointee)
         return types_equal(*from->elem, *to->pointee);
-    // Array with IntLit elements is compatible with Array of any integer element type.
+    // Arrays are compatible if same size and elements are compatible (handles nested arrays).
     if (from->kind == LogosType::Kind::Array && to->kind == LogosType::Kind::Array &&
-        from->arr_size == to->arr_size && from->elem && to->elem &&
-        from->elem->kind == LogosType::Kind::IntLit && is_integer_kind(to->elem->kind))
-        return true;
+        from->arr_size == to->arr_size && from->elem && to->elem)
+        return types_compatible(from->elem, to->elem);
     // *const u8 → &[u8] (string literal to str coercion)
     if (from->kind == LogosType::Kind::Ptr && to->kind == LogosType::Kind::Slice &&
         from->pointee && to->elem &&
@@ -5644,6 +5643,7 @@ private:
         if (c == la::FOR_EACH)     return lower_for_each(stmt);
         if (c == la::LOOP)         return lower_loop(stmt);
         if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
+        if (c == la::TUPLE_FIELD_WRITE)  return lower_tuple_field_write(stmt);
         if (c == la::DEREF_FIELD_WRITE)  return lower_deref_field_write(stmt);
         if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
         if (c == la::FIELD_INDEX_WRITE)  return lower_field_index_write(stmt);
@@ -5664,8 +5664,6 @@ private:
         }
         if (c == la::DEREF_WRITE) {
             // *ptr = value;
-            if (!inside_unsafe_)
-                error("write through raw pointer requires unsafe context");
             lir::LExprPtr ptr = stmt.has_key(la::NAME)
                 ? lower_expr(map_of(stmt.get(la::NAME.code)))
                 : error_expr();
@@ -5673,9 +5671,16 @@ private:
                 ? lower_expr(map_of(stmt.get(la::VALUE.code)))
                 : error_expr();
             auto* pt = ptr->type;
-            if (pt->kind != LogosType::Kind::Ptr || !pt->pointee) {
-                error("deref-write: '=' left side must be a pointer");
+            // Writing through &mut T is safe; writing through raw *mut/*const T requires unsafe
+            bool is_mut_ref = pt->kind == LogosType::Kind::MutRef;
+            if (!is_mut_ref && !inside_unsafe_)
+                error("write through raw pointer requires unsafe context");
+            if (pt->kind != LogosType::Kind::Ptr && pt->kind != LogosType::Kind::MutRef) {
+                error("deref-write: '=' left side must be a pointer or mutable reference");
             }
+            // *const T is read-only; only *mut T or &mut T can be written through
+            if (pt->kind == LogosType::Kind::Ptr && !pt->mut_ptr)
+                error("deref-write: cannot write through *const pointer (use *mut)");
             return make_stmt(node_line_, lir::SDerefWrite{std::move(ptr), std::move(val)});
         }
         if (c == la::DELETE_STMT) {
@@ -5842,7 +5847,12 @@ private:
 
         const LogosType* var_type;
         if (ann != nullptr) {
-            if (ann->kind != LogosType::Kind::Error &&
+            // impl Trait annotation: any concrete struct/class that was returned from an
+            // impl-Trait-returning function is acceptable — treat the variable type as the
+            // concrete rhs type so method calls work.
+            bool ann_is_impl = ann->kind == LogosType::Kind::ImplTrait;
+            if (!ann_is_impl &&
+                ann->kind != LogosType::Kind::Error &&
                 rhs_type->kind != LogosType::Kind::Error &&
                 !types_compatible(rhs_type, ann)) {
                 error(std::format("let '{}': type mismatch — expected {}, got {}",
@@ -5902,7 +5912,8 @@ private:
                     }
                 }
             }
-            var_type = ann;
+            // For impl Trait annotations, use the concrete rhs type so that method calls work.
+            var_type = ann_is_impl ? rhs_type : ann;
         } else {
             var_type = rhs_type;
             if (var_type->kind == LogosType::Kind::IntLit) {
@@ -6726,9 +6737,54 @@ private:
         return make_stmt(node_line_, std::move(sfw));
     }
 
+    // var.N = value;  — tuple field write
+    lir::LStmt lower_tuple_field_write(TinyMapView node) {
+        auto recv_name = str_of(node.get(la::RECEIVER.code));
+        auto idx_sv    = str_of(node.get(la::INDEX.code));
+        uint64_t idx   = std::strtoul(idx_sv.data(), nullptr, 10);
+
+        const LogosType* recv_t = lookup(recv_name);
+        if (!recv_t) {
+            error(std::format("tuple field write: undefined variable '{}'", recv_name));
+            return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
+        }
+        // Strip &mut wrapper if present
+        if (recv_t->kind == LogosType::Kind::MutRef && recv_t->pointee)
+            recv_t = recv_t->pointee;
+
+        if (recv_t->kind != LogosType::Kind::Tuple) {
+            error(std::format("tuple field write: '{}' is not a tuple (got {})", recv_name, type_str(recv_t)));
+            return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
+        }
+        if (idx >= recv_t->tuple_elems.size()) {
+            error(std::format("tuple field write: index {} out of range (tuple has {} elements)",
+                              idx, recv_t->tuple_elems.size()));
+            return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
+        }
+        if (!lookup_is_mut(recv_name)) {
+            error(std::format("tuple field write to immutable variable '{}'", recv_name));
+        }
+
+        const LogosType* ft = recv_t->tuple_elems[idx];
+        lir::LExprPtr val = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code)))
+            : error_expr();
+        if (ft->kind != LogosType::Kind::Error &&
+            val->type->kind != LogosType::Kind::Error &&
+            !types_compatible(val->type, ft)) {
+            error(std::format("tuple field write '{}.{}': expected {}, got {}",
+                  recv_name, idx, type_str(ft), type_str(val->type)));
+        }
+        // Narrow intlit
+        if (ft->kind != LogosType::Kind::Error && val->type->kind == LogosType::Kind::IntLit)
+            if (auto v = get_intlit_value(val.get()))
+                if (!intlit_fits(*v, ft->kind))
+                    error(std::format("tuple field write '{}.{}': value {} does not fit in {}",
+                          recv_name, idx, *v, type_str(ft)));
+        return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, std::move(val), recv_t});
+    }
+
     lir::LStmt lower_deref_field_write(TinyMapView node) {
-        if (!inside_unsafe_)
-            error("write through raw pointer field requires unsafe context");
         auto recv_name  = str_of(node.get(la::RECEIVER.code));
         auto field_name = str_of(node.get(la::FIELD.code));
 
@@ -6745,6 +6801,9 @@ private:
             error(std::format("deref-field-write: '{}' is a &T (shared reference, need &mut T)",
                               recv_name));
         }
+        // Writing through &mut T is safe; writing through raw *mut T requires unsafe
+        if (ptr_type && ptr_type->kind == LogosType::Kind::Ptr && !inside_unsafe_)
+            error("write through raw pointer field requires unsafe context");
 
         const LogosType* pointee = (ptr_type && ptr_type->pointee) ? ptr_type->pointee : nullptr;
         std::string type_name;

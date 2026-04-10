@@ -1,0 +1,9 @@
+package const_ptr_write;
+// Writing through *const T should be rejected
+
+fn main() -> i32 {
+    let x: i32 = 42;
+    let p: *const i32 = &x;
+    unsafe { *p = 0; }
+    return 0;
+}

@@ -564,6 +564,11 @@ class BorrowChecker {
                 visit(s.ptr, /*consuming=*/false, ln);
                 visit(s.value, /*consuming=*/true, ln);
 
+            // ── Tuple field write: var.N = value ──────────────────────────
+            } else if constexpr (std::is_same_v<S, STupleWrite>) {
+                check_live(s.receiver, ln);
+                visit(s.value, /*consuming=*/true, ln);
+
             // ── delete ptr ───────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SDelete>) {
                 visit(s.expr, /*consuming=*/true, ln);
