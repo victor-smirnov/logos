@@ -3472,6 +3472,12 @@ private:
                     !types_compatible(at, pt))
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, type_str(pt), type_str(at)));
+                if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error &&
+                    pt->kind != LogosType::Kind::TypeVar)
+                    if (auto v = get_intlit_value(arg_exprs[i].get()))
+                        if (!intlit_fits(*v, pt->kind))
+                            error(std::format("call to '{}' arg {}: value {} does not fit in {}",
+                                  callee, i + 1, *v, type_str(pt)));
             }
         } else {
             if (n_args != fi.param_types.size()) {
@@ -3488,6 +3494,12 @@ private:
                         !types_compatible(at, pt))
                         error(std::format("call to '{}' arg {}: expected {}, got {}",
                               callee, i + 1, type_str(pt), type_str(at)));
+                    if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error &&
+                        pt->kind != LogosType::Kind::TypeVar)
+                        if (auto v = get_intlit_value(arg_exprs[i].get()))
+                            if (!intlit_fits(*v, pt->kind))
+                                error(std::format("call to '{}' arg {}: value {} does not fit in {}",
+                                      callee, i + 1, *v, type_str(pt)));
                 }
             }
         }
@@ -3829,6 +3841,15 @@ private:
                             error(std::format("method '{}' arg {}: expected {}, got {}",
                                               std::string(method_name), i + 1,
                                               type_str(pt), type_str(at)));
+                        if (at->kind == LogosType::Kind::IntLit &&
+                            pt->kind != LogosType::Kind::Error &&
+                            pt->kind != LogosType::Kind::TypeVar &&
+                            pt->kind != LogosType::Kind::AssocType)
+                            if (auto v = get_intlit_value(arg_exprs[i].get()))
+                                if (!intlit_fits(*v, pt->kind))
+                                    error(std::format("method '{}' arg {}: value {} does not fit in {}",
+                                                      std::string(method_name), i + 1,
+                                                      *v, type_str(pt)));
                     }
                 }
 
@@ -3983,6 +4004,11 @@ private:
                         !types_compatible(at, pt))
                         error(std::format("method '{}' arg {}: expected {}, got {}",
                               mangled, i + 1, type_str(pt), type_str(at)));
+                    if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                        if (auto v = get_intlit_value(arg_exprs[i].get()))
+                            if (!intlit_fits(*v, pt->kind))
+                                error(std::format("method '{}' arg {}: value {} does not fit in {}",
+                                      mangled, i + 1, *v, type_str(pt)));
                 }
             }
         }
@@ -4529,6 +4555,12 @@ private:
                     error(std::format("{}::{} arg {}: expected {}, got {}",
                           ename, vname, i, type_str(resolved_payload_types[i]),
                           type_str(payload[i]->type)));
+                // Check IntLit payload value fits in the declared payload type.
+                if (resolved_payload_types[i] && payload[i]->type->kind == LogosType::Kind::IntLit)
+                    if (auto v = get_intlit_value(payload[i].get()))
+                        if (!intlit_fits(*v, resolved_payload_types[i]->kind))
+                            error(std::format("{}::{} arg {}: value {} does not fit in {}",
+                                  ename, vname, i, *v, type_str(resolved_payload_types[i])));
             }
         } else {
             // Variadic variant: match each arg against the pack's type (if it's not a generic expansion itself).
@@ -4623,6 +4655,13 @@ private:
                     error(std::format("{}::{} arg {}: expected {}, got {}",
                           ename, vname, i, type_str(resolved_payload_types[i]),
                           type_str(payload[i]->type)));
+                if (resolved_payload_types[i] &&
+                    payload[i]->type->kind == LogosType::Kind::IntLit)
+                    if (auto v = get_intlit_value(payload[i].get()))
+                        if (!intlit_fits(*v, resolved_payload_types[i]->kind))
+                            error(std::format("{}::{} arg {}: value {} does not fit in {}",
+                                  ename, vname, i, *v,
+                                  type_str(resolved_payload_types[i])));
             }
         } else {
             if (!resolved_payload_types.empty()) {
@@ -5275,6 +5314,20 @@ private:
                     }
                 }
             }
+            // Check each IntLit tuple element fits in the annotation's element type.
+            if (ann->kind == LogosType::Kind::Tuple &&
+                rhs_type->kind == LogosType::Kind::Tuple) {
+                if (auto* tlit = std::get_if<lir::ETupleLit>(&rhs->kind)) {
+                    for (size_t ei = 0; ei < tlit->elems.size() && ei < ann->tuple_elems.size(); ++ei) {
+                        if (tlit->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(tlit->elems[ei].get()))
+                                if (ann->tuple_elems[ei] &&
+                                    !intlit_fits(*v, ann->tuple_elems[ei]->kind))
+                                    error(std::format("let '{}': tuple element {}: value {} does not fit in {}",
+                                          name, ei, *v, type_str(ann->tuple_elems[ei])));
+                    }
+                }
+            }
             var_type = ann;
         } else {
             var_type = rhs_type;
@@ -5353,6 +5406,14 @@ private:
             !types_compatible(rhs->type, var_type)) {
             error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
                   name, type_str(var_type), type_str(rhs->type)));
+        }
+        // Check IntLit literal fits in the variable's declared type.
+        if (rhs->type->kind == LogosType::Kind::IntLit &&
+            var_type->kind != LogosType::Kind::Error) {
+            if (auto v = get_intlit_value(rhs.get()))
+                if (!intlit_fits(*v, var_type->kind))
+                    error(std::format("assignment to '{}': value {} does not fit in {}",
+                          name, *v, type_str(var_type)));
         }
         // Re-assignment revives the variable (the old value was already consumed).
         moved_vars_.erase(std::string(name));
@@ -5654,11 +5715,21 @@ private:
             if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
         }
 
-        // Mirror mlir_gen's loop_type logic: use i64 if any bound is i64 or u64.
+        // Mirror mlir_gen's loop_type logic: use i64 if any bound is i64 or u64,
+        // or if any IntLit bound value overflows i32 (mlir_gen emits i64 for those).
         const LogosType* var_t = i32_t();
         if (lo->type->kind == LogosType::Kind::I64 || lo->type->kind == LogosType::Kind::U64 ||
             hi->type->kind == LogosType::Kind::I64 || hi->type->kind == LogosType::Kind::U64)
             var_t = prim(LogosType::Kind::I64);
+        if (var_t == i32_t()) {
+            auto intlit_overflows = [](const lir::LExpr* e) {
+                if (auto v = get_intlit_value(e))
+                    return !intlit_fits(*v, LogosType::Kind::I32);
+                return false;
+            };
+            if (intlit_overflows(lo.get()) || intlit_overflows(hi.get()))
+                var_t = prim(LogosType::Kind::I64);
+        }
 
         push_scope();
         define(var_name, var_t, true);

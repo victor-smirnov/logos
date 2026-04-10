@@ -1,0 +1,6 @@
+package assign_i32_overflow;
+fn main() -> i32 {
+    let mut x: i32 = 0;
+    x = 10000000000;
+    return 0;
+}

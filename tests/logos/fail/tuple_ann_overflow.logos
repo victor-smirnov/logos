@@ -1,0 +1,5 @@
+package tuple_ann_overflow;
+fn main() -> i32 {
+    let t: (u8, i32) = (300, 5);
+    return 0;
+}

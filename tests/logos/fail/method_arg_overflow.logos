@@ -1,0 +1,11 @@
+package method_arg_overflow;
+struct Vec2 { x: i32; y: i32; }
+impl Vec2 {
+    fn scale(self: Vec2, factor: i32) -> i32 {
+        return self.x * factor;
+    }
+}
+fn main() -> i32 {
+    let v = Vec2 { x: 1, y: 2 };
+    return v.scale(10000000000);
+}

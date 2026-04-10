@@ -1,0 +1,12 @@
+package for_i64_intlit_bounds;
+// Bug: for-loop variable was typed i32 even when bounds overflow i32.
+// Fix: loop var promoted to i64 when either bound overflows i32 range.
+fn main() -> i32 {
+    let mut count: i32 = 0;
+    for _i in 0..10000000000 {
+        count = count + 1;
+        if count >= 3 { break; }
+    }
+    if count == 3 { return 0; }
+    return 1;
+}

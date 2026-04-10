@@ -1,0 +1,9 @@
+package enum_payload_overflow;
+enum Opt {
+    Some(i32),
+    None,
+}
+fn main() -> i32 {
+    let v = Opt::Some(10000000000);
+    return 0;
+}
