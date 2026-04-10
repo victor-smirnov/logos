@@ -182,6 +182,13 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
     if (from->kind == LogosType::Kind::MutRef && to->kind == LogosType::Kind::Ref &&
         from->pointee && to->pointee)
         return types_compatible(from->pointee, to->pointee);
+    // &T → &T and &mut T → &mut T with compatible pointees (e.g. &{integer} → &i32)
+    if (from->kind == LogosType::Kind::Ref && to->kind == LogosType::Kind::Ref &&
+        from->pointee && to->pointee)
+        return types_compatible(from->pointee, to->pointee);
+    if (from->kind == LogosType::Kind::MutRef && to->kind == LogosType::Kind::MutRef &&
+        from->pointee && to->pointee)
+        return types_compatible(from->pointee, to->pointee);
     // Class pointer covariance: *mut/const Derived is compatible with *const/mut Class
     // (same class — exact equality handled above; hierarchy checked in SemaChecker::compat)
     return false;

@@ -833,9 +833,9 @@
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
     // ── Class new expression: new ClassName { field: expr, ... } ──
-    new_expr <- KW_NEW IDENT LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)*)? RBRACE
+    new_expr <- KW_NEW IDENT LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
              => { CODE: NEW_EXPR, NAME: $2, TYPE_PARAMS: $4, ITEMS: $... }
-              / KW_NEW IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
+              / KW_NEW IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
              => { CODE: NEW_EXPR, NAME: $2, ITEMS: $... }
 
     // ── Enum variant literal: Color::Red or Option::Some(42) ──────
@@ -846,10 +846,10 @@
 
     // ── Struct literal: TypeName { field: expr, ... } ─────────────
     // Generic form: TypeName::<T, U> { field: expr, ... }
-    generic_struct_lit <- IDENT COLONCOLON LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)*)? RBRACE
+    generic_struct_lit <- IDENT COLONCOLON LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
                        => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, ITEMS: $... }
 
-    struct_lit <- IDENT LBRACE (field_init (COMMA field_init)*)? RBRACE
+    struct_lit <- IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
                => { CODE: STRUCT_LIT, NAME: $1, ITEMS: $... }
 
     field_init <- IDENT COLON expr
