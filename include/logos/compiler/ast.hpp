@@ -198,6 +198,9 @@ inline constexpr Code TUPLE_FIELD_WRITE{"TUPLE_FIELD_WRITE", 134}; // var.N = va
 inline constexpr Code LIT_FLOAT        {"LIT_FLOAT",         135}; // float literal 3.14
 inline constexpr Code FIELD_COMPOUND_ASSIGN {"FIELD_COMPOUND_ASSIGN", 136}; // s.field op= expr
 inline constexpr Code INDEX_COMPOUND_ASSIGN {"INDEX_COMPOUND_ASSIGN", 137}; // arr[i] op= expr
+inline constexpr Code PAT_NEG_INT     {"PAT_NEG_INT",     138}; // negative int pattern: -42
+inline constexpr Code PAT_OR          {"PAT_OR",          139}; // OR pattern: 1 | 2 | 3
+inline constexpr Code FIELD_SHORTHAND {"FIELD_SHORTHAND", 140}; // struct field shorthand: Point { x, y }
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
@@ -212,6 +215,7 @@ inline constexpr Key WHERE     {"WHERE",     38};            // where clause nod
 inline constexpr Key IS_CONST  {"IS_CONST",  39};            // const fn marker
 inline constexpr Key IS_UNSAFE {"IS_UNSAFE", 42};            // unsafe fn marker
 inline constexpr Key IS_MOVE   {"IS_MOVE",   44};            // move closure marker
+inline constexpr Key IS_REF    {"IS_REF",    45};            // &self / &mut self param shorthand
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

@@ -729,6 +729,25 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                   v, type_str(scrut_type)));
         return lir::PatInt{v};
     }
+    if (pc == la::PAT_NEG_INT) {
+        auto sv = str_of(pnode.get(la::VALUE.code));
+        int64_t v = -parse_int_literal(sv);
+        if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
+            !intlit_fits(v, scrut_type->kind))
+            error(std::format("match pattern: value {} does not fit in {}",
+                  v, type_str(scrut_type)));
+        return lir::PatInt{v};
+    }
+    if (pc == la::PAT_OR) {
+        auto arr = arr_of(pnode.get(la::ITEMS.code));
+        // Single-item PAT_OR (no PIPE) — treat as the inner pattern.
+        if (arr.size() == 1)
+            return build_pattern(map_of(arr.get(0)), scrut_type);
+        lir::PatOr por;
+        for (uint64_t i = 0; i < arr.size(); ++i)
+            por.alts.push_back(build_pattern(map_of(arr.get(i)), scrut_type));
+        return por;
+    }
     if (pc == la::PAT_BOOL) {
         AnyVal bv = pnode.get(la::VALUE.code);
         bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();

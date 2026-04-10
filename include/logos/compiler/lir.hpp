@@ -54,7 +54,10 @@ struct PatVariantData {
     std::vector<const LogosType*>   binding_types;  // their types
 };
 
-using Pattern = std::variant<PatVariant, PatInt, PatBool, PatWild, PatVariantData>;
+// OR pattern: 1 | 2 | 3 — each alternative must be a non-OR pattern.
+struct PatOr;
+using Pattern = std::variant<PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr>;
+struct PatOr { std::vector<Pattern> alts; };
 
 struct LMatchArm {
     Pattern                  pat;

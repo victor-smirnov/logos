@@ -1130,26 +1130,34 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         bool has_true = false, has_false = false, has_wild = false;
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
-            if (std::holds_alternative<PatWild>(arm.pat)) {
-                has_wild = true;
-                break;
-            }
-            if (auto* pb = std::get_if<PatBool>(&arm.pat)) {
-                if (pb->value) has_true = true; else has_false = true;
+            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
+            auto check_bool = [&](const lir::Pattern& p) {
+                if (auto* pb = std::get_if<lir::PatBool>(&p)) {
+                    if (pb->value) has_true = true; else has_false = true;
+                }
+            };
+            if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
+                for (auto& alt : por->alts) check_bool(alt);
+            } else {
+                check_bool(arm.pat);
             }
         }
         exhaustive_discrete = has_wild || (has_true && has_false);
     } else if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Enum) {
         std::set<int32_t> covered;
         bool has_wild = false;
+        auto cover_enum = [&](const lir::Pattern& p) {
+            if (auto* pv  = std::get_if<lir::PatVariant>(&p))     covered.insert(pv->disc);
+            else if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) covered.insert(pvd->disc);
+        };
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
-            if (std::holds_alternative<PatWild>(arm.pat)) {
-                has_wild = true;
-                break;
+            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
+            if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
+                for (auto& alt : por->alts) cover_enum(alt);
+            } else {
+                cover_enum(arm.pat);
             }
-            if (auto* pv = std::get_if<PatVariant>(&arm.pat)) covered.insert(pv->disc);
-            else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) covered.insert(pvd->disc);
         }
         if (has_wild) {
             exhaustive_discrete = true;
@@ -1266,6 +1274,31 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         bool is_wild = std::holds_alternative<PatWild>(arm.pat);
         if (is_wild) {
             else_block = arm_entry;
+        } else if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
+            // OR pattern: chain of comparisons — any match goes to arm_entry.
+            // Build right-to-left so each test falls through to the next.
+            auto get_disc = [](const lir::Pattern& p) -> int64_t {
+                if (auto* pv  = std::get_if<lir::PatVariant>(&p))     return pv->disc;
+                if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) return pvd->disc;
+                if (auto* pi  = std::get_if<lir::PatInt>(&p))         return pi->value;
+                if (auto* pb  = std::get_if<lir::PatBool>(&p))        return pb->value ? 1 : 0;
+                return 0;
+            };
+            mlir::Block* cur_else = else_block;
+            for (int64_t ai = static_cast<int64_t>(por->alts.size()) - 1; ai >= 0; --ai) {
+                auto* test_block = new mlir::Block();
+                region->push_back(test_block);
+                int64_t disc = get_disc(por->alts[static_cast<size_t>(ai)]);
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                auto disc_val = coerce_int(
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), scrut_type);
+                auto eq = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, cur_else);
+                cur_else = test_block;
+            }
+            else_block = cur_else;
         } else {
             int64_t disc = 0;
             if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;

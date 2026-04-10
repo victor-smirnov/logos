@@ -65,6 +65,7 @@
     IS_UNSAFE      = 42
     INDEX          = 43
     IS_MOVE        = 44
+    IS_REF         = 45
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -166,6 +167,9 @@
     LIT_FLOAT            = 135
     FIELD_COMPOUND_ASSIGN = 136   // s.field op= expr
     INDEX_COMPOUND_ASSIGN = 137   // arr[i] op= expr
+    PAT_NEG_INT           = 138   // negative integer literal in pattern: -42
+    PAT_OR                = 139   // OR pattern: pat | pat
+    FIELD_SHORTHAND       = 140   // struct field shorthand: Point { x, y }
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -487,7 +491,11 @@
     param_list <- param (COMMA param)*
               => { ITEMS: $... }
 
-    param <- IDENT COLON type_ref DOTDOTDOT
+    param <- AMP KW_MUT IDENT
+          => { CODE: PARAM, NAME: $3, IS_REF: true, IS_MUT: true }
+           / AMP IDENT
+          => { CODE: PARAM, NAME: $2, IS_REF: true }
+           / IDENT COLON type_ref DOTDOTDOT
           => { CODE: PARAM, NAME: $1, TYPE: $3, IS_VARIADIC: true }
            / IDENT COLON type_ref
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
@@ -646,18 +654,23 @@
     pat_binding_list <- pat_binding (COMMA pat_binding)*
                      => { ITEMS: $... }
 
-    pattern <- IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
-            => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
-             / IDENT COLONCOLON IDENT
-            => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
-             / INTEGER
-            => { CODE: PAT_INT, VALUE: $1 }
-             / KW_TRUE
-            => { CODE: PAT_BOOL, VALUE: true }
-             / KW_FALSE
-            => { CODE: PAT_BOOL, VALUE: false }
-             / IDENT
-            => { CODE: PAT_WILD, NAME: $1 }
+    pattern <- pat_single (PIPE pat_single)*
+            => { CODE: PAT_OR, ITEMS: $... }
+
+    pat_single <- IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
+               => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
+              / IDENT COLONCOLON IDENT
+               => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
+              / MINUS INTEGER
+               => { CODE: PAT_NEG_INT, VALUE: $2 }
+              / INTEGER
+               => { CODE: PAT_INT, VALUE: $1 }
+              / KW_TRUE
+               => { CODE: PAT_BOOL, VALUE: true }
+              / KW_FALSE
+               => { CODE: PAT_BOOL, VALUE: false }
+              / IDENT
+               => { CODE: PAT_WILD, NAME: $1 }
 
     // arr[idx] = expr;
     index_write_stmt <- IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
@@ -841,6 +854,8 @@
 
     field_init <- IDENT COLON expr
                => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
+              / IDENT
+               => { CODE: FIELD_SHORTHAND, NAME: $1 }
 
     // ── Array fill literal: [value; N] ───────────────────────────
     arr_fill_lit <- LBRACKET expr SEMI INTEGER RBRACKET

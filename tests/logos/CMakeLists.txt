@@ -20,46 +20,26 @@ set(LOGOS_SUITE_ORDER
     diagnostics)
 
 set(LOGOS_SMOKE_TESTS
+    # pass: core language features — one representative per category
     arith_precedence
-    closure_capture_array_foreach
-    closure_capture_array_lit
-    closure_capture_enum_payload
-    closure_capture_for_range
-    closure_capture_if_expr
-    closure_capture_loop_break
-    closure_capture_match_expr
-    closure_capture_match_stmt
-    closure_capture_struct_lit
-    closure_capture_tuple
-    closure_call_wrong_arg_count
-    closure_call_wrong_arg_type
     fn_default_ret
     if_expr
-    invalid_char_after_package
-    invalid_char_before_return
-    invalid_char_in_struct_lit
-    loop_break_type_mismatch
-    match_expr_nonexhaustive_bool
-    match_guard_nonexhaustive_bool
-    ptr_compare_nonzero
-    stray_token_at_between_items
-    stray_token_at_eof
-    stray_token_dollar_between_items
-    stray_token_hash_top
-    struct_lit_dup_field
-    struct_lit_dup_last
-    struct_lit_dup_nested
     while_test
     for_sum
-    g6_struct_lit
+    loop_continue          # RC4 fix: continue statement
+    g6_struct_impl         # RC3 fix: impl method call (not just field access)
     enum_match
     generic_identity
     g1_trait_impl
-    closure_zero_arity
+    closure_with_capture   # RC2 fix: closure that captures a variable
+    # fail: one representative per error class
     stray_token
     type_mismatch
     wrong_arg_count
-    undef_var)
+    undef_var
+    assign_immutable       # RC5 fix: assignment to non-mut variable
+    # fail: parse errors (one per scenario, not per token type)
+    invalid_char_after_package)
 
 set(LOGOS_INTEGRATION_TESTS
     bst

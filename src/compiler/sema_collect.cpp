@@ -974,7 +974,15 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
                     auto p = map_of(arr.get(i));
                     if (code_of(p) != la::PARAM) continue;
                     auto pname = str_of(p.get(la::NAME.code));
-                    auto ptype = resolve_type(map_of(p.get(la::TYPE.code)));
+                    const LogosType* ptype;
+                    if (p.has_key(la::IS_REF)) {
+                        auto sit = current_type_params_.find("Self");
+                        auto* self_t = sit != current_type_params_.end() ? sit->second : error_t();
+                        bool is_mut = !p.get(la::IS_MUT.code).is_null();
+                        ptype = make_ref(is_mut, self_t);
+                    } else {
+                        ptype = resolve_type(map_of(p.get(la::TYPE.code)));
+                    }
                     define(pname, ptype);
                     fn.params.push_back({std::string(pname), ptype});
                 }
@@ -1036,8 +1044,16 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
                         for (uint64_t i = 0; i < arr.size(); ++i) {
                             auto p = map_of(arr.get(i));
                             if (code_of(p) != la::PARAM) continue;
-                            auto pt = p.has_key(la::TYPE)
-                                ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
+                            const LogosType* pt;
+                            if (p.has_key(la::IS_REF)) {
+                                auto sit = current_type_params_.find("Self");
+                                auto* self_t = sit != current_type_params_.end() ? sit->second : error_t();
+                                bool is_mut = !p.get(la::IS_MUT.code).is_null();
+                                pt = make_ref(is_mut, self_t);
+                            } else {
+                                pt = p.has_key(la::TYPE)
+                                    ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
+                            }
                             info.param_types.push_back(pt);
                         }
                     }
@@ -1084,7 +1100,16 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
                 for (uint64_t i = 0; i < arr.size(); ++i) {
                     auto p = map_of(arr.get(i));
                     if (code_of(p) != la::PARAM) continue;
-                    info.param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
+                    const LogosType* pt;
+                    if (p.has_key(la::IS_REF)) {
+                        auto sit = current_type_params_.find("Self");
+                        auto* self_t = sit != current_type_params_.end() ? sit->second : error_t();
+                        bool is_mut = !p.get(la::IS_MUT.code).is_null();
+                        pt = make_ref(is_mut, self_t);
+                    } else {
+                        pt = resolve_type(map_of(p.get(la::TYPE.code)));
+                    }
+                    info.param_types.push_back(pt);
                 }
             }
         }

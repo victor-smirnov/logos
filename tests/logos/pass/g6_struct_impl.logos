@@ -1,0 +1,21 @@
+package g6_struct_impl;
+// RC3 smoke: impl method call (non-trait), field mutation
+
+struct Counter { val: i32 }
+
+impl Counter {
+    fn increment(self: Counter) -> Counter {
+        return Counter { val: self.val + 1 };
+    }
+    fn get(self: Counter) -> i32 {
+        return self.val;
+    }
+}
+
+fn main() -> i32 {
+    let c: Counter = Counter { val: 0 };
+    let c: Counter = c.increment();
+    let c: Counter = c.increment();
+    let c: Counter = c.increment();
+    return c.get() + 39;
+}

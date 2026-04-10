@@ -1,0 +1,16 @@
+package pat_neg_int;
+fn classify(x: i32) -> i32 {
+    match x {
+        -2 => return 1,
+        -1 => return 2,
+        0  => return 3,
+        _  => return 4,
+    }
+}
+fn main() -> i32 {
+    if classify(-2) != 1 { return 1; }
+    if classify(-1) != 2 { return 2; }
+    if classify(0)  != 3 { return 3; }
+    if classify(5)  != 4 { return 4; }
+    return 42;
+}

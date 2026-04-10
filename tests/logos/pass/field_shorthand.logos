@@ -1,0 +1,9 @@
+package field_shorthand;
+struct Point { x: i32, y: i32 }
+fn make(x: i32, y: i32) -> Point {
+    return Point { x, y };
+}
+fn main() -> i32 {
+    let p = make(20, 22);
+    return p.x + p.y;
+}

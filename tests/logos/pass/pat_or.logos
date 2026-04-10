@@ -1,0 +1,17 @@
+package pat_or;
+fn classify(x: i32) -> i32 {
+    match x {
+        1 | 2 | 3 => return 1,
+        4 | 5     => return 2,
+        _         => return 3,
+    }
+}
+fn main() -> i32 {
+    if classify(1) != 1 { return 1; }
+    if classify(2) != 1 { return 2; }
+    if classify(3) != 1 { return 3; }
+    if classify(4) != 2 { return 4; }
+    if classify(5) != 2 { return 5; }
+    if classify(9) != 3 { return 6; }
+    return 42;
+}

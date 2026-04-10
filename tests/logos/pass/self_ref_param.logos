@@ -1,0 +1,17 @@
+package self_ref_param;
+struct Counter { value: i32 }
+impl Counter {
+    fn get(&self) -> i32 {
+        return self.value;
+    }
+    fn inc(&mut self) -> i32 {
+        self.value = self.value + 1;
+        return self.value;
+    }
+}
+fn main() -> i32 {
+    let mut c = Counter { value: 40 };
+    c.inc();
+    c.inc();
+    return c.get();
+}

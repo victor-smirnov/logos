@@ -1,7 +1,8 @@
-package t;
+package assign_immutable;
+// RC5 smoke: assignment to immutable variable must be rejected
 
 fn main() -> i32 {
-    let x: i32 = 1;
-    x = 2;
+    let x: i32 = 5;
+    x = 10;
     return x;
 }

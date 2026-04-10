@@ -1822,12 +1822,25 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         auto inits = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < inits.size(); ++i) {
             auto init = map_of(inits.get(i));
-            // Skip non-FIELD_INIT items (e.g. type_arg_list node from Struct::<T>{} syntax)
-            if (code_of(init) != la::FIELD_INIT) continue;
+            // Skip non-field items (e.g. type_arg_list node from Struct::<T>{} syntax)
+            int32_t ic = code_of(init);
+            if (ic != la::FIELD_INIT && ic != la::FIELD_SHORTHAND) continue;
             auto fname = str_of(init.get(la::NAME.code));
-            lir::LExprPtr val = init.has_key(la::VALUE)
-                ? lower_expr(map_of(init.get(la::VALUE.code)))
-                : error_expr();
+            lir::LExprPtr val;
+            if (ic == la::FIELD_SHORTHAND) {
+                // Point { x, y } — same as Point { x: x, y: y }
+                auto* t = lookup(fname);
+                if (!t) {
+                    error(std::format("undefined variable '{}' used as field shorthand", fname));
+                    val = error_expr();
+                } else {
+                    val = make_expr(t, lir::EVarRef{std::string(fname)});
+                }
+            } else {
+                val = init.has_key(la::VALUE)
+                    ? lower_expr(map_of(init.get(la::VALUE.code)))
+                    : error_expr();
+            }
             fields.push_back({std::string(fname), std::move(val)});
         }
     }
@@ -2654,11 +2667,23 @@ lir::LExprPtr SemaChecker::lower_new_expr(TinyMapView node) {
         auto inits = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < inits.size(); ++i) {
             auto init = map_of(inits.get(i));
-            if (code_of(init) != la::FIELD_INIT) continue;  // skip type_arg_list or other non-field items
+            int32_t ic = code_of(init);
+            if (ic != la::FIELD_INIT && ic != la::FIELD_SHORTHAND) continue;
             auto fname = str_of(init.get(la::NAME.code));
-            lir::LExprPtr val = init.has_key(la::VALUE)
-                ? lower_expr(map_of(init.get(la::VALUE.code)))
-                : error_expr();
+            lir::LExprPtr val;
+            if (ic == la::FIELD_SHORTHAND) {
+                auto* t = lookup(fname);
+                if (!t) {
+                    error(std::format("undefined variable '{}' used as field shorthand", fname));
+                    val = error_expr();
+                } else {
+                    val = make_expr(t, lir::EVarRef{std::string(fname)});
+                }
+            } else {
+                val = init.has_key(la::VALUE)
+                    ? lower_expr(map_of(init.get(la::VALUE.code)))
+                    : error_expr();
+            }
             fields.push_back({std::string(fname), std::move(val)});
         }
     }

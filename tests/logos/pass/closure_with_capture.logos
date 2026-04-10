@@ -1,0 +1,12 @@
+package closure_with_capture;
+// RC2 smoke: closure captures a variable from enclosing scope
+
+fn apply(f: |i32| -> i32, x: i32) -> i32 {
+    return f(x);
+}
+
+fn main() -> i32 {
+    let offset: i32 = 37;
+    let add_offset = |x: i32| -> i32 { return x + offset; };
+    return apply(add_offset, 5);
+}
