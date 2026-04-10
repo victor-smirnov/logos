@@ -1,0 +1,7 @@
+package field_write_tuple_overflow;
+struct S { pair: (i8, i32); }
+fn main() -> i32 {
+    let mut s = S { pair: (0, 0) };
+    s.pair = (200, 5);
+    return 0;
+}

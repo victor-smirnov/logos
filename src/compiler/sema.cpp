@@ -3319,6 +3319,15 @@ private:
                                     if (!intlit_fits(*v, pt->elem->kind))
                                         error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
                                               callee, i + 1, ei, *v, type_str(pt->elem)));
+                // Check tuple literal elements against narrow tuple param element types.
+                if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                    if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei)
+                            if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                    if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                        error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
+                                              callee, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
             }
         }
 
@@ -4418,6 +4427,15 @@ private:
                                     if (!intlit_fits(*v, ft->elem->kind))
                                         error(std::format("struct literal '{}' field '{}': array element {}: value {} does not fit in {}",
                                               sname, fname, i, *v, type_str(ft->elem)));
+                // Check tuple literal elements against narrow tuple field element types.
+                if (ft && ft->kind == LogosType::Kind::Tuple && fval->type->kind == LogosType::Kind::Tuple)
+                    if (auto* tl = std::get_if<lir::ETupleLit>(&fval->kind))
+                        for (size_t i = 0; i < tl->elems.size() && i < ft->tuple_elems.size(); ++i)
+                            if (tl->elems[i]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(tl->elems[i].get()))
+                                    if (ft->tuple_elems[i] && !intlit_fits(*v, ft->tuple_elems[i]->kind))
+                                        error(std::format("struct literal '{}' field '{}': tuple element {}: value {} does not fit in {}",
+                                              sname, fname, i, *v, type_str(ft->tuple_elems[i])));
             }
         }
         for (auto& [fname, init] : initialized)
@@ -5533,6 +5551,15 @@ private:
                             if (!intlit_fits(*v, var_type->elem->kind))
                                 error(std::format("assignment to '{}': array element {}: value {} does not fit in {}",
                                       name, i, *v, type_str(var_type->elem)));
+        // Check tuple literal elements against narrow tuple variable element types.
+        if (rhs->type->kind == LogosType::Kind::Tuple && var_type->kind == LogosType::Kind::Tuple)
+            if (auto* tl = std::get_if<lir::ETupleLit>(&rhs->kind))
+                for (size_t i = 0; i < tl->elems.size() && i < var_type->tuple_elems.size(); ++i)
+                    if (tl->elems[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(tl->elems[i].get()))
+                            if (var_type->tuple_elems[i] && !intlit_fits(*v, var_type->tuple_elems[i]->kind))
+                                error(std::format("assignment to '{}': tuple element {}: value {} does not fit in {}",
+                                      name, i, *v, type_str(var_type->tuple_elems[i])));
         // Re-assignment revives the variable (the old value was already consumed).
         moved_vars_.erase(std::string(name));
 
@@ -5579,6 +5606,16 @@ private:
                                     if (!intlit_fits(*v, ret_type_->elem->kind))
                                         error(std::format("return: array element {}: value {} does not fit in {}",
                                               i, *v, type_str(ret_type_->elem)));
+                // Detect tuple literal elements that don't fit in the return tuple element types.
+                if (ret_type_ && ret_type_->kind == LogosType::Kind::Tuple &&
+                    val->type->kind == LogosType::Kind::Tuple)
+                    if (auto* tl = std::get_if<lir::ETupleLit>(&val->kind))
+                        for (size_t i = 0; i < tl->elems.size() && i < ret_type_->tuple_elems.size(); ++i)
+                            if (tl->elems[i]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(tl->elems[i].get()))
+                                    if (ret_type_->tuple_elems[i] && !intlit_fits(*v, ret_type_->tuple_elems[i]->kind))
+                                        error(std::format("return: tuple element {}: value {} does not fit in {}",
+                                              i, *v, type_str(ret_type_->tuple_elems[i])));
                 return make_stmt(node_line_, lir::SReturn{std::move(val)});
             }
         }
@@ -6165,6 +6202,15 @@ private:
                             if (!intlit_fits(*v, ft->elem->kind))
                                 error(std::format("field write '{}.{}': array element {}: value {} does not fit in {}",
                                       recv_name, field_name, i, *v, type_str(ft->elem)));
+        // Check tuple literal elements against narrow tuple field element types.
+        if (ft && ft->kind == LogosType::Kind::Tuple && val->type->kind == LogosType::Kind::Tuple)
+            if (auto* tl = std::get_if<lir::ETupleLit>(&val->kind))
+                for (size_t i = 0; i < tl->elems.size() && i < ft->tuple_elems.size(); ++i)
+                    if (tl->elems[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(tl->elems[i].get()))
+                            if (ft->tuple_elems[i] && !intlit_fits(*v, ft->tuple_elems[i]->kind))
+                                error(std::format("field write '{}.{}': tuple element {}: value {} does not fit in {}",
+                                      recv_name, field_name, i, *v, type_str(ft->tuple_elems[i])));
         lir::SFieldWrite sfw;
         sfw.receiver = std::string(recv_name);
         sfw.field    = std::string(field_name);

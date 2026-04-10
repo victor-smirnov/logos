@@ -1,0 +1,5 @@
+package call_tuple_overflow;
+fn takes_pair(t: (i8, i32)) -> i32 { return 0; }
+fn main() -> i32 {
+    return takes_pair((200, 5));
+}
