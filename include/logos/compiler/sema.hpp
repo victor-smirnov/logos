@@ -93,7 +93,8 @@ struct LogosType {
 // ── Trait bound (for type parameter bounds) ────────────────────────────────
 
 struct TraitBound {
-    std::string trait_name;   // e.g. "Ord", "Clone" — no runtime semantics until Batch F
+    std::string                   trait_name;  // e.g. "Into", "Add"
+    std::vector<const LogosType*> type_args;   // e.g. Into<i32> -> [i32]
 };
 
 // ── Type parameter ────────────────────────────────────────────────────────

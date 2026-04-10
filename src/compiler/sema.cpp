@@ -524,6 +524,19 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
                 if (code_of(bnode) == la::TRAIT_BOUND) {
                     TraitBound tb;
                     tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                    // Parse type args: Trait<i32, T> -> [i32, T]
+                    if (bnode.has_key(la::TYPE_PARAMS)) {
+                        auto tpav2 = bnode.get(la::TYPE_PARAMS.code);
+                        if (!tpav2.is_null()) {
+                            auto tamap = map_of(tpav2);
+                            if (tamap.has_key(la::ITEMS)) {
+                                auto taitems = arr_of(tamap.get(la::ITEMS.code));
+                                for (uint64_t ti = 0; ti < taitems.size(); ++ti)
+                                    tb.type_args.push_back(
+                                        resolve_type(map_of(taitems.get(ti))));
+                            }
+                        }
+                    }
                     tp.bounds.push_back(std::move(tb));
                 }
             }
@@ -570,6 +583,19 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                 if (code_of(bnode) == la::TRAIT_BOUND) {
                     TraitBound tb;
                     tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                    // Parse type args: Trait<i32, T> -> [i32, T]
+                    if (bnode.has_key(la::TYPE_PARAMS)) {
+                        auto tpav2 = bnode.get(la::TYPE_PARAMS.code);
+                        if (!tpav2.is_null()) {
+                            auto tamap = map_of(tpav2);
+                            if (tamap.has_key(la::ITEMS)) {
+                                auto taitems = arr_of(tamap.get(la::ITEMS.code));
+                                for (uint64_t ti = 0; ti < taitems.size(); ++ti)
+                                    tb.type_args.push_back(
+                                        resolve_type(map_of(taitems.get(ti))));
+                            }
+                        }
+                    }
                     tp.bounds.push_back(std::move(tb));
                 }
             }

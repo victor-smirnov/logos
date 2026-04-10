@@ -1381,6 +1381,24 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
             SemaSubst self_subst;
             self_subst["Self"] = recv_inner;
+            // Substitute trait type params from the bound: e.g. T: Into<i32> → Into::T = i32
+            {
+                auto bit2 = current_type_bounds_.find(recv_inner->type_var_name);
+                if (bit2 != current_type_bounds_.end()) {
+                    for (auto& bound : bit2->second) {
+                        if (bound.trait_name != chosen_trait) continue;
+                        auto tit = traits_.find(bound.trait_name);
+                        if (tit == traits_.end()) break;
+                        // Map each trait type param name to the bound's type arg
+                        for (size_t ti = 0; ti < tit->second.type_params.size() &&
+                                            ti < bound.type_args.size(); ++ti) {
+                            if (bound.type_args[ti])
+                                self_subst[tit->second.type_params[ti].name] = bound.type_args[ti];
+                        }
+                        break;
+                    }
+                }
+            }
             const LogosType* ret_type = subst_type_sema(chosen_method->ret_type, self_subst);
 
             // Use EMethodCall — mono will resolve to concrete impl.
