@@ -1,0 +1,10 @@
+package arr_i64_annotation;
+// Bug: let arr: [i64; 3] = [1, 2, 3] gave "type mismatch: expected [i64;3], got [i32;3]"
+// because IntLit was eagerly collapsed to i32 before the annotation check.
+// Fix: keep IntLit as IntLit; types_compatible([IntLit;N], [i64;N]) is true.
+fn main() -> i32 {
+    let arr: [i64; 3] = [1, 2, 3];
+    let sum: i64 = arr[0] + arr[1] + arr[2];
+    if sum == 6 { return 0; }
+    return 1;
+}

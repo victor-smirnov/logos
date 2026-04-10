@@ -195,6 +195,36 @@ static const LogosType* unify_int(const LogosType* a, const LogosType* b) noexce
     return a;
 }
 
+// Return the integer literal value from an expression, looking through block wrappers
+// and unary negation.
+static std::optional<int64_t> get_intlit_value(const lir::LExpr* e) noexcept {
+    if (!e) return std::nullopt;
+    if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind))
+        e = blk->result.get();
+    if (!e) return std::nullopt;
+    if (auto* u = std::get_if<lir::EUnary>(&e->kind)) {
+        if (u->op == "-") {
+            auto inner = get_intlit_value(u->operand.get());
+            if (inner) return -(*inner);
+        }
+        return std::nullopt;
+    }
+    if (auto* lit = std::get_if<lir::ELitInt>(&e->kind))
+        return lit->value;
+    return std::nullopt;
+}
+
+// Check if an integer literal value fits in the given type without truncation.
+static bool intlit_fits(int64_t v, LogosType::Kind k) noexcept {
+    switch (k) {
+    case LogosType::Kind::I8:  return v >= -128 && v <= 127;
+    case LogosType::Kind::U8:  return v >= 0 && v <= 255;
+    case LogosType::Kind::I32: return v >= (int64_t)INT32_MIN && v <= (int64_t)INT32_MAX;
+    case LogosType::Kind::U32: return v >= 0 && (uint64_t)v <= (uint64_t)UINT32_MAX;
+    default: return true; // i64, u64: all int64_t values fit
+    }
+}
+
 std::string type_str(const LogosType* t) {
     if (!t) return "<null>";
     switch (t->kind) {
@@ -2879,7 +2909,14 @@ private:
             std::vector<const LogosType*> elem_types;
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto e = lower_expr(map_of(items.get(i)));
-                elem_types.push_back(e->type);
+                // Upgrade IntLit element type to i64 if the literal overflows i32.
+                const LogosType* et = e->type;
+                if (et->kind == LogosType::Kind::IntLit) {
+                    if (auto v = get_intlit_value(e.get()))
+                        if (*v > (int64_t)INT32_MAX || *v < (int64_t)INT32_MIN)
+                            et = prim(LogosType::Kind::I64);
+                }
+                elem_types.push_back(et);
                 elems.push_back(std::move(e));
             }
             auto* tt = make_tuple_type(std::move(elem_types));
@@ -4322,7 +4359,19 @@ private:
                 }
             }
         }
-        if (elem_type->kind == LogosType::Kind::IntLit) elem_type = i32_t();
+        // For IntLit element type: upgrade to i64 if any value overflows i32.
+        // Keep IntLit (don't collapse to i32) so that annotation-based coercion
+        // ([i64; N] = [1, 2, 3]) can use types_compatible([IntLit;N], [i64;N]) → true.
+        if (elem_type->kind == LogosType::Kind::IntLit) {
+            bool needs_i64 = false;
+            for (const auto& elem : elems) {
+                if (auto v = get_intlit_value(elem.get()))
+                    if (*v > (int64_t)INT32_MAX || *v < (int64_t)INT32_MIN)
+                        { needs_i64 = true; break; }
+            }
+            if (needs_i64) elem_type = prim(LogosType::Kind::I64);
+            // else: leave as IntLit — mlir_gen will see the annotation type
+        }
 
         return make_expr(make_array(elem_type, elems.size()), lir::EArrLit{std::move(elems)});
     }
@@ -5171,6 +5220,13 @@ private:
                 error(std::format("let '{}': type mismatch — expected {}, got {}",
                       name, type_str(ann), type_str(rhs_type)));
             }
+            // Detect integer literals that don't fit in the annotated type.
+            if (rhs_type->kind == LogosType::Kind::IntLit && ann->kind != LogosType::Kind::Error) {
+                if (auto v = get_intlit_value(rhs.get()))
+                    if (!intlit_fits(*v, ann->kind))
+                        error(std::format("let '{}': literal value {} does not fit in {}",
+                              name, *v, type_str(ann)));
+            }
             var_type = ann;
         } else {
             var_type = rhs_type;
@@ -5277,6 +5333,14 @@ private:
                     !compat(val->type, ret_type_)) {
                     error(std::format("return type mismatch — expected {}, got {}",
                           type_str(ret_type_), type_str(val->type)));
+                }
+                // Detect integer literals that don't fit in the return type.
+                if (ret_type_ && val->type->kind == LogosType::Kind::IntLit &&
+                    ret_type_->kind != LogosType::Kind::Error) {
+                    if (auto v = get_intlit_value(val.get()))
+                        if (!intlit_fits(*v, ret_type_->kind))
+                            error(std::format("return: literal value {} does not fit in {}",
+                                  *v, type_str(ret_type_)));
                 }
                 return make_stmt(node_line_, lir::SReturn{std::move(val)});
             }
@@ -5536,8 +5600,14 @@ private:
             if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
         }
 
+        // Mirror mlir_gen's loop_type logic: use i64 if any bound is i64 or u64.
+        const LogosType* var_t = i32_t();
+        if (lo->type->kind == LogosType::Kind::I64 || lo->type->kind == LogosType::Kind::U64 ||
+            hi->type->kind == LogosType::Kind::I64 || hi->type->kind == LogosType::Kind::U64)
+            var_t = prim(LogosType::Kind::I64);
+
         push_scope();
-        define(var_name, i32_t(), true);
+        define(var_name, var_t, true);
         auto body = std::make_unique<lir::LBlock>();
         if (node.has_key(la::BODY)) {
             ++loop_depth_;

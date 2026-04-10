@@ -1,0 +1,8 @@
+package arr_intlit_i64;
+// Bug: array literal [1, 2, 10000000000] inferred [i32; 3], truncating last element.
+// Fix: when any IntLit element overflows i32, upgrade elem_type to i64.
+fn main() -> i32 {
+    let arr = [1, 2, 10000000000];
+    if arr[2] == 10000000000 { return 0; }
+    return 1;
+}

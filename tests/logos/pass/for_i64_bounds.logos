@@ -1,0 +1,14 @@
+package for_i64_bounds;
+// Bug: for-loop variable was always typed i32, even with i64 bounds.
+// Consequence: `sum = sum + i` failed with "type mismatch (i64 vs i32)".
+// Fix: derive loop variable type from bounds (i64 if any bound is i64/u64).
+fn main() -> i32 {
+    let lo: i64 = 10;
+    let hi: i64 = 13;
+    let mut sum: i64 = 0;
+    for i in lo..hi {
+        sum = sum + i;
+    }
+    if sum == 33 { return 0; }
+    return 1;
+}

@@ -1,0 +1,7 @@
+package let_i32_overflow;
+// Bug: let x: i32 = 10000000000 silently truncated — no error.
+// Fix: sema now rejects IntLit values that don't fit in the annotated type.
+fn main() -> i32 {
+    let x: i32 = 10000000000;
+    return x;
+}
