@@ -307,6 +307,23 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         if (rhs_type->kind == LogosType::Kind::FloatLit && ann &&
             (ann->kind == LogosType::Kind::F32 || ann->kind == LogosType::Kind::F64))
             rhs->type = ann;
+        // Retype/coerce integer literal (or IntLit-typed expr) to float annotation type (f32 or f64).
+        if (rhs_type->kind == LogosType::Kind::IntLit && ann &&
+            (ann->kind == LogosType::Kind::F32 || ann->kind == LogosType::Kind::F64)) {
+            if (auto* il = std::get_if<lir::ELitInt>(&rhs->kind)) {
+                // Simple integer literal: convert directly to float literal.
+                double fval = static_cast<double>(il->value);
+                rhs->kind = lir::ELitFloat{fval};
+                rhs->type = ann;
+            } else {
+                // Non-literal IntLit expression (e.g. 1 + 2): wrap in ECast to float.
+                auto inner = std::move(rhs);
+                rhs = std::make_unique<lir::LExpr>();
+                rhs->kind = lir::ECast{std::move(inner)};
+                rhs->type = ann;
+                rhs_type   = ann;
+            }
+        }
         // Detect integer literals that don't fit in the annotated type.
         if (rhs_type->kind == LogosType::Kind::IntLit && ann->kind != LogosType::Kind::Error) {
             if (auto v = get_intlit_value(rhs.get()))
@@ -328,10 +345,27 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             }
         }
         // Check each IntLit tuple element fits in the annotation's element type.
+        // Also retype FloatLit tuple elements to concrete float annotation types.
         if (ann->kind == LogosType::Kind::Tuple &&
             rhs_type->kind == LogosType::Kind::Tuple) {
             if (auto* tlit = std::get_if<lir::ETupleLit>(&rhs->kind)) {
                 for (size_t ei = 0; ei < tlit->elems.size() && ei < ann->tuple_elems.size(); ++ei) {
+                    // Retype FloatLit element to concrete float annotation (f32/f64).
+                    if (tlit->elems[ei]->type->kind == LogosType::Kind::FloatLit && ann->tuple_elems[ei] &&
+                        (ann->tuple_elems[ei]->kind == LogosType::Kind::F32 ||
+                         ann->tuple_elems[ei]->kind == LogosType::Kind::F64)) {
+                        tlit->elems[ei]->type = ann->tuple_elems[ei];
+                    }
+                    // Retype IntLit element to concrete float annotation (f32/f64).
+                    if (tlit->elems[ei]->type->kind == LogosType::Kind::IntLit && ann->tuple_elems[ei] &&
+                        (ann->tuple_elems[ei]->kind == LogosType::Kind::F32 ||
+                         ann->tuple_elems[ei]->kind == LogosType::Kind::F64)) {
+                        if (auto* il = std::get_if<lir::ELitInt>(&tlit->elems[ei]->kind)) {
+                            double fval = static_cast<double>(il->value);
+                            tlit->elems[ei]->kind = lir::ELitFloat{fval};
+                            tlit->elems[ei]->type = ann->tuple_elems[ei];
+                        }
+                    }
                     if (tlit->elems[ei]->type->kind == LogosType::Kind::IntLit)
                         if (auto v = get_intlit_value(tlit->elems[ei].get()))
                             if (ann->tuple_elems[ei] &&
@@ -363,6 +397,11 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         }
         // For impl Trait annotations, use the concrete rhs type so that method calls work.
         var_type = ann_is_impl ? rhs_type : ann;
+        // Retype the rhs tuple expression node to use the concrete annotation tuple type.
+        // This ensures codegen sees (f32, f32) instead of (FloatLit, FloatLit).
+        if (!ann_is_impl && ann->kind == LogosType::Kind::Tuple &&
+            rhs_type->kind == LogosType::Kind::Tuple)
+            rhs->type = ann;
     } else {
         var_type = rhs_type;
         if (var_type->kind == LogosType::Kind::IntLit) {

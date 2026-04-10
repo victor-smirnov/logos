@@ -1,0 +1,12 @@
+package expr_bug_float_arg_coerce;
+// Bug fix: float literals and intlits should coerce to float param type
+
+fn take_f32(x: f32) -> f32 { return x * 2.0; }
+fn take_f64(x: f64) -> f64 { return x + 1.0; }
+
+fn main() -> i32 {
+    let a = take_f32(6.0);   // 6.0 (FloatLit=f64) coerced to f32, result 12.0
+    let b = take_f64(6);     // 6 (IntLit=i32) coerced to f64, result 7.0
+    // a=12, b=7, 12+7+23=42
+    return a as i32 + b as i32 + 23;
+}

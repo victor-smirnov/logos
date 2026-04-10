@@ -1,0 +1,11 @@
+package expr_bug_tuple_float_elems;
+// Bug fix: tuple elements of float type should accept FloatLit/IntLit coercion
+
+fn main() -> i32 {
+    let t1: (f32, f32) = (1.5, 2.5);
+    let t2: (f64, f32) = (3.0, 4.0);
+    let t3: (f32, i32) = (1.0, 5);
+    // t1.0+t1.1=4, t2.0=3, t2.1=4, t3.0=1, t3.1=5 → 4+3+4+1+5=17+25=42
+    let sum: f64 = t1.0 as f64 + t1.1 as f64 + t2.0 + t2.1 as f64 + t3.0 as f64;
+    return sum as i32 + t3.1 + 25;
+}

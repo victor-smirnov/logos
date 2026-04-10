@@ -1,0 +1,19 @@
+package expr_bug_struct_float_fields;
+// Bug fix: struct fields of type f32/f64 should accept FloatLit (f64) values
+
+struct Vec2 {
+    x: f32;
+    y: f32;
+}
+
+fn dot(a: Vec2, b: Vec2) -> f32 {
+    return a.x * b.x + a.y * b.y;
+}
+
+fn main() -> i32 {
+    let v1 = Vec2 { x: 3.0, y: 4.0 };
+    let v2 = Vec2 { x: 5.0, y: 12.0 };
+    let d = dot(v1, v2);
+    // 3*5 + 4*12 = 15 + 48 = 63 - 21 = 42
+    return d as i32 - 21;
+}

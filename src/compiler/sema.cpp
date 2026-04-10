@@ -136,6 +136,8 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
     if (types_equal(*from, *to)) return true;
     if (from->kind == LogosType::Kind::IntLit && is_integer_kind(to->kind)) return true;
     if (from->kind == LogosType::Kind::IntLit && to->kind == LogosType::Kind::TypeVar) return true;
+    if (from->kind == LogosType::Kind::IntLit &&
+        (to->kind == LogosType::Kind::F32 || to->kind == LogosType::Kind::F64)) return true;
     if (from->kind == LogosType::Kind::FloatLit &&
         (to->kind == LogosType::Kind::F32 || to->kind == LogosType::Kind::F64 ||
          to->kind == LogosType::Kind::TypeVar)) return true;

@@ -177,6 +177,22 @@ private:
         return builder_.create<mlir::arith::ExtFOp>(loc_, to, v);
     }
 
+    // Coerce any numeric value: int→int, float→float, int→float.
+    // Does NOT handle float→int (that requires an explicit cast).
+    mlir::Value coerce_numeric(mlir::Value v, mlir::Type to) {
+        if (!v || !to || v.getType() == to) return v;
+        // int → int
+        if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::IntegerType>(to))
+            return coerce_int(v, to);
+        // float → float (truncate or extend)
+        if (mlir::isa<mlir::FloatType>(v.getType()) && mlir::isa<mlir::FloatType>(to))
+            return coerce_float(v, to);
+        // int → float (untyped literal coercion)
+        if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::FloatType>(to))
+            return builder_.create<mlir::arith::SIToFPOp>(loc_, to, v);
+        return v;
+    }
+
     // ── Type conversion ──────────────────────────────────────────
     mlir::Type logos_to_mlir(const LogosType* t);
 

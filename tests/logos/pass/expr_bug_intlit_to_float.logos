@@ -1,0 +1,10 @@
+package expr_bug_intlit_to_float;
+// Bug fix: IntLit should coerce to f32/f64 in let binding
+fn main() -> i32 {
+    let a: f32 = 3;
+    let b: f64 = 5;
+    let c: f32 = 1 + 2;
+    let d: f64 = 10 * 2;
+    // a=3.0, b=5.0, c=3.0, d=20.0
+    return a as i32 + b as i32 + c as i32 + d as i32 - 31 + 42;
+}

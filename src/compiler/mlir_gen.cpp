@@ -238,7 +238,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
             for (uint64_t i = 0; i < arr_lit.elems.size(); ++i) {
                 auto val = gen_expr(*arr_lit.elems[i]);
                 if (!val) return nullptr;
-                val = coerce_int(val, elem_type);
+                val = coerce_numeric(val, elem_type);
                 llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
                 auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), arr_llvm, gep, idx);
@@ -249,9 +249,9 @@ mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
 
         auto val = gen_expr(*fval);
         if (!val) return nullptr;
-        // Coerce scalar literals to the field's declared type (e.g. IntLit→i64).
+        // Coerce scalar literals to the field's declared type (e.g. IntLit→i64, FloatLit→f32).
         if (fi && fi->type && !mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type))
-            val = coerce_int(val, fi->type);
+            val = coerce_numeric(val, fi->type);
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
     }
     return alloca;
@@ -308,7 +308,7 @@ mlir::Value MLIRGenImpl::gen_arr_lit(const EArrLit& e, mlir::Type elem_type) {
         } else {
             auto val = gen_expr(*e.elems[i]);
             if (!val) return nullptr;
-            val = coerce_int(val, elem_type);
+            val = coerce_numeric(val, elem_type);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
         }
     }

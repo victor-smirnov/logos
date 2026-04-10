@@ -1,0 +1,17 @@
+package expr_bug_return_intlit_float;
+// Bug fix: return IntLit expr from float-returning function
+
+fn compute_f32() -> f32 {
+    return 21 * 2;
+}
+
+fn compute_f64() -> f64 {
+    return 10 + 5;
+}
+
+fn main() -> i32 {
+    let a = compute_f32();
+    let b = compute_f64();
+    // a=42.0, b=15.0, 42+15-15=42
+    return a as i32 + b as i32 - 15;
+}

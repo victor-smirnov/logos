@@ -1,0 +1,9 @@
+package expr_bug_if_float_arms;
+// Bug fix: if-expr with float arms should return correct float value
+
+fn main() -> i32 {
+    let x: f32 = if true { 21.0; } else { 0.0; };
+    let y: f64 = if false { 0.0; } else { 21.0; };
+    // x=21.0, y=21.0, 21+21=42
+    return x as i32 + y as i32;
+}

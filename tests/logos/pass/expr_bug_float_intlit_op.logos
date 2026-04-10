@@ -1,0 +1,10 @@
+package expr_bug_float_intlit_op;
+// Bug fix: float op IntLit should coerce IntLit to float
+fn main() -> i32 {
+    let x: f64 = 10.0;
+    let y: f64 = x + 5;
+    let z: f32 = 10.0;
+    let w: f32 = z * 2;
+    // y=15.0, w=20.0
+    return y as i32 + w as i32 - 35 + 42;
+}

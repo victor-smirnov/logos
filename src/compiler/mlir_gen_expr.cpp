@@ -262,6 +262,55 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
             }
         }
     }
+    // Unify operand types for mixed arithmetic:
+    // float+int → convert int to float; float+float of different widths → widen narrower.
+    if (mlir::isa<mlir::FloatType>(lhs.getType()) &&
+        mlir::isa<mlir::IntegerType>(rhs.getType())) {
+        bool rhs_unsigned = e.rhs->type &&
+            (e.rhs->type->kind == LogosType::Kind::U8  ||
+             e.rhs->type->kind == LogosType::Kind::U16 ||
+             e.rhs->type->kind == LogosType::Kind::U32 ||
+             e.rhs->type->kind == LogosType::Kind::U64);
+        if (rhs_unsigned)
+            rhs = builder_.create<mlir::arith::UIToFPOp>(loc_, lhs.getType(), rhs);
+        else
+            rhs = builder_.create<mlir::arith::SIToFPOp>(loc_, lhs.getType(), rhs);
+    }
+    if (mlir::isa<mlir::IntegerType>(lhs.getType()) &&
+        mlir::isa<mlir::FloatType>(rhs.getType())) {
+        bool lhs_unsigned = e.lhs->type &&
+            (e.lhs->type->kind == LogosType::Kind::U8  ||
+             e.lhs->type->kind == LogosType::Kind::U16 ||
+             e.lhs->type->kind == LogosType::Kind::U32 ||
+             e.lhs->type->kind == LogosType::Kind::U64);
+        if (lhs_unsigned)
+            lhs = builder_.create<mlir::arith::UIToFPOp>(loc_, rhs.getType(), lhs);
+        else
+            lhs = builder_.create<mlir::arith::SIToFPOp>(loc_, rhs.getType(), lhs);
+    }
+    // float+float of different widths: convert the FloatLit operand to match the typed one.
+    // If both are typed floats of different widths, widen the narrower.
+    if (lhs.getType() != rhs.getType()) {
+        auto lft = mlir::dyn_cast<mlir::FloatType>(lhs.getType());
+        auto rft = mlir::dyn_cast<mlir::FloatType>(rhs.getType());
+        if (lft && rft) {
+            bool lhs_is_lit = e.lhs->type && e.lhs->type->kind == LogosType::Kind::FloatLit;
+            bool rhs_is_lit = e.rhs->type && e.rhs->type->kind == LogosType::Kind::FloatLit;
+            if (rhs_is_lit && !lhs_is_lit) {
+                // rhs is FloatLit, lhs is typed: coerce rhs to lhs type
+                rhs = coerce_float(rhs, lhs.getType());
+            } else if (lhs_is_lit && !rhs_is_lit) {
+                // lhs is FloatLit, rhs is typed: coerce lhs to rhs type
+                lhs = coerce_float(lhs, rhs.getType());
+            } else {
+                // Both typed floats: widen the narrower
+                if (lft.getWidth() < rft.getWidth())
+                    lhs = builder_.create<mlir::arith::ExtFOp>(loc_, rhs.getType(), lhs);
+                else
+                    rhs = builder_.create<mlir::arith::ExtFOp>(loc_, lhs.getType(), rhs);
+            }
+        }
+    }
     auto& op = e.op;
     bool is_float = mlir::isa<mlir::FloatType>(lhs.getType());
     if (is_float) {
@@ -423,7 +472,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
         for (size_t i = 0; i < e.args.size(); ++i) {
             auto v = gen_expr(*e.args[i]);
             if (!v) return nullptr;
-            if (i < fixed_inputs.size()) v = coerce_int(v, fixed_inputs[i]);
+            if (i < fixed_inputs.size()) v = coerce_numeric(v, fixed_inputs[i]);
             args.push_back(v);
         }
         mlir::Type ret_type = fn_type.getReturnType();
@@ -463,7 +512,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
                 mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
                 v = spill_to_alloca(v);
             else
-                v = coerce_int(v, param_types[i]);
+                v = coerce_numeric(v, param_types[i]);
         }
         args.push_back(v);
     }
@@ -503,7 +552,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
                 mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
                 v = spill_to_alloca(v);
             else
-                v = coerce_int(v, param_types[pi]);
+                v = coerce_numeric(v, param_types[pi]);
         }
         args.push_back(v);
     }
@@ -642,7 +691,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleLit& e, const LogosType* type
         if (!val) return nullptr;
         if (type->tuple_elems[i]) {
             auto et = logos_to_mlir(type->tuple_elems[i]);
-            if (et) val = coerce_int(val, et);
+            if (et) val = coerce_numeric(val, et);
         }
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, idx);
@@ -808,14 +857,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIfExpr& e, const LogosType* type) 
     builder_.setInsertionPointToStart(then_block);
     auto then_val = gen_expr(*e.then_val);
     if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-    then_val = coerce_int(then_val, result_type);
+    then_val = coerce_numeric(then_val, result_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
     builder_.setInsertionPointToStart(else_block);
     auto else_val = gen_expr(*e.else_val);
     if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-    else_val = coerce_int(else_val, result_type);
+    else_val = coerce_numeric(else_val, result_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
@@ -923,7 +972,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
             auto val = gen_expr(*last_arm.value);
             for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
             if (val) {
-                val = coerce_int(val, result_type);
+                val = coerce_numeric(val, result_type);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
             }
             builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -946,7 +995,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
             auto val = gen_expr(*arm.value);
             for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
             if (val) {
-                val = coerce_int(val, result_type);
+                val = coerce_numeric(val, result_type);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
             }
             builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
