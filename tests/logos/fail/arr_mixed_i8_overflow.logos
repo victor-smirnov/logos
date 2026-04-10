@@ -1,0 +1,7 @@
+package arr_mixed_i8_overflow;
+fn take(x: i8) -> i32 { return 0; }
+fn main() -> i32 {
+    let x: i8 = 1;
+    let arr = [x, 200, 3];
+    return 0;
+}

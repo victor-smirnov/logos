@@ -1,0 +1,11 @@
+package class_field_init_overflow;
+class Box {
+    val: i32;
+    static fn create(v: i32) -> *mut Box {
+        return new Box { val: v };
+    }
+}
+fn main() -> i32 {
+    let b = new Box { val: 10000000000 };
+    return 0;
+}

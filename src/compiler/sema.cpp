@@ -3694,6 +3694,11 @@ private:
                         !compat(at, pt))
                         error(std::format("method '{}' arg {}: expected {}, got {}",
                               mangled, i + 1, type_str(pt), type_str(at)));
+                    if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                        if (auto v = get_intlit_value(arg_exprs[i].get()))
+                            if (!intlit_fits(*v, pt->kind))
+                                error(std::format("method '{}' arg {}: value {} does not fit in {}",
+                                      mangled, i + 1, *v, type_str(pt)));
                 }
             }
         }
@@ -4341,6 +4346,12 @@ private:
                             error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                                   sname, fname, type_str(ft), type_str(fval->type)));
                         }
+                        if (ft && ft->kind != LogosType::Kind::Error &&
+                            fval->type->kind == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(fval.get()))
+                                if (!intlit_fits(*v, ft->kind))
+                                    error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
+                                          sname, fname, *v, type_str(ft)));
                         break;
                     }
                 }
@@ -4438,6 +4449,13 @@ private:
                     error(std::format("array literal: element {} has type {}, expected {}",
                           i, type_str(t), type_str(elem_type)));
                 } else {
+                    // If the concrete element type is narrow and this element is IntLit, check range.
+                    if (t->kind == LogosType::Kind::IntLit &&
+                        elem_type->kind != LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(elems[i].get()))
+                            if (!intlit_fits(*v, elem_type->kind))
+                                error(std::format("array literal: element {}: value {} does not fit in {}",
+                                      i, *v, type_str(elem_type)));
                     elem_type = unify_int(elem_type, t);
                 }
             }
@@ -4753,6 +4771,12 @@ private:
                         error(std::format("'new {}' field '{}': expected {}, got {}",
                               cname, fname, type_str(f.type), type_str(fval->type)));
                     }
+                    if (f.name == fname && f.type->kind != LogosType::Kind::Error &&
+                        fval->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(fval.get()))
+                            if (!intlit_fits(*v, f.type->kind))
+                                error(std::format("'new {}' field '{}': value {} does not fit in {}",
+                                      cname, fname, *v, type_str(f.type)));
                 }
             }
         }
@@ -6297,6 +6321,12 @@ private:
             error(std::format("field index write '{}.{}[i]': expected {}, got {}",
                   recv_name, field_name, type_str(elem_t), type_str(val->type)));
         }
+        if (elem_t && elem_t->kind != LogosType::Kind::Error &&
+            val->type->kind == LogosType::Kind::IntLit)
+            if (auto v = get_intlit_value(val.get()))
+                if (!intlit_fits(*v, elem_t->kind))
+                    error(std::format("field index write '{}.{}[i]': value {} does not fit in {}",
+                          recv_name, field_name, *v, type_str(elem_t)));
 
         lir::SFieldIndexWrite sfiw;
         sfiw.receiver = std::string(recv_name);

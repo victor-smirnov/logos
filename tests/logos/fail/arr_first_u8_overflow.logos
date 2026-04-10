@@ -1,0 +1,9 @@
+package arr_first_u8_overflow;
+// Bug: first element typed (u8), later elements are IntLit — no range check on IntLits.
+// Fix: lower_arr_lit checks IntLit elements against the concrete element type.
+fn take_u8(x: u8) -> i32 { return 0; }
+fn main() -> i32 {
+    let x: u8 = 1;
+    let arr = [x, 200, 300];
+    return 0;
+}
