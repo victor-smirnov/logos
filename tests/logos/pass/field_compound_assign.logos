@@ -1,0 +1,14 @@
+package field_compound_assign;
+// Regression: s.field op= val compound assignment
+
+struct Point {
+    x: i32;
+    y: i32;
+}
+
+fn main() -> i32 {
+    let mut p = Point { x: 20, y: 20 };
+    p.x += 1;
+    p.y += 1;
+    return p.x + p.y;
+}

@@ -90,9 +90,11 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     if (c == la::FOR_EACH)     return lower_for_each(stmt);
     if (c == la::LOOP)         return lower_loop(stmt);
     if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
+    if (c == la::FIELD_COMPOUND_ASSIGN) return lower_field_compound_assign(stmt);
     if (c == la::TUPLE_FIELD_WRITE)  return lower_tuple_field_write(stmt);
     if (c == la::DEREF_FIELD_WRITE)  return lower_deref_field_write(stmt);
     if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
+    if (c == la::INDEX_COMPOUND_ASSIGN) return lower_index_compound_assign(stmt);
     if (c == la::FIELD_INDEX_WRITE)  return lower_field_index_write(stmt);
     if (c == la::MATCH)        return lower_match(stmt);
     if (c == la::EXPR_STMT) {
@@ -1230,6 +1232,55 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     return make_stmt(node_line_, std::move(sfw));
 }
 
+// s.field op= expr  →  s.field = s.field op expr
+lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
+    auto recv_name  = str_of(node.get(la::RECEIVER.code));
+    auto field_name = str_of(node.get(la::FIELD.code));
+    auto op_tok     = str_of(node.get(la::OP.code));
+    std::string base_op;
+    if (op_tok.size() >= 2 && op_tok.back() == '=')
+        base_op = std::string(op_tok.substr(0, op_tok.size() - 1));
+    else
+        base_op = std::string(op_tok);
+
+    // Determine field type
+    auto sname = struct_name_of(recv_name);
+    const LogosType* ft = sname.empty() ? nullptr : field_type_of(std::string(sname), field_name);
+
+    if (!sname.empty() && !ft) {
+        error(std::format("field compound assign: struct '{}' has no field '{}'", sname, field_name));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+
+    // Check mutability
+    auto* recv_type = lookup(recv_name);
+    if (recv_type && recv_type->kind == LogosType::Kind::Ref)
+        error(std::format("field compound assign to '{}': receiver is &T (shared reference)", recv_name));
+    else if (!lookup_is_mut(recv_name) &&
+             !(recv_type && (recv_type->kind == LogosType::Kind::MutRef ||
+                             recv_type->kind == LogosType::Kind::Ptr)))
+        error(std::format("field compound assign to immutable variable '{}'", recv_name));
+
+    const LogosType* recv_var_type = recv_type ? recv_type : error_t();
+    const LogosType* result_type   = ft ? ft : error_t();
+
+    // lhs = s.field (read): EFieldRead{VarRef(recv_name), field_name}
+    auto recv_varref = make_expr(recv_var_type, lir::EVarRef{std::string(recv_name)});
+    auto lhs_read    = make_expr(result_type, lir::EFieldRead{std::move(recv_varref), std::string(field_name)});
+    // rhs = expr
+    auto rhs = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+    // combined = lhs op rhs
+    auto combined = make_expr(result_type, lir::EBinOp{base_op, std::move(lhs_read), std::move(rhs)});
+
+    lir::SFieldWrite sfw;
+    sfw.receiver = std::string(recv_name);
+    sfw.field    = std::string(field_name);
+    sfw.value    = std::move(combined);
+    return make_stmt(node_line_, std::move(sfw));
+}
+
 lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
     auto recv_name = str_of(node.get(la::RECEIVER.code));
     auto idx_sv    = str_of(node.get(la::INDEX.code));
@@ -1498,6 +1549,58 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
     siw.arr   = std::string(arr_name);
     siw.index = std::move(idx);
     siw.value = std::move(val);
+    return make_stmt(node_line_, std::move(siw));
+}
+
+// arr[i] op= expr  →  arr[i] = arr[i] op expr
+lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
+    auto arr_name = str_of(node.get(la::NAME.code));
+    auto op_tok   = str_of(node.get(la::OP.code));
+    std::string base_op;
+    if (op_tok.size() >= 2 && op_tok.back() == '=')
+        base_op = std::string(op_tok.substr(0, op_tok.size() - 1));
+    else
+        base_op = std::string(op_tok);
+
+    auto* arr_type = lookup(arr_name);
+    if (!arr_type) {
+        error(std::format("index compound assign: undefined variable '{}'", arr_name));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+    if (arr_type->kind == LogosType::Kind::Array && !lookup_is_mut(arr_name))
+        error(std::format("index compound assign to immutable array '{}'", arr_name));
+
+    const LogosType* elem_type = nullptr;
+    if (arr_type->kind == LogosType::Kind::Array) elem_type = arr_type->elem;
+    else if (arr_type->kind == LogosType::Kind::Ptr ||
+             arr_type->kind == LogosType::Kind::Ref ||
+             arr_type->kind == LogosType::Kind::MutRef) elem_type = arr_type->pointee;
+    if (!elem_type) elem_type = error_t();
+
+    // Lower the index expression twice from the AST (pure expr — no side effects expected)
+    lir::LExprPtr idx_for_write = node.has_key(la::LHS)
+        ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+    lir::LExprPtr idx_for_read  = node.has_key(la::LHS)
+        ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+
+    if (!is_integer(idx_for_write->type))
+        error(std::format("array index must be an integer, got {}", type_str(idx_for_write->type)));
+
+    // rhs value
+    auto rhs = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+
+    // Build lhs read: arr[idx_for_read]
+    auto arr_recv = make_expr(arr_type, lir::EVarRef{std::string(arr_name)});
+    auto lhs_read = make_expr(elem_type, lir::EIndexRead{std::move(arr_recv), std::move(idx_for_read)});
+    // combined = lhs op rhs
+    auto combined = make_expr(elem_type, lir::EBinOp{base_op, std::move(lhs_read), std::move(rhs)});
+
+    lir::SIndexWrite siw;
+    siw.arr   = std::string(arr_name);
+    siw.index = std::move(idx_for_write);
+    siw.value = std::move(combined);
     return make_stmt(node_line_, std::move(siw));
 }
 
