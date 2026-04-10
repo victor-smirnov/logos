@@ -1,0 +1,9 @@
+package class_method_tuple_overflow;
+class C {
+    val: i32;
+    unsafe fn take_pair(self: *mut C, p: (i8, i8)) -> i32 { return self.val; }
+}
+unsafe fn main() -> i32 {
+    let c = new C { val: 1 };
+    return c.take_pair((200, 5));
+}

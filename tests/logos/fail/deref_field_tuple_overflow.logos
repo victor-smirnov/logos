@@ -1,0 +1,10 @@
+package deref_field_tuple_overflow;
+struct S { pair: (i8, i8); }
+fn write_it(p: *mut S) -> i32 {
+    unsafe { (*p).pair = (200, 5); }
+    return 0;
+}
+fn main() -> i32 {
+    let mut s = S { pair: (1, 2) };
+    return write_it(&mut s);
+}

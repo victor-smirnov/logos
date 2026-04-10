@@ -1,0 +1,8 @@
+package generic_call_tuple_overflow;
+// T inferred as i8 from first arg; p: (T, T) = (i8, i8).
+// 200 overflows i8.
+fn takes_typed<T>(x: T, p: (T, T)) -> i32 { return 0; }
+fn main() -> i32 {
+    let x: i8 = 1;
+    return takes_typed(x, (200, 5));
+}
