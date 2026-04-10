@@ -195,6 +195,7 @@ inline constexpr Key  LIFETIME        {"LIFETIME",           40};   // lifetime 
 inline constexpr Code UNSAFE_BLOCK    {"UNSAFE_BLOCK",      132};  // unsafe { ... }
 inline constexpr Code CONST_PARAM     {"CONST_PARAM",       133};  // const N: usize parameter
 inline constexpr Code TUPLE_FIELD_WRITE{"TUPLE_FIELD_WRITE", 134}; // var.N = value;  tuple field write
+inline constexpr Code LIT_FLOAT        {"LIT_FLOAT",         135}; // float literal 3.14
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

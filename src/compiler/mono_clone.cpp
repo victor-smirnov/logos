@@ -17,9 +17,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
     std::visit([&](const auto& k) {
         using K = std::decay_t<decltype(k)>;
 
-        if constexpr (std::is_same_v<K, lir::ELitInt> ||
-                      std::is_same_v<K, lir::ELitBool> ||
-                      std::is_same_v<K, lir::ELitStr>  ||
+        if constexpr (std::is_same_v<K, lir::ELitInt>   ||
+                      std::is_same_v<K, lir::ELitFloat> ||
+                      std::is_same_v<K, lir::ELitBool>  ||
+                      std::is_same_v<K, lir::ELitStr>   ||
                       std::is_same_v<K, lir::EAddrOf>) {
             result->kind = k;
 

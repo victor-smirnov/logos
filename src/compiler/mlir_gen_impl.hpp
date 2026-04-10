@@ -257,6 +257,7 @@ private:
     mlir::Value gen_expr(const LExpr& e);
 
     mlir::Value gen_expr_kind(const ELitInt& e, const LogosType* type);
+    mlir::Value gen_expr_kind(const ELitFloat& e, const LogosType*);
     mlir::Value gen_expr_kind(const ELitBool& e, const LogosType*);
     mlir::Value gen_expr_kind(const ELitStr& e, const LogosType*);
     mlir::Value gen_expr_kind(const EVarRef& e, const LogosType* type);

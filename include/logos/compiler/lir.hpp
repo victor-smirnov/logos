@@ -65,6 +65,7 @@ struct LMatchArm {
 // ── Expression node payloads ──────────────────────────────────────────────
 
 struct ELitInt    { int64_t value; };
+struct ELitFloat  { double value; };
 struct ELitBool   { bool value; };
 struct ELitStr    { std::string value; };
 
@@ -255,7 +256,7 @@ struct EBlockExpr {
 struct LExpr {
     const LogosType* type = nullptr;   // always set; error_t() on ill-typed nodes
     std::variant<
-        ELitInt, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
+        ELitInt, ELitFloat, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,

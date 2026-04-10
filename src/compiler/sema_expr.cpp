@@ -31,6 +31,11 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         int64_t v = parse_int_literal(sv);
         return make_expr(intlit_t(), lir::ELitInt{v});
     }
+    case la::LIT_FLOAT: {
+        auto sv = str_of(expr.get(la::VALUE.code));
+        double v = std::stod(std::string(sv));
+        return make_expr(prim(LogosType::Kind::F64), lir::ELitFloat{v});
+    }
     case la::LIT_BOOL: {
         AnyVal av = expr.get(la::VALUE.code);
         bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;

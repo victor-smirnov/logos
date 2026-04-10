@@ -162,6 +162,7 @@
     UNSAFE_BLOCK         = 132
     CONST_PARAM          = 133
     TUPLE_FIELD_WRITE    = 134
+    LIT_FLOAT            = 135
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -256,6 +257,7 @@
 
     // Literals & identifiers
     STRING      = /"([^"\\]|\\.)*"/
+    FLOAT       = /[-]?[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?/
     INTEGER     = /[-]?(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|[0-9]+)/
     LIFETIME    = /'[a-z][a-z0-9_]*/
     IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
@@ -783,6 +785,7 @@
                   / STRING   => { CODE: LIT_STR,  VALUE: $1 }
                   / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                   / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }
+                  / FLOAT    => { CODE: LIT_FLOAT, VALUE: $1 }
                   / INTEGER  => { CODE: LIT_INT,  VALUE: $1 }
                   / IDENT DOTDOTDOT => { CODE: PACK_EXPAND, NAME: $1 }
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }

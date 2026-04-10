@@ -43,6 +43,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitInt& e, const LogosType* type) 
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value, width);
 }
 
+mlir::Value MLIRGenImpl::gen_expr_kind(const ELitFloat& e, const LogosType*) {
+    auto f64 = builder_.getF64Type();
+    return builder_.create<mlir::arith::ConstantFloatOp>(
+        loc_, f64, llvm::APFloat(e.value));
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(const ELitBool& e, const LogosType*) {
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value ? 1 : 0, 1);
 }
