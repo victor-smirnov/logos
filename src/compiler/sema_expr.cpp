@@ -134,20 +134,23 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::ADDR_OF_MUT: {
         // &mut var — exclusive mutable reference
         auto child = map_of(expr.get(la::VALUE.code));
-        if (code_of(child) != la::VAR_REF) {
-            error("'&mut' operand must be a variable");
-            return error_expr();
+        if (code_of(child) == la::VAR_REF) {
+            auto var_name = str_of(child.get(la::NAME.code));
+            auto* vt = lookup(var_name);
+            if (!vt) {
+                error(std::format("'&mut': undefined variable '{}'", var_name));
+                return error_expr();
+            }
+            // For arrays, produce &mut elem (reference to first element)
+            if (vt->kind == LogosType::Kind::Array)
+                return make_expr(make_ref(true, vt->elem), lir::EAddrOf{std::string(var_name)});
+            return make_expr(make_ref(true, vt), lir::EAddrOf{std::string(var_name)});
         }
-        auto var_name = str_of(child.get(la::NAME.code));
-        auto* vt = lookup(var_name);
-        if (!vt) {
-            error(std::format("'&mut': undefined variable '{}'", var_name));
-            return error_expr();
-        }
-        // For arrays, produce &mut elem (reference to first element)
-        if (vt->kind == LogosType::Kind::Array)
-            return make_expr(make_ref(true, vt->elem), lir::EAddrOf{std::string(var_name)});
-        return make_expr(make_ref(true, vt), lir::EAddrOf{std::string(var_name)});
+        // &mut <expr> — temporary materialization
+        auto inner = lower_expr(child);
+        if (inner->type->kind == LogosType::Kind::Error) return error_expr();
+        return make_expr(make_ref(true, inner->type),
+            lir::EAddrOfTemp{std::move(inner), true});
     }
     case la::TRY_EXPR: {
         // expr? — extract Ok(v) or early-return Err(e).
@@ -444,24 +447,27 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     // & — address-of or array-to-slice
     if (op == "&") {
         auto child = map_of(node.get(la::VALUE.code));
-        if (code_of(child) != la::VAR_REF) {
-            error("'&' operand must be a variable");
-            return error_expr();
+        if (code_of(child) == la::VAR_REF) {
+            auto var_name = str_of(child.get(la::NAME.code));
+            auto* vt = lookup(var_name);
+            if (!vt) {
+                error(std::format("'&': undefined variable '{}'", var_name));
+                return error_expr();
+            }
+            // &array → slice: &[T] with len = array size
+            if (vt->kind == LogosType::Kind::Array) {
+                auto addr = make_expr(make_ref(false, vt->elem), lir::EAddrOf{std::string(var_name)});
+                auto len  = make_expr(prim(LogosType::Kind::I64), lir::ELitInt{(int64_t)vt->arr_size});
+                return make_expr(make_slice_type(vt->elem),
+                    lir::ESliceLit{std::move(addr), std::move(len)});
+            }
+            return make_expr(make_ref(false, vt), lir::EAddrOf{std::string(var_name)});
         }
-        auto var_name = str_of(child.get(la::NAME.code));
-        auto* vt = lookup(var_name);
-        if (!vt) {
-            error(std::format("'&': undefined variable '{}'", var_name));
-            return error_expr();
-        }
-        // &array → slice: &[T] with len = array size
-        if (vt->kind == LogosType::Kind::Array) {
-            auto addr = make_expr(make_ref(false, vt->elem), lir::EAddrOf{std::string(var_name)});
-            auto len  = make_expr(prim(LogosType::Kind::I64), lir::ELitInt{(int64_t)vt->arr_size});
-            return make_expr(make_slice_type(vt->elem),
-                lir::ESliceLit{std::move(addr), std::move(len)});
-        }
-        return make_expr(make_ref(false, vt), lir::EAddrOf{std::string(var_name)});
+        // &<expr> — temporary materialization: spill rvalue to stack
+        auto inner = lower_expr(child);
+        if (inner->type->kind == LogosType::Kind::Error) return error_expr();
+        return make_expr(make_ref(false, inner->type),
+            lir::EAddrOfTemp{std::move(inner), false});
     }
 
     auto operand = lower_expr(map_of(node.get(la::VALUE.code)));

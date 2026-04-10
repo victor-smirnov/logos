@@ -296,6 +296,7 @@ private:
     mlir::Value gen_expr_kind(const EBinOp& e, const LogosType*);
     mlir::Value gen_expr_kind(const EUnary& e, const LogosType*);
     mlir::Value gen_expr_kind(const EAddrOf& e, const LogosType*);
+    mlir::Value gen_expr_kind(const EAddrOfTemp& e, const LogosType*);
     mlir::Value gen_expr_kind(const EDeref& e, const LogosType* type);
     mlir::Value gen_expr_kind(const ECall& e, const LogosType* ret_logos_type);
     mlir::Value gen_expr_kind(const EMethodCall& e, const LogosType* ret_logos_type);

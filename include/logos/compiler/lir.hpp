@@ -119,6 +119,13 @@ struct EAddrOf {
     std::string var_name;
 };
 
+// Address of a temporary rvalue: &expr where expr is not a named variable.
+// Codegen spills the inner expression to an anonymous alloca.
+struct EAddrOfTemp {
+    LExprPtr inner;
+    bool     is_mut = false;  // true → &mut T, false → &T
+};
+
 struct EDeref {
     LExprPtr operand;
 };
@@ -260,7 +267,7 @@ struct LExpr {
     const LogosType* type = nullptr;   // always set; error_t() on ill-typed nodes
     std::variant<
         ELitInt, ELitFloat, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
-        ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EDeref,
+        ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EAddrOfTemp, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
         EClosureBox, EClosureCall, EFormatCall, EPackExpand,

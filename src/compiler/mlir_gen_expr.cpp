@@ -439,6 +439,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOf& e, const LogosType*) {
     return it->second;
 }
 
+mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
+    // Materialize a temporary rvalue to an anonymous stack slot and return its address.
+    // Aggregates (tuple, struct, array) are already pointer-represented by the codegen
+    // (their gen_expr returns an alloca directly) — no extra wrapping needed.
+    auto val = gen_expr(*e.inner);
+    if (!val) return nullptr;
+    auto* t = e.inner->type;
+    if (t && (t->kind == LogosType::Kind::Tuple ||
+              t->kind == LogosType::Kind::Struct ||
+              t->kind == LogosType::Kind::Array))
+        return val;  // already a pointer to the value on the stack
+    // Scalar: spill to a fresh stack slot.
+    auto llvm_type = logos_to_mlir(t);
+    if (!llvm_type) llvm_type = builder_.getI32Type();
+    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+        loc_, ptr_type(), llvm_type, i64_one());
+    builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+    return alloca;
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(const EDeref& e, const LogosType* type) {
     auto ptr = gen_expr(*e.operand);
     if (!ptr) return nullptr;

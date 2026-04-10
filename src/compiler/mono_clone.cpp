@@ -449,6 +449,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             if (k.block) nb.block = std::make_unique<lir::LBlock>(subst_block(*k.block, s));
             if (k.result) nb.result = subst_expr(*k.result, s);
             result->kind = std::move(nb);
+        } else if constexpr (std::is_same_v<K, lir::EAddrOfTemp>) {
+            result->kind = lir::EAddrOfTemp{subst_expr(*k.inner, s), k.is_mut};
         }
     }, e.kind);
 
