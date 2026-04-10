@@ -1,0 +1,10 @@
+package g2_tuple_type;
+
+fn make_pair(a: i32, b: i32) -> (i32, i32) {
+    return (a, b);
+}
+
+fn main() -> i32 {
+    let p: (i32, i32) = make_pair(20, 22);
+    return p.0 + p.1;
+}

@@ -1,0 +1,10 @@
+package g2_ref_type;
+
+fn double(x: &i32) -> i32 {
+    return *x * 2;
+}
+
+fn main() -> i32 {
+    let val: i32 = 21;
+    return double(&val);
+}

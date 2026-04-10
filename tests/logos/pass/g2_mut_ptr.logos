@@ -1,0 +1,12 @@
+package g2_mut_ptr;
+
+unsafe fn write_val(p: *mut i32, val: i32) {
+    *p = val;
+}
+
+unsafe fn main() -> i32 {
+    let mut x: i32 = 0;
+    let p: *mut i32 = (&mut x) as *mut i32;
+    write_val(p, 42);
+    return x;
+}

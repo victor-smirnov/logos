@@ -1,0 +1,8 @@
+package g2_prims_i8_u8;
+
+fn main() -> i32 {
+    let a: i8 = 20;
+    let b: u8 = 22;
+    let result: i32 = a as i32 + b as i32;
+    return result;
+}

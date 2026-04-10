@@ -1,0 +1,22 @@
+package g2_impl_trait_return;
+
+trait Valueable {
+    fn value(self: Self) -> i32;
+}
+
+struct Const42 {}
+
+impl Valueable for Const42 {
+    fn value(self: Const42) -> i32 {
+        return 42;
+    }
+}
+
+fn make_val() -> impl Valueable {
+    return Const42 {};
+}
+
+fn main() -> i32 {
+    let v: impl Valueable = make_val();
+    return v.value();
+}

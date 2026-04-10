@@ -1,0 +1,16 @@
+package g2_bool_type;
+
+fn check(x: bool, a: i32, b: i32) -> i32 {
+    if x {
+        return a;
+    }
+    return b;
+}
+
+fn main() -> i32 {
+    let t: bool = true;
+    let f: bool = false;
+    let a: i32 = check(t, 42, 0);
+    let b: i32 = check(f, 0, 0);
+    return a + b;
+}

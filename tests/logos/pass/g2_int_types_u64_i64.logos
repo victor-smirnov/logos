@@ -1,0 +1,8 @@
+package g2_int_types_u64_i64;
+
+fn main() -> i32 {
+    let a: u64 = 100;
+    let b: i64 = 0 - 58;
+    let c: i64 = a as i64 + b;
+    return c as i32;
+}

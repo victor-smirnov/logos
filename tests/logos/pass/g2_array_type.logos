@@ -1,0 +1,16 @@
+package g2_array_type;
+
+fn sum(a: [i32; 5]) -> i32 {
+    let mut total: i32 = 0;
+    let mut i: i32 = 0;
+    while i < 5 {
+        total += a[i as u64];
+        i += 1;
+    }
+    return total;
+}
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [10, 8, 6, 4, 14];
+    return sum(arr);
+}

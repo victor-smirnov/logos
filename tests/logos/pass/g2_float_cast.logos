@@ -1,0 +1,8 @@
+package g2_float_cast;
+
+fn main() -> i32 {
+    let a: i32 = 84;
+    let b: f64 = a as f64;
+    let c: f64 = b / 2 as f64;
+    return c as i32;
+}
