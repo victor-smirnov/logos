@@ -348,6 +348,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
 
     val = coerce_int(val, var_type);
+    val = coerce_float(val, var_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
     scope_[s.name]          = alloca;
     let_vars_.insert(s.name);

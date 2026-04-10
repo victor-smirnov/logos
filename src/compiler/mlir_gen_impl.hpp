@@ -167,6 +167,16 @@ private:
         return v;
     }
 
+    mlir::Value coerce_float(mlir::Value v, mlir::Type to) {
+        if (!v || !to || v.getType() == to) return v;
+        auto fv = mlir::dyn_cast<mlir::FloatType>(v.getType());
+        auto ft = mlir::dyn_cast<mlir::FloatType>(to);
+        if (!fv || !ft) return v;
+        if (ft.getWidth() < fv.getWidth())
+            return builder_.create<mlir::arith::TruncFOp>(loc_, to, v);
+        return builder_.create<mlir::arith::ExtFOp>(loc_, to, v);
+    }
+
     // ── Type conversion ──────────────────────────────────────────
     mlir::Type logos_to_mlir(const LogosType* t);
 

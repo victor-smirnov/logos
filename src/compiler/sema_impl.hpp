@@ -514,6 +514,7 @@ private:
         if (!t) return false;
         return t->kind == LogosType::Kind::F64 ||
                t->kind == LogosType::Kind::F32 ||
+               t->kind == LogosType::Kind::FloatLit ||
                t->kind == LogosType::Kind::TypeVar ||
                is_integer_kind(t->kind);
     }
