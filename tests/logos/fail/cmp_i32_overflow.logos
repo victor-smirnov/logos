@@ -1,0 +1,8 @@
+package cmp_i32_overflow;
+// Bug: x: i32 == 10000000000 widened LHS to i64, giving wrong comparison.
+// Fix: sema rejects comparisons where the literal can't fit in the other operand.
+fn main() -> i32 {
+    let x: i32 = 42;
+    if x == 10000000000 { return 0; }
+    return 1;
+}

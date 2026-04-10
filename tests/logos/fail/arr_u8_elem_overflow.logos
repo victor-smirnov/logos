@@ -1,0 +1,7 @@
+package arr_u8_elem_overflow;
+// Bug: let arr: [u8; 3] = [1, 2, 300] silently truncated element 2 to u8.
+// Fix: sema checks each IntLit element against the annotation element type.
+fn main() -> i32 {
+    let arr: [u8; 3] = [1, 2, 300];
+    return arr[0] as i32;
+}

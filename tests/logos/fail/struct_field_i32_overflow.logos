@@ -1,0 +1,8 @@
+package struct_field_i32_overflow;
+// Bug: Foo { x: 10000000000 } where x: i32 silently truncated.
+// Fix: sema rejects IntLit field values that don't fit in the field type.
+struct Foo { x: i32; }
+fn main() -> i32 {
+    let f = Foo { x: 10000000000 };
+    return f.x;
+}

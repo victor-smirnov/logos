@@ -1,0 +1,7 @@
+package fn_arg_i32_overflow;
+// Bug: takes_i32(10000000000) silently truncated argument to i32.
+// Fix: sema rejects IntLit function arguments that don't fit in the param type.
+fn takes_i32(x: i32) -> i32 { return x; }
+fn main() -> i32 {
+    return takes_i32(10000000000);
+}

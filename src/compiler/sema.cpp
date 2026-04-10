@@ -3005,6 +3005,19 @@ private:
             if (!ok)
                 error(std::format("operator '{}': type mismatch ({} vs {})",
                       op, type_str(lt), type_str(rt)));
+            // Detect comparisons against IntLit values that can't fit in the other operand.
+            // E.g. x: i32 == 10000000000 — the literal can never equal any i32 value.
+            if (lt->kind == LogosType::Kind::IntLit && is_integer_kind(rt->kind)) {
+                if (auto v = get_intlit_value(lhs.get()))
+                    if (!intlit_fits(*v, rt->kind))
+                        error(std::format("operator '{}': literal value {} does not fit in {}",
+                              op, *v, type_str(rt)));
+            } else if (rt->kind == LogosType::Kind::IntLit && is_integer_kind(lt->kind)) {
+                if (auto v = get_intlit_value(rhs.get()))
+                    if (!intlit_fits(*v, lt->kind))
+                        error(std::format("operator '{}': literal value {} does not fit in {}",
+                              op, *v, type_str(lt)));
+            }
             result_type = bool_t();
         } else if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%") {
             if (!is_numeric(lt))
@@ -3251,6 +3264,11 @@ private:
                         !types_compatible(at, pt))
                         error(std::format("call to '{}' arg {}: expected {}, got {}",
                               callee, i + 1, type_str(pt), type_str(at)));
+                    if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                        if (auto v = get_intlit_value(arg_exprs[i].get()))
+                            if (!intlit_fits(*v, pt->kind))
+                                error(std::format("call to '{}' arg {}: value {} does not fit in {}",
+                                      callee, i + 1, *v, type_str(pt)));
                 }
             }
         } else if (n_args != fi.param_types.size()) {
@@ -3265,6 +3283,11 @@ private:
                     !types_compatible(at, pt))
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, type_str(pt), type_str(at)));
+                if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                    if (auto v = get_intlit_value(arg_exprs[i].get()))
+                        if (!intlit_fits(*v, pt->kind))
+                            error(std::format("call to '{}' arg {}: value {} does not fit in {}",
+                                  callee, i + 1, *v, type_str(pt)));
             }
         }
 
@@ -4236,6 +4259,12 @@ private:
                         error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                               sname, fname, type_str(ft), type_str(fval->type)));
                     }
+                    // Check IntLit field value fits in the declared field type.
+                    if (ft && fval->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(fval.get()))
+                            if (!intlit_fits(*v, ft->kind))
+                                error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
+                                      sname, fname, *v, type_str(ft)));
                 }
             }
             for (auto& [fname, init] : initialized)
@@ -4278,6 +4307,12 @@ private:
                     error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                           sname, fname, type_str(ft), type_str(fval->type)));
                 }
+                // Check IntLit field value fits in the declared field type.
+                if (ft && fval->type->kind == LogosType::Kind::IntLit)
+                    if (auto v = get_intlit_value(fval.get()))
+                        if (!intlit_fits(*v, ft->kind))
+                            error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
+                                  sname, fname, *v, type_str(ft)));
             }
         }
         for (auto& [fname, init] : initialized)
@@ -5227,6 +5262,19 @@ private:
                         error(std::format("let '{}': literal value {} does not fit in {}",
                               name, *v, type_str(ann)));
             }
+            // Check each IntLit array element fits in the annotation's element type.
+            if (ann->kind == LogosType::Kind::Array && ann->elem &&
+                rhs_type->kind == LogosType::Kind::Array && rhs_type->elem &&
+                rhs_type->elem->kind == LogosType::Kind::IntLit) {
+                if (auto* arrlit = std::get_if<lir::EArrLit>(&rhs->kind)) {
+                    for (size_t ei = 0; ei < arrlit->elems.size(); ++ei) {
+                        if (auto v = get_intlit_value(arrlit->elems[ei].get()))
+                            if (!intlit_fits(*v, ann->elem->kind))
+                                error(std::format("let '{}': array element {}: value {} does not fit in {}",
+                                      name, ei, *v, type_str(ann->elem)));
+                    }
+                }
+            }
             var_type = ann;
         } else {
             var_type = rhs_type;
@@ -5428,7 +5476,13 @@ private:
         }
         if (pc == la::PAT_INT) {
             auto sv = str_of(pnode.get(la::VALUE.code));
-            return lir::PatInt{(int64_t)std::strtoll(sv.data(), nullptr, 10)};
+            int64_t v = (int64_t)std::strtoll(sv.data(), nullptr, 10);
+            // Check that the literal fits in the scrutinee's type.
+            if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
+                !intlit_fits(v, scrut_type->kind))
+                error(std::format("match pattern: value {} does not fit in {}",
+                      v, type_str(scrut_type)));
+            return lir::PatInt{v};
         }
         if (pc == la::PAT_BOOL) {
             AnyVal bv = pnode.get(la::VALUE.code);

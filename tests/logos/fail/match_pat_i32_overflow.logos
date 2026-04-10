@@ -1,0 +1,11 @@
+package match_pat_i32_overflow;
+// Bug: match (x: i32) { 10000000000 => ... } truncated pattern to i32,
+// firing incorrectly when x == 1410065408 (the truncated value).
+// Fix: sema rejects match arm patterns that don't fit in the scrutinee type.
+fn main() -> i32 {
+    let x: i32 = 1410065408;
+    match x {
+        10000000000 => { return 0; }
+        _ => { return 1; }
+    }
+}
