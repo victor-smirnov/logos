@@ -1,0 +1,47 @@
+package impl_self_shorthand;
+// &self and &mut self shorthand params in impl blocks
+
+struct Stack {
+    data: [i32; 8],
+    size: i32,
+}
+
+impl Stack {
+    fn new() -> Stack {
+        return Stack { data: [0, 0, 0, 0, 0, 0, 0, 0], size: 0 };
+    }
+
+    fn push(&mut self, val: i32) {
+        self.data[self.size as usize] = val;
+        self.size += 1;
+    }
+
+    fn pop(&mut self) -> i32 {
+        if self.size == 0 { return -1; }
+        self.size -= 1;
+        return self.data[self.size as usize];
+    }
+
+    fn peek(&self) -> i32 {
+        if self.size == 0 { return -1; }
+        return self.data[(self.size - 1) as usize];
+    }
+
+    fn len(&self) -> i32 {
+        return self.size;
+    }
+}
+
+fn main() -> i32 {
+    let mut s = Stack::new();
+    s.push(10);
+    s.push(20);
+    s.push(12);
+    if s.len()  != 3  { return 1; }
+    if s.peek() != 12 { return 2; }
+    let v = s.pop();
+    if v != 12        { return 3; }
+    if s.len()  != 2  { return 4; }
+    // 10+20=30, +12=42
+    return s.pop() + s.pop() + 12;
+}

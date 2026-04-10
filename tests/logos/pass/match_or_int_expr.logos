@@ -1,0 +1,22 @@
+package match_or_int_expr;
+// OR patterns used in match-as-expression (not just match statement)
+
+fn bucket(x: i32) -> i32 {
+    return match x {
+        0 | 1 | 2        => 0,
+        3 | 4 | 5        => 1,
+        -2 | -1          => -1,
+        _                => 2,
+    };
+}
+
+fn main() -> i32 {
+    if bucket(0)  != 0  { return 1; }
+    if bucket(2)  != 0  { return 2; }
+    if bucket(3)  != 1  { return 3; }
+    if bucket(5)  != 1  { return 4; }
+    if bucket(-1) != -1 { return 5; }
+    if bucket(-2) != -1 { return 6; }
+    if bucket(99) != 2  { return 7; }
+    return 42;
+}
