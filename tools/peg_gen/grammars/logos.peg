@@ -205,6 +205,7 @@
     KW_AS       = "as"
     KW_WHERE    = "where"
     KW_UNSAFE   = "unsafe"
+    KW_MOVE     = "move"
 
     // Punctuation
     LBRACE      = "{"
@@ -259,8 +260,8 @@
 
     // Literals & identifiers
     STRING      = /"([^"\\]|\\.)*"/
-    FLOAT       = /[-]?[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?/
-    INTEGER     = /[-]?(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|[0-9]+)/
+    FLOAT       = /[-]?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?(f32|f64)?/
+    INTEGER     = /[-]?(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*)(i8|i16|i32|i64|u8|u16|u32|u64|usize|isize)?/
     LIFETIME    = /'[a-z][a-z0-9_]*/
     IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
 
@@ -432,11 +433,11 @@
     struct_def <- KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6 }
 
-    field_def <- KW_PUB IDENT COLON type_ref COMMA
+    field_def <- KW_PUB IDENT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
-               / IDENT COLON type_ref COMMA
+               / IDENT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $3 }
-               / IDENT DOTDOTDOT COLON type_ref COMMA
+               / IDENT DOTDOTDOT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, NAME: $1, TYPE: $4, IS_VARIADIC: 1 }
 
     // method_def: passthrough — static, pub, or regular fn
@@ -536,8 +537,10 @@
     unit_type <- LPAREN RPAREN
               => { CODE: TUPLE_TYPE }
 
-    // (T1, T2, ...) — tuple type (2+ elements)
+    // (T1, T2, ...) — tuple type (2+ elements); (T,) — single-element tuple
     tuple_type <- LPAREN type_ref COMMA type_ref (COMMA type_ref)* RPAREN
+               => { CODE: TUPLE_TYPE, ITEMS: $... }
+               / LPAREN type_ref COMMA RPAREN
                => { CODE: TUPLE_TYPE, ITEMS: $... }
 
     ptr_type <- STAR KW_CONST type_ref
@@ -755,24 +758,25 @@
                 )+
               / mul_expr
 
-    // unary_expr inserted between mul_expr and atom for prefix ops
-    mul_expr <- unary_expr
-                ( (STAR / SLASH / PERCENT) unary_expr
+    // Rust precedence (low → high): * / %  <  as  <  unary (- * ! & &mut)
+    mul_expr <- cast_expr
+                ( (STAR / SLASH / PERCENT) cast_expr
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                 )+
-              / unary_expr
+              / cast_expr
+
+    // ── Cast expression: unary_expr as type ──────────────────────
+    // Lower precedence than unary operators: (&x) as T, (*p) as i32, (-1) as u32
+    cast_expr <- unary_expr KW_AS type_ref
+              => { CODE: CAST, VALUE: $1, TYPE: $3 }
+               / unary_expr
 
     unary_expr <- STAR  unary_expr => { CODE: DEREF,      VALUE: $2 }
                 / AMP KW_MUT unary_expr => { CODE: ADDR_OF_MUT, VALUE: $3 }
                 / MINUS unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / BANG  unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
                 / AMP   unary_expr => { CODE: UNARY,  OP: $1, VALUE: $2 }
-                / cast_expr
-
-    // ── Cast expression: atom as type ────────────────────────────
-    cast_expr <- atom KW_AS type_ref
-              => { CODE: CAST, VALUE: $1, TYPE: $3 }
-               / atom
+                / atom
 
     // ── Atoms (postfix chain) ─────────────────────────────────────
     // atom = primary_expr followed by zero or more postfix suffixes.
@@ -848,12 +852,18 @@
     // ── Tuple literal: (expr, expr, ...) — 2+ elements ────────────
     tuple_lit <- LPAREN expr COMMA expr (COMMA expr)* RPAREN
               => { CODE: TUPLE_LIT, ITEMS: $... }
+               / LPAREN expr COMMA RPAREN
+              => { CODE: TUPLE_LIT, ITEMS: $... }
 
     // ── Closure expression ────────────────────────────────────────
     // |x: i32, y: i32| -> i32 { return x + y; }
     // |x: i32| { return x + 1; }
     // || -> i32 { return 42; }
-    closure_expr <- PIPE param_list? PIPE ARROW type_ref block
+    closure_expr <- KW_MOVE PIPE param_list? PIPE ARROW type_ref block
+                 => { CODE: CLOSURE_EXPR, PARAMS: $3, RET_TYPE: $6, BODY: $7 }
+                  / KW_MOVE PIPE param_list? PIPE block
+                 => { CODE: CLOSURE_EXPR, PARAMS: $3, BODY: $5 }
+                  / PIPE param_list? PIPE ARROW type_ref block
                  => { CODE: CLOSURE_EXPR, PARAMS: $2, RET_TYPE: $5, BODY: $6 }
                   / PIPE param_list? PIPE block
                  => { CODE: CLOSURE_EXPR, PARAMS: $2, BODY: $4 }

@@ -4,6 +4,7 @@
 
 #include "sema_impl.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <format>
 #include <functional>
@@ -29,12 +30,21 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::LIT_INT: {
         auto sv = str_of(expr.get(la::VALUE.code));
         int64_t v = parse_int_literal(sv);
-        return make_expr(intlit_t(), lir::ELitInt{v});
+        auto suf = int_suffix_kind(sv);
+        const LogosType* t = (suf != LogosType::Kind::Error) ? prim(suf) : intlit_t();
+        return make_expr(t, lir::ELitInt{v});
     }
     case la::LIT_FLOAT: {
         auto sv = str_of(expr.get(la::VALUE.code));
-        double v = std::stod(std::string(sv));
-        return make_expr(prim(LogosType::Kind::FloatLit), lir::ELitFloat{v});
+        std::string s(sv);
+        s.erase(std::remove(s.begin(), s.end(), '_'), s.end());
+        // Strip optional float suffix before passing to stod
+        auto suf = float_suffix_kind(sv);
+        if (suf != LogosType::Kind::Error) s.resize(s.size() - 3);
+        double v = std::stod(s);
+        const LogosType* t = (suf != LogosType::Kind::Error) ? prim(suf)
+                                                              : prim(LogosType::Kind::FloatLit);
+        return make_expr(t, lir::ELitFloat{v});
     }
     case la::LIT_BOOL: {
         AnyVal av = expr.get(la::VALUE.code);

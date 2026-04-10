@@ -1,0 +1,6 @@
+package tuple_single;
+
+fn main() -> i32 {
+    let t: (i32,) = (42,);
+    return t.0;
+}

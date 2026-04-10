@@ -825,12 +825,28 @@ private:
     static bool pat_has_hex(std::string_view pat)  { return pat.find("a-f") != std::string::npos || pat.find("a-F") != std::string::npos; }
     static bool pat_has_bin(std::string_view pat)  { return pat.find("0[bB]") != std::string::npos || pat.find("0b") != std::string::npos; }
     static bool pat_has_oct(std::string_view pat)  { return pat.find("0[oO]") != std::string::npos || pat.find("0o") != std::string::npos; }
-    static bool pat_has_int_suffix(std::string_view pat) { return pat.find("ull") != std::string::npos || pat.find("_u") != std::string::npos; }
-    static bool pat_has_float_suffix(std::string_view pat) { return pat.find("[fd]") != std::string::npos; }
+    static bool pat_is_integer_regex(std::string_view pat) {
+        const bool has_digits = pat.find("[0-9]+") != std::string::npos ||
+                                pat.find("[0-9][0-9_]*") != std::string::npos;
+        const bool has_decimal_point = pat.find("\\.") != std::string::npos;
+        return has_digits && !has_decimal_point;
+    }
+    static bool pat_has_int_suffix(std::string_view pat) {
+        return pat.find("i8") != std::string::npos    || pat.find("i16") != std::string::npos ||
+               pat.find("i32") != std::string::npos   || pat.find("i64") != std::string::npos ||
+               pat.find("u8") != std::string::npos    || pat.find("u16") != std::string::npos ||
+               pat.find("u32") != std::string::npos   || pat.find("u64") != std::string::npos ||
+               pat.find("usize") != std::string::npos || pat.find("isize") != std::string::npos ||
+               pat.find("ull") != std::string::npos   || pat.find("_u") != std::string::npos;
+    }
+    static bool pat_has_float_suffix(std::string_view pat) {
+        return pat.find("f32") != std::string::npos || pat.find("f64") != std::string::npos ||
+               pat.find("[fd]") != std::string::npos;
+    }
 
     // Emit suffix matching for integer tokens.
-    // Tries longest match: _u64/_s64 (3-char suffix), _u32/_s32/_u16/_s16 (3-char),
-    // _u8/_s8 (2-char), ull (3-char), ul/ll (2-char), u (1-char).
+    // Supports Rust-style suffixes (i8/i16/i32/i64/u8/u16/u32/u64/usize/isize)
+    // plus older C-style suffixes kept for backwards compatibility.
     static void emit_int_suffix_matching(CodeWriter& w) {
         // Helper lambda in generated code: try to match a suffix string.
         w.line("// Integer type suffix (longest match).");
@@ -843,8 +859,11 @@ private:
         w.line("};");
         // Ordered longest-first. The C-style 'u' suffix must be checked last
         // and must NOT be followed by an alnum/underscore (to avoid eating IDENT).
-        w.line("if (!try_suffix(\"_u64\") && !try_suffix(\"_u32\") && !try_suffix(\"_u16\") && !try_suffix(\"_u8\") &&");
+        w.line("if (!try_suffix(\"usize\") && !try_suffix(\"isize\") &&");
+        w.line("    !try_suffix(\"_u64\") && !try_suffix(\"_u32\") && !try_suffix(\"_u16\") && !try_suffix(\"_u8\") &&");
         w.line("    !try_suffix(\"_s64\") && !try_suffix(\"_s32\") && !try_suffix(\"_s16\") && !try_suffix(\"_s8\") &&");
+        w.line("    !try_suffix(\"i64\") && !try_suffix(\"i32\") && !try_suffix(\"i16\") && !try_suffix(\"i8\") &&");
+        w.line("    !try_suffix(\"u64\") && !try_suffix(\"u32\") && !try_suffix(\"u16\") && !try_suffix(\"u8\") &&");
         w.line("    !try_suffix(\"ull\") && !try_suffix(\"ul\") && !try_suffix(\"ll\")) {");
         w.line("    // Single-char 'u' — only if not followed by alnum/underscore.");
         w.line("    if (pos_ < source_.size() && source_[pos_] == 'u' &&");
@@ -879,7 +898,7 @@ private:
             // (_u8..._u64, _s8..._s64, ull, ul, ll, u) when detected in the regex.
             // If a FLOAT token also exists, performs longest-match: after decimal digits,
             // if '.' followed by a digit is found, consumes fractional part and returns FLOAT.
-            else if (pat.find("[0-9]+") != std::string::npos && pat.find('.') == std::string::npos) {
+            else if (pat_is_integer_regex(pat)) {
                 const bool hex = pat_has_hex(pat);
                 const bool bin = pat_has_bin(pat);
                 const bool oct = pat_has_oct(pat);
@@ -922,16 +941,16 @@ private:
                     w.line("}");
                     // Consume digits per base.
                     w.line("if (base == 16) {");
-                    w.line("    while (pos_ < source_.size() && std::isxdigit(source_[pos_])) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (std::isxdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.line("} else if (base == 2) {");
-                    w.line("    while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1')) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1' || source_[pos_] == '_')) ++pos_;");
                     w.line("} else if (base == 8) {");
-                    w.line("    while (pos_ < source_.size() && source_[pos_] >= '0' && source_[pos_] <= '7') ++pos_;");
+                    w.line("    while (pos_ < source_.size() && ((source_[pos_] >= '0' && source_[pos_] <= '7') || source_[pos_] == '_')) ++pos_;");
                     w.line("} else {");
-                    w.line("    while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.line("}");
                 } else {
-                    w.line("while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                 }
 
                 if (!float_tok.empty()) {
@@ -946,16 +965,21 @@ private:
                     w.line("    && !(start > 0 && source_[start - 1] == '.')) {");
                     w.indent();
                     w.line("++pos_; // consume '.'");
-                    w.line("while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {");
                     w.indent();
                     w.line("++pos_;");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
-                    w.line("while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.dedent();
                     w.line("}");
                     if (flt_sfx) {
-                        w.line("if (pos_ < source_.size() && (source_[pos_] == 'f' || source_[pos_] == 'd')) ++pos_;");
+                        w.line("if (pos_ + 3 <= source_.size() &&");
+                        w.line("    (source_.substr(pos_, 3) == \"f32\" || source_.substr(pos_, 3) == \"f64\")) {");
+                        w.line("    pos_ += 3;");
+                        w.line("} else if (pos_ < source_.size() && (source_[pos_] == 'f' || source_[pos_] == 'd')) {");
+                        w.line("    ++pos_;");
+                        w.line("}");
                     }
                     w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", float_tok);
                     w.dedent();

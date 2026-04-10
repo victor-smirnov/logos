@@ -21,6 +21,7 @@
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/any_val.hpp>
 
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <format>
@@ -662,6 +663,7 @@ inline int64_t parse_int_literal(std::string_view sv) noexcept {
     if (sv.size() >= 2 && sv[0] == '0') {
         if (sv[1] == 'x' || sv[1] == 'X') {
             for (char c : sv.substr(2)) {
+                if (c == '_') continue;
                 if (c >= '0' && c <= '9')      result = result * 16 + (c - '0');
                 else if (c >= 'a' && c <= 'f') result = result * 16 + (c - 'a' + 10);
                 else if (c >= 'A' && c <= 'F') result = result * 16 + (c - 'A' + 10);
@@ -669,27 +671,64 @@ inline int64_t parse_int_literal(std::string_view sv) noexcept {
             }
         } else if (sv[1] == 'b' || sv[1] == 'B') {
             for (char c : sv.substr(2)) {
+                if (c == '_') continue;
                 if (c == '0' || c == '1') result = result * 2 + (c - '0');
                 else break;
             }
         } else if (sv[1] == 'o' || sv[1] == 'O') {
             for (char ch : sv.substr(2)) {
+                if (ch == '_') continue;
                 if (ch >= '0' && ch <= '7') result = result * 8 + (ch - '0');
                 else break;
             }
         } else {
             for (char c : sv) {
+                if (c == '_') continue;
                 if (c >= '0' && c <= '9') result = result * 10 + (c - '0');
                 else break;
             }
         }
     } else {
         for (char c : sv) {
+            if (c == '_') continue;
             if (c >= '0' && c <= '9') result = result * 10 + (c - '0');
             else break;
         }
     }
     return negative ? -result : result;
+}
+
+// Returns the LogosType::Kind for a numeric suffix like "i32", "u64", "f32".
+// Returns Kind::Error if sv has no recognised suffix.
+inline LogosType::Kind int_suffix_kind(std::string_view sv) noexcept {
+    // Strip leading sign and numeric digits / underscores to find the suffix.
+    size_t i = 0;
+    if (i < sv.size() && sv[i] == '-') ++i;
+    // Skip hex/bin/oct prefix
+    if (i + 1 < sv.size() && sv[i] == '0' &&
+        (sv[i+1] == 'x' || sv[i+1] == 'X' ||
+         sv[i+1] == 'b' || sv[i+1] == 'B' ||
+         sv[i+1] == 'o' || sv[i+1] == 'O')) i += 2;
+    // Skip digit body
+    while (i < sv.size() && (std::isxdigit((unsigned char)sv[i]) || sv[i] == '_')) ++i;
+    auto suf = sv.substr(i);
+    if (suf == "i8")    return LogosType::Kind::I8;
+    if (suf == "i16")   return LogosType::Kind::I16;
+    if (suf == "i32")   return LogosType::Kind::I32;
+    if (suf == "i64")   return LogosType::Kind::I64;
+    if (suf == "u8")    return LogosType::Kind::U8;
+    if (suf == "u16")   return LogosType::Kind::U16;
+    if (suf == "u32")   return LogosType::Kind::U32;
+    if (suf == "u64")   return LogosType::Kind::U64;
+    if (suf == "usize") return LogosType::Kind::U64;  // treat usize as u64
+    if (suf == "isize") return LogosType::Kind::I64;  // treat isize as i64
+    return LogosType::Kind::Error;
+}
+
+inline LogosType::Kind float_suffix_kind(std::string_view sv) noexcept {
+    if (sv.size() >= 3 && sv.substr(sv.size() - 3) == "f32") return LogosType::Kind::F32;
+    if (sv.size() >= 3 && sv.substr(sv.size() - 3) == "f64") return LogosType::Kind::F64;
+    return LogosType::Kind::Error;
 }
 
 } // namespace logos::compiler

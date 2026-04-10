@@ -1,5 +1,5 @@
 package tuple_not_enough_elems;
 fn main() -> i32 {
-    let t: (i32, i32) = (42,);   // parse error: single-element tuple not valid
+    let t: (i32, i32) = (42,);   // single-element tuple now parses, but the type mismatches
     return t.0;
 }
