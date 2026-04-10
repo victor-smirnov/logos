@@ -1,0 +1,5 @@
+package return_tuple_arr_overflow;
+fn get() -> ([i8; 3], i32) {
+    return ([1, 200, 3], 0);
+}
+fn main() -> i32 { return 0; }

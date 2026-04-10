@@ -1,0 +1,5 @@
+package return_tuple_tup_overflow;
+fn get() -> ((i8, i32), i32) {
+    return ((200, 5), 0);
+}
+fn main() -> i32 { return 0; }

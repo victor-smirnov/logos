@@ -1,0 +1,6 @@
+package assign_tuple_arr_overflow;
+fn main() -> i32 {
+    let mut t: ([i8; 3], i32) = ([1, 2, 3], 0);
+    t = ([1, 200, 3], 0);
+    return 0;
+}

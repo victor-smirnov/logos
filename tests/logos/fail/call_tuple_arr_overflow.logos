@@ -1,0 +1,5 @@
+package call_tuple_arr_overflow;
+fn take(x: ([i8; 3], i32)) -> i32 { return 0; }
+fn main() -> i32 {
+    return take(([1, 200, 3], 0));
+}
