@@ -1,0 +1,8 @@
+package new_arr_field_overflow;
+class C {
+    data: [i8; 3];
+}
+fn main() -> i32 {
+    let c = new C { data: [1, 200, 3] };
+    return 0;
+}

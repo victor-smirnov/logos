@@ -1,0 +1,8 @@
+package generic_call_arr_overflow;
+// T inferred as i8 from first arg; arr: [T; 3] = [i8; 3].
+// 200 overflows i8.
+fn takes_typed<T>(x: T, arr: [T; 3]) -> i32 { return 0; }
+fn main() -> i32 {
+    let x: i8 = 1;
+    return takes_typed(x, [1, 200, 3]);
+}

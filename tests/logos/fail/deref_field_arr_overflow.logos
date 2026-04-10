@@ -1,0 +1,10 @@
+package deref_field_arr_overflow;
+struct S { data: [i8; 3]; }
+fn write_it(p: *mut S) -> i32 {
+    unsafe { (*p).data = [1, 200, 3]; }
+    return 0;
+}
+fn main() -> i32 {
+    let mut s = S { data: [0, 0, 0] };
+    return write_it(&mut s);
+}

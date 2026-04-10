@@ -1,0 +1,9 @@
+package struct_method_arr_overflow;
+struct S { x: i32; }
+impl S {
+    fn take_arr(self: S, arr: [i8; 3]) -> i32 { return self.x; }
+}
+fn main() -> i32 {
+    let s = S { x: 1 };
+    return s.take_arr([1, 200, 3]);
+}
