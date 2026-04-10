@@ -988,7 +988,33 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
 
         mlir::Block* arm_entry = body_block;
 
-        {
+        if (arm.guard) {
+            // guard_block: extract bindings, evaluate guard, branch to body_block or else_block.
+            auto* guard_block = new mlir::Block();
+            region->push_back(guard_block);
+            std::vector<std::string> guard_added;
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(guard_block);
+                guard_added = extract_arm_payload(arm);
+                auto gval = gen_expr(**arm.guard);
+                gval = coerce_int(gval, builder_.getI1Type());
+                builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
+            }
+            arm_entry = guard_block;
+            // body_block: bindings already in scope from guard_block; generate arm value.
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(body_block);
+                auto val = gen_expr(*arm.value);
+                for (auto& n : guard_added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
+                if (val) {
+                    val = coerce_numeric(val, result_type);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
+                }
+                builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+            }
+        } else {
             mlir::OpBuilder::InsertionGuard ig(builder_);
             builder_.setInsertionPointToStart(body_block);
             auto added = extract_arm_payload(arm);

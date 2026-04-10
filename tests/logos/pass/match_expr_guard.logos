@@ -1,0 +1,20 @@
+package match_expr_guard;
+
+// Regression test: match as expression with guard (was silently dropping the guard).
+fn double_if_even(x: i32) -> i32 {
+    let result = match x {
+        n if n % 2 == 0 => n * 2,
+        n => n,
+    };
+    return result;
+}
+
+fn main() -> i32 {
+    // 21 is odd → returned as-is
+    if double_if_even(21) \!= 21 { return 1; }
+    // 10 is even → doubled to 20
+    if double_if_even(10) \!= 20 { return 2; }
+    // 0 is even → doubled to 0
+    if double_if_even(0) \!= 0 { return 3; }
+    return 42;
+}
