@@ -1,0 +1,17 @@
+package g6_struct_arg;
+
+struct Vec2 { x: i32; y: i32; }
+
+fn scale(v: Vec2, factor: i32) -> Vec2 {
+    return Vec2 { x: v.x * factor, y: v.y * factor };
+}
+
+fn magnitude_sq(v: Vec2) -> i32 {
+    return v.x * v.x + v.y * v.y;
+}
+
+fn main() -> i32 {
+    let v: Vec2 = Vec2 { x: 1, y: 2 };
+    let s: Vec2 = scale(v, 3);
+    return magnitude_sq(s) - 3;
+}

@@ -1,0 +1,16 @@
+package g6_field_access;
+
+struct Vec2 {
+    x: i32;
+    y: i32;
+}
+
+fn dot(a: Vec2, b: Vec2) -> i32 {
+    return a.x * b.x + a.y * b.y;
+}
+
+fn main() -> i32 {
+    let a: Vec2 = Vec2 { x: 3, y: 4 };
+    let b: Vec2 = Vec2 { x: 6, y: 6 };
+    return dot(a, b);
+}

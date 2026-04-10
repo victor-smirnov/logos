@@ -1,0 +1,16 @@
+package g6_method_call;
+
+struct Circle {
+    radius: i32;
+}
+
+impl Circle {
+    fn area_approx(self: Circle) -> i32 {
+        return self.radius * self.radius * 3;
+    }
+}
+
+fn main() -> i32 {
+    let c: Circle = Circle { radius: 4 };
+    return c.area_approx() - 6;
+}

@@ -1,0 +1,11 @@
+package g6_nested_field;
+
+struct Inner { v: i32; }
+struct Outer { a: Inner; b: Inner; }
+
+fn main() -> i32 {
+    let inner_a: Inner = Inner { v: 20 };
+    let inner_b: Inner = Inner { v: 22 };
+    let outer: Outer = Outer { a: inner_a, b: inner_b };
+    return outer.a.v + outer.b.v;
+}

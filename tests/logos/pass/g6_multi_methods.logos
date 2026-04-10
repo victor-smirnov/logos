@@ -1,0 +1,29 @@
+package g6_multi_methods;
+
+struct Stack {
+    a: i32;
+    b: i32;
+    size: i32;
+}
+
+impl Stack {
+    fn new() -> Stack {
+        return Stack { a: 0, b: 0, size: 0 };
+    }
+    fn push1(self: Stack, v: i32) -> Stack {
+        return Stack { a: v, b: 0, size: 1 };
+    }
+    fn push2(self: Stack, v: i32) -> Stack {
+        return Stack { a: self.a, b: v, size: 2 };
+    }
+    fn sum(self: Stack) -> i32 {
+        return self.a + self.b;
+    }
+}
+
+fn main() -> i32 {
+    let s: Stack = Stack::new();
+    let s1: Stack = s.push1(20);
+    let s2: Stack = s1.push2(22);
+    return s2.sum();
+}

@@ -1,0 +1,24 @@
+package g6_self_param;
+
+struct Builder {
+    val: i32;
+}
+
+impl Builder {
+    fn new() -> Builder {
+        return Builder { val: 0 };
+    }
+    fn add(self: Builder, n: i32) -> Builder {
+        return Builder { val: self.val + n };
+    }
+    fn build(self: Builder) -> i32 {
+        return self.val;
+    }
+}
+
+fn main() -> i32 {
+    let b: Builder = Builder::new();
+    let b1: Builder = b.add(20);
+    let b2: Builder = b1.add(22);
+    return b2.build();
+}

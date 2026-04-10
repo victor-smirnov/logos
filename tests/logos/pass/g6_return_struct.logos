@@ -1,0 +1,15 @@
+package g6_return_struct;
+
+struct Pair {
+    first: i32;
+    second: i32;
+}
+
+fn make_pair(a: i32, b: i32) -> Pair {
+    return Pair { first: a, second: b };
+}
+
+fn main() -> i32 {
+    let p: Pair = make_pair(20, 22);
+    return p.first + p.second;
+}

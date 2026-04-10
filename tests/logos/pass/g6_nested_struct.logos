@@ -1,0 +1,13 @@
+package g6_nested_struct;
+
+struct Point { x: i32; y: i32; }
+struct Line { start: Point; end: Point; }
+
+fn main() -> i32 {
+    let s: Point = Point { x: 0, y: 0 };
+    let e: Point = Point { x: 3, y: 6 };
+    let l: Line = Line { start: s, end: e };
+    let dx: i32 = l.end.x - l.start.x;
+    let dy: i32 = l.end.y - l.start.y;
+    return dx * dx + dy * dy - 3;
+}

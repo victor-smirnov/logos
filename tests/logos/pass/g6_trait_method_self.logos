@@ -1,0 +1,26 @@
+package g6_trait_method_self;
+
+trait Area {
+    fn area(self: Self) -> i32;
+}
+
+struct Square { side: i32; }
+struct Triangle { base: i32; height: i32; }
+
+impl Area for Square {
+    fn area(self: Square) -> i32 {
+        return self.side * self.side;
+    }
+}
+
+impl Area for Triangle {
+    fn area(self: Triangle) -> i32 {
+        return self.base * self.height / 2;
+    }
+}
+
+fn main() -> i32 {
+    let sq: Square = Square { side: 6 };
+    let tri: Triangle = Triangle { base: 6, height: 2 };
+    return sq.area() + tri.area();
+}
