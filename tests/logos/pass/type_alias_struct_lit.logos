@@ -1,0 +1,14 @@
+package type_alias_struct_lit;
+// Regression: type alias for generic struct should work in struct literals
+
+struct Pair<T> {
+    first: T;
+    second: T;
+}
+
+type IntPair = Pair<i32>;
+
+fn main() -> i32 {
+    let p: IntPair = IntPair { first: 21, second: 21 };
+    return p.first + p.second;
+}

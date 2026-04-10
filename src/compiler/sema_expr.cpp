@@ -1690,8 +1690,25 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
-    auto sname = str_of(node.get(la::NAME.code));
-    auto sit = structs_.find(std::string(sname));
+    auto sname_sv = str_of(node.get(la::NAME.code));
+    std::string sname_buf(sname_sv);  // mutable copy in case we resolve alias
+    auto sit = structs_.find(sname_buf);
+    if (sit == structs_.end()) {
+        // Try resolving via type alias: `type Alias = Struct` or `type Alias = Struct<T>`
+        auto ait = type_aliases_.find(sname_buf);
+        if (ait != type_aliases_.end()) {
+            auto* aliased = ait->second;
+            if (aliased && aliased->kind == LogosType::Kind::Struct) {
+                sit = structs_.find(aliased->struct_name);
+                if (sit != structs_.end()) {
+                    sname_buf = aliased->struct_name;  // update name to actual struct
+                    // Also push the alias type as hint so generic args get inferred correctly
+                    hint_struct_type_ = aliased;
+                }
+            }
+        }
+    }
+    std::string_view sname = sname_buf;  // use resolved name throughout
     if (sit == structs_.end()) {
         error(std::format("struct literal: unknown struct '{}'", sname));
         return error_expr();
