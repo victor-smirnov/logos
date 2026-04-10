@@ -4771,6 +4771,69 @@ private:
                 }
             }
         }
+        // Element 0 retroactive check: the loop above only checks elements 1+.
+        // If a later element has a concrete narrow type, element 0 (which set
+        // elem_type initially) was never range-checked against it.
+        // Find the first concrete anchor from elements 1+ and check element 0.
+        if (elems.size() > 1) {
+            // Locate the first element whose type is concrete (not purely IntLit-typed).
+            const LogosType* anchor = nullptr;
+            for (size_t i = 1; i < elems.size() && !anchor; ++i) {
+                const LogosType* ti = elems[i]->type;
+                if (ti->kind != LogosType::Kind::IntLit &&
+                    !(ti->kind == LogosType::Kind::Array && ti->elem &&
+                      ti->elem->kind == LogosType::Kind::IntLit))
+                    anchor = ti;
+            }
+            if (anchor) {
+                auto* e = elems[0].get();
+                auto* t0 = elems[0]->type;
+                // Scalar IntLit at element 0.
+                if (t0->kind == LogosType::Kind::IntLit)
+                    if (auto v = get_intlit_value(e))
+                        if (!intlit_fits(*v, anchor->kind))
+                            error(std::format("array literal: element 0: value {} does not fit in {}",
+                                  *v, type_str(anchor)));
+                // Array literal at element 0 (e.g. [[1,200,3], concrete_arr]).
+                if (anchor->kind == LogosType::Kind::Array && anchor->elem &&
+                    t0->kind == LogosType::Kind::Array)
+                    if (auto* al = std::get_if<lir::EArrLit>(&e->kind))
+                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
+                            if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                    if (!intlit_fits(*v, anchor->elem->kind))
+                                        error(std::format("array literal: element 0: sub-element {}: value {} does not fit in {}",
+                                              ei, *v, type_str(anchor->elem)));
+                // Tuple literal at element 0 (tuple elements, including nested array/tuple).
+                if (anchor->kind == LogosType::Kind::Tuple && t0->kind == LogosType::Kind::Tuple)
+                    if (auto* tl = std::get_if<lir::ETupleLit>(&e->kind))
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < anchor->tuple_elems.size(); ++ei) {
+                            if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                    if (anchor->tuple_elems[ei] && !intlit_fits(*v, anchor->tuple_elems[ei]->kind))
+                                        error(std::format("array literal: element 0: tuple element {}: value {} does not fit in {}",
+                                              ei, *v, type_str(anchor->tuple_elems[ei])));
+                            if (anchor->tuple_elems[ei] && anchor->tuple_elems[ei]->kind == LogosType::Kind::Array &&
+                                anchor->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
+                                    for (size_t ii = 0; ii < ial->elems.size(); ++ii)
+                                        if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
+                                            if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                                if (!intlit_fits(*v, anchor->tuple_elems[ei]->elem->kind))
+                                                    error(std::format("array literal: element 0: tuple element {}: array element {}: value {} does not fit in {}",
+                                                          ei, ii, *v, type_str(anchor->tuple_elems[ei]->elem)));
+                            if (anchor->tuple_elems[ei] && anchor->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                                tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
+                                if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
+                                    for (size_t ii = 0; ii < itl->elems.size() && ii < anchor->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                        if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
+                                            if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                                if (anchor->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, anchor->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                    error(std::format("array literal: element 0: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                          ei, ii, *v, type_str(anchor->tuple_elems[ei]->tuple_elems[ii])));
+                        }
+            }
+        }
         // For IntLit element type: upgrade to i64 if any value overflows i32.
         // Keep IntLit (don't collapse to i32) so that annotation-based coercion
         // ([i64; N] = [1, 2, 3]) can use types_compatible([IntLit;N], [i64;N]) → true.
@@ -5816,6 +5879,26 @@ private:
                                     !intlit_fits(*v, ann->tuple_elems[ei]->kind))
                                     error(std::format("let '{}': tuple element {}: value {} does not fit in {}",
                                           name, ei, *v, type_str(ann->tuple_elems[ei])));
+                        // Tuple element is itself an array literal.
+                        if (ann->tuple_elems[ei] && ann->tuple_elems[ei]->kind == LogosType::Kind::Array &&
+                            ann->tuple_elems[ei]->elem && tlit->elems[ei]->type->kind == LogosType::Kind::Array)
+                            if (auto* ial = std::get_if<lir::EArrLit>(&tlit->elems[ei]->kind))
+                                for (size_t ii = 0; ii < ial->elems.size(); ++ii)
+                                    if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                            if (!intlit_fits(*v, ann->tuple_elems[ei]->elem->kind))
+                                                error(std::format("let '{}': tuple element {}: array element {}: value {} does not fit in {}",
+                                                      name, ei, ii, *v, type_str(ann->tuple_elems[ei]->elem)));
+                        // Tuple element is itself a tuple literal.
+                        if (ann->tuple_elems[ei] && ann->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                            tlit->elems[ei]->type->kind == LogosType::Kind::Tuple)
+                            if (auto* itl = std::get_if<lir::ETupleLit>(&tlit->elems[ei]->kind))
+                                for (size_t ii = 0; ii < itl->elems.size() && ii < ann->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                    if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                            if (ann->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, ann->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                error(std::format("let '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                      name, ei, ii, *v, type_str(ann->tuple_elems[ei]->tuple_elems[ii])));
                     }
                 }
             }

@@ -1,0 +1,5 @@
+package let_tuple_arr_pos2_overflow;
+fn main() -> i32 {
+    let t: (i32, i32, [i8; 3]) = (0, 0, [1, 200, 3]);
+    return 0;
+}

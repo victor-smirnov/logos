@@ -1,0 +1,6 @@
+package arr_lit_elem0_scalar_overflow;
+fn main() -> i32 {
+    let a: i8 = 1;
+    let arr = [200, a, 3];
+    return 0;
+}

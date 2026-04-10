@@ -1,0 +1,5 @@
+package let_tuple_tup_pos1_overflow;
+fn main() -> i32 {
+    let t: (i32, (i8, i32)) = (0, (200, 5));
+    return 0;
+}

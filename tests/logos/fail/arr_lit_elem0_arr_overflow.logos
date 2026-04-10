@@ -1,0 +1,6 @@
+package arr_lit_elem0_arr_overflow;
+fn main() -> i32 {
+    let a: [i8; 3] = [1, 2, 3];
+    let arr = [[1, 200, 3], a];
+    return 0;
+}
