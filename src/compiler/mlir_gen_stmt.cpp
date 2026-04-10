@@ -862,17 +862,53 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
 // ---------------------------------------------------------------------------
 
 void MLIRGenImpl::gen_field_write(const SFieldWrite& s) {
-    auto ptr = get_struct_ptr(s.receiver);
-    if (!ptr) return;
-    // Look up struct info: check var_struct_ first, then var_class_.
+    mlir::Value ptr;
+    std::string type_name;
+
+    // Check if receiver is a direct struct/class var.
     auto sit = var_struct_.find(s.receiver);
     auto cit = sit == var_struct_.end() ? var_class_.find(s.receiver) : var_class_.end();
-    if (sit == var_struct_.end() && cit == var_class_.end()) {
-        std::fprintf(stderr, "mlir_gen: field write: '%s' is not a struct/class\n",
-                     s.receiver.c_str());
-        return;
+    if (sit != var_struct_.end()) {
+        ptr = get_struct_ptr(s.receiver);
+        type_name = sit->second;
+    } else if (cit != var_class_.end()) {
+        ptr = get_struct_ptr(s.receiver);
+        type_name = cit->second;
+    } else {
+        // May be a pointer-to-struct variable (e.g. *mut Point or &mut Point).
+        // var_local_ptrs_ stores the pointee MLIR type for raw-pointer locals.
+        // Match it against known struct LLVM types to recover the struct name.
+        auto sc = scope_.find(s.receiver);
+        if (sc != scope_.end()) {
+            auto lpit = var_local_ptrs_.find(s.receiver);
+            if (lpit != var_local_ptrs_.end()) {
+                // lpit->second is the MLIR type of the pointee (e.g. !llvm.struct<"Point",...>).
+                for (auto& [sn, si] : struct_types_) {
+                    if (si.llvm_type == lpit->second) {
+                        type_name = sn;
+                        break;
+                    }
+                }
+            }
+            if (type_name.empty()) {
+                // Fallback: match by field name across all known structs.
+                for (auto& [sn, si] : struct_types_) {
+                    for (auto& f : si.fields)
+                        if (f.name == s.field) { type_name = sn; break; }
+                    if (!type_name.empty()) break;
+                }
+            }
+            if (!type_name.empty()) {
+                // The alloca holds the pointer value; load it to get the struct ptr.
+                ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), sc->second);
+            }
+        }
+        if (!ptr || type_name.empty()) {
+            std::fprintf(stderr, "mlir_gen: field write: '%s' is not a struct/class\n",
+                         s.receiver.c_str());
+            return;
+        }
     }
-    const std::string& type_name = (sit != var_struct_.end()) ? sit->second : cit->second;
     auto& info = struct_types_[type_name];
     auto gep = gep_field(ptr, info, s.field);
     if (!gep) return;

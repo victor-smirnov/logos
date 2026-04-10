@@ -1,0 +1,17 @@
+package generic_static_constructor;
+// Regression: generic static constructor returning concrete type
+struct Box<T> {
+    val: T;
+}
+impl<T> Box<T> {
+    fn wrap(v: T) -> Box<T> {
+        return Box { val: v };
+    }
+    fn unwrap(self: Box<T>) -> T {
+        return self.val;
+    }
+}
+unsafe fn main() -> i32 {
+    let b: Box<i32> = Box::wrap(42);
+    return b.unwrap();
+}

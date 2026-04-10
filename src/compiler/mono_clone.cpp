@@ -71,8 +71,44 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 }
             }
             // Rewrite callee if it's a generic call that was already instantiated
-            if (!nc.type_args.empty())
-                nc.callee = mangle(nc.callee, nc.type_args);
+            if (!nc.type_args.empty()) {
+                // Check if callee is a static method on a generic struct template.
+                // If so, use the concrete-struct naming scheme (e.g. "Inner$G1$i32__new")
+                // instead of the free-fn scheme (e.g. "Inner__new__i32").
+                // Detect by: callee = "StructName__method", struct_templates_ has "StructName"
+                // and all type_args correspond to the struct's type params (no TypeVar left).
+                bool rewritten_as_struct_method = false;
+                {
+                    auto sep = nc.callee.find("__");
+                    if (sep != std::string::npos) {
+                        std::string struct_part = nc.callee.substr(0, sep);
+                        std::string method_part = nc.callee.substr(sep); // includes "__"
+                        auto sit = struct_templates_.find(struct_part);
+                        if (sit != struct_templates_.end()) {
+                            // Verify none of the type args are still TypeVar
+                            bool all_concrete = true;
+                            for (auto* ta : nc.type_args)
+                                if (ta && ta->kind == LogosType::Kind::TypeVar)
+                                    { all_concrete = false; break; }
+                            if (all_concrete) {
+                                // Build the concrete struct type.
+                                LogosType st;
+                                st.kind = LogosType::Kind::Struct;
+                                st.struct_name = struct_part;
+                                size_t n_impl_tp = sit->second->type_params.size();
+                                for (size_t i = 0; i < n_impl_tp && i < nc.type_args.size(); ++i)
+                                    st.type_args.push_back(nc.type_args[i]);
+                                std::string cname = concrete_struct_name(&st);
+                                nc.callee = cname + method_part;
+                                nc.type_args.clear();  // call is now concrete
+                                rewritten_as_struct_method = true;
+                            }
+                        }
+                    }
+                }
+                if (!rewritten_as_struct_method)
+                    nc.callee = mangle(nc.callee, nc.type_args);
+            }
             result->kind = std::move(nc);
 
         } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {

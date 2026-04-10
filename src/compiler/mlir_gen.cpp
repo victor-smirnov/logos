@@ -136,6 +136,34 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         auto sit = var_struct_.find(name);
         if (sit != var_struct_.end())
             return {get_struct_ptr(name), sit->second};
+        // Check if this is a pointer-to-struct variable (e.g. *mut Point).
+        // The logical type is Ptr/Ref/MutRef with pointee=Struct/Class.
+        if (recv.type) {
+            const LogosType* t = recv.type;
+            if ((t->kind == LogosType::Kind::Ptr ||
+                 t->kind == LogosType::Kind::Ref ||
+                 t->kind == LogosType::Kind::MutRef) && t->pointee) {
+                const LogosType* inner = t->pointee;
+                if (inner->kind == LogosType::Kind::Struct ||
+                    inner->kind == LogosType::Kind::Class) {
+                    // Load the pointer value from the alloca, then use it as the struct ptr.
+                    auto alloca = get_struct_ptr(name);  // alloca holding the pointer
+                    if (!alloca) {
+                        // Fall back: try scope lookup
+                        auto sc = scope_.find(name);
+                        if (sc != scope_.end()) alloca = sc->second;
+                    }
+                    if (alloca) {
+                        auto ptr_val = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, ptr_type(), alloca);
+                        std::string tname = (inner->kind == LogosType::Kind::Struct)
+                            ? concrete_struct_name(inner)
+                            : concrete_class_name(inner);
+                        return {ptr_val, tname};
+                    }
+                }
+            }
+        }
         std::fprintf(stderr, "mlir_gen: '%s' is not a struct/class var\n", name.c_str());
         return {nullptr, {}};
     }
