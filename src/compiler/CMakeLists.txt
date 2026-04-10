@@ -47,9 +47,21 @@ add_executable(logosc
     main.cpp
     borrow_check.cpp
     mlir_gen.cpp
+    mlir_gen_types.cpp
+    mlir_gen_fn.cpp
+    mlir_gen_stmt.cpp
+    mlir_gen_expr.cpp
+    mlir_gen_dyn.cpp
     module_loader.cpp
     mono.cpp
+    mono_subst.cpp
+    mono_clone.cpp
+    mono_scan.cpp
     sema.cpp
+    sema_collect.cpp
+    sema_expr.cpp
+    sema_stmt.cpp
+    sema_decl.cpp
     ${LOGOS_PARSER_CPP}
 )
 
