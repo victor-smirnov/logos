@@ -1,0 +1,14 @@
+package g3_cmp_ops;
+
+fn main() -> i32 {
+    let a: i32 = 5;
+    let b: i32 = 10;
+    let mut result: i32 = 0;
+    if a < b { result += 1; }
+    if b > a { result += 1; }
+    if a <= a { result += 1; }
+    if b >= b { result += 1; }
+    if a \!= b { result += 1; }
+    if a == a { result += 1; }
+    return result * 7;
+}

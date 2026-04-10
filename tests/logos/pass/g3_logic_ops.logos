@@ -1,0 +1,14 @@
+package g3_logic_ops;
+
+fn main() -> i32 {
+    let t: bool = true;
+    let f: bool = false;
+    if t && t {
+        if t || f {
+            if \!f {
+                return 42;
+            }
+        }
+    }
+    return 0;
+}

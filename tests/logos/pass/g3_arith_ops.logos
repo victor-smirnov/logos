@@ -1,0 +1,13 @@
+package g3_arith_ops;
+
+fn main() -> i32 {
+    let a: i32 = 10 + 5;
+    let b: i32 = 20 - 3;
+    let c: i32 = 6 * 7;
+    let d: i32 = 84 / 2;
+    let e: i32 = 100 % 58;
+    if a == 15 && b == 17 && c == 42 && d == 42 && e == 42 {
+        return 42;
+    }
+    return 0;
+}

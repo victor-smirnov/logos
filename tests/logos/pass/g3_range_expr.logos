@@ -1,0 +1,9 @@
+package g3_range_expr;
+
+fn main() -> i32 {
+    let mut sum: i32 = 0;
+    for i in 1..10 {
+        sum += i;
+    }
+    return sum - 3;
+}

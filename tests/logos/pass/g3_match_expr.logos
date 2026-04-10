@@ -1,0 +1,16 @@
+package g3_match_expr;
+
+enum Dir { North = 0, South = 1, East = 2, West = 3 }
+
+fn dir_val(d: Dir) -> i32 {
+    match d {
+        Dir::North => { return 10; }
+        Dir::South => { return 12; }
+        Dir::East  => { return 20; }
+        Dir::West  => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    return dir_val(Dir::North) + dir_val(Dir::South) + dir_val(Dir::East);
+}

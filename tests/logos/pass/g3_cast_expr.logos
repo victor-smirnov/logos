@@ -1,0 +1,12 @@
+package g3_cast_expr;
+
+fn main() -> i32 {
+    let a: i64 = 42;
+    let b: i32 = a as i32;
+    let c: u8 = 42 as u8;
+    let d: i32 = c as i32;
+    if b == 42 && d == 42 {
+        return b;
+    }
+    return 0;
+}

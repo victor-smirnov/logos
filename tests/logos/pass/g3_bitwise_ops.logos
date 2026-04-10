@@ -1,0 +1,15 @@
+package g3_bitwise_ops;
+
+fn main() -> i32 {
+    let a: i32 = 0b101010;
+    let b: i32 = 0xFF;
+    let c: i32 = a & b;
+    let d: i32 = 32 | 10;
+    let e: i32 = 0b111111 ^ 0b010101;
+    let f: i32 = 21 << 1;
+    let g: i32 = 84 >> 1;
+    if c == 42 && d == 42 && e == 42 && f == 42 && g == 42 {
+        return 42;
+    }
+    return 0;
+}

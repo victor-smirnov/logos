@@ -1,0 +1,14 @@
+package g3_if_expr;
+
+fn abs_val(x: i32) -> i32 {
+    if x < 0 {
+        return 0 - x;
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    let a: i32 = abs_val(0 - 10);
+    let b: i32 = abs_val(32);
+    return a + b;
+}
