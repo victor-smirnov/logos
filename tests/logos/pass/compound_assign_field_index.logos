@@ -1,0 +1,13 @@
+package compound_assign_field_index;
+// Bug fix: s.field[i] op= val — compound assign to struct field array element
+struct Buf { data: [i32; 4], len: i32 }
+fn main() -> i32 {
+    let mut b = Buf { data: [1, 2, 3, 4], len: 4 };
+    b.data[0] += 9;   // 10
+    b.data[1] *= 5;   // 10
+    b.data[2] -= 1;   // 2
+    b.data[3] /= 2;   // 2
+    b.len += 2;        // 6 (tests field compound assign too)
+    // 10+10+2+2+6 = 30... return 30+12 = 42
+    return b.data[0] + b.data[1] + b.data[2] + b.data[3] + b.len + 12;
+}

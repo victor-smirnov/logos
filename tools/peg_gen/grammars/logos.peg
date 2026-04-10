@@ -176,6 +176,9 @@
     LABELED_LOOP          = 142   // 'label: loop/for/while { }
     PAT_TUPLE             = 143   // tuple pattern: (a, b, c) =>
     FN_PTR_TYPE           = 144   // fn(T) -> R — bare function pointer type
+    DEREF_FIELD_COMPOUND_ASSIGN = 145   // (*ptr).field op= expr
+    TUPLE_FIELD_COMPOUND_ASSIGN = 146   // var.N op= expr
+    FIELD_INDEX_COMPOUND_ASSIGN = 147   // s.field[i] op= expr
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -609,8 +612,11 @@
           / if_expr
           / match_stmt
           / delete_stmt
+          / field_index_compound_assign_stmt
           / field_index_write_stmt
+          / deref_field_compound_assign_stmt
           / deref_field_write_stmt
+          / tuple_field_compound_assign_stmt
           / tuple_field_write_stmt
           / field_compound_assign_stmt
           / field_write_stmt
@@ -762,9 +768,21 @@
     deref_field_write_stmt <- LPAREN STAR IDENT RPAREN DOT IDENT ASSIGN expr SEMI
                            => { CODE: DEREF_FIELD_WRITE, RECEIVER: $3, FIELD: $6, VALUE: $8 }
 
+    // (*ptr).field op= val;  — compound assign to field through a dereferenced pointer
+    deref_field_compound_assign_stmt <- LPAREN STAR IDENT RPAREN DOT IDENT compound_assign_op expr SEMI
+                                     => { CODE: DEREF_FIELD_COMPOUND_ASSIGN, RECEIVER: $3, FIELD: $6, OP: $7, VALUE: $8 }
+
+    // var.N op= expr;  — compound assign to tuple field
+    tuple_field_compound_assign_stmt <- IDENT DOT INTEGER compound_assign_op expr SEMI
+                                     => { CODE: TUPLE_FIELD_COMPOUND_ASSIGN, RECEIVER: $1, INDEX: $3, OP: $4, VALUE: $5 }
+
     // a.ptr[i] = val;  — field index write (pointer field)
     field_index_write_stmt <- IDENT DOT IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
                            => { CODE: FIELD_INDEX_WRITE, RECEIVER: $1, FIELD: $3, LHS: $5, VALUE: $8 }
+
+    // s.field[i] op= val;  — compound assign to field array element
+    field_index_compound_assign_stmt <- IDENT DOT IDENT LBRACKET expr RBRACKET compound_assign_op expr SEMI
+                                     => { CODE: FIELD_INDEX_COMPOUND_ASSIGN, RECEIVER: $1, FIELD: $3, LHS: $5, OP: $7, VALUE: $8 }
 
     // *ptr = val;  — dereference write
     deref_write_stmt <- STAR unary_expr ASSIGN expr SEMI

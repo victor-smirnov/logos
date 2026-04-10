@@ -205,6 +205,9 @@ inline constexpr Code LET_ELSE        {"LET_ELSE",        141}; // let Pat = exp
 inline constexpr Code LABELED_LOOP    {"LABELED_LOOP",    142}; // 'label: loop/for/while
 inline constexpr Code PAT_TUPLE       {"PAT_TUPLE",       143}; // tuple pattern: (a, b)
 inline constexpr Code FN_PTR_TYPE     {"FN_PTR_TYPE",     144}; // fn(T) -> R function pointer type
+inline constexpr Code DEREF_FIELD_COMPOUND_ASSIGN {"DEREF_FIELD_COMPOUND_ASSIGN", 145}; // (*ptr).field op= expr
+inline constexpr Code TUPLE_FIELD_COMPOUND_ASSIGN {"TUPLE_FIELD_COMPOUND_ASSIGN", 146}; // var.N op= expr
+inline constexpr Code FIELD_INDEX_COMPOUND_ASSIGN {"FIELD_INDEX_COMPOUND_ASSIGN", 147}; // s.field[i] op= expr
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

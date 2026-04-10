@@ -588,10 +588,13 @@ private:
     lir::LStmt lower_field_write(hermes::TinyMapView node);
     lir::LStmt lower_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_tuple_field_write(hermes::TinyMapView node);
+    lir::LStmt lower_tuple_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_deref_field_write(hermes::TinyMapView node);
+    lir::LStmt lower_deref_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_index_write(hermes::TinyMapView node);
     lir::LStmt lower_index_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_field_index_write(hermes::TinyMapView node);
+    lir::LStmt lower_field_index_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_match(hermes::TinyMapView node);
     lir::LExprPtr lower_match_expr(hermes::TinyMapView node);
 

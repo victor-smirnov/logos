@@ -107,10 +107,13 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
     if (c == la::FIELD_COMPOUND_ASSIGN) return lower_field_compound_assign(stmt);
     if (c == la::TUPLE_FIELD_WRITE)  return lower_tuple_field_write(stmt);
+    if (c == la::TUPLE_FIELD_COMPOUND_ASSIGN) return lower_tuple_field_compound_assign(stmt);
     if (c == la::DEREF_FIELD_WRITE)  return lower_deref_field_write(stmt);
+    if (c == la::DEREF_FIELD_COMPOUND_ASSIGN) return lower_deref_field_compound_assign(stmt);
     if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
     if (c == la::INDEX_COMPOUND_ASSIGN) return lower_index_compound_assign(stmt);
     if (c == la::FIELD_INDEX_WRITE)  return lower_field_index_write(stmt);
+    if (c == la::FIELD_INDEX_COMPOUND_ASSIGN) return lower_field_index_compound_assign(stmt);
     if (c == la::MATCH)        return lower_match(stmt);
     if (c == la::EXPR_STMT) {
         lir::LExprPtr e = stmt.has_key(la::VALUE)
@@ -558,6 +561,13 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
+    // Type-check: RHS must be compatible with the variable's type.
+    if (var_type->kind != LogosType::Kind::Error &&
+        rhs->type->kind != LogosType::Kind::Error &&
+        !types_compatible(rhs->type, var_type)) {
+        error(std::format("compound assignment to '{}': type mismatch — expected {}, got {}",
+              name, type_str(var_type), type_str(rhs->type)));
+    }
     // Synthesize the binop LIR node
     auto binop = make_expr(var_type, lir::EBinOp{base_op, std::move(lhs_ref), std::move(rhs)});
     return make_stmt(node_line_, lir::SAssign{std::string(name), std::move(binop)});
@@ -2200,5 +2210,188 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     return make_expr(result_type, std::move(me));
 }
 
+
+// ---------------------------------------------------------------------------
+// lower_deref_field_compound_assign — (*ptr).field op= expr
+// ---------------------------------------------------------------------------
+lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
+    auto recv_name  = str_of(node.get(la::RECEIVER.code));
+    auto field_name = str_of(node.get(la::FIELD.code));
+    auto op_tok     = str_of(node.get(la::OP.code));
+    std::string base_op;
+    if (op_tok.size() >= 2 && op_tok.back() == '=')
+        base_op = std::string(op_tok.substr(0, op_tok.size() - 1));
+    else
+        base_op = std::string(op_tok);
+
+    const LogosType* ptr_type = lookup(recv_name);
+    if (!ptr_type) {
+        error(std::format("deref-field compound assign: undefined variable '{}'", recv_name));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+    if (!is_ref_like(ptr_type->kind) || !ptr_type->pointee) {
+        error(std::format("deref-field compound assign: '{}' is not a pointer (got {})",
+                          recv_name, type_str(ptr_type)));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+    if (ptr_type->kind == LogosType::Kind::Ptr && !ptr_type->mut_ptr)
+        error(std::format("deref-field compound assign: '{}' is *const (need *mut)", recv_name));
+    if (ptr_type->kind == LogosType::Kind::Ptr && !inside_unsafe_)
+        error("compound assign through raw pointer field requires unsafe context");
+    if (ptr_type->kind == LogosType::Kind::Ref)
+        error(std::format("deref-field compound assign: '{}' is &T (need &mut T)", recv_name));
+
+    const LogosType* pointee = ptr_type->pointee;
+    std::string type_name;
+    const LogosType* ft = nullptr;
+    if (pointee->kind == LogosType::Kind::Struct) {
+        type_name = concrete_struct_name(pointee);
+        ft = field_type_of_for_type(pointee, field_name);
+    } else if (pointee->kind == LogosType::Kind::Class) {
+        type_name = std::string(pointee->struct_name);
+        ft = class_field_type(type_name, field_name);
+    }
+    if (!ft) {
+        error(std::format("deref-field compound assign: '{}' has no field '{}'", type_name, field_name));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+
+    // lhs_read = (*ptr).field
+    auto ptr_ref  = make_expr(ptr_type, lir::EVarRef{std::string(recv_name)});
+    auto lhs_read = make_expr(ft, lir::EFieldRead{std::move(ptr_ref), std::string(field_name)});
+    auto rhs = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+    auto combined = make_expr(ft, lir::EBinOp{base_op, std::move(lhs_read), std::move(rhs)});
+
+    lir::SDerefFieldWrite sdfw;
+    sdfw.receiver  = std::string(recv_name);
+    sdfw.type_name = type_name;
+    sdfw.field     = std::string(field_name);
+    sdfw.value     = std::move(combined);
+    return make_stmt(node_line_, std::move(sdfw));
+}
+
+// ---------------------------------------------------------------------------
+// lower_tuple_field_compound_assign — var.N op= expr
+// ---------------------------------------------------------------------------
+lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
+    auto recv_name = str_of(node.get(la::RECEIVER.code));
+    auto idx_sv    = str_of(node.get(la::INDEX.code));
+    uint64_t idx   = (uint64_t)parse_int_literal(idx_sv);
+    auto op_tok    = str_of(node.get(la::OP.code));
+    std::string base_op;
+    if (op_tok.size() >= 2 && op_tok.back() == '=')
+        base_op = std::string(op_tok.substr(0, op_tok.size() - 1));
+    else
+        base_op = std::string(op_tok);
+
+    const LogosType* recv_t = lookup(recv_name);
+    if (!recv_t) {
+        error(std::format("tuple field compound assign: undefined variable '{}'", recv_name));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+    if (recv_t->kind == LogosType::Kind::MutRef && recv_t->pointee)
+        recv_t = recv_t->pointee;
+    if (recv_t->kind != LogosType::Kind::Tuple) {
+        error(std::format("tuple field compound assign: '{}' is not a tuple (got {})",
+                          recv_name, type_str(recv_t)));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+    if (idx >= recv_t->tuple_elems.size()) {
+        error(std::format("tuple field compound assign: index {} out of range (tuple has {} elements)",
+                          idx, recv_t->tuple_elems.size()));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+    const LogosType* orig_recv_t = lookup(recv_name);
+    if (!lookup_is_mut(recv_name) &&
+        !(orig_recv_t && orig_recv_t->kind == LogosType::Kind::MutRef))
+        error(std::format("tuple field compound assign to immutable variable '{}'", recv_name));
+
+    const LogosType* ft = recv_t->tuple_elems[idx];
+    auto recv_ref = make_expr(orig_recv_t ? orig_recv_t : recv_t,
+                              lir::EVarRef{std::string(recv_name)});
+    auto lhs_read = make_expr(ft, lir::ETupleIndex{std::move(recv_ref), (uint32_t)idx});
+    auto rhs = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+    auto combined = make_expr(ft, lir::EBinOp{base_op, std::move(lhs_read), std::move(rhs)});
+
+    return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx,
+                                                   std::move(combined), recv_t});
+}
+
+// ---------------------------------------------------------------------------
+// lower_field_index_compound_assign — s.field[i] op= expr
+// ---------------------------------------------------------------------------
+lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
+    auto recv_name  = str_of(node.get(la::RECEIVER.code));
+    auto field_name = str_of(node.get(la::FIELD.code));
+    auto op_tok     = str_of(node.get(la::OP.code));
+    std::string base_op;
+    if (op_tok.size() >= 2 && op_tok.back() == '=')
+        base_op = std::string(op_tok.substr(0, op_tok.size() - 1));
+    else
+        base_op = std::string(op_tok);
+
+    auto* recv_t = lookup(recv_name);
+    if (!recv_t) error(std::format("field index compound assign: undefined variable '{}'", recv_name));
+
+    const LogosType* base_t = recv_t;
+    if (base_t && is_ref_like(base_t->kind)) base_t = base_t->pointee;
+
+    const LogosType* field_t = nullptr;
+    if (base_t) {
+        auto sname = struct_name_from_type(base_t);
+        auto cname = class_name_from_type(base_t);
+        if (!sname.empty())       field_t = field_type_of_for_type(base_t, field_name);
+        else if (!cname.empty())  field_t = class_field_type(cname, field_name);
+    }
+    if (!field_t) {
+        error(std::format("field index compound assign: cannot resolve field '{}.{}'",
+                          recv_name, field_name));
+        if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+        return make_stmt(node_line_, lir::SBreak{});
+    }
+    if (field_t->kind != LogosType::Kind::Array &&
+        field_t->kind != LogosType::Kind::Ptr &&
+        field_t->kind != LogosType::Kind::MutRef)
+        error(std::format("field index compound assign: '{}.{}' is not an array or pointer (got {})",
+              recv_name, field_name, type_str(field_t)));
+
+    const LogosType* elem_t = nullptr;
+    if (field_t->kind == LogosType::Kind::Array)
+        elem_t = field_t->elem;
+    else if (field_t->kind == LogosType::Kind::Ptr ||
+             field_t->kind == LogosType::Kind::MutRef)
+        elem_t = field_t->pointee;
+    if (!elem_t) elem_t = error_t();
+
+    // Lower index twice (pure expression — no side effects assumed)
+    lir::LExprPtr idx_for_write = node.has_key(la::LHS)
+        ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+    lir::LExprPtr idx_for_read  = node.has_key(la::LHS)
+        ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+
+    auto rhs = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+
+    // Build lhs read: s.field[idx_for_read]
+    auto recv_ref  = make_expr(recv_t ? recv_t : error_t(), lir::EVarRef{std::string(recv_name)});
+    auto field_rd  = make_expr(field_t, lir::EFieldRead{std::move(recv_ref), std::string(field_name)});
+    auto lhs_read  = make_expr(elem_t, lir::EIndexRead{std::move(field_rd), std::move(idx_for_read)});
+    auto combined  = make_expr(elem_t, lir::EBinOp{base_op, std::move(lhs_read), std::move(rhs)});
+
+    lir::SFieldIndexWrite sfiw;
+    sfiw.receiver = std::string(recv_name);
+    sfiw.field    = std::string(field_name);
+    sfiw.index    = std::move(idx_for_write);
+    sfiw.value    = std::move(combined);
+    return make_stmt(node_line_, std::move(sfiw));
+}
 
 } // namespace logos::compiler

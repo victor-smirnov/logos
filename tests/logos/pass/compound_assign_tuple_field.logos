@@ -1,0 +1,10 @@
+package compound_assign_tuple_field;
+// Bug fix: t.N op= val — compound assign to tuple field
+fn main() -> i32 {
+    let mut t: (i32, i32, i32) = (10, 20, 5);
+    t.0 += 5;    // 15
+    t.1 -= 8;    // 12
+    t.2 *= 3;    // 15
+    // 15 + 12 + 15 = 42
+    return t.0 + t.1 + t.2;
+}

@@ -1,0 +1,13 @@
+package array_from_index_subscript;
+// Bug fix: let row: [T; N] = arr2d[i]; row[j] — wrong GEP elem_type
+fn main() -> i32 {
+    let a: [[i32; 3]; 3] = [[1, 2, 3], [10, 20, 30], [100, 200, 42]];
+    // Assign inner array to a variable, then index it
+    let row0: [i32; 3] = a[0];
+    let row2: [i32; 3] = a[2];
+    if row0[0] != 1   { return 1; }
+    if row0[2] != 3   { return 2; }
+    if row2[0] != 100 { return 3; }
+    if row2[2] != 42  { return 4; }
+    return row2[2];  // 42
+}

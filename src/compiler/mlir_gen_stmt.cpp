@@ -374,9 +374,20 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     val = coerce_int(val, var_type);
     val = coerce_float(val, var_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-    scope_[s.name]          = alloca;
+    scope_[s.name] = alloca;
     let_vars_.insert(s.name);
-    var_elem_types_[s.name] = var_type;
+    // For array-typed variables (assigned from expressions, not array literals),
+    // subscript_elem_type must return the element type (i32), NOT the array type
+    // (!llvm.array<N x i32>). Setting var_elem_types_ to the array type causes
+    // nested indexing like `row[j]` to generate GEPs with the wrong elem_type.
+    if (s.type && s.type->kind == LogosType::Kind::Array && s.type->elem) {
+        auto elem_mlir = logos_to_mlir(s.type->elem);
+        if (!elem_mlir) elem_mlir = builder_.getI32Type();
+        var_elem_types_[s.name] = elem_mlir;
+        var_subscript_[s.name]  = elem_mlir;
+    } else {
+        var_elem_types_[s.name] = var_type;
+    }
     // Track local pointer variables so indexing can load the ptr before GEP.
     if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee) {
         auto pt = logos_to_mlir(s.type->pointee);

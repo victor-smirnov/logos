@@ -1,0 +1,19 @@
+package compound_assign_deref_field;
+// Bug fix: (*ptr).field op= val — compound assign through dereferenced pointer
+struct Counter { value: i32, step: i32 }
+fn increment(p: *mut Counter) {
+    unsafe {
+        (*p).value += (*p).step;
+    }
+}
+fn main() -> i32 {
+    let mut c = Counter { value: 10, step: 5 };
+    let ptr: *mut Counter = &mut c;
+    unsafe {
+        (*ptr).value += 7;   // 10 + 7 = 17
+        (*ptr).step  -= 2;   // 5 - 2 = 3
+    }
+    increment(&mut c);       // 17 + 3 = 20
+    increment(&mut c);       // 20 + 3 = 23
+    return c.value + 19;     // 23 + 19 = 42
+}
