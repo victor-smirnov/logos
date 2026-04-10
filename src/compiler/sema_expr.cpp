@@ -233,18 +233,24 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         auto recv = expr.has_key(la::RECEIVER)
             ? lower_expr(map_of(expr.get(la::RECEIVER.code)))
             : error_expr();
-        if (recv->type->kind != LogosType::Kind::Tuple) {
+        // Auto-deref: &(T) and &mut (T) -> use pointee type for index lookup
+        const LogosType* recv_tuple_type = recv->type;
+        if (is_ref_like(recv->type->kind) && recv->type->pointee &&
+            recv->type->pointee->kind == LogosType::Kind::Tuple) {
+            recv_tuple_type = recv->type->pointee;
+        }
+        if (recv_tuple_type->kind != LogosType::Kind::Tuple) {
             error(std::format("tuple index on non-tuple type '{}'", type_str(recv->type)));
             return error_expr();
         }
         auto sv = str_of(expr.get(la::FIELD.code));
         uint32_t idx = (uint32_t)parse_int_literal(sv);
-        if (idx >= recv->type->tuple_elems.size()) {
+        if (idx >= recv_tuple_type->tuple_elems.size()) {
             error(std::format("tuple index {} out of range (tuple has {} elements)",
-                  idx, recv->type->tuple_elems.size()));
+                  idx, recv_tuple_type->tuple_elems.size()));
             return error_expr();
         }
-        auto* elem_t = recv->type->tuple_elems[idx];
+        auto* elem_t = recv_tuple_type->tuple_elems[idx];
         return make_expr(elem_t, lir::ETupleIndex{std::move(recv), idx});
     }
 

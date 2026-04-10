@@ -1304,7 +1304,9 @@ lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
                           idx, recv_t->tuple_elems.size()));
         return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
     }
-    if (!lookup_is_mut(recv_name)) {
+    const LogosType* orig_recv_t = lookup(recv_name);
+    bool via_mut_ref = orig_recv_t && orig_recv_t->kind == LogosType::Kind::MutRef;
+    if (!lookup_is_mut(recv_name) && !via_mut_ref) {
         error(std::format("tuple field write to immutable variable '{}'", recv_name));
     }
 

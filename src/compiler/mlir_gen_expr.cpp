@@ -703,7 +703,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleLit& e, const LogosType* type
 mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, const LogosType* type) {
     auto recv = gen_expr(*e.receiver);
     if (!recv) return nullptr;
-    auto stype = tuple_llvm_type(e.receiver->type);
+    // Auto-deref: if receiver is &(tuple) or &mut(tuple), use pointee for GEP type.
+    // recv is already a pointer to the tuple (passed as ptr in calling convention).
+    const LogosType* recv_type = e.receiver->type;
+    if (recv_type && recv_type->pointee &&
+        recv_type->pointee->kind == LogosType::Kind::Tuple &&
+        (recv_type->kind == LogosType::Kind::Ref ||
+         recv_type->kind == LogosType::Kind::MutRef ||
+         recv_type->kind == LogosType::Kind::Ptr))
+        recv_type = recv_type->pointee;
+    auto stype = tuple_llvm_type(recv_type);
     if (!stype) return nullptr;
     auto elem_mlir = logos_to_mlir(type);
     if (!elem_mlir) return nullptr;

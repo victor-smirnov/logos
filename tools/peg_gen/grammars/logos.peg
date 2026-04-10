@@ -514,14 +514,17 @@
                => { CODE: SLICE_TYPE, TYPE: $3 }
 
     // &'a mut T / &mut T / &'a T / &T — safe reference types (borrow-checked)
-    ref_type <- AMP LIFETIME KW_MUT simple_type
+    ref_type <- AMP LIFETIME KW_MUT ref_pointee
              => { CODE: MUT_REF_TYPE, POINTEE: $4, LIFETIME: $2 }
-              / AMP KW_MUT simple_type
+              / AMP KW_MUT ref_pointee
              => { CODE: MUT_REF_TYPE, POINTEE: $3 }
-              / AMP LIFETIME simple_type
+              / AMP LIFETIME ref_pointee
              => { CODE: REF_TYPE, POINTEE: $3, LIFETIME: $2 }
-              / AMP simple_type
+              / AMP ref_pointee
              => { CODE: REF_TYPE, POINTEE: $2 }
+
+    // Pointee types for & and &mut: simple types plus tuple and array composites.
+    ref_pointee <- arr_type / tuple_type / unit_type / simple_type
 
     // |T1, T2| -> R — closure type (used in function parameter type annotations)
     closure_type_args <- type_ref (COMMA type_ref)*
