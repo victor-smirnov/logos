@@ -3021,23 +3021,30 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     inside_unsafe_ = saved_unsafe;
     pop_scope();
 
-    // Capture detection: find variables used in body that are not params
-    // and exist in the enclosing scope.
+    // Capture detection: find variables used anywhere in the closure body
+    // that are not params and still resolve in the enclosing scope.
     std::vector<std::string> captures;
     std::vector<const LogosType*> capture_types;
     std::unordered_set<std::string> seen;
+    auto add_capture = [&](const std::string& name) {
+        if (param_names.count(name) || seen.count(name))
+            return;
+        auto* t = lookup(name);
+        if (!t)
+            return;
+        captures.push_back(name);
+        capture_types.push_back(t);
+        seen.insert(name);
+    };
+
+    std::function<void(const lir::LBlock&)> scan_block;
+    std::function<void(const lir::LStmt&)> scan_stmt;
     std::function<void(const lir::LExpr&)> scan_captures;
     scan_captures = [&](const lir::LExpr& e) {
         if (auto* vr = std::get_if<lir::EVarRef>(&e.kind)) {
-            if (!param_names.count(vr->name) && !seen.count(vr->name)) {
-                auto* t = lookup(vr->name);
-                if (t) {
-                    captures.push_back(vr->name);
-                    capture_types.push_back(t);
-                    seen.insert(vr->name);
-                }
-            }
+            add_capture(vr->name);
         }
+
         // Recurse into sub-expressions
         std::visit([&](const auto& k) {
             using K = std::decay_t<decltype(k)>;
@@ -3058,14 +3065,52 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures(*k.operand);
             } else if constexpr (std::is_same_v<K, lir::ECast>) {
                 scan_captures(*k.operand);
+            } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
+                for (auto& p : k.payload) scan_captures(*p);
+            } else if constexpr (std::is_same_v<K, lir::EStructLit>) {
+                for (auto& [_, field] : k.fields) scan_captures(*field);
+            } else if constexpr (std::is_same_v<K, lir::EArrLit>) {
+                for (auto& elem : k.elems) scan_captures(*elem);
+            } else if constexpr (std::is_same_v<K, lir::ENew>) {
+                for (auto& [_, field] : k.fields) scan_captures(*field);
             } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
                 scan_captures(*k.cond); scan_captures(*k.then_val); scan_captures(*k.else_val);
+            } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
+                scan_captures(*k.scrut);
+                for (auto& arm : k.arms) {
+                    if (arm.guard && *arm.guard) scan_captures(**arm.guard);
+                    scan_captures(*arm.value);
+                }
+            } else if constexpr (std::is_same_v<K, lir::ETupleLit>) {
+                for (auto& elem : k.elems) scan_captures(*elem);
+            } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
+                scan_captures(*k.receiver);
+            } else if constexpr (std::is_same_v<K, lir::ESliceLit>) {
+                scan_captures(*k.base); scan_captures(*k.len);
+            } else if constexpr (std::is_same_v<K, lir::ESliceIndex>) {
+                scan_captures(*k.slice); scan_captures(*k.index);
+            } else if constexpr (std::is_same_v<K, lir::ESliceLen>) {
+                scan_captures(*k.slice);
+            } else if constexpr (std::is_same_v<K, lir::EClosureBox>) {
+                if (k.inner) {
+                    for (auto& cap : k.inner->captures)
+                        add_capture(cap);
+                }
+            } else if constexpr (std::is_same_v<K, lir::EClosureCall>) {
+                scan_captures(*k.callee);
+                for (auto& arg : k.args) scan_captures(*arg);
+            } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
+                scan_captures(*k.fmt);
+                for (auto& arg : k.args) scan_captures(*arg);
+            } else if constexpr (std::is_same_v<K, lir::ETry>) {
+                scan_captures(*k.inner);
+            } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
+                if (k.block) scan_block(*k.block);
+                if (k.result) scan_captures(*k.result);
             }
         }, e.kind);
     };
-    // Scan all statements in body for variable references
-    std::function<void(const lir::LBlock&)> scan_block;
-    std::function<void(const lir::LStmt&)> scan_stmt;
+    // Scan all statements in body for variable references.
     scan_block = [&](const lir::LBlock& b) {
         for (auto& s : b.stmts) scan_stmt(s);
     };
@@ -3083,8 +3128,38 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 if (k.else_) scan_block(**k.else_);
             } else if constexpr (std::is_same_v<K, lir::SWhile>) {
                 scan_captures(*k.cond); scan_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SFor>) {
+                scan_captures(*k.lo); scan_captures(*k.hi); scan_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SLoop>) {
+                scan_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SBreak>) {
+                if (k.value) scan_captures(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::SBlock>) {
+                scan_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
+                scan_captures(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
+                scan_captures(*k.index); scan_captures(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::SFieldIndexWrite>) {
+                scan_captures(*k.index); scan_captures(*k.value);
             } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
                 scan_captures(*k.expr);
+            } else if constexpr (std::is_same_v<K, lir::SMatch>) {
+                scan_captures(*k.scrut);
+                for (auto& arm : k.arms) {
+                    if (arm.guard && *arm.guard) scan_captures(**arm.guard);
+                    if (arm.body) scan_block(*arm.body);
+                }
+            } else if constexpr (std::is_same_v<K, lir::SDelete>) {
+                scan_captures(*k.expr);
+            } else if constexpr (std::is_same_v<K, lir::SForEach>) {
+                scan_captures(*k.iter); scan_block(*k.body);
+            } else if constexpr (std::is_same_v<K, lir::SDerefWrite>) {
+                scan_captures(*k.ptr); scan_captures(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
+                scan_captures(*k.value);
+            } else if constexpr (std::is_same_v<K, lir::STupleWrite>) {
+                scan_captures(*k.value);
             }
         }, s.kind);
     };

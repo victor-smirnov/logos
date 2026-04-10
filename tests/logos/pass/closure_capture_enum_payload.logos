@@ -1,0 +1,15 @@
+package closure_capture_enum_payload;
+
+enum Opt { Some(i32), None }
+
+fn main() -> i32 {
+    let x: i32 = 7;
+    let f = || -> i32 {
+        let o = Opt::Some(x);
+        match o {
+            Opt::Some(v) => { return v; }
+            _ => { return 0; }
+        }
+    };
+    return f();
+}

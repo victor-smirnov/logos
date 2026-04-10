@@ -1,0 +1,14 @@
+package closure_capture_array_foreach;
+
+fn main() -> i32 {
+    let arr = [1, 2, 3];
+    let bonus: i32 = 1;
+    let f = || -> i32 {
+        let mut s: i32 = 0;
+        for x in arr {
+            s = s + x + bonus;
+        }
+        return s;
+    };
+    return f();
+}

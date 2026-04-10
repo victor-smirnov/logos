@@ -1,0 +1,10 @@
+package closure_capture_if_expr;
+
+fn main() -> i32 {
+    let x: i32 = 7;
+    let f = || -> i32 {
+        let y = if true { x } else { 0 };
+        return y;
+    };
+    return f();
+}

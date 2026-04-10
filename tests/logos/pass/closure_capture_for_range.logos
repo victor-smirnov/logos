@@ -1,0 +1,13 @@
+package closure_capture_for_range;
+
+fn main() -> i32 {
+    let hi: i32 = 4;
+    let f = || -> i32 {
+        let mut s: i32 = 0;
+        for i in 0..hi {
+            s = s + i;
+        }
+        return s;
+    };
+    return f();
+}

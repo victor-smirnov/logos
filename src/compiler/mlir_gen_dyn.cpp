@@ -178,14 +178,34 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto save_pt = builder_.saveInsertionPoint();
 
+    std::vector<bool> capture_is_struct(e.captures.size(), false);
+    std::vector<bool> capture_is_class(e.captures.size(), false);
+    std::vector<bool> capture_is_array(e.captures.size(), false);
+    std::vector<bool> capture_is_tuple(e.captures.size(), false);
+    std::vector<bool> capture_is_enum(e.captures.size(), false);
+    std::vector<bool> capture_is_dyn(e.captures.size(), false);
+    std::vector<bool> capture_is_pointer_repr(e.captures.size(), false);
+    for (size_t i = 0; i < e.captures.size(); ++i) {
+        const auto& name = e.captures[i];
+        capture_is_struct[i] = var_struct_.count(name);
+        capture_is_class[i]  = var_class_.count(name);
+        capture_is_array[i]  = var_subscript_.count(name);
+        capture_is_tuple[i]  = var_tuple_.count(name);
+        capture_is_enum[i]   = var_tagged_enum_.count(name);
+        capture_is_dyn[i]    = var_dyn_trait_.count(name);
+        capture_is_pointer_repr[i] =
+            capture_is_struct[i] || capture_is_class[i] || capture_is_array[i] ||
+            capture_is_tuple[i] || capture_is_enum[i] || capture_is_dyn[i];
+    }
+
     // Build capture struct type.
-    // Struct/class captures are pointer-represented in scope_, so store
-    // them as ptr in the env struct rather than as the aggregate LLVM type.
+    // Pointer-represented locals (structs, classes, arrays, tuples, tagged enums,
+    // closures, dyn trait fat pointers) must stay pointers inside the env.
     llvm::SmallVector<mlir::Type> cap_fields;
-    for (auto* ct : e.capture_types) {
+    for (size_t i = 0; i < e.capture_types.size(); ++i) {
+        auto* ct = e.capture_types[i];
         mlir::Type ft;
-        if (ct && (ct->kind == LogosType::Kind::Struct ||
-                   ct->kind == LogosType::Kind::Class))
+        if (capture_is_pointer_repr[i])
             ft = ptr_type();
         else
             ft = logos_to_mlir(ct);
@@ -249,15 +269,30 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
         auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i], fp);
 
         const LogosType* ct = e.capture_types[i];
-        bool is_struct_cap = ct && ct->kind == LogosType::Kind::Struct;
-        bool is_class_cap  = ct && ct->kind == LogosType::Kind::Class;
-        if (is_struct_cap || is_class_cap) {
-            // val is a pointer to the captured struct/class — use directly.
+        bool is_struct_cap = capture_is_struct[i];
+        bool is_class_cap  = capture_is_class[i];
+        bool is_array_cap  = capture_is_array[i];
+        bool is_tuple_cap  = capture_is_tuple[i];
+        bool is_enum_cap   = capture_is_enum[i];
+        bool is_dyn_cap    = capture_is_dyn[i];
+        if (is_struct_cap || is_class_cap || is_array_cap ||
+            is_tuple_cap || is_enum_cap || is_dyn_cap) {
+            // val is a pointer-like capture — restore the same variable shape
+            // the enclosing scope used so downstream codegen can treat it
+            // identically to a normal local variable.
             scope_[e.captures[i]] = val;
             if (is_struct_cap)
                 var_struct_[e.captures[i]] = ct->struct_name;
-            else
+            else if (is_class_cap)
                 var_class_[e.captures[i]] = ct->struct_name;
+            else if (is_array_cap)
+                var_subscript_[e.captures[i]] = logos_to_mlir(ct ? ct->elem : nullptr);
+            else if (is_tuple_cap)
+                var_tuple_.insert(e.captures[i]);
+            else if (is_enum_cap)
+                var_tagged_enum_.insert(e.captures[i]);
+            else if (is_dyn_cap && ct)
+                var_dyn_trait_[e.captures[i]] = ct->trait_name;
         } else {
             // Scalar capture: store in alloca for let-variable semantics.
             auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
@@ -305,8 +340,11 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
         auto it = scope_.find(e.captures[i]);
         if (it == scope_.end()) continue;
         mlir::Value cap_val;
+        bool pointer_repr = capture_is_pointer_repr[i];
         auto eit = var_elem_types_.find(e.captures[i]);
-        if (let_vars_.count(e.captures[i]) && eit != var_elem_types_.end())
+        if (pointer_repr)
+            cap_val = it->second;
+        else if (let_vars_.count(e.captures[i]) && eit != var_elem_types_.end())
             cap_val = builder_.create<mlir::LLVM::LoadOp>(loc_, eit->second, it->second);
         else
             cap_val = it->second;

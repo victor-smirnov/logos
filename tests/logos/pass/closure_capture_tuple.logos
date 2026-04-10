@@ -1,0 +1,7 @@
+package closure_capture_tuple;
+
+fn main() -> i32 {
+    let x: i32 = 7;
+    let f = || -> i32 { return (x, 1).0; };
+    return f();
+}

@@ -1,0 +1,12 @@
+package closure_capture_loop_break;
+
+fn main() -> i32 {
+    let x: i32 = 7;
+    let f = || -> i32 {
+        let y: i32 = loop {
+            break x;
+        };
+        return y;
+    };
+    return f();
+}

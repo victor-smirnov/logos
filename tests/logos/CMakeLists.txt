@@ -9,76 +9,179 @@ endif()
 
 set(TEST_RUNNER ${CMAKE_CURRENT_SOURCE_DIR}/run_test.sh)
 set(STDLIB      ${CMAKE_SOURCE_DIR}/stdlib)
+set(PUB_LIB     ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
+
+set(LOGOS_SUITE_ORDER
+    smoke
+    semantic_core
+    ownership
+    advanced_features
+    integration
+    diagnostics)
+
+set(LOGOS_SMOKE_TESTS
+    arith_precedence
+    closure_capture_array_foreach
+    closure_capture_array_lit
+    closure_capture_enum_payload
+    closure_capture_for_range
+    closure_capture_if_expr
+    closure_capture_loop_break
+    closure_capture_match_expr
+    closure_capture_match_stmt
+    closure_capture_struct_lit
+    closure_capture_tuple
+    fn_default_ret
+    if_expr
+    while_test
+    for_sum
+    g6_struct_lit
+    enum_match
+    generic_identity
+    g1_trait_impl
+    closure_zero_arity
+    stray_token
+    type_mismatch
+    wrong_arg_count
+    undef_var)
+
+set(LOGOS_INTEGRATION_TESTS
+    bst
+    fibonacci
+    quicksort
+    linked_list
+    stdlib_demo
+    vec_usage
+    format_basic
+    format_types)
+
+function(logos_determine_suite MODE BASE OUT_VAR)
+    if (BASE IN_LIST LOGOS_SMOKE_TESTS)
+        set(_suite smoke)
+    elseif (BASE IN_LIST LOGOS_INTEGRATION_TESTS)
+        set(_suite integration)
+    elseif (BASE MATCHES
+        "^(borrow_|clone_|copy_|drop_|lifetime_|unsafe_|cond_ref_|deref_|move_|mut_|shared_|dangling_ref|assign_ref_dangling|double_mut_borrow|use_after_move|use_while_mut_borrowed|const_ptr_write)")
+        set(_suite ownership)
+    elseif (BASE MATCHES
+        "^(assoc_|generic_|trait_|dyn_|variadic_|closure_|impl_|default_|class_|box_dyn_trait|g1_trait_impl|g1_standalone_impl|g1_extern_fn|g2_impl_trait_return|impl_trait_|from_|into_|option_chain|spec_dispatch|extern_)")
+        set(_suite advanced_features)
+    elseif (MODE STREQUAL fail)
+        set(_suite diagnostics)
+    else()
+        set(_suite semantic_core)
+    endif()
+
+    set(${OUT_VAR} ${_suite} PARENT_SCOPE)
+endfunction()
+
+function(logos_pass_extra_args BASE OUT_VAR)
+    set(LOCAL_STDLIB_USERS
+        format_basic format_types variadic_format
+        hello stdlib_demo option_chain)
+    set(LOCAL_PUBLIB_USERS pub_cross_package)
+
+    if (BASE IN_LIST LOCAL_STDLIB_USERS)
+        set(_extra -I ${STDLIB})
+    elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
+        set(_extra -I ${PUB_LIB})
+    else()
+        set(_extra "")
+    endif()
+
+    set(${OUT_VAR} "${_extra}" PARENT_SCOPE)
+endfunction()
+
+function(logos_fail_extra_args BASE OUT_VAR)
+    set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access)
+    if (BASE IN_LIST FAIL_PUBLIB_USERS)
+        set(_extra -I ${PUB_LIB})
+    else()
+        set(_extra "")
+    endif()
+
+    set(${OUT_VAR} "${_extra}" PARENT_SCOPE)
+endfunction()
+
+function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
+    if (SUITE STREQUAL smoke)
+        set(_suite_prefix "01")
+    elseif (SUITE STREQUAL semantic_core)
+        set(_suite_prefix "02")
+    elseif (SUITE STREQUAL ownership)
+        set(_suite_prefix "03")
+    elseif (SUITE STREQUAL advanced_features)
+        set(_suite_prefix "04")
+    elseif (SUITE STREQUAL integration)
+        set(_suite_prefix "05")
+    else()
+        set(_suite_prefix "06")
+    endif()
+
+    set(_test_name "logos_${_suite_prefix}_${SUITE}_${MODE}_${BASE}")
+
+    if (MODE STREQUAL pass)
+        logos_pass_extra_args(${BASE} EXTRA)
+        set(_timeout 30)
+    else()
+        logos_fail_extra_args(${BASE} EXTRA)
+        set(_timeout 15)
+    endif()
+
+    add_test(
+        NAME  ${_test_name}
+        COMMAND ${TEST_RUNNER} ${MODE} $<TARGET_FILE:logosc>
+                ${LOGOS_FILE} ${EXP_FILE} ${EXTRA}
+    )
+    set_tests_properties(${_test_name} PROPERTIES
+        TIMEOUT ${_timeout}
+        LABELS  "logos;${MODE};suite_${SUITE}"
+    )
+endfunction()
 
 # ── Pass tests ────────────────────────────────────────────────────────────────
 # Both .logos and .expected live in tests/logos/pass/.
 
 file(GLOB LOCAL_PASS_EXPECTED CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/pass/*.expected)
-
-set(LOCAL_STDLIB_USERS
-    format_basic format_types variadic_format
-    hello stdlib_demo option_chain)
-set(LOCAL_PUBLIB_USERS pub_cross_package)
-set(PUB_LIB ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
-
-foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
-    get_filename_component(BASE ${EXP_FILE} NAME_WE)
-    set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/pass/${BASE}.logos)
-
-    if (NOT EXISTS ${LOGOS_FILE})
-        message(WARNING "logos test: no .logos for ${EXP_FILE}, skipping")
-        continue()
-    endif()
-
-    if (BASE IN_LIST LOCAL_STDLIB_USERS)
-        set(EXTRA -I ${STDLIB})
-    elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
-        set(EXTRA -I ${PUB_LIB})
-    else()
-        set(EXTRA "")
-    endif()
-
-    add_test(
-        NAME  logos_pass_${BASE}
-        COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc>
-                ${LOGOS_FILE} ${EXP_FILE} ${EXTRA}
-    )
-    set_tests_properties(logos_pass_${BASE} PROPERTIES
-        TIMEOUT 30
-        LABELS  "logos;pass"
-    )
-endforeach()
+list(SORT LOCAL_PASS_EXPECTED)
 
 # ── Fail tests ────────────────────────────────────────────────────────────────
 # Each .expected file in fail/ matches a .logos file in the same directory.
 
 file(GLOB FAIL_EXPECTED CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/fail/*.expected)
+list(SORT FAIL_EXPECTED)
 
-foreach(EXP_FILE IN LISTS FAIL_EXPECTED)
-    get_filename_component(BASE ${EXP_FILE} NAME_WE)
-    set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/fail/${BASE}.logos)
+# Register tests in suite order so plain `ctest` runs them in grouped batches.
+foreach(SUITE IN LISTS LOGOS_SUITE_ORDER)
+    foreach(EXP_FILE IN LISTS LOCAL_PASS_EXPECTED)
+        get_filename_component(BASE ${EXP_FILE} NAME_WE)
+        set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/pass/${BASE}.logos)
 
-    if (NOT EXISTS ${LOGOS_FILE})
-        message(WARNING "logos test: no .logos for ${EXP_FILE}, skipping")
-        continue()
-    endif()
+        if (NOT EXISTS ${LOGOS_FILE})
+            message(WARNING "logos test: no .logos for ${EXP_FILE}, skipping")
+            continue()
+        endif()
 
-    set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access)
-    if (BASE IN_LIST FAIL_PUBLIB_USERS)
-        set(FAIL_EXTRA -I ${PUB_LIB})
-    else()
-        set(FAIL_EXTRA "")
-    endif()
+        logos_determine_suite(pass ${BASE} TEST_SUITE)
+        if (TEST_SUITE STREQUAL SUITE)
+            logos_add_grouped_test(pass ${BASE} ${EXP_FILE} ${LOGOS_FILE} ${SUITE})
+        endif()
+    endforeach()
 
-    add_test(
-        NAME  logos_fail_${BASE}
-        COMMAND ${TEST_RUNNER} fail $<TARGET_FILE:logosc>
-                ${LOGOS_FILE} ${EXP_FILE} ${FAIL_EXTRA}
-    )
-    set_tests_properties(logos_fail_${BASE} PROPERTIES
-        TIMEOUT 15
-        LABELS  "logos;fail"
-    )
+    foreach(EXP_FILE IN LISTS FAIL_EXPECTED)
+        get_filename_component(BASE ${EXP_FILE} NAME_WE)
+        set(LOGOS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/fail/${BASE}.logos)
+
+        if (NOT EXISTS ${LOGOS_FILE})
+            message(WARNING "logos test: no .logos for ${EXP_FILE}, skipping")
+            continue()
+        endif()
+
+        logos_determine_suite(fail ${BASE} TEST_SUITE)
+        if (TEST_SUITE STREQUAL SUITE)
+            logos_add_grouped_test(fail ${BASE} ${EXP_FILE} ${LOGOS_FILE} ${SUITE})
+        endif()
+    endforeach()
 endforeach()

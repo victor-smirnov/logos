@@ -1,0 +1,14 @@
+package closure_capture_match_stmt;
+
+enum Flag { On, Off }
+
+fn main() -> i32 {
+    let x: i32 = 7;
+    let f = || -> i32 {
+        match Flag::On {
+            Flag::On => { return x; }
+            _ => { return 0; }
+        }
+    };
+    return f();
+}

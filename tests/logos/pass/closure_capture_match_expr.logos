@@ -1,0 +1,14 @@
+package closure_capture_match_expr;
+
+enum Flag { On, Off }
+
+fn main() -> i32 {
+    let x: i32 = 7;
+    let f = || -> i32 {
+        return match Flag::On {
+            Flag::On => x,
+            _ => 0,
+        };
+    };
+    return f();
+}

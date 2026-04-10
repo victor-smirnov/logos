@@ -1,0 +1,14 @@
+package closure_capture_struct_lit;
+
+struct Point {
+    x: i32,
+}
+
+fn main() -> i32 {
+    let v: i32 = 7;
+    let f = || -> i32 {
+        let p: Point = Point { x: v };
+        return p.x;
+    };
+    return f();
+}
