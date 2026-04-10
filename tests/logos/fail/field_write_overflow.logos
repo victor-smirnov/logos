@@ -1,0 +1,7 @@
+package field_write_overflow;
+struct Pt { x: i32; y: i32; }
+fn main() -> i32 {
+    let mut p = Pt { x: 1, y: 2 };
+    p.x = 10000000000;
+    return 0;
+}

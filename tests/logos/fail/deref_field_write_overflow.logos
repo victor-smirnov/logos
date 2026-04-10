@@ -1,0 +1,12 @@
+package deref_field_write_overflow;
+struct Box { val: i32; }
+fn write_val(p: *mut Box) -> i32 {
+    unsafe {
+        (*p).val = 10000000000;
+    }
+    return 0;
+}
+fn main() -> i32 {
+    let mut b = Box { val: 0 };
+    return write_val(&mut b);
+}

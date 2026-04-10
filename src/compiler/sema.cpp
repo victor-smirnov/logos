@@ -3039,6 +3039,17 @@ private:
                     error(std::format("operator '{}': type mismatch ({} vs {})",
                           op, type_str(lt), type_str(rt)));
                 result_type = unify_int(lt, rt);
+                // Check IntLit operand fits in the concrete type of the other operand.
+                if (lt->kind == LogosType::Kind::IntLit && rt->kind != LogosType::Kind::IntLit)
+                    if (auto v = get_intlit_value(lhs.get()))
+                        if (!intlit_fits(*v, rt->kind))
+                            error(std::format("operator '{}': left value {} does not fit in {}",
+                                  op, *v, type_str(rt)));
+                if (rt->kind == LogosType::Kind::IntLit && lt->kind != LogosType::Kind::IntLit)
+                    if (auto v = get_intlit_value(rhs.get()))
+                        if (!intlit_fits(*v, lt->kind))
+                            error(std::format("operator '{}': right value {} does not fit in {}",
+                                  op, *v, type_str(lt)));
             }
         } else if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
             // Bitwise and shift operators — require integer operands.
@@ -3047,6 +3058,17 @@ private:
             if (!is_integer_kind(rt->kind) && rt->kind != LogosType::Kind::IntLit)
                 error(std::format("operator '{}': right must be integer, got {}", op, type_str(rt)));
             result_type = unify_int(lt, rt);
+            // Check IntLit operand fits in the concrete type of the other operand.
+            if (lt->kind == LogosType::Kind::IntLit && rt->kind != LogosType::Kind::IntLit)
+                if (auto v = get_intlit_value(lhs.get()))
+                    if (!intlit_fits(*v, rt->kind))
+                        error(std::format("operator '{}': left value {} does not fit in {}",
+                              op, *v, type_str(rt)));
+            if (rt->kind == LogosType::Kind::IntLit && lt->kind != LogosType::Kind::IntLit)
+                if (auto v = get_intlit_value(rhs.get()))
+                    if (!intlit_fits(*v, lt->kind))
+                        error(std::format("operator '{}': right value {} does not fit in {}",
+                              op, *v, type_str(lt)));
         } else {
             error(std::format("unknown binary operator '{}'", op));
         }
@@ -4672,6 +4694,12 @@ private:
                         !types_compatible(payload[i]->type, pack_t))
                         error(std::format("{}::{} variadic arg {}: expected {}, got {}",
                               ename, vname, i, type_str(pack_t), type_str(payload[i]->type)));
+                    if (pack_t->kind != LogosType::Kind::Error &&
+                        payload[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(payload[i].get()))
+                            if (!intlit_fits(*v, pack_t->kind))
+                                error(std::format("{}::{} variadic arg {}: value {} does not fit in {}",
+                                      ename, vname, i, *v, type_str(pack_t)));
                 }
             }
         }
@@ -6021,6 +6049,12 @@ private:
             error(std::format("field write '{}.{}': expected {}, got {}",
                   recv_name, field_name, type_str(ft), type_str(val->type)));
         }
+        if (ft && ft->kind != LogosType::Kind::Error &&
+            val->type->kind == LogosType::Kind::IntLit)
+            if (auto v = get_intlit_value(val.get()))
+                if (!intlit_fits(*v, ft->kind))
+                    error(std::format("field write '{}.{}': value {} does not fit in {}",
+                          recv_name, field_name, *v, type_str(ft)));
         lir::SFieldWrite sfw;
         sfw.receiver = std::string(recv_name);
         sfw.field    = std::string(field_name);
@@ -6101,6 +6135,12 @@ private:
             error(std::format("deref-field-write '(*{}).{}': expected {}, got {}",
                   recv_name, field_name, type_str(ft), type_str(val->type)));
         }
+        if (ft && ft->kind != LogosType::Kind::Error &&
+            val->type->kind == LogosType::Kind::IntLit)
+            if (auto v = get_intlit_value(val.get()))
+                if (!intlit_fits(*v, ft->kind))
+                    error(std::format("deref-field-write '(*{}).{}': value {} does not fit in {}",
+                          recv_name, field_name, *v, type_str(ft)));
 
         lir::SDerefFieldWrite sdfw;
         sdfw.receiver  = std::string(recv_name);
@@ -6153,6 +6193,12 @@ private:
             error(std::format("index write to '{}': expected {}, got {}",
                   arr_name, type_str(elem_type), type_str(val->type)));
         }
+        if (elem_type && elem_type->kind != LogosType::Kind::Error &&
+            val->type->kind == LogosType::Kind::IntLit)
+            if (auto v = get_intlit_value(val.get()))
+                if (!intlit_fits(*v, elem_type->kind))
+                    error(std::format("index write to '{}': value {} does not fit in {}",
+                          arr_name, *v, type_str(elem_type)));
 
         lir::SIndexWrite siw;
         siw.arr   = std::string(arr_name);

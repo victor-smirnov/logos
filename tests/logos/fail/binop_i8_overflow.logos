@@ -1,0 +1,6 @@
+package binop_i8_overflow;
+fn main() -> i32 {
+    let x: i8 = 10;
+    let y = x + 200;
+    return 0;
+}
