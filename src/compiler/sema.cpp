@@ -326,7 +326,9 @@ const LogosType* SemaChecker::lookup_type_by_name(std::string_view name) {
     if (name == "i16")  return prim(LogosType::Kind::I16);
     if (name == "u16")  return prim(LogosType::Kind::U16);
     if (name == "u32")  return prim(LogosType::Kind::U32);
-    if (name == "u64")  return prim(LogosType::Kind::U64);
+    if (name == "u64")   return prim(LogosType::Kind::U64);
+    if (name == "usize") return prim(LogosType::Kind::U64);  // usize = u64
+    if (name == "isize") return prim(LogosType::Kind::I64);  // isize = i64
     if (name == "void") return prim(LogosType::Kind::Void);
     if (name == "str")  return make_slice_type(u8_t());
     auto tvit = current_type_params_.find(std::string(name));

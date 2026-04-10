@@ -1,0 +1,8 @@
+package match_or_enum_not_exhaustive;
+enum Color { Red, Green, Blue }
+fn test(c: Color) -> i32 {
+    match c {
+        Color::Red | Color::Green => { return 1; }
+    }
+}
+fn main() -> i32 { return test(Color::Red); }

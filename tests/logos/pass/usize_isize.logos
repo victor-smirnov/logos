@@ -1,0 +1,26 @@
+package usize_isize;
+// usize and isize as type names (mapped to u64 and i64)
+
+fn length(n: usize) -> usize {
+    return n;
+}
+
+fn abs_isize(n: isize) -> isize {
+    if n < 0 { return -n; }
+    return n;
+}
+
+fn main() -> i32 {
+    let a: usize = 42;
+    let b: isize = -10;
+    let c: isize = 5;
+    let d: usize = length(a);
+    let e: isize = abs_isize(b);   // 10
+    let f: isize = abs_isize(c);   // 5
+    // d = 42, e = 10, f = 5; (42 - 10 + 5) - 37 + 42 ...
+    // simpler: 42 - 0 = 42
+    if (d as i32) != 42 { return 1; }
+    if (e as i32) != 10 { return 2; }
+    if (f as i32) != 5  { return 3; }
+    return 42;
+}

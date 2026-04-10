@@ -1876,12 +1876,19 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             auto eit = enums_.find(scrut_type->enum_name);
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
+                auto add_pat = [&](const lir::Pattern& p) {
+                    if (auto* pv = std::get_if<lir::PatVariant>(&p))
+                        covered.insert(pv->disc);
+                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&p))
+                        covered.insert(pvd->disc);
+                };
                 for (auto& arm : smatch.arms) {
                     if (arm.guard) continue;
-                    if (auto* pv = std::get_if<lir::PatVariant>(&arm.pat))
-                        covered.insert(pv->disc);
-                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat))
-                        covered.insert(pvd->disc);
+                    if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
+                        for (auto& alt : por->alts) add_pat(alt);
+                    } else {
+                        add_pat(arm.pat);
+                    }
                 }
                 std::string missing;
                 for (auto& v : eit->second.variants) {
@@ -2008,12 +2015,19 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             auto eit = enums_.find(scrut_type->enum_name);
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
+                auto add_pat2 = [&](const lir::Pattern& p) {
+                    if (auto* pv = std::get_if<lir::PatVariant>(&p))
+                        covered.insert(pv->disc);
+                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&p))
+                        covered.insert(pvd->disc);
+                };
                 for (auto& arm : me.arms) {
                     if (arm.guard) continue;
-                    if (auto* pv = std::get_if<lir::PatVariant>(&arm.pat))
-                        covered.insert(pv->disc);
-                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat))
-                        covered.insert(pvd->disc);
+                    if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
+                        for (auto& alt : por->alts) add_pat2(alt);
+                    } else {
+                        add_pat2(arm.pat);
+                    }
                 }
                 std::string missing;
                 for (auto& v : eit->second.variants) {

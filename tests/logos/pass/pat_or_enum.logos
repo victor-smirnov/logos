@@ -1,0 +1,31 @@
+package pat_or_enum;
+// OR patterns with enum variants — exhaustiveness check must handle PatOr
+
+enum Dir { N, S, E, W }
+
+fn is_horizontal(d: Dir) -> bool {
+    match d {
+        Dir::E | Dir::W => { return true; }
+        Dir::N | Dir::S => { return false; }
+    }
+}
+
+enum Color { Red, Green, Blue }
+
+fn warm_or_cool(c: Color) -> i32 {
+    match c {
+        Color::Red | Color::Green => { return 1; }
+        Color::Blue => { return 2; }
+    }
+}
+
+fn main() -> i32 {
+    if is_horizontal(Dir::N)  { return 1; }
+    if is_horizontal(Dir::S)  { return 2; }
+    if !is_horizontal(Dir::E) { return 3; }
+    if !is_horizontal(Dir::W) { return 4; }
+    if warm_or_cool(Color::Red)   != 1 { return 5; }
+    if warm_or_cool(Color::Green) != 1 { return 6; }
+    if warm_or_cool(Color::Blue)  != 2 { return 7; }
+    return 42;
+}

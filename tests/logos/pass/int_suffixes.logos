@@ -1,0 +1,27 @@
+package int_suffixes;
+// Integer literal suffixes (42i32, 100i64, etc.) and numeric separators (1_000)
+
+fn sum_u8(a: u8, b: u8) -> u8 { return a + b; }
+
+fn main() -> i32 {
+    // Explicit type suffixes
+    let a: i32 = 20i32;
+    let b: i64 = 100i64;
+    let c: u8  = 20u8;
+    let d: u64 = 1000u64;
+    // Numeric separators
+    let big: i64  = 1_000_000i64;
+    let hex_sep: i32 = 0xFF_FFi32;  // 65535
+    // usize / isize (platform-sized)
+    let n: usize = 42;
+    let m: isize = -1;
+    // Suffix in call argument
+    let e: i32 = sum_u8(20u8, 22u8) as i32;
+    // All checks pass → return 42
+    if e != 42 { return 1; }
+    if a != 20  { return 2; }
+    if c != 20  { return 3; }
+    if (n as i32) != 42 { return 4; }
+    if (m as i32) != -1 { return 5; }
+    return 42;
+}
