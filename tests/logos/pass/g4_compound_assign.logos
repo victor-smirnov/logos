@@ -1,0 +1,12 @@
+package g4_compound_assign;
+
+fn main() -> i32 {
+    let mut x: i32 = 100;
+    x -= 60;
+    x += 5;
+    x *= 2;
+    x /= 3;
+    x %= 50;
+    x += 12;
+    return x;
+}

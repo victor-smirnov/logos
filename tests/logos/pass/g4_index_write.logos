@@ -1,0 +1,9 @@
+package g4_index_write;
+
+fn main() -> i32 {
+    let mut arr: [i32; 5] = [0, 0, 0, 0, 0];
+    arr[0] = 10;
+    arr[1] = 12;
+    arr[2] = 20;
+    return arr[0] + arr[1] + arr[2];
+}

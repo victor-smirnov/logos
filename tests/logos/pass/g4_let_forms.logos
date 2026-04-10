@@ -1,0 +1,11 @@
+package g4_let_forms;
+
+fn main() -> i32 {
+    let a: i32 = 10;
+    let b = 12;
+    let mut c: i32 = 20;
+    let mut d = 0;
+    c += 1;
+    d = a + b + c - 1;
+    return d;
+}

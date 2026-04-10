@@ -1,0 +1,10 @@
+package g4_let_destruct;
+
+fn pair() -> (i32, i32) {
+    return (22, 20);
+}
+
+fn main() -> i32 {
+    let (a, b) = pair();
+    return a + b;
+}

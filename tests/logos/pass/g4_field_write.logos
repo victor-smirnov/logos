@@ -1,0 +1,13 @@
+package g4_field_write;
+
+struct Point {
+    x: i32;
+    y: i32;
+}
+
+fn main() -> i32 {
+    let mut p: Point = Point { x: 0, y: 0 };
+    p.x = 20;
+    p.y = 22;
+    return p.x + p.y;
+}

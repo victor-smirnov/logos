@@ -1,0 +1,15 @@
+package g4_for_break_continue;
+
+fn main() -> i32 {
+    let mut sum: i32 = 0;
+    for i in 0..20 {
+        if i == 10 {
+            break;
+        }
+        if i % 2 == 0 {
+            continue;
+        }
+        sum += i;
+    }
+    return sum + 17;
+}

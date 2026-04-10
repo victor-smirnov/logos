@@ -1,0 +1,11 @@
+package g4_while_loop;
+
+fn main() -> i32 {
+    let mut i: i32 = 0;
+    let mut sum: i32 = 0;
+    while i < 10 {
+        sum += i;
+        i += 1;
+    }
+    return sum - 3;
+}

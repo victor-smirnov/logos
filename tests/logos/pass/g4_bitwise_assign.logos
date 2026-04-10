@@ -1,0 +1,18 @@
+package g4_bitwise_assign;
+
+fn main() -> i32 {
+    let mut a: i32 = 0b111111;
+    a &= 0b101010;
+    let mut b: i32 = 0b101000;
+    b |= 0b000010;
+    let mut c: i32 = 0b111111;
+    c ^= 0b010101;
+    let mut d: i32 = 21;
+    d <<= 1;
+    let mut e: i32 = 84;
+    e >>= 1;
+    if a == 42 && b == 42 && c == 42 && d == 42 && e == 42 {
+        return 42;
+    }
+    return 0;
+}
