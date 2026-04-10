@@ -1,0 +1,6 @@
+package generic_bound_tuple_arr_overflow;
+trait Foo { fn bar(self: Self, pair: ([i8; 3], i32)) -> i32; }
+struct S {}
+impl Foo for S { fn bar(self: S, pair: ([i8; 3], i32)) -> i32 { return 0; } }
+fn call<T: Foo>(x: T) -> i32 { return x.bar(([1, 200, 3], 0)); }
+fn main() -> i32 { return 0; }

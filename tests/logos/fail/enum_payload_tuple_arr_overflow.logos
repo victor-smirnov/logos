@@ -1,0 +1,6 @@
+package enum_payload_tuple_arr_overflow;
+enum E { Wrap(([i8; 3], i32)), None, }
+fn main() -> i32 {
+    let v = E::Wrap(([1, 200, 3], 0));
+    return 0;
+}
