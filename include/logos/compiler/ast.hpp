@@ -201,6 +201,10 @@ inline constexpr Code INDEX_COMPOUND_ASSIGN {"INDEX_COMPOUND_ASSIGN", 137}; // a
 inline constexpr Code PAT_NEG_INT     {"PAT_NEG_INT",     138}; // negative int pattern: -42
 inline constexpr Code PAT_OR          {"PAT_OR",          139}; // OR pattern: 1 | 2 | 3
 inline constexpr Code FIELD_SHORTHAND {"FIELD_SHORTHAND", 140}; // struct field shorthand: Point { x, y }
+inline constexpr Code LET_ELSE        {"LET_ELSE",        141}; // let Pat = expr else { block };
+inline constexpr Code LABELED_LOOP    {"LABELED_LOOP",    142}; // 'label: loop/for/while
+inline constexpr Code PAT_TUPLE       {"PAT_TUPLE",       143}; // tuple pattern: (a, b)
+inline constexpr Code FN_PTR_TYPE     {"FN_PTR_TYPE",     144}; // fn(T) -> R function pointer type
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
@@ -216,6 +220,8 @@ inline constexpr Key IS_CONST  {"IS_CONST",  39};            // const fn marker
 inline constexpr Key IS_UNSAFE {"IS_UNSAFE", 42};            // unsafe fn marker
 inline constexpr Key IS_MOVE   {"IS_MOVE",   44};            // move closure marker
 inline constexpr Key IS_REF    {"IS_REF",    45};            // &self / &mut self param shorthand
+inline constexpr Key BASE      {"BASE",      46};            // struct update base expression (..base)
+inline constexpr Key LABEL     {"LABEL",     47};            // loop label (e.g. "'outer")
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

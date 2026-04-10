@@ -43,6 +43,7 @@ struct LogosType {
         AssocType,                // T::Item — type param's associated type (resolved by mono)
         ImplTrait,                // impl Trait — opaque return type, resolved during lowering
         ConstVar,                 // [NEW] symbolic constant parameter (Bug 13)
+        FnPtr,                    // fn(T1, T2) -> R — bare function pointer (single ptr)
         Error                     // sentinel for ill-typed expressions
     };
 

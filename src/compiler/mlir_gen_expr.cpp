@@ -110,10 +110,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, const LogosType* type) 
 
     auto it = scope_.find(e.name);
     if (it == scope_.end()) {
-        // Check if name is a free function being used as a value (function pointer).
+        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        // Check if name is a free function being used as a bare fn-ptr.
+        if (type && type->kind == LogosType::Kind::FnPtr) {
+            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.name);
+            if (fn_sym) {
+                // Return just the function address as a raw ptr.
+                auto fn_ref = builder_.create<mlir::func::ConstantOp>(
+                    loc_, fn_sym.getFunctionType(), e.name);
+                return builder_.create<mlir::UnrealizedConversionCastOp>(
+                    loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
+            }
+        }
+        // Check if name is a free function being used as a value (closure fat pointer).
         // Create a non-capturing closure: {fn_ptr, null_env}.
         if (type && type->kind == LogosType::Kind::Closure) {
-            auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
             auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.name);
             if (fn_sym) {
                 // Build closure fat pointer: { fn_ptr, env_ptr=null }
@@ -1187,6 +1198,40 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureCall& e, const LogosType* t
     auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types, false);
 
     // Indirect call via function pointer
+    llvm::SmallVector<mlir::Value> all_operands;
+    all_operands.push_back(fn_ptr);
+    all_operands.append(args.begin(), args.end());
+    auto call = builder_.create<mlir::LLVM::CallOp>(
+        loc_, llvm_fn_type, mlir::FlatSymbolRefAttr{},
+        mlir::ValueRange(all_operands));
+    if (is_void) return nullptr;
+    return call.getResult();
+}
+
+mlir::Value MLIRGenImpl::gen_expr_kind(const EFnPtrCall& e, const LogosType* type) {
+    // Bare function pointer call: fn_ptr(arg1, arg2, ...) — no env_ptr.
+    auto fn_ptr = gen_expr(*e.callee);
+    if (!fn_ptr) return nullptr;
+
+    // fn_ptr is stored as a scalar (not in an alloca) when it's a let var;
+    // but scope_ stores allocas for let-bound scalars, so load it first.
+    // Actually FnPtr variables are stored as scalars (like integers) — load from alloca.
+    // (fn_ptr here is the raw pointer value, already loaded by gen_expr_kind(EVarRef))
+
+    llvm::SmallVector<mlir::Value> args;
+    llvm::SmallVector<mlir::Type> param_types;
+    for (auto& a : e.args) {
+        auto val = gen_expr(*a);
+        if (!val) return nullptr;
+        args.push_back(val);
+        param_types.push_back(val.getType());
+    }
+
+    mlir::Type ret = type ? logos_to_mlir(type) : nullptr;
+    if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+    bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(ret);
+    auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types, false);
+
     llvm::SmallVector<mlir::Value> all_operands;
     all_operands.push_back(fn_ptr);
     all_operands.append(args.begin(), args.end());

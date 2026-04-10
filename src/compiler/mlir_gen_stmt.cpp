@@ -37,7 +37,17 @@ void MLIRGenImpl::gen_stmt_kind(const SWhile& s)       { gen_while(s); }
 void MLIRGenImpl::gen_stmt_kind(const SFor& s)         { gen_for(s); }
 void MLIRGenImpl::gen_stmt_kind(const SLoop& s)        { gen_loop(s); }
 void MLIRGenImpl::gen_stmt_kind(const SBreak& s)       { gen_break(s); }
-void MLIRGenImpl::gen_stmt_kind(const SContinue&)      { gen_continue(); }
+void MLIRGenImpl::gen_stmt_kind(const SContinue& s) {
+    if (loop_stack_.empty()) return;
+    if (s.label.empty()) { gen_continue(); return; }
+    for (int i = (int)loop_stack_.size() - 1; i >= 0; --i) {
+        if (loop_stack_[i].label == s.label) {
+            builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_[i].cont);
+            return;
+        }
+    }
+    gen_continue(); // fallback
+}
 void MLIRGenImpl::gen_stmt_kind(const SFieldWrite& s)       { gen_field_write(s); }
 void MLIRGenImpl::gen_stmt_kind(const STupleWrite& s)       { gen_tuple_write(s); }
 void MLIRGenImpl::gen_stmt_kind(const SDerefFieldWrite& s)  { gen_deref_field_write(s); }
@@ -167,6 +177,20 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         scope_[s.name] = val;
         let_vars_.insert(s.name);
         var_tuple_.insert(s.name);  // return ptr directly
+        return;
+    }
+
+    // ── FnPtr value (fn(T) -> R) ──────────────────────────────
+    if (s.type && s.type->kind == LogosType::Kind::FnPtr) {
+        auto val = gen_expr(*s.value);
+        if (!val) return;
+        // Store as a let-bound scalar (alloca holding a ptr).
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), ptr_type(), i64_one());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+        scope_[s.name]          = alloca;
+        let_vars_.insert(s.name);
+        var_elem_types_[s.name] = ptr_type();
         return;
     }
 
@@ -532,7 +556,7 @@ void MLIRGenImpl::gen_while(const SWhile& s) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
     builder_.setInsertionPointToStart(body_block);
-    loop_stack_.push_back({cond_block, exit_block, {}});
+    loop_stack_.push_back({cond_block, exit_block, {}, s.label});
     gen_block(*s.body);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
@@ -614,7 +638,7 @@ void MLIRGenImpl::gen_for(const SFor& s) {
 
     builder_.setInsertionPointToStart(body_block);
     // continue → incr_block (so that i is incremented before re-checking)
-    loop_stack_.push_back({incr_block, exit_block, {}});
+    loop_stack_.push_back({incr_block, exit_block, {}, s.label});
     gen_block(*s.body);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
@@ -669,7 +693,7 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
     builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
 
     builder_.setInsertionPointToStart(loop_block);
-    loop_stack_.push_back({loop_block, exit_block, break_slot});
+    loop_stack_.push_back({loop_block, exit_block, break_slot, s.label});
     gen_block(*s.body);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
@@ -684,14 +708,23 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
 
 void MLIRGenImpl::gen_break(const SBreak& s) {
     if (loop_stack_.empty()) return;
-    auto& top = loop_stack_.back();
+    // Find target loop: if label specified, search from innermost outward.
+    LoopBlocks* target = nullptr;
+    if (s.label.empty()) {
+        target = &loop_stack_.back();
+    } else {
+        for (int i = (int)loop_stack_.size() - 1; i >= 0; --i) {
+            if (loop_stack_[i].label == s.label) { target = &loop_stack_[i]; break; }
+        }
+        if (!target) { target = &loop_stack_.back(); }
+    }
     // Store break value into the slot if present.
-    if (s.value && top.break_slot) {
+    if (s.value && target->break_slot) {
         mlir::Value val = gen_expr(*s.value);
         if (val)
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, top.break_slot);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, target->break_slot);
     }
-    builder_.create<mlir::cf::BranchOp>(loc_, top.exit);
+    builder_.create<mlir::cf::BranchOp>(loc_, target->exit);
 }
 
 void MLIRGenImpl::gen_continue() {
@@ -763,7 +796,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
         var_elem_types_[s.var] = elem_mlir;
         let_vars_.insert(s.var);
 
-        loop_stack_.push_back({incr_block, exit_block, {}});
+        loop_stack_.push_back({incr_block, exit_block, {}, {}});
         gen_block(*s.body);
         loop_stack_.pop_back();
 
@@ -850,7 +883,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
     auto* incr_block = new mlir::Block();
     region->push_back(incr_block);
 
-    loop_stack_.push_back({incr_block, exit_block, {}});
+    loop_stack_.push_back({incr_block, exit_block, {}, {}});
     gen_block(*s.body);
     loop_stack_.pop_back();
 
@@ -1126,7 +1159,18 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
 
     mlir::Block* else_block = merge_block;
     bool exhaustive_discrete = false;
-    if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Bool) {
+    // Helper: is this pattern irrefutable (always matches)?
+    auto is_irrefutable = [](const lir::Pattern& p) {
+        return std::holds_alternative<lir::PatWild>(p) ||
+               std::holds_alternative<lir::PatTuple>(p);
+    };
+    if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Tuple) {
+        // Tuple patterns are always irrefutable.
+        for (auto& arm : s.arms) {
+            if (arm.guard) continue;
+            if (is_irrefutable(arm.pat)) { exhaustive_discrete = true; break; }
+        }
+    } else if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Bool) {
         bool has_true = false, has_false = false, has_wild = false;
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
@@ -1185,8 +1229,34 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         else_block = default_block;
     }
 
-    // Helper: extract PatVariantData payload bindings into scope (call inside a block).
+    // Helper: extract PatVariantData / PatTuple payload bindings into scope.
     auto extract_payload = [&](const LMatchArm& arm) {
+        if (auto* pt = std::get_if<PatTuple>(&arm.pat)) {
+            // Tuple pattern: scrut is a pointer to the tuple struct.
+            // Extract each field via GEP + load, alloca + store, bind into scope.
+            auto ttype = tuple_llvm_type(s.scrut->type);
+            if (!ttype) return;
+            // In gen_match, scrut was updated to load the discriminant for enums;
+            // for tuples there is no discriminant — we need the original pointer.
+            // scrut_ptr is null for non-enum scrutinees; use the original scrut alloca.
+            // Re-evaluate the scrutinee to get the pointer (it is pure so safe).
+            mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
+            if (!tptr) return;
+            for (size_t bi = 0; bi < pt->bindings.size() && bi < pt->binding_types.size(); ++bi) {
+                if (pt->bindings[bi] == "_") continue;
+                auto elem_mlir = logos_to_mlir(pt->binding_types[bi]);
+                if (!elem_mlir) continue;
+                llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
+                auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, fi);
+                auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
+                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), elem_mlir, i64_one());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                scope_[pt->bindings[bi]] = alloca;
+                let_vars_.insert(pt->bindings[bi]);
+                var_elem_types_[pt->bindings[bi]] = elem_mlir;
+            }
+            return;
+        }
         if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) {
             if (te_info && scrut_ptr) {
                 llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
@@ -1271,7 +1341,8 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             }
         }
 
-        bool is_wild = std::holds_alternative<PatWild>(arm.pat);
+        bool is_wild = std::holds_alternative<PatWild>(arm.pat) ||
+                       std::holds_alternative<PatTuple>(arm.pat);
         if (is_wild) {
             else_block = arm_entry;
         } else if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
@@ -1350,6 +1421,183 @@ void MLIRGenImpl::gen_delete(const SDelete& s) {
         }
     }
     call_free(ptr);
+}
+
+// ---------------------------------------------------------------------------
+// let-else
+// ---------------------------------------------------------------------------
+//
+// Codegen for:   let Pat = expr else { block (must diverge) };
+//
+// Structure:
+//   %scrut_ptr = alloca (enum type)
+//   store %scrut_val, %scrut_ptr
+//   %disc = load discriminant from %scrut_ptr
+//   %cond = icmp eq %disc, expected_disc
+//   condbr %cond, bb_match, bb_else
+// bb_else:
+//   <else block — must terminate with ret/unreachable>
+// bb_match:
+//   <extract bindings into scope_>
+//   <fall through to continuation>
+//
+// For PatWild (named wildcard): just bind the scrutinee value directly.
+// For PatVariant (unit variant): test discriminant, no bindings.
+// For PatVariantData: test discriminant + extract payload bindings.
+
+void MLIRGenImpl::gen_stmt_kind(const lir::SLetElse& s) {
+    auto* region = builder_.getBlock()->getParent();
+
+    // ── Evaluate scrutinee ────────────────────────────────────────────────
+    auto scrut_val = gen_expr(*s.scrut);
+    if (!scrut_val) return;
+
+    // ── Handle PatWild: always matches, just bind name ────────────────────
+    if (auto* pw = std::get_if<PatWild>(&s.pat)) {
+        if (pw->name != "_") {
+            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), scrut_val.getType(), i64_one());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
+            scope_[pw->name]          = alloca;
+            let_vars_.insert(pw->name);
+            var_elem_types_[pw->name] = scrut_val.getType();
+        }
+        // Else block is unreachable because pattern always matches.
+        // Still need to lower the else block in a dead block so stmts compile.
+        auto* dead = new mlir::Block();
+        region->push_back(dead);
+        {
+            mlir::OpBuilder::InsertionGuard ig(builder_);
+            builder_.setInsertionPointToStart(dead);
+            gen_block(*s.else_block);
+            if (!is_terminated(builder_.getBlock()))
+                builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+        }
+        return;
+    }
+
+    // ── Enum patterns: need discriminant test ─────────────────────────────
+    const TaggedEnumInfo* te_info = nullptr;
+    mlir::Value scrut_ptr;
+    mlir::Value disc_val;
+    int32_t expected_disc = 0;
+
+    if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Enum) {
+        te_info = resolve_tagged_enum(s.scrut->type->enum_name, s.scrut->type);
+        if (te_info) {
+            // Spill to alloca if it's a value (not already a pointer)
+            if (scrut_val.getType() != ptr_type()) {
+                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                    loc_, ptr_type(), te_info->llvm_type, i64_one());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
+                scrut_ptr = alloca;
+            } else {
+                scrut_ptr = scrut_val;
+            }
+            // Load discriminant (field 0)
+            llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+            auto dp = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
+            disc_val = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+        }
+    }
+
+    // Determine expected discriminant
+    if (auto* pv = std::get_if<PatVariant>(&s.pat)) {
+        expected_disc = pv->disc;
+    } else if (auto* pvd = std::get_if<PatVariantData>(&s.pat)) {
+        expected_disc = pvd->disc;
+    }
+
+    // ── Build blocks ──────────────────────────────────────────────────────
+    auto* else_block  = new mlir::Block();
+    auto* match_block = new mlir::Block();
+    auto* cont_block  = new mlir::Block();
+    region->push_back(else_block);
+    region->push_back(match_block);
+    region->push_back(cont_block);
+
+    if (disc_val) {
+        // Conditional branch on discriminant match
+        auto expected = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, expected_disc, 32);
+        auto cond = builder_.create<mlir::arith::CmpIOp>(
+            loc_, mlir::arith::CmpIPredicate::eq, disc_val, expected);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, cond, match_block, else_block);
+    } else {
+        // Non-enum scrutinee — always matches (fall into match_block)
+        builder_.create<mlir::cf::BranchOp>(loc_, match_block);
+    }
+
+    // ── else_block: diverging else body ──────────────────────────────────
+    {
+        mlir::OpBuilder::InsertionGuard ig(builder_);
+        builder_.setInsertionPointToStart(else_block);
+        gen_block(*s.else_block);
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+    }
+
+    // ── match_block: extract bindings, jump to continuation ──────────────
+    {
+        mlir::OpBuilder::InsertionGuard ig(builder_);
+        builder_.setInsertionPointToStart(match_block);
+
+        if (auto* pt = std::get_if<PatTuple>(&s.pat)) {
+            // Tuple pattern in let-else: always irrefutable, extract fields.
+            auto ttype = tuple_llvm_type(s.scrut->type);
+            if (ttype) {
+                for (size_t bi = 0; bi < pt->bindings.size() && bi < pt->binding_types.size(); ++bi) {
+                    if (pt->bindings[bi] == "_") continue;
+                    auto elem_mlir = logos_to_mlir(pt->binding_types[bi]);
+                    if (!elem_mlir) continue;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
+                    auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, scrut_val, fi);
+                    auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
+                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), elem_mlir, i64_one());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                    scope_[pt->bindings[bi]]          = alloca;
+                    let_vars_.insert(pt->bindings[bi]);
+                    var_elem_types_[pt->bindings[bi]] = elem_mlir;
+                }
+            }
+        } else if (auto* pvd = std::get_if<PatVariantData>(&s.pat)) {
+            if (te_info && scrut_ptr) {
+                llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+                auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
+                const TaggedEnumInfo::VariantPayload* vp = nullptr;
+                for (auto& v : te_info->variants)
+                    if (v.disc == pvd->disc) { vp = &v; break; }
+                if (vp && !pvd->bindings.empty()) {
+                    llvm::SmallVector<mlir::Type> ft;
+                    for (auto& t : vp->field_types) ft.push_back(t);
+                    auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
+                        builder_.getContext(), ft);
+                    for (size_t bi = 0; bi < pvd->bindings.size() &&
+                                         bi < vp->field_types.size(); ++bi) {
+                        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
+                        auto fp = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), pay_struct, pay_ptr, fi);
+                        auto val = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, vp->field_types[bi], fp);
+                        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                            loc_, ptr_type(), vp->field_types[bi], i64_one());
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                        scope_[pvd->bindings[bi]]          = alloca;
+                        let_vars_.insert(pvd->bindings[bi]);
+                        var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
+                    }
+                }
+            }
+        }
+        // PatVariant (no payload) — discriminant test was enough, no bindings
+
+        builder_.create<mlir::cf::BranchOp>(loc_, cont_block);
+    }
+
+    // Continue in cont_block (bindings from match_block are now in scope_)
+    builder_.setInsertionPointToStart(cont_block);
 }
 
 } // namespace logos::compiler

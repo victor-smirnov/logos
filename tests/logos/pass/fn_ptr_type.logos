@@ -1,0 +1,35 @@
+package fn_ptr_type;
+
+fn double(x: i32) -> i32 {
+    return x * 2;
+}
+
+fn triple(x: i32) -> i32 {
+    return x * 3;
+}
+
+fn apply(f: fn(i32) -> i32, x: i32) -> i32 {
+    return f(x);
+}
+
+fn main() -> i32 {
+    // Pass function as fn-ptr argument
+    let r1: i32 = apply(double, 5);
+    if r1 != 10 { return 1; }
+
+    let r2: i32 = apply(triple, 4);
+    if r2 != 12 { return 2; }
+
+    // Store fn-ptr in a variable
+    let f: fn(i32) -> i32 = double;
+    let r3: i32 = f(7);
+    if r3 != 14 { return 3; }
+
+    // Reassign fn-ptr variable
+    let mut g: fn(i32) -> i32 = double;
+    g = triple;
+    let r4: i32 = g(3);
+    if r4 != 9 { return 4; }
+
+    return 42;
+}

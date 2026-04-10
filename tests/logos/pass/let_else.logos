@@ -1,0 +1,15 @@
+package let_else;
+enum Opt { Some(i32), None }
+fn get_some() -> Opt { return Opt::Some(42); }
+fn get_none() -> Opt { return Opt::None; }
+fn extract(o: Opt) -> i32 {
+    let Opt::Some(v) = o else { return -1; };
+    return v;
+}
+fn main() -> i32 {
+    let r1 = extract(get_some());
+    if r1 != 42 { return 1; }
+    let r2 = extract(get_none());
+    if r2 != -1 { return 2; }
+    return 42;
+}

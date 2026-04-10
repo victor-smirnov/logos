@@ -58,6 +58,9 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
     case LogosType::Kind::Closure:
         // Closures are {fn_ptr, env_ptr}, passed by pointer.
         return ptr_type();
+    case LogosType::Kind::FnPtr:
+        // Bare function pointer: just a single ptr.
+        return ptr_type();
     case LogosType::Kind::Slice:
         // Slices are fat pointers {ptr, i64}, passed by pointer (like structs/tuples).
         return ptr_type();

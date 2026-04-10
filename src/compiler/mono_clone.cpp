@@ -388,6 +388,13 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 nc.args.push_back(subst_expr(*a, s));
             result->kind = std::move(nc);
 
+        } else if constexpr (std::is_same_v<K, lir::EFnPtrCall>) {
+            lir::EFnPtrCall nc;
+            nc.callee = subst_expr(*k.callee, s);
+            for (auto& a : k.args)
+                nc.args.push_back(subst_expr(*a, s));
+            result->kind = std::move(nc);
+
         } else if constexpr (std::is_same_v<K, lir::ESliceLit>) {
             result->kind = lir::ESliceLit{subst_expr(*k.base, s), subst_expr(*k.len, s)};
 
@@ -488,9 +495,11 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             ns.kind = std::move(ni);
 
         } else if constexpr (std::is_same_v<K, lir::SWhile>) {
-            ns.kind = lir::SWhile{
-                subst_expr(*k.cond, s),
-                std::make_unique<lir::LBlock>(subst_block(*k.body, s))};
+            lir::SWhile nw;
+            nw.cond  = subst_expr(*k.cond, s);
+            nw.body  = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
+            nw.label = k.label;
+            ns.kind  = std::move(nw);
 
         } else if constexpr (std::is_same_v<K, lir::SFor>) {
             lir::SFor nf;
@@ -499,6 +508,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             nf.hi        = subst_expr(*k.hi, s);
             nf.inclusive = k.inclusive;
             nf.body      = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
+            nf.label     = k.label;
             ns.kind      = std::move(nf);
 
         } else if constexpr (std::is_same_v<K, lir::SLoop>) {
@@ -506,6 +516,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             nl.body        = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
             nl.result_type = k.result_type;
             nl.break_slot  = k.break_slot;
+            nl.label       = k.label;
             ns.kind        = std::move(nl);
 
         } else if constexpr (std::is_same_v<K, lir::SBlock>) {
@@ -515,10 +526,11 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         } else if constexpr (std::is_same_v<K, lir::SBreak>) {
             lir::SBreak nb;
             if (k.value) nb.value = subst_expr(*k.value, s);
+            nb.label = k.label;
             ns.kind = std::move(nb);
 
         } else if constexpr (std::is_same_v<K, lir::SContinue>) {
-            ns.kind = k;
+            ns.kind = k;  // SContinue copies the label via default copy
 
         } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
             ns.kind = lir::SFieldWrite{k.receiver, k.field, subst_expr(*k.value, s)};
@@ -554,12 +566,17 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             nm.scrut = subst_expr(*k.scrut, s);
             for (auto& arm : k.arms) {
                 lir::LMatchArm na;
-                // Substitute types in PatVariantData bindings
+                // Substitute types in PatVariantData / PatTuple bindings
                 if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat)) {
                     lir::PatVariantData npvd = *pvd;
                     for (auto& bt : npvd.binding_types)
                         bt = subst_type(bt, s);
                     na.pat = std::move(npvd);
+                } else if (auto* pt = std::get_if<lir::PatTuple>(&arm.pat)) {
+                    lir::PatTuple npt = *pt;
+                    for (auto& bt : npt.binding_types)
+                        bt = subst_type(bt, s);
+                    na.pat = std::move(npt);
                 } else {
                     na.pat = arm.pat;
                 }
@@ -579,6 +596,26 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             nf.is_slice  = k.is_slice;
             nf.body      = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
             ns.kind      = std::move(nf);
+
+        } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
+            lir::SLetElse sle;
+            // Substitute types in pattern bindings
+            if (auto* pvd = std::get_if<lir::PatVariantData>(&k.pat)) {
+                lir::PatVariantData npvd = *pvd;
+                for (auto& bt : npvd.binding_types)
+                    bt = subst_type(bt, s);
+                sle.pat = std::move(npvd);
+            } else if (auto* pt = std::get_if<lir::PatTuple>(&k.pat)) {
+                lir::PatTuple npt = *pt;
+                for (auto& bt : npt.binding_types)
+                    bt = subst_type(bt, s);
+                sle.pat = std::move(npt);
+            } else {
+                sle.pat = k.pat;
+            }
+            sle.scrut      = subst_expr(*k.scrut, s);
+            sle.else_block = std::make_unique<lir::LBlock>(subst_block(*k.else_block, s));
+            ns.kind        = std::move(sle);
         }
     }, st.kind);
 

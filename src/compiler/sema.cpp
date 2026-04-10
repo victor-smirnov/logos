@@ -261,6 +261,15 @@ std::string type_str(const LogosType* t) {
         r += "| -> ";
         r += type_str(t->closure_ret);
         return r; }
+    case LogosType::Kind::FnPtr: {
+        std::string r = "fn(";
+        for (size_t i = 0; i < t->closure_params.size(); ++i) {
+            if (i) r += ", ";
+            r += type_str(t->closure_params[i]);
+        }
+        r += ") -> ";
+        r += type_str(t->closure_ret);
+        return r; }
     case LogosType::Kind::Enum:        return t->enum_name;
     case LogosType::Kind::TraitObject: return "&dyn " + t->trait_name;
     case LogosType::Kind::TypeVar:     return std::string(t->type_var_name);
@@ -748,7 +757,8 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         if (elem == t->elem) return t;
         return make_slice_type(elem);
     }
-    case LogosType::Kind::Closure: {
+    case LogosType::Kind::Closure:
+    case LogosType::Kind::FnPtr: {
         std::vector<const LogosType*> new_params;
         bool changed = false;
         for (auto* p : t->closure_params) {
@@ -759,9 +769,9 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         auto* new_ret = subst_type_sema(t->closure_ret, s);
         changed |= (new_ret != t->closure_ret);
         if (!changed) return t;
-        
+
         LogosType nt;
-        nt.kind = LogosType::Kind::Closure;
+        nt.kind = t->kind;  // preserve Closure vs FnPtr
         nt.closure_params = std::move(new_params);
         nt.closure_ret = new_ret;
         return pool_.alloc(std::move(nt));
@@ -894,6 +904,25 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
     if (tc == la::CLOSURE_TYPE) {
         LogosType t;
         t.kind = LogosType::Kind::Closure;
+        if (node.has_key(la::PARAMS)) {
+            auto params_node = map_of(node.get(la::PARAMS.code));
+            if (params_node.has_key(la::ITEMS)) {
+                auto items = arr_of(params_node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    t.closure_params.push_back(resolve_type(map_of(items.get(i))));
+            }
+        }
+        t.closure_ret = node.has_key(la::RET_TYPE)
+            ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
+            : void_t();
+        return pool_.alloc(std::move(t));
+    }
+
+    if (tc == la::FN_PTR_TYPE) {
+        // fn(T1, T2) -> R — bare function pointer, single ptr in LLVM.
+        // Reuse closure_params / closure_ret fields.
+        LogosType t;
+        t.kind = LogosType::Kind::FnPtr;
         if (node.has_key(la::PARAMS)) {
             auto params_node = map_of(node.get(la::PARAMS.code));
             if (params_node.has_key(la::ITEMS)) {

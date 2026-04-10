@@ -68,6 +68,18 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         auto name = str_of(expr.get(la::NAME.code));
         auto* t = lookup(name);
         if (!t) {
+            // Check if it's a function name — allow coercion to fn(T)->R type.
+            auto fit = funcs_.find(std::string(name));
+            if (fit != funcs_.end()) {
+                const SemaFuncInfo& fi = fit->second;
+                LogosType ft;
+                ft.kind = LogosType::Kind::FnPtr;
+                for (auto* pt : fi.param_types)
+                    ft.closure_params.push_back(pt);
+                ft.closure_ret = fi.ret_type ? fi.ret_type : void_t();
+                auto* fn_type = pool_.alloc(std::move(ft));
+                return make_expr(fn_type, lir::EVarRef{std::string(name)});
+            }
             error(std::format("undefined variable '{}'", name));
             return error_expr();
         }
@@ -537,9 +549,11 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     auto callee = str_of(node.get(la::CALLEE.code));
 
-    // Check if callee is a closure variable
+    // Check if callee is a closure or fn-ptr variable
     auto* callee_type = lookup(callee);
-    if (callee_type && callee_type->kind == LogosType::Kind::Closure) {
+    bool is_closure = callee_type && callee_type->kind == LogosType::Kind::Closure;
+    bool is_fn_ptr  = callee_type && callee_type->kind == LogosType::Kind::FnPtr;
+    if (is_closure || is_fn_ptr) {
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args = arr_of(node.get(la::ARGS.code));
@@ -548,8 +562,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         }
         uint64_t n_args = arg_exprs.size();
         uint64_t n_params = callee_type->closure_params.size();
+        const char* kind_str = is_fn_ptr ? "fn-ptr call" : "closure call";
         if (n_args != n_params) {
-            error(std::format("closure call: expected {} args, got {}", n_params, n_args));
+            error(std::format("{}: expected {} args, got {}", kind_str, n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto* at = arg_exprs[i]->type;
@@ -557,14 +572,16 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 if (at->kind != LogosType::Kind::Error &&
                     pt->kind != LogosType::Kind::Error &&
                     !types_compatible(at, pt)) {
-                    error(std::format("closure call arg {}: expected {}, got {}",
-                          i + 1, type_str(pt), type_str(at)));
+                    error(std::format("{} arg {}: expected {}, got {}",
+                          kind_str, i + 1, type_str(pt), type_str(at)));
                 }
             }
         }
         auto callee_expr = make_expr(callee_type, lir::EVarRef{std::string(callee)});
-        return make_expr(callee_type->closure_ret ? callee_type->closure_ret : void_t(),
-            lir::EClosureCall{std::move(callee_expr), std::move(arg_exprs)});
+        const LogosType* ret = callee_type->closure_ret ? callee_type->closure_ret : void_t();
+        if (is_fn_ptr)
+            return make_expr(ret, lir::EFnPtrCall{std::move(callee_expr), std::move(arg_exprs)});
+        return make_expr(ret, lir::EClosureCall{std::move(callee_expr), std::move(arg_exprs)});
     }
 
     // format() is now a library function in std.fmt (variadic generics + Format trait).
@@ -2114,6 +2131,33 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         }
         }
     }
+    // Handle struct update syntax: Foo { x: 1, ..base }
+    // For any field not explicitly set, read it from the base expression.
+    if (node.has_key(la::BASE)) {
+        auto base_node = map_of(node.get(la::BASE.code));
+        auto base_expr = lower_expr(base_node);
+        // Determine base variable name for EVarRef (simple case)
+        std::string base_var;
+        if (auto* vr = std::get_if<lir::EVarRef>(&base_expr->kind))
+            base_var = vr->name;
+        for (auto& [fname, inited] : initialized) {
+            if (!inited) {
+                inited = true;
+                auto* ft = field_type_of(std::string(sname), fname);
+                lir::LExprPtr recv;
+                if (!base_var.empty()) {
+                    recv = make_expr(base_expr->type, lir::EVarRef{base_var});
+                } else {
+                    // Complex base: re-lower (might evaluate twice, but rare)
+                    recv = lower_expr(base_node);
+                }
+                auto field_val = make_expr(ft ? ft : error_t(),
+                    lir::EFieldRead{std::move(recv), fname});
+                fields.push_back({fname, std::move(field_val)});
+            }
+        }
+    }
+
     for (auto& [fname, init] : initialized)
         if (!init)
             error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));

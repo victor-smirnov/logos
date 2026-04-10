@@ -80,11 +80,26 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     int32_t c = code_of(stmt);
 
     if (c == la::LET)          return lower_let(stmt);
+    if (c == la::LET_ELSE)     return lower_let_else(stmt);
     if (c == la::LET_DESTRUCT) return lower_let_destruct(stmt);
     if (c == la::ASSIGN)          return lower_assign(stmt);
     if (c == la::COMPOUND_ASSIGN) return lower_compound_assign(stmt);
     if (c == la::RETURN)       return lower_return(stmt);
     if (c == la::IF)           return lower_if(stmt);
+    if (c == la::LABELED_LOOP) {
+        // 'label: for/while/loop { }
+        // Extract label, set pending_loop_label_, lower the inner loop.
+        std::string lbl;
+        if (stmt.has_key(la::LABEL)) {
+            auto sv = str_of(stmt.get(la::LABEL.code));
+            lbl = std::string(sv);
+        }
+        auto inner = map_of(stmt.get(la::BODY.code));
+        pending_loop_label_ = lbl;
+        auto result = lower_stmt(inner);
+        pending_loop_label_.clear();
+        return result;
+    }
     if (c == la::WHILE)        return lower_while(stmt);
     if (c == la::FOR)          return lower_for(stmt);
     if (c == la::FOR_EACH)     return lower_for_each(stmt);
@@ -126,11 +141,17 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
                 error("loop break mixes value and no-value breaks");
             break_without_value_ = true;
         }
-        return make_stmt(node_line_, lir::SBreak{std::move(bval)});
+        std::string break_label;
+        if (stmt.has_key(la::LABEL))
+            break_label = std::string(str_of(stmt.get(la::LABEL.code)));
+        return make_stmt(node_line_, lir::SBreak{std::move(bval), std::move(break_label)});
     }
     if (c == la::CONTINUE) {
         if (loop_depth_ == 0) error("'continue' outside loop");
-        return make_stmt(node_line_, lir::SContinue{});
+        std::string cont_label;
+        if (stmt.has_key(la::LABEL))
+            cont_label = std::string(str_of(stmt.get(la::LABEL.code)));
+        return make_stmt(node_line_, lir::SContinue{std::move(cont_label)});
     }
     if (c == la::DEREF_WRITE) {
         // *ptr = value;
@@ -276,6 +297,62 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
     lir::SBlock sb;
     sb.body = std::move(blk);
     return make_stmt(node_line_, std::move(sb));
+}
+
+lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
+    // let Pat = expr else { block };
+    // The pattern's bindings go into the outer scope after this statement.
+    // Lowering:
+    //   1. Lower scrutinee expression.
+    //   2. Build pattern (determine bindings and their types).
+    //   3. Lower else block in a nested scope (must diverge).
+    //   4. Add pattern bindings to outer scope.
+    //   5. Emit SLetElse { pat, scrut, else_block }.
+
+    // 1. Lower scrutinee
+    lir::LExprPtr scrut = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        : error_expr();
+    const LogosType* scrut_type = scrut->type;
+
+    // 2. Build pattern (this also validates binding types)
+    auto pat_node = map_of(node.get(la::PAT.code));
+    // pattern rule wraps everything in PAT_OR, so unwrap single-element PAT_OR
+    TinyMapView pat_inner = pat_node;
+    if (code_of(pat_node) == la::PAT_OR && pat_node.has_key(la::ITEMS)) {
+        auto arr = arr_of(pat_node.get(la::ITEMS.code));
+        if (arr.size() == 1) pat_inner = map_of(arr.get(0));
+    }
+    lir::Pattern pat = build_pattern(pat_node, scrut_type);
+
+    // 3. Lower else block in nested scope (diverging)
+    push_scope();
+    lir::LBlock else_blk;
+    if (node.has_key(la::BODY)) {
+        else_blk = lower_block(map_of(node.get(la::BODY.code)));
+    }
+    pop_scope();
+
+    // 4. Add pattern bindings to outer scope
+    if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
+        for (size_t i = 0; i < pvd->bindings.size() && i < pvd->binding_types.size(); ++i)
+            define(pvd->bindings[i], pvd->binding_types[i]);
+    } else if (auto* pt = std::get_if<lir::PatTuple>(&pat)) {
+        for (size_t i = 0; i < pt->bindings.size() && i < pt->binding_types.size(); ++i)
+            if (pt->bindings[i] != "_")
+                define(pt->bindings[i], pt->binding_types[i]);
+    } else if (auto* pw = std::get_if<lir::PatWild>(&pat)) {
+        if (pw->name != "_")
+            define(pw->name, scrut_type);
+    }
+    // PatVariant (no bindings) — nothing to define
+
+    // 5. Emit SLetElse
+    lir::SLetElse sle;
+    sle.pat        = std::move(pat);
+    sle.scrut      = std::move(scrut);
+    sle.else_block = std::make_unique<lir::LBlock>(std::move(else_blk));
+    return make_stmt(node_line_, std::move(sle));
 }
 
 lir::LStmt SemaChecker::lower_let(TinyMapView node) {
@@ -753,6 +830,47 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
         return lir::PatBool{bval};
     }
+    if (pc == la::PAT_TUPLE) {
+        // Tuple pattern: (a, b, c) — irrefutable, binds each element.
+        // Scrutinee must be a tuple type.
+        lir::PatTuple pt;
+        if (!scrut_type || scrut_type->kind != LogosType::Kind::Tuple) {
+            error(std::format("tuple pattern requires tuple scrutinee, got {}",
+                  scrut_type ? type_str(scrut_type) : "?"));
+            return lir::PatWild{"_"};
+        }
+        // ITEMS holds an array of pat_single nodes (peg $... collects all captures).
+        // Filter: only PAT_WILD nodes are the actual sub-patterns; LPAREN/RPAREN/COMMA
+        // are not emitted as sub-nodes by the grammar (they are terminals that get
+        // captured into rcap_0 as string tokens, not as sub-maps).
+        // Actually the grammar captures ALL non-terminals into $... so each pat_single
+        // is in ITEMS. Walk the ITEMS array and collect each sub-pattern's binding name.
+        AnyVal items_av = pnode.get(la::ITEMS.code);
+        if (!items_av.is_null() && items_av.is_pointer()) {
+            auto items_arr = arr_of(items_av);
+            for (uint64_t i = 0; i < items_arr.size(); ++i) {
+                auto sub = map_of(items_arr.get(i));
+                int32_t sc = code_of(sub);
+                // Each element in a tuple pattern must be a simple binding (PAT_WILD = identifier)
+                // or _ (wildcard). Nested patterns aren't supported yet.
+                if (sc == la::PAT_WILD.code) {
+                    pt.bindings.push_back(std::string(str_of(sub.get(la::NAME.code))));
+                } else {
+                    // PAT_INT, PAT_BOOL etc. in a tuple pattern — not supported yet.
+                    error("tuple pattern elements must be simple bindings");
+                    pt.bindings.push_back("_");
+                }
+            }
+        }
+        // Verify count matches tuple arity.
+        if (pt.bindings.size() != scrut_type->tuple_elems.size())
+            error(std::format("tuple pattern: expected {} elements, got {}",
+                  scrut_type->tuple_elems.size(), pt.bindings.size()));
+        // Fill binding types from tuple elements.
+        for (size_t i = 0; i < scrut_type->tuple_elems.size(); ++i)
+            pt.binding_types.push_back(scrut_type->tuple_elems[i]);
+        return pt;
+    }
     // PAT_WILD or fallback
     auto wname = str_of(pnode.get(la::NAME.code));
     return lir::PatWild{std::string(wname)};
@@ -764,6 +882,11 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
         for (size_t i = 0; i < pvd->bindings.size() &&
                             i < pvd->binding_types.size(); ++i)
             define(pvd->bindings[i], pvd->binding_types[i]);
+    } else if (auto* pt = std::get_if<lir::PatTuple>(&pat)) {
+        for (size_t i = 0; i < pt->bindings.size() &&
+                            i < pt->binding_types.size(); ++i)
+            if (pt->bindings[i] != "_")
+                define(pt->bindings[i], pt->binding_types[i]);
     } else if (auto* pw = std::get_if<lir::PatWild>(&pat)) {
         if (pw->name != "_" && scrut_type)
             define(pw->name, scrut_type);
@@ -879,6 +1002,10 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
     }
 
     // ── regular while cond { ... } ─────────────────────────────────
+    // Capture label before lowering body (same reason as in lower_for).
+    std::string my_label = std::move(pending_loop_label_);
+    pending_loop_label_.clear();
+
     lir::LExprPtr cond;
     if (node.has_key(la::COND)) {
         cond = lower_expr(map_of(node.get(la::COND.code)));
@@ -893,7 +1020,10 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         *body = lower_block(map_of(node.get(la::BODY.code)));
         --loop_depth_;
     }
-    lir::SWhile sw; sw.cond = std::move(cond); sw.body = std::move(body);
+    lir::SWhile sw;
+    sw.cond  = std::move(cond);
+    sw.body  = std::move(body);
+    sw.label = std::move(my_label);
     return make_stmt(node_line_, std::move(sw));
 }
 
@@ -932,6 +1062,12 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
             var_t = prim(LogosType::Kind::I64);
     }
 
+    // Capture the label NOW, before lowering the body.  If we waited until
+    // after lower_block(), any unlabeled nested loop inside the body would
+    // steal our pending_loop_label_ on its own sf.label assignment.
+    std::string my_label = std::move(pending_loop_label_);
+    pending_loop_label_.clear();
+
     push_scope();
     define(var_name, var_t, true);
     auto body = std::make_unique<lir::LBlock>();
@@ -948,6 +1084,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
     sf.hi        = std::move(hi);
     sf.inclusive = inclusive;
     sf.body      = std::move(body);
+    sf.label     = std::move(my_label);
     return make_stmt(node_line_, std::move(sf));
 }
 
@@ -1129,6 +1266,10 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
+    // Capture label before lowering body (same reason as in lower_for).
+    std::string my_label = std::move(pending_loop_label_);
+    pending_loop_label_.clear();
+
     auto body = std::make_unique<lir::LBlock>();
     const LogosType* saved_break_type = break_value_type_;
     bool saved_break_without_value = break_without_value_;
@@ -1140,7 +1281,8 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
         --loop_depth_;
     }
     lir::SLoop sl;
-    sl.body = std::move(body);
+    sl.body  = std::move(body);
+    sl.label = std::move(my_label);
     if (break_value_type_) {
         sl.result_type = break_value_type_;
         sl.break_slot  = "__loop_val_" + std::to_string(tmp_var_count_++);

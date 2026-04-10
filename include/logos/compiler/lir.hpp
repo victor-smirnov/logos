@@ -56,8 +56,14 @@ struct PatVariantData {
 
 // OR pattern: 1 | 2 | 3 — each alternative must be a non-OR pattern.
 struct PatOr;
-using Pattern = std::variant<PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr>;
-struct PatOr { std::vector<Pattern> alts; };
+// Tuple pattern: (a, b, c) — matches a tuple, binding each element.
+struct PatTuple;
+using Pattern = std::variant<PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr, PatTuple>;
+struct PatOr   { std::vector<Pattern> alts; };
+struct PatTuple {
+    std::vector<std::string>        bindings;      // bound variable names (or "_" to skip)
+    std::vector<const LogosType*>   binding_types; // their types (filled by sema)
+};
 
 struct LMatchArm {
     Pattern                  pat;
@@ -207,6 +213,12 @@ struct EClosureCall {
     std::vector<LExprPtr> args;
 };
 
+// Call via fn(T) -> R bare function pointer (no env_ptr, no fat pointer).
+struct EFnPtrCall {
+    LExprPtr              callee;  // EVarRef to the fn-ptr variable
+    std::vector<LExprPtr> args;
+};
+
 // Slice construction: &arr (whole array → slice) or &arr[lo..hi]
 struct ESliceLit {
     LExprPtr base;    // pointer to first element
@@ -270,7 +282,7 @@ struct LExpr {
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EAddrOfTemp, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
-        EClosureBox, EClosureCall, EFormatCall, EPackExpand,
+        EClosureBox, EClosureCall, EFnPtrCall, EFormatCall, EPackExpand,
         ETry, EMatchExpr, ESizeOf, EBlockExpr
     > kind;
 };
@@ -298,6 +310,7 @@ struct SIf {
 struct SWhile {
     LExprPtr  cond;
     LBlockPtr body;
+    std::string label;  // optional loop label (e.g. "'outer"), empty = unlabeled
 };
 
 struct SFor {
@@ -306,15 +319,17 @@ struct SFor {
     LExprPtr         hi;
     bool             inclusive;
     LBlockPtr        body;
+    std::string      label;  // optional loop label, empty = unlabeled
 };
 
 struct SLoop {
     LBlockPtr        body;
     const LogosType* result_type = nullptr;  // non-null when loop yields a value
     std::string      break_slot;             // alloca name for the break value (non-empty ↔ result_type != null)
+    std::string      label;                  // optional loop label, empty = unlabeled
 };
-struct SBreak     { LExprPtr value; };  // value may be null (plain break)
-struct SContinue  {};
+struct SBreak     { LExprPtr value; std::string label; };  // label: target loop label (may be empty)
+struct SContinue  { std::string label; };                   // label: target loop label (may be empty)
 struct SBlock     { LBlockPtr body; };  // scoping block statement
 
 struct SFieldWrite {
@@ -375,6 +390,14 @@ struct SMatch {
     std::vector<LMatchArm> arms;
 };
 
+// let-else: let Pat = expr else { block (must diverge) };
+// After this statement, the pattern's bindings are in scope.
+struct SLetElse {
+    Pattern               pat;        // the irrefutable-or-test pattern
+    LExprPtr              scrut;      // scrutinee expression
+    LBlockPtr             else_block; // must-diverge block
+};
+
 // Auto-generated drop call: Type__drop(var) at scope exit
 struct SDrop {
     std::string      var_name;
@@ -390,7 +413,7 @@ struct LStmt {
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
         SBreak, SContinue, SBlock, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
-        SDrop, SDerefFieldWrite, STupleWrite
+        SDrop, SDerefFieldWrite, STupleWrite, SLetElse
     > kind;
 };
 

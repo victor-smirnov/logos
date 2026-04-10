@@ -66,6 +66,8 @@
     INDEX          = 43
     IS_MOVE        = 44
     IS_REF         = 45
+    BASE           = 46
+    LABEL          = 47
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -170,6 +172,10 @@
     PAT_NEG_INT           = 138   // negative integer literal in pattern: -42
     PAT_OR                = 139   // OR pattern: pat | pat
     FIELD_SHORTHAND       = 140   // struct field shorthand: Point { x, y }
+    LET_ELSE              = 141   // let Pat = expr else { block };
+    LABELED_LOOP          = 142   // 'label: loop/for/while { }
+    PAT_TUPLE             = 143   // tuple pattern: (a, b, c) =>
+    FN_PTR_TYPE           = 144   // fn(T) -> R — bare function pointer type
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -505,7 +511,7 @@
     impl_type <- KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / impl_type / unit_type / closure_type / tuple_type / assoc_type_ref / simple_type
+    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
 
     // T::Item — associated type reference (type ref :: assoc type name)
     assoc_type_ref <- simple_type
@@ -541,6 +547,14 @@
                       => { ITEMS: $... }
     closure_type <- PIPE closure_type_args PIPE ARROW type_ref
                  => { CODE: CLOSURE_TYPE, PARAMS: $2, RET_TYPE: $5 }
+
+    // fn(T1, T2) -> R — bare function pointer type
+    fn_ptr_type_args <- type_ref (COMMA type_ref)*
+                     => { ITEMS: $... }
+    fn_ptr_type <- KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, PARAMS: $3, RET_TYPE: $6 }
+                / KW_FN LPAREN RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, RET_TYPE: $5 }
 
     // () — unit/void type (empty tuple, equivalent to void)
     unit_type <- LPAREN RPAREN
@@ -582,7 +596,9 @@
                  => { CODE: UNSAFE_BLOCK, BODY: $2 }
 
     // ── Statements ───────────────────────────────────────────────
-    stmt <- let_stmt
+    stmt <- labeled_loop_stmt
+          / let_else_stmt
+          / let_stmt
           / for_stmt
           / while_stmt
           / loop_stmt
@@ -623,12 +639,26 @@
     loop_expr     <- KW_LOOP block
                   => { CODE: LOOP, BODY: $2 }
 
-    break_stmt    <- KW_BREAK expr SEMI
+    // Labeled loop: 'label: for/while/loop { }
+    labeled_loop_stmt <- LIFETIME COLON for_stmt
+                      => { CODE: LABELED_LOOP, LABEL: $1, BODY: $3 }
+                       / LIFETIME COLON while_stmt
+                      => { CODE: LABELED_LOOP, LABEL: $1, BODY: $3 }
+                       / LIFETIME COLON loop_stmt
+                      => { CODE: LABELED_LOOP, LABEL: $1, BODY: $3 }
+
+    break_stmt    <- KW_BREAK LIFETIME expr SEMI
+                  => { CODE: BREAK, LABEL: $2, VALUE: $3 }
+                   / KW_BREAK LIFETIME SEMI
+                  => { CODE: BREAK, LABEL: $2 }
+                   / KW_BREAK expr SEMI
                   => { CODE: BREAK, VALUE: $2 }
                    / KW_BREAK (SEMI / COMMA)
                   => { CODE: BREAK }
 
-    continue_stmt <- KW_CONTINUE (SEMI / COMMA)
+    continue_stmt <- KW_CONTINUE LIFETIME SEMI
+                  => { CODE: CONTINUE, LABEL: $2 }
+                   / KW_CONTINUE (SEMI / COMMA)
                   => { CODE: CONTINUE }
 
     // match expr { Pat => stmt_or_block, ... }
@@ -669,12 +699,18 @@
                => { CODE: PAT_BOOL, VALUE: true }
               / KW_FALSE
                => { CODE: PAT_BOOL, VALUE: false }
+              / LPAREN pat_single COMMA pat_single (COMMA pat_single)* RPAREN
+               => { CODE: PAT_TUPLE, ITEMS: $... }
               / IDENT
                => { CODE: PAT_WILD, NAME: $1 }
 
     // arr[idx] = expr;
     index_write_stmt <- IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
                      => { CODE: INDEX_WRITE, NAME: $1, LHS: $3, VALUE: $6 }
+
+    // let Pat = expr else { block };
+    let_else_stmt <- KW_LET pattern ASSIGN expr KW_ELSE block SEMI
+                  => { CODE: LET_ELSE, PAT: $2, VALUE: $4, BODY: $6 }
 
     let_stmt <- KW_LET LPAREN pat_binding_list RPAREN ASSIGN expr SEMI
              => { CODE: LET_DESTRUCT, NAMES: $3, VALUE: $6 }
@@ -812,6 +848,7 @@
     // ── Primary expressions (base of a postfix chain) ─────────────
     primary_expr <- new_expr         // new ClassName { fields }  — before struct_lit
                   / generic_struct_lit // IDENT::<T> { fields } — before struct_lit
+                  / struct_update_lit  // IDENT { fields, ..base } — before struct_lit
                   / struct_lit       // IDENT { fields }  — before plain IDENT
                   / arr_fill_lit     // [value; N]  — before arr_lit (avoids ambiguity)
                   / arr_lit          // [e1, e2, ...]
@@ -848,6 +885,12 @@
     // Generic form: TypeName::<T, U> { field: expr, ... }
     generic_struct_lit <- IDENT COLONCOLON LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
                        => { CODE: STRUCT_LIT, NAME: $1, TYPE_PARAMS: $4, ITEMS: $... }
+
+    // Struct update syntax: TypeName { field: val, ..base } or TypeName { ..base }
+    struct_update_lit <- IDENT LBRACE field_init (COMMA field_init)* COMMA DOTDOT expr RBRACE
+                      => { CODE: STRUCT_LIT, NAME: $1, ITEMS: $..., BASE: $7 }
+                       / IDENT LBRACE DOTDOT expr RBRACE
+                      => { CODE: STRUCT_LIT, NAME: $1, BASE: $4 }
 
     struct_lit <- IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
                => { CODE: STRUCT_LIT, NAME: $1, ITEMS: $... }

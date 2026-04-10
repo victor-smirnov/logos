@@ -1,0 +1,42 @@
+package tuple_match_pat;
+
+fn sum_pair(t: (i32, i32)) -> i32 {
+    match t {
+        (x, y) => {
+            return x + y;
+        }
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    // Basic tuple pattern in match
+    let t: (i32, i32) = (3, 7);
+    let s: i32 = sum_pair(t);
+    if s != 10 { return 1; }
+
+    // Wildcard in tuple pattern
+    let q: (i32, i32) = (5, 99);
+    let mut first: i32 = 0;
+    match q {
+        (x, _) => {
+            first = x;
+        }
+    }
+    if first != 5 { return 2; }
+
+    // Two separate bindings
+    let p: (i32, i32) = (100, 200);
+    let mut pa: i32 = 0;
+    let mut pb: i32 = 0;
+    match p {
+        (a, b) => {
+            pa = a;
+            pb = b;
+        }
+    }
+    if pa != 100 { return 3; }
+    if pb != 200 { return 4; }
+
+    return 42;
+}

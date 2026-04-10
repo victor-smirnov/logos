@@ -1,0 +1,12 @@
+package struct_update;
+struct Config { x: i32, y: i32, z: i32 }
+fn main() -> i32 {
+    let base = Config { x: 1, y: 2, z: 3 };
+    let p2 = Config { x: 10, ..base };
+    let p3 = Config { ..base };
+    if p2.y != 2 { return 1; }
+    if p2.z != 3 { return 2; }
+    if p3.x != 1 { return 3; }
+    // p2.x=10, p2.y=2, p2.z=3 → 10+2+30=42
+    return p2.x + p2.y + p2.z * 10;
+}

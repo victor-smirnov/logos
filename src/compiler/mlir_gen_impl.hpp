@@ -120,6 +120,7 @@ private:
         mlir::Block*  cont;
         mlir::Block*  exit;
         mlir::Value   break_slot;  // alloca for break-value; null if loop is void
+        std::string   label;       // loop label (e.g. "'outer"), empty = unlabeled
     };
     std::vector<LoopBlocks> loop_stack_;
 
@@ -264,6 +265,7 @@ private:
     void gen_stmt_kind(const SBlock& s);
     void gen_stmt_kind(const SDrop& s);
     void gen_stmt_kind(const SDerefWrite& s);
+    void gen_stmt_kind(const SLetElse& s);
 
     void gen_let(const SLet& s);
     void gen_assign(const SAssign& s);
@@ -313,6 +315,7 @@ private:
     mlir::Value gen_expr_kind(const EClosureBox& box, const LogosType* type);
     mlir::Value gen_closure(const EClosure& e, const LogosType*);
     mlir::Value gen_expr_kind(const EClosureCall& e, const LogosType* type);
+    mlir::Value gen_expr_kind(const EFnPtrCall& e, const LogosType* type);
     mlir::Value gen_expr_kind(const ESliceLit& e, const LogosType*);
     mlir::Value gen_expr_kind(const ESliceIndex& e, const LogosType* type);
     mlir::Value gen_expr_kind(const ESliceLen& e, const LogosType*);

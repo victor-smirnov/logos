@@ -501,6 +501,7 @@ private:
     const LogosType* ret_type_ = nullptr;
     const LogosType* break_value_type_ = nullptr;  // type yielded by break <expr>
     bool break_without_value_ = false;
+    std::string pending_loop_label_;  // set by LABELED_LOOP before lowering inner loop
     bool match_in_tail_position_ = false;
     const LogosType* impl_ret_type_inferred_ = nullptr;
     const LogosType* hint_enum_type_ = nullptr;
@@ -572,6 +573,7 @@ private:
     lir::LBlock lower_block(hermes::TinyMapView block);
     lir::LStmt lower_let_destruct(hermes::TinyMapView node);
     lir::LStmt lower_let(hermes::TinyMapView node);
+    lir::LStmt lower_let_else(hermes::TinyMapView node);
     lir::LStmt lower_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_assign(hermes::TinyMapView node);
     lir::LStmt lower_return(hermes::TinyMapView node);
