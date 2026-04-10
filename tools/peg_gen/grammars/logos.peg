@@ -590,6 +590,8 @@
           / unsafe_block
           / expr SEMI
             => { CODE: EXPR_STMT, VALUE: $1 }
+          / expr
+            => { CODE: EXPR_STMT, VALUE: $1 }
 
     // for i in lo..hi { }  (exclusive) and  for i in lo..=hi { }  (inclusive)
     // for item in array { }  (for-each over fixed-size array)
@@ -615,16 +617,16 @@
 
     match_arm <- pattern KW_IF expr FATARROW block COMMA?
               => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, BODY: $5 }
+              / pattern KW_IF expr FATARROW expr COMMA?
+              => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, EXPR: $5 }
               / pattern KW_IF expr FATARROW stmt
               => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, BODY: $5 }
               / pattern FATARROW block COMMA?
               => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
-              / pattern FATARROW stmt
-              => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
-              / pattern KW_IF expr FATARROW expr COMMA?
-              => { CODE: MATCH_ARM, LHS: $1, GUARD: $3, EXPR: $5 }
               / pattern FATARROW expr COMMA?
               => { CODE: MATCH_ARM, LHS: $1, EXPR: $3 }
+              / pattern FATARROW stmt
+              => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
 
     pat_binding <- IDENT
                 => { CODE: PAT_WILD, NAME: $1 }
