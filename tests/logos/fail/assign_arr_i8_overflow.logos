@@ -1,0 +1,6 @@
+package assign_arr_i8_overflow;
+fn main() -> i32 {
+    let mut arr: [i8; 3] = [0, 0, 0];
+    arr = [1, 200, 3];
+    return 0;
+}

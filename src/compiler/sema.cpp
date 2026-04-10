@@ -3310,6 +3310,15 @@ private:
                         if (!intlit_fits(*v, pt->kind))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee, i + 1, *v, type_str(pt)));
+                // Check array literal elements against narrow array param type.
+                if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                    if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
+                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
+                            if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                    if (!intlit_fits(*v, pt->elem->kind))
+                                        error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
+                                              callee, i + 1, ei, *v, type_str(pt->elem)));
             }
         }
 
@@ -4372,6 +4381,16 @@ private:
                         if (!intlit_fits(*v, ft->kind))
                             error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
                                   sname, fname, *v, type_str(ft)));
+                // Check array literal elements against narrow array field type.
+                if (ft && ft->kind == LogosType::Kind::Array && ft->elem &&
+                    fval->type->kind == LogosType::Kind::Array)
+                    if (auto* al = std::get_if<lir::EArrLit>(&fval->kind))
+                        for (size_t i = 0; i < al->elems.size(); ++i)
+                            if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(al->elems[i].get()))
+                                    if (!intlit_fits(*v, ft->elem->kind))
+                                        error(std::format("struct literal '{}' field '{}': array element {}: value {} does not fit in {}",
+                                              sname, fname, i, *v, type_str(ft->elem)));
             }
         }
         for (auto& [fname, init] : initialized)
@@ -5467,6 +5486,16 @@ private:
                     error(std::format("assignment to '{}': value {} does not fit in {}",
                           name, *v, type_str(var_type)));
         }
+        // Check array literal elements against narrow array variable type.
+        if (rhs->type->kind == LogosType::Kind::Array &&
+            var_type->kind == LogosType::Kind::Array && var_type->elem)
+            if (auto* al = std::get_if<lir::EArrLit>(&rhs->kind))
+                for (size_t i = 0; i < al->elems.size(); ++i)
+                    if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(al->elems[i].get()))
+                            if (!intlit_fits(*v, var_type->elem->kind))
+                                error(std::format("assignment to '{}': array element {}: value {} does not fit in {}",
+                                      name, i, *v, type_str(var_type->elem)));
         // Re-assignment revives the variable (the old value was already consumed).
         moved_vars_.erase(std::string(name));
 
@@ -5503,6 +5532,16 @@ private:
                             error(std::format("return: literal value {} does not fit in {}",
                                   *v, type_str(ret_type_)));
                 }
+                // Detect array literal elements that don't fit in the return element type.
+                if (ret_type_ && ret_type_->kind == LogosType::Kind::Array && ret_type_->elem &&
+                    val->type->kind == LogosType::Kind::Array)
+                    if (auto* al = std::get_if<lir::EArrLit>(&val->kind))
+                        for (size_t i = 0; i < al->elems.size(); ++i)
+                            if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(al->elems[i].get()))
+                                    if (!intlit_fits(*v, ret_type_->elem->kind))
+                                        error(std::format("return: array element {}: value {} does not fit in {}",
+                                              i, *v, type_str(ret_type_->elem)));
                 return make_stmt(node_line_, lir::SReturn{std::move(val)});
             }
         }
@@ -6079,6 +6118,16 @@ private:
                 if (!intlit_fits(*v, ft->kind))
                     error(std::format("field write '{}.{}': value {} does not fit in {}",
                           recv_name, field_name, *v, type_str(ft)));
+        // Check array literal elements against narrow array field type.
+        if (ft && ft->kind == LogosType::Kind::Array && ft->elem &&
+            val->type->kind == LogosType::Kind::Array)
+            if (auto* al = std::get_if<lir::EArrLit>(&val->kind))
+                for (size_t i = 0; i < al->elems.size(); ++i)
+                    if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(al->elems[i].get()))
+                            if (!intlit_fits(*v, ft->elem->kind))
+                                error(std::format("field write '{}.{}': array element {}: value {} does not fit in {}",
+                                      recv_name, field_name, i, *v, type_str(ft->elem)));
         lir::SFieldWrite sfw;
         sfw.receiver = std::string(recv_name);
         sfw.field    = std::string(field_name);

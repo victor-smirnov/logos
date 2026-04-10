@@ -1,0 +1,5 @@
+package call_arr_i8_overflow;
+fn takes_arr(arr: [i8; 3]) -> i32 { return 0; }
+fn main() -> i32 {
+    return takes_arr([1, 200, 3]);
+}

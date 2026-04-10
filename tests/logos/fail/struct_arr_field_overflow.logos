@@ -1,0 +1,6 @@
+package struct_arr_field_overflow;
+struct S { data: [i8; 3]; }
+fn main() -> i32 {
+    let s = S { data: [1, 200, 3] };
+    return 0;
+}
