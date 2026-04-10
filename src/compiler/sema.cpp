@@ -2748,6 +2748,28 @@ private:
             const LogosType* target = expr.has_key(la::TYPE)
                 ? resolve_type(map_of(expr.get(la::TYPE.code)))
                 : error_t();
+            // Reject aggregate-to-primitive casts (struct/class/array/tuple/enum → scalar).
+            if (inner->type && target &&
+                inner->type->kind != LogosType::Kind::Error &&
+                target->kind != LogosType::Kind::Error) {
+                bool src_agg = inner->type->kind == LogosType::Kind::Struct ||
+                               inner->type->kind == LogosType::Kind::Class  ||
+                               inner->type->kind == LogosType::Kind::Array  ||
+                               inner->type->kind == LogosType::Kind::Tuple  ||
+                               inner->type->kind == LogosType::Kind::Enum;
+                bool tgt_scalar = target->kind == LogosType::Kind::I32  ||
+                                  target->kind == LogosType::Kind::I64  ||
+                                  target->kind == LogosType::Kind::U8   ||
+                                  target->kind == LogosType::Kind::I8   ||
+                                  target->kind == LogosType::Kind::U32  ||
+                                  target->kind == LogosType::Kind::U64  ||
+                                  target->kind == LogosType::Kind::F64  ||
+                                  target->kind == LogosType::Kind::Bool ||
+                                  target->kind == LogosType::Kind::Ptr;
+                if (src_agg && tgt_scalar)
+                    error(std::format("cannot cast '{}' to '{}'",
+                          type_str(inner->type), type_str(target)));
+            }
             return make_expr(target, lir::ECast{std::move(inner)});
         }
 
@@ -4760,15 +4782,32 @@ private:
         else
             else_val = lower_expr(else_node);
 
-        // Determine result type
+        // Determine result type: pick the more concrete type when IntLit vs concrete int.
         const LogosType* result_type = then_val->type;
         if (then_val->type->kind == LogosType::Kind::Error)
             result_type = else_val->type;
-        else if (else_val->type->kind != LogosType::Kind::Error &&
-                 !types_compatible(then_val->type, else_val->type) &&
-                 !types_compatible(else_val->type, then_val->type)) {
-            error(std::format("if-expression branches have incompatible types: {} vs {}",
-                  type_str(then_val->type), type_str(else_val->type)));
+        else if (else_val->type->kind != LogosType::Kind::Error) {
+            if (!types_compatible(then_val->type, else_val->type) &&
+                !types_compatible(else_val->type, then_val->type)) {
+                error(std::format("if-expression branches have incompatible types: {} vs {}",
+                      type_str(then_val->type), type_str(else_val->type)));
+            } else {
+                result_type = unify_int(then_val->type, else_val->type);
+            }
+        }
+        // If still IntLit, upgrade to i64 if any branch literal overflows i32.
+        if (result_type->kind == LogosType::Kind::IntLit) {
+            auto intlit_overflow = [](const lir::LExpr* e) -> bool {
+                // Look through block expressions to the final result.
+                if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind))
+                    e = blk->result.get();
+                if (!e) return false;
+                if (auto* lit = std::get_if<lir::ELitInt>(&e->kind))
+                    return lit->value > (int64_t)INT32_MAX || lit->value < (int64_t)INT32_MIN;
+                return false;
+            };
+            if (intlit_overflow(then_val.get()) || intlit_overflow(else_val.get()))
+                result_type = prim(LogosType::Kind::I64);
         }
 
         lir::EIfExpr eif;
@@ -5135,7 +5174,13 @@ private:
             var_type = ann;
         } else {
             var_type = rhs_type;
-            if (var_type->kind == LogosType::Kind::IntLit) var_type = i32_t();
+            if (var_type->kind == LogosType::Kind::IntLit) {
+                // Default IntLit to i32; upgrade to i64 if the literal value overflows i32.
+                var_type = i32_t();
+                if (auto* lit = std::get_if<lir::ELitInt>(&rhs->kind))
+                    if (lit->value > (int64_t)INT32_MAX || lit->value < (int64_t)INT32_MIN)
+                        var_type = prim(LogosType::Kind::I64);
+            }
         }
 
         define(name, var_type, is_mut);
@@ -6182,12 +6227,26 @@ private:
                 lir::LExprPtr val = lower_expr(map_of(arm.get(la::EXPR.code)));
                 if (result_type->kind == LogosType::Kind::Error) {
                     result_type = val->type;
-                } else if (val->type->kind != LogosType::Kind::Error &&
-                           !types_compatible(val->type, result_type) &&
-                           !types_compatible(result_type, val->type)) {
-                    error(std::format(
-                        "match expression: arm type '{}' is incompatible with '{}'",
-                        type_str(val->type), type_str(result_type)));
+                } else if (val->type->kind != LogosType::Kind::Error) {
+                    if (!types_compatible(val->type, result_type) &&
+                        !types_compatible(result_type, val->type)) {
+                        error(std::format(
+                            "match expression: arm type '{}' is incompatible with '{}'",
+                            type_str(val->type), type_str(result_type)));
+                    } else {
+                        result_type = unify_int(result_type, val->type);
+                    }
+                }
+                // Upgrade IntLit result to i64 if any arm literal overflows i32.
+                if (result_type->kind == LogosType::Kind::IntLit) {
+                    const lir::LExpr* ve = val.get();
+                    if (auto* blk = std::get_if<lir::EBlockExpr>(&ve->kind))
+                        ve = blk->result.get();
+                    if (ve) {
+                        if (auto* lit = std::get_if<lir::ELitInt>(&ve->kind))
+                            if (lit->value > (int64_t)INT32_MAX || lit->value < (int64_t)INT32_MIN)
+                                result_type = prim(LogosType::Kind::I64);
+                    }
                 }
 
                 pop_scope();

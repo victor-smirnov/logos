@@ -1,0 +1,10 @@
+package if_expr_i64_else;
+// Bug: if-expr result type was always taken from then-branch.
+// When then-branch is IntLit(5) and else-branch is i64(10000000000),
+// result_type stayed IntLit → coerced to i32 → truncated large value.
+// Fix: unify_int picks the concrete type from either branch.
+fn main() -> i32 {
+    let x: i64 = if false { 5; } else { 10000000000; };
+    if x == 10000000000 { return 0; }
+    return 1;
+}

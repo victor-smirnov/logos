@@ -1,0 +1,8 @@
+package let_intlit_i64;
+// Bug: let x = 10000000000 always inferred i32 for IntLit,
+// truncating the value. Fix: upgrade to i64 when value overflows i32.
+fn main() -> i32 {
+    let x = 10000000000;
+    if x == 10000000000 { return 0; }
+    return 1;
+}
