@@ -1,0 +1,5 @@
+package float_exp_trailing_underscore;
+fn main() -> i32 {
+    let x = 1.0e1_;
+    return x as i32;
+}

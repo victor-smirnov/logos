@@ -64,6 +64,7 @@
     IMPL_TYPE_PARAMS = 41
     IS_UNSAFE      = 42
     INDEX          = 43
+    IS_MOVE        = 44
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -859,10 +860,18 @@
     // |x: i32, y: i32| -> i32 { return x + y; }
     // |x: i32| { return x + 1; }
     // || -> i32 { return 42; }
-    closure_expr <- KW_MOVE PIPE param_list? PIPE ARROW type_ref block
-                 => { CODE: CLOSURE_EXPR, PARAMS: $3, RET_TYPE: $6, BODY: $7 }
+    closure_expr <- KW_MOVE OR ARROW type_ref block
+                 => { CODE: CLOSURE_EXPR, IS_MOVE: 1, RET_TYPE: $4, BODY: $5 }
+                  / KW_MOVE OR block
+                 => { CODE: CLOSURE_EXPR, IS_MOVE: 1, BODY: $3 }
+                  / KW_MOVE PIPE param_list? PIPE ARROW type_ref block
+                 => { CODE: CLOSURE_EXPR, IS_MOVE: 1, PARAMS: $3, RET_TYPE: $6, BODY: $7 }
                   / KW_MOVE PIPE param_list? PIPE block
-                 => { CODE: CLOSURE_EXPR, PARAMS: $3, BODY: $5 }
+                 => { CODE: CLOSURE_EXPR, IS_MOVE: 1, PARAMS: $3, BODY: $5 }
+                  / OR ARROW type_ref block
+                 => { CODE: CLOSURE_EXPR, RET_TYPE: $3, BODY: $4 }
+                  / OR block
+                 => { CODE: CLOSURE_EXPR, BODY: $2 }
                   / PIPE param_list? PIPE ARROW type_ref block
                  => { CODE: CLOSURE_EXPR, PARAMS: $2, RET_TYPE: $5, BODY: $6 }
                   / PIPE param_list? PIPE block

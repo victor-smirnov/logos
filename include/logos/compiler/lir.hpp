@@ -404,6 +404,7 @@ struct EClosure {
     std::vector<LParam>             params;
     const LogosType*                ret_type = nullptr;
     LBlock                          body;
+    bool                            is_move = false;
     std::vector<std::string>        captures;
     std::vector<const LogosType*>   capture_types;
 };

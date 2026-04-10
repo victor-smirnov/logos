@@ -1,0 +1,6 @@
+package closure_zero_arity;
+
+fn main() -> i32 {
+    let f = || -> i32 { return 7; };
+    return f();
+}

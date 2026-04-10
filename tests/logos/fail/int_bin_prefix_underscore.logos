@@ -1,0 +1,5 @@
+package int_bin_prefix_underscore;
+fn main() -> i32 {
+    let x = 0b_10;
+    return x as i32;
+}

@@ -29,6 +29,10 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
 
     case la::LIT_INT: {
         auto sv = str_of(expr.get(la::VALUE.code));
+        if (!valid_int_literal_format(sv)) {
+            error(std::format("malformed integer literal '{}'", sv));
+            return error_expr();
+        }
         int64_t v = parse_int_literal(sv);
         auto suf = int_suffix_kind(sv);
         const LogosType* t = (suf != LogosType::Kind::Error) ? prim(suf) : intlit_t();
@@ -36,6 +40,10 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     }
     case la::LIT_FLOAT: {
         auto sv = str_of(expr.get(la::VALUE.code));
+        if (!valid_float_literal_format(sv)) {
+            error(std::format("malformed float literal '{}'", sv));
+            return error_expr();
+        }
         std::string s(sv);
         s.erase(std::remove(s.begin(), s.end(), '_'), s.end());
         // Strip optional float suffix before passing to stod
@@ -2961,6 +2969,9 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
 
 lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     auto closure_id = "__closure_" + std::to_string(closure_counter_++);
+    bool is_move = node.has_key(la::IS_MOVE) &&
+                   !node.get(la::IS_MOVE.code).is_null() &&
+                   node.get(la::IS_MOVE.code).as_value<int32_t>() != 0;
 
     // Parse parameters
     std::vector<lir::LParam> params;
@@ -3084,8 +3095,16 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ec->params        = std::move(params);
     ec->ret_type      = ret_type;
     ec->body          = std::move(body);
+    ec->is_move       = is_move;
     ec->captures      = std::move(captures);
     ec->capture_types = std::move(capture_types);
+
+    if (is_move) {
+        for (size_t i = 0; i < ec->captures.size(); ++i) {
+            if (is_move_type(ec->capture_types[i]))
+                mark_moved(ec->captures[i]);
+        }
+    }
 
     auto* ctype = make_closure_type(std::move(param_types), ret_type);
     return make_expr(ctype, lir::EClosureBox{std::move(ec)});

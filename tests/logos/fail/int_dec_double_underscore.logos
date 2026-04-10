@@ -1,0 +1,5 @@
+package int_dec_double_underscore;
+fn main() -> i32 {
+    let x = 1__2;
+    return x;
+}

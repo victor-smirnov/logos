@@ -698,6 +698,100 @@ inline int64_t parse_int_literal(std::string_view sv) noexcept {
     return negative ? -result : result;
 }
 
+template <class Pred>
+inline bool valid_digit_groups(std::string_view sv, Pred pred) noexcept {
+    if (sv.empty()) return false;
+    bool prev_us = false;
+    for (size_t i = 0; i < sv.size(); ++i) {
+        char c = sv[i];
+        if (c == '_') {
+            if (i == 0 || i + 1 == sv.size() || prev_us) return false;
+            prev_us = true;
+            continue;
+        }
+        if (!pred(c)) return false;
+        prev_us = false;
+    }
+    return true;
+}
+
+inline bool valid_int_literal_format(std::string_view sv) noexcept {
+    if (sv.empty()) return false;
+    size_t start = (sv.front() == '-') ? 1 : 0;
+    if (start >= sv.size()) return false;
+
+    static constexpr std::string_view suffixes[] = {
+        "usize", "isize", "i64", "i32", "i16", "i8", "u64", "u32", "u16", "u8"
+    };
+    size_t suffix_len = 0;
+    for (auto sfx : suffixes) {
+        if (sv.size() >= start + sfx.size() && sv.substr(sv.size() - sfx.size()) == sfx) {
+            suffix_len = sfx.size();
+            break;
+        }
+    }
+
+    size_t body_end = sv.size() - suffix_len;
+    size_t body_start = start;
+    auto is_dec = [](char c) { return c >= '0' && c <= '9'; };
+    auto is_hex = [](char c) {
+        return (c >= '0' && c <= '9') ||
+               (c >= 'a' && c <= 'f') ||
+               (c >= 'A' && c <= 'F');
+    };
+    auto is_bin = [](char c) { return c == '0' || c == '1'; };
+    auto is_oct = [](char c) { return c >= '0' && c <= '7'; };
+
+    if (body_end >= body_start + 2 && sv[body_start] == '0') {
+        char p = sv[body_start + 1];
+        if (p == 'x' || p == 'X') {
+            body_start += 2;
+            return valid_digit_groups(sv.substr(body_start, body_end - body_start), is_hex);
+        }
+        if (p == 'b' || p == 'B') {
+            body_start += 2;
+            return valid_digit_groups(sv.substr(body_start, body_end - body_start), is_bin);
+        }
+        if (p == 'o' || p == 'O') {
+            body_start += 2;
+            return valid_digit_groups(sv.substr(body_start, body_end - body_start), is_oct);
+        }
+    }
+    return valid_digit_groups(sv.substr(body_start, body_end - body_start), is_dec);
+}
+
+inline bool valid_float_literal_format(std::string_view sv) noexcept {
+    if (sv.empty()) return false;
+    size_t start = (sv.front() == '-') ? 1 : 0;
+    if (start >= sv.size()) return false;
+
+    size_t suffix_len = 0;
+    if (sv.size() >= start + 3 &&
+        (sv.substr(sv.size() - 3) == "f32" || sv.substr(sv.size() - 3) == "f64"))
+        suffix_len = 3;
+
+    std::string_view main = sv.substr(start, sv.size() - start - suffix_len);
+    size_t dot = main.find('.');
+    if (dot == std::string_view::npos) return false;
+
+    auto is_dec = [](char c) { return c >= '0' && c <= '9'; };
+    if (!valid_digit_groups(main.substr(0, dot), is_dec)) return false;
+
+    size_t exp = main.find_first_of("eE", dot + 1);
+    std::string_view frac = (exp == std::string_view::npos)
+        ? main.substr(dot + 1)
+        : main.substr(dot + 1, exp - dot - 1);
+    if (!valid_digit_groups(frac, is_dec)) return false;
+
+    if (exp != std::string_view::npos) {
+        size_t exp_start = exp + 1;
+        if (exp_start < main.size() && (main[exp_start] == '+' || main[exp_start] == '-'))
+            ++exp_start;
+        if (!valid_digit_groups(main.substr(exp_start), is_dec)) return false;
+    }
+    return true;
+}
+
 // Returns the LogosType::Kind for a numeric suffix like "i32", "u64", "f32".
 // Returns Kind::Error if sv has no recognised suffix.
 inline LogosType::Kind int_suffix_kind(std::string_view sv) noexcept {

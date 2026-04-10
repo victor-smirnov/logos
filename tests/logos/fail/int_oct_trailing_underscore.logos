@@ -1,0 +1,5 @@
+package int_oct_trailing_underscore;
+fn main() -> i32 {
+    let x = 0o7_;
+    return x as i32;
+}

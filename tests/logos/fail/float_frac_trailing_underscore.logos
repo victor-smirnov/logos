@@ -1,0 +1,5 @@
+package float_frac_trailing_underscore;
+fn main() -> i32 {
+    let x = 1.0_;
+    return x as i32;
+}

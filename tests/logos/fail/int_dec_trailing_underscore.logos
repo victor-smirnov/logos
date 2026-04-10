@@ -1,0 +1,5 @@
+package int_dec_trailing_underscore;
+fn main() -> i32 {
+    let x = 1_;
+    return x;
+}

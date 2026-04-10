@@ -1,0 +1,11 @@
+package move_closure_use_after_move;
+
+struct Box {
+    x: i32,
+}
+
+fn main() -> i32 {
+    let b = Box { x: 7 };
+    let f = move |y: i32| -> i32 { return b.x + y; };
+    return b.x + f(1);
+}

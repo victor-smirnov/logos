@@ -1,0 +1,5 @@
+package int_hex_trailing_underscore;
+fn main() -> i32 {
+    let x = 0xFF_;
+    return x as i32;
+}

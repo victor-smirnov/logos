@@ -1,0 +1,5 @@
+package int_oct_prefix_underscore;
+fn main() -> i32 {
+    let x = 0o_7;
+    return x as i32;
+}

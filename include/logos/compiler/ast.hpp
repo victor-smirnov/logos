@@ -211,6 +211,7 @@ inline constexpr Key NAMES     {"NAMES",     37};            // name list for tu
 inline constexpr Key WHERE     {"WHERE",     38};            // where clause node
 inline constexpr Key IS_CONST  {"IS_CONST",  39};            // const fn marker
 inline constexpr Key IS_UNSAFE {"IS_UNSAFE", 42};            // unsafe fn marker
+inline constexpr Key IS_MOVE   {"IS_MOVE",   44};            // move closure marker
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;
