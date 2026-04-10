@@ -34,7 +34,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::LIT_FLOAT: {
         auto sv = str_of(expr.get(la::VALUE.code));
         double v = std::stod(std::string(sv));
-        return make_expr(prim(LogosType::Kind::F64), lir::ELitFloat{v});
+        return make_expr(prim(LogosType::Kind::FloatLit), lir::ELitFloat{v});
     }
     case la::LIT_BOOL: {
         AnyVal av = expr.get(la::VALUE.code);
@@ -99,6 +99,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                               target->kind == LogosType::Kind::U32  ||
                               target->kind == LogosType::Kind::U64  ||
                               target->kind == LogosType::Kind::F64  ||
+                              target->kind == LogosType::Kind::F32  ||
                               target->kind == LogosType::Kind::Bool ||
                               target->kind == LogosType::Kind::Ptr;
             if (src_agg && tgt_scalar)

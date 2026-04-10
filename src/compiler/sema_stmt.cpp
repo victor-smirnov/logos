@@ -303,6 +303,10 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             error(std::format("let '{}': type mismatch — expected {}, got {}",
                   name, type_str(ann), type_str(rhs_type)));
         }
+        // Retype float literal to concrete annotation type (f32 or f64).
+        if (rhs_type->kind == LogosType::Kind::FloatLit && ann &&
+            (ann->kind == LogosType::Kind::F32 || ann->kind == LogosType::Kind::F64))
+            rhs->type = ann;
         // Detect integer literals that don't fit in the annotated type.
         if (rhs_type->kind == LogosType::Kind::IntLit && ann->kind != LogosType::Kind::Error) {
             if (auto v = get_intlit_value(rhs.get()))
@@ -367,6 +371,11 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             if (auto* lit = std::get_if<lir::ELitInt>(&rhs->kind))
                 if (lit->value > (int64_t)INT32_MAX || lit->value < (int64_t)INT32_MIN)
                     var_type = prim(LogosType::Kind::I64);
+        }
+        if (var_type->kind == LogosType::Kind::FloatLit) {
+            // Default FloatLit to f64.
+            var_type = prim(LogosType::Kind::F64);
+            rhs->type = var_type;
         }
     }
 
@@ -512,6 +521,12 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 error(std::format("return type mismatch — expected {}, got {}",
                       type_str(ret_type_), type_str(val->type)));
             }
+            // Retype float literal to concrete return type.
+            if (ret_type_ && val->type->kind == LogosType::Kind::FloatLit &&
+                (ret_type_->kind == LogosType::Kind::F32 || ret_type_->kind == LogosType::Kind::F64))
+                val->type = ret_type_;
+            else if (val->type->kind == LogosType::Kind::FloatLit)
+                val->type = prim(LogosType::Kind::F64);
             // Detect integer literals that don't fit in the return type.
             if (ret_type_ && val->type->kind == LogosType::Kind::IntLit &&
                 ret_type_->kind != LogosType::Kind::Error) {

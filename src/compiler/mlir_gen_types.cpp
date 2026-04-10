@@ -21,6 +21,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
     case LogosType::Kind::I32:    return builder_.getI32Type();
     case LogosType::Kind::I64:    return builder_.getI64Type();
     case LogosType::Kind::F64:    return builder_.getF64Type();
+    case LogosType::Kind::F32:    return builder_.getF32Type();
     case LogosType::Kind::Bool:   return builder_.getI1Type();
     case LogosType::Kind::U8:     return builder_.getIntegerType(8);
     case LogosType::Kind::I8:     return builder_.getIntegerType(8);
@@ -28,7 +29,8 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
     case LogosType::Kind::U16:    return builder_.getIntegerType(16);
     case LogosType::Kind::U32:    return builder_.getIntegerType(32);
     case LogosType::Kind::U64:    return builder_.getIntegerType(64);
-    case LogosType::Kind::IntLit: return builder_.getI32Type();
+    case LogosType::Kind::IntLit:   return builder_.getI32Type();
+    case LogosType::Kind::FloatLit: return builder_.getF64Type();
     case LogosType::Kind::Enum: {
         // Tagged enums are passed by pointer; C-style enums are i32.
         if (resolve_tagged_enum(t->enum_name, t)) return ptr_type();

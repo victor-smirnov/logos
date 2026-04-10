@@ -43,7 +43,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitInt& e, const LogosType* type) 
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value, width);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitFloat& e, const LogosType*) {
+mlir::Value MLIRGenImpl::gen_expr_kind(const ELitFloat& e, const LogosType* type) {
+    bool is_f32 = type && type->kind == LogosType::Kind::F32;
+    if (is_f32) {
+        auto f32 = builder_.getF32Type();
+        return builder_.create<mlir::arith::ConstantFloatOp>(
+            loc_, f32, llvm::APFloat(float(e.value)));
+    }
     auto f64 = builder_.getF64Type();
     return builder_.create<mlir::arith::ConstantFloatOp>(
         loc_, f64, llvm::APFloat(e.value));
@@ -695,6 +701,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
         if (src_unsigned)
             return builder_.create<mlir::arith::UIToFPOp>(loc_, target, val);
         return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
+    }
+    // float → float (truncate or extend)
+    if (mlir::dyn_cast<mlir::FloatType>(val.getType()) &&
+        mlir::dyn_cast<mlir::FloatType>(target)) {
+        auto fv = mlir::cast<mlir::FloatType>(val.getType());
+        auto ft = mlir::cast<mlir::FloatType>(target);
+        if (ft.getWidth() < fv.getWidth())
+            return builder_.create<mlir::arith::TruncFOp>(loc_, target, val);
+        return builder_.create<mlir::arith::ExtFOp>(loc_, target, val);
     }
     if (mlir::dyn_cast<mlir::FloatType>(val.getType()) &&
         mlir::dyn_cast<mlir::IntegerType>(target)) {

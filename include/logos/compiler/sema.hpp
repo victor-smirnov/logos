@@ -24,7 +24,7 @@ namespace logos::compiler {
 struct LogosType {
     enum class Kind {
         Void,                     // no return value
-        I32, I64, F64, Bool, U8,  // signed/float/bool primitives
+        I32, I64, F64, F32, Bool, U8,  // signed/float/bool primitives
         I8, I16, U16, U32, U64,   // additional integer types
         Ptr,                      // *const T / *mut T  (raw/unsafe pointer)
         Ref,                      // &T     — shared reference (borrow-checked)
@@ -39,6 +39,7 @@ struct LogosType {
         TraitObject,              // &dyn Trait — fat pointer {data, vtable}
         TypeVar,                  // abstract type variable (e.g. T in fn f<T>)
         IntLit,                   // unresolved integer literal (widens to any integer)
+        FloatLit,                 // unresolved float literal (widens to f32 or f64, defaults to f64)
         AssocType,                // T::Item — type param's associated type (resolved by mono)
         ImplTrait,                // impl Trait — opaque return type, resolved during lowering
         ConstVar,                 // [NEW] symbolic constant parameter (Bug 13)

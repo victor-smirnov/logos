@@ -703,6 +703,7 @@ const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
     if (name == "i32")  return prim(LogosType::Kind::I32);
     if (name == "i64")  return prim(LogosType::Kind::I64);
     if (name == "f64")  return prim(LogosType::Kind::F64);
+    if (name == "f32")  return prim(LogosType::Kind::F32);
     if (name == "bool") return prim(LogosType::Kind::Bool);
     if (name == "u8")   return prim(LogosType::Kind::U8);
     if (name == "i8")   return prim(LogosType::Kind::I8);
@@ -720,7 +721,7 @@ const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
 
 bool SemaChecker::is_known_type_name(std::string_view name) const {
     static constexpr const char* prims[] = {
-        "i32","i64","f64","bool","u8","i8","u32","u64","void",nullptr
+        "i32","i64","f64","f32","bool","u8","i8","u32","u64","void",nullptr
     };
     for (int i = 0; prims[i]; ++i) if (prims[i] == name) return true;
     return structs_.count(std::string(name)) ||

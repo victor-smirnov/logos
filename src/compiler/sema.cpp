@@ -136,6 +136,9 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
     if (types_equal(*from, *to)) return true;
     if (from->kind == LogosType::Kind::IntLit && is_integer_kind(to->kind)) return true;
     if (from->kind == LogosType::Kind::IntLit && to->kind == LogosType::Kind::TypeVar) return true;
+    if (from->kind == LogosType::Kind::FloatLit &&
+        (to->kind == LogosType::Kind::F32 || to->kind == LogosType::Kind::F64 ||
+         to->kind == LogosType::Kind::TypeVar)) return true;
     if (from->kind == LogosType::Kind::Enum   && is_integer_kind(to->kind)) return true;
     if (is_integer_kind(from->kind) && to->kind == LogosType::Kind::Enum)   return true;
     if (from->kind == LogosType::Kind::Array &&
@@ -191,6 +194,7 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::I32:    return "i32";
     case LogosType::Kind::I64:    return "i64";
     case LogosType::Kind::F64:    return "f64";
+    case LogosType::Kind::F32:    return "f32";
     case LogosType::Kind::Bool:   return "bool";
     case LogosType::Kind::U8:     return "u8";
     case LogosType::Kind::I8:     return "i8";
@@ -198,7 +202,8 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::U16:    return "u16";
     case LogosType::Kind::U32:    return "u32";
     case LogosType::Kind::U64:    return "u64";
-    case LogosType::Kind::IntLit: return "{integer}";
+    case LogosType::Kind::IntLit:   return "{integer}";
+    case LogosType::Kind::FloatLit: return "{float}";
     case LogosType::Kind::Ptr:
         return std::string(t->mut_ptr ? "*mut " : "*const ") + type_str(t->pointee);
     case LogosType::Kind::Ref: {
@@ -288,6 +293,7 @@ void SemaChecker::init_primitives() {
     ap(LogosType::Kind::I32);
     ap(LogosType::Kind::I64);
     ap(LogosType::Kind::F64);
+    ap(LogosType::Kind::F32);
     ap(LogosType::Kind::Bool);
     ap(LogosType::Kind::U8);
     ap(LogosType::Kind::I8);
@@ -296,6 +302,7 @@ void SemaChecker::init_primitives() {
     ap(LogosType::Kind::U32);
     ap(LogosType::Kind::U64);
     ap(LogosType::Kind::IntLit);
+    ap(LogosType::Kind::FloatLit);
     ap(LogosType::Kind::Error);
 }
 
@@ -303,6 +310,7 @@ const LogosType* SemaChecker::lookup_type_by_name(std::string_view name) {
     if (name == "i32")  return prim(LogosType::Kind::I32);
     if (name == "i64")  return prim(LogosType::Kind::I64);
     if (name == "f64")  return prim(LogosType::Kind::F64);
+    if (name == "f32")  return prim(LogosType::Kind::F32);
     if (name == "bool") return prim(LogosType::Kind::Bool);
     if (name == "u8")   return prim(LogosType::Kind::U8);
     if (name == "i8")   return prim(LogosType::Kind::I8);
