@@ -862,7 +862,7 @@
                  => { CODE: ARR_FILL_LIT, VALUE: $2, SIZE: $4 }
 
     // ── Array literal: [e1, e2, ...] ─────────────────────────────
-    arr_lit <- LBRACKET (expr (COMMA expr)*)? RBRACKET
+    arr_lit <- LBRACKET (expr (COMMA expr)* COMMA?)? RBRACKET
             => { CODE: ARR_LIT, ITEMS: $... }
 
     // ── Tuple literal: (expr, expr, ...) — 2+ elements ────────────

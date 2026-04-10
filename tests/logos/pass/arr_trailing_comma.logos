@@ -1,0 +1,18 @@
+package arr_trailing_comma;
+// Trailing comma in array literal: [1, 2, 3,]
+
+fn sum(arr: [i32; 4]) -> i32 {
+    let mut s: i32 = 0;
+    for x in arr { s += x; }
+    return s;
+}
+
+fn main() -> i32 {
+    let a: [i32; 4] = [
+        10,
+        11,
+        12,
+        9,   // trailing comma
+    ];
+    return sum(a);  // 10+11+12+9 = 42
+}
