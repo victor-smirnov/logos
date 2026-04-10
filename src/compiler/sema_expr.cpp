@@ -177,6 +177,30 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::MATCH:       return lower_match_expr(expr);
     case la::CLOSURE_EXPR: return lower_closure_expr(expr);
 
+    case la::LOOP: {
+        // loop { ... } used as an expression — only valid when all break paths carry a value.
+        auto loop_stmt = lower_loop(expr);
+        const LogosType* result_type = nullptr;
+        std::string break_slot;
+        if (auto* sl = std::get_if<lir::SLoop>(&loop_stmt.kind)) {
+            result_type = sl->result_type;
+            break_slot  = sl->break_slot;
+        }
+        if (!result_type || break_slot.empty()) {
+            // loop never yields — treat as void (infinite loop used as stmt-expr)
+            auto block = std::make_unique<lir::LBlock>();
+            block->stmts.push_back(std::move(loop_stmt));
+            return make_expr(void_t(), lir::EBlockExpr{std::move(block), nullptr});
+        }
+        // Wrap: { loop { ... }; __loop_val }
+        // gen_loop allocates the break slot alloca and registers it in scope_;
+        // we just read it back via EVarRef after the loop exits.
+        auto block = std::make_unique<lir::LBlock>();
+        block->stmts.push_back(std::move(loop_stmt));
+        auto slot_ref = make_expr(result_type, lir::EVarRef{break_slot});
+        return make_expr(result_type, lir::EBlockExpr{std::move(block), std::move(slot_ref)});
+    }
+
     case la::UNSAFE_BLOCK: {
         if (!expr.has_key(la::BODY)) return error_expr();
         auto inner = map_of(expr.get(la::BODY.code));

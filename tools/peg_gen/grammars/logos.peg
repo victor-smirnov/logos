@@ -608,7 +608,12 @@
     loop_stmt     <- KW_LOOP block
                   => { CODE: LOOP, BODY: $2 }
 
-    break_stmt    <- KW_BREAK (SEMI / COMMA)
+    loop_expr     <- KW_LOOP block
+                  => { CODE: LOOP, BODY: $2 }
+
+    break_stmt    <- KW_BREAK expr SEMI
+                  => { CODE: BREAK, VALUE: $2 }
+                   / KW_BREAK (SEMI / COMMA)
                   => { CODE: BREAK }
 
     continue_stmt <- KW_CONTINUE (SEMI / COMMA)
@@ -796,6 +801,7 @@
                   / paren_expr       // (expr)
                   / closure_expr     // |x: i32| -> i32 { ... }
                   / unsafe_block     // unsafe { ... }  — as expression
+                  / loop_expr        // loop { ... }  — as expression (break value)
                   / if_expr          // if cond { ... } else { ... }  — as expression
                   / match_stmt       // match expr { ... }  — as expression
                   / call_expr        // IDENT(args) / Class::method(args) — before enum_lit/IDENT

@@ -116,7 +116,11 @@ private:
     const LogosType*                              cur_fn_ret_logos_type_ = nullptr;
     bool                                          in_llvm_func_ = false;
 
-    struct LoopBlocks { mlir::Block* cont; mlir::Block* exit; };
+    struct LoopBlocks {
+        mlir::Block*  cont;
+        mlir::Block*  exit;
+        mlir::Value   break_slot;  // alloca for break-value; null if loop is void
+    };
     std::vector<LoopBlocks> loop_stack_;
 
     int str_counter_ = 0;
@@ -268,7 +272,7 @@ private:
     void gen_while(const SWhile& s);
     void gen_for(const SFor& s);
     void gen_loop(const SLoop& s);
-    void gen_break();
+    void gen_break(const SBreak& s);
     void gen_continue();
     void gen_for_each(const SForEach& s);
     void gen_field_write(const SFieldWrite& s);

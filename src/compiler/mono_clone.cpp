@@ -499,15 +499,22 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             ns.kind      = std::move(nf);
 
         } else if constexpr (std::is_same_v<K, lir::SLoop>) {
-            ns.kind = lir::SLoop{
-                std::make_unique<lir::LBlock>(subst_block(*k.body, s))};
+            lir::SLoop nl;
+            nl.body        = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
+            nl.result_type = k.result_type;
+            nl.break_slot  = k.break_slot;
+            ns.kind        = std::move(nl);
 
         } else if constexpr (std::is_same_v<K, lir::SBlock>) {
             ns.kind = lir::SBlock{
                 std::make_unique<lir::LBlock>(subst_block(*k.body, s))};
 
-        } else if constexpr (std::is_same_v<K, lir::SBreak> ||
-                             std::is_same_v<K, lir::SContinue>) {
+        } else if constexpr (std::is_same_v<K, lir::SBreak>) {
+            lir::SBreak nb;
+            if (k.value) nb.value = subst_expr(*k.value, s);
+            ns.kind = std::move(nb);
+
+        } else if constexpr (std::is_same_v<K, lir::SContinue>) {
             ns.kind = k;
 
         } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {

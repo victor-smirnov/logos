@@ -105,7 +105,14 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     }
     if (c == la::BREAK) {
         if (loop_depth_ == 0) error("'break' outside loop");
-        return make_stmt(node_line_, lir::SBreak{});
+        lir::LExprPtr bval;
+        if (stmt.has_key(la::VALUE)) {
+            bval = lower_expr(map_of(stmt.get(la::VALUE.code)));
+            // Record type for the enclosing loop to pick up
+            if (bval && bval->type && bval->type->kind != LogosType::Kind::Error)
+                break_value_type_ = bval->type;
+        }
+        return make_stmt(node_line_, lir::SBreak{std::move(bval)});
     }
     if (c == la::CONTINUE) {
         if (loop_depth_ == 0) error("'continue' outside loop");
@@ -1090,12 +1097,21 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
 lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     auto body = std::make_unique<lir::LBlock>();
+    const LogosType* saved_break_type = break_value_type_;
+    break_value_type_ = nullptr;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         *body = lower_block(map_of(node.get(la::BODY.code)));
         --loop_depth_;
     }
-    return make_stmt(node_line_, lir::SLoop{std::move(body)});
+    lir::SLoop sl;
+    sl.body = std::move(body);
+    if (break_value_type_) {
+        sl.result_type = break_value_type_;
+        sl.break_slot  = "__loop_val_" + std::to_string(tmp_var_count_++);
+    }
+    break_value_type_ = saved_break_type;  // restore for outer loops
+    return make_stmt(node_line_, std::move(sl));
 }
 
 lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {

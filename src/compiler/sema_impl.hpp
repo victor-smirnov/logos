@@ -498,6 +498,7 @@ private:
     int loop_depth_ = 0;
     bool inside_unsafe_ = false;
     const LogosType* ret_type_ = nullptr;
+    const LogosType* break_value_type_ = nullptr;  // type yielded by break <expr>
     bool match_in_tail_position_ = false;
     const LogosType* impl_ret_type_inferred_ = nullptr;
     const LogosType* hint_enum_type_ = nullptr;

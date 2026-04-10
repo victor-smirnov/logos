@@ -36,7 +36,7 @@ void MLIRGenImpl::gen_stmt_kind(const SIf& s)          { gen_if(s); }
 void MLIRGenImpl::gen_stmt_kind(const SWhile& s)       { gen_while(s); }
 void MLIRGenImpl::gen_stmt_kind(const SFor& s)         { gen_for(s); }
 void MLIRGenImpl::gen_stmt_kind(const SLoop& s)        { gen_loop(s); }
-void MLIRGenImpl::gen_stmt_kind(const SBreak&)         { gen_break(); }
+void MLIRGenImpl::gen_stmt_kind(const SBreak& s)       { gen_break(s); }
 void MLIRGenImpl::gen_stmt_kind(const SContinue&)      { gen_continue(); }
 void MLIRGenImpl::gen_stmt_kind(const SFieldWrite& s)       { gen_field_write(s); }
 void MLIRGenImpl::gen_stmt_kind(const STupleWrite& s)       { gen_tuple_write(s); }
@@ -532,7 +532,7 @@ void MLIRGenImpl::gen_while(const SWhile& s) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
     builder_.setInsertionPointToStart(body_block);
-    loop_stack_.push_back({cond_block, exit_block});
+    loop_stack_.push_back({cond_block, exit_block, {}});
     gen_block(*s.body);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
@@ -614,7 +614,7 @@ void MLIRGenImpl::gen_for(const SFor& s) {
 
     builder_.setInsertionPointToStart(body_block);
     // continue → incr_block (so that i is incremented before re-checking)
-    loop_stack_.push_back({incr_block, exit_block});
+    loop_stack_.push_back({incr_block, exit_block, {}});
     gen_block(*s.body);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
@@ -651,10 +651,25 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
     region->push_back(loop_block);
     region->push_back(exit_block);
 
+    // Allocate break-value slot before the loop block, if needed.
+    mlir::Value break_slot;
+    if (!s.break_slot.empty() && s.result_type) {
+        mlir::Type slot_ty = logos_to_mlir(s.result_type);
+        if (slot_ty) {
+            auto ptr_ty = mlir::LLVM::LLVMPointerType::get(builder_.getContext());
+            break_slot  = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_ty, slot_ty, builder_.create<mlir::LLVM::ConstantOp>(
+                    loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(1)));
+            scope_[s.break_slot]          = break_slot;
+            let_vars_.insert(s.break_slot);
+            var_elem_types_[s.break_slot] = slot_ty;
+        }
+    }
+
     builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
 
     builder_.setInsertionPointToStart(loop_block);
-    loop_stack_.push_back({loop_block, exit_block});
+    loop_stack_.push_back({loop_block, exit_block, break_slot});
     gen_block(*s.body);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
@@ -667,9 +682,16 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
 // gen_break / gen_continue
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_break() {
+void MLIRGenImpl::gen_break(const SBreak& s) {
     if (loop_stack_.empty()) return;
-    builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_.back().exit);
+    auto& top = loop_stack_.back();
+    // Store break value into the slot if present.
+    if (s.value && top.break_slot) {
+        mlir::Value val = gen_expr(*s.value);
+        if (val)
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, top.break_slot);
+    }
+    builder_.create<mlir::cf::BranchOp>(loc_, top.exit);
 }
 
 void MLIRGenImpl::gen_continue() {
@@ -741,7 +763,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
         var_elem_types_[s.var] = elem_mlir;
         let_vars_.insert(s.var);
 
-        loop_stack_.push_back({incr_block, exit_block});
+        loop_stack_.push_back({incr_block, exit_block, {}});
         gen_block(*s.body);
         loop_stack_.pop_back();
 
@@ -828,7 +850,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
     auto* incr_block = new mlir::Block();
     region->push_back(incr_block);
 
-    loop_stack_.push_back({incr_block, exit_block});
+    loop_stack_.push_back({incr_block, exit_block, {}});
     gen_block(*s.body);
     loop_stack_.pop_back();
 

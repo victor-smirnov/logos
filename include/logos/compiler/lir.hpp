@@ -298,8 +298,12 @@ struct SFor {
     LBlockPtr        body;
 };
 
-struct SLoop      { LBlockPtr body; };
-struct SBreak     {};
+struct SLoop {
+    LBlockPtr        body;
+    const LogosType* result_type = nullptr;  // non-null when loop yields a value
+    std::string      break_slot;             // alloca name for the break value (non-empty ↔ result_type != null)
+};
+struct SBreak     { LExprPtr value; };  // value may be null (plain break)
 struct SContinue  {};
 struct SBlock     { LBlockPtr body; };  // scoping block statement
 
