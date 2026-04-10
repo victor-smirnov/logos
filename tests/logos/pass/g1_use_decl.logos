@@ -1,0 +1,12 @@
+package g1_use_decl;
+
+// use declaration (currently just syntax test)
+const VAL: i32 = 42;
+
+fn helper() -> i32 {
+    return VAL;
+}
+
+fn main() -> i32 {
+    return helper();
+}

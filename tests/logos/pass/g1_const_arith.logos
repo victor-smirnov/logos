@@ -1,0 +1,8 @@
+package g1_const_arith;
+
+const BASE: i32 = 40;
+const DELTA: i32 = 2;
+
+fn main() -> i32 {
+    return BASE + DELTA;
+}

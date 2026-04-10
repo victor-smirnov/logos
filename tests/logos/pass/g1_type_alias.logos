@@ -1,0 +1,8 @@
+package g1_type_alias;
+
+type MyInt = i32;
+
+fn main() -> i32 {
+    let x: MyInt = 42;
+    return x;
+}

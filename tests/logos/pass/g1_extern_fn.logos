@@ -1,0 +1,8 @@
+package g1_extern_fn;
+
+extern fn abs(x: i32) -> i32;
+
+unsafe fn main() -> i32 {
+    let x: i32 = 0 - 42;
+    return abs(x);
+}

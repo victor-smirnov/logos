@@ -1,0 +1,21 @@
+package g1_trait_impl;
+
+trait Compute {
+    fn compute(self: Self) -> i32;
+}
+
+struct Adder {
+    a: i32;
+    b: i32;
+}
+
+impl Compute for Adder {
+    fn compute(self: Adder) -> i32 {
+        return self.a + self.b;
+    }
+}
+
+fn main() -> i32 {
+    let add: Adder = Adder { a: 20, b: 22 };
+    return add.compute();
+}

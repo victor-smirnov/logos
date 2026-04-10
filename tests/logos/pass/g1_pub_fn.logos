@@ -1,0 +1,9 @@
+package g1_pub_fn;
+
+pub fn compute() -> i32 {
+    return 42;
+}
+
+fn main() -> i32 {
+    return compute();
+}

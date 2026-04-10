@@ -1,0 +1,16 @@
+package g1_pub_enum;
+
+pub enum Color {
+    Red = 0,
+    Green = 1,
+    Blue = 2,
+}
+
+fn main() -> i32 {
+    let c: Color = Color::Green;
+    match c {
+        Color::Red => { return 0; }
+        Color::Green => { return 42; }
+        Color::Blue => { return 2; }
+    }
+}

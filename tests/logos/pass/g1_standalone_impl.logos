@@ -1,0 +1,24 @@
+package g1_standalone_impl;
+
+struct Counter {
+    value: i32;
+}
+
+impl Counter {
+    fn new() -> Counter {
+        return Counter { value: 0 };
+    }
+    fn increment(self: Counter) -> Counter {
+        return Counter { value: self.value + 1 };
+    }
+    fn get(self: Counter) -> i32 {
+        return self.value;
+    }
+}
+
+fn main() -> i32 {
+    let base: Counter = Counter { value: 40 };
+    let r1: Counter = base.increment();
+    let r2: Counter = r1.increment();
+    return r2.get();
+}
