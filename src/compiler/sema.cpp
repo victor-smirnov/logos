@@ -82,6 +82,52 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
     }
 }
 
+// ── Integer literal parsing (decimal, hex 0x, octal 0o, binary 0b) ───────────
+
+static int64_t parse_int_literal(std::string_view sv) noexcept {
+    // NOTE: sv is NOT null-terminated (Hermes document strings have length prefix).
+    // All parsing must use only the characters within sv's bounds.
+    bool negative = !sv.empty() && sv[0] == '-';
+    if (negative) sv = sv.substr(1);
+    int64_t result = 0;
+    if (sv.size() >= 2 && sv[0] == '0') {
+        if (sv[1] == 'x' || sv[1] == 'X') {
+            // Hex: parse digit by digit within bounds
+            for (char c : sv.substr(2)) {
+                if (c >= '0' && c <= '9')      result = result * 16 + (c - '0');
+                else if (c >= 'a' && c <= 'f') result = result * 16 + (c - 'a' + 10);
+                else if (c >= 'A' && c <= 'F') result = result * 16 + (c - 'A' + 10);
+                else break;
+            }
+        } else if (sv[1] == 'b' || sv[1] == 'B') {
+            // Binary: parse manually
+            for (char c : sv.substr(2)) {
+                if (c == '0' || c == '1') result = result * 2 + (c - '0');
+                else break;
+            }
+        } else if (sv[1] == 'o' || sv[1] == 'O') {
+            // Octal with "0o" prefix: parse manually
+            for (char ch : sv.substr(2)) {
+                if (ch >= '0' && ch <= '7') result = result * 8 + (ch - '0');
+                else break;
+            }
+        } else {
+            // Decimal with leading zero (e.g. "0")
+            for (char c : sv) {
+                if (c >= '0' && c <= '9') result = result * 10 + (c - '0');
+                else break;
+            }
+        }
+    } else {
+        // Plain decimal
+        for (char c : sv) {
+            if (c >= '0' && c <= '9') result = result * 10 + (c - '0');
+            else break;
+        }
+    }
+    return negative ? -result : result;
+}
+
 // ── Generic struct name helpers ────────────────────────────────────────────
 
 static std::string mangle_type_for_name(const LogosType* t);
@@ -134,6 +180,7 @@ static std::string mangle_type_for_name(const LogosType* t) {
 static bool is_integer_kind(LogosType::Kind k) noexcept {
     return k == LogosType::Kind::I32   || k == LogosType::Kind::I64 ||
            k == LogosType::Kind::U8    || k == LogosType::Kind::I8  ||
+           k == LogosType::Kind::I16   || k == LogosType::Kind::U16 ||
            k == LogosType::Kind::U32   || k == LogosType::Kind::U64 ||
            k == LogosType::Kind::IntLit || k == LogosType::Kind::Enum;
 }
@@ -218,6 +265,8 @@ static bool intlit_fits(int64_t v, LogosType::Kind k) noexcept {
     switch (k) {
     case LogosType::Kind::I8:  return v >= -128 && v <= 127;
     case LogosType::Kind::U8:  return v >= 0 && v <= 255;
+    case LogosType::Kind::I16: return v >= -32768 && v <= 32767;
+    case LogosType::Kind::U16: return v >= 0 && v <= 65535;
     case LogosType::Kind::I32: return v >= (int64_t)INT32_MIN && v <= (int64_t)INT32_MAX;
     case LogosType::Kind::U32: return v >= 0 && (uint64_t)v <= (uint64_t)UINT32_MAX;
     default: return true; // i64, u64: all int64_t values fit
@@ -234,6 +283,8 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::Bool:   return "bool";
     case LogosType::Kind::U8:     return "u8";
     case LogosType::Kind::I8:     return "i8";
+    case LogosType::Kind::I16:    return "i16";
+    case LogosType::Kind::U16:    return "u16";
     case LogosType::Kind::U32:    return "u32";
     case LogosType::Kind::U64:    return "u64";
     case LogosType::Kind::IntLit: return "{integer}";
@@ -351,6 +402,8 @@ private:
         ap(LogosType::Kind::Bool);
         ap(LogosType::Kind::U8);
         ap(LogosType::Kind::I8);
+        ap(LogosType::Kind::I16);
+        ap(LogosType::Kind::U16);
         ap(LogosType::Kind::U32);
         ap(LogosType::Kind::U64);
         ap(LogosType::Kind::IntLit);
@@ -443,6 +496,8 @@ private:
         if (name == "bool") return prim(LogosType::Kind::Bool);
         if (name == "u8")   return prim(LogosType::Kind::U8);
         if (name == "i8")   return prim(LogosType::Kind::I8);
+        if (name == "i16")  return prim(LogosType::Kind::I16);
+        if (name == "u16")  return prim(LogosType::Kind::U16);
         if (name == "u32")  return prim(LogosType::Kind::U32);
         if (name == "u64")  return prim(LogosType::Kind::U64);
         if (name == "void") return prim(LogosType::Kind::Void);
@@ -1283,7 +1338,7 @@ private:
         if (tc == la::LIT_INT) {
             auto sv = str_of(node.get(la::VALUE.code));
             LogosType t; t.kind = LogosType::Kind::IntLit;
-            t.const_val = (int64_t)std::strtoll(sv.data(), nullptr, 10);
+            t.const_val = parse_int_literal(sv);
             return pool_.alloc(std::move(t));
         }
 
@@ -1295,11 +1350,19 @@ private:
             std::string symbolic;
             if (node.has_key(la::SIZE)) {
                 auto av = node.get(la::SIZE.code);
+                auto parse_array_size = [](std::string_view sv) -> uint64_t {
+                    uint64_t r = 0;
+                    for (char c : sv) {
+                        if (c >= '0' && c <= '9') r = r * 10 + (c - '0');
+                        else break;
+                    }
+                    return r;
+                };
                 if (av.is_value()) {
                     auto sv = str_of(av);
                     // If sv starts with a digit, it's a literal size.
                     if (!sv.empty() && std::isdigit(sv[0])) {
-                        n = (uint64_t)std::strtoull(sv.data(), nullptr, 10);
+                        n = parse_array_size(sv);
                     } else {
                         // Otherwise, it might be a symbolic constant parameter.
                         symbolic = std::string(sv);
@@ -1308,7 +1371,7 @@ private:
                     // Safety fallback: if it's somehow a string object
                     auto sv = str_of(av);
                     if (!sv.empty() && std::isdigit(sv[0])) {
-                        n = (uint64_t)std::strtoull(sv.data(), nullptr, 10);
+                        n = parse_array_size(sv);
                     } else {
                         symbolic = std::string(sv);
                     }
@@ -1626,7 +1689,7 @@ private:
                         int32_t vval = next_val;
                         if (v.has_key(la::VALUE)) {
                             auto sv = str_of(v.get(la::VALUE.code));
-                            vval = (int32_t)std::strtol(sv.data(), nullptr, 10);
+                            vval = (int32_t)parse_int_literal(sv);
                         }
                         // Read payload types for tagged union variants
                         std::vector<const LogosType*> payload;
@@ -2153,6 +2216,8 @@ private:
         if (name == "bool") return prim(LogosType::Kind::Bool);
         if (name == "u8")   return prim(LogosType::Kind::U8);
         if (name == "i8")   return prim(LogosType::Kind::I8);
+        if (name == "i16")  return prim(LogosType::Kind::I16);
+        if (name == "u16")  return prim(LogosType::Kind::U16);
         if (name == "u32")  return prim(LogosType::Kind::U32);
         if (name == "u64")  return prim(LogosType::Kind::U64);
         if (name == "void") return prim(LogosType::Kind::Void);
@@ -2729,7 +2794,7 @@ private:
 
         case la::LIT_INT: {
             auto sv = str_of(expr.get(la::VALUE.code));
-            int64_t v = std::strtoll(sv.data(), nullptr, 10);
+            int64_t v = parse_int_literal(sv);
             return make_expr(intlit_t(), lir::ELitInt{v});
         }
         case la::LIT_BOOL: {
@@ -2790,6 +2855,8 @@ private:
                                   target->kind == LogosType::Kind::I64  ||
                                   target->kind == LogosType::Kind::U8   ||
                                   target->kind == LogosType::Kind::I8   ||
+                                  target->kind == LogosType::Kind::I16  ||
+                                  target->kind == LogosType::Kind::U16  ||
                                   target->kind == LogosType::Kind::U32  ||
                                   target->kind == LogosType::Kind::U64  ||
                                   target->kind == LogosType::Kind::F64  ||
@@ -2931,7 +2998,7 @@ private:
                 return error_expr();
             }
             auto sv = str_of(expr.get(la::FIELD.code));
-            uint32_t idx = (uint32_t)std::strtoul(sv.data(), nullptr, 10);
+            uint32_t idx = (uint32_t)parse_int_literal(sv);
             if (idx >= recv->type->tuple_elems.size()) {
                 error(std::format("tuple index {} out of range (tuple has {} elements)",
                       idx, recv->type->tuple_elems.size()));
@@ -3131,9 +3198,15 @@ private:
                 error(std::format("unary '-': operand must be numeric, got {}", type_str(vt)));
             result_type = vt;
         } else if (op == "!") {
-            if (vt->kind != LogosType::Kind::Bool)
-                error(std::format("unary '!': operand must be bool, got {}", type_str(vt)));
-            result_type = bool_t();
+            if (vt->kind == LogosType::Kind::Bool) {
+                result_type = bool_t();
+            } else if (is_integer_kind(vt->kind) || vt->kind == LogosType::Kind::IntLit) {
+                // Bitwise NOT (~x) on integer types
+                result_type = (vt->kind == LogosType::Kind::IntLit) ? i32_t() : vt;
+            } else {
+                error(std::format("unary '!': operand must be bool or integer, got {}", type_str(vt)));
+                result_type = bool_t();
+            }
         } else {
             error(std::format("unknown unary operator '{}'", op));
         }
@@ -4854,7 +4927,7 @@ private:
         auto val_node = map_of(node.get(la::VALUE.code));
         auto fill_val = lower_expr(val_node);
         auto sv = str_of(node.get(la::SIZE.code));
-        int64_t n = (int64_t)std::strtoull(sv.data(), nullptr, 10);
+        int64_t n = parse_int_literal(sv);
         if (n <= 0) error(std::format("array fill literal: size must be positive, got {}", n));
         const LogosType* elem_type = fill_val->type;
         // Keep IntLit unresolved so that struct-literal type inference (hint_struct_type_)
@@ -6201,7 +6274,7 @@ private:
         }
         if (pc == la::PAT_INT) {
             auto sv = str_of(pnode.get(la::VALUE.code));
-            int64_t v = (int64_t)std::strtoll(sv.data(), nullptr, 10);
+            int64_t v = parse_int_literal(sv);
             // Check that the literal fits in the scrutinee's type.
             if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
                 !intlit_fits(v, scrut_type->kind))
@@ -6741,7 +6814,7 @@ private:
     lir::LStmt lower_tuple_field_write(TinyMapView node) {
         auto recv_name = str_of(node.get(la::RECEIVER.code));
         auto idx_sv    = str_of(node.get(la::INDEX.code));
-        uint64_t idx   = std::strtoul(idx_sv.data(), nullptr, 10);
+        uint64_t idx   = (uint64_t)parse_int_literal(idx_sv);
 
         const LogosType* recv_t = lookup(recv_name);
         if (!recv_t) {
@@ -7529,7 +7602,7 @@ private:
 
         if (c == la::LIT_INT) {
             auto sv = str_of(e.get(la::VALUE.code));
-            return (int64_t)std::strtoull(sv.data(), nullptr, 10);
+            return parse_int_literal(sv);
         }
         if (c == la::LIT_BOOL) {
             auto sv = str_of(e.get(la::VALUE.code));

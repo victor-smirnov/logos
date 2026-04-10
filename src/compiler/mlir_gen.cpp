@@ -247,6 +247,8 @@ private:
         case LogosType::Kind::Bool:   return builder_.getI1Type();
         case LogosType::Kind::U8:     return builder_.getIntegerType(8);
         case LogosType::Kind::I8:     return builder_.getIntegerType(8);
+        case LogosType::Kind::I16:    return builder_.getIntegerType(16);
+        case LogosType::Kind::U16:    return builder_.getIntegerType(16);
         case LogosType::Kind::U32:    return builder_.getIntegerType(32);
         case LogosType::Kind::U64:    return builder_.getIntegerType(64);
         case LogosType::Kind::IntLit: return builder_.getI32Type();
@@ -1223,6 +1225,7 @@ private:
                             loc_, ptr_type(), loop_type, i64_one());
         bool lo_unsigned = s.lo->type &&
             (s.lo->type->kind == LogosType::Kind::U8  ||
+             s.lo->type->kind == LogosType::Kind::U16 ||
              s.lo->type->kind == LogosType::Kind::U32 ||
              s.lo->type->kind == LogosType::Kind::U64);
         mlir::Value lo_coerced;
@@ -1251,6 +1254,7 @@ private:
         auto i_val  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
         bool hi_unsigned = s.hi->type &&
             (s.hi->type->kind == LogosType::Kind::U8  ||
+             s.hi->type->kind == LogosType::Kind::U16 ||
              s.hi->type->kind == LogosType::Kind::U32 ||
              s.hi->type->kind == LogosType::Kind::U64);
         mlir::Value hi_val;
@@ -1910,6 +1914,8 @@ private:
             case LogosType::Kind::U64: width = 64; break;
             case LogosType::Kind::I8:
             case LogosType::Kind::U8:  width = 8;  break;
+            case LogosType::Kind::I16:
+            case LogosType::Kind::U16: width = 16; break;
             case LogosType::Kind::Bool: width = 1; break;
             case LogosType::Kind::IntLit:
                 // Untyped literal: use i64 if value doesn't fit in i32.
@@ -2111,6 +2117,7 @@ private:
                 if (li.getWidth() < ri.getWidth()) {
                     bool lhs_unsigned = e.lhs->type &&
                         (e.lhs->type->kind == LogosType::Kind::U8  ||
+                         e.lhs->type->kind == LogosType::Kind::U16 ||
                          e.lhs->type->kind == LogosType::Kind::U32 ||
                          e.lhs->type->kind == LogosType::Kind::U64);
                     if (lhs_unsigned)
@@ -2120,6 +2127,7 @@ private:
                 } else if (ri.getWidth() < li.getWidth()) {
                     bool rhs_unsigned = e.rhs->type &&
                         (e.rhs->type->kind == LogosType::Kind::U8  ||
+                         e.rhs->type->kind == LogosType::Kind::U16 ||
                          e.rhs->type->kind == LogosType::Kind::U32 ||
                          e.rhs->type->kind == LogosType::Kind::U64);
                     if (rhs_unsigned)
@@ -2150,6 +2158,7 @@ private:
         {
             bool is_unsigned = e.lhs->type &&
                 (e.lhs->type->kind == LogosType::Kind::U8  ||
+                 e.lhs->type->kind == LogosType::Kind::U16 ||
                  e.lhs->type->kind == LogosType::Kind::U32 ||
                  e.lhs->type->kind == LogosType::Kind::U64);
             if (op == "/") {
@@ -2172,6 +2181,7 @@ private:
             auto it = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
             bool is_unsigned = it && (e.lhs->type &&
                 (e.lhs->type->kind == LogosType::Kind::U8  ||
+                 e.lhs->type->kind == LogosType::Kind::U16 ||
                  e.lhs->type->kind == LogosType::Kind::U32 ||
                  e.lhs->type->kind == LogosType::Kind::U64));
             if (is_unsigned)
@@ -2195,6 +2205,7 @@ private:
         {
             bool is_unsigned_cmp = e.lhs->type &&
                 (e.lhs->type->kind == LogosType::Kind::U8  ||
+                 e.lhs->type->kind == LogosType::Kind::U16 ||
                  e.lhs->type->kind == LogosType::Kind::U32 ||
                  e.lhs->type->kind == LogosType::Kind::U64);
             if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_,
@@ -2221,8 +2232,21 @@ private:
             return builder_.create<mlir::arith::SubIOp>(loc_, zero, val);
         }
         if (e.op == "!") {
-            auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
-            return builder_.create<mlir::arith::XOrIOp>(loc_, val, one);
+            auto itype = mlir::dyn_cast<mlir::IntegerType>(val.getType());
+            if (!itype) {
+                std::fprintf(stderr, "mlir_gen: unary '!' on non-integer type\n");
+                return nullptr;
+            }
+            unsigned width = itype.getWidth();
+            if (width == 1) {
+                // bool: logical NOT via XOR with 1
+                auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
+                return builder_.create<mlir::arith::XOrIOp>(loc_, val, one);
+            } else {
+                // integer: bitwise NOT via XOR with all-ones (-1)
+                auto allones = builder_.create<mlir::arith::ConstantIntOp>(loc_, -1, width);
+                return builder_.create<mlir::arith::XOrIOp>(loc_, val, allones);
+            }
         }
         std::fprintf(stderr, "mlir_gen: unknown unary op '%s'\n", e.op.c_str());
         return nullptr;
@@ -2494,6 +2518,7 @@ private:
                 if (i_idx) {
                     bool i_unsigned = ir->index->type &&
                         (ir->index->type->kind == LogosType::Kind::U8  ||
+                         ir->index->type->kind == LogosType::Kind::U16 ||
                          ir->index->type->kind == LogosType::Kind::U32 ||
                          ir->index->type->kind == LogosType::Kind::U64);
                     if (i_unsigned && i_idx.getType() != builder_.getI64Type())
@@ -2586,6 +2611,7 @@ private:
                 bool src_unsigned = fi.getWidth() == 1 ||
                     (e.operand->type &&
                      (e.operand->type->kind == LogosType::Kind::U8  ||
+                      e.operand->type->kind == LogosType::Kind::U16 ||
                       e.operand->type->kind == LogosType::Kind::U32 ||
                       e.operand->type->kind == LogosType::Kind::U64));
                 if (src_unsigned)
@@ -2600,6 +2626,7 @@ private:
             mlir::dyn_cast<mlir::FloatType>(target)) {
             bool src_unsigned = e.operand->type &&
                 (e.operand->type->kind == LogosType::Kind::U8  ||
+                 e.operand->type->kind == LogosType::Kind::U16 ||
                  e.operand->type->kind == LogosType::Kind::U32 ||
                  e.operand->type->kind == LogosType::Kind::U64);
             if (src_unsigned)
@@ -2610,6 +2637,7 @@ private:
             mlir::dyn_cast<mlir::IntegerType>(target)) {
             bool dst_unsigned = type &&
                 (type->kind == LogosType::Kind::U8  ||
+                 type->kind == LogosType::Kind::U16 ||
                  type->kind == LogosType::Kind::U32 ||
                  type->kind == LogosType::Kind::U64);
             if (dst_unsigned)
@@ -2622,6 +2650,7 @@ private:
             mlir::Value v64;
             bool src_unsigned = e.operand->type &&
                 (e.operand->type->kind == LogosType::Kind::U8  ||
+                 e.operand->type->kind == LogosType::Kind::U16 ||
                  e.operand->type->kind == LogosType::Kind::U32 ||
                  e.operand->type->kind == LogosType::Kind::U64);
             if (src_unsigned && val.getType() != builder_.getI64Type())

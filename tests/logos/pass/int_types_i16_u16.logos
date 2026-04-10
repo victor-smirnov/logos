@@ -1,0 +1,16 @@
+package int_types_i16_u16;
+// i16 and u16 integer types
+
+fn sum_i16(a: i16, b: i16) -> i16 {
+    return a + b;
+}
+
+fn main() -> i32 {
+    let a: i16 = 20;
+    let b: i16 = 22;
+    let c: i16 = sum_i16(a, b);  // 42 as i16
+    let d: u16 = 1000;
+    let e: u16 = d + 24;  // 1024 as u16
+    // Cast back to i32 for return
+    return c as i32;
+}

@@ -780,8 +780,8 @@ private:
 
     // Detect regex features for enhanced number lexing.
     static bool pat_has_hex(std::string_view pat)  { return pat.find("a-f") != std::string::npos || pat.find("a-F") != std::string::npos; }
-    static bool pat_has_bin(std::string_view pat)  { return pat.find("0[bB]") != std::string::npos; }
-    static bool pat_has_oct(std::string_view pat)  { return pat.find("0[oO]") != std::string::npos; }
+    static bool pat_has_bin(std::string_view pat)  { return pat.find("0[bB]") != std::string::npos || pat.find("0b") != std::string::npos; }
+    static bool pat_has_oct(std::string_view pat)  { return pat.find("0[oO]") != std::string::npos || pat.find("0o") != std::string::npos; }
     static bool pat_has_int_suffix(std::string_view pat) { return pat.find("ull") != std::string::npos || pat.find("_u") != std::string::npos; }
     static bool pat_has_float_suffix(std::string_view pat) { return pat.find("[fd]") != std::string::npos; }
 

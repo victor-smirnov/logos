@@ -1,0 +1,14 @@
+package expr_bitwise_ops;
+// Compound bitwise assignment and XOR
+
+fn main() -> i32 {
+    // Bitwise AND compound assignment
+    let mut x: i32 = 58;  // 0b111010
+    x &= 47;              // 58 & 47 = 42 (0b101111 & 0b111010 = 0b101010)
+
+    // XOR
+    let c: i32 = 0b101010;  // 42 in binary
+    let d: i32 = c ^ 0;     // 42 ^ 0 = 42
+
+    return x + d - 42;  // 42 + 42 - 42 = 42
+}

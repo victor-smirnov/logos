@@ -1,0 +1,15 @@
+package int_literals_radix;
+// Hex (0x), binary (0b), and octal (0o) integer literals
+
+fn main() -> i32 {
+    let hex: i32  = 0x2A;      // 42 in hex
+    let bin: i32  = 0b101010;  // 42 in binary
+    let oct: i32  = 0o52;      // 42 in octal
+    let dec: i32  = 42;        // 42 in decimal
+    let neg: i32  = -0x1;      // -1 in hex
+    // All equal
+    if hex == bin && bin == oct && oct == dec {
+        return dec + neg + 1;  // 42 + (-1) + 1 = 42
+    }
+    return 0;
+}

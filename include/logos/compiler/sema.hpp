@@ -25,7 +25,7 @@ struct LogosType {
     enum class Kind {
         Void,                     // no return value
         I32, I64, F64, Bool, U8,  // signed/float/bool primitives
-        I8, U32, U64,             // additional integer types
+        I8, I16, U16, U32, U64,   // additional integer types
         Ptr,                      // *const T / *mut T  (raw/unsafe pointer)
         Ref,                      // &T     — shared reference (borrow-checked)
         MutRef,                   // &mut T — exclusive mutable reference (borrow-checked)

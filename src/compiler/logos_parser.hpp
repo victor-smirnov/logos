@@ -244,7 +244,7 @@ enum class TK_LOGOS : int {
     COLONCOLON,   // "::"
     CARET,   // "^"
     STRING,   // /"([^"\\]|\\.)*"/
-    INTEGER,   // /[-]?[0-9]+/
+    INTEGER,   // /[-]?(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|[0-9]+)/
     LIFETIME,   // /'[a-z][a-z0-9_]*/
     IDENT,   // /[a-zA-Z_][a-zA-Z0-9_]*/
 };

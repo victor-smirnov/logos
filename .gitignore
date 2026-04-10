@@ -14,6 +14,7 @@ build*
 /memoria*
 /vcpkg_installed
 *.o
+/sandbox
 
 # Test artifacts
 *.sqlite

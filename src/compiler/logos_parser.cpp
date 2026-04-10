@@ -310,10 +310,30 @@ LogosParser::Token LogosParser::lex_one() {
         return {TK::STRING, source_.substr(start, pos_ - start), start_line_};
     }
 
-    // INTEGER = /[-]?[0-9]+/
+    // INTEGER = /[-]?(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|[0-9]+)/
     if (std::isdigit(c) || (c == '-' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))) {
         if (c == '-') ++pos_;
-        while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;
+        // pos_ points to the first significant digit (or start for positive numbers).
+        // c is not yet consumed by pos_ when it's a digit (pos_ == start).
+        // When c=='-', pos_ was advanced to start+1 (first digit after minus).
+        // Detect 0x/0b/0o prefix: check if first digit is '0' and next is x/b/o.
+        int base = 10;
+        char first_sig = (c == '-') ? source_[pos_] : c;
+        if (first_sig == '0' && pos_ + 1 < source_.size()) {
+            char nx = source_[pos_ + 1];
+            if (nx == 'x' || nx == 'X') { base = 16; pos_ += 2; }
+            else if (nx == 'b' || nx == 'B') { base = 2; pos_ += 2; }
+            else if (nx == 'o' || nx == 'O') { base = 8; pos_ += 2; }
+        }
+        if (base == 16) {
+            while (pos_ < source_.size() && std::isxdigit(source_[pos_])) ++pos_;
+        } else if (base == 2) {
+            while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1')) ++pos_;
+        } else if (base == 8) {
+            while (pos_ < source_.size() && source_[pos_] >= '0' && source_[pos_] <= '7') ++pos_;
+        } else {
+            while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;
+        }
         return {TK::INTEGER, source_.substr(start, pos_ - start), start_line_};
     }
 

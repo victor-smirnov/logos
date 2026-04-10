@@ -1,0 +1,12 @@
+package bitwise_not;
+// Bitwise NOT on integer types: \!x is ~x in Logos
+
+fn main() -> i32 {
+    let x: i32 = 0;
+    let y: i32 = \!x;  // bitwise NOT: ~0 = -1 in two's complement
+    // Also test on i64
+    let a: i64 = 0;
+    let b: i64 = \!a;  // ~0_i64 = -1_i64
+    // -1 + 43 = 42
+    return y + 43;
+}
