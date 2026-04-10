@@ -1,0 +1,6 @@
+package enum_payload_arr_overflow;
+enum E { Chunk([i8; 3]), None, }
+fn main() -> i32 {
+    let v = E::Chunk([1, 200, 3]);
+    return 0;
+}

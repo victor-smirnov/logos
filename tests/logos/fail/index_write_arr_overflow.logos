@@ -1,0 +1,8 @@
+package index_write_arr_overflow;
+fn make_row() -> [i8; 3] { return [1, 2, 3]; }
+fn main() -> i32 {
+    let a = make_row();
+    let mut grid = [a, a];
+    grid[0] = [1, 200, 3];
+    return 0;
+}

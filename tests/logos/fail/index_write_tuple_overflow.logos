@@ -1,0 +1,8 @@
+package index_write_tuple_overflow;
+fn main() -> i32 {
+    let x: (i8, i8) = (1, 2);
+    let y: (i8, i8) = (3, 4);
+    let mut arr = [x, y];
+    arr[0] = (200, 5);
+    return 0;
+}

@@ -1,0 +1,6 @@
+package enum_payload_tuple_overflow;
+enum E { Pair((i8, i8)), None, }
+fn main() -> i32 {
+    let v = E::Pair((200, 5));
+    return 0;
+}

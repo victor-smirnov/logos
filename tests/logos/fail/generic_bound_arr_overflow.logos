@@ -1,0 +1,6 @@
+package generic_bound_arr_overflow;
+trait Foo { fn bar(self: Self, arr: [i8; 3]) -> i32; }
+struct S {}
+impl Foo for S { fn bar(self: S, arr: [i8; 3]) -> i32 { return 0; } }
+fn call<T: Foo>(x: T) -> i32 { return x.bar([1, 200, 3]); }
+fn main() -> i32 { return 0; }

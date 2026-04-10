@@ -3837,6 +3837,31 @@ private:
                                     error(std::format("method '{}' arg {}: expected {}, got {}",
                                                       std::string(method_name), i + 1,
                                                       type_str(pt), type_str(at)));
+                                if (at->kind == LogosType::Kind::IntLit &&
+                                    pt->kind != LogosType::Kind::Error &&
+                                    pt->kind != LogosType::Kind::TypeVar)
+                                    if (auto v = get_intlit_value(arg_exprs[i].get()))
+                                        if (!intlit_fits(*v, pt->kind))
+                                            error(std::format("method '{}' arg {}: value {} does not fit in {}",
+                                                              std::string(method_name), i + 1, *v, type_str(pt)));
+                                // Check array literal elements against narrow array param type.
+                                if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                                    if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
+                                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
+                                            if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                                    if (!intlit_fits(*v, pt->elem->kind))
+                                                        error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
+                                                                          std::string(method_name), i + 1, ei, *v, type_str(pt->elem)));
+                                // Check tuple literal elements against narrow tuple param element types.
+                                if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                                    if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
+                                        for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei)
+                                            if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                                    if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                                        error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
+                                                                          std::string(method_name), i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
                             }
                         }
                         // Return type: substitute Self → &dyn Trait
@@ -3931,6 +3956,24 @@ private:
                                     error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                                       std::string(method_name), i + 1,
                                                       *v, type_str(pt)));
+                        // Check array literal elements against narrow array param type.
+                        if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                            if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
+                                for (size_t ei = 0; ei < al->elems.size(); ++ei)
+                                    if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(al->elems[ei].get()))
+                                            if (!intlit_fits(*v, pt->elem->kind))
+                                                error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
+                                                                  std::string(method_name), i + 1, ei, *v, type_str(pt->elem)));
+                        // Check tuple literal elements against narrow tuple param element types.
+                        if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                            if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
+                                for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei)
+                                    if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                            if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                                error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
+                                                                  std::string(method_name), i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
                     }
                 }
 
@@ -4547,6 +4590,25 @@ private:
                             if (!intlit_fits(*v, elem_type->kind))
                                 error(std::format("array literal: element {}: value {} does not fit in {}",
                                       i, *v, type_str(elem_type)));
+                    // Check array literal elements against narrow nested array element types.
+                    if (elem_type->kind == LogosType::Kind::Array && elem_type->elem &&
+                        t->kind == LogosType::Kind::Array)
+                        if (auto* al = std::get_if<lir::EArrLit>(&elems[i]->kind))
+                            for (size_t ei = 0; ei < al->elems.size(); ++ei)
+                                if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(al->elems[ei].get()))
+                                        if (!intlit_fits(*v, elem_type->elem->kind))
+                                            error(std::format("array literal: element {}: sub-element {}: value {} does not fit in {}",
+                                                  i, ei, *v, type_str(elem_type->elem)));
+                    // Check tuple literal elements against narrow nested tuple element types.
+                    if (elem_type->kind == LogosType::Kind::Tuple && t->kind == LogosType::Kind::Tuple)
+                        if (auto* tl = std::get_if<lir::ETupleLit>(&elems[i]->kind))
+                            for (size_t ei = 0; ei < tl->elems.size() && ei < elem_type->tuple_elems.size(); ++ei)
+                                if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                    if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                        if (elem_type->tuple_elems[ei] && !intlit_fits(*v, elem_type->tuple_elems[ei]->kind))
+                                            error(std::format("array literal: element {}: tuple element {}: value {} does not fit in {}",
+                                                  i, ei, *v, type_str(elem_type->tuple_elems[ei])));
                     elem_type = unify_int(elem_type, t);
                 }
             }
@@ -4692,6 +4754,30 @@ private:
                         if (!intlit_fits(*v, resolved_payload_types[i]->kind))
                             error(std::format("{}::{} arg {}: value {} does not fit in {}",
                                   ename, vname, i, *v, type_str(resolved_payload_types[i])));
+                // Check array literal elements against narrow array payload type.
+                if (resolved_payload_types[i] &&
+                    resolved_payload_types[i]->kind == LogosType::Kind::Array &&
+                    resolved_payload_types[i]->elem &&
+                    payload[i]->type->kind == LogosType::Kind::Array)
+                    if (auto* al = std::get_if<lir::EArrLit>(&payload[i]->kind))
+                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
+                            if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                    if (!intlit_fits(*v, resolved_payload_types[i]->elem->kind))
+                                        error(std::format("{}::{} arg {}: array element {}: value {} does not fit in {}",
+                                              ename, vname, i, ei, *v, type_str(resolved_payload_types[i]->elem)));
+                // Check tuple literal elements against narrow tuple payload type.
+                if (resolved_payload_types[i] &&
+                    resolved_payload_types[i]->kind == LogosType::Kind::Tuple &&
+                    payload[i]->type->kind == LogosType::Kind::Tuple)
+                    if (auto* tl = std::get_if<lir::ETupleLit>(&payload[i]->kind))
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < resolved_payload_types[i]->tuple_elems.size(); ++ei)
+                            if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                    if (resolved_payload_types[i]->tuple_elems[ei] &&
+                                        !intlit_fits(*v, resolved_payload_types[i]->tuple_elems[ei]->kind))
+                                        error(std::format("{}::{} arg {}: tuple element {}: value {} does not fit in {}",
+                                              ename, vname, i, ei, *v, type_str(resolved_payload_types[i]->tuple_elems[ei])));
             }
         } else {
             // Variadic variant: match each arg against the pack's type (if it's not a generic expansion itself).
@@ -4793,6 +4879,30 @@ private:
                             error(std::format("{}::{} arg {}: value {} does not fit in {}",
                                   ename, vname, i, *v,
                                   type_str(resolved_payload_types[i])));
+                // Check array literal elements against narrow array payload type.
+                if (resolved_payload_types[i] &&
+                    resolved_payload_types[i]->kind == LogosType::Kind::Array &&
+                    resolved_payload_types[i]->elem &&
+                    payload[i]->type->kind == LogosType::Kind::Array)
+                    if (auto* al = std::get_if<lir::EArrLit>(&payload[i]->kind))
+                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
+                            if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                    if (!intlit_fits(*v, resolved_payload_types[i]->elem->kind))
+                                        error(std::format("{}::{} arg {}: array element {}: value {} does not fit in {}",
+                                              ename, vname, i, ei, *v, type_str(resolved_payload_types[i]->elem)));
+                // Check tuple literal elements against narrow tuple payload type.
+                if (resolved_payload_types[i] &&
+                    resolved_payload_types[i]->kind == LogosType::Kind::Tuple &&
+                    payload[i]->type->kind == LogosType::Kind::Tuple)
+                    if (auto* tl = std::get_if<lir::ETupleLit>(&payload[i]->kind))
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < resolved_payload_types[i]->tuple_elems.size(); ++ei)
+                            if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                    if (resolved_payload_types[i]->tuple_elems[ei] &&
+                                        !intlit_fits(*v, resolved_payload_types[i]->tuple_elems[ei]->kind))
+                                        error(std::format("{}::{} arg {}: tuple element {}: value {} does not fit in {}",
+                                              ename, vname, i, ei, *v, type_str(resolved_payload_types[i]->tuple_elems[ei])));
             }
         } else {
             if (!resolved_payload_types.empty()) {
@@ -6411,6 +6521,26 @@ private:
                 if (!intlit_fits(*v, elem_type->kind))
                     error(std::format("index write to '{}': value {} does not fit in {}",
                           arr_name, *v, type_str(elem_type)));
+        // Check array literal elements against narrow nested array element type.
+        if (elem_type && elem_type->kind == LogosType::Kind::Array && elem_type->elem &&
+            val->type->kind == LogosType::Kind::Array)
+            if (auto* al = std::get_if<lir::EArrLit>(&val->kind))
+                for (size_t i = 0; i < al->elems.size(); ++i)
+                    if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(al->elems[i].get()))
+                            if (!intlit_fits(*v, elem_type->elem->kind))
+                                error(std::format("index write to '{}': array element {}: value {} does not fit in {}",
+                                      arr_name, i, *v, type_str(elem_type->elem)));
+        // Check tuple literal elements against narrow nested tuple element type.
+        if (elem_type && elem_type->kind == LogosType::Kind::Tuple &&
+            val->type->kind == LogosType::Kind::Tuple)
+            if (auto* tl = std::get_if<lir::ETupleLit>(&val->kind))
+                for (size_t i = 0; i < tl->elems.size() && i < elem_type->tuple_elems.size(); ++i)
+                    if (tl->elems[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(tl->elems[i].get()))
+                            if (elem_type->tuple_elems[i] && !intlit_fits(*v, elem_type->tuple_elems[i]->kind))
+                                error(std::format("index write to '{}': tuple element {}: value {} does not fit in {}",
+                                      arr_name, i, *v, type_str(elem_type->tuple_elems[i])));
 
         lir::SIndexWrite siw;
         siw.arr   = std::string(arr_name);
@@ -6515,6 +6645,26 @@ private:
                 if (!intlit_fits(*v, elem_t->kind))
                     error(std::format("field index write '{}.{}[i]': value {} does not fit in {}",
                           recv_name, field_name, *v, type_str(elem_t)));
+        // Check array literal elements against narrow nested array element type.
+        if (elem_t && elem_t->kind == LogosType::Kind::Array && elem_t->elem &&
+            val->type->kind == LogosType::Kind::Array)
+            if (auto* al = std::get_if<lir::EArrLit>(&val->kind))
+                for (size_t i = 0; i < al->elems.size(); ++i)
+                    if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(al->elems[i].get()))
+                            if (!intlit_fits(*v, elem_t->elem->kind))
+                                error(std::format("field index write '{}.{}[i]': array element {}: value {} does not fit in {}",
+                                      recv_name, field_name, i, *v, type_str(elem_t->elem)));
+        // Check tuple literal elements against narrow nested tuple element type.
+        if (elem_t && elem_t->kind == LogosType::Kind::Tuple &&
+            val->type->kind == LogosType::Kind::Tuple)
+            if (auto* tl = std::get_if<lir::ETupleLit>(&val->kind))
+                for (size_t i = 0; i < tl->elems.size() && i < elem_t->tuple_elems.size(); ++i)
+                    if (tl->elems[i]->type->kind == LogosType::Kind::IntLit)
+                        if (auto v = get_intlit_value(tl->elems[i].get()))
+                            if (elem_t->tuple_elems[i] && !intlit_fits(*v, elem_t->tuple_elems[i]->kind))
+                                error(std::format("field index write '{}.{}[i]': tuple element {}: value {} does not fit in {}",
+                                      recv_name, field_name, i, *v, type_str(elem_t->tuple_elems[i])));
 
         lir::SFieldIndexWrite sfiw;
         sfiw.receiver = std::string(recv_name);

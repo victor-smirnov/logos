@@ -1,0 +1,6 @@
+package arr_lit_nested_tuple_overflow;
+fn main() -> i32 {
+    let first: (i8, i8) = (1, 2);
+    let arr = [first, (200, 5)];
+    return 0;
+}

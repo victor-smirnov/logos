@@ -1,0 +1,7 @@
+package arr_lit_nested_arr_overflow;
+fn make_row() -> [i8; 3] { return [1, 2, 3]; }
+fn main() -> i32 {
+    let row = make_row();
+    let grid = [row, [1, 200, 3]];
+    return 0;
+}
