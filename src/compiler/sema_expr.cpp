@@ -1475,6 +1475,23 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     if (auto fit = funcs_.find(mangled); fit != funcs_.end()) fi_ptr = &fit->second;
     else if (auto fit = generic_funcs_.find(mangled); fit != generic_funcs_.end()) fi_ptr = &fit->second;
 
+    // Fallback: for generic structs (Foo$G1$i32), methods may be registered under base name (Foo).
+    if (!fi_ptr) {
+        std::string base_sname(sname);
+        if (auto d = base_sname.find('$'); d != std::string::npos)
+            base_sname = base_sname.substr(0, d);
+        if (base_sname != sname) {
+            auto base_mangled = base_sname + "__" + std::string(method_name);
+            if (auto fit = funcs_.find(base_mangled); fit != funcs_.end()) {
+                fi_ptr = &fit->second;
+                mangled = base_mangled;
+            } else if (auto fit = generic_funcs_.find(base_mangled); fit != generic_funcs_.end()) {
+                fi_ptr = &fit->second;
+                mangled = base_mangled;
+            }
+        }
+    }
+
     if (!fi_ptr) {
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
         return make_expr(error_t(),
@@ -2672,6 +2689,65 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     check_pub_access(fi.is_pub, fi.package, mangled);
     if (fi.is_unsafe && !inside_unsafe_)
         error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
+
+    // If the static method is generic (has type params from the enclosing impl<T>),
+    // infer the concrete type arguments and produce a direct call to the concrete
+    // struct method (e.g. Box$G1$i32__wrap), triggering struct instantiation.
+    if (!fi.type_params.empty()) {
+        // Check whether we're already inside a generic body (TypeVar args).
+        bool in_generic_context = false;
+        for (auto& a : arg_exprs) {
+            auto* t = a->type;
+            if (t && (t->kind == LogosType::Kind::TypeVar ||
+                      t->kind == LogosType::Kind::AssocType)) {
+                in_generic_context = true; break;
+            }
+        }
+        if (!in_generic_context) {
+            std::vector<const LogosType*> inferred;
+            if (infer_type_args(fi, arg_exprs, inferred)) {
+                // Build substitution map for the inferred type params.
+                std::unordered_map<std::string, const LogosType*> subst;
+                size_t n_tp = fi.type_params.size();
+                for (size_t i = 0; i < n_tp && i < inferred.size(); ++i)
+                    subst[fi.type_params[i].name] = inferred[i];
+
+                // Substitute the return type.
+                const LogosType* ret = subst_type_sema(fi.ret_type, subst);
+
+                // If the host struct is generic (class_name has type params in structs_),
+                // the method lives inside the struct template.  Produce a concrete call
+                // to the already-named method on the instantiated struct
+                // (e.g. "Box$G1$i32__wrap") with NO type_args, so mlir_gen finds it.
+                auto sit = structs_.find(std::string(class_name));
+                if (sit != structs_.end() && !sit->second.type_params.empty()) {
+                    // Build the concrete struct type using the leading type params
+                    // (the first N params belong to the impl, the rest to the fn itself).
+                    size_t impl_n = sit->second.type_params.size();
+                    std::vector<const LogosType*> struct_args;
+                    for (size_t i = 0; i < impl_n && i < inferred.size(); ++i)
+                        struct_args.push_back(inferred[i]);
+                    const LogosType* struct_t = make_generic_struct(class_name, struct_args);
+                    std::string concrete = concrete_struct_name(struct_t);
+                    std::string concrete_callee = concrete + "__" + std::string(method_name);
+                    return make_expr(ret, lir::ECall{concrete_callee, {}, std::move(arg_exprs)});
+                }
+
+                // For generic free functions registered via impl (no struct template),
+                // fall through to finish_generic_call which handles them via templates_.
+                return finish_generic_call(mangled, fi, std::move(inferred), std::move(arg_exprs));
+            }
+            // Could not infer — fall through to concrete path (mono will handle)
+        }
+        // Inside generic body: emit with type_args so mono can rename the callee
+        // to the concrete struct method name when instantiating.
+        {
+            std::vector<const LogosType*> type_var_args;
+            for (auto& tp : fi.type_params)
+                type_var_args.push_back(make_typevar(tp.name));
+            return make_expr(fi.ret_type, lir::ECall{mangled, std::move(type_var_args), std::move(arg_exprs)});
+        }
+    }
 
     uint64_t n_args = arg_exprs.size();
     if (n_args != fi.param_types.size()) {

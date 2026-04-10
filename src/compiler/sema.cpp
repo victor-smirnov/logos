@@ -422,10 +422,25 @@ std::string_view SemaChecker::class_name_of(std::string_view var_name) {
 
 std::string_view SemaChecker::struct_name_from_type(const LogosType* t) {
     if (!t) return {};
-    if (t->kind == LogosType::Kind::Struct) return t->struct_name;
+    if (t->kind == LogosType::Kind::Struct) {
+        // For generic instantiations, the method is registered under the mangled name.
+        if (!t->type_args.empty()) {
+            // Store in a thread-local to return a stable string_view.
+            thread_local std::string buf;
+            buf = concrete_struct_name(t);
+            return buf;
+        }
+        return t->struct_name;
+    }
     if (is_ref_like(t->kind) && t->pointee &&
-        t->pointee->kind == LogosType::Kind::Struct)
+        t->pointee->kind == LogosType::Kind::Struct) {
+        if (!t->pointee->type_args.empty()) {
+            thread_local std::string buf2;
+            buf2 = concrete_struct_name(t->pointee);
+            return buf2;
+        }
         return t->pointee->struct_name;
+    }
     return {};
 }
 

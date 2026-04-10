@@ -328,6 +328,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     }
     // TYPE is the target type (simple_type, ptr_type, or GENERIC_INST)
     std::string target;
+    const LogosType* target_resolved = nullptr;  // concrete resolved type (for Self)
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         if (code_of(tnode) == la::PTR_TYPE) {
@@ -349,6 +350,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             target = concrete_struct_name(resolved);
                         else if (resolved->kind == LogosType::Kind::Class)
                             target = concrete_class_name(resolved);
+                        target_resolved = resolved;
                     }
                 }
             }
@@ -361,6 +363,35 @@ void SemaChecker::collect_impl(TinyMapView node) {
         ctx_ = std::format("impl {}", target);
     else
         ctx_ = std::format("impl {} for {}", trait_name, target);
+    // Set Self → the concrete target type so method signatures resolve *const Self, etc.
+    // For generic impl<T> Foo<T>: Self = Foo<T> (TypeVars); for impl Foo<i32>: Self = Foo<i32>.
+    {
+        const LogosType* self_type = nullptr;
+        if (target_resolved) {
+            // Concrete specialization: use the fully resolved type (preserves type_args).
+            self_type = target_resolved;
+        } else {
+            std::string base_target = target;
+            if (auto d = base_target.find('$'); d != std::string::npos)
+                base_target = base_target.substr(0, d);
+            if (structs_.count(base_target) || structs_.count(target)) {
+                std::string sname = structs_.count(target) ? target : base_target;
+                if (!impl_tps.empty()) {
+                    std::vector<const LogosType*> tv_args;
+                    for (auto& tp : impl_tps)
+                        tv_args.push_back(make_typevar(tp.name));
+                    self_type = make_generic_struct(sname, std::move(tv_args));
+                } else {
+                    self_type = make_struct_type(target);
+                }
+            } else if (classes_.count(base_target) || classes_.count(target)) {
+                std::string cname = classes_.count(target) ? target : base_target;
+                self_type = make_ptr(true, make_class_type(cname));
+            }
+        }
+        if (self_type)
+            current_type_params_["Self"] = self_type;
+    }
     // Verify trait exists (only for trait impls)
     if (!trait_name.empty() && !traits_.count(trait_name))
         error(std::format("impl: unknown trait '{}'", trait_name));
@@ -473,6 +504,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 current_type_params_.erase(tp.name);
         }
     }
+    // Clean up Self (set at top for all impl blocks)
+    current_type_params_.erase("Self");
     // Clean up impl's own type params (pushed at top for standalone generic impl)
     if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
     // Register the impl mapping (only for trait impls)
