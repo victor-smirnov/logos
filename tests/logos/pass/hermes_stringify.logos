@@ -1,0 +1,202 @@
+package hermes_stringify;
+// Phase: stringify — recursive text serialisation of Hermes zone documents.
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.string;
+use hermes.typetag;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
+use hermes.stringify;
+
+// Compare the first `n` bytes of the StringBuf against `expected`.
+// Returns true if they match exactly.
+unsafe fn buf_eq(sb: *mut StringBuf, expected: *const u8, n: i64) -> bool {
+    if sb.len != n { return false; }
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let a: u8 = *((sb.data as i64 + i) as *const u8);
+        let b: u8 = *((expected as i64 + i) as *const u8);
+        if a != b { return false; }
+        i = i + 1 as i64;
+    }
+    return true;
+}
+
+unsafe fn main() -> i32 {
+    let mut zone: HermesZone = HermesZone::create(16384);
+    let base: *mut u8 = zone.base;
+
+    // Reserve zone offset 0 for DocumentHeader.
+    let hdr_raw: *mut u8 = zone.alloc_raw(8);
+    let doc: *mut DocumentHeader = document_create(hdr_raw);
+
+    // StringBuf for all tests.
+    let mut sb: StringBuf = StringBuf::create(256);
+
+    // -----------------------------------------------------------------------
+    // 1. null AnyVal → "null"
+    // -----------------------------------------------------------------------
+    sb.reset();
+    stringify_anyval(AnyVal::null_ptr(), base as *const u8, &mut sb);
+    if sb.len != 4 as i64                          { return 1; }
+    if *((sb.data as i64 + 0) as *const u8) != 110 as u8 { return 2; }  // 'n'
+    if *((sb.data as i64 + 3) as *const u8) != 108 as u8 { return 3; }  // 'l'
+
+    // -----------------------------------------------------------------------
+    // 2. Integer (i32, hash=23): no suffix — "42"
+    // -----------------------------------------------------------------------
+    sb.reset();
+    stringify_anyval(AnyVal::embed_i32(42), base as *const u8, &mut sb);
+    if sb.len != 2 as i64                          { return 4; }
+    if *((sb.data as i64 + 0) as *const u8) != 52 as u8  { return 5; }  // '4'
+    if *((sb.data as i64 + 1) as *const u8) != 50 as u8  { return 6; }  // '2'
+
+    // -----------------------------------------------------------------------
+    // 3. Integer zero: "0"
+    // -----------------------------------------------------------------------
+    sb.reset();
+    stringify_anyval(AnyVal::embed_i32(0), base as *const u8, &mut sb);
+    if sb.len != 1 as i64                          { return 7; }
+    if *((sb.data as i64 + 0) as *const u8) != 48 as u8  { return 8; }  // '0'
+
+    // -----------------------------------------------------------------------
+    // 4. Negative integer: "-1"
+    // -----------------------------------------------------------------------
+    sb.reset();
+    stringify_anyval(AnyVal::embed_i32(-1), base as *const u8, &mut sb);
+    if sb.len != 2 as i64                          { return 9; }
+    if *((sb.data as i64 + 0) as *const u8) != 45 as u8  { return 10; } // '-'
+    if *((sb.data as i64 + 1) as *const u8) != 49 as u8  { return 11; } // '1'
+
+    // -----------------------------------------------------------------------
+    // 5. UInteger (u32, hash=25): "99u"
+    // -----------------------------------------------------------------------
+    sb.reset();
+    stringify_anyval(AnyVal::embed_u32(99 as u32), base as *const u8, &mut sb);
+    if sb.len != 3 as i64                          { return 12; }
+    if *((sb.data as i64 + 2) as *const u8) != 117 as u8 { return 13; } // 'u'
+
+    // -----------------------------------------------------------------------
+    // 6. Boolean true/false: "true" (4) / "false" (5)
+    // -----------------------------------------------------------------------
+    sb.reset();
+    stringify_anyval(AnyVal::embed_bool(true), base as *const u8, &mut sb);
+    if sb.len != 4 as i64                          { return 14; }
+    if *((sb.data as i64 + 0) as *const u8) != 116 as u8 { return 15; } // 't'
+
+    sb.reset();
+    stringify_anyval(AnyVal::embed_bool(false), base as *const u8, &mut sb);
+    if sb.len != 5 as i64                          { return 16; }
+    if *((sb.data as i64 + 0) as *const u8) != 102 as u8 { return 17; } // 'f'
+
+    // -----------------------------------------------------------------------
+    // 7. TinyInt (i8, hash=20): "5_s8" (4 bytes)
+    // -----------------------------------------------------------------------
+    sb.reset();
+    stringify_anyval(AnyVal::embed_i8(5 as i8), base as *const u8, &mut sb);
+    if sb.len != 4 as i64                          { return 18; }
+    if *((sb.data as i64 + 0) as *const u8) != 53 as u8  { return 19; } // '5'
+    if *((sb.data as i64 + 1) as *const u8) != 95 as u8  { return 20; } // '_'
+    if *((sb.data as i64 + 2) as *const u8) != 115 as u8 { return 21; } // 's'
+    if *((sb.data as i64 + 3) as *const u8) != 56 as u8  { return 22; } // '8'
+
+    // -----------------------------------------------------------------------
+    // 8. UInteger: "0u" for zero
+    // -----------------------------------------------------------------------
+    sb.reset();
+    stringify_anyval(AnyVal::embed_u32(0 as u32), base as *const u8, &mut sb);
+    if sb.len != 2 as i64                          { return 23; }
+    if *((sb.data as i64 + 0) as *const u8) != 48 as u8  { return 24; } // '0'
+    if *((sb.data as i64 + 1) as *const u8) != 117 as u8 { return 25; } // 'u'
+
+    // -----------------------------------------------------------------------
+    // 9. Tagged HermesString "hi" → `"hi"` (4 bytes: " h i ")
+    //    Allocate with alloc_tagged(3, 28, 0): 1-byte vlen + 2 bytes data.
+    // -----------------------------------------------------------------------
+    let hs_raw: *mut u8 = zone.alloc_tagged(3, hermes_tag_string(), hermes_desc_data());
+    // Write vlen prefix (len=2) + "hi" bytes manually.
+    let hs_p0: *mut u8 = (hs_raw as i64 + 0 as i64) as *mut u8;
+    let hs_p1: *mut u8 = (hs_raw as i64 + 1 as i64) as *mut u8;
+    let hs_p2: *mut u8 = (hs_raw as i64 + 2 as i64) as *mut u8;
+    *hs_p0 = 2 as u8;     // vlen: 2 bytes follow
+    *hs_p1 = 104 as u8;   // 'h'
+    *hs_p2 = 105 as u8;   // 'i'
+    let hs_off: u32 = (hs_raw as i64 - base as i64) as u32;
+    let hs_val: AnyVal = AnyVal::from_offset(hs_off);
+
+    sb.reset();
+    stringify_anyval(hs_val, base as *const u8, &mut sb);
+    // Expected: '"hi"' = [34, 104, 105, 34]
+    if sb.len != 4 as i64                          { return 26; }
+    if *((sb.data as i64 + 0) as *const u8) != 34 as u8  { return 27; } // '"'
+    if *((sb.data as i64 + 1) as *const u8) != 104 as u8 { return 28; } // 'h'
+    if *((sb.data as i64 + 2) as *const u8) != 105 as u8 { return 29; } // 'i'
+    if *((sb.data as i64 + 3) as *const u8) != 34 as u8  { return 30; } // '"'
+
+    // -----------------------------------------------------------------------
+    // 10. Tagged ObjectArray [i32(1), i32(2)] → "[1,2]" (5 bytes)
+    //     Allocate header with alloc_tagged + data buffer with alloc_raw.
+    // -----------------------------------------------------------------------
+    let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
+    let oa_raw: *mut u8  = zone.alloc_tagged(oa_sz, hermes_tag_array(), hermes_desc_array());
+    let oa_buf: *mut u8  = zone.alloc_raw(64);   // 8 AnyVal slots
+    let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 8 as u64);
+    arr.push(base, AnyVal::embed_i32(1));
+    arr.push(base, AnyVal::embed_i32(2));
+
+    let arr_off: u32 = (oa_raw as i64 - base as i64) as u32;
+    let arr_val: AnyVal = AnyVal::from_offset(arr_off);
+
+    sb.reset();
+    stringify_anyval(arr_val, base as *const u8, &mut sb);
+    // Expected: "[1,2]" = [91, 49, 44, 50, 93]
+    if sb.len != 5 as i64                          { return 31; }
+    if *((sb.data as i64 + 0) as *const u8) != 91 as u8  { return 32; } // '['
+    if *((sb.data as i64 + 1) as *const u8) != 49 as u8  { return 33; } // '1'
+    if *((sb.data as i64 + 2) as *const u8) != 44 as u8  { return 34; } // ','
+    if *((sb.data as i64 + 3) as *const u8) != 50 as u8  { return 35; } // '2'
+    if *((sb.data as i64 + 4) as *const u8) != 93 as u8  { return 36; } // ']'
+
+    // -----------------------------------------------------------------------
+    // 11. Tagged TinyObjectMap {k0: i32(7)} → '{"k0":7}'  (8 bytes)
+    // -----------------------------------------------------------------------
+    let tm_sz: i64 = sizeof::<TinyObjectMap>() as i64;
+    let tm_raw: *mut u8 = zone.alloc_tagged(tm_sz, hermes_tag_tiny_map(), hermes_desc_map());
+    let tm_arr: *mut u8 = zone.alloc_raw(80);   // 10 AnyVal slots
+    let tmap: *mut TinyObjectMap = TinyObjectMap::init(tm_raw, tm_arr, base, 10 as u32);
+    tmap.set(base, 0 as u8, AnyVal::embed_i32(7));
+
+    let tm_off: u32 = (tm_raw as i64 - base as i64) as u32;
+    let tm_val: AnyVal = AnyVal::from_offset(tm_off);
+
+    sb.reset();
+    stringify_anyval(tm_val, base as *const u8, &mut sb);
+    // Expected: '{"k0":7}' = [123,34,107,48,34,58,55,125]
+    if sb.len != 8 as i64                          { return 37; }
+    if *((sb.data as i64 + 0) as *const u8) != 123 as u8 { return 38; } // '{'
+    if *((sb.data as i64 + 1) as *const u8) != 34 as u8  { return 39; } // '"'
+    if *((sb.data as i64 + 2) as *const u8) != 107 as u8 { return 40; } // 'k'
+    if *((sb.data as i64 + 3) as *const u8) != 48 as u8  { return 41; } // '0'
+    if *((sb.data as i64 + 4) as *const u8) != 34 as u8  { return 42; } // '"'
+    if *((sb.data as i64 + 5) as *const u8) != 58 as u8  { return 43; } // ':'
+    if *((sb.data as i64 + 6) as *const u8) != 55 as u8  { return 44; } // '7'
+    if *((sb.data as i64 + 7) as *const u8) != 125 as u8 { return 45; } // '}'
+
+    // -----------------------------------------------------------------------
+    // 12. stringify_document: set root = i32(100), stringify → "100"
+    // -----------------------------------------------------------------------
+    document_set_root(doc, AnyVal::embed_i32(100));
+
+    sb.reset();
+    stringify_document(base as *const u8, &mut sb);
+    if sb.len != 3 as i64                          { return 46; }
+    if *((sb.data as i64 + 0) as *const u8) != 49 as u8  { return 47; } // '1'
+    if *((sb.data as i64 + 1) as *const u8) != 48 as u8  { return 48; } // '0'
+    if *((sb.data as i64 + 2) as *const u8) != 48 as u8  { return 49; } // '0'
+
+    sb.destroy();
+    zone.destroy();
+    return 42;
+}
