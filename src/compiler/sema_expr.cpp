@@ -1773,6 +1773,28 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         return make_expr(ft, lir::EFieldRead{std::move(recv), std::string(field_name)});
     }
 
+    // DataRef<T> ergonomic read: p.field → p.ptr().field
+    // Intercept before normal struct field lookup so that DataRef<T>.x works without
+    // an explicit let pw = p.ptr() intermediate step.
+    if (recv_base_t && recv_base_t->kind == LogosType::Kind::Struct &&
+        recv_base_t->struct_name == "DataRef" &&
+        recv_base_t->type_args.size() == 1) {
+        const LogosType* T = recv_base_t->type_args[0];
+        if (T && T->kind == LogosType::Kind::Datatype) {
+            auto* ft = field_type_of_for_type(T, field_name);
+            if (ft) {
+                if (!inside_unsafe_)
+                    error(std::format("DataRef<T>.{}: field access requires unsafe context",
+                                      field_name));
+                const LogosType* ptr_t = make_ptr(false, T);
+                auto mc = make_expr(ptr_t,
+                    lir::EMethodCall{std::move(recv), "ptr", {}, {}, -1, ""});
+                return make_expr(ft,
+                    lir::EFieldRead{std::move(mc), std::string(field_name)});
+            }
+        }
+    }
+
     auto sname = struct_name_from_type(recv_base_t);
     if (sname.empty()) {
         error(std::format("field read: receiver is not a struct or class (got {})",

@@ -1320,6 +1320,57 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
 lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     auto recv_name  = str_of(node.get(la::RECEIVER.code));
     auto field_name = str_of(node.get(la::FIELD.code));
+
+    // DataRef<T> ergonomic write: p.field = val → { let __tmp = p.mut_ptr(); (*__tmp).field = val; }
+    {
+        const LogosType* recv_type = lookup(recv_name);
+        if (recv_type && recv_type->kind == LogosType::Kind::Struct &&
+            recv_type->struct_name == "DataRef" &&
+            recv_type->type_args.size() == 1) {
+            const LogosType* T = recv_type->type_args[0];
+            if (T && T->kind == LogosType::Kind::Datatype) {
+                auto* ft = field_type_of_for_type(T, field_name);
+                if (ft) {
+                    if (!inside_unsafe_)
+                        error(std::format("DataRef<T>.{}: field write requires unsafe context",
+                                          field_name));
+                    if (!lookup_is_mut(recv_name))
+                        error(std::format("field write to immutable DataRef variable '{}'",
+                                          recv_name));
+                    // Lower value before generating the block.
+                    lir::LExprPtr val = node.has_key(la::VALUE)
+                        ? lower_expr(map_of(node.get(la::VALUE.code)))
+                        : error_expr();
+                    if (val->type->kind != LogosType::Kind::Error &&
+                        !types_compatible(val->type, ft))
+                        error(std::format("field write '{}.{}': expected {}, got {}",
+                              recv_name, field_name, type_str(ft), type_str(val->type)));
+                    // Synthesize: let __dr_tmp = p.mut_ptr();
+                    const LogosType* mut_ptr_T = make_ptr(true, T);
+                    std::string tmp = "__dr_tmp_" + std::string(recv_name);
+                    auto recv_expr = make_expr(recv_type, lir::EVarRef{std::string(recv_name)});
+                    lir::SLet let_s;
+                    let_s.name   = tmp;
+                    let_s.type   = mut_ptr_T;
+                    let_s.is_mut = false;
+                    let_s.value  = make_expr(mut_ptr_T,
+                        lir::EMethodCall{std::move(recv_expr), "mut_ptr", {}, {}, -1, ""});
+                    // Synthesize: (*__dr_tmp).field = val
+                    lir::SDerefFieldWrite dfw;
+                    dfw.receiver  = tmp;
+                    dfw.type_name = concrete_struct_name(T);
+                    dfw.field     = std::string(field_name);
+                    dfw.value     = std::move(val);
+                    lir::LBlock inner;
+                    inner.stmts.push_back(make_stmt(node_line_, std::move(let_s)));
+                    inner.stmts.push_back(make_stmt(node_line_, std::move(dfw)));
+                    return make_stmt(node_line_,
+                        lir::SBlock{std::make_unique<lir::LBlock>(std::move(inner))});
+                }
+            }
+        }
+    }
+
     auto sname = struct_name_of(recv_name);
     auto cname = sname.empty() ? class_name_of(recv_name) : std::string_view{};
     bool is_class = !cname.empty();

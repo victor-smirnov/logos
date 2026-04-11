@@ -1,0 +1,31 @@
+package datatype_zone_ergonomic;
+// Phase 4: ergonomic DataRef<T> field access — p.x and p.x = val
+// without explicit intermediate pointer variables.
+
+use hermes.zone;
+
+datatype Point {
+    x: i32,
+    y: i32,
+}
+
+unsafe fn main() -> i32 {
+    let mut zone: HermesZone = HermesZone::create(4096);
+    let size: i64 = sizeof::<Point>();
+    let raw: *mut u8 = zone.alloc_raw(size);
+
+    let base_int: i64 = zone.base as i64;
+    let raw_int: i64 = raw as i64;
+    let offset: u32 = (raw_int - base_int) as u32;
+
+    let mut p: DataRef<Point> = DataRef { base: zone.base, offset: offset };
+
+    // Ergonomic write: no explicit mut_ptr() temp needed.
+    p.x = 15;
+    p.y = 27;
+
+    // Ergonomic read: no explicit ptr() temp needed.
+    let result: i32 = p.x + p.y;
+    zone.destroy();
+    return result;  // 42
+}

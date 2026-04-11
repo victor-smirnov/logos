@@ -208,6 +208,8 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
             return {ptr, concrete_struct_name(t)};
         if (t->kind == LogosType::Kind::Class)
             return {ptr, concrete_class_name(t)};
+        if (t->kind == LogosType::Kind::Datatype)
+            return {ptr, concrete_struct_name(t)};
     }
     std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct/class access\n");
     return {nullptr, {}};
