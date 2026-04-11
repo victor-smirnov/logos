@@ -80,7 +80,9 @@ impl StringBuf {
     // Double the capacity, copying existing content via realloc.
     // On OOM, leaves the buffer unchanged; append_byte checks for this.
     pub unsafe fn grow(&mut self) {
+        if self.cap <= 0 as i64 { return; }
         let new_cap: i64 = self.cap * 2 as i64;
+        if new_cap <= self.cap { return; }  // overflow guard
         let new_data: *mut u8 = realloc(self.data, new_cap);
         // realloc returns null on OOM and leaves the original allocation intact.
         if new_data == 0 as *mut u8 { return; }

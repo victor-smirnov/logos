@@ -50,6 +50,12 @@ pub fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
     let mut m: i32 = n;
     if neg {
         m = 0 - n;
+        if m < 0 {
+            // n == i32::MIN (-2147483648): negation overflows, hardcode output.
+            let s: *const u8 = "-2147483648";
+            mem_copy(buf, off, s, 11);
+            return 11;
+        }
     }
     let mut tmp: [i32; 12] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let mut pos: i64 = 0;
@@ -81,6 +87,12 @@ pub fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
     let mut m: i64 = n;
     if neg {
         m = 0 as i64 - n;
+        if m < 0 as i64 {
+            // n == i64::MIN (-9223372036854775808): negation overflows, hardcode output.
+            let s: *const u8 = "-9223372036854775808";
+            mem_copy(buf, off, s, 20);
+            return 20;
+        }
     }
     let mut tmp: [i32; 22] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let mut pos: i64 = 0;
@@ -159,11 +171,14 @@ impl String {
 
     // Ensure capacity for `needed` additional bytes (+ null terminator).
     pub fn grow(&mut self, needed: i64) {
+        if needed < 0 as i64 { return; }
         let required: i64 = self.nbytes + needed + 1;
+        if required < 0 as i64 { return; }  // overflow guard
         if required <= self.cap + 1 {
             return;
         }
         let new_cap: i64 = (self.cap + needed + 1) * 2;
+        if new_cap <= needed { return; }     // overflow guard
         if self.data == 0 as *mut u8 {
             self.data = alloc(new_cap);
             unsafe { self.data[0] = 0 as u8; }
