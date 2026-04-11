@@ -1,0 +1,49 @@
+// Test: String — push_cstr, push_bytes, len, as_ptr, clear, Drop
+package string_basic;
+
+use std.string;
+use std.io;
+
+extern fn strlen(s: *const u8) -> i64;
+
+unsafe fn main() -> i32 {
+    // from_cstr
+    let mut s: String = String::from_cstr("hello");
+    if s.len() != 5 {
+        return 1;
+    }
+
+    // push_cstr
+    s.push_cstr(", world");
+    if s.len() != 12 {
+        return 2;
+    }
+
+    // null-terminator: strlen should agree with len()
+    let clen: i64 = strlen(s.as_ptr());
+    if clen != s.len() {
+        return 3;
+    }
+
+    // print the string
+    println(s.as_ptr());
+
+    // clear keeps allocation
+    s.clear();
+    if s.len() != 0 {
+        return 4;
+    }
+    if s.capacity() == 0 {
+        return 5;
+    }
+
+    // push_bytes
+    let lit: *const u8 = "42";
+    s.push_bytes(lit, 2);
+    if s.len() != 2 {
+        return 6;
+    }
+
+    // s goes out of scope — Drop frees the buffer
+    return 42;
+}

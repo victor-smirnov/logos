@@ -3,11 +3,9 @@ package format_types;
 
 use std.fmt;
 use std.io;
-use std.mem;
 
 unsafe fn main() -> i32 {
-    let s: *mut u8 = format::<i32, *const u8, bool, i32>("{} {} {} {}", 0 - 1, "hi", true, 0);
-    println(s as *const u8);
-    dealloc(s);
+    let s: String = format::<i32, *const u8, bool, i32>("{} {} {} {}", 0 - 1, "hi", true, 0);
+    println(s.as_ptr());
     return 42;
 }

@@ -1,13 +1,11 @@
-// format() via std.fmt — variadic generics + Format trait
+// format() via std.fmt — variadic generics + Display trait
 package variadic_format;
 
 use std.fmt;
 use std.io;
-use std.mem;
 
 unsafe fn main() -> i32 {
-    let s: *mut u8 = format::<*const u8, i32, bool>("{} says: x={}, ok={}", "logos", 42, true);
-    println(s as *const u8);
-    dealloc(s);
+    let s: String = format::<*const u8, i32, bool>("{} says: x={}, ok={}", "logos", 42, true);
+    println(s.as_ptr());
     return 42;
 }

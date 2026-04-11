@@ -731,6 +731,11 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                                                 error(std::format("return: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                       i, ii, *v, type_str(ret_type_->tuple_elems[i]->tuple_elems[ii])));
                         }
+            // Move semantics: returning a move-type variable by value — mark it moved
+            // so collect_all_drops() won't generate a drop for it (avoids double-free).
+            if (val && is_move_type(val->type))
+                if (auto* vr = std::get_if<lir::EVarRef>(&val->kind))
+                    mark_moved(vr->name);
             return make_stmt(node_line_, lir::SReturn{std::move(val)});
         }
     }

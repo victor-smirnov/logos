@@ -1,13 +1,11 @@
-// format() — std.fmt (variadic generics + Format trait)
+// format() — std.fmt (variadic generics + Display trait)
 package format_basic;
 
 use std.fmt;
 use std.io;
-use std.mem;
 
 unsafe fn main() -> i32 {
-    let s: *mut u8 = format::<i32, i32>("n={}, m={}", 40, 2);
-    println(s as *const u8);
-    dealloc(s);
+    let s: String = format::<i32, i32>("n={}, m={}", 40, 2);
+    println(s.as_ptr());
     return 42;
 }

@@ -1,16 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.string
 //
-// String utility functions (str_len, mem_copy, write_i32, write_i64, write_bool).
-// Used by std.fmt for formatting.
+// String — owned, heap-allocated, growable byte buffer.
+// Analogous to Rust's String / C++'s std::string.
+//
+// Always keeps a null terminator past the last byte, so as_ptr()
+// returns a valid C string without extra copying.
+//
+// Drop: String implements Drop — backing buffer is freed automatically
+// when the value goes out of scope.
+//
+// Usage:
+//   let mut s: String = String::new();
+//   s.push_cstr("hello, ");
+//   s.push_cstr("world");
+//   write(1, s.as_ptr(), s.len());
 
 package std.string;
 
 use std.mem;
 
-// ── Primitives ─────────────────────────────────────────────────────────────
+trait Drop { fn drop(self: Self); }
 
-fn str_len(s: *const u8) -> i64 {
+// ── Low-level primitives (used by std.fmt and String internals) ────────────
+
+pub fn str_len(s: *const u8) -> i64 {
     let mut n: i64 = 0;
     while (unsafe { s[n]; } as i32) != 0 {
         n = n + 1;
@@ -18,7 +32,7 @@ fn str_len(s: *const u8) -> i64 {
     return n;
 }
 
-fn mem_copy(dst: *mut u8, dst_off: i64, src: *const u8, n: i64) {
+pub fn mem_copy(dst: *mut u8, dst_off: i64, src: *const u8, n: i64) {
     let mut i: i64 = 0;
     while i < n {
         unsafe { dst[dst_off + i] = src[i]; }
@@ -27,7 +41,7 @@ fn mem_copy(dst: *mut u8, dst_off: i64, src: *const u8, n: i64) {
 }
 
 // Write decimal representation of n into buf[off..], return bytes written.
-fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
+pub fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
     if n == 0 {
         unsafe { buf[off] = 48 as u8; }
         return 1;
@@ -58,7 +72,7 @@ fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
     return out;
 }
 
-fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
+pub fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
     if n == 0 {
         unsafe { buf[off] = 48 as u8; }
         return 1;
@@ -89,7 +103,7 @@ fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
     return out;
 }
 
-fn write_bool(buf: *mut u8, off: i64, v: bool) -> i64 {
+pub fn write_bool(buf: *mut u8, off: i64, v: bool) -> i64 {
     if v {
         unsafe { buf[off + 0 as i64] = 116 as u8; }
         unsafe { buf[off + 1 as i64] = 114 as u8; }
@@ -106,5 +120,188 @@ fn write_bool(buf: *mut u8, off: i64, v: bool) -> i64 {
     }
 }
 
-// format() is now in std.fmt (variadic generics + Format trait).
-// The old __format_impl intrinsic runtime has been removed.
+// ── String ─────────────────────────────────────────────────────────────────
+
+// Owned, heap-allocated, growable byte string.
+// Invariant: data[nbytes] == 0 (null terminator always present when cap > 0).
+pub struct String {
+    data:   *mut u8,   // heap buffer (or null when cap == 0)
+    nbytes: i64,       // number of content bytes (not counting null terminator)
+    cap:    i64,       // allocated bytes (always > nbytes when data != null)
+}
+
+impl String {
+    // Empty string, no heap allocation.
+    pub static fn new() -> String {
+        return String { data: 0 as *mut u8, nbytes: 0, cap: 0 };
+    }
+
+    // Empty string with pre-allocated capacity (avoids early reallocations).
+    pub static fn with_capacity(cap: i64) -> String {
+        let buf: *mut u8 = alloc(cap + 1);
+        unsafe { buf[0] = 0 as u8; }
+        return String { data: buf, nbytes: 0, cap: cap };
+    }
+
+    // Copy from a null-terminated C string.
+    pub static fn from_cstr(s: *const u8) -> String {
+        let mut out: String = String::new();
+        out.push_cstr(s);
+        return out;
+    }
+
+    // Copy from a byte slice (ptr + length).
+    pub static fn from_bytes(s: *const u8, n: i64) -> String {
+        let mut out: String = String::new();
+        out.push_bytes(s, n);
+        return out;
+    }
+
+    // Ensure capacity for `needed` additional bytes (+ null terminator).
+    pub fn grow(&mut self, needed: i64) {
+        let required: i64 = self.nbytes + needed + 1;
+        if required <= self.cap + 1 {
+            return;
+        }
+        let new_cap: i64 = (self.cap + needed + 1) * 2;
+        if self.data == 0 as *mut u8 {
+            self.data = alloc(new_cap);
+            unsafe { self.data[0] = 0 as u8; }
+        } else {
+            self.data = realloc_buf(self.data, new_cap);
+        }
+        self.cap = new_cap - 1;
+    }
+
+    // Append a single byte.
+    pub fn push_u8(&mut self, c: u8) {
+        self.grow(1);
+        unsafe {
+            self.data[self.nbytes] = c;
+            self.nbytes = self.nbytes + 1;
+            self.data[self.nbytes] = 0 as u8;
+        }
+    }
+
+    // Append `n` bytes from `s`.
+    pub fn push_bytes(&mut self, s: *const u8, n: i64) {
+        self.grow(n);
+        mem_copy(self.data, self.nbytes, s, n);
+        self.nbytes = self.nbytes + n;
+        unsafe { self.data[self.nbytes] = 0 as u8; }
+    }
+
+    // Append a null-terminated C string.
+    pub fn push_cstr(&mut self, s: *const u8) {
+        let n: i64 = str_len(s);
+        self.push_bytes(s, n);
+    }
+
+    // Read-only pointer to the bytes. Always null-terminated.
+    pub fn as_ptr(&self) -> *const u8 {
+        return self.data as *const u8;
+    }
+
+    // Number of content bytes (not counting null terminator).
+    pub fn len(&self) -> i64 {
+        return self.nbytes;
+    }
+
+    // Allocated capacity (not counting null terminator slot).
+    pub fn capacity(&self) -> i64 {
+        return self.cap;
+    }
+
+    // True if no bytes have been written.
+    pub fn is_empty(&self) -> bool {
+        return self.nbytes == 0;
+    }
+
+    // Reset length to zero, keep the allocation.
+    pub fn clear(&mut self) {
+        self.nbytes = 0;
+        if self.data != 0 as *mut u8 {
+            unsafe { self.data[0] = 0 as u8; }
+        }
+    }
+
+    // Ensure `reserve` spare bytes, return pointer to first spare byte.
+    // Used by Display impls to write directly into the buffer.
+    pub fn spare_ptr(&mut self, reserve: i64) -> *mut u8 {
+        self.grow(reserve);
+        unsafe {
+            let p: i64 = self.data as i64 + self.nbytes;
+            return p as *mut u8;
+        }
+    }
+
+    // Advance the content length by `n` bytes and null-terminate.
+    // Call after writing into spare_ptr().
+    pub fn advance_len(&mut self, n: i64) {
+        self.nbytes = self.nbytes + n;
+        unsafe { self.data[self.nbytes] = 0 as u8; }
+    }
+}
+
+impl Drop for String {
+    fn drop(self: String) {
+        if self.data != 0 as *mut u8 {
+            dealloc(self.data);
+        }
+    }
+}
+
+// ── Display trait ──────────────────────────────────────────────────────────
+
+// Display: convert a value to its human-readable string representation.
+// Implement for types that can be formatted as text.
+//
+// Usage:
+//   let mut s: String = String::new();
+//   42.fmt(&mut s);                 // writes "42"
+//   let s: String = to_string(42); // shorthand
+
+trait Display {
+    fn fmt(self: Self, buf: &mut String);
+}
+
+impl Display for i32 {
+    fn fmt(self: i32, buf: &mut String) {
+        let ptr: *mut u8 = buf.spare_ptr(12);
+        let n: i64 = write_i32(ptr, 0, self);
+        buf.advance_len(n);
+    }
+}
+
+impl Display for i64 {
+    fn fmt(self: i64, buf: &mut String) {
+        let ptr: *mut u8 = buf.spare_ptr(22);
+        let n: i64 = write_i64(ptr, 0, self);
+        buf.advance_len(n);
+    }
+}
+
+impl Display for bool {
+    fn fmt(self: bool, buf: &mut String) {
+        if self {
+            buf.push_cstr("true");
+        } else {
+            buf.push_cstr("false");
+        }
+    }
+}
+
+// Display for null-terminated C strings.
+impl Display for *const u8 {
+    fn fmt(self: *const u8, buf: &mut String) {
+        let n: i64 = str_len(self);
+        buf.push_bytes(self, n);
+    }
+}
+
+// Convert any Display value to an owned String.
+pub fn to_string<T: Display>(val: T) -> String {
+    let mut s: String = String::new();
+    val.fmt(&mut s);
+    return s;
+}
