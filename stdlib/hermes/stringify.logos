@@ -41,6 +41,7 @@ use hermes.objectmap;
 use hermes.document;
 
 extern fn malloc(size: i64) -> *mut u8;
+extern fn realloc(ptr: *mut u8, size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
 trait Drop { fn drop(self: Self); }
@@ -76,21 +77,13 @@ impl StringBuf {
         self.len = 0;
     }
 
-    // Double the capacity, copying existing content.
+    // Double the capacity, copying existing content via realloc.
+    // On OOM, leaves the buffer unchanged; append_byte checks for this.
     pub unsafe fn grow(&mut self) {
         let new_cap: i64 = self.cap * 2 as i64;
-        let new_data: *mut u8 = malloc(new_cap);
-        // OOM: leave the buffer unchanged so callers can detect failure via
-        // a subsequent append_byte returning without advancing len.
+        let new_data: *mut u8 = realloc(self.data, new_cap);
+        // realloc returns null on OOM and leaves the original allocation intact.
         if new_data == 0 as *mut u8 { return; }
-        let mut i: i64 = 0 as i64;
-        while i < self.len {
-            let src: *const u8 = (self.data as i64 + i) as *const u8;
-            let dst: *mut u8   = (new_data as i64 + i) as *mut u8;
-            *dst = *src;
-            i = i + 1 as i64;
-        }
-        free(self.data);
         self.data = new_data;
         self.cap  = new_cap;
     }
@@ -112,6 +105,8 @@ impl StringBuf {
     pub unsafe fn append_byte(&mut self, b: u8) {
         if self.len >= self.cap {
             self.grow();
+            // If grow failed (OOM), cap is still <= len: drop the byte silently.
+            if self.len >= self.cap { return; }
         }
         let p: *mut u8 = (self.data as i64 + self.len) as *mut u8;
         *p = b;

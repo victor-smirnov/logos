@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Test: StringBuf growth via realloc — write more bytes than the initial
+// capacity so that grow() is triggered and data is preserved correctly.
+
+package hermes_stringbuf_grow;
+
+use hermes.stringify;
+
+unsafe fn main() -> i32 {
+    // Start with a tiny capacity of 4 bytes.
+    let mut sb: StringBuf = StringBuf::create(4 as i64);
+
+    // Write 20 bytes (ASCII 'A' = 65).  Each write past the 4-byte cap should
+    // trigger grow(), doubling: 4 → 8 → 16 → 32.
+    let mut i: i64 = 0 as i64;
+    while i < 20 as i64 {
+        sb.append_byte(65 as u8);  // 'A'
+        i = i + 1 as i64;
+    }
+
+    // After 20 writes the length must be exactly 20.
+    if sb.len != 20 as i64 { return 1; }
+
+    // All bytes must be 'A' (65).
+    let mut j: i64 = 0 as i64;
+    while j < 20 as i64 {
+        let p: *const u8 = (sb.data as i64 + j) as *const u8;
+        if *p != 65 as u8 { return 2; }
+        j = j + 1 as i64;
+    }
+
+    // Capacity must be at least 20 after the doublings.
+    if sb.cap < 20 as i64 { return 3; }
+
+    sb.destroy();
+    return 42;
+}
