@@ -1,0 +1,211 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.containers
+//
+// Phase 8: Hermes container datatypes — TinyObjectMap and ObjectArray.
+//
+// Both types are Hermes datatypes (POD, zone-allocated). Their variable-length
+// data arrays live at zone-relative offsets stored in a u32 field. The caller
+// allocates memory from a HermesZone and passes the raw pointers to the init
+// functions below; the init functions compute zone-relative offsets and fill
+// the header fields.
+//
+// TinyObjectMap  (16 bytes): bitmap-indexed map, u8 key → AnyVal, max 52 entries.
+// ObjectArray    (24 bytes): dynamic array of AnyVal, up to 2^64-1 entries.
+//
+// References: openspec/specs/hermes.md §3, hermes-wire-format.md §3.
+
+package hermes.containers;
+
+use hermes.anyval;
+
+// ---------------------------------------------------------------------------
+// Internal helper: popcount of a u64 (used for bitmap position lookup)
+// ---------------------------------------------------------------------------
+
+unsafe fn popcount_u64(x: u64) -> u32 {
+    let mut v: u64 = x;
+    let mut n: u32 = 0;
+    while v != 0 as u64 {
+        v = v & (v - 1 as u64);
+        n = n + 1;
+    }
+    return n;
+}
+
+// ---------------------------------------------------------------------------
+// TinyObjectMap
+//
+// Layout (16 bytes, 8-byte aligned):
+//   header: u64 — bits[0:51] = key presence bitmap (keys 0..51)
+//                 bits[52:57] = capacity (max 52, 6 bits)
+//                 bits[58:63] = current size (6 bits)
+//   data:   u32 — zone-relative offset to the AnyVal[] value array
+//   (4 bytes implicit trailing padding for C POD 8-byte alignment)
+//
+// Lookup: position of key in value array = popcount(bitmap & mask_below_key).
+// This is O(1) (popcount loop is bounded by key ≤ 52).
+// Insertion: shift elements right by 1 to maintain sorted key order. O(n).
+// ---------------------------------------------------------------------------
+
+pub datatype TinyObjectMap {
+    pub header: u64,
+    pub data:   u32,
+}
+
+impl TinyObjectMap {
+    // Initialize a TinyObjectMap at pre-allocated memory.
+    //   map_raw  — pointer to ≥sizeof(TinyObjectMap) bytes (zeroed or uninitialized)
+    //   arr_raw  — pointer to ≥ capacity*8 bytes for the AnyVal array
+    //   base     — zone base pointer (used to compute zone-relative offsets)
+    //   capacity — max number of entries (≤ 52)
+    // Returns a *mut TinyObjectMap pointing into the zone.
+    pub unsafe fn init(map_raw: *mut u8, arr_raw: *mut u8,
+                       base: *mut u8, capacity: u32) -> *mut TinyObjectMap {
+        let base_int: i64 = base as i64;
+        let arr_off: u32  = (arr_raw as i64 - base_int) as u32;
+        let cap_bits: u64 = (capacity as u64) << 52;
+        let map_ptr: *mut TinyObjectMap = map_raw as *mut TinyObjectMap;
+        map_ptr.header = cap_bits;
+        map_ptr.data   = arr_off;
+        // Zero-initialize the value array (AnyVal::null_ptr for each slot).
+        let elem_sz: i64 = sizeof::<AnyVal>() as i64;
+        let mut i: u32 = 0;
+        while i < capacity {
+            let ep: *mut AnyVal = (arr_raw as i64 + (i as i64) * elem_sz) as *mut AnyVal;
+            ep.lo = 0 as u32;
+            ep.hi = 0 as u32;
+            i = i + 1;
+        }
+        return map_ptr;
+    }
+
+    // Number of entries currently in the map.
+    pub unsafe fn size(self: *const TinyObjectMap) -> u32 {
+        return ((self.header >> 58) & 0x3F as u64) as u32;
+    }
+
+    // True if key is present in the map.
+    pub unsafe fn contains(self: *const TinyObjectMap, key: u8) -> bool {
+        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
+        let key_bit: u64 = 1 as u64 << (key as u64);
+        return (bitmap & key_bit) != 0 as u64;
+    }
+
+    // Get value by key. Returns AnyVal::null_ptr() if key not present.
+    pub unsafe fn get(self: *const TinyObjectMap, base: *const u8, key: u8) -> AnyVal {
+        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
+        let key_bit: u64 = 1 as u64 << (key as u64);
+        if (bitmap & key_bit) == 0 as u64 {
+            return AnyVal::null_ptr();
+        }
+        let mask: u64 = key_bit - 1 as u64;
+        let pos: u32  = popcount_u64(bitmap & mask);
+        let elem_sz: i64 = sizeof::<AnyVal>() as i64;
+        let elem: *const AnyVal = (base as i64 + self.data as i64 + (pos as i64) * elem_sz) as *const AnyVal;
+        return AnyVal { lo: elem.lo, hi: elem.hi };
+    }
+
+    // Set or update value by key.
+    // key must be 0..51. If the map is full and key is new, does nothing.
+    pub unsafe fn set(self: *mut TinyObjectMap, base: *mut u8, key: u8, val: AnyVal) {
+        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
+        let key_bit: u64 = 1 as u64 << (key as u64);
+        let mask: u64    = key_bit - 1 as u64;
+        let pos: u32     = popcount_u64(bitmap & mask);
+        let size: u32    = ((self.header >> 58) & 0x3F as u64) as u32;
+        let cap: u32     = ((self.header >> 52) & 0x3F as u64) as u32;
+        let elem_sz: i64 = sizeof::<AnyVal>() as i64;
+        let arr_base: i64 = base as i64 + self.data as i64;
+
+        if (bitmap & key_bit) == 0 as u64 {
+            // New key: shift elements[pos..size] right by 1 to make room.
+            if size >= cap { return; }
+            let mut i: u32 = size;
+            while i > pos {
+                let src: *const AnyVal = (arr_base + ((i - 1) as i64) * elem_sz) as *const AnyVal;
+                let dst: *mut AnyVal   = (arr_base + (i as i64) * elem_sz) as *mut AnyVal;
+                dst.lo = src.lo;
+                dst.hi = src.hi;
+                i = i - 1;
+            }
+            // Update bitmap and size in header.
+            let new_bitmap: u64  = bitmap | key_bit;
+            let new_size: u64    = (size + 1) as u64;
+            let cap_bits: u64    = (cap as u64) << 52;
+            let size_bits: u64   = new_size << 58;
+            self.header = new_bitmap | cap_bits | size_bits;
+        }
+        // Write value at its sorted position.
+        let dst: *mut AnyVal = (arr_base + (pos as i64) * elem_sz) as *mut AnyVal;
+        dst.lo = val.lo;
+        dst.hi = val.hi;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ObjectArray
+//
+// Layout (24 bytes, 8-byte aligned):
+//   size:     u64 — number of elements currently in the array
+//   capacity: u64 — allocated capacity (in elements)
+//   data:     u32 — zone-relative offset to the AnyVal[] element buffer
+//   (4 bytes implicit trailing padding)
+// ---------------------------------------------------------------------------
+
+pub datatype ObjectArray {
+    pub size:     u64,
+    pub capacity: u64,
+    pub data:     u32,
+}
+
+impl ObjectArray {
+    // Initialize an ObjectArray at pre-allocated memory.
+    //   arr_raw  — pointer to ≥sizeof(ObjectArray) bytes
+    //   buf_raw  — pointer to ≥ capacity*8 bytes for the element buffer
+    //   base     — zone base pointer
+    //   capacity — initial allocated capacity
+    // Returns a *mut ObjectArray.
+    pub unsafe fn init(arr_raw: *mut u8, buf_raw: *mut u8,
+                       base: *mut u8, capacity: u64) -> *mut ObjectArray {
+        let base_int: i64  = base as i64;
+        let buf_off: u32   = (buf_raw as i64 - base_int) as u32;
+        let arr_ptr: *mut ObjectArray = arr_raw as *mut ObjectArray;
+        arr_ptr.size     = 0 as u64;
+        arr_ptr.capacity = capacity;
+        arr_ptr.data     = buf_off;
+        // Zero-initialize the buffer.
+        let elem_sz: i64 = sizeof::<AnyVal>() as i64;
+        let mut i: u64 = 0 as u64;
+        while i < capacity {
+            let ep: *mut AnyVal = (buf_raw as i64 + (i as i64) * elem_sz) as *mut AnyVal;
+            ep.lo = 0 as u32;
+            ep.hi = 0 as u32;
+            i = i + 1 as u64;
+        }
+        return arr_ptr;
+    }
+
+    // Append a value. Does nothing if at capacity.
+    pub unsafe fn push(self: *mut ObjectArray, base: *mut u8, val: AnyVal) {
+        if self.size >= self.capacity { return; }
+        let elem_sz: i64 = sizeof::<AnyVal>() as i64;
+        let ep: *mut AnyVal = (base as i64 + self.data as i64 + (self.size as i64) * elem_sz) as *mut AnyVal;
+        ep.lo = val.lo;
+        ep.hi = val.hi;
+        self.size = self.size + 1 as u64;
+    }
+
+    // Get element by index. Returns AnyVal::null_ptr() if out of bounds.
+    pub unsafe fn get(self: *const ObjectArray, base: *const u8, idx: u64) -> AnyVal {
+        if idx >= self.size { return AnyVal::null_ptr(); }
+        let elem_sz: i64 = sizeof::<AnyVal>() as i64;
+        let ep: *const AnyVal = (base as i64 + self.data as i64 + (idx as i64) * elem_sz) as *const AnyVal;
+        return AnyVal { lo: ep.lo, hi: ep.hi };
+    }
+
+    // Number of elements in the array.
+    pub unsafe fn len(self: *const ObjectArray) -> u64 {
+        return self.size;
+    }
+}

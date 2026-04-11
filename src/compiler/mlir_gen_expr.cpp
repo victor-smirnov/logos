@@ -1490,7 +1490,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPackExpand&, const LogosType*) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const ESizeOf& e, const LogosType*) {
-    auto elem_mlir = logos_to_mlir(e.elem_type);
+    // For Struct/Datatype: logos_to_mlir returns ptr_type() (always passed by pointer),
+    // but sizeof needs the actual aggregate type, not the pointer.
+    mlir::Type elem_mlir = nullptr;
+    if (e.elem_type && (e.elem_type->kind == LogosType::Kind::Struct ||
+                        e.elem_type->kind == LogosType::Kind::Datatype)) {
+        auto cname = concrete_struct_name(e.elem_type);
+        auto sit = struct_types_.find(cname);
+        if (sit != struct_types_.end())
+            elem_mlir = sit->second.llvm_type;
+    }
+    if (!elem_mlir) elem_mlir = logos_to_mlir(e.elem_type);
     if (!elem_mlir) {
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
     }

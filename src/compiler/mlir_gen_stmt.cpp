@@ -398,8 +398,20 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
     // Track local pointer variables so indexing can load the ptr before GEP.
     if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee) {
-        auto pt = logos_to_mlir(s.type->pointee);
-        if (pt) var_local_ptrs_[s.name] = pt;
+        const LogosType* pointee = s.type->pointee;
+        if (pointee->kind == LogosType::Kind::Struct ||
+            pointee->kind == LogosType::Kind::Datatype) {
+            // logos_to_mlir(Struct/Datatype) == ptr_type(), which can't be matched
+            // to a struct LLVM type in gen_field_write. Store the actual aggregate type
+            // so the fallback path resolves the correct struct name.
+            auto cname = concrete_struct_name(pointee);
+            auto sit2 = struct_types_.find(cname);
+            if (sit2 != struct_types_.end())
+                var_local_ptrs_[s.name] = sit2->second.llvm_type;
+        } else {
+            auto pt = logos_to_mlir(pointee);
+            if (pt) var_local_ptrs_[s.name] = pt;
+        }
     }
 }
 

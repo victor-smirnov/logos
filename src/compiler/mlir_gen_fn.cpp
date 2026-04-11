@@ -177,7 +177,8 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
         // Track struct / class type for parameters (including 'self').
         if (p.type) {
             std::string sname;
-            if (p.type->kind == LogosType::Kind::Struct)
+            if (p.type->kind == LogosType::Kind::Struct ||
+                p.type->kind == LogosType::Kind::Datatype)
                 sname = concrete_struct_name(p.type);
             else if (is_ptr_kind(p.type->kind) && p.type->pointee &&
                      (p.type->pointee->kind == LogosType::Kind::Struct ||
