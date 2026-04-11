@@ -270,7 +270,8 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     }
 
     case la::TUPLE_LIT: {
-        if (!expr.has_key(la::ITEMS)) return error_expr();
+        if (!expr.has_key(la::ITEMS))
+            return make_expr(void_t(), lir::ETupleLit{});  // () — unit value
         auto items = arr_of(expr.get(la::ITEMS.code));
         std::vector<lir::LExprPtr> elems;
         std::vector<const LogosType*> elem_types;
@@ -2476,8 +2477,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     std::vector<lir::LExprPtr> payload;
     if (node.has_key(la::ARGS)) {
         auto args = arr_of(node.get(la::ARGS.code));
-        for (uint64_t i = 0; i < args.size(); ++i)
-            payload.push_back(lower_expr(map_of(args.get(i))));
+        for (uint64_t i = 0; i < args.size(); ++i) {
+            auto e = lower_expr(map_of(args.get(i)));
+            if (e->type->kind == LogosType::Kind::Void) continue;  // skip () unit args
+            payload.push_back(std::move(e));
+        }
     }
 
     // Resolve payload types — substitute TypeVars if generic enum

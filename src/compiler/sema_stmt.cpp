@@ -789,6 +789,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                     auto bitems = arr_of(blist.get(la::ITEMS.code));
                     for (uint64_t j = 0; j < bitems.size(); ++j) {
                         auto bnode = map_of(bitems.get(j));
+                        if (!bnode.has_key(la::NAME)) continue;  // () unit — no binding
                         bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
                     }
                 }
@@ -804,8 +805,11 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                                     k < scrut_type->type_args.size(); ++k)
                     subst[einfo.type_params[k].name] = scrut_type->type_args[k];
             }
-            for (auto* pt : vinfo->payload_types)
-                binding_types.push_back(subst.empty() ? pt : subst_type_sema(pt, subst));
+            for (auto* pt : vinfo->payload_types) {
+                auto* ct = subst.empty() ? pt : subst_type_sema(pt, subst);
+                if (ct->kind == LogosType::Kind::Void) continue;  // () unit — no field
+                binding_types.push_back(ct);
+            }
         }
         if (bindings.size() != binding_types.size())
             error(std::format("pattern {}::{}: expected {} bindings, got {}",

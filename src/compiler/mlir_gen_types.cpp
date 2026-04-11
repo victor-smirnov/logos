@@ -182,6 +182,7 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
         vp.disc = v.disc;
         uint64_t variant_bytes = 0;
         for (auto* pt : v.payload_types) {
+            if (pt->kind == LogosType::Kind::Void) continue;  // () unit — no field
             auto ft = logos_to_mlir(pt);
             if (!ft) ft = builder_.getI32Type();
             vp.field_types.push_back(ft);

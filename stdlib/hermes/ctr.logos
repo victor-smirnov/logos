@@ -65,11 +65,10 @@ impl HermesCtr {
     }
 
     // Parse Hermes text (UTF-8 bytes) into the zone.
-    // Returns Ok(0) on success, Err(ParseError::Failed) on parse error.
-    // (Unit type () as a value is not yet supported; use Ok(_) in match.)
-    pub fn parse(&mut self, text: *const u8, len: i64) -> Result<i32, ParseError> {
+    // Returns Ok(()) on success, Err(ParseError::Failed) on parse error.
+    pub fn parse(&mut self, text: *const u8, len: i64) -> Result<(), ParseError> {
         if unsafe { hermes_parse(text, len, &mut self.zone) } {
-            return Result::Ok(0);
+            return Result::Ok(());
         }
         return Result::Err(ParseError::Failed);
     }

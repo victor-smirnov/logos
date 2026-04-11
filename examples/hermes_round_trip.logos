@@ -23,8 +23,8 @@ fn main() -> i32 {
     "#;
 
     match doc.parse(text, unsafe { strlen(text) }) {
-        Result::Ok(_)  => {}
-        Result::Err(_) => { return 1; }
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 1; }
     }
 
     doc.stringify();

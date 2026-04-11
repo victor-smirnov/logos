@@ -180,6 +180,7 @@
     TUPLE_FIELD_COMPOUND_ASSIGN = 146   // var.N op= expr
     FIELD_INDEX_COMPOUND_ASSIGN = 147   // s.field[i] op= expr
     DATATYPE                    = 148   // Hermes datatype definition (C POD layout)
+    PAT_UNIT                    = 149   // () unit pattern in match arms
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -698,7 +699,9 @@
               / pattern FATARROW stmt
               => { CODE: MATCH_ARM, LHS: $1, BODY: $3 }
 
-    pat_binding <- IDENT
+    pat_binding <- LPAREN RPAREN
+                => { CODE: PAT_UNIT }
+               / IDENT
                 => { CODE: PAT_WILD, NAME: $1 }
 
     pat_binding_list <- pat_binding (COMMA pat_binding)*
@@ -884,6 +887,7 @@
                   / struct_lit       // IDENT { fields }  — before plain IDENT
                   / arr_fill_lit     // [value; N]  — before arr_lit (avoids ambiguity)
                   / arr_lit          // [e1, e2, ...]
+                  / LPAREN RPAREN => { CODE: TUPLE_LIT }  // () — unit value
                   / tuple_lit        // (a, b, ...) — before paren_expr
                   / paren_expr       // (expr)
                   / closure_expr     // |x: i32| -> i32 { ... }
