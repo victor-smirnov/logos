@@ -2,15 +2,14 @@
 // Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.document
 //
-// Phase 13: DocumentHeader — the 8-byte root descriptor at zone offset 0.
+// Phase 13: DocumentHeader — the 4-byte root descriptor at zone offset 0.
 //
-// Layout (8 bytes, always at the very start of a Hermes zone):
-//   root_lo: u32  — AnyVal.lo of the document root value
-//   root_hi: u32  — AnyVal.hi of the document root value
+// Layout (4 bytes, always at the very start of a Hermes zone):
+//   root: u32  — AnyVal.raw of the document root value
 //
-// The root AnyVal is null (lo=0, hi=0) until explicitly set.
+// The root AnyVal is null (raw=0) until explicitly set.
 // Zone offset 0 is reserved for the DocumentHeader; no data object may
-// be allocated there (this is what makes lo=0 a safe null sentinel in AnyVal).
+// be allocated there (this is what makes raw=0 a safe null sentinel in AnyVal).
 //
 // Usage:
 //   let raw: *mut u8 = zone.alloc_raw(8);       // first allocation → offset 0
@@ -23,12 +22,11 @@ package hermes.document;
 use hermes.anyval;
 
 // ---------------------------------------------------------------------------
-// DocumentHeader datatype (8 bytes)
+// DocumentHeader datatype (4 bytes)
 // ---------------------------------------------------------------------------
 
 pub datatype DocumentHeader {
-    pub root_lo: u32,   // AnyVal.lo of the root value
-    pub root_hi: u32,   // AnyVal.hi of the root value
+    pub root: u32,   // AnyVal.raw of the root value
 }
 
 // ---------------------------------------------------------------------------
@@ -40,20 +38,18 @@ pub datatype DocumentHeader {
 // Returns *mut DocumentHeader = raw (typed).
 pub unsafe fn document_create(raw: *mut u8) -> *mut DocumentHeader {
     let doc: *mut DocumentHeader = raw as *mut DocumentHeader;
-    doc.root_lo = 0 as u32;
-    doc.root_hi = 0 as u32;
+    doc.root = 0 as u32;
     return doc;
 }
 
 // Get the document root as an AnyVal.
 pub unsafe fn document_get_root(doc: *const DocumentHeader) -> AnyVal {
-    return AnyVal { lo: doc.root_lo, hi: doc.root_hi };
+    return AnyVal { raw: doc.root };
 }
 
 // Set the document root.
 pub unsafe fn document_set_root(doc: *mut DocumentHeader, val: AnyVal) {
-    doc.root_lo = val.lo;
-    doc.root_hi = val.hi;
+    doc.root = val.raw;
 }
 
 // Cast the zone base pointer to a DocumentHeader pointer (zone offset 0).

@@ -11,11 +11,10 @@
 //   TinyInt   (hash=20, i8)            → decimal + "_s8"
 //   UTinyInt  (hash=21, u8)            → decimal + "_u8"
 //   SmallInt  (hash=22, i16)           → decimal + "_s16"
-//   Integer   (hash=23, i32)           → decimal (no suffix)
+//   Integer   (hash=23, i24)           → decimal (no suffix)
 //   USmallInt (hash=24, u16)           → decimal + "_u16"
-//   UInteger  (hash=25, u32)           → decimal + "u"
+//   UInteger  (hash=25, u24)           → decimal + "u"
 //   Boolean   (hash=37, bool)          → "true" / "false"
-//   Real      (hash=30, f32)           → decimal float notation
 // AnyVal pointer mode → dispatch on 2-byte TypeTag before the object:
 //   descriptor=0, hash=28  (Varchar)   → quoted UTF-8 string with escaping
 //   descriptor=1           (Array)     → "[e0,e1,…]"
@@ -28,7 +27,7 @@
 // Entry point:
 //   pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut String)
 //   pub unsafe fn stringify_document(base: *const u8, out: *mut String)
-//     (reads AnyVal root from DocumentHeader at base[0..7], then calls stringify_anyval)
+//     (reads AnyVal root from DocumentHeader at base[0..3], then calls stringify_anyval)
 
 package hermes.stringify;
 
@@ -39,89 +38,6 @@ use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use std.string;
-
-// ---------------------------------------------------------------------------
-// f32 stringify helper
-// ---------------------------------------------------------------------------
-
-unsafe fn stringify_f32(bits: u32, out: *mut String) {
-    let sign: u32 = bits >> 31 as u32;
-    let exp: u32 = (bits >> 23 as u32) & 0xFF as u32;
-    let mant: u32 = bits & 0x7FFFFF as u32;
-
-    // NaN
-    if exp == 0xFF as u32 && mant != 0 as u32 {
-        out.push_cstr("nan");
-        return;
-    }
-    // Infinity
-    if exp == 0xFF as u32 {
-        if sign != 0 as u32 { out.push_u8(45 as u8); }  // '-'
-        out.push_cstr("inf");
-        return;
-    }
-    // Zero (positive or negative)
-    if (bits & 0x7FFFFFFF as u32) == 0 as u32 {
-        out.push_cstr("0.0");
-        return;
-    }
-
-    // Normal/subnormal value: type-pun bits → f32
-    let mut tmp: u32 = bits;
-    let fval: f32 = *((&tmp as *const u32) as *const f32);
-
-    if sign != 0 as u32 { out.push_u8(45 as u8); }  // '-'
-    let absv: f32 = if sign != 0 as u32 { 0.0 - fval } else { fval };
-
-    // Bug 2 guard: exp >= 190 means actual_exp >= 63, so absv >= 2^63.
-    // Casting such a value to i64 is undefined behaviour (LLVM "poison").
-    if exp >= 190 as u32 {
-        out.push_i64(9223372036854775807 as i64);  // i64::MAX as safe approximation
-        out.push_cstr(".0");
-        return;
-    }
-
-    let ipart: i64 = absv as i64;
-
-    // Bug 3 guard: exp >= 150 means actual_exp >= 23, so absv >= 2^23 = 8388608.
-    // At this magnitude f32 has no fractional bits (ULP >= 1.0), so frac = 0 exactly.
-    // More importantly: for absv in [2^23, 2^24), ipart as f32 might round *up*, making
-    // frac = absv - ipart as f32 negative — producing garbage digit output.
-    if exp >= 150 as u32 {
-        out.push_i64(ipart);
-        out.push_cstr(".0");
-        return;
-    }
-
-    // Safe path: absv < 2^23 = 8388608. All integers < 2^24 are exactly representable
-    // in f32, so ipart as f32 == ipart exactly, and frac is in [0.0, 1.0).
-    out.push_i64(ipart);
-    out.push_u8(46 as u8);  // '.'
-
-    // Fractional part: scale to 6 decimal digits
-    let frac: f32 = absv - ipart as f32;
-    let frac6: i64 = (frac * 1000000.0) as i64;
-
-    // Write frac6 as exactly 6 digits (with leading zeros)
-    let mut digits: [i32; 6] = [0, 0, 0, 0, 0, 0];
-    let mut tmp6: i64 = frac6;
-    let mut k: i64 = 5;
-    while k >= 0 {
-        digits[k] = (tmp6 % 10 as i64) as i32 + 48;
-        tmp6 = tmp6 / 10 as i64;
-        k = k - 1;
-    }
-    // Find last non-'0' digit (strip trailing zeros, keep at least one)
-    let mut last: i64 = 5;
-    while last > 0 && digits[last] == 48 {
-        last = last - 1;
-    }
-    k = 0;
-    while k <= last {
-        out.push_u8(digits[k] as u8);
-        k = k + 1;
-    }
-}
 
 // ---------------------------------------------------------------------------
 // String escaping helper (writes a quoted, escaped HermesString to `out`)
@@ -224,8 +140,8 @@ unsafe fn stringify_logos_map(obj: *const u8, base: *const u8, out: *mut String)
     let mut slot: u32 = 0 as u32;
     while slot < cap {
         let ep: *const MapEntry =
-            (ent_base + slot as i64 * 16 as i64) as *const MapEntry;
-        if ep.key_off != 0 as u64 {
+            (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
+        if ep.key_off != 0 as u32 {
             if !first {
                 out.push_u8(44 as u8);   // ','
                 out.push_u8(32 as u8);   // ' '
@@ -235,7 +151,7 @@ unsafe fn stringify_logos_map(obj: *const u8, base: *const u8, out: *mut String)
                 (base as i64 + ep.key_off as i64) as *const HermesString;
             stringify_quoted_hs(hs, out);
             out.push_u8(58 as u8);   // ':'
-            let val: AnyVal = AnyVal { lo: ep.val_lo, hi: ep.val_hi };
+            let val: AnyVal = AnyVal { raw: ep.val };
             stringify_anyval(val, base, out);
         }
         slot = slot + 1 as u32;
@@ -293,11 +209,11 @@ pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut String) {
         // Value mode: dispatch on type_hash
         let th: u8 = val.type_hash();
         if th == 23 as u8 {
-            // Integer (i32): no suffix
-            out.push_i64(val.as_i32() as i64);
+            // Integer (i24): no suffix
+            out.push_i64(val.as_i24() as i64);
         } else if th == 25 as u8 {
-            // UInteger (u32): "u" suffix
-            out.push_u64(val.as_u32() as u64);
+            // UInteger (u24): "u" suffix
+            out.push_u64(val.as_u24() as u64);
             out.push_u8(117 as u8);  // 'u'
         } else if th == 20 as u8 {
             // TinyInt (i8): "_s8" suffix
@@ -339,9 +255,6 @@ pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut String) {
                 out.push_u8(115 as u8);  // 's'
                 out.push_u8(101 as u8);  // 'e'
             }
-        } else if th == 30 as u8 {
-            // Real (f32)
-            stringify_f32(val.lo, out);
         } else {
             // Unknown embedded type → null
             out.push_u8(110 as u8);
@@ -362,7 +275,7 @@ pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut String) {
 // ---------------------------------------------------------------------------
 
 // Stringify the root value of a Hermes document.
-// base must point to the zone's memory buffer; DocumentHeader is at base[0..7].
+// base must point to the zone's memory buffer; DocumentHeader is at base[0..3].
 pub unsafe fn stringify_document(base: *const u8, out: *mut String) {
     let doc: *const DocumentHeader = base as *const DocumentHeader;
     let root: AnyVal = document_get_root(doc);

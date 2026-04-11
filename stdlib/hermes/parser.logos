@@ -290,35 +290,24 @@ impl HermesParser {
     }
 
     // ── Float tail ────────────────────────────────────────────────────────────
-    // Called after the integer part has been consumed.
-    // Parses '.' fractional-digits (exponent)? and returns AnyVal::embed_f32_bits.
-    // uval: integer part magnitude; neg: whether '-' was seen.
-
+    // f32 embedding is dropped in the 4-byte AnyVal format.
+    // This function consumes the float literal from the input stream (to avoid
+    // parse errors) but always returns null_ptr(). Float support will be
+    // re-added when zone-pointer floats are implemented.
     pub unsafe fn parse_float_tail(&mut self, uval: u64, neg: bool) -> AnyVal {
         // Consume '.'
         self.pos = self.pos + 1 as i64;
 
-        // Read fractional digits, accumulate as integer + count
-        let mut frac: u64 = 0 as u64;
-        let mut frac_digits: i64 = 0 as i64;
+        // Read fractional digits
         while !self.at_end() && self.is_digit(self.peek()) {
-            frac = frac * 10 as u64 + (self.peek() - 48 as u8) as u64;
-            frac_digits = frac_digits + 1 as i64;
             self.pos = self.pos + 1 as i64;
         }
 
         // Optional exponent: e or E, optional sign, digits
-        let mut exp_neg: bool = false;
-        let mut exp_val: i64 = 0 as i64;
-        let mut has_exp: bool = false;
         if !self.at_end()
         && (self.peek() == 101 as u8 || self.peek() == 69 as u8) {  // 'e' or 'E'
-            has_exp = true;
             self.pos = self.pos + 1 as i64;
-            if !self.at_end() && self.peek() == 45 as u8 {   // '-'
-                exp_neg = true;
-                self.pos = self.pos + 1 as i64;
-            } else if !self.at_end() && self.peek() == 43 as u8 {  // '+'
+            if !self.at_end() && (self.peek() == 45 as u8 || self.peek() == 43 as u8) {
                 self.pos = self.pos + 1 as i64;
             }
             // Must have at least one exponent digit
@@ -327,42 +316,14 @@ impl HermesParser {
                 return AnyVal::null_ptr();
             }
             while !self.at_end() && self.is_digit(self.peek()) {
-                exp_val = exp_val * 10 as i64 + (self.peek() - 48 as u8) as i64;
                 self.pos = self.pos + 1 as i64;
             }
         }
 
-        // Build f32 value from parts.
-        // value = (uval + frac / 10^frac_digits) * 10^exp_val (with sign).
-        let int_f: f32 = uval as f32;
-
-        // Compute fractional part: frac / pow10(frac_digits)
-        let frac_f: f32 = if frac_digits == 0 as i64 {
-            0.0
-        } else {
-            frac as f32 / pow10_f32(frac_digits)
-        };
-
-        let mut result: f32 = int_f + frac_f;
-
-        // Apply exponent
-        if has_exp == true {
-            let scale: f32 = pow10_f32(exp_val);
-            if exp_neg == true {
-                result = result / scale;
-            } else {
-                result = result * scale;
-            }
-        }
-
-        // Apply sign
-        if neg == true {
-            result = 0.0 - result;
-        }
-
-        // Reinterpret f32 bits as u32
-        let bits: u32 = f32_to_bits(result);
-        return AnyVal::embed_f32_bits(bits);
+        // f32 embedding is not supported in the 4-byte AnyVal format.
+        let _u: u64 = uval;
+        let _n: bool = neg;
+        return AnyVal::null_ptr();
     }
 
     // Match and consume a suffix, return AnyVal with appropriate type.
@@ -380,14 +341,14 @@ impl HermesParser {
             if c1 == 117 as u8 && c2 == 54 as u8 && c3 == 52 as u8
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4 as i64;
-                // u64 not embeddable — store as u32 (lower 32 bits)
-                return AnyVal::embed_u32(uval as u32);
+                // u64 not embeddable — store as u24 (lower 24 bits)
+                return AnyVal::embed_u24(uval as u32);
             }
             // _u32  (_=95 u=117 3=51 2=50)
             if c1 == 117 as u8 && c2 == 51 as u8 && c3 == 50 as u8
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4 as i64;
-                return AnyVal::embed_u32(uval as u32);
+                return AnyVal::embed_u24(uval as u32);
             }
             // _u16  (_=95 u=117 1=49 6=54)
             if c1 == 117 as u8 && c2 == 49 as u8 && c3 == 54 as u8
@@ -407,7 +368,7 @@ impl HermesParser {
                 self.pos = self.pos + 4 as i64;
                 let mut v: i32 = uval as i32;
                 if neg { v = 0 as i32 - v; }
-                return AnyVal::embed_i32(v);
+                return AnyVal::embed_i24(v);
             }
             // _s32  (_=95 s=115 3=51 2=50)
             if c1 == 115 as u8 && c2 == 51 as u8 && c3 == 50 as u8
@@ -415,7 +376,7 @@ impl HermesParser {
                 self.pos = self.pos + 4 as i64;
                 let mut v: i32 = uval as i32;
                 if neg { v = 0 as i32 - v; }
-                return AnyVal::embed_i32(v);
+                return AnyVal::embed_i24(v);
             }
             // _s16  (_=95 s=115 1=49 6=54)
             if c1 == 115 as u8 && c2 == 49 as u8 && c3 == 54 as u8
@@ -439,18 +400,18 @@ impl HermesParser {
         if c0 == 117 as u8 && c1 == 108 as u8 && c2 == 108 as u8
         && !self.is_ident_char(c3) {
             self.pos = self.pos + 3 as i64;
-            return AnyVal::embed_u32(uval as u32);
+            return AnyVal::embed_u24(uval as u32);
         }
         // 'ul'   (u=117 l=108)
         if c0 == 117 as u8 && c1 == 108 as u8
         && !self.is_ident_char(c2) {
             self.pos = self.pos + 2 as i64;
-            return AnyVal::embed_u32(uval as u32);
+            return AnyVal::embed_u24(uval as u32);
         }
         // 'u'    (u=117)
         if c0 == 117 as u8 && !self.is_ident_char(c1) {
             self.pos = self.pos + 1 as i64;
-            return AnyVal::embed_u32(uval as u32);
+            return AnyVal::embed_u24(uval as u32);
         }
         // 'll'   (l=108 l=108)
         if c0 == 108 as u8 && c1 == 108 as u8
@@ -458,13 +419,13 @@ impl HermesParser {
             self.pos = self.pos + 2 as i64;
             let mut v: i32 = uval as i32;
             if neg { v = 0 as i32 - v; }
-            return AnyVal::embed_i32(v);
+            return AnyVal::embed_i24(v);
         }
 
-        // Default: i32
+        // Default: i24
         let mut v: i32 = uval as i32;
         if neg { v = 0 as i32 - v; }
-        return AnyVal::embed_i32(v);
+        return AnyVal::embed_i24(v);
     }
 
     // ── String ────────────────────────────────────────────────────────────────
@@ -555,7 +516,7 @@ impl HermesParser {
         let oa_sz:  i64 = sizeof::<ObjectArray>() as i64;
         let oa_raw: *mut u8 = zone_alloc_tagged(self.zone, oa_sz,
                                   hermes_tag_array(), hermes_desc_array());
-        let oa_buf: *mut u8 = zone_alloc_raw(self.zone, cap as i64 * 8 as i64);
+        let oa_buf: *mut u8 = zone_alloc_raw(self.zone, cap as i64 * 4 as i64);
         if oa_raw == 0 as *mut u8 || oa_buf == 0 as *mut u8 {
             self.ok = false;
             return AnyVal::null_ptr();
@@ -611,8 +572,8 @@ impl HermesParser {
         let om_sz:  i64 = sizeof::<ObjectMap>() as i64;
         let om_raw: *mut u8 = zone_alloc_tagged(self.zone, om_sz,
                                   hermes_tag_map(), hermes_desc_map());
-        // 64 × 16-byte MapEntry
-        let om_ent: *mut u8 = zone_alloc_raw(self.zone, cap as i64 * 16 as i64);
+        // 64 × 8-byte MapEntry
+        let om_ent: *mut u8 = zone_alloc_raw(self.zone, cap as i64 * 8 as i64);
         if om_raw == 0 as *mut u8 || om_ent == 0 as *mut u8 {
             self.ok = false;
             return AnyVal::null_ptr();

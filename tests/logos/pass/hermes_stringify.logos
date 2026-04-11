@@ -32,28 +32,28 @@ unsafe fn main() -> i32 {
     // 2. Integer (i32): "42"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_i32(42), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_i24(42), base as *const u8, &mut sb);
     if !sb.eq_cstr("42") { return 2; }
 
     // -----------------------------------------------------------------------
     // 3. Integer zero: "0"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_i32(0), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_i24(0), base as *const u8, &mut sb);
     if !sb.eq_cstr("0") { return 3; }
 
     // -----------------------------------------------------------------------
     // 4. Negative integer: "-1"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_i32(-1), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_i24(-1), base as *const u8, &mut sb);
     if !sb.eq_cstr("-1") { return 4; }
 
     // -----------------------------------------------------------------------
     // 5. UInteger (u32): "99u"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_u32(99 as u32), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_u24(99 as u32), base as *const u8, &mut sb);
     if !sb.eq_cstr("99u") { return 5; }
 
     // -----------------------------------------------------------------------
@@ -78,7 +78,7 @@ unsafe fn main() -> i32 {
     // 8. UInteger zero: "0u"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_u32(0 as u32), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_u24(0 as u32), base as *const u8, &mut sb);
     if !sb.eq_cstr("0u") { return 9; }
 
     // -----------------------------------------------------------------------
@@ -104,8 +104,8 @@ unsafe fn main() -> i32 {
                                             hermes_tag_array(), hermes_desc_array());
     let oa_buf: *mut u8 = zone.alloc_raw(64);
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 8 as u64);
-    arr.push(base, AnyVal::embed_i32(1));
-    arr.push(base, AnyVal::embed_i32(2));
+    arr.push(base, AnyVal::embed_i24(1));
+    arr.push(base, AnyVal::embed_i24(2));
 
     sb.clear();
     stringify_anyval(AnyVal::from_offset((oa_raw as i64 - base as i64) as u32),
@@ -119,7 +119,7 @@ unsafe fn main() -> i32 {
                                             hermes_tag_tiny_map(), hermes_desc_map());
     let tm_arr: *mut u8 = zone.alloc_raw(80);
     let tmap: *mut TinyObjectMap = TinyObjectMap::init(tm_raw, tm_arr, base, 10 as u32);
-    tmap.set(base, 0 as u8, AnyVal::embed_i32(7));
+    tmap.set(base, 0 as u8, AnyVal::embed_i24(7));
 
     sb.clear();
     stringify_anyval(AnyVal::from_offset((tm_raw as i64 - base as i64) as u32),
@@ -129,7 +129,7 @@ unsafe fn main() -> i32 {
     // -----------------------------------------------------------------------
     // 12. stringify_document: root = i32(100) → "100"
     // -----------------------------------------------------------------------
-    document_set_root(doc, AnyVal::embed_i32(100));
+    document_set_root(doc, AnyVal::embed_i24(100));
 
     sb.clear();
     stringify_document(base as *const u8, &mut sb);

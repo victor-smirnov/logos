@@ -249,7 +249,7 @@ impl HermesCtr {
             let map_raw: *mut u8 = self.zone.alloc_tagged(
                 map_sz, hermes_tag_map(), hermes_desc_map());
             if map_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let entries_raw: *mut u8 = self.zone.alloc_raw(cap_slots as i64 * 16 as i64);
+            let entries_raw: *mut u8 = self.zone.alloc_raw(cap_slots as i64 * 8 as i64);
             if entries_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             ObjectMap::init(map_raw, self.zone.base, entries_raw, cap_slots);
             let off: u32 = (map_raw as i64 - self.zone.base as i64) as u32;
@@ -265,7 +265,7 @@ impl HermesCtr {
             let oa_raw: *mut u8 = self.zone.alloc_tagged(
                 oa_sz, hermes_tag_array(), hermes_desc_array());
             if oa_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let buf_raw: *mut u8 = self.zone.alloc_raw(cap as i64 * 8 as i64);
+            let buf_raw: *mut u8 = self.zone.alloc_raw(cap as i64 * 4 as i64);
             if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             ObjectArray::init(oa_raw, buf_raw, self.zone.base, cap);
             let off: u32 = (oa_raw as i64 - self.zone.base as i64) as u32;

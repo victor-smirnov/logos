@@ -43,20 +43,20 @@ unsafe fn main() -> i32 {
     let key_b: *const u8 = hs_b_d as *const u8;
 
     // Insert "a" → i32(42), "b" → u32(99).
-    map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i32(42));
-    map.set(base, off_b, key_b, 1 as u64, AnyVal::embed_u32(99 as u32));
+    map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i24(42));
+    map.set(base, off_b, key_b, 1 as u64, AnyVal::embed_u24(99 as u32));
 
     if map.size_count() != 2 as u32              { return 2; }
 
     // Retrieve "a".
     let va: AnyVal = map.get(base as *const u8, key_a, 1 as u64);
     if va.is_ptr()                               { return 3; }
-    if va.as_i32() != 42                         { return 4; }
+    if va.as_i24() != 42                         { return 4; }
 
     // Retrieve "b".
     let vb: AnyVal = map.get(base as *const u8, key_b, 1 as u64);
     if vb.is_ptr()                               { return 5; }
-    if vb.as_u32() != 99 as u32                  { return 6; }
+    if vb.as_u24() != 99 as u32                  { return 6; }
 
     // Key "c" (ASCII 99) — absent, must return null.
     let hs_c: *mut u8 = zone.alloc_raw(2);
@@ -75,10 +75,10 @@ unsafe fn main() -> i32 {
     if  map.contains(base as *const u8, key_c, 1 as u64) { return 10; }
 
     // Update "a" → i32(77) — count must not change.
-    map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i32(77));
+    map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i24(77));
     if map.size_count() != 2 as u32              { return 11; }
     let va2: AnyVal = map.get(base as *const u8, key_a, 1 as u64);
-    if va2.as_i32() != 77                        { return 12; }
+    if va2.as_i24() != 77                        { return 12; }
 
     zone.destroy();
     return 42;

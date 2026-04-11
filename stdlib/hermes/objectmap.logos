@@ -4,9 +4,9 @@
 //
 // Phase 12: ObjectMap — open-addressing string-keyed hash map over a Hermes zone.
 //
-// MapEntry (16 bytes): key_off (u64, 0 = empty) + val_lo (u32) + val_hi (u32).
+// MapEntry (8 bytes): key_off (u32, 0 = empty) + val (u32 = AnyVal.raw).
 //   key_off stores the zone-relative offset to the HermesString key.
-//   val_lo/val_hi store the AnyVal payload.
+//   val stores the AnyVal payload (raw field).
 //
 // ObjectMap (16 bytes):
 //   entries_off (u32) — zone-relative offset to MapEntry array
@@ -28,13 +28,12 @@ use hermes.anyval;
 use hermes.string;
 
 // ---------------------------------------------------------------------------
-// MapEntry — one slot in the hash table (16 bytes)
+// MapEntry — one slot in the hash table (8 bytes)
 // ---------------------------------------------------------------------------
 
 pub datatype MapEntry {
-    pub key_off: u64,  // zone-relative byte offset to HermesString (0 = empty slot)
-    pub val_lo:  u32,  // AnyVal.lo
-    pub val_hi:  u32,  // AnyVal.hi
+    pub key_off: u32,  // zone-relative byte offset to HermesString (0 = empty slot)
+    pub val:     u32,  // AnyVal.raw
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +51,7 @@ impl ObjectMap {
     // Initialize an ObjectMap at pre-allocated memory.
     //   raw          — pointer to ≥ 16 bytes (zone-allocated ObjectMap header)
     //   base         — zone base pointer
-    //   entries_buf  — pointer to ≥ capacity * 16 bytes (for the entry array)
+    //   entries_buf  — pointer to ≥ capacity * 8 bytes (for the entry array)
     //   capacity     — number of hash slots (must be a power of 2)
     // Returns *mut ObjectMap = raw (typed).
     pub unsafe fn init(raw: *mut u8, base: *mut u8,
@@ -65,7 +64,7 @@ impl ObjectMap {
         m.count       = 0 as u32;
         m.reserved    = 0 as u32;
         // Zero-initialize all entry slots (key_off = 0 → empty).
-        let total: i64 = capacity as i64 * 16 as i64;
+        let total: i64 = capacity as i64 * 8 as i64;
         let mut i: i64 = 0 as i64;
         while i < total {
             let p: *mut u8 = (entries_buf as i64 + i) as *mut u8;
@@ -92,12 +91,11 @@ impl ObjectMap {
         let mut probed: u64 = 0 as u64;
         while done == false && probed < cap {
             let ep: *mut MapEntry =
-                (ent_base + slot as i64 * 16 as i64) as *mut MapEntry;
-            if ep.key_off == 0 as u64 {
+                (ent_base + slot as i64 * 8 as i64) as *mut MapEntry;
+            if ep.key_off == 0 as u32 {
                 // Empty slot — insert new entry.
-                ep.key_off = key_off as u64;
-                ep.val_lo  = val.lo;
-                ep.val_hi  = val.hi;
+                ep.key_off = key_off;
+                ep.val     = val.raw;
                 self.count = self.count + 1 as u32;
                 done = true;
             } else {
@@ -105,8 +103,7 @@ impl ObjectMap {
                     (base as i64 + ep.key_off as i64) as *const HermesString;
                 if ks.equals_bytes(key_ptr, key_len) {
                     // Key already present — update value.
-                    ep.val_lo = val.lo;
-                    ep.val_hi = val.hi;
+                    ep.val = val.raw;
                     done = true;
                 } else {
                     slot = slot + 1 as u64;
@@ -130,14 +127,14 @@ impl ObjectMap {
         let mut probed: u64 = 0 as u64;
         while probed < cap {
             let ep: *const MapEntry =
-                (ent_base + slot as i64 * 16 as i64) as *const MapEntry;
-            if ep.key_off == 0 as u64 {
+                (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
+            if ep.key_off == 0 as u32 {
                 return AnyVal::null_ptr();
             }
             let ks: *const HermesString =
                 (base as i64 + ep.key_off as i64) as *const HermesString;
             if ks.equals_bytes(key_ptr, key_len) {
-                return AnyVal { lo: ep.val_lo, hi: ep.val_hi };
+                return AnyVal { raw: ep.val };
             }
             slot = slot + 1 as u64;
             if slot >= cap {
@@ -158,8 +155,8 @@ impl ObjectMap {
         let mut probed: u64 = 0 as u64;
         while probed < cap {
             let ep: *const MapEntry =
-                (ent_base + slot as i64 * 16 as i64) as *const MapEntry;
-            if ep.key_off == 0 as u64 {
+                (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
+            if ep.key_off == 0 as u32 {
                 return false;
             }
             let ks: *const HermesString =

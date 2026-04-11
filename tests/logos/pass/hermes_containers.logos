@@ -18,7 +18,7 @@ unsafe fn main() -> i32 {
     let map: *mut TinyObjectMap = TinyObjectMap::init(map_raw, arr_raw, base, 10 as u32);
 
     // Insert three entries: keys 0, 3, 7
-    map.set(base, 0 as u8, AnyVal::embed_i32(42));
+    map.set(base, 0 as u8, AnyVal::embed_i24(42));
     map.set(base, 7 as u8, AnyVal::from_offset(1000 as u32));
     map.set(base, 3 as u8, AnyVal::embed_bool(true));
 
@@ -28,7 +28,7 @@ unsafe fn main() -> i32 {
     // Key 0 → i32(42)
     let v0: AnyVal = map.get(base as *const u8, 0 as u8);
     if v0.is_ptr()                      { return 2; }
-    if v0.as_i32() != 42                { return 3; }
+    if v0.as_i24() != 42                { return 3; }
 
     // Key 3 → bool(true)
     let v3: AnyVal = map.get(base as *const u8, 3 as u8);
@@ -50,10 +50,10 @@ unsafe fn main() -> i32 {
     if  map.contains(5 as u8)           { return 11; }
 
     // Overwrite key 0 → i32(99)
-    map.set(base, 0 as u8, AnyVal::embed_i32(99));
+    map.set(base, 0 as u8, AnyVal::embed_i24(99));
     if map.size() != 3 as u32           { return 12; }  // no new key
     let v0b: AnyVal = map.get(base as *const u8, 0 as u8);
-    if v0b.as_i32() != 99               { return 13; }
+    if v0b.as_i24() != 99               { return 13; }
 
     // ---------------------------------------------------------------------------
     // ObjectArray: capacity 8
@@ -63,9 +63,9 @@ unsafe fn main() -> i32 {
     let obuf:    *mut u8 = zone.alloc_raw(64);   // 8 * 8
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, obuf, base, 8 as u64);
 
-    arr.push(base, AnyVal::embed_i32(10));
-    arr.push(base, AnyVal::embed_i32(20));
-    arr.push(base, AnyVal::embed_i32(30));
+    arr.push(base, AnyVal::embed_i24(10));
+    arr.push(base, AnyVal::embed_i24(20));
+    arr.push(base, AnyVal::embed_i24(30));
 
     if arr.len() != 3 as u64            { return 14; }
 
@@ -73,9 +73,9 @@ unsafe fn main() -> i32 {
     let a1: AnyVal = arr.get(base as *const u8, 1 as u64);
     let a2: AnyVal = arr.get(base as *const u8, 2 as u64);
 
-    if a0.as_i32() != 10                { return 15; }
-    if a1.as_i32() != 20                { return 16; }
-    if a2.as_i32() != 30                { return 17; }
+    if a0.as_i24() != 10                { return 15; }
+    if a1.as_i24() != 20                { return 16; }
+    if a2.as_i24() != 30                { return 17; }
 
     // Out-of-bounds → null
     let oob: AnyVal = arr.get(base as *const u8, 5 as u64);

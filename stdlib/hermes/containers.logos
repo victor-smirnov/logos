@@ -56,7 +56,7 @@ pub datatype TinyObjectMap {
 impl TinyObjectMap {
     // Initialize a TinyObjectMap at pre-allocated memory.
     //   map_raw  — pointer to ≥sizeof(TinyObjectMap) bytes (zeroed or uninitialized)
-    //   arr_raw  — pointer to ≥ capacity*8 bytes for the AnyVal array
+    //   arr_raw  — pointer to ≥ capacity*4 bytes for the AnyVal array
     //   base     — zone base pointer (used to compute zone-relative offsets)
     //   capacity — max number of entries (≤ 52)
     // Returns a *mut TinyObjectMap pointing into the zone.
@@ -73,8 +73,7 @@ impl TinyObjectMap {
         let mut i: u32 = 0;
         while i < capacity {
             let ep: *mut AnyVal = (arr_raw as i64 + (i as i64) * elem_sz) as *mut AnyVal;
-            ep.lo = 0 as u32;
-            ep.hi = 0 as u32;
+            ep.raw = 0 as u32;
             i = i + 1;
         }
         return map_ptr;
@@ -103,7 +102,7 @@ impl TinyObjectMap {
         let pos: u32  = popcount_u64(bitmap & mask);
         let elem_sz: i64 = sizeof::<AnyVal>() as i64;
         let elem: *const AnyVal = (base as i64 + self.data as i64 + (pos as i64) * elem_sz) as *const AnyVal;
-        return AnyVal { lo: elem.lo, hi: elem.hi };
+        return AnyVal { raw: elem.raw };
     }
 
     // Set or update value by key.
@@ -128,8 +127,7 @@ impl TinyObjectMap {
             while i > pos {
                 let src: *const AnyVal = (arr_base + ((i - 1) as i64) * elem_sz) as *const AnyVal;
                 let dst: *mut AnyVal   = (arr_base + (i as i64) * elem_sz) as *mut AnyVal;
-                dst.lo = src.lo;
-                dst.hi = src.hi;
+                dst.raw = src.raw;
                 i = i - 1;
             }
             // Update bitmap and size in header.
@@ -141,8 +139,7 @@ impl TinyObjectMap {
         }
         // Write value at its sorted position.
         let dst: *mut AnyVal = (arr_base + (pos as i64) * elem_sz) as *mut AnyVal;
-        dst.lo = val.lo;
-        dst.hi = val.hi;
+        dst.raw = val.raw;
     }
 }
 
@@ -165,7 +162,7 @@ pub datatype ObjectArray {
 impl ObjectArray {
     // Initialize an ObjectArray at pre-allocated memory.
     //   arr_raw  — pointer to ≥sizeof(ObjectArray) bytes
-    //   buf_raw  — pointer to ≥ capacity*8 bytes for the element buffer
+    //   buf_raw  — pointer to ≥ capacity*4 bytes for the element buffer
     //   base     — zone base pointer
     //   capacity — initial allocated capacity
     // Returns a *mut ObjectArray.
@@ -182,8 +179,7 @@ impl ObjectArray {
         let mut i: u64 = 0 as u64;
         while i < capacity {
             let ep: *mut AnyVal = (buf_raw as i64 + (i as i64) * elem_sz) as *mut AnyVal;
-            ep.lo = 0 as u32;
-            ep.hi = 0 as u32;
+            ep.raw = 0 as u32;
             i = i + 1 as u64;
         }
         return arr_ptr;
@@ -194,8 +190,7 @@ impl ObjectArray {
         if self.size >= self.capacity { return; }
         let elem_sz: i64 = sizeof::<AnyVal>() as i64;
         let ep: *mut AnyVal = (base as i64 + self.data as i64 + (self.size as i64) * elem_sz) as *mut AnyVal;
-        ep.lo = val.lo;
-        ep.hi = val.hi;
+        ep.raw = val.raw;
         self.size = self.size + 1 as u64;
     }
 
@@ -204,7 +199,7 @@ impl ObjectArray {
         if idx >= self.size { return AnyVal::null_ptr(); }
         let elem_sz: i64 = sizeof::<AnyVal>() as i64;
         let ep: *const AnyVal = (base as i64 + self.data as i64 + (idx as i64) * elem_sz) as *const AnyVal;
-        return AnyVal { lo: ep.lo, hi: ep.hi };
+        return AnyVal { raw: ep.raw };
     }
 
     // Number of elements in the array.

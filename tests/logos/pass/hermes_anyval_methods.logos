@@ -14,40 +14,33 @@ unsafe fn main() -> i32 {
     if !nul.is_null()  { return 1; }
 
     // --- is_int (hash=23) ---
-    let vi32: AnyVal = AnyVal::embed_i32(77);
+    let vi32: AnyVal = AnyVal::embed_i24(77 as i32);
     if !vi32.is_int()  { return 2; }
     if vi32.is_bool()  { return 3; }
-    if vi32.is_double() { return 4; }
 
     // --- as_i64 ---
-    if vi32.as_i64() != 77 as i64 { return 5; }
+    if vi32.as_i64() != 77 as i64 { return 4; }
 
     // --- is_bool (hash=37) ---
     let vb: AnyVal = AnyVal::embed_bool(true);
-    if !vb.is_bool()  { return 6; }
-    if vb.is_int()    { return 7; }
-    if !vb.as_bool()  { return 8; }
+    if !vb.is_bool()  { return 5; }
+    if vb.is_int()    { return 6; }
+    if !vb.as_bool()  { return 7; }
 
     // --- is_bool false ---
     let vbf: AnyVal = AnyVal::embed_bool(false);
-    if !vbf.is_bool() { return 9; }
-    if vbf.as_bool()  { return 10; }
-
-    // --- is_double (hash=30) ---
-    // Embed a Real (f32 bits, hash=30, tag=0x3D).
-    let vd: AnyVal = AnyVal { lo: 0 as u32, hi: 0x3D000000 as u32 };
-    if !vd.is_double() { return 11; }
-    if vd.is_int()     { return 12; }
+    if !vbf.is_bool() { return 8; }
+    if vbf.as_bool()  { return 9; }
 
     // --- is_int: null returns false ---
-    if nul.is_int()    { return 13; }
+    if nul.is_int()    { return 10; }
     // --- is_bool: pointer returns false ---
     let ptr_val: AnyVal = AnyVal::from_offset(128 as u32);
-    if ptr_val.is_bool() { return 14; }
-    if ptr_val.is_int()  { return 15; }
+    if ptr_val.is_bool() { return 11; }
+    if ptr_val.is_int()  { return 12; }
 
     // --- as_i64: non-int returns 0 ---
-    if vb.as_i64() != 0 as i64 { return 16; }
+    if vb.as_i64() != 0 as i64 { return 13; }
 
     // --- is_string, is_array, is_map: need a zone ---
     let mut zone: HermesZone = HermesZone::create(4096 as i64);
@@ -64,9 +57,9 @@ unsafe fn main() -> i32 {
     let hs_off: u32 = (hs_raw as i64 - base as i64) as u32;
     let hs_val: AnyVal = AnyVal::from_offset(hs_off);
 
-    if !hs_val.is_string(base) { return 17; }
-    if  hs_val.is_array(base)  { return 18; }
-    if  hs_val.is_map(base)    { return 19; }
+    if !hs_val.is_string(base) { return 14; }
+    if  hs_val.is_array(base)  { return 15; }
+    if  hs_val.is_map(base)    { return 16; }
 
     // Allocate an ObjectArray tagged object (descriptor=1).
     // Minimal: just a 24-byte header (no element buffer needed for the type check).
@@ -80,9 +73,9 @@ unsafe fn main() -> i32 {
     let oa_off: u32 = (oa_raw as i64 - base as i64) as u32;
     let oa_val: AnyVal = AnyVal::from_offset(oa_off);
 
-    if  oa_val.is_string(base) { return 20; }
-    if !oa_val.is_array(base)  { return 21; }
-    if  oa_val.is_map(base)    { return 22; }
+    if  oa_val.is_string(base) { return 17; }
+    if !oa_val.is_array(base)  { return 18; }
+    if  oa_val.is_map(base)    { return 19; }
 
     // Allocate a TinyObjectMap tagged object (descriptor=2, hash=98).
     let tm_raw: *mut u8 = zone.alloc_tagged(16 as i64, hermes_tag_tiny_map(), hermes_desc_map());
@@ -94,14 +87,14 @@ unsafe fn main() -> i32 {
     let tm_off: u32 = (tm_raw as i64 - base as i64) as u32;
     let tm_val: AnyVal = AnyVal::from_offset(tm_off);
 
-    if  tm_val.is_string(base) { return 23; }
-    if  tm_val.is_array(base)  { return 24; }
-    if !tm_val.is_map(base)    { return 25; }
+    if  tm_val.is_string(base) { return 20; }
+    if  tm_val.is_array(base)  { return 21; }
+    if !tm_val.is_map(base)    { return 22; }
 
     // null pointer should return false for all pointer-type checks
-    if nul.is_string(base) { return 26; }
-    if nul.is_array(base)  { return 27; }
-    if nul.is_map(base)    { return 28; }
+    if nul.is_string(base) { return 23; }
+    if nul.is_array(base)  { return 24; }
+    if nul.is_map(base)    { return 25; }
 
     zone.destroy();
     return 42;

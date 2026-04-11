@@ -172,8 +172,8 @@ unsafe fn main() -> i32 {
     free(kbuf);
     z7.destroy();
     if got7.is_null()                          { free(ibuf); return 30; }
-    if got7.lo != 1 as u32                     { free(ibuf); return 31; }
-    if got7.hi != 0x2F000000 as u32            { free(ibuf); return 32; }
+    // New: i24(1) has raw = (1 << 8) | 0x2F = 0x0000012F
+    if got7.raw != 0x0000012F as u32           { free(ibuf); return 31; }
 
     free(ibuf);
     return 42;

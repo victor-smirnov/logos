@@ -1,5 +1,5 @@
 package anyval_basic;
-// Phase 9: AnyVal — 8-byte polymorphic pointer/value slot.
+// Phase 9: AnyVal — 4-byte polymorphic pointer/value slot.
 // Tests the full encode/decode/discriminant API.
 
 use hermes.anyval;
@@ -16,17 +16,17 @@ unsafe fn main() -> i32 {
     if !nul.is_null()                       { return 4; }
     if !nul.is_ptr()                        { return 5; }
 
-    // --- Value mode: i32 (hash=23) ---
-    let vi32: AnyVal = AnyVal::embed_i32(99);
+    // --- Value mode: i24 (hash=23) ---
+    let vi32: AnyVal = AnyVal::embed_i24(99 as i32);
     if vi32.is_ptr()                        { return 6; }
     if vi32.type_hash() != 23 as u8         { return 7; }
-    if vi32.as_i32() != 99                  { return 8; }
+    if vi32.as_i24() != 99                  { return 8; }
 
-    // --- Value mode: u32 (hash=25) ---
-    let vu32: AnyVal = AnyVal::embed_u32(4000000000 as u32);
+    // --- Value mode: u24 (hash=25) — u24::MAX = 16777215 ---
+    let vu32: AnyVal = AnyVal::embed_u24(16777215 as u32);
     if vu32.is_ptr()                        { return 9; }
     if vu32.type_hash() != 25 as u8         { return 10; }
-    if vu32.as_u32() != 4000000000 as u32   { return 11; }
+    if vu32.as_u24() != 16777215 as u32     { return 11; }
 
     // --- Value mode: i16 (hash=22) ---
     let vi16: AnyVal = AnyVal::embed_i16(-300 as i16);

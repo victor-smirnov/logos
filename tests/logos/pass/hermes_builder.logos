@@ -28,7 +28,7 @@ unsafe fn main() -> i32 {
 
     // Set "code" → i32(42) in the map.
     let code_key: *const u8 = "code";
-    doc.map_set_str(root_map, code_key, 4 as i64, AnyVal::embed_i32(42));
+    doc.map_set_str(root_map, code_key, 4 as i64, AnyVal::embed_i24(42 as i32));
 
     // Set the document root.
     doc.set_root(root_map);

@@ -2,178 +2,165 @@
 // Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.anyval
 //
-// AnyVal: 8-byte polymorphic slot (pointer-or-embedded-value).
+// AnyVal: 4-byte polymorphic slot (pointer-or-embedded-value).
 //
-// Wire format (little-endian uint64):
-//   Pointer mode: bytes[0..3] = u32 segment-relative offset; bytes[4..7] = 0x00000000
-//                 discriminant = bit 0 of byte[7] = 0
-//   Value mode:   bytes[0..6] = value data (up to 7 bytes, zero-padded high bytes)
-//                 byte[7]     = (type_hash << 1) | 1
-//                 discriminant = bit 0 of byte[7] = 1
+// Wire format (little-endian uint32):
+//   Pointer mode: raw = 32-bit zone offset (low bit 0; aligned objects → low 3 bits are 0)
+//                 discriminant = bit 0 of raw = 0
+//   Value mode:   raw = (value_24bit << 8) | (type_hash << 1) | 1
+//                 bits [7:1]  = type_hash (7 bits, 0–127)
+//                 bits [31:8] = 24-bit value
+//                 discriminant = bit 0 of raw = 1
 //
-// Null sentinel: lo == 0 && hi == 0 (pointer mode, offset 0; offset 0 is always
+// Null sentinel: raw == 0 (pointer mode, offset 0; offset 0 is always
 // DocumentHeader, never a data object, so this is unambiguous).
 //
-// Embeddable types (type_hash < 128, sizeof < 8):
+// Embeddable types (type_hash < 128, value fits in 24 bits):
 //   TinyInt   (i8)  hash=20  tag=0x29
 //   UTinyInt  (u8)  hash=21  tag=0x2B
 //   SmallInt  (i16) hash=22  tag=0x2D
-//   Integer   (i32) hash=23  tag=0x2F
+//   Integer   (i24) hash=23  tag=0x2F
 //   USmallInt (u16) hash=24  tag=0x31
-//   UInteger  (u32) hash=25  tag=0x33
-//   Real      (f32) hash=30  tag=0x3D  (bits stored via u32 reinterpret)
+//   UInteger  (u24) hash=25  tag=0x33
 //   Boolean   (u8)  hash=37  tag=0x4B
+//
+// f32 (Real, hash=30) is NOT embeddable in the 4-byte format.
+// Zone-pointer floats may be added in a future revision.
 //
 // See openspec/specs/hermes-wire-format.md §3 for the authoritative bit encoding.
 
 package hermes.anyval;
 
-// AnyVal layout: lo = bytes[0..3], hi = bytes[4..7].
+// AnyVal layout: single 4-byte raw field.
 pub datatype AnyVal {
-    pub lo: u32,   // bytes 0–3: offset (pointer mode) or low value bytes
-    pub hi: u32,   // bytes 4–7: 0 (pointer mode) or high value bytes + tag
+    pub raw: u32,
 }
 
 impl AnyVal {
     // True if this slot is in pointer mode (discriminant == 0).
     pub unsafe fn is_ptr(self: *const AnyVal) -> bool {
-        return (self.hi >> 24) & 1 as u32 == 0 as u32;
+        return (self.raw & 1 as u32) == 0 as u32;
     }
 
-    // True if this is the null pointer (lo == 0 && hi == 0).
+    // True if this is the null pointer (raw == 0).
     pub unsafe fn is_null(self: *const AnyVal) -> bool {
-        return self.lo == 0 as u32 && self.hi == 0 as u32;
+        return self.raw == 0 as u32;
     }
 
     // Segment-relative offset (only valid in pointer mode).
     pub unsafe fn as_offset(self: *const AnyVal) -> u32 {
-        return self.lo;
+        return self.raw;
     }
 
     // Resolve pointer-mode AnyVal to a raw const pointer given the segment base.
     pub unsafe fn resolve(self: *const AnyVal, base: *const u8) -> *const u8 {
         let base_int: i64 = base as i64;
-        let off: i64 = self.lo as i64;
+        let off: i64 = self.raw as i64;
         return (base_int + off) as *const u8;
     }
 
     // Resolve pointer-mode AnyVal to a mutable pointer given the segment base.
     pub unsafe fn resolve_mut(self: *const AnyVal, base: *mut u8) -> *mut u8 {
         let base_int: i64 = base as i64;
-        let off: i64 = self.lo as i64;
+        let off: i64 = self.raw as i64;
         return (base_int + off) as *mut u8;
     }
 
     // 7-bit type_hash from the tag byte (only valid in value mode).
     pub unsafe fn type_hash(self: *const AnyVal) -> u8 {
-        return ((self.hi >> 25) & 0x7F as u32) as u8;
+        return ((self.raw >> 1 as u32) & 0x7F as u32) as u8;
     }
 
     // --- Constructors ---
 
-    // Null pointer sentinel (lo=0, hi=0).
+    // Null pointer sentinel (raw=0).
     pub fn null_ptr() -> AnyVal {
-        return AnyVal { lo: 0 as u32, hi: 0 as u32 };
+        return AnyVal { raw: 0 as u32 };
     }
 
     // Pointer mode: store a segment-relative offset.
     pub fn from_offset(offset: u32) -> AnyVal {
-        return AnyVal { lo: offset, hi: 0 as u32 };
+        return AnyVal { raw: offset };
     }
 
-    // Embed f32 as Real (hash=30, tag=0x3D).
-    // Caller must pass the raw IEEE-754 bit pattern of the f32 value as u32.
-    // Use pointer reinterpretation (unsafe) to obtain the bits from an f32 variable.
-    pub fn embed_f32_bits(bits: u32) -> AnyVal {
-        return AnyVal { lo: bits, hi: 0x3D000000 as u32 };
+    // Embed i24 (Integer, hash=23, tag=0x2F).
+    pub fn embed_i24(v: i32) -> AnyVal {
+        let raw: u32 = (((v as u32) & 0xFFFFFF as u32) << 8 as u32) | 0x2F as u32;
+        return AnyVal { raw: raw };
     }
 
-    // Embed i32 (Integer, hash=23, tag=0x2F).
-    pub fn embed_i32(v: i32) -> AnyVal {
-        return AnyVal { lo: v as u32, hi: 0x2F000000 as u32 };
-    }
-
-    // Embed u32 (UInteger, hash=25, tag=0x33).
-    pub fn embed_u32(v: u32) -> AnyVal {
-        return AnyVal { lo: v, hi: 0x33000000 as u32 };
+    // Embed u24 (UInteger, hash=25, tag=0x33).
+    pub fn embed_u24(v: u32) -> AnyVal {
+        let raw: u32 = ((v & 0xFFFFFF as u32) << 8 as u32) | 0x33 as u32;
+        return AnyVal { raw: raw };
     }
 
     // Embed i16 (SmallInt, hash=22, tag=0x2D).
     pub fn embed_i16(v: i16) -> AnyVal {
-        let lo: u32 = (v as u16) as u32;
-        return AnyVal { lo: lo, hi: 0x2D000000 as u32 };
+        let raw: u32 = ((((v as i32) as u32) & 0xFFFFFF as u32) << 8 as u32) | 0x2D as u32;
+        return AnyVal { raw: raw };
     }
 
     // Embed u16 (USmallInt, hash=24, tag=0x31).
     pub fn embed_u16(v: u16) -> AnyVal {
-        return AnyVal { lo: v as u32, hi: 0x31000000 as u32 };
+        let raw: u32 = ((v as u32) << 8 as u32) | 0x31 as u32;
+        return AnyVal { raw: raw };
     }
 
     // Embed i8 (TinyInt, hash=20, tag=0x29).
     pub fn embed_i8(v: i8) -> AnyVal {
-        let lo: u32 = (v as u8) as u32;
-        return AnyVal { lo: lo, hi: 0x29000000 as u32 };
+        let raw: u32 = ((((v as i32) as u32) & 0xFFFFFF as u32) << 8 as u32) | 0x29 as u32;
+        return AnyVal { raw: raw };
     }
 
     // Embed u8 (UTinyInt, hash=21, tag=0x2B).
     pub fn embed_u8(v: u8) -> AnyVal {
-        return AnyVal { lo: v as u32, hi: 0x2B000000 as u32 };
+        let raw: u32 = ((v as u32) << 8 as u32) | 0x2B as u32;
+        return AnyVal { raw: raw };
     }
 
     // Embed bool (Boolean, hash=37, tag=0x4B).
     pub fn embed_bool(v: bool) -> AnyVal {
-        let lo: u32 = (v as u8) as u32;
-        return AnyVal { lo: lo, hi: 0x4B000000 as u32 };
+        let raw: u32 = ((v as u32) << 8 as u32) | 0x4B as u32;
+        return AnyVal { raw: raw };
     }
 
     // --- Value extraction (only valid when !is_ptr()) ---
 
-    pub unsafe fn as_i32(self: *const AnyVal) -> i32 {
-        return self.lo as i32;
+    pub unsafe fn as_i24(self: *const AnyVal) -> i32 {
+        return (self.raw as i32) >> 8;
     }
 
-    pub unsafe fn as_u32(self: *const AnyVal) -> u32 {
-        return self.lo;
+    pub unsafe fn as_u24(self: *const AnyVal) -> u32 {
+        return self.raw >> 8 as u32;
     }
 
     pub unsafe fn as_i16(self: *const AnyVal) -> i16 {
-        return (self.lo & 0xFFFF as u32) as i16;
+        return (self.raw >> 8 as u32) as i16;
     }
 
     pub unsafe fn as_u16(self: *const AnyVal) -> u16 {
-        return (self.lo & 0xFFFF as u32) as u16;
+        return (self.raw >> 8 as u32) as u16;
     }
 
     pub unsafe fn as_i8(self: *const AnyVal) -> i8 {
-        return (self.lo & 0xFF as u32) as i8;
+        return (self.raw >> 8 as u32) as i8;
     }
 
     pub unsafe fn as_u8(self: *const AnyVal) -> u8 {
-        return (self.lo & 0xFF as u32) as u8;
+        return (self.raw >> 8 as u32) as u8;
     }
 
     pub unsafe fn as_bool(self: *const AnyVal) -> bool {
-        return (self.lo & 0xFF as u32) != 0 as u32;
-    }
-
-    // Return the raw IEEE-754 bit pattern of the embedded f32 (Real, hash=30).
-    // Only valid when is_double() returns true.
-    pub unsafe fn as_f32_bits(self: *const AnyVal) -> u32 {
-        return self.lo;
+        return ((self.raw >> 8 as u32) & 1 as u32) != 0 as u32;
     }
 
     // --- Safe type-check accessors (value mode) ---
 
-    // True if this AnyVal holds an embedded integer (i32, hash=23).
+    // True if this AnyVal holds an embedded integer (i24, hash=23).
     pub unsafe fn is_int(self: *const AnyVal) -> bool {
         if self.is_ptr() { return false; }
         return self.type_hash() == 23 as u8;
-    }
-
-    // True if this AnyVal holds an embedded f32 (Real, hash=30).
-    pub unsafe fn is_double(self: *const AnyVal) -> bool {
-        if self.is_ptr() { return false; }
-        return self.type_hash() == 30 as u8;
     }
 
     // True if this AnyVal holds an embedded bool (Boolean, hash=37).
@@ -193,7 +180,7 @@ impl AnyVal {
     pub unsafe fn is_string(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
-        let obj: *const u8 = (base as i64 + self.lo as i64) as *const u8;
+        let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
         let tag_hash: u8 = *((obj as i64 - 2 as i64) as *const u8);
         let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
         let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
@@ -204,7 +191,7 @@ impl AnyVal {
     pub unsafe fn is_array(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
-        let obj: *const u8 = (base as i64 + self.lo as i64) as *const u8;
+        let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
         let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
         let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
         return desc == 1 as u8;
@@ -214,7 +201,7 @@ impl AnyVal {
     pub unsafe fn is_map(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
-        let obj: *const u8 = (base as i64 + self.lo as i64) as *const u8;
+        let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
         let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
         let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
         return desc == 2 as u8;
@@ -225,6 +212,6 @@ impl AnyVal {
     // Return the integer value if is_int(), otherwise 0.
     pub unsafe fn as_i64(self: *const AnyVal) -> i64 {
         if !self.is_int() { return 0 as i64; }
-        return self.as_i32() as i64;
+        return self.as_i24() as i64;
     }
 }
