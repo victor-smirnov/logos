@@ -79,7 +79,8 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
         if (fn.ret_type->kind == LogosType::Kind::Tuple) {
             auto rt = tuple_llvm_type(fn.ret_type);
             if (rt) ret_types.push_back(rt);
-        } else if (fn.ret_type->kind == LogosType::Kind::Struct) {
+        } else if (fn.ret_type->kind == LogosType::Kind::Struct ||
+                   fn.ret_type->kind == LogosType::Kind::Datatype) {
             auto cname = concrete_struct_name(fn.ret_type);
             auto sit = struct_types_.find(cname);
             if (sit != struct_types_.end())

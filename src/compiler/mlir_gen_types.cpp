@@ -117,20 +117,44 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
 
     std::vector<mlir::Type> field_types;
     for (auto& f : sd.fields) {
-        auto ft = logos_to_mlir(f.type);
-        if (!ft) {
-            std::fprintf(stderr, "mlir_gen: unknown field type in '%s'\n", sd.name.c_str());
-            return false;
-        }
+        mlir::Type ft;
         std::string fsname;
-        if (f.type->kind == LogosType::Kind::Struct) {
-            fsname = concrete_struct_name(f.type);
+        // Datatype fields are embedded by value (not by pointer).
+        // Regular Struct fields with a registered llvm_type are also inline.
+        if (f.type->kind == LogosType::Kind::Datatype ||
+            f.type->kind == LogosType::Kind::Struct) {
+            auto cname = concrete_struct_name(f.type);
+            auto sit = struct_types_.find(cname);
+            if (sit == struct_types_.end()) {
+                // Not yet registered — try to register it now (resolve dependency order).
+                auto def_it = all_struct_defs_.find(cname);
+                if (def_it != all_struct_defs_.end())
+                    register_struct(*def_it->second);
+                sit = struct_types_.find(cname);
+            }
+            if (sit != struct_types_.end()) {
+                // Inline embed: use the sub-struct's LLVM aggregate type directly.
+                ft = sit->second.llvm_type;
+                fsname = cname;
+            } else {
+                // Still not found (forward reference or unknown type) — use pointer.
+                ft = ptr_type();
+                fsname = cname;
+            }
         } else if ((f.type->kind == LogosType::Kind::Ref ||
                     f.type->kind == LogosType::Kind::MutRef) &&
                    f.type->pointee &&
-                   f.type->pointee->kind == LogosType::Kind::Struct) {
+                   (f.type->pointee->kind == LogosType::Kind::Struct ||
+                    f.type->pointee->kind == LogosType::Kind::Datatype)) {
             // &Struct / &mut Struct field — same layout as *Struct
+            ft = ptr_type();
             fsname = concrete_struct_name(f.type->pointee);
+        } else {
+            ft = logos_to_mlir(f.type);
+            if (!ft) {
+                std::fprintf(stderr, "mlir_gen: unknown field type in '%s'\n", sd.name.c_str());
+                return false;
+            }
         }
         info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname});
         field_types.push_back(ft);

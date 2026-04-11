@@ -34,6 +34,9 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     }
 
     // Pass 0.5: register struct LLVM types.
+    // Build lookup table first so register_struct can recursively resolve dependencies.
+    for (auto& sd : prog.structs)
+        all_struct_defs_[sd.name] = &sd;
     for (auto& sd : prog.structs)
         if (!register_struct(sd)) return nullptr;
 
@@ -181,6 +184,16 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         for (auto& f : info.fields) {
             if (f.name == fr->field) {
                 if (!f.struct_name.empty()) {
+                    // Check if field is inline-embedded struct (LLVMStructType) or pointer.
+                    if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
+                        // Inline embed: load the struct value and spill to alloca.
+                        auto aggr = builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, gep);
+                        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                            loc_, ptr_type(), f.type, i64_one());
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, aggr, alloca);
+                        return {alloca, f.struct_name};
+                    }
+                    // Pointer field: load the pointer.
                     auto obj_ptr = builder_.create<mlir::LLVM::LoadOp>(
                                        loc_, ptr_type(), gep);
                     return {obj_ptr, f.struct_name};
@@ -255,8 +268,15 @@ mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
         auto val = gen_expr(*fval);
         if (!val) return nullptr;
         // Coerce scalar literals to the field's declared type (e.g. IntLit→i64, FloatLit→f32).
-        if (fi && fi->type && !mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type))
-            val = coerce_numeric(val, fi->type);
+        if (fi && fi->type && !mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type)) {
+            if (mlir::isa<mlir::LLVM::LLVMStructType>(fi->type) &&
+                val.getType() == ptr_type()) {
+                // Inline struct field: load the aggregate value from the alloca pointer.
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, fi->type, val);
+            } else {
+                val = coerce_numeric(val, fi->type);
+            }
+        }
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
     }
     return alloca;

@@ -2092,7 +2092,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             if (!init)
                 error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
 
-        return make_expr(lit_type, lir::EStructLit{std::string(sname), std::move(fields)});
+        return make_expr(lit_type, lir::EStructLit{concrete, std::move(fields)});
     }
 
     // Non-generic struct: validate against template fields directly.

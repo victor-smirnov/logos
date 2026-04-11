@@ -84,6 +84,7 @@ private:
     mlir::Location  loc_;
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
+    std::unordered_map<std::string, const LStructDef*> all_struct_defs_; // name→def for recursive registration
     std::unordered_map<std::string, const LEnumDef*>   enum_types_;
     std::unordered_map<std::string, TaggedEnumInfo>    tagged_enums_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;

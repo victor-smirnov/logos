@@ -376,7 +376,8 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (ann && ann->kind == LogosType::Kind::Enum && !ann->type_args.empty())
         hint_enum_type_ = ann;
     auto* saved_struct_hint = hint_struct_type_;
-    if (ann && ann->kind == LogosType::Kind::Struct && !ann->type_args.empty())
+    if (ann && (ann->kind == LogosType::Kind::Struct ||
+                ann->kind == LogosType::Kind::Datatype) && !ann->type_args.empty())
         hint_struct_type_ = ann;
 
     lir::LExprPtr rhs;
@@ -658,7 +659,9 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             if (ret_type_ && ret_type_->kind == LogosType::Kind::Enum && !ret_type_->type_args.empty())
                 hint_enum_type_ = ret_type_;
             auto* saved_struct_hint = hint_struct_type_;
-            if (ret_type_ && ret_type_->kind == LogosType::Kind::Struct && !ret_type_->type_args.empty())
+            if (ret_type_ && (ret_type_->kind == LogosType::Kind::Struct ||
+                              ret_type_->kind == LogosType::Kind::Datatype) &&
+                !ret_type_->type_args.empty())
                 hint_struct_type_ = ret_type_;
             val = lower_expr(map_of(vav));
             hint_enum_type_ = saved_hint;
@@ -1447,9 +1450,14 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
         }
     }
 
+    auto* saved_struct_hint = hint_struct_type_;
+    if (ft && (ft->kind == LogosType::Kind::Struct ||
+               ft->kind == LogosType::Kind::Datatype) && !ft->type_args.empty())
+        hint_struct_type_ = ft;
     lir::LExprPtr val = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
+    hint_struct_type_ = saved_struct_hint;
     if (ft && ft->kind != LogosType::Kind::Error &&
         val->type->kind != LogosType::Kind::Error &&
         !types_compatible(val->type, ft)) {

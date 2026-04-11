@@ -312,7 +312,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::EStructLit>) {
             lir::EStructLit ns;
             // Update name to the concrete mangled struct name if generic.
-            if (result->type && result->type->kind == LogosType::Kind::Struct &&
+            if (result->type && (result->type->kind == LogosType::Kind::Struct ||
+                                  result->type->kind == LogosType::Kind::Datatype) &&
                 !result->type->type_args.empty())
                 ns.name = concrete_struct_name(result->type);
             else

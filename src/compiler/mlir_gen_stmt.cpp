@@ -83,13 +83,19 @@ void MLIRGenImpl::gen_stmt_kind(const SDrop& s) {
                 if (field_drop.empty()) continue;
                 auto field_fn = mod.lookupSymbol<mlir::func::FuncOp>(field_drop);
                 if (!field_fn) continue;
-                // GEP to field, load the struct pointer, then pass to drop
+                // GEP to field; pass pointer to the field data to drop.
+                // Inline-embedded fields (LLVMStructType): GEP IS the pointer.
+                // Pointer fields: load the pointer from the GEP first.
                 auto field_gep = gep_field(it->second, info, f.name);
                 if (!field_gep) continue;
-                // Struct fields are stored as pointers to allocas
-                auto field_val = builder_.create<mlir::LLVM::LoadOp>(
-                    loc_, ptr_type(), field_gep);
-                builder_.create<mlir::func::CallOp>(loc_, field_fn, mlir::ValueRange{field_val});
+                mlir::Value field_ptr;
+                if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
+                    field_ptr = field_gep;
+                } else {
+                    field_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), field_gep);
+                }
+                builder_.create<mlir::func::CallOp>(loc_, field_fn, mlir::ValueRange{field_ptr});
             }
         }
     }
@@ -986,8 +992,17 @@ void MLIRGenImpl::gen_field_write(const SFieldWrite& s) {
     if (!gep) return;
     auto val = gen_expr(*s.value);
     if (!val) return;
-    for (auto& f : info.fields)
-        if (f.name == s.field) { val = coerce_int(val, f.type); break; }
+    for (auto& f : info.fields) {
+        if (f.name == s.field) {
+            if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type) &&
+                val.getType() == ptr_type()) {
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, val);
+            } else {
+                val = coerce_int(val, f.type);
+            }
+            break;
+        }
+    }
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
 }
 
@@ -1015,8 +1030,19 @@ void MLIRGenImpl::gen_deref_field_write(const SDerefFieldWrite& s) {
     if (!gep) return;
     auto val = gen_expr(*s.value);
     if (!val) return;
-    for (auto& f : info.fields)
-        if (f.name == s.field) { val = coerce_int(val, f.type); break; }
+    for (auto& f : info.fields) {
+        if (f.name == s.field) {
+            // If field is an inline struct and val is a pointer (from struct literal/alloca),
+            // load the aggregate value before storing.
+            if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type) &&
+                val.getType() == ptr_type()) {
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, val);
+            } else {
+                val = coerce_int(val, f.type);
+            }
+            break;
+        }
+    }
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
 }
 

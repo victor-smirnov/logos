@@ -46,7 +46,8 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
         LogosType nt = *t; nt.pointee = inner;
         return out_.type_pool.alloc(nt);
     }
-    case LogosType::Kind::Struct: {
+    case LogosType::Kind::Struct:
+    case LogosType::Kind::Datatype: {
         if (t->type_args.empty()) return t;
         std::vector<const LogosType*> new_args;
         bool changed = false;
