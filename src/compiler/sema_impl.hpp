@@ -341,6 +341,7 @@ private:
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             bool is_pub = false; bool is_const = false; bool is_unsafe = false;
+                            bool is_extern = false;
                             std::string source_file; std::string package; };
     struct SemaVariantInfo{
         std::string_view name; int32_t value;

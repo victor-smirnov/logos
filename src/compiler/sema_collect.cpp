@@ -1097,6 +1097,10 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     // Allow overloading: a non-generic base case and a generic version
     // can coexist with the same name (for variadic recursion base cases).
     if (funcs_.count(mangled)) {
+        // extern fn can be declared in multiple modules (they all resolve to the same
+        // C symbol at link time). Silently skip re-registering the duplicate declaration.
+        if (code_of(node) == la::EXTERN_FN && funcs_[mangled].is_extern)
+            return;
         bool new_is_generic = !info.type_params.empty();
         bool old_is_generic = !funcs_[mangled].type_params.empty();
         if (new_is_generic == old_is_generic) {
@@ -1199,6 +1203,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     if (code_of(node) == la::EXTERN_FN) {
         info.is_pub = true;
         info.is_unsafe = true;
+        info.is_extern = true;
     } else if (node.has_key(la::IS_PUB)) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;

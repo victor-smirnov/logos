@@ -653,12 +653,16 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
     if (node.has_key(la::VALUE)) {
         AnyVal vav = node.get(la::VALUE.code);
         if (!vav.is_null()) {
-            // Set enum hint from return type so enum literals can fill in unresolved type params
+            // Set enum/struct hints from return type so literals can fill in unresolved type params
             auto* saved_hint = hint_enum_type_;
             if (ret_type_ && ret_type_->kind == LogosType::Kind::Enum && !ret_type_->type_args.empty())
                 hint_enum_type_ = ret_type_;
+            auto* saved_struct_hint = hint_struct_type_;
+            if (ret_type_ && ret_type_->kind == LogosType::Kind::Struct && !ret_type_->type_args.empty())
+                hint_struct_type_ = ret_type_;
             val = lower_expr(map_of(vav));
             hint_enum_type_ = saved_hint;
+            hint_struct_type_ = saved_struct_hint;
             if (ret_type_ && ret_type_->kind == LogosType::Kind::ImplTrait) {
                 // Infer concrete return type from first return expression.
                 if (!impl_ret_type_inferred_ &&
