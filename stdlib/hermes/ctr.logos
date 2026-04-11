@@ -39,54 +39,62 @@ pub struct HermesCtr {
 
 impl HermesCtr {
     // Allocate a new container backed by a zone of `capacity` bytes.
-    pub unsafe fn create(capacity: i64) -> HermesCtr {
-        return HermesCtr {
-            zone: HermesZone::create(capacity),
-            buf:  StringBuf::create(256),
-        };
+    pub fn create(capacity: i64) -> HermesCtr {
+        unsafe {
+            return HermesCtr {
+                zone: HermesZone::create(capacity),
+                buf:  StringBuf::create(256),
+            };
+        }
     }
 
     // Parse Hermes text (UTF-8 bytes) into the zone.
     // Returns true on success.  On failure the container state is undefined;
     // the caller should destroy it.
-    pub unsafe fn parse(&mut self, text: *const u8, len: i64) -> bool {
-        return hermes_parse(text, len, &mut self.zone);
+    pub fn parse(&mut self, text: *const u8, len: i64) -> bool {
+        unsafe { return hermes_parse(text, len, &mut self.zone); }
     }
 
     // Stringify the parsed document into the internal buffer.
     // May be called multiple times; each call replaces the previous result.
-    pub unsafe fn stringify(&mut self) {
-        self.buf.reset();
-        stringify_document(self.zone.base as *const u8, &mut self.buf);
+    pub fn stringify(&mut self) {
+        unsafe {
+            self.buf.reset();
+            stringify_document(self.zone.base as *const u8, &mut self.buf);
+        }
     }
 
     // Write the stringified bytes to stdout, followed by a newline.
     // Call stringify() first.
-    pub unsafe fn print(&mut self) {
-        write(1 as i32, self.buf.data as *const u8, self.buf.len);
-        let nl: u8 = 10 as u8;
-        write(1 as i32, &nl as *const u8, 1 as i64);
+    pub fn print(&mut self) {
+        unsafe {
+            write(1 as i32, self.buf.data as *const u8, self.buf.len);
+            let nl: u8 = 10 as u8;
+            write(1 as i32, &nl as *const u8, 1 as i64);
+        }
     }
 
     // Pointer to the stringified bytes (valid until next stringify/destroy).
-    pub unsafe fn data(&mut self) -> *const u8 {
-        return self.buf.data as *const u8;
+    pub fn data(&mut self) -> *const u8 {
+        unsafe { return self.buf.data as *const u8; }
     }
 
     // Length of the stringified output in bytes.
-    pub unsafe fn len(&mut self) -> i64 {
+    pub fn len(&mut self) -> i64 {
         return self.buf.len;
     }
 
     // Root AnyVal of the parsed document.
-    pub unsafe fn root(&mut self) -> AnyVal {
-        let doc: *const DocumentHeader = self.zone.base as *const DocumentHeader;
-        return document_get_root(doc);
+    pub fn root(&mut self) -> AnyVal {
+        unsafe {
+            let doc: *const DocumentHeader = self.zone.base as *const DocumentHeader;
+            return document_get_root(doc);
+        }
     }
 
     // Zone base pointer (for advanced access to zone-allocated objects).
-    pub unsafe fn base(&mut self) -> *const u8 {
-        return self.zone.base as *const u8;
+    pub fn base(&mut self) -> *const u8 {
+        unsafe { return self.zone.base as *const u8; }
     }
 
 }
