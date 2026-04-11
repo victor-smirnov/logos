@@ -3,9 +3,10 @@
 // Logos Hermes stdlib — hermes.zone
 //
 // HermesZone: a bump allocator for Hermes datatypes.
-// Backed by malloc/free from the C runtime.
-// All allocations are aligned to 8 bytes.
-// Phase 2: uses absolute pointers (Phase 3 will introduce relative offsets).
+// DataRef<T>: a fat zone pointer (base + u32 offset) to a datatype T.
+//
+// Phase 2/3: absolute base pointer in DataRef.
+// Phase 7: will replace base with a u32 thin offset for full relocatability.
 
 package hermes.zone;
 
@@ -13,7 +14,7 @@ extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
 pub struct HermesZone {
-    base: *mut u8,
+    pub base: *mut u8,
     offset: i64,
     capacity: i64,
 }
@@ -26,7 +27,6 @@ impl HermesZone {
     }
 
     // Allocate `size` bytes, 8-byte aligned. Returns null on OOM.
-    // The caller must cast the result to the appropriate datatype pointer.
     pub fn alloc_raw(&mut self, size: i64) -> *mut u8 {
         let aligned: i64 = (self.offset + 7) / 8 * 8;
         if aligned + size > self.capacity {
@@ -38,8 +38,39 @@ impl HermesZone {
         return result;
     }
 
-    // Free the backing buffer. After this, all datatype pointers into the zone are invalid.
+    // Free the backing buffer. All DataRefs into this zone become invalid.
     pub fn destroy(&mut self) {
         unsafe { free(self.base); }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DataRef<T> — fat pointer (base + u32 offset) to a Hermes datatype T.
+//
+// base   — pointer to the start of the zone's memory buffer
+// offset — byte offset from base to the object; fits in u32 (max zone = 4 GiB)
+//
+// Use ptr()     to get a *const T for field reads (requires unsafe context).
+// Use mut_ptr() to get a *mut T for field writes (requires unsafe context).
+// ---------------------------------------------------------------------------
+
+pub struct DataRef<T> {
+    pub base: *mut u8,
+    pub offset: u32,
+}
+
+impl<T> DataRef<T> {
+    // Returns a raw const pointer to the object. Requires unsafe to deref.
+    pub unsafe fn ptr(self: *const DataRef<T>) -> *const T {
+        let base_int: i64 = self.base as i64;
+        let off: i64 = self.offset as i64;
+        return (base_int + off) as *const T;
+    }
+
+    // Returns a raw mutable pointer to the object. Requires unsafe to deref.
+    pub unsafe fn mut_ptr(self: *const DataRef<T>) -> *mut T {
+        let base_int: i64 = self.base as i64;
+        let off: i64 = self.offset as i64;
+        return (base_int + off) as *mut T;
     }
 }

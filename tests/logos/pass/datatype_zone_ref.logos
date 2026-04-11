@@ -1,0 +1,35 @@
+package datatype_zone_ref;
+// Phase 3: DataRef<T> — fat zone pointer with typed field access.
+// Demonstrates: zone alloc → compute offset → DataRef<T> → ptr()/mut_ptr()
+
+use hermes.zone;
+
+datatype Point {
+    x: i32,
+    y: i32,
+}
+
+unsafe fn main() -> i32 {
+    let mut zone: HermesZone = HermesZone::create(4096);
+    let size: i64 = sizeof::<Point>();
+    let raw: *mut u8 = zone.alloc_raw(size);
+
+    // Compute offset from zone base to the allocated object.
+    let base_int: i64 = zone.base as i64;
+    let raw_int: i64 = raw as i64;
+    let offset: u32 = (raw_int - base_int) as u32;
+
+    // Wrap in a typed DataRef<Point>.
+    let p: DataRef<Point> = DataRef { base: zone.base, offset: offset };
+
+    // Write fields via mut_ptr() — must bind pointer to a local first.
+    let pw: *mut Point = p.mut_ptr();
+    pw.x = 15;
+    pw.y = 27;
+
+    // Read back via ptr().
+    let pr: *const Point = p.ptr();
+    let result: i32 = pr.x + pr.y;
+    zone.destroy();
+    return result;  // 42
+}
