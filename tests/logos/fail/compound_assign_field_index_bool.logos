@@ -1,0 +1,12 @@
+package compound_assign_field_index_bool;
+// Bug: lower_field_index_compound_assign had no types_compatible check.
+// s.arr[i] += true compiles and silently gives s.arr[i] = s.arr[i] - 1.
+// Must be a type error.
+
+struct Buf { data: [i32; 4], }
+
+fn main() -> i32 {
+    let mut b: Buf = Buf { data: [10, 20, 30, 40] };
+    b.data[0] += true;
+    return b.data[0];
+}

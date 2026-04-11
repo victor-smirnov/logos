@@ -1,0 +1,12 @@
+package compound_assign_deref_field_bool;
+// Bug: lower_deref_field_compound_assign had no types_compatible check.
+// (*p).x += true compiles and silently gives wrong value.  Must be a type error.
+
+struct Point { x: i32, y: i32, }
+
+unsafe fn main() -> i32 {
+    let mut pt: Point = Point { x: 10, y: 20 };
+    let p: *mut Point = &mut pt;
+    (*p).x += true;
+    return pt.x;
+}

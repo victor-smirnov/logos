@@ -1475,6 +1475,14 @@ lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
     // rhs = expr
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+
+    // Type-check: RHS must be compatible with the field's type.
+    if (result_type->kind != LogosType::Kind::Error &&
+        rhs->type->kind != LogosType::Kind::Error &&
+        !types_compatible(rhs->type, result_type)) {
+        error(std::format("compound assignment to '{}.{}': type mismatch — expected {}, got {}",
+              recv_name, field_name, type_str(result_type), type_str(rhs->type)));
+    }
     // combined = lhs op rhs
     auto combined = make_expr(result_type, lir::EBinOp{base_op, std::move(lhs_read), std::move(rhs)});
 
@@ -1797,6 +1805,13 @@ lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
+    // Type-check: RHS must be compatible with the element type.
+    if (elem_type->kind != LogosType::Kind::Error &&
+        rhs->type->kind != LogosType::Kind::Error &&
+        !types_compatible(rhs->type, elem_type)) {
+        error(std::format("compound assignment to '{}[i]': type mismatch — expected {}, got {}",
+              arr_name, type_str(elem_type), type_str(rhs->type)));
+    }
     // Build lhs read: arr[idx_for_read]
     auto arr_recv = make_expr(arr_type, lir::EVarRef{std::string(arr_name)});
     auto lhs_read = make_expr(elem_type, lir::EIndexRead{std::move(arr_recv), std::move(idx_for_read)});
@@ -2264,6 +2279,14 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
     auto lhs_read = make_expr(ft, lir::EFieldRead{std::move(ptr_ref), std::string(field_name)});
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+
+    // Type-check: RHS must be compatible with the field's type.
+    if (ft->kind != LogosType::Kind::Error &&
+        rhs->type->kind != LogosType::Kind::Error &&
+        !types_compatible(rhs->type, ft)) {
+        error(std::format("compound assignment to '(*{}).{}': type mismatch — expected {}, got {}",
+              recv_name, field_name, type_str(ft), type_str(rhs->type)));
+    }
     auto combined = make_expr(ft, lir::EBinOp{base_op, std::move(lhs_read), std::move(rhs)});
 
     lir::SDerefFieldWrite sdfw;
@@ -2319,6 +2342,14 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
     auto lhs_read = make_expr(ft, lir::ETupleIndex{std::move(recv_ref), (uint32_t)idx});
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+
+    // Type-check: RHS must be compatible with the tuple element's type.
+    if (ft->kind != LogosType::Kind::Error &&
+        rhs->type->kind != LogosType::Kind::Error &&
+        !types_compatible(rhs->type, ft)) {
+        error(std::format("compound assignment to '{}.{}': type mismatch — expected {}, got {}",
+              recv_name, idx, type_str(ft), type_str(rhs->type)));
+    }
     auto combined = make_expr(ft, lir::EBinOp{base_op, std::move(lhs_read), std::move(rhs)});
 
     return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx,
@@ -2380,6 +2411,13 @@ lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
+    // Type-check: RHS must be compatible with the element type.
+    if (elem_t->kind != LogosType::Kind::Error &&
+        rhs->type->kind != LogosType::Kind::Error &&
+        !types_compatible(rhs->type, elem_t)) {
+        error(std::format("compound assignment to '{}.{}[i]': type mismatch — expected {}, got {}",
+              recv_name, field_name, type_str(elem_t), type_str(rhs->type)));
+    }
     // Build lhs read: s.field[idx_for_read]
     auto recv_ref  = make_expr(recv_t ? recv_t : error_t(), lir::EVarRef{std::string(recv_name)});
     auto field_rd  = make_expr(field_t, lir::EFieldRead{std::move(recv_ref), std::string(field_name)});

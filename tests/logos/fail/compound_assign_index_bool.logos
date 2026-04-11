@@ -1,0 +1,10 @@
+package compound_assign_index_bool;
+// Bug: lower_index_compound_assign had no types_compatible check.
+// arr[i] += true compiles and silently gives arr[i] = arr[i] - 1
+// (bool sign-extends to -1).  Must be a type error.
+
+fn main() -> i32 {
+    let mut arr: [i32; 2] = [10, 20];
+    arr[0] += true;
+    return arr[0];
+}

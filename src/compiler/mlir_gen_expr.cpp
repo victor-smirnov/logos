@@ -296,20 +296,22 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
         if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType())) {
             if (li.getWidth() < ri.getWidth()) {
                 bool lhs_unsigned = e.lhs->type &&
-                    (e.lhs->type->kind == LogosType::Kind::U8  ||
-                     e.lhs->type->kind == LogosType::Kind::U16 ||
-                     e.lhs->type->kind == LogosType::Kind::U32 ||
-                     e.lhs->type->kind == LogosType::Kind::U64);
+                    (e.lhs->type->kind == LogosType::Kind::U8   ||
+                     e.lhs->type->kind == LogosType::Kind::U16  ||
+                     e.lhs->type->kind == LogosType::Kind::U32  ||
+                     e.lhs->type->kind == LogosType::Kind::U64  ||
+                     e.lhs->type->kind == LogosType::Kind::Bool);
                 if (lhs_unsigned)
                     lhs = builder_.create<mlir::arith::ExtUIOp>(loc_, rhs.getType(), lhs);
                 else
                     lhs = builder_.create<mlir::arith::ExtSIOp>(loc_, rhs.getType(), lhs);
             } else if (ri.getWidth() < li.getWidth()) {
                 bool rhs_unsigned = e.rhs->type &&
-                    (e.rhs->type->kind == LogosType::Kind::U8  ||
-                     e.rhs->type->kind == LogosType::Kind::U16 ||
-                     e.rhs->type->kind == LogosType::Kind::U32 ||
-                     e.rhs->type->kind == LogosType::Kind::U64);
+                    (e.rhs->type->kind == LogosType::Kind::U8   ||
+                     e.rhs->type->kind == LogosType::Kind::U16  ||
+                     e.rhs->type->kind == LogosType::Kind::U32  ||
+                     e.rhs->type->kind == LogosType::Kind::U64  ||
+                     e.rhs->type->kind == LogosType::Kind::Bool);
                 if (rhs_unsigned)
                     rhs = builder_.create<mlir::arith::ExtUIOp>(loc_, lhs.getType(), rhs);
                 else

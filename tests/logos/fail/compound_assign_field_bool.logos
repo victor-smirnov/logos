@@ -1,0 +1,11 @@
+package compound_assign_field_bool;
+// Bug: lower_field_compound_assign had no types_compatible check.
+// s.x += true compiles and silently gives s.x = s.x - 1.  Must be a type error.
+
+struct Point { x: i32, y: i32, }
+
+fn main() -> i32 {
+    let mut p: Point = Point { x: 10, y: 20 };
+    p.x += true;
+    return p.x;
+}

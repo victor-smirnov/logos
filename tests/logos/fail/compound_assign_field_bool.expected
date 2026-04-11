@@ -1,0 +1,1 @@
+compound assignment to 'p.x': type mismatch — expected i32, got bool
