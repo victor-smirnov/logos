@@ -151,6 +151,11 @@ impl String {
     // Empty string with pre-allocated capacity (avoids early reallocations).
     pub static fn with_capacity(cap: i64) -> String {
         let buf: *mut u8 = alloc(cap + 1);
+        // Bug 5 guard: alloc can return null on OOM; writing buf[0] = 0 without
+        // checking crashes. Fall back to String::new() state on OOM.
+        if buf == 0 as *mut u8 {
+            return String { data: 0 as *mut u8, nbytes: 0, cap: 0 };
+        }
         unsafe { buf[0] = 0 as u8; }
         return String { data: buf, nbytes: 0, cap: cap };
     }
@@ -180,10 +185,18 @@ impl String {
         let new_cap: i64 = (self.cap + needed + 1) * 2;
         if new_cap <= needed { return; }     // overflow guard
         if self.data == 0 as *mut u8 {
+            // Bug 4 guard (alloc branch): alloc can return null on OOM.
+            // Writing self.data[0] = 0 without the null check is a null-ptr dereference.
             self.data = alloc(new_cap);
+            if self.data == 0 as *mut u8 { return; }
             unsafe { self.data[0] = 0 as u8; }
         } else {
-            self.data = realloc_buf(self.data, new_cap);
+            // Bug 4 guard (realloc branch): realloc returns null on OOM but does NOT
+            // free the original buffer. Assigning directly would leak the original
+            // pointer and corrupt self.cap. Use a temporary to preserve both on failure.
+            let tmp: *mut u8 = realloc_buf(self.data, new_cap);
+            if tmp == 0 as *mut u8 { return; }
+            self.data = tmp;
         }
         self.cap = new_cap - 1;
     }
@@ -200,6 +213,10 @@ impl String {
 
     // Append `n` bytes from `s`.
     pub fn push_bytes(&mut self, s: *const u8, n: i64) {
+        // Bug 1 guard: n=0 on String::new() (data=null, cap=0) would skip grow
+        // (required=1 == cap+1=1) and then write null[0]=0 — a null-ptr dereference.
+        // n<0 would also underflow nbytes and corrupt the buffer.
+        if n <= 0 { return; }
         self.grow(n);
         mem_copy(self.data, self.nbytes, s, n);
         self.nbytes = self.nbytes + n;

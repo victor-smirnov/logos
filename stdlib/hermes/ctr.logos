@@ -222,6 +222,9 @@ impl HermesCtr {
     // Returns an AnyVal in pointer mode pointing to the string.
     // Returns AnyVal::null_ptr() on OOM.
     pub fn build_str(&mut self, s: *const u8, slen: i64) -> AnyVal {
+        // Bug 2 guard: negative slen wraps to u64::MAX, making vlen_encode_size
+        // return 8 and total = 7, then HermesString::init tries to copy ~2^64 bytes.
+        if slen < 0 { return AnyVal::null_ptr(); }
         unsafe {
             let len: u64 = slen as u64;
             // vlen prefix size varies: 1 byte for len < 249, more for larger strings.
@@ -273,6 +276,9 @@ impl HermesCtr {
     // Set key → val in a map AnyVal.
     // key is a C string pointer; klen is its byte length (NOT counting null).
     pub fn map_set_str(&mut self, map: AnyVal, key: *const u8, klen: i64, val: AnyVal) {
+        // Bug 3 guard: negative klen wraps to u64::MAX, making hermes_fnv1a read
+        // ~2^64 bytes from key → out-of-bounds memory access / crash.
+        if klen < 0 { return; }
         unsafe {
             let base: *const u8 = self.zone.base as *const u8;
             if !map.is_map(base) { return; }
