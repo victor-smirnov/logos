@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.zone
+//
+// HermesZone: a bump allocator for Hermes datatypes.
+// Backed by malloc/free from the C runtime.
+// All allocations are aligned to 8 bytes.
+// Phase 2: uses absolute pointers (Phase 3 will introduce relative offsets).
+
+package hermes.zone;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+pub struct HermesZone {
+    base: *mut u8,
+    offset: i64,
+    capacity: i64,
+}
+
+impl HermesZone {
+    // Create a new zone backed by a malloc'd buffer of `capacity` bytes.
+    pub fn create(capacity: i64) -> HermesZone {
+        let base: *mut u8 = unsafe { malloc(capacity) };
+        return HermesZone { base: base, offset: 0, capacity: capacity };
+    }
+
+    // Allocate `size` bytes, 8-byte aligned. Returns null on OOM.
+    // The caller must cast the result to the appropriate datatype pointer.
+    pub fn alloc_raw(&mut self, size: i64) -> *mut u8 {
+        let aligned: i64 = (self.offset + 7) / 8 * 8;
+        if aligned + size > self.capacity {
+            return 0 as *mut u8;
+        }
+        let base_int: i64 = self.base as i64;
+        let result: *mut u8 = (base_int + aligned) as *mut u8;
+        self.offset = aligned + size;
+        return result;
+    }
+
+    // Free the backing buffer. After this, all datatype pointers into the zone are invalid.
+    pub fn destroy(&mut self) {
+        unsafe { free(self.base); }
+    }
+}

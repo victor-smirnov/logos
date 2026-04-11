@@ -1586,7 +1586,8 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
         if (pointee->kind == LogosType::Kind::Class) {
             type_name = pointee->struct_name;
             ft = class_field_type(type_name, field_name);
-        } else if (pointee->kind == LogosType::Kind::Struct) {
+        } else if (pointee->kind == LogosType::Kind::Struct ||
+                   pointee->kind == LogosType::Kind::Datatype) {
             type_name = concrete_struct_name(pointee);
             ft = field_type_of_for_type(pointee, field_name);
         } else {

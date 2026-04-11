@@ -49,7 +49,8 @@ set(LOGOS_INTEGRATION_TESTS
     stdlib_demo
     vec_usage
     format_basic
-    format_types)
+    format_types
+    datatype_zone_basic)
 
 function(logos_determine_suite MODE BASE OUT_VAR)
     if (BASE IN_LIST LOGOS_SMOKE_TESTS)
@@ -76,11 +77,14 @@ function(logos_pass_extra_args BASE OUT_VAR)
         format_basic format_types variadic_format
         hello stdlib_demo option_chain)
     set(LOCAL_PUBLIB_USERS pub_cross_package)
+    set(LOCAL_HERMES_USERS datatype_zone_basic)
 
     if (BASE IN_LIST LOCAL_STDLIB_USERS)
         set(_extra -I ${STDLIB})
     elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
         set(_extra -I ${PUB_LIB})
+    elseif (BASE IN_LIST LOCAL_HERMES_USERS)
+        set(_extra -I ${STDLIB})
     else()
         set(_extra "")
     endif()

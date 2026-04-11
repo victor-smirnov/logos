@@ -439,9 +439,11 @@ std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
 std::string_view SemaChecker::struct_name_of(std::string_view var_name) {
     auto* t = lookup(var_name);
     if (!t) return {};
-    if (t->kind == LogosType::Kind::Struct) return t->struct_name;
+    if (t->kind == LogosType::Kind::Struct ||
+        t->kind == LogosType::Kind::Datatype) return t->struct_name;
     if (is_ref_like(t->kind) && t->pointee &&
-        t->pointee->kind == LogosType::Kind::Struct)
+        (t->pointee->kind == LogosType::Kind::Struct ||
+         t->pointee->kind == LogosType::Kind::Datatype))
         return t->pointee->struct_name;
     return {};
 }
