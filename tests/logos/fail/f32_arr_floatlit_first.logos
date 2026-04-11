@@ -1,0 +1,10 @@
+package f32_arr_floatlit_first;
+// Bug: unify_int(FloatLit, F32) returned FloatLit as element type when the first
+// array literal element is an unsuffixed float (FloatLit) and later ones are f32.
+// Fix: unify_numeric promotes FloatLit to F32.
+// After fix: [1.0, 2.0f32] has element type f32, not assignable to [f64; 2].
+
+fn main() -> i32 {
+    let arr: [f64; 2] = [1.0, 2.0f32];
+    return arr[0] as i32;
+}

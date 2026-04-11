@@ -829,11 +829,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
     }
     if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) &&
         mlir::dyn_cast<mlir::FloatType>(target)) {
-        bool src_unsigned = e.operand->type &&
-            (e.operand->type->kind == LogosType::Kind::U8  ||
-             e.operand->type->kind == LogosType::Kind::U16 ||
-             e.operand->type->kind == LogosType::Kind::U32 ||
-             e.operand->type->kind == LogosType::Kind::U64);
+        // Bool (i1) must be zero-extended before conversion: sitofp(i1(1)) = -1.0 (wrong),
+        // uitofp(i1(1)) = 1.0 (correct).  Treat i1 the same as unsigned integers.
+        bool src_unsigned = (val.getType() == builder_.getI1Type()) ||
+            (e.operand->type &&
+             (e.operand->type->kind == LogosType::Kind::U8  ||
+              e.operand->type->kind == LogosType::Kind::U16 ||
+              e.operand->type->kind == LogosType::Kind::U32 ||
+              e.operand->type->kind == LogosType::Kind::U64));
         if (src_unsigned)
             return builder_.create<mlir::arith::UIToFPOp>(loc_, target, val);
         return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);

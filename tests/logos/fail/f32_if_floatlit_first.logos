@@ -1,0 +1,10 @@
+package f32_if_floatlit_first;
+// Bug: unify_int(FloatLit, F32) returned FloatLit in if-expression type unification.
+// Fix: unify_numeric promotes FloatLit to the concrete type F32.
+// After fix: if-expr type is f32, not assignable to f64 without explicit cast.
+
+fn main() -> i32 {
+    let cond: bool = true;
+    let y: f64 = if cond { 1.0 } else { 2.0f32 };
+    return y as i32;
+}

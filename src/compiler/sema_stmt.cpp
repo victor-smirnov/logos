@@ -136,7 +136,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
                     error(std::format("loop break values have incompatible types: {} vs {}",
                           type_str(break_value_type_), type_str(bval->type)));
                 } else {
-                    break_value_type_ = unify_int(break_value_type_, bval->type);
+                    break_value_type_ = unify_numeric(break_value_type_, bval->type);
                 }
             }
         } else {
@@ -2146,7 +2146,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         "match expression: arm type '{}' is incompatible with '{}'",
                         type_str(val->type), type_str(result_type)));
                 } else {
-                    result_type = unify_int(result_type, val->type);
+                    result_type = unify_numeric(result_type, val->type);
                 }
             }
             // Upgrade IntLit result to i64 if any arm literal overflows i32.

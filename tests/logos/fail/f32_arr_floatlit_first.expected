@@ -1,0 +1,1 @@
+let 'arr': type mismatch — expected [f64; 2], got [f32; 2]

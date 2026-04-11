@@ -1,0 +1,11 @@
+package f32_binop_floatlit_lhs;
+// Bug: lower_binop used `result_type = lt` in the float branch, so FloatLit + F32
+// produced result type FloatLit (silently widened to f64) instead of F32.
+// Fix: unify_numeric promotes FloatLit to the concrete type of the RHS.
+// After fix: (1.0 + x_f32) has type f32, not assignable to f64 without explicit cast.
+
+fn main() -> i32 {
+    let x: f32 = 1.5f32;
+    let y: f64 = 1.0 + x;
+    return y as i32;
+}

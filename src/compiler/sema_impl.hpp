@@ -633,6 +633,13 @@ inline const LogosType* unify_int(const LogosType* a, const LogosType* b) noexce
     return a;
 }
 
+// Like unify_int but also promotes FloatLit to a concrete float type (F32/F64).
+// Use in contexts where both integers and floats need unification.
+inline const LogosType* unify_numeric(const LogosType* a, const LogosType* b) noexcept {
+    if (a->kind == LogosType::Kind::IntLit || a->kind == LogosType::Kind::FloatLit) return b;
+    return a;
+}
+
 inline std::optional<int64_t> get_intlit_value(const lir::LExpr* e) noexcept {
     if (!e) return std::nullopt;
     if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind))

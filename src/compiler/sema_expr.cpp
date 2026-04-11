@@ -410,7 +410,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             // If one side is TypeVar and the other is IntLit, result is the TypeVar
             if (lt->kind == LogosType::Kind::TypeVar) result_type = lt;
             else if (rt->kind == LogosType::Kind::TypeVar) result_type = rt;
-            else result_type = lt;
+            // FloatLit/IntLit on LHS defers to the concrete type on RHS (e.g. 1.0 + x_f32 → f32).
+            else result_type = unify_numeric(lt, rt);
         } else {
             if (!types_compatible(lt, rt) && !types_compatible(rt, lt))
                 error(std::format("operator '{}': type mismatch ({} vs {})",
@@ -2279,7 +2280,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                                                     error(std::format("array literal: element {}: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                           i, ei, ii, *v, type_str(elem_type->tuple_elems[ei]->tuple_elems[ii])));
                             }
-                elem_type = unify_int(elem_type, t);
+                elem_type = unify_numeric(elem_type, t);
             }
         }
     }
@@ -3053,7 +3054,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             error(std::format("if-expression branches have incompatible types: {} vs {}",
                   type_str(then_val->type), type_str(else_val->type)));
         } else {
-            result_type = unify_int(then_val->type, else_val->type);
+            result_type = unify_numeric(then_val->type, else_val->type);
         }
     }
     // If still IntLit, upgrade to i64 if any branch literal overflows i32.

@@ -1,0 +1,11 @@
+package f32_match_floatlit_first;
+// Bug: unify_int(FloatLit, F32) returned FloatLit in match arm type unification
+// when the first arm produces FloatLit and later arms produce F32.
+// Fix: unify_numeric promotes FloatLit to the concrete type F32.
+// After fix: match result type is f32, not assignable to f64 without explicit cast.
+
+fn main() -> i32 {
+    let cond: bool = false;
+    let y: f64 = match cond { true => 1.0, false => 2.0f32 };
+    return y as i32;
+}
