@@ -179,7 +179,8 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
             if (p.type->kind == LogosType::Kind::Struct)
                 sname = concrete_struct_name(p.type);
             else if (is_ptr_kind(p.type->kind) && p.type->pointee &&
-                     p.type->pointee->kind == LogosType::Kind::Struct)
+                     (p.type->pointee->kind == LogosType::Kind::Struct ||
+                      p.type->pointee->kind == LogosType::Kind::Datatype))
                 sname = concrete_struct_name(p.type->pointee);
             if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
 

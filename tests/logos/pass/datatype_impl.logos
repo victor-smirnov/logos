@@ -1,0 +1,23 @@
+package datatype_impl;
+// Phase 5: impl blocks on datatype types — methods with explicit pointer self.
+
+datatype Point {
+    x: i32,
+    y: i32,
+}
+
+impl Point {
+    pub unsafe fn sum(self: *const Point) -> i32 {
+        return self.x + self.y;
+    }
+    pub unsafe fn scale(self: *mut Point, factor: i32) {
+        self.x = self.x * factor;
+        self.y = self.y * factor;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let mut p: Point = Point { x: 10, y: 20 };
+    p.scale(2);
+    return p.sum();  // 20 + 40 = 60
+}

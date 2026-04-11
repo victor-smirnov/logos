@@ -393,6 +393,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
             } else if (classes_.count(base_target) || classes_.count(target)) {
                 std::string cname = classes_.count(target) ? target : base_target;
                 self_type = make_ptr(true, make_class_type(cname));
+            } else if (datatypes_.count(base_target) || datatypes_.count(target)) {
+                std::string dname = datatypes_.count(target) ? target : base_target;
+                self_type = make_datatype_type(dname);
             }
         }
         if (self_type)
@@ -475,6 +478,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             }
                         } else if (classes_.count(target)) {
                             self_type = make_ptr(true, make_class_type(target));
+                        } else if (datatypes_.count(target)) {
+                            self_type = make_datatype_type(target);
                         }
                         if (self_type)
                             current_type_params_["Self"] = self_type;

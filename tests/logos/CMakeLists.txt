@@ -52,7 +52,8 @@ set(LOGOS_INTEGRATION_TESTS
     format_types
     datatype_zone_basic
     datatype_zone_ref
-    datatype_zone_ergonomic)
+    datatype_zone_ergonomic
+    datatype_impl)
 
 function(logos_determine_suite MODE BASE OUT_VAR)
     if (BASE IN_LIST LOGOS_SMOKE_TESTS)
