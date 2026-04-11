@@ -148,4 +148,70 @@ impl AnyVal {
     pub unsafe fn as_bool(self: *const AnyVal) -> bool {
         return (self.lo & 0xFF as u32) != 0 as u32;
     }
+
+    // --- Safe type-check accessors (value mode) ---
+
+    // True if this AnyVal holds an embedded integer (i32, hash=23).
+    pub unsafe fn is_int(self: *const AnyVal) -> bool {
+        if self.is_ptr() { return false; }
+        return self.type_hash() == 23 as u8;
+    }
+
+    // True if this AnyVal holds an embedded f32 (Real, hash=30).
+    pub unsafe fn is_double(self: *const AnyVal) -> bool {
+        if self.is_ptr() { return false; }
+        return self.type_hash() == 30 as u8;
+    }
+
+    // True if this AnyVal holds an embedded bool (Boolean, hash=37).
+    pub unsafe fn is_bool(self: *const AnyVal) -> bool {
+        if self.is_ptr() { return false; }
+        return self.type_hash() == 37 as u8;
+    }
+
+    // --- Safe type-check accessors (pointer mode, need zone base) ---
+    //
+    // TypeTag layout: 2 bytes immediately before the object.
+    //   byte[obj-2] = type_hash
+    //   byte[obj-1] = (descriptor << 3) | code_len
+    // Descriptor 0 = Data (strings), 1 = Array, 2 = Map.
+
+    // True if this AnyVal points to a Varchar/HermesString (descriptor=0, hash=28).
+    pub unsafe fn is_string(self: *const AnyVal, base: *const u8) -> bool {
+        if !self.is_ptr() { return false; }
+        if self.is_null() { return false; }
+        let obj: *const u8 = (base as i64 + self.lo as i64) as *const u8;
+        let tag_hash: u8 = *((obj as i64 - 2 as i64) as *const u8);
+        let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
+        let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
+        return desc == 0 as u8 && tag_hash == 28 as u8;
+    }
+
+    // True if this AnyVal points to an ObjectArray (descriptor=1).
+    pub unsafe fn is_array(self: *const AnyVal, base: *const u8) -> bool {
+        if !self.is_ptr() { return false; }
+        if self.is_null() { return false; }
+        let obj: *const u8 = (base as i64 + self.lo as i64) as *const u8;
+        let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
+        let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
+        return desc == 1 as u8;
+    }
+
+    // True if this AnyVal points to a map object (descriptor=2).
+    pub unsafe fn is_map(self: *const AnyVal, base: *const u8) -> bool {
+        if !self.is_ptr() { return false; }
+        if self.is_null() { return false; }
+        let obj: *const u8 = (base as i64 + self.lo as i64) as *const u8;
+        let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
+        let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
+        return desc == 2 as u8;
+    }
+
+    // --- Safe value extraction ---
+
+    // Return the integer value if is_int(), otherwise 0.
+    pub unsafe fn as_i64(self: *const AnyVal) -> i64 {
+        if !self.is_int() { return 0 as i64; }
+        return self.as_i32() as i64;
+    }
 }
