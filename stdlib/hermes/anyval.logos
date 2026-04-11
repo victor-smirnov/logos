@@ -81,6 +81,13 @@ impl AnyVal {
         return AnyVal { lo: offset, hi: 0 as u32 };
     }
 
+    // Embed f32 as Real (hash=30, tag=0x3D).
+    // Caller must pass the raw IEEE-754 bit pattern of the f32 value as u32.
+    // Use pointer reinterpretation (unsafe) to obtain the bits from an f32 variable.
+    pub fn embed_f32_bits(bits: u32) -> AnyVal {
+        return AnyVal { lo: bits, hi: 0x3D000000 as u32 };
+    }
+
     // Embed i32 (Integer, hash=23, tag=0x2F).
     pub fn embed_i32(v: i32) -> AnyVal {
         return AnyVal { lo: v as u32, hi: 0x2F000000 as u32 };
@@ -147,6 +154,12 @@ impl AnyVal {
 
     pub unsafe fn as_bool(self: *const AnyVal) -> bool {
         return (self.lo & 0xFF as u32) != 0 as u32;
+    }
+
+    // Return the raw IEEE-754 bit pattern of the embedded f32 (Real, hash=30).
+    // Only valid when is_double() returns true.
+    pub unsafe fn as_f32_bits(self: *const AnyVal) -> u32 {
+        return self.lo;
     }
 
     // --- Safe type-check accessors (value mode) ---

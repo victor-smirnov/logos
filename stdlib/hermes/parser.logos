@@ -5,8 +5,9 @@
 // Recursive-descent parser for the Hermes text format.
 //
 // Supported grammar subset:
-//   value   := null | true | false | number | string | array | map
+//   value   := null | true | false | number | float | string | array | map
 //   number  := [-] (0x hex | decimal) suffix?
+//   float   := [-] decimal '.' decimal (('e'|'E') ['+'|'-'] decimal)?
 //   suffix  := u | _u8 | _u16 | _u32 | _s8 | _s16 | _s32 | ll | _s64 | _u64 | ull
 //   string  := '"' (char | escape)* '"'
 //   escape  := \" | \\ | \/ | \n | \r | \t | \b | \f
@@ -15,7 +16,7 @@
 //   entry   := (ident | string) ':' value
 //   skipper := (space | tab | newline | '//' to-eol)*
 //
-// Not supported: floats, raw strings ('...'), Unicode escapes (\uXXXX),
+// Not supported: raw strings ('...'), Unicode escapes (\uXXXX),
 //   typed values (@Type=val), parameters (?name), typed containers (<T>[...]),
 //   type declarations, type directory (#{...}).
 //
@@ -41,6 +42,31 @@ use hermes.document;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
+
+// ---------------------------------------------------------------------------
+// Float helpers
+// ---------------------------------------------------------------------------
+
+// Reinterpret the bit pattern of an f32 value as u32.
+// This is the standard "type-punning via pointer" trick.
+unsafe fn f32_to_bits(v: f32) -> u32 {
+    let mut tmp: f32 = v;
+    let p: *const f32 = &tmp as *const f32;
+    let q: *const u32 = p as *const u32;
+    return *q;
+}
+
+// Return 10^n as f32 for small non-negative n (n <= 38).
+// Uses a simple multiplication loop.
+unsafe fn pow10_f32(n: i64) -> f32 {
+    let mut result: f32 = 1.0;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        result = result * 10.0;
+        i = i + 1 as i64;
+    }
+    return result;
+}
 
 // ---------------------------------------------------------------------------
 // HermesParser — recursive-descent parser state
@@ -209,6 +235,8 @@ impl HermesParser {
 
     // ── Number ────────────────────────────────────────────────────────────────
     // Supports: optional '-', optional '0x'/'0X' prefix, suffix.
+    // Also handles floating-point: digits '.' digits (exponent)?
+    //   e.g. 3.14, 1.5e10, 2.0E-3, -0.5
 
     pub unsafe fn parse_number(&mut self) -> AnyVal {
         let mut neg: bool = false;
@@ -253,7 +281,88 @@ impl HermesParser {
             return AnyVal::null_ptr();
         }
 
+        // Detect float: '.' followed by a digit (not hex, not a suffix like ull)
+        if hex == false && self.peek() == 46 as u8 && self.is_digit(self.peek_at(1)) {
+            return self.parse_float_tail(uval, neg);
+        }
+
         return self.apply_int_suffix(uval, neg);
+    }
+
+    // ── Float tail ────────────────────────────────────────────────────────────
+    // Called after the integer part has been consumed.
+    // Parses '.' fractional-digits (exponent)? and returns AnyVal::embed_f32_bits.
+    // uval: integer part magnitude; neg: whether '-' was seen.
+
+    pub unsafe fn parse_float_tail(&mut self, uval: u64, neg: bool) -> AnyVal {
+        // Consume '.'
+        self.pos = self.pos + 1 as i64;
+
+        // Read fractional digits, accumulate as integer + count
+        let mut frac: u64 = 0 as u64;
+        let mut frac_digits: i64 = 0 as i64;
+        while !self.at_end() && self.is_digit(self.peek()) {
+            frac = frac * 10 as u64 + (self.peek() - 48 as u8) as u64;
+            frac_digits = frac_digits + 1 as i64;
+            self.pos = self.pos + 1 as i64;
+        }
+
+        // Optional exponent: e or E, optional sign, digits
+        let mut exp_neg: bool = false;
+        let mut exp_val: i64 = 0 as i64;
+        let mut has_exp: bool = false;
+        if !self.at_end()
+        && (self.peek() == 101 as u8 || self.peek() == 69 as u8) {  // 'e' or 'E'
+            has_exp = true;
+            self.pos = self.pos + 1 as i64;
+            if !self.at_end() && self.peek() == 45 as u8 {   // '-'
+                exp_neg = true;
+                self.pos = self.pos + 1 as i64;
+            } else if !self.at_end() && self.peek() == 43 as u8 {  // '+'
+                self.pos = self.pos + 1 as i64;
+            }
+            // Must have at least one exponent digit
+            if self.at_end() || !self.is_digit(self.peek()) {
+                self.ok = false;
+                return AnyVal::null_ptr();
+            }
+            while !self.at_end() && self.is_digit(self.peek()) {
+                exp_val = exp_val * 10 as i64 + (self.peek() - 48 as u8) as i64;
+                self.pos = self.pos + 1 as i64;
+            }
+        }
+
+        // Build f32 value from parts.
+        // value = (uval + frac / 10^frac_digits) * 10^exp_val (with sign).
+        let int_f: f32 = uval as f32;
+
+        // Compute fractional part: frac / pow10(frac_digits)
+        let frac_f: f32 = if frac_digits == 0 as i64 {
+            0.0
+        } else {
+            frac as f32 / pow10_f32(frac_digits)
+        };
+
+        let mut result: f32 = int_f + frac_f;
+
+        // Apply exponent
+        if has_exp == true {
+            let scale: f32 = pow10_f32(exp_val);
+            if exp_neg == true {
+                result = result / scale;
+            } else {
+                result = result * scale;
+            }
+        }
+
+        // Apply sign
+        if neg == true {
+            result = 0.0 - result;
+        }
+
+        // Reinterpret f32 bits as u32
+        let bits: u32 = f32_to_bits(result);
+        return AnyVal::embed_f32_bits(bits);
     }
 
     // Match and consume a suffix, return AnyVal with appropriate type.
