@@ -427,7 +427,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
             (e.lhs->type->kind == LogosType::Kind::U8  ||
              e.lhs->type->kind == LogosType::Kind::U16 ||
              e.lhs->type->kind == LogosType::Kind::U32 ||
-             e.lhs->type->kind == LogosType::Kind::U64));
+             e.lhs->type->kind == LogosType::Kind::U56 ||
+             e.lhs->type->kind == LogosType::Kind::U64 ||
+             e.lhs->type->kind == LogosType::Kind::U128));
         if (is_unsigned)
             return builder_.create<mlir::arith::ShRUIOp>(loc_, lhs, rhs);
         return builder_.create<mlir::arith::ShRSIOp>(loc_, lhs, rhs);
@@ -895,7 +897,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
             (e.operand->type->kind == LogosType::Kind::U8  ||
              e.operand->type->kind == LogosType::Kind::U16 ||
              e.operand->type->kind == LogosType::Kind::U32 ||
-             e.operand->type->kind == LogosType::Kind::U64);
+             e.operand->type->kind == LogosType::Kind::U56 ||
+             e.operand->type->kind == LogosType::Kind::U64 ||
+             e.operand->type->kind == LogosType::Kind::U128);
         if (src_unsigned && val.getType() != builder_.getI64Type())
             v64 = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), val);
         else
@@ -1396,6 +1400,12 @@ int MLIRGenImpl::format_type_tag(const LogosType* t) noexcept {
         case LogosType::Kind::U32:    return 5;
         case LogosType::Kind::U64:    return 6;
         case LogosType::Kind::I8:     return 7;
+        case LogosType::Kind::I16:    return 0;  // dispatches as i32
+        case LogosType::Kind::U16:    return 5;  // dispatches as u32
+        case LogosType::Kind::I56:    return 1;  // dispatches as i64
+        case LogosType::Kind::U56:    return 6;  // dispatches as u64
+        case LogosType::Kind::I128:   return 1;  // dispatches as i64
+        case LogosType::Kind::U128:   return 6;  // dispatches as u64
         case LogosType::Kind::IntLit: return 0;
         default:                      return 0;
     }
@@ -1426,14 +1436,28 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFormatCall& e, const LogosType*) {
         auto tag_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, tag, 32);
         builder_.create<mlir::LLVM::StoreOp>(loc_, tag_val, tgep);
 
-        // Evaluate arg and widen to i64
+        // Evaluate arg and widen to i64.
+        // Unsigned types narrower than 64 bits must be zero-extended, not sign-extended.
         auto arg_val = gen_expr(*e.args[i]);
         if (!arg_val) return nullptr;
         mlir::Value as_i64;
-        if (arg_val.getType() == ptr_type())
+        if (arg_val.getType() == ptr_type()) {
             as_i64 = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_type, arg_val);
-        else
-            as_i64 = coerce_int(arg_val, i64_type);
+        } else {
+            auto* arg_lt = static_cast<size_t>(i) < e.arg_types.size() ? e.arg_types[i] : nullptr;
+            bool arg_unsigned = arg_lt &&
+                (arg_lt->kind == LogosType::Kind::U8   ||
+                 arg_lt->kind == LogosType::Kind::U16  ||
+                 arg_lt->kind == LogosType::Kind::U32  ||
+                 arg_lt->kind == LogosType::Kind::U56  ||
+                 arg_lt->kind == LogosType::Kind::U64  ||
+                 arg_lt->kind == LogosType::Kind::U128);
+            auto ai = mlir::dyn_cast<mlir::IntegerType>(arg_val.getType());
+            if (arg_unsigned && ai && ai.getWidth() < 64)
+                as_i64 = builder_.create<mlir::arith::ExtUIOp>(loc_, i64_type, arg_val);
+            else
+                as_i64 = coerce_int(arg_val, i64_type);
+        }
 
         // Store data at data[i]
         llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(i)};

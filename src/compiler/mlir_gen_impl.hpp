@@ -184,7 +184,9 @@ private:
 
     // Coerce any numeric value: int→int, float→float, int→float.
     // Does NOT handle float→int (that requires an explicit cast).
-    mlir::Value coerce_numeric(mlir::Value v, mlir::Type to) {
+    // src_lt: Logos source type — required for correct signed/unsigned int→float conversion.
+    mlir::Value coerce_numeric(mlir::Value v, mlir::Type to,
+                               const LogosType* src_lt = nullptr) {
         if (!v || !to || v.getType() == to) return v;
         // int → int
         if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::IntegerType>(to))
@@ -192,9 +194,19 @@ private:
         // float → float (truncate or extend)
         if (mlir::isa<mlir::FloatType>(v.getType()) && mlir::isa<mlir::FloatType>(to))
             return coerce_float(v, to);
-        // int → float (untyped literal coercion)
-        if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::FloatType>(to))
+        // int → float: use unsigned op for unsigned Logos types
+        if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::FloatType>(to)) {
+            bool src_unsigned = src_lt &&
+                (src_lt->kind == LogosType::Kind::U8   ||
+                 src_lt->kind == LogosType::Kind::U16  ||
+                 src_lt->kind == LogosType::Kind::U32  ||
+                 src_lt->kind == LogosType::Kind::U56  ||
+                 src_lt->kind == LogosType::Kind::U64  ||
+                 src_lt->kind == LogosType::Kind::U128);
+            if (src_unsigned)
+                return builder_.create<mlir::arith::UIToFPOp>(loc_, to, v);
             return builder_.create<mlir::arith::SIToFPOp>(loc_, to, v);
+        }
         return v;
     }
 

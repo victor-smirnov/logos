@@ -1,0 +1,19 @@
+package for_loop_i56_u56_i128_u128;
+
+fn main() -> i32 {
+    // for-loop variable must be typed as u56, not i32 (Bug #5)
+    let mut sum56: u56 = 0u56;
+    for i in 0u56..10u56 {
+        sum56 = sum56 + i;
+    }
+    // sum56 = 0+1+...+9 = 45
+
+    // for-loop variable must be typed as i128
+    let mut sum128: i128 = 0i128;
+    for j in 0i128..10i128 {
+        sum128 = sum128 + j;
+    }
+    // sum128 = 45
+
+    return (sum56 as i32 + sum128 as i32) - 90 + 42;
+}

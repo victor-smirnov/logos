@@ -1,0 +1,16 @@
+package generic_i56_u56_i128_u128;
+
+fn identity<T>(x: T) -> T { return x; }
+
+fn add<T>(a: T, b: T) -> T { return a + b; }
+
+fn main() -> i32 {
+    // Bug #3: is_known_type_name must recognize i56/u56/i128/u128
+    // so they are not treated as TypeVars in generic contexts
+    let a: i56 = identity(21i56);
+    let b: u56 = identity(21u56);
+    let c: i128 = add(10i128, 11i128);
+    let d: u128 = add(10u128, 11u128);
+
+    return a as i32 + b as i32 - c as i32 - d as i32 + 42;
+}

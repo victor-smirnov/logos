@@ -1,0 +1,24 @@
+package cast_unsigned_to_float;
+
+// Large unsigned values with high bit set must cast to positive floats.
+// Regression: wrong codegen would use SIToFP (signed), yielding negative f64.
+
+fn main() -> i32 {
+    // 2^55 = 36028797018963968 — bit 55 set in u56; as signed i56 this is negative
+    let u: u56 = 36028797018963968u56;
+    let f: f64 = u as f64;
+    // f must be 3.6028797018963968e16, NOT a negative number
+    if f < 0.0 { return 1; }
+
+    // 2^63 = 9223372036854775808 — high bit set in u128
+    let big: u128 = 9223372036854775808u128;
+    let g: f64 = big as f64;
+    if g < 0.0 { return 2; }
+
+    // u32 with all bits set: 4294967295 — fits in f64 exactly
+    let u32_max: u32 = 4294967295u32;
+    let h: f64 = u32_max as f64;
+    if h < 4294967294.0 { return 3; }
+
+    return 42;
+}

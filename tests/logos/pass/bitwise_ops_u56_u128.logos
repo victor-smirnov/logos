@@ -1,0 +1,13 @@
+package bitwise_ops_u56_u128;
+
+fn main() -> i32 {
+    // Bug #1: >> on u56/u128 must use logical (unsigned) shift
+    let x: u56 = 36028797018963968u56;  // 1 << 55
+    let shifted: u56 = x >> 55u56;      // must be 1, not -1
+    // if signed shift is used, result = 0xFFFFFFFFFFFFFF (sign-extended -1)
+
+    let y: u128 = 1u128;
+    let shifted128: u128 = (y << 100u128) >> 100u128;  // must be 1
+
+    return shifted as i32 + shifted128 as i32 + 40;
+}

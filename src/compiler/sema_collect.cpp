@@ -759,7 +759,8 @@ const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
 
 bool SemaChecker::is_known_type_name(std::string_view name) const {
     static constexpr const char* prims[] = {
-        "i32","i64","f64","f32","bool","u8","i8","u32","u64","void",nullptr
+        "i32","i64","f64","f32","bool","u8","i8","u32","u64","void",
+        "i16","u16","i56","u56","i128","u128",nullptr
     };
     for (int i = 0; prims[i]; ++i) if (prims[i] == name) return true;
     return structs_.count(std::string(name)) ||

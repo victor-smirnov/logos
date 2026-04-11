@@ -1056,12 +1056,25 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
         if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
     }
 
-    // Mirror mlir_gen's loop_type logic: use i64 if any bound is i64 or u64,
-    // or if any IntLit bound value overflows i32 (mlir_gen emits i64 for those).
+    // Mirror mlir_gen's loop_type logic: pick the widest bound type (> 32 bits).
+    auto int_kind_width = [](LogosType::Kind k) -> int {
+        switch (k) {
+            case LogosType::Kind::I56:  case LogosType::Kind::U56:  return 56;
+            case LogosType::Kind::I64:  case LogosType::Kind::U64:  return 64;
+            case LogosType::Kind::I128: case LogosType::Kind::U128: return 128;
+            default: return 32;
+        }
+    };
     const LogosType* var_t = i32_t();
-    if (lo->type->kind == LogosType::Kind::I64 || lo->type->kind == LogosType::Kind::U64 ||
-        hi->type->kind == LogosType::Kind::I64 || hi->type->kind == LogosType::Kind::U64)
-        var_t = prim(LogosType::Kind::I64);
+    {
+        int lo_w = int_kind_width(lo->type->kind);
+        int hi_w = int_kind_width(hi->type->kind);
+        int max_w = std::max(lo_w, hi_w);
+        if (max_w > 32) {
+            // prefer hi on tie (mirrors mlir_gen: hi checked first)
+            var_t = (hi_w >= lo_w) ? hi->type : lo->type;
+        }
+    }
     if (var_t == i32_t()) {
         auto intlit_overflows = [](const lir::LExpr* e) {
             if (auto v = get_intlit_value(e))
