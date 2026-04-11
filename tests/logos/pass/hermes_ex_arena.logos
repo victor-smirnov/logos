@@ -1,0 +1,228 @@
+package hermes_ex_arena;
+// Logos port of C++ exerciser_arena.cpp — RelPtr, AnyVal, TypeTag, vlen.
+//
+// Beyond round-trip tests, each section verifies the RAW wire layout in memory
+// so that silent changes to encoding constants or bit-field positions fail here.
+
+use hermes.zone;
+use hermes.relptr;
+use hermes.anyval;
+use hermes.typetag;
+use hermes.string;
+
+datatype Slot { pub val: i32 }
+
+unsafe fn main() -> i32 {
+    let mut zone: HermesZone = HermesZone::create(8192);
+    let base: *const u8 = zone.base as *const u8;
+
+    // ── RelPtr ───────────────────────────────────────────────────────────────
+    // Allocate two Slots; store a RelPtr in a separate raw word.
+    let raw_a: *mut u8 = zone.alloc_raw(sizeof::<Slot>() as i64);
+    let raw_b: *mut u8 = zone.alloc_raw(sizeof::<Slot>() as i64);
+
+    let na: *mut Slot = raw_a as *mut Slot;
+    let nb: *mut Slot = raw_b as *mut Slot;
+    na.val = 10;
+    nb.val = 99;
+
+    let off_b: u32 = (raw_b as i64 - zone.base as i64) as u32;
+    let rp_b: RelPtr<Slot> = RelPtr { offset: off_b };
+
+    // The stored offset must equal the arithmetic difference.
+    if rp_b.offset != off_b                                     { return 1; }
+    if rp_b.is_null()                                           { return 2; }
+
+    // resolve() must produce the same address as raw_b.
+    let res: *const Slot = rp_b.resolve(base);
+    if res as i64 != raw_b as i64                               { return 3; }
+    if res.val != 99                                            { return 4; }
+
+    // Null RelPtr: offset == 0.
+    let null_rp: RelPtr<Slot> = relptr_null::<Slot>();
+    if null_rp.offset != 0 as u32                               { return 5; }
+    if !null_rp.is_null()                                       { return 6; }
+
+    // ── AnyVal wire format — pointer mode ────────────────────────────────────
+    // Spec: lo = u32 offset, hi = 0.  Discriminant = bit 0 of byte[7] = 0.
+    let p: AnyVal = AnyVal::from_offset(1024 as u32);
+    if p.lo != 1024 as u32                                      { return 7; }
+    if p.hi != 0 as u32                                         { return 8; }
+    if !p.is_ptr()                                              { return 9; }
+    if p.is_null()                                              { return 10; }
+    if p.as_offset() != 1024 as u32                             { return 11; }
+
+    // Null: both words zero.
+    let null_av: AnyVal = AnyVal::null_ptr();
+    if null_av.lo != 0 as u32                                   { return 12; }
+    if null_av.hi != 0 as u32                                   { return 13; }
+    if !null_av.is_null()                                       { return 14; }
+
+    // ── AnyVal wire format — value mode ─────────────────────────────────────
+    // Spec: byte[7] = (type_hash << 1) | 1  →  hi = byte[7] << 24.
+    // So hi = ((hash << 1) | 1) << 24.
+
+    // i32(-1234567, hash=23): tag = (23<<1)|1 = 47 = 0x2F, hi = 0x2F000000.
+    let vi32: AnyVal = AnyVal::embed_i32(-1234567);
+    if vi32.hi != 0x2F000000 as u32                             { return 15; }
+    if vi32.lo != (-1234567 as i32) as u32                      { return 16; }
+    if vi32.type_hash() != 23 as u8                             { return 17; }
+    if vi32.as_i32() != -1234567                                { return 18; }
+
+    // u32(0xDEADBEEF, hash=25): tag = (25<<1)|1 = 51 = 0x33, hi = 0x33000000.
+    let vu32: AnyVal = AnyVal::embed_u32(3735928559 as u32);
+    if vu32.hi != 0x33000000 as u32                             { return 19; }
+    if vu32.lo != 3735928559 as u32                             { return 20; }
+    if vu32.type_hash() != 25 as u8                             { return 21; }
+    if vu32.as_u32() != 3735928559 as u32                       { return 22; }
+
+    // i8(-42, hash=20): tag = (20<<1)|1 = 41 = 0x29, hi = 0x29000000.
+    // Stored in lo as twos-complement u8 widened to u32: (-42 as u8) = 214 = 0xD6.
+    let vi8: AnyVal = AnyVal::embed_i8(-42 as i8);
+    if vi8.hi != 0x29000000 as u32                              { return 23; }
+    if vi8.lo != 214 as u32                                     { return 24; }  // 0xD6
+    if vi8.type_hash() != 20 as u8                              { return 25; }
+    if vi8.as_i8() != -42 as i8                                 { return 26; }
+
+    // u8(200, hash=21): tag = (21<<1)|1 = 43 = 0x2B, hi = 0x2B000000.
+    let vu8: AnyVal = AnyVal::embed_u8(200 as u8);
+    if vu8.hi != 0x2B000000 as u32                              { return 27; }
+    if vu8.lo != 200 as u32                                     { return 28; }
+    if vu8.type_hash() != 21 as u8                              { return 29; }
+
+    // i16(-12345, hash=22): tag = (22<<1)|1 = 45 = 0x2D, hi = 0x2D000000.
+    // -12345 as u16 = 53191 = 0xCFC7.
+    let vi16: AnyVal = AnyVal::embed_i16(-12345 as i16);
+    if vi16.hi != 0x2D000000 as u32                             { return 30; }
+    if vi16.lo != 53191 as u32                                  { return 31; }  // 0xCFC7
+    if vi16.type_hash() != 22 as u8                             { return 32; }
+    if vi16.as_i16() != -12345 as i16                           { return 33; }
+
+    // bool true (hash=37): tag = (37<<1)|1 = 75 = 0x4B, hi = 0x4B000000, lo = 1.
+    let vbt: AnyVal = AnyVal::embed_bool(true);
+    if vbt.hi != 0x4B000000 as u32                              { return 34; }
+    if vbt.lo != 1 as u32                                       { return 35; }
+    if vbt.type_hash() != 37 as u8                              { return 36; }
+    if !vbt.as_bool()                                           { return 37; }
+
+    // bool false: same tag, lo = 0.
+    let vbf: AnyVal = AnyVal::embed_bool(false);
+    if vbf.hi != 0x4B000000 as u32                              { return 38; }
+    if vbf.lo != 0 as u32                                       { return 39; }
+    if vbf.as_bool()                                            { return 40; }
+
+    // Value mode must NOT appear as pointer.
+    if vi32.is_ptr()                                            { return 41; }
+    if vu32.is_ptr()                                            { return 42; }
+
+    // ── TypeTag raw memory layout ────────────────────────────────────────────
+    // Spec: byte[obj-2] = type_hash, byte[obj-1] = code_len | (descriptor << 3).
+    // alloc_tagged always uses code_len = 1, so byte[obj-1] = 1 | (descriptor << 3).
+    //
+    // Expected byte[obj-1] values:
+    //   Data(0):  1 | (0 << 3) = 1
+    //   Array(1): 1 | (1 << 3) = 9
+    //   Map(2):   1 | (2 << 3) = 17
+
+    // hash=20, descriptor=Data(0) → byte[-2]=20, byte[-1]=1
+    let obj20: *mut u8 = zone.alloc_tagged(4, 20 as u8, hermes_desc_data());
+    let b20_hash: u8 = *((obj20 as i64 - 2 as i64) as *const u8);
+    let b20_desc: u8 = *((obj20 as i64 - 1 as i64) as *const u8);
+    if b20_hash != 20 as u8                                     { return 43; }
+    if b20_desc != 1 as u8                                      { return 44; }  // 1|(0<<3)
+
+    // hash=28 (Varchar), descriptor=Data(0) → byte[-1]=1
+    let obj28: *mut u8 = zone.alloc_tagged(8, hermes_tag_string(), hermes_desc_data());
+    let b28_hash: u8 = *((obj28 as i64 - 2 as i64) as *const u8);
+    let b28_desc: u8 = *((obj28 as i64 - 1 as i64) as *const u8);
+    if b28_hash != 28 as u8                                     { return 45; }
+    if b28_desc != 1 as u8                                      { return 46; }
+
+    // hash=98 (TinyObjectMap), descriptor=Map(2) → byte[-1]=17
+    let obj98: *mut u8 = zone.alloc_tagged(16, hermes_tag_tiny_map(), hermes_desc_map());
+    let b98_hash: u8 = *((obj98 as i64 - 2 as i64) as *const u8);
+    let b98_desc: u8 = *((obj98 as i64 - 1 as i64) as *const u8);
+    if b98_hash != 98 as u8                                     { return 47; }
+    if b98_desc != 17 as u8                                     { return 48; }  // 1|(2<<3)
+
+    // hash=100 (ObjectArray), descriptor=Array(1) → byte[-1]=9
+    let obj100: *mut u8 = zone.alloc_tagged(24, hermes_tag_array(), hermes_desc_array());
+    let b100_hash: u8 = *((obj100 as i64 - 2 as i64) as *const u8);
+    let b100_desc: u8 = *((obj100 as i64 - 1 as i64) as *const u8);
+    if b100_hash != 100 as u8                                   { return 49; }
+    if b100_desc != 9 as u8                                     { return 50; }  // 1|(1<<3)
+
+    // hash=101 (ObjectMap), descriptor=Map(2) → byte[-1]=17
+    let obj101: *mut u8 = zone.alloc_tagged(16, hermes_tag_map(), hermes_desc_map());
+    let b101_hash: u8 = *((obj101 as i64 - 2 as i64) as *const u8);
+    let b101_desc: u8 = *((obj101 as i64 - 1 as i64) as *const u8);
+    if b101_hash != 101 as u8                                   { return 51; }
+    if b101_desc != 17 as u8                                    { return 52; }
+
+    // tag_read_* helpers must agree with the raw bytes.
+    if tag_read_hash(obj98 as *const u8) != b98_hash            { return 53; }
+    if tag_read_descriptor(obj98 as *const u8) != hermes_desc_map() { return 54; }
+
+    // Objects must not overlap.
+    if obj28 as i64 <= obj20 as i64                             { return 55; }
+    if obj98 as i64 <= obj28 as i64                             { return 56; }
+    if obj100 as i64 <= obj98 as i64                            { return 57; }
+    if obj101 as i64 <= obj100 as i64                           { return 58; }
+
+    // ── vlen: encoding AND raw byte layout ───────────────────────────────────
+    let vbuf: *mut u8 = zone.alloc_raw(16);
+
+    // 0 → [0x00]
+    if vlen_write(vbuf, 0 as u64) != 1 as u32                   { return 59; }
+    if *vbuf != 0 as u8                                         { return 60; }
+    if vlen_read(vbuf as *const u8) != 0 as u64                 { return 61; }
+
+    // 248 → [0xF8]  (last 1-byte value)
+    if vlen_write(vbuf, 248 as u64) != 1 as u32                 { return 62; }
+    if *vbuf != 248 as u8                                       { return 63; }
+
+    // 249 → [0xF9, 0xF9]  (marker=248+1=249, 1 data byte = 249)
+    if vlen_write(vbuf, 249 as u64) != 2 as u32                 { return 64; }
+    if *vbuf != 249 as u8                                       { return 65; }  // marker
+    if *((vbuf as i64 + 1) as *const u8) != 249 as u8          { return 66; }  // data byte
+
+    // 256 → [0xFA, 0x00, 0x01]  (marker=250, 2 LE bytes for 0x0100)
+    if vlen_write(vbuf, 256 as u64) != 3 as u32                 { return 67; }
+    if *vbuf != 250 as u8                                       { return 68; }  // marker=248+2
+    if *((vbuf as i64 + 1) as *const u8) != 0 as u8            { return 69; }  // low byte
+    if *((vbuf as i64 + 2) as *const u8) != 1 as u8            { return 70; }  // high byte
+    if vlen_read(vbuf as *const u8) != 256 as u64               { return 71; }
+
+    // 65535 → [0xFA, 0xFF, 0xFF]  (2 LE bytes for 0xFFFF)
+    if vlen_write(vbuf, 65535 as u64) != 3 as u32               { return 72; }
+    if *vbuf != 250 as u8                                       { return 73; }
+    if *((vbuf as i64 + 1) as *const u8) != 255 as u8          { return 74; }
+    if *((vbuf as i64 + 2) as *const u8) != 255 as u8          { return 75; }
+    if vlen_read(vbuf as *const u8) != 65535 as u64             { return 76; }
+
+    // 65536 → [0xFB, 0x00, 0x00, 0x01]  (marker=251, 3 LE bytes for 0x010000)
+    if vlen_write(vbuf, 65536 as u64) != 4 as u32               { return 77; }
+    if *vbuf != 251 as u8                                       { return 78; }  // marker=248+3
+    if *((vbuf as i64 + 1) as *const u8) != 0 as u8            { return 79; }
+    if *((vbuf as i64 + 2) as *const u8) != 0 as u8            { return 80; }
+    if *((vbuf as i64 + 3) as *const u8) != 1 as u8            { return 81; }
+    if vlen_read(vbuf as *const u8) != 65536 as u64             { return 82; }
+
+    // 4294967295 (0xFFFFFFFF) → 5 bytes, all data bytes 0xFF.
+    if vlen_write(vbuf, 4294967295 as u64) != 5 as u32          { return 83; }
+    if *vbuf != 252 as u8                                       { return 84; }  // marker=248+4
+    if vlen_read(vbuf as *const u8) != 4294967295 as u64        { return 85; }
+
+    // 72057594037927935 (0x00FFFFFFFFFFFFFF) → 8 bytes (marker=255, 7 data bytes 0xFF).
+    if vlen_write(vbuf, 72057594037927935 as u64) != 8 as u32   { return 86; }
+    if *vbuf != 255 as u8                                       { return 87; }  // marker=248+7
+    let mut fi: i64 = 1;
+    while fi <= 7 {
+        if *((vbuf as i64 + fi) as *const u8) != 255 as u8     { return 88; }
+        fi = fi + 1;
+    }
+    if vlen_read(vbuf as *const u8) != 72057594037927935 as u64 { return 89; }
+
+    zone.destroy();
+    return 42;
+}

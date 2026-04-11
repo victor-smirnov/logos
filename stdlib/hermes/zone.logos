@@ -13,6 +13,8 @@ package hermes.zone;
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
+trait Drop { fn drop(self: Self); }
+
 pub struct HermesZone {
     pub base: *mut u8,
     offset: i64,
@@ -62,7 +64,51 @@ impl HermesZone {
     // Free the backing buffer. All DataRefs into this zone become invalid.
     pub fn destroy(&mut self) {
         unsafe { free(self.base); }
+        self.base = 0 as *mut u8;
     }
+}
+
+impl Drop for HermesZone {
+    fn drop(self: HermesZone) {
+        if self.base != 0 as *mut u8 {
+            unsafe { free(self.base); }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Free-function variants for callers that hold *mut HermesZone (not HermesZone).
+// Identical logic to alloc_raw / alloc_tagged; avoids &mut self dispatch issues
+// when the zone is stored as a pointer field rather than a local value.
+// ---------------------------------------------------------------------------
+
+pub unsafe fn zone_alloc_raw(zone: *mut HermesZone, size: i64) -> *mut u8 {
+    let aligned: i64 = (zone.offset + 7) / 8 * 8;
+    if aligned + size > zone.capacity {
+        return 0 as *mut u8;
+    }
+    let base_int: i64 = zone.base as i64;
+    let result: *mut u8 = (base_int + aligned) as *mut u8;
+    zone.offset = aligned + size;
+    return result;
+}
+
+pub unsafe fn zone_alloc_tagged(zone: *mut HermesZone, size: i64,
+                                type_hash: u8, descriptor: u8) -> *mut u8 {
+    let pre: i64     = zone.offset + 2;
+    let aligned: i64 = (pre + 7) / 8 * 8;
+    if aligned + size > zone.capacity {
+        return 0 as *mut u8;
+    }
+    let base_int: i64  = zone.base as i64;
+    let tag0: *mut u8  = (base_int + aligned - 2) as *mut u8;
+    let tag1: *mut u8  = (base_int + aligned - 1) as *mut u8;
+    *tag0 = type_hash;
+    let d: u32         = descriptor as u32;
+    let tag1_val: u8   = (1 as u32 | (d << 3 as u32)) as u8;
+    *tag1 = tag1_val;
+    zone.offset = aligned + size;
+    return (base_int + aligned) as *mut u8;
 }
 
 // ---------------------------------------------------------------------------

@@ -43,6 +43,8 @@ use hermes.document;
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
+trait Drop { fn drop(self: Self); }
+
 // ---------------------------------------------------------------------------
 // StringBuf — growable output buffer
 // ---------------------------------------------------------------------------
@@ -78,6 +80,9 @@ impl StringBuf {
     pub unsafe fn grow(&mut self) {
         let new_cap: i64 = self.cap * 2 as i64;
         let new_data: *mut u8 = malloc(new_cap);
+        // OOM: leave the buffer unchanged so callers can detect failure via
+        // a subsequent append_byte returning without advancing len.
+        if new_data == 0 as *mut u8 { return; }
         let mut i: i64 = 0 as i64;
         while i < self.len {
             let src: *const u8 = (self.data as i64 + i) as *const u8;
@@ -90,6 +95,20 @@ impl StringBuf {
         self.cap  = new_cap;
     }
 
+}
+
+impl Drop for StringBuf {
+    fn drop(self: StringBuf) {
+        if self.data != 0 as *mut u8 {
+            unsafe { free(self.data); }
+        }
+        if self.scratch != 0 as *mut u8 {
+            unsafe { free(self.scratch); }
+        }
+    }
+}
+
+impl StringBuf {
     pub unsafe fn append_byte(&mut self, b: u8) {
         if self.len >= self.cap {
             self.grow();

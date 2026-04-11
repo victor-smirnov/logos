@@ -275,6 +275,7 @@
     CARET       = "^"
 
     // Literals & identifiers
+    RAW_STRING  = /r"[^"]*"/
     STRING      = /"([^"\\]|\\.)*"/
     FLOAT       = /[-]?[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9][0-9_]*)?(f32|f64)?/
     INTEGER     = /[-]?(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*)(i8|i16|i32|i56|i64|i128|u8|u16|u32|u56|u64|u128|usize|isize)?/
@@ -888,6 +889,7 @@
                   / match_stmt       // match expr { ... }  — as expression
                   / call_expr        // IDENT(args) / Class::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
+                  / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
                   / STRING   => { CODE: LIT_STR,  VALUE: $1 }
                   / KW_TRUE  => { CODE: LIT_BOOL, VALUE: true }
                   / KW_FALSE => { CODE: LIT_BOOL, VALUE: false }

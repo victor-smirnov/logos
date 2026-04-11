@@ -186,12 +186,10 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                 if (!f.struct_name.empty()) {
                     // Check if field is inline-embedded struct (LLVMStructType) or pointer.
                     if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
-                        // Inline embed: load the struct value and spill to alloca.
-                        auto aggr = builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, gep);
-                        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                            loc_, ptr_type(), f.type, i64_one());
-                        builder_.create<mlir::LLVM::StoreOp>(loc_, aggr, alloca);
-                        return {alloca, f.struct_name};
+                        // Inline embed: GEP already points to the field
+                        // in-place — return it directly so &mut self methods
+                        // mutate the original, not a copy.
+                        return {gep, f.struct_name};
                     }
                     // Pointer field: load the pointer.
                     auto obj_ptr = builder_.create<mlir::LLVM::LoadOp>(

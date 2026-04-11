@@ -1,0 +1,310 @@
+package hermes_parse;
+// Test for hermes.parser — recursive-descent Hermes text format parser.
+//
+// Each section parses a raw byte sequence, then inspects AnyVal fields and
+// zone data directly so that regressions in parsing logic are caught.
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.string;
+use hermes.typetag;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
+use hermes.parser;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// Write a single byte to buf[idx].
+unsafe fn wb(buf: *mut u8, idx: i64, val: u8) {
+    *((buf as i64 + idx) as *mut u8) = val;
+}
+
+unsafe fn main() -> i32 {
+    // Shared input buffer — reused for each test.
+    let ibuf: *mut u8 = malloc(256);
+
+    // ── 1. null ────────────────────────────────────────────────────────────────
+    // Input: "null"  (n=110 u=117 l=108 l=108)
+    wb(ibuf, 0, 110 as u8); wb(ibuf, 1, 117 as u8);
+    wb(ibuf, 2, 108 as u8); wb(ibuf, 3, 108 as u8);
+    let mut z1: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 4, &mut z1) { free(ibuf); return 1; }
+    let r1: AnyVal = document_get_root(document_header(z1.base) as *const DocumentHeader);
+    if !r1.is_null()                                 { free(ibuf); return 2; }
+    z1.destroy();
+
+    // ── 2. true ────────────────────────────────────────────────────────────────
+    // Input: "true"  (t=116 r=114 u=117 e=101)
+    wb(ibuf, 0, 116 as u8); wb(ibuf, 1, 114 as u8);
+    wb(ibuf, 2, 117 as u8); wb(ibuf, 3, 101 as u8);
+    let mut z2: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 4, &mut z2) { free(ibuf); return 3; }
+    let r2: AnyVal = document_get_root(document_header(z2.base) as *const DocumentHeader);
+    if r2.hi != 0x4B000000 as u32                    { free(ibuf); return 4; }
+    if r2.lo != 1 as u32                             { free(ibuf); return 5; }
+    z2.destroy();
+
+    // ── 3. false ───────────────────────────────────────────────────────────────
+    // Input: "false"  (f=102 a=97 l=108 s=115 e=101)
+    wb(ibuf, 0, 102 as u8); wb(ibuf, 1,  97 as u8);
+    wb(ibuf, 2, 108 as u8); wb(ibuf, 3, 115 as u8);
+    wb(ibuf, 4, 101 as u8);
+    let mut z3: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 5, &mut z3) { free(ibuf); return 6; }
+    let r3: AnyVal = document_get_root(document_header(z3.base) as *const DocumentHeader);
+    if r3.hi != 0x4B000000 as u32                    { free(ibuf); return 7; }
+    if r3.lo != 0 as u32                             { free(ibuf); return 8; }
+    z3.destroy();
+
+    // ── 4. decimal integer 42 → embed_i32(42) ─────────────────────────────────
+    // Input: "42"  (52 50)
+    wb(ibuf, 0, 52 as u8); wb(ibuf, 1, 50 as u8);
+    let mut z4: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 2, &mut z4) { free(ibuf); return 9; }
+    let r4: AnyVal = document_get_root(document_header(z4.base) as *const DocumentHeader);
+    if r4.lo != 42 as u32                            { free(ibuf); return 10; }
+    if r4.hi != 0x2F000000 as u32                    { free(ibuf); return 11; }
+    z4.destroy();
+
+    // ── 5. negative integer -7 → embed_i32(-7) ────────────────────────────────
+    // Input: "-7"  (45 55)
+    wb(ibuf, 0, 45 as u8); wb(ibuf, 1, 55 as u8);
+    let mut z5: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 2, &mut z5) { free(ibuf); return 12; }
+    let r5: AnyVal = document_get_root(document_header(z5.base) as *const DocumentHeader);
+    if r5.hi != 0x2F000000 as u32                    { free(ibuf); return 13; }
+    if r5.as_i32() != -7                             { free(ibuf); return 14; }
+    z5.destroy();
+
+    // ── 6. unsigned suffix "99u" → embed_u32(99) ──────────────────────────────
+    // Input: "99u"  (57 57 117)
+    wb(ibuf, 0, 57 as u8); wb(ibuf, 1, 57 as u8); wb(ibuf, 2, 117 as u8);
+    let mut z6: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 3, &mut z6) { free(ibuf); return 15; }
+    let r6: AnyVal = document_get_root(document_header(z6.base) as *const DocumentHeader);
+    if r6.hi != 0x33000000 as u32                    { free(ibuf); return 16; }
+    if r6.lo != 99 as u32                            { free(ibuf); return 17; }
+    z6.destroy();
+
+    // ── 7. _s8 suffix "5_s8" → embed_i8(5) ───────────────────────────────────
+    // Input: "5_s8"  (53 95 115 56)
+    wb(ibuf, 0, 53 as u8); wb(ibuf, 1, 95 as u8);
+    wb(ibuf, 2, 115 as u8); wb(ibuf, 3, 56 as u8);
+    let mut z7: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 4, &mut z7) { free(ibuf); return 18; }
+    let r7: AnyVal = document_get_root(document_header(z7.base) as *const DocumentHeader);
+    if r7.hi != 0x29000000 as u32                    { free(ibuf); return 19; }
+    if r7.lo != 5 as u32                             { free(ibuf); return 20; }
+    z7.destroy();
+
+    // ── 8. hex integer "0xFF" → embed_i32(255) ────────────────────────────────
+    // Input: "0xFF"  (48 120 70 70) = '0','x','F','F'
+    wb(ibuf, 0, 48 as u8); wb(ibuf, 1, 120 as u8);
+    wb(ibuf, 2, 70 as u8); wb(ibuf, 3, 70 as u8);
+    let mut z8: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 4, &mut z8) { free(ibuf); return 21; }
+    let r8: AnyVal = document_get_root(document_header(z8.base) as *const DocumentHeader);
+    if r8.hi != 0x2F000000 as u32                    { free(ibuf); return 22; }
+    if r8.lo != 255 as u32                           { free(ibuf); return 23; }
+    z8.destroy();
+
+    // ── 9. string "\"hi\"" → HermesString len=2, bytes 'h','i' ────────────────
+    // Input: [34 104 105 34]  = '"' 'h' 'i' '"'
+    wb(ibuf, 0, 34 as u8); wb(ibuf, 1, 104 as u8);
+    wb(ibuf, 2, 105 as u8); wb(ibuf, 3, 34 as u8);
+    let mut z9: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 4, &mut z9) { free(ibuf); return 24; }
+    let r9: AnyVal = document_get_root(document_header(z9.base) as *const DocumentHeader);
+    if r9.is_null()                                  { free(ibuf); return 25; }
+    if !r9.is_ptr()                                  { free(ibuf); return 26; }
+    let hs9: *const HermesString =
+        (z9.base as i64 + r9.as_offset() as i64) as *const HermesString;
+    let slen9:  u64 = hs9.len();
+    let sb9_0: u8  = *hs9.bytes();
+    let sb9_1: u8  = *((hs9.bytes() as i64 + 1) as *const u8);
+    z9.destroy();
+    if slen9  != 2 as u64                            { free(ibuf); return 27; }
+    if sb9_0  != 104 as u8                           { free(ibuf); return 28; } // 'h'
+    if sb9_1  != 105 as u8                           { free(ibuf); return 29; } // 'i'
+
+    // ── 10. array [1, 2, 3] → ObjectArray size=3, elements embed_i32 ──────────
+    // Input: "[1,2,3]"  (91 49 44 50 44 51 93)
+    wb(ibuf, 0, 91 as u8);  // '['
+    wb(ibuf, 1, 49 as u8);  // '1'
+    wb(ibuf, 2, 44 as u8);  // ','
+    wb(ibuf, 3, 50 as u8);  // '2'
+    wb(ibuf, 4, 44 as u8);  // ','
+    wb(ibuf, 5, 51 as u8);  // '3'
+    wb(ibuf, 6, 93 as u8);  // ']'
+    let mut z10: HermesZone = HermesZone::create(8192);
+    if !hermes_parse(ibuf as *const u8, 7, &mut z10) { free(ibuf); return 30; }
+    let r10: AnyVal = document_get_root(document_header(z10.base) as *const DocumentHeader);
+    if !r10.is_ptr()                                 { free(ibuf); return 31; }
+    let arr10: *const ObjectArray =
+        (z10.base as i64 + r10.as_offset() as i64) as *const ObjectArray;
+    let alen10: u64  = arr10.len();
+    let ae0:   AnyVal = arr10.get(z10.base as *const u8, 0 as u64);
+    let ae1:   AnyVal = arr10.get(z10.base as *const u8, 1 as u64);
+    let ae2:   AnyVal = arr10.get(z10.base as *const u8, 2 as u64);
+    z10.destroy();
+    if alen10 != 3 as u64                            { free(ibuf); return 32; }
+    if ae0.lo != 1 as u32 || ae0.hi != 0x2F000000 as u32 { free(ibuf); return 33; }
+    if ae1.lo != 2 as u32 || ae1.hi != 0x2F000000 as u32 { free(ibuf); return 34; }
+    if ae2.lo != 3 as u32 || ae2.hi != 0x2F000000 as u32 { free(ibuf); return 35; }
+
+    // ── 11. map {x: 42} → ObjectMap count=1, get("x") == embed_i32(42) ────────
+    // Input: "{x:42}"  (123 120 58 52 50 125)
+    wb(ibuf, 0, 123 as u8); // '{'
+    wb(ibuf, 1, 120 as u8); // 'x'
+    wb(ibuf, 2,  58 as u8); // ':'
+    wb(ibuf, 3,  52 as u8); // '4'
+    wb(ibuf, 4,  50 as u8); // '2'
+    wb(ibuf, 5, 125 as u8); // '}'
+    let mut z11: HermesZone = HermesZone::create(8192);
+    if !hermes_parse(ibuf as *const u8, 6, &mut z11) { free(ibuf); return 36; }
+    let r11: AnyVal = document_get_root(document_header(z11.base) as *const DocumentHeader);
+    if !r11.is_ptr()                                 { free(ibuf); return 37; }
+    let omap11: *const ObjectMap =
+        (z11.base as i64 + r11.as_offset() as i64) as *const ObjectMap;
+    let cnt11: u32 = omap11.size_count();
+    let mut xk: u8 = 120 as u8;  // 'x'
+    let got11: AnyVal = omap11.get(z11.base as *const u8,
+                                   (&mut xk) as *const u8, 1 as u64);
+    z11.destroy();
+    if cnt11 != 1 as u32                             { free(ibuf); return 38; }
+    if got11.is_null()                               { free(ibuf); return 39; }
+    if got11.lo != 42 as u32                         { free(ibuf); return 40; }
+    if got11.hi != 0x2F000000 as u32                 { free(ibuf); return 41; }
+
+    // ── 12. comment skip: "// c\n42" → embed_i32(42) ─────────────────────────
+    // Input: [47 47 32 99 10 52 50]  = '/' '/' ' ' 'c' LF '4' '2'
+    wb(ibuf, 0, 47 as u8);  // '/'
+    wb(ibuf, 1, 47 as u8);  // '/'
+    wb(ibuf, 2, 32 as u8);  // ' '
+    wb(ibuf, 3, 99 as u8);  // 'c'
+    wb(ibuf, 4, 10 as u8);  // LF
+    wb(ibuf, 5, 52 as u8);  // '4'
+    wb(ibuf, 6, 50 as u8);  // '2'
+    let mut z12: HermesZone = HermesZone::create(4096);
+    if !hermes_parse(ibuf as *const u8, 7, &mut z12) { free(ibuf); return 42; }
+    let r12: AnyVal = document_get_root(document_header(z12.base) as *const DocumentHeader);
+    if r12.lo != 42 as u32 || r12.hi != 0x2F000000 as u32 { free(ibuf); return 43; }
+    z12.destroy();
+
+    // ── 13. trailing comma in array "[1,]" → size=1 ───────────────────────────
+    // Input: [91 49 44 93]  = '[' '1' ',' ']'
+    wb(ibuf, 0, 91 as u8);  // '['
+    wb(ibuf, 1, 49 as u8);  // '1'
+    wb(ibuf, 2, 44 as u8);  // ','
+    wb(ibuf, 3, 93 as u8);  // ']'
+    let mut z13: HermesZone = HermesZone::create(8192);
+    if !hermes_parse(ibuf as *const u8, 4, &mut z13) { free(ibuf); return 44; }
+    let r13: AnyVal = document_get_root(document_header(z13.base) as *const DocumentHeader);
+    if !r13.is_ptr()                                 { free(ibuf); return 45; }
+    let arr13: *const ObjectArray =
+        (z13.base as i64 + r13.as_offset() as i64) as *const ObjectArray;
+    let alen13: u64 = arr13.len();
+    z13.destroy();
+    if alen13 != 1 as u64                            { free(ibuf); return 46; }
+
+    // ── 14. empty input must fail ─────────────────────────────────────────────
+    let mut z14: HermesZone = HermesZone::create(4096);
+    if hermes_parse(ibuf as *const u8, 0, &mut z14)  { free(ibuf); return 47; }
+    z14.destroy();
+
+    // ── 15. trailing comma in map "{a:1,}" → count=1 ─────────────────────────
+    // Input: "{a:1,}"  (123 97 58 49 44 125)
+    wb(ibuf, 0, 123 as u8); // '{'
+    wb(ibuf, 1,  97 as u8); // 'a'
+    wb(ibuf, 2,  58 as u8); // ':'
+    wb(ibuf, 3,  49 as u8); // '1'
+    wb(ibuf, 4,  44 as u8); // ','
+    wb(ibuf, 5, 125 as u8); // '}'
+    let mut z15: HermesZone = HermesZone::create(8192);
+    if !hermes_parse(ibuf as *const u8, 6, &mut z15) { free(ibuf); return 48; }
+    let r15: AnyVal = document_get_root(document_header(z15.base) as *const DocumentHeader);
+    if !r15.is_ptr()                                 { free(ibuf); return 49; }
+    let omap15: *const ObjectMap =
+        (z15.base as i64 + r15.as_offset() as i64) as *const ObjectMap;
+    let cnt15: u32 = omap15.size_count();
+    z15.destroy();
+    if cnt15 != 1 as u32                             { free(ibuf); return 50; }
+
+    // ── 16. quoted string key in map: {"ab":99u} → count=1, lookup "ab" ───────
+    // Input: [123 34 97 98 34 58 57 57 117 125]
+    //         '{'  '"' 'a' 'b' '"' ':' '9' '9' 'u'  '}'
+    wb(ibuf, 0, 123 as u8); wb(ibuf, 1, 34 as u8);
+    wb(ibuf, 2,  97 as u8); wb(ibuf, 3, 98 as u8);
+    wb(ibuf, 4,  34 as u8); wb(ibuf, 5, 58 as u8);
+    wb(ibuf, 6,  57 as u8); wb(ibuf, 7, 57 as u8);
+    wb(ibuf, 8, 117 as u8); wb(ibuf, 9, 125 as u8);
+    let mut z16: HermesZone = HermesZone::create(8192);
+    if !hermes_parse(ibuf as *const u8, 10, &mut z16) { free(ibuf); return 51; }
+    let r16: AnyVal = document_get_root(document_header(z16.base) as *const DocumentHeader);
+    if !r16.is_ptr()                                  { free(ibuf); return 52; }
+    let omap16: *const ObjectMap =
+        (z16.base as i64 + r16.as_offset() as i64) as *const ObjectMap;
+    let cnt16: u32 = omap16.size_count();
+    // Look up key "ab" = [97 98]
+    let mut ab0: u8 = 97 as u8;  // 'a'
+    let mut ab1: u8 = 98 as u8;  // 'b'
+    // Copy to a 2-byte stack buffer
+    let kbuf16: *mut u8 = malloc(2);
+    *kbuf16 = 97 as u8;
+    *((kbuf16 as i64 + 1) as *mut u8) = 98 as u8;
+    let got16: AnyVal = omap16.get(z16.base as *const u8,
+                                   kbuf16 as *const u8, 2 as u64);
+    z16.destroy();
+    free(kbuf16);
+    if cnt16 != 1 as u32                              { free(ibuf); return 53; }
+    if got16.is_null()                                { free(ibuf); return 54; }
+    if got16.lo != 99 as u32 || got16.hi != 0x33000000 as u32
+                                                      { free(ibuf); return 55; }
+
+    // ── 17. nested: {n: [true, false]} ────────────────────────────────────────
+    // Input: "{n:[true,false]}"
+    //   123 110 58 91 116 114 117 101 44 102 97 108 115 101 93 125
+    //   '{'  'n' ':'  '['  't' 'r' 'u' 'e' ','  'f' 'a' 'l' 's' 'e' ']' '}'
+    wb(ibuf,  0, 123 as u8); wb(ibuf,  1, 110 as u8);
+    wb(ibuf,  2,  58 as u8); wb(ibuf,  3,  91 as u8);
+    wb(ibuf,  4, 116 as u8); wb(ibuf,  5, 114 as u8);
+    wb(ibuf,  6, 117 as u8); wb(ibuf,  7, 101 as u8);
+    wb(ibuf,  8,  44 as u8); wb(ibuf,  9, 102 as u8);
+    wb(ibuf, 10,  97 as u8); wb(ibuf, 11, 108 as u8);
+    wb(ibuf, 12, 115 as u8); wb(ibuf, 13, 101 as u8);
+    wb(ibuf, 14,  93 as u8); wb(ibuf, 15, 125 as u8);
+    let mut z17: HermesZone = HermesZone::create(16384);
+    if !hermes_parse(ibuf as *const u8, 16, &mut z17) { free(ibuf); return 56; }
+    let r17: AnyVal = document_get_root(document_header(z17.base) as *const DocumentHeader);
+    if !r17.is_ptr()                                  { free(ibuf); return 57; }
+    let omap17: *const ObjectMap =
+        (z17.base as i64 + r17.as_offset() as i64) as *const ObjectMap;
+    let cnt17: u32 = omap17.size_count();
+    // Look up key "n" = [110]
+    let mut nk: u8 = 110 as u8;
+    let arr17_val: AnyVal = omap17.get(z17.base as *const u8,
+                                       (&mut nk) as *const u8, 1 as u64);
+    // arr17_val should be a pointer to an ObjectArray
+    let is_ptr17: bool = arr17_val.is_ptr();
+    let arr17_off: u32 = arr17_val.as_offset();
+    let arr17: *const ObjectArray =
+        (z17.base as i64 + arr17_off as i64) as *const ObjectArray;
+    let alen17: u64   = arr17.len();
+    let be0: AnyVal = arr17.get(z17.base as *const u8, 0 as u64);
+    let be1: AnyVal = arr17.get(z17.base as *const u8, 1 as u64);
+    z17.destroy();
+    if cnt17 != 1 as u32                              { free(ibuf); return 58; }
+    if !is_ptr17                                      { free(ibuf); return 59; }
+    if alen17 != 2 as u64                             { free(ibuf); return 60; }
+    // true: hi=0x4B000000, lo=1
+    if be0.hi != 0x4B000000 as u32 || be0.lo != 1 as u32
+                                                      { free(ibuf); return 61; }
+    // false: hi=0x4B000000, lo=0
+    if be1.hi != 0x4B000000 as u32 || be1.lo != 0 as u32
+                                                      { free(ibuf); return 62; }
+
+    free(ibuf);
+    return 42;
+}

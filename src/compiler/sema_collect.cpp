@@ -1005,7 +1005,7 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
                                 auto bn = map_of(bounds.get(b));
                                 if (code_of(bn) == la::TRAIT_BOUND)
                                     tp.bounds.push_back(
-                                        {std::string(str_of(bn.get(la::NAME.code)))});
+                                        {std::string(str_of(bn.get(la::NAME.code))), {}});
                             }
                             pattern_tvars.push_back(std::move(tp));
                             fn.spec_patterns.push_back(make_typevar(name));

@@ -37,6 +37,9 @@ pub unsafe fn hermes_fnv1a(ptr: *const u8, len: u64) -> u64 {
 // ---------------------------------------------------------------------------
 
 // Number of bytes needed to encode `value` in vlen format.
+// Values >= 2^56 (requiring 8+ data bytes) cannot be encoded: the marker
+// byte (248+N) would overflow u8.  Such values are capped to the 7-byte
+// maximum so that the returned size is always representable.
 pub unsafe fn vlen_encode_size(value: u64) -> u32 {
     if value < 249 as u64 {
         return 1 as u32;
@@ -47,6 +50,7 @@ pub unsafe fn vlen_encode_size(value: u64) -> u32 {
         v = v >> 8;
         n = n + 1 as u32;
     }
+    if n > 7 as u32 { n = 7 as u32; }
     return 1 as u32 + n;
 }
 
@@ -62,6 +66,9 @@ pub unsafe fn vlen_write(dst: *mut u8, value: u64) -> u32 {
         v = v >> 8;
         n = n + 1 as u32;
     }
+    // Values >= 2^56 need n >= 8 data bytes; the marker byte (248+N) would
+    // overflow u8.  Saturate to 7 (max the format can represent).
+    if n > 7 as u32 { n = 7 as u32; }
     let marker: u8 = (248 as u32 + n) as u8;
     *dst = marker;
     let mut i: u32 = 0 as u32;

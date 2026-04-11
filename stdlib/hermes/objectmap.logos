@@ -89,7 +89,8 @@ impl ObjectMap {
         let ent_base: i64 = base as i64 + self.entries_off as i64;
         let mut slot: u64 = h & (cap - 1 as u64);
         let mut done: bool = false;
-        while done == false {
+        let mut probed: u64 = 0 as u64;
+        while done == false && probed < cap {
             let ep: *mut MapEntry =
                 (ent_base + slot as i64 * 16 as i64) as *mut MapEntry;
             if ep.key_off == 0 as u64 {
@@ -112,9 +113,11 @@ impl ObjectMap {
                     if slot >= cap {
                         slot = 0 as u64;
                     }
+                    probed = probed + 1 as u64;
                 }
             }
         }
+        // If done == false here, the table is full and the key is new: silently drop.
     }
 
     // Look up a key. Returns AnyVal::null_ptr() if not found.

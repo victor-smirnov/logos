@@ -65,24 +65,39 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitBool& e, const LogosType*) {
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const ELitStr& e, const LogosType*) {
     std::string raw = e.value;
-    // Strip surrounding quotes.
-    if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
-        raw = raw.substr(1, raw.size() - 2);
-    // Process escape sequences.
+    bool is_raw = raw.size() >= 3 && raw[0] == 'r' &&
+                  (raw[1] == '"' || raw[1] == '#');
+    if (is_raw) {
+        // Count '#' delimiters: r"...", r#"..."#, r##"..."##, etc.
+        size_t hashes = 0;
+        size_t p = 1;
+        while (p < raw.size() && raw[p] == '#') { ++hashes; ++p; }
+        // Strip r + hashes + opening " ... closing " + hashes
+        raw = raw.substr(p + 1, raw.size() - p - 1 - hashes - 1);
+    } else {
+        // Regular string "..." — strip surrounding quotes.
+        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+            raw = raw.substr(1, raw.size() - 2);
+    }
+    // Process escape sequences (skipped for raw strings).
     std::string text;
-    for (size_t i = 0; i < raw.size(); ++i) {
-        if (raw[i] == '\\' && i + 1 < raw.size()) {
-            switch (raw[i + 1]) {
-                case 'n':  text.push_back('\n'); ++i; break;
-                case 't':  text.push_back('\t'); ++i; break;
-                case 'r':  text.push_back('\r'); ++i; break;
-                case '\\': text.push_back('\\'); ++i; break;
-                case '0':  text.push_back('\0'); ++i; break;
-                case '"':  text.push_back('"');  ++i; break;
-                default:   text.push_back(raw[i]); break;
+    if (is_raw) {
+        text = raw;
+    } else {
+        for (size_t i = 0; i < raw.size(); ++i) {
+            if (raw[i] == '\\' && i + 1 < raw.size()) {
+                switch (raw[i + 1]) {
+                    case 'n':  text.push_back('\n'); ++i; break;
+                    case 't':  text.push_back('\t'); ++i; break;
+                    case 'r':  text.push_back('\r'); ++i; break;
+                    case '\\': text.push_back('\\'); ++i; break;
+                    case '0':  text.push_back('\0'); ++i; break;
+                    case '"':  text.push_back('"');  ++i; break;
+                    default:   text.push_back(raw[i]); break;
+                }
+            } else {
+                text.push_back(raw[i]);
             }
-        } else {
-            text.push_back(raw[i]);
         }
     }
     text.push_back('\0');
@@ -518,6 +533,30 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
     // Materialize a temporary rvalue to an anonymous stack slot and return its address.
     // Aggregates (tuple, struct, array) are already pointer-represented by the codegen
     // (their gen_expr returns an alloca directly) — no extra wrapping needed.
+    //
+    // Special case: &mut <field_read> on an inline struct field must return a
+    // GEP into the original struct, NOT a copy.  gen_expr(EFieldRead) always
+    // loads, which would give us a by-value copy — useless for mutation.
+    if (auto* fr = std::get_if<EFieldRead>(&e.inner->kind)) {
+        auto [ptr, sname] = gen_recv_struct(*fr->receiver);
+        if (ptr && !sname.empty()) {
+            auto sit = struct_types_.find(sname);
+            if (sit != struct_types_.end()) {
+                auto& info = sit->second;
+                auto gep = gep_field(ptr, info, fr->field);
+                if (gep) {
+                    for (auto& f : info.fields) {
+                        if (f.name == fr->field) {
+                            if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type))
+                                return gep;  // inline struct: GEP is the address
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        // Fall through to the general path for non-struct fields.
+    }
     auto val = gen_expr(*e.inner);
     if (!val) return nullptr;
     auto* t = e.inner->type;

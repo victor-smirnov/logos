@@ -734,7 +734,6 @@ private:
 
         // Emit skip patterns first.
         w.line("// Skip whitespace and comments.");
-        w.line("restart:");
         w.line("while (pos_ < source_.size()) {");
         w.indent();
         w.line("char c = source_[pos_];");
@@ -1026,6 +1025,35 @@ private:
             // FLOAT: handled by the INTEGER longest-match handler above — skip.
             else if (pat.find('.') != std::string::npos && pat.find("[0-9]") != std::string::npos) {
                 w.fmt("// {} = /{}/ — handled by INTEGER longest-match above", t.name, pat);
+            }
+            // RAW_STRING: r"...", r#"..."#, r##"..."##, etc.
+            // Count '#' after 'r' to determine delimiter depth.
+            else if (pat.size() >= 4 && pat[0] == 'r' && pat[1] == '"') {
+                w.fmt("// {} = /{}/ (also r#\"...\"#, r##\"...\"##, ...)", t.name, pat);
+                w.line(R"(if (c == 'r' && pos_+1 < source_.size() && (source_[pos_+1] == '"' || source_[pos_+1] == '#')) {)");
+                w.indent();
+                w.line("size_t hashes = 0;");
+                w.line("size_t p = pos_ + 1;");
+                w.line("while (p < source_.size() && source_[p] == '#') { ++hashes; ++p; }");
+                w.line(R"(if (p < source_.size() && source_[p] == '"') {)");
+                w.indent();
+                w.line("pos_ = p + 1; // skip r###...\"");
+                w.line("bool found = false;");
+                w.line("while (!found && pos_ < source_.size()) {");
+                w.indent();
+                w.line(R"(if (source_[pos_] == '"') {)");
+                w.line("    size_t h = 0;");
+                w.line("    while (h < hashes && pos_+1+h < source_.size() && source_[pos_+1+h] == '#') ++h;");
+                w.line("    if (h == hashes) { pos_ += 1 + hashes; found = true; }");
+                w.line("    else ++pos_;");
+                w.line("} else ++pos_;");
+                w.dedent();
+                w.line("}");
+                w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
+                w.dedent();
+                w.line("}");
+                w.dedent();
+                w.line("}");
             }
             // STRING: \"([^\"\\\\]|\\\\.)*\"
             else if (pat.find('"') != std::string::npos) {

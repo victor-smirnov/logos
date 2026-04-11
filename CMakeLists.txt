@@ -37,6 +37,9 @@ add_subdirectory(tools/peg_gen)
 add_subdirectory(tools/hrpc_gen)
 add_subdirectory(tools/logos-audit)
 
+# Examples
+add_subdirectory(examples)
+
 # Tests
 enable_testing()
 add_subdirectory(tests/logos)

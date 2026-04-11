@@ -108,7 +108,10 @@ impl TinyObjectMap {
 
     // Set or update value by key.
     // key must be 0..51. If the map is full and key is new, does nothing.
+    // key >= 52 would corrupt the capacity/size bit-fields in the header; guard
+    // it explicitly so callers passing an out-of-range key get a safe no-op.
     pub unsafe fn set(self: *mut TinyObjectMap, base: *mut u8, key: u8, val: AnyVal) {
+        if key >= 52 as u8 { return; }
         let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
         let key_bit: u64 = 1 as u64 << (key as u64);
         let mask: u64    = key_bit - 1 as u64;
