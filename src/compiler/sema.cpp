@@ -209,8 +209,12 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::I8:     return "i8";
     case LogosType::Kind::I16:    return "i16";
     case LogosType::Kind::U16:    return "u16";
+    case LogosType::Kind::I56:    return "i56";
+    case LogosType::Kind::U56:    return "u56";
     case LogosType::Kind::U32:    return "u32";
     case LogosType::Kind::U64:    return "u64";
+    case LogosType::Kind::I128:   return "i128";
+    case LogosType::Kind::U128:   return "u128";
     case LogosType::Kind::IntLit:   return "{integer}";
     case LogosType::Kind::FloatLit: return "{float}";
     case LogosType::Kind::Ptr:
@@ -319,6 +323,10 @@ void SemaChecker::init_primitives() {
     ap(LogosType::Kind::U16);
     ap(LogosType::Kind::U32);
     ap(LogosType::Kind::U64);
+    ap(LogosType::Kind::I56);
+    ap(LogosType::Kind::U56);
+    ap(LogosType::Kind::I128);
+    ap(LogosType::Kind::U128);
     ap(LogosType::Kind::IntLit);
     ap(LogosType::Kind::FloatLit);
     ap(LogosType::Kind::Error);
@@ -335,7 +343,11 @@ const LogosType* SemaChecker::lookup_type_by_name(std::string_view name) {
     if (name == "i16")  return prim(LogosType::Kind::I16);
     if (name == "u16")  return prim(LogosType::Kind::U16);
     if (name == "u32")  return prim(LogosType::Kind::U32);
-    if (name == "u64")   return prim(LogosType::Kind::U64);
+    if (name == "u64")  return prim(LogosType::Kind::U64);
+    if (name == "i56")  return prim(LogosType::Kind::I56);
+    if (name == "u56")  return prim(LogosType::Kind::U56);
+    if (name == "i128") return prim(LogosType::Kind::I128);
+    if (name == "u128") return prim(LogosType::Kind::U128);
     if (name == "usize") return prim(LogosType::Kind::U64);  // usize = u64
     if (name == "isize") return prim(LogosType::Kind::I64);  // isize = i64
     if (name == "void") return prim(LogosType::Kind::Void);

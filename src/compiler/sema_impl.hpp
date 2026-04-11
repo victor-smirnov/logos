@@ -625,6 +625,8 @@ inline bool is_integer_kind(LogosType::Kind k) noexcept {
            k == LogosType::Kind::U8    || k == LogosType::Kind::I8  ||
            k == LogosType::Kind::I16   || k == LogosType::Kind::U16 ||
            k == LogosType::Kind::U32   || k == LogosType::Kind::U64 ||
+           k == LogosType::Kind::I56   || k == LogosType::Kind::U56 ||
+           k == LogosType::Kind::I128  || k == LogosType::Kind::U128 ||
            k == LogosType::Kind::IntLit || k == LogosType::Kind::Enum;
 }
 
@@ -661,10 +663,14 @@ inline bool intlit_fits(int64_t v, LogosType::Kind k) noexcept {
     switch (k) {
     case LogosType::Kind::I8:  return v >= -128 && v <= 127;
     case LogosType::Kind::U8:  return v >= 0 && v <= 255;
-    case LogosType::Kind::I16: return v >= -32768 && v <= 32767;
-    case LogosType::Kind::U16: return v >= 0 && v <= 65535;
-    case LogosType::Kind::I32: return v >= (int64_t)INT32_MIN && v <= (int64_t)INT32_MAX;
-    case LogosType::Kind::U32: return v >= 0 && (uint64_t)v <= (uint64_t)UINT32_MAX;
+    case LogosType::Kind::I16:  return v >= -32768 && v <= 32767;
+    case LogosType::Kind::U16:  return v >= 0 && v <= 65535;
+    case LogosType::Kind::I32:  return v >= (int64_t)INT32_MIN && v <= (int64_t)INT32_MAX;
+    case LogosType::Kind::U32:  return v >= 0 && (uint64_t)v <= (uint64_t)UINT32_MAX;
+    case LogosType::Kind::I56:  return v >= -(INT64_C(1) << 55) && v <= ((INT64_C(1) << 55) - 1);
+    case LogosType::Kind::U56:  return v >= 0 && (uint64_t)v <= ((UINT64_C(1) << 56) - 1);
+    case LogosType::Kind::I128: return true; // all int64_t values fit in i128
+    case LogosType::Kind::U128: return v >= 0; // non-negative int64_t values fit
     default: return true; // i64, u64: all int64_t values fit
     }
 }
@@ -734,7 +740,8 @@ inline bool valid_int_literal_format(std::string_view sv) noexcept {
     if (start >= sv.size()) return false;
 
     static constexpr std::string_view suffixes[] = {
-        "usize", "isize", "i64", "i32", "i16", "i8", "u64", "u32", "u16", "u8"
+        "usize", "isize", "i128", "i64", "i56", "i32", "i16", "i8",
+        "u128", "u64", "u56", "u32", "u16", "u8"
     };
     size_t suffix_len = 0;
     for (auto sfx : suffixes) {
@@ -822,11 +829,15 @@ inline LogosType::Kind int_suffix_kind(std::string_view sv) noexcept {
     if (suf == "i8")    return LogosType::Kind::I8;
     if (suf == "i16")   return LogosType::Kind::I16;
     if (suf == "i32")   return LogosType::Kind::I32;
+    if (suf == "i56")   return LogosType::Kind::I56;
     if (suf == "i64")   return LogosType::Kind::I64;
+    if (suf == "i128")  return LogosType::Kind::I128;
     if (suf == "u8")    return LogosType::Kind::U8;
     if (suf == "u16")   return LogosType::Kind::U16;
     if (suf == "u32")   return LogosType::Kind::U32;
+    if (suf == "u56")   return LogosType::Kind::U56;
     if (suf == "u64")   return LogosType::Kind::U64;
+    if (suf == "u128")  return LogosType::Kind::U128;
     if (suf == "usize") return LogosType::Kind::U64;  // treat usize as u64
     if (suf == "isize") return LogosType::Kind::I64;  // treat isize as i64
     return LogosType::Kind::Error;

@@ -745,6 +745,10 @@ const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
     if (name == "u16")  return prim(LogosType::Kind::U16);
     if (name == "u32")  return prim(LogosType::Kind::U32);
     if (name == "u64")  return prim(LogosType::Kind::U64);
+    if (name == "i56")  return prim(LogosType::Kind::I56);
+    if (name == "u56")  return prim(LogosType::Kind::U56);
+    if (name == "i128") return prim(LogosType::Kind::I128);
+    if (name == "u128") return prim(LogosType::Kind::U128);
     if (name == "void") return prim(LogosType::Kind::Void);
     auto ait = type_aliases_.find(std::string(name));
     if (ait != type_aliases_.end()) return ait->second;

@@ -599,7 +599,9 @@ void MLIRGenImpl::gen_for(const SFor& s) {
         (s.lo->type->kind == LogosType::Kind::U8  ||
          s.lo->type->kind == LogosType::Kind::U16 ||
          s.lo->type->kind == LogosType::Kind::U32 ||
-         s.lo->type->kind == LogosType::Kind::U64);
+         s.lo->type->kind == LogosType::Kind::U56 ||
+         s.lo->type->kind == LogosType::Kind::U64 ||
+         s.lo->type->kind == LogosType::Kind::U128);
     mlir::Value lo_coerced;
     if (lo_unsigned && lo.getType() != loop_type)
         lo_coerced = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, lo);
@@ -628,7 +630,9 @@ void MLIRGenImpl::gen_for(const SFor& s) {
         (s.hi->type->kind == LogosType::Kind::U8  ||
          s.hi->type->kind == LogosType::Kind::U16 ||
          s.hi->type->kind == LogosType::Kind::U32 ||
-         s.hi->type->kind == LogosType::Kind::U64);
+         s.hi->type->kind == LogosType::Kind::U56 ||
+         s.hi->type->kind == LogosType::Kind::U64 ||
+         s.hi->type->kind == LogosType::Kind::U128);
     mlir::Value hi_val;
     if (hi_unsigned && hi.getType() != loop_type)
         hi_val = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, hi);
@@ -1068,7 +1072,9 @@ void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
         (s.index->type->kind == LogosType::Kind::U8  ||
          s.index->type->kind == LogosType::Kind::U16 ||
          s.index->type->kind == LogosType::Kind::U32 ||
-         s.index->type->kind == LogosType::Kind::U64);
+         s.index->type->kind == LogosType::Kind::U56 ||
+         s.index->type->kind == LogosType::Kind::U64 ||
+         s.index->type->kind == LogosType::Kind::U128);
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
         idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
@@ -1121,7 +1127,9 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
         (s.index->type->kind == LogosType::Kind::U8  ||
          s.index->type->kind == LogosType::Kind::U16 ||
          s.index->type->kind == LogosType::Kind::U32 ||
-         s.index->type->kind == LogosType::Kind::U64);
+         s.index->type->kind == LogosType::Kind::U56 ||
+         s.index->type->kind == LogosType::Kind::U64 ||
+         s.index->type->kind == LogosType::Kind::U128);
     auto extend_idx = [&](mlir::Type to) -> mlir::Value {
         if (idx.getType() == to) return idx;
         auto fi = mlir::dyn_cast<mlir::IntegerType>(idx.getType());

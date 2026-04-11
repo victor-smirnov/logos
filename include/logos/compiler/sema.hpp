@@ -26,6 +26,7 @@ struct LogosType {
         Void,                     // no return value
         I32, I64, F64, F32, Bool, U8,  // signed/float/bool primitives
         I8, I16, U16, U32, U64,   // additional integer types
+        I56, U56, I128, U128,     // non-power-of-two and extended widths
         Ptr,                      // *const T / *mut T  (raw/unsafe pointer)
         Ref,                      // &T     — shared reference (borrow-checked)
         MutRef,                   // &mut T — exclusive mutable reference (borrow-checked)

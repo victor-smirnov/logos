@@ -1,0 +1,21 @@
+package int_types_i56_u56_i128_u128;
+
+fn main() -> i32 {
+    let a: i56 = 100i56;
+    let b: i56 = -58i56;
+    let s56: i56 = a + b;        // 42
+
+    let c: u56 = 200u56;
+    let d: u56 = 158u56;
+    let diff56: u56 = c - d;     // 42
+
+    let e: i128 = 1000i128;
+    let f: i128 = 958i128;
+    let s128: i32 = (e - f) as i32;   // 42
+
+    let u: u128 = 500u128;
+    let v: u128 = 458u128;
+    let d128: i32 = (u - v) as i32;   // 42
+
+    return (s56 as i32 + diff56 as i32 + s128 + d128) / 4;
+}
