@@ -209,6 +209,9 @@ inline constexpr Code DEREF_FIELD_COMPOUND_ASSIGN {"DEREF_FIELD_COMPOUND_ASSIGN"
 inline constexpr Code TUPLE_FIELD_COMPOUND_ASSIGN {"TUPLE_FIELD_COMPOUND_ASSIGN", 146}; // var.N op= expr
 inline constexpr Code FIELD_INDEX_COMPOUND_ASSIGN {"FIELD_INDEX_COMPOUND_ASSIGN", 147}; // s.field[i] op= expr
 
+// Hermes datatypes
+inline constexpr Code DATATYPE    {"DATATYPE",    148};  // datatype definition (C POD layout)
+
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
 

@@ -179,6 +179,7 @@
     DEREF_FIELD_COMPOUND_ASSIGN = 145   // (*ptr).field op= expr
     TUPLE_FIELD_COMPOUND_ASSIGN = 146   // var.N op= expr
     FIELD_INDEX_COMPOUND_ASSIGN = 147   // s.field[i] op= expr
+    DATATYPE                    = 148   // Hermes datatype definition (C POD layout)
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -187,6 +188,7 @@
     KW_CONTINUE = "continue"
     KW_ABSTRACT = "abstract"
     KW_PACKAGE  = "package"
+    KW_DATATYPE = "datatype"
     KW_EXTENDS  = "extends"
     KW_STATIC   = "static"
     KW_DELETE   = "delete"
@@ -299,7 +301,7 @@
               / KW_USE IDENT SEMI
              => { CODE: USE, NAME: $2 }
 
-    item <- const_def / type_alias / pub_enum_def / enum_def / class_def / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- const_def / type_alias / pub_enum_def / enum_def / class_def / pub_datatype_def / datatype_def / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // const NAME: type = expr;
     const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
@@ -439,6 +441,13 @@
                         => { CODE: ABSTRACT_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
                          / KW_ABSTRACT KW_FN IDENT LPAREN param_list? RPAREN SEMI
                         => { CODE: ABSTRACT_FN, NAME: $3, PARAMS: $5 }
+
+    // ── Datatype definition (Hermes — C POD layout, no heap types) ──
+    pub_datatype_def <- KW_PUB KW_DATATYPE IDENT type_param_list? LBRACE field_def* RBRACE
+                     => { CODE: DATATYPE, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
+
+    datatype_def <- KW_DATATYPE IDENT type_param_list? LBRACE field_def* RBRACE
+                 => { CODE: DATATYPE, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5 }
 
     // ── Struct definition ────────────────────────────────────────
     pub_struct_def <- KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE

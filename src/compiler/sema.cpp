@@ -48,6 +48,7 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
                a.elem && b.elem &&
                types_equal(*a.elem, *b.elem);
     case LogosType::Kind::Struct:
+    case LogosType::Kind::Datatype:
         if (a.struct_name != b.struct_name) return false;
         if (a.type_args.size() != b.type_args.size()) return false;
         for (size_t i = 0; i < a.type_args.size(); ++i)
@@ -85,7 +86,8 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
 static std::string mangle_type_for_name(const LogosType* t);
 
 std::string concrete_struct_name(const LogosType* t) {
-    if (!t || t->kind != LogosType::Kind::Struct) return {};
+    if (!t || (t->kind != LogosType::Kind::Struct &&
+               t->kind != LogosType::Kind::Datatype)) return {};
     if (t->type_args.empty()) return t->struct_name;
     std::string r = t->struct_name + "$G" + std::to_string(t->type_args.size());
     for (auto* a : t->type_args) { r += "$"; r += mangle_type_for_name(a); }
@@ -112,6 +114,7 @@ static std::string mangle_type_for_name(const LogosType* t) {
     case LogosType::Kind::Array:
         return "arr" + std::to_string(t->arr_size) + "_" + mangle_type_for_name(t->elem);
     case LogosType::Kind::Struct:
+    case LogosType::Kind::Datatype:
         return concrete_struct_name(t);
     case LogosType::Kind::Class:
         return concrete_class_name(t);
@@ -232,6 +235,7 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::Array:
         return std::format("[{}; {}]", type_str(t->elem), t->arr_size);
     case LogosType::Kind::Struct:
+    case LogosType::Kind::Datatype:
         if (t->type_args.empty()) return t->struct_name;
         { std::string r = t->struct_name + "<";
           for (size_t i = 0; i < t->type_args.size(); ++i) {
@@ -357,6 +361,7 @@ const LogosType* SemaChecker::lookup_type_by_name(std::string_view name) {
     auto ait = type_aliases_.find(std::string(name));
     if (ait != type_aliases_.end()) return ait->second;
     if (structs_.count(std::string(name))) return make_struct_type(name);
+    if (datatypes_.count(std::string(name))) return make_datatype_type(name);
     if (classes_.count(std::string(name))) return make_class_type(name);
     if (enums_.count(std::string(name)))   return make_enum_type(name);
     return nullptr;
@@ -453,7 +458,7 @@ std::string_view SemaChecker::class_name_of(std::string_view var_name) {
 
 std::string_view SemaChecker::struct_name_from_type(const LogosType* t) {
     if (!t) return {};
-    if (t->kind == LogosType::Kind::Struct) {
+    if (t->kind == LogosType::Kind::Struct || t->kind == LogosType::Kind::Datatype) {
         // For generic instantiations, the method is registered under the mangled name.
         if (!t->type_args.empty()) {
             // Store in a thread-local to return a stable string_view.
@@ -464,7 +469,8 @@ std::string_view SemaChecker::struct_name_from_type(const LogosType* t) {
         return t->struct_name;
     }
     if (is_ref_like(t->kind) && t->pointee &&
-        t->pointee->kind == LogosType::Kind::Struct) {
+        (t->pointee->kind == LogosType::Kind::Struct ||
+         t->pointee->kind == LogosType::Kind::Datatype)) {
         if (!t->pointee->type_args.empty()) {
             thread_local std::string buf2;
             buf2 = concrete_struct_name(t->pointee);
@@ -713,7 +719,8 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         if (inner == t->pointee) return t;
         return make_ref(t->kind == LogosType::Kind::MutRef, inner, t->lifetime);
     }
-    case LogosType::Kind::Struct: {
+    case LogosType::Kind::Struct:
+    case LogosType::Kind::Datatype: {
         if (t->type_args.empty()) return t;
         std::vector<const LogosType*> new_args;
         bool changed = false;
@@ -723,6 +730,8 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
             new_args.push_back(na);
         }
         if (!changed) return t;
+        if (t->kind == LogosType::Kind::Datatype)
+            return make_generic_datatype(t->struct_name, std::move(new_args));
         return make_generic_struct(t->struct_name, std::move(new_args));
     }
     case LogosType::Kind::Class: {
@@ -1089,9 +1098,10 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             }
         }
         bool is_struct = structs_.count(std::string(name)) > 0;
+        bool is_dtype  = datatypes_.count(std::string(name)) > 0;
         bool is_class  = classes_.count(std::string(name)) > 0;
         bool is_enum   = enums_.count(std::string(name)) > 0;
-        if (!is_struct && !is_class && !is_enum) {
+        if (!is_struct && !is_dtype && !is_class && !is_enum) {
             error(std::format("unknown generic type '{}'", name));
             return error_t();
         }
@@ -1120,6 +1130,12 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             if (args.empty()) return make_class_type(name);
             return make_generic_class(name, std::move(args));
         }
+        if (is_dtype) {
+            auto dit = datatypes_.find(std::string(name));
+            if (dit != datatypes_.end()) check_type_bounds(std::string(name), dit->second.type_params, args);
+            if (args.empty()) return make_datatype_type(name);
+            return make_generic_datatype(name, std::move(args));
+        }
         auto sit = structs_.find(std::string(name));
         if (sit != structs_.end()) check_type_bounds(std::string(name), sit->second.type_params, args);
         if (args.empty()) return make_struct_type(name);  // degenerate: no args
@@ -1133,9 +1149,11 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
 // ── Lowering helpers ─────────────────────────────────────────────────────────
 
 const LogosType* SemaChecker::field_type_of(std::string_view sname, std::string_view fname) {
-    auto sit = structs_.find(std::string(sname));
-    if (sit == structs_.end()) return nullptr;
-    for (auto& f : sit->second.fields) {
+    SemaStructInfo* si = nullptr;
+    { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
+    if (!si) { auto it = datatypes_.find(std::string(sname)); if (it != datatypes_.end()) si = &it->second; }
+    if (!si) return nullptr;
+    for (auto& f : si->fields) {
         if (f.name == fname) return f.type;
         if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_')
             return f.type;
@@ -1145,7 +1163,8 @@ const LogosType* SemaChecker::field_type_of(std::string_view sname, std::string_
 
 const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
                                              std::string_view fname) {
-    if (!struct_t || struct_t->kind != LogosType::Kind::Struct) return nullptr;
+    if (!struct_t || (struct_t->kind != LogosType::Kind::Struct &&
+                      struct_t->kind != LogosType::Kind::Datatype)) return nullptr;
     // Check for a concrete specialization first.
     if (!struct_t->type_args.empty()) {
         std::string concrete = concrete_struct_name(struct_t);
@@ -1164,15 +1183,17 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
 
     // If it's a variadic expansion (name_N), we need to resolve it against the type arguments.
     if (fname.find('_') != std::string::npos) {
-        auto sit = structs_.find(struct_t->struct_name);
-        if (sit != structs_.end()) {
-            for (auto& f : sit->second.fields) {
+        SemaStructInfo* si2 = nullptr;
+        { auto it = structs_.find(struct_t->struct_name); if (it != structs_.end()) si2 = &it->second; }
+        if (!si2) { auto it = datatypes_.find(struct_t->struct_name); if (it != datatypes_.end()) si2 = &it->second; }
+        if (si2) {
+            for (auto& f : si2->fields) {
                 if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_') {
                     size_t idx = std::stoull(std::string(fname.substr(f.name.size() + 1)));
                     if (f.type && f.type->kind == LogosType::Kind::TypeVar) {
-                        for (size_t i = 0, arg_idx = 0; i < sit->second.type_params.size(); ++i) {
-                            if (sit->second.type_params[i].is_variadic) {
-                                if (sit->second.type_params[i].name == f.type->type_var_name) {
+                        for (size_t i = 0, arg_idx = 0; i < si2->type_params.size(); ++i) {
+                            if (si2->type_params[i].is_variadic) {
+                                if (si2->type_params[i].name == f.type->type_var_name) {
                                     if (arg_idx + idx < struct_t->type_args.size())
                                         return struct_t->type_args[arg_idx + idx];
                                 }
@@ -1223,6 +1244,11 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 prog.struct_specializations.push_back(lower_spec_struct(item));
             else
                 prog.structs.push_back(lower_struct_def(item));
+        }
+        else if (c == la::DATATYPE) {
+            auto sd = lower_struct_def(item);  // reuse struct lowering
+            sd.is_datatype = true;
+            prog.structs.push_back(std::move(sd));
         }
         else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
         else if (c == la::CLASS) {

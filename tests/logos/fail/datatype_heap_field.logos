@@ -1,0 +1,9 @@
+package datatype_heap_field;
+
+struct Wrapper { data: i32 }
+
+datatype Bad {
+    x: Wrapper,
+}
+
+fn main() -> i32 { return 0; }

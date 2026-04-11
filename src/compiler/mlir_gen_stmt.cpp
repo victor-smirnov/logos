@@ -274,7 +274,8 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // Structs are always held as pointers (alloca).
     // If the value is a by-value aggregate (e.g. returned from a function),
     // store it into a fresh alloca so the rest of the pipeline sees a pointer.
-    if (s.type && s.type->kind == LogosType::Kind::Struct) {
+    if (s.type && (s.type->kind == LogosType::Kind::Struct ||
+                    s.type->kind == LogosType::Kind::Datatype)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         if (val.getType() != ptr_type()) {
@@ -298,7 +299,8 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // The value is a pointer to the struct; register in var_struct_ for field access.
     if (s.type && (s.type->kind == LogosType::Kind::Ref ||
                    s.type->kind == LogosType::Kind::MutRef) &&
-        s.type->pointee && s.type->pointee->kind == LogosType::Kind::Struct) {
+        s.type->pointee && (s.type->pointee->kind == LogosType::Kind::Struct ||
+                            s.type->pointee->kind == LogosType::Kind::Datatype)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         scope_[s.name] = val;

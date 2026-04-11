@@ -472,7 +472,8 @@ struct LStructDef {
     std::vector<TypeParam>   type_params;  // empty for non-generic structs
     std::vector<LField>      fields;
     std::vector<LFunction>   methods;
-    bool                     is_pub    = false;
+    bool                     is_pub      = false;
+    bool                     is_datatype = false;  // Hermes datatype (C POD layout)
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;

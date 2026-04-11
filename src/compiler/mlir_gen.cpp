@@ -146,7 +146,8 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                  t->kind == LogosType::Kind::MutRef) && t->pointee) {
                 const LogosType* inner = t->pointee;
                 if (inner->kind == LogosType::Kind::Struct ||
-                    inner->kind == LogosType::Kind::Class) {
+                    inner->kind == LogosType::Kind::Class ||
+                    inner->kind == LogosType::Kind::Datatype) {
                     // Load the pointer value from the alloca, then use it as the struct ptr.
                     auto alloca = get_struct_ptr(name);  // alloca holding the pointer
                     if (!alloca) {
@@ -157,7 +158,8 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                     if (alloca) {
                         auto ptr_val = builder_.create<mlir::LLVM::LoadOp>(
                             loc_, ptr_type(), alloca);
-                        std::string tname = (inner->kind == LogosType::Kind::Struct)
+                        std::string tname = (inner->kind == LogosType::Kind::Struct ||
+                                              inner->kind == LogosType::Kind::Datatype)
                             ? concrete_struct_name(inner)
                             : concrete_class_name(inner);
                         return {ptr_val, tname};

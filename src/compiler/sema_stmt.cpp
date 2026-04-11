@@ -1190,10 +1190,12 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         const LogosType* next_ret = fi_ptr->ret_type;
         // Substitute type args if iterator is generic
         if (!iter_type->type_args.empty()) {
-            auto sit = structs_.find(std::string(sname));
-            if (sit != structs_.end()) {
+            SemaStructInfo* si = nullptr;
+            { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
+            if (!si) { auto it = datatypes_.find(std::string(sname)); if (it != datatypes_.end()) si = &it->second; }
+            if (si) {
                 SemaSubst subst;
-                auto& tps = sit->second.type_params;
+                auto& tps = si->type_params;
                 for (size_t i = 0; i < tps.size() && i < iter_type->type_args.size(); ++i)
                     subst[tps[i].name] = iter_type->type_args[i];
                 next_ret = subst_type_sema(next_ret, subst);
@@ -1363,13 +1365,15 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
         error(std::format("field write: struct '{}' has no field '{}'", sname, field_name));
     if (!cname.empty() && !ft)
         error(std::format("field write: class '{}' has no field '{}'", cname, field_name));
-    // Pub check for struct field writes.
+    // Pub check for struct/datatype field writes.
     if (!sname.empty() && ft) {
-        auto sit = structs_.find(std::string(sname));
-        if (sit != structs_.end()) {
-            for (auto& f : sit->second.fields) {
+        SemaStructInfo* si = nullptr;
+        { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
+        if (!si) { auto it = datatypes_.find(std::string(sname)); if (it != datatypes_.end()) si = &it->second; }
+        if (si) {
+            for (auto& f : si->fields) {
                 if (f.name == field_name) {
-                    check_pub_access(f.is_pub, sit->second.package, field_name);
+                    check_pub_access(f.is_pub, si->package, field_name);
                     break;
                 }
             }
@@ -1594,13 +1598,15 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
         error(std::format("deref-field-write: type '{}' has no field '{}'",
                           type_name, field_name));
     }
-    // Pub check for struct fields.
-    if (pointee && pointee->kind == LogosType::Kind::Struct && ft) {
-        auto sit = structs_.find(std::string(pointee->struct_name));
-        if (sit != structs_.end()) {
-            for (auto& f : sit->second.fields) {
+    // Pub check for struct/datatype fields.
+    if (pointee && (pointee->kind == LogosType::Kind::Struct || pointee->kind == LogosType::Kind::Datatype) && ft) {
+        SemaStructInfo* si = nullptr;
+        { auto it = structs_.find(std::string(pointee->struct_name)); if (it != structs_.end()) si = &it->second; }
+        if (!si) { auto it = datatypes_.find(std::string(pointee->struct_name)); if (it != datatypes_.end()) si = &it->second; }
+        if (si) {
+            for (auto& f : si->fields) {
                 if (f.name == field_name) {
-                    check_pub_access(f.is_pub, sit->second.package, field_name);
+                    check_pub_access(f.is_pub, si->package, field_name);
                     break;
                 }
             }
@@ -1861,15 +1867,17 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
     if (!field_t)
         error(std::format("field index write: cannot resolve field '{}.{}'", recv_name, field_name));
 
-    // Pub check for struct fields.
+    // Pub check for struct/datatype fields.
     if (base_t && field_t) {
         auto sname = struct_name_from_type(base_t);
         if (!sname.empty()) {
-            auto sit = structs_.find(std::string(sname));
-            if (sit != structs_.end()) {
-                for (auto& f : sit->second.fields) {
+            SemaStructInfo* si = nullptr;
+            { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
+            if (!si) { auto it = datatypes_.find(std::string(sname)); if (it != datatypes_.end()) si = &it->second; }
+            if (si) {
+                for (auto& f : si->fields) {
                     if (f.name == field_name) {
-                        check_pub_access(f.is_pub, sit->second.package, field_name);
+                        check_pub_access(f.is_pub, si->package, field_name);
                         break;
                     }
                 }

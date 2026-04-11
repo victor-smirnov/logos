@@ -48,12 +48,13 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
         if (!elem) return nullptr;
         return mlir::LLVM::LLVMArrayType::get(elem, t->arr_size);
     }
-    case LogosType::Kind::Struct: {
+    case LogosType::Kind::Struct:
+    case LogosType::Kind::Datatype: {
         // Check type alias first.
         auto cname = concrete_struct_name(t);
         auto ait = type_aliases_.find(cname);
         if (ait != type_aliases_.end()) return ait->second;
-        // Structs are always passed by pointer; no need to wait for registration.
+        // Structs/datatypes are always passed by pointer; no need to wait for registration.
         return ptr_type();
     }
     case LogosType::Kind::Class:

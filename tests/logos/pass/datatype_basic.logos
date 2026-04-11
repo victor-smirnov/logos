@@ -1,0 +1,12 @@
+package datatype_basic;
+
+datatype Point {
+    x: f64,
+    y: f64,
+}
+
+fn main() -> i32 {
+    let p: Point = Point { x: 1.0, y: 2.0 };
+    let sum: f64 = p.x + p.y;
+    return sum as i32;
+}

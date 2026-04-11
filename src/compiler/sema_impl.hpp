@@ -106,6 +106,17 @@ private:
         LogosType t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
         return pool_.alloc(std::move(t));
     }
+    const LogosType* make_datatype_type(std::string_view name) {
+        LogosType t; t.kind = LogosType::Kind::Datatype; t.struct_name = std::string(name);
+        return pool_.alloc(std::move(t));
+    }
+    const LogosType* make_generic_datatype(std::string_view name,
+                                            std::vector<const LogosType*> args) {
+        LogosType t; t.kind = LogosType::Kind::Datatype;
+        t.struct_name = std::string(name);
+        t.type_args   = std::move(args);
+        return pool_.alloc(std::move(t));
+    }
     const LogosType* make_class_type(std::string_view name) {
         LogosType t; t.kind = LogosType::Kind::Class; t.struct_name = std::string(name);
         return pool_.alloc(std::move(t));
@@ -387,6 +398,7 @@ private:
     std::vector<TypeParam> impl_type_params_;
 
     std::unordered_map<std::string, SemaStructInfo>   structs_;
+    std::unordered_map<std::string, SemaStructInfo>   datatypes_;  // Hermes datatypes
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
     std::unordered_map<std::string, SemaStructInfo>   struct_specs_sema_;
     std::unordered_map<std::string, SemaEnumInfo>     enums_;
@@ -484,6 +496,7 @@ private:
     void collect_class(hermes::TinyMapView node);
     void finalize_classes();
     void collect_struct(hermes::TinyMapView node);
+    void collect_datatype(hermes::TinyMapView node);
     const LogosType* try_resolve_as_known_type(std::string_view name);
     bool is_known_type_name(std::string_view name) const;
     void extract_typevars_from_type_node(hermes::TinyMapView node,

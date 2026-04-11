@@ -153,7 +153,9 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     auto sname = std::string(str_of(node.get(la::NAME.code)));
     lir::LStructDef sd;
     sd.name = sname;
-    auto& sinfo = structs_[sname];
+    // Look up in structs_ or datatypes_
+    auto sit = structs_.find(sname);
+    auto& sinfo = (sit != structs_.end()) ? sit->second : datatypes_[sname];
     sd.type_params = sinfo.type_params;
     push_type_params(sd.type_params);
     for (auto& f : sinfo.fields)

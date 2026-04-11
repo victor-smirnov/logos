@@ -34,6 +34,10 @@ void SemaChecker::collect(const std::vector<hermes::HermesCtr>& asts) {
                 auto sname = std::string(str_of(item.get(la::NAME.code)));
                 if (structs_.count(sname)) error(std::format("duplicate struct '{}'", sname));
                 else structs_[sname] = {};
+            } else if (ic == la::DATATYPE) {
+                auto dname = std::string(str_of(item.get(la::NAME.code)));
+                if (datatypes_.count(dname)) error(std::format("duplicate datatype '{}'", dname));
+                else datatypes_[dname] = {};
             } else if (ic == la::ENUM) {
                 auto ename = std::string(str_of(item.get(la::NAME.code)));
                 if (enums_.count(ename)) error(std::format("duplicate enum '{}'", ename));
@@ -157,7 +161,8 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             if      (c == la::STRUCT) {
                 if (is_specialization_struct(item)) collect_struct_spec(item);
                 else                                collect_struct(item);
-            } else if (c == la::ENUM)                       collect_enum(item);
+            } else if (c == la::DATATYPE)                   collect_datatype(item);
+            else if (c == la::ENUM)                       collect_enum(item);
             else if (c == la::CLASS)                        collect_class(item);
             else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
             else if (c == la::TRAIT_DEF)                  collect_trait(item);
@@ -346,7 +351,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     for (auto* a : resolved->type_args)
                         if (a && a->kind == LogosType::Kind::TypeVar) { concrete = false; break; }
                     if (concrete) {
-                        if (resolved->kind == LogosType::Kind::Struct)
+                        if (resolved->kind == LogosType::Kind::Struct ||
+                            resolved->kind == LogosType::Kind::Datatype)
                             target = concrete_struct_name(resolved);
                         else if (resolved->kind == LogosType::Kind::Class)
                             target = concrete_class_name(resolved);
@@ -694,6 +700,60 @@ void SemaChecker::finalize_classes() {
         resolve(cname);
 }
 
+void SemaChecker::collect_datatype(TinyMapView node) {
+    auto dname = std::string(str_of(node.get(la::NAME.code)));
+    ctx_ = std::format("datatype {}", dname);
+    SemaStructInfo info;
+    info.type_params = read_type_params(node);
+    info.package = cur_package_;
+    push_type_params(info.type_params);
+    if (node.has_key(la::FIELDS)) {
+        auto fields = arr_of(node.get(la::FIELDS.code));
+        for (uint64_t i = 0; i < fields.size(); ++i) {
+            auto fnode = map_of(fields.get(i));
+            auto fname = str_of(fnode.get(la::NAME.code));
+            auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+            bool fpub = fnode.has_key(la::IS_PUB) &&
+                        fnode.get(la::IS_PUB.code).is_value() &&
+                        fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+            // Rule 9: datatype fields must be POD-compatible (no heap types)
+            if (ftype && ftype->kind != LogosType::Kind::Error) {
+                auto is_datatype_safe = [](const LogosType* t, auto& self) -> bool {
+                    if (!t) return false;
+                    switch (t->kind) {
+                    case LogosType::Kind::I8:  case LogosType::Kind::U8:
+                    case LogosType::Kind::I16: case LogosType::Kind::U16:
+                    case LogosType::Kind::I32: case LogosType::Kind::U32:
+                    case LogosType::Kind::I56: case LogosType::Kind::U56:
+                    case LogosType::Kind::I64: case LogosType::Kind::U64:
+                    case LogosType::Kind::I128: case LogosType::Kind::U128:
+                    case LogosType::Kind::F32: case LogosType::Kind::F64:
+                    case LogosType::Kind::Bool:
+                    case LogosType::Kind::IntLit: case LogosType::Kind::FloatLit:
+                        return true;
+                    case LogosType::Kind::Array:
+                        return self(t->elem, self);
+                    case LogosType::Kind::Datatype:
+                        return true;  // datatypes in datatypes OK
+                    case LogosType::Kind::TypeVar:
+                        return true;  // resolved later by mono
+                    default:
+                        return false;
+                    }
+                };
+                if (!is_datatype_safe(ftype, is_datatype_safe)) {
+                    error(std::format("datatype '{}' field '{}': type '{}' is not allowed "
+                                      "(only primitives, arrays, and other datatypes)",
+                                      dname, fname, type_str(ftype)));
+                }
+            }
+            info.fields.push_back({fname, ftype, fpub, false});
+        }
+    }
+    datatypes_[dname] = std::move(info);
+    pop_type_params(datatypes_[dname].type_params);
+}
+
 void SemaChecker::collect_struct(TinyMapView node) {
     // Struct specialisations don't go into structs_ — they're lowered directly.
     if (is_specialization_struct(node)) return;
@@ -753,6 +813,7 @@ const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
     auto ait = type_aliases_.find(std::string(name));
     if (ait != type_aliases_.end()) return ait->second;
     if (structs_.count(std::string(name))) return make_struct_type(name);
+    if (datatypes_.count(std::string(name))) return make_datatype_type(name);
     if (enums_.count(std::string(name)))   return make_enum_type(name);
     return nullptr;
 }
@@ -764,6 +825,7 @@ bool SemaChecker::is_known_type_name(std::string_view name) const {
     };
     for (int i = 0; prims[i]; ++i) if (prims[i] == name) return true;
     return structs_.count(std::string(name)) ||
+           datatypes_.count(std::string(name)) ||
            enums_.count(std::string(name))   ||
            type_aliases_.count(std::string(name));
 }

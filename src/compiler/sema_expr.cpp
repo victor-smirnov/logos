@@ -1637,10 +1637,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         } else if (rst && is_ref_like(rst->kind) && rst->pointee) {
             rst = rst->pointee;
         }
-        if (rst->kind == LogosType::Kind::Struct && !rst->type_args.empty()) {
-            auto sit2 = structs_.find(rst->struct_name);
-            if (sit2 != structs_.end()) {
-                auto& tps = sit2->second.type_params;
+        if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype) && !rst->type_args.empty()) {
+            SemaStructInfo* si2 = nullptr;
+            { auto it = structs_.find(rst->struct_name); if (it != structs_.end()) si2 = &it->second; }
+            if (!si2) { auto it = datatypes_.find(rst->struct_name); if (it != datatypes_.end()) si2 = &it->second; }
+            if (si2) {
+                auto& tps = si2->type_params;
                 for (size_t i = 0; i < tps.size() && i < rst->type_args.size(); ++i)
                     struct_subst[tps[i].name] = rst->type_args[i];
             }
@@ -1786,11 +1788,19 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     }
     // Pub check: private fields are accessible only within the defining package.
     {
-        auto sit = structs_.find(std::string(sname));
-        if (sit != structs_.end()) {
-            for (auto& f : sit->second.fields) {
+        SemaStructInfo* sinfo_ptr = nullptr;
+        {
+            auto sit = structs_.find(std::string(sname));
+            if (sit != structs_.end()) sinfo_ptr = &sit->second;
+            else {
+                auto dit = datatypes_.find(std::string(sname));
+                if (dit != datatypes_.end()) sinfo_ptr = &dit->second;
+            }
+        }
+        if (sinfo_ptr) {
+            for (auto& f : sinfo_ptr->fields) {
                 if (f.name == field_name || (f.is_variadic && field_name.starts_with(f.name) && field_name.size() > f.name.size() + 1 && field_name[f.name.size()] == '_')) {
-                    check_pub_access(f.is_pub, sit->second.package, field_name);
+                    check_pub_access(f.is_pub, sinfo_ptr->package, field_name);
                     break;
                 }
             }
@@ -1814,28 +1824,36 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     auto sname_sv = str_of(node.get(la::NAME.code));
     std::string sname_buf(sname_sv);  // mutable copy in case we resolve alias
-    auto sit = structs_.find(sname_buf);
-    if (sit == structs_.end()) {
+    // Find in structs_ or datatypes_
+    auto find_struct_info = [&](const std::string& name) -> SemaStructInfo* {
+        auto sit = structs_.find(name);
+        if (sit != structs_.end()) return &sit->second;
+        auto dit = datatypes_.find(name);
+        if (dit != datatypes_.end()) return &dit->second;
+        return nullptr;
+    };
+    auto* sinfo_ptr = find_struct_info(sname_buf);
+    if (!sinfo_ptr) {
         // Try resolving via type alias: `type Alias = Struct` or `type Alias = Struct<T>`
         auto ait = type_aliases_.find(sname_buf);
         if (ait != type_aliases_.end()) {
             auto* aliased = ait->second;
-            if (aliased && aliased->kind == LogosType::Kind::Struct) {
-                sit = structs_.find(aliased->struct_name);
-                if (sit != structs_.end()) {
-                    sname_buf = aliased->struct_name;  // update name to actual struct
-                    // Also push the alias type as hint so generic args get inferred correctly
+            if (aliased && (aliased->kind == LogosType::Kind::Struct ||
+                            aliased->kind == LogosType::Kind::Datatype)) {
+                sinfo_ptr = find_struct_info(aliased->struct_name);
+                if (sinfo_ptr) {
+                    sname_buf = aliased->struct_name;
                     hint_struct_type_ = aliased;
                 }
             }
         }
     }
     std::string_view sname = sname_buf;  // use resolved name throughout
-    if (sit == structs_.end()) {
+    if (!sinfo_ptr) {
         error(std::format("struct literal: unknown struct '{}'", sname));
         return error_expr();
     }
-    auto& sinfo = sit->second;
+    auto& sinfo = *sinfo_ptr;
 
     // Pub check: struct with private fields can only be constructed within its package.
     if (sinfo.package != cur_package_ && !sinfo.package.empty() && !cur_package_.empty()) {
@@ -1985,7 +2003,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             }
         }
         check_type_bounds(std::string(sname), sinfo.type_params, args);
-        const LogosType* lit_type = make_generic_struct(std::string(sname), args);
+        const LogosType* lit_type = datatypes_.count(std::string(sname))
+            ? make_generic_datatype(std::string(sname), args)
+            : make_generic_struct(std::string(sname), args);
 
         // Check if a concrete specialization exists for these type args.
         std::string concrete = concrete_struct_name(lit_type);
@@ -2181,7 +2201,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 mark_moved(vr->name);
     }
 
-    return make_expr(make_struct_type(std::string(sname)),
+    const LogosType* lit_result_type = datatypes_.count(std::string(sname))
+        ? make_datatype_type(std::string(sname))
+        : make_struct_type(std::string(sname));
+    return make_expr(lit_result_type,
         lir::EStructLit{std::string(sname), std::move(fields)});
 }
 
