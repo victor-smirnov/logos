@@ -10,7 +10,7 @@ use hermes.ctr;
 extern fn strlen(s: *const u8) -> i64;
 
 fn main() -> i32 {
-    let mut doc: HermesCtr = HermesCtr::create(8192);
+    let mut doc: HermesCtr = HermesCtr::new(8192);
 
     let text: *const u8 = r#"
         {
@@ -22,8 +22,9 @@ fn main() -> i32 {
         }
     "#;
 
-    if !doc.parse(text, unsafe { strlen(text) }) {
-        return 1;
+    match doc.parse(text, unsafe { strlen(text) }) {
+        Result::Ok(_)  => {}
+        Result::Err(_) => { return 1; }
     }
 
     doc.stringify();

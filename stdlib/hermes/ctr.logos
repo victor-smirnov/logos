@@ -12,8 +12,11 @@
 // The compiler auto-generates drop glue — no explicit `impl Drop` needed here.
 //
 // Usage:
-//   let mut doc: HermesCtr = HermesCtr::create(8192);
-//   doc.parse(text, len);
+//   let mut doc: HermesCtr = HermesCtr::new(8192);
+//   match doc.parse(text, len) {
+//       Result::Ok(())  => {}
+//       Result::Err(_)  => { return 1; }
+//   }
 //   doc.stringify();
 //   doc.print();
 
@@ -29,6 +32,19 @@ use hermes.stringify;
 extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
 
 // ---------------------------------------------------------------------------
+// Result / ParseError
+// ---------------------------------------------------------------------------
+
+pub enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+pub enum ParseError {
+    Failed,
+}
+
+// ---------------------------------------------------------------------------
 // HermesCtr
 // ---------------------------------------------------------------------------
 
@@ -39,7 +55,7 @@ pub struct HermesCtr {
 
 impl HermesCtr {
     // Allocate a new container backed by a zone of `capacity` bytes.
-    pub fn create(capacity: i64) -> HermesCtr {
+    pub static fn new(capacity: i64) -> HermesCtr {
         unsafe {
             return HermesCtr {
                 zone: HermesZone::create(capacity),
@@ -49,10 +65,13 @@ impl HermesCtr {
     }
 
     // Parse Hermes text (UTF-8 bytes) into the zone.
-    // Returns true on success.  On failure the container state is undefined;
-    // the caller should destroy it.
-    pub fn parse(&mut self, text: *const u8, len: i64) -> bool {
-        unsafe { return hermes_parse(text, len, &mut self.zone); }
+    // Returns Ok(0) on success, Err(ParseError::Failed) on parse error.
+    // (Unit type () as a value is not yet supported; use Ok(_) in match.)
+    pub fn parse(&mut self, text: *const u8, len: i64) -> Result<i32, ParseError> {
+        if unsafe { hermes_parse(text, len, &mut self.zone) } {
+            return Result::Ok(0);
+        }
+        return Result::Err(ParseError::Failed);
     }
 
     // Stringify the parsed document into the internal buffer.
@@ -75,17 +94,17 @@ impl HermesCtr {
     }
 
     // Pointer to the stringified bytes (valid until next stringify/destroy).
-    pub fn data(&mut self) -> *const u8 {
+    pub fn data(&self) -> *const u8 {
         unsafe { return self.buf.data as *const u8; }
     }
 
     // Length of the stringified output in bytes.
-    pub fn len(&mut self) -> i64 {
+    pub fn len(&self) -> i64 {
         return self.buf.len;
     }
 
     // Root AnyVal of the parsed document.
-    pub fn root(&mut self) -> AnyVal {
+    pub fn root(&self) -> AnyVal {
         unsafe {
             let doc: *const DocumentHeader = self.zone.base as *const DocumentHeader;
             return document_get_root(doc);
@@ -93,7 +112,7 @@ impl HermesCtr {
     }
 
     // Zone base pointer (for advanced access to zone-allocated objects).
-    pub fn base(&mut self) -> *const u8 {
+    pub fn base(&self) -> *const u8 {
         unsafe { return self.zone.base as *const u8; }
     }
 

@@ -417,6 +417,10 @@
                       => { CODE: STATIC_FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
                        / KW_PUB KW_STATIC KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN block
                       => { CODE: STATIC_FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $5, PARAMS: $7, BODY: $9 }
+                       / KW_PUB KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN ARROW type_ref block
+                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
+                       / KW_PUB KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN block
+                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, BODY: $8 }
                        / KW_PUB KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
                       => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
                        / KW_PUB KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN block
