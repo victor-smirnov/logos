@@ -1,0 +1,176 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.string
+//
+// Phase 10: vlen_u64_56 variable-length integer encoding and HermesString.
+//
+// vlen rules (wire-format §4):
+//   value < 249             → 1 byte  = value
+//   value >= 249            → 1 byte  = 248 + N (byte count)
+//                             N bytes = value little-endian
+//
+// HermesString layout in zone: [vlen_length: 1+ bytes][UTF-8 bytes]
+// Always allocate vlen_encode_size(len) + len bytes before calling init.
+
+package hermes.string;
+
+// ---------------------------------------------------------------------------
+// FNV-1a hash (used by ObjectMap for string key hashing)
+// ---------------------------------------------------------------------------
+
+pub unsafe fn hermes_fnv1a(ptr: *const u8, len: u64) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325 as u64;
+    let prime: u64 = 0x100000001b3 as u64;
+    let mut i: u64 = 0 as u64;
+    while i < len {
+        let p: *const u8 = (ptr as i64 + i as i64) as *const u8;
+        let b: u64 = (*p) as u64;
+        h = h ^ b;
+        h = h * prime;
+        i = i + 1 as u64;
+    }
+    return h;
+}
+
+// ---------------------------------------------------------------------------
+// vlen helpers
+// ---------------------------------------------------------------------------
+
+// Number of bytes needed to encode `value` in vlen format.
+pub unsafe fn vlen_encode_size(value: u64) -> u32 {
+    if value < 249 as u64 {
+        return 1 as u32;
+    }
+    let mut n: u32 = 0 as u32;
+    let mut v: u64 = value;
+    while v > 0 as u64 {
+        v = v >> 8;
+        n = n + 1 as u32;
+    }
+    return 1 as u32 + n;
+}
+
+// Write vlen-encoded `value` to dst. Returns number of bytes written.
+pub unsafe fn vlen_write(dst: *mut u8, value: u64) -> u32 {
+    if value < 249 as u64 {
+        *dst = value as u8;
+        return 1 as u32;
+    }
+    let mut n: u32 = 0 as u32;
+    let mut v: u64 = value;
+    while v > 0 as u64 {
+        v = v >> 8;
+        n = n + 1 as u32;
+    }
+    let marker: u8 = (248 as u32 + n) as u8;
+    *dst = marker;
+    let mut i: u32 = 0 as u32;
+    let mut rem: u64 = value;
+    while i < n {
+        let p: *mut u8 = (dst as i64 + 1 + i as i64) as *mut u8;
+        let byte_val: u8 = (rem & 0xFF as u64) as u8;
+        *p = byte_val;
+        rem = rem >> 8;
+        i = i + 1 as u32;
+    }
+    return 1 as u32 + n;
+}
+
+// Decode vlen value from src. Returns the decoded u64.
+pub unsafe fn vlen_read(src: *const u8) -> u64 {
+    let first: u8 = *src;
+    let first_u32: u32 = first as u32;
+    if first_u32 < 249 as u32 {
+        return first as u64;
+    }
+    let n: u32 = first_u32 - 248 as u32;
+    let mut value: u64 = 0 as u64;
+    let mut i: u32 = 0 as u32;
+    while i < n {
+        let p: *const u8 = (src as i64 + 1 + i as i64) as *const u8;
+        let b: u64 = (*p) as u64;
+        let shift: u64 = (i * 8 as u32) as u64;
+        value = value | (b << shift);
+        i = i + 1 as u32;
+    }
+    return value;
+}
+
+// Number of bytes consumed by the vlen prefix at src.
+pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
+    let first: u8 = *src;
+    let first_u32: u32 = first as u32;
+    if first_u32 < 249 as u32 {
+        return 1 as u32;
+    }
+    return first_u32 - 248 as u32 + 1 as u32;
+}
+
+// ---------------------------------------------------------------------------
+// HermesString
+//
+// A typed anchor for a zone allocation that starts with a vlen length prefix
+// followed immediately by UTF-8 bytes. The 'first' field anchors the type;
+// the actual object has dynamic size = vlen_prefix_size + len bytes.
+// ---------------------------------------------------------------------------
+
+pub datatype HermesString {
+    pub first: u8,   // first byte of vlen length encoding
+}
+
+impl HermesString {
+    // Initialize a HermesString at pre-allocated memory.
+    //   raw:  pointer to ≥ vlen_encode_size(len) + len bytes
+    //   text: source UTF-8 bytes
+    //   len:  byte count
+    // Returns *mut HermesString = raw (same pointer, typed).
+    pub unsafe fn init(raw: *mut u8, text: *const u8, len: u64) -> *mut HermesString {
+        let written: u32 = vlen_write(raw, len);
+        let body: *mut u8 = (raw as i64 + written as i64) as *mut u8;
+        let mut i: u64 = 0 as u64;
+        while i < len {
+            let src_p: *const u8 = (text as i64 + i as i64) as *const u8;
+            let dst_p: *mut u8   = (body as i64 + i as i64) as *mut u8;
+            *dst_p = *src_p;
+            i = i + 1 as u64;
+        }
+        return raw as *mut HermesString;
+    }
+
+    // Byte length of the UTF-8 data (excluding the vlen prefix).
+    pub unsafe fn len(self: *const HermesString) -> u64 {
+        return vlen_read(self as *const u8);
+    }
+
+    // Pointer to the first UTF-8 byte (after the vlen prefix).
+    pub unsafe fn bytes(self: *const HermesString) -> *const u8 {
+        let src: *const u8 = self as *const u8;
+        let prefix: u32 = vlen_prefix_size(src);
+        return (src as i64 + prefix as i64) as *const u8;
+    }
+
+    // True if this string's UTF-8 bytes equal the given byte sequence.
+    pub unsafe fn equals_bytes(self: *const HermesString,
+                               other: *const u8, other_len: u64) -> bool {
+        let my_len: u64 = self.len();
+        if my_len != other_len {
+            return false;
+        }
+        let my_b: *const u8 = self.bytes();
+        let mut i: u64 = 0 as u64;
+        while i < my_len {
+            let pa: *const u8 = (my_b  as i64 + i as i64) as *const u8;
+            let pb: *const u8 = (other as i64 + i as i64) as *const u8;
+            if *pa != *pb {
+                return false;
+            }
+            i = i + 1 as u64;
+        }
+        return true;
+    }
+
+    // FNV-1a hash of the UTF-8 bytes.
+    pub unsafe fn hash(self: *const HermesString) -> u64 {
+        return hermes_fnv1a(self.bytes(), self.len());
+    }
+}

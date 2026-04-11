@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.typetag
+//
+// Phase 11: ShortTypeCode constants and tag-read helpers.
+//
+// Every tagged zone object is preceded by a 2-byte footer written at
+// (object_ptr - 2) and (object_ptr - 1):
+//
+//   byte[obj-2] = type_hash  (low 8 bits of FNV-1a of the type name)
+//   byte[obj-1] = code_len   (packed: bits[2:0] = code_len_minus_1, bits[7:3] = descriptor)
+//
+// ShortTypeCode constants (descriptor byte upper 5 bits):
+//   0 = HERMES_TAG_STRING    (HermesString)
+//   1 = HERMES_TAG_ARRAY     (ObjectArray)
+//   2 = HERMES_TAG_MAP       (ObjectMap)
+//   3 = HERMES_TAG_DOCUMENT  (DocumentHeader)
+
+package hermes.typetag;
+
+// ---------------------------------------------------------------------------
+// ShortTypeCode constants
+// ---------------------------------------------------------------------------
+
+pub unsafe fn hermes_tag_string() -> u8 {
+    return 0 as u8;
+}
+
+pub unsafe fn hermes_tag_array() -> u8 {
+    return 1 as u8;
+}
+
+pub unsafe fn hermes_tag_map() -> u8 {
+    return 2 as u8;
+}
+
+pub unsafe fn hermes_tag_document() -> u8 {
+    return 3 as u8;
+}
+
+// ---------------------------------------------------------------------------
+// Tag read helpers
+// ---------------------------------------------------------------------------
+
+// Read the type_hash byte from the 2-byte tag preceding the object at `ptr`.
+pub unsafe fn tag_read_hash(ptr: *const u8) -> u8 {
+    let p: *const u8 = (ptr as i64 - 2) as *const u8;
+    return *p;
+}
+
+// Read the descriptor byte (upper 5 bits of byte[obj-1]) preceding `ptr`.
+pub unsafe fn tag_read_descriptor(ptr: *const u8) -> u8 {
+    let p: *const u8 = (ptr as i64 - 1) as *const u8;
+    let raw: u8 = *p;
+    return (raw as u32 >> 3 as u32) as u8;
+}

@@ -1,0 +1,50 @@
+package hermes_document;
+// Phase 13: DocumentHeader — 8-byte root descriptor at zone offset 0.
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.document;
+
+unsafe fn main() -> i32 {
+    let mut zone: HermesZone = HermesZone::create(4096);
+    let base: *mut u8 = zone.base;
+
+    // First alloc → zone offset 0 → DocumentHeader.
+    let raw: *mut u8 = zone.alloc_raw(8);
+    let doc: *mut DocumentHeader = document_create(raw);
+
+    // Initially null (root_lo = 0, root_hi = 0).
+    let r0: AnyVal = document_get_root(doc as *const DocumentHeader);
+    if !r0.is_null()                             { return 1; }
+
+    // Set root to a pointer-mode offset.
+    document_set_root(doc, AnyVal::from_offset(512 as u32));
+    let r1: AnyVal = document_get_root(doc as *const DocumentHeader);
+    if !r1.is_ptr()                              { return 2; }
+    if r1.as_offset() != 512 as u32             { return 3; }
+
+    // Set root to an embedded i32.
+    document_set_root(doc, AnyVal::embed_i32(99));
+    let r2: AnyVal = document_get_root(doc as *const DocumentHeader);
+    if r2.is_ptr()                               { return 4; }
+    if r2.as_i32() != 99                         { return 5; }
+
+    // document_header: derive DocumentHeader pointer from zone base.
+    let doc2: *mut DocumentHeader = document_header(base);
+    let r3: AnyVal = document_get_root(doc2 as *const DocumentHeader);
+    if r3.as_i32() != 99                         { return 6; }
+
+    // Set root back to null explicitly.
+    document_set_root(doc, AnyVal::null_ptr());
+    let r4: AnyVal = document_get_root(doc as *const DocumentHeader);
+    if !r4.is_null()                             { return 7; }
+
+    // embed_bool round-trip through document root.
+    document_set_root(doc, AnyVal::embed_bool(true));
+    let r5: AnyVal = document_get_root(doc as *const DocumentHeader);
+    if r5.is_ptr()                               { return 8; }
+    if !r5.as_bool()                             { return 9; }
+
+    zone.destroy();
+    return 42;
+}

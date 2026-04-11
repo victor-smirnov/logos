@@ -38,6 +38,27 @@ impl HermesZone {
         return result;
     }
 
+    // Allocate `size` bytes for a tagged object.
+    // Reserves 2 bytes before the object for the type tag, then aligns to 8.
+    // Writes type_hash at (obj-2) and (descriptor<<3|1) at (obj-1).
+    // Returns pointer to the object (after the tag), or null on OOM.
+    pub unsafe fn alloc_tagged(&mut self, size: i64, type_hash: u8, descriptor: u8) -> *mut u8 {
+        let pre: i64 = self.offset + 2;
+        let aligned: i64 = (pre + 7) / 8 * 8;
+        if aligned + size > self.capacity {
+            return 0 as *mut u8;
+        }
+        let base_int: i64 = self.base as i64;
+        let tag0: *mut u8 = (base_int + aligned - 2) as *mut u8;
+        let tag1: *mut u8 = (base_int + aligned - 1) as *mut u8;
+        *tag0 = type_hash;
+        let d: u32 = descriptor as u32;
+        let tag1_val: u8 = (1 as u32 | (d << 3 as u32)) as u8;
+        *tag1 = tag1_val;
+        self.offset = aligned + size;
+        return (base_int + aligned) as *mut u8;
+    }
+
     // Free the backing buffer. All DataRefs into this zone become invalid.
     pub fn destroy(&mut self) {
         unsafe { free(self.base); }

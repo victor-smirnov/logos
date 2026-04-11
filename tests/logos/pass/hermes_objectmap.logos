@@ -1,0 +1,85 @@
+package hermes_objectmap;
+// Phase 12: ObjectMap — open-addressing string-keyed hash map over a Hermes zone.
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.objectmap;
+
+unsafe fn main() -> i32 {
+    let mut zone: HermesZone = HermesZone::create(4096);
+    let base: *mut u8 = zone.base;
+
+    // Reserve zone offset 0 (document header placeholder — ensures no HermesString
+    // lands at offset 0, which ObjectMap uses as the empty-slot sentinel).
+    let hdr_raw: *mut u8 = zone.alloc_raw(8);
+    *hdr_raw = 0 as u8;   // mark as used
+
+    // Allocate ObjectMap header (16 bytes) and entry buffer (4 slots × 16 bytes).
+    let map_sz: i64      = sizeof::<ObjectMap>() as i64;
+    let map_raw: *mut u8     = zone.alloc_raw(map_sz);
+    let entries_buf: *mut u8 = zone.alloc_raw(64);
+    let map: *mut ObjectMap  = ObjectMap::init(map_raw, base, entries_buf, 4 as u32);
+
+    // Map starts empty.
+    if map.size_count() != 0 as u32              { return 1; }
+
+    // Build HermesString for key "a" (1 byte) manually:
+    //   byte[0] = vlen prefix = 1 (length), byte[1] = 97 ('a').
+    let hs_a: *mut u8 = zone.alloc_raw(2);
+    let hs_a_v: *mut u8 = (hs_a as i64 + 0 as i64) as *mut u8;
+    let hs_a_d: *mut u8 = (hs_a as i64 + 1 as i64) as *mut u8;
+    *hs_a_v = 1 as u8;    // vlen: 1 byte follows
+    *hs_a_d = 97 as u8;   // 'a'
+    let off_a: u32  = (hs_a as i64 - base as i64) as u32;
+    let key_a: *const u8 = hs_a_d as *const u8;  // raw bytes of "a"
+
+    // Build HermesString for key "b" (1 byte, ASCII 98).
+    let hs_b: *mut u8 = zone.alloc_raw(2);
+    let hs_b_v: *mut u8 = (hs_b as i64 + 0 as i64) as *mut u8;
+    let hs_b_d: *mut u8 = (hs_b as i64 + 1 as i64) as *mut u8;
+    *hs_b_v = 1 as u8;
+    *hs_b_d = 98 as u8;   // 'b'
+    let off_b: u32  = (hs_b as i64 - base as i64) as u32;
+    let key_b: *const u8 = hs_b_d as *const u8;
+
+    // Insert "a" → i32(42), "b" → u32(99).
+    map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i32(42));
+    map.set(base, off_b, key_b, 1 as u64, AnyVal::embed_u32(99 as u32));
+
+    if map.size_count() != 2 as u32              { return 2; }
+
+    // Retrieve "a".
+    let va: AnyVal = map.get(base as *const u8, key_a, 1 as u64);
+    if va.is_ptr()                               { return 3; }
+    if va.as_i32() != 42                         { return 4; }
+
+    // Retrieve "b".
+    let vb: AnyVal = map.get(base as *const u8, key_b, 1 as u64);
+    if vb.is_ptr()                               { return 5; }
+    if vb.as_u32() != 99 as u32                  { return 6; }
+
+    // Key "c" (ASCII 99) — absent, must return null.
+    let hs_c: *mut u8 = zone.alloc_raw(2);
+    let hs_c_v: *mut u8 = (hs_c as i64 + 0 as i64) as *mut u8;
+    let hs_c_d: *mut u8 = (hs_c as i64 + 1 as i64) as *mut u8;
+    *hs_c_v = 1 as u8;
+    *hs_c_d = 99 as u8;   // 'c'
+    let key_c: *const u8 = hs_c_d as *const u8;
+
+    let vc: AnyVal = map.get(base as *const u8, key_c, 1 as u64);
+    if !vc.is_null()                             { return 7; }
+
+    // contains()
+    if !map.contains(base as *const u8, key_a, 1 as u64) { return 8; }
+    if !map.contains(base as *const u8, key_b, 1 as u64) { return 9; }
+    if  map.contains(base as *const u8, key_c, 1 as u64) { return 10; }
+
+    // Update "a" → i32(77) — count must not change.
+    map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i32(77));
+    if map.size_count() != 2 as u32              { return 11; }
+    let va2: AnyVal = map.get(base as *const u8, key_a, 1 as u64);
+    if va2.as_i32() != 77                        { return 12; }
+
+    zone.destroy();
+    return 42;
+}

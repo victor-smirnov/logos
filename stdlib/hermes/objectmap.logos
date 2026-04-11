@@ -1,0 +1,180 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.objectmap
+//
+// Phase 12: ObjectMap — open-addressing string-keyed hash map over a Hermes zone.
+//
+// MapEntry (16 bytes): key_off (u64, 0 = empty) + val_lo (u32) + val_hi (u32).
+//   key_off stores the zone-relative offset to the HermesString key.
+//   val_lo/val_hi store the AnyVal payload.
+//
+// ObjectMap (16 bytes):
+//   entries_off (u32) — zone-relative offset to MapEntry array
+//   capacity    (u32) — number of slots (must be power of 2)
+//   count       (u32) — occupied slots
+//   reserved    (u32) — zero, reserved for future use
+//
+// All methods that access entries take an explicit base: *mut u8 (the zone base).
+// This follows the same pattern as TinyObjectMap / ObjectArray in hermes.containers.
+//
+// Empty-slot sentinel: key_off == 0 (zone offset 0 = DocumentHeader, never a string).
+//
+// Hash function: FNV-1a (hermes_fnv1a from hermes.string).
+// Collision resolution: linear probing (slot wraps at capacity).
+
+package hermes.objectmap;
+
+use hermes.anyval;
+use hermes.string;
+
+// ---------------------------------------------------------------------------
+// MapEntry — one slot in the hash table (16 bytes)
+// ---------------------------------------------------------------------------
+
+pub datatype MapEntry {
+    pub key_off: u64,  // zone-relative byte offset to HermesString (0 = empty slot)
+    pub val_lo:  u32,  // AnyVal.lo
+    pub val_hi:  u32,  // AnyVal.hi
+}
+
+// ---------------------------------------------------------------------------
+// ObjectMap — the hash table header (16 bytes, all primitives)
+// ---------------------------------------------------------------------------
+
+pub datatype ObjectMap {
+    pub entries_off: u32,  // zone-relative offset to the MapEntry array
+    pub capacity:    u32,  // number of slots (power of 2)
+    pub count:       u32,  // number of occupied slots
+    pub reserved:    u32,  // zero
+}
+
+impl ObjectMap {
+    // Initialize an ObjectMap at pre-allocated memory.
+    //   raw          — pointer to ≥ 16 bytes (zone-allocated ObjectMap header)
+    //   base         — zone base pointer
+    //   entries_buf  — pointer to ≥ capacity * 16 bytes (for the entry array)
+    //   capacity     — number of hash slots (must be a power of 2)
+    // Returns *mut ObjectMap = raw (typed).
+    pub unsafe fn init(raw: *mut u8, base: *mut u8,
+                       entries_buf: *mut u8, capacity: u32) -> *mut ObjectMap {
+        let base_int: i64 = base as i64;
+        let off: u32 = (entries_buf as i64 - base_int) as u32;
+        let m: *mut ObjectMap = raw as *mut ObjectMap;
+        m.entries_off = off;
+        m.capacity    = capacity;
+        m.count       = 0 as u32;
+        m.reserved    = 0 as u32;
+        // Zero-initialize all entry slots (key_off = 0 → empty).
+        let total: i64 = capacity as i64 * 16 as i64;
+        let mut i: i64 = 0 as i64;
+        while i < total {
+            let p: *mut u8 = (entries_buf as i64 + i) as *mut u8;
+            *p = 0 as u8;
+            i = i + 1 as i64;
+        }
+        return m;
+    }
+
+    // Insert or update a key→value mapping.
+    //   base    — zone base pointer
+    //   key_off — zone-relative offset to the HermesString key object
+    //   key_ptr — pointer to the raw UTF-8 bytes of the key (for comparison)
+    //   key_len — byte length of the key
+    //   val     — the AnyVal to store
+    // If the table is full and the key is new, the insert is silently dropped.
+    pub unsafe fn set(self: *mut ObjectMap, base: *mut u8, key_off: u32,
+                      key_ptr: *const u8, key_len: u64, val: AnyVal) {
+        let cap: u64   = self.capacity as u64;
+        let h: u64     = hermes_fnv1a(key_ptr, key_len);
+        let ent_base: i64 = base as i64 + self.entries_off as i64;
+        let mut slot: u64 = h & (cap - 1 as u64);
+        let mut done: bool = false;
+        while done == false {
+            let ep: *mut MapEntry =
+                (ent_base + slot as i64 * 16 as i64) as *mut MapEntry;
+            if ep.key_off == 0 as u64 {
+                // Empty slot — insert new entry.
+                ep.key_off = key_off as u64;
+                ep.val_lo  = val.lo;
+                ep.val_hi  = val.hi;
+                self.count = self.count + 1 as u32;
+                done = true;
+            } else {
+                let ks: *const HermesString =
+                    (base as i64 + ep.key_off as i64) as *const HermesString;
+                if ks.equals_bytes(key_ptr, key_len) {
+                    // Key already present — update value.
+                    ep.val_lo = val.lo;
+                    ep.val_hi = val.hi;
+                    done = true;
+                } else {
+                    slot = slot + 1 as u64;
+                    if slot >= cap {
+                        slot = 0 as u64;
+                    }
+                }
+            }
+        }
+    }
+
+    // Look up a key. Returns AnyVal::null_ptr() if not found.
+    pub unsafe fn get(self: *const ObjectMap, base: *const u8,
+                      key_ptr: *const u8, key_len: u64) -> AnyVal {
+        let cap: u64      = self.capacity as u64;
+        let h: u64        = hermes_fnv1a(key_ptr, key_len);
+        let ent_base: i64 = base as i64 + self.entries_off as i64;
+        let mut slot: u64 = h & (cap - 1 as u64);
+        let mut probed: u64 = 0 as u64;
+        while probed < cap {
+            let ep: *const MapEntry =
+                (ent_base + slot as i64 * 16 as i64) as *const MapEntry;
+            if ep.key_off == 0 as u64 {
+                return AnyVal::null_ptr();
+            }
+            let ks: *const HermesString =
+                (base as i64 + ep.key_off as i64) as *const HermesString;
+            if ks.equals_bytes(key_ptr, key_len) {
+                return AnyVal { lo: ep.val_lo, hi: ep.val_hi };
+            }
+            slot = slot + 1 as u64;
+            if slot >= cap {
+                slot = 0 as u64;
+            }
+            probed = probed + 1 as u64;
+        }
+        return AnyVal::null_ptr();
+    }
+
+    // True if the map contains the given key.
+    pub unsafe fn contains(self: *const ObjectMap, base: *const u8,
+                           key_ptr: *const u8, key_len: u64) -> bool {
+        let cap: u64      = self.capacity as u64;
+        let h: u64        = hermes_fnv1a(key_ptr, key_len);
+        let ent_base: i64 = base as i64 + self.entries_off as i64;
+        let mut slot: u64 = h & (cap - 1 as u64);
+        let mut probed: u64 = 0 as u64;
+        while probed < cap {
+            let ep: *const MapEntry =
+                (ent_base + slot as i64 * 16 as i64) as *const MapEntry;
+            if ep.key_off == 0 as u64 {
+                return false;
+            }
+            let ks: *const HermesString =
+                (base as i64 + ep.key_off as i64) as *const HermesString;
+            if ks.equals_bytes(key_ptr, key_len) {
+                return true;
+            }
+            slot = slot + 1 as u64;
+            if slot >= cap {
+                slot = 0 as u64;
+            }
+            probed = probed + 1 as u64;
+        }
+        return false;
+    }
+
+    // Number of entries stored in the map.
+    pub unsafe fn size_count(self: *const ObjectMap) -> u32 {
+        return self.count;
+    }
+}
