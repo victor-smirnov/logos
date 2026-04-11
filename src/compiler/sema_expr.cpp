@@ -775,10 +775,12 @@ void SemaChecker::unify_types(const LogosType* formal, const LogosType* actual,
     if (actual->kind == LogosType::Kind::Error ||
         formal->kind == LogosType::Kind::Error) return;
 
-    // Widen IntLit to i32 before any binding
+    // Widen IntLit to i32 / FloatLit to f64 before any binding
     const LogosType* actual_norm = actual;
     if (actual->kind == LogosType::Kind::IntLit)
         actual_norm = prim(LogosType::Kind::I32);
+    else if (actual->kind == LogosType::Kind::FloatLit)
+        actual_norm = prim(LogosType::Kind::F64);
 
     if (formal->kind == LogosType::Kind::TypeVar) {
         if (formal->type_var_name == "Self") return;  // skip implicit Self
@@ -863,6 +865,8 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
             auto* t = arg_exprs[i]->type;
             if (t->kind == LogosType::Kind::IntLit)
                 t = prim(LogosType::Kind::I32);
+            else if (t->kind == LogosType::Kind::FloatLit)
+                t = prim(LogosType::Kind::F64);
             out_type_args.push_back(t);
         }
     }
@@ -1911,6 +1915,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     if (vt->kind == LogosType::Kind::IntLit) {
                         auto* h = hint_for_tv(tv);
                         vt = (h && h->kind != LogosType::Kind::Error) ? h : i32_t();
+                    } else if (vt->kind == LogosType::Kind::FloatLit) {
+                        auto* h = hint_for_tv(tv);
+                        vt = (h && h->kind != LogosType::Kind::Error) ? h : prim(LogosType::Kind::F64);
                     }
                     inferred[tv] = vt;
                 }

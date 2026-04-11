@@ -1,0 +1,13 @@
+package f32_struct_generic_floatlit;
+// Bug: struct literal generic inference bound T=FloatLit for Pair { x: 1.0, y: 2.0 },
+// making Pair<FloatLit> which was silently compatible with f32.
+// Fix: normalize FloatLit→F64 in struct literal generic inference (when no concrete hint).
+// After fix: Pair { x: 1.0, y: 2.0 } has type Pair<f64>; assigning .x to f32 fails.
+
+struct Pair<T> { x: T, y: T, }
+
+fn main() -> i32 {
+    let p = Pair { x: 1.0, y: 2.0 };
+    let x: f32 = p.x;
+    return x as i32;
+}

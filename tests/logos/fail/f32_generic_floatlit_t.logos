@@ -1,0 +1,11 @@
+package f32_generic_floatlit_t;
+// Bug: unify_types bound T=FloatLit for identity(1.0), allowing f32 assignment.
+// Fix: normalize FloatLit→F64 in unify_types before binding type vars.
+// After fix: identity(1.0) has type f64, not assignable to f32 without explicit cast.
+
+fn identity<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let y: f32 = identity(1.0);
+    return y as i32;
+}

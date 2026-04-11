@@ -1,0 +1,13 @@
+package f32_variadic_floatlit_t;
+// Bug: infer_type_args variadic pack stored FloatLit as pack element type,
+// leaving the inferred head type as FloatLit (compatible with f32).
+// Fix: normalize FloatLit→F64 for variadic pack elements in infer_type_args.
+// After fix: first(1.0, 2.0, 3.0) has return type f64, not assignable to f32.
+
+fn first() -> f64 { return 0.0; }
+fn first<H, T...>(head: H, tail: T...) -> H { return head; }
+
+fn main() -> i32 {
+    let y: f32 = first(1.0, 2.0, 3.0);
+    return y as i32;
+}
