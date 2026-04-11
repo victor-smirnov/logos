@@ -22,6 +22,7 @@ use hermes.objectmap;
 use hermes.document;
 use hermes.parser;
 use hermes.stringify;
+use std.string;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -126,8 +127,8 @@ unsafe fn build_input(buf: *mut u8) -> i64 {
 // print_buf — write all bytes of `sb` to stdout, followed by a newline.
 // ---------------------------------------------------------------------------
 
-unsafe fn print_buf(sb: *mut StringBuf) {
-    write(1 as i32, sb.data as *const u8, sb.len);
+unsafe fn print_buf(sb: *mut String) {
+    write(1 as i32, sb.as_ptr(), sb.len());
     let nl: u8 = 10 as u8;
     write(1 as i32, &nl as *const u8, 1 as i64);
 }
@@ -152,14 +153,13 @@ unsafe fn main() -> i32 {
     }
 
     // ── Stringify ────────────────────────────────────────────────────────────
-    let mut sb: StringBuf = StringBuf::create(512);
+    let mut sb: String = String::new();
     stringify_document(zone.base as *const u8, &mut sb);
 
     // ── Print ────────────────────────────────────────────────────────────────
     print_buf(&mut sb);
 
     // ── Cleanup ──────────────────────────────────────────────────────────────
-    sb.destroy();
     zone.destroy();
     return 0;
 }

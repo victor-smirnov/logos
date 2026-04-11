@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Test: HermesCtr builder API — programmatic document construction.
+
+package hermes_builder;
+
+use hermes.ctr;
+use std.string;
+
+extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
+
+unsafe fn main() -> i32 {
+    // Create a builder (pre-allocates DocumentHeader at offset 0).
+    let mut doc: HermesCtr = HermesCtr::builder(4096);
+
+    // Build a root map with 8 hash slots.
+    let root_map: AnyVal = doc.build_map(8 as u32);
+    if root_map.is_null() { return 1; }
+
+    // Build a string value "hello".
+    let hello: *const u8 = "hello";
+    let hello_val: AnyVal = doc.build_str(hello, 5 as i64);
+    if hello_val.is_null() { return 2; }
+
+    // Set "msg" → hello_val in the map.
+    let msg_key: *const u8 = "msg";
+    doc.map_set_str(root_map, msg_key, 3 as i64, hello_val);
+
+    // Set "code" → i32(42) in the map.
+    let code_key: *const u8 = "code";
+    doc.map_set_str(root_map, code_key, 4 as i64, AnyVal::embed_i32(42));
+
+    // Set the document root.
+    doc.set_root(root_map);
+
+    // Stringify and get the result.
+    let s: String = doc.to_string();
+
+    // The output must be non-empty.
+    if s.len() < 5 as i64 { return 3; }
+
+    // First byte must be '{' (123).
+    if *((s.as_ptr() as i64 + 0) as *const u8) != 123 as u8 { return 4; }
+
+    // Last byte must be '}' (125).
+    let last: i64 = s.len() - 1 as i64;
+    if *((s.as_ptr() as i64 + last) as *const u8) != 125 as u8 { return 5; }
+
+    // Print the stringified document for inspection.
+    write(1 as i32, s.as_ptr(), s.len());
+    let nl: u8 = 10 as u8;
+    write(1 as i32, &nl as *const u8, 1 as i64);
+
+    return 0;
+}

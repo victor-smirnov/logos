@@ -256,6 +256,36 @@ impl String {
         self.nbytes = self.nbytes + n;
         unsafe { self.data[self.nbytes] = 0 as u8; }
     }
+
+    // Append the decimal representation of a signed 64-bit integer.
+    pub fn push_i64(&mut self, v: i64) {
+        let ptr: *mut u8 = self.spare_ptr(22);
+        let n: i64 = write_i64(ptr, 0, v);
+        self.advance_len(n);
+    }
+
+    // Append the decimal representation of an unsigned 64-bit integer.
+    pub fn push_u64(&mut self, v: u64) {
+        let ptr: *mut u8 = self.spare_ptr(22);
+        let n: i64 = write_u64(ptr, 0, v);
+        self.advance_len(n);
+    }
+
+    // True if the string content equals the null-terminated C string `s`.
+    pub fn eq_cstr(&self, s: *const u8) -> bool {
+        let n: i64 = str_len(s);
+        if self.nbytes != n { return false; }
+        let mut i: i64 = 0;
+        while i < n {
+            unsafe {
+                let ap: *const u8 = (self.data as i64 + i) as *const u8;
+                let bp: *const u8 = (s as i64 + i) as *const u8;
+                if *ap != *bp { return false; }
+            }
+            i = i + 1;
+        }
+        return true;
+    }
 }
 
 impl Drop for String {
@@ -278,6 +308,30 @@ impl Drop for String {
 
 trait Display {
     fn fmt(self: Self, buf: &mut String);
+}
+
+pub fn write_u64(buf: *mut u8, off: i64, n: u64) -> i64 {
+    if n == 0 as u64 {
+        unsafe { buf[off] = 48 as u8; }
+        return 1;
+    }
+    let mut tmp: [i32; 22] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut pos: i64 = 0;
+    let mut m: u64 = n;
+    while m > 0 as u64 {
+        let rem: u64 = m - (m / 10 as u64) * 10 as u64;
+        tmp[pos] = rem as i32 + 48;
+        m = m / 10 as u64;
+        pos = pos + 1;
+    }
+    let mut out: i64 = 0;
+    let mut i: i64 = pos - 1;
+    while i >= 0 {
+        unsafe { buf[off + out] = tmp[i] as u8; }
+        out = out + 1;
+        i = i - 1;
+    }
+    return out;
 }
 
 impl Display for i32 {
@@ -303,6 +357,12 @@ impl Display for bool {
         } else {
             buf.push_cstr("false");
         }
+    }
+}
+
+impl Display for u64 {
+    fn fmt(self: u64, buf: &mut String) {
+        buf.push_u64(self);
     }
 }
 

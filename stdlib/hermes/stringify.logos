@@ -15,7 +15,7 @@
 //   USmallInt (hash=24, u16)           → decimal + "_u16"
 //   UInteger  (hash=25, u32)           → decimal + "u"
 //   Boolean   (hash=37, bool)          → "true" / "false"
-//   Real      (hash=30, f32)           → "<real>" placeholder
+//   Real      (hash=30, f32)           → decimal float notation
 // AnyVal pointer mode → dispatch on 2-byte TypeTag before the object:
 //   descriptor=0, hash=28  (Varchar)   → quoted UTF-8 string with escaping
 //   descriptor=1           (Array)     → "[e0,e1,…]"
@@ -23,12 +23,11 @@
 //   descriptor=2, hash=101 (ObjectMap) → {"key":v, …}
 //   other                              → "null"
 //
-// Output buffer: StringBuf — a malloc-backed growable byte buffer.
-// Caller must call stringbuf_create / stringbuf_destroy.
+// Output buffer: std.string.String — a growable owned byte buffer.
 //
 // Entry point:
-//   pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut StringBuf)
-//   pub unsafe fn stringify_document(base: *const u8, out: *mut StringBuf)
+//   pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut String)
+//   pub unsafe fn stringify_document(base: *const u8, out: *mut String)
 //     (reads AnyVal root from DocumentHeader at base[0..7], then calls stringify_anyval)
 
 package hermes.stringify;
@@ -39,124 +38,88 @@ use hermes.typetag;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
-
-extern fn malloc(size: i64) -> *mut u8;
-extern fn realloc(ptr: *mut u8, size: i64) -> *mut u8;
-extern fn free(ptr: *mut u8);
-
-trait Drop { fn drop(self: Self); }
+use std.string;
 
 // ---------------------------------------------------------------------------
-// StringBuf — growable output buffer
+// f32 stringify helper
 // ---------------------------------------------------------------------------
 
-pub struct StringBuf {
-    pub data:    *mut u8,  // malloc-backed output bytes
-    pub scratch: *mut u8,  // 24-byte scratch for integer digit reversal
-    pub len:     i64,      // bytes written so far
-    pub cap:     i64,      // allocated capacity of data
-}
+unsafe fn stringify_f32(bits: u32, out: *mut String) {
+    let sign: u32 = bits >> 31 as u32;
+    let exp: u32 = (bits >> 23 as u32) & 0xFF as u32;
+    let mant: u32 = bits & 0x7FFFFF as u32;
 
-impl StringBuf {
-    pub unsafe fn create(initial_cap: i64) -> StringBuf {
-        let data: *mut u8    = malloc(initial_cap);
-        let scratch: *mut u8 = malloc(24);
-        return StringBuf { data: data, scratch: scratch, len: 0, cap: initial_cap };
+    // NaN
+    if exp == 0xFF as u32 && mant != 0 as u32 {
+        out.push_cstr("nan");
+        return;
+    }
+    // Infinity
+    if exp == 0xFF as u32 {
+        if sign != 0 as u32 { out.push_u8(45 as u8); }  // '-'
+        out.push_cstr("inf");
+        return;
+    }
+    // Zero (positive or negative)
+    if (bits & 0x7FFFFFFF as u32) == 0 as u32 {
+        out.push_cstr("0.0");
+        return;
     }
 
-    pub unsafe fn destroy(&mut self) {
-        free(self.data);
-        free(self.scratch);
-        self.data    = 0 as *mut u8;
-        self.scratch = 0 as *mut u8;
-        self.len     = 0;
-        self.cap     = 0;
+    // Normal/subnormal value: type-pun bits → f32
+    let mut tmp: u32 = bits;
+    let fval: f32 = *((&tmp as *const u32) as *const f32);
+
+    if sign != 0 as u32 { out.push_u8(45 as u8); }  // '-'
+    let absv: f32 = if sign != 0 as u32 { 0.0 - fval } else { fval };
+
+    // Bug 2 guard: exp >= 190 means actual_exp >= 63, so absv >= 2^63.
+    // Casting such a value to i64 is undefined behaviour (LLVM "poison").
+    if exp >= 190 as u32 {
+        out.push_i64(9223372036854775807 as i64);  // i64::MAX as safe approximation
+        out.push_cstr(".0");
+        return;
     }
 
-    pub unsafe fn reset(&mut self) {
-        self.len = 0;
+    let ipart: i64 = absv as i64;
+
+    // Bug 3 guard: exp >= 150 means actual_exp >= 23, so absv >= 2^23 = 8388608.
+    // At this magnitude f32 has no fractional bits (ULP >= 1.0), so frac = 0 exactly.
+    // More importantly: for absv in [2^23, 2^24), ipart as f32 might round *up*, making
+    // frac = absv - ipart as f32 negative — producing garbage digit output.
+    if exp >= 150 as u32 {
+        out.push_i64(ipart);
+        out.push_cstr(".0");
+        return;
     }
 
-    // Double the capacity, copying existing content via realloc.
-    // On OOM, leaves the buffer unchanged; append_byte checks for this.
-    pub unsafe fn grow(&mut self) {
-        if self.cap <= 0 as i64 { return; }
-        let new_cap: i64 = self.cap * 2 as i64;
-        if new_cap <= self.cap { return; }  // overflow guard
-        let new_data: *mut u8 = realloc(self.data, new_cap);
-        // realloc returns null on OOM and leaves the original allocation intact.
-        if new_data == 0 as *mut u8 { return; }
-        self.data = new_data;
-        self.cap  = new_cap;
+    // Safe path: absv < 2^23 = 8388608. All integers < 2^24 are exactly representable
+    // in f32, so ipart as f32 == ipart exactly, and frac is in [0.0, 1.0).
+    out.push_i64(ipart);
+    out.push_u8(46 as u8);  // '.'
+
+    // Fractional part: scale to 6 decimal digits
+    let frac: f32 = absv - ipart as f32;
+    let frac6: i64 = (frac * 1000000.0) as i64;
+
+    // Write frac6 as exactly 6 digits (with leading zeros)
+    let mut digits: [i32; 6] = [0, 0, 0, 0, 0, 0];
+    let mut tmp6: i64 = frac6;
+    let mut k: i64 = 5;
+    while k >= 0 {
+        digits[k] = (tmp6 % 10 as i64) as i32 + 48;
+        tmp6 = tmp6 / 10 as i64;
+        k = k - 1;
     }
-
-}
-
-impl Drop for StringBuf {
-    fn drop(self: StringBuf) {
-        if self.data != 0 as *mut u8 {
-            unsafe { free(self.data); }
-        }
-        if self.scratch != 0 as *mut u8 {
-            unsafe { free(self.scratch); }
-        }
+    // Find last non-'0' digit (strip trailing zeros, keep at least one)
+    let mut last: i64 = 5;
+    while last > 0 && digits[last] == 48 {
+        last = last - 1;
     }
-}
-
-impl StringBuf {
-    pub unsafe fn append_byte(&mut self, b: u8) {
-        if self.len >= self.cap {
-            self.grow();
-            // If grow failed (OOM), cap is still <= len: drop the byte silently.
-            if self.len >= self.cap { return; }
-        }
-        let p: *mut u8 = (self.data as i64 + self.len) as *mut u8;
-        *p = b;
-        self.len = self.len + 1 as i64;
-    }
-
-    pub unsafe fn append_bytes(&mut self, src: *const u8, n: i64) {
-        let mut i: i64 = 0 as i64;
-        while i < n {
-            let p: *const u8 = (src as i64 + i) as *const u8;
-            self.append_byte(*p);
-            i = i + 1 as i64;
-        }
-    }
-
-    // Write decimal representation of an unsigned 64-bit integer.
-    pub unsafe fn write_u64(&mut self, val: u64) {
-        if val == 0 as u64 {
-            self.append_byte(48 as u8);  // '0'
-            return;
-        }
-        // Write digits least-significant first into scratch.
-        let mut v: u64 = val;
-        let mut n: i32 = 0 as i32;
-        while v > 0 as u64 {
-            let rem: u64 = v - (v / 10 as u64) * 10 as u64;
-            let p: *mut u8 = (self.scratch as i64 + n as i64) as *mut u8;
-            *p = 48 as u8 + rem as u8;
-            v = v / 10 as u64;
-            n = n + 1 as i32;
-        }
-        // Append in most-significant-first order.
-        let mut i: i32 = n - 1 as i32;
-        while i >= 0 as i32 {
-            let p: *const u8 = (self.scratch as i64 + i as i64) as *const u8;
-            self.append_byte(*p);
-            i = i - 1 as i32;
-        }
-    }
-
-    // Write decimal representation of a signed 64-bit integer.
-    pub unsafe fn write_i64(&mut self, val: i64) {
-        if val < 0 as i64 {
-            self.append_byte(45 as u8);  // '-'
-            self.write_u64((0 as i64 - val) as u64);
-        } else {
-            self.write_u64(val as u64);
-        }
+    k = 0;
+    while k <= last {
+        out.push_u8(digits[k] as u8);
+        k = k + 1;
     }
 }
 
@@ -164,8 +127,8 @@ impl StringBuf {
 // String escaping helper (writes a quoted, escaped HermesString to `out`)
 // ---------------------------------------------------------------------------
 
-unsafe fn stringify_quoted_hs(hs: *const HermesString, out: *mut StringBuf) {
-    out.append_byte(34 as u8);   // '"'
+unsafe fn stringify_quoted_hs(hs: *const HermesString, out: *mut String) {
+    out.push_u8(34 as u8);   // '"'
     let len: u64   = hs.len();
     let bptr: *const u8 = hs.bytes();
     let mut i: u64 = 0 as u64;
@@ -173,26 +136,26 @@ unsafe fn stringify_quoted_hs(hs: *const HermesString, out: *mut StringBuf) {
         let p: *const u8 = (bptr as i64 + i as i64) as *const u8;
         let c: u8 = *p;
         if c == 34 as u8 {       // '"' → \"
-            out.append_byte(92 as u8);
-            out.append_byte(34 as u8);
+            out.push_u8(92 as u8);
+            out.push_u8(34 as u8);
         } else if c == 92 as u8 { // '\' → \\
-            out.append_byte(92 as u8);
-            out.append_byte(92 as u8);
+            out.push_u8(92 as u8);
+            out.push_u8(92 as u8);
         } else if c == 10 as u8 { // '\n' → \n
-            out.append_byte(92 as u8);
-            out.append_byte(110 as u8);
+            out.push_u8(92 as u8);
+            out.push_u8(110 as u8);
         } else if c == 13 as u8 { // '\r' → \r
-            out.append_byte(92 as u8);
-            out.append_byte(114 as u8);
+            out.push_u8(92 as u8);
+            out.push_u8(114 as u8);
         } else if c == 9 as u8 {  // '\t' → \t
-            out.append_byte(92 as u8);
-            out.append_byte(116 as u8);
+            out.push_u8(92 as u8);
+            out.push_u8(116 as u8);
         } else {
-            out.append_byte(c);
+            out.push_u8(c);
         }
         i = i + 1 as u64;
     }
-    out.append_byte(34 as u8);   // '"'
+    out.push_u8(34 as u8);   // '"'
 }
 
 // ---------------------------------------------------------------------------
@@ -200,32 +163,32 @@ unsafe fn stringify_quoted_hs(hs: *const HermesString, out: *mut StringBuf) {
 // ---------------------------------------------------------------------------
 
 // descriptor=0, hash=28: HermesString
-unsafe fn stringify_varchar(obj: *const u8, out: *mut StringBuf) {
+unsafe fn stringify_varchar(obj: *const u8, out: *mut String) {
     let hs: *const HermesString = obj as *const HermesString;
     stringify_quoted_hs(hs, out);
 }
 
 // descriptor=1: ObjectArray — "[e0,e1,…]"
-unsafe fn stringify_object_array(obj: *const u8, base: *const u8, out: *mut StringBuf) {
+unsafe fn stringify_object_array(obj: *const u8, base: *const u8, out: *mut String) {
     let arr: *const ObjectArray = obj as *const ObjectArray;
-    out.append_byte(91 as u8);   // '['
+    out.push_u8(91 as u8);   // '['
     let sz: u64 = arr.len();
     let mut i: u64 = 0 as u64;
     while i < sz {
         if i > 0 as u64 {
-            out.append_byte(44 as u8);   // ','
+            out.push_u8(44 as u8);   // ','
         }
         let elem: AnyVal = arr.get(base, i);
         stringify_anyval(elem, base, out);
         i = i + 1 as u64;
     }
-    out.append_byte(93 as u8);   // ']'
+    out.push_u8(93 as u8);   // ']'
 }
 
 // descriptor=2, hash=98: TinyObjectMap — {"k0":v, "k1":v, …}
-unsafe fn stringify_tiny_map(obj: *const u8, base: *const u8, out: *mut StringBuf) {
+unsafe fn stringify_tiny_map(obj: *const u8, base: *const u8, out: *mut String) {
     let map: *const TinyObjectMap = obj as *const TinyObjectMap;
-    out.append_byte(123 as u8);  // '{'
+    out.push_u8(123 as u8);  // '{'
     let bitmap: u64 = map.header & 0x000FFFFFFFFFFFFF as u64;
     let mut first: bool = true;
     let mut key: u8 = 0 as u8;
@@ -233,28 +196,28 @@ unsafe fn stringify_tiny_map(obj: *const u8, base: *const u8, out: *mut StringBu
         let key_bit: u64 = 1 as u64 << key as u64;
         if (bitmap & key_bit) != 0 as u64 {
             if !first {
-                out.append_byte(44 as u8);   // ','
-                out.append_byte(32 as u8);   // ' '
+                out.push_u8(44 as u8);   // ','
+                out.push_u8(32 as u8);   // ' '
             }
             first = false;
             // key: "kN"
-            out.append_byte(34 as u8);   // '"'
-            out.append_byte(107 as u8);  // 'k'
-            out.write_u64(key as u64);
-            out.append_byte(34 as u8);   // '"'
-            out.append_byte(58 as u8);   // ':'
+            out.push_u8(34 as u8);   // '"'
+            out.push_u8(107 as u8);  // 'k'
+            out.push_u64(key as u64);
+            out.push_u8(34 as u8);   // '"'
+            out.push_u8(58 as u8);   // ':'
             let val: AnyVal = map.get(base, key);
             stringify_anyval(val, base, out);
         }
         key = key + 1 as u8;
     }
-    out.append_byte(125 as u8);  // '}'
+    out.push_u8(125 as u8);  // '}'
 }
 
 // descriptor=2, hash=101: Logos ObjectMap — {"keystr":v, …}
-unsafe fn stringify_logos_map(obj: *const u8, base: *const u8, out: *mut StringBuf) {
+unsafe fn stringify_logos_map(obj: *const u8, base: *const u8, out: *mut String) {
     let map: *const ObjectMap = obj as *const ObjectMap;
-    out.append_byte(123 as u8);  // '{'
+    out.push_u8(123 as u8);  // '{'
     let cap: u32 = map.capacity;
     let ent_base: i64 = base as i64 + map.entries_off as i64;
     let mut first: bool = true;
@@ -264,20 +227,20 @@ unsafe fn stringify_logos_map(obj: *const u8, base: *const u8, out: *mut StringB
             (ent_base + slot as i64 * 16 as i64) as *const MapEntry;
         if ep.key_off != 0 as u64 {
             if !first {
-                out.append_byte(44 as u8);   // ','
-                out.append_byte(32 as u8);   // ' '
+                out.push_u8(44 as u8);   // ','
+                out.push_u8(32 as u8);   // ' '
             }
             first = false;
             let hs: *const HermesString =
                 (base as i64 + ep.key_off as i64) as *const HermesString;
             stringify_quoted_hs(hs, out);
-            out.append_byte(58 as u8);   // ':'
+            out.push_u8(58 as u8);   // ':'
             let val: AnyVal = AnyVal { lo: ep.val_lo, hi: ep.val_hi };
             stringify_anyval(val, base, out);
         }
         slot = slot + 1 as u32;
     }
-    out.append_byte(125 as u8);  // '}'
+    out.push_u8(125 as u8);  // '}'
 }
 
 // ---------------------------------------------------------------------------
@@ -285,7 +248,7 @@ unsafe fn stringify_logos_map(obj: *const u8, base: *const u8, out: *mut StringB
 // ---------------------------------------------------------------------------
 
 // Dispatch on the 2-byte TypeTag preceding `obj`.
-unsafe fn stringify_tagged(obj: *const u8, base: *const u8, out: *mut StringBuf) {
+unsafe fn stringify_tagged(obj: *const u8, base: *const u8, out: *mut String) {
     let desc: u8  = tag_read_descriptor(obj);
     let thash: u8 = tag_read_hash(obj);
     if desc == 1 as u8 {
@@ -304,26 +267,26 @@ unsafe fn stringify_tagged(obj: *const u8, base: *const u8, out: *mut StringBuf)
             stringify_varchar(obj, out);
         } else {
             // Unrecognised tagged type → null
-            out.append_byte(110 as u8);  // 'n'
-            out.append_byte(117 as u8);  // 'u'
-            out.append_byte(108 as u8);  // 'l'
-            out.append_byte(108 as u8);  // 'l'
+            out.push_u8(110 as u8);  // 'n'
+            out.push_u8(117 as u8);  // 'u'
+            out.push_u8(108 as u8);  // 'l'
+            out.push_u8(108 as u8);  // 'l'
         }
     } else {
-        out.append_byte(110 as u8);
-        out.append_byte(117 as u8);
-        out.append_byte(108 as u8);
-        out.append_byte(108 as u8);
+        out.push_u8(110 as u8);
+        out.push_u8(117 as u8);
+        out.push_u8(108 as u8);
+        out.push_u8(108 as u8);
     }
 }
 
 // Stringify any AnyVal: null → "null", value → type-dispatched, pointer → tagged.
-pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut StringBuf) {
+pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut String) {
     if val.is_null() {
-        out.append_byte(110 as u8);  // 'n'
-        out.append_byte(117 as u8);  // 'u'
-        out.append_byte(108 as u8);  // 'l'
-        out.append_byte(108 as u8);  // 'l'
+        out.push_u8(110 as u8);  // 'n'
+        out.push_u8(117 as u8);  // 'u'
+        out.push_u8(108 as u8);  // 'l'
+        out.push_u8(108 as u8);  // 'l'
         return;
     }
     if !val.is_ptr() {
@@ -331,65 +294,60 @@ pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut StringBuf
         let th: u8 = val.type_hash();
         if th == 23 as u8 {
             // Integer (i32): no suffix
-            out.write_i64(val.as_i32() as i64);
+            out.push_i64(val.as_i32() as i64);
         } else if th == 25 as u8 {
             // UInteger (u32): "u" suffix
-            out.write_u64(val.as_u32() as u64);
-            out.append_byte(117 as u8);  // 'u'
+            out.push_u64(val.as_u32() as u64);
+            out.push_u8(117 as u8);  // 'u'
         } else if th == 20 as u8 {
             // TinyInt (i8): "_s8" suffix
-            out.write_i64(val.as_i8() as i64);
-            out.append_byte(95 as u8);   // '_'
-            out.append_byte(115 as u8);  // 's'
-            out.append_byte(56 as u8);   // '8'
+            out.push_i64(val.as_i8() as i64);
+            out.push_u8(95 as u8);   // '_'
+            out.push_u8(115 as u8);  // 's'
+            out.push_u8(56 as u8);   // '8'
         } else if th == 21 as u8 {
             // UTinyInt (u8): "_u8" suffix
-            out.write_u64(val.as_u8() as u64);
-            out.append_byte(95 as u8);   // '_'
-            out.append_byte(117 as u8);  // 'u'
-            out.append_byte(56 as u8);   // '8'
+            out.push_u64(val.as_u8() as u64);
+            out.push_u8(95 as u8);   // '_'
+            out.push_u8(117 as u8);  // 'u'
+            out.push_u8(56 as u8);   // '8'
         } else if th == 22 as u8 {
             // SmallInt (i16): "_s16" suffix
-            out.write_i64(val.as_i16() as i64);
-            out.append_byte(95 as u8);   // '_'
-            out.append_byte(115 as u8);  // 's'
-            out.append_byte(49 as u8);   // '1'
-            out.append_byte(54 as u8);   // '6'
+            out.push_i64(val.as_i16() as i64);
+            out.push_u8(95 as u8);   // '_'
+            out.push_u8(115 as u8);  // 's'
+            out.push_u8(49 as u8);   // '1'
+            out.push_u8(54 as u8);   // '6'
         } else if th == 24 as u8 {
             // USmallInt (u16): "_u16" suffix
-            out.write_u64(val.as_u16() as u64);
-            out.append_byte(95 as u8);   // '_'
-            out.append_byte(117 as u8);  // 'u'
-            out.append_byte(49 as u8);   // '1'
-            out.append_byte(54 as u8);   // '6'
+            out.push_u64(val.as_u16() as u64);
+            out.push_u8(95 as u8);   // '_'
+            out.push_u8(117 as u8);  // 'u'
+            out.push_u8(49 as u8);   // '1'
+            out.push_u8(54 as u8);   // '6'
         } else if th == 37 as u8 {
             // Boolean
             if val.as_bool() {
-                out.append_byte(116 as u8);  // 't'
-                out.append_byte(114 as u8);  // 'r'
-                out.append_byte(117 as u8);  // 'u'
-                out.append_byte(101 as u8);  // 'e'
+                out.push_u8(116 as u8);  // 't'
+                out.push_u8(114 as u8);  // 'r'
+                out.push_u8(117 as u8);  // 'u'
+                out.push_u8(101 as u8);  // 'e'
             } else {
-                out.append_byte(102 as u8);  // 'f'
-                out.append_byte(97 as u8);   // 'a'
-                out.append_byte(108 as u8);  // 'l'
-                out.append_byte(115 as u8);  // 's'
-                out.append_byte(101 as u8);  // 'e'
+                out.push_u8(102 as u8);  // 'f'
+                out.push_u8(97 as u8);   // 'a'
+                out.push_u8(108 as u8);  // 'l'
+                out.push_u8(115 as u8);  // 's'
+                out.push_u8(101 as u8);  // 'e'
             }
         } else if th == 30 as u8 {
-            // Real (f32): placeholder (Logos has no float literals yet)
-            out.append_byte(60 as u8);   // '<'
-            out.append_byte(114 as u8);  // 'r'
-            out.append_byte(101 as u8);  // 'e'
-            out.append_byte(97 as u8);   // 'a'
-            out.append_byte(108 as u8);  // 'l'
-            out.append_byte(62 as u8);   // '>'
+            // Real (f32)
+            stringify_f32(val.lo, out);
         } else {
             // Unknown embedded type → null
-            out.append_byte(110 as u8);
-            out.append_byte(117 as u8);
-            out.append_byte(108 as u8);
-            out.append_byte(108 as u8);
+            out.push_u8(110 as u8);
+            out.push_u8(117 as u8);
+            out.push_u8(108 as u8);
+            out.push_u8(108 as u8);
         }
         return;
     }
@@ -405,7 +363,7 @@ pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut StringBuf
 
 // Stringify the root value of a Hermes document.
 // base must point to the zone's memory buffer; DocumentHeader is at base[0..7].
-pub unsafe fn stringify_document(base: *const u8, out: *mut StringBuf) {
+pub unsafe fn stringify_document(base: *const u8, out: *mut String) {
     let doc: *const DocumentHeader = base as *const DocumentHeader;
     let root: AnyVal = document_get_root(doc);
     stringify_anyval(root, base, out);

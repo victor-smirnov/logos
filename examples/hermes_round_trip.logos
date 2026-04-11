@@ -6,8 +6,8 @@
 package hermes_example;
 
 use hermes.ctr;
-
-extern fn strlen(s: *const u8) -> i64;
+use std.string;
+use std.io;
 
 fn main() -> i32 {
     let mut doc: HermesCtr = HermesCtr::new(8192);
@@ -22,13 +22,13 @@ fn main() -> i32 {
         }
     "#;
 
-    match doc.parse(text, unsafe { strlen(text) }) {
+    match doc.parse(text, str_len(text)) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 1; }
     }
 
-    doc.stringify();
-    doc.print();
+    let s: String = doc.to_string();
+    println(s.as_ptr());
 
     return 0;
 }

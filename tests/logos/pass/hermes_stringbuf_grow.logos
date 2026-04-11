@@ -1,38 +1,62 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Test: StringBuf growth via realloc — write more bytes than the initial
-// capacity so that grow() is triggered and data is preserved correctly.
+// Test: String growth via realloc — stringify several values into a String
+// starting with small capacity so that grow() is triggered and data is
+// preserved correctly.
 
 package hermes_stringbuf_grow;
 
+use hermes.zone;
+use hermes.anyval;
+use hermes.typetag;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
 use hermes.stringify;
+use std.string;
 
 unsafe fn main() -> i32 {
-    // Start with a tiny capacity of 4 bytes.
-    let mut sb: StringBuf = StringBuf::create(4 as i64);
+    // Set up a zone with a DocumentHeader.
+    let mut zone: HermesZone = HermesZone::create(4096);
+    let base: *mut u8 = zone.base;
+    let hdr_raw: *mut u8 = zone.alloc_raw(8);
+    let doc: *mut DocumentHeader = document_create(hdr_raw);
 
-    // Write 20 bytes (ASCII 'A' = 65).  Each write past the 4-byte cap should
-    // trigger grow(), doubling: 4 → 8 → 16 → 32.
+    // Build an ObjectArray with 20 i32 values so the stringified output
+    // exceeds the String's initial small capacity.
+    let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
+    let oa_raw: *mut u8 = zone.alloc_tagged(oa_sz, hermes_tag_array(), hermes_desc_array());
+    let oa_buf: *mut u8 = zone.alloc_raw(20 as i64 * 8 as i64);
+    let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 20 as u64);
+
+    // Push integers 0..19
     let mut i: i64 = 0 as i64;
     while i < 20 as i64 {
-        sb.append_byte(65 as u8);  // 'A'
+        arr.push(base, AnyVal::embed_i32(i as i32));
         i = i + 1 as i64;
     }
 
-    // After 20 writes the length must be exactly 20.
-    if sb.len != 20 as i64 { return 1; }
+    // Set document root to the array.
+    let arr_off: u32 = (oa_raw as i64 - base as i64) as u32;
+    document_set_root(doc, AnyVal::from_offset(arr_off));
 
-    // All bytes must be 'A' (65).
-    let mut j: i64 = 0 as i64;
-    while j < 20 as i64 {
-        let p: *const u8 = (sb.data as i64 + j) as *const u8;
-        if *p != 65 as u8 { return 2; }
-        j = j + 1 as i64;
-    }
+    // Stringify into a String starting with zero capacity (will grow).
+    let mut sb: String = String::new();
+    stringify_document(base as *const u8, &mut sb);
 
-    // Capacity must be at least 20 after the doublings.
-    if sb.cap < 20 as i64 { return 3; }
+    // The output must be non-empty (at least "[0,1,...,19]" = many bytes).
+    if sb.len() < 20 as i64 { return 1; }
 
-    sb.destroy();
+    // First byte must be '[' (91).
+    if *((sb.as_ptr() as i64 + 0) as *const u8) != 91 as u8 { return 2; }
+
+    // Last byte must be ']' (93).
+    let last_idx: i64 = sb.len() - 1 as i64;
+    if *((sb.as_ptr() as i64 + last_idx) as *const u8) != 93 as u8 { return 3; }
+
+    // Capacity must be at least as large as the length.
+    if sb.capacity() < sb.len() { return 4; }
+
+    zone.destroy();
     return 42;
 }
