@@ -24,9 +24,22 @@ package hermes.ctr;
 
 use hermes.zone;
 use hermes.anyval;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.typetag;
 use hermes.document;
 use hermes.parser;
 use hermes.stringify;
+use std.string;
+
+// cstr_len — byte length of a null-terminated C string.
+unsafe fn cstr_len(s: *const u8) -> i64 {
+    let mut n: i64 = 0 as i64;
+    while *((s as i64 + n) as *const u8) != 0 as u8 {
+        n = n + 1 as i64;
+    }
+    return n;
+}
 
 // POSIX write(2) — fd 1 = stdout.
 extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
@@ -113,6 +126,76 @@ impl HermesCtr {
     // Zone base pointer (for advanced access to zone-allocated objects).
     pub fn base(&self) -> *const u8 {
         unsafe { return self.zone.base as *const u8; }
+    }
+
+    // Stringify the parsed document and return it as an owned String.
+    pub fn to_string(&mut self) -> String {
+        self.stringify();
+        return String::from_bytes(self.data(), self.len());
+    }
+
+    // ── Value extraction helpers ───────────────────────────────────────────────
+
+    // Return i64 value of an Integer AnyVal (hash=23). Returns 0 if not int.
+    pub fn get_int(&self, val: AnyVal) -> i64 {
+        unsafe { return val.as_i64(); }
+    }
+
+    // Return bool value of a Boolean AnyVal (hash=37). Returns false if not bool.
+    pub fn get_bool(&self, val: AnyVal) -> bool {
+        unsafe {
+            if !val.is_bool() { return false; }
+            return val.as_bool();
+        }
+    }
+
+    // ── Array traversal ───────────────────────────────────────────────────────
+
+    // Number of elements in an ObjectArray AnyVal. Returns 0 if val is not an array.
+    pub fn array_len(&self, val: AnyVal) -> u64 {
+        unsafe {
+            let base: *const u8 = self.zone.base as *const u8;
+            if !val.is_array(base) { return 0 as u64; }
+            let arr: *const ObjectArray =
+                (base as i64 + val.as_offset() as i64) as *const ObjectArray;
+            return arr.len();
+        }
+    }
+
+    // Get element at `idx` from an ObjectArray AnyVal.
+    // Returns AnyVal::null_ptr() if val is not an array or idx is out of bounds.
+    pub fn array_get(&self, val: AnyVal, idx: u64) -> AnyVal {
+        unsafe {
+            let base: *const u8 = self.zone.base as *const u8;
+            if !val.is_array(base) { return AnyVal::null_ptr(); }
+            let arr: *const ObjectArray =
+                (base as i64 + val.as_offset() as i64) as *const ObjectArray;
+            return arr.get(base, idx);
+        }
+    }
+
+    // ── Map traversal ─────────────────────────────────────────────────────────
+
+    // Look up a key in an ObjectMap AnyVal by null-terminated C string.
+    // Returns AnyVal::null_ptr() if val is not a map or key is not found.
+    pub fn map_get_cstr(&self, val: AnyVal, key: *const u8) -> AnyVal {
+        unsafe {
+            let base: *const u8 = self.zone.base as *const u8;
+            if !val.is_map(base) { return AnyVal::null_ptr(); }
+            // Read the descriptor to distinguish TinyObjectMap (hash=98) from
+            // ObjectMap (hash=101). TinyObjectMap uses numeric keys only;
+            // for string lookups we treat it as not found.
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag_hash: u8 = *((obj as i64 - 2 as i64) as *const u8);
+            if tag_hash == 98 as u8 {
+                // TinyObjectMap: keys are u8 integers, not strings.
+                return AnyVal::null_ptr();
+            }
+            // ObjectMap (hash=101): open-addressing, string keys.
+            let omap: *const ObjectMap = obj as *const ObjectMap;
+            let klen: i64 = cstr_len(key);
+            return omap.get(base, key, klen as u64);
+        }
     }
 
 }
