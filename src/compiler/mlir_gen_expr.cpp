@@ -245,8 +245,52 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLitData& e, const LogosType* t
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
     auto lhs = gen_expr(*e.lhs);
+    if (!lhs) return nullptr;
+
+    // Short-circuit operators: evaluate RHS only when LHS doesn't determine the result.
+    // && : if LHS is false, result is false (skip RHS)
+    // || : if LHS is true,  result is true  (skip RHS)
+    if (e.op == "&&" || e.op == "||") {
+        auto i1 = builder_.getI1Type();
+        auto result_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), i1, i64_one());
+
+        auto* region      = builder_.getBlock()->getParent();
+        auto* rhs_block   = new mlir::Block();
+        auto* sc_block    = new mlir::Block();
+        auto* merge_block = new mlir::Block();
+        region->push_back(rhs_block);
+        region->push_back(sc_block);
+        region->push_back(merge_block);
+
+        // && : evaluate RHS when LHS=true; short-circuit to false when LHS=false
+        // || : evaluate RHS when LHS=false; short-circuit to true  when LHS=true
+        if (e.op == "&&")
+            builder_.create<mlir::cf::CondBranchOp>(loc_, lhs, rhs_block, sc_block);
+        else
+            builder_.create<mlir::cf::CondBranchOp>(loc_, lhs, sc_block, rhs_block);
+
+        // Short-circuit block: store the known result without evaluating RHS.
+        builder_.setInsertionPointToStart(sc_block);
+        auto sc_val = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, (e.op == "||") ? 1 : 0, 1);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, sc_val, result_alloca);
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        // RHS block: evaluate RHS, store its value.
+        builder_.setInsertionPointToStart(rhs_block);
+        auto rhs_val = gen_expr(*e.rhs);
+        if (!rhs_val)
+            rhs_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, rhs_val, result_alloca);
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        builder_.setInsertionPointToStart(merge_block);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, i1, result_alloca);
+    }
+
     auto rhs = gen_expr(*e.rhs);
-    if (!lhs || !rhs) return nullptr;
+    if (!rhs) return nullptr;
     // Widen narrower integer operand, using zero-extend for unsigned types.
     if (auto li = mlir::dyn_cast<mlir::IntegerType>(lhs.getType())) {
         if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType())) {
@@ -685,6 +729,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
     // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
     bool idx_unsigned = e.index->type &&
         (e.index->type->kind == LogosType::Kind::U8  ||
+         e.index->type->kind == LogosType::Kind::U16 ||
          e.index->type->kind == LogosType::Kind::U32 ||
          e.index->type->kind == LogosType::Kind::U64);
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
@@ -1278,6 +1323,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceIndex& e, const LogosType* ty
     // GEP into data array by index.
     bool idx_unsigned = e.index->type &&
         (e.index->type->kind == LogosType::Kind::U8  ||
+         e.index->type->kind == LogosType::Kind::U16 ||
          e.index->type->kind == LogosType::Kind::U32 ||
          e.index->type->kind == LogosType::Kind::U64);
     mlir::Value gep_idx;

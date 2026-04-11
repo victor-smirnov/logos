@@ -1,0 +1,12 @@
+package index_write_u8;
+// Bug 3: gen_index_write used raw (sign-extended) GEP index for unsigned types.
+// arr[u8(200)] → GEP(arr, i8(-56)) → writes 56 elements BEFORE arr, leaving arr[200] unchanged.
+// Fix: zero-extend u8/u16/u32/u64 index before GEP, same as EIndexRead already did.
+
+fn main() -> i32 {
+    let mut arr: [i32; 201] = [0; 201];
+    arr[200] = 1;           // canonical write: element 200 = 1
+    let idx: u8 = 200u8;
+    arr[idx] = 42;          // should overwrite arr[200] with 42
+    return arr[200];        // 42 if fixed; 1 if index was sign-extended to -56
+}

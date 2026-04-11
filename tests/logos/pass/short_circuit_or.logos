@@ -1,0 +1,20 @@
+package short_circuit_or;
+// Bug 5 (||): || was lowered to arith.ori so RHS was always evaluated.
+// Fix: generate control-flow — only evaluate RHS when LHS is false.
+
+unsafe fn inc(p: *mut i32) -> bool {
+    *p = *p + 1;
+    return true;
+}
+
+unsafe fn main() -> i32 {
+    let mut x: i32 = 0;
+    let p: *mut i32 = &mut x;
+    // With correct short-circuit: LHS=true → RHS not called → x stays 0
+    // With old bitwise OR:        both sides always evaluated → x becomes 1
+    let _: bool = true || inc(p);
+    if x == 0 {
+        return 42;  // RHS was correctly skipped
+    }
+    return 0;       // RHS was wrongly evaluated
+}

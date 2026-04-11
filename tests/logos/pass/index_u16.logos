@@ -1,0 +1,11 @@
+package index_u16;
+// Bug 1+2: U16 was missing from the unsigned-index zero-extension check in both
+// EIndexRead and ESliceIndex. For values >= 32768 the index was sign-extended
+// (e.g. u16(32768) → i16(-32768) → GEP goes backwards). This tests the read path.
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [10, 20, 30, 40, 50];
+    let idx: u16 = 2u16;
+    let v: i32 = arr[idx];  // should read arr[2] = 30
+    return v + 12;           // 30 + 12 = 42
+}

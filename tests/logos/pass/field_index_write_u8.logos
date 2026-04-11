@@ -1,0 +1,14 @@
+package field_index_write_u8;
+// Bug 4: gen_field_index_write used coerce_int (sign-extends) for the GEP index.
+// s.data[u8(200)] → coerce_int(i8(-56), i32) = i32(-56) → writes to wrong location.
+// Fix: use zero-extension (ExtUIOp) for unsigned index types.
+
+struct Buffer { data: [i32; 201] }
+
+fn main() -> i32 {
+    let mut buf: Buffer = Buffer { data: [0; 201] };
+    buf.data[200] = 1;          // canonical write: element 200 = 1
+    let idx: u8 = 200u8;
+    buf.data[idx] = 42;         // should overwrite buf.data[200] with 42
+    return buf.data[200];       // 42 if fixed; 1 if index was sign-extended
+}

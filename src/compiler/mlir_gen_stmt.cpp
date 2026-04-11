@@ -1063,6 +1063,14 @@ void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
     if (!idx || !val) return;
     val = coerce_int(val, elem_type);
 
+    // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
+    bool idx_unsigned = s.index->type &&
+        (s.index->type->kind == LogosType::Kind::U8  ||
+         s.index->type->kind == LogosType::Kind::U16 ||
+         s.index->type->kind == LogosType::Kind::U32 ||
+         s.index->type->kind == LogosType::Kind::U64);
+    if (idx_unsigned && idx.getType() != builder_.getI64Type())
+        idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, base_ptr, indices);
@@ -1108,20 +1116,36 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
     if (!idx || !val) return;
     val = coerce_int(val, val_type);
 
+    // Zero-extend unsigned index types; coerce_int sign-extends, which is wrong for u8/u16/u32/u64.
+    bool idx_unsigned = s.index->type &&
+        (s.index->type->kind == LogosType::Kind::U8  ||
+         s.index->type->kind == LogosType::Kind::U16 ||
+         s.index->type->kind == LogosType::Kind::U32 ||
+         s.index->type->kind == LogosType::Kind::U64);
+    auto extend_idx = [&](mlir::Type to) -> mlir::Value {
+        if (idx.getType() == to) return idx;
+        auto fi = mlir::dyn_cast<mlir::IntegerType>(idx.getType());
+        auto ti = mlir::dyn_cast<mlir::IntegerType>(to);
+        if (!fi || !ti) return coerce_int(idx, to);
+        if (ti.getWidth() > fi.getWidth())
+            return idx_unsigned
+                ? builder_.create<mlir::arith::ExtUIOp>(loc_, to, idx).getResult()
+                : builder_.create<mlir::arith::ExtSIOp>(loc_, to, idx).getResult();
+        return builder_.create<mlir::arith::TruncIOp>(loc_, to, idx);
+    };
+
     mlir::Value base_ptr;
     if (is_array_field) {
         // field_gep points to the array — index directly into it.
         llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx;
         arr_idx.push_back(mlir::LLVM::GEPArg(int32_t(0)));
-        auto idx_i32 = coerce_int(idx, builder_.getIntegerType(32));
-        arr_idx.push_back(mlir::LLVM::GEPArg(idx_i32));
+        arr_idx.push_back(mlir::LLVM::GEPArg(extend_idx(builder_.getIntegerType(32))));
         base_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), field_mlir_type, field_gep, arr_idx);
     } else {
         // Pointer field: load the stored pointer, then GEP to element.
         auto field_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_gep);
-        auto idx_i32 = coerce_int(idx, builder_.getIntegerType(32));
-        llvm::SmallVector<mlir::LLVM::GEPArg> ptr_idx{idx_i32};
+        llvm::SmallVector<mlir::LLVM::GEPArg> ptr_idx{extend_idx(builder_.getIntegerType(32))};
         base_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), val_type, field_ptr, ptr_idx);
     }
