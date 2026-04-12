@@ -15,6 +15,7 @@
 
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/ast.hpp>
+#include <logos/compiler/sha256.hpp>
 #include <logos/hermes/view.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/object_array.hpp>

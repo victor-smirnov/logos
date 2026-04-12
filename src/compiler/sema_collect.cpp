@@ -35,6 +35,8 @@ void SemaChecker::collect(const std::vector<hermes::HermesCtr>& asts) {
                 if (structs_.count(sname)) error(std::format("duplicate struct '{}'", sname));
                 else structs_[sname] = {};
             } else if (ic == la::DATATYPE) {
+                // Explicit instantiation declarations have no NAME key — skip name registration.
+                if (!item.has_key(la::NAME.code)) continue;
                 auto dname = std::string(str_of(item.get(la::NAME.code)));
                 if (datatypes_.count(dname)) error(std::format("duplicate datatype '{}'", dname));
                 else datatypes_[dname] = {};

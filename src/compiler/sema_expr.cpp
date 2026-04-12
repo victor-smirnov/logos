@@ -1026,6 +1026,48 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return make_expr(prim(LogosType::Kind::I64), lir::ESizeOf{elem});
     }
 
+    // type_code_of::<T>() — returns the Hermes type_code of a concrete datatype as u64.
+    // For concrete (non-generic) datatypes: SHA-256 of "package::Name" truncated to 56 bits,
+    // shifted to >= 128 if needed (codes 1-127 are reserved for inline AnyVal).
+    // For non-datatype T: returns 0.
+    if (callee == "type_code_of") {
+        const LogosType* elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("type_code_of::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        uint64_t code = 0;
+        if (elem->kind == LogosType::Kind::Datatype && elem->type_args.empty()) {
+            // Bug 1 fix: datatypes_ only holds locally-defined types; also check structs_
+            // as a fallback for types imported from other packages.
+            auto dit = datatypes_.find(elem->struct_name);
+            std::string pkg;
+            if (dit != datatypes_.end()) {
+                pkg = dit->second.package;
+            } else {
+                auto sit = structs_.find(elem->struct_name);
+                if (sit != structs_.end()) pkg = sit->second.package;
+            }
+            std::string canon = pkg + "::" + elem->struct_name;
+            auto hash = type_hash_23(canon);
+            uint64_t raw = type_hash_56bit(hash);
+            code = (raw < 128) ? (raw + 128) : raw;
+        } else if (elem->kind == LogosType::Kind::Datatype && !elem->type_args.empty()) {
+            error("type_code_of::<T>() cannot resolve type_code for uninstantiated generic datatype");
+            return error_expr();
+        }
+        // Return code as i64 bits (type is U64; bits identical for values < 2^63).
+        return make_expr(prim(LogosType::Kind::U64), lir::ELitInt{(int64_t)code});
+    }
+
     // Prefer the generic overload (for variadic base case overloading)
     SemaFuncInfo* fi_ptr = nullptr;
     {
