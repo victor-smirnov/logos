@@ -1,0 +1,8 @@
+package assoc_const_standalone;
+
+struct Foo {}
+impl Foo {
+    const CAPACITY: i32 = 256;
+    fn new() -> Foo { return Foo {}; }
+}
+unsafe fn main() -> i32 { return 0; }

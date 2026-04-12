@@ -1,0 +1,16 @@
+package assoc_const_access;
+
+trait Limit {
+    const MAX: i32;
+    fn check(self: Self, v: i32) -> bool;
+}
+struct Buffer {}
+impl Limit for Buffer {
+    const MAX: i32 = 100;
+    fn check(self: Buffer, v: i32) -> bool { return v <= Buffer::MAX; }
+}
+unsafe fn main() -> i32 {
+    let b = Buffer {};
+    if b.check(99) { return 0; }
+    return 1;
+}

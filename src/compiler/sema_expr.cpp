@@ -2387,6 +2387,20 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     auto vname = str_of(node.get(la::FIELD.code));
     auto eit = enums_.find(std::string(ename));
     if (eit == enums_.end()) {
+        // Before reporting "unknown enum", check if this is an associated constant
+        // access (e.g. Buffer::MAX) parsed as ENUM_LIT due to grammar ambiguity.
+        std::string cname_str = std::string(ename);
+        std::string mname_str = std::string(vname);
+        for (auto& [tname, tinfo] : traits_) {
+            if (!impls_.count(tname + "::" + cname_str)) continue;
+            std::string key = tname + "::" + cname_str + "::" + mname_str;
+            auto cit = assoc_const_impls_.find(key);
+            if (cit != assoc_const_impls_.end()) {
+                auto val = lower_expr(map_of(cit->second.value_ast));
+                if (cit->second.type) val->type = cit->second.type;
+                return val;
+            }
+        }
         error(std::format("unknown enum '{}'", ename));
         return error_expr();
     }
@@ -2743,6 +2757,21 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
     if (!fi_ptr) {
+        // Check if this is an associated constant access: TypeName::CONST_NAME
+        // Look through all traits implemented by class_name for a matching constant.
+        std::string cname_str = std::string(class_name);
+        std::string mname_str = std::string(method_name);
+        for (auto& [tname, tinfo] : traits_) {
+            if (!impls_.count(tname + "::" + cname_str)) continue;
+            std::string key = tname + "::" + cname_str + "::" + mname_str;
+            auto cit = assoc_const_impls_.find(key);
+            if (cit != assoc_const_impls_.end()) {
+                // Lower the constant value expression and return it directly.
+                auto val = lower_expr(map_of(cit->second.value_ast));
+                if (cit->second.type) val->type = cit->second.type;
+                return val;
+            }
+        }
         error(std::format("call to undefined static method '{}::{}'", class_name, method_name));
         return make_expr(error_t(), lir::ECall{mangled, {}, std::move(arg_exprs)});
     }

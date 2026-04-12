@@ -1,0 +1,10 @@
+package assoc_const_type_mismatch;
+
+trait Sized {
+    const LEN: i32;
+}
+struct Buf {}
+impl Sized for Buf {
+    const LEN: i64 = 10;
+}
+unsafe fn main() -> i32 { return 0; }

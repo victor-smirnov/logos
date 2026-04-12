@@ -90,7 +90,10 @@ void SemaChecker::simplify_all_types() {
     for (auto& [name, info] : generic_funcs_) simplify_fn(info);
     for (auto& [name, entry] : type_aliases_)
         entry.type = subst_type_sema(entry.type, {});
-    for (auto& [name, t] : module_consts_)   t = subst_type_sema(t, {});
+    for (auto& [name, t] : module_consts_)
+        t = subst_type_sema(t, {});
+    for (auto& [key, entry] : assoc_const_impls_)
+        if (entry.type) entry.type = subst_type_sema(entry.type, {});
 }
 
 std::string SemaChecker::read_package_name(TinyMapView mod) {
@@ -492,13 +495,33 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 pop_type_params(gat_tps);
                 std::string key = trait_name + "::" + target + "::" + aname;
                 assoc_type_impls_[key] = { atype, impl_tps, gat_tps };
-            } else if (code_of(m) == la::ASSOC_CONST_IMPL && !trait_name.empty()) {
+            } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
-                const LogosType* ctype = nullptr;
-                if (m.has_key(la::TYPE))
-                    ctype = resolve_type(map_of(m.get(la::TYPE.code)));
-                std::string key = trait_name + "::" + target + "::" + cname;
-                assoc_const_impls_[key] = { ctype, m.get(la::VALUE.code) };
+                if (trait_name.empty()) {
+                    // Standalone impls cannot declare associated constants (no trait to fulfill).
+                    error(std::format("impl {}: associated constants can only appear in trait impls",
+                                      target));
+                } else {
+                    const LogosType* ctype = nullptr;
+                    if (m.has_key(la::TYPE))
+                        ctype = resolve_type(map_of(m.get(la::TYPE.code)));
+                    // Type check: impl's type must match the trait's declared type.
+                    auto tit2 = traits_.find(trait_name);
+                    if (tit2 != traits_.end() && ctype) {
+                        for (auto& ac_def : tit2->second.assoc_consts) {
+                            if (ac_def.name == cname && ac_def.type) {
+                                if (!types_equal(*ac_def.type, *ctype))
+                                    error(std::format(
+                                        "impl {} for {}: associated constant '{}' declared as '{}' but trait requires '{}'",
+                                        trait_name, target, cname,
+                                        type_str(ctype), type_str(ac_def.type)));
+                                break;
+                            }
+                        }
+                    }
+                    std::string key = trait_name + "::" + target + "::" + cname;
+                    assoc_const_impls_[key] = { ctype, m.get(la::VALUE) };  // Bug 1 fix: no .code
+                }
             }
         }
     }
