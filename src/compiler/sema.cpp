@@ -1067,6 +1067,19 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             error(std::format("no associated type '{}' found for '{}'", assoc, type_str(base_type)));
             return error_t();
         }
+        // Bug 5 fix: check GAT arity against the trait's declaration.
+        auto tit_gat = traits_.find(trait_for_assoc);
+        if (tit_gat != traits_.end()) {
+            for (auto& at_def : tit_gat->second.assoc_types) {
+                if (at_def.name == assoc) {
+                    size_t expected_gat = at_def.type_params.size();
+                    if (!at_def.type_params.empty() && gat_args.size() != expected_gat)
+                        error(std::format("associated type '{}::{}' expects {} GAT argument(s), got {}",
+                                          trait_for_assoc, assoc, expected_gat, gat_args.size()));
+                    break;
+                }
+            }
+        }
         LogosType t;
         t.kind            = LogosType::Kind::AssocType;
         t.assoc_base      = base_type;

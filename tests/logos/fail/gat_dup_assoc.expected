@@ -1,0 +1,1 @@
+error [impl Map for Foo]: impl Map for Foo: duplicate associated type 'Out'

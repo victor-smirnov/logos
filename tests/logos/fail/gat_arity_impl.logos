@@ -1,0 +1,7 @@
+package gat_arity_impl;
+trait Map { type Out<T>; }
+struct Foo {}
+impl Map for Foo {
+    type Out = i32;
+}
+unsafe fn main() -> i32 { return 0; }

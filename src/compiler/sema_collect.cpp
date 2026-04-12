@@ -94,6 +94,11 @@ void SemaChecker::simplify_all_types() {
         t = subst_type_sema(t, {});
     for (auto& [key, entry] : assoc_const_impls_)
         if (entry.type) entry.type = subst_type_sema(entry.type, {});
+    // Bug 1 fix: simplify assoc type impl body types as well.
+    // Non-generic body types (e.g. type Inner<T> = i32) get their concrete types
+    // resolved; types containing TypeVars are left unchanged for later substitution.
+    for (auto& [key, entry] : assoc_type_impls_)
+        if (entry.type) entry.type = subst_type_sema(entry.type, {});
 }
 
 std::string SemaChecker::read_package_name(TinyMapView mod) {
@@ -491,12 +496,35 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     collect_fn(m, target);
             } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
                 auto aname = std::string(str_of(m.get(la::NAME.code)));
+                // Bug 3 fix: detect duplicate assoc type impl for the same trait+type+name.
+                std::string key = trait_name + "::" + target + "::" + aname;
+                if (assoc_type_impls_.count(key))
+                    error(std::format("impl {} for {}: duplicate associated type '{}'",
+                                      trait_name, target, aname));
                 // GAT: read assoc type's own params (e.g. type Item<T> = ...)
                 std::vector<TypeParam> gat_tps = read_type_params(m);
+                // Bug 2 fix: GAT param names must not shadow impl type param names.
+                for (auto& gtp : gat_tps)
+                    for (auto& itp : impl_tps)
+                        if (gtp.name == itp.name)
+                            error(std::format("impl {} for {}: GAT param '{}' shadows impl type param",
+                                              trait_name, target, gtp.name));
+                // Bug 4 fix: impl GAT arity must match the trait's declaration.
+                auto tit_gat = traits_.find(trait_name);
+                if (tit_gat != traits_.end()) {
+                    for (auto& at_def : tit_gat->second.assoc_types) {
+                        if (at_def.name == aname && at_def.type_params.size() != gat_tps.size()) {
+                            error(std::format(
+                                "impl {} for {}: associated type '{}' has {} GAT params but trait declares {}",
+                                trait_name, target, aname,
+                                gat_tps.size(), at_def.type_params.size()));
+                            break;
+                        }
+                    }
+                }
                 push_type_params(gat_tps);
                 auto* atype = resolve_type(map_of(m.get(la::TYPE.code)));
                 pop_type_params(gat_tps);
-                std::string key = trait_name + "::" + target + "::" + aname;
                 assoc_type_impls_[key] = { atype, impl_tps, gat_tps };
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));

@@ -1,0 +1,1 @@
+error [impl Map for Foo]: impl Map for Foo: associated type 'Out' has 0 GAT params but trait declares 1

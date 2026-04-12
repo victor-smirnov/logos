@@ -1,0 +1,8 @@
+package gat_dup_assoc;
+trait Map { type Out<T>; }
+struct Foo {}
+impl Map for Foo {
+    type Out<T> = T;
+    type Out<T> = i32;
+}
+unsafe fn main() -> i32 { return 0; }
