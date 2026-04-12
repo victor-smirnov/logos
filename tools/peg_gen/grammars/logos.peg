@@ -826,9 +826,10 @@
         / KW_REF IDENT
         => { CODE: PAT_WILD, NAME: $2, IS_REF: true }
         // reference pattern: &mut pat or &pat
-        / AMP KW_MUT pat_single_base
+        // NG1: use pat_single (not pat_single_base) so &ref x, &n@42, etc. work.
+        / AMP KW_MUT pat_single
         => { CODE: PAT_REF, IS_MUT: true, VALUE: $3 }
-        / AMP pat_single_base
+        / AMP pat_single
         => { CODE: PAT_REF, VALUE: $2 }
         // everything else
         / pat_single_base

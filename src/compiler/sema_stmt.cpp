@@ -4,6 +4,7 @@
 
 #include "sema_impl.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <format>
 #include <functional>
@@ -744,7 +745,8 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         if (eit == enums_.end()) {
             error(std::format("pattern: unknown enum '{}'", pename));
         } else {
-            if (scrut_type->kind == LogosType::Kind::Enum &&
+            // NS5: guard scrut_type null before accessing kind (could be null for unknown types).
+            if (scrut_type && scrut_type->kind == LogosType::Kind::Enum &&
                 scrut_type->enum_name != pename)
                 error(std::format("pattern: enum '{}' != scrutinee '{}'",
                       pename, type_str(scrut_type)));
@@ -834,6 +836,41 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         lir::PatOr por;
         for (uint64_t i = 0; i < arr.size(); ++i)
             por.alts.push_back(build_pattern(map_of(arr.get(i)), scrut_type));
+        // NG4: validate that all alternatives bind the exact same set of names.
+        std::function<void(const lir::Pattern&, std::vector<std::string>&)> collect_names;
+        collect_names = [&](const lir::Pattern& p, std::vector<std::string>& out) {
+            if (auto* pw  = std::get_if<lir::PatWild>(&p))
+                { if (pw->name != "_") out.push_back(pw->name); }
+            else if (auto* pa  = std::get_if<lir::PatAt>(&p))
+                { if (pa->name != "_") out.push_back(pa->name);
+                  if (!pa->sub.empty()) collect_names(pa->sub[0], out); }
+            else if (auto* pt  = std::get_if<lir::PatTuple>(&p))
+                { for (auto& n : pt->bindings) if (n != "_") out.push_back(n); }
+            else if (auto* pst = std::get_if<lir::PatStruct>(&p))
+                { for (auto& f : pst->fields)
+                    { if (!f.sub.empty()) collect_names(f.sub[0], out);
+                      else out.push_back(f.field_name); } }
+            else if (auto* pvd = std::get_if<lir::PatVariantData>(&p))
+                { for (auto& n : pvd->bindings) if (n != "_") out.push_back(n); }
+            else if (auto* por2 = std::get_if<lir::PatOr>(&p))
+                { if (!por2->alts.empty()) collect_names(por2->alts[0], out); }
+            else if (auto* prb = std::get_if<lir::PatRefBind>(&p))
+                { if (!prb->name.empty() && prb->name != "_") out.push_back(prb->name); }
+            else if (auto* prp = std::get_if<lir::PatRefPat>(&p))
+                { if (!prp->inner.empty()) collect_names(prp->inner[0], out); }
+        };
+        if (!por.alts.empty()) {
+            std::vector<std::string> first_names;
+            collect_names(por.alts[0], first_names);
+            std::sort(first_names.begin(), first_names.end());
+            for (size_t i = 1; i < por.alts.size(); ++i) {
+                std::vector<std::string> alt_names;
+                collect_names(por.alts[i], alt_names);
+                std::sort(alt_names.begin(), alt_names.end());
+                if (alt_names != first_names)
+                    error(std::format("or-pattern: all alternatives must bind the same variable names"));
+            }
+        }
         return por;
     }
     if (pc == la::PAT_BOOL) {
@@ -921,7 +958,9 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         auto sub_pat = build_pattern(sub_node, scrut_type);
         lir::PatAt pa;
         pa.name = bname;
-        pa.type = scrut_type;
+        // NS3: scrut_type may be null for unknown types; fallback to error_t() so
+        // bind_pattern can always define the variable (even with error type).
+        pa.type = scrut_type ? scrut_type : error_t();
         pa.sub.push_back(std::move(sub_pat));
         return pa;
     }
@@ -931,11 +970,21 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         bool is_mut = pnode.has_key(la::IS_MUT) &&
                       pnode.get(la::IS_MUT.code).is_value() &&
                       pnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
-        const LogosType* inner_type = scrut_type;
-        if (scrut_type && (scrut_type->kind == LogosType::Kind::Ref ||
-                           scrut_type->kind == LogosType::Kind::MutRef) &&
-            scrut_type->pointee)
-            inner_type = scrut_type->pointee;
+        const LogosType* inner_type = error_t();
+        if (scrut_type && scrut_type->kind != LogosType::Kind::Error) {
+            if (scrut_type->kind == LogosType::Kind::Ref ||
+                scrut_type->kind == LogosType::Kind::MutRef) {
+                // NS2: &mut pattern requires &mut scrutinee; & pattern accepts both.
+                if (is_mut && scrut_type->kind != LogosType::Kind::MutRef)
+                    error(std::format("reference pattern: '&mut' requires '&mut' scrutinee, got '{}'",
+                          type_str(scrut_type)));
+                inner_type = scrut_type->pointee ? scrut_type->pointee : error_t();
+            } else {
+                // NS1: non-reference scrutinee with a reference pattern is always wrong.
+                error(std::format("reference pattern requires reference scrutinee, got '{}'",
+                      type_str(scrut_type)));
+            }
+        }
         auto sub_node = map_of(pnode.get(la::VALUE.code));
         auto inner_pat = build_pattern(sub_node, inner_type);
         lir::PatRefPat prp;
@@ -1028,6 +1077,17 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                 }
             }
         }
+        // NG5: validate that all struct fields are covered (listed by name or '..' present).
+        if (sinfo && !ps.has_rest) {
+            for (auto& f : sinfo->fields) {
+                bool covered = false;
+                for (auto& pfb : ps.fields)
+                    if (pfb.field_name == f.name) { covered = true; break; }
+                if (!covered)
+                    error(std::format("struct pattern: field '{}' not covered (add '..' to ignore remaining fields)",
+                          f.name));
+            }
+        }
         return ps;
     }
 
@@ -1080,6 +1140,12 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                 error(std::format("slice pattern: {} + {} elements exceed array size {}",
                       psl.prefix.size(), psl.suffix.size(), arr_size));
         }
+        // NG2: Dynamic slices (Slice kind) don't have a known length at compile time.
+        // Suffix elements after .. require computing total-N indices, which needs runtime
+        // length. Reject suffix patterns on dynamic slices; codegen would produce wrong code.
+        if (scrut_type && scrut_type->kind == LogosType::Kind::Slice &&
+            found_rest && !psl.suffix.empty())
+            error("slice pattern: suffix after '..' not supported for dynamic slices");
         return psl;
     }
 
@@ -1108,8 +1174,12 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
         if (pa->type && pa->name != "_") define(pa->name, pa->type);  // S5: guard _ name
         if (!pa->sub.empty()) bind_pattern(pa->sub[0], pa->type);
     } else if (auto* prp = std::get_if<lir::PatRefPat>(&pat)) {
-        const LogosType* inner_t = scrut_type;
-        if (scrut_type && scrut_type->pointee) inner_t = scrut_type->pointee;
+        // NS4: only extract pointee when the kind is actually Ref or MutRef.
+        const LogosType* inner_t = error_t();
+        if (scrut_type && (scrut_type->kind == LogosType::Kind::Ref ||
+                           scrut_type->kind == LogosType::Kind::MutRef) &&
+            scrut_type->pointee)
+            inner_t = scrut_type->pointee;
         if (!prp->inner.empty()) bind_pattern(prp->inner[0], inner_t);
     } else if (auto* ps = std::get_if<lir::PatStruct>(&pat)) {
         // Look up struct info to get field types.

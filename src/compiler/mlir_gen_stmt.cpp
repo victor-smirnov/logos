@@ -1232,6 +1232,13 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             return pa->sub.empty() || is_irrefutable(pa->sub[0]);
         if (auto* prp = std::get_if<lir::PatRefPat>(&p))
             return prp->inner.empty() || is_irrefutable(prp->inner[0]);
+        // NC5: PatOr is irrefutable only if all alternatives are irrefutable.
+        if (auto* por = std::get_if<lir::PatOr>(&p)) {
+            if (por->alts.empty()) return true;
+            for (auto& alt : por->alts)
+                if (!is_irrefutable(alt)) return false;
+            return true;
+        }
         return false;
     };
     if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Tuple) {
@@ -1385,8 +1392,20 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 } else if (auto* pw = std::get_if<lir::PatWild>(&pfb.sub[0])) {
                     // C1: Explicit rename: Point { x: a } → bind pw->name to x's value.
                     if (pw->name != "_") bind_struct_field(pw->name);
+                } else if (auto* prb = std::get_if<lir::PatRefBind>(&pfb.sub[0])) {
+                    // NC3: ref binding to struct field: Point { x: ref px } → px = &field.
+                    if (!prb->name.empty() && prb->name != "_") {
+                        auto fp = gep_field(sptr, sinfo, pfb.field_name);
+                        if (fp) {
+                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                                loc_, ptr_type(), ptr_type(), i64_one());
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
+                            scope_[prb->name] = alloca;
+                            let_vars_.insert(prb->name);
+                            var_elem_types_[prb->name] = ptr_type();
+                        }
+                    }
                 }
-                // Complex sub-patterns (PatRefBind, PatAt, etc.) deferred to future work.
             }
             return;
         }
@@ -1474,6 +1493,27 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 scope_[prb->name] = alloca;
                 let_vars_.insert(prb->name);
                 var_elem_types_[prb->name] = ptr_type();
+            }
+            return;
+        }
+        // ── PatRefPat: &pat or &mut pat — recurse into inner pattern ─────
+        // NC1: extract_payload was missing a PatRefPat handler.
+        if (auto* prp = std::get_if<PatRefPat>(&arm.pat)) {
+            if (!prp->inner.empty()) {
+                lir::LMatchArm sub_arm;
+                sub_arm.pat = prp->inner[0];
+                extract_payload(sub_arm);
+            }
+            return;
+        }
+        // ── PatOr: extract bindings from first alternative ────────────────
+        // NC2: extract_payload was missing a PatOr handler.
+        // All alts must bind the same names (sema ensures this); use first alt.
+        if (auto* por = std::get_if<PatOr>(&arm.pat)) {
+            if (!por->alts.empty()) {
+                lir::LMatchArm sub_arm;
+                sub_arm.pat = por->alts[0];
+                extract_payload(sub_arm);
             }
             return;
         }
@@ -1567,12 +1607,17 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         } else if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
             // OR pattern: chain of comparisons — any match goes to arm_entry.
             // Build right-to-left so each test falls through to the next.
+            // NC4: get_disc only handles scalar patterns; PatRange and structural
+            // patterns inside PatOr are not representable as a single discriminant.
+            // Callers must not pass PatOr with non-scalar alternatives here.
             auto get_disc = [](const lir::Pattern& p) -> int64_t {
                 if (auto* pv  = std::get_if<lir::PatVariant>(&p))     return pv->disc;
                 if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) return pvd->disc;
                 if (auto* pi  = std::get_if<lir::PatInt>(&p))         return pi->value;
                 if (auto* pb  = std::get_if<lir::PatBool>(&p))        return pb->value ? 1 : 0;
-                return 0;
+                // PatRange and structural patterns inside PatOr are unsupported here;
+                // sema should reject them. Return INT64_MIN as sentinel.
+                return std::numeric_limits<int64_t>::min();
             };
             mlir::Block* cur_else = else_block;
             for (int64_t ai = static_cast<int64_t>(por->alts.size()) - 1; ai >= 0; --ai) {

@@ -59,9 +59,20 @@ void Mono::scan_stmt(const lir::LStmt& st) {
             // no-op: SDrop only references a variable name, not an expression
         } else if constexpr (std::is_same_v<K, lir::SMatch>) {
             scan_expr(*k.scrut);
-            for (auto& arm : k.arms) scan_block(*arm.body);
+            for (auto& arm : k.arms) {
+                // NM3: scan guard expressions so generic calls inside guards are found.
+                if (arm.guard) scan_expr(**arm.guard);
+                scan_block(*arm.body);
+            }
         } else if constexpr (std::is_same_v<K, lir::SForEach>) {
             scan_expr(*k.iter); scan_block(*k.body);
+        } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
+            // NM1: scan scrutinee and the else diverge-block for generic calls.
+            scan_expr(*k.scrut);
+            scan_block(*k.else_block);
+        } else if constexpr (std::is_same_v<K, lir::SBreak>) {
+            // NM5: break-with-value expressions may contain generic calls.
+            if (k.value) scan_expr(*k.value);
         }
     }, st.kind);
 }

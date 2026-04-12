@@ -663,43 +663,51 @@ inline bool intlit_fits(int64_t v, LogosType::Kind k) noexcept {
 inline int64_t parse_int_literal(std::string_view sv) noexcept {
     bool negative = !sv.empty() && sv[0] == '-';
     if (negative) sv = sv.substr(1);
-    int64_t result = 0;
+    // NG3: use uint64_t to avoid signed overflow during accumulation.
+    // Parsing "9223372036854775808" (INT64_MAX+1) into int64_t would be UB.
+    uint64_t result = 0;
     if (sv.size() >= 2 && sv[0] == '0') {
         if (sv[1] == 'x' || sv[1] == 'X') {
             for (char c : sv.substr(2)) {
                 if (c == '_') continue;
-                if (c >= '0' && c <= '9')      result = result * 16 + (c - '0');
-                else if (c >= 'a' && c <= 'f') result = result * 16 + (c - 'a' + 10);
-                else if (c >= 'A' && c <= 'F') result = result * 16 + (c - 'A' + 10);
+                if (c >= '0' && c <= '9')      result = result * 16 + (uint64_t)(c - '0');
+                else if (c >= 'a' && c <= 'f') result = result * 16 + (uint64_t)(c - 'a' + 10);
+                else if (c >= 'A' && c <= 'F') result = result * 16 + (uint64_t)(c - 'A' + 10);
                 else break;
             }
         } else if (sv[1] == 'b' || sv[1] == 'B') {
             for (char c : sv.substr(2)) {
                 if (c == '_') continue;
-                if (c == '0' || c == '1') result = result * 2 + (c - '0');
+                if (c == '0' || c == '1') result = result * 2 + (uint64_t)(c - '0');
                 else break;
             }
         } else if (sv[1] == 'o' || sv[1] == 'O') {
             for (char ch : sv.substr(2)) {
                 if (ch == '_') continue;
-                if (ch >= '0' && ch <= '7') result = result * 8 + (ch - '0');
+                if (ch >= '0' && ch <= '7') result = result * 8 + (uint64_t)(ch - '0');
                 else break;
             }
         } else {
             for (char c : sv) {
                 if (c == '_') continue;
-                if (c >= '0' && c <= '9') result = result * 10 + (c - '0');
+                if (c >= '0' && c <= '9') result = result * 10 + (uint64_t)(c - '0');
                 else break;
             }
         }
     } else {
         for (char c : sv) {
             if (c == '_') continue;
-            if (c >= '0' && c <= '9') result = result * 10 + (c - '0');
+            if (c >= '0' && c <= '9') result = result * 10 + (uint64_t)(c - '0');
             else break;
         }
     }
-    return negative ? -result : result;
+    if (negative) {
+        // Special case: -(2^63) = INT64_MIN, which overflows if cast to int64 first.
+        if (result == (uint64_t)INT64_MAX + 1) return INT64_MIN;
+        if (result > (uint64_t)INT64_MAX)      return INT64_MIN;  // saturate
+        return -(int64_t)result;
+    }
+    return (result > (uint64_t)INT64_MAX) ? INT64_MAX : (int64_t)result;
 }
 
 template <class Pred>

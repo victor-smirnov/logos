@@ -795,7 +795,15 @@ void Mono::collect_struct_needs_from_stmt(const lir::LStmt& st) {
             // no-op
         } else if constexpr (std::is_same_v<K, lir::SMatch>) {
             collect_struct_needs_from_expr(*k.scrut);
-            for (auto& arm : k.arms) collect_struct_needs_from_block(*arm.body);
+            for (auto& arm : k.arms) {
+                // NM4: scan guards so struct types used in guards are discovered.
+                if (arm.guard) collect_struct_needs_from_expr(**arm.guard);
+                collect_struct_needs_from_block(*arm.body);
+            }
+        } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
+            // NM2: scan scrutinee and else-block for struct types.
+            collect_struct_needs_from_expr(*k.scrut);
+            collect_struct_needs_from_block(*k.else_block);
         }
     }, st.kind);
 }
