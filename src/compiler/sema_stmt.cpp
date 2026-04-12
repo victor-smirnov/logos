@@ -900,6 +900,15 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
             !is_integer(scrut_type))
             error(std::format("range pattern requires integer scrutinee, got '{}'",
                   type_str(scrut_type)));
+        // S2: validate that lo/hi fit in the scrutinee integer type.
+        if (scrut_type && scrut_type->kind != LogosType::Kind::Error && is_integer(scrut_type)) {
+            if (!intlit_fits(lo, scrut_type->kind))
+                error(std::format("range pattern: lo ({}) does not fit in '{}'",
+                      lo, type_str(scrut_type)));
+            if (!intlit_fits(hi, scrut_type->kind))
+                error(std::format("range pattern: hi ({}) does not fit in '{}'",
+                      hi, type_str(scrut_type)));
+        }
         if (lo > hi)
             error(std::format("range pattern: lo ({}) > hi ({})", lo, hi));
         return lir::PatRange{lo, hi};
@@ -982,13 +991,31 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                     auto fitems = arr_of(flist_node.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < fitems.size(); ++i) {
                         auto fnode = map_of(fitems.get(i));
-                        if (code_of(fnode) == la::PAT_REST) { ps.has_rest = true; continue; }
+                        if (code_of(fnode) == la::PAT_REST) {
+                            // G3: .. must be last — error if named field follows rest.
+                            if (ps.has_rest)
+                                error("struct pattern: only one '..' allowed");
+                            ps.has_rest = true;
+                            continue;
+                        }
+                        // G3: named field after .. is a bug.
+                        if (ps.has_rest)
+                            error("struct pattern: named field after '..'");
                         // PAT_FIELD: NAME = field name, VALUE = sub-pattern (optional)
                         auto fname = std::string(str_of(fnode.get(la::NAME.code)));
                         const LogosType* ftype = error_t();
                         if (sinfo) {
                             for (auto& f : sinfo->fields)
                                 if (f.name == fname) { ftype = f.type; break; }
+                        }
+                        // Bug fix: emit error when field not found in struct.
+                        if (sinfo) {
+                            bool field_found = false;
+                            for (auto& f : sinfo->fields)
+                                if (f.name == fname) { field_found = true; break; }
+                            if (!field_found)
+                                error(std::format("struct pattern: '{}' has no field '{}'",
+                                      sname, fname));
                         }
                         lir::PatFieldBinding pfb;
                         pfb.field_name = fname;
@@ -1025,6 +1052,9 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                     for (uint64_t i = 0; i < eitems.size(); ++i) {
                         auto enode = map_of(eitems.get(i));
                         if (code_of(enode) == la::PAT_REST) {
+                            // S3: reject multiple .. in a slice pattern.
+                            if (found_rest)
+                                error("slice pattern: only one '..' allowed");
                             found_rest = true;
                             psl.rest.push_back(lir::PatWild{"_"});
                             continue;
@@ -1042,6 +1072,13 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
             if (psl.prefix.size() != expected)
                 error(std::format("slice pattern: expected {} elements, got {}",
                       expected, psl.prefix.size()));
+        }
+        // S3: for fixed-size arrays with rest, prefix+suffix cannot exceed array size.
+        if (scrut_type && scrut_type->kind == LogosType::Kind::Array && found_rest) {
+            size_t arr_size = (size_t)scrut_type->arr_size;
+            if (psl.prefix.size() + psl.suffix.size() > arr_size)
+                error(std::format("slice pattern: {} + {} elements exceed array size {}",
+                      psl.prefix.size(), psl.suffix.size(), arr_size));
         }
         return psl;
     }
@@ -1068,7 +1105,7 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
     } else if (auto* prb = std::get_if<lir::PatRefBind>(&pat)) {
         define(prb->name, prb->bind_type);
     } else if (auto* pa = std::get_if<lir::PatAt>(&pat)) {
-        if (pa->type) define(pa->name, pa->type);
+        if (pa->type && pa->name != "_") define(pa->name, pa->type);  // S5: guard _ name
         if (!pa->sub.empty()) bind_pattern(pa->sub[0], pa->type);
     } else if (auto* prp = std::get_if<lir::PatRefPat>(&pat)) {
         const LogosType* inner_t = scrut_type;
@@ -1098,7 +1135,7 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
     } else if (auto* psl = std::get_if<lir::PatSlice>(&pat)) {
         const LogosType* elem_t = (scrut_type && scrut_type->elem) ? scrut_type->elem : error_t();
         for (auto& p : psl->prefix) bind_pattern(p, elem_t);
-        for (auto& p : psl->rest)   bind_pattern(p, scrut_type);
+        for (auto& p : psl->rest)   bind_pattern(p, elem_t);  // S4: elem_t not scrut_type
         for (auto& p : psl->suffix) bind_pattern(p, elem_t);
     } else if (auto* por = std::get_if<lir::PatOr>(&pat)) {
         // OR patterns: bind only if all alternatives bind the same names (first alt wins).

@@ -5,8 +5,13 @@
 // mono_clone.cpp — Expression/statement substitution and function/type cloning.
 
 #include "mono_impl.hpp"
+#include <functional>
 
 namespace logos::compiler {
+
+// Forward declaration (defined before subst_stmt, used in subst_expr and subst_stmt).
+using TypeSubstFn = std::function<const LogosType*(const LogosType*)>;
+static lir::Pattern subst_pattern(const lir::Pattern& pat, const TypeSubstFn& st);
 
 lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                           const PackMap& /*unused*/) {
@@ -404,7 +409,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             nm.scrut = subst_expr(*k.scrut, s);
             for (auto& arm : k.arms) {
                 lir::EMatchArm na;
-                na.pat = arm.pat;
+                na.pat   = subst_pattern(arm.pat, [&](auto* t){ return subst_type(t, s); });  // M1
                 if (arm.guard) na.guard = subst_expr(**arm.guard, s);
                 na.value = subst_expr(*arm.value, s);
                 nm.arms.push_back(std::move(na));
@@ -425,6 +430,61 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
     return result;
 }
 
+
+// Helper: recursively substitute LogosType* pointers in a pattern.
+// Fixes M2 (PatOr), M3 (PatRefPat), M4 (PatAt.sub), M5 (PatStruct fields).
+static lir::Pattern subst_pattern(const lir::Pattern& pat, const TypeSubstFn& st) {
+    if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
+        lir::PatVariantData n = *pvd;
+        for (auto& bt : n.binding_types) bt = st(bt);
+        return n;
+    }
+    if (auto* pt = std::get_if<lir::PatTuple>(&pat)) {
+        lir::PatTuple n = *pt;
+        for (auto& bt : n.binding_types) bt = st(bt);
+        return n;
+    }
+    if (auto* pa = std::get_if<lir::PatAt>(&pat)) {
+        lir::PatAt n = *pa;
+        n.type = st(n.type);
+        // M4: substitute types in sub-pattern too.
+        for (auto& sp : n.sub) sp = subst_pattern(sp, st);
+        return n;
+    }
+    if (auto* prb = std::get_if<lir::PatRefBind>(&pat)) {
+        lir::PatRefBind n = *prb;
+        n.bind_type = st(n.bind_type);
+        return n;
+    }
+    // M2: PatOr — substitute each alternative.
+    if (auto* por = std::get_if<lir::PatOr>(&pat)) {
+        lir::PatOr n = *por;
+        for (auto& alt : n.alts) alt = subst_pattern(alt, st);
+        return n;
+    }
+    // M3: PatRefPat — substitute inner pattern.
+    if (auto* prp = std::get_if<lir::PatRefPat>(&pat)) {
+        lir::PatRefPat n = *prp;
+        for (auto& ip : n.inner) ip = subst_pattern(ip, st);
+        return n;
+    }
+    // M5: PatStruct — substitute types in field sub-patterns.
+    if (auto* ps = std::get_if<lir::PatStruct>(&pat)) {
+        lir::PatStruct n = *ps;
+        for (auto& pfb : n.fields)
+            for (auto& sp : pfb.sub)
+                sp = subst_pattern(sp, st);
+        return n;
+    }
+    if (auto* psl = std::get_if<lir::PatSlice>(&pat)) {
+        lir::PatSlice n = *psl;
+        for (auto& p : n.prefix) p = subst_pattern(p, st);
+        for (auto& p : n.rest)   p = subst_pattern(p, st);
+        for (auto& p : n.suffix) p = subst_pattern(p, st);
+        return n;
+    }
+    return pat;  // PatWild, PatInt, PatBool, PatVariant, PatRange
+}
 
 lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     lir::LStmt ns;
@@ -527,28 +587,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             nm.scrut = subst_expr(*k.scrut, s);
             for (auto& arm : k.arms) {
                 lir::LMatchArm na;
-                // Substitute types in pattern bindings
-                if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat)) {
-                    lir::PatVariantData npvd = *pvd;
-                    for (auto& bt : npvd.binding_types)
-                        bt = subst_type(bt, s);
-                    na.pat = std::move(npvd);
-                } else if (auto* pt = std::get_if<lir::PatTuple>(&arm.pat)) {
-                    lir::PatTuple npt = *pt;
-                    for (auto& bt : npt.binding_types)
-                        bt = subst_type(bt, s);
-                    na.pat = std::move(npt);
-                } else if (auto* pa = std::get_if<lir::PatAt>(&arm.pat)) {
-                    lir::PatAt npa = *pa;
-                    npa.type = subst_type(npa.type, s);
-                    na.pat = std::move(npa);
-                } else if (auto* prb = std::get_if<lir::PatRefBind>(&arm.pat)) {
-                    lir::PatRefBind nprb = *prb;
-                    nprb.bind_type = subst_type(nprb.bind_type, s);
-                    na.pat = std::move(nprb);
-                } else {
-                    na.pat = arm.pat;
-                }
+                na.pat  = subst_pattern(arm.pat, [&](auto* t){ return subst_type(t, s); });  // M2/M3/M4/M5
                 na.body = std::make_unique<lir::LBlock>(subst_block(*arm.body, s));
                 if (arm.guard)
                     na.guard = subst_expr(**arm.guard, s);
@@ -568,28 +607,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
 
         } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
             lir::SLetElse sle;
-            // Substitute types in pattern bindings
-            if (auto* pvd = std::get_if<lir::PatVariantData>(&k.pat)) {
-                lir::PatVariantData npvd = *pvd;
-                for (auto& bt : npvd.binding_types)
-                    bt = subst_type(bt, s);
-                sle.pat = std::move(npvd);
-            } else if (auto* pt = std::get_if<lir::PatTuple>(&k.pat)) {
-                lir::PatTuple npt = *pt;
-                for (auto& bt : npt.binding_types)
-                    bt = subst_type(bt, s);
-                sle.pat = std::move(npt);
-            } else if (auto* pa = std::get_if<lir::PatAt>(&k.pat)) {
-                lir::PatAt npa = *pa;
-                npa.type = subst_type(npa.type, s);
-                sle.pat = std::move(npa);
-            } else if (auto* prb = std::get_if<lir::PatRefBind>(&k.pat)) {
-                lir::PatRefBind nprb = *prb;
-                nprb.bind_type = subst_type(nprb.bind_type, s);
-                sle.pat = std::move(nprb);
-            } else {
-                sle.pat = k.pat;
-            }
+            sle.pat        = subst_pattern(k.pat, [&](auto* t){ return subst_type(t, s); });  // M2/M3/M4/M5
             sle.scrut      = subst_expr(*k.scrut, s);
             sle.else_block = std::make_unique<lir::LBlock>(subst_block(*k.else_block, s));
             ns.kind        = std::move(sle);

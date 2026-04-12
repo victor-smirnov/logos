@@ -816,7 +816,8 @@
     // ── pat_single: all pattern alternatives ─────────────────────────────
     pat_single
         // @ binding: must come before bare IDENT to capture "name @ sub"
-        <- IDENT AT pat_single_base
+        // G1: use pat_single (not pat_single_base) so n @ ref x and n @ &pat work.
+        <- IDENT AT pat_single
         => { CODE: PAT_AT, NAME: $1, VALUE: $3 }
         // ref mut binding
         / KW_REF KW_MUT IDENT

@@ -60,6 +60,7 @@ struct PatOr;
 // Tuple pattern: (a, b, c) — matches a tuple, binding each element.
 struct PatTuple;
 // Range pattern: lo..=hi inclusive integer range.
+// G4 note: lo/hi are int64_t; u64 values > INT64_MAX are unsupported (sema rejects via intlit_fits).
 struct PatRange { int64_t lo; int64_t hi; };
 // Struct pattern: Point { x: p, y } — binds/tests struct fields.
 struct PatStruct;

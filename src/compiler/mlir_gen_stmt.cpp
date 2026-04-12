@@ -1300,7 +1300,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
     }
 
     // Helper: extract payload bindings into scope for the current arm.
-    auto extract_payload = [&](const LMatchArm& arm) {
+    std::function<void(const LMatchArm&)> extract_payload = [&](const LMatchArm& arm) {
         // ── PatTuple ───────────────────────────────────────────────────────
         if (auto* pt = std::get_if<PatTuple>(&arm.pat)) {
             auto ttype = tuple_llvm_type(s.scrut->type);
@@ -1363,26 +1363,30 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
             if (!sptr) return;
             for (auto& pfb : ps->fields) {
-                if (pfb.sub.empty()) {
-                    // Shorthand binding: find field by name and bind.
+                // Helper: GEP + load a field value and bind it to `bind_name`.
+                auto bind_struct_field = [&](const std::string& bind_name) {
                     auto fp = gep_field(sptr, sinfo, pfb.field_name);
-                    if (!fp) continue;
-                    // Determine field MLIR type from StructInfo.
+                    if (!fp) return;
                     mlir::Type fmlir;
-                    for (auto& sf : sinfo.fields) {
+                    for (auto& sf : sinfo.fields)
                         if (sf.name == pfb.field_name) { fmlir = sf.type; break; }
-                    }
-                    if (!fmlir) continue;
+                    if (!fmlir) return;
                     auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
                     auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
                         loc_, ptr_type(), fmlir, i64_one());
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                    scope_[pfb.field_name] = alloca;
-                    let_vars_.insert(pfb.field_name);
-                    var_elem_types_[pfb.field_name] = fmlir;
+                    scope_[bind_name] = alloca;
+                    let_vars_.insert(bind_name);
+                    var_elem_types_[bind_name] = fmlir;
+                };
+                if (pfb.sub.empty()) {
+                    // Shorthand: Point { x } → bind field_name.
+                    bind_struct_field(pfb.field_name);
+                } else if (auto* pw = std::get_if<lir::PatWild>(&pfb.sub[0])) {
+                    // C1: Explicit rename: Point { x: a } → bind pw->name to x's value.
+                    if (pw->name != "_") bind_struct_field(pw->name);
                 }
-                // Nested sub-patterns in struct fields are irrefutable (handled by
-                // bind_pattern during sema); complex nested patterns are deferred.
+                // Complex sub-patterns (PatRefBind, PatAt, etc.) deferred to future work.
             }
             return;
         }
@@ -1395,11 +1399,12 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
                 if (aptr && elem_mlir && arr_mlir) {
                     auto bind_elem = [&](const lir::Pattern& p, int32_t idx) {
+                        // GEP element pointer for this index.
+                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
+                        auto ep = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), arr_mlir, aptr, gi);
                         if (auto* pw = std::get_if<lir::PatWild>(&p)) {
                             if (pw->name == "_") return;
-                            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
-                            auto ep = builder_.create<mlir::LLVM::GEPOp>(
-                                loc_, ptr_type(), arr_mlir, aptr, gi);
                             auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
                             auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
                                 loc_, ptr_type(), elem_mlir, i64_one());
@@ -1407,6 +1412,15 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                             scope_[pw->name] = alloca;
                             let_vars_.insert(pw->name);
                             var_elem_types_[pw->name] = elem_mlir;
+                        } else if (auto* prb = std::get_if<lir::PatRefBind>(&p)) {
+                            // C4: ref x in slice pattern — bind name to pointer-to-element.
+                            if (prb->name == "_") return;
+                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                                loc_, ptr_type(), ptr_type(), i64_one());
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
+                            scope_[prb->name] = alloca;
+                            let_vars_.insert(prb->name);
+                            var_elem_types_[prb->name] = ptr_type();
                         }
                     };
                     for (size_t i = 0; i < psl->prefix.size(); ++i)
@@ -1418,7 +1432,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             }
             return;
         }
-        // ── PatAt: bind outer name then handle sub-pattern ────────────────
+        // ── PatAt: bind outer name then recurse into sub-pattern ─────────
         if (auto* pa = std::get_if<PatAt>(&arm.pat)) {
             mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
             if (!pa->name.empty() && pa->name != "_") {
@@ -1428,6 +1442,12 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 scope_[pa->name] = alloca;
                 let_vars_.insert(pa->name);
                 var_elem_types_[pa->name] = sv.getType();
+            }
+            // C5: recurse into sub-pattern to bind nested fields (e.g. n @ Point { x, y }).
+            if (!pa->sub.empty()) {
+                lir::LMatchArm sub_arm;
+                sub_arm.pat = pa->sub[0];
+                extract_payload(sub_arm);
             }
             return;
         }
@@ -1517,6 +1537,18 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             else_block = arm_entry;
         } else if (auto* pr = std::get_if<lir::PatRange>(&arm.pat)) {
             // Range pattern: lo <= scrut && scrut <= hi
+            // C2: use unsigned predicates for unsigned scrutinee types.
+            bool range_unsigned = s.scrut->type &&
+                (s.scrut->type->kind == LogosType::Kind::U8  ||
+                 s.scrut->type->kind == LogosType::Kind::U16 ||
+                 s.scrut->type->kind == LogosType::Kind::U32 ||
+                 s.scrut->type->kind == LogosType::Kind::U56 ||
+                 s.scrut->type->kind == LogosType::Kind::U64 ||
+                 s.scrut->type->kind == LogosType::Kind::U128);
+            auto pred_ge = range_unsigned ? mlir::arith::CmpIPredicate::uge
+                                          : mlir::arith::CmpIPredicate::sge;
+            auto pred_le = range_unsigned ? mlir::arith::CmpIPredicate::ule
+                                          : mlir::arith::CmpIPredicate::sle;
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
@@ -1526,10 +1558,8 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                     builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->lo, 64), scrut_type);
                 auto hi_val = coerce_int(
                     builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->hi, 64), scrut_type);
-                auto ge = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::sge, scrut, lo_val);
-                auto le = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::sle, scrut, hi_val);
+                auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, pred_ge, scrut, lo_val);
+                auto le = builder_.create<mlir::arith::CmpIOp>(loc_, pred_le, scrut, hi_val);
                 auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
             }
@@ -1564,6 +1594,18 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             if (!pa->sub.empty()) {
                 const lir::Pattern& sub = pa->sub[0];
                 if (auto* pr = std::get_if<lir::PatRange>(&sub)) {
+                    // C2: same unsigned predicate fix for PatAt + PatRange.
+                    bool pat_at_unsigned = s.scrut->type &&
+                        (s.scrut->type->kind == LogosType::Kind::U8  ||
+                         s.scrut->type->kind == LogosType::Kind::U16 ||
+                         s.scrut->type->kind == LogosType::Kind::U32 ||
+                         s.scrut->type->kind == LogosType::Kind::U56 ||
+                         s.scrut->type->kind == LogosType::Kind::U64 ||
+                         s.scrut->type->kind == LogosType::Kind::U128);
+                    auto at_pred_ge = pat_at_unsigned ? mlir::arith::CmpIPredicate::uge
+                                                      : mlir::arith::CmpIPredicate::sge;
+                    auto at_pred_le = pat_at_unsigned ? mlir::arith::CmpIPredicate::ule
+                                                      : mlir::arith::CmpIPredicate::sle;
                     auto* test_block = new mlir::Block();
                     region->push_back(test_block);
                     {
@@ -1573,19 +1615,19 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                             builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->lo, 64), scrut_type);
                         auto hi_val = coerce_int(
                             builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->hi, 64), scrut_type);
-                        auto ge = builder_.create<mlir::arith::CmpIOp>(
-                            loc_, mlir::arith::CmpIPredicate::sge, scrut, lo_val);
-                        auto le = builder_.create<mlir::arith::CmpIOp>(
-                            loc_, mlir::arith::CmpIPredicate::sle, scrut, hi_val);
+                        auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, at_pred_ge, scrut, lo_val);
+                        auto le = builder_.create<mlir::arith::CmpIOp>(loc_, at_pred_le, scrut, hi_val);
                         auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
                         builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
                     }
                     else_block = test_block;
                 } else {
-                    // Scalar sub-pattern: int, bool, variant.
+                    // C3: Scalar sub-pattern: int, bool, variant (disc=0 was wrong for variants).
                     int64_t disc = 0;
-                    if (auto* pi = std::get_if<lir::PatInt>(&sub))  disc = pi->value;
-                    else if (auto* pb = std::get_if<lir::PatBool>(&sub)) disc = pb->value ? 1 : 0;
+                    if (auto* pi  = std::get_if<lir::PatInt>(&sub))         disc = pi->value;
+                    else if (auto* pb  = std::get_if<lir::PatBool>(&sub))   disc = pb->value ? 1 : 0;
+                    else if (auto* pv  = std::get_if<lir::PatVariant>(&sub)) disc = pv->disc;
+                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&sub)) disc = pvd->disc;
                     auto* test_block = new mlir::Block();
                     region->push_back(test_block);
                     {
