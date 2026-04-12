@@ -226,6 +226,8 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     struct Entry { uint64_t type_code; std::string fn_symbol; };
     std::map<std::string, std::vector<Entry>> tier1_tables;
     std::map<std::string, std::vector<Entry>> tier2_tables;
+    // Bug fix: store valid tier-2 entries for Pass D to avoid size mismatch.
+    std::map<std::string, std::vector<Entry>> tier2_valid_entries;
 
     for (auto& de : prog.dispatch_entries) {
         // Bug fix: skip codes 0-127 (0 is unset, 1-127 are reserved for inline AnyVal).
@@ -302,6 +304,9 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         if (valid_entries.empty()) continue;  // skip tier-2 table if no valid entries
         std::sort(valid_entries.begin(), valid_entries.end(),
                   [](const Entry& a, const Entry& b){ return a.type_code < b.type_code; });
+
+        // Bug fix: store valid_entries for Pass D to use.
+        tier2_valid_entries[t2key] = valid_entries;
         int64_t n = static_cast<int64_t>(valid_entries.size());
 
         auto codes_arr_type = mlir::LLVM::LLVMArrayType::get(i64_t, n);
@@ -338,9 +343,6 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
                               lookup_name, codes_name, fns_name,
                               codes_arr_type, fns_arr_type, n);
         }
-
-        // Update entries to use valid_entries for Pass D (filling).
-        entries = valid_entries;
     }
 
     // ── Pass D: emit __logos_tag_dispatch_init (fills tier-1 + tier-2) ───
@@ -377,7 +379,8 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         }
 
         // Fill tier-2 codes and fns arrays (in sorted order).
-        for (auto& [t2key, entries] : tier2_tables) {
+        // Bug fix: use tier2_valid_entries instead of tier2_tables to match Pass C counts.
+        for (auto& [t2key, entries] : tier2_valid_entries) {
             int64_t n = static_cast<int64_t>(entries.size());
             auto codes_arr_type = mlir::LLVM::LLVMArrayType::get(i64_t, n);
             auto fns_arr_type   = mlir::LLVM::LLVMArrayType::get(ptr_t, n);
