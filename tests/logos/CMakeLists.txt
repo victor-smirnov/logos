@@ -79,7 +79,7 @@ function(logos_determine_suite MODE BASE OUT_VAR)
         "^(borrow_|clone_|copy_|drop_|lifetime_|unsafe_|cond_ref_|deref_|move_|mut_|shared_|dangling_ref|assign_ref_dangling|double_mut_borrow|use_after_move|use_while_mut_borrowed|const_ptr_write)")
         set(_suite ownership)
     elseif (BASE MATCHES
-        "^(assoc_|generic_|trait_|dyn_|variadic_|closure_|impl_|default_|class_|box_dyn_trait|g1_trait_impl|g1_standalone_impl|g1_extern_fn|g2_impl_trait_return|impl_trait_|from_|into_|option_chain|spec_dispatch|extern_)")
+        "^(assoc_|generic_|trait_|dyn_|variadic_|closure_|impl_|default_|g1_trait_impl|g1_standalone_impl|g1_extern_fn|g2_impl_trait_return|impl_trait_|from_|into_|option_chain|spec_dispatch|extern_)")
         set(_suite advanced_features)
     elseif (MODE STREQUAL fail)
         set(_suite diagnostics)

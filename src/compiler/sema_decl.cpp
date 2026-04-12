@@ -453,8 +453,6 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     if (concrete) {
                         if (resolved->kind == LogosType::Kind::Struct)
                             target = concrete_struct_name(resolved);
-                        else if (resolved->kind == LogosType::Kind::Class)
-                            target = concrete_class_name(resolved);
                     }
                 }
             }
@@ -482,16 +480,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         }
     }
     // Lower impl methods as free functions (Target__method).
-    // For `impl<T> GenericClass<T>` blocks, add methods to the class template instead of
-    // prog.functions so mono's instantiate_one_class can clone them with T substituted.
-    lir::LClassDef*  target_class_tmpl  = nullptr;
+    // For `impl<T> GenericStruct<T>` blocks, add methods to the struct template instead of
+    // prog.functions so mono's instantiate_one_struct can clone them with T substituted.
     lir::LStructDef* target_struct_tmpl = nullptr;
     if (!impl_tps.empty()) {
-        for (auto& cd : prog.classes)
-            if (cd.name == target) { target_class_tmpl = &cd; break; }
-        if (!target_class_tmpl)
-            for (auto& sd : prog.structs)
-                if (sd.name == target) { target_struct_tmpl = &sd; break; }
+        for (auto& sd : prog.structs)
+            if (sd.name == target) { target_struct_tmpl = &sd; break; }
     }
     std::unordered_set<std::string> overridden;
     if (node.has_key(la::ITEMS)) {
@@ -501,12 +495,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 auto fn = lower_fn(m, target);
                 overridden.insert(fn.name);
-                if (target_class_tmpl) {
-                    // Add to class template so mono clones it during class instantiation.
-                    fn.type_params.clear();  // T is provided by the class template
-                    target_class_tmpl->methods.push_back(std::move(fn));
-                } else if (target_struct_tmpl) {
-                    // Same for struct templates.
+                if (target_struct_tmpl) {
+                    // Add to struct template so mono clones it during struct instantiation.
                     fn.type_params.clear();
                     target_struct_tmpl->methods.push_back(std::move(fn));
                 } else {
@@ -533,8 +523,6 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         } else {
                             self_type = make_struct_type(target);
                         }
-                    } else if (classes_.count(target)) {
-                        self_type = make_ptr(true, make_class_type(target));
                     }
                     if (self_type)
                         current_type_params_["Self"] = self_type;
@@ -630,52 +618,4 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         }
     }
 }
-
-lir::LClassDef SemaChecker::lower_class_def(TinyMapView node) {
-    auto cname = std::string(str_of(node.get(la::NAME.code)));
-    ctx_ = std::format("class {}", cname);
-
-    lir::LClassDef cd;
-    cd.name = cname;
-
-    auto& cinfo = classes_[cname];
-    cd.is_abstract       = cinfo.is_abstract;
-    cd.parent_name       = cinfo.parent_name;
-    cd.parent_type_args  = cinfo.parent_type_args;
-    cd.vtable_order      = cinfo.vtable_order;
-    cd.type_params       = cinfo.type_params;
-
-    push_type_params(cd.type_params);
-
-    // Own fields (not all_fields — parent fields are in parent's LClassDef)
-    size_t parent_field_count = 0;
-    if (!cinfo.parent_name.empty()) {
-        auto pit = classes_.find(cinfo.parent_name);
-        if (pit != classes_.end())
-            parent_field_count = pit->second.all_fields.size();
-    }
-    for (size_t i = parent_field_count; i < cinfo.all_fields.size(); ++i) {
-        auto& f = cinfo.all_fields[i];
-        cd.own_fields.push_back({f.name, f.type, f.is_variadic});
-    }
-
-    // Lower concrete methods and collect static methods separately
-    if (node.has_key(la::ITEMS)) {
-        auto members = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t m = 0; m < members.size(); ++m) {
-            auto member = map_of(members.get(m));
-            int32_t mc = code_of(member);
-            if (mc == la::FN)
-                cd.methods.push_back(lower_fn(member, cname));
-            else if (mc == la::STATIC_FN)
-                cd.static_methods.push_back(lower_fn(member, cname));
-            // ABSTRACT_FN: no body to lower
-        }
-    }
-
-    pop_type_params(cd.type_params);
-    return cd;
-}
-
-
 } // namespace logos::compiler

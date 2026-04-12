@@ -47,9 +47,6 @@ private:
     std::unordered_map<std::string, const lir::LEnumDef*>   enum_templates_;
     std::unordered_map<std::string, std::pair<std::vector<const LogosType*>, int>> needed_enum_insts_;
     std::unordered_set<std::string> enum_done_;
-    std::unordered_map<std::string, const lir::LClassDef*>  class_templates_;
-    std::unordered_map<std::string, std::pair<const LogosType*, int>> needed_class_insts_;
-    std::unordered_set<std::string> class_done_;
     std::unordered_set<std::string> done_;
     std::unordered_map<std::string, const LogosType*> assoc_impls_;
 
@@ -80,22 +77,6 @@ private:
                 return;
             }
             needed_struct_insts_[cname] = {t, depth_ + 1};
-        }
-    }
-
-    void record_needed_class(const LogosType* t) {
-        if (!t || t->kind != LogosType::Kind::Class || t->type_args.empty()) return;
-        for (auto* a : t->type_args)
-            if (a->kind == LogosType::Kind::TypeVar) return;
-        auto cname = concrete_class_name(t);
-        if (!class_done_.count(cname)) {
-            if (depth_ >= max_depth_) {
-                in_.diags.diags.push_back({Diag::Level::Error, "mono",
-                    std::format("class instantiation depth limit ({}) exceeded for '{}'",
-                                max_depth_, cname), {}, 0});
-                return;
-            }
-            needed_class_insts_[cname] = {t, depth_ + 1};
         }
     }
 
@@ -159,15 +140,11 @@ private:
     lir::LFunction clone_fn(const lir::LFunction& fn, const SubstMap& s,
                              const PackMap& packs = {});
 
-    // ── Struct/class/enum cloning (large — defined in mono_clone.cpp) ─────
+    // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     lir::LStructDef clone_struct_def(const lir::LStructDef& tmpl,
                                       const SubstMap& s,
                                       const PackMap& packs,
                                       const std::string& new_name);
-    lir::LClassDef  clone_class_def(const lir::LClassDef& tmpl,
-                                     const SubstMap& s,
-                                     const PackMap& packs,
-                                     const std::string& new_name);
     lir::LEnumDef   clone_enum_def(const lir::LEnumDef& tmpl,
                                     const SubstMap& s,
                                     const PackMap& packs,
@@ -259,22 +236,7 @@ private:
         }
     }
 
-    void collect_type_for_classes(const LogosType* t) {
-        if (!t) return;
-        switch (t->kind) {
-        case LogosType::Kind::Ptr:
-        case LogosType::Kind::Ref:
-        case LogosType::Kind::MutRef:   collect_type_for_classes(t->pointee); break;
-        case LogosType::Kind::Array: collect_type_for_classes(t->elem);    break;
-        case LogosType::Kind::Class:
-            record_needed_class(t);
-            for (auto* a : t->type_args) collect_type_for_classes(a);
-            break;
-        default: break;
-        }
-    }
-
-    // ── Struct/enum/class needs collection (defined in mono_clone.cpp) ────
+    // ── Struct/enum needs collection (defined in mono_clone.cpp) ────
     void collect_struct_needs_from_output();
     void collect_struct_needs_from_block(const lir::LBlock& b);
     void collect_struct_needs_from_stmt(const lir::LStmt& st);
@@ -283,8 +245,6 @@ private:
     // ── Instantiation (defined in mono_clone.cpp) ─────────────────────────
     void instantiate_struct_templates();
     void instantiate_enum_templates();
-    void instantiate_class_templates();
-    void instantiate_one_class(const std::string& cname, const LogosType* class_t, int depth);
 };
 
 } // namespace logos::compiler

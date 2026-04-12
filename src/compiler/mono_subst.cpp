@@ -64,22 +64,6 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
         record_needed_struct(result);
         return result;
     }
-    case LogosType::Kind::Class: {
-        if (t->type_args.empty()) return t;
-        std::vector<const LogosType*> new_args;
-        bool changed = false;
-        for (auto* a : t->type_args) {
-            auto* na = subst_type(a, s);
-            changed |= (na != a);
-            new_args.push_back(na);
-        }
-        if (!changed) return t;
-        LogosType nt = *t;
-        nt.type_args = std::move(new_args);
-        const LogosType* result = out_.type_pool.alloc(nt);
-        record_needed_class(result);
-        return result;
-    }
     case LogosType::Kind::Enum: {
         if (t->type_args.empty()) return t;
         std::vector<const LogosType*> new_args;
@@ -125,10 +109,9 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
     case LogosType::Kind::AssocType: {
         // Resolve: recursively substitute the base, then look up TraitName::ConcreteType::AssocName
         auto* subbed_base = subst_type(t->assoc_base, s);
-        if (subbed_base->kind == LogosType::Kind::Struct || subbed_base->kind == LogosType::Kind::Class || subbed_base->kind == LogosType::Kind::Enum) {
+        if (subbed_base->kind == LogosType::Kind::Struct || subbed_base->kind == LogosType::Kind::Enum) {
             std::string concrete_base;
-            if      (subbed_base->kind == LogosType::Kind::Class)  concrete_base = concrete_class_name(subbed_base);
-            else if (subbed_base->kind == LogosType::Kind::Struct) concrete_base = concrete_struct_name(subbed_base);
+            if      (subbed_base->kind == LogosType::Kind::Struct) concrete_base = concrete_struct_name(subbed_base);
             else                                                   concrete_base = subbed_base->enum_name;
 
             std::string key = t->trait_name + "::" + concrete_base + "::" + t->assoc_type_name;

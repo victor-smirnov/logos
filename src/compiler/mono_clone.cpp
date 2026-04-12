@@ -127,12 +127,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 auto* rt = new_recv->type;
                 if (rt->kind == LogosType::Kind::Struct)
                     cname = concrete_struct_name(rt);
-                else if (rt->kind == LogosType::Kind::Class)
-                    cname = concrete_class_name(rt);
                 else if (rt->kind == LogosType::Kind::Ptr && rt->pointee) {
-                    if (rt->pointee->kind == LogosType::Kind::Class)
-                        cname = concrete_class_name(rt->pointee);
-                    else if (rt->pointee->kind == LogosType::Kind::Struct)
+                    if (rt->pointee->kind == LogosType::Kind::Struct)
                         cname = concrete_struct_name(rt->pointee);
                     else
                         cname = type_str(rt);  // full ptr type: *const u8, *mut i32
@@ -176,7 +172,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         rt = rt->pointee;
                     }
 
-                    if (rt && (rt->kind == LogosType::Kind::Struct || rt->kind == LogosType::Kind::Class)) {
+                    if (rt && rt->kind == LogosType::Kind::Struct) {
                         std::vector<const LogosType*> combined_args = rt->type_args;
                         for (auto* mta : nm.type_args) combined_args.push_back(mta);
 
@@ -211,34 +207,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 }
 
                 if (!rewritten) {
-                    // Translate resolved_type (generic class template name) to
-                    // concrete name using the current substitution.
-                    if (!k.resolved_type.empty() && !s.empty()) {
-                        auto tit = class_templates_.find(k.resolved_type);
-                        if (tit != class_templates_.end()) {
-                            const lir::LClassDef* rt_tmpl = tit->second;
-                            std::vector<const LogosType*> concrete_args;
-                            bool all_concrete = true;
-                            for (auto& tp : rt_tmpl->type_params) {
-                                auto sit2 = s.find(tp.name);
-                                if (sit2 != s.end()) concrete_args.push_back(sit2->second);
-                                else all_concrete = false;
-                            }
-                            if (all_concrete && !concrete_args.empty()) {
-                                LogosType parent_t;
-                                parent_t.kind = LogosType::Kind::Class;
-                                parent_t.struct_name = k.resolved_type;
-                                parent_t.type_args = concrete_args;
-                                nm.resolved_type = concrete_class_name(&parent_t);
-                            } else {
-                                nm.resolved_type = k.resolved_type;
-                            }
-                        } else {
-                            nm.resolved_type = k.resolved_type;
-                        }
-                    } else {
-                        nm.resolved_type = k.resolved_type;
-                    }
+                    nm.resolved_type = k.resolved_type;
                     for (auto& a : k.args) nm.args.push_back(subst_expr(*a, s));
                     result->kind = std::move(nm);
                 }
@@ -250,8 +219,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             // After substitution, if LHS is a struct/class, rewrite binop
             // to operator trait method call (e.g. v + v → Vec2__add(v, v)).
             auto* lt = new_lhs->type;
-            if (lt && (lt->kind == LogosType::Kind::Struct ||
-                       lt->kind == LogosType::Kind::Class)) {
+            if (lt && lt->kind == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (k.op == "+")  method_name = "add";
                 else if (k.op == "-")  method_name = "sub";
@@ -265,8 +233,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 else if (k.op == ">")  method_name = "gt";
                 else if (k.op == ">=") method_name = "ge";
                 if (!method_name.empty()) {
-                    std::string cname = (lt->kind == LogosType::Kind::Struct)
-                        ? concrete_struct_name(lt) : concrete_class_name(lt);
+                    std::string cname = concrete_struct_name(lt);
                     lir::ECall nc;
                     nc.callee = cname + "__" + method_name;
                     nc.args.push_back(std::move(new_lhs));
@@ -284,14 +251,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::EUnary>) {
             auto new_op = subst_expr(*k.operand, s);
             auto* vt = new_op->type;
-            if (vt && (vt->kind == LogosType::Kind::Struct ||
-                       vt->kind == LogosType::Kind::Class)) {
+            if (vt && vt->kind == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (k.op == "-") method_name = "neg";
                 else if (k.op == "!") method_name = "not_";
                 if (!method_name.empty()) {
-                    std::string cname = (vt->kind == LogosType::Kind::Struct)
-                        ? concrete_struct_name(vt) : concrete_class_name(vt);
+                    std::string cname = concrete_struct_name(vt);
                     lir::ECall nc;
                     nc.callee = cname + "__" + method_name;
                     nc.args.push_back(std::move(new_op));
@@ -339,16 +304,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
 
         } else if constexpr (std::is_same_v<K, lir::ENew>) {
             lir::ENew nn;
-            // If the result type is a generic class inst, use the concrete name.
-            if (result->type && result->type->kind == LogosType::Kind::Ptr &&
-                result->type->pointee &&
-                result->type->pointee->kind == LogosType::Kind::Class &&
-                !result->type->pointee->type_args.empty()) {
-                nn.class_name = concrete_class_name(result->type->pointee);
-                record_needed_class(result->type->pointee);
-            } else {
-                nn.class_name = k.class_name;
-            }
+            nn.class_name = k.class_name;
             for (auto& [fn, fv] : k.fields)
                 nn.fields.push_back({fn, subst_expr(*fv, s)});
             result->kind = std::move(nn);
@@ -914,120 +870,6 @@ void Mono::instantiate_struct_templates() {
 
 // Clone a class def with substitution; rename to new_name.
 // Mirrors clone_struct_def but preserves vtable_order, parent_name, etc.
-lir::LClassDef Mono::clone_class_def(const lir::LClassDef& tmpl,
-                                const SubstMap& s,
-                                const PackMap& packs,
-                                const std::string& new_name) {
-    lir::LClassDef nd;
-    nd.name         = new_name;
-    nd.is_abstract  = tmpl.is_abstract;
-    // Compute concrete parent name by applying subst to parent_type_args
-    if (!tmpl.parent_name.empty() && !tmpl.parent_type_args.empty()) {
-        std::vector<const LogosType*> concrete_parent_args;
-        for (auto* arg : tmpl.parent_type_args)
-            concrete_parent_args.push_back(subst_type(arg, s));
-        LogosType parent_cls;
-        parent_cls.kind = LogosType::Kind::Class;
-        parent_cls.struct_name = tmpl.parent_name;
-        parent_cls.type_args = concrete_parent_args;
-        nd.parent_name = concrete_class_name(&parent_cls);
-        // Trigger instantiation of parent
-        const LogosType* parent_t = out_.type_pool.alloc(parent_cls);
-        record_needed_class(parent_t);
-    } else {
-        nd.parent_name = tmpl.parent_name;
-    }
-    // Rewrite vtable entries: "OldBase__method" → "new_name__method"
-    for (auto& entry : tmpl.vtable_order) {
-        auto sep = entry.find("__");
-        if (sep != std::string::npos && entry.substr(0, sep) == tmpl.name)
-            nd.vtable_order.push_back(new_name + entry.substr(sep));
-        else
-            nd.vtable_order.push_back(entry);
-    }
-    // type_params cleared: result is monomorphic.
-    for (auto& f : tmpl.own_fields) {
-        if (f.is_variadic) {
-            std::string pack_name;
-            if (f.type && f.type->kind == LogosType::Kind::TypeVar)
-                pack_name = f.type->type_var_name;
-            auto pit = packs.find(pack_name);
-            if (pit != packs.end()) {
-                for (size_t i = 0; i < pit->second.size(); ++i) {
-                    nd.own_fields.push_back({f.name + "_" + std::to_string(i), pit->second[i]});
-                }
-            }
-        } else {
-            nd.own_fields.push_back({f.name, subst_type(f.type, s)});
-        }
-    }
-    for (auto& m : tmpl.methods) {
-        auto nm = clone_fn(m, s, packs);
-        auto sep = m.name.find("__");
-        if (sep != std::string::npos)
-            nm.name = new_name + m.name.substr(sep);
-        nd.methods.push_back(std::move(nm));
-    }
-    return nd;
-}
-
-
-// Instantiate a single generic class by concrete name + type.
-// Ensures the parent class is instantiated first (DFS order = parent before child).
-void Mono::instantiate_one_class(const std::string& cname, const LogosType* class_t, int depth) {
-    if (class_done_.count(cname)) return;
-    class_done_.insert(cname);
-
-    depth_ = depth;
-
-    const std::string& base = class_t->struct_name;
-    auto it = class_templates_.find(base);
-    if (it == class_templates_.end()) return;
-    const lir::LClassDef* tmpl = it->second;
-
-    SubstMap subst;
-    PackMap packs;
-    for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
-        if (tmpl->type_params[i].is_variadic) {
-            std::vector<const LogosType*> pack;
-            while (j < class_t->type_args.size()) pack.push_back(class_t->type_args[j++]);
-            packs[tmpl->type_params[i].name] = std::move(pack);
-        } else if (j < class_t->type_args.size()) {
-            subst[tmpl->type_params[i].name] = class_t->type_args[j++];
-        }
-    }
-
-    size_t class_idx = out_.classes.size();
-    {
-        lir::LClassDef seed;
-        seed.name = cname;
-        out_.classes.push_back(std::move(seed));
-    }
-
-    // Compute concrete parent name and instantiate parent FIRST (DFS).
-    if (!tmpl->parent_name.empty() && !tmpl->parent_type_args.empty()) {
-        std::vector<const LogosType*> concrete_parent_args;
-        for (auto* arg : tmpl->parent_type_args)
-            concrete_parent_args.push_back(subst_type(arg, subst));
-        LogosType parent_cls;
-        parent_cls.kind = LogosType::Kind::Class;
-        parent_cls.struct_name = tmpl->parent_name;
-        parent_cls.type_args = concrete_parent_args;
-        std::string parent_cname = concrete_class_name(&parent_cls);
-        if (!class_done_.count(parent_cname)) {
-            const LogosType* parent_t = out_.type_pool.alloc(parent_cls);
-            // Inherit depth for parent instantiation (DFS)
-            instantiate_one_class(parent_cname, parent_t, depth);
-        }
-    }
-
-    auto inst = clone_class_def(*tmpl, subst, packs, cname);
-    for (auto& f : inst.own_fields) collect_type_for_classes(f.type);
-    
-    // Fill the seed
-    out_.classes[class_idx] = std::move(inst);
-}
-
 
 lir::LEnumDef Mono::clone_enum_def(const lir::LEnumDef& tmpl,
                               const SubstMap& s,
@@ -1134,24 +976,5 @@ void Mono::instantiate_enum_templates() {
 }
 
 
-void Mono::instantiate_class_templates() {
-    // Seed: collect class types referenced in output functions and classes.
-    for (auto& fn : out_.functions) {
-        collect_type_for_classes(fn.ret_type);
-        for (auto& p : fn.params) collect_type_for_classes(p.type);
-    }
-    for (auto& cd : out_.classes)
-        for (auto& f : cd.own_fields) collect_type_for_classes(f.type);
-
-    while (!needed_class_insts_.empty()) {
-        auto current = std::move(needed_class_insts_);
-        needed_class_insts_.clear();
-
-        for (auto& [cname, info] : current)
-            instantiate_one_class(cname, info.first, info.second);
-
-        depth_ = 0;
-    }
-}
 
 } // namespace logos::compiler

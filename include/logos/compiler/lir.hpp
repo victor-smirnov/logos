@@ -491,35 +491,6 @@ struct LStructDef {
     std::vector<const LogosType*> spec_patterns;
 };
 
-// ── Class definition ──────────────────────────────────────────────────────
-//
-// A class has:
-//   - An optional parent class (single inheritance).
-//   - Own fields (user-defined; the compiler prepends a hidden vtable pointer).
-//   - A vtable_order listing the mangled method names in vtable slot order
-//     (parent's slots first, then new/overriding slots).
-//   - All method bodies (including overrides of parent methods).
-//
-// Concrete (non-abstract) classes have a global vtable constant in the
-// generated module.  Abstract classes omit the vtable.
-
-struct LClassDef {
-    std::string              name;
-    bool                     is_abstract  = false;
-    std::string              parent_name;             // empty if no parent
-    std::vector<const LogosType*> parent_type_args;  // type args passed to parent (e.g. [TypeVar(T)])
-    std::vector<LField>      own_fields;              // fields declared in this class
-    std::vector<std::string> vtable_order;            // full vtable: mangled method names
-    std::vector<LFunction>   methods;                 // method bodies (non-abstract)
-    std::vector<LFunction>   static_methods;          // static method bodies (no self)
-
-    // Generic class support (mirrors LStructDef).
-    // type_params non-empty  → this is a template; mono expands it.
-    // is_specialization true → produced by mono from a template.
-    std::vector<TypeParam>        type_params;
-    bool                          is_specialization = false;
-    std::vector<const LogosType*> spec_patterns;
-};
 
 struct LVariant {
     std::string name;
@@ -615,7 +586,6 @@ struct LProgram {
 
     std::vector<LStructDef>      structs;
     std::vector<LStructDef>      struct_specializations;  // struct specs (consumed by mono)
-    std::vector<LClassDef>       classes;
     std::vector<LEnumDef>        enums;
     std::vector<LFunction>       functions;        // free functions and extern fn
     std::vector<LFunction>       specializations;  // fn specialisations (consumed by mono)

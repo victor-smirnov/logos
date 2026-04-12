@@ -1,26 +1,36 @@
 package linked_list;
+// Linked list — rewritten with struct + malloc after class removal.
 extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
-class Node {
-    val: i32,
+// struct Node: i32(4) + pad(4) + *ptr(8) = 16 bytes
+struct Node {
+    val:  i32,
     next: *mut Node,
 }
 
-unsafe fn main() -> i32 {
-    let n3 = new Node { val: 3, next: 0 as *mut Node };
-    let n2 = new Node { val: 2, next: n3 };
-    let n1 = new Node { val: 1, next: n2 };
+unsafe fn new_node(val: i32, next: *mut Node) -> *mut Node {
+    let n: *mut Node = malloc(16 as i64) as *mut Node;
+    n.val  = val;
+    n.next = next;
+    return n;
+}
 
-    // traverse
+unsafe fn main() -> i32 {
+    let n3: *mut Node = new_node(3, 0 as *mut Node);
+    let n2: *mut Node = new_node(2, n3);
+    let n1: *mut Node = new_node(1, n2);
+
     let mut cur: *mut Node = n1;
     while cur != 0 as *mut Node {
         printi("%d\n", (*cur).val);
         cur = (*cur).next;
     }
 
-    delete n3;
-    delete n2;
-    delete n1;
+    free(n3 as *mut u8);
+    free(n2 as *mut u8);
+    free(n1 as *mut u8);
     return 0;
 }

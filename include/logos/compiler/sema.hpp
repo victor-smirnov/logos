@@ -33,7 +33,6 @@ struct LogosType {
         Array,                    // [T; N]
         Struct,                   // user-defined struct
         Datatype,                 // Hermes datatype (C POD layout, no heap types)
-        Class,                    // user-defined class (virtual dispatch via vtable)
         Enum,                     // discriminant enum (stored as i32)
         Tuple,                    // (T1, T2, ...) — anonymous product type
         Slice,                    // &[T] — fat pointer (ptr, len)
@@ -121,8 +120,6 @@ std::string type_str(const LogosType* t);
 // Used by mono and mlir_gen to look up instantiated struct definitions.
 std::string concrete_struct_name(const LogosType* t);
 
-// Concrete class name: same mangling scheme for generic classes.
-std::string concrete_class_name(const LogosType* t);
 
 // ── TypePool ───────────────────────────────────────────────────────────────
 //

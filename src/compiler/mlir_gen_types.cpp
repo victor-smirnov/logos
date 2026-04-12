@@ -57,9 +57,6 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
         // Structs/datatypes are always passed by pointer; no need to wait for registration.
         return ptr_type();
     }
-    case LogosType::Kind::Class:
-        // Classes are always passed by pointer (heap allocated via 'new').
-        return ptr_type();
     case LogosType::Kind::Closure:
         // Closures are {fn_ptr, env_ptr}, passed by pointer.
         return ptr_type();
@@ -211,67 +208,6 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     tagged_enums_[ed.name] = std::move(info);
 }
 
-// ---------------------------------------------------------------------------
-// Class registration (Pass 0a)
-// ---------------------------------------------------------------------------
-
-bool MLIRGenImpl::register_class(mlir::ModuleOp /*mod*/, const LClassDef& cd) {
-    if (struct_types_.count(cd.name)) return true;
-
-    auto struct_type = mlir::LLVM::LLVMStructType::getIdentified(
-        builder_.getContext(), cd.name);
-    StructInfo info;
-    info.name      = cd.name;
-    info.llvm_type = struct_type;
-
-    std::vector<mlir::Type> field_types;
-
-    // Parent fields first (from parent's StructInfo)
-    if (!cd.parent_name.empty()) {
-        auto pit = struct_types_.find(cd.parent_name);
-        if (pit != struct_types_.end()) {
-            for (auto& pf : pit->second.fields) {
-                uint32_t idx = uint32_t(info.fields.size());
-                info.fields.push_back({pf.name, pf.type, idx, pf.struct_name});
-                field_types.push_back(pf.type);
-            }
-        }
-    }
-
-    // Own fields
-    for (auto& f : cd.own_fields) {
-        auto ft = logos_to_mlir(f.type);
-        if (!ft) {
-            std::fprintf(stderr, "mlir_gen: unknown field type in class '%s'\n",
-                         cd.name.c_str());
-            return false;
-        }
-        std::string fsname;
-        if (f.type && f.type->kind == LogosType::Kind::Struct) {
-            fsname = concrete_struct_name(f.type);
-        } else if (f.type && (f.type->kind == LogosType::Kind::Ref ||
-                               f.type->kind == LogosType::Kind::MutRef) &&
-                   f.type->pointee &&
-                   f.type->pointee->kind == LogosType::Kind::Struct) {
-            fsname = concrete_struct_name(f.type->pointee);
-        }
-        else if (f.type && f.type->kind == LogosType::Kind::Class)
-            fsname = f.type->struct_name;
-        uint32_t idx = uint32_t(info.fields.size());
-        info.fields.push_back({f.name, ft, idx, fsname});
-        field_types.push_back(ft);
-    }
-
-    if (!field_types.empty()) {
-        if (mlir::failed(struct_type.setBody(field_types, false))) {
-            std::fprintf(stderr, "mlir_gen: failed to set body for class '%s'\n",
-                         cd.name.c_str());
-            return false;
-        }
-    }
-    struct_types_[cd.name] = std::move(info);
-    return true;
-}
 
 // ---------------------------------------------------------------------------
 // resolve_tagged_enum, tuple_llvm_type, slice_llvm_type, closure_llvm_type

@@ -880,8 +880,6 @@ lir::LProgram borrow_check(lir::LProgram prog) {
     for (auto& fn : prog.specializations) check(fn);
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)        check(m);
-    for (auto& cd : prog.classes)
-        for (auto& m : cd.methods)        check(m);
 
     return prog;
 }

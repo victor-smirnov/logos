@@ -6,10 +6,10 @@
 //
 // All method bodies for large methods are defined in:
 //   sema.cpp        — run(), primitives, helpers, type subst, resolve_type, lower_program
-//   sema_collect.cpp — collect_*, finalize_classes, collect_fn
+//   sema_collect.cpp — collect_*, collect_fn
 //   sema_expr.cpp   — lower_expr, lower_*_expr, lower_call, lower_method_call, lower_*_lit
 //   sema_stmt.cpp   — lower_stmt, lower_let, lower_assign, lower_*, build_pattern
-//   sema_decl.cpp   — lower_fn, lower_struct_def, lower_enum_def, lower_class_def, lower_*_def
+//   sema_decl.cpp   — lower_fn, lower_struct_def, lower_enum_def, lower_*_def
 
 #pragma once
 
@@ -44,7 +44,6 @@ namespace logos::compiler {
 bool types_equal(const LogosType& a, const LogosType& b) noexcept;
 std::string type_str(const LogosType* t);
 std::string concrete_struct_name(const LogosType* t);
-std::string concrete_class_name(const LogosType* t);
 bool types_compatible(const LogosType* from, const LogosType* to) noexcept;
 
 // Inline (defined below, after class, so visible in all TUs):
@@ -71,7 +70,7 @@ private:
 
     TypePool pool_;
 
-    // prims_[int(Kind)] for primitive kinds.  Class and TypeVar are not primitives.
+    // prims_[int(Kind)] for primitive kinds.  TypeVar is not a primitive.
     // Size = int(Kind::Error) + 1 to cover all Kind values.
     std::array<const LogosType*, int(LogosType::Kind::Error) + 1> prims_{};
 
@@ -118,21 +117,10 @@ private:
         t.type_args   = std::move(args);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_class_type(std::string_view name) {
-        LogosType t; t.kind = LogosType::Kind::Class; t.struct_name = std::string(name);
-        return pool_.alloc(std::move(t));
-    }
     const LogosType* make_generic_struct(std::string_view name,
                                           std::vector<const LogosType*> args) {
         LogosType t; t.kind = LogosType::Kind::Struct;
         t.struct_name = std::string(name);
-        t.type_args   = std::move(args);
-        return pool_.alloc(std::move(t));
-    }
-    const LogosType* make_generic_class(std::string_view name,
-                                         std::vector<const LogosType*> args) {
-        LogosType t; t.kind = LogosType::Kind::Class;
-        t.struct_name = std::string(name);   // struct_name holds class name
         t.type_args   = std::move(args);
         return pool_.alloc(std::move(t));
     }
@@ -317,21 +305,7 @@ private:
     }
 
     std::string_view struct_name_of(std::string_view var_name);
-    std::string_view class_name_of(std::string_view var_name);
     std::string_view struct_name_from_type(const LogosType* t);
-    std::string_view class_name_from_type(const LogosType* t);
-
-    // Check if `derived` is the same as or a subclass of `base`.
-    bool is_subclass(std::string_view derived, std::string_view base) const {
-        if (derived == base) return true;
-        auto it = classes_.find(std::string(derived));
-        if (it == classes_.end()) return false;
-        if (it->second.parent_name.empty()) return false;
-        return is_subclass(it->second.parent_name, base);
-    }
-
-    const LogosType* class_field_type(std::string_view cname, std::string_view fname) const;
-    int32_t vtable_index_of(std::string_view cname, std::string_view mangled_method) const;
 
     // ── Module-level symbol tables ───────────────────────────────
 
@@ -354,20 +328,6 @@ private:
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
         std::vector<TypeParam> type_params;  // for generic enums
-    };
-    struct ClassFieldInfo { std::string name; const LogosType* type; bool is_pub = false; bool is_variadic = false; };
-    struct SemaClassInfo  {
-        std::string parent_name;
-        std::vector<const LogosType*> parent_type_args;  // type args passed to parent (e.g. [TypeVar(T)])
-        bool is_abstract = false;
-        std::string package;
-        // All fields accessible on this class (parent fields first, then own).
-        std::vector<ClassFieldInfo> all_fields;
-        // vtable_order: full vtable including inherited slots (parent methods first).
-        // Each entry is the mangled method name, e.g. "Animal__speak".
-        std::vector<std::string> vtable_order;
-        // Generic class support: non-empty when class has type parameters.
-        std::vector<TypeParam> type_params;
     };
 
     // ── Trait info ───────────────────────────────────────────────
@@ -408,7 +368,6 @@ private:
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
     std::unordered_map<std::string, SemaStructInfo>   struct_specs_sema_;
     std::unordered_map<std::string, SemaEnumInfo>     enums_;
-    std::unordered_map<std::string, SemaClassInfo>    classes_;
     std::unordered_map<std::string, SemaFuncInfo>     funcs_;
     std::unordered_map<std::string, SemaFuncInfo>     generic_funcs_; // overloaded generic variants
     // const fn bodies: mangled_name → (body_block, param_names)
@@ -465,17 +424,9 @@ private:
 
     const LogosType* subst_type_sema(const LogosType* t, const SemaSubst& s);
 
-    // ── Compatibility with class hierarchy ───────────────────────
+    // ── Compatibility ────────────────────────────────────────────
     bool compat(const LogosType* from, const LogosType* to) const {
-        if (types_compatible(from, to)) return true;
-        if (from && to &&
-            is_ref_like(from->kind) && is_ref_like(to->kind) &&
-            from->pointee && to->pointee &&
-            from->pointee->kind == LogosType::Kind::Class &&
-            to->pointee->kind   == LogosType::Kind::Class) {
-            return is_subclass(from->pointee->struct_name, to->pointee->struct_name);
-        }
-        return false;
+        return types_compatible(from, to);
     }
 
     // ── Type resolution ──────────────────────────────────────────
@@ -499,8 +450,6 @@ private:
     void collect_trait(hermes::TinyMapView node);
     void collect_impl(hermes::TinyMapView node);
     void collect_struct_spec(hermes::TinyMapView node);
-    void collect_class(hermes::TinyMapView node);
-    void finalize_classes();
     void collect_struct(hermes::TinyMapView node);
     void collect_datatype(hermes::TinyMapView node);
     const LogosType* try_resolve_as_known_type(std::string_view name);
@@ -567,10 +516,6 @@ private:
                                       std::vector<const LogosType*> type_args,
                                       std::vector<lir::LExprPtr> arg_exprs);
     lir::LExprPtr lower_generic_call(hermes::TinyMapView node);
-    lir::LExprPtr lower_class_method_call(lir::LExprPtr recv,
-                                           std::string_view cname,
-                                           std::string_view method_name,
-                                           hermes::TinyMapView node);
     lir::LExprPtr lower_method_call(hermes::TinyMapView node);
     lir::LExprPtr lower_field_read(hermes::TinyMapView node);
     lir::LExprPtr lower_struct_lit(hermes::TinyMapView node);
@@ -581,7 +526,6 @@ private:
     lir::LExprPtr lower_enum_lit_data(hermes::TinyMapView node);
     lir::LExprPtr lower_enum_lit_data_from_static(
             hermes::TinyMapView node, std::string_view ename, std::string_view vname);
-    lir::LExprPtr lower_new_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_static_call(hermes::TinyMapView node);
     lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
     lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
@@ -630,7 +574,6 @@ private:
     lir::LTypeAlias lower_type_alias_def(hermes::TinyMapView node);
     lir::LTraitDef lower_trait_def(hermes::TinyMapView node);
     void lower_impl_block(hermes::TinyMapView node, lir::LProgram& prog);
-    lir::LClassDef lower_class_def(hermes::TinyMapView node);
     void lower_program(const std::vector<hermes::HermesCtr>& asts, lir::LProgram& prog);
     void lower_module_items(hermes::TinyMapView mod, lir::LProgram& prog);
 };

@@ -177,21 +177,6 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
             error("deref-write: cannot write through *const pointer (use *mut)");
         return make_stmt(node_line_, lir::SDerefWrite{std::move(ptr), std::move(val)});
     }
-    if (c == la::DELETE_STMT) {
-        if (!inside_unsafe_)
-            error("'delete' operation requires unsafe context");
-        lir::LExprPtr expr = stmt.has_key(la::VALUE)
-            ? lower_expr(map_of(stmt.get(la::VALUE.code)))
-            : error_expr();
-        auto* et = expr->type;
-        if (et->kind != LogosType::Kind::Ptr || !et->pointee ||
-            (et->pointee->kind != LogosType::Kind::Class &&
-             et->pointee->kind != LogosType::Kind::Error)) {
-            error(std::format("'delete' requires a class pointer, got {}",
-                  type_str(et)));
-        }
-        return make_stmt(node_line_, lir::SDelete{std::move(expr)});
-    }
     if (c == la::UNSAFE_BLOCK) {
         bool was = inside_unsafe_;
         inside_unsafe_ = true;
@@ -1388,10 +1373,8 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     }
 
     auto sname = struct_name_of(recv_name);
-    auto cname = sname.empty() ? class_name_of(recv_name) : std::string_view{};
-    bool is_class = !cname.empty();
-    if (sname.empty() && cname.empty()) {
-        error(std::format("field write: '{}' is not a struct or class", recv_name));
+    if (sname.empty()) {
+        error(std::format("field write: '{}' is not a struct", recv_name));
     } else {
         auto* recv_type = lookup(recv_name);
         if (recv_type && recv_type->kind == LogosType::Kind::Ptr) {
@@ -1399,12 +1382,12 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                 error(std::format("field write to '{}': receiver is *const pointer", recv_name));
         } else if (recv_type && recv_type->kind == LogosType::Kind::Ref) {
             error(std::format("field write to '{}': receiver is &T (shared reference)", recv_name));
-        } else if (!is_class && !lookup_is_mut(recv_name) &&
+        } else if (!lookup_is_mut(recv_name) &&
                    !(recv_type && recv_type->kind == LogosType::Kind::MutRef)) {
             error(std::format("field write to immutable variable '{}'", recv_name));
         }
     }
-    const LogosType* recv_struct_t = (sname.empty() && cname.empty()) ? nullptr : lookup(recv_name);
+    const LogosType* recv_struct_t = sname.empty() ? nullptr : lookup(recv_name);
     if (recv_struct_t && recv_struct_t->kind == LogosType::Kind::Ptr) {
         if (!inside_unsafe_)
             error("field write through raw pointer requires unsafe context");
@@ -1414,24 +1397,10 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     }
     const LogosType* ft = nullptr;
     if (recv_struct_t) {
-        if (is_class) {
-            // For classes, apply TypeVar substitution to field types.
-            SemaSubst subst;
-            auto cit = classes_.find(std::string(cname));
-            if (cit != classes_.end() && recv_struct_t->type_args.size() == cit->second.type_params.size()) {
-                for (size_t i = 0; i < cit->second.type_params.size(); ++i)
-                    subst[cit->second.type_params[i].name] = recv_struct_t->type_args[i];
-            }
-            auto* raw_ft = class_field_type(cname, field_name);
-            ft = (raw_ft && !subst.empty()) ? subst_type_sema(raw_ft, subst) : raw_ft;
-        } else {
-            ft = field_type_of_for_type(recv_struct_t, field_name);
-        }
+        ft = field_type_of_for_type(recv_struct_t, field_name);
     }
     if (!sname.empty() && !ft)
         error(std::format("field write: struct '{}' has no field '{}'", sname, field_name));
-    if (!cname.empty() && !ft)
-        error(std::format("field write: class '{}' has no field '{}'", cname, field_name));
     // Pub check for struct/datatype field writes.
     if (!sname.empty() && ft) {
         SemaStructInfo* si = nullptr;
@@ -1441,18 +1410,6 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
             for (auto& f : si->fields) {
                 if (f.name == field_name) {
                     check_pub_access(f.is_pub, si->package, field_name);
-                    break;
-                }
-            }
-        }
-    }
-    // Pub check for class field writes.
-    if (!cname.empty() && ft) {
-        auto cit = classes_.find(std::string(cname));
-        if (cit != classes_.end()) {
-            for (auto& f : cit->second.all_fields) {
-                if (f.name == field_name) {
-                    check_pub_access(f.is_pub, cit->second.package, field_name);
                     break;
                 }
             }
@@ -1655,15 +1612,12 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
     std::string type_name;
     const LogosType* ft = nullptr;
     if (pointee) {
-        if (pointee->kind == LogosType::Kind::Class) {
-            type_name = pointee->struct_name;
-            ft = class_field_type(type_name, field_name);
-        } else if (pointee->kind == LogosType::Kind::Struct ||
-                   pointee->kind == LogosType::Kind::Datatype) {
+        if (pointee->kind == LogosType::Kind::Struct ||
+            pointee->kind == LogosType::Kind::Datatype) {
             type_name = concrete_struct_name(pointee);
             ft = field_type_of_for_type(pointee, field_name);
         } else {
-            error(std::format("deref-field-write: '{}' points to non-struct/class type {}",
+            error(std::format("deref-field-write: '{}' points to non-struct type {}",
                               recv_name, type_str(pointee)));
         }
     }
@@ -1680,18 +1634,6 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
             for (auto& f : si->fields) {
                 if (f.name == field_name) {
                     check_pub_access(f.is_pub, si->package, field_name);
-                    break;
-                }
-            }
-        }
-    }
-    // Pub check for class fields.
-    if (pointee && pointee->kind == LogosType::Kind::Class && ft) {
-        auto cit = classes_.find(std::string(type_name));
-        if (cit != classes_.end()) {
-            for (auto& f : cit->second.all_fields) {
-                if (f.name == field_name) {
-                    check_pub_access(f.is_pub, cit->second.package, field_name);
                     break;
                 }
             }
@@ -1932,9 +1874,7 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
     const LogosType* field_t = nullptr;
     if (base_t) {
         auto sname = struct_name_from_type(base_t);
-        auto cname = class_name_from_type(base_t);
-        if (!sname.empty())       field_t = field_type_of_for_type(base_t, field_name);
-        else if (!cname.empty())  field_t = class_field_type(cname, field_name);
+        if (!sname.empty()) field_t = field_type_of_for_type(base_t, field_name);
     }
 
     if (!field_t)
@@ -1951,19 +1891,6 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
                 for (auto& f : si->fields) {
                     if (f.name == field_name) {
                         check_pub_access(f.is_pub, si->package, field_name);
-                        break;
-                    }
-                }
-            }
-        }
-        // Pub check for class fields.
-        auto cname = class_name_from_type(base_t);
-        if (!cname.empty()) {
-            auto cit = classes_.find(std::string(cname));
-            if (cit != classes_.end()) {
-                for (auto& f : cit->second.all_fields) {
-                    if (f.name == field_name) {
-                        check_pub_access(f.is_pub, cit->second.package, field_name);
                         break;
                     }
                 }
@@ -2358,9 +2285,6 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
     if (pointee->kind == LogosType::Kind::Struct) {
         type_name = concrete_struct_name(pointee);
         ft = field_type_of_for_type(pointee, field_name);
-    } else if (pointee->kind == LogosType::Kind::Class) {
-        type_name = std::string(pointee->struct_name);
-        ft = class_field_type(type_name, field_name);
     }
     if (!ft) {
         error(std::format("deref-field compound assign: '{}' has no field '{}'", type_name, field_name));
@@ -2472,9 +2396,7 @@ lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
     const LogosType* field_t = nullptr;
     if (base_t) {
         auto sname = struct_name_from_type(base_t);
-        auto cname = class_name_from_type(base_t);
-        if (!sname.empty())       field_t = field_type_of_for_type(base_t, field_name);
-        else if (!cname.empty())  field_t = class_field_type(cname, field_name);
+        if (!sname.empty()) field_t = field_type_of_for_type(base_t, field_name);
     }
     if (!field_t) {
         error(std::format("field index compound assign: cannot resolve field '{}.{}'",

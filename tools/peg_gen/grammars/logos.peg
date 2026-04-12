@@ -189,12 +189,9 @@
 %tokens {
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
-    KW_ABSTRACT = "abstract"
     KW_PACKAGE  = "package"
     KW_DATATYPE = "datatype"
-    KW_EXTENDS  = "extends"
     KW_STATIC   = "static"
-    KW_DELETE   = "delete"
     KW_RETURN   = "return"
     KW_EXTERN   = "extern"
     KW_STRUCT   = "struct"
@@ -204,7 +201,6 @@
     KW_FALSE    = "false"
     KW_TRAIT    = "trait"
     KW_CONST    = "const"
-    KW_CLASS    = "class"
     KW_TYPE     = "type"
     KW_IMPL     = "impl"
     KW_ENUM     = "enum"
@@ -307,7 +303,7 @@
               / KW_USE IDENT SEMI
              => { CODE: USE, NAME: $2 }
 
-    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / class_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // ── Annotations ──────────────────────────────────────────────
     // #[name(arg1, arg2)]  — annotation with identifier arguments
@@ -419,22 +415,6 @@
                / KW_TYPE IDENT ASSIGN type_ref SEMI
               => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE: $4 }
 
-    // ── Class definition ─────────────────────────────────────────
-    // class ClassName { ... }
-    // class ClassName extends ParentName { ... }
-    // abstract class ClassName { ... }
-    // abstract class ClassName extends ParentName { ... }
-    class_def <- KW_ABSTRACT KW_CLASS IDENT type_param_list? KW_EXTENDS simple_type LBRACE class_member* RBRACE
-              => { CODE: CLASS, NAME: $3, TYPE_PARAMS: $4, PARENT: $6, IS_ABSTRACT: true, ITEMS: $8 }
-               / KW_ABSTRACT KW_CLASS IDENT type_param_list? LBRACE class_member* RBRACE
-              => { CODE: CLASS, NAME: $3, TYPE_PARAMS: $4, IS_ABSTRACT: true, ITEMS: $6 }
-               / KW_CLASS IDENT type_param_list? KW_EXTENDS simple_type LBRACE class_member* RBRACE
-              => { CODE: CLASS, NAME: $2, TYPE_PARAMS: $3, PARENT: $5, ITEMS: $7 }
-               / KW_CLASS IDENT type_param_list? LBRACE class_member* RBRACE
-              => { CODE: CLASS, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }
-
-    // class member: abstract method, static method, concrete method, or field
-    class_member <- abstract_method_def / pub_static_fn_def / static_fn_def / pub_fn_def / fn_def / field_def
 
     // pub static fn name(params) -> ret_type { ... }
     pub_static_fn_def <- KW_PUB KW_STATIC KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
@@ -464,12 +444,6 @@
                   => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
                    / KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN block
                   => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
-
-    // abstract fn name(params) -> ret_type;
-    abstract_method_def <- KW_ABSTRACT KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
-                        => { CODE: ABSTRACT_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
-                         / KW_ABSTRACT KW_FN IDENT LPAREN param_list? RPAREN SEMI
-                        => { CODE: ABSTRACT_FN, NAME: $3, PARAMS: $5 }
 
     // ── Datatype definition (Hermes — C POD layout, no heap types) ──
     pub_datatype_def <- KW_PUB KW_DATATYPE IDENT type_param_list? LBRACE field_def* RBRACE
@@ -664,7 +638,7 @@
           / deref_write_stmt
           / if_expr
           / match_stmt
-          / delete_stmt
+
           / field_index_compound_assign_stmt
           / field_index_write_stmt
           / deref_field_compound_assign_stmt
@@ -801,9 +775,6 @@
     compound_assign_stmt <- IDENT compound_assign_op expr SEMI
                          => { CODE: COMPOUND_ASSIGN, NAME: $1, OP: $2, VALUE: $3 }
 
-    delete_stmt <- KW_DELETE expr SEMI
-               => { CODE: DELETE_STMT, VALUE: $2 }
-
     // var.N = value;  — tuple field write (N is an integer index literal)
     tuple_field_write_stmt <- IDENT DOT INTEGER ASSIGN expr SEMI
                            => { CODE: TUPLE_FIELD_WRITE, RECEIVER: $1, INDEX: $3, VALUE: $5 }
@@ -919,8 +890,7 @@
             )*
 
     // ── Primary expressions (base of a postfix chain) ─────────────
-    primary_expr <- new_expr         // new ClassName { fields }  — before struct_lit
-                  / generic_struct_lit // IDENT::<T> { fields } — before struct_lit
+    primary_expr <- generic_struct_lit // IDENT::<T> { fields } — before struct_lit
                   / struct_update_lit  // IDENT { fields, ..base } — before struct_lit
                   / struct_lit       // IDENT { fields }  — before plain IDENT
                   / arr_fill_lit     // [value; N]  — before arr_lit (avoids ambiguity)
@@ -933,7 +903,7 @@
                   / loop_expr        // loop { ... }  — as expression (break value)
                   / if_expr          // if cond { ... } else { ... }  — as expression
                   / match_stmt       // match expr { ... }  — as expression
-                  / call_expr        // IDENT(args) / Class::method(args) — before enum_lit/IDENT
+                  / call_expr        // IDENT(args) / Type::method(args) — before enum_lit/IDENT
                   / enum_lit         // IDENT::VARIANT     — after call_expr (no parens)
                   / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
                   / STRING   => { CODE: LIT_STR,  VALUE: $1 }
@@ -943,12 +913,6 @@
                   / INTEGER  => { CODE: LIT_INT,  VALUE: $1 }
                   / IDENT DOTDOTDOT => { CODE: PACK_EXPAND, NAME: $1 }
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
-
-    // ── Class new expression: new ClassName { field: expr, ... } ──
-    new_expr <- KW_NEW IDENT LT type_arg_list GT_TYPE LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
-             => { CODE: NEW_EXPR, NAME: $2, TYPE_PARAMS: $4, ITEMS: $... }
-              / KW_NEW IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
-             => { CODE: NEW_EXPR, NAME: $2, ITEMS: $... }
 
     // ── Enum variant literal: Color::Red or Option::Some(42) ──────
     enum_lit <- IDENT COLONCOLON IDENT LPAREN (expr (COMMA expr)*)? RPAREN

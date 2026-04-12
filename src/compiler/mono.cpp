@@ -54,16 +54,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             out_.structs.push_back(clone_struct_def(sd, {}, {}, sd.name));
     }
 
-    // Index generic class templates; pass-through concrete classes immediately.
-    for (auto& cd : in_.classes) {
-        if (!cd.type_params.empty())
-            class_templates_[cd.name] = &cd;  // stable: in_.classes not moved
-    }
-    for (auto& cd : in_.classes) {
-        if (cd.type_params.empty())
-            out_.classes.push_back(clone_class_def(cd, {}, {}, cd.name));
-    }
-
     // Index generic enum templates; pass-through plain enums.
     for (auto& ed : in_.enums) {
         if (!ed.type_params.empty()) {
@@ -87,8 +77,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& ss : in_.struct_specializations)
         struct_specs_[ss.name].push_back(&ss);
 
-    // Process non-generic free functions (also scans class method bodies for
-    // concrete class methods needed via scan_fn on each non-generic class).
+    // Process non-generic free functions.
     for (auto& fn : in_.functions) {
         if (!fn.type_params.empty()) continue;
         auto cloned = clone_fn(fn, {});
@@ -113,9 +102,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Instantiate all generic enums referenced by the output.
     instantiate_enum_templates();
-
-    // Instantiate all generic classes referenced by the output.
-    instantiate_class_templates();
 
     out_.diags = std::move(in_.diags);
     return std::move(out_);

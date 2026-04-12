@@ -186,13 +186,6 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                 sname = concrete_struct_name(p.type->pointee);
             if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
 
-            std::string cname;
-            if (p.type->kind == LogosType::Kind::Class)
-                cname = concrete_class_name(p.type);
-            else if (is_ptr_kind(p.type->kind) && p.type->pointee &&
-                     p.type->pointee->kind == LogosType::Kind::Class)
-                cname = concrete_class_name(p.type->pointee);
-            if (!cname.empty()) var_class_[p.name] = std::move(cname);
         }
     }
 

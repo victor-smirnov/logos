@@ -116,7 +116,6 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             inner->type->kind != LogosType::Kind::Error &&
             target->kind != LogosType::Kind::Error) {
             bool src_agg = inner->type->kind == LogosType::Kind::Struct ||
-                           inner->type->kind == LogosType::Kind::Class  ||
                            inner->type->kind == LogosType::Kind::Array  ||
                            inner->type->kind == LogosType::Kind::Tuple  ||
                            inner->type->kind == LogosType::Kind::Enum;
@@ -209,7 +208,6 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
     case la::ENUM_LIT:    return lower_enum_lit(expr);
     case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
-    case la::NEW_EXPR:    return lower_new_expr(expr);
     case la::IF:          return lower_if_expr(expr);
     case la::MATCH:       return lower_match_expr(expr);
     case la::CLOSURE_EXPR: return lower_closure_expr(expr);
@@ -330,8 +328,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
 
     const LogosType* result_type = error_t();
 
-    // Operator overloading: if LHS is a struct/class, desugar to trait method call.
-    if (lt->kind == LogosType::Kind::Struct || lt->kind == LogosType::Kind::Class) {
+    // Operator overloading: if LHS is a struct, desugar to trait method call.
+    if (lt->kind == LogosType::Kind::Struct) {
         // Map operator to trait name and method
         std::string trait_name, method_name;
         if      (op == "+")  { trait_name = "Add"; method_name = "add"; }
@@ -346,8 +344,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         else if (op == ">")  { trait_name = "Ord"; method_name = "gt"; }
         else if (op == ">=") { trait_name = "Ord"; method_name = "ge"; }
         if (!trait_name.empty()) {
-            auto type_name = (lt->kind == LogosType::Kind::Struct)
-                ? concrete_struct_name(lt) : concrete_class_name(lt);
+            auto type_name = concrete_struct_name(lt);
             auto mangled = type_name + "__" + method_name;
             auto fit = funcs_.find(mangled);
             if (fit != funcs_.end()) {
@@ -493,14 +490,13 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     if (vt->kind == LogosType::Kind::Error)
         return make_expr(error_t(), lir::EUnary{std::string(op), std::move(operand)});
 
-    // Unary operator overloading for struct/class types
-    if (vt->kind == LogosType::Kind::Struct || vt->kind == LogosType::Kind::Class) {
+    // Unary operator overloading for struct types
+    if (vt->kind == LogosType::Kind::Struct) {
         std::string trait_name, method_name;
         if      (op == "-") { trait_name = "Neg"; method_name = "neg"; }
         else if (op == "!") { trait_name = "Not"; method_name = "not_"; }
         if (!trait_name.empty()) {
-            auto type_name = (vt->kind == LogosType::Kind::Struct)
-                ? concrete_struct_name(vt) : concrete_class_name(vt);
+            auto type_name = concrete_struct_name(vt);
             auto mangled = type_name + "__" + method_name;
             auto fit = funcs_.find(mangled);
             if (fit != funcs_.end()) {
@@ -1166,180 +1162,6 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
     return finish_generic_call(callee, *fi_ptr, std::move(type_args), std::move(arg_exprs));
 }
 
-lir::LExprPtr SemaChecker::lower_class_method_call(lir::LExprPtr recv,
-                                           std::string_view cname,
-                                           std::string_view method_name,
-                                           TinyMapView node) {
-    // Walk inheritance chain to find the method.
-    std::string resolved_class;
-    std::string mangled;
-    SemaSubst recv_subst;
-    {
-        std::string start_class = std::string(cname);
-        std::string cur = start_class;
-        // Build subst: start_class type params → receiver's concrete type args
-        {
-            const LogosType* recv_t = recv->type;
-            if (recv_t && is_ref_like(recv_t->kind) && recv_t->pointee)
-                recv_t = recv_t->pointee;
-            if (recv_t && recv_t->kind == LogosType::Kind::Class &&
-                !recv_t->type_args.empty()) {
-                auto cit = classes_.find(start_class);
-                if (cit != classes_.end()) {
-                    auto& tps = cit->second.type_params;
-                    for (size_t i = 0; i < tps.size() && i < recv_t->type_args.size(); ++i)
-                        recv_subst[tps[i].name] = recv_t->type_args[i];
-                }
-            }
-        }
-        while (!cur.empty()) {
-            auto candidate = cur + "__" + std::string(method_name);
-            if (funcs_.count(candidate) || generic_funcs_.count(candidate)) {
-                // Only set resolved_class for inherited methods (found on a parent).
-                // When found on the class itself, leave it empty so mlir_gen uses
-                // the concrete type name (e.g., "Box__i32") from gen_recv_struct.
-                if (cur != start_class) {
-                    // Compute concrete parent class name using parent_type_args
-                    auto sit = classes_.find(start_class);
-                    if (!recv_subst.empty() && sit != classes_.end() &&
-                        !sit->second.parent_type_args.empty()) {
-                        // Substitute parent_type_args to get concrete parent type args
-                        std::vector<const LogosType*> concrete_args;
-                        for (auto* arg : sit->second.parent_type_args)
-                            concrete_args.push_back(subst_type_sema(arg, recv_subst));
-                        LogosType parent_t;
-                        parent_t.kind = LogosType::Kind::Class;
-                        parent_t.struct_name = cur;
-                        parent_t.type_args = concrete_args;
-                        resolved_class = concrete_class_name(&parent_t);
-                    } else {
-                        resolved_class = cur;
-                    }
-                }
-                mangled = candidate;
-                break;
-            }
-            auto cit = classes_.find(cur);
-            if (cit == classes_.end()) break;
-            cur = cit->second.parent_name;
-        }
-    }
-
-    const SemaFuncInfo* fi_ptr = nullptr;
-    if (auto fit = funcs_.find(mangled); fit != funcs_.end()) fi_ptr = &fit->second;
-    else if (auto git = generic_funcs_.find(mangled); git != generic_funcs_.end()) fi_ptr = &git->second;
-
-    if (!fi_ptr) {
-        error(std::format("class '{}' has no method '{}'", cname, method_name));
-        std::vector<lir::LExprPtr> dummy_args;
-        return make_expr(error_t(),
-            lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(dummy_args), -1, ""});
-    }
-
-    std::vector<lir::LExprPtr> arg_exprs;
-    if (node.has_key(la::ARGS)) {
-        auto args = arr_of(node.get(la::ARGS.code));
-        for (uint64_t i = 0; i < args.size(); ++i)
-            arg_exprs.push_back(lower_expr(map_of(args.get(i))));
-    }
-
-    auto& fi = *fi_ptr;
-    check_pub_access(fi.is_pub, fi.package, mangled);
-    if (fi.is_unsafe && !inside_unsafe_)
-        error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
-
-    uint64_t explicit_args = arg_exprs.size();
-    size_t expected_explicit = fi.param_types.size() > 0 ? fi.param_types.size() - 1 : 0;
-    if (explicit_args != expected_explicit)
-        error(std::format("method call '{}': expected {} args, got {}",
-              mangled, expected_explicit, explicit_args));
-    else {
-        for (uint64_t i = 0; i < explicit_args; ++i) {
-            auto* at = arg_exprs[i]->type;
-            size_t pi = i + 1;
-            if (pi < fi.param_types.size()) {
-                auto* pt = recv_subst.empty() ? fi.param_types[pi]
-                                              : subst_type_sema(fi.param_types[pi], recv_subst);
-                if (at->kind != LogosType::Kind::Error && pt->kind != LogosType::Kind::Error &&
-                    !compat(at, pt))
-                    error(std::format("method '{}' arg {}: expected {}, got {}",
-                          mangled, i + 1, type_str(pt), type_str(at)));
-                if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
-                    if (auto v = get_intlit_value(arg_exprs[i].get()))
-                        if (!intlit_fits(*v, pt->kind))
-                            error(std::format("method '{}' arg {}: value {} does not fit in {}",
-                                  mangled, i + 1, *v, type_str(pt)));
-                // Check array literal elements against narrow array param type.
-                if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
-                    if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                            if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei].get()))
-                                    if (!intlit_fits(*v, pt->elem->kind))
-                                        error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
-                                              mangled, i + 1, ei, *v, type_str(pt->elem)));
-                // Check tuple literal elements against narrow tuple param element types.
-                if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
-                    if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei) {
-                            if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                    if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
-                                        error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                              mangled, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
-                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                                pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
-                                if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                        if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                                if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
-                                                    error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          mangled, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
-
-                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
-                                tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
-                                if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < pt->tuple_elems[ei]->tuple_elems.size(); ++ii)
-                                        if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                                if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
-                                                    error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          mangled, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
-                            }
-            }
-        }
-    }
-
-    const LogosType* ret_t = recv_subst.empty() ? fi.ret_type
-                                                  : subst_type_sema(fi.ret_type, recv_subst);
-
-    int32_t vidx = vtable_index_of(cname, mangled);
-
-    // Infer method type args if generic (Bug 12)
-    std::vector<const LogosType*> m_type_args;
-    if (!fi.type_params.empty()) {
-        if (!infer_type_args(fi, arg_exprs, m_type_args, recv_subst, 1)) {
-            error(std::format("could not infer type arguments for generic method '{}'", mangled));
-        }
-        check_type_bounds(mangled, fi.type_params, m_type_args);
-        // Re-substitute return type with BOTH struct and method bindings
-        SemaSubst combined = recv_subst;
-        for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
-            combined[fi.type_params[i].name] = m_type_args[i];
-        ret_t = subst_type_sema(fi.ret_type, combined);
-    }
-
-    lir::EMethodCall mc;
-    mc.receiver      = std::move(recv);
-    mc.method        = std::string(method_name);
-    mc.type_args     = std::move(m_type_args);
-    mc.args          = std::move(arg_exprs);
-    mc.vtable_index  = vidx;
-    mc.resolved_type = resolved_class;
-    return make_expr(ret_t, std::move(mc));
-}
-
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
@@ -1655,12 +1477,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1, ""});
     }
 
-    // Check if receiver is a class type → virtual dispatch
-    auto cname = class_name_from_type(recv->type);
-    if (!cname.empty()) {
-        return lower_class_method_call(std::move(recv), cname, method_name, node);
-    }
-
     auto sname = struct_name_from_type(recv->type);
 
     std::vector<lir::LExprPtr> arg_exprs;
@@ -1887,29 +1703,6 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         recv_base_t = recv_base_t->pointee;
     } else if (recv_base_t && is_ref_like(recv_base_t->kind)) {
         recv_base_t = recv_base_t->pointee;
-    }
-
-    // Check for class receiver
-    auto cname_sv = class_name_from_type(recv_base_t);
-    if (!cname_sv.empty()) {
-        auto* ft = class_field_type(cname_sv, field_name);
-        if (!ft) {
-            error(std::format("field read: class '{}' has no field '{}'", cname_sv, field_name));
-            return make_expr(error_t(), lir::EFieldRead{std::move(recv), std::string(field_name)});
-        }
-        // Pub check for class field reads.
-        {
-            auto cit = classes_.find(std::string(cname_sv));
-            if (cit != classes_.end()) {
-                for (auto& f : cit->second.all_fields) {
-                    if (f.name == field_name) {
-                        check_pub_access(f.is_pub, cit->second.package, field_name);
-                        break;
-                    }
-                }
-            }
-        }
-        return make_expr(ft, lir::EFieldRead{std::move(recv), std::string(field_name)});
     }
 
     // DataRef<T> ergonomic read: p.field → p.ptr().field
@@ -2896,163 +2689,6 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
     return make_expr(result_type,
         lir::EEnumLitData{std::string(ename), std::string(vname),
                           vinfo->value, std::move(payload)});
-}
-
-lir::LExprPtr SemaChecker::lower_new_expr(TinyMapView node) {
-    auto cname = str_of(node.get(la::NAME.code));
-    auto cit = classes_.find(std::string(cname));
-    if (cit == classes_.end()) {
-        error(std::format("'new': unknown class '{}'", cname));
-        return error_expr();
-    }
-    auto& cinfo = cit->second;
-    if (cinfo.is_abstract) {
-        error(std::format("'new': cannot instantiate abstract class '{}'", cname));
-        return error_expr();
-    }
-
-    std::vector<std::pair<std::string, lir::LExprPtr>> fields;
-    if (node.has_key(la::ITEMS)) {
-        auto inits = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < inits.size(); ++i) {
-            auto init = map_of(inits.get(i));
-            int32_t ic = code_of(init);
-            if (ic != la::FIELD_INIT && ic != la::FIELD_SHORTHAND) continue;
-            auto fname = str_of(init.get(la::NAME.code));
-            lir::LExprPtr val;
-            if (ic == la::FIELD_SHORTHAND) {
-                auto* t = lookup(fname);
-                if (!t) {
-                    error(std::format("undefined variable '{}' used as field shorthand", fname));
-                    val = error_expr();
-                } else {
-                    val = make_expr(t, lir::EVarRef{std::string(fname)});
-                }
-            } else {
-                val = init.has_key(la::VALUE)
-                    ? lower_expr(map_of(init.get(la::VALUE.code)))
-                    : error_expr();
-            }
-            fields.push_back({std::string(fname), std::move(val)});
-        }
-    }
-
-    // Validate all fields are initialized and no extras
-    std::unordered_map<std::string, bool> initialized;
-    for (auto& f : cinfo.all_fields) initialized[f.name] = false;
-    for (auto& [fname, fval] : fields) {
-        auto it = initialized.find(fname);
-        if (it == initialized.end()) {
-            error(std::format("'new {}': unknown field '{}'", cname, fname));
-        } else {
-            if (it->second) {
-                error(std::format("'new {}': duplicate field '{}'", cname, fname));
-                continue;
-            }
-            it->second = true;
-            // Find expected type; skip check if field type is TypeVar (checked post-mono)
-            for (auto& f : cinfo.all_fields) {
-                if (f.name == fname && f.type->kind != LogosType::Kind::Error &&
-                    f.type->kind != LogosType::Kind::TypeVar &&
-                    fval->type->kind != LogosType::Kind::Error &&
-                    !compat(fval->type, f.type)) {
-                    error(std::format("'new {}' field '{}': expected {}, got {}",
-                          cname, fname, type_str(f.type), type_str(fval->type)));
-                }
-                if (f.name == fname && f.type->kind != LogosType::Kind::Error &&
-                    fval->type->kind == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(fval.get()))
-                        if (!intlit_fits(*v, f.type->kind))
-                            error(std::format("'new {}' field '{}': value {} does not fit in {}",
-                                  cname, fname, *v, type_str(f.type)));
-                // Check array literal elements against narrow array field type.
-                if (f.name == fname && f.type->kind == LogosType::Kind::Array && f.type->elem &&
-                    fval->type->kind == LogosType::Kind::Array)
-                    if (auto* al = std::get_if<lir::EArrLit>(&fval->kind))
-                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
-                            if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(al->elems[ei].get()))
-                                    if (!intlit_fits(*v, f.type->elem->kind))
-                                        error(std::format("'new {}' field '{}': array element {}: value {} does not fit in {}",
-                                              cname, fname, ei, *v, type_str(f.type->elem)));
-            // Check tuple literal elements against narrow tuple field element types.
-            if (f.type->kind == LogosType::Kind::Tuple &&
-                fval->type->kind == LogosType::Kind::Tuple)
-                if (auto* tl = std::get_if<lir::ETupleLit>(&fval->kind))
-                    for (size_t ei = 0; ei < tl->elems.size() && ei < f.type->tuple_elems.size(); ++ei) {
-                        if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                if (f.type->tuple_elems[ei] && !intlit_fits(*v, f.type->tuple_elems[ei]->kind))
-                                    error(std::format("'new {}' field '{}': tuple element {}: value {} does not fit in {}",
-                                          cname, fname, ei, *v, type_str(f.type->tuple_elems[ei])));
-                        if (f.type->tuple_elems[ei] && f.type->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                            f.type->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
-                            if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < ial->elems.size(); ++ii)
-                                    if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                            if (!intlit_fits(*v, f.type->tuple_elems[ei]->elem->kind))
-                                                error(std::format("'new {}' field '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                                      cname, fname, ei, ii, *v, type_str(f.type->tuple_elems[ei]->elem)));
-
-                        if (f.type->tuple_elems[ei] && f.type->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
-                            tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
-                            if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < f.type->tuple_elems[ei]->tuple_elems.size(); ++ii)
-                                    if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                            if (f.type->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, f.type->tuple_elems[ei]->tuple_elems[ii]->kind))
-                                                error(std::format("'new {}' field '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      cname, fname, ei, ii, *v, type_str(f.type->tuple_elems[ei]->tuple_elems[ii])));
-                        }
-            }
-        }
-    }
-    for (auto& [fn, init] : initialized)
-        if (!init)
-            error(std::format("'new {}': field '{}' not initialized", cname, fn));
-
-    // For generic classes, use explicit type args if provided, else infer from fields.
-    const LogosType* class_t = nullptr;
-    if (!cinfo.type_params.empty()) {
-        std::vector<const LogosType*> args;
-        if (node.has_key(la::TYPE_PARAMS)) {
-            // Explicit: new Box<i32> { ... }
-            // TYPE_PARAMS is a type_arg_list node: { ITEMS: [type_ref, ...] }
-            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-            auto type_items = tplist.has_key(la::ITEMS)
-                                ? arr_of(tplist.get(la::ITEMS.code))
-                                : arr_of(node.get(la::TYPE_PARAMS.code));
-            for (uint64_t i = 0; i < type_items.size(); ++i)
-                args.push_back(resolve_type(map_of(type_items.get(i))));
-        } else {
-            // Infer from field values
-            SemaSubst inferred;
-            for (auto& [fname, fval] : fields) {
-                for (auto& f : cinfo.all_fields) {
-                    if (f.name != fname) continue;
-                    if (f.type->kind == LogosType::Kind::TypeVar) {
-                        auto& tv = f.type->type_var_name;
-                        if (!inferred.count(tv)) {
-                            auto* vt = fval->type;
-                            if (vt->kind == LogosType::Kind::IntLit) vt = i32_t();
-                            inferred[tv] = vt;
-                        }
-                    }
-                }
-            }
-            for (auto& tp : cinfo.type_params) {
-                auto it = inferred.find(tp.name);
-                args.push_back(it != inferred.end() ? it->second : error_t());
-            }
-        }
-        check_type_bounds(std::string(cname), cinfo.type_params, args);
-        class_t = make_generic_class(cname, std::move(args));
-    } else {
-        class_t = make_class_type(cname);
-    }
-    auto* result_t = make_ptr(true, class_t);
-    return make_expr(result_t, lir::ENew{std::string(cname), std::move(fields)});
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {

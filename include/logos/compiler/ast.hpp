@@ -54,7 +54,6 @@ inline constexpr Key IS_MUT    {"IS_MUT",    25};  // mutability flag (uint8_t, 
 inline constexpr Key INCLUSIVE  {"INCLUSIVE",  26};  // for range: inclusive end (..=)
 inline constexpr Key TYPE_PARAMS{"TYPE_PARAMS", 27}; // generic type parameter list
 inline constexpr Key PARENT     {"PARENT",      28}; // parent class name (string)
-inline constexpr Key IS_ABSTRACT{"IS_ABSTRACT", 29}; // abstract flag (bool)
 inline constexpr Key IS_VARARG  {"IS_VARARG",   30}; // vararg flag for extern fn (bool)
 inline constexpr Key ITER       {"ITER",        31}; // iterable expr for for-each
 
@@ -131,13 +130,9 @@ inline constexpr Code TYPE_PARAM  {"TYPE_PARAM",   90};   // type parameter T or
 inline constexpr Code GENERIC_CALL{"GENERIC_CALL", 91};   // foo::<T>(args)
 inline constexpr Code GENERIC_INST{"GENERIC_INST", 92};   // Vec<T> in type position
 
-// Batch H — classes
-inline constexpr Code CLASS       {"CLASS",        93};   // class definition
-inline constexpr Code NEW_EXPR    {"NEW_EXPR",     94};   // new ClassName { ... }
-inline constexpr Code DELETE_STMT {"DELETE_STMT",  95};   // delete expr;
-inline constexpr Code ABSTRACT_FN {"ABSTRACT_FN",  96};   // abstract fn declaration
-inline constexpr Code STATIC_FN   {"STATIC_FN",    97};   // static fn in class
-inline constexpr Code STATIC_CALL {"STATIC_CALL",  98};   // ClassName::method(args)
+// (Batch H — classes removed; STATIC_FN/STATIC_CALL kept for struct static methods)
+inline constexpr Code STATIC_FN   {"STATIC_FN",    97};   // static method in impl block (fn Self::name)
+inline constexpr Code STATIC_CALL {"STATIC_CALL",  98};   // Type::method(args) static dispatch
 inline constexpr Code FOR_EACH    {"FOR_EACH",     99};   // for item in array { }
 
 // Batch J — tuples

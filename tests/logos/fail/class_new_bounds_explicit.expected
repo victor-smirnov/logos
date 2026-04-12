@@ -1,1 +1,0 @@
-type 'Bad' does not implement trait 'Valid' required by parameter 'T'

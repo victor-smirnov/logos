@@ -44,10 +44,6 @@ void SemaChecker::collect(const std::vector<hermes::HermesCtr>& asts) {
                 auto ename = std::string(str_of(item.get(la::NAME.code)));
                 if (enums_.count(ename)) error(std::format("duplicate enum '{}'", ename));
                 else enums_[ename] = {};
-            } else if (ic == la::CLASS) {
-                auto cname = std::string(str_of(item.get(la::NAME.code)));
-                if (classes_.count(cname)) error(std::format("duplicate class '{}'", cname));
-                else classes_[cname] = {};
             }
         }
     }
@@ -69,9 +65,6 @@ void SemaChecker::collect(const std::vector<hermes::HermesCtr>& asts) {
     }
     cur_package_ = {};
 
-    // Third pass: build class inheritance (all_fields + full vtable_order).
-    finalize_classes();
-
     // Final pass: simplify all collected types (resolve concrete associated types).
     simplify_all_types();
 }
@@ -79,9 +72,6 @@ void SemaChecker::collect(const std::vector<hermes::HermesCtr>& asts) {
 void SemaChecker::simplify_all_types() {
     for (auto& [name, info] : structs_) {
         for (auto& f : info.fields) f.type = subst_type_sema(f.type, {});
-    }
-    for (auto& [name, info] : classes_) {
-        for (auto& f : info.all_fields) f.type = subst_type_sema(f.type, {});
     }
     for (auto& [name, info] : enums_) {
         for (auto& v : info.variants) {
@@ -132,14 +122,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         std::string unwrapped_name;
         if ((concrete->kind == LogosType::Kind::Ptr || concrete->kind == LogosType::Kind::Ref || concrete->kind == LogosType::Kind::MutRef) && concrete->pointee) {
             auto* inner = concrete->pointee;
-            if (inner->kind == LogosType::Kind::Class)
-                unwrapped_name = concrete_class_name(inner);
-            else if (inner->kind == LogosType::Kind::Struct)
+            if (inner->kind == LogosType::Kind::Struct)
                 unwrapped_name = concrete_struct_name(inner);
         } else if (concrete->kind == LogosType::Kind::Struct) {
             unwrapped_name = concrete_struct_name(concrete);
-        } else if (concrete->kind == LogosType::Kind::Class) {
-            unwrapped_name = concrete_class_name(concrete);
         }
 
         for (auto& bound : tp.bounds) {
@@ -171,7 +157,6 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     collect_datatype(item);
             }
             else if (c == la::ENUM)                       collect_enum(item);
-            else if (c == la::CLASS)                        collect_class(item);
             else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
             else if (c == la::TRAIT_DEF)                  collect_trait(item);
             else if (c == la::IMPL_BLOCK)                 collect_impl(item);
@@ -362,8 +347,6 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (resolved->kind == LogosType::Kind::Struct ||
                             resolved->kind == LogosType::Kind::Datatype)
                             target = concrete_struct_name(resolved);
-                        else if (resolved->kind == LogosType::Kind::Class)
-                            target = concrete_class_name(resolved);
                         target_resolved = resolved;
                     }
                 }
@@ -398,9 +381,6 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 } else {
                     self_type = make_struct_type(target);
                 }
-            } else if (classes_.count(base_target) || classes_.count(target)) {
-                std::string cname = classes_.count(target) ? target : base_target;
-                self_type = make_ptr(true, make_class_type(cname));
             } else if (datatypes_.count(base_target) || datatypes_.count(target)) {
                 std::string dname = datatypes_.count(target) ? target : base_target;
                 self_type = make_datatype_type(dname);
@@ -484,8 +464,6 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             } else {
                                 self_type = make_struct_type(target);
                             }
-                        } else if (classes_.count(target)) {
-                            self_type = make_ptr(true, make_class_type(target));
                         } else if (datatypes_.count(target)) {
                             self_type = make_datatype_type(target);
                         }
@@ -604,114 +582,6 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
         current_type_params_.erase(tp.name);
 }
 
-void SemaChecker::collect_class(TinyMapView node) {
-    auto cname = std::string(str_of(node.get(la::NAME.code)));
-    ctx_ = std::format("class {}", cname);
-
-    SemaClassInfo& info = classes_[cname];
-    info.package = cur_package_;
-
-    // Read type parameters (generic classes: class Box<T> { ... })
-    info.type_params = read_type_params(node);
-    push_type_params(info.type_params);
-
-    // Read IS_ABSTRACT flag
-    if (node.has_key(la::IS_ABSTRACT)) {
-        AnyVal av = node.get(la::IS_ABSTRACT.code);
-        info.is_abstract = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-    }
-
-    // Read parent class
-    if (node.has_key(la::PARENT)) {
-        auto parent_av = node.get(la::PARENT.code);
-        // PARENT is now a simple_type node: TYPE_REF or GENERIC_INST
-        auto parent_node = map_of(parent_av);
-        info.parent_name = std::string(str_of(parent_node.get(la::NAME.code)));
-        // Read parent type args if generic (e.g. extends Container<T>)
-        if (code_of(parent_node) == la::GENERIC_INST && parent_node.has_key(la::ITEMS)) {
-            auto items = arr_of(parent_node.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < items.size(); ++i)
-                info.parent_type_args.push_back(resolve_type(map_of(items.get(i))));
-        }
-        if (!classes_.count(info.parent_name))
-            error(std::format("class '{}': unknown parent '{}'", cname, info.parent_name));
-    }
-
-    // Process class members: collect own fields and method signatures
-    if (node.has_key(la::ITEMS)) {
-        auto members = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < members.size(); ++i) {
-            auto m = map_of(members.get(i));
-            int32_t mc = code_of(m);
-
-            if (mc == la::FIELD_DEF) {
-                auto fname = str_of(m.get(la::NAME.code));
-                auto ftype = resolve_type(map_of(m.get(la::TYPE.code)));
-                bool fpub = m.has_key(la::IS_PUB) &&
-                            m.get(la::IS_PUB.code).is_value() &&
-                            m.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
-                bool fvar = false;
-                if (m.has_key(la::IS_VARIADIC)) {
-                    AnyVal av = m.get(la::IS_VARIADIC.code);
-                    fvar = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-                }
-                // Own fields (all_fields built in finalize_classes)
-                info.all_fields.push_back({std::string(fname), ftype, fpub, fvar});
-
-            } else if (mc == la::FN || mc == la::ABSTRACT_FN) {
-                collect_fn(m, cname);
-            } else if (mc == la::STATIC_FN) {
-                // Static methods: collected as free functions with class prefix
-                collect_fn(m, cname);
-            }
-        }
-    }
-
-    pop_type_params(classes_[cname].type_params);
-}
-
-void SemaChecker::finalize_classes() {
-    // We process in order they appear in classes_ — but to correctly inherit,
-    // we do a simple recursive helper that resolves each class at most once.
-    std::unordered_map<std::string, bool> done;
-
-    std::function<void(const std::string&)> resolve = [&](const std::string& cname) {
-        if (done.count(cname)) return;
-        done[cname] = true;
-
-        auto it = classes_.find(cname);
-        if (it == classes_.end()) return;
-        auto& info = it->second;
-
-        // Resolve parent first
-        if (!info.parent_name.empty()) {
-            resolve(info.parent_name);
-            auto pit = classes_.find(info.parent_name);
-            if (pit != classes_.end()) {
-                // Prepend parent's all_fields to own
-                auto own_fields = std::move(info.all_fields);
-                info.all_fields = pit->second.all_fields;
-                for (auto& f : own_fields) info.all_fields.push_back(f);
-                // Start vtable from parent
-                info.vtable_order = pit->second.vtable_order;
-            }
-        }
-
-        // Add own methods to vtable (skip if already present = override)
-        for (auto& [fname, finfo] : funcs_) {
-            // Check if this method belongs to cname
-            std::string prefix = cname + "__";
-            if (fname.rfind(prefix, 0) != 0) continue;
-            auto mangled = fname;
-            auto vit = std::find(info.vtable_order.begin(), info.vtable_order.end(), mangled);
-            if (vit == info.vtable_order.end())
-                info.vtable_order.push_back(mangled);
-        }
-    };
-
-    for (auto& [cname, _] : classes_)
-        resolve(cname);
-}
 
 void SemaChecker::collect_datatype(TinyMapView node) {
     auto dname = std::string(str_of(node.get(la::NAME.code)));

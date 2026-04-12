@@ -578,8 +578,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EDeref& e, const LogosType* type) {
     if (!ptr) return nullptr;
     // Structs and classes are always pointer-represented in MLIR/LLVM.
     // Dereferencing *Struct or &mut Struct just yields the same pointer — no load needed.
-    if (type && (type->kind == LogosType::Kind::Class ||
-                 type->kind == LogosType::Kind::Struct))
+    if (type && type->kind == LogosType::Kind::Struct)
         return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();

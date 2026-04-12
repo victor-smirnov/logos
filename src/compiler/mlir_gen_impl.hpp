@@ -217,7 +217,6 @@ private:
     // ── Struct / enum / class registration ──────────────────────
     bool register_struct(const LStructDef& sd);
     void register_tagged_enum(const LEnumDef& ed);
-    bool register_class(mlir::ModuleOp mod, const LClassDef& cd);
 
     // Resolve a tagged enum name from the expression type (handles generic enums).
     const TaggedEnumInfo* resolve_tagged_enum(const std::string& name, const LogosType* type);
@@ -232,7 +231,6 @@ private:
     mlir::Type closure_llvm_type();
 
     // ── Vtable / dyn ─────────────────────────────────────────────
-    void emit_vtable(mlir::ModuleOp mod, const LClassDef& cd);
     void emit_trait_vtables(mlir::ModuleOp mod, const LProgram& prog);
     void emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog);
     mlir::Value build_inline_vtable(const std::string& trait_name,

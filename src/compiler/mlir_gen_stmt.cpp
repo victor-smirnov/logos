@@ -315,26 +315,6 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         return;
     }
 
-    // ── Class pointer (from 'new') ────────────────────────────
-    if (s.type && s.type->kind == LogosType::Kind::Ptr &&
-        s.type->pointee && s.type->pointee->kind == LogosType::Kind::Class) {
-        auto val = gen_expr(*s.value);
-        if (!val) return;
-        if (s.is_mut) {
-            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_type(), ptr_type(), i64_one());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-            scope_[s.name]          = alloca;
-            let_vars_.insert(s.name);
-            var_elem_types_[s.name] = ptr_type();
-        } else {
-            scope_[s.name]  = val;
-            let_vars_.insert(s.name);
-            var_class_[s.name] = concrete_class_name(s.type->pointee);
-        }
-        return;
-    }
-
     // ── &dyn Trait / Box<dyn Trait> coercion ─────────────────
     if (s.type && s.type->kind == LogosType::Kind::TraitObject) {
         auto data_ptr = gen_expr(*s.value);
@@ -890,8 +870,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
         loc_, ptr_type(), elem_mlir, arr_alloca, arr_idx);
 
     bool is_struct_elem = s.elem_type &&
-        (s.elem_type->kind == LogosType::Kind::Struct ||
-         s.elem_type->kind == LogosType::Kind::Class);
+        s.elem_type->kind == LogosType::Kind::Struct;
 
     if (is_struct_elem) {
         // Struct elements are stored as pointers in the array ([N x ptr]).
@@ -899,10 +878,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
         // (scope_ holds a direct struct pointer for struct variables).
         auto struct_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), elem_ptr);
         scope_[s.var] = struct_ptr;
-        if (s.elem_type->kind == LogosType::Kind::Struct)
-            var_struct_[s.var] = concrete_struct_name(s.elem_type);
-        else
-            var_class_[s.var] = s.elem_type->struct_name;
+        var_struct_[s.var] = concrete_struct_name(s.elem_type);
     } else {
         // Scalar: alloca + store so the body can read (and mutate) via scope_.
         auto elem_alloca = builder_.create<mlir::LLVM::AllocaOp>(

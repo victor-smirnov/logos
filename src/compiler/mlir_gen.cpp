@@ -40,10 +40,6 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     for (auto& sd : prog.structs)
         if (!register_struct(sd)) return nullptr;
 
-    // Pass 0a: register class LLVM types (with prepended vtable pointer).
-    for (auto& cd : prog.classes)
-        if (!register_class(mod, cd)) return nullptr;
-
     for (auto& ta : prog.type_aliases)
         type_aliases_[ta.name] = logos_to_mlir(ta.type);
 
@@ -53,22 +49,13 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // Declare malloc and free for 'new' and 'delete'.
     ensure_malloc_free(mod);
 
-    // Pass 1: forward-declare all functions (structs, classes, free fns).
+    // Pass 1: forward-declare all functions (structs, free fns).
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
             forward_declare(mod, m);
 
-    for (auto& cd : prog.classes)
-        for (auto& m : cd.methods)
-            forward_declare(mod, m);
-
     for (auto& fn : prog.functions)
         forward_declare(mod, fn);
-
-    // Pass 1a: emit vtable globals for concrete classes.
-    for (auto& cd : prog.classes)
-        if (!cd.is_abstract)
-            emit_vtable(mod, cd);
 
     // Pass 1b: emit vtable globals for trait impls (&dyn Trait support).
     emit_trait_vtables(mod, prog);
@@ -76,15 +63,9 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // Pass 1c: emit tag-based dispatch tables (one [223 x ptr] per TagSystem×Trait×method).
     emit_tag_dispatch_tables(mod, prog);
 
-    // Pass 2: fill function bodies (structs, classes, free fns).
+    // Pass 2: fill function bodies (structs, free fns).
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
-            auto func = mod.lookupSymbol<mlir::func::FuncOp>(m.name);
-            if (!gen_function_body(func, m)) return nullptr;
-        }
-    }
-    for (auto& cd : prog.classes) {
-        for (auto& m : cd.methods) {
             auto func = mod.lookupSymbol<mlir::func::FuncOp>(m.name);
             if (!gen_function_body(func, m)) return nullptr;
         }
@@ -166,7 +147,6 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                  t->kind == LogosType::Kind::MutRef) && t->pointee) {
                 const LogosType* inner = t->pointee;
                 if (inner->kind == LogosType::Kind::Struct ||
-                    inner->kind == LogosType::Kind::Class ||
                     inner->kind == LogosType::Kind::Datatype) {
                     // Load the pointer value from the alloca, then use it as the struct ptr.
                     auto alloca = get_struct_ptr(name);  // alloca holding the pointer
@@ -178,11 +158,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                     if (alloca) {
                         auto ptr_val = builder_.create<mlir::LLVM::LoadOp>(
                             loc_, ptr_type(), alloca);
-                        std::string tname = (inner->kind == LogosType::Kind::Struct ||
-                                              inner->kind == LogosType::Kind::Datatype)
-                            ? concrete_struct_name(inner)
-                            : concrete_class_name(inner);
-                        return {ptr_val, tname};
+                        return {ptr_val, concrete_struct_name(inner)};
                     }
                 }
             }
@@ -232,11 +208,8 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         if ((t->kind == LogosType::Kind::Ptr ||
              t->kind == LogosType::Kind::Ref ||
              t->kind == LogosType::Kind::MutRef) && t->pointee) t = t->pointee;
-        if (t->kind == LogosType::Kind::Struct)
-            return {ptr, concrete_struct_name(t)};
-        if (t->kind == LogosType::Kind::Class)
-            return {ptr, concrete_class_name(t)};
-        if (t->kind == LogosType::Kind::Datatype)
+        if (t->kind == LogosType::Kind::Struct ||
+            t->kind == LogosType::Kind::Datatype)
             return {ptr, concrete_struct_name(t)};
     }
     std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct/class access\n");

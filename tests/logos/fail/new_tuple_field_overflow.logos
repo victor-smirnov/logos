@@ -1,8 +1,0 @@
-package new_tuple_field_overflow;
-class C {
-    pair: (i8, i8),
-}
-fn main() -> i32 {
-    let c = new C { pair: (200, 5) };
-    return 0;
-}

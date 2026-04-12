@@ -1,16 +1,27 @@
 package bst;
+// Binary search tree — rewritten with struct + malloc after class removal.
 extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn malloc(size: i64) -> *mut u8;
 fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
 
-class Node {
+// struct Node: i32(4) + pad(4) + *ptr(8) + *ptr(8) = 24 bytes
+struct Node {
     key:   i32,
     left:  *mut Node,
     right: *mut Node,
 }
 
+unsafe fn new_node(key: i32) -> *mut Node {
+    let n: *mut Node = malloc(24 as i64) as *mut Node;
+    n.key   = key;
+    n.left  = 0 as *mut Node;
+    n.right = 0 as *mut Node;
+    return n;
+}
+
 unsafe fn insert(root: *mut Node, key: i32) -> *mut Node {
     if root == 0 as *mut Node {
-        return new Node { key: key, left: 0 as *mut Node, right: 0 as *mut Node };
+        return new_node(key);
     }
     if key < (*root).key {
         (*root).left = insert((*root).left, key);
@@ -31,13 +42,11 @@ unsafe fn inorder(root: *mut Node) {
 
 unsafe fn main() -> i32 {
     let mut root: *mut Node = 0 as *mut Node;
-    unsafe {
-        root = insert(root, 5);
-        root = insert(root, 3);
-        root = insert(root, 7);
-        root = insert(root, 1);
-        root = insert(root, 4);
-        inorder(root);
-    }
+    root = insert(root, 5);
+    root = insert(root, 3);
+    root = insert(root, 7);
+    root = insert(root, 1);
+    root = insert(root, 4);
+    inorder(root);
     return 0;
 }

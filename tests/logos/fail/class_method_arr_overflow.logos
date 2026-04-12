@@ -1,9 +1,0 @@
-package class_method_arr_overflow;
-class C {
-    val: i32,
-    unsafe fn take_arr(self: *mut C, arr: [i8; 3]) -> i32 { return self.val; }
-}
-unsafe fn main() -> i32 {
-    let c = new C { val: 1 };
-    return c.take_arr([1, 200, 3]);
-}
