@@ -59,11 +59,55 @@ struct PatVariantData {
 struct PatOr;
 // Tuple pattern: (a, b, c) — matches a tuple, binding each element.
 struct PatTuple;
-using Pattern = std::variant<PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr, PatTuple>;
+// Range pattern: lo..=hi inclusive integer range.
+struct PatRange { int64_t lo; int64_t hi; };
+// Struct pattern: Point { x: p, y } — binds/tests struct fields.
+struct PatStruct;
+// Slice pattern: [a, b] or [first, .., last].
+struct PatSlice;
+// @ binding: name @ sub_pat — binds scrutinee to name AND tests sub_pat.
+struct PatAt;
+// ref / ref mut binding — binds scrutinee by reference.
+struct PatRefBind {
+    std::string      name;
+    bool             is_mut;
+    const LogosType* bind_type;  // &T or &mut T
+};
+// Reference pattern: &pat or &mut pat — strips one level of indirection.
+struct PatRefPat;
+
+using Pattern = std::variant<
+    PatVariant, PatInt, PatBool, PatWild, PatVariantData, PatOr, PatTuple,
+    PatRange, PatStruct, PatSlice, PatAt, PatRefBind, PatRefPat>;
+
 struct PatOr   { std::vector<Pattern> alts; };
 struct PatTuple {
     std::vector<std::string>        bindings;      // bound variable names (or "_" to skip)
     std::vector<const LogosType*>   binding_types; // their types (filled by sema)
+};
+// PatFieldBinding: sub empty = shorthand binding, sub[0] = explicit sub-pattern.
+struct PatFieldBinding {
+    std::string          field_name;
+    std::vector<Pattern> sub;   // 0 = shorthand, 1 = explicit
+};
+struct PatStruct {
+    std::string                   struct_name;
+    std::vector<PatFieldBinding>  fields;
+    bool                          has_rest;
+};
+struct PatSlice {
+    std::vector<Pattern>  prefix;   // elements before ..
+    std::vector<Pattern>  rest;     // 0 = no rest, 1 = has rest (..)
+    std::vector<Pattern>  suffix;   // elements after ..
+};
+struct PatAt {
+    std::string          name;
+    std::vector<Pattern> sub;   // exactly 1 element: the inner pattern
+    const LogosType*     type;
+};
+struct PatRefPat {
+    std::vector<Pattern> inner;  // exactly 1 element: the dereferenced pattern
+    bool                 is_mut;
 };
 
 struct LMatchArm {

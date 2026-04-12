@@ -1,0 +1,13 @@
+package pat_at;
+
+fn check(x: i32) -> i32 {
+    match x {
+        n @ 1..=41 => { return n + 1; }
+        n @ 42     => { return n; }
+        _          => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    return check(42);
+}

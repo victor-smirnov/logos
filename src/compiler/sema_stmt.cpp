@@ -882,6 +882,170 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
             pt.binding_types.push_back(scrut_type->tuple_elems[i]);
         return pt;
     }
+    // ── PAT_RANGE: 0..=9 inclusive integer range ──────────────────────────
+    if (pc == la::PAT_RANGE) {
+        auto lo_sv = str_of(pnode.get(la::LHS.code));
+        auto hi_sv = str_of(pnode.get(la::RHS.code));
+        int64_t lo = parse_int_literal(lo_sv);
+        int64_t hi = parse_int_literal(hi_sv);
+        if (pnode.has_key(la::LO_NEG)) {
+            AnyVal av = pnode.get(la::LO_NEG.code);
+            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) lo = -lo;
+        }
+        if (pnode.has_key(la::HI_NEG)) {
+            AnyVal av = pnode.get(la::HI_NEG.code);
+            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) hi = -hi;
+        }
+        if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
+            !is_integer(scrut_type))
+            error(std::format("range pattern requires integer scrutinee, got '{}'",
+                  type_str(scrut_type)));
+        if (lo > hi)
+            error(std::format("range pattern: lo ({}) > hi ({})", lo, hi));
+        return lir::PatRange{lo, hi};
+    }
+
+    // ── PAT_AT: name @ sub_pat ────────────────────────────────────────────
+    if (pc == la::PAT_AT) {
+        auto bname = std::string(str_of(pnode.get(la::NAME.code)));
+        auto sub_node = map_of(pnode.get(la::VALUE.code));
+        auto sub_pat = build_pattern(sub_node, scrut_type);
+        lir::PatAt pa;
+        pa.name = bname;
+        pa.type = scrut_type;
+        pa.sub.push_back(std::move(sub_pat));
+        return pa;
+    }
+
+    // ── PAT_REF: &pat or &mut pat ─────────────────────────────────────────
+    if (pc == la::PAT_REF) {
+        bool is_mut = pnode.has_key(la::IS_MUT) &&
+                      pnode.get(la::IS_MUT.code).is_value() &&
+                      pnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+        const LogosType* inner_type = scrut_type;
+        if (scrut_type && (scrut_type->kind == LogosType::Kind::Ref ||
+                           scrut_type->kind == LogosType::Kind::MutRef) &&
+            scrut_type->pointee)
+            inner_type = scrut_type->pointee;
+        auto sub_node = map_of(pnode.get(la::VALUE.code));
+        auto inner_pat = build_pattern(sub_node, inner_type);
+        lir::PatRefPat prp;
+        prp.is_mut = is_mut;
+        prp.inner.push_back(std::move(inner_pat));
+        return prp;
+    }
+
+    // ── PAT_WILD with IS_REF: ref x or ref mut x ─────────────────────────
+    if (pc == la::PAT_WILD || pnode.has_key(la::NAME)) {
+        bool is_ref = pnode.has_key(la::IS_REF) &&
+                      pnode.get(la::IS_REF.code).is_value() &&
+                      pnode.get(la::IS_REF.code).as_value<uint8_t>() != 0;
+        if (is_ref) {
+            bool is_mut = pnode.has_key(la::IS_MUT) &&
+                          pnode.get(la::IS_MUT.code).is_value() &&
+                          pnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+            auto bname = std::string(str_of(pnode.get(la::NAME.code)));
+            LogosType ref_t;
+            ref_t.kind    = is_mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
+            ref_t.pointee = scrut_type;
+            const LogosType* btype = pool_.alloc(std::move(ref_t));
+            return lir::PatRefBind{bname, is_mut, btype};
+        }
+    }
+
+    // ── PAT_STRUCT: Point { x: p, y } or Point { .. } ────────────────────
+    if (pc == la::PAT_STRUCT) {
+        auto sname = std::string(str_of(pnode.get(la::NAME.code)));
+        // Look up struct or datatype info.
+        const SemaStructInfo* sinfo = nullptr;
+        auto sit = structs_.find(sname);
+        if (sit != structs_.end()) sinfo = &sit->second;
+        else {
+            auto dit = datatypes_.find(sname);
+            if (dit != datatypes_.end()) sinfo = &dit->second;
+        }
+        if (!sinfo)
+            error(std::format("struct pattern: unknown struct '{}'", sname));
+        if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
+            scrut_type->kind == LogosType::Kind::Struct &&
+            scrut_type->struct_name != sname && scrut_type->struct_name != "")
+            error(std::format("struct pattern: '{}' != scrutinee '{}'",
+                  sname, type_str(scrut_type)));
+        lir::PatStruct ps;
+        ps.struct_name = sname;
+        ps.has_rest    = false;
+        if (pnode.has_key(la::ITEMS)) {
+            AnyVal items_av = pnode.get(la::ITEMS.code);
+            if (!items_av.is_null() && items_av.is_pointer()) {
+                auto flist_node = map_of(items_av);
+                if (flist_node.has_key(la::ITEMS)) {
+                    auto fitems = arr_of(flist_node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < fitems.size(); ++i) {
+                        auto fnode = map_of(fitems.get(i));
+                        if (code_of(fnode) == la::PAT_REST) { ps.has_rest = true; continue; }
+                        // PAT_FIELD: NAME = field name, VALUE = sub-pattern (optional)
+                        auto fname = std::string(str_of(fnode.get(la::NAME.code)));
+                        const LogosType* ftype = error_t();
+                        if (sinfo) {
+                            for (auto& f : sinfo->fields)
+                                if (f.name == fname) { ftype = f.type; break; }
+                        }
+                        lir::PatFieldBinding pfb;
+                        pfb.field_name = fname;
+                        if (fnode.has_key(la::VALUE)) {
+                            auto sub = build_pattern(map_of(fnode.get(la::VALUE.code)), ftype);
+                            pfb.sub.push_back(std::move(sub));
+                        }
+                        ps.fields.push_back(std::move(pfb));
+                    }
+                }
+            }
+        }
+        return ps;
+    }
+
+    // ── PAT_SLICE: [a, b] or [first, .., last] ───────────────────────────
+    if (pc == la::PAT_SLICE) {
+        const LogosType* elem_type = error_t();
+        if (scrut_type && scrut_type->kind == LogosType::Kind::Array && scrut_type->elem)
+            elem_type = scrut_type->elem;
+        else if (scrut_type && scrut_type->kind == LogosType::Kind::Slice && scrut_type->elem)
+            elem_type = scrut_type->elem;
+        else if (scrut_type && scrut_type->kind != LogosType::Kind::Error)
+            error(std::format("slice pattern requires array or slice scrutinee, got '{}'",
+                  type_str(scrut_type)));
+        lir::PatSlice psl;
+        bool found_rest = false;
+        if (pnode.has_key(la::ITEMS)) {
+            AnyVal items_av = pnode.get(la::ITEMS.code);
+            if (!items_av.is_null() && items_av.is_pointer()) {
+                auto elist_node = map_of(items_av);
+                if (elist_node.has_key(la::ITEMS)) {
+                    auto eitems = arr_of(elist_node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < eitems.size(); ++i) {
+                        auto enode = map_of(eitems.get(i));
+                        if (code_of(enode) == la::PAT_REST) {
+                            found_rest = true;
+                            psl.rest.push_back(lir::PatWild{"_"});
+                            continue;
+                        }
+                        auto sub = build_pattern(enode, elem_type);
+                        if (!found_rest) psl.prefix.push_back(std::move(sub));
+                        else             psl.suffix.push_back(std::move(sub));
+                    }
+                }
+            }
+        }
+        // For fixed-size arrays without rest, validate element count.
+        if (scrut_type && scrut_type->kind == LogosType::Kind::Array && !found_rest) {
+            size_t expected = (size_t)scrut_type->arr_size;
+            if (psl.prefix.size() != expected)
+                error(std::format("slice pattern: expected {} elements, got {}",
+                      expected, psl.prefix.size()));
+        }
+        return psl;
+    }
+
     // PAT_WILD or fallback
     auto wname = str_of(pnode.get(la::NAME.code));
     return lir::PatWild{std::string(wname)};
@@ -901,6 +1065,44 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
     } else if (auto* pw = std::get_if<lir::PatWild>(&pat)) {
         if (pw->name != "_" && scrut_type)
             define(pw->name, scrut_type);
+    } else if (auto* prb = std::get_if<lir::PatRefBind>(&pat)) {
+        define(prb->name, prb->bind_type);
+    } else if (auto* pa = std::get_if<lir::PatAt>(&pat)) {
+        if (pa->type) define(pa->name, pa->type);
+        if (!pa->sub.empty()) bind_pattern(pa->sub[0], pa->type);
+    } else if (auto* prp = std::get_if<lir::PatRefPat>(&pat)) {
+        const LogosType* inner_t = scrut_type;
+        if (scrut_type && scrut_type->pointee) inner_t = scrut_type->pointee;
+        if (!prp->inner.empty()) bind_pattern(prp->inner[0], inner_t);
+    } else if (auto* ps = std::get_if<lir::PatStruct>(&pat)) {
+        // Look up struct info to get field types.
+        const SemaStructInfo* sinfo = nullptr;
+        auto sit = structs_.find(ps->struct_name);
+        if (sit != structs_.end()) sinfo = &sit->second;
+        else {
+            auto dit = datatypes_.find(ps->struct_name);
+            if (dit != datatypes_.end()) sinfo = &dit->second;
+        }
+        for (auto& pfb : ps->fields) {
+            const LogosType* ftype = error_t();
+            if (sinfo)
+                for (auto& f : sinfo->fields)
+                    if (f.name == pfb.field_name) { ftype = f.type; break; }
+            if (pfb.sub.empty()) {
+                // Shorthand: bind field_name → field_type
+                define(pfb.field_name, ftype);
+            } else {
+                bind_pattern(pfb.sub[0], ftype);
+            }
+        }
+    } else if (auto* psl = std::get_if<lir::PatSlice>(&pat)) {
+        const LogosType* elem_t = (scrut_type && scrut_type->elem) ? scrut_type->elem : error_t();
+        for (auto& p : psl->prefix) bind_pattern(p, elem_t);
+        for (auto& p : psl->rest)   bind_pattern(p, scrut_type);
+        for (auto& p : psl->suffix) bind_pattern(p, elem_t);
+    } else if (auto* por = std::get_if<lir::PatOr>(&pat)) {
+        // OR patterns: bind only if all alternatives bind the same names (first alt wins).
+        if (!por->alts.empty()) bind_pattern(por->alts[0], scrut_type);
     }
 }
 

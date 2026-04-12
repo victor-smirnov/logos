@@ -1,0 +1,11 @@
+package pat_ref_bind;
+
+fn double_match(x: i32) -> i32 {
+    match x {
+        ref n => { return *n + *n; }
+    }
+}
+
+fn main() -> i32 {
+    return double_match(21);
+}

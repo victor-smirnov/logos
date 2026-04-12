@@ -1,0 +1,18 @@
+package pat_struct_rest;
+
+struct Vec3 {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
+fn get_z(v: Vec3) -> i32 {
+    match v {
+        Vec3 { z, .. } => { return z; }
+    }
+}
+
+fn main() -> i32 {
+    let v = Vec3 { x: 1, y: 2, z: 42 };
+    return get_z(v);
+}

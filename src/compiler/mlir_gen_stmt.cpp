@@ -1219,9 +1219,20 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
     mlir::Block* else_block = merge_block;
     bool exhaustive_discrete = false;
     // Helper: is this pattern irrefutable (always matches)?
-    auto is_irrefutable = [](const lir::Pattern& p) {
-        return std::holds_alternative<lir::PatWild>(p) ||
-               std::holds_alternative<lir::PatTuple>(p);
+    // PatAt is irrefutable only if its sub-pattern is (e.g. n @ _ is irrefutable,
+    // n @ 42 is refutable).
+    std::function<bool(const lir::Pattern&)> is_irrefutable;
+    is_irrefutable = [&](const lir::Pattern& p) -> bool {
+        if (std::holds_alternative<lir::PatWild>(p))     return true;
+        if (std::holds_alternative<lir::PatTuple>(p))    return true;
+        if (std::holds_alternative<lir::PatStruct>(p))   return true;
+        if (std::holds_alternative<lir::PatSlice>(p))    return true;
+        if (std::holds_alternative<lir::PatRefBind>(p))  return true;
+        if (auto* pa = std::get_if<lir::PatAt>(&p))
+            return pa->sub.empty() || is_irrefutable(pa->sub[0]);
+        if (auto* prp = std::get_if<lir::PatRefPat>(&p))
+            return prp->inner.empty() || is_irrefutable(prp->inner[0]);
+        return false;
     };
     if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Tuple) {
         // Tuple patterns are always irrefutable.
@@ -1288,17 +1299,12 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         else_block = default_block;
     }
 
-    // Helper: extract PatVariantData / PatTuple payload bindings into scope.
+    // Helper: extract payload bindings into scope for the current arm.
     auto extract_payload = [&](const LMatchArm& arm) {
+        // ── PatTuple ───────────────────────────────────────────────────────
         if (auto* pt = std::get_if<PatTuple>(&arm.pat)) {
-            // Tuple pattern: scrut is a pointer to the tuple struct.
-            // Extract each field via GEP + load, alloca + store, bind into scope.
             auto ttype = tuple_llvm_type(s.scrut->type);
             if (!ttype) return;
-            // In gen_match, scrut was updated to load the discriminant for enums;
-            // for tuples there is no discriminant — we need the original pointer.
-            // scrut_ptr is null for non-enum scrutinees; use the original scrut alloca.
-            // Re-evaluate the scrutinee to get the pointer (it is pure so safe).
             mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
             if (!tptr) return;
             for (size_t bi = 0; bi < pt->bindings.size() && bi < pt->binding_types.size(); ++bi) {
@@ -1316,6 +1322,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             }
             return;
         }
+        // ── PatVariantData ────────────────────────────────────────────────
         if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) {
             if (te_info && scrut_ptr) {
                 llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
@@ -1345,8 +1352,113 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                     }
                 }
             }
-        } else if (auto* pw = std::get_if<PatWild>(&arm.pat)) {
-            // Named wildcard: bind the scrutinee value to pw->name.
+            return;
+        }
+        // ── PatStruct: GEP-extract each named field ───────────────────────
+        if (auto* ps = std::get_if<PatStruct>(&arm.pat)) {
+            // Use struct_types_ for the concrete LLVM struct type (logos_to_mlir returns ptr).
+            auto sit = struct_types_.find(ps->struct_name);
+            if (sit == struct_types_.end()) return;
+            const StructInfo& sinfo = sit->second;
+            mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
+            if (!sptr) return;
+            for (auto& pfb : ps->fields) {
+                if (pfb.sub.empty()) {
+                    // Shorthand binding: find field by name and bind.
+                    auto fp = gep_field(sptr, sinfo, pfb.field_name);
+                    if (!fp) continue;
+                    // Determine field MLIR type from StructInfo.
+                    mlir::Type fmlir;
+                    for (auto& sf : sinfo.fields) {
+                        if (sf.name == pfb.field_name) { fmlir = sf.type; break; }
+                    }
+                    if (!fmlir) continue;
+                    auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
+                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                        loc_, ptr_type(), fmlir, i64_one());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                    scope_[pfb.field_name] = alloca;
+                    let_vars_.insert(pfb.field_name);
+                    var_elem_types_[pfb.field_name] = fmlir;
+                }
+                // Nested sub-patterns in struct fields are irrefutable (handled by
+                // bind_pattern during sema); complex nested patterns are deferred.
+            }
+            return;
+        }
+        // ── PatSlice: GEP-extract indexed elements ────────────────────────
+        if (auto* psl = std::get_if<PatSlice>(&arm.pat)) {
+            auto* atype = s.scrut->type;
+            if (atype && atype->kind == LogosType::Kind::Array && atype->elem) {
+                auto elem_mlir = logos_to_mlir(atype->elem);
+                auto arr_mlir  = logos_to_mlir(atype);
+                mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
+                if (aptr && elem_mlir && arr_mlir) {
+                    auto bind_elem = [&](const lir::Pattern& p, int32_t idx) {
+                        if (auto* pw = std::get_if<lir::PatWild>(&p)) {
+                            if (pw->name == "_") return;
+                            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
+                            auto ep = builder_.create<mlir::LLVM::GEPOp>(
+                                loc_, ptr_type(), arr_mlir, aptr, gi);
+                            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
+                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                                loc_, ptr_type(), elem_mlir, i64_one());
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                            scope_[pw->name] = alloca;
+                            let_vars_.insert(pw->name);
+                            var_elem_types_[pw->name] = elem_mlir;
+                        }
+                    };
+                    for (size_t i = 0; i < psl->prefix.size(); ++i)
+                        bind_elem(psl->prefix[i], (int32_t)i);
+                    size_t total = (size_t)atype->arr_size;
+                    for (size_t i = 0; i < psl->suffix.size(); ++i)
+                        bind_elem(psl->suffix[i], (int32_t)(total - psl->suffix.size() + i));
+                }
+            }
+            return;
+        }
+        // ── PatAt: bind outer name then handle sub-pattern ────────────────
+        if (auto* pa = std::get_if<PatAt>(&arm.pat)) {
+            mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
+            if (!pa->name.empty() && pa->name != "_") {
+                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                    loc_, ptr_type(), sv.getType(), i64_one());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                scope_[pa->name] = alloca;
+                let_vars_.insert(pa->name);
+                var_elem_types_[pa->name] = sv.getType();
+            }
+            return;
+        }
+        // ── PatRefBind: bind name as a reference (pointer to scrutinee) ──
+        if (auto* prb = std::get_if<PatRefBind>(&arm.pat)) {
+            if (!prb->name.empty() && prb->name != "_") {
+                // We need a pointer to the scrutinee. If scrut_ptr is available
+                // (enum scrutinee on stack), use it directly. Otherwise spill the
+                // value to a fresh alloca to obtain an address.
+                mlir::Value sv_ptr;
+                if (scrut_ptr) {
+                    sv_ptr = scrut_ptr;
+                } else {
+                    // Spill: alloca for the scrutinee value.
+                    auto tmp = builder_.create<mlir::LLVM::AllocaOp>(
+                        loc_, ptr_type(), scrut.getType(), i64_one());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
+                    sv_ptr = tmp;
+                }
+                // n: &T → alloca(ptr) holding the address of the scrutinee.
+                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                    loc_, ptr_type(), ptr_type(), i64_one());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, sv_ptr, alloca);
+                scope_[prb->name] = alloca;
+                let_vars_.insert(prb->name);
+                var_elem_types_[prb->name] = ptr_type();
+            }
+            return;
+        }
+        // ── PatWild (named wildcard) ───────────────────────────────────────
+        if (auto* pw = std::get_if<PatWild>(&arm.pat)) {
             if (pw->name != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
                 auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
@@ -1400,10 +1512,28 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             }
         }
 
-        bool is_wild = std::holds_alternative<PatWild>(arm.pat) ||
-                       std::holds_alternative<PatTuple>(arm.pat);
+        bool is_wild = is_irrefutable(arm.pat);
         if (is_wild) {
             else_block = arm_entry;
+        } else if (auto* pr = std::get_if<lir::PatRange>(&arm.pat)) {
+            // Range pattern: lo <= scrut && scrut <= hi
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                auto lo_val = coerce_int(
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->lo, 64), scrut_type);
+                auto hi_val = coerce_int(
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->hi, 64), scrut_type);
+                auto ge = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::sge, scrut, lo_val);
+                auto le = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::sle, scrut, hi_val);
+                auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
+            }
+            else_block = test_block;
         } else if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
             // OR pattern: chain of comparisons — any match goes to arm_entry.
             // Build right-to-left so each test falls through to the next.
@@ -1429,6 +1559,50 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 cur_else = test_block;
             }
             else_block = cur_else;
+        } else if (auto* pa = std::get_if<lir::PatAt>(&arm.pat)) {
+            // PatAt with refutable sub-pattern: dispatch on sub-pattern.
+            if (!pa->sub.empty()) {
+                const lir::Pattern& sub = pa->sub[0];
+                if (auto* pr = std::get_if<lir::PatRange>(&sub)) {
+                    auto* test_block = new mlir::Block();
+                    region->push_back(test_block);
+                    {
+                        mlir::OpBuilder::InsertionGuard ig(builder_);
+                        builder_.setInsertionPointToStart(test_block);
+                        auto lo_val = coerce_int(
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->lo, 64), scrut_type);
+                        auto hi_val = coerce_int(
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->hi, 64), scrut_type);
+                        auto ge = builder_.create<mlir::arith::CmpIOp>(
+                            loc_, mlir::arith::CmpIPredicate::sge, scrut, lo_val);
+                        auto le = builder_.create<mlir::arith::CmpIOp>(
+                            loc_, mlir::arith::CmpIPredicate::sle, scrut, hi_val);
+                        auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+                        builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
+                    }
+                    else_block = test_block;
+                } else {
+                    // Scalar sub-pattern: int, bool, variant.
+                    int64_t disc = 0;
+                    if (auto* pi = std::get_if<lir::PatInt>(&sub))  disc = pi->value;
+                    else if (auto* pb = std::get_if<lir::PatBool>(&sub)) disc = pb->value ? 1 : 0;
+                    auto* test_block = new mlir::Block();
+                    region->push_back(test_block);
+                    {
+                        mlir::OpBuilder::InsertionGuard ig(builder_);
+                        builder_.setInsertionPointToStart(test_block);
+                        auto disc_val = coerce_int(
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), scrut_type);
+                        auto eq = builder_.create<mlir::arith::CmpIOp>(
+                            loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
+                        builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+                    }
+                    else_block = test_block;
+                }
+            } else {
+                // Irrefutable PatAt (no sub) — arm always runs.
+                else_block = arm_entry;
+            }
         } else {
             int64_t disc = 0;
             if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;

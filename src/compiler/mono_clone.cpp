@@ -527,7 +527,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             nm.scrut = subst_expr(*k.scrut, s);
             for (auto& arm : k.arms) {
                 lir::LMatchArm na;
-                // Substitute types in PatVariantData / PatTuple bindings
+                // Substitute types in pattern bindings
                 if (auto* pvd = std::get_if<lir::PatVariantData>(&arm.pat)) {
                     lir::PatVariantData npvd = *pvd;
                     for (auto& bt : npvd.binding_types)
@@ -538,6 +538,14 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
                     for (auto& bt : npt.binding_types)
                         bt = subst_type(bt, s);
                     na.pat = std::move(npt);
+                } else if (auto* pa = std::get_if<lir::PatAt>(&arm.pat)) {
+                    lir::PatAt npa = *pa;
+                    npa.type = subst_type(npa.type, s);
+                    na.pat = std::move(npa);
+                } else if (auto* prb = std::get_if<lir::PatRefBind>(&arm.pat)) {
+                    lir::PatRefBind nprb = *prb;
+                    nprb.bind_type = subst_type(nprb.bind_type, s);
+                    na.pat = std::move(nprb);
                 } else {
                     na.pat = arm.pat;
                 }
@@ -571,6 +579,14 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
                 for (auto& bt : npt.binding_types)
                     bt = subst_type(bt, s);
                 sle.pat = std::move(npt);
+            } else if (auto* pa = std::get_if<lir::PatAt>(&k.pat)) {
+                lir::PatAt npa = *pa;
+                npa.type = subst_type(npa.type, s);
+                sle.pat = std::move(npa);
+            } else if (auto* prb = std::get_if<lir::PatRefBind>(&k.pat)) {
+                lir::PatRefBind nprb = *prb;
+                nprb.bind_type = subst_type(nprb.bind_type, s);
+                sle.pat = std::move(nprb);
             } else {
                 sle.pat = k.pat;
             }

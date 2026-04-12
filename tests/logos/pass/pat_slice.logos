@@ -1,0 +1,12 @@
+package pat_slice;
+
+fn head_plus_last(arr: [i32; 4]) -> i32 {
+    match arr {
+        [first, .., last] => { return first + last; }
+    }
+}
+
+fn main() -> i32 {
+    let arr: [i32; 4] = [1, 10, 20, 41];
+    return head_plus_last(arr);
+}

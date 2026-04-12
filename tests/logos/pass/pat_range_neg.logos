@@ -1,0 +1,14 @@
+package pat_range_neg;
+
+fn abs_clamped(x: i32) -> i32 {
+    match x {
+        -42..= -1 => { return -x; }
+        0..=42    => { return x; }
+        _         => { return 99; }
+    }
+}
+
+fn main() -> i32 {
+    // abs_clamped(-21) = 21, abs_clamped(21) = 21  → 21 + 21 = 42
+    return abs_clamped(-21) + abs_clamped(21);
+}

@@ -217,6 +217,15 @@ inline constexpr Code TAGGED_TYPE {"TAGGED_TYPE", 151};  // &tagged<TS> Trait th
 inline constexpr Code ASSOC_CONST_DEF  {"ASSOC_CONST_DEF",  152};  // const NAME: T;         in trait
 inline constexpr Code ASSOC_CONST_IMPL {"ASSOC_CONST_IMPL", 153};  // const NAME: T = expr;  in impl
 
+// Pattern matching extensions
+inline constexpr Code PAT_STRUCT  {"PAT_STRUCT",  154};  // Point { x: p, y } struct pattern
+inline constexpr Code PAT_SLICE   {"PAT_SLICE",   155};  // [a, b] or [first, .., last] slice pattern
+inline constexpr Code PAT_RANGE   {"PAT_RANGE",   156};  // 0..=9 inclusive integer range pattern
+inline constexpr Code PAT_AT      {"PAT_AT",      157};  // n @ sub_pat binding
+inline constexpr Code PAT_REF     {"PAT_REF",     158};  // &pat or &mut pat reference pattern
+inline constexpr Code PAT_FIELD   {"PAT_FIELD",   159};  // named field in struct pattern
+inline constexpr Code PAT_REST    {"PAT_REST",    160};  // .. rest in struct/slice pattern
+
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
 
@@ -234,6 +243,8 @@ inline constexpr Key IS_REF    {"IS_REF",    45};            // &self / &mut sel
 inline constexpr Key BASE      {"BASE",      46};            // struct update base expression (..base)
 inline constexpr Key LABEL     {"LABEL",     47};            // loop label (e.g. "'outer")
 inline constexpr Key SUPERS    {"SUPERS",    48};            // supertrait bound list on TRAIT_DEF
+inline constexpr Key LO_NEG    {"LO_NEG",    49};            // lo bound is negative (PAT_RANGE)
+inline constexpr Key HI_NEG    {"HI_NEG",    50};            // hi bound is negative (PAT_RANGE)
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

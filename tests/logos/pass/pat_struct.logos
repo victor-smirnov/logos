@@ -1,0 +1,17 @@
+package pat_struct;
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn sum(p: Point) -> i32 {
+    match p {
+        Point { x, y } => { return x + y; }
+    }
+}
+
+fn main() -> i32 {
+    let p = Point { x: 20, y: 22 };
+    return sum(p);
+}

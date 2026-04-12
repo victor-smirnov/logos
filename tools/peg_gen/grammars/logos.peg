@@ -69,6 +69,8 @@
     BASE           = 46
     LABEL          = 47
     SUPERS         = 48
+    LO_NEG         = 49
+    HI_NEG         = 50
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -186,6 +188,13 @@
     TAGGED_TYPE                 = 151   // &tagged<TS> Trait — tag-dispatched thin pointer
     ASSOC_CONST_DEF             = 152   // const NAME: T;       in trait
     ASSOC_CONST_IMPL            = 153   // const NAME: T = expr; in impl
+    PAT_STRUCT                  = 154   // Point { x, y } struct pattern
+    PAT_SLICE                   = 155   // [a, b] or [first, .., last] slice pattern
+    PAT_RANGE                   = 156   // 0..=9 inclusive range pattern
+    PAT_AT                      = 157   // n @ sub_pat binding
+    PAT_REF                     = 158   // &pat or &mut pat reference pattern
+    PAT_FIELD                   = 159   // field binding in struct pattern
+    PAT_REST                    = 160   // .. rest in struct/slice pattern
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -225,6 +234,7 @@
     KW_WHERE    = "where"
     KW_UNSAFE   = "unsafe"
     KW_MOVE     = "move"
+    KW_REF      = "ref"
 
     // Punctuation
     LBRACE      = "{"
@@ -277,6 +287,7 @@
     COLONCOLON  = "::"
     CARET       = "^"
     HASH        = "#"
+    AT          = "@"
 
     // Literals & identifiers
     RAW_STRING  = /r"[^"]*"/
@@ -783,22 +794,80 @@
     pattern <- pat_single (PIPE pat_single)*
             => { CODE: PAT_OR, ITEMS: $... }
 
-    pat_single <- IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
-               => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
-              / IDENT COLONCOLON IDENT
-               => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
-              / MINUS INTEGER
-               => { CODE: PAT_NEG_INT, VALUE: $2 }
-              / INTEGER
-               => { CODE: PAT_INT, VALUE: $1 }
-              / KW_TRUE
-               => { CODE: PAT_BOOL, VALUE: true }
-              / KW_FALSE
-               => { CODE: PAT_BOOL, VALUE: false }
-              / LPAREN pat_single COMMA pat_single (COMMA pat_single)* RPAREN
-               => { CODE: PAT_TUPLE, ITEMS: $... }
-              / IDENT
-               => { CODE: PAT_WILD, NAME: $1 }
+    // ── Single field in a struct pattern ─────────────────────────────────
+    pat_field <- DOTDOT
+              => { CODE: PAT_REST }
+               / IDENT COLON pat_single
+              => { CODE: PAT_FIELD, NAME: $1, VALUE: $3 }
+               / IDENT
+              => { CODE: PAT_FIELD, NAME: $1 }
+
+    pat_field_list <- pat_field (COMMA pat_field)* COMMA?
+                   => { ITEMS: $... }
+
+    // ── Single element in a slice pattern ────────────────────────────────
+    pat_slice_elem <- DOTDOT
+                   => { CODE: PAT_REST }
+                    / pat_single
+
+    pat_slice_elems <- pat_slice_elem (COMMA pat_slice_elem)* COMMA?
+                    => { ITEMS: $... }
+
+    // ── pat_single: all pattern alternatives ─────────────────────────────
+    pat_single
+        // @ binding: must come before bare IDENT to capture "name @ sub"
+        <- IDENT AT pat_single_base
+        => { CODE: PAT_AT, NAME: $1, VALUE: $3 }
+        // ref mut binding
+        / KW_REF KW_MUT IDENT
+        => { CODE: PAT_WILD, NAME: $3, IS_MUT: true, IS_REF: true }
+        // ref binding
+        / KW_REF IDENT
+        => { CODE: PAT_WILD, NAME: $2, IS_REF: true }
+        // reference pattern: &mut pat or &pat
+        / AMP KW_MUT pat_single_base
+        => { CODE: PAT_REF, IS_MUT: true, VALUE: $3 }
+        / AMP pat_single_base
+        => { CODE: PAT_REF, VALUE: $2 }
+        // everything else
+        / pat_single_base
+
+    pat_single_base
+        <- IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
+        => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
+        / IDENT COLONCOLON IDENT
+        => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }
+        // struct pattern: Point { field_list } or Point {}
+        / IDENT LBRACE pat_field_list RBRACE
+        => { CODE: PAT_STRUCT, NAME: $1, ITEMS: $3 }
+        / IDENT LBRACE RBRACE
+        => { CODE: PAT_STRUCT, NAME: $1 }
+        // slice pattern: [elems] or []
+        / LBRACKET pat_slice_elems RBRACKET
+        => { CODE: PAT_SLICE, ITEMS: $2 }
+        / LBRACKET RBRACKET
+        => { CODE: PAT_SLICE }
+        // range patterns (inclusive ..=): must come before bare INTEGER
+        / MINUS INTEGER DOTDOTEQ MINUS INTEGER
+        => { CODE: PAT_RANGE, LHS: $2, RHS: $5, LO_NEG: true, HI_NEG: true }
+        / MINUS INTEGER DOTDOTEQ INTEGER
+        => { CODE: PAT_RANGE, LHS: $2, RHS: $4, LO_NEG: true }
+        / INTEGER DOTDOTEQ MINUS INTEGER
+        => { CODE: PAT_RANGE, LHS: $1, RHS: $4, HI_NEG: true }
+        / INTEGER DOTDOTEQ INTEGER
+        => { CODE: PAT_RANGE, LHS: $1, RHS: $3 }
+        / MINUS INTEGER
+        => { CODE: PAT_NEG_INT, VALUE: $2 }
+        / INTEGER
+        => { CODE: PAT_INT, VALUE: $1 }
+        / KW_TRUE
+        => { CODE: PAT_BOOL, VALUE: true }
+        / KW_FALSE
+        => { CODE: PAT_BOOL, VALUE: false }
+        / LPAREN pat_single COMMA pat_single (COMMA pat_single)* RPAREN
+        => { CODE: PAT_TUPLE, ITEMS: $... }
+        / IDENT
+        => { CODE: PAT_WILD, NAME: $1 }
 
     // arr[idx] = expr;
     index_write_stmt <- IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
