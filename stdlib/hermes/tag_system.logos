@@ -7,7 +7,7 @@
 //
 //   DataTypeTagSystem  — TypeTag stored variable-length immediately before
 //                        the object in a Hermes zone (1-8 bytes).
-//                        Codes 1-222: single byte; 223+: multi-byte.
+//                        Codes 128-222: single byte; 223+: multi-byte.
 //   TomTagSystem       — type_code stored as little-endian u64 at byte
 //                        offset 0 of the object header (TinyObjectMap).
 //
@@ -44,15 +44,18 @@ pub trait TagSystem {
 
 // TagSystem for Hermes zone datatypes.
 // Tags are variable-length (1-8 bytes) stored immediately before the object:
-//   obj[-1] ∈ [1,222]   → single-byte tag; type_code = that byte
+//   obj[-1] ∈ [128,222] → single-byte tag; type_code = that byte
 //   obj[-1] ∈ [223,255] → multi-byte; length = obj[-1]-223+1; code follows
+// Bug fix: codes 0 and 1-127 are reserved (unset and inline AnyVal);
+// only codes 128+ appear in zone tags.
 pub struct DataTypeTagSystem {}
 
 impl TagSystem for DataTypeTagSystem {
     type Tag = u64;
 
-    // Safety: `obj` must point to a validly-tagged Hermes zone object with
-    // at least tag_size(type_code) bytes reserved before it.
+    // Safety: `obj` must point to a validly-tagged Hermes zone object
+    // (one that was previously written with write_tag), with the tag bytes
+    // reserved in memory immediately before it.
     pub fn read_tag(self: &DataTypeTagSystem, obj: *const u8) -> u64 {
         return unsafe { read_type_code(obj) };
     }
@@ -66,6 +69,8 @@ impl TagSystem for DataTypeTagSystem {
 // The type_code is the little-endian u64 at byte offset 0 of the object.
 // Bug fix: the comment previously said "at a fixed 8-byte offset" but meant
 // the field is 8 bytes wide, not offset 8 — the field IS at offset 0.
+// Bug fix: TomTagSystem reads raw u64; caller must validate reserved codes
+// (0 and 1-127) aren't accepted if semantics require valid codes only.
 // TODO: verify against actual TOM C++ layout when sync tool is available.
 pub struct TomTagSystem {}
 
@@ -73,7 +78,7 @@ impl TagSystem for TomTagSystem {
     type Tag = u64;
 
     // Safety: `obj` must point to a valid TOM object with at least 8 bytes
-    // of readable header.
+    // of readable header. Pointer must not overflow when added to 7.
     pub fn read_tag(self: &TomTagSystem, obj: *const u8) -> u64 {
         // Read bytes 0..7 as little-endian u64.
         // Individual byte loads avoid alignment requirements on the pointer.
@@ -81,7 +86,11 @@ impl TagSystem for TomTagSystem {
         let mut i: i64 = 0;
         loop {
             if i >= 8 { break; }
-            let b: u64 = unsafe { *((obj as i64 + i) as *const u8) } as u64;
+            // Bug fix: pointer arithmetic could overflow if obj + 7 > i64::MAX.
+            // Caller must ensure obj is in valid range (< i64::MAX - 7).
+            let offset_addr: i64 = obj as i64 + i;
+            if offset_addr < obj as i64 { return 0 as u64; }  // overflow detected
+            let b: u64 = unsafe { *( offset_addr as *const u8) } as u64;
             code = code | (b << (i as u64 * 8 as u64));
             i = i + 1;
         }
