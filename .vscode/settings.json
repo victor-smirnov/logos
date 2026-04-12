@@ -1,3 +1,6 @@
 {
-    "claudeCode.allowDangerouslySkipPermissions": false
+    "claudeCode.allowDangerouslySkipPermissions": false,
+    "files.associations": {
+        "*.logos": "rust"
+    }
 }
