@@ -580,7 +580,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             // e.g. from #[type_code=N]).  Fall back to hash computation if not found.
             uint64_t tcode = 0;
             for (auto& sd : prog.structs) {
-                if (sd.is_datatype && sd.name == target) { tcode = sd.type_code; break; }
+                // Skip entries with type_code==0: a zero entry means the
+                // annotation hasn't been applied yet (or it's an unannotated
+                // type), so breaking early would prevent finding a later entry
+                // with the correct code (e.g. from a different imported file).
+                if (sd.is_datatype && sd.name == target && sd.type_code != 0) {
+                    tcode = sd.type_code; break;
+                }
             }
             if (tcode == 0) {
                 // Also check explicit_type_codes_ for types annotated but not yet in prog.structs.

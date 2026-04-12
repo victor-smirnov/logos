@@ -6,7 +6,9 @@
 
 #include "mlir_gen_impl.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <map>
+#include <set>
 
 namespace logos::compiler {
 
@@ -190,6 +192,34 @@ void MLIRGenImpl::emit_vtable(mlir::ModuleOp /*mod*/, const LClassDef& /*cd*/) {
 //   emitted.  Both tiers are filled at program startup by the generated
 //   @__logos_tag_dispatch_init function (injected at the top of main() in
 //   mlir_gen.cpp Pass 3).
+//
+// Collision detection (Pass A):
+//   For each (tag_system, trait, type_code) registration the compiler emits:
+//     @__logos_tagdispatch_<ts>_<trait>_<XXXXXXXXXXXXXXXX> = global i8 1
+//   with External linkage.  If two object files register the same tuple the
+//   linker sees a multiply-defined symbol and aborts with an error.
+//   The sentinel value (1) is arbitrary — only the symbol identity matters.
+
+// Build the collision-detection symbol name.
+// Format: __logos_tagdispatch_<ts>_<trait>_<type_code_hex16>
+// '::' and other non-identifier chars in names are replaced with '_'.
+static std::string collision_sym_name(const std::string& ts,
+                                       const std::string& trait,
+                                       uint64_t type_code)
+{
+    // Sanitize: replace chars invalid in LLVM symbol names.
+    auto sanitize = [](const std::string& s) {
+        std::string r; r.reserve(s.size());
+        for (char c : s) r.push_back((c == ':' || c == '<' || c == '>') ? '_' : c);
+        return r;
+    };
+    char hex[17];
+    std::snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)type_code);
+    // Use "__" (double underscore) as field separator so names that contain a
+    // single underscore (e.g. "My_System" or "My_Trait") do not produce the
+    // same symbol as a different (ts, trait) combination.
+    return "__logos_tagdispatch__" + sanitize(ts) + "__" + sanitize(trait) + "__" + hex;
+}
 
 void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog) {
     if (prog.dispatch_entries.empty()) return;
@@ -205,14 +235,49 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
 
     for (auto& de : prog.dispatch_entries) {
         if (de.type_code == 0) continue;
-        auto base = de.tag_system + "_" + de.trait_name + "_" + de.method_name;
+        // Use "__" as separator to avoid ambiguity when tag_system or trait_name
+        // contains a single underscore (e.g. "My_System__Trait__method" is
+        // unambiguous; "My_System_Trait_method" is not).
+        auto base = de.tag_system + "__" + de.trait_name + "__" + de.method_name;
         if (de.type_code < static_cast<uint64_t>(kTier1Size)) {
-            tier1_tables["__logos_tag_dispatch_" + base].push_back({de.type_code, de.fn_symbol});
+            tier1_tables["__logos_tag_dispatch__" + base].push_back({de.type_code, de.fn_symbol});
         } else {
-            tier2_tables["__logos_tier2_" + base].push_back({de.type_code, de.fn_symbol});
+            tier2_tables["__logos_tier2__" + base].push_back({de.type_code, de.fn_symbol});
         }
     }
     if (tier1_tables.empty() && tier2_tables.empty()) return;
+
+    // ── Pass A: emit link-time collision detection sentinels ──────────────
+    // One i8 global per unique (tag_system, trait_name, type_code) triple.
+    // Deduplication: use a set to avoid emitting twice when a trait has
+    // multiple methods (each method produces one LDispatchEntry for the same
+    // type_code, but we only need one sentinel per type registration).
+    {
+        auto i8_t = builder_.getIntegerType(8);
+        auto one_attr = mlir::IntegerAttr::get(i8_t, 1);
+        std::set<std::string> emitted;
+        for (auto& de : prog.dispatch_entries) {
+            if (de.type_code == 0) continue;
+            auto sym = collision_sym_name(de.tag_system, de.trait_name, de.type_code);
+            if (!emitted.insert(sym).second) continue;    // already emitted this triple
+            // Type-check the existing symbol: only skip if it is already the
+            // expected i8 sentinel.  Any other symbol with the same name
+            // (e.g. a user function) is a naming conflict — warn and skip.
+            if (auto existing = mod.lookupSymbol(sym)) {
+                if (!llvm::isa<mlir::LLVM::GlobalOp>(existing))
+                    std::fprintf(stderr,
+                        "warning: collision-sentinel name '%s' shadowed by "
+                        "a non-global symbol; dispatch collision detection "
+                        "for type_code 0x%llx may be suppressed\n",
+                        sym.c_str(), (unsigned long long)de.type_code);
+                continue;
+            }
+            builder_.setInsertionPointToEnd(mod.getBody());
+            builder_.create<mlir::LLVM::GlobalOp>(
+                loc_, i8_t, /*isConstant=*/true,
+                mlir::LLVM::Linkage::External, sym, one_attr);
+        }
+    }
 
     // ── Pass B: emit zero-initialized [223 x ptr] globals for tier-1 ─────
     for (auto& [table_name, _entries] : tier1_tables) {
@@ -471,9 +536,10 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
         loc_, rtc_fn, mlir::ValueRange{obj_ptr}).getResult(0);
 
     // Identify available tables.
-    auto base_key    = e.tag_system + "_" + e.tag_trait + "_" + e.method;
-    auto table_sym   = "__logos_tag_dispatch_" + base_key;
-    auto t2_lkp_sym  = "__logos_tier2_" + base_key + "_lookup";
+    // Must use the same "__" separator as emit_tag_dispatch_tables.
+    auto base_key    = e.tag_system + "__" + e.tag_trait + "__" + e.method;
+    auto table_sym   = "__logos_tag_dispatch__" + base_key;
+    auto t2_lkp_sym  = "__logos_tier2__" + base_key + "_lookup";
     bool has_tier1   = (parent_mod.lookupSymbol<mlir::LLVM::GlobalOp>(table_sym) != nullptr);
     bool has_tier2   = (parent_mod.lookupSymbol<mlir::func::FuncOp>(t2_lkp_sym)  != nullptr);
 
