@@ -291,9 +291,18 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
 
     // ── Pass C: emit tier-2 data globals + binary-search lookup functions ─
     for (auto& [t2key, entries] : tier2_tables) {
-        std::sort(entries.begin(), entries.end(),
+        // Bug fix: filter entries to only include those with valid callees.
+        // This avoids creating sparse arrays with zeros that break binary search.
+        std::vector<Entry> valid_entries;
+        for (auto& e : entries) {
+            if (mod.lookupSymbol<mlir::func::FuncOp>(e.fn_symbol)) {
+                valid_entries.push_back(e);
+            }
+        }
+        if (valid_entries.empty()) continue;  // skip tier-2 table if no valid entries
+        std::sort(valid_entries.begin(), valid_entries.end(),
                   [](const Entry& a, const Entry& b){ return a.type_code < b.type_code; });
-        int64_t n = static_cast<int64_t>(entries.size());
+        int64_t n = static_cast<int64_t>(valid_entries.size());
 
         auto codes_arr_type = mlir::LLVM::LLVMArrayType::get(i64_t, n);
         auto codes_name = t2key + "_codes";
@@ -329,6 +338,9 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
                               lookup_name, codes_name, fns_name,
                               codes_arr_type, fns_arr_type, n);
         }
+
+        // Update entries to use valid_entries for Pass D (filling).
+        entries = valid_entries;
     }
 
     // ── Pass D: emit __logos_tag_dispatch_init (fills tier-1 + tier-2) ───

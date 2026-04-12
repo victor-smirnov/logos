@@ -136,8 +136,12 @@ pub unsafe fn alloc_tagged_raw(
     if type_code == 0 as u64 { return 0 as *mut u8; }
     let tsz: i64 = tag_size(type_code);
     // Advance past existing bytes + tag.
+    // Bug fix: check overflow when adding offset + tsz.
     let pre: i64 = *offset + tsz;
+    if pre < *offset { return 0 as *mut u8; }  // overflow detected
     // Align to 8 bytes for the object start.
+    // Bug fix: check overflow when adding 7 to pre.
+    if pre > (9223372036854775800 as i64) { return 0 as *mut u8; }  // pre + 7 > i64::MAX
     let aligned: i64 = (pre + 7) / 8 * 8;
     if aligned + obj_size > capacity {
         return 0 as *mut u8;
