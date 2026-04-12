@@ -1,0 +1,57 @@
+package data_plain_check;
+// Tests is_data_plain_of::<T>() intrinsic — Layer 4.
+//
+// Verifies:
+//   1. Primitive/scalar types → DataPlain (true).
+//   2. Datatype with only primitive fields → DataPlain (true).
+//   3. Datatype embedding a concrete DataPlain type → DataPlain (true).
+//      (Bug 2 fix: transitivity — only generic or DataNode nested types mark outer DataNode.)
+//   4. Datatype with a generic Datatype field → DataNode (false).
+//      (RelPtr<Node> is generic → conservative DataNode rule.)
+
+use hermes.relptr;
+
+// Only primitive fields → DataPlain.
+datatype Point {
+    x: i32,
+    y: i32,
+}
+
+// Embeds a concrete DataPlain type (Point) → DataPlain after Bug 2 fix.
+datatype Segment {
+    a: Point,
+    b: Point,
+    length: f64,
+}
+
+// Contains RelPtr<Node> (generic Datatype field) → DataNode (conservative rule).
+datatype Node {
+    value: i32,
+    next:  RelPtr<Node>,
+}
+
+fn main() -> i32 {
+    // 1. Scalar types are always DataPlain.
+    let plain_i32: bool = is_data_plain_of::<i32>();
+    if plain_i32 == false { return 1; }
+
+    let plain_u64: bool = is_data_plain_of::<u64>();
+    if plain_u64 == false { return 2; }
+
+    let plain_bool: bool = is_data_plain_of::<bool>();
+    if plain_bool == false { return 3; }
+
+    // 2. Datatype with only primitive fields → DataPlain.
+    let plain_point: bool = is_data_plain_of::<Point>();
+    if plain_point == false { return 4; }
+
+    // 3. Datatype embedding a concrete DataPlain type → DataPlain.
+    let plain_segment: bool = is_data_plain_of::<Segment>();
+    if plain_segment == false { return 5; }
+
+    // 4. Datatype with a generic Datatype (RelPtr<T>) field → DataNode.
+    let node_is_plain: bool = is_data_plain_of::<Node>();
+    if node_is_plain == true { return 6; }
+
+    return 0;
+}

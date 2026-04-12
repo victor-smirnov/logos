@@ -1068,6 +1068,45 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return make_expr(prim(LogosType::Kind::U64), lir::ELitInt{(int64_t)code});
     }
 
+    // is_data_plain_of::<T>() — returns true (1) if T is a DataPlain datatype
+    // (no relative-pointer fields), false (0) otherwise.
+    // Non-datatype types always return true (scalars, structs, etc. are copyable).
+    if (callee == "is_data_plain_of") {
+        const LogosType* elem = nullptr;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1)
+                    elem = resolve_type(map_of(items.get(0)));
+            }
+        }
+        if (!elem) {
+            error("is_data_plain_of::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        // Bug 4 fix: strip Array wrapper so [DataNode; N] → DataNode correctly.
+        const LogosType* check = elem;
+        while (check && check->kind == LogosType::Kind::Array) check = check->elem;
+        bool is_plain = true;
+        if (check && check->kind == LogosType::Kind::Datatype && check->type_args.empty()) {
+            auto dit = datatypes_.find(check->struct_name);
+            if (dit != datatypes_.end()) {
+                is_plain = dit->second.is_data_plain;
+            } else {
+                // Bug 1 fix: cross-package datatypes that landed in structs_ also carry
+                // is_data_plain (same SemaStructInfo type).
+                auto sit = structs_.find(check->struct_name);
+                if (sit != structs_.end()) is_plain = sit->second.is_data_plain;
+                // If not found in either map, default to true (unknown type → conservative safe).
+            }
+        } else if (check && check->kind == LogosType::Kind::Datatype && !check->type_args.empty()) {
+            // Generic Datatype: can't determine statically → conservative DataNode.
+            is_plain = false;
+        }
+        return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{is_plain ? 1LL : 0LL});
+    }
+
     // Prefer the generic overload (for variadic base case overloading)
     SemaFuncInfo* fi_ptr = nullptr;
     {

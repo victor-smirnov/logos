@@ -64,6 +64,27 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // to simplify concrete AssocType nodes (e.g. i32::Item -> bool).
     fn.ret_type    = subst_type_sema(fi_ptr->ret_type, {});
     ret_type_      = fn.ret_type;
+    // Bug 5 fix: DataNode enforcement covers both bare Datatype and Array-of-Datatype
+    // return/param types.  Extract the innermost non-Array element for the check.
+    auto datanode_name = [&](const LogosType* t) -> std::string {
+        if (!t) return {};
+        while (t->kind == LogosType::Kind::Array) t = t->elem;
+        if (t->kind == LogosType::Kind::Datatype && t->type_args.empty()) {
+            auto dit = datatypes_.find(t->struct_name);
+            if (dit != datatypes_.end() && !dit->second.is_data_plain)
+                return t->struct_name;
+        }
+        return {};
+    };
+    // DataNode enforcement on return type.
+    {
+        auto dn = datanode_name(fn.ret_type);
+        if (!dn.empty()) {
+            error(std::format(
+                "return type '{}' is a DataNode datatype — cannot be returned by value. "
+                "Return DataRef<{}> instead.", dn, dn));
+        }
+    }
     // Reset impl-trait inference state for this function.
     if (fn.ret_type && fn.ret_type->kind == LogosType::Kind::ImplTrait)
         impl_ret_type_inferred_ = nullptr;
@@ -94,6 +115,20 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                     }
                     // Simplify parameter type too
                     const LogosType* pt = subst_type_sema(ptype, {});
+                    // DataNode enforcement: DataNode datatypes (has relative-pointer fields)
+                    // cannot be passed by bare value — the relative pointers require a base
+                    // pointer that is not available without zone context.  Use DataRef<T>.
+                    // Bug 5 fix: also covers Array-of-DataNode parameter types.
+                    {
+                        auto dn = datanode_name(pt);
+                        if (!dn.empty()) {
+                            error(std::format(
+                                "parameter '{}': DataNode datatype '{}' cannot be passed by "
+                                "value — it contains relative pointers that require a zone "
+                                "base pointer. Use DataRef<{}> instead.",
+                                pname, dn, dn));
+                        }
+                    }
                     define(pname, pt);
                     fn.params.push_back({std::string(pname), pt, p_variadic});
                 }

@@ -95,7 +95,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
         format_basic format_types variadic_format
         hello stdlib_demo option_chain string_basic)
     set(LOCAL_PUBLIB_USERS pub_cross_package)
-    set(LOCAL_HERMES_USERS datatype_zone_basic datatype_zone_ref datatype_zone_ergonomic datatype_own datatype_relptr anyval_basic hermes_containers hermes_string hermes_typetag hermes_objectmap hermes_document hermes_stringify hermes_ex_arena hermes_ex_containers hermes_parse hermes_round_trip hermes_stringbuf_grow hermes_anyval_methods hermes_ctr_traversal hermes_float_parse hermes_escape_strings hermes_builder datatag_typecode tag_system_basic tag_dispatch_table)
+    set(LOCAL_HERMES_USERS datatype_zone_basic datatype_zone_ref datatype_zone_ergonomic datatype_own datatype_relptr anyval_basic hermes_containers hermes_string hermes_typetag hermes_objectmap hermes_document hermes_stringify hermes_ex_arena hermes_ex_containers hermes_parse hermes_round_trip hermes_stringbuf_grow hermes_anyval_methods hermes_ctr_traversal hermes_float_parse hermes_escape_strings hermes_builder datatag_typecode tag_system_basic tag_dispatch_table data_plain_check)
 
     if (BASE IN_LIST LOCAL_STDLIB_USERS)
         set(_extra -I ${STDLIB})

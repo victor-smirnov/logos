@@ -760,9 +760,29 @@ void SemaChecker::collect_datatype(TinyMapView node) {
                                       dname, fname, type_str(ftype)));
                 }
             }
-            // DataPlain detection: a Datatype field means the type is DataNode
-            // (it may hold a relative pointer like RelPtr<T> that needs zone base).
-            if (ftype && ftype->kind == LogosType::Kind::Datatype)
+            // DataPlain detection:
+            // Bug 2 fix: for concrete (non-generic) Datatype fields, check the nested
+            //   type's own is_data_plain flag.  If the nested type is DataPlain (no
+            //   relative-pointer fields), embedding it by value does NOT make the outer
+            //   type a DataNode.  Types not yet in datatypes_ are treated conservatively
+            //   as DataNode (forward-reference or cross-package).
+            // Bug 3 fix: arrays whose element type is a DataNode also mark the outer
+            //   type as DataNode.
+            // For generic Datatype fields (type_args non-empty) we stay conservative
+            //   and always mark as DataNode (e.g. RelPtr<Node> contains zone offsets).
+            auto marks_data_node = [&](const LogosType* ft) -> bool {
+                if (!ft) return false;
+                // Strip Array wrapper (Bug 3 fix)
+                while (ft->kind == LogosType::Kind::Array) ft = ft->elem;
+                if (ft->kind == LogosType::Kind::Datatype) {
+                    if (!ft->type_args.empty()) return true;  // generic → conservative
+                    auto ndit = datatypes_.find(ft->struct_name);
+                    if (ndit == datatypes_.end()) return true; // unknown → conservative
+                    return !ndit->second.is_data_plain;
+                }
+                return false;
+            };
+            if (marks_data_node(ftype))
                 info.is_data_plain = false;
             info.fields.push_back({fname, ftype, fpub, false});
         }

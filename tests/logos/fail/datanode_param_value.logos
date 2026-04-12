@@ -1,0 +1,17 @@
+package datanode_param_value;
+// Sema fail: passing a DataNode datatype by bare value to a function.
+// FakePtr<T> is a generic Datatype field → Node.is_data_plain = false.
+
+pub datatype FakePtr<T> { offset: u32 }
+
+datatype Node {
+    value: i32,
+    next:  FakePtr<Node>,
+}
+
+// Error: Node is DataNode — cannot be passed by value.
+fn process(n: Node) -> i32 {
+    return n.value;
+}
+
+fn main() -> i32 { return 0; }
