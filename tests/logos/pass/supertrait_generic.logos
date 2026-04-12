@@ -1,0 +1,36 @@
+package supertrait_generic;
+
+// Supertrait used via generic type parameter: T: Animal implies T: Display
+trait Display {
+    fn display(self: Self) -> i32;
+}
+
+trait Animal: Display {
+    fn sound(self: Self) -> i32;
+}
+
+struct Cat {
+    pitch: i32,
+}
+
+impl Display for Cat {
+    fn display(self: Cat) -> i32 {
+        return self.pitch + 10;
+    }
+}
+
+impl Animal for Cat {
+    fn sound(self: Cat) -> i32 {
+        return self.pitch;
+    }
+}
+
+fn show<T: Animal>(a: T) -> i32 {
+    // display() comes from supertrait Display, accessed via T: Animal
+    return a.display();
+}
+
+fn main() -> i32 {
+    let c: Cat = Cat { pitch: 32 };
+    return show(c);
+}

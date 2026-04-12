@@ -67,6 +67,10 @@ void SemaChecker::collect(const std::vector<hermes::HermesCtr>& asts) {
 
     // Final pass: simplify all collected types (resolve concrete associated types).
     simplify_all_types();
+
+    // Deferred check: verify supertrait impls are satisfied for all trait impls.
+    // Deferred because impl Foo for T and impl Super for T may appear in any order.
+    check_supertrait_impls();
 }
 
 void SemaChecker::simplify_all_types() {
@@ -252,6 +256,18 @@ void SemaChecker::collect_trait(TinyMapView node) {
     // Read trait type params (e.g. trait Into<T>)
     info.type_params = read_type_params(node);
     push_type_params(info.type_params);
+    // Read supertraits: trait Foo: Bar + Baz { ... } → SUPERS: { ITEMS: [TRAIT_BOUND("Bar"), ...] }
+    if (node.has_key(la::SUPERS)) {
+        auto supers_node = map_of(node.get(la::SUPERS.code));
+        if (supers_node.has_key(la::ITEMS)) {
+            auto supers = arr_of(supers_node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < supers.size(); ++i) {
+                auto b = map_of(supers.get(i));
+                if (code_of(b) == la::TRAIT_BOUND)
+                    info.supertraits.push_back(std::string(str_of(b.get(la::NAME.code))));
+            }
+        }
+    }
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < items.size(); ++i) {
@@ -1155,5 +1171,32 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     funcs_[mangled] = std::move(info);  // must come after body storage (info.is_const read above)
 }
 
+
+// ---------------------------------------------------------------------------
+// check_supertrait_impls — deferred supertrait impl completeness check
+//
+// For every registered impl "Trait::Type", walk Trait's supertrait chain and
+// verify that a corresponding impl "SuperTrait::Type" also exists.
+// This is deferred (not inline in collect_impl) so that ordering within a
+// file or across files does not matter.
+// ---------------------------------------------------------------------------
+void SemaChecker::check_supertrait_impls() {
+    for (auto& [key, impl] : impls_) {
+        const std::string& tname  = impl.trait_name;
+        const std::string& target = impl.target_type;
+        auto tit = traits_.find(tname);
+        if (tit == traits_.end()) continue;
+        for (auto& super : tit->second.supertraits) {
+            if (super == "Copy") continue;  // Copy is a built-in marker, not declared in source
+            std::string super_key = super + "::" + target;
+            if (!impls_.count(super_key)) {
+                // Emit an error pointing at the trait name.
+                ctx_ = std::format("impl {} for {}", tname, target);
+                error(std::format("impl {} for {}: missing impl {} for {} (required by supertrait)",
+                                  tname, target, super, target));
+            }
+        }
+    }
+}
 
 } // namespace logos::compiler

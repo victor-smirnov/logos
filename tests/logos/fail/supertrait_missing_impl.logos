@@ -1,0 +1,24 @@
+package supertrait_missing_impl;
+
+trait Display {
+    fn display(self: Self) -> i32;
+}
+
+trait Animal: Display {
+    fn sound(self: Self) -> i32;
+}
+
+struct Dog {
+    volume: i32,
+}
+
+// Missing: impl Display for Dog — should produce a compile error
+impl Animal for Dog {
+    fn sound(self: Dog) -> i32 {
+        return self.volume;
+    }
+}
+
+fn main() -> i32 {
+    return 0;
+}

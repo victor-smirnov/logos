@@ -1347,21 +1347,31 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         auto bit = current_type_bounds_.find(recv_inner->type_var_name);
         const SemaTraitMethodInfo* chosen_method = nullptr;
         std::string chosen_trait;
-        if (bit != current_type_bounds_.end()) {
-            for (auto& bound : bit->second) {
-            auto tit = traits_.find(bound.trait_name);
-            if (tit == traits_.end()) continue;
+
+        // Helper: search a trait (by name) for the method; returns true if found.
+        // Updates chosen_method/chosen_trait; reports ambiguity if needed.
+        // Also searches supertrait chain recursively (depth-first, stops at first match).
+        std::function<void(const std::string&)> search_trait = [&](const std::string& tname) {
+            auto tit = traits_.find(tname);
+            if (tit == traits_.end()) return;
             for (auto& m : tit->second.methods) {
                 if (m.name != method_name) continue;
-                if (chosen_method && chosen_trait != bound.trait_name) {
+                if (chosen_method && chosen_trait != tname)
                     error(std::format(
                         "method '{}' is ambiguous for type parameter '{}' (matches traits '{}' and '{}')",
-                        std::string(method_name), recv_inner->type_var_name, chosen_trait, bound.trait_name));
-                }
+                        std::string(method_name), recv_inner->type_var_name, chosen_trait, tname));
                 chosen_method = &m;
-                chosen_trait = bound.trait_name;
+                chosen_trait  = tname;
+                return;  // method found in this trait; skip supertraits
             }
-        }
+            // Not found directly — recurse into supertraits.
+            for (auto& super : tit->second.supertraits)
+                if (!chosen_method) search_trait(super);
+        };
+
+        if (bit != current_type_bounds_.end()) {
+            for (auto& bound : bit->second)
+                search_trait(bound.trait_name);
         }
 
         if (chosen_method) {

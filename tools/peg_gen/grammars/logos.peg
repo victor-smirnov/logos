@@ -68,6 +68,7 @@
     IS_REF         = 45
     BASE           = 46
     LABEL          = 47
+    SUPERS         = 48
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -359,13 +360,25 @@
 
     // ── Trait definition ─────────────────────────────────────────
     // trait Name { fn method(self: Self) -> T; }
-    pub_trait_def <- KW_PUB KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
+    // trait Foo: Bar + Baz — optional supertrait bound list after colon
+    super_list <- COLON trait_bound (PLUS trait_bound)*
+               => { ITEMS: $... }
+
+    pub_trait_def <- KW_PUB KW_TRAIT IDENT type_param_list super_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
+                  / KW_PUB KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
+                  / KW_PUB KW_TRAIT IDENT super_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
                   / KW_PUB KW_TRAIT IDENT LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, ITEMS: $... }
 
-    trait_def <- KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
+    trait_def <- KW_TRAIT IDENT type_param_list super_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, SUPERS: $4, ITEMS: $... }
+              / KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
+              / KW_TRAIT IDENT super_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, NAME: $2, SUPERS: $3, ITEMS: $... }
               / KW_TRAIT IDENT LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, ITEMS: $... }
 

@@ -348,6 +348,7 @@ private:
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
         std::vector<SemaAssocTypeInfo> assoc_types;
+        std::vector<std::string> supertraits;  // e.g. ["Display", "Clone"] for trait Foo: Display + Clone
     };
     struct SemaImplInfo {
         std::string trait_name;
@@ -437,6 +438,7 @@ private:
 
     void collect(const std::vector<hermes::HermesCtr>& asts);
     void simplify_all_types();
+    void check_supertrait_impls();
     std::string read_package_name(hermes::TinyMapView mod);
     void check_pub_access(bool is_pub, const std::string& def_package,
                           std::string_view item_name);

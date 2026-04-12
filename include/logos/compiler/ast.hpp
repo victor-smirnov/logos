@@ -229,6 +229,7 @@ inline constexpr Key IS_MOVE   {"IS_MOVE",   44};            // move closure mar
 inline constexpr Key IS_REF    {"IS_REF",    45};            // &self / &mut self param shorthand
 inline constexpr Key BASE      {"BASE",      46};            // struct update base expression (..base)
 inline constexpr Key LABEL     {"LABEL",     47};            // loop label (e.g. "'outer")
+inline constexpr Key SUPERS    {"SUPERS",    48};            // supertrait bound list on TRAIT_DEF
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

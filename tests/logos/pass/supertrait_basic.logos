@@ -1,0 +1,31 @@
+package supertrait_basic;
+
+// Supertrait: Animal requires Display to also be implemented.
+trait Display {
+    fn display(self: Self) -> i32;
+}
+
+trait Animal: Display {
+    fn sound(self: Self) -> i32;
+}
+
+struct Dog {
+    volume: i32,
+}
+
+impl Display for Dog {
+    fn display(self: Dog) -> i32 {
+        return self.volume;
+    }
+}
+
+impl Animal for Dog {
+    fn sound(self: Dog) -> i32 {
+        return self.volume * 2;
+    }
+}
+
+fn main() -> i32 {
+    let d: Dog = Dog { volume: 21 };
+    return d.display();
+}
