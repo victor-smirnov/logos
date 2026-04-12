@@ -95,6 +95,20 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         if (!gen_function_body(func, fn)) return nullptr;
     }
 
+    // Pass 3: inject dispatch table init call at the start of main().
+    // @__logos_tag_dispatch_init() is emitted by emit_tag_dispatch_tables;
+    // we call it from main because global_ctors requires llvm.func (only
+    // available after ConvertFuncToLLVM, which runs after codegen).
+    if (!prog.dispatch_entries.empty()) {
+        auto init_fn = mod.lookupSymbol<mlir::func::FuncOp>("__logos_tag_dispatch_init");
+        auto main_fn = mod.lookupSymbol<mlir::func::FuncOp>("main");
+        if (init_fn && main_fn && !main_fn.empty()) {
+            mlir::OpBuilder::InsertionGuard guard(builder_);
+            builder_.setInsertionPointToStart(&main_fn.front());
+            builder_.create<mlir::func::CallOp>(loc_, init_fn, mlir::ValueRange{});
+        }
+    }
+
     if (mlir::failed(mlir::verify(mod))) {
         std::fprintf(stderr, "mlir_gen: module verification failed\n");
         mod.dump();

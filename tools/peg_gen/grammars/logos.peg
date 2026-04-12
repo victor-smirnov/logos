@@ -182,6 +182,7 @@
     DATATYPE                    = 148   // Hermes datatype definition (C POD layout)
     PAT_UNIT                    = 149   // () unit pattern in match arms
     ANNOTATION                  = 150   // #[name], #[name = val], #[name(args)]
+    TAGGED_TYPE                 = 151   // &tagged<TS> Trait — tag-dispatched thin pointer
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -215,6 +216,7 @@
     KW_MUT      = "mut"
     KW_LET      = "let"
     KW_DYN      = "dyn"
+    KW_TAGGED   = "tagged"
     KW_PUB      = "pub"
     KW_NEW      = "new"
     KW_FN       = "fn"
@@ -559,11 +561,17 @@
     impl_type <- KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    type_ref <- ptr_type / arr_type / slice_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
+    type_ref <- ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
 
     // T::Item — associated type reference (type ref :: assoc type name)
     assoc_type_ref <- simple_type
                     ( COLONCOLON IDENT => { CODE: ASSOC_TYPE_REF, RECEIVER: $0, FIELD: $2 } )+
+
+    // &tagged<TS> Trait — thin tag-dispatched pointer.
+    // The tag (type_code) is stored in memory before the object; at call sites
+    // the compiler reads the tag, looks up the dispatch table, and calls indirectly.
+    tagged_type <- AMP KW_TAGGED LT simple_type GT_TYPE IDENT
+               => { CODE: TAGGED_TYPE, TYPE: $4, NAME: $6 }
 
     // &dyn Trait — trait object (fat pointer: data + vtable)
     dyn_type <- AMP KW_DYN IDENT

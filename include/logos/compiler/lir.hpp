@@ -108,6 +108,11 @@ struct EMethodCall {
     std::vector<LExprPtr>         args;
     int32_t                       vtable_index = -1;  // -1 = direct (struct), >=0 = virtual (class)
     std::string                   resolved_type;      // class/struct where method is defined (for inherited methods)
+    // Tag-dispatch info: set when receiver is &tagged<TS> Trait.
+    // When non-empty, codegen reads type_code via TS and dispatches through
+    // the @__logos_tag_dispatch_<tag_system>_<trait_name>_<method> table.
+    std::string                   tag_system;         // e.g. "DataTypeTagSystem" (empty = not tagged dispatch)
+    std::string                   tag_trait;          // e.g. "Stringify"
 };
 
 struct EBinOp {

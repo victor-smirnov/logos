@@ -79,6 +79,9 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
         }
         return ptr_type();
     }
+    case LogosType::Kind::TaggedPtr:
+        // &tagged<TS> Trait is a thin pointer (*const u8) — same layout as any ptr.
+        return ptr_type();
     case LogosType::Kind::TraitObject:
         // &dyn Trait is a fat pointer {data_ptr, vtable_ptr}, passed by pointer.
         return ptr_type();

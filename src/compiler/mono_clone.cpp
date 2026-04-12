@@ -152,6 +152,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     nm.method = k.method;
                     nm.vtable_index = k.vtable_index;
                     nm.resolved_type = k.resolved_type;
+                    nm.tag_system = k.tag_system;
+                    nm.tag_trait  = k.tag_trait;
                     for (auto& a : k.args) nm.args.push_back(subst_expr(*a, s));
                     result->kind = std::move(nm);
                 }
@@ -161,6 +163,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 nm.method = k.method;
                 for (auto* ta : k.type_args) nm.type_args.push_back(subst_type(ta, s));
                 nm.vtable_index = k.vtable_index;
+                nm.tag_system = k.tag_system;
+                nm.tag_trait  = k.tag_trait;
 
                 // SPECIALIZATION LOOKUP (Bug 12)
                 bool rewritten = false;

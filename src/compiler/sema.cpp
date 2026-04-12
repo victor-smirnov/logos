@@ -194,6 +194,11 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
     if (from->kind == LogosType::Kind::MutRef && to->kind == LogosType::Kind::MutRef &&
         from->pointee && to->pointee)
         return types_compatible(from->pointee, to->pointee);
+    // *const u8 (or any *T) → &tagged<TS> Trait coercion.
+    // &tagged<TS> Trait is a thin pointer to a tagged object.  The caller passes
+    // a raw *const u8 and the compiler reads the tag at dispatch time.
+    if (to->kind == LogosType::Kind::TaggedPtr && from->kind == LogosType::Kind::Ptr)
+        return true;
     // Class pointer covariance: *mut/const Derived is compatible with *const/mut Class
     // (same class — exact equality handled above; hierarchy checked in SemaChecker::compat)
     return false;
@@ -282,6 +287,7 @@ std::string type_str(const LogosType* t) {
         return r; }
     case LogosType::Kind::Enum:        return t->enum_name;
     case LogosType::Kind::TraitObject: return "&dyn " + t->trait_name;
+    case LogosType::Kind::TaggedPtr:   return "&tagged<" + t->struct_name + "> " + t->trait_name;
     case LogosType::Kind::TypeVar:     return std::string(t->type_var_name);
     case LogosType::Kind::ConstVar:    return std::string(t->type_var_name);
     case LogosType::Kind::AssocType:   return type_str(t->assoc_base) + "::" + t->assoc_type_name;
@@ -918,6 +924,26 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         return make_trait_object(tname);
     }
 
+    if (tc == la::TAGGED_TYPE) {
+        // &tagged<TS> Trait — thin pointer with tag-based dispatch.
+        // struct_name = tag system type name; trait_name = dispatched trait name.
+        auto tname = std::string(str_of(node.get(la::NAME.code)));
+        if (!traits_.count(tname))
+            error(std::format("unknown trait '{}' in &tagged type", tname));
+        // Resolve the tag system type (used to check it's a struct/class).
+        const LogosType* ts_type = nullptr;
+        if (node.has_key(la::TYPE.code))
+            ts_type = resolve_type(map_of(node.get(la::TYPE.code)));
+        std::string ts_name = ts_type ? ts_type->struct_name : "";
+        if (ts_name.empty())
+            error("&tagged<TS> Trait: TS must be a concrete struct type");
+        LogosType t;
+        t.kind       = LogosType::Kind::TaggedPtr;
+        t.struct_name = ts_name;   // tag system type name
+        t.trait_name  = tname;     // dispatched trait name
+        return pool_.alloc(std::move(t));
+    }
+
     if (tc == la::IMPL_TYPE) {
         auto tname = std::string(str_of(node.get(la::NAME.code)));
         LogosType t;
@@ -1250,6 +1276,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             if (aname == "type_code" && ann.has_key(la::VALUE)) {
                 auto sv = str_of(ann.get(la::VALUE.code));
                 sd.type_code = (uint64_t)parse_int_literal(sv);
+                // Also cache so type_code_of::<T>() can find it during expression lowering.
+                explicit_type_codes_[sd.name] = sd.type_code;
             }
         }
     };
@@ -1258,11 +1286,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         for (auto& ann : pending_annots) {
             auto aname = std::string(str_of(ann.get(la::NAME.code)));
             if (aname == "tag_dispatch" && ann.has_key(la::ARGS)) {
-                // ARGS: { ITEMS: [ "system_name" ] }
+                // ARGS: { ITEMS: [ { NAME: "system_name" } ] }
                 auto args_map = map_of(ann.get(la::ARGS.code));
                 if (args_map.has_key(la::ITEMS)) {
                     auto arr = arr_of(args_map.get(la::ITEMS.code));
-                    // Each element is an annot_arg node: { NAME: "ident" }
                     if (arr.size() > 0)
                         td.tag_dispatch_system = std::string(str_of(map_of(arr.get(0)).get(la::NAME.code)));
                 }

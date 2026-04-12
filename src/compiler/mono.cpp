@@ -26,12 +26,14 @@ namespace logos::compiler {
 lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     in_ = std::move(in);
 
-    out_.consts       = std::move(in_.consts);
-    out_.type_aliases = std::move(in_.type_aliases);
-    out_.traits       = std::move(in_.traits);
-    out_.impls        = std::move(in_.impls);
+    out_.consts            = std::move(in_.consts);
+    out_.type_aliases      = std::move(in_.type_aliases);
+    out_.traits            = std::move(in_.traits);
+    out_.impls             = std::move(in_.impls);
+    out_.dispatch_entries  = std::move(in_.dispatch_entries);
+    out_.inst_annotations  = std::move(in_.inst_annotations);
     // Move type_pool — will be extended with new types during mono
-    out_.type_pool    = std::move(in_.type_pool);
+    out_.type_pool         = std::move(in_.type_pool);
 
     // Index associated type impls for subst_type resolution
     for (auto& impl : out_.impls) {

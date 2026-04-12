@@ -655,6 +655,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* ret_logos_type) {
+    // &tagged<TS> Trait dispatch: read type_code, GEP tier-1 table, indirect call.
+    if (!e.tag_system.empty()) {
+        return gen_tagged_dispatch(e, ret_logos_type);
+    }
     // &dyn Trait dispatch: load vtable, GEP slot, indirect call
     if (e.receiver->type &&
         e.receiver->type->kind == LogosType::Kind::TraitObject &&

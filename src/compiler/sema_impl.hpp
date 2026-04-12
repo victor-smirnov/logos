@@ -403,6 +403,8 @@ private:
 
     std::unordered_map<std::string, SemaStructInfo>   structs_;
     std::unordered_map<std::string, SemaStructInfo>   datatypes_;  // Hermes datatypes
+    // Explicit type_code from #[type_code=N] annotations; populated in lower_module_items.
+    std::unordered_map<std::string, uint64_t>         explicit_type_codes_;
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
     std::unordered_map<std::string, SemaStructInfo>   struct_specs_sema_;
     std::unordered_map<std::string, SemaEnumInfo>     enums_;

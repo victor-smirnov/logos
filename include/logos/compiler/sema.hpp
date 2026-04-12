@@ -46,6 +46,7 @@ struct LogosType {
         ImplTrait,                // impl Trait — opaque return type, resolved during lowering
         ConstVar,                 // [NEW] symbolic constant parameter (Bug 13)
         FnPtr,                    // fn(T1, T2) -> R — bare function pointer (single ptr)
+        TaggedPtr,                // &tagged<TS> Trait — thin tag-dispatched pointer (*const u8)
         Error                     // sentinel for ill-typed expressions
     };
 

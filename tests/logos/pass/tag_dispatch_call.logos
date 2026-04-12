@@ -1,0 +1,91 @@
+package tag_dispatch_call;
+// Tests Layer 6: &tagged<TS> Trait call-site dispatch.
+//
+// Verifies:
+//   1. Two datatypes implement a #[tag_dispatch(DataTypeTagSystem)] trait.
+//   2. Objects are written into a buffer with write_tag.
+//   3. A function accepting &tagged<DataTypeTagSystem> Checksum can dispatch
+//      to the correct impl method based on the type_code in memory.
+
+use hermes.datatag;
+use hermes.tag_system;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+#[tag_dispatch(DataTypeTagSystem)]
+trait Checksum {
+    unsafe fn checksum(self: *const Self) -> i32;
+}
+
+#[type_code=128]
+datatype Point {
+    x: i32,
+    y: i32,
+}
+
+#[type_code=129]
+datatype Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+impl Checksum for Point {
+    pub unsafe fn checksum(self: *const Point) -> i32 {
+        return self.x + self.y;
+    }
+}
+
+impl Checksum for Color {
+    pub unsafe fn checksum(self: *const Color) -> i32 {
+        return self.r as i32 + self.g as i32 + self.b as i32 + self.a as i32;
+    }
+}
+
+// Call checksum() through the tag dispatch table.
+unsafe fn dispatch_checksum(tagged_obj: &tagged<DataTypeTagSystem> Checksum) -> i32 {
+    return tagged_obj.checksum();
+}
+
+unsafe fn main() -> i32 {
+    // Allocate buffer: tag (up to 8 bytes) + object (up to 16 bytes), repeated.
+    let buf: *mut u8 = malloc(128);
+    let mut zi: i64 = 0;
+    loop {
+        if zi >= 128 { break; }
+        *((buf as i64 + zi) as *mut u8) = 0 as u8;
+        zi = zi + 1;
+    }
+
+    // Write a Point at offset 8 (1 byte tag + 7 bytes pad before obj).
+    let code_point: u64 = type_code_of::<Point>();
+    let code_color: u64 = type_code_of::<Color>();
+
+    // Object 1: Point {x=10, y=32} at buf+8.
+    let p_obj: *mut u8 = (buf as i64 + 8) as *mut u8;
+    write_tag(p_obj, code_point);
+    let p: *mut Point = p_obj as *mut Point;
+    p.x = 10;
+    p.y = 32;
+
+    // Object 2: Color {r=1,g=2,b=3,a=4} at buf+64.
+    let c_obj: *mut u8 = (buf as i64 + 64) as *mut u8;
+    write_tag(c_obj, code_color);
+    let c: *mut Color = c_obj as *mut Color;
+    c.r = 1 as u8;
+    c.g = 2 as u8;
+    c.b = 3 as u8;
+    c.a = 4 as u8;
+
+    // Dispatch through the tag table.
+    let sum_p: i32 = dispatch_checksum(p_obj as *const u8);
+    if sum_p != 42 { free(buf); return 1; }
+
+    let sum_c: i32 = dispatch_checksum(c_obj as *const u8);
+    if sum_c != 10 { free(buf); return 2; }
+
+    free(buf);
+    return 0;
+}

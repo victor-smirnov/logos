@@ -576,20 +576,25 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (td.name == trait_name) { tag_system = td.tag_dispatch_system; break; }
         }
         if (!tag_system.empty()) {
-            // Bug 3 fix: prefer the type_code from prog.structs (which has annotation-applied
-            // codes, e.g. from #[type_code=N]).  Only fall back to hash computation if the
-            // struct hasn't been lowered yet (shouldn't happen for datatypes, but be safe).
+            // Prefer the type_code from prog.structs (which has annotation-applied codes,
+            // e.g. from #[type_code=N]).  Fall back to hash computation if not found.
             uint64_t tcode = 0;
             for (auto& sd : prog.structs) {
                 if (sd.is_datatype && sd.name == target) { tcode = sd.type_code; break; }
             }
             if (tcode == 0) {
-                auto dit = datatypes_.find(target);
-                if (dit != datatypes_.end()) {
-                    std::string canon = dit->second.package + "::" + target;
-                    auto hash = type_hash_23(canon);
-                    uint64_t raw = type_hash_56bit(hash);
-                    tcode = (raw < 128) ? (raw + 128) : raw;
+                // Also check explicit_type_codes_ for types annotated but not yet in prog.structs.
+                auto eit = explicit_type_codes_.find(target);
+                if (eit != explicit_type_codes_.end()) {
+                    tcode = eit->second;
+                } else {
+                    auto dit = datatypes_.find(target);
+                    if (dit != datatypes_.end()) {
+                        std::string canon = dit->second.package + "::" + target;
+                        auto hash = type_hash_23(canon);
+                        uint64_t raw = type_hash_56bit(hash);
+                        tcode = (raw < 128) ? (raw + 128) : raw;
+                    }
                 }
             }
             if (tcode != 0) {
@@ -598,7 +603,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto tit = traits_.find(trait_name);
                 if (tit != traits_.end()) {
                     for (auto& m : tit->second.methods) {
-                        // Bug 5 fix: only emit entry if the method is actually lowered.
+                        // Only emit entry if the method is actually lowered.
                         // A method exists iff: explicitly overridden OR has a default body.
                         auto mangled = target + "__" + m.name;
                         if (!overridden.count(mangled) && !m.has_default) continue;

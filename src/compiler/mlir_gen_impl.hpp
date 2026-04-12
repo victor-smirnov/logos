@@ -240,6 +240,7 @@ private:
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, const std::string& trait_name,
                                const std::string& src_type_name);
     mlir::Value gen_dyn_dispatch(const EMethodCall& e, const LogosType* ret_logos_type);
+    mlir::Value gen_tagged_dispatch(const EMethodCall& e, const LogosType* ret_logos_type);
 
     // ── malloc / free helpers ─────────────────────────────────────
     void ensure_malloc_free(mlir::ModuleOp mod);

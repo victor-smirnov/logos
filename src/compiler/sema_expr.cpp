@@ -1046,20 +1046,26 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
         uint64_t code = 0;
         if (elem->kind == LogosType::Kind::Datatype && elem->type_args.empty()) {
-            // Bug 1 fix: datatypes_ only holds locally-defined types; also check structs_
-            // as a fallback for types imported from other packages.
-            auto dit = datatypes_.find(elem->struct_name);
-            std::string pkg;
-            if (dit != datatypes_.end()) {
-                pkg = dit->second.package;
+            // Check for explicit #[type_code=N] annotation first.
+            auto eit = explicit_type_codes_.find(elem->struct_name);
+            if (eit != explicit_type_codes_.end()) {
+                code = eit->second;
             } else {
-                auto sit = structs_.find(elem->struct_name);
-                if (sit != structs_.end()) pkg = sit->second.package;
+                // Bug 1 fix: datatypes_ only holds locally-defined types; also check structs_
+                // as a fallback for types imported from other packages.
+                auto dit = datatypes_.find(elem->struct_name);
+                std::string pkg;
+                if (dit != datatypes_.end()) {
+                    pkg = dit->second.package;
+                } else {
+                    auto sit = structs_.find(elem->struct_name);
+                    if (sit != structs_.end()) pkg = sit->second.package;
+                }
+                std::string canon = pkg + "::" + elem->struct_name;
+                auto hash = type_hash_23(canon);
+                uint64_t raw = type_hash_56bit(hash);
+                code = (raw < 128) ? (raw + 128) : raw;
             }
-            std::string canon = pkg + "::" + elem->struct_name;
-            auto hash = type_hash_23(canon);
-            uint64_t raw = type_hash_56bit(hash);
-            code = (raw < 128) ? (raw + 128) : raw;
         } else if (elem->kind == LogosType::Kind::Datatype && !elem->type_args.empty()) {
             error("type_code_of::<T>() cannot resolve type_code for uninstantiated generic datatype");
             return error_expr();
@@ -1441,6 +1447,51 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     return make_expr(ret_type, std::move(mc));
                 }
             }
+        }
+        error(std::format("trait '{}' has no method '{}'", tname, method_name));
+        return error_expr();
+    }
+
+    // &tagged<TS> Trait method call: tag-based dispatch through the tier-1 table.
+    // The receiver is a thin *const u8 pointer; type_code is read at runtime via TS.
+    if (recv->type->kind == LogosType::Kind::TaggedPtr) {
+        auto& ts_name  = recv->type->struct_name;  // e.g. "DataTypeTagSystem"
+        auto& tname    = recv->type->trait_name;   // e.g. "Stringify"
+        auto tit = traits_.find(tname);
+        if (tit == traits_.end()) {
+            error(std::format("&tagged<{}> {}: trait '{}' not found", ts_name, tname, tname));
+            return error_expr();
+        }
+        for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
+            auto& m = tit->second.methods[mi];
+            if (m.name != method_name) continue;
+            if (m.is_unsafe && !inside_unsafe_)
+                error(std::format("call to unsafe method '{}' requires unsafe context",
+                                  std::string(method_name)));
+            std::vector<lir::LExprPtr> arg_exprs;
+            if (node.has_key(la::ARGS)) {
+                auto args_node = arr_of(node.get(la::ARGS.code));
+                for (uint64_t i = 0; i < args_node.size(); ++i)
+                    arg_exprs.push_back(lower_expr(map_of(args_node.get(i))));
+            }
+            size_t expected_explicit = m.param_types.size() > 0
+                ? m.param_types.size() - 1 : 0;
+            if (arg_exprs.size() != expected_explicit)
+                error(std::format("method '{}': expected {} args, got {}",
+                                  std::string(method_name), expected_explicit, arg_exprs.size()));
+            // Return type: substitute Self → &tagged<TS> Trait (the receiver type).
+            const LogosType* ret_type = m.ret_type;
+            if (ret_type && ret_type->kind == LogosType::Kind::TypeVar &&
+                ret_type->type_var_name == "Self")
+                ret_type = recv->type;
+            lir::EMethodCall mc;
+            mc.receiver    = std::move(recv);
+            mc.method      = std::string(method_name);
+            mc.args        = std::move(arg_exprs);
+            mc.vtable_index = -1;
+            mc.tag_system  = std::string(ts_name);
+            mc.tag_trait   = std::string(tname);
+            return make_expr(ret_type, std::move(mc));
         }
         error(std::format("trait '{}' has no method '{}'", tname, method_name));
         return error_expr();

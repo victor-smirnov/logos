@@ -215,6 +215,9 @@ inline constexpr Code DATATYPE    {"DATATYPE",    148};  // datatype definition 
 // Annotations
 inline constexpr Code ANNOTATION  {"ANNOTATION",  150};  // #[name], #[name=val], #[name(args)]
 
+// Tag-dispatch types
+inline constexpr Code TAGGED_TYPE {"TAGGED_TYPE", 151};  // &tagged<TS> Trait thin pointer
+
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
 
