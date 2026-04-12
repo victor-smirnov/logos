@@ -18,6 +18,7 @@
 
 #include <logos/compiler/sema.hpp>   // LogosType, TypePool, SemaResult
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -472,9 +473,13 @@ struct LStructDef {
     std::vector<TypeParam>   type_params;  // empty for non-generic structs
     std::vector<LField>      fields;
     std::vector<LFunction>   methods;
-    bool                     is_pub      = false;
-    bool                     is_datatype = false;  // Hermes datatype (C POD layout)
-    uint64_t                 type_code   = 0;      // explicit #[type_code=N]; 0 = auto-assign
+    bool                     is_pub        = false;
+    bool                     is_datatype   = false;  // Hermes datatype (C POD layout)
+    uint64_t                 type_code     = 0;      // explicit #[type_code=N]; 0 = auto-assign
+    bool                     is_data_plain = true;   // no relative-ptr fields → value-copyable
+    // SHA-256 of canonical type string, truncated to 23 bytes; all-zero = not yet computed
+    // (zero for generic templates — hashed at instantiation time in mono_pass).
+    std::array<uint8_t, 23>  type_hash     = {};
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
@@ -574,21 +579,29 @@ struct LTypeAlias {
 // program graph point into type_pool or into the string arena — do not
 // outlive LProgram.
 
+// Metadata bound to a generic instantiation via an explicit instantiation declaration.
+// E.g.: #[type_code=42] datatype Array<i32>;
+struct LInstAnnotation {
+    std::string canonical_name;  // fully-qualified canonical type string, e.g. "pkg::Array<i32>"
+    uint64_t    type_code = 0;   // 0 = not specified
+};
+
 struct LProgram {
     SemaResult             diags;
 
     TypePool               type_pool;  // owns all LogosType*
 
-    std::vector<LStructDef>  structs;
-    std::vector<LStructDef>  struct_specializations;  // struct specs (consumed by mono)
-    std::vector<LClassDef>   classes;
-    std::vector<LEnumDef>    enums;
-    std::vector<LFunction>   functions;        // free functions and extern fn
-    std::vector<LFunction>   specializations;  // fn specialisations (consumed by mono)
-    std::vector<LConst>      consts;
-    std::vector<LTypeAlias>  type_aliases;
-    std::vector<LTraitDef>   traits;
-    std::vector<LImplBlock>  impls;
+    std::vector<LStructDef>      structs;
+    std::vector<LStructDef>      struct_specializations;  // struct specs (consumed by mono)
+    std::vector<LClassDef>       classes;
+    std::vector<LEnumDef>        enums;
+    std::vector<LFunction>       functions;        // free functions and extern fn
+    std::vector<LFunction>       specializations;  // fn specialisations (consumed by mono)
+    std::vector<LConst>          consts;
+    std::vector<LTypeAlias>      type_aliases;
+    std::vector<LTraitDef>       traits;
+    std::vector<LImplBlock>      impls;
+    std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }

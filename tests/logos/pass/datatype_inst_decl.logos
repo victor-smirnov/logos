@@ -1,0 +1,22 @@
+package datatype_inst_decl;
+// Tests explicit instantiation declaration syntax:
+//   #[type_code=N] datatype SomeGeneric<T>;
+// This binds a short type_code to a generic instantiation without
+// redefining the type.
+
+datatype Pair<T> {
+    first:  T,
+    second: T,
+}
+
+// Explicit instantiation declarations — bind type_codes to concrete instances.
+#[type_code = 200]
+datatype Pair<i32>;
+
+#[type_code = 201]
+datatype Pair<i64>;
+
+fn main() -> i32 {
+    let p: Pair<i32> = Pair { first: 10, second: 32 };
+    return p.first + p.second;  // 42
+}

@@ -162,7 +162,12 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             if      (c == la::STRUCT) {
                 if (is_specialization_struct(item)) collect_struct_spec(item);
                 else                                collect_struct(item);
-            } else if (c == la::DATATYPE)                   collect_datatype(item);
+            } else if (c == la::DATATYPE) {
+                // Skip explicit instantiation declarations (no FIELDS key, no NAME key).
+                // These only bind annotations to existing generic instantiations.
+                if (item.has_key(la::NAME.code))
+                    collect_datatype(item);
+            }
             else if (c == la::ENUM)                       collect_enum(item);
             else if (c == la::CLASS)                        collect_class(item);
             else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
@@ -753,6 +758,10 @@ void SemaChecker::collect_datatype(TinyMapView node) {
                                       dname, fname, type_str(ftype)));
                 }
             }
+            // DataPlain detection: a Datatype field means the type is DataNode
+            // (it may hold a relative pointer like RelPtr<T> that needs zone base).
+            if (ftype && ftype->kind == LogosType::Kind::Datatype)
+                info.is_data_plain = false;
             info.fields.push_back({fname, ftype, fpub, false});
         }
     }

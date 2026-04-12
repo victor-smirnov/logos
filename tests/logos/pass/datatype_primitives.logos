@@ -1,0 +1,79 @@
+package datatype_primitives;
+// Exercises all primitive scalar types as datatype fields.
+// Verifies that is_datatype_safe accepts every primitive Kind.
+
+datatype Scalars {
+    a: i8,
+    b: u8,
+    c: i16,
+    d: u16,
+    e: i32,
+    f: u32,
+    g: i64,
+    h: u64,
+    j: i128,
+    k: u128,
+    l: f32,
+    m: f64,
+    n: bool,
+}
+
+datatype WithArrays {
+    bytes: [u8; 4],
+    words: [i32; 2],
+    flags: [bool; 8],
+}
+
+datatype Nested {
+    s: Scalars,
+    x: i32,
+}
+
+fn main() -> i32 {
+    // Construct Scalars with all primitive fields.
+    let s: Scalars = Scalars {
+        a: -1 as i8,
+        b: 255 as u8,
+        c: -1000 as i16,
+        d: 1000 as u16,
+        e: -100000,
+        f: 100000 as u32,
+        g: -1000000 as i64,
+        h: 1000000 as u64,
+        j: -1 as i128,
+        k: 1 as u128,
+        l: 1.5 as f32,
+        m: 2.5,
+        n: true,
+    };
+
+    let s2: Scalars = Scalars {
+        a: 1 as i8,
+        b: 0 as u8,
+        c: 0 as i16,
+        d: 0 as u16,
+        e: 42,
+        f: 0 as u32,
+        g: 0 as i64,
+        h: 0 as u64,
+        j: 0 as i128,
+        k: 0 as u128,
+        l: 0.0 as f32,
+        m: 0.0,
+        n: false,
+    };
+
+    // Construct WithArrays.
+    let wa: WithArrays = WithArrays {
+        bytes: [1 as u8, 2 as u8, 3 as u8, 4 as u8],
+        words: [10, 20],
+        flags: [true, false, true, false, true, false, true, false],
+    };
+
+    // Construct Nested — embeds Scalars by value.
+    let n: Nested = Nested { s: s, x: 7 };
+
+    // Use the fields to produce a deterministic result.
+    let result: i32 = s2.e + n.x + wa.words[0] + wa.words[1];
+    return result;   // 42 + 7 + 10 + 20 = 79
+}

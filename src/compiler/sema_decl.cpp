@@ -153,12 +153,19 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     auto sname = std::string(str_of(node.get(la::NAME.code)));
     lir::LStructDef sd;
     sd.name = sname;
-    // Look up in structs_ or datatypes_
-    auto sit = structs_.find(sname);
-    auto& sinfo = (sit != structs_.end()) ? sit->second : datatypes_[sname];
-    sd.type_params = sinfo.type_params;
+    // Look up in structs_ or datatypes_ — never default-insert via operator[].
+    auto sit  = structs_.find(sname);
+    auto doit = datatypes_.find(sname);
+    SemaStructInfo* sinfo = nullptr;
+    if      (sit  != structs_.end())   sinfo = &sit->second;
+    else if (doit != datatypes_.end()) sinfo = &doit->second;
+    else {
+        error(std::format("internal: '{}' not found in collect phase", sname));
+        return sd;
+    }
+    sd.type_params = sinfo->type_params;
     push_type_params(sd.type_params);
-    for (auto& f : sinfo.fields)
+    for (auto& f : sinfo->fields)
         sd.fields.push_back({std::string(f.name), f.type, f.is_variadic});
     if (node.has_key(la::ITEMS)) {
         auto methods = arr_of(node.get(la::ITEMS.code));

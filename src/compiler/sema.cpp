@@ -15,6 +15,8 @@
 
 #include "sema_impl.hpp"
 
+#include <logos/compiler/sha256.hpp>
+
 #include <cstdio>
 #include <format>
 #include <functional>
@@ -1283,10 +1285,51 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 prog.structs.push_back(lower_struct_def(item));
         }
         else if (c == la::DATATYPE) {
-            auto sd = lower_struct_def(item);  // reuse struct lowering
-            sd.is_datatype = true;
-            apply_annots_to_struct(sd);
-            prog.structs.push_back(std::move(sd));
+            if (!item.has_key(la::NAME.code)) {
+                // Explicit instantiation declaration: #[type_code=N] datatype SomeType<T>;
+                // Has TYPE key, no NAME key, no FIELDS key.
+                if (!item.has_key(la::TYPE.code)) {
+                    error("explicit instantiation declaration missing type expression");
+                } else {
+                    auto type_node = map_of(item.get(la::TYPE.code));
+                    const LogosType* resolved = resolve_type(type_node);
+                    if (resolved && resolved->kind != LogosType::Kind::Error) {
+                        lir::LInstAnnotation ia;
+                        // Include package prefix for a globally unique canonical name.
+                        ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);
+                        for (auto& ann : pending_annots) {
+                            auto aname = std::string(str_of(ann.get(la::NAME.code)));
+                            if (aname == "type_code" && ann.has_key(la::VALUE)) {
+                                auto sv = str_of(ann.get(la::VALUE.code));
+                                ia.type_code = (uint64_t)parse_int_literal(sv);
+                            }
+                        }
+                        prog.inst_annotations.push_back(std::move(ia));
+                    }
+                }
+            } else {
+                // Normal datatype definition.
+                auto sd = lower_struct_def(item);
+                sd.is_datatype   = true;
+                // Propagate is_data_plain only for datatypes (not regular structs).
+                auto dit = datatypes_.find(sd.name);
+                if (dit != datatypes_.end())
+                    sd.is_data_plain = dit->second.is_data_plain;
+                apply_annots_to_struct(sd);
+                // Compute type_hash for concrete (non-generic) datatypes only.
+                // Generic templates get their hash at instantiation time in mono_pass.
+                if (sd.type_params.empty()) {
+                    std::string canon = std::string(cur_package_) + "::" + sd.name;
+                    sd.type_hash = type_hash_23(canon);
+                    // Auto-assign type_code from hash; ensure it's outside the reserved
+                    // inline-AnyVal range 1-127 (those are for zone-stored types >= 128).
+                    if (sd.type_code == 0) {
+                        uint64_t raw = type_hash_56bit(sd.type_hash);
+                        sd.type_code = (raw < 128) ? (raw + 128) : raw;
+                    }
+                }
+                prog.structs.push_back(std::move(sd));
+            }
         }
         else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
         else if (c == la::CLASS) {
