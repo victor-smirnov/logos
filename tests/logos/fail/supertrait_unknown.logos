@@ -1,0 +1,10 @@
+package supertrait_unknown;
+
+// Bug 3+5 regression: unknown supertrait name must be reported as an error,
+// even when the trait is never implemented.
+
+trait Foo: NonExistentTrait { }
+
+fn main() -> i32 {
+    return 0;
+}

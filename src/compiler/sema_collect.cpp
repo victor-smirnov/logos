@@ -256,15 +256,29 @@ void SemaChecker::collect_trait(TinyMapView node) {
     // Read trait type params (e.g. trait Into<T>)
     info.type_params = read_type_params(node);
     push_type_params(info.type_params);
-    // Read supertraits: trait Foo: Bar + Baz { ... } → SUPERS: { ITEMS: [TRAIT_BOUND("Bar"), ...] }
+    // Read supertraits: trait Foo: Bar + Baz<T> { ... } → SUPERS: { ITEMS: [TRAIT_BOUND(...), ...] }
     if (node.has_key(la::SUPERS)) {
         auto supers_node = map_of(node.get(la::SUPERS.code));
         if (supers_node.has_key(la::ITEMS)) {
             auto supers = arr_of(supers_node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < supers.size(); ++i) {
                 auto b = map_of(supers.get(i));
-                if (code_of(b) == la::TRAIT_BOUND)
-                    info.supertraits.push_back(std::string(str_of(b.get(la::NAME.code))));
+                if (code_of(b) != la::TRAIT_BOUND) continue;
+                TraitBound tb;
+                tb.trait_name = std::string(str_of(b.get(la::NAME.code)));
+                // Read type args if present: Into<i32> → type_args=[i32]
+                if (b.has_key(la::TYPE_PARAMS)) {
+                    auto tpav = b.get(la::TYPE_PARAMS.code);
+                    if (!tpav.is_null()) {
+                        auto tplist = map_of(tpav);
+                        if (tplist.has_key(la::ITEMS)) {
+                            auto items = arr_of(tplist.get(la::ITEMS.code));
+                            for (uint64_t j = 0; j < items.size(); ++j)
+                                tb.type_args.push_back(resolve_type(map_of(items.get(j))));
+                        }
+                    }
+                }
+                info.supertraits.push_back(std::move(tb));
             }
         }
     }
@@ -1181,20 +1195,37 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
 // file or across files does not matter.
 // ---------------------------------------------------------------------------
 void SemaChecker::check_supertrait_impls() {
+    // Bug 5: Validate that all supertrait names refer to known traits.
+    // This pass must iterate over traits_ (not impls_) so that traits defined
+    // but never implemented are also checked — check_supertrait_impls via impls_
+    // would silently miss them.
+    for (auto& [tname, tinfo] : traits_) {
+        for (auto& super : tinfo.supertraits) {
+            if (super.trait_name == "Copy") continue;
+            if (!traits_.count(super.trait_name)) {
+                ctx_ = std::format("trait {}", tname);
+                error(std::format("trait {}: unknown supertrait '{}'",
+                                  tname, super.trait_name));
+            }
+        }
+    }
+
+    // For every registered impl "Trait::Type", walk Trait's supertrait chain and
+    // verify that a corresponding impl "SuperTrait::Type" also exists.
     for (auto& [key, impl] : impls_) {
         const std::string& tname  = impl.trait_name;
         const std::string& target = impl.target_type;
         auto tit = traits_.find(tname);
         if (tit == traits_.end()) continue;
+        ctx_ = std::format("impl {} for {}", tname, target);  // set once per impl
         for (auto& super : tit->second.supertraits) {
-            if (super == "Copy") continue;  // Copy is a built-in marker, not declared in source
-            std::string super_key = super + "::" + target;
-            if (!impls_.count(super_key)) {
-                // Emit an error pointing at the trait name.
-                ctx_ = std::format("impl {} for {}", tname, target);
+            if (super.trait_name == "Copy") continue;
+            // Bug 3: verify supertrait name is a known trait before checking impls.
+            if (!traits_.count(super.trait_name)) continue;  // already reported above
+            std::string super_key = super.trait_name + "::" + target;
+            if (!impls_.count(super_key))
                 error(std::format("impl {} for {}: missing impl {} for {} (required by supertrait)",
-                                  tname, target, super, target));
-            }
+                                  tname, target, super.trait_name, target));
         }
     }
 }

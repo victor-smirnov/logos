@@ -1,0 +1,17 @@
+package supertrait_ambiguous;
+
+// Bug 1 regression: trait Foo: A + B where both A and B define the same method.
+// Calling that method via T: Foo must be flagged as ambiguous.
+
+trait ShowA { fn show(self: Self) -> i32; }
+trait ShowB { fn show(self: Self) -> i32; }
+
+trait Widget: ShowA + ShowB { }
+
+fn render<T: Widget>(x: T) -> i32 {
+    return x.show();
+}
+
+unsafe fn main() -> i32 {
+    return 0;
+}

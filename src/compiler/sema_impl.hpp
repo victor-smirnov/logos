@@ -348,7 +348,7 @@ private:
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
         std::vector<SemaAssocTypeInfo> assoc_types;
-        std::vector<std::string> supertraits;  // e.g. ["Display", "Clone"] for trait Foo: Display + Clone
+        std::vector<TraitBound> supertraits;  // e.g. [{Display,[]}, {Into,[i32]}] for trait Foo: Display + Into<i32>
     };
     struct SemaImplInfo {
         std::string trait_name;

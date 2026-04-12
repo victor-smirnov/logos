@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <format>
 #include <functional>
+#include <unordered_set>
 
 namespace logos::compiler {
 
@@ -1348,10 +1349,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         const SemaTraitMethodInfo* chosen_method = nullptr;
         std::string chosen_trait;
 
-        // Helper: search a trait (by name) for the method; returns true if found.
-        // Updates chosen_method/chosen_trait; reports ambiguity if needed.
-        // Also searches supertrait chain recursively (depth-first, stops at first match).
+        // Helper: depth-first search over the supertrait DAG for the method.
+        // visited prevents infinite loops on circular supertrait definitions (Bug 2).
+        // The !chosen_method guard is NOT used so all supertrait siblings are searched
+        // for ambiguity detection (Bug 1 fix: e.g. trait Foo: A+B where both define m()).
+        std::unordered_set<std::string> st_visited;
         std::function<void(const std::string&)> search_trait = [&](const std::string& tname) {
+            if (!st_visited.insert(tname).second) return;  // cycle / diamond guard (Bug 2)
             auto tit = traits_.find(tname);
             if (tit == traits_.end()) return;
             for (auto& m : tit->second.methods) {
@@ -1362,11 +1366,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         std::string(method_name), recv_inner->type_var_name, chosen_trait, tname));
                 chosen_method = &m;
                 chosen_trait  = tname;
-                return;  // method found in this trait; skip supertraits
+                return;  // method found in this trait; don't recurse further
             }
-            // Not found directly — recurse into supertraits.
+            // Not found directly — search all supertraits (no early-exit guard, Bug 1 fix).
             for (auto& super : tit->second.supertraits)
-                if (!chosen_method) search_trait(super);
+                search_trait(super.trait_name);
         };
 
         if (bit != current_type_bounds_.end()) {
