@@ -536,6 +536,7 @@ struct LImplBlock {
     std::vector<LFunction>   methods;
     // Associated type definitions: "Item" → i32
     std::unordered_map<std::string, const LogosType*> assoc_types;
+    bool                     is_unsafe = false;  // declared as `unsafe impl`
 };
 
 struct LConst {

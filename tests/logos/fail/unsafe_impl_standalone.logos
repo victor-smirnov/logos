@@ -1,0 +1,8 @@
+package unsafe_impl_standalone;
+
+struct Foo {}
+impl Foo {
+    fn new() -> Foo { return Foo {}; }
+}
+unsafe impl Foo {}
+unsafe fn main() -> i32 { return 0; }

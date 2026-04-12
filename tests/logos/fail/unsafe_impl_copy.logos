@@ -1,0 +1,5 @@
+package unsafe_impl_copy;
+
+struct Val { x: i32, }
+unsafe impl Copy for Val {}
+unsafe fn main() -> i32 { return 0; }

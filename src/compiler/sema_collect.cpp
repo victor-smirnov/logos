@@ -349,7 +349,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
             if (mi.has_default)
                 mi.default_ast = items.get(i);
             if (m.has_key(la::IS_UNSAFE)) {
-                AnyVal av = m.get(la::IS_UNSAFE.code);
+                AnyVal av = m.get(la::IS_UNSAFE);
                 mi.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
             }
             info.methods.push_back(std::move(mi));
@@ -415,9 +415,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
     }
     // Note: impl_tps are left in current_type_params_ until after collect_fn calls below.
     if (trait_name.empty())
-        ctx_ = std::format("impl {}", target);
+        ctx_ = std::format("{}impl {}", impl_is_unsafe ? "unsafe " : "", target);
     else
-        ctx_ = std::format("impl {} for {}", trait_name, target);
+        ctx_ = std::format("{}impl {} for {}", impl_is_unsafe ? "unsafe " : "", trait_name, target);
     // Set Self → the concrete target type so method signatures resolve *const Self, etc.
     // For generic impl<T> Foo<T>: Self = Foo<T> (TypeVars); for impl Foo<i32>: Self = Foo<i32>.
     {
@@ -575,8 +575,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
         }
     }
     // Register Copy types so is_move_type() can respect them.
-    if (trait_name == "Copy" && !target.empty())
+    if (trait_name == "Copy" && !target.empty()) {
+        if (impl_is_unsafe)
+            error(std::format("impl Copy for {}: `unsafe impl` for a safe built-in trait Copy",
+                              target));
         copy_types_.insert(target);
+    }
+    // Standalone unsafe impl (no trait) makes no semantic sense.
+    if (impl_is_unsafe && trait_name.empty())
+        error(std::format("unsafe impl {}: standalone impl cannot be unsafe", target));
     // Clean up trait type params from scope
     if (!trait_name.empty() && !trait_type_args.empty()) {
         auto tit = traits_.find(trait_name);

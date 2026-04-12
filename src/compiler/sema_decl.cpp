@@ -465,6 +465,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     lir::LImplBlock ib;
     ib.trait_name   = trait_name;
     ib.target_type  = target;
+    if (node.has_key(la::IS_UNSAFE)) {
+        AnyVal av = node.get(la::IS_UNSAFE);
+        ib.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
     // Resolve trait type args and push into scope
     if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
