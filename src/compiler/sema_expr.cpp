@@ -1803,8 +1803,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     auto* sinfo_ptr = find_struct_info(sname_buf);
     if (!sinfo_ptr) {
         // Try resolving via type alias: `type Alias = Struct` or `type Alias = Struct<T>`
+        // Bug 3 fix: only apply non-generic aliases here; generic aliases need type args
+        // at the call site and we can't infer them from just the struct literal name.
         auto ait = type_aliases_.find(sname_buf);
-        if (ait != type_aliases_.end()) {
+        if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
             auto* aliased = ait->second.type;
             if (aliased && (aliased->kind == LogosType::Kind::Struct ||
                             aliased->kind == LogosType::Kind::Datatype)) {
@@ -2421,6 +2423,20 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     auto vname = str_of(node.get(la::FIELD.code));
     auto eit = enums_.find(std::string(ename));
     if (eit == enums_.end()) {
+        // Bug 5 fix: ENUM_LIT_DATA shares the same grammar path as ENUM_LIT.
+        // Check for associated constant access before reporting "unknown enum".
+        std::string cname_str = std::string(ename);
+        std::string mname_str = std::string(vname);
+        for (auto& [tname, tinfo] : traits_) {
+            if (!impls_.count(tname + "::" + cname_str)) continue;
+            std::string key = tname + "::" + cname_str + "::" + mname_str;
+            auto cit = assoc_const_impls_.find(key);
+            if (cit != assoc_const_impls_.end()) {
+                auto val = lower_expr(map_of(cit->second.value_ast));
+                if (cit->second.type) val->type = cit->second.type;
+                return val;
+            }
+        }
         error(std::format("unknown enum '{}'", ename));
         return error_expr();
     }

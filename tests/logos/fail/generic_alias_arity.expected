@@ -1,0 +1,1 @@
+error [fn foo]: type alias 'Wrap' expects 1 type argument(s), got 2

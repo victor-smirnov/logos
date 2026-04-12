@@ -1,0 +1,5 @@
+package generic_alias_arity;
+struct Pair<T> { x: T, y: T, }
+type Wrap<T> = Pair<T>;
+fn foo(p: Wrap<i32, bool>) -> i32 { return p.x; }
+unsafe fn main() -> i32 { return 0; }

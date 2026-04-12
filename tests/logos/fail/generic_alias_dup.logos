@@ -1,0 +1,5 @@
+package generic_alias_dup;
+struct Pair<T> { x: T, y: T, }
+type Foo<T> = Pair<T>;
+type Foo<T> = Pair<T>;
+unsafe fn main() -> i32 { return 0; }

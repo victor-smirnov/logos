@@ -1,0 +1,1 @@
+error [fn foo]: generic type alias 'Wrap' requires type arguments

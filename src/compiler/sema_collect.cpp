@@ -233,6 +233,9 @@ void SemaChecker::collect_enum(TinyMapView node) {
 void SemaChecker::collect_type_alias(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
     if (!node.has_key(la::TYPE)) return;
+    // Bug 1 fix: detect duplicate type alias names.
+    if (type_aliases_.count(name))
+        error(std::format("duplicate type alias '{}'", name));
     TypeAliasEntry entry;
     entry.type_params = read_type_params(node);
     push_type_params(entry.type_params);

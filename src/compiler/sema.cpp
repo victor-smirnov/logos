@@ -1092,7 +1092,13 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         auto name = str_of(node.get(la::NAME.code));
         auto* t = lookup_type_by_name(name);
         if (t) return t;
-        error(std::format("unknown type '{}'", name));
+        // Bug 4 fix: give a more informative error when a generic alias is used
+        // without its required type arguments.
+        auto ait = type_aliases_.find(std::string(name));
+        if (ait != type_aliases_.end() && !ait->second.type_params.empty())
+            error(std::format("generic type alias '{}' requires type arguments", name));
+        else
+            error(std::format("unknown type '{}'", name));
         return error_t();
     }
 
@@ -1113,8 +1119,13 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
                         args.push_back(resolve_type(item));
                     }
                 }
+                // Bug 2 fix: check arity matches the alias definition.
+                size_t expected = ait->second.type_params.size();
+                if (args.size() != expected)
+                    error(std::format("type alias '{}' expects {} type argument(s), got {}",
+                                      name, expected, args.size()));
                 SemaSubst s;
-                for (size_t i = 0; i < ait->second.type_params.size() && i < args.size(); ++i)
+                for (size_t i = 0; i < expected && i < args.size(); ++i)
                     s[ait->second.type_params[i].name] = args[i];
                 return subst_type_sema(ait->second.type, s);
             }
