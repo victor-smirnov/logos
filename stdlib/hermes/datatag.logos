@@ -7,13 +7,14 @@
 // Wire format — variable-length tag stored BEFORE the object in zone memory,
 // written backwards (bytes are written from high address down to low):
 //
-//   obj[-1] ∈ [1, 222]  → single-byte tag; type_code = that byte
+//   obj[-1] ∈ [128,222] → single-byte tag; type_code = that byte
 //   obj[-1] ∈ [223,255] → multi-byte; length = obj[-1] - 223 + 1 bytes total
 //                          type_code in the following bytes (read backwards)
 //
+// Codes 0: unset/sentinel (never written).
 // Codes 1-127: reserved for inline AnyVal primitives (never appear in zone tags).
-// Codes 128-222: zone datatypes — single-byte tag, tier-1 dispatch (array[222]).
-// Codes 223+: zone datatypes — multi-byte tag, tier-2 dispatch (cuckoo hash).
+// Codes 128-222: zone datatypes — single-byte tag, tier-1 dispatch (array[223]).
+// Codes 223+: zone datatypes — multi-byte tag, tier-2 dispatch (binary search).
 //
 // Primary functions:
 //   write_tag(ptr, type_code) — write tag immediately before *ptr
@@ -31,7 +32,9 @@ package hermes.datatag;
 // Bug fix: type_code 0 is reserved/unset and occupies 0 bytes (see write_tag guard).
 pub fn tag_size(type_code: u64) -> i64 {
     if type_code == 0 as u64 { return 0; }
-    // Bug fix: after filtering 0, the check >= 1 is always true (dead code).
+    // Bug fix: codes 1-127 are reserved and shouldn't appear in zone tags.
+    if type_code > 0 as u64 && type_code < 128 as u64 { return 0; }
+    // Bug fix: after filtering 0 and reserved, the check >= 1 is always true (dead code).
     // Simplify to just check upper bound.
     if type_code <= 222 as u64 {
         return 1;
@@ -136,8 +139,14 @@ pub unsafe fn alloc_tagged_raw(
     obj_size:  i64,
     type_code: u64
 ) -> *mut u8 {
+    // Bug fix: validate preconditions to avoid integer overflow in overflow checks.
+    if *offset < 0 as i64 { return 0 as *mut u8; }  // offset must be non-negative
+    if obj_size < 0 as i64 { return 0 as *mut u8; }  // obj_size must be non-negative
+    if capacity < 0 as i64 { return 0 as *mut u8; }  // capacity must be non-negative
     // Bug fix: type_code 0 is reserved/unset sentinel — reject it.
     if type_code == 0 as u64 { return 0 as *mut u8; }
+    // Bug fix: codes 1-127 are reserved for inline AnyVal — reject them.
+    if type_code > 0 as u64 && type_code < 128 as u64 { return 0 as *mut u8; }
     let tsz: i64 = tag_size(type_code);
     // Advance past existing bytes + tag.
     // Bug fix: check overflow when adding offset + tsz.
