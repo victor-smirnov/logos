@@ -584,7 +584,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
             if (tcode == 0) {
                 // Also check explicit_type_codes_ for types annotated but not yet in prog.structs.
-                auto eit = explicit_type_codes_.find(target);
+                // Keys are fully-qualified ("pkg::Name") since the Bug 4 fix in sema.cpp.
+                auto target_fqn = cur_package_.empty() ? target : cur_package_ + "::" + target;
+                auto eit = explicit_type_codes_.find(target_fqn);
                 if (eit != explicit_type_codes_.end()) {
                     tcode = eit->second;
                 } else {

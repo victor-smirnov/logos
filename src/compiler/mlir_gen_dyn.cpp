@@ -314,6 +314,11 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
                 loc_, ptr_t, t2key + "_fns");
 
             for (int64_t i = 0; i < n; ++i) {
+                // Bug fix: look up callee BEFORE writing codes_array[i].
+                // If callee is absent both slots stay zero-init (consistent).
+                auto callee = mod.lookupSymbol<mlir::func::FuncOp>(entries[i].fn_symbol);
+                if (!callee) continue;
+
                 mlir::Value idx = builder_.create<mlir::arith::ConstantIntOp>(loc_, i, 64);
                 llvm::SmallVector<mlir::LLVM::GEPArg> gi;
                 gi.push_back(int32_t(0));
@@ -325,8 +330,6 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
                     loc_, ptr_t, codes_arr_type, codes_addr, gi);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, code_val, code_slot);
 
-                auto callee = mod.lookupSymbol<mlir::func::FuncOp>(entries[i].fn_symbol);
-                if (!callee) continue;
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
                     loc_, callee.getFunctionType(), entries[i].fn_symbol);
                 auto fn_ptr = builder_.create<mlir::UnrealizedConversionCastOp>(
@@ -536,9 +539,15 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
         builder_.setInsertionPointToStart(tier2_block);
         {
             auto lkp_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(t2_lkp_sym);
-            auto t2_fn  = builder_.create<mlir::func::CallOp>(
-                loc_, lkp_fn, mlir::ValueRange{type_code_val}).getResult(0);
-            builder_.create<mlir::LLVM::StoreOp>(loc_, t2_fn, fn_ptr_alloca);
+            if (!lkp_fn) {
+                // Lookup function missing — store null and fall through.
+                builder_.create<mlir::LLVM::StoreOp>(
+                    loc_, builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_t), fn_ptr_alloca);
+            } else {
+                auto t2_fn = builder_.create<mlir::func::CallOp>(
+                    loc_, lkp_fn, mlir::ValueRange{type_code_val}).getResult(0);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, t2_fn, fn_ptr_alloca);
+            }
         }
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 

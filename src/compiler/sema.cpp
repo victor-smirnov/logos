@@ -1276,8 +1276,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             if (aname == "type_code" && ann.has_key(la::VALUE)) {
                 auto sv = str_of(ann.get(la::VALUE.code));
                 sd.type_code = (uint64_t)parse_int_literal(sv);
-                // Also cache so type_code_of::<T>() can find it during expression lowering.
-                explicit_type_codes_[sd.name] = sd.type_code;
+                // Cache with fully-qualified key so type_code_of::<T>() works
+                // across packages.  Bare sd.name would collide if two packages
+                // define the same struct name with different type_codes.
+                auto fqn = cur_package_.empty() ? sd.name
+                                                 : cur_package_ + "::" + sd.name;
+                explicit_type_codes_[fqn] = sd.type_code;
             }
         }
     };

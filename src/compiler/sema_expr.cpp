@@ -1046,21 +1046,27 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
         uint64_t code = 0;
         if (elem->kind == LogosType::Kind::Datatype && elem->type_args.empty()) {
+            // Resolve package for this type (needed for both explicit and auto-hash paths).
+            auto dit = datatypes_.find(elem->struct_name);
+            std::string pkg;
+            if (dit != datatypes_.end()) {
+                pkg = dit->second.package;
+            } else {
+                auto sit = structs_.find(elem->struct_name);
+                if (sit != structs_.end()) pkg = sit->second.package;
+                // If still not found, fall back to current package.  This handles
+                // types in the same file that haven't been registered yet.
+                else pkg = cur_package_;
+            }
+            // Build the fully-qualified name used as explicit_type_codes_ key (matches
+            // the key written by apply_annots_to_struct in sema.cpp).
+            std::string fqn = pkg.empty() ? elem->struct_name : pkg + "::" + elem->struct_name;
+
             // Check for explicit #[type_code=N] annotation first.
-            auto eit = explicit_type_codes_.find(elem->struct_name);
+            auto eit = explicit_type_codes_.find(fqn);
             if (eit != explicit_type_codes_.end()) {
                 code = eit->second;
             } else {
-                // Bug 1 fix: datatypes_ only holds locally-defined types; also check structs_
-                // as a fallback for types imported from other packages.
-                auto dit = datatypes_.find(elem->struct_name);
-                std::string pkg;
-                if (dit != datatypes_.end()) {
-                    pkg = dit->second.package;
-                } else {
-                    auto sit = structs_.find(elem->struct_name);
-                    if (sit != structs_.end()) pkg = sit->second.package;
-                }
                 std::string canon = pkg + "::" + elem->struct_name;
                 auto hash = type_hash_23(canon);
                 uint64_t raw = type_hash_56bit(hash);
