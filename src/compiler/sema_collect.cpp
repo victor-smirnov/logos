@@ -157,6 +157,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto item = map_of(items.get(i));
         int32_t c = code_of(item);
+        if (c == la::ANNOTATION) continue;  // annotations are processed in lower_module_items
         if (phase == 1) {
             if      (c == la::STRUCT) {
                 if (is_specialization_struct(item)) collect_struct_spec(item);

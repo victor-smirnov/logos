@@ -212,6 +212,9 @@ inline constexpr Code FIELD_INDEX_COMPOUND_ASSIGN {"FIELD_INDEX_COMPOUND_ASSIGN"
 // Hermes datatypes
 inline constexpr Code DATATYPE    {"DATATYPE",    148};  // datatype definition (C POD layout)
 
+// Annotations
+inline constexpr Code ANNOTATION  {"ANNOTATION",  150};  // #[name], #[name=val], #[name(args)]
+
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
 

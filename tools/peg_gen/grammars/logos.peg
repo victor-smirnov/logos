@@ -181,6 +181,7 @@
     FIELD_INDEX_COMPOUND_ASSIGN = 147   // s.field[i] op= expr
     DATATYPE                    = 148   // Hermes datatype definition (C POD layout)
     PAT_UNIT                    = 149   // () unit pattern in match arms
+    ANNOTATION                  = 150   // #[name], #[name = val], #[name(args)]
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -274,6 +275,7 @@
     FATARROW    = "=>"
     COLONCOLON  = "::"
     CARET       = "^"
+    HASH        = "#"
 
     // Literals & identifiers
     RAW_STRING  = /r"[^"]*"/
@@ -303,7 +305,26 @@
               / KW_USE IDENT SEMI
              => { CODE: USE, NAME: $2 }
 
-    item <- const_def / type_alias / pub_enum_def / enum_def / class_def / pub_datatype_def / datatype_def / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / class_def / pub_datatype_def / datatype_def / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+
+    // ── Annotations ──────────────────────────────────────────────
+    // #[name(arg1, arg2)]  — annotation with identifier arguments
+    // #[name = 123]        — annotation with integer value
+    // #[name]              — simple flag annotation
+    annotation <- HASH LBRACKET IDENT LPAREN annot_args RPAREN RBRACKET
+               => { CODE: ANNOTATION, NAME: $3, ARGS: $5 }
+                / HASH LBRACKET IDENT ASSIGN INTEGER RBRACKET
+               => { CODE: ANNOTATION, NAME: $3, VALUE: $5 }
+                / HASH LBRACKET IDENT RBRACKET
+               => { CODE: ANNOTATION, NAME: $3 }
+
+    // annot_arg wraps IDENT in a sub-rule so that $... in annot_args correctly
+    // collects each argument into rcap_0 (the $... spread only works for sub-rule
+    // results, not bare terminal captures).
+    annot_arg  <- IDENT => { NAME: $1 }
+
+    annot_args <- annot_arg (COMMA annot_arg)* COMMA?
+               => { ITEMS: $... }
 
     // const NAME: type = expr;
     const_def <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI

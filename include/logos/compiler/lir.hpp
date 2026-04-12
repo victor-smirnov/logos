@@ -474,6 +474,7 @@ struct LStructDef {
     std::vector<LFunction>   methods;
     bool                     is_pub      = false;
     bool                     is_datatype = false;  // Hermes datatype (C POD layout)
+    uint64_t                 type_code   = 0;      // explicit #[type_code=N]; 0 = auto-assign
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
@@ -543,8 +544,9 @@ struct LAssocTypeDef {
 
 struct LTraitDef {
     std::string                    name;
-    std::vector<LAssocTypeDef>     assoc_types;  // associated type declarations
+    std::vector<LAssocTypeDef>     assoc_types;        // associated type declarations
     std::vector<LTraitMethodSig>   methods;
+    std::string                    tag_dispatch_system; // #[tag_dispatch(system_name)]; empty = none
 };
 
 struct LImplBlock {

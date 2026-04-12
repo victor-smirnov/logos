@@ -1238,10 +1238,45 @@ void SemaChecker::lower_program(const std::vector<hermes::HermesCtr>& asts, lir:
 void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
+
+    // Annotations accumulate until the next non-annotation item, then are consumed.
+    std::vector<TinyMapView> pending_annots;
+
+    auto apply_annots_to_struct = [&](lir::LStructDef& sd) {
+        for (auto& ann : pending_annots) {
+            auto aname = std::string(str_of(ann.get(la::NAME.code)));
+            if (aname == "type_code" && ann.has_key(la::VALUE)) {
+                auto sv = str_of(ann.get(la::VALUE.code));
+                sd.type_code = (uint64_t)parse_int_literal(sv);
+            }
+        }
+    };
+
+    auto apply_annots_to_trait = [&](lir::LTraitDef& td) {
+        for (auto& ann : pending_annots) {
+            auto aname = std::string(str_of(ann.get(la::NAME.code)));
+            if (aname == "tag_dispatch" && ann.has_key(la::ARGS)) {
+                // ARGS: { ITEMS: [ "system_name" ] }
+                auto args_map = map_of(ann.get(la::ARGS.code));
+                if (args_map.has_key(la::ITEMS)) {
+                    auto arr = arr_of(args_map.get(la::ITEMS.code));
+                    // Each element is an annot_arg node: { NAME: "ident" }
+                    if (arr.size() > 0)
+                        td.tag_dispatch_system = std::string(str_of(map_of(arr.get(0)).get(la::NAME.code)));
+                }
+            }
+        }
+    };
+
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto item = map_of(items.get(i));
         int32_t c = code_of(item);
+        if (c == la::ANNOTATION) {
+            pending_annots.push_back(item);
+            continue;
+        }
         if      (c == la::STRUCT) {
+            // Annotations are not applied to structs — only to datatypes.
             if (is_specialization_struct(item))
                 prog.struct_specializations.push_back(lower_spec_struct(item));
             else
@@ -1250,6 +1285,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         else if (c == la::DATATYPE) {
             auto sd = lower_struct_def(item);  // reuse struct lowering
             sd.is_datatype = true;
+            apply_annots_to_struct(sd);
             prog.structs.push_back(std::move(sd));
         }
         else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
@@ -1269,8 +1305,13 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         }
         else if (c == la::CONST_DEF)  prog.consts.push_back(lower_const_def(item));
         else if (c == la::TYPE_ALIAS) prog.type_aliases.push_back(lower_type_alias_def(item));
-        else if (c == la::TRAIT_DEF)  prog.traits.push_back(lower_trait_def(item));
+        else if (c == la::TRAIT_DEF) {
+            auto td = lower_trait_def(item);
+            apply_annots_to_trait(td);
+            prog.traits.push_back(std::move(td));
+        }
         else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);
+        pending_annots.clear();
     }
 }
 
