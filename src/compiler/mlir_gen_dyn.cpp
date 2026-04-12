@@ -5,11 +5,171 @@
 // mlir_gen_dyn.cpp — Vtable emission, &dyn Trait coercion, dyn dispatch, closures.
 
 #include "mlir_gen_impl.hpp"
+#include <algorithm>
 #include <map>
 
 namespace logos::compiler {
 
 using namespace lir;
+
+// ---------------------------------------------------------------------------
+// emit_tier2_lookup — binary-search lookup for tier-2 type codes.
+//
+// Emits a func.func @<lookup_name>(type_code: i64) -> ptr that performs
+// binary search over the sorted @<codes_name> array and returns the
+// corresponding entry from @<fns_name>, or null if not found.
+// ---------------------------------------------------------------------------
+
+static void emit_tier2_lookup(
+    mlir::OpBuilder& builder, mlir::Location loc,
+    mlir::ModuleOp mod,
+    const std::string& lookup_name,
+    const std::string& codes_name,
+    const std::string& fns_name,
+    mlir::LLVM::LLVMArrayType codes_arr_type,
+    mlir::LLVM::LLVMArrayType fns_arr_type,
+    int64_t n)
+{
+    auto* ctx  = builder.getContext();
+    auto  ptr_t = mlir::LLVM::LLVMPointerType::get(ctx);
+    auto  i64_t = builder.getI64Type();
+
+    // func @lookup(type_code: i64) -> ptr
+    auto fn_type = mlir::FunctionType::get(ctx, {i64_t}, {ptr_t});
+    builder.setInsertionPointToEnd(mod.getBody());
+    auto fn = builder.create<mlir::func::FuncOp>(loc, lookup_name, fn_type);
+    fn->setAttr("sym_visibility", mlir::StringAttr::get(ctx, "private"));
+    auto* entry_block = fn.addEntryBlock();
+    builder.setInsertionPointToStart(entry_block);
+
+    mlir::Value type_code = entry_block->getArgument(0);
+
+    // Allocas for loop variables: lo, hi, mid.
+    mlir::Value alloca_one = builder.create<mlir::arith::ConstantIntOp>(loc, 1LL, 64);
+    auto lo_alloca  = builder.create<mlir::LLVM::AllocaOp>(loc, ptr_t, i64_t, alloca_one);
+    auto hi_alloca  = builder.create<mlir::LLVM::AllocaOp>(loc, ptr_t, i64_t, alloca_one);
+    auto mid_alloca = builder.create<mlir::LLVM::AllocaOp>(loc, ptr_t, i64_t, alloca_one);
+
+    auto zero64   = builder.create<mlir::arith::ConstantIntOp>(loc, 0LL, 64);
+    auto nminus1  = builder.create<mlir::arith::ConstantIntOp>(loc, n - 1, 64);
+    builder.create<mlir::LLVM::StoreOp>(loc, zero64,  lo_alloca);
+    builder.create<mlir::LLVM::StoreOp>(loc, nminus1, hi_alloca);
+
+    // Addresses of the sorted codes and fns globals.
+    auto codes_addr = builder.create<mlir::LLVM::AddressOfOp>(loc, ptr_t, codes_name);
+    auto fns_addr   = builder.create<mlir::LLVM::AddressOfOp>(loc, ptr_t, fns_name);
+
+    // Create CFG blocks.
+    auto* region       = builder.getBlock()->getParent();
+    auto* cond_block   = new mlir::Block();
+    auto* body_block   = new mlir::Block();
+    auto* neq_block    = new mlir::Block();
+    auto* lo_upd_block = new mlir::Block();
+    auto* hi_upd_block = new mlir::Block();
+    auto* found_block  = new mlir::Block();
+    auto* exit_block   = new mlir::Block();
+    region->push_back(cond_block);
+    region->push_back(body_block);
+    region->push_back(neq_block);
+    region->push_back(lo_upd_block);
+    region->push_back(hi_upd_block);
+    region->push_back(found_block);
+    region->push_back(exit_block);
+
+    // entry → cond
+    builder.create<mlir::cf::BranchOp>(loc, cond_block);
+
+    // cond_block: loop while lo <= hi (signed; indices are non-negative).
+    builder.setInsertionPointToStart(cond_block);
+    {
+        auto lo  = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, lo_alloca);
+        auto hi  = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, hi_alloca);
+        auto cmp = builder.create<mlir::arith::CmpIOp>(
+            loc, mlir::arith::CmpIPredicate::sle, lo, hi);
+        builder.create<mlir::cf::CondBranchOp>(loc, cmp, body_block, exit_block);
+    }
+
+    // body_block: compute mid, load codes[mid], compare.
+    builder.setInsertionPointToStart(body_block);
+    {
+        auto lo2  = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, lo_alloca);
+        auto hi2  = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, hi_alloca);
+        auto sum  = builder.create<mlir::arith::AddIOp>(loc, lo2, hi2);
+        auto two  = builder.create<mlir::arith::ConstantIntOp>(loc, 2LL, 64);
+        mlir::Value mid = builder.create<mlir::arith::DivSIOp>(loc, sum, two);
+        builder.create<mlir::LLVM::StoreOp>(loc, mid, mid_alloca);
+
+        llvm::SmallVector<mlir::LLVM::GEPArg> gep;
+        gep.push_back(int32_t(0));
+        gep.push_back(mid);  // dynamic index (mlir::Value)
+        auto code_slot = builder.create<mlir::LLVM::GEPOp>(
+            loc, ptr_t, codes_arr_type, codes_addr, gep);
+        auto code_mid = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, code_slot);
+
+        auto eq = builder.create<mlir::arith::CmpIOp>(
+            loc, mlir::arith::CmpIPredicate::eq, code_mid, type_code);
+        builder.create<mlir::cf::CondBranchOp>(loc, eq, found_block, neq_block);
+    }
+
+    // neq_block: decide whether to go lo or hi.
+    // Re-read codes[mid] to get code_mid (mid was stored to alloca by body_block).
+    builder.setInsertionPointToStart(neq_block);
+    {
+        mlir::Value mid3 = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, mid_alloca);
+        llvm::SmallVector<mlir::LLVM::GEPArg> gep;
+        gep.push_back(int32_t(0));
+        gep.push_back(mid3);
+        auto code_slot = builder.create<mlir::LLVM::GEPOp>(
+            loc, ptr_t, codes_arr_type, codes_addr, gep);
+        auto code_mid2 = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, code_slot);
+        // Use unsigned comparison: type_codes are logically u64.
+        auto lt = builder.create<mlir::arith::CmpIOp>(
+            loc, mlir::arith::CmpIPredicate::ult, code_mid2, type_code);
+        builder.create<mlir::cf::CondBranchOp>(loc, lt, lo_upd_block, hi_upd_block);
+    }
+
+    // lo_upd_block: lo = mid + 1
+    builder.setInsertionPointToStart(lo_upd_block);
+    {
+        auto mid4   = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, mid_alloca);
+        auto one    = builder.create<mlir::arith::ConstantIntOp>(loc, 1LL, 64);
+        auto new_lo = builder.create<mlir::arith::AddIOp>(loc, mid4, one);
+        builder.create<mlir::LLVM::StoreOp>(loc, new_lo, lo_alloca);
+        builder.create<mlir::cf::BranchOp>(loc, cond_block);
+    }
+
+    // hi_upd_block: hi = mid - 1
+    builder.setInsertionPointToStart(hi_upd_block);
+    {
+        auto mid5   = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, mid_alloca);
+        auto one    = builder.create<mlir::arith::ConstantIntOp>(loc, 1LL, 64);
+        auto new_hi = builder.create<mlir::arith::SubIOp>(loc, mid5, one);
+        builder.create<mlir::LLVM::StoreOp>(loc, new_hi, hi_alloca);
+        builder.create<mlir::cf::BranchOp>(loc, cond_block);
+    }
+
+    // found_block: return fns[mid].
+    builder.setInsertionPointToStart(found_block);
+    {
+        mlir::Value mid6 = builder.create<mlir::LLVM::LoadOp>(loc, i64_t, mid_alloca);
+        llvm::SmallVector<mlir::LLVM::GEPArg> gep;
+        gep.push_back(int32_t(0));
+        gep.push_back(mid6);
+        auto fn_slot = builder.create<mlir::LLVM::GEPOp>(
+            loc, ptr_t, fns_arr_type, fns_addr, gep);
+        auto fn_ptr = builder.create<mlir::LLVM::LoadOp>(loc, ptr_t, fn_slot);
+        builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{fn_ptr});
+    }
+
+    // exit_block: return null (type_code not found — programmer error).
+    builder.setInsertionPointToStart(exit_block);
+    {
+        auto null_ptr = builder.create<mlir::LLVM::ZeroOp>(loc, ptr_t);
+        builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{null_ptr});
+    }
+
+    builder.setInsertionPointToEnd(mod.getBody());
+}
 
 // ---------------------------------------------------------------------------
 // Vtable emission (Pass 1a)
@@ -24,61 +184,93 @@ void MLIRGenImpl::emit_vtable(mlir::ModuleOp /*mod*/, const LClassDef& /*cd*/) {
 // ---------------------------------------------------------------------------
 // Tag-dispatch tables (Pass 1c)
 // ---------------------------------------------------------------------------
-// For each unique (tag_system, trait, method) triplet derived from
-// prog.dispatch_entries, emit a [223 x ptr] global array:
-//
-//   @__logos_tag_dispatch_<TS>_<Trait>_<method> = global [223 x ptr] { ... }
-//
-// Tier-1 entries (type_code 128-222): the corresponding slot holds the
-// address of the impl function.  All other slots are null.
-//
-// Tier-2 entries (type_code >= 223): only a linker collision-detection
-// symbol is emitted for now:
-//   @__logos_typeops_<type_code_hex16>_<Trait>_<method> = global ptr @fn_symbol
-//
-// The table name is mangled once; any TU that sees an impl for the same
-// (TS, Trait, method) will extend the SAME table (via linker sections in
-// multi-TU builds; currently logosc is single-TU so it owns the whole table).
+// Tier-1 (type_code 1-222): [223 x ptr] global array, O(1) direct index.
+// Tier-2 (type_code 223+): sorted [N x i64] codes + [N x ptr] fns arrays;
+//   a per-table binary-search lookup function (@__logos_tier2_*_lookup) is
+//   emitted.  Both tiers are filled at program startup by the generated
+//   @__logos_tag_dispatch_init function (injected at the top of main() in
+//   mlir_gen.cpp Pass 3).
 
 void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog) {
     if (prog.dispatch_entries.empty()) return;
 
     auto ptr_t = ptr_type();
     constexpr int kTier1Size = 223;
-    auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_t, kTier1Size);
+    auto arr_type_t1 = mlir::LLVM::LLVMArrayType::get(ptr_t, kTier1Size);
+    auto i64_t = builder_.getI64Type();
 
-    // ── Pass A: collect tier-1 entries grouped by table name ──────────���──
-    std::map<std::string, std::vector<std::pair<uint64_t, std::string>>> tables;
+    struct Entry { uint64_t type_code; std::string fn_symbol; };
+    std::map<std::string, std::vector<Entry>> tier1_tables;
+    std::map<std::string, std::vector<Entry>> tier2_tables;
+
     for (auto& de : prog.dispatch_entries) {
-        if (de.type_code == 0 || de.type_code >= static_cast<uint64_t>(kTier1Size)) continue;
-        auto key = "__logos_tag_dispatch_" + de.tag_system + "_"
-                 + de.trait_name + "_" + de.method_name;
-        tables[key].emplace_back(de.type_code, de.fn_symbol);
+        if (de.type_code == 0) continue;
+        auto base = de.tag_system + "_" + de.trait_name + "_" + de.method_name;
+        if (de.type_code < static_cast<uint64_t>(kTier1Size)) {
+            tier1_tables["__logos_tag_dispatch_" + base].push_back({de.type_code, de.fn_symbol});
+        } else {
+            tier2_tables["__logos_tier2_" + base].push_back({de.type_code, de.fn_symbol});
+        }
     }
-    if (tables.empty()) return;
+    if (tier1_tables.empty() && tier2_tables.empty()) return;
 
-    // ── Pass B: emit zero-initialized [223 x ptr] globals ────────────────
-    // We emit a zero-value init region (ZeroOp) so the global is a *definition*
-    // (not a declaration).  Function pointers are filled at runtime by the
-    // __logos_tag_dispatch_init constructor (Pass C / mlir_gen.cpp Pass 3).
-    for (auto& [table_name, entries] : tables) {
+    // ── Pass B: emit zero-initialized [223 x ptr] globals for tier-1 ─────
+    for (auto& [table_name, _entries] : tier1_tables) {
         if (mod.lookupSymbol(table_name)) continue;
         builder_.setInsertionPointToEnd(mod.getBody());
         auto glob = builder_.create<mlir::LLVM::GlobalOp>(
-            loc_, arr_type, /*isConst=*/false,
-            mlir::LLVM::Linkage::External, table_name,
-            mlir::Attribute{}, 0);
-        auto& init_region = glob.getInitializerRegion();
-        auto* init_block  = builder_.createBlock(&init_region);
-        builder_.setInsertionPointToStart(init_block);
-        mlir::Value zero = builder_.create<mlir::LLVM::ZeroOp>(loc_, arr_type);
-        builder_.create<mlir::LLVM::ReturnOp>(loc_, zero);
+            loc_, arr_type_t1, false,
+            mlir::LLVM::Linkage::External, table_name, mlir::Attribute{}, 0);
+        auto& ir = glob.getInitializerRegion();
+        builder_.setInsertionPointToStart(builder_.createBlock(&ir));
+        builder_.create<mlir::LLVM::ReturnOp>(
+            loc_, builder_.create<mlir::LLVM::ZeroOp>(loc_, arr_type_t1));
         builder_.setInsertionPointToEnd(mod.getBody());
     }
 
-    // ── Pass C: emit func.func constructor that stores fn ptrs at startup ─
-    // One constructor per module covers all tables.  Naming is deterministic
-    // so that a second TU can merge cleanly (same symbol = linker dedup).
+    // ── Pass C: emit tier-2 data globals + binary-search lookup functions ─
+    for (auto& [t2key, entries] : tier2_tables) {
+        std::sort(entries.begin(), entries.end(),
+                  [](const Entry& a, const Entry& b){ return a.type_code < b.type_code; });
+        int64_t n = static_cast<int64_t>(entries.size());
+
+        auto codes_arr_type = mlir::LLVM::LLVMArrayType::get(i64_t, n);
+        auto codes_name = t2key + "_codes";
+        if (!mod.lookupSymbol(codes_name)) {
+            builder_.setInsertionPointToEnd(mod.getBody());
+            auto g = builder_.create<mlir::LLVM::GlobalOp>(
+                loc_, codes_arr_type, false,
+                mlir::LLVM::Linkage::External, codes_name, mlir::Attribute{}, 0);
+            auto& ir = g.getInitializerRegion();
+            builder_.setInsertionPointToStart(builder_.createBlock(&ir));
+            builder_.create<mlir::LLVM::ReturnOp>(
+                loc_, builder_.create<mlir::LLVM::ZeroOp>(loc_, codes_arr_type));
+            builder_.setInsertionPointToEnd(mod.getBody());
+        }
+
+        auto fns_arr_type = mlir::LLVM::LLVMArrayType::get(ptr_t, n);
+        auto fns_name = t2key + "_fns";
+        if (!mod.lookupSymbol(fns_name)) {
+            builder_.setInsertionPointToEnd(mod.getBody());
+            auto g = builder_.create<mlir::LLVM::GlobalOp>(
+                loc_, fns_arr_type, false,
+                mlir::LLVM::Linkage::External, fns_name, mlir::Attribute{}, 0);
+            auto& ir = g.getInitializerRegion();
+            builder_.setInsertionPointToStart(builder_.createBlock(&ir));
+            builder_.create<mlir::LLVM::ReturnOp>(
+                loc_, builder_.create<mlir::LLVM::ZeroOp>(loc_, fns_arr_type));
+            builder_.setInsertionPointToEnd(mod.getBody());
+        }
+
+        auto lookup_name = t2key + "_lookup";
+        if (!mod.lookupSymbol<mlir::func::FuncOp>(lookup_name)) {
+            emit_tier2_lookup(builder_, loc_, mod,
+                              lookup_name, codes_name, fns_name,
+                              codes_arr_type, fns_arr_type, n);
+        }
+    }
+
+    // ── Pass D: emit __logos_tag_dispatch_init (fills tier-1 + tier-2) ───
     auto ctor_name = std::string("__logos_tag_dispatch_init");
     if (!mod.lookupSymbol<mlir::func::FuncOp>(ctor_name)) {
         auto ctor_type = mlir::FunctionType::get(builder_.getContext(), {}, {});
@@ -89,31 +281,62 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         auto* ctor_block = ctor_fn.addEntryBlock();
         builder_.setInsertionPointToStart(ctor_block);
 
-        for (auto& [table_name, entries] : tables) {
-            // Get pointer to the zero-initialized table global.
+        // Fill tier-1 [223 x ptr] tables.
+        for (auto& [table_name, entries] : tier1_tables) {
             auto table_addr = builder_.create<mlir::LLVM::AddressOfOp>(
                 loc_, ptr_t, table_name);
-
-            for (auto& [type_code, fn_sym] : entries) {
-                auto callee = mod.lookupSymbol<mlir::func::FuncOp>(fn_sym);
+            for (auto& e : entries) {
+                auto callee = mod.lookupSymbol<mlir::func::FuncOp>(e.fn_symbol);
                 if (!callee) continue;
-                // func.constant @fn → value of function type; cast to ptr.
-                auto func_type = callee.getFunctionType();
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
-                    loc_, func_type, fn_sym);
+                    loc_, callee.getFunctionType(), e.fn_symbol);
                 auto fn_ptr = builder_.create<mlir::UnrealizedConversionCastOp>(
                     loc_, ptr_t, mlir::ValueRange{fn_ref}).getResult(0);
-                // GEP: [0, type_code] into [223 x ptr].
-                mlir::Value idx_val = builder_.create<mlir::arith::ConstantIntOp>(
-                    loc_, static_cast<int64_t>(type_code), 64);
-                llvm::SmallVector<mlir::LLVM::GEPArg> gep_idx;
-                gep_idx.push_back(int32_t(0));
-                gep_idx.push_back(idx_val);  // mlir::Value — dynamic GEP index
+                mlir::Value idx = builder_.create<mlir::arith::ConstantIntOp>(
+                    loc_, static_cast<int64_t>(e.type_code), 64);
+                llvm::SmallVector<mlir::LLVM::GEPArg> gi;
+                gi.push_back(int32_t(0));
+                gi.push_back(idx);
                 auto slot = builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_t, arr_type, table_addr, gep_idx);
+                    loc_, ptr_t, arr_type_t1, table_addr, gi);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, fn_ptr, slot);
             }
         }
+
+        // Fill tier-2 codes and fns arrays (in sorted order).
+        for (auto& [t2key, entries] : tier2_tables) {
+            int64_t n = static_cast<int64_t>(entries.size());
+            auto codes_arr_type = mlir::LLVM::LLVMArrayType::get(i64_t, n);
+            auto fns_arr_type   = mlir::LLVM::LLVMArrayType::get(ptr_t, n);
+            auto codes_addr = builder_.create<mlir::LLVM::AddressOfOp>(
+                loc_, ptr_t, t2key + "_codes");
+            auto fns_addr = builder_.create<mlir::LLVM::AddressOfOp>(
+                loc_, ptr_t, t2key + "_fns");
+
+            for (int64_t i = 0; i < n; ++i) {
+                mlir::Value idx = builder_.create<mlir::arith::ConstantIntOp>(loc_, i, 64);
+                llvm::SmallVector<mlir::LLVM::GEPArg> gi;
+                gi.push_back(int32_t(0));
+                gi.push_back(idx);
+
+                mlir::Value code_val = builder_.create<mlir::arith::ConstantIntOp>(
+                    loc_, static_cast<int64_t>(entries[i].type_code), 64);
+                auto code_slot = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_t, codes_arr_type, codes_addr, gi);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, code_val, code_slot);
+
+                auto callee = mod.lookupSymbol<mlir::func::FuncOp>(entries[i].fn_symbol);
+                if (!callee) continue;
+                auto fn_ref = builder_.create<mlir::func::ConstantOp>(
+                    loc_, callee.getFunctionType(), entries[i].fn_symbol);
+                auto fn_ptr = builder_.create<mlir::UnrealizedConversionCastOp>(
+                    loc_, ptr_t, mlir::ValueRange{fn_ref}).getResult(0);
+                auto fn_slot = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_t, fns_arr_type, fns_addr, gi);
+                builder_.create<mlir::LLVM::StoreOp>(loc_, fn_ptr, fn_slot);
+            }
+        }
+
         builder_.create<mlir::func::ReturnOp>(loc_);
         builder_.setInsertionPointToEnd(mod.getBody());
     }
@@ -124,6 +347,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     // Instead, mlir_gen.cpp injects a call to @__logos_tag_dispatch_init at
     // the start of main() after all function bodies are generated (Pass 3).
 }
+
 
 void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& prog) {
     for (auto& td : prog.traits) {
@@ -203,31 +427,29 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, const std::string& 
 }
 
 // ---------------------------------------------------------------------------
-// Indirect call through &tagged<TS> Trait tier-1 dispatch table.
+// Indirect call through &tagged<TS> Trait dispatch.
 //
 // Dispatch sequence:
-//   1. Evaluate receiver — this is a *const u8 pointing to the tagged object.
-//   2. Read type_code via read_type_code(obj_ptr) → i64.
-//   3. Bounds-check: type_code must be in [1, 222].  Out-of-range → trap.
-//   4. GEP into @__logos_tag_dispatch_<TS>_<Trait>_<method>[type_code].
-//   5. Load the stored fn ptr.
-//   6. Build the LLVM function type from the actual args + return type.
-//   7. Indirect call through the loaded ptr.
+//   1. Evaluate receiver — *const u8 pointing to the tagged object.
+//   2. Call read_type_code(obj_ptr) → i64 type_code.
+//   3a. If type_code < 223 (tier-1): GEP into @__logos_tag_dispatch_*[type_code].
+//   3b. If type_code >= 223 (tier-2): call @__logos_tier2_*_lookup(type_code).
+//   4. Load/receive fn_ptr.
+//   5. Indirect call through fn_ptr with (obj_ptr, user_args…).
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
                                               const LogosType* ret_logos_type) {
     constexpr int kTier1Size = 223;
+    auto ptr_t = ptr_type();
 
-    // 1. Evaluate the receiver (already a *const u8 in memory, stored as alloca or direct ptr).
+    // 1. Evaluate the receiver.
     mlir::Value obj_ptr = nullptr;
     if (auto* vr = std::get_if<lir::EVarRef>(&e.receiver->kind)) {
-        // Variable in scope: if it's a let-bound pointer, load from alloca.
         auto it = scope_.find(vr->name);
         if (it != scope_.end()) {
-            // If stored in let_vars_ it's an alloca holding a ptr; load it.
             if (let_vars_.count(vr->name))
-                obj_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
+                obj_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_t, it->second);
             else
                 obj_ptr = it->second;
         }
@@ -235,45 +457,101 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
     if (!obj_ptr) obj_ptr = gen_expr(*e.receiver);
     if (!obj_ptr) return nullptr;
 
-    // 2. Call read_type_code(obj_ptr) → type_code as i64.
+    // 2. read_type_code(obj_ptr) → i64.
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>("read_type_code");
     if (!rtc_fn) {
-        std::fprintf(stderr, "gen_tagged_dispatch: 'read_type_code' not found in module\n");
+        std::fprintf(stderr, "gen_tagged_dispatch: 'read_type_code' not found\n");
         return nullptr;
     }
-    auto type_code_val = builder_.create<mlir::func::CallOp>(
-        loc_, rtc_fn, mlir::ValueRange{obj_ptr}).getResult(0);  // i64
+    mlir::Value type_code_val = builder_.create<mlir::func::CallOp>(
+        loc_, rtc_fn, mlir::ValueRange{obj_ptr}).getResult(0);
 
-    // 3. GEP into @__logos_tag_dispatch_<TS>_<Trait>_<method>[type_code].
-    //    No bounds check — type_code always comes from write_tag with a valid code.
-    auto table_sym = "__logos_tag_dispatch_" + e.tag_system + "_"
-                   + e.tag_trait + "_" + e.method;
-    auto table_global = parent_mod.lookupSymbol<mlir::LLVM::GlobalOp>(table_sym);
-    if (!table_global) {
-        std::fprintf(stderr, "gen_tagged_dispatch: table '%s' not found\n", table_sym.c_str());
+    // Identify available tables.
+    auto base_key    = e.tag_system + "_" + e.tag_trait + "_" + e.method;
+    auto table_sym   = "__logos_tag_dispatch_" + base_key;
+    auto t2_lkp_sym  = "__logos_tier2_" + base_key + "_lookup";
+    bool has_tier1   = (parent_mod.lookupSymbol<mlir::LLVM::GlobalOp>(table_sym) != nullptr);
+    bool has_tier2   = (parent_mod.lookupSymbol<mlir::func::FuncOp>(t2_lkp_sym)  != nullptr);
+
+    if (!has_tier1 && !has_tier2) {
+        std::fprintf(stderr, "gen_tagged_dispatch: no dispatch table for '%s'\n",
+                     table_sym.c_str());
         return nullptr;
     }
 
-    auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_type(), kTier1Size);
-    auto table_addr = builder_.create<mlir::LLVM::AddressOfOp>(
-        loc_, ptr_type(), table_sym);
+    // 3. Resolve fn_ptr (tier-1 or tier-2 path).
+    mlir::Value fn_ptr;
 
-    // GEPArg: int32_t for static (ptr→array), mlir::Value for dynamic (element index).
-    llvm::SmallVector<mlir::LLVM::GEPArg> gep_idx;
-    gep_idx.push_back(int32_t(0));       // ptr → array base
-    gep_idx.push_back(type_code_val);    // dynamic slot index
-    auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
-        loc_, ptr_type(), arr_type, table_addr, gep_idx);
+    if (!has_tier2) {
+        // ── Tier-1 only: direct array lookup ──────────────────────────────
+        auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_t, kTier1Size);
+        auto table_addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_t, table_sym);
+        llvm::SmallVector<mlir::LLVM::GEPArg> gi;
+        gi.push_back(int32_t(0));
+        gi.push_back(type_code_val);
+        auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_t, arr_type, table_addr, gi);
+        fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_t, slot_ptr);
+    } else {
+        // ── Conditional: tier-1 if type_code < 223, else tier-2 lookup ───
+        auto fn_ptr_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_t, ptr_t, i64_one());
 
-    // 4. Load fn_ptr from the slot.
-    auto fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        auto boundary = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, static_cast<int64_t>(kTier1Size), 64);
+        auto is_tier1 = builder_.create<mlir::arith::CmpIOp>(
+            loc_, mlir::arith::CmpIPredicate::ult, type_code_val, boundary);
 
-    // 5. Build call args: obj_ptr (self as *const u8) + user args.
+        auto* region      = builder_.getBlock()->getParent();
+        auto* tier1_block = new mlir::Block();
+        auto* tier2_block = new mlir::Block();
+        auto* merge_block = new mlir::Block();
+        region->push_back(tier1_block);
+        region->push_back(tier2_block);
+        region->push_back(merge_block);
+
+        builder_.create<mlir::cf::CondBranchOp>(loc_, is_tier1, tier1_block, tier2_block);
+
+        // tier1_block
+        builder_.setInsertionPointToStart(tier1_block);
+        if (has_tier1) {
+            auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_t, kTier1Size);
+            auto table_addr = builder_.create<mlir::LLVM::AddressOfOp>(
+                loc_, ptr_t, table_sym);
+            llvm::SmallVector<mlir::LLVM::GEPArg> gi;
+            gi.push_back(int32_t(0));
+            gi.push_back(type_code_val);
+            auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_t, arr_type, table_addr, gi);
+            auto t1_fn = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_t, slot_ptr);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, t1_fn, fn_ptr_alloca);
+        } else {
+            builder_.create<mlir::LLVM::StoreOp>(
+                loc_, builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_t), fn_ptr_alloca);
+        }
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        // tier2_block
+        builder_.setInsertionPointToStart(tier2_block);
+        {
+            auto lkp_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(t2_lkp_sym);
+            auto t2_fn  = builder_.create<mlir::func::CallOp>(
+                loc_, lkp_fn, mlir::ValueRange{type_code_val}).getResult(0);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, t2_fn, fn_ptr_alloca);
+        }
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+
+        // merge_block
+        builder_.setInsertionPointToStart(merge_block);
+        fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_t, fn_ptr_alloca);
+    }
+
+    // 4. Build call args: obj_ptr (self as *const u8) + user args.
     llvm::SmallVector<mlir::Value> args;
     args.push_back(obj_ptr);
     llvm::SmallVector<mlir::Type> param_types;
-    param_types.push_back(ptr_type());  // self: *const u8
+    param_types.push_back(ptr_t);  // self: *const u8
 
     for (auto& a : e.args) {
         auto v = gen_expr(*a);

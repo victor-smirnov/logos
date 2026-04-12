@@ -1,0 +1,88 @@
+package tag_dispatch_tier2;
+// Tests Layer 6 tier-2: &tagged<TS> Trait dispatch for auto-hash type_codes
+// (type_code >= 223 — multi-byte TypeTag, binary-search lookup table).
+//
+// Unlike tag_dispatch_call.logos which uses explicit #[type_code=128/129],
+// these datatypes carry no explicit annotation so the compiler assigns the
+// first 56 bits of their SHA-256 hash as the type_code.  That value is
+// always >> 222, so tier-2 dispatch is exercised.
+
+use hermes.datatag;
+use hermes.tag_system;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+#[tag_dispatch(DataTypeTagSystem)]
+trait Checksum {
+    unsafe fn checksum(self: *const Self) -> i32;
+}
+
+// No explicit type_code — auto-hash assigns a 56-bit code >= 223.
+datatype Widget {
+    a: i32,
+    b: i32,
+}
+
+datatype Gadget {
+    x: i32,
+    y: i32,
+    z: i32,
+}
+
+impl Checksum for Widget {
+    pub unsafe fn checksum(self: *const Widget) -> i32 {
+        return self.a + self.b;
+    }
+}
+
+impl Checksum for Gadget {
+    pub unsafe fn checksum(self: *const Gadget) -> i32 {
+        return self.x + self.y + self.z;
+    }
+}
+
+unsafe fn dispatch_checksum(tagged_obj: &tagged<DataTypeTagSystem> Checksum) -> i32 {
+    return tagged_obj.checksum();
+}
+
+unsafe fn main() -> i32 {
+    // Buffer: 256 bytes. Tier-2 tag needs up to 8 bytes before the object.
+    let buf: *mut u8 = malloc(256);
+
+    // Zero-init buffer.
+    let mut zi: i64 = 0;
+    loop {
+        if zi >= 256 { break; }
+        *((buf as i64 + zi) as *mut u8) = 0 as u8;
+        zi = zi + 1;
+    }
+
+    let code_widget: u64 = type_code_of::<Widget>();
+    let code_gadget: u64 = type_code_of::<Gadget>();
+
+    // Widget {a=10, b=32} at buf+16. Tag bytes at buf[15..8] (8-byte tier-2 tag).
+    let w_obj: *mut u8 = (buf as i64 + 16) as *mut u8;
+    write_tag(w_obj, code_widget);
+    let w: *mut Widget = w_obj as *mut Widget;
+    w.a = 10;
+    w.b = 32;
+
+    // Gadget {x=5, y=15, z=25} at buf+128.
+    let g_obj: *mut u8 = (buf as i64 + 128) as *mut u8;
+    write_tag(g_obj, code_gadget);
+    let g: *mut Gadget = g_obj as *mut Gadget;
+    g.x = 5;
+    g.y = 15;
+    g.z = 25;
+
+    // Dispatch through tier-2 lookup.
+    let sum_w: i32 = dispatch_checksum(w_obj as *const u8);
+    if sum_w != 42 { free(buf); return 1; }
+
+    let sum_g: i32 = dispatch_checksum(g_obj as *const u8);
+    if sum_g != 45 { free(buf); return 2; }
+
+    free(buf);
+    return 0;
+}
