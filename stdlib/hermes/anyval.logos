@@ -163,6 +163,12 @@ impl AnyVal {
         return self.type_hash() == 23 as u8;
     }
 
+    // True if this AnyVal holds an embedded unsigned integer (u24, hash=25).
+    pub unsafe fn is_uint(self: *const AnyVal) -> bool {
+        if self.is_ptr() { return false; }
+        return self.type_hash() == 25 as u8;
+    }
+
     // True if this AnyVal holds an embedded bool (Boolean, hash=37).
     pub unsafe fn is_bool(self: *const AnyVal) -> bool {
         if self.is_ptr() { return false; }
@@ -213,5 +219,11 @@ impl AnyVal {
     pub unsafe fn as_i64(self: *const AnyVal) -> i64 {
         if !self.is_int() { return 0 as i64; }
         return self.as_i24() as i64;
+    }
+
+    // Return the unsigned integer value if is_uint(), otherwise 0.
+    pub unsafe fn as_u64(self: *const AnyVal) -> u64 {
+        if !self.is_uint() { return 0 as u64; }
+        return self.as_u24() as u64;
     }
 }

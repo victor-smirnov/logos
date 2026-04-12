@@ -104,12 +104,21 @@ impl HermesCtr {
         return Result::Err(ParseError::Failed);
     }
 
-    // Stringify the parsed document into the internal buffer.
+    // Stringify the parsed document into the internal buffer (compact).
     // May be called multiple times; each call replaces the previous result.
     pub fn stringify(&mut self) {
         unsafe {
             self.buf.clear();
-            stringify_document(self.zone.base as *const u8, &mut self.buf);
+            stringify_document(self.zone.base as *const u8, &mut self.buf,
+                               StringifyOpts::compact());
+        }
+    }
+
+    // Stringify with explicit formatting options.
+    pub fn stringify_opts(&mut self, opts: StringifyOpts) {
+        unsafe {
+            self.buf.clear();
+            stringify_document(self.zone.base as *const u8, &mut self.buf, opts);
         }
     }
 
@@ -146,9 +155,15 @@ impl HermesCtr {
         unsafe { return self.zone.base as *const u8; }
     }
 
-    // Stringify the parsed document and return it as an owned String.
+    // Stringify and return as an owned String (compact).
     pub fn to_string(&mut self) -> String {
         self.stringify();
+        return String::from_bytes(self.data(), self.len());
+    }
+
+    // Stringify with explicit formatting options and return as an owned String.
+    pub fn to_string_opts(&mut self, opts: StringifyOpts) -> String {
+        self.stringify_opts(opts);
         return String::from_bytes(self.data(), self.len());
     }
 

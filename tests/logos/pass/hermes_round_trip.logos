@@ -154,7 +154,7 @@ unsafe fn main() -> i32 {
 
     // ── Stringify ────────────────────────────────────────────────────────────
     let mut sb: String = String::new();
-    stringify_document(zone.base as *const u8, &mut sb);
+    stringify_document(zone.base as *const u8, &mut sb, StringifyOpts::compact());
 
     // ── Print ────────────────────────────────────────────────────────────────
     print_buf(&mut sb);

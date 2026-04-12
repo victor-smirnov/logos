@@ -80,12 +80,13 @@ unsafe fn main() -> i32 {
     if r5.as_i24() != -7                              { free(ibuf); return 14; }
     z5.destroy();
 
-    // ── 6. unsigned suffix "99u" → embed_u24(99) ──────────────────────────────
-    // Input: "99u"  (57 57 117)
+    // ── 6. unsigned suffix "99_u32" → embed_u24(99) ───────────────────────────
+    // Input: "99_u32"  (57 57 95 117 51 50)
     // New: u24(99) raw = (99 << 8) | 0x33 = 0x00006333
-    wb(ibuf, 0, 57 as u8); wb(ibuf, 1, 57 as u8); wb(ibuf, 2, 117 as u8);
+    wb(ibuf, 0, 57 as u8); wb(ibuf, 1, 57 as u8); wb(ibuf, 2, 95 as u8);
+    wb(ibuf, 3, 117 as u8); wb(ibuf, 4, 51 as u8); wb(ibuf, 5, 50 as u8);
     let mut z6: HermesZone = HermesZone::create(4096);
-    if !hermes_parse(ibuf as *const u8, 3, &mut z6) { free(ibuf); return 15; }
+    if !hermes_parse(ibuf as *const u8, 6, &mut z6) { free(ibuf); return 15; }
     let r6: AnyVal = document_get_root(document_header(z6.base) as *const DocumentHeader);
     if r6.raw != 0x00006333 as u32                    { free(ibuf); return 16; }
     z6.destroy();
@@ -235,17 +236,19 @@ unsafe fn main() -> i32 {
     z15.destroy();
     if cnt15 != 1 as u32                             { free(ibuf); return 50; }
 
-    // ── 16. quoted string key in map: {"ab":99u} → count=1, lookup "ab" ───────
-    // Input: [123 34 97 98 34 58 57 57 117 125]
-    //         '{'  '"' 'a' 'b' '"' ':' '9' '9' 'u'  '}'
+    // ── 16. quoted string key in map: {"ab":99_u32} → count=1, lookup "ab" ─────
+    // Input: [123 34 97 98 34 58 57 57 95 117 51 50 125]
+    //         '{'  '"' 'a' 'b' '"' ':' '9' '9' '_' 'u' '3' '2'  '}'
     // New: u24(99) raw = (99 << 8) | 0x33 = 0x00006333
-    wb(ibuf, 0, 123 as u8); wb(ibuf, 1, 34 as u8);
-    wb(ibuf, 2,  97 as u8); wb(ibuf, 3, 98 as u8);
-    wb(ibuf, 4,  34 as u8); wb(ibuf, 5, 58 as u8);
-    wb(ibuf, 6,  57 as u8); wb(ibuf, 7, 57 as u8);
-    wb(ibuf, 8, 117 as u8); wb(ibuf, 9, 125 as u8);
+    wb(ibuf,  0, 123 as u8); wb(ibuf,  1,  34 as u8);
+    wb(ibuf,  2,  97 as u8); wb(ibuf,  3,  98 as u8);
+    wb(ibuf,  4,  34 as u8); wb(ibuf,  5,  58 as u8);
+    wb(ibuf,  6,  57 as u8); wb(ibuf,  7,  57 as u8);
+    wb(ibuf,  8,  95 as u8); wb(ibuf,  9, 117 as u8);
+    wb(ibuf, 10,  51 as u8); wb(ibuf, 11,  50 as u8);
+    wb(ibuf, 12, 125 as u8);
     let mut z16: HermesZone = HermesZone::create(8192);
-    if !hermes_parse(ibuf as *const u8, 10, &mut z16) { free(ibuf); return 51; }
+    if !hermes_parse(ibuf as *const u8, 13, &mut z16) { free(ibuf); return 51; }
     let r16: AnyVal = document_get_root(document_header(z16.base) as *const DocumentHeader);
     if !r16.is_ptr()                                  { free(ibuf); return 52; }
     let omap16: *const ObjectMap =

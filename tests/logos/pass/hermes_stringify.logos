@@ -25,61 +25,61 @@ unsafe fn main() -> i32 {
     // 1. null AnyVal → "null"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::null_ptr(), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::null_ptr(), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("null") { return 1; }
 
     // -----------------------------------------------------------------------
     // 2. Integer (i32): "42"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_i24(42), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_i24(42), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("42") { return 2; }
 
     // -----------------------------------------------------------------------
     // 3. Integer zero: "0"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_i24(0), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_i24(0), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("0") { return 3; }
 
     // -----------------------------------------------------------------------
     // 4. Negative integer: "-1"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_i24(-1), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_i24(-1), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("-1") { return 4; }
 
     // -----------------------------------------------------------------------
-    // 5. UInteger (u32): "99u"
+    // 5. UInteger (u24): "99_u32"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_u24(99 as u32), base as *const u8, &mut sb);
-    if !sb.eq_cstr("99u") { return 5; }
+    stringify_anyval(AnyVal::embed_u24(99 as u32), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    if !sb.eq_cstr("99_u32") { return 5; }
 
     // -----------------------------------------------------------------------
     // 6. Boolean: "true" / "false"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_bool(true), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_bool(true), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("true") { return 6; }
 
     sb.clear();
-    stringify_anyval(AnyVal::embed_bool(false), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_bool(false), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("false") { return 7; }
 
     // -----------------------------------------------------------------------
     // 7. TinyInt (i8): "5_s8"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_i8(5 as i8), base as *const u8, &mut sb);
+    stringify_anyval(AnyVal::embed_i8(5 as i8), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("5_s8") { return 8; }
 
     // -----------------------------------------------------------------------
-    // 8. UInteger zero: "0u"
+    // 8. UInteger zero: "0_u32"
     // -----------------------------------------------------------------------
     sb.clear();
-    stringify_anyval(AnyVal::embed_u24(0 as u32), base as *const u8, &mut sb);
-    if !sb.eq_cstr("0u") { return 9; }
+    stringify_anyval(AnyVal::embed_u24(0 as u32), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    if !sb.eq_cstr("0_u32") { return 9; }
 
     // -----------------------------------------------------------------------
     // 9. HermesString "hi" → `"hi"` (with surrounding quotes)
@@ -94,7 +94,7 @@ unsafe fn main() -> i32 {
     let hs_val: AnyVal = AnyVal::from_offset((hs_raw as i64 - base as i64) as u32);
 
     sb.clear();
-    stringify_anyval(hs_val, base as *const u8, &mut sb);
+    stringify_anyval(hs_val, base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("\"hi\"") { return 10; }
 
     // -----------------------------------------------------------------------
@@ -109,7 +109,7 @@ unsafe fn main() -> i32 {
 
     sb.clear();
     stringify_anyval(AnyVal::from_offset((oa_raw as i64 - base as i64) as u32),
-                     base as *const u8, &mut sb);
+                     base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("[1,2]") { return 11; }
 
     // -----------------------------------------------------------------------
@@ -123,7 +123,7 @@ unsafe fn main() -> i32 {
 
     sb.clear();
     stringify_anyval(AnyVal::from_offset((tm_raw as i64 - base as i64) as u32),
-                     base as *const u8, &mut sb);
+                     base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
     if !sb.eq_cstr("{\"k0\":7}") { return 12; }
 
     // -----------------------------------------------------------------------
@@ -132,7 +132,7 @@ unsafe fn main() -> i32 {
     document_set_root(doc, AnyVal::embed_i24(100));
 
     sb.clear();
-    stringify_document(base as *const u8, &mut sb);
+    stringify_document(base as *const u8, &mut sb, StringifyOpts::compact());
     if !sb.eq_cstr("100") { return 13; }
 
     zone.destroy();

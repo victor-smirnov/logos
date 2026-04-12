@@ -8,7 +8,7 @@
 //   value   := null | true | false | number | float | string | array | map
 //   number  := [-] (0x hex | decimal) suffix?
 //   float   := [-] decimal '.' decimal (('e'|'E') ['+'|'-'] decimal)?
-//   suffix  := u | _u8 | _u16 | _u32 | _s8 | _s16 | _s32 | ll | _s64 | _u64 | ull
+//   suffix  := _u8 | _u16 | _u32 | _s8 | _s16 | _s32 | _s64 | _u64
 //   string  := '"' (char | escape)* '"'
 //   escape  := \" | \\ | \/ | \n | \r | \t | \b | \f
 //   array   := '[' (value (',' value)* ','?)? ']'
@@ -366,6 +366,7 @@ impl HermesParser {
             if c1 == 115 as u8 && c2 == 54 as u8 && c3 == 52 as u8
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4 as i64;
+                // s64 not embeddable — store as i24 (lower 24 bits).
                 let mut v: i32 = uval as i32;
                 if neg { v = 0 as i32 - v; }
                 return AnyVal::embed_i24(v);
@@ -394,32 +395,6 @@ impl HermesParser {
                 if neg { v = 0 as i8 - v; }
                 return AnyVal::embed_i8(v);
             }
-        }
-
-        // 'ull'  (u=117 l=108 l=108)
-        if c0 == 117 as u8 && c1 == 108 as u8 && c2 == 108 as u8
-        && !self.is_ident_char(c3) {
-            self.pos = self.pos + 3 as i64;
-            return AnyVal::embed_u24(uval as u32);
-        }
-        // 'ul'   (u=117 l=108)
-        if c0 == 117 as u8 && c1 == 108 as u8
-        && !self.is_ident_char(c2) {
-            self.pos = self.pos + 2 as i64;
-            return AnyVal::embed_u24(uval as u32);
-        }
-        // 'u'    (u=117)
-        if c0 == 117 as u8 && !self.is_ident_char(c1) {
-            self.pos = self.pos + 1 as i64;
-            return AnyVal::embed_u24(uval as u32);
-        }
-        // 'll'   (l=108 l=108)
-        if c0 == 108 as u8 && c1 == 108 as u8
-        && !self.is_ident_char(c2) {
-            self.pos = self.pos + 2 as i64;
-            let mut v: i32 = uval as i32;
-            if neg { v = 0 as i32 - v; }
-            return AnyVal::embed_i24(v);
         }
 
         // Default: i24

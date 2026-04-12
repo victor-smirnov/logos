@@ -42,7 +42,7 @@ unsafe fn main() -> i32 {
 
     // Stringify into a String starting with zero capacity (will grow).
     let mut sb: String = String::new();
-    stringify_document(base as *const u8, &mut sb);
+    stringify_document(base as *const u8, &mut sb, StringifyOpts::compact());
 
     // The output must be non-empty (at least "[0,1,...,19]" = many bytes).
     if sb.len() < 20 as i64 { return 1; }
