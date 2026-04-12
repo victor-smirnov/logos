@@ -5,6 +5,8 @@
 // mlir_gen_dyn.cpp — Vtable emission, &dyn Trait coercion, dyn dispatch, closures.
 
 #include "mlir_gen_impl.hpp"
+#include <cinttypes>
+#include <map>
 
 namespace logos::compiler {
 
@@ -19,6 +21,102 @@ void MLIRGenImpl::emit_vtable(mlir::ModuleOp /*mod*/, const LClassDef& /*cd*/) {
 // ---------------------------------------------------------------------------
 // Trait vtable info (Pass 1b)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Tag-dispatch tables (Pass 1c)
+// ---------------------------------------------------------------------------
+// For each unique (tag_system, trait, method) triplet derived from
+// prog.dispatch_entries, emit a [223 x ptr] global array:
+//
+//   @__logos_tag_dispatch_<TS>_<Trait>_<method> = global [223 x ptr] { ... }
+//
+// Tier-1 entries (type_code 128-222): the corresponding slot holds the
+// address of the impl function.  All other slots are null.
+//
+// Tier-2 entries (type_code >= 223): only a linker collision-detection
+// symbol is emitted for now:
+//   @__logos_typeops_<type_code_hex16>_<Trait>_<method> = global ptr @fn_symbol
+//
+// The table name is mangled once; any TU that sees an impl for the same
+// (TS, Trait, method) will extend the SAME table (via linker sections in
+// multi-TU builds; currently logosc is single-TU so it owns the whole table).
+
+void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog) {
+    if (prog.dispatch_entries.empty()) return;
+
+    auto ptr_t = ptr_type();
+    constexpr int kTier1Size = 223;
+    auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_t, kTier1Size);
+
+    // ── Pass A: emit tier-2 collision-detection symbols at module scope ──
+    // Bug 1/4 fix: tier-2 symbols MUST be emitted at module level, not inside
+    // a GlobalOp's init region.  Process tier-2 entries first, before entering
+    // any init region context.
+    for (auto& de : prog.dispatch_entries) {
+        if (de.type_code == 0 || de.type_code >= static_cast<uint64_t>(kTier1Size)) {
+            char hex[17];
+            std::snprintf(hex, sizeof(hex), "%016" PRIx64, de.type_code);
+            auto coll_name = std::string("__logos_typeops_") + hex + "_" + de.fn_symbol;
+            if (mod.lookupSymbol(coll_name)) continue; // already emitted
+            if (!mod.lookupSymbol<mlir::func::FuncOp>(de.fn_symbol)) continue;
+            // Emit: @__logos_typeops_<hex>_<fn> = constant ptr @fn_symbol
+            // This gives the linker a unique symbol per (type_code, fn) for
+            // collision detection — two TUs registering the same type_code for the
+            // same Trait method will produce a duplicate-symbol linker error.
+            builder_.setInsertionPointToEnd(mod.getBody());
+            auto coll_glob = builder_.create<mlir::LLVM::GlobalOp>(
+                loc_, ptr_t, /*isConst=*/true,
+                mlir::LLVM::Linkage::External, coll_name,
+                mlir::Attribute{}, 0);
+            auto& coll_region = coll_glob.getInitializerRegion();
+            auto* coll_block  = builder_.createBlock(&coll_region);
+            builder_.setInsertionPointToStart(coll_block);
+            auto fn_ptr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_t, de.fn_symbol);
+            builder_.create<mlir::LLVM::ReturnOp>(loc_, fn_ptr.getResult());
+        }
+    }
+
+    // ── Pass B: collect tier-1 entries grouped by table name ─────────────
+    std::map<std::string, std::vector<std::pair<uint64_t, std::string>>> tables;
+    for (auto& de : prog.dispatch_entries) {
+        if (de.type_code == 0 || de.type_code >= static_cast<uint64_t>(kTier1Size)) continue;
+        auto key = "__logos_tag_dispatch_" + de.tag_system + "_"
+                 + de.trait_name + "_" + de.method_name;
+        tables[key].emplace_back(de.type_code, de.fn_symbol);
+    }
+
+    // Bug 2 fix: skip tables that have no tier-1 entries (all entries were tier-2).
+    if (tables.empty()) return;
+
+    // ── Pass C: emit one [223 x ptr] global per table ────────────────────
+    for (auto& [table_name, entries] : tables) {
+        builder_.setInsertionPointToEnd(mod.getBody());
+
+        auto glob = builder_.create<mlir::LLVM::GlobalOp>(
+            loc_, arr_type, /*isConst=*/false,
+            mlir::LLVM::Linkage::External, table_name,
+            mlir::Attribute{}, 0);
+
+        // Bug 4 fix: ALL ops inside the init region must be emitted while the
+        // insertion point is inside init_block.  Never call setInsertionPointToEnd
+        // on mod.getBody() inside this loop — that would exit the init region.
+        auto& init_region = glob.getInitializerRegion();
+        auto* init_block  = builder_.createBlock(&init_region);
+        builder_.setInsertionPointToStart(init_block);
+
+        // Build the array via insertvalue chain starting from zeroinitializer.
+        mlir::Value current = builder_.create<mlir::LLVM::ZeroOp>(loc_, arr_type);
+        for (auto& [type_code, fn_sym] : entries) {
+            if (!mod.lookupSymbol<mlir::func::FuncOp>(fn_sym)) continue;
+            auto fn_ptr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_t, fn_sym);
+            llvm::SmallVector<int64_t, 1> idx{static_cast<int64_t>(type_code)};
+            current = builder_.create<mlir::LLVM::InsertValueOp>(loc_, current, fn_ptr, idx);
+        }
+        builder_.create<mlir::LLVM::ReturnOp>(loc_, current);
+        // Restore to module body AFTER finishing the init region.
+        builder_.setInsertionPointToEnd(mod.getBody());
+    }
+}
 
 void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& prog) {
     for (auto& td : prog.traits) {

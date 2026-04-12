@@ -234,6 +234,7 @@ private:
     // ── Vtable / dyn ─────────────────────────────────────────────
     void emit_vtable(mlir::ModuleOp mod, const LClassDef& cd);
     void emit_trait_vtables(mlir::ModuleOp mod, const LProgram& prog);
+    void emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog);
     mlir::Value build_inline_vtable(const std::string& trait_name,
                                      const std::string& type_name);
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, const std::string& trait_name,

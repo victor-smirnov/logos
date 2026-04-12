@@ -73,6 +73,9 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // Pass 1b: emit vtable globals for trait impls (&dyn Trait support).
     emit_trait_vtables(mod, prog);
 
+    // Pass 1c: emit tag-based dispatch tables (one [223 x ptr] per TagSystem×Trait×method).
+    emit_tag_dispatch_tables(mod, prog);
+
     // Pass 2: fill function bodies (structs, classes, free fns).
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {

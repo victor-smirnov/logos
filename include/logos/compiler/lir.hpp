@@ -586,6 +586,23 @@ struct LInstAnnotation {
     uint64_t    type_code = 0;   // 0 = not specified
 };
 
+// One entry in a tag-based dispatch table.
+// Emitted by sema when `impl Trait for SomeDatatype` is lowered and the Trait
+// carries a `#[tag_dispatch(TagSystemName)]` annotation.
+//
+// Tier-1 (type_code 128-222): contributes to a static [223 x ptr] array
+//   global named `__logos_tag_dispatch_<tag_system>_<trait>_<method>`.
+// Tier-2 (type_code 223+): contributes to a cuckoo hash (future work);
+//   only a collision-detection symbol is emitted for now.
+struct LDispatchEntry {
+    std::string tag_system;       // e.g. "DataTypeTagSystem"
+    std::string trait_name;       // e.g. "Stringify"
+    std::string method_name;      // e.g. "stringify"  (unmangled trait method name)
+    std::string fn_symbol;        // mangled impl fn, e.g. "Point__stringify"
+    std::string impl_type_name;   // e.g. "Point"  (for diagnostics / collision symbol)
+    uint64_t    type_code = 0;    // the datatype's type_code
+};
+
 struct LProgram {
     SemaResult             diags;
 
@@ -602,6 +619,7 @@ struct LProgram {
     std::vector<LTraitDef>       traits;
     std::vector<LImplBlock>      impls;
     std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
+    std::vector<LDispatchEntry>  dispatch_entries; // tag-dispatch table entries
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }
