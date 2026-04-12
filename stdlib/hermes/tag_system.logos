@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.tag_system
+//
+// TagSystem: abstraction over the mechanism used to read a type tag
+// from a memory object.  Different subsystems use different tag formats:
+//
+//   DataTypeTagSystem  — TypeTag stored variable-length immediately before
+//                        the object in a Hermes zone (1-8 bytes).
+//                        Codes 1-222: single byte; 223+: multi-byte.
+//   TomTagSystem       — type_code stored as little-endian u64 at byte
+//                        offset 0 of the object header (TinyObjectMap).
+//
+// This module defines the trait interface and both implementations.
+// The dispatch table infrastructure (one table per TagSystem×Trait pair)
+// lives in the compiler and linker layer.
+//
+// Safety note: all read_tag implementations dereference raw pointers.
+// Callers must ensure `obj` points to a valid, live, tagged object.
+
+package hermes.tag_system;
+
+use hermes.datatag;
+
+// ---------------------------------------------------------------------------
+// TagSystem trait
+// ---------------------------------------------------------------------------
+
+// Encapsulates how a type tag (type_code) is read from a raw memory object.
+// Each implementation receives a pointer to the first byte of the object;
+// it is responsible for locating the tag according to the format.
+pub trait TagSystem {
+    // The tag value type.  For all current Hermes tag systems this is u64.
+    type Tag;
+
+    // Read the type tag for the object at `obj`.
+    // Safety: `obj` must point to a valid, tagged, live object.
+    fn read_tag(self: &Self, obj: *const u8) -> Self::Tag;
+}
+
+// ---------------------------------------------------------------------------
+// DataTypeTagSystem
+// ---------------------------------------------------------------------------
+
+// TagSystem for Hermes zone datatypes.
+// Tags are variable-length (1-8 bytes) stored immediately before the object:
+//   obj[-1] ∈ [1,222]   → single-byte tag; type_code = that byte
+//   obj[-1] ∈ [223,255] → multi-byte; length = obj[-1]-223+1; code follows
+pub struct DataTypeTagSystem {}
+
+impl TagSystem for DataTypeTagSystem {
+    type Tag = u64;
+
+    // Safety: `obj` must point to a validly-tagged Hermes zone object with
+    // at least tag_size(type_code) bytes reserved before it.
+    pub fn read_tag(self: &DataTypeTagSystem, obj: *const u8) -> u64 {
+        return unsafe { read_type_code(obj) };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TomTagSystem
+// ---------------------------------------------------------------------------
+
+// TagSystem for TinyObjectMap (TOM) objects.
+// The type_code is the little-endian u64 at byte offset 0 of the object.
+// Bug fix: the comment previously said "at a fixed 8-byte offset" but meant
+// the field is 8 bytes wide, not offset 8 — the field IS at offset 0.
+// TODO: verify against actual TOM C++ layout when sync tool is available.
+pub struct TomTagSystem {}
+
+impl TagSystem for TomTagSystem {
+    type Tag = u64;
+
+    // Safety: `obj` must point to a valid TOM object with at least 8 bytes
+    // of readable header.
+    pub fn read_tag(self: &TomTagSystem, obj: *const u8) -> u64 {
+        // Read bytes 0..7 as little-endian u64.
+        // Individual byte loads avoid alignment requirements on the pointer.
+        let mut code: u64 = 0 as u64;
+        let mut i: i64 = 0;
+        loop {
+            if i >= 8 { break; }
+            let b: u64 = unsafe { *((obj as i64 + i) as *const u8) } as u64;
+            code = code | (b << (i as u64 * 8 as u64));
+            i = i + 1;
+        }
+        return code;
+    }
+}

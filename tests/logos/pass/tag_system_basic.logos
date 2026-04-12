@@ -1,0 +1,53 @@
+package tag_system_basic;
+// Tests:
+// 1. DataTypeTagSystem::read_tag roundtrip (matches write_tag from datatag)
+// 2. TomTagSystem::read_tag reads first 8 bytes as LE u64
+
+use hermes.datatag;
+use hermes.tag_system;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+unsafe fn main() -> i32 {
+    let buf: *mut u8 = malloc(64);
+
+    // Zero the buffer.
+    let mut zi: i64 = 0;
+    loop {
+        if zi >= 64 { break; }
+        *((buf as i64 + zi) as *mut u8) = 0 as u8;
+        zi = zi + 1;
+    }
+
+    // 1. DataTypeTagSystem::read_tag — single-byte code 150.
+    let obj1: *mut u8 = (buf as i64 + 8) as *mut u8;
+    write_tag(obj1, 150 as u64);
+    let dts: DataTypeTagSystem = DataTypeTagSystem {};
+    let tag1: u64 = dts.read_tag(obj1 as *const u8);
+    if tag1 != 150 as u64 { free(buf); return 1; }
+
+    // 2. DataTypeTagSystem::read_tag — multi-byte code 300.
+    let obj2: *mut u8 = (buf as i64 + 24) as *mut u8;
+    write_tag(obj2, 300 as u64);
+    let tag2: u64 = dts.read_tag(obj2 as *const u8);
+    if tag2 != 300 as u64 { free(buf); return 2; }
+
+    // 3. TomTagSystem::read_tag — reads LE u64 from obj[0..7].
+    //    Write 0x0102030405060708 in LE: byte[0]=0x08, byte[1]=0x07, ...
+    let obj3: *mut u8 = (buf as i64 + 40) as *mut u8;
+    *((obj3 as i64 + 0) as *mut u8) = 0x08 as u8;
+    *((obj3 as i64 + 1) as *mut u8) = 0x07 as u8;
+    *((obj3 as i64 + 2) as *mut u8) = 0x06 as u8;
+    *((obj3 as i64 + 3) as *mut u8) = 0x05 as u8;
+    *((obj3 as i64 + 4) as *mut u8) = 0x04 as u8;
+    *((obj3 as i64 + 5) as *mut u8) = 0x03 as u8;
+    *((obj3 as i64 + 6) as *mut u8) = 0x02 as u8;
+    *((obj3 as i64 + 7) as *mut u8) = 0x01 as u8;
+    let tts: TomTagSystem = TomTagSystem {};
+    let tag3: u64 = tts.read_tag(obj3 as *const u8);
+    if tag3 != 0x0102030405060708 as u64 { free(buf); return 3; }
+
+    free(buf);
+    return 0;
+}
