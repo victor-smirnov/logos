@@ -1,6 +1,6 @@
 package datatype_zone_ref;
-// Phase 3: DataRef<T> — fat zone pointer with typed field access.
-// Demonstrates: zone alloc → compute offset → DataRef<T> → ptr()/mut_ptr()
+// Phase 7: DataRef<T> with MemHolder — fat zone pointer.
+// Demonstrates: zone_create → zone_alloc_typed → ptr()/mut_ptr() → release.
 
 use hermes.zone;
 
@@ -10,19 +10,13 @@ datatype Point {
 }
 
 unsafe fn main() -> i32 {
-    let mut zone: HermesZone = HermesZone::create(4096);
-    let size: i64 = sizeof::<Point>();
-    let raw: *mut u8 = zone.alloc_raw(size);
+    // Create a mutable zone (holder RC = 1).
+    let mut z: Zone<Mutable> = zone_create(4096);
 
-    // Compute offset from zone base to the allocated object.
-    let base_int: i64 = zone.base as i64;
-    let raw_int: i64 = raw as i64;
-    let offset: u32 = (raw_int - base_int) as u32;
+    // Allocate a Point in the zone; holder RC becomes 2.
+    let p: DataRef<Point> = zone_alloc_typed::<Point>(&mut z);
 
-    // Wrap in a typed DataRef<Point>.
-    let p: DataRef<Point> = DataRef { base: zone.base, offset: offset };
-
-    // Write fields via mut_ptr() — must bind pointer to a local first.
+    // Write fields via mut_ptr().
     let pw: *mut Point = p.mut_ptr();
     pw.x = 15;
     pw.y = 27;
@@ -30,6 +24,10 @@ unsafe fn main() -> i32 {
     // Read back via ptr().
     let pr: *const Point = p.ptr();
     let result: i32 = pr.x + pr.y;
-    zone.destroy();
+
+    // Release the DataRef (holder RC → 1) then the Zone (holder RC → 0, freed).
+    p.release();
+    z.release();
+
     return result;  // 42
 }

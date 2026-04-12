@@ -141,12 +141,14 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                 ft = ptr_type();
                 fsname = cname;
             }
-        } else if ((f.type->kind == LogosType::Kind::Ref ||
+        } else if ((f.type->kind == LogosType::Kind::Ptr ||
+                    f.type->kind == LogosType::Kind::Ref ||
                     f.type->kind == LogosType::Kind::MutRef) &&
                    f.type->pointee &&
                    (f.type->pointee->kind == LogosType::Kind::Struct ||
                     f.type->pointee->kind == LogosType::Kind::Datatype)) {
-            // &Struct / &mut Struct field — same layout as *Struct
+            // *Struct / &Struct / &mut Struct field — pointer to struct.
+            // Set fsname so gen_recv_struct can chain field access through it.
             ft = ptr_type();
             fsname = concrete_struct_name(f.type->pointee);
         } else {

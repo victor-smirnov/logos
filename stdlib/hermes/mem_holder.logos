@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.mem_holder
+//
+// MemHolder: heap-allocated, reference-counted zone buffer.
+//
+// Zone<M> and DataRef<T>/DataOwn<T> all hold a *mut MemHolder.
+// Each holder has RC: each live reference increments it via memholder_retain,
+// decrements via memholder_release.  When RC reaches 0, both the zone
+// buffer and the MemHolder struct itself are freed.
+//
+// This enables safe sharing of zone memory:
+//   Zone<Mutable>  → allocate objects, each alloc retains the holder
+//   zone_seal()    → transfers Zone<Mutable> reference → Zone<Immutable>
+//   DataRef<T>     → holds a retained reference; call release() when done
+//   DataOwn<T>     → additionally tracks per-object RC via a separate heap cell
+//
+// RC discipline (caller responsibility — Logos has no auto-Drop for generics):
+//   memholder_create  → RC = 1
+//   memholder_retain  → RC += 1  (for each new Zone / DataRef / DataOwn)
+//   memholder_release → RC -= 1  (call when Zone / DataRef / DataOwn goes away)
+
+package hermes.mem_holder;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// ---------------------------------------------------------------------------
+// MemHolder — heap-allocated zone buffer with embedded reference count.
+//
+// Fields:
+//   base     — pointer to the start of the zone's contiguous memory buffer
+//   capacity — total byte capacity of the buffer
+//   used     — bytes consumed so far (bump-allocation cursor)
+//   rc       — reference count (embedded, no extra allocation needed)
+// ---------------------------------------------------------------------------
+pub struct MemHolder {
+    pub base:     *mut u8,
+    pub capacity: i64,
+    pub used:     i64,
+    pub rc:       i32,
+}
+
+// Allocate and initialise a new MemHolder on the heap with RC = 1.
+// `capacity` is the initial zone buffer size in bytes.
+pub unsafe fn memholder_create(capacity: i64) -> *mut MemHolder {
+    let h: *mut u8           = malloc(sizeof::<MemHolder>());
+    let holder: *mut MemHolder = h as *mut MemHolder;
+    let buf: *mut u8         = malloc(capacity);
+    holder.base              = buf;
+    holder.capacity          = capacity;
+    holder.used              = 0;
+    holder.rc                = 1;
+    return holder;
+}
+
+// Increment RC — call when a new Zone / DataRef / DataOwn starts referencing
+// this holder.
+pub unsafe fn memholder_retain(holder: *mut MemHolder) {
+    holder.rc = holder.rc + 1;
+}
+
+// Decrement RC.  When RC reaches 0, frees the zone buffer then the holder
+// struct itself.  Do NOT access holder after this call if RC was 1.
+pub unsafe fn memholder_release(holder: *mut MemHolder) {
+    let new_rc: i32 = holder.rc - 1;
+    holder.rc       = new_rc;
+    if new_rc == 0 {
+        free(holder.base);
+        free(holder as *mut u8);
+    }
+}
+
+// Bump-allocate `size` bytes (8-byte aligned) from the holder's buffer.
+// Returns null on OOM (used >= capacity after alignment).
+pub unsafe fn memholder_alloc(holder: *mut MemHolder, size: i64) -> *mut u8 {
+    let aligned: i64    = (holder.used + 7) / 8 * 8;
+    if aligned + size > holder.capacity {
+        return 0 as *mut u8;
+    }
+    let base_int: i64   = holder.base as i64;
+    let result: *mut u8 = (base_int + aligned) as *mut u8;
+    holder.used         = aligned + size;
+    return result;
+}
+
+// Allocate `size` bytes for a tagged object.
+// Reserves 2 bytes immediately before the object for the TypeTag vlen header,
+// then 8-byte aligns.  Writes type_hash at (obj-2) and the encoded descriptor
+// byte at (obj-1).  Returns pointer to the object (after the tag), or null.
+pub unsafe fn memholder_alloc_tagged(holder: *mut MemHolder, size: i64,
+                                     type_hash: u8, descriptor: u8) -> *mut u8 {
+    let pre: i64       = holder.used + 2;
+    let aligned: i64   = (pre + 7) / 8 * 8;
+    if aligned + size > holder.capacity {
+        return 0 as *mut u8;
+    }
+    let base_int: i64  = holder.base as i64;
+    let tag0: *mut u8  = (base_int + aligned - 2) as *mut u8;
+    let tag1: *mut u8  = (base_int + aligned - 1) as *mut u8;
+    *tag0              = type_hash;
+    let d: u32         = descriptor as u32;
+    *tag1              = (1 as u32 | (d << 3 as u32)) as u8;
+    holder.used        = aligned + size;
+    return (base_int + aligned) as *mut u8;
+}

@@ -2,66 +2,204 @@
 // Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.zone
 //
-// HermesZone: a bump allocator for Hermes datatypes.
-// DataRef<T>: a fat zone pointer (base + u32 offset) to a datatype T.
+// Phase 7: Zone<M> + MemHolder-based DataRef<T>.
 //
-// Phase 2/3: absolute base pointer in DataRef.
-// Phase 7: will replace base with a u32 thin offset for full relocatability.
+// Exports:
+//   MemHolder            — heap-allocated RC zone buffer (re-exported from mem_holder)
+//   memholder_create / memholder_retain / memholder_release / memholder_alloc
+//
+//   Mutable / Immutable  — phantom marker types for Zone mutability
+//   Zone<M>              — type-tracked zone handle
+//     zone_create(capacity)             → Zone<Mutable>   (RC=1)
+//     zone_alloc_raw(z, size)           → *mut u8
+//     zone_alloc_typed::<T>(z)          → DataRef<T>       (RC+1)
+//     zone_alloc_tagged_raw(z, ..)      → *mut u8
+//     zone_seal(z: Zone<Mutable>)       → Zone<Immutable>  (RC unchanged)
+//     zone.release()                    → RC-1; frees when 0
+//
+//   DataRef<T>           — fat zone pointer (holder + u32 offset)
+//     dataref_from_raw::<T>(holder, raw) → DataRef<T>      (RC+1)
+//     r.ptr()    → *const T
+//     r.mut_ptr() → *mut T
+//     r.release() → RC-1
+//
+//   HermesZone           — legacy bump allocator (Phase 2–6 compat, kept as-is)
+//   zone_alloc_raw / zone_alloc_tagged  — legacy free-function variants
 
 package hermes.zone;
+
+use hermes.mem_holder;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
 trait Drop { fn drop(self: Self); }
 
+// ===========================================================================
+// Mutability markers — phantom types, never instantiated.
+// Used only as type-level tags on Zone<M> to distinguish mutable vs sealed.
+// ===========================================================================
+
+pub struct Mutable   {}
+pub struct Immutable {}
+
+// ===========================================================================
+// Zone<M> — type-tracked zone handle over a MemHolder.
+//
+// Zone<Mutable>   allows bump-allocation; can be sealed via zone_seal().
+// Zone<Immutable> is sealed: no more allocation, shareable across handles.
+//
+// Lifecycle (RC discipline):
+//   zone_create(cap)  → Zone<Mutable>,  holder RC = 1
+//   zone_alloc_typed  → DataRef<T>,     holder RC += 1
+//   zone_seal(z)      → Zone<Immutable>, transfers reference (RC unchanged)
+//   zone.release()    → holder RC -= 1; frees everything when 0
+// ===========================================================================
+
+pub struct Zone<M> {
+    pub holder: *mut MemHolder,
+}
+
+impl<M> Zone<M> {
+    // Release this zone handle — decrements holder RC.
+    // If RC reaches 0, frees both the zone buffer and the MemHolder struct.
+    // Do NOT use this Zone<M> after calling release().
+    pub unsafe fn release(self: *mut Zone<M>) {
+        memholder_release(self.holder);
+        self.holder = 0 as *mut MemHolder;
+    }
+}
+
+// Create a new mutable zone backed by `capacity` bytes.  Holder RC = 1.
+pub unsafe fn zone_create(capacity: i64) -> Zone<Mutable> {
+    let holder: *mut MemHolder = memholder_create(capacity);
+    return Zone { holder: holder };
+}
+
+// Bump-allocate `size` bytes (8-byte aligned) from a mutable zone.
+// Returns null on OOM.  Does NOT retain — raw allocation only.
+// (Prefixed zone_m_ to avoid collision with the HermesZone zone_alloc_raw below.)
+pub unsafe fn zone_m_alloc_raw(z: *mut Zone<Mutable>, size: i64) -> *mut u8 {
+    return memholder_alloc(z.holder, size);
+}
+
+// Allocate a T in the zone and return a DataRef<T>.
+// Retains the holder so the DataRef keeps the zone alive independently.
+pub unsafe fn zone_alloc_typed<T>(z: *mut Zone<Mutable>) -> DataRef<T> {
+    let size: i64       = sizeof::<T>();
+    let raw: *mut u8    = memholder_alloc(z.holder, size);
+    let base_int: i64   = z.holder.base as i64;
+    let raw_int: i64    = raw as i64;
+    let offset: u32     = (raw_int - base_int) as u32;
+    memholder_retain(z.holder);
+    return DataRef { holder: z.holder, offset: offset };
+}
+
+// Allocate a tagged object (`size` bytes) in a mutable zone.
+// Reserves 2 TypeTag bytes before the object.  Returns raw *mut u8 to object.
+pub unsafe fn zone_m_alloc_tagged(z: *mut Zone<Mutable>, size: i64,
+                                   type_hash: u8, descriptor: u8) -> *mut u8 {
+    return memholder_alloc_tagged(z.holder, size, type_hash, descriptor);
+}
+
+// Seal the zone: consume Zone<Mutable> and return Zone<Immutable>.
+// Transfers the holder reference — RC is unchanged.
+// No more allocation is possible on the returned Zone<Immutable>.
+pub fn zone_seal(z: Zone<Mutable>) -> Zone<Immutable> {
+    return Zone { holder: z.holder };
+}
+
+// ===========================================================================
+// DataRef<T> — fat zone pointer: holder reference + u32 offset.
+//
+// Carrying the holder keeps the zone buffer alive for the DataRef's lifetime.
+// RC discipline:
+//   zone_alloc_typed / dataref_from_raw → retains holder (RC += 1)
+//   dataref.release()                   → releases holder (RC -= 1)
+// ===========================================================================
+
+pub struct DataRef<T> {
+    pub holder: *mut MemHolder,
+    pub offset: u32,
+}
+
+// Wrap a raw pointer into a DataRef<T>, retaining the holder.
+// `raw` must point into holder's buffer.
+pub unsafe fn dataref_from_raw<T>(holder: *mut MemHolder, raw: *mut u8) -> DataRef<T> {
+    let base_int: i64 = holder.base as i64;
+    let raw_int: i64  = raw as i64;
+    let offset: u32   = (raw_int - base_int) as u32;
+    memholder_retain(holder);
+    return DataRef { holder: holder, offset: offset };
+}
+
+impl<T> DataRef<T> {
+    // Resolve to a const raw pointer to T.  Requires unsafe to dereference.
+    pub unsafe fn ptr(self: *const DataRef<T>) -> *const T {
+        let base_int: i64 = self.holder.base as i64;
+        let off: i64      = self.offset as i64;
+        return (base_int + off) as *const T;
+    }
+
+    // Resolve to a mutable raw pointer to T.  Requires unsafe to dereference.
+    pub unsafe fn mut_ptr(self: *const DataRef<T>) -> *mut T {
+        let base_int: i64 = self.holder.base as i64;
+        let off: i64      = self.offset as i64;
+        return (base_int + off) as *mut T;
+    }
+
+    // Release this DataRef — decrements holder RC.
+    // Do NOT use this DataRef after calling release().
+    pub unsafe fn release(self: *mut DataRef<T>) {
+        memholder_release(self.holder);
+        self.holder = 0 as *mut MemHolder;
+    }
+}
+
+// ===========================================================================
+// HermesZone — legacy Phase 2-6 bump allocator.  Kept for backward compat.
+// New code should use Zone<M> + DataRef<T> above.
+// ===========================================================================
+
 pub struct HermesZone {
     pub base: *mut u8,
-    offset: i64,
+    offset:   i64,
     capacity: i64,
 }
 
 impl HermesZone {
-    // Create a new zone backed by a malloc'd buffer of `capacity` bytes.
     pub fn create(capacity: i64) -> HermesZone {
         let base: *mut u8 = unsafe { malloc(capacity) };
         return HermesZone { base: base, offset: 0, capacity: capacity };
     }
 
-    // Allocate `size` bytes, 8-byte aligned. Returns null on OOM.
     pub fn alloc_raw(&mut self, size: i64) -> *mut u8 {
         let aligned: i64 = (self.offset + 7) / 8 * 8;
         if aligned + size > self.capacity {
             return 0 as *mut u8;
         }
-        let base_int: i64 = self.base as i64;
+        let base_int: i64   = self.base as i64;
         let result: *mut u8 = (base_int + aligned) as *mut u8;
         self.offset = aligned + size;
         return result;
     }
 
-    // Allocate `size` bytes for a tagged object.
-    // Reserves 2 bytes before the object for the type tag, then aligns to 8.
-    // Writes type_hash at (obj-2) and (descriptor<<3|1) at (obj-1).
-    // Returns pointer to the object (after the tag), or null on OOM.
     pub unsafe fn alloc_tagged(&mut self, size: i64, type_hash: u8, descriptor: u8) -> *mut u8 {
-        let pre: i64 = self.offset + 2;
+        let pre: i64     = self.offset + 2;
         let aligned: i64 = (pre + 7) / 8 * 8;
         if aligned + size > self.capacity {
             return 0 as *mut u8;
         }
-        let base_int: i64 = self.base as i64;
-        let tag0: *mut u8 = (base_int + aligned - 2) as *mut u8;
-        let tag1: *mut u8 = (base_int + aligned - 1) as *mut u8;
+        let base_int: i64  = self.base as i64;
+        let tag0: *mut u8  = (base_int + aligned - 2) as *mut u8;
+        let tag1: *mut u8  = (base_int + aligned - 1) as *mut u8;
         *tag0 = type_hash;
-        let d: u32 = descriptor as u32;
-        let tag1_val: u8 = (1 as u32 | (d << 3 as u32)) as u8;
-        *tag1 = tag1_val;
+        let d: u32         = descriptor as u32;
+        *tag1              = (1 as u32 | (d << 3 as u32)) as u8;
         self.offset = aligned + size;
         return (base_int + aligned) as *mut u8;
     }
 
-    // Free the backing buffer. All DataRefs into this zone become invalid.
     pub fn destroy(&mut self) {
         unsafe { free(self.base); }
         self.base = 0 as *mut u8;
@@ -76,25 +214,22 @@ impl Drop for HermesZone {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Free-function variants for callers that hold *mut HermesZone (not HermesZone).
-// Identical logic to alloc_raw / alloc_tagged; avoids &mut self dispatch issues
-// when the zone is stored as a pointer field rather than a local value.
-// ---------------------------------------------------------------------------
-
+// Legacy free-function variants for callers holding *mut HermesZone.
+// These keep the old names (zone_alloc_raw, zone_alloc_tagged) so that
+// existing code (parser.logos, tests) continues to compile unchanged.
 pub unsafe fn zone_alloc_raw(zone: *mut HermesZone, size: i64) -> *mut u8 {
     let aligned: i64 = (zone.offset + 7) / 8 * 8;
     if aligned + size > zone.capacity {
         return 0 as *mut u8;
     }
-    let base_int: i64 = zone.base as i64;
+    let base_int: i64   = zone.base as i64;
     let result: *mut u8 = (base_int + aligned) as *mut u8;
     zone.offset = aligned + size;
     return result;
 }
 
 pub unsafe fn zone_alloc_tagged(zone: *mut HermesZone, size: i64,
-                                type_hash: u8, descriptor: u8) -> *mut u8 {
+                                 type_hash: u8, descriptor: u8) -> *mut u8 {
     let pre: i64     = zone.offset + 2;
     let aligned: i64 = (pre + 7) / 8 * 8;
     if aligned + size > zone.capacity {
@@ -105,39 +240,7 @@ pub unsafe fn zone_alloc_tagged(zone: *mut HermesZone, size: i64,
     let tag1: *mut u8  = (base_int + aligned - 1) as *mut u8;
     *tag0 = type_hash;
     let d: u32         = descriptor as u32;
-    let tag1_val: u8   = (1 as u32 | (d << 3 as u32)) as u8;
-    *tag1 = tag1_val;
+    *tag1              = (1 as u32 | (d << 3 as u32)) as u8;
     zone.offset = aligned + size;
     return (base_int + aligned) as *mut u8;
-}
-
-// ---------------------------------------------------------------------------
-// DataRef<T> — fat pointer (base + u32 offset) to a Hermes datatype T.
-//
-// base   — pointer to the start of the zone's memory buffer
-// offset — byte offset from base to the object; fits in u32 (max zone = 4 GiB)
-//
-// Use ptr()     to get a *const T for field reads (requires unsafe context).
-// Use mut_ptr() to get a *mut T for field writes (requires unsafe context).
-// ---------------------------------------------------------------------------
-
-pub struct DataRef<T> {
-    pub base: *mut u8,
-    pub offset: u32,
-}
-
-impl<T> DataRef<T> {
-    // Returns a raw const pointer to the object. Requires unsafe to deref.
-    pub unsafe fn ptr(self: *const DataRef<T>) -> *const T {
-        let base_int: i64 = self.base as i64;
-        let off: i64 = self.offset as i64;
-        return (base_int + off) as *const T;
-    }
-
-    // Returns a raw mutable pointer to the object. Requires unsafe to deref.
-    pub unsafe fn mut_ptr(self: *const DataRef<T>) -> *mut T {
-        let base_int: i64 = self.base as i64;
-        let off: i64 = self.offset as i64;
-        return (base_int + off) as *mut T;
-    }
 }

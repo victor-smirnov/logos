@@ -1,5 +1,5 @@
 package datatype_own;
-// Phase 6: DataOwn<T> — reference-counted owning handle for a Datatype.
+// Phase 7: DataOwn<T> with MemHolder — reference-counted owning handle.
 
 use hermes.zone;
 use hermes.own;
@@ -10,38 +10,39 @@ datatype Point {
 }
 
 unsafe fn main() -> i32 {
-    // Allocate zone and a Point inside it.
-    let mut zone: HermesZone = HermesZone::create(4096);
-    let size: i64 = sizeof::<Point>();
-    let raw: *mut u8 = zone.alloc_raw(size);
-    let base_int: i64 = zone.base as i64;
-    let raw_int: i64 = raw as i64;
-    let offset: u32 = (raw_int - base_int) as u32;
+    // Create zone (holder RC = 1).
+    let mut z: Zone<Mutable> = zone_create(4096);
 
-    // Initialise the Point via raw pointer.
-    let pw: *mut Point = raw as *mut Point;
+    // Allocate a Point and wrap in DataOwn: holder RC = 2, obj RC = 1.
+    let raw: *mut u8  = zone_m_alloc_raw(&mut z, sizeof::<Point>());
+    let base_int: i64 = z.holder.base as i64;
+    let raw_int: i64  = raw as i64;
+    let offset: u32   = (raw_int - base_int) as u32;
+    let mut own1: DataOwn<Point> = dataown_create::<Point>(z.holder, offset);
+    // holder RC = 2 (zone + own1), obj RC = 1
+
+    // Initialise via mut_ptr().
+    let pw: *mut Point = own1.mut_ptr();
     pw.x = 10;
     pw.y = 20;
 
-    // Create owning handle: RC=1.
-    let mut own1: DataOwn<Point> = dataown_create::<Point>(zone.base, offset);
-
-    // Clone: RC becomes 2.
+    // Clone: holder RC = 3, obj RC = 2.
     let mut own2: DataOwn<Point> = own1.clone_ref();
-    let rc2: i32 = own1.ref_count();
+    let rc2: i32 = own1.ref_count();   // 2
 
-    // Release one clone: RC drops to 1.
+    // Release one clone: obj RC → 1; holder RC → 2.
     own2.release();
-    let rc1: i32 = own1.ref_count();
+    let rc1: i32 = own1.ref_count();   // 1
 
-    // Read via own1.ptr().
+    // Read via ptr().
     let pr: *const Point = own1.ptr();
-    let sum: i32 = pr.x + pr.y;
+    let sum: i32 = pr.x + pr.y;       // 30
 
-    // Release last handle: RC reaches 0, RC heap storage freed.
+    // Release last own: obj RC → 0; RC cell freed; holder RC → 1.
     own1.release();
 
-    zone.destroy();
+    // Release zone handle: holder RC → 0, zone buffer freed.
+    z.release();
 
     // sum=30, rc2=2, rc1=1 → result = 30 + 2 + 1 = 33
     return sum + rc2 + rc1;
