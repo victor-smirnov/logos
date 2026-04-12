@@ -397,7 +397,9 @@ lir::LTypeAlias SemaChecker::lower_type_alias_def(TinyMapView node) {
     lir::LTypeAlias ta;
     ta.name = name;
     auto ait = type_aliases_.find(name);
-    ta.type = (ait != type_aliases_.end()) ? ait->second : error_t();
+    // Generic aliases have no concrete LIR type (they're inlined at use sites).
+    ta.type = (ait != type_aliases_.end() && ait->second.type_params.empty())
+              ? ait->second.type : error_t();
     return ta;
 }
 

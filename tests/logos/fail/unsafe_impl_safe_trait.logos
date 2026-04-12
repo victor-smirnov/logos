@@ -1,0 +1,8 @@
+package unsafe_impl_safe_trait;
+
+trait Safe { fn go(self: Self) -> i32; }
+struct Y {}
+unsafe impl Safe for Y {
+    fn go(self: Y) -> i32 { return 0; }
+}
+unsafe fn main() -> i32 { return 0; }

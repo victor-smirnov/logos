@@ -213,6 +213,10 @@ inline constexpr Code ANNOTATION  {"ANNOTATION",  150};  // #[name], #[name=val]
 // Tag-dispatch types
 inline constexpr Code TAGGED_TYPE {"TAGGED_TYPE", 151};  // &tagged<TS> Trait thin pointer
 
+// Associated constants
+inline constexpr Code ASSOC_CONST_DEF  {"ASSOC_CONST_DEF",  152};  // const NAME: T;         in trait
+inline constexpr Code ASSOC_CONST_IMPL {"ASSOC_CONST_IMPL", 153};  // const NAME: T = expr;  in impl
+
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
 

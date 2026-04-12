@@ -84,10 +84,11 @@ struct LogosType {
     // TypeVar — name stored as a std::string (owns its storage)
     std::string      type_var_name;       // e.g. "T" (TypeVar kind only)
 
-    // AssocType — associated type: base::Item
+    // AssocType — associated type: base::Item or base::Item<A,B> (GAT)
     // trait_name:    the trait that declares it ("Iterator")
     const LogosType* assoc_base = nullptr;  // the base type (e.g. TypeVar(T) or AssocType(T::A))
     std::string      assoc_type_name;       // e.g. "Item" (AssocType kind only)
+    std::vector<const LogosType*> gat_args; // GAT type arguments: T::Item<i32> → [i32]
 
     // Constant literal value (for monomorphized constant generics)
     std::optional<int64_t> const_val;

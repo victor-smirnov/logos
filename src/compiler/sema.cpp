@@ -270,7 +270,18 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::TaggedPtr:   return "&tagged<" + t->struct_name + "> " + t->trait_name;
     case LogosType::Kind::TypeVar:     return std::string(t->type_var_name);
     case LogosType::Kind::ConstVar:    return std::string(t->type_var_name);
-    case LogosType::Kind::AssocType:   return type_str(t->assoc_base) + "::" + t->assoc_type_name;
+    case LogosType::Kind::AssocType: {
+        std::string r = type_str(t->assoc_base) + "::" + t->assoc_type_name;
+        if (!t->gat_args.empty()) {
+            r += "<";
+            for (size_t i = 0; i < t->gat_args.size(); ++i) {
+                if (i) r += ", ";
+                r += type_str(t->gat_args[i]);
+            }
+            r += ">";
+        }
+        return r;
+    }
     case LogosType::Kind::ImplTrait:   return "impl " + t->struct_name;
     case LogosType::Kind::Error:   return "<error>";
     }
@@ -347,7 +358,8 @@ const LogosType* SemaChecker::lookup_type_by_name(std::string_view name) {
     auto tvit = current_type_params_.find(std::string(name));
     if (tvit != current_type_params_.end()) return tvit->second;
     auto ait = type_aliases_.find(std::string(name));
-    if (ait != type_aliases_.end()) return ait->second;
+    if (ait != type_aliases_.end() && ait->second.type_params.empty())
+        return ait->second.type;
     if (structs_.count(std::string(name))) return make_struct_type(name);
     if (datatypes_.count(std::string(name))) return make_datatype_type(name);
     if (enums_.count(std::string(name)))   return make_enum_type(name);
@@ -754,15 +766,34 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
            concrete = const_cast<SemaChecker*>(this)->lookup_type_by_name(t->assoc_base->type_var_name);
         }
 
+        // Substitute gat_args as well
+        std::vector<const LogosType*> subbed_gat_args;
+        bool gat_changed = false;
+        for (auto* ga : t->gat_args) {
+            auto* nga = subst_type_sema(ga, s);
+            gat_changed |= (nga != ga);
+            subbed_gat_args.push_back(nga);
+        }
+
         if (concrete) {
             std::string concrete_name = type_str(concrete);
+            // Helper: build combined substitution (impl params + GAT params)
+            auto make_subst = [&](const AssocTypeEntry& entry) -> SemaSubst {
+                SemaSubst combined;
+                for (size_t i = 0; i < entry.impl_type_params.size() &&
+                                   i < concrete->type_args.size(); ++i)
+                    combined[entry.impl_type_params[i].name] = concrete->type_args[i];
+                for (size_t i = 0; i < entry.gat_type_params.size() &&
+                                   i < subbed_gat_args.size(); ++i)
+                    combined[entry.gat_type_params[i].name] = subbed_gat_args[i];
+                return combined;
+            };
+
             // 1. Direct lookup (non-generic impls: key stored under concrete name).
             std::string key = t->trait_name + "::" + concrete_name + "::" + t->assoc_type_name;
             auto ait = assoc_type_impls_.find(key);
             if (ait != assoc_type_impls_.end()) {
-                // Re-run substitution so nested associated types collapse fully
-                // (e.g. T::X -> S::Y -> i32), not just one lookup step.
-                return subst_type_sema(ait->second.type, {});
+                return subst_type_sema(ait->second.type, make_subst(ait->second));
             }
             // 2. Base-name fallback (generic impls).
             std::string base_name = (concrete->kind == LogosType::Kind::Struct)
@@ -771,20 +802,14 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
                 std::string base_key = t->trait_name + "::" + base_name
                                       + "::" + t->assoc_type_name;
                 auto ait2 = assoc_type_impls_.find(base_key);
-                if (ait2 != assoc_type_impls_.end()) {
-                    auto& entry = ait2->second;
-                    if (entry.impl_type_params.empty()) return subst_type_sema(entry.type, {});
-                    SemaSubst impl_subst;
-                    for (size_t i = 0; i < entry.impl_type_params.size() &&
-                                       i < concrete->type_args.size(); ++i)
-                        impl_subst[entry.impl_type_params[i].name] = concrete->type_args[i];
-                    return subst_type_sema(entry.type, impl_subst);
-                }
+                if (ait2 != assoc_type_impls_.end())
+                    return subst_type_sema(ait2->second.type, make_subst(ait2->second));
             }
         }
-        if (subbed_base != t->assoc_base) {
+        if (subbed_base != t->assoc_base || gat_changed) {
             LogosType nt = *t;
             nt.assoc_base = subbed_base;
+            nt.gat_args   = std::move(subbed_gat_args);
             return pool_.alloc(std::move(nt));
         }
         return t;
@@ -963,9 +988,25 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
     }
 
     if (tc == la::ASSOC_TYPE_REF) {
-        // base::Item — associated type reference
+        // base::Item or base::Item<A,B> — associated type reference (plain or GAT)
         auto* base_type = resolve_type(map_of(node.get(la::RECEIVER.code)));
         auto assoc      = std::string(str_of(node.get(la::FIELD.code)));  // "Item"
+        // Read GAT type args if present (e.g. T::Item<i32>)
+        std::vector<const LogosType*> gat_args;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tpav = node.get(la::TYPE_PARAMS.code);
+            if (!tpav.is_null()) {
+                auto tplist = map_of(tpav);
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        auto item = map_of(items.get(i));
+                        if (code_of(item) == la::LIFETIME_PARAM) continue;
+                        gat_args.push_back(resolve_type(item));
+                    }
+                }
+            }
+        }
         std::string trait_for_assoc;
 
         if (base_type->kind == LogosType::Kind::TypeVar) {
@@ -1001,10 +1042,19 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         }
 
         if (trait_for_assoc.empty()) {
-            // Check all traits for ANY type that might have this assoc type (last resort lookup)
+            // Check all traits for ANY type that might have this assoc type (last resort lookup).
+            // Try both the full concrete name (e.g. "Box<i32>") and the base struct name ("Box")
+            // to handle generic impls like impl<V> Trait for Box<V>.
             std::string cname = type_str(base_type);
+            std::string base_name;
+            if (base_type->kind == LogosType::Kind::Struct ||
+                base_type->kind == LogosType::Kind::Datatype)
+                base_name = base_type->struct_name;
+
             for (auto& [tname, tinfo] : traits_) {
-                if (impls_.count(tname + "::" + cname)) {
+                bool found_impl = impls_.count(tname + "::" + cname) > 0
+                               || (!base_name.empty() && impls_.count(tname + "::" + base_name) > 0);
+                if (found_impl) {
                     for (auto& at : tinfo.assoc_types) {
                         if (at.name == assoc) { trait_for_assoc = tname; break; }
                     }
@@ -1022,6 +1072,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         t.assoc_base      = base_type;
         t.trait_name      = trait_for_assoc;
         t.assoc_type_name = assoc;
+        t.gat_args        = std::move(gat_args);
 
         auto* result = pool_.alloc(std::move(t));
         // Propagate bounds for T::Item back into the context
@@ -1047,6 +1098,28 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::GENERIC_INST) {
         auto name = str_of(node.get(la::NAME.code));
+
+        // Generic type alias: type Foo<T> = Bar<T>;  →  Foo<i32> resolves to Bar<i32>
+        {
+            auto ait = type_aliases_.find(std::string(name));
+            if (ait != type_aliases_.end() && !ait->second.type_params.empty()) {
+                // Resolve the type arguments at the call site.
+                std::vector<const LogosType*> args;
+                if (node.has_key(la::ITEMS)) {
+                    auto items = arr_of(node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        auto item = map_of(items.get(i));
+                        if (code_of(item) == la::LIFETIME_PARAM) continue;
+                        args.push_back(resolve_type(item));
+                    }
+                }
+                SemaSubst s;
+                for (size_t i = 0; i < ait->second.type_params.size() && i < args.size(); ++i)
+                    s[ait->second.type_params[i].name] = args[i];
+                return subst_type_sema(ait->second.type, s);
+            }
+        }
+
         // Special case: Box<dyn Trait> = owned trait object (same layout as &dyn Trait)
         if (name == "Box" && node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));

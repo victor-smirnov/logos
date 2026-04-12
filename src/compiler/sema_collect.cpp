@@ -88,7 +88,8 @@ void SemaChecker::simplify_all_types() {
     };
     for (auto& [name, info] : funcs_) simplify_fn(info);
     for (auto& [name, info] : generic_funcs_) simplify_fn(info);
-    for (auto& [name, t] : type_aliases_)   t = subst_type_sema(t, {});
+    for (auto& [name, entry] : type_aliases_)
+        entry.type = subst_type_sema(entry.type, {});
     for (auto& [name, t] : module_consts_)   t = subst_type_sema(t, {});
 }
 
@@ -229,7 +230,12 @@ void SemaChecker::collect_enum(TinyMapView node) {
 void SemaChecker::collect_type_alias(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
     if (!node.has_key(la::TYPE)) return;
-    type_aliases_[name] = resolve_type(map_of(node.get(la::TYPE.code)));
+    TypeAliasEntry entry;
+    entry.type_params = read_type_params(node);
+    push_type_params(entry.type_params);
+    entry.type = resolve_type(map_of(node.get(la::TYPE.code)));
+    pop_type_params(entry.type_params);
+    type_aliases_[name] = std::move(entry);
 }
 
 void SemaChecker::collect_const(TinyMapView node) {
@@ -253,6 +259,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
     current_trait_name_ = tname;
     SemaTraitInfo info;
     info.name = tname;
+    // Read unsafe marker
+    if (node.has_key(la::IS_UNSAFE)) {
+        AnyVal av = node.get(la::IS_UNSAFE);
+        info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
     // Read trait type params (e.g. trait Into<T>)
     info.type_params = read_type_params(node);
     push_type_params(info.type_params);
@@ -289,6 +300,9 @@ void SemaChecker::collect_trait(TinyMapView node) {
             if (code_of(m) == la::ASSOC_TYPE_DEF) {
                 SemaAssocTypeInfo at;
                 at.name = std::string(str_of(m.get(la::NAME.code)));
+                // GAT: read the assoc type's own type params (e.g. type Item<T>)
+                at.type_params = read_type_params(m);
+                push_type_params(at.type_params);
                 if (m.has_key(la::ITEMS)) {
                     auto bounds = arr_of(m.get(la::ITEMS.code));
                     for (uint64_t b = 0; b < bounds.size(); ++b) {
@@ -300,7 +314,16 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         }
                     }
                 }
+                pop_type_params(at.type_params);
                 info.assoc_types.push_back(std::move(at));
+                continue;
+            }
+            if (code_of(m) == la::ASSOC_CONST_DEF) {
+                SemaAssocConstInfo ac;
+                ac.name = std::string(str_of(m.get(la::NAME.code)));
+                if (m.has_key(la::TYPE))
+                    ac.type = resolve_type(map_of(m.get(la::TYPE.code)));
+                info.assoc_consts.push_back(std::move(ac));
                 continue;
             }
             if (code_of(m) != la::FN) continue;
@@ -342,6 +365,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
     std::string trait_name;
     if (node.has_key(la::NAME))
         trait_name = std::string(str_of(node.get(la::NAME.code)));
+    bool impl_is_unsafe = false;
+    if (node.has_key(la::IS_UNSAFE)) {
+        AnyVal av = node.get(la::IS_UNSAFE);
+        impl_is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
     // Push impl's own type params: either from IMPL_TYPE_PARAMS (new generic trait impl
     // form: impl<T> Trait for Struct<T>) or from TYPE_PARAMS (standalone: impl<T> Pair<T>).
     std::vector<TypeParam> impl_tps;
@@ -457,9 +485,20 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     collect_fn(m, target);
             } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
                 auto aname = std::string(str_of(m.get(la::NAME.code)));
+                // GAT: read assoc type's own params (e.g. type Item<T> = ...)
+                std::vector<TypeParam> gat_tps = read_type_params(m);
+                push_type_params(gat_tps);
                 auto* atype = resolve_type(map_of(m.get(la::TYPE.code)));
+                pop_type_params(gat_tps);
                 std::string key = trait_name + "::" + target + "::" + aname;
-                assoc_type_impls_[key] = { atype, impl_tps };
+                assoc_type_impls_[key] = { atype, impl_tps, gat_tps };
+            } else if (code_of(m) == la::ASSOC_CONST_IMPL && !trait_name.empty()) {
+                auto cname = std::string(str_of(m.get(la::NAME.code)));
+                const LogosType* ctype = nullptr;
+                if (m.has_key(la::TYPE))
+                    ctype = resolve_type(map_of(m.get(la::TYPE.code)));
+                std::string key = trait_name + "::" + target + "::" + cname;
+                assoc_const_impls_[key] = { ctype, m.get(la::VALUE.code) };
             }
         }
     }
@@ -519,6 +558,20 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     error(std::format("impl {} for {}: missing associated type '{}'",
                           trait_name, target, at.name));
             }
+            // Check associated constant completeness
+            for (auto& ac : tit->second.assoc_consts) {
+                std::string key = trait_name + "::" + target + "::" + ac.name;
+                if (!assoc_const_impls_.count(key))
+                    error(std::format("impl {} for {}: missing associated constant '{}'",
+                          trait_name, target, ac.name));
+            }
+            // Check unsafe parity
+            if (tit->second.is_unsafe && !impl_is_unsafe)
+                error(std::format("impl {} for {}: implementing unsafe trait requires `unsafe impl`",
+                      trait_name, target));
+            if (!tit->second.is_unsafe && impl_is_unsafe)
+                error(std::format("impl {} for {}: `unsafe impl` for a safe trait",
+                      trait_name, target));
         }
     }
     // Register Copy types so is_move_type() can respect them.
@@ -538,7 +591,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
     // Register the impl mapping (only for trait impls)
     if (!trait_name.empty())
-        impls_[trait_name + "::" + target] = {trait_name, target};
+        impls_[trait_name + "::" + target] = {trait_name, target, impl_is_unsafe};
 }
 
 // Collect a struct specialization into struct_specs_sema_.
@@ -748,7 +801,9 @@ const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
     if (name == "u128") return prim(LogosType::Kind::U128);
     if (name == "void") return prim(LogosType::Kind::Void);
     auto ait = type_aliases_.find(std::string(name));
-    if (ait != type_aliases_.end()) return ait->second;
+    // Non-generic aliases only: generic aliases are resolved at use sites in resolve_type.
+    if (ait != type_aliases_.end() && ait->second.type_params.empty())
+        return ait->second.type;
     if (structs_.count(std::string(name))) return make_struct_type(name);
     if (datatypes_.count(std::string(name))) return make_datatype_type(name);
     if (enums_.count(std::string(name)))   return make_enum_type(name);

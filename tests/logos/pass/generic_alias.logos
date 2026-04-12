@@ -1,0 +1,14 @@
+package generic_alias;
+
+struct Pair<T> { x: T, y: T, }
+type IntPair<T> = Pair<T>;
+
+fn add(a: IntPair<i32>, b: IntPair<i32>) -> IntPair<i32> {
+    return Pair { x: a.x + b.x, y: a.y + b.y };
+}
+unsafe fn main() -> i32 {
+    let a: IntPair<i32> = Pair { x: 1, y: 2 };
+    let b: IntPair<i32> = Pair { x: 3, y: 4 };
+    let c = add(a, b);
+    return c.x;
+}

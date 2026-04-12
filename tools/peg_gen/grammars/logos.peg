@@ -184,6 +184,8 @@
     PAT_UNIT                    = 149   // () unit pattern in match arms
     ANNOTATION                  = 150   // #[name], #[name = val], #[name(args)]
     TAGGED_TYPE                 = 151   // &tagged<TS> Trait — tag-dispatched thin pointer
+    ASSOC_CONST_DEF             = 152   // const NAME: T;       in trait
+    ASSOC_CONST_IMPL            = 153   // const NAME: T = expr; in impl
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -331,7 +333,9 @@
 
     // static NAME: type = expr;  (module-level mutable static — same repr as const for now)
     // type NAME = type_ref;
-    type_alias <- KW_TYPE IDENT ASSIGN type_ref SEMI
+    type_alias <- KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
+               => { CODE: TYPE_ALIAS, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
+                / KW_TYPE IDENT ASSIGN type_ref SEMI
                => { CODE: TYPE_ALIAS, NAME: $2, TYPE: $4 }
 
     // ── Enum definition ──────────────────────────────────────────
@@ -364,7 +368,15 @@
     super_list <- COLON trait_bound (PLUS trait_bound)*
                => { ITEMS: $... }
 
-    pub_trait_def <- KW_PUB KW_TRAIT IDENT type_param_list super_list LBRACE trait_method* RBRACE
+    pub_trait_def <- KW_PUB KW_UNSAFE KW_TRAIT IDENT type_param_list super_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
+                  / KW_PUB KW_UNSAFE KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
+                  / KW_PUB KW_UNSAFE KW_TRAIT IDENT super_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
+                  / KW_PUB KW_UNSAFE KW_TRAIT IDENT LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, ITEMS: $... }
+                  / KW_PUB KW_TRAIT IDENT type_param_list super_list LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
                   / KW_PUB KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
@@ -373,7 +385,15 @@
                   / KW_PUB KW_TRAIT IDENT LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, ITEMS: $... }
 
-    trait_def <- KW_TRAIT IDENT type_param_list super_list LBRACE trait_method* RBRACE
+    trait_def <- KW_UNSAFE KW_TRAIT IDENT type_param_list super_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
+              / KW_UNSAFE KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
+              / KW_UNSAFE KW_TRAIT IDENT super_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
+              / KW_UNSAFE KW_TRAIT IDENT LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, ITEMS: $... }
+              / KW_TRAIT IDENT type_param_list super_list LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, SUPERS: $4, ITEMS: $... }
               / KW_TRAIT IDENT type_param_list LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
@@ -398,14 +418,34 @@
                  => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
                   / KW_FN IDENT LPAREN param_list? RPAREN SEMI
                  => { CODE: FN, NAME: $2, PARAMS: $4 }
+                  / KW_TYPE IDENT type_param_list (COLON trait_bound (PLUS trait_bound)*)? SEMI
+                 => { CODE: ASSOC_TYPE_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
                   / KW_TYPE IDENT (COLON trait_bound (PLUS trait_bound)*)? SEMI
                  => { CODE: ASSOC_TYPE_DEF, NAME: $2, ITEMS: $... }
+                  / KW_CONST IDENT COLON type_ref SEMI
+                 => { CODE: ASSOC_CONST_DEF, NAME: $2, TYPE: $4 }
 
     // ── Impl block ──────────────────────────────────────────────
     // impl Trait for Type { fn method(...) { ... } }
     // impl Type { fn method(...) { ... } }   — standalone (no trait)
     // impl<T> Trait for Struct<T> { ... }   — generic trait impl
-    impl_block <- KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
+    impl_block <- KW_UNSAFE KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE_PARAMS: $6, TYPE: $9, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE: $6, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL type_param_list IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, IMPL_TYPE_PARAMS: $3, NAME: $4, TYPE: $6, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE: $5, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL IDENT KW_FOR simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, NAME: $3, TYPE: $5, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL type_param_list simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, TYPE_PARAMS: $3, TYPE: $4, ITEMS: $... }
+                / KW_UNSAFE KW_IMPL simple_type LBRACE impl_item* RBRACE
+               => { CODE: IMPL_BLOCK, IS_UNSAFE: 1, TYPE: $3, ITEMS: $... }
+                / KW_IMPL type_param_list IDENT LT type_arg_list GT_TYPE KW_FOR simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE_PARAMS: $5, TYPE: $8, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR ptr_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, ITEMS: $... }
@@ -423,10 +463,14 @@
                 / KW_IMPL simple_type LBRACE impl_item* RBRACE
                => { CODE: IMPL_BLOCK, TYPE: $2, ITEMS: $... }
 
-    // impl_item: method or associated type definition
+    // impl_item: method, associated type, or associated constant definition
     impl_item <- method_def
+               / KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
+              => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
                / KW_TYPE IDENT ASSIGN type_ref SEMI
               => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE: $4 }
+               / KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: ASSOC_CONST_IMPL, NAME: $2, TYPE: $4, VALUE: $6 }
 
 
     // pub static fn name(params) -> ret_type { ... }
@@ -550,9 +594,13 @@
 
     type_ref <- ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
 
-    // T::Item — associated type reference (type ref :: assoc type name)
+    // T::Item / T::Item<A, B> — associated type reference (plain or GAT with type args)
     assoc_type_ref <- simple_type
-                    ( COLONCOLON IDENT => { CODE: ASSOC_TYPE_REF, RECEIVER: $0, FIELD: $2 } )+
+                    ( COLONCOLON IDENT LT type_arg_list GT_TYPE
+                      => { CODE: ASSOC_TYPE_REF, RECEIVER: $0, FIELD: $2, TYPE_PARAMS: $4 }
+                    / COLONCOLON IDENT
+                      => { CODE: ASSOC_TYPE_REF, RECEIVER: $0, FIELD: $2 }
+                    )+
 
     // &tagged<TS> Trait — thin tag-dispatched pointer.
     // The tag (type_code) is stored in memory before the object; at call sites

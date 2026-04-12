@@ -340,19 +340,27 @@ private:
         hermes::AnyVal default_ast{};  // AST node for default method (valid when has_default)
     };
     struct SemaAssocTypeInfo {
-        std::string name;  // e.g. "Item"
+        std::string name;              // e.g. "Item"
         std::vector<TraitBound> bounds;
+        std::vector<TypeParam>  type_params;  // GAT params: type Item<T> has [T]
+    };
+    struct SemaAssocConstInfo {
+        std::string      name;         // e.g. "MAX"
+        const LogosType* type = nullptr;
     };
     struct SemaTraitInfo {
         std::string name;
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
-        std::vector<SemaAssocTypeInfo> assoc_types;
+        std::vector<SemaAssocTypeInfo>   assoc_types;
+        std::vector<SemaAssocConstInfo>  assoc_consts;
         std::vector<TraitBound> supertraits;  // e.g. [{Display,[]}, {Into,[i32]}] for trait Foo: Display + Into<i32>
+        bool is_unsafe = false;               // declared as `unsafe trait`
     };
     struct SemaImplInfo {
         std::string trait_name;
         std::string target_type;
+        bool        is_unsafe = false;        // declared as `unsafe impl`
     };
 
     // Type params in scope for the function/struct currently being processed.
@@ -374,17 +382,30 @@ private:
     // const fn bodies: mangled_name → (body_block, param_names)
     struct ConstFnBody { hermes::TinyMapView body; std::vector<std::string> param_names; };
     std::unordered_map<std::string, ConstFnBody>      const_fn_bodies_;
-    std::unordered_map<std::string, const LogosType*> type_aliases_;
+    // Generic type alias entry: non-generic aliases have type_params empty.
+    struct TypeAliasEntry {
+        const LogosType*       type;
+        std::vector<TypeParam> type_params;
+    };
+    std::unordered_map<std::string, TypeAliasEntry> type_aliases_;
     std::unordered_map<std::string, const LogosType*> module_consts_;
     std::unordered_map<std::string, SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
     std::unordered_map<std::string, SemaImplInfo>     impls_;
-    // "TraitName::TypeName::AssocName" → assoc type + impl's own type params for substitution.
+    // "TraitName::TypeName::AssocName" → assoc type + type params for substitution.
     struct AssocTypeEntry {
         const LogosType*       type;
-        std::vector<TypeParam> impl_type_params;
+        std::vector<TypeParam> impl_type_params;  // from enclosing impl<T>
+        std::vector<TypeParam> gat_type_params;   // from GAT itself: type Item<T> = ...
     };
     std::unordered_map<std::string, AssocTypeEntry> assoc_type_impls_;
+
+    // "TraitName::TypeName::ConstName" → assoc const type (value evaluated lazily at call site)
+    struct AssocConstEntry {
+        const LogosType*  type;
+        hermes::AnyVal    value_ast;  // AST expr node for the constant value
+    };
+    std::unordered_map<std::string, AssocConstEntry> assoc_const_impls_;
 
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;

@@ -1805,7 +1805,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // Try resolving via type alias: `type Alias = Struct` or `type Alias = Struct<T>`
         auto ait = type_aliases_.find(sname_buf);
         if (ait != type_aliases_.end()) {
-            auto* aliased = ait->second;
+            auto* aliased = ait->second.type;
             if (aliased && (aliased->kind == LogosType::Kind::Struct ||
                             aliased->kind == LogosType::Kind::Datatype)) {
                 sinfo_ptr = find_struct_info(aliased->struct_name);

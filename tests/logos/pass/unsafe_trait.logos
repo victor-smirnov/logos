@@ -1,0 +1,11 @@
+package unsafe_trait;
+
+unsafe trait Zap { fn zap(self: Self) -> i32; }
+struct Bolt {}
+unsafe impl Zap for Bolt {
+    fn zap(self: Bolt) -> i32 { return 42; }
+}
+unsafe fn main() -> i32 {
+    let b = Bolt {};
+    return b.zap();
+}

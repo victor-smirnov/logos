@@ -1,0 +1,8 @@
+package unsafe_trait_missing_unsafe_impl;
+
+unsafe trait Danger { fn run(self: Self) -> i32; }
+struct X {}
+impl Danger for X {
+    fn run(self: X) -> i32 { return 0; }
+}
+unsafe fn main() -> i32 { return 0; }
