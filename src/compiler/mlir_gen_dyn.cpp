@@ -228,7 +228,8 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     std::map<std::string, std::vector<Entry>> tier2_tables;
 
     for (auto& de : prog.dispatch_entries) {
-        if (de.type_code == 0) continue;
+        // Bug fix: skip codes 0-127 (0 is unset, 1-127 are reserved for inline AnyVal).
+        if (de.type_code < 128) continue;
         // Use "__" as separator to avoid ambiguity when tag_system or trait_name
         // contains a single underscore (e.g. "My_System__Trait__method" is
         // unambiguous; "My_System_Trait_method" is not).
@@ -251,7 +252,8 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         auto one_attr = mlir::IntegerAttr::get(i8_t, 1);
         std::set<std::string> emitted;
         for (auto& de : prog.dispatch_entries) {
-            if (de.type_code == 0) continue;
+            // Bug fix: skip codes 0-127 (reserved).
+            if (de.type_code < 128) continue;
             auto sym = collision_sym_name(de.tag_system, de.trait_name, de.type_code);
             if (!emitted.insert(sym).second) continue;    // already emitted this triple
             // Type-check the existing symbol: only skip if it is already the
