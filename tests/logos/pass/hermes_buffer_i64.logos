@@ -12,7 +12,7 @@ unsafe fn main() -> i32 {
     // Push 10 values — exercises grow: 0→4, 4→8, 8→16.
     let mut i: i64 = 0;
     while i < 10 {
-        b.push(I64View { v: i * 100 as i64 });
+        b.push(i * 100 as i64);
         i = i + 1;
     }
     if b.len() != 10 as u64 { return 2; }
@@ -20,9 +20,9 @@ unsafe fn main() -> i32 {
     // Read-back.
     let mut k: u64 = 0 as u64;
     while k < 10 as u64 {
-        let got: I64View = b.get(k);
+        let got: i64 = b.get(k);
         let expect: i64 = (k as i64) * 100 as i64;
-        if got.v != expect { return 3; }
+        if got != expect { return 3; }
         k = k + 1 as u64;
     }
 
