@@ -2,7 +2,7 @@
 // Copyright 2026 Victor Smirnov
 // Logos stdlib — logos.lang.datatypes
 //
-// HermesDatatype — the bridge between a Hermes type's *processing* format
+// Datatype — the bridge between a datatype's *processing* format
 // (what code sees and works with: `StringView`, `I64View`, …) and its
 // *storage* format (how it lives in a typed homogeneous container like
 // `Buffer<DT>`).
@@ -12,10 +12,10 @@ package logos.lang.datatypes;
 use std.drop;
 
 // ---------------------------------------------------------------------------
-// HermesDatatype — View ↔ Storage bridge.
+// Datatype — View ↔ Storage bridge.
 // ---------------------------------------------------------------------------
 
-pub trait HermesDatatype {
+pub trait Datatype {
     type View;
     type Storage;
 
@@ -33,17 +33,17 @@ pub trait HermesDatatype {
 // Drop releases heap memory via the per-type `storage_drop` hook.
 // ---------------------------------------------------------------------------
 
-pub struct Buffer<DT: HermesDatatype> {
+pub struct Buffer<DT: Datatype> {
     storage: DT::Storage,
 }
 
 // Free-function constructor: `buffer_new::<I64>()` (turbofish).  Grammar
 // doesn't yet support `Buffer::<DT>::new()`.
-pub fn buffer_new<DT: HermesDatatype>() -> Buffer<DT> {
+pub fn buffer_new<DT: Datatype>() -> Buffer<DT> {
     return Buffer { storage: DT::storage_new() };
 }
 
-impl<DT: HermesDatatype> Buffer<DT> {
+impl<DT: Datatype> Buffer<DT> {
     pub fn len(&self) -> u64 {
         unsafe {
             let sp: *const DT::Storage = &self.storage as *const DT::Storage;
@@ -67,7 +67,7 @@ impl<DT: HermesDatatype> Buffer<DT> {
     }
 }
 
-impl<DT: HermesDatatype> Drop for Buffer<DT> {
+impl<DT: Datatype> Drop for Buffer<DT> {
     fn drop(self: Buffer<DT>) {
         unsafe {
             let sp: *mut DT::Storage =

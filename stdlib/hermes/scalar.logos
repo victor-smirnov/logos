@@ -70,7 +70,7 @@ pub unsafe fn hermes_tag_i64() -> u8 { return 26 as u8; }
 pub unsafe fn hermes_tag_u64() -> u8 { return 27 as u8; }
 
 // ---------------------------------------------------------------------------
-// View / Storage bridge — HermesDatatype impl for I64.
+// View / Storage bridge — Datatype impl for I64.
 // ---------------------------------------------------------------------------
 
 // Processing format: callers of `Buffer<I64>` receive and push `I64View`
@@ -87,7 +87,7 @@ pub struct I64Storage {
     pub cap:  u64,
 }
 
-impl HermesDatatype for I64 {
+impl Datatype for I64 {
     type View    = I64View;
     type Storage = I64Storage;
 

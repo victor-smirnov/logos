@@ -187,7 +187,7 @@ impl HermesString {
 }
 
 // ---------------------------------------------------------------------------
-// View / Storage bridge — HermesDatatype impl for HermesString.
+// View / Storage bridge — Datatype impl for HermesString.
 //
 // Processing format: `StringView` — ptr + len into an unspecified buffer.
 // The same view is produced by HermesCtr (AOS, points into a zone-allocated
@@ -216,7 +216,7 @@ pub struct HermesStringStorage {
     pub o_cap: u64,
 }
 
-impl HermesDatatype for HermesString {
+impl Datatype for HermesString {
     type View    = StringView;
     type Storage = HermesStringStorage;
 
