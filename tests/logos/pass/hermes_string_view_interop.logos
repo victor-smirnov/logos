@@ -15,7 +15,7 @@ use hermes.document;
 use hermes.ctr;
 use hermes.stringify;
 use hermes.parser;
-use logos.datatypes;
+use logos.lang.datatypes;
 
 unsafe fn views_eq(a: StringView, b: StringView) -> bool {
     if a.len != b.len { return false; }

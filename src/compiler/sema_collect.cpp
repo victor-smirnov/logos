@@ -103,7 +103,16 @@ void SemaChecker::simplify_all_types() {
 
 std::string SemaChecker::read_package_name(TinyMapView mod) {
     if (!mod.has_key(la::NAME)) return {};
-    return std::string(str_of(mod.get(la::NAME.code)));
+    std::string name(str_of(mod.get(la::NAME.code)));
+    if (mod.has_key(la::PATH)) {
+        name += ".";
+        name += std::string(str_of(mod.get(la::PATH.code)));
+    }
+    if (mod.has_key(la::PATH2)) {
+        name += ".";
+        name += std::string(str_of(mod.get(la::PATH2.code)));
+    }
+    return name;
 }
 
 void SemaChecker::check_pub_access(bool is_pub, const std::string& def_package,

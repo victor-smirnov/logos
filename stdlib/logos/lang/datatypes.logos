@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Logos stdlib — logos.datatypes
+// Logos stdlib — logos.lang.datatypes
 //
 // HermesDatatype — the bridge between a Hermes type's *processing* format
 // (what code sees and works with: `StringView`, `I64View`, …) and its
 // *storage* format (how it lives in a typed homogeneous container like
 // `Buffer<DT>`).
 
-package logos.datatypes;
+package logos.lang.datatypes;
 
 use std.drop;
 

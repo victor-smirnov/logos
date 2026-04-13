@@ -3,7 +3,7 @@ package hermes_buffer_string;
 // strings, read them back via StringView, verify each byte.
 
 use hermes.string;
-use logos.datatypes;
+use logos.lang.datatypes;
 
 unsafe fn bytes_eq(a: *const u8, b: *const u8, n: u64) -> bool {
     let mut i: u64 = 0 as u64;

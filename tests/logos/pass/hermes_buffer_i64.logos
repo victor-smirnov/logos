@@ -2,7 +2,7 @@ package hermes_buffer_i64;
 // Basic Buffer<I64>: push N values, read them back, verify len/get;
 // rely on Drop to release the heap buffer at end of scope.
 
-use logos.datatypes;
+use logos.lang.datatypes;
 use hermes.scalar;
 
 unsafe fn main() -> i32 {

@@ -41,7 +41,8 @@ inline constexpr Key LHS      {"LHS",      12};  // left-hand side
 inline constexpr Key RHS      {"RHS",      13};  // right-hand side
 inline constexpr Key CALLEE   {"CALLEE",   14};  // call target
 inline constexpr Key ARGS     {"ARGS",     15};  // call arguments
-inline constexpr Key PATH     {"PATH",     16};  // package path (dotted name)
+inline constexpr Key PATH     {"PATH",     16};  // package path: 2nd component
+inline constexpr Key PATH2    {"PATH2",    51};  // package path: 3rd component (for 3-dot names)
 inline constexpr Key USES     {"USES",     17};  // use declarations array
 inline constexpr Key POINTEE  {"POINTEE",  18};  // pointee type for pointer types
 inline constexpr Key MUTPTR   {"MUTPTR",   19};  // pointer mutability (bool)

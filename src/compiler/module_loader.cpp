@@ -72,6 +72,13 @@ static std::vector<std::string> extract_uses(hermes::HermesCtrView ast) {
                 dotted += std::string(StringView(path_av.to_offset(), holder).view());
             }
         }
+        if (use_node.has_key(la::PATH2)) {
+            AnyVal path_av = use_node.get(la::PATH2);
+            if (!path_av.is_null() && path_av.is_pointer()) {
+                if (!dotted.empty()) dotted += '.';
+                dotted += std::string(StringView(path_av.to_offset(), holder).view());
+            }
+        }
         if (!dotted.empty())
             result.push_back(dotted);
     }

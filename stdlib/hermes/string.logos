@@ -14,7 +14,7 @@
 
 package hermes.string;
 
-use logos.datatypes;
+use logos.lang.datatypes;
 use std.mem;
 
 // ---------------------------------------------------------------------------

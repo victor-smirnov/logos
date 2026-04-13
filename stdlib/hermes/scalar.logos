@@ -16,7 +16,7 @@
 
 package hermes.scalar;
 
-use logos.datatypes;
+use logos.lang.datatypes;
 use std.mem;
 
 // ---------------------------------------------------------------------------
