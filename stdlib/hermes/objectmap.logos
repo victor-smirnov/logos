@@ -40,6 +40,7 @@ pub datatype MapEntry {
 // ObjectMap — the hash table header (16 bytes, all primitives)
 // ---------------------------------------------------------------------------
 
+#[type_code=101]
 pub datatype ObjectMap {
     pub entries_off: u32,  // zone-relative offset to the MapEntry array
     pub capacity:    u32,  // number of slots (power of 2)

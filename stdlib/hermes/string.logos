@@ -121,6 +121,7 @@ pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
 // the actual object has dynamic size = vlen_prefix_size + len bytes.
 // ---------------------------------------------------------------------------
 
+#[type_code=28]
 pub datatype HermesString {
     pub first: u8,   // first byte of vlen length encoding
 }

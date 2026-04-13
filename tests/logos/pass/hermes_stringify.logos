@@ -1,90 +1,78 @@
 package hermes_stringify;
-// Phase: stringify — recursive text serialisation of Hermes zone documents.
+// Phase: stringify — trait-based recursive serialisation of Hermes zone documents.
 
 use hermes.zone;
 use hermes.anyval;
 use hermes.string;
 use hermes.typetag;
+use hermes.tag_system;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use hermes.stringify;
 use std.string;
 
+// Helper: stringify one AnyVal into `sb` with compact options and the given base.
+unsafe fn stringify_one(val: AnyVal, base: *const u8, sb: *mut String) {
+    sb.clear();
+    let mut ctx: StringifyCtx = StringifyCtx {
+        out:   sb,
+        base:  base,
+        opts:  StringifyOpts::compact(),
+        depth: 0 as i64,
+    };
+    stringify_anyval(val, &mut ctx);
+}
+
 unsafe fn main() -> i32 {
-    let mut zone: HermesZone = HermesZone::create(16384);
-    let base: *mut u8 = zone.base;
+    let mut zone: Zone<Mutable> = zone_create(16384);
+    let base: *mut u8 = zone.holder.base;
 
     // Reserve zone offset 0 for DocumentHeader.
-    let hdr_raw: *mut u8 = zone.alloc_raw(8);
+    let hdr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 8);
     let doc: *mut DocumentHeader = document_create(hdr_raw);
 
     let mut sb: String = String::new();
+    let b: *const u8 = base as *const u8;
 
-    // -----------------------------------------------------------------------
     // 1. null AnyVal → "null"
-    // -----------------------------------------------------------------------
-    sb.clear();
-    stringify_anyval(AnyVal::null_ptr(), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::null_ptr(), b, &mut sb);
     if !sb.eq_cstr("null") { return 1; }
 
-    // -----------------------------------------------------------------------
     // 2. Integer (i32): "42"
-    // -----------------------------------------------------------------------
-    sb.clear();
-    stringify_anyval(AnyVal::embed_i24(42), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::embed_i24(42), b, &mut sb);
     if !sb.eq_cstr("42") { return 2; }
 
-    // -----------------------------------------------------------------------
     // 3. Integer zero: "0"
-    // -----------------------------------------------------------------------
-    sb.clear();
-    stringify_anyval(AnyVal::embed_i24(0), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::embed_i24(0), b, &mut sb);
     if !sb.eq_cstr("0") { return 3; }
 
-    // -----------------------------------------------------------------------
     // 4. Negative integer: "-1"
-    // -----------------------------------------------------------------------
-    sb.clear();
-    stringify_anyval(AnyVal::embed_i24(-1), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::embed_i24(-1), b, &mut sb);
     if !sb.eq_cstr("-1") { return 4; }
 
-    // -----------------------------------------------------------------------
     // 5. UInteger (u24): "99_u32"
-    // -----------------------------------------------------------------------
-    sb.clear();
-    stringify_anyval(AnyVal::embed_u24(99 as u32), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::embed_u24(99 as u32), b, &mut sb);
     if !sb.eq_cstr("99_u32") { return 5; }
 
-    // -----------------------------------------------------------------------
     // 6. Boolean: "true" / "false"
-    // -----------------------------------------------------------------------
-    sb.clear();
-    stringify_anyval(AnyVal::embed_bool(true), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::embed_bool(true), b, &mut sb);
     if !sb.eq_cstr("true") { return 6; }
 
-    sb.clear();
-    stringify_anyval(AnyVal::embed_bool(false), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::embed_bool(false), b, &mut sb);
     if !sb.eq_cstr("false") { return 7; }
 
-    // -----------------------------------------------------------------------
     // 7. TinyInt (i8): "5_s8"
-    // -----------------------------------------------------------------------
-    sb.clear();
-    stringify_anyval(AnyVal::embed_i8(5 as i8), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::embed_i8(5 as i8), b, &mut sb);
     if !sb.eq_cstr("5_s8") { return 8; }
 
-    // -----------------------------------------------------------------------
     // 8. UInteger zero: "0_u32"
-    // -----------------------------------------------------------------------
-    sb.clear();
-    stringify_anyval(AnyVal::embed_u24(0 as u32), base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::embed_u24(0 as u32), b, &mut sb);
     if !sb.eq_cstr("0_u32") { return 9; }
 
-    // -----------------------------------------------------------------------
-    // 9. HermesString "hi" → `"hi"` (with surrounding quotes)
-    // -----------------------------------------------------------------------
-    let hs_raw: *mut u8 = zone.alloc_tagged(3, hermes_tag_string(), hermes_desc_data());
+    // 9. HermesString "hi" → `"hi"`
+    let hs_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 3,
+                              hermes_tag_string(), hermes_desc_data());
     let hs_p0: *mut u8 = (hs_raw as i64 + 0 as i64) as *mut u8;
     let hs_p1: *mut u8 = (hs_raw as i64 + 1 as i64) as *mut u8;
     let hs_p2: *mut u8 = (hs_raw as i64 + 2 as i64) as *mut u8;
@@ -93,48 +81,38 @@ unsafe fn main() -> i32 {
     *hs_p2 = 105 as u8;  // 'i'
     let hs_val: AnyVal = AnyVal::from_offset((hs_raw as i64 - base as i64) as u32);
 
-    sb.clear();
-    stringify_anyval(hs_val, base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(hs_val, b, &mut sb);
     if !sb.eq_cstr("\"hi\"") { return 10; }
 
-    // -----------------------------------------------------------------------
     // 10. ObjectArray [i32(1), i32(2)] → "[1,2]"
-    // -----------------------------------------------------------------------
-    let oa_raw: *mut u8 = zone.alloc_tagged(sizeof::<ObjectArray>() as i64,
-                                            hermes_tag_array(), hermes_desc_array());
-    let oa_buf: *mut u8 = zone.alloc_raw(64);
+    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone,
+                              sizeof::<ObjectArray>() as i64,
+                              hermes_tag_array(), hermes_desc_array());
+    let oa_buf: *mut u8 = zone_m_alloc_raw(&mut zone, 64);
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 8 as u64);
     arr.push(base, AnyVal::embed_i24(1));
     arr.push(base, AnyVal::embed_i24(2));
 
-    sb.clear();
-    stringify_anyval(AnyVal::from_offset((oa_raw as i64 - base as i64) as u32),
-                     base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::from_offset((oa_raw as i64 - base as i64) as u32), b, &mut sb);
     if !sb.eq_cstr("[1,2]") { return 11; }
 
-    // -----------------------------------------------------------------------
     // 11. TinyObjectMap {k0: i32(7)} → `{"k0":7}`
-    // -----------------------------------------------------------------------
-    let tm_raw: *mut u8 = zone.alloc_tagged(sizeof::<TinyObjectMap>() as i64,
-                                            hermes_tag_tiny_map(), hermes_desc_map());
-    let tm_arr: *mut u8 = zone.alloc_raw(80);
+    let tm_raw: *mut u8 = zone_m_alloc_tagged(&mut zone,
+                              sizeof::<TinyObjectMap>() as i64,
+                              hermes_tag_tiny_map(), hermes_desc_map());
+    let tm_arr: *mut u8 = zone_m_alloc_raw(&mut zone, 80);
     let tmap: *mut TinyObjectMap = TinyObjectMap::init(tm_raw, tm_arr, base, 10 as u32);
     tmap.set(base, 0 as u8, AnyVal::embed_i24(7));
 
-    sb.clear();
-    stringify_anyval(AnyVal::from_offset((tm_raw as i64 - base as i64) as u32),
-                     base as *const u8, &mut sb, StringifyOpts::compact(), 0 as i64);
+    stringify_one(AnyVal::from_offset((tm_raw as i64 - base as i64) as u32), b, &mut sb);
     if !sb.eq_cstr("{\"k0\":7}") { return 12; }
 
-    // -----------------------------------------------------------------------
     // 12. stringify_document: root = i32(100) → "100"
-    // -----------------------------------------------------------------------
     document_set_root(doc, AnyVal::embed_i24(100));
 
     sb.clear();
-    stringify_document(base as *const u8, &mut sb, StringifyOpts::compact());
+    stringify_document(b, &mut sb, StringifyOpts::compact());
     if !sb.eq_cstr("100") { return 13; }
 
-    zone.destroy();
     return 42;
 }

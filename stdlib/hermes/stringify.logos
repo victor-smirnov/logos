@@ -2,55 +2,40 @@
 // Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.stringify
 //
-// Recursive text serialisation of Hermes zone documents.
+// Trait-based text serialisation of Hermes zone documents.
 //
-// Supported types
-// ───────────────
-// AnyVal null                          → "null"
-// AnyVal value mode (embedded):
-//   TinyInt   (hash=20, i8)            → decimal + "_s8"
-//   UTinyInt  (hash=21, u8)            → decimal + "_u8"
-//   SmallInt  (hash=22, i16)           → decimal + "_s16"
-//   Integer   (hash=23, i24)           → decimal (no suffix)
-//   USmallInt (hash=24, u16)           → decimal + "_u16"
-//   UInteger  (hash=25, u24)           → decimal + "_u32"
-//   Boolean   (hash=37, bool)          → "true" / "false"
-// AnyVal pointer mode → dispatch on 2-byte TypeTag before the object:
-//   descriptor=0, hash=28  (Varchar)   → quoted UTF-8 string with escaping
-//   descriptor=1           (Array)     → "[e0,e1,…]"
-//   descriptor=2, hash=98  (TinyMap)   → {"k0":v, …}
-//   descriptor=2, hash=101 (ObjectMap) → {"key":v, …}
-//   other                              → "null"
+// Architecture
+// ────────────
+// Zone objects (HermesString, ObjectArray, ObjectMap, TinyObjectMap,
+// DocumentHeader) implement `HermesStringify` with `#[tag_dispatch(
+// HermesTypeTagSystem)]`. Dispatch reads the legacy 2-byte tag before each
+// object and selects the right impl from a compiler-generated table indexed
+// by type_hash.
 //
-// Output buffer: std.string.String — a growable owned byte buffer.
+// Inline AnyVal values (Integer/Boolean/…/TinyInt) are not in the zone and
+// have no in-memory tag — they are handled in `stringify_anyval` with an
+// explicit switch over `val.type_hash()`.
 //
 // Entry points:
-//   pub unsafe fn stringify_anyval(val, base, out, opts, depth)
+//   pub unsafe fn stringify_anyval(val, ctx)
 //   pub unsafe fn stringify_document(base, out, opts)
-//     (reads AnyVal root from DocumentHeader at base[0..3], then calls stringify_anyval)
 //
-// For compact output:  StringifyOpts::compact()  (default, no newlines)
+// For compact output:  StringifyOpts::compact()
 // For pretty output:   StringifyOpts::pretty()   (2-space indent)
-//                      StringifyOpts::with_indent(4)
 
 package hermes.stringify;
 
 use hermes.anyval;
 use hermes.string;
 use hermes.typetag;
+use hermes.tag_system;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use std.string;
 
 // ---------------------------------------------------------------------------
-// StringifyOpts — value-object controlling text serialisation behaviour.
-//
-// Use the static constructors and builder methods to configure, then pass
-// to stringify_document or HermesCtr::to_string_opts.
-//
-// Fields:
-//   indent  — spaces per nesting level; 0 = compact (no newlines).
+// StringifyOpts — formatting options passed through the recursive walk.
 // ---------------------------------------------------------------------------
 
 pub datatype StringifyOpts {
@@ -58,308 +43,267 @@ pub datatype StringifyOpts {
 }
 
 impl StringifyOpts {
-    // Compact output: single line, no extra whitespace. Default.
     pub static fn compact() -> StringifyOpts {
         return StringifyOpts { indent: 0 };
     }
 
-    // Pretty-print with 2-space indentation.
     pub static fn pretty() -> StringifyOpts {
         return StringifyOpts { indent: 2 };
     }
 
-    // Return a new StringifyOpts with a different indentation width.
     pub static fn with_indent(n: i64) -> StringifyOpts {
         return StringifyOpts { indent: n };
     }
 }
 
 // ---------------------------------------------------------------------------
-// Internal helper: write newline + (indent * depth) spaces.
-// No-op when opts.indent == 0 (compact mode).
+// StringifyCtx — recursive traversal context.
+//
+// Passed by mutable pointer through every stringify call so that any impl
+// can append to the output buffer, resolve zone offsets via `base`, and
+// observe/modify the indentation depth.
 // ---------------------------------------------------------------------------
 
-unsafe fn write_indent(out: *mut String, opts: StringifyOpts, depth: i64) {
-    if opts.indent <= 0 as i64 { return; }
-    out.push_u8(10 as u8);   // '\n'
-    let spaces: i64 = opts.indent * depth;
+pub struct StringifyCtx {
+    pub out:   *mut String,
+    pub base:  *const u8,
+    pub opts:  StringifyOpts,
+    pub depth: i64,
+}
+
+// ---------------------------------------------------------------------------
+// Indentation helper — writes "\n" + (indent * depth) spaces in pretty mode.
+// ---------------------------------------------------------------------------
+
+unsafe fn write_indent(ctx: *mut StringifyCtx) {
+    if ctx.opts.indent <= 0 as i64 { return; }
+    ctx.out.push_u8(10 as u8);
+    let spaces: i64 = ctx.opts.indent * ctx.depth;
     let mut i: i64 = 0 as i64;
     while i < spaces {
-        out.push_u8(32 as u8);  // ' '
+        ctx.out.push_u8(32 as u8);
         i = i + 1 as i64;
     }
 }
 
+unsafe fn write_null(out: *mut String) {
+    out.push_u8(110 as u8);  // 'n'
+    out.push_u8(117 as u8);  // 'u'
+    out.push_u8(108 as u8);  // 'l'
+    out.push_u8(108 as u8);  // 'l'
+}
+
 // ---------------------------------------------------------------------------
-// String escaping helper (writes a quoted, escaped HermesString to `out`)
+// Quoted-string helper (shared between HermesString and ObjectMap keys).
 // ---------------------------------------------------------------------------
 
-unsafe fn stringify_quoted_hs(hs: *const HermesString, out: *mut String) {
+unsafe fn write_quoted_hs(hs: *const HermesString, out: *mut String) {
     out.push_u8(34 as u8);   // '"'
     let len: u64   = hs.len();
     let bptr: *const u8 = hs.bytes();
     let mut i: u64 = 0 as u64;
     while i < len {
-        let p: *const u8 = (bptr as i64 + i as i64) as *const u8;
-        let c: u8 = *p;
-        if c == 34 as u8 {       // '"' → \"
-            out.push_u8(92 as u8);
-            out.push_u8(34 as u8);
-        } else if c == 92 as u8 { // '\' → \\
-            out.push_u8(92 as u8);
-            out.push_u8(92 as u8);
-        } else if c == 10 as u8 { // '\n' → \n
-            out.push_u8(92 as u8);
-            out.push_u8(110 as u8);
-        } else if c == 13 as u8 { // '\r' → \r
-            out.push_u8(92 as u8);
-            out.push_u8(114 as u8);
-        } else if c == 9 as u8 {  // '\t' → \t
-            out.push_u8(92 as u8);
-            out.push_u8(116 as u8);
+        let c: u8 = *((bptr as i64 + i as i64) as *const u8);
+        if c == 34 as u8 {
+            out.push_u8(92 as u8); out.push_u8(34 as u8);
+        } else if c == 92 as u8 {
+            out.push_u8(92 as u8); out.push_u8(92 as u8);
+        } else if c == 10 as u8 {
+            out.push_u8(92 as u8); out.push_u8(110 as u8);
+        } else if c == 13 as u8 {
+            out.push_u8(92 as u8); out.push_u8(114 as u8);
+        } else if c == 9 as u8 {
+            out.push_u8(92 as u8); out.push_u8(116 as u8);
         } else {
             out.push_u8(c);
         }
         i = i + 1 as u64;
     }
-    out.push_u8(34 as u8);   // '"'
+    out.push_u8(34 as u8);
 }
 
 // ---------------------------------------------------------------------------
-// Per-type stringify handlers for tagged (pointer-mode) objects
+// HermesStringify — polymorphic stringification trait.
+//
+// Dispatch reads the legacy 2-byte tag immediately before the object.
+// `#[tag_dispatch(HermesTypeTagSystem)]` tells the compiler to generate a
+// dispatch table keyed by type_hash (byte[obj-2]).
 // ---------------------------------------------------------------------------
 
-// descriptor=0, hash=28: HermesString
-unsafe fn stringify_varchar(obj: *const u8, out: *mut String) {
-    let hs: *const HermesString = obj as *const HermesString;
-    stringify_quoted_hs(hs, out);
+#[tag_dispatch(HermesTypeTagSystem)]
+pub trait HermesStringify {
+    fn stringify(&self, ctx: *mut StringifyCtx);
 }
 
-// descriptor=1: ObjectArray
-// Compact:  [e0,e1,…]
-// Pretty:   [\n<indent>e0,\n<indent>e1\n<indent-1>]
-unsafe fn stringify_object_array(obj: *const u8, base: *const u8, out: *mut String,
-                                  opts: StringifyOpts, depth: i64) {
-    let arr: *const ObjectArray = obj as *const ObjectArray;
-    out.push_u8(91 as u8);   // '['
-    let sz: u64 = arr.len();
-    let mut i: u64 = 0 as u64;
-    while i < sz {
-        if i > 0 as u64 {
-            out.push_u8(44 as u8);   // ','
+// ── HermesString (type_code=28) ────────────────────────────────────────────
+
+impl HermesStringify for HermesString {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let hs: *const HermesString = self as *const HermesString;
+            write_quoted_hs(hs, ctx.out);
         }
-        write_indent(out, opts, depth + 1 as i64);
-        let elem: AnyVal = arr.get(base, i);
-        stringify_anyval(elem, base, out, opts, depth + 1 as i64);
-        i = i + 1 as u64;
     }
-    if sz > 0 as u64 {
-        write_indent(out, opts, depth);
-    }
-    out.push_u8(93 as u8);   // ']'
 }
 
-// descriptor=2, hash=98: TinyObjectMap
-// Compact:  {"k0":v,"k1":v}
-// Pretty:   {\n<indent>"k0": v,\n<indent>"k1": v\n<indent-1>}
-unsafe fn stringify_tiny_map(obj: *const u8, base: *const u8, out: *mut String,
-                              opts: StringifyOpts, depth: i64) {
-    let map: *const TinyObjectMap = obj as *const TinyObjectMap;
-    out.push_u8(123 as u8);  // '{'
-    let bitmap: u64 = map.header & 0x000FFFFFFFFFFFFF as u64;
-    let mut first: bool = true;
-    let mut key: u8 = 0 as u8;
-    while key < 52 as u8 {
-        let key_bit: u64 = 1 as u64 << key as u64;
-        if (bitmap & key_bit) != 0 as u64 {
-            if !first {
-                out.push_u8(44 as u8);   // ','
+// ── ObjectArray (type_code=100) ────────────────────────────────────────────
+
+impl HermesStringify for ObjectArray {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let arr: *const ObjectArray = self as *const ObjectArray;
+            ctx.out.push_u8(91 as u8);   // '['
+            let sz: u64 = arr.len();
+            let mut i: u64 = 0 as u64;
+            while i < sz {
+                if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
+                ctx.depth = ctx.depth + 1 as i64;
+                write_indent(ctx);
+                let elem: AnyVal = arr.get(ctx.base, i);
+                stringify_anyval(elem, ctx);
+                ctx.depth = ctx.depth - 1 as i64;
+                i = i + 1 as u64;
             }
-            first = false;
-            write_indent(out, opts, depth + 1 as i64);
-            // key: "kN"
-            out.push_u8(34 as u8);   // '"'
-            out.push_u8(107 as u8);  // 'k'
-            out.push_u64(key as u64);
-            out.push_u8(34 as u8);   // '"'
-            out.push_u8(58 as u8);   // ':'
-            if opts.indent > 0 as i64 {
-                out.push_u8(32 as u8);   // ' ' (pretty: space after colon)
-            }
-            let val: AnyVal = map.get(base, key);
-            stringify_anyval(val, base, out, opts, depth + 1 as i64);
+            if sz > 0 as u64 { write_indent(ctx); }
+            ctx.out.push_u8(93 as u8);   // ']'
         }
-        key = key + 1 as u8;
     }
-    if !first {
-        write_indent(out, opts, depth);
-    }
-    out.push_u8(125 as u8);  // '}'
 }
 
-// descriptor=2, hash=101: ObjectMap
-// Compact:  {"key":v,"key2":v}
-// Pretty:   {\n<indent>"key": v,\n<indent>"key2": v\n<indent-1>}
-unsafe fn stringify_logos_map(obj: *const u8, base: *const u8, out: *mut String,
-                               opts: StringifyOpts, depth: i64) {
-    let map: *const ObjectMap = obj as *const ObjectMap;
-    out.push_u8(123 as u8);  // '{'
-    let cap: u32 = map.capacity;
-    let ent_base: i64 = base as i64 + map.entries_off as i64;
-    let mut first: bool = true;
-    let mut slot: u32 = 0 as u32;
-    while slot < cap {
-        let ep: *const MapEntry =
-            (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
-        if ep.key_off != 0 as u32 {
-            if !first {
-                out.push_u8(44 as u8);   // ','
+// ── TinyObjectMap (type_code=98) ───────────────────────────────────────────
+
+impl HermesStringify for TinyObjectMap {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let map: *const TinyObjectMap = self as *const TinyObjectMap;
+            ctx.out.push_u8(123 as u8);  // '{'
+            let bitmap: u64 = map.header & 0x000FFFFFFFFFFFFF as u64;
+            let mut first: bool = true;
+            let mut key: u8 = 0 as u8;
+            while key < 52 as u8 {
+                let key_bit: u64 = 1 as u64 << key as u64;
+                if (bitmap & key_bit) != 0 as u64 {
+                    if !first { ctx.out.push_u8(44 as u8); }
+                    first = false;
+                    ctx.depth = ctx.depth + 1 as i64;
+                    write_indent(ctx);
+                    ctx.out.push_u8(34 as u8);   // '"'
+                    ctx.out.push_u8(107 as u8);  // 'k'
+                    ctx.out.push_u64(key as u64);
+                    ctx.out.push_u8(34 as u8);   // '"'
+                    ctx.out.push_u8(58 as u8);   // ':'
+                    if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }
+                    let val: AnyVal = map.get(ctx.base, key);
+                    stringify_anyval(val, ctx);
+                    ctx.depth = ctx.depth - 1 as i64;
+                }
+                key = key + 1 as u8;
             }
-            first = false;
-            write_indent(out, opts, depth + 1 as i64);
-            let hs: *const HermesString =
-                (base as i64 + ep.key_off as i64) as *const HermesString;
-            stringify_quoted_hs(hs, out);
-            out.push_u8(58 as u8);   // ':'
-            if opts.indent > 0 as i64 {
-                out.push_u8(32 as u8);   // ' ' (pretty: space after colon)
-            }
-            let val: AnyVal = AnyVal { raw: ep.val };
-            stringify_anyval(val, base, out, opts, depth + 1 as i64);
+            if !first { write_indent(ctx); }
+            ctx.out.push_u8(125 as u8);  // '}'
         }
-        slot = slot + 1 as u32;
     }
-    if !first {
-        write_indent(out, opts, depth);
+}
+
+// ── ObjectMap (type_code=101) ──────────────────────────────────────────────
+
+impl HermesStringify for ObjectMap {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let map: *const ObjectMap = self as *const ObjectMap;
+            ctx.out.push_u8(123 as u8);  // '{'
+            let cap: u32 = map.capacity;
+            let ent_base: i64 = ctx.base as i64 + map.entries_off as i64;
+            let mut first: bool = true;
+            let mut slot: u32 = 0 as u32;
+            while slot < cap {
+                let ep: *const MapEntry =
+                    (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
+                if ep.key_off != 0 as u32 {
+                    if !first { ctx.out.push_u8(44 as u8); }
+                    first = false;
+                    ctx.depth = ctx.depth + 1 as i64;
+                    write_indent(ctx);
+                    let hs: *const HermesString =
+                        (ctx.base as i64 + ep.key_off as i64) as *const HermesString;
+                    write_quoted_hs(hs, ctx.out);
+                    ctx.out.push_u8(58 as u8);   // ':'
+                    if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }
+                    let val: AnyVal = AnyVal { raw: ep.val };
+                    stringify_anyval(val, ctx);
+                    ctx.depth = ctx.depth - 1 as i64;
+                }
+                slot = slot + 1 as u32;
+            }
+            if !first { write_indent(ctx); }
+            ctx.out.push_u8(125 as u8);  // '}'
+        }
     }
-    out.push_u8(125 as u8);  // '}'
 }
 
 // ---------------------------------------------------------------------------
-// Core dispatch functions (mutually recursive)
+// Top-level AnyVal dispatcher — pointer vs inline, then delegates.
 // ---------------------------------------------------------------------------
 
-// Dispatch on the 2-byte TypeTag preceding `obj`.
-unsafe fn stringify_tagged(obj: *const u8, base: *const u8, out: *mut String,
-                            opts: StringifyOpts, depth: i64) {
-    let desc: u8  = tag_read_descriptor(obj);
-    let thash: u8 = tag_read_hash(obj);
-    if desc == 1 as u8 {
-        // Array
-        stringify_object_array(obj, base, out, opts, depth);
-    } else if desc == 2 as u8 {
-        // Map: distinguish TinyObjectMap (98) vs ObjectMap (101)
-        if thash == 98 as u8 {
-            stringify_tiny_map(obj, base, out, opts, depth);
+pub unsafe fn stringify_anyval(val: AnyVal, ctx: *mut StringifyCtx) {
+    if val.is_null() { write_null(ctx.out); return; }
+
+    if val.is_ptr() {
+        // Pointer mode: dispatch through HermesTypeTagSystem trait table.
+        let obj: *const u8 = (ctx.base as i64 + val.as_offset() as i64) as *const u8;
+        let tagged_obj: &tagged<HermesTypeTagSystem> HermesStringify = obj;
+        tagged_obj.stringify(ctx);
+        return;
+    }
+
+    // Inline mode: switch on type_hash.
+    let th: u8 = val.type_hash();
+    let out: *mut String = ctx.out;
+    if th == 23 as u8 {
+        out.push_i64(val.as_i24() as i64);
+    } else if th == 25 as u8 {
+        out.push_u64(val.as_u24() as u64);
+        out.push_u8(95 as u8); out.push_u8(117 as u8);
+        out.push_u8(51 as u8); out.push_u8(50 as u8);   // "_u32"
+    } else if th == 20 as u8 {
+        out.push_i64(val.as_i8() as i64);
+        out.push_u8(95 as u8); out.push_u8(115 as u8); out.push_u8(56 as u8);   // "_s8"
+    } else if th == 21 as u8 {
+        out.push_u64(val.as_u8() as u64);
+        out.push_u8(95 as u8); out.push_u8(117 as u8); out.push_u8(56 as u8);   // "_u8"
+    } else if th == 22 as u8 {
+        out.push_i64(val.as_i16() as i64);
+        out.push_u8(95 as u8); out.push_u8(115 as u8);
+        out.push_u8(49 as u8); out.push_u8(54 as u8);   // "_s16"
+    } else if th == 24 as u8 {
+        out.push_u64(val.as_u16() as u64);
+        out.push_u8(95 as u8); out.push_u8(117 as u8);
+        out.push_u8(49 as u8); out.push_u8(54 as u8);   // "_u16"
+    } else if th == 37 as u8 {
+        if val.as_bool() {
+            out.push_u8(116 as u8); out.push_u8(114 as u8);
+            out.push_u8(117 as u8); out.push_u8(101 as u8);   // "true"
         } else {
-            stringify_logos_map(obj, base, out, opts, depth);
-        }
-    } else if desc == 0 as u8 {
-        // Data: currently only Varchar (28)
-        if thash == 28 as u8 {
-            stringify_varchar(obj, out);
-        } else {
-            // Unrecognised tagged type → null
-            out.push_u8(110 as u8);  // 'n'
-            out.push_u8(117 as u8);  // 'u'
-            out.push_u8(108 as u8);  // 'l'
-            out.push_u8(108 as u8);  // 'l'
+            out.push_u8(102 as u8); out.push_u8(97 as u8); out.push_u8(108 as u8);
+            out.push_u8(115 as u8); out.push_u8(101 as u8);   // "false"
         }
     } else {
-        out.push_u8(110 as u8);
-        out.push_u8(117 as u8);
-        out.push_u8(108 as u8);
-        out.push_u8(108 as u8);
+        write_null(out);
     }
 }
 
-// Stringify any AnyVal: null → "null", value → type-dispatched, pointer → tagged.
-pub unsafe fn stringify_anyval(val: AnyVal, base: *const u8, out: *mut String,
-                                opts: StringifyOpts, depth: i64) {
-    if val.is_null() {
-        out.push_u8(110 as u8);  // 'n'
-        out.push_u8(117 as u8);  // 'u'
-        out.push_u8(108 as u8);  // 'l'
-        out.push_u8(108 as u8);  // 'l'
-        return;
-    }
-    if !val.is_ptr() {
-        // Value mode: dispatch on type_hash
-        let th: u8 = val.type_hash();
-        if th == 23 as u8 {
-            // Integer (i24): no suffix
-            out.push_i64(val.as_i24() as i64);
-        } else if th == 25 as u8 {
-            // UInteger (u24): "_u32" suffix
-            out.push_u64(val.as_u24() as u64);
-            out.push_u8(95 as u8);   // '_'
-            out.push_u8(117 as u8);  // 'u'
-            out.push_u8(51 as u8);   // '3'
-            out.push_u8(50 as u8);   // '2'
-        } else if th == 20 as u8 {
-            // TinyInt (i8): "_s8" suffix
-            out.push_i64(val.as_i8() as i64);
-            out.push_u8(95 as u8);   // '_'
-            out.push_u8(115 as u8);  // 's'
-            out.push_u8(56 as u8);   // '8'
-        } else if th == 21 as u8 {
-            // UTinyInt (u8): "_u8" suffix
-            out.push_u64(val.as_u8() as u64);
-            out.push_u8(95 as u8);   // '_'
-            out.push_u8(117 as u8);  // 'u'
-            out.push_u8(56 as u8);   // '8'
-        } else if th == 22 as u8 {
-            // SmallInt (i16): "_s16" suffix
-            out.push_i64(val.as_i16() as i64);
-            out.push_u8(95 as u8);   // '_'
-            out.push_u8(115 as u8);  // 's'
-            out.push_u8(49 as u8);   // '1'
-            out.push_u8(54 as u8);   // '6'
-        } else if th == 24 as u8 {
-            // USmallInt (u16): "_u16" suffix
-            out.push_u64(val.as_u16() as u64);
-            out.push_u8(95 as u8);   // '_'
-            out.push_u8(117 as u8);  // 'u'
-            out.push_u8(49 as u8);   // '1'
-            out.push_u8(54 as u8);   // '6'
-        } else if th == 37 as u8 {
-            // Boolean
-            if val.as_bool() {
-                out.push_u8(116 as u8);  // 't'
-                out.push_u8(114 as u8);  // 'r'
-                out.push_u8(117 as u8);  // 'u'
-                out.push_u8(101 as u8);  // 'e'
-            } else {
-                out.push_u8(102 as u8);  // 'f'
-                out.push_u8(97 as u8);   // 'a'
-                out.push_u8(108 as u8);  // 'l'
-                out.push_u8(115 as u8);  // 's'
-                out.push_u8(101 as u8);  // 'e'
-            }
-        } else {
-            // Unknown embedded type → null
-            out.push_u8(110 as u8);
-            out.push_u8(117 as u8);
-            out.push_u8(108 as u8);
-            out.push_u8(108 as u8);
-        }
-        return;
-    }
-    // Pointer mode: resolve zone offset and dispatch via TypeTag
-    let off: u32 = val.as_offset();
-    let obj: *const u8 = (base as i64 + off as i64) as *const u8;
-    stringify_tagged(obj, base, out, opts, depth);
-}
-
 // ---------------------------------------------------------------------------
-// Document-level entry point
+// Document-level entry point.
 // ---------------------------------------------------------------------------
 
-// Stringify the root value of a Hermes document.
-// base must point to the zone's memory buffer; DocumentHeader is at base[0..3].
-// opts controls formatting (compact vs pretty-print).
 pub unsafe fn stringify_document(base: *const u8, out: *mut String, opts: StringifyOpts) {
     let doc: *const DocumentHeader = base as *const DocumentHeader;
     let root: AnyVal = document_get_root(doc);
-    stringify_anyval(root, base, out, opts, 0 as i64);
+    let mut ctx: StringifyCtx = StringifyCtx {
+        out:   out,
+        base:  base,
+        opts:  opts,
+        depth: 0 as i64,
+    };
+    stringify_anyval(root, &mut ctx);
 }

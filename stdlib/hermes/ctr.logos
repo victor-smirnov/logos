@@ -7,6 +7,7 @@
 // Encapsulates zone allocation and text parsing.
 // The user creates an HermesCtr, parses text into it, then traverses
 // the result via root(), array_get(), map_get_cstr(), etc.
+// Stringification uses a temporary buffer passed as a parameter.
 // All unsafe zone/pointer work is internal.
 //
 // Drop: HermesCtr implements Drop and calls zone.release() to clean up
@@ -19,6 +20,8 @@
 //       Result::Err(_)  => { return 1; }
 //   }
 //   let root: AnyVal = doc.root();  // access parsed document
+//   let mut buf: String = String::with_capacity(256);
+//   doc.stringify(&mut buf);  // stringify into temporary buffer
 
 package hermes.ctr;
 
@@ -27,8 +30,11 @@ use hermes.anyval;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.typetag;
+use hermes.tag_system;
 use hermes.document;
 use hermes.parser;
+use hermes.stringify;
+use std.string;
 
 // cstr_len — byte length of a null-terminated C string.
 unsafe fn cstr_len(s: *const u8) -> i64 {
@@ -109,6 +115,42 @@ impl HermesCtr {
             }
             return Result::Err(ParseError::Failed);
         }
+    }
+
+    // ── Stringification ────────────────────────────────────────────────────
+    //
+    // Buffer is a per-operation context — pass in a String you own; it gets
+    // cleared and overwritten.  HermesCtr itself holds no buffer.
+
+    // Stringify into `buf` with compact formatting.
+    pub fn stringify(&self, buf: &mut String) {
+        unsafe {
+            buf.clear();
+            stringify_document(self.zone.holder.base as *const u8, buf,
+                               StringifyOpts::compact());
+        }
+    }
+
+    // Stringify into `buf` with explicit formatting options.
+    pub fn stringify_opts(&self, buf: &mut String, opts: StringifyOpts) {
+        unsafe {
+            buf.clear();
+            stringify_document(self.zone.holder.base as *const u8, buf, opts);
+        }
+    }
+
+    // Stringify and return a new owned String (compact).
+    pub fn to_string(&self) -> String {
+        let mut buf: String = String::with_capacity(256);
+        self.stringify(&mut buf);
+        return buf;
+    }
+
+    // Stringify and return a new owned String with explicit options.
+    pub fn to_string_opts(&self, opts: StringifyOpts) -> String {
+        let mut buf: String = String::with_capacity(256);
+        self.stringify_opts(&mut buf, opts);
+        return buf;
     }
 
     // Root AnyVal of the parsed document.

@@ -48,6 +48,7 @@ unsafe fn popcount_u64(x: u64) -> u32 {
 // Insertion: shift elements right by 1 to maintain sorted key order. O(n).
 // ---------------------------------------------------------------------------
 
+#[type_code=98]
 pub datatype TinyObjectMap {
     pub header: u64,
     pub data:   u32,
@@ -153,6 +154,7 @@ impl TinyObjectMap {
 //   (4 bytes implicit trailing padding)
 // ---------------------------------------------------------------------------
 
+#[type_code=100]
 pub datatype ObjectArray {
     pub size:     u64,
     pub capacity: u64,

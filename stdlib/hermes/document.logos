@@ -25,6 +25,7 @@ use hermes.anyval;
 // DocumentHeader datatype (4 bytes)
 // ---------------------------------------------------------------------------
 
+#[type_code=3]
 pub datatype DocumentHeader {
     pub root: u32,   // AnyVal.raw of the root value
 }

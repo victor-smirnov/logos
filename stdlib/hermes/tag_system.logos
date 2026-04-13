@@ -5,11 +5,16 @@
 // TagSystem: abstraction over the mechanism used to read a type tag
 // from a memory object.  Different subsystems use different tag formats:
 //
-//   DataTypeTagSystem  — TypeTag stored variable-length immediately before
-//                        the object in a Hermes zone (1-8 bytes).
-//                        Codes 128-222: single byte; 223+: multi-byte.
-//   TomTagSystem       — type_code stored as little-endian u64 at byte
-//                        offset 0 of the object header (TinyObjectMap).
+//   HermesTypeTagSystem — legacy 2-byte TypeTag: byte[-2]=type_hash (u8),
+//                         byte[-1]=code_len|descriptor. Used by HermesString,
+//                         ObjectArray, ObjectMap, TinyObjectMap, DocumentHeader.
+//                         Codes 1-255 (type_hash is a u8).
+//   DataTypeTagSystem   — TypeTag stored variable-length immediately before
+//                         the object in a Hermes zone (1-8 bytes).
+//                         Codes 128-222: single byte; 223+: multi-byte.
+//                         Used by user datatypes with #[type_code=N].
+//   TomTagSystem        — type_code stored as little-endian u64 at byte
+//                         offset 0 of the object header (TinyObjectMap).
 //
 // This module defines the trait interface and both implementations.
 // The dispatch table infrastructure (one table per TagSystem×Trait pair)
@@ -36,6 +41,28 @@ pub trait TagSystem {
     // Read the type tag for the object at `obj`.
     // Safety: `obj` must point to a valid, tagged, live object.
     fn read_tag(self: &Self, obj: *const u8) -> Self::Tag;
+}
+
+// ---------------------------------------------------------------------------
+// HermesTypeTagSystem
+// ---------------------------------------------------------------------------
+
+// TagSystem for Hermes core zone datatypes with legacy 2-byte tag format.
+// Tag layout (2 bytes immediately before the object):
+//   byte[-2] = type_hash (u8)
+//   byte[-1] = code_len (bits 0-2) | descriptor (bits 3-7)
+// Tag value returned is just the type_hash byte (fits in u64 for uniformity
+// with other TagSystems).
+pub struct HermesTypeTagSystem {}
+
+impl TagSystem for HermesTypeTagSystem {
+    type Tag = u64;
+
+    // Safety: `obj` must point to a validly-tagged Hermes legacy object
+    // (allocated via zone_m_alloc_tagged with type_hash and descriptor).
+    pub fn read_tag(self: &HermesTypeTagSystem, obj: *const u8) -> u64 {
+        return unsafe { *((obj as i64 - 2) as *const u8) } as u64;
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -219,7 +219,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     if (prog.dispatch_entries.empty()) return;
 
     auto ptr_t = ptr_type();
-    constexpr int kTier1Size = 223;
+    constexpr int kTier1Size = 256;
     auto arr_type_t1 = mlir::LLVM::LLVMArrayType::get(ptr_t, kTier1Size);
     auto i64_t = builder_.getI64Type();
 
@@ -230,8 +230,9 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     std::map<std::string, std::vector<Entry>> tier2_valid_entries;
 
     for (auto& de : prog.dispatch_entries) {
-        // Bug fix: skip codes 0-127 (0 is unset, 1-127 are reserved for inline AnyVal).
-        if (de.type_code < 128) continue;
+        // type_code == 0 is unset (no impl registered yet); skip.
+        // Codes 1-127 are valid for inline AnyVal slots; 128-255 for tier-1 zone types.
+        if (de.type_code == 0) continue;
         // Use "__" as separator to avoid ambiguity when tag_system or trait_name
         // contains a single underscore (e.g. "My_System__Trait__method" is
         // unambiguous; "My_System_Trait_method" is not).
@@ -254,8 +255,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         auto one_attr = mlir::IntegerAttr::get(i8_t, 1);
         std::set<std::string> emitted;
         for (auto& de : prog.dispatch_entries) {
-            // Bug fix: skip codes 0-127 (reserved).
-            if (de.type_code < 128) continue;
+            if (de.type_code == 0) continue;
             auto sym = collision_sym_name(de.tag_system, de.trait_name, de.type_code);
             if (!emitted.insert(sym).second) continue;    // already emitted this triple
             // Type-check the existing symbol: only skip if it is already the
@@ -519,7 +519,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, const std::string& 
 
 mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
                                               const LogosType* ret_logos_type) {
-    constexpr int kTier1Size = 223;
+    constexpr int kTier1Size = 256;
     auto ptr_t = ptr_type();
 
     // 1. Evaluate the receiver.
@@ -536,15 +536,20 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
     if (!obj_ptr) obj_ptr = gen_expr(*e.receiver);
     if (!obj_ptr) return nullptr;
 
-    // 2. read_type_code(obj_ptr) → i64.
+    // 2. <TagSystem>::read_tag(nullptr_self, obj_ptr) → i64.
+    // Each TagSystem knows how to extract the type_code from memory for its
+    // encoding (legacy 2-byte tag vs. vlen datatag vs. TOM inline header).
+    // TagSystems are unit structs with no state, so self can be a null pointer.
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    auto rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>("read_type_code");
+    auto rtc_sym = e.tag_system + "__read_tag";
+    auto rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
     if (!rtc_fn) {
-        std::fprintf(stderr, "gen_tagged_dispatch: 'read_type_code' not found\n");
+        std::fprintf(stderr, "gen_tagged_dispatch: '%s' not found\n", rtc_sym.c_str());
         return nullptr;
     }
+    auto null_self = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_t);
     mlir::Value type_code_val = builder_.create<mlir::func::CallOp>(
-        loc_, rtc_fn, mlir::ValueRange{obj_ptr}).getResult(0);
+        loc_, rtc_fn, mlir::ValueRange{null_self, obj_ptr}).getResult(0);
 
     // Identify available tables.
     // Must use the same "__" separator as emit_tag_dispatch_tables.

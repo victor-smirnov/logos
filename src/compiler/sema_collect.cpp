@@ -348,8 +348,22 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         auto params = arr_of(plist.get(la::ITEMS.code));
                         for (uint64_t j = 0; j < params.size(); ++j) {
                             auto p = map_of(params.get(j));
-                            if (p.has_key(la::TYPE))
+                            if (p.has_key(la::TYPE)) {
                                 mi.param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
+                            } else {
+                                // `&self` / `&mut self` — no TYPE token, but receiver is
+                                // real; synthesize Self so param_types[0] = self for
+                                // later arity checks (see sema_expr expected_explicit).
+                                auto* self_tv = make_typevar("Self");
+                                const LogosType* ty = self_tv;
+                                bool is_mut = false;
+                                if (p.has_key(la::IS_MUT)) {
+                                    AnyVal mv = p.get(la::IS_MUT);
+                                    is_mut = !mv.is_null() && mv.is_value() && mv.as_value<uint8_t>() != 0;
+                                }
+                                ty = make_ref(is_mut, self_tv);
+                                mi.param_types.push_back(ty);
+                            }
                         }
                     }
                 }
