@@ -151,10 +151,14 @@ impl HermesEqual for ObjectMap {
                         (ctx.base_self as i64 + ep_a.key_off as i64) as *const HermesString;
                     let kb: *const u8 = hs_a.bytes();
                     let klen: u64 = hs_a.len();
+                    // Bug fix: check key presence explicitly. get() returns null
+                    // for both "absent key" and "key → null value"; without this
+                    // guard {x:null} and {y:null} would compare equal (same count,
+                    // both lookups return null).
+                    if !b.contains(ctx.base_other, kb, klen) { return false; }
                     let vb_raw: u32 = b.get(ctx.base_other, kb, klen).raw;
                     let va: AnyVal = AnyVal { raw: ep_a.val };
                     let vb: AnyVal = AnyVal { raw: vb_raw };
-                    if vb.is_null() && !va.is_null() { return false; }
                     if !anyval_equal(va, vb, ctx) { return false; }
                 }
                 slot = slot + 1 as u32;

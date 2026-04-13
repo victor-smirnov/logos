@@ -114,7 +114,9 @@ impl HermesClone for TinyObjectMap {
             let tm_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, tm_sz,
                                       hermes_tag_tiny_map(), hermes_desc_map());
             if tm_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let cap: u32 = 10 as u32;
+            // Bug fix: source capacity lives in header bits[58:52]; previously
+            // we hard-coded 10 which would silently truncate larger maps.
+            let cap: u32 = ((a.header >> 52 as u64) & 0x3F as u64) as u32;
             let arr_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 8 as i64);
             if arr_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_base_mut: *mut u8 = ctx.zone_dst.holder.base;

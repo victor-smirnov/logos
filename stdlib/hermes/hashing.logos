@@ -72,7 +72,9 @@ impl HermesHash for HermesString {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
             let a: *const HermesString = self as *const HermesString;
-            let mut h: u64 = fnv_mix_byte(fnv_init(), 28 as u8);
+            // Bug fix: mix full u64 type_code, not just the low byte.
+            // fnv_mix_byte would drop bits >7 and make tier-2 codes collide.
+            let mut h: u64 = fnv_mix_u64(fnv_init(), 28 as u64);
             let len: u64 = a.len();
             h = fnv_mix_u64(h, len);
             let bp: *const u8 = a.bytes();
@@ -93,7 +95,7 @@ impl HermesHash for ObjectArray {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
             let a: *const ObjectArray = self as *const ObjectArray;
-            let mut h: u64 = fnv_mix_byte(fnv_init(), 100 as u8);
+            let mut h: u64 = fnv_mix_u64(fnv_init(), 100 as u64);
             let n: u64 = a.len();
             h = fnv_mix_u64(h, n);
             let mut i: u64 = 0 as u64;
@@ -113,7 +115,7 @@ impl HermesHash for TinyObjectMap {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
             let a: *const TinyObjectMap = self as *const TinyObjectMap;
-            let base_h: u64 = fnv_mix_byte(fnv_init(), 98 as u8);
+            let base_h: u64 = fnv_mix_u64(fnv_init(), 98 as u64);
             let mut acc: u64 = 0 as u64;
             let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
             let bitmap: u64 = a.header & mask;
@@ -141,7 +143,7 @@ impl HermesHash for ObjectMap {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
             let a: *const ObjectMap = self as *const ObjectMap;
-            let base_h: u64 = fnv_mix_byte(fnv_init(), 101 as u8);
+            let base_h: u64 = fnv_mix_u64(fnv_init(), 101 as u64);
             let mut acc: u64 = 0 as u64;
             acc = acc ^ fnv_mix_u64(base_h, a.count as u64);
             let cap: u32 = a.capacity;
