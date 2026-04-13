@@ -465,6 +465,17 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     lir::LImplBlock ib;
     ib.trait_name   = trait_name;
     ib.target_type  = target;
+    // Blanket impl detection: target IS one of this impl's own type parameters.
+    if (!trait_name.empty()) {
+        for (auto& tp : impl_tps) {
+            if (tp.name == target) {
+                ib.is_blanket = true;
+                if (!tp.bounds.empty())
+                    ib.bound_trait = tp.bounds[0].trait_name;
+                break;
+            }
+        }
+    }
     if (node.has_key(la::IS_UNSAFE)) {
         AnyVal av = node.get(la::IS_UNSAFE);
         ib.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
@@ -494,12 +505,17 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (sd.name == target) { target_struct_tmpl = &sd; break; }
     }
     std::unordered_set<std::string> overridden;
+    // Blanket impls lower methods under a synthetic target name so they don't
+    // collide with `T::method` for any other generic `T` in the program.
+    std::string lower_target = ib.is_blanket
+        ? ("$blanket$" + trait_name + "$" + target)
+        : target;
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
-                auto fn = lower_fn(m, target);
+                auto fn = lower_fn(m, lower_target);
                 overridden.insert(fn.name);
                 if (target_struct_tmpl) {
                     // Add to struct template so mono clones it during struct instantiation.
@@ -549,9 +565,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     // Clean up impl's own type params
     if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
-    // Copy associated type mappings
+    // Copy associated type mappings.  Blanket impls register under the
+    // synthetic `$blanket$...` name (see sema_collect) so the prefix must
+    // reflect that to pick up the right entries.
     if (!trait_name.empty()) {
-        auto prefix = trait_name + "::" + target + "::";
+        std::string stored_target = ib.is_blanket
+            ? ("$blanket$" + trait_name + "$" + target)
+            : target;
+        auto prefix = trait_name + "::" + stored_target + "::";
         for (auto& [key, entry] : assoc_type_impls_) {
             if (key.rfind(prefix, 0) == 0) {
                 auto assoc_name = key.substr(prefix.size());

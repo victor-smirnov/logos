@@ -412,6 +412,20 @@ private:
     // Bounds per type param name (set alongside current_type_params_ during push_type_params)
     std::unordered_map<std::string, std::vector<TraitBound>> current_type_bounds_;
 
+    // Blanket impls: `impl<T: Bound> Trait for T { fn method(…) … }`.  Stored
+    // here during collect; consulted at method-call sites when direct lookup
+    // on the concrete receiver type fails.  Each entry records one method of
+    // one blanket impl.  mangled_name is "T__method" — the generic function
+    // lives in generic_funcs_ under this name.
+    struct BlanketImpl {
+        std::string trait_name;       // e.g. "Datatype"
+        std::string target_typevar;   // e.g. "T"
+        std::string bound_trait;      // e.g. "Primitive"
+        std::string method_name;      // e.g. "storage_new"
+        std::string mangled_name;     // target_typevar + "__" + method_name
+    };
+    std::vector<BlanketImpl> blanket_impls_;
+
     // ── Type parameter helpers ────────────────────────────────────
 
     std::vector<std::string> read_lifetime_params(hermes::TinyMapView node);

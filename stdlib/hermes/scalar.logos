@@ -17,7 +17,6 @@
 package hermes.scalar;
 
 use logos.lang.datatypes;
-use std.mem;
 
 // ---------------------------------------------------------------------------
 // I64 — zone-allocated signed 64-bit integer.
@@ -29,7 +28,6 @@ pub datatype I64 {
 }
 
 impl I64 {
-    // Initialize an I64 at pre-allocated, 8-byte-aligned memory.
     pub unsafe fn init(raw: *mut u8, value: i64) -> *mut I64 {
         let p: *mut I64 = raw as *mut I64;
         p.v = value;
@@ -70,67 +68,10 @@ pub unsafe fn hermes_tag_i64() -> u8 { return 26 as u8; }
 pub unsafe fn hermes_tag_u64() -> u8 { return 27 as u8; }
 
 // ---------------------------------------------------------------------------
-// View / Storage bridge — Datatype impl for I64.
+// Datatype-ification via the Primitive blanket impl in logos.lang.datatypes.
+// View = inline primitive; Storage = PrimVec<Prim>; all Datatype methods
+// provided generically — no per-type boilerplate.
 // ---------------------------------------------------------------------------
 
-// Processing format: bare `i64` — no wrapper.  For primitives where the
-// processing type IS the storage element, a named struct adds only noise.
-// Composite datatypes (e.g. HermesString → StringView) keep a struct view.
-
-// Fixed-size storage: trivial Vec-style (data, len, cap) of inline i64.
-pub struct I64Storage {
-    pub data: *mut i64,
-    pub len:  u64,
-    pub cap:  u64,
-}
-
-impl Datatype for I64 {
-    type View    = i64;
-    type Storage = I64Storage;
-
-    fn storage_new() -> I64Storage {
-        return I64Storage { data: 0 as *mut i64, len: 0 as u64, cap: 0 as u64 };
-    }
-
-    fn storage_drop(s: *mut I64Storage) {
-        unsafe {
-            if s.data != 0 as *mut i64 {
-                dealloc(s.data as *mut u8);
-                s.data = 0 as *mut i64;
-                s.len  = 0 as u64;
-                s.cap  = 0 as u64;
-            }
-        }
-    }
-
-    fn storage_len(s: *const I64Storage) -> u64 {
-        unsafe { return s.len; }
-    }
-
-    fn storage_push(s: *mut I64Storage, v: i64) {
-        unsafe {
-            if s.len == s.cap {
-                let new_cap: u64 = if s.cap == 0 as u64 { 4 as u64 } else { s.cap * 2 as u64 };
-                let bytes: i64 = (new_cap * 8 as u64) as i64;
-                let new_buf: *mut u8 = if s.data == 0 as *mut i64 {
-                    alloc(bytes)
-                } else {
-                    realloc_buf(s.data as *mut u8, bytes)
-                };
-                if new_buf == 0 as *mut u8 { return; }
-                s.data = new_buf as *mut i64;
-                s.cap  = new_cap;
-            }
-            let slot: *mut i64 = (s.data as i64 + (s.len as i64) * 8 as i64) as *mut i64;
-            *slot = v;
-            s.len = s.len + 1 as u64;
-        }
-    }
-
-    fn storage_get(s: *const I64Storage, idx: u64) -> i64 {
-        unsafe {
-            let slot: *const i64 = (s.data as i64 + (idx as i64) * 8 as i64) as *const i64;
-            return *slot;
-        }
-    }
-}
+impl Primitive for I64 { type Prim = i64; }
+impl Primitive for U64 { type Prim = u64; }

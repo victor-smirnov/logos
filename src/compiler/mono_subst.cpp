@@ -125,6 +125,18 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
                 // Collapse nested associated-type chains fully
                 return subst_type(ait->second, {});
             }
+            // Blanket fallback: when there's an `impl<T: Bound> Trait for T`
+            // and `concrete_base` satisfies Bound, use the blanket's assoc.
+            for (auto& bi : blanket_impls_) {
+                if (bi.trait_name != t->trait_name) continue;
+                std::string bkey = bi.bound_trait + "::" + concrete_base;
+                if (!concrete_impls_.count(bkey)) continue;
+                auto bait = bi.assoc_types.find(t->assoc_type_name);
+                if (bait == bi.assoc_types.end()) continue;
+                SubstMap bsubst;
+                bsubst[bi.target_typevar] = subbed_base;
+                return subst_type(bait->second, bsubst);
+            }
         }
         if (subbed_base != t->assoc_base) {
             LogosType nt = *t;

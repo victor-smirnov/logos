@@ -1584,6 +1584,58 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
 
     if (!fi_ptr) {
+        // Blanket-impl fallback: `impl<T: Bound> Trait for T { fn method … }`
+        // provides method on any T satisfying Bound.  Look up whether any
+        // blanket's method matches, the receiver type impls the bound, and
+        // if so dispatch through finish_generic_call with type_args=[recv_T].
+        std::string base_sname(sname);
+        if (auto d = base_sname.find('$'); d != std::string::npos)
+            base_sname = base_sname.substr(0, d);
+        for (auto& bi : blanket_impls_) {
+            if (bi.method_name != std::string(method_name)) continue;
+            // Receiver's concrete type must impl the bound trait.
+            std::string key_full = bi.bound_trait + "::" + std::string(sname);
+            std::string key_base = bi.bound_trait + "::" + base_sname;
+            if (!impls_.count(key_full) && !impls_.count(key_base)) continue;
+            const SemaFuncInfo* mfi = nullptr;
+            if (auto git = generic_funcs_.find(bi.mangled_name); git != generic_funcs_.end())
+                mfi = &git->second;
+            else if (auto fit = funcs_.find(bi.mangled_name); fit != funcs_.end())
+                mfi = &fit->second;
+            if (!mfi) continue;
+            // Type arg = receiver's concrete type (unwrapped from ref/ptr).
+            const LogosType* recv_inner = recv->type;
+            if (recv_inner && (recv_inner->kind == LogosType::Kind::Ptr ||
+                               is_ref_like(recv_inner->kind)) && recv_inner->pointee)
+                recv_inner = recv_inner->pointee;
+            // Auto-ref: if method expects &self / &mut self but recv is a
+            // value, take its address.
+            if (!mfi->param_types.empty()) {
+                SemaSubst s_subst;
+                s_subst["Self"] = recv_inner;
+                s_subst[bi.target_typevar] = recv_inner;
+                const LogosType* target_self =
+                    subst_type_sema(mfi->param_types[0], s_subst);
+                if (target_self &&
+                    (target_self->kind == LogosType::Kind::Ref ||
+                     target_self->kind == LogosType::Kind::MutRef) &&
+                    recv->type &&
+                    recv->type->kind != LogosType::Kind::Ref &&
+                    recv->type->kind != LogosType::Kind::MutRef &&
+                    recv->type->kind != LogosType::Kind::Ptr) {
+                    bool is_mut = target_self->kind == LogosType::Kind::MutRef;
+                    auto addr = make_expr(target_self,
+                                          lir::EAddrOfTemp{std::move(recv), is_mut});
+                    recv = std::move(addr);
+                }
+            }
+            std::vector<const LogosType*> type_args = { recv_inner };
+            std::vector<lir::LExprPtr> pargs;
+            pargs.push_back(std::move(recv));
+            for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+            return finish_generic_call(bi.mangled_name, *mfi,
+                                       std::move(type_args), std::move(pargs));
+        }
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
         return make_expr(error_t(),
             lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1});
@@ -2835,13 +2887,27 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // infer the concrete type arguments and produce a direct call to the concrete
     // struct method (e.g. Box$G1$i32__wrap), triggering struct instantiation.
     if (!fi.type_params.empty()) {
-        // Check whether we're already inside a generic body (TypeVar args).
+        // Check whether we're already inside a generic body (TypeVar args
+        // or AssocType appearing in value args OR explicit type args).
         bool in_generic_context = false;
         for (auto& a : arg_exprs) {
             auto* t = a->type;
             if (t && (t->kind == LogosType::Kind::TypeVar ||
                       t->kind == LogosType::Kind::AssocType)) {
                 in_generic_context = true; break;
+            }
+        }
+        if (!in_generic_context && node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto* t = resolve_type(map_of(items.get(i)));
+                    if (t && (t->kind == LogosType::Kind::TypeVar ||
+                              t->kind == LogosType::Kind::AssocType)) {
+                        in_generic_context = true; break;
+                    }
+                }
             }
         }
         if (!in_generic_context) {
@@ -2892,12 +2958,28 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             // Could not infer — fall through to concrete path (mono will handle)
         }
         // Inside generic body: emit with type_args so mono can rename the callee
-        // to the concrete struct method name when instantiating.
+        // to the concrete struct method name when instantiating.  If the call
+        // site supplied explicit type args (turbofish), use them verbatim so
+        // the return type is substituted properly.
         {
             std::vector<const LogosType*> type_var_args;
-            for (auto& tp : fi.type_params)
-                type_var_args.push_back(make_typevar(tp.name));
-            return make_expr(fi.ret_type, lir::ECall{mangled, std::move(type_var_args), std::move(arg_exprs)});
+            if (node.has_key(la::TYPE_PARAMS)) {
+                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        type_var_args.push_back(resolve_type(map_of(items.get(i))));
+                }
+            }
+            if (type_var_args.empty()) {
+                for (auto& tp : fi.type_params)
+                    type_var_args.push_back(make_typevar(tp.name));
+            }
+            SemaSubst subst;
+            for (size_t i = 0; i < fi.type_params.size() && i < type_var_args.size(); ++i)
+                subst[fi.type_params[i].name] = type_var_args[i];
+            const LogosType* ret = subst_type_sema(fi.ret_type, subst);
+            return make_expr(ret, lir::ECall{mangled, std::move(type_var_args), std::move(arg_exprs)});
         }
     }
 

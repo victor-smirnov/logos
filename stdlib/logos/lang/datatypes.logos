@@ -10,6 +10,7 @@
 package logos.lang.datatypes;
 
 use std.drop;
+use std.mem;
 
 // ---------------------------------------------------------------------------
 // Datatype — View ↔ Storage bridge.
@@ -72,5 +73,103 @@ impl<DT: Datatype> Drop for Buffer<DT> {
                 (&self.storage as *const DT::Storage) as *mut DT::Storage;
             DT::storage_drop(sp);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Primitive — marker trait + inline-storage mapping.
+//
+// A datatype is `Primitive` iff its processing type IS its storage element —
+// no struct view, no padding, no tag bytes.  `Prim` names the inline type
+// (i64 for I64, u64 for U64, …).  The blanket `impl<DT: Primitive> Datatype`
+// below handles the Vec-like `Buffer<DT>` machinery for all such types.
+// ---------------------------------------------------------------------------
+
+pub trait Primitive {
+    type Prim;
+}
+
+// ---------------------------------------------------------------------------
+// PrimVec<T> — generic Vec-like backing store for primitives.
+//
+// Own heap buffer, grow-on-push.  Used by the Primitive blanket impl below;
+// also usable directly for typed arrays.
+// ---------------------------------------------------------------------------
+
+pub struct PrimVec<T> {
+    pub data: *mut T,
+    pub len:  u64,
+    pub cap:  u64,
+}
+
+impl<T> PrimVec<T> {
+    pub static fn empty() -> PrimVec<T> {
+        return PrimVec { data: 0 as *mut T, len: 0 as u64, cap: 0 as u64 };
+    }
+
+    pub fn push(&mut self, v: T) {
+        unsafe {
+            let stride: i64 = sizeof::<T>();
+            if self.len == self.cap {
+                let new_cap: u64 = if self.cap == 0 as u64 { 4 as u64 } else { self.cap * 2 as u64 };
+                let bytes: i64 = (new_cap as i64) * stride;
+                let new_buf: *mut u8 = if self.data == 0 as *mut T {
+                    alloc(bytes)
+                } else {
+                    realloc_buf(self.data as *mut u8, bytes)
+                };
+                if new_buf == 0 as *mut u8 { return; }
+                self.data = new_buf as *mut T;
+                self.cap  = new_cap;
+            }
+            let slot: *mut T = (self.data as i64 + (self.len as i64) * stride) as *mut T;
+            *slot = v;
+            self.len = self.len + 1 as u64;
+        }
+    }
+
+    pub fn get(&self, idx: u64) -> T {
+        unsafe {
+            let stride: i64 = sizeof::<T>();
+            let slot: *const T = (self.data as i64 + (idx as i64) * stride) as *const T;
+            return *slot;
+        }
+    }
+
+    pub fn clear(&mut self) {
+        unsafe {
+            if self.data != 0 as *mut T {
+                dealloc(self.data as *mut u8);
+                self.data = 0 as *mut T;
+                self.len  = 0 as u64;
+                self.cap  = 0 as u64;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Blanket: every `Primitive` datatype gets `Datatype` for free.
+// View = DT::Prim (the inline type); Storage = PrimVec<DT::Prim>.
+// ---------------------------------------------------------------------------
+
+impl<DT: Primitive> Datatype for DT {
+    type View    = DT::Prim;
+    type Storage = PrimVec<DT::Prim>;
+
+    fn storage_new() -> PrimVec<DT::Prim> {
+        return PrimVec::<DT::Prim>::empty();
+    }
+    fn storage_drop(s: *mut PrimVec<DT::Prim>) {
+        unsafe { s.clear(); }
+    }
+    fn storage_len(s: *const PrimVec<DT::Prim>) -> u64 {
+        unsafe { return s.len; }
+    }
+    fn storage_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) {
+        unsafe { s.push(v); }
+    }
+    fn storage_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim {
+        unsafe { return s.get(idx); }
     }
 }

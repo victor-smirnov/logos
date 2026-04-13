@@ -154,10 +154,21 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         for (auto& bound : tp.bounds) {
             auto key1 = bound.trait_name + "::" + concrete_str;
             auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
-            if (!impls_.count(key1) && (key2.empty() || !impls_.count(key2))) {
-                error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
-                      target_name, concrete_str, bound.trait_name, tp.name));
+            if (impls_.count(key1) || (!key2.empty() && impls_.count(key2))) continue;
+            // Blanket-impl satisfaction: a `impl<T: X> bound.trait for T`
+            // makes every `T: X` automatically implement the bound trait.
+            bool via_blanket = false;
+            for (auto& bi : blanket_impls_) {
+                if (bi.trait_name != bound.trait_name) continue;
+                auto bkey1 = bi.bound_trait + "::" + concrete_str;
+                auto bkey2 = unwrapped_name.empty() ? "" : bi.bound_trait + "::" + unwrapped_name;
+                if (impls_.count(bkey1) || (!bkey2.empty() && impls_.count(bkey2))) {
+                    via_blanket = true; break;
+                }
             }
+            if (via_blanket) continue;
+            error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
+                  target_name, concrete_str, bound.trait_name, tp.name));
         }
     }
 }
@@ -503,6 +514,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
             } else if (datatypes_.count(base_target) || datatypes_.count(target)) {
                 std::string dname = datatypes_.count(target) ? target : base_target;
                 self_type = make_datatype_type(dname);
+            } else {
+                // Blanket impl (impl<T: Bound> Trait for T): target IS a type
+                // parameter in impl_tps.  Self resolves to that TypeVar so
+                // method signatures with `&self`/`*const Self` see it, and
+                // the bound's trait methods become callable on self.
+                for (auto& tp : impl_tps) {
+                    if (tp.name == target) {
+                        self_type = make_typevar(target);
+                        break;
+                    }
+                }
             }
         }
         if (self_type)
@@ -537,6 +559,23 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 current_type_params_[tit->second.type_params[i].name] = trait_type_args[i];
         }
     }
+    // Detect blanket impl: `impl<T: Bound> Trait for T` — target IS one of
+    // this impl's own type parameters.  Methods are collected as generic fns
+    // (target becomes the TypeVar name, e.g. "T__method"); later, at call
+    // sites on concrete types satisfying Bound, we instantiate the blanket.
+    bool is_blanket = false;
+    std::string blanket_bound_trait;
+    if (!trait_name.empty()) {
+        for (auto& tp : impl_tps) {
+            if (tp.name == target) {
+                is_blanket = true;
+                if (!tp.bounds.empty())
+                    blanket_bound_trait = tp.bounds[0].trait_name;
+                break;
+            }
+        }
+    }
+
     // Register impl methods as free functions with mangled names: Target__method
     // Also collect associated type definitions.
     // Skip if already registered (e.g. class methods defined inline).
@@ -546,13 +585,31 @@ void SemaChecker::collect_impl(TinyMapView node) {
             auto m = map_of(items.get(i));
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 auto mname = std::string(str_of(m.get(la::NAME.code)));
-                auto mangled = target + "__" + mname;
+                // Blanket impls use a synthetic target name so the method
+                // doesn't collide with `T::method` lookups on other generic
+                // `T: Trait` type parameters that share the same letter.
+                std::string reg_target = is_blanket
+                    ? ("$blanket$" + trait_name + "$" + target)
+                    : target;
+                auto mangled = reg_target + "__" + mname;
                 if (!funcs_.count(mangled))
-                    collect_fn(m, target);
+                    collect_fn(m, reg_target);
+                if (is_blanket) {
+                    blanket_impls_.push_back({
+                        trait_name, target, blanket_bound_trait, mname, mangled
+                    });
+                }
             } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
                 auto aname = std::string(str_of(m.get(la::NAME.code)));
+                // For blanket impls, key under the synthetic `$blanket$...`
+                // name so normal `T::Assoc` lookups on other generics don't
+                // shadow; the AssocType resolver falls back to blanket keys
+                // when the concrete base satisfies the blanket's bound.
+                std::string key_target = is_blanket
+                    ? ("$blanket$" + trait_name + "$" + target)
+                    : target;
                 // Bug 3 fix: detect duplicate assoc type impl for the same trait+type+name.
-                std::string key = trait_name + "::" + target + "::" + aname;
+                std::string key = trait_name + "::" + key_target + "::" + aname;
                 if (assoc_type_impls_.count(key))
                     error(std::format("impl {} for {}: duplicate associated type '{}'",
                                       trait_name, target, aname));
@@ -613,11 +670,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
     }
     // Check completeness: every required trait method must be in the impl.
     // Default methods are registered as Target__method if not overridden.
+    // Blanket impls use a synthetic target in their registrations; apply the
+    // same mapping here so the completeness check sees the real methods.
+    std::string check_target = is_blanket
+        ? ("$blanket$" + trait_name + "$" + target)
+        : target;
     if (!trait_name.empty()) {
         auto tit = traits_.find(trait_name);
         if (tit != traits_.end()) {
             for (auto& m : tit->second.methods) {
-                auto mangled = target + "__" + m.name;
+                auto mangled = check_target + "__" + m.name;
                 if (funcs_.count(mangled)) {
                     auto& impl_fn = funcs_[mangled];
                     if (m.is_unsafe != impl_fn.is_unsafe) {
@@ -657,8 +719,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
             }
         }
     }
-    // Check associated type completeness
-    if (!trait_name.empty()) {
+    // Check associated type completeness (skipped for blanket impls — the
+    // blanket's assoc types are per-instantiation and not keyed by a single
+    // target; the LIR body catches mistakes at monomorphization time).
+    if (!trait_name.empty() && !is_blanket) {
         auto tit = traits_.find(trait_name);
         if (tit != traits_.end()) {
             for (auto& at : tit->second.assoc_types) {

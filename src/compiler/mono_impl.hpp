@@ -50,6 +50,21 @@ private:
     std::unordered_set<std::string> done_;
     std::unordered_map<std::string, const LogosType*> assoc_impls_;
 
+    // Blanket impls indexed for AssocType resolution at mono time.
+    // Entry: { trait, bound_trait, target_typevar, assoc_types_map }.
+    struct BlanketImplInfo {
+        std::string trait_name;
+        std::string bound_trait;
+        std::string target_typevar;
+        std::unordered_map<std::string, const LogosType*> assoc_types;
+    };
+    std::vector<BlanketImplInfo> blanket_impls_;
+
+    // Set of (trait::type) keys: concrete types that implement each trait.
+    // Populated from out_.impls (non-blanket) so the blanket fallback can
+    // verify a concrete type satisfies the bound.
+    std::unordered_set<std::string> concrete_impls_;
+
     struct WorkItem {
         std::string                mangled;
         const lir::LFunction*      tmpl;

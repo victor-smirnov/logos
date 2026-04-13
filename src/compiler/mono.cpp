@@ -35,11 +35,23 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Move type_pool — will be extended with new types during mono
     out_.type_pool         = std::move(in_.type_pool);
 
-    // Index associated type impls for subst_type resolution
+    // Index associated type impls for subst_type resolution.
+    // Also split blanket impls into a separate table for fallback lookup.
     for (auto& impl : out_.impls) {
-        for (auto& [aname, atype] : impl.assoc_types) {
-            std::string key = impl.trait_name + "::" + impl.target_type + "::" + aname;
-            assoc_impls_[key] = atype;
+        if (impl.is_blanket) {
+            BlanketImplInfo info;
+            info.trait_name     = impl.trait_name;
+            info.bound_trait    = impl.bound_trait;
+            info.target_typevar = impl.target_type;
+            info.assoc_types    = impl.assoc_types;
+            blanket_impls_.push_back(std::move(info));
+        } else {
+            for (auto& [aname, atype] : impl.assoc_types) {
+                std::string key = impl.trait_name + "::" + impl.target_type + "::" + aname;
+                assoc_impls_[key] = atype;
+            }
+            if (!impl.trait_name.empty())
+                concrete_impls_.insert(impl.trait_name + "::" + impl.target_type);
         }
     }
 
@@ -67,6 +79,49 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& fn : in_.functions) {
         if (!fn.type_params.empty())
             templates_[fn.name] = &fn;
+    }
+
+    // Eagerly instantiate blanket-impl methods for every concrete type that
+    // satisfies the blanket's bound.  Each clone produces a function named
+    // `Concrete__method` alongside the original `$blanket$...__method`
+    // template, so normal call resolution (`I64__storage_new`) works.
+    for (auto& bi : blanket_impls_) {
+        std::string tmpl_prefix =
+            "$blanket$" + bi.trait_name + "$" + bi.target_typevar + "__";
+        for (auto& impl : out_.impls) {
+            if (impl.is_blanket) continue;
+            if (impl.trait_name != bi.bound_trait) continue;
+            const std::string& concrete = impl.target_type;
+            // For each method of the blanket, clone template with T→concrete
+            // and emit under `concrete__method`.
+            for (auto& tfn : in_.functions) {
+                if (tfn.name.rfind(tmpl_prefix, 0) != 0) continue;
+                std::string method = tfn.name.substr(tmpl_prefix.size());
+                std::string dest = concrete + "__" + method;
+                if (done_.count(dest)) continue;
+                SubstMap subst;
+                // Build concrete type for substitution.
+                // Target may be a struct or datatype — use the right Kind.
+                const LogosType* concrete_t = nullptr;
+                for (auto& sd : out_.structs)
+                    if (sd.name == concrete) {
+                        LogosType st;
+                        st.kind = sd.is_datatype ? LogosType::Kind::Datatype
+                                                 : LogosType::Kind::Struct;
+                        st.struct_name = concrete;
+                        concrete_t = out_.type_pool.alloc(std::move(st));
+                        break;
+                    }
+                if (!concrete_t) continue;
+                subst[bi.target_typevar] = concrete_t;
+                auto cloned = clone_fn(tfn, subst);
+                cloned.name = dest;
+                cloned.type_params.clear();
+                scan_fn(cloned);
+                out_.functions.push_back(std::move(cloned));
+                done_.insert(dest);
+            }
+        }
     }
 
     // Index fn specialisations.

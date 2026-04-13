@@ -805,6 +805,28 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
                 if (ait2 != assoc_type_impls_.end())
                     return subst_type_sema(ait2->second.type, make_subst(ait2->second));
             }
+            // 3. Blanket-impl fallback: `impl<T: Bound> Trait for T` provides
+            // `type Assoc = …`.  Use it when `concrete` satisfies Bound.
+            for (auto& bi : blanket_impls_) {
+                if (bi.trait_name != t->trait_name) continue;
+                // Concrete type must implement the blanket's bound trait.
+                auto bkey = bi.bound_trait + "::" + concrete_name;
+                bool satisfied = impls_.count(bkey) > 0;
+                if (!satisfied && !base_name.empty() && base_name != concrete_name) {
+                    auto bkey2 = bi.bound_trait + "::" + base_name;
+                    satisfied = impls_.count(bkey2) > 0;
+                }
+                if (!satisfied) continue;
+                std::string blanket_key = t->trait_name + "::$blanket$"
+                    + t->trait_name + "$" + bi.target_typevar
+                    + "::" + t->assoc_type_name;
+                auto bait = assoc_type_impls_.find(blanket_key);
+                if (bait == assoc_type_impls_.end()) continue;
+                // Substitute the blanket's target typevar → concrete.
+                SemaSubst bsubst;
+                bsubst[bi.target_typevar] = concrete;
+                return subst_type_sema(bait->second.type, bsubst);
+            }
         }
         if (subbed_base != t->assoc_base || gat_changed) {
             LogosType nt = *t;

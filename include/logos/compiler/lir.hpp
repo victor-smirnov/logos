@@ -582,6 +582,11 @@ struct LImplBlock {
     // Associated type definitions: "Item" → i32
     std::unordered_map<std::string, const LogosType*> assoc_types;
     bool                     is_unsafe = false;  // declared as `unsafe impl`
+
+    // Blanket impl support: `impl<T: Bound> Trait for T` — target_type is a
+    // type-parameter name; applies to every concrete type implementing Bound.
+    bool        is_blanket   = false;
+    std::string bound_trait;    // name of the bound trait (only used when is_blanket)
 };
 
 struct LConst {
