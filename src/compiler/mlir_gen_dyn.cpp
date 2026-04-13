@@ -425,6 +425,118 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     // symbols (which only exist after ConvertFuncToLLVM runs, after codegen).
     // Instead, mlir_gen.cpp injects a call to @__logos_tag_dispatch_init at
     // the start of main() after all function bodies are generated (Pass 3).
+
+    // ── Pass E: emit public lookup wrappers for registry access ──────────
+    // For each (TagSystem, trait, method) triple, generate:
+    //   fn __logos_dispatch_lookup__<TS>__<trait>__<method>(code: u64) -> *const u8
+    //
+    // The wrapper checks tier-1 (if present) and falls back to tier-2 (if
+    // present). Returns null when neither table has an entry. stdlib can
+    // call this to expose `hermes_fn_<trait>_<method>(code)` as a registry API
+    // for reflection / deferred invocation.
+    {
+        std::set<std::string> all_bases;
+        for (auto& [tkey, _] : tier1_tables) {
+            // tkey = "__logos_tag_dispatch__<base>"
+            all_bases.insert(tkey.substr(std::string("__logos_tag_dispatch__").size()));
+        }
+        for (auto& [tkey, _] : tier2_valid_entries) {
+            // tkey = "__logos_tier2__<base>"
+            all_bases.insert(tkey.substr(std::string("__logos_tier2__").size()));
+        }
+
+        auto lookup_ret_type = ptr_t;
+        auto lookup_fn_type = mlir::FunctionType::get(
+            builder_.getContext(), {i64_t}, {lookup_ret_type});
+
+        for (auto& base : all_bases) {
+            auto lookup_sym = "__logos_dispatch_lookup__" + base;
+            bool has_t1 = tier1_tables.count("__logos_tag_dispatch__" + base) > 0;
+            bool has_t2 = tier2_valid_entries.count("__logos_tier2__" + base) > 0;
+            if (!has_t1 && !has_t2) continue;
+
+            // If stdlib declared this symbol `extern fn` (empty-body FuncOp),
+            // reuse the existing declaration so the define below satisfies the
+            // linker reference. Otherwise create a fresh FuncOp.
+            mlir::func::FuncOp fn;
+            if (auto existing = mod.lookupSymbol<mlir::func::FuncOp>(lookup_sym)) {
+                if (!existing.getBody().empty()) continue;  // already defined
+                fn = existing;
+            } else {
+                builder_.setInsertionPointToEnd(mod.getBody());
+                fn = builder_.create<mlir::func::FuncOp>(
+                    loc_, lookup_sym, lookup_fn_type);
+            }
+            // Public (default visibility) — stdlib and user code can call it.
+            auto* entry = fn.addEntryBlock();
+            builder_.setInsertionPointToStart(entry);
+            auto code = entry->getArgument(0);
+
+            auto null_ptr = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_t);
+
+            auto gen_tier1_load = [&](mlir::Value code_val) -> mlir::Value {
+                auto table_addr = builder_.create<mlir::LLVM::AddressOfOp>(
+                    loc_, ptr_t, "__logos_tag_dispatch__" + base);
+                llvm::SmallVector<mlir::LLVM::GEPArg> gi;
+                gi.push_back(int32_t(0));
+                gi.push_back(code_val);
+                auto slot = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_t, arr_type_t1, table_addr, gi);
+                return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_t, slot);
+            };
+            auto gen_tier2_call = [&](mlir::Value code_val) -> mlir::Value {
+                auto t2lkp = mod.lookupSymbol<mlir::func::FuncOp>(
+                    "__logos_tier2__" + base + "_lookup");
+                if (!t2lkp) return null_ptr;
+                return builder_.create<mlir::func::CallOp>(
+                    loc_, t2lkp, mlir::ValueRange{code_val}).getResult(0);
+            };
+
+            if (has_t1 && !has_t2) {
+                // Tier-1 only: direct load. Out-of-range code would read past
+                // the table; branch to guard it.
+                auto bound = builder_.create<mlir::arith::ConstantIntOp>(
+                    loc_, static_cast<int64_t>(kTier1Size), 64);
+                auto in_range = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::ult, code, bound);
+                auto* hit = new mlir::Block();
+                auto* miss = new mlir::Block();
+                fn.getBody().push_back(hit);
+                fn.getBody().push_back(miss);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, in_range, hit, miss);
+
+                builder_.setInsertionPointToStart(hit);
+                auto fn_ptr = gen_tier1_load(code);
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fn_ptr});
+
+                builder_.setInsertionPointToStart(miss);
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{null_ptr});
+            } else if (!has_t1 && has_t2) {
+                auto fn_ptr = gen_tier2_call(code);
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fn_ptr});
+            } else {
+                // Both tiers: branch on code < kTier1Size.
+                auto bound = builder_.create<mlir::arith::ConstantIntOp>(
+                    loc_, static_cast<int64_t>(kTier1Size), 64);
+                auto in_t1 = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::ult, code, bound);
+                auto* t1b = new mlir::Block();
+                auto* t2b = new mlir::Block();
+                fn.getBody().push_back(t1b);
+                fn.getBody().push_back(t2b);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, in_t1, t1b, t2b);
+
+                builder_.setInsertionPointToStart(t1b);
+                auto fn_ptr1 = gen_tier1_load(code);
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fn_ptr1});
+
+                builder_.setInsertionPointToStart(t2b);
+                auto fn_ptr2 = gen_tier2_call(code);
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fn_ptr2});
+            }
+            builder_.setInsertionPointToEnd(mod.getBody());
+        }
+    }
 }
 
 

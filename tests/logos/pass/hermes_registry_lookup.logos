@@ -1,0 +1,60 @@
+package hermes_registry_lookup;
+// Verifies hermes.registry: the registry path (code → fn_ptr → indirect
+// call) yields the same output as direct tagged-trait dispatch.
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.string;
+use hermes.typetag;
+use hermes.tag_system;
+use hermes.stringify;
+use hermes.registry;
+use std.string;
+
+unsafe fn main() -> i32 {
+    let mut zone: Zone<Mutable> = zone_create(4096);
+
+    // Allocate a HermesString "ok".
+    let msg: *const u8 = "ok";
+    let prefix_sz: i64 = vlen_encode_size(2 as u64) as i64;
+    let total: i64 = prefix_sz + 2;
+    let raw: *mut u8 = zone_m_alloc_tagged(&mut zone, total,
+        hermes_tag_string(), hermes_desc_data());
+    HermesString::init(raw, msg, 2 as u64);
+
+    // Build a StringifyCtx.
+    let mut buf_trait: String = String::new();
+    let mut ctx_trait: StringifyCtx = StringifyCtx {
+        out:   &mut buf_trait as *mut String,
+        base:  zone.holder.base as *const u8,
+        opts:  StringifyOpts::compact(),
+        depth: 0 as i64,
+    };
+
+    // ── Path A: trait method call (type-safe).
+    let tagged_hs: &tagged<HermesTypeTagSystem> HermesStringify = raw as *const u8;
+    tagged_hs.stringify(&mut ctx_trait);
+
+    // ── Path B: registry lookup + indirect call.
+    let mut buf_reg: String = String::new();
+    let mut ctx_reg: StringifyCtx = StringifyCtx {
+        out:   &mut buf_reg as *mut String,
+        base:  zone.holder.base as *const u8,
+        opts:  StringifyOpts::compact(),
+        depth: 0 as i64,
+    };
+    let code: u64 = 28 as u64;   // HermesString type_code
+    let f: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(code);
+    if (f as *const u8) == 0 as *const u8 { return 1; }
+    f(raw as *const u8, &mut ctx_reg);
+
+    // ── Out-of-table code returns null.
+    let none: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(200 as u64);
+    if (none as *const u8) != 0 as *const u8 { return 2; }
+
+    // Both buffers must equal `"ok"`.
+    if !buf_trait.eq_cstr("\"ok\"") { return 3; }
+    if !buf_reg.eq_cstr("\"ok\"")   { return 4; }
+
+    return 0;
+}
