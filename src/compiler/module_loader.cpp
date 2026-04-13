@@ -14,6 +14,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <unordered_set>
 #include <cstdio>
@@ -109,45 +110,29 @@ std::vector<ParsedModule> load_modules(
     const std::vector<std::string>& search_paths) noexcept
 {
     std::vector<ParsedModule> modules;
-    std::unordered_set<std::string> loaded;  // paths already loaded
+    std::unordered_set<std::string> visited;
 
-    // BFS queue of files to load.
-    std::vector<std::string> queue;
-    queue.push_back(root_path);
-
-    while (!queue.empty()) {
-        auto path = queue.back();
-        queue.pop_back();
-
-        // Normalize path.
+    // DFS with post-order emission: each module is pushed to `modules` AFTER
+    // all its dependencies have been visited, producing a topological order
+    // (dependencies before their users).  Cycles are broken by `visited`.
+    std::function<void(const std::string&)> visit = [&](const std::string& path) {
         auto canonical = fs::weakly_canonical(path).string();
-        if (loaded.count(canonical)) continue;
-        loaded.insert(canonical);
+        if (!visited.insert(canonical).second) return;
 
-        // Read and parse.
         auto source = read_file(canonical);
         if (source.empty()) {
             std::fprintf(stderr, "module_loader: cannot read '%s'\n", canonical.c_str());
-            continue;
+            return;
         }
 
         LogosParser parser(source);
         auto ast = parser.parse_module();
         if (ast.is_null()) {
             std::fprintf(stderr, "module_loader: parse failed for '%s'\n", canonical.c_str());
-            continue;
+            return;
         }
-        // Detect partially-parsed module: if the parser stopped before EOF, some
-        // top-level item failed to parse (e.g. a generic class not yet supported).
-        // Report the stray token so the user gets a non-zero exit instead of a
-        // silent empty object file.
+        // Detect partially-parsed module: see BFS-era notes preserved here.
         if (!parser.at_eof()) {
-            // Choose the deepest position in the source for the error message:
-            // - furthest_*: last token the parser successfully consumed before
-            //   backtracking — points inside a function body on deep errors.
-            // - next_*: where the parser stopped after backtracking — points at
-            //   the stray/invalid token when it appears after valid top-level items.
-            // Rule: use whichever is further in the file.
             auto fur_line = parser.furthest_line();
             auto nxt_line = parser.next_line();
             std::string_view err_text;
@@ -164,28 +149,25 @@ std::vector<ParsedModule> load_modules(
                 canonical.c_str(),
                 static_cast<int>(err_text.size()), err_text.data(),
                 err_line);
-            continue;
+            return;
         }
 
-        // Extract use declarations and queue dependencies.
+        // Recurse into dependencies BEFORE pushing this module — post-order.
         auto uses = extract_uses(ast);
         for (const auto& pkg : uses) {
             auto dep_path = resolve_package_path(pkg, search_paths);
             if (dep_path.empty()) {
                 std::fprintf(stderr, "module_loader: cannot find package '%s' (used by '%s')\n",
                              pkg.c_str(), canonical.c_str());
-            } else if (!loaded.count(fs::weakly_canonical(dep_path).string())) {
-                queue.push_back(dep_path);
+            } else {
+                visit(dep_path);
             }
         }
 
         modules.push_back({canonical, std::move(ast)});
-    }
+    };
 
-    // Reverse: dependencies first, root last.
-    // (BFS loaded root first, deps after — reverse gives deps-first order.)
-    std::reverse(modules.begin(), modules.end());
-
+    visit(root_path);
     return modules;
 }
 

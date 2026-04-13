@@ -190,6 +190,24 @@ impl HermesCtr {
         }
     }
 
+    // ── StringView accessor (interop with Buffer<HermesString>) ───────────────
+
+    // Extract a StringView from a zone-stored HermesString.  This is the same
+    // view type `Buffer<HermesString>` exposes, so callers can write storage-
+    // agnostic code (pass a StringView and forget where it came from).
+    // Returns StringView{null, 0} if `val` is not a pointer-mode string.
+    pub fn get_str_view(&self, val: AnyVal) -> StringView {
+        unsafe {
+            let base: *mut u8 = self.zone.holder.base;
+            if !val.is_string(base as *const u8) {
+                return StringView { ptr: 0 as *const u8, len: 0 as u64 };
+            }
+            let hs: *const HermesString =
+                (base as i64 + val.as_offset() as i64) as *const HermesString;
+            return StringView { ptr: hs.bytes(), len: hs.len() };
+        }
+    }
+
     // ── Scalar builders / accessors ───────────────────────────────────────────
 
     // Allocate a zone-backed I64. Use this when the value doesn't fit inline

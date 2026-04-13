@@ -14,6 +14,9 @@
 
 package hermes.string;
 
+use logos.datatypes;
+use std.mem;
+
 // ---------------------------------------------------------------------------
 // FNV-1a hash (used by ObjectMap for string key hashing)
 // ---------------------------------------------------------------------------
@@ -180,5 +183,131 @@ impl HermesString {
     // FNV-1a hash of the UTF-8 bytes.
     pub unsafe fn hash(self: *const HermesString) -> u64 {
         return hermes_fnv1a(self.bytes(), self.len());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// View / Storage bridge — HermesDatatype impl for HermesString.
+//
+// Processing format: `StringView` — ptr + len into an unspecified buffer.
+// The same view is produced by HermesCtr (AOS, points into a zone-allocated
+// HermesString's body) and by Buffer<HermesString> (SoA, points into the
+// packed bytes array).  Callers work with StringView uniformly.
+//
+// Storage format (SoA):
+//   • `bytes` — contiguous packed UTF-8 for all strings.
+//   • `ends`  — u32 array, `ends[i]` = exclusive end offset of string i
+//     within `bytes`.  Start offset of string i = (i==0) ? 0 : ends[i-1].
+// ---------------------------------------------------------------------------
+
+pub struct StringView {
+    pub ptr: *const u8,
+    pub len: u64,
+}
+
+impl Copy for StringView {}
+
+pub struct HermesStringStorage {
+    pub bytes: *mut u8,
+    pub b_len: u64,
+    pub b_cap: u64,
+    pub ends:  *mut u32,
+    pub o_len: u64,
+    pub o_cap: u64,
+}
+
+impl HermesDatatype for HermesString {
+    type View    = StringView;
+    type Storage = HermesStringStorage;
+
+    fn storage_new() -> HermesStringStorage {
+        return HermesStringStorage {
+            bytes: 0 as *mut u8,
+            b_len: 0 as u64,
+            b_cap: 0 as u64,
+            ends:  0 as *mut u32,
+            o_len: 0 as u64,
+            o_cap: 0 as u64,
+        };
+    }
+
+    fn storage_drop(s: *mut HermesStringStorage) {
+        unsafe {
+            if s.bytes != 0 as *mut u8 {
+                dealloc(s.bytes);
+                s.bytes = 0 as *mut u8;
+            }
+            if s.ends != 0 as *mut u32 {
+                dealloc(s.ends as *mut u8);
+                s.ends = 0 as *mut u32;
+            }
+            s.b_len = 0 as u64; s.b_cap = 0 as u64;
+            s.o_len = 0 as u64; s.o_cap = 0 as u64;
+        }
+    }
+
+    fn storage_len(s: *const HermesStringStorage) -> u64 {
+        unsafe { return s.o_len; }
+    }
+
+    fn storage_push(s: *mut HermesStringStorage, v: StringView) {
+        unsafe {
+            // Grow bytes buffer to fit the new string.
+            let need_b: u64 = s.b_len + v.len;
+            if need_b > s.b_cap {
+                let mut new_cap: u64 = if s.b_cap == 0 as u64 { 16 as u64 } else { s.b_cap * 2 as u64 };
+                while new_cap < need_b { new_cap = new_cap * 2 as u64; }
+                let new_buf: *mut u8 = if s.bytes == 0 as *mut u8 {
+                    alloc(new_cap as i64)
+                } else {
+                    realloc_buf(s.bytes, new_cap as i64)
+                };
+                if new_buf == 0 as *mut u8 { return; }
+                s.bytes = new_buf;
+                s.b_cap = new_cap;
+            }
+            // Grow offsets buffer to fit the new end offset.
+            if s.o_len == s.o_cap {
+                let new_cap: u64 = if s.o_cap == 0 as u64 { 4 as u64 } else { s.o_cap * 2 as u64 };
+                let new_buf: *mut u8 = if s.ends == 0 as *mut u32 {
+                    alloc((new_cap * 4 as u64) as i64)
+                } else {
+                    realloc_buf(s.ends as *mut u8, (new_cap * 4 as u64) as i64)
+                };
+                if new_buf == 0 as *mut u8 { return; }
+                s.ends  = new_buf as *mut u32;
+                s.o_cap = new_cap;
+            }
+            // Copy bytes.
+            let mut i: u64 = 0 as u64;
+            while i < v.len {
+                let dst: *mut u8 = (s.bytes as i64 + (s.b_len as i64) + (i as i64)) as *mut u8;
+                let src: *const u8 = (v.ptr as i64 + i as i64) as *const u8;
+                *dst = *src;
+                i = i + 1 as u64;
+            }
+            s.b_len = s.b_len + v.len;
+            // Append end-offset.
+            let slot: *mut u32 = (s.ends as i64 + (s.o_len as i64) * 4 as i64) as *mut u32;
+            *slot = s.b_len as u32;
+            s.o_len = s.o_len + 1 as u64;
+        }
+    }
+
+    fn storage_get(s: *const HermesStringStorage, idx: u64) -> StringView {
+        unsafe {
+            let end_p: *const u32 = (s.ends as i64 + (idx as i64) * 4 as i64) as *const u32;
+            let end_off: u64 = *end_p as u64;
+            let start_off: u64 = if idx == 0 as u64 {
+                0 as u64
+            } else {
+                let prev: *const u32 = (s.ends as i64 + (idx as i64 - 1 as i64) * 4 as i64) as *const u32;
+                *prev as u64
+            };
+            return StringView {
+                ptr: (s.bytes as i64 + start_off as i64) as *const u8,
+                len: end_off - start_off,
+            };
+        }
     }
 }
