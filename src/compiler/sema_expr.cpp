@@ -1488,7 +1488,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         error(std::format("type parameter '{}' has no trait bound providing method '{}'",
                           recv_inner->type_var_name, std::string(method_name)));
         return make_expr(error_t(),
-            lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1, ""});
+            lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1});
     }
 
     auto sname = struct_name_from_type(recv->type);
@@ -1558,7 +1558,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         error(std::format("method call: receiver is not a struct (got {})",
               type_str(recv->type)));
         return make_expr(error_t(),
-            lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1, ""});
+            lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1});
     }
 
     auto mangled = std::string(sname) + "__" + std::string(method_name);
@@ -1586,7 +1586,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     if (!fi_ptr) {
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
         return make_expr(error_t(),
-            lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1, ""});
+            lir::EMethodCall{std::move(recv), std::string(method_name), {}, std::move(arg_exprs), -1});
     }
 
     auto& fi = *fi_ptr;
@@ -1734,7 +1734,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                                       field_name));
                 const LogosType* ptr_t = make_ptr(false, T);
                 auto mc = make_expr(ptr_t,
-                    lir::EMethodCall{std::move(recv), "ptr", {}, {}, -1, ""});
+                    lir::EMethodCall{std::move(recv), "ptr", {}, {}, -1});
                 return make_expr(ft,
                     lir::EFieldRead{std::move(mc), std::string(field_name)});
             }

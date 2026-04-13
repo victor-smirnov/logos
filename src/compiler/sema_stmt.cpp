@@ -1557,7 +1557,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         auto make_next_call = [&]() -> lir::LExprPtr {
             auto iter_ref = make_expr(iter_type, lir::EVarRef{iter_var});
             return make_expr(next_ret,
-                lir::EMethodCall{std::move(iter_ref), "next", {}, {}, -1, ""});
+                lir::EMethodCall{std::move(iter_ref), "next", {}, {}, -1});
         };
 
         // Then arm: Some(x) → body
@@ -1664,7 +1664,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                     let_s.type   = mut_ptr_T;
                     let_s.is_mut = false;
                     let_s.value  = make_expr(mut_ptr_T,
-                        lir::EMethodCall{std::move(recv_expr), "mut_ptr", {}, {}, -1, ""});
+                        lir::EMethodCall{std::move(recv_expr), "mut_ptr", {}, {}, -1});
                     // Synthesize: (*__dr_tmp).field = val
                     lir::SDerefFieldWrite dfw;
                     dfw.receiver  = tmp;
