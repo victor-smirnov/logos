@@ -6,6 +6,6 @@
 
 package std.drop;
 
-trait Drop {
+pub trait Drop {
     fn drop(self: Self);
 }

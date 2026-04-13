@@ -35,6 +35,7 @@ use hermes.document;
 use hermes.parser;
 use hermes.stringify;
 use std.string;
+use std.drop;
 
 // cstr_len — byte length of a null-terminated C string.
 unsafe fn cstr_len(s: *const u8) -> i64 {
@@ -69,12 +70,15 @@ pub struct HermesCtr {
     zone: Zone<Mutable>,
 }
 
-// Note: auto-Drop for HermesCtr is disabled pending a compiler fix for
-// trait resolution across multiple import chains (Drop is declared in
-// both hermes.zone and std.string; when a compilation unit pulls both
-// in through separate paths, the impl on HermesCtr fails to find the
-// right trait). Zones are reclaimed when the process exits; callers that
-// need early release can call `zone.release()` manually via Drop-free paths.
+impl Drop for HermesCtr {
+    fn drop(self: HermesCtr) {
+        unsafe {
+            let zone_ptr: *mut Zone<Mutable> =
+                (&self.zone as *const Zone<Mutable>) as *mut Zone<Mutable>;
+            zone_ptr.release();
+        }
+    }
+}
 
 impl HermesCtr {
     // Allocate a new container backed by a zone of `capacity` bytes.

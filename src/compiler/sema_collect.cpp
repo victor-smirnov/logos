@@ -499,8 +499,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
             current_type_params_["Self"] = self_type;
     }
     // Verify trait exists (only for trait impls)
-    // Copy is a built-in marker trait — not declared in source but always valid.
-    if (!trait_name.empty() && trait_name != "Copy" && !traits_.count(trait_name))
+    // Copy and Drop are built-in marker traits — not always visible through
+    // the dependency-graph (pub trait + use isn't enough when the target
+    // type's own package re-imports a different non-pub Drop, e.g. std.string
+    // and hermes.zone both used to declare local `trait Drop`). Treating Drop
+    // as a built-in matches Copy and lets the impl resolve via name alone.
+    if (!trait_name.empty() && trait_name != "Copy" && trait_name != "Drop"
+        && !traits_.count(trait_name))
         error(std::format("impl: unknown trait '{}'", trait_name));
     // Resolve trait type args (e.g. impl Into<i32> for Celsius → T=i32)
     // and push them into current_type_params_ so method sigs resolve correctly.

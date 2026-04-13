@@ -19,8 +19,7 @@
 package std.string;
 
 use std.mem;
-
-trait Drop { fn drop(self: Self); }
+use std.drop;
 
 // ── Low-level primitives (used by std.fmt and String internals) ────────────
 
