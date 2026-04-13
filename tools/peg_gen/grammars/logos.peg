@@ -36,7 +36,7 @@
     RHS         = 13
     CALLEE      = 14
     ARGS        = 15
-    PATH        = 16
+    PATH_PARTS  = 16
     USES        = 17
     POINTEE     = 18
     MUTPTR      = 19
@@ -71,7 +71,6 @@
     SUPERS         = 48
     LO_NEG         = 49
     HI_NEG         = 50
-    PATH2          = 51
 }
 
 // ── AST node codes ────────────────────────────────────────────────────────
@@ -308,19 +307,17 @@
 %rules {
 
     // ── Top level ────────────────────────────────────────────────
-    module <- KW_PACKAGE IDENT DOT IDENT DOT IDENT SEMI use_decl* item*
-           => { CODE: MODULE, NAME: $2, PATH: $4, PATH2: $6, USES: $8, ITEMS: $... }
-            / KW_PACKAGE IDENT DOT IDENT SEMI use_decl* item*
-           => { CODE: MODULE, NAME: $2, PATH: $4, USES: $6, ITEMS: $... }
-            / KW_PACKAGE IDENT SEMI use_decl* item*
-           => { CODE: MODULE, NAME: $2, USES: $4, ITEMS: $... }
+    // Package paths: `a`, `a.b`, `a.b.c`, … arbitrary depth.
+    // `NAME` is the first component; `PATH_PARTS` is an array of sub-nodes
+    // for components 2..N (empty when there's only one component).
+    module <- KW_PACKAGE IDENT path_dot_ident* SEMI use_decl* item*
+           => { CODE: MODULE, NAME: $2, PATH_PARTS: $3, USES: $5, ITEMS: $... }
 
-    use_decl <- KW_USE IDENT DOT IDENT DOT IDENT SEMI
-             => { CODE: USE, NAME: $2, PATH: $4, PATH2: $6 }
-              / KW_USE IDENT DOT IDENT SEMI
-             => { CODE: USE, NAME: $2, PATH: $4 }
-              / KW_USE IDENT SEMI
-             => { CODE: USE, NAME: $2 }
+    use_decl <- KW_USE IDENT path_dot_ident* SEMI
+             => { CODE: USE, NAME: $2, PATH_PARTS: $3 }
+
+    path_dot_ident <- DOT IDENT
+                   => { NAME: $2 }
 
     item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 

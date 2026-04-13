@@ -57,26 +57,28 @@ static std::vector<std::string> extract_uses(hermes::HermesCtrView ast) {
         if (use_av.is_null() || !use_av.is_pointer()) continue;
         auto use_node = TinyMapView(use_av.to_offset(), holder);
 
-        // Reconstruct dotted path from NAME + PATH fields.
-        // use std.io; → NAME="std", PATH="io" → "std.io"
+        // Reconstruct dotted path from NAME + PATH_PARTS.
+        // `use a.b.c;` → NAME="a", PATH_PARTS=[{NAME:"b"},{NAME:"c"}] → "a.b.c".
         std::string dotted;
         if (use_node.has_key(la::NAME)) {
             AnyVal name_av = use_node.get(la::NAME);
             if (!name_av.is_null() && name_av.is_pointer())
                 dotted = std::string(StringView(name_av.to_offset(), holder).view());
         }
-        if (use_node.has_key(la::PATH)) {
-            AnyVal path_av = use_node.get(la::PATH);
-            if (!path_av.is_null() && path_av.is_pointer()) {
-                if (!dotted.empty()) dotted += '.';
-                dotted += std::string(StringView(path_av.to_offset(), holder).view());
-            }
-        }
-        if (use_node.has_key(la::PATH2)) {
-            AnyVal path_av = use_node.get(la::PATH2);
-            if (!path_av.is_null() && path_av.is_pointer()) {
-                if (!dotted.empty()) dotted += '.';
-                dotted += std::string(StringView(path_av.to_offset(), holder).view());
+        if (use_node.has_key(la::PATH_PARTS)) {
+            AnyVal parts_av = use_node.get(la::PATH_PARTS);
+            if (!parts_av.is_null() && parts_av.is_pointer()) {
+                auto parts = ArrayView(parts_av.to_offset(), holder);
+                for (uint64_t pi = 0; pi < parts.size(); ++pi) {
+                    AnyVal part_av = parts.get(pi);
+                    if (part_av.is_null() || !part_av.is_pointer()) continue;
+                    auto part = TinyMapView(part_av.to_offset(), holder);
+                    if (!part.has_key(la::NAME)) continue;
+                    AnyVal pn = part.get(la::NAME);
+                    if (pn.is_null() || !pn.is_pointer()) continue;
+                    if (!dotted.empty()) dotted += '.';
+                    dotted += std::string(StringView(pn.to_offset(), holder).view());
+                }
             }
         }
         if (!dotted.empty())
