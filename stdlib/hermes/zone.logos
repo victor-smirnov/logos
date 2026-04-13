@@ -33,7 +33,7 @@ use hermes.mem_holder;
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
-trait Drop { fn drop(self: Self); }
+pub trait Drop { fn drop(self: Self); }
 
 // ===========================================================================
 // Mutability markers — phantom types, never instantiated.

@@ -1,0 +1,185 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.clone
+//
+// Deep clone of a Hermes zone object into a destination zone.
+//
+// Each `HermesClone` impl is responsible for:
+//   1. Allocating an object of the same size+tag in `ctx.zone_dst`.
+//   2. Copying fixed fields.
+//   3. Recursively cloning any zone-referenced children (AnyVal offsets,
+//      side buffers).
+//   4. Returning the raw *mut u8 pointer of the new object in the
+//      destination zone.
+//
+// `anyval_clone` handles dispatch at AnyVal boundaries: inline values are
+// copied by raw bits; zone-pointer values are dispatched through
+// HermesClone, and the new offset is returned.
+
+package hermes.clone;
+
+use hermes.anyval;
+use hermes.zone;
+use hermes.string;
+use hermes.typetag;
+use hermes.tag_system;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
+use std.string;
+
+pub struct CloneCtx {
+    pub base_src: *const u8,
+    pub zone_dst: *mut Zone<Mutable>,
+}
+
+#[tag_dispatch(HermesTypeTagSystem)]
+pub trait HermesClone {
+    fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8;
+}
+
+// Clone `val` (resolved against ctx.base_src) into ctx.zone_dst and return
+// an AnyVal with the new offset (or the inline value unchanged).
+// Returns null on OOM.
+pub unsafe fn anyval_clone(val: AnyVal, ctx: *mut CloneCtx) -> AnyVal {
+    if val.is_null() { return AnyVal::null_ptr(); }
+    if !val.is_ptr() { return val; }
+    let obj: *const u8 =
+        (ctx.base_src as i64 + val.as_offset() as i64) as *const u8;
+    let th: &tagged<HermesTypeTagSystem> HermesClone = obj;
+    let new_raw: *mut u8 = th.clone_to(ctx);
+    if new_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+    let dst_base: *mut u8 = ctx.zone_dst.holder.base;
+    let off: u32 = (new_raw as i64 - dst_base as i64) as u32;
+    return AnyVal::from_offset(off);
+}
+
+// ── HermesString (28) ─────────────────────────────────────────────────────
+
+impl HermesClone for HermesString {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let a: *const HermesString = self as *const HermesString;
+            let len: u64 = a.len();
+            let prefix_sz: i64 = vlen_encode_size(len) as i64;
+            let total: i64 = prefix_sz + len as i64;
+            let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, total,
+                                   hermes_tag_string(), hermes_desc_data());
+            if raw == 0 as *mut u8 { return 0 as *mut u8; }
+            HermesString::init(raw, a.bytes(), len);
+            return raw;
+        }
+    }
+}
+
+// ── ObjectArray (100) ─────────────────────────────────────────────────────
+
+impl HermesClone for ObjectArray {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let a: *const ObjectArray = self as *const ObjectArray;
+            let cap: u64 = a.capacity;
+            let n:   u64 = a.len();
+
+            let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
+            let oa_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, oa_sz,
+                                      hermes_tag_array(), hermes_desc_array());
+            if oa_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4 as i64);
+            if buf_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let dst_base_mut: *mut u8 = ctx.zone_dst.holder.base;
+            let new_arr: *mut ObjectArray =
+                ObjectArray::init(oa_raw, buf_raw, dst_base_mut, cap);
+
+            let mut i: u64 = 0 as u64;
+            while i < n {
+                let src_elem: AnyVal = a.get(ctx.base_src, i);
+                let new_elem: AnyVal = anyval_clone(src_elem, ctx);
+                new_arr.push(dst_base_mut, new_elem);
+                i = i + 1 as u64;
+            }
+            return oa_raw;
+        }
+    }
+}
+
+// ── TinyObjectMap (98) ────────────────────────────────────────────────────
+
+impl HermesClone for TinyObjectMap {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let a: *const TinyObjectMap = self as *const TinyObjectMap;
+            // Allocate fresh TinyObjectMap and its entries buffer.
+            let tm_sz: i64 = sizeof::<TinyObjectMap>() as i64;
+            let tm_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, tm_sz,
+                                      hermes_tag_tiny_map(), hermes_desc_map());
+            if tm_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let cap: u32 = 10 as u32;
+            let arr_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 8 as i64);
+            if arr_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let dst_base_mut: *mut u8 = ctx.zone_dst.holder.base;
+            let new_map: *mut TinyObjectMap =
+                TinyObjectMap::init(tm_raw, arr_raw, dst_base_mut, cap);
+
+            let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
+            let bitmap: u64 = a.header & mask;
+            let mut key: u8 = 0 as u8;
+            while key < 52 as u8 {
+                let key_bit: u64 = 1 as u64 << key as u64;
+                if (bitmap & key_bit) != 0 as u64 {
+                    let src_v: AnyVal = a.get(ctx.base_src, key);
+                    let new_v: AnyVal = anyval_clone(src_v, ctx);
+                    new_map.set(dst_base_mut, key, new_v);
+                }
+                key = key + 1 as u8;
+            }
+            return tm_raw;
+        }
+    }
+}
+
+// ── ObjectMap (101) ───────────────────────────────────────────────────────
+
+impl HermesClone for ObjectMap {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let a: *const ObjectMap = self as *const ObjectMap;
+            let cap: u32 = a.capacity;
+
+            let om_sz: i64 = sizeof::<ObjectMap>() as i64;
+            let om_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, om_sz,
+                                      hermes_tag_map(), hermes_desc_map());
+            if om_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let ent_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 8 as i64);
+            if ent_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let dst_base_mut: *mut u8 = ctx.zone_dst.holder.base;
+            let new_map: *mut ObjectMap =
+                ObjectMap::init(om_raw, dst_base_mut, ent_raw, cap);
+
+            let src_cap: u32 = a.capacity;
+            let src_ent_base: i64 = ctx.base_src as i64 + a.entries_off as i64;
+            let mut slot: u32 = 0 as u32;
+            while slot < src_cap {
+                let ep: *const MapEntry =
+                    (src_ent_base + slot as i64 * 8 as i64) as *const MapEntry;
+                if ep.key_off != 0 as u32 {
+                    let hs: *const HermesString =
+                        (ctx.base_src as i64 + ep.key_off as i64) as *const HermesString;
+                    let kbytes: *const u8 = hs.bytes();
+                    let klen: u64 = hs.len();
+                    // Clone the key (HermesString).
+                    let new_key_av: AnyVal = anyval_clone(
+                        AnyVal::from_offset(ep.key_off), ctx);
+                    if new_key_av.is_null() { return 0 as *mut u8; }
+                    let new_key_off: u32 = new_key_av.as_offset();
+                    // Clone the value.
+                    let src_v: AnyVal = AnyVal { raw: ep.val };
+                    let new_v: AnyVal = anyval_clone(src_v, ctx);
+                    new_map.set(dst_base_mut, new_key_off, kbytes, klen, new_v);
+                }
+                slot = slot + 1 as u32;
+            }
+            return om_raw;
+        }
+    }
+}

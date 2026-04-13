@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.release
+//
+// Per-type release hook for Hermes zone objects.
+//
+// For zone-allocated objects whose storage is owned entirely by the zone,
+// `release` is a no-op — destroying the zone frees everything. This trait
+// exists so that user-defined Hermes datatypes holding external resources
+// (file descriptors, OS handles, mmap'd regions) can opt into cleanup
+// without affecting core types.
+
+package hermes.release;
+
+use hermes.string;
+use hermes.typetag;
+use hermes.tag_system;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
+
+#[tag_dispatch(HermesTypeTagSystem)]
+pub trait HermesRelease {
+    fn release(&self);
+}
+
+impl HermesRelease for HermesString    { pub fn release(&self) {} }
+impl HermesRelease for ObjectArray     { pub fn release(&self) {} }
+impl HermesRelease for TinyObjectMap   { pub fn release(&self) {} }
+impl HermesRelease for ObjectMap       { pub fn release(&self) {} }
+impl HermesRelease for DocumentHeader  { pub fn release(&self) {} }

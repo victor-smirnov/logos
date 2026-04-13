@@ -2,46 +2,66 @@
 // Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.registry
 //
-// Registry lookup: public entry points into the compiler-generated dispatch
-// tables. Each function below returns a raw `*const u8` function pointer
-// for the implementation of a given (type_code, trait, method) triple, or
-// null if no impl is registered.
-//
-// Two equivalent ways to call a polymorphic operation:
-//
-//   1. Trait dispatch (preferred, type-safe):
-//          let tagged: &tagged<HermesTypeTagSystem> HermesStringify = obj;
-//          tagged.stringify(&mut ctx);
-//
-//   2. Registry lookup (reflection / deferred call):
-//          let fn_ptr: *const u8 =
-//              hermes_fn_stringify(type_code_of_object(obj));
-//          if fn_ptr != 0 as *const u8 {
-//              let f: unsafe fn(*const u8, *mut StringifyCtx) =
-//                  fn_ptr as unsafe fn(*const u8, *mut StringifyCtx);
-//              f(obj, &mut ctx);
-//          }
-//
-// Use path (1) when you know the call site at compile time; use path (2)
-// when routing through a code value computed at runtime (e.g. inline AnyVal
-// type_hash → HermesStringify impl for that marker type).
+// Registry lookup: public entry points into compiler-generated dispatch
+// tables. Each function returns a typed fn-pointer for the implementation
+// of the (type_code, trait, method) triple, or null-fn (cast to *const u8
+// and compare against 0 as *const u8) if no impl is registered.
 
 package hermes.registry;
 
 use hermes.stringify;
+use hermes.equal;
+use hermes.hashing;
+use hermes.clone;
 
-// Compiler-generated lookup for HermesStringify over HermesTypeTagSystem.
-// Returns an impl pointer or null. Declared raw because the codegen emits
-// the symbol with erased return type (ptr).
+// ── stringify ─────────────────────────────────────────────────────────────
+
 extern fn __logos_dispatch_lookup__HermesTypeTagSystem__HermesStringify__stringify(
     code: u64) -> *const u8;
 
-// Public stringify-lookup wrapper. Returns a typed fn pointer (or null-fn,
-// tested via `(f as *const u8) == 0 as *const u8`).
 pub unsafe fn hermes_fn_stringify(code: u64)
     -> fn(*const u8, *mut StringifyCtx) -> ()
 {
     let raw: *const u8 =
         __logos_dispatch_lookup__HermesTypeTagSystem__HermesStringify__stringify(code);
     return raw as fn(*const u8, *mut StringifyCtx) -> ();
+}
+
+// ── equal ─────────────────────────────────────────────────────────────────
+
+extern fn __logos_dispatch_lookup__HermesTypeTagSystem__HermesEqual__equal(
+    code: u64) -> *const u8;
+
+pub unsafe fn hermes_fn_equal(code: u64)
+    -> fn(*const u8, *const u8, *mut EqualCtx) -> bool
+{
+    let raw: *const u8 =
+        __logos_dispatch_lookup__HermesTypeTagSystem__HermesEqual__equal(code);
+    return raw as fn(*const u8, *const u8, *mut EqualCtx) -> bool;
+}
+
+// ── hash ──────────────────────────────────────────────────────────────────
+
+extern fn __logos_dispatch_lookup__HermesTypeTagSystem__HermesHash__hash_value(
+    code: u64) -> *const u8;
+
+pub unsafe fn hermes_fn_hash(code: u64)
+    -> fn(*const u8, *mut HashCtx) -> u64
+{
+    let raw: *const u8 =
+        __logos_dispatch_lookup__HermesTypeTagSystem__HermesHash__hash_value(code);
+    return raw as fn(*const u8, *mut HashCtx) -> u64;
+}
+
+// ── clone ─────────────────────────────────────────────────────────────────
+
+extern fn __logos_dispatch_lookup__HermesTypeTagSystem__HermesClone__clone_to(
+    code: u64) -> *const u8;
+
+pub unsafe fn hermes_fn_clone(code: u64)
+    -> fn(*const u8, *mut CloneCtx) -> *mut u8
+{
+    let raw: *const u8 =
+        __logos_dispatch_lookup__HermesTypeTagSystem__HermesClone__clone_to(code);
+    return raw as fn(*const u8, *mut CloneCtx) -> *mut u8;
 }

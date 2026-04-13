@@ -584,9 +584,19 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
             if (tcode == 0) {
                 // Also check explicit_type_codes_ for types annotated but not yet in prog.structs.
-                // Keys are fully-qualified ("pkg::Name") since the Bug 4 fix in sema.cpp.
+                // Keys are fully-qualified ("pkg::Name"). Try the current package first
+                // (for same-file impls), then the target type's own package (for impls
+                // on foreign types, e.g. `impl HermesEqual for HermesString` in
+                // package hermes.equal — HermesString was annotated in hermes.string).
                 auto target_fqn = cur_package_.empty() ? target : cur_package_ + "::" + target;
                 auto eit = explicit_type_codes_.find(target_fqn);
+                if (eit == explicit_type_codes_.end()) {
+                    auto dit = datatypes_.find(target);
+                    if (dit != datatypes_.end()) {
+                        auto foreign_fqn = dit->second.package + "::" + target;
+                        eit = explicit_type_codes_.find(foreign_fqn);
+                    }
+                }
                 if (eit != explicit_type_codes_.end()) {
                     tcode = eit->second;
                 } else {

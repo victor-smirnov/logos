@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.hashing
+//
+// Structural hash for Hermes zone documents.
+//
+// The per-type impl returns a u64 seeded from the type_code so that two
+// values with different types but the same payload bytes don't collide.
+// Containers mix child hashes via FNV-1a round so that ordering within the
+// container is respected (arrays: element order; ObjectMap: insertion
+// order isn't — we commute per-entry contributions by XOR).
+
+package hermes.hashing;
+
+use hermes.anyval;
+use hermes.string;
+use hermes.typetag;
+use hermes.tag_system;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
+
+pub struct HashCtx {
+    pub base: *const u8,
+}
+
+#[tag_dispatch(HermesTypeTagSystem)]
+pub trait HermesHash {
+    fn hash_value(&self, ctx: *mut HashCtx) -> u64;
+}
+
+// FNV-1a mixing primitives.
+unsafe fn fnv_init() -> u64 {
+    return 14695981039346656037 as u64;
+}
+unsafe fn fnv_mix_u64(h: u64, v: u64) -> u64 {
+    let mut x: u64 = h;
+    let mut i: i64 = 0 as i64;
+    while i < 8 {
+        let byte: u64 = (v >> (i as u64 * 8 as u64)) & 0xFF as u64;
+        x = x ^ byte;
+        x = x * 1099511628211 as u64;
+        i = i + 1 as i64;
+    }
+    return x;
+}
+unsafe fn fnv_mix_byte(h: u64, b: u8) -> u64 {
+    let mut x: u64 = h ^ b as u64;
+    x = x * 1099511628211 as u64;
+    return x;
+}
+
+// ── AnyVal-level hash ─────────────────────────────────────────────────────
+
+pub unsafe fn anyval_hash(val: AnyVal, ctx: *mut HashCtx) -> u64 {
+    if val.is_null() {
+        return fnv_mix_u64(fnv_init(), 0 as u64);
+    }
+    if !val.is_ptr() {
+        // Inline: mix raw bits (type_hash + payload).
+        return fnv_mix_u64(fnv_init(), val.raw as u64);
+    }
+    let obj: *const u8 =
+        (ctx.base as i64 + val.as_offset() as i64) as *const u8;
+    let th: &tagged<HermesTypeTagSystem> HermesHash = obj;
+    return th.hash_value(ctx);
+}
+
+// ── HermesString (28) ─────────────────────────────────────────────────────
+
+impl HermesHash for HermesString {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe {
+            let a: *const HermesString = self as *const HermesString;
+            let mut h: u64 = fnv_mix_byte(fnv_init(), 28 as u8);
+            let len: u64 = a.len();
+            h = fnv_mix_u64(h, len);
+            let bp: *const u8 = a.bytes();
+            let mut i: u64 = 0 as u64;
+            while i < len {
+                let c: u8 = *((bp as i64 + i as i64) as *const u8);
+                h = fnv_mix_byte(h, c);
+                i = i + 1 as u64;
+            }
+            return h;
+        }
+    }
+}
+
+// ── ObjectArray (100): order-sensitive element mix ────────────────────────
+
+impl HermesHash for ObjectArray {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe {
+            let a: *const ObjectArray = self as *const ObjectArray;
+            let mut h: u64 = fnv_mix_byte(fnv_init(), 100 as u8);
+            let n: u64 = a.len();
+            h = fnv_mix_u64(h, n);
+            let mut i: u64 = 0 as u64;
+            while i < n {
+                let e: AnyVal = a.get(ctx.base, i);
+                h = fnv_mix_u64(h, anyval_hash(e, ctx));
+                i = i + 1 as u64;
+            }
+            return h;
+        }
+    }
+}
+
+// ── TinyObjectMap (98): key-order-independent mix via XOR ─────────────────
+
+impl HermesHash for TinyObjectMap {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe {
+            let a: *const TinyObjectMap = self as *const TinyObjectMap;
+            let base_h: u64 = fnv_mix_byte(fnv_init(), 98 as u8);
+            let mut acc: u64 = 0 as u64;
+            let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
+            let bitmap: u64 = a.header & mask;
+            acc = acc ^ fnv_mix_u64(base_h, bitmap);
+            let mut key: u8 = 0 as u8;
+            while key < 52 as u8 {
+                let key_bit: u64 = 1 as u64 << key as u64;
+                if (bitmap & key_bit) != 0 as u64 {
+                    let v: AnyVal = a.get(ctx.base, key);
+                    let per: u64 = fnv_mix_u64(
+                        fnv_mix_byte(base_h, key),
+                        anyval_hash(v, ctx));
+                    acc = acc ^ per;
+                }
+                key = key + 1 as u8;
+            }
+            return acc;
+        }
+    }
+}
+
+// ── ObjectMap (101): key-order-independent mix via XOR ────────────────────
+
+impl HermesHash for ObjectMap {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe {
+            let a: *const ObjectMap = self as *const ObjectMap;
+            let base_h: u64 = fnv_mix_byte(fnv_init(), 101 as u8);
+            let mut acc: u64 = 0 as u64;
+            acc = acc ^ fnv_mix_u64(base_h, a.count as u64);
+            let cap: u32 = a.capacity;
+            let ent_base: i64 = ctx.base as i64 + a.entries_off as i64;
+            let mut slot: u32 = 0 as u32;
+            while slot < cap {
+                let ep: *const MapEntry =
+                    (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
+                if ep.key_off != 0 as u32 {
+                    let hs: *const HermesString =
+                        (ctx.base as i64 + ep.key_off as i64) as *const HermesString;
+                    let mut kh: u64 = base_h;
+                    let klen: u64 = hs.len();
+                    kh = fnv_mix_u64(kh, klen);
+                    let kb: *const u8 = hs.bytes();
+                    let mut i: u64 = 0 as u64;
+                    while i < klen {
+                        kh = fnv_mix_byte(kh, *((kb as i64 + i as i64) as *const u8));
+                        i = i + 1 as u64;
+                    }
+                    let v: AnyVal = AnyVal { raw: ep.val };
+                    let per: u64 = fnv_mix_u64(kh, anyval_hash(v, ctx));
+                    acc = acc ^ per;
+                }
+                slot = slot + 1 as u32;
+            }
+            return acc;
+        }
+    }
+}

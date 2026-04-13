@@ -1,0 +1,165 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.equal
+//
+// Structural equality for Hermes zone documents.
+//
+// `HermesEqual` dispatches via HermesTypeTagSystem, same tier-1 table as
+// HermesStringify. Two AnyVals are equal when:
+//   - both null, OR
+//   - both inline with identical type_hash and raw bits, OR
+//   - both pointers whose zone objects share the same type_code AND whose
+//     per-type HermesEqual impl returns true.
+//
+// `EqualCtx` carries both zone bases so cross-zone comparison works.
+
+package hermes.equal;
+
+use hermes.anyval;
+use hermes.string;
+use hermes.typetag;
+use hermes.tag_system;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
+
+pub struct EqualCtx {
+    pub base_self:  *const u8,
+    pub base_other: *const u8,
+}
+
+#[tag_dispatch(HermesTypeTagSystem)]
+pub trait HermesEqual {
+    fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool;
+}
+
+// ── AnyVal-level equality dispatcher (mutual recursion with impls below) ──
+
+pub unsafe fn anyval_equal(a: AnyVal, b: AnyVal, ctx: *mut EqualCtx) -> bool {
+    if a.is_null() && b.is_null() { return true; }
+    if a.is_null() != b.is_null() { return false; }
+    if a.is_ptr() != b.is_ptr()   { return false; }
+
+    if !a.is_ptr() {
+        // Inline: raw bits carry type_hash + payload; direct compare is enough.
+        return a.raw == b.raw;
+    }
+
+    // Pointer mode: resolve both offsets, match tags, dispatch.
+    let obj_a: *const u8 =
+        (ctx.base_self  as i64 + a.as_offset() as i64) as *const u8;
+    let obj_b: *const u8 =
+        (ctx.base_other as i64 + b.as_offset() as i64) as *const u8;
+    let tag_a: u8 = *((obj_a as i64 - 2) as *const u8);
+    let tag_b: u8 = *((obj_b as i64 - 2) as *const u8);
+    if tag_a != tag_b { return false; }
+
+    let tagged_a: &tagged<HermesTypeTagSystem> HermesEqual = obj_a;
+    return tagged_a.equal(obj_b, ctx);
+}
+
+// ── HermesString (28): byte-wise equality ─────────────────────────────────
+
+impl HermesEqual for HermesString {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const HermesString = self as *const HermesString;
+            let b: *const HermesString = other as *const HermesString;
+            let la: u64 = a.len();
+            let lb: u64 = b.len();
+            if la != lb { return false; }
+            let pa: *const u8 = a.bytes();
+            let pb: *const u8 = b.bytes();
+            let mut i: u64 = 0 as u64;
+            while i < la {
+                let ca: u8 = *((pa as i64 + i as i64) as *const u8);
+                let cb: u8 = *((pb as i64 + i as i64) as *const u8);
+                if ca != cb { return false; }
+                i = i + 1 as u64;
+            }
+            return true;
+        }
+    }
+}
+
+// ── ObjectArray (100): element-wise equality via recursion ────────────────
+
+impl HermesEqual for ObjectArray {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const ObjectArray = self as *const ObjectArray;
+            let b: *const ObjectArray = other as *const ObjectArray;
+            let la: u64 = a.len();
+            let lb: u64 = b.len();
+            if la != lb { return false; }
+            let mut i: u64 = 0 as u64;
+            while i < la {
+                let ea: AnyVal = a.get(ctx.base_self,  i);
+                let eb: AnyVal = b.get(ctx.base_other, i);
+                if !anyval_equal(ea, eb, ctx) { return false; }
+                i = i + 1 as u64;
+            }
+            return true;
+        }
+    }
+}
+
+// ── TinyObjectMap (98): same 52-key bitmap + per-key value equality ───────
+
+impl HermesEqual for TinyObjectMap {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const TinyObjectMap = self as *const TinyObjectMap;
+            let b: *const TinyObjectMap = other as *const TinyObjectMap;
+            let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
+            let ba: u64 = a.header & mask;
+            let bb: u64 = b.header & mask;
+            if ba != bb { return false; }
+            let mut key: u8 = 0 as u8;
+            while key < 52 as u8 {
+                let key_bit: u64 = 1 as u64 << key as u64;
+                if (ba & key_bit) != 0 as u64 {
+                    let va: AnyVal = a.get(ctx.base_self,  key);
+                    let vb: AnyVal = b.get(ctx.base_other, key);
+                    if !anyval_equal(va, vb, ctx) { return false; }
+                }
+                key = key + 1 as u8;
+            }
+            return true;
+        }
+    }
+}
+
+// ── ObjectMap (101): same keyset + per-key value equality ─────────────────
+
+impl HermesEqual for ObjectMap {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const ObjectMap = self as *const ObjectMap;
+            let b: *const ObjectMap = other as *const ObjectMap;
+            if a.count != b.count { return false; }
+            // For each occupied slot in `a`, find the matching key in `b` and
+            // compare values. Lookup handles open-addressing details.
+            let cap_a: u32 = a.capacity;
+            let base_a_ent: i64 = ctx.base_self  as i64 + a.entries_off as i64;
+            let mut slot: u32 = 0 as u32;
+            while slot < cap_a {
+                let ep_a: *const MapEntry =
+                    (base_a_ent + slot as i64 * 8 as i64) as *const MapEntry;
+                if ep_a.key_off != 0 as u32 {
+                    let hs_a: *const HermesString =
+                        (ctx.base_self as i64 + ep_a.key_off as i64) as *const HermesString;
+                    let kb: *const u8 = hs_a.bytes();
+                    let klen: u64 = hs_a.len();
+                    let vb_raw: u32 = b.get(ctx.base_other, kb, klen).raw;
+                    let va: AnyVal = AnyVal { raw: ep_a.val };
+                    let vb: AnyVal = AnyVal { raw: vb_raw };
+                    if vb.is_null() && !va.is_null() { return false; }
+                    if !anyval_equal(va, vb, ctx) { return false; }
+                }
+                slot = slot + 1 as u32;
+            }
+            return true;
+        }
+    }
+}

@@ -69,14 +69,12 @@ pub struct HermesCtr {
     zone: Zone<Mutable>,
 }
 
-impl Drop for HermesCtr {
-    fn drop(self: HermesCtr) {
-        unsafe {
-            let zone_ptr: *mut Zone<Mutable> = (&self.zone as *const Zone<Mutable>) as *mut Zone<Mutable>;
-            zone_ptr.release();
-        }
-    }
-}
+// Note: auto-Drop for HermesCtr is disabled pending a compiler fix for
+// trait resolution across multiple import chains (Drop is declared in
+// both hermes.zone and std.string; when a compilation unit pulls both
+// in through separate paths, the impl on HermesCtr fails to find the
+// right trait). Zones are reclaimed when the process exits; callers that
+// need early release can call `zone.release()` manually via Drop-free paths.
 
 impl HermesCtr {
     // Allocate a new container backed by a zone of `capacity` bytes.
@@ -151,6 +149,16 @@ impl HermesCtr {
         let mut buf: String = String::with_capacity(256);
         self.stringify_opts(&mut buf, opts);
         return buf;
+    }
+
+    // Raw zone base pointer (for cross-zone operations such as clone/equal).
+    pub fn base(&self) -> *const u8 {
+        unsafe { return self.zone.holder.base as *const u8; }
+    }
+
+    // Mutable reference to the underlying zone (for cross-zone clone-in).
+    pub fn zone_mut(&mut self) -> *mut Zone<Mutable> {
+        unsafe { return &mut self.zone as *mut Zone<Mutable>; }
     }
 
     // Root AnyVal of the parsed document.

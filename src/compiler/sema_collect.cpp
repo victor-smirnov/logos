@@ -155,10 +155,21 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
 void SemaChecker::collect_module(TinyMapView mod, int phase) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
+
+    // Track pending #[...] annotations so the collect phase can populate
+    // explicit_type_codes_ early (before lower_module). Without this, an
+    // `impl Trait for Foo` in one package couldn't resolve Foo's type_code
+    // when Foo is declared in another package with #[type_code=N] — leading
+    // to a hash-fallback dispatch slot that never matches the runtime tag.
+    std::vector<TinyMapView> pending_annots;
+
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto item = map_of(items.get(i));
         int32_t c = code_of(item);
-        if (c == la::ANNOTATION) continue;  // annotations are processed in lower_module_items
+        if (c == la::ANNOTATION) {
+            if (phase == 1) pending_annots.push_back(item);
+            continue;
+        }
         if (phase == 1) {
             if      (c == la::STRUCT) {
                 if (is_specialization_struct(item)) collect_struct_spec(item);
@@ -166,8 +177,22 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             } else if (c == la::DATATYPE) {
                 // Skip explicit instantiation declarations (no FIELDS key, no NAME key).
                 // These only bind annotations to existing generic instantiations.
-                if (item.has_key(la::NAME.code))
+                if (item.has_key(la::NAME.code)) {
                     collect_datatype(item);
+                    // Apply any pending #[type_code=N] to explicit_type_codes_
+                    // so collect_impl (same pass) can find it.
+                    auto dname = std::string(str_of(item.get(la::NAME.code)));
+                    for (auto& ann : pending_annots) {
+                        auto aname = std::string(str_of(ann.get(la::NAME.code)));
+                        if (aname == "type_code" && ann.has_key(la::VALUE)) {
+                            auto sv = str_of(ann.get(la::VALUE.code));
+                            uint64_t tc = (uint64_t)parse_int_literal(sv);
+                            auto fqn = cur_package_.empty()
+                                       ? dname : cur_package_ + "::" + dname;
+                            explicit_type_codes_[fqn] = tc;
+                        }
+                    }
+                }
             }
             else if (c == la::ENUM)                       collect_enum(item);
             else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
@@ -177,6 +202,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             if      (c == la::TYPE_ALIAS)                 collect_type_alias(item);
             else if (c == la::CONST_DEF)                  collect_const(item);
         }
+        pending_annots.clear();
     }
 }
 
