@@ -207,10 +207,15 @@ impl HermesClone for ObjectMap {
                         AnyVal::from_offset(ep.key_off), ctx);
                     if new_key_av.is_null() { return 0 as *mut u8; }
                     let new_key_off: u32 = new_key_av.as_offset();
+                    // Bug fix: read key bytes from destination zone (cloned key), not source zone.
+                    let new_key_ptr: *const HermesString =
+                        (dst_base_mut as i64 + new_key_off as i64) as *const HermesString;
+                    let new_kbytes: *const u8 = new_key_ptr.bytes();
+                    let new_klen: u64 = new_key_ptr.len();
                     // Clone the value.
                     let src_v: AnyVal = AnyVal { raw: ep.val };
                     let new_v: AnyVal = anyval_clone(src_v, ctx);
-                    new_map.set(dst_base_mut, new_key_off, kbytes, klen, new_v);
+                    new_map.set(dst_base_mut, new_key_off, new_kbytes, new_klen, new_v);
                 }
                 slot = slot + 1 as u32;
             }

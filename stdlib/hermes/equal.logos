@@ -51,8 +51,10 @@ pub unsafe fn anyval_equal(a: AnyVal, b: AnyVal, ctx: *mut EqualCtx) -> bool {
         (ctx.base_self  as i64 + a.as_offset() as i64) as *const u8;
     let obj_b: *const u8 =
         (ctx.base_other as i64 + b.as_offset() as i64) as *const u8;
-    let tag_a: u8 = *((obj_a as i64 - 2) as *const u8);
-    let tag_b: u8 = *((obj_b as i64 - 2) as *const u8);
+    // Bug fix: use TagSystem::read_tag instead of manual byte reading to support variable-length tags.
+    let ts: HermesTypeTagSystem = HermesTypeTagSystem {};
+    let tag_a: u64 = ts.read_tag(obj_a);
+    let tag_b: u64 = ts.read_tag(obj_b);
     if tag_a != tag_b { return false; }
 
     let tagged_a: &tagged<HermesTypeTagSystem> HermesEqual = obj_a;

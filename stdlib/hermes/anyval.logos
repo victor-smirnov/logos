@@ -132,27 +132,27 @@ impl AnyVal {
     }
 
     pub unsafe fn as_u24(self: *const AnyVal) -> u32 {
-        return self.raw >> 8 as u32;
+        return (self.raw >> 8) as u32;
     }
 
     pub unsafe fn as_i16(self: *const AnyVal) -> i16 {
-        return (self.raw >> 8 as u32) as i16;
+        return ((self.raw >> 8) as u32) as i16;
     }
 
     pub unsafe fn as_u16(self: *const AnyVal) -> u16 {
-        return (self.raw >> 8 as u32) as u16;
+        return ((self.raw >> 8) as u32) as u16;
     }
 
     pub unsafe fn as_i8(self: *const AnyVal) -> i8 {
-        return (self.raw >> 8 as u32) as i8;
+        return ((self.raw >> 8) as u32) as i8;
     }
 
     pub unsafe fn as_u8(self: *const AnyVal) -> u8 {
-        return (self.raw >> 8 as u32) as u8;
+        return ((self.raw >> 8) as u32) as u8;
     }
 
     pub unsafe fn as_bool(self: *const AnyVal) -> bool {
-        return ((self.raw >> 8 as u32) & 1 as u32) != 0 as u32;
+        return (((self.raw >> 8) as u32) & 1 as u32) != 0 as u32;
     }
 
     // --- Safe type-check accessors (value mode) ---
