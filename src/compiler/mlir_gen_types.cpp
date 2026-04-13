@@ -92,11 +92,14 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
         std::fprintf(stderr, "mlir_gen: unresolved ConstVar '%s' — mono_pass required\n",
                      t->type_var_name.c_str());
         return nullptr;
-    case LogosType::Kind::AssocType:
+    case LogosType::Kind::AssocType: {
         // AssocType (T::Item) should have been resolved by mono_pass.
-        std::fprintf(stderr, "mlir_gen: unresolved AssocType '%s::%s' — mono_pass required\n",
-                     t->type_var_name.c_str(), t->assoc_type_name.c_str());
+        std::string base_s = t->assoc_base ? type_str(t->assoc_base) : "<null>";
+        std::fprintf(stderr,
+                     "mlir_gen: unresolved AssocType '%s::%s::%s' — mono_pass required\n",
+                     base_s.c_str(), t->trait_name.c_str(), t->assoc_type_name.c_str());
         return nullptr;
+    }
     case LogosType::Kind::Error:     return nullptr;
     case LogosType::Kind::ImplTrait: return nullptr;
     }

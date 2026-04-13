@@ -2788,6 +2788,40 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 return val;
             }
         }
+        // Generic static dispatch: DT::method() where DT is a type parameter with
+        // a trait bound that declares a static method `method`.  The actual impl is
+        // resolved during monomorphization (see mono_clone.cpp ECall branch — it
+        // rewrites "DT__method" → "ConcreteType__method" once DT is substituted).
+        auto bit = current_type_bounds_.find(cname_str);
+        if (bit != current_type_bounds_.end()) {
+            for (auto& bound : bit->second) {
+                auto tit = traits_.find(bound.trait_name);
+                if (tit == traits_.end()) continue;
+                for (auto& m : tit->second.methods) {
+                    if (m.name != mname_str) continue;
+                    // Static if the first param isn't Self/self.
+                    bool is_static = m.param_types.empty() ||
+                        !(m.param_types[0] &&
+                          (m.param_types[0]->kind == LogosType::Kind::TypeVar &&
+                           m.param_types[0]->type_var_name == "Self"));
+                    if (!is_static) continue;
+                    if (m.is_unsafe && !inside_unsafe_)
+                        error(std::format("call to unsafe method '{}' requires unsafe context", mname_str));
+                    // Substitute Self → TypeVar(DT) in return type so that
+                    // Self::Storage becomes AssocType with base = TypeVar(DT).
+                    SemaSubst self_subst;
+                    self_subst["Self"] = current_type_params_.count(cname_str)
+                        ? current_type_params_[cname_str] : make_typevar(cname_str);
+                    const LogosType* ret_t = subst_type_sema(m.ret_type, self_subst);
+                    // Arg-count check.
+                    if (arg_exprs.size() != m.param_types.size())
+                        error(std::format("method call '{}::{}': expected {} args, got {}",
+                              cname_str, mname_str, m.param_types.size(), arg_exprs.size()));
+                    return make_expr(ret_t,
+                        lir::ECall{cname_str + "__" + mname_str, {}, std::move(arg_exprs)});
+                }
+            }
+        }
         error(std::format("call to undefined static method '{}::{}'", class_name, method_name));
         return make_expr(error_t(), lir::ECall{mangled, {}, std::move(arg_exprs)});
     }

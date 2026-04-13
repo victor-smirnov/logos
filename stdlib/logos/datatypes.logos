@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos stdlib — logos.datatypes
+//
+// HermesDatatype — the bridge between a Hermes type's *processing* format
+// (what code sees and works with: `StringView`, `I64View`, …) and its
+// *storage* format (how it lives in a typed homogeneous container like
+// `Buffer<DT>`).
+
+package logos.datatypes;
+
+use std.drop;
+
+// ---------------------------------------------------------------------------
+// HermesDatatype — View ↔ Storage bridge.
+// ---------------------------------------------------------------------------
+
+pub trait HermesDatatype {
+    type View;
+    type Storage;
+
+    fn storage_new() -> Self::Storage;
+    fn storage_drop(s: *mut Self::Storage);
+    fn storage_len(s: *const Self::Storage) -> u64;
+    fn storage_push(s: *mut Self::Storage, v: Self::View);
+    fn storage_get(s: *const Self::Storage, idx: u64) -> Self::View;
+}
+
+// ---------------------------------------------------------------------------
+// Buffer<DT> — typed homogeneous container.
+//
+// Callers push/get `DT::View`.  Storage layout is `DT::Storage`.
+// Drop releases heap memory via the per-type `storage_drop` hook.
+// ---------------------------------------------------------------------------
+
+pub struct Buffer<DT: HermesDatatype> {
+    storage: DT::Storage,
+}
+
+// Free-function constructor: `buffer_new::<I64>()` (turbofish).  Grammar
+// doesn't yet support `Buffer::<DT>::new()`.
+pub fn buffer_new<DT: HermesDatatype>() -> Buffer<DT> {
+    return Buffer { storage: DT::storage_new() };
+}
+
+impl<DT: HermesDatatype> Buffer<DT> {
+    pub fn len(&self) -> u64 {
+        unsafe {
+            let sp: *const DT::Storage = &self.storage as *const DT::Storage;
+            return DT::storage_len(sp);
+        }
+    }
+
+    pub fn push(&mut self, v: DT::View) {
+        unsafe {
+            let sp: *mut DT::Storage =
+                (&self.storage as *const DT::Storage) as *mut DT::Storage;
+            DT::storage_push(sp, v);
+        }
+    }
+
+    pub fn get(&self, idx: u64) -> DT::View {
+        unsafe {
+            let sp: *const DT::Storage = &self.storage as *const DT::Storage;
+            return DT::storage_get(sp, idx);
+        }
+    }
+}
+
+impl<DT: HermesDatatype> Drop for Buffer<DT> {
+    fn drop(self: Buffer<DT>) {
+        unsafe {
+            let sp: *mut DT::Storage =
+                (&self.storage as *const DT::Storage) as *mut DT::Storage;
+            DT::storage_drop(sp);
+        }
+    }
+}

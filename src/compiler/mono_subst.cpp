@@ -109,10 +109,15 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
     case LogosType::Kind::AssocType: {
         // Resolve: recursively substitute the base, then look up TraitName::ConcreteType::AssocName
         auto* subbed_base = subst_type(t->assoc_base, s);
-        if (subbed_base->kind == LogosType::Kind::Struct || subbed_base->kind == LogosType::Kind::Enum) {
+        if (subbed_base->kind == LogosType::Kind::Struct ||
+            subbed_base->kind == LogosType::Kind::Datatype ||
+            subbed_base->kind == LogosType::Kind::Enum) {
             std::string concrete_base;
-            if      (subbed_base->kind == LogosType::Kind::Struct) concrete_base = concrete_struct_name(subbed_base);
-            else                                                   concrete_base = subbed_base->enum_name;
+            if (subbed_base->kind == LogosType::Kind::Struct ||
+                subbed_base->kind == LogosType::Kind::Datatype)
+                concrete_base = concrete_struct_name(subbed_base);
+            else
+                concrete_base = subbed_base->enum_name;
 
             std::string key = t->trait_name + "::" + concrete_base + "::" + t->assoc_type_name;
             auto ait = assoc_impls_.find(key);

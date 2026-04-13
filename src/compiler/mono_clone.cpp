@@ -75,6 +75,26 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     nc.args.push_back(subst_expr(*a, s));
                 }
             }
+            // Generic static-trait-dispatch: sema emits "DT__method" where DT is
+            // a type parameter in the enclosing impl/fn.  Once DT is substituted
+            // to a concrete type, rewrite the callee prefix.
+            {
+                auto sep = nc.callee.find("__");
+                if (sep != std::string::npos) {
+                    std::string prefix = nc.callee.substr(0, sep);
+                    auto it = s.find(prefix);
+                    if (it != s.end() && it->second) {
+                        std::string cname;
+                        const LogosType* t = it->second;
+                        if (t->kind == LogosType::Kind::Struct)
+                            cname = concrete_struct_name(t);
+                        else
+                            cname = type_str(t);
+                        if (!cname.empty())
+                            nc.callee = cname + nc.callee.substr(sep);
+                    }
+                }
+            }
             // Rewrite callee if it's a generic call that was already instantiated
             if (!nc.type_args.empty()) {
                 // Check if callee is a static method on a generic struct template.
