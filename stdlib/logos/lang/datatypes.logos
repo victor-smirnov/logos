@@ -37,13 +37,11 @@ pub struct Buffer<DT: Datatype> {
     storage: DT::Storage,
 }
 
-// Free-function constructor: `buffer_new::<I64>()` (turbofish).  Grammar
-// doesn't yet support `Buffer::<DT>::new()`.
-pub fn buffer_new<DT: Datatype>() -> Buffer<DT> {
-    return Buffer { storage: DT::storage_new() };
-}
-
 impl<DT: Datatype> Buffer<DT> {
+    pub static fn new() -> Buffer<DT> {
+        return Buffer { storage: DT::storage_new() };
+    }
+
     pub fn len(&self) -> u64 {
         unsafe {
             let sp: *const DT::Storage = &self.storage as *const DT::Storage;

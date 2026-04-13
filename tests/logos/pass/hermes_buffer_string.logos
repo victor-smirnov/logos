@@ -21,7 +21,7 @@ unsafe fn sv(lit: *const u8, n: u64) -> StringView {
 }
 
 unsafe fn main() -> i32 {
-    let mut b: Buffer<HermesString> = buffer_new::<HermesString>();
+    let mut b: Buffer<HermesString> = Buffer::<HermesString>::new();
     if b.len() != 0 as u64 { return 1; }
 
     b.push(sv("alpha",  5 as u64));

@@ -1153,7 +1153,12 @@
                   => { ITEMS: $... }
 
     // ── Free function call: fn(args) or fn::<T>(args) or Class::method(args) ─
-    call_expr <- IDENT COLONCOLON LT type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+    //                       or Class::<T>::method(args) — turbofish on the type.
+    call_expr <- IDENT COLONCOLON LT type_arg_list GT_TYPE COLONCOLON IDENT LPAREN call_arg_list? RPAREN
+              => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
+               / IDENT COLONCOLON LT type_arg_list GT_TYPE COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
+              => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
+               / IDENT COLONCOLON LT type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
               => { CODE: GENERIC_CALL, CALLEE: $1, TYPE_PARAMS: $4, ARGS: $7 }
                / IDENT COLONCOLON IDENT  LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }

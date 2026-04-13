@@ -2846,7 +2846,18 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
         if (!in_generic_context) {
             std::vector<const LogosType*> inferred;
-            if (infer_type_args(fi, arg_exprs, inferred)) {
+            bool have_inferred = false;
+            // Turbofish: Buffer::<I64>::new() — use explicit type args, skip arg inference.
+            if (node.has_key(la::TYPE_PARAMS)) {
+                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        inferred.push_back(resolve_type(map_of(items.get(i))));
+                    have_inferred = !inferred.empty();
+                }
+            }
+            if (have_inferred || infer_type_args(fi, arg_exprs, inferred)) {
                 // Build substitution map for the inferred type params.
                 std::unordered_map<std::string, const LogosType*> subst;
                 size_t n_tp = fi.type_params.size();

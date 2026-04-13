@@ -6,7 +6,7 @@ use logos.lang.datatypes;
 use hermes.scalar;
 
 unsafe fn main() -> i32 {
-    let mut b: Buffer<I64> = buffer_new::<I64>();
+    let mut b: Buffer<I64> = Buffer::<I64>::new();
     if b.len() != 0 as u64 { return 1; }
 
     // Push 10 values — exercises grow: 0→4, 4→8, 8→16.

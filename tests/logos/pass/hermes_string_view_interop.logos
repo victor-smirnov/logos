@@ -47,7 +47,7 @@ unsafe fn main() -> i32 {
     let v2_ctr: StringView = doc.get_str_view(doc.array_get(root, 2 as u64));
 
     // Store the same strings in a Buffer<HermesString> (SoA).
-    let mut b: Buffer<HermesString> = buffer_new::<HermesString>();
+    let mut b: Buffer<HermesString> = Buffer::<HermesString>::new();
     b.push(v0_ctr);
     b.push(v1_ctr);
     b.push(v2_ctr);
