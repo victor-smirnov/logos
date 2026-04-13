@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.scalar
+//
+// Zone-allocated numeric Hermes datatypes that don't fit inline in AnyVal's
+// 24-bit payload. Each is a plain 8-byte POD with a 2-byte TypeTag prefix.
+//
+// Types defined here:
+//   I64  (type_code=26, 8 bytes)  — signed 64-bit integer
+//   U64  (type_code=27, 8 bytes)  — unsigned 64-bit integer
+//
+// The inline-capable relatives (Integer=23, UInteger=25, etc.) live as
+// embedded AnyVal values; these zone types are the fallback when the value
+// doesn't fit in the inline payload, or when the caller wants a stable
+// pointer identity.
+
+package hermes.scalar;
+
+// ---------------------------------------------------------------------------
+// I64 — zone-allocated signed 64-bit integer.
+// ---------------------------------------------------------------------------
+
+#[type_code=26]
+pub datatype I64 {
+    pub v: i64,
+}
+
+impl I64 {
+    // Initialize an I64 at pre-allocated, 8-byte-aligned memory.
+    pub unsafe fn init(raw: *mut u8, value: i64) -> *mut I64 {
+        let p: *mut I64 = raw as *mut I64;
+        p.v = value;
+        return p;
+    }
+
+    pub unsafe fn value(self: *const I64) -> i64 {
+        return self.v;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// U64 — zone-allocated unsigned 64-bit integer.
+// ---------------------------------------------------------------------------
+
+#[type_code=27]
+pub datatype U64 {
+    pub v: u64,
+}
+
+impl U64 {
+    pub unsafe fn init(raw: *mut u8, value: u64) -> *mut U64 {
+        let p: *mut U64 = raw as *mut U64;
+        p.v = value;
+        return p;
+    }
+
+    pub unsafe fn value(self: *const U64) -> u64 {
+        return self.v;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Canonical type-hash constants for the tag-writing helpers.
+// ---------------------------------------------------------------------------
+
+pub unsafe fn hermes_tag_i64() -> u8 { return 26 as u8; }
+pub unsafe fn hermes_tag_u64() -> u8 { return 27 as u8; }

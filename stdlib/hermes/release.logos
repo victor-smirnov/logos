@@ -18,6 +18,7 @@ use hermes.tag_system;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
+use hermes.scalar;
 
 #[tag_dispatch(HermesTypeTagSystem)]
 pub trait HermesRelease {
@@ -29,3 +30,5 @@ impl HermesRelease for ObjectArray     { pub fn release(&self) {} }
 impl HermesRelease for TinyObjectMap   { pub fn release(&self) {} }
 impl HermesRelease for ObjectMap       { pub fn release(&self) {} }
 impl HermesRelease for DocumentHeader  { pub fn release(&self) {} }
+impl HermesRelease for I64             { pub fn release(&self) {} }
+impl HermesRelease for U64             { pub fn release(&self) {} }

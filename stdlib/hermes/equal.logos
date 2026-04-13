@@ -22,6 +22,7 @@ use hermes.tag_system;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
+use hermes.scalar;
 
 pub struct EqualCtx {
     pub base_self:  *const u8,
@@ -78,6 +79,28 @@ impl HermesEqual for HermesString {
                 i = i + 1 as u64;
             }
             return true;
+        }
+    }
+}
+
+// ── I64 (26) / U64 (27): byte-identical payload ────────────────────────────
+
+impl HermesEqual for I64 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const I64 = self as *const I64;
+            let b: *const I64 = other as *const I64;
+            return a.value() == b.value();
+        }
+    }
+}
+
+impl HermesEqual for U64 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const U64 = self as *const U64;
+            let b: *const U64 = other as *const U64;
+            return a.value() == b.value();
         }
     }
 }

@@ -32,6 +32,7 @@ use hermes.tag_system;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
+use hermes.scalar;
 use std.string;
 
 // ---------------------------------------------------------------------------
@@ -237,6 +238,28 @@ impl HermesStringify for ObjectMap {
             }
             if !first { write_indent(ctx); }
             ctx.out.push_u8(125 as u8);  // '}'
+        }
+    }
+}
+
+// ── I64 (type_code=26) ─────────────────────────────────────────────────────
+
+impl HermesStringify for I64 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let a: *const I64 = self as *const I64;
+            ctx.out.push_i64(a.value());
+        }
+    }
+}
+
+// ── U64 (type_code=27) ─────────────────────────────────────────────────────
+
+impl HermesStringify for U64 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let a: *const U64 = self as *const U64;
+            ctx.out.push_u64(a.value());
         }
     }
 }

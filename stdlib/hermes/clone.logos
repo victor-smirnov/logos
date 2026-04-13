@@ -26,6 +26,7 @@ use hermes.tag_system;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
+use hermes.scalar;
 use std.string;
 
 pub struct CloneCtx {
@@ -67,6 +68,38 @@ impl HermesClone for HermesString {
                                    hermes_tag_string(), hermes_desc_data());
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             HermesString::init(raw, a.bytes(), len);
+            return raw;
+        }
+    }
+}
+
+// ── I64 (26) ──────────────────────────────────────────────────────────────
+
+impl HermesClone for I64 {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let a: *const I64 = self as *const I64;
+            let sz: i64 = sizeof::<I64>() as i64;
+            let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sz,
+                                   hermes_tag_i64(), hermes_desc_data());
+            if raw == 0 as *mut u8 { return 0 as *mut u8; }
+            I64::init(raw, a.value());
+            return raw;
+        }
+    }
+}
+
+// ── U64 (27) ──────────────────────────────────────────────────────────────
+
+impl HermesClone for U64 {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let a: *const U64 = self as *const U64;
+            let sz: i64 = sizeof::<U64>() as i64;
+            let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sz,
+                                   hermes_tag_u64(), hermes_desc_data());
+            if raw == 0 as *mut u8 { return 0 as *mut u8; }
+            U64::init(raw, a.value());
             return raw;
         }
     }

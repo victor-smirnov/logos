@@ -19,6 +19,7 @@ use hermes.tag_system;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
+use hermes.scalar;
 
 pub struct HashCtx {
     pub base: *const u8,
@@ -85,6 +86,28 @@ impl HermesHash for HermesString {
                 i = i + 1 as u64;
             }
             return h;
+        }
+    }
+}
+
+// ── I64 (26) / U64 (27) ───────────────────────────────────────────────────
+
+impl HermesHash for I64 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe {
+            let a: *const I64 = self as *const I64;
+            let h0: u64 = fnv_mix_u64(fnv_init(), 26 as u64);
+            return fnv_mix_u64(h0, a.value() as u64);
+        }
+    }
+}
+
+impl HermesHash for U64 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe {
+            let a: *const U64 = self as *const U64;
+            let h0: u64 = fnv_mix_u64(fnv_init(), 27 as u64);
+            return fnv_mix_u64(h0, a.value());
         }
     }
 }
