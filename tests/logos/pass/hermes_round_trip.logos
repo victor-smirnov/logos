@@ -144,22 +144,22 @@ unsafe fn main() -> i32 {
     let ilen: i64 = build_input(ibuf);
 
     // ── Parse ────────────────────────────────────────────────────────────────
-    let mut zone: HermesZone = HermesZone::create(8192);
+    let mut zone: Zone<Mutable> = zone_create(8192);
     let ok: bool = hermes_parse(ibuf as *const u8, ilen, &mut zone);
     free(ibuf);
     if !ok {
-        zone.destroy();
+        // zone is cleaned up by Drop
         return 1;
     }
 
     // ── Stringify ────────────────────────────────────────────────────────────
     let mut sb: String = String::new();
-    stringify_document(zone.base as *const u8, &mut sb, StringifyOpts::compact());
+    stringify_document(zone.holder.base as *const u8, &mut sb, StringifyOpts::compact());
 
     // ── Print ────────────────────────────────────────────────────────────────
     print_buf(&mut sb);
 
     // ── Cleanup ──────────────────────────────────────────────────────────────
-    zone.destroy();
+    // zone is cleaned up by Drop
     return 0;
 }

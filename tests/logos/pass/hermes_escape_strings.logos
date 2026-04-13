@@ -39,15 +39,15 @@ unsafe fn main() -> i32 {
     wb(ibuf, 1, 92 as u8);  // backslash
     wb(ibuf, 2, 34 as u8);  // "  (escaped)
     wb(ibuf, 3, 34 as u8);  // closing "
-    let mut z1: HermesZone = HermesZone::create(4096);
+    let mut z1: Zone<Mutable> = zone_create(4096);
     if !hermes_parse(ibuf as *const u8, 4, &mut z1) { free(ibuf); return 1; }
-    let r1: AnyVal = document_get_root(document_header(z1.base) as *const DocumentHeader);
+    let r1: AnyVal = document_get_root(document_header(z1.holder.base) as *const DocumentHeader);
     if !r1.is_ptr()                             { free(ibuf); return 2; }
     let hs1: *const HermesString =
-        (z1.base as i64 + r1.as_offset() as i64) as *const HermesString;
+        (z1.holder.base as i64 + r1.as_offset() as i64) as *const HermesString;
     if hs1.len() != 1 as u64                   { free(ibuf); return 3; }
     if *hs1.bytes() != 34 as u8               { free(ibuf); return 4; }
-    z1.destroy();
+    // zone is cleaned up by Drop
 
     // ── 2. "\\" — lone escaped backslash ────────────────────────────────────
     // Input: [34 92 92 34]  = '"' '\' '\' '"'
@@ -56,15 +56,15 @@ unsafe fn main() -> i32 {
     wb(ibuf, 1, 92 as u8);  // backslash
     wb(ibuf, 2, 92 as u8);  // backslash (escaped)
     wb(ibuf, 3, 34 as u8);  // closing "
-    let mut z2: HermesZone = HermesZone::create(4096);
+    let mut z2: Zone<Mutable> = zone_create(4096);
     if !hermes_parse(ibuf as *const u8, 4, &mut z2) { free(ibuf); return 5; }
-    let r2: AnyVal = document_get_root(document_header(z2.base) as *const DocumentHeader);
+    let r2: AnyVal = document_get_root(document_header(z2.holder.base) as *const DocumentHeader);
     if !r2.is_ptr()                             { free(ibuf); return 6; }
     let hs2: *const HermesString =
-        (z2.base as i64 + r2.as_offset() as i64) as *const HermesString;
+        (z2.holder.base as i64 + r2.as_offset() as i64) as *const HermesString;
     if hs2.len() != 1 as u64                   { free(ibuf); return 7; }
     if *hs2.bytes() != 92 as u8               { free(ibuf); return 8; }
-    z2.destroy();
+    // zone is cleaned up by Drop
 
     // ── 3. "\n" — escaped newline ────────────────────────────────────────────
     // Input: [34 92 110 34]  = '"' '\' 'n' '"'
@@ -73,15 +73,15 @@ unsafe fn main() -> i32 {
     wb(ibuf, 1, 92 as u8);   // backslash
     wb(ibuf, 2, 110 as u8);  // 'n'
     wb(ibuf, 3, 34 as u8);   // closing "
-    let mut z3: HermesZone = HermesZone::create(4096);
+    let mut z3: Zone<Mutable> = zone_create(4096);
     if !hermes_parse(ibuf as *const u8, 4, &mut z3) { free(ibuf); return 9; }
-    let r3: AnyVal = document_get_root(document_header(z3.base) as *const DocumentHeader);
+    let r3: AnyVal = document_get_root(document_header(z3.holder.base) as *const DocumentHeader);
     if !r3.is_ptr()                             { free(ibuf); return 10; }
     let hs3: *const HermesString =
-        (z3.base as i64 + r3.as_offset() as i64) as *const HermesString;
+        (z3.holder.base as i64 + r3.as_offset() as i64) as *const HermesString;
     if hs3.len() != 1 as u64                   { free(ibuf); return 11; }
     if *hs3.bytes() != 10 as u8               { free(ibuf); return 12; }
-    z3.destroy();
+    // zone is cleaned up by Drop
 
     // ── 4. "\t" — escaped tab ────────────────────────────────────────────────
     // Input: [34 92 116 34]  = '"' '\' 't' '"'
@@ -90,15 +90,15 @@ unsafe fn main() -> i32 {
     wb(ibuf, 1, 92 as u8);   // backslash
     wb(ibuf, 2, 116 as u8);  // 't'
     wb(ibuf, 3, 34 as u8);   // closing "
-    let mut z4: HermesZone = HermesZone::create(4096);
+    let mut z4: Zone<Mutable> = zone_create(4096);
     if !hermes_parse(ibuf as *const u8, 4, &mut z4) { free(ibuf); return 13; }
-    let r4: AnyVal = document_get_root(document_header(z4.base) as *const DocumentHeader);
+    let r4: AnyVal = document_get_root(document_header(z4.holder.base) as *const DocumentHeader);
     if !r4.is_ptr()                             { free(ibuf); return 14; }
     let hs4: *const HermesString =
-        (z4.base as i64 + r4.as_offset() as i64) as *const HermesString;
+        (z4.holder.base as i64 + r4.as_offset() as i64) as *const HermesString;
     if hs4.len() != 1 as u64                   { free(ibuf); return 15; }
     if *hs4.bytes() != 9 as u8                { free(ibuf); return 16; }
-    z4.destroy();
+    // zone is cleaned up by Drop
 
     // ── 5. "\r" — escaped carriage return ───────────────────────────────────
     // Input: [34 92 114 34]  = '"' '\' 'r' '"'
@@ -107,15 +107,15 @@ unsafe fn main() -> i32 {
     wb(ibuf, 1, 92 as u8);   // backslash
     wb(ibuf, 2, 114 as u8);  // 'r'
     wb(ibuf, 3, 34 as u8);   // closing "
-    let mut z5: HermesZone = HermesZone::create(4096);
+    let mut z5: Zone<Mutable> = zone_create(4096);
     if !hermes_parse(ibuf as *const u8, 4, &mut z5) { free(ibuf); return 17; }
-    let r5: AnyVal = document_get_root(document_header(z5.base) as *const DocumentHeader);
+    let r5: AnyVal = document_get_root(document_header(z5.holder.base) as *const DocumentHeader);
     if !r5.is_ptr()                             { free(ibuf); return 18; }
     let hs5: *const HermesString =
-        (z5.base as i64 + r5.as_offset() as i64) as *const HermesString;
+        (z5.holder.base as i64 + r5.as_offset() as i64) as *const HermesString;
     if hs5.len() != 1 as u64                   { free(ibuf); return 19; }
     if *hs5.bytes() != 13 as u8               { free(ibuf); return 20; }
-    z5.destroy();
+    // zone is cleaned up by Drop
 
     // ── 6. "a\nb" — mixed literal and escape ────────────────────────────────
     // Input: [34 97 92 110 98 34]  = '"' 'a' '\' 'n' 'b' '"'
@@ -126,12 +126,12 @@ unsafe fn main() -> i32 {
     wb(ibuf, 3, 110 as u8);  // 'n'
     wb(ibuf, 4, 98 as u8);   // 'b'
     wb(ibuf, 5, 34 as u8);   // closing "
-    let mut z6: HermesZone = HermesZone::create(4096);
+    let mut z6: Zone<Mutable> = zone_create(4096);
     if !hermes_parse(ibuf as *const u8, 6, &mut z6) { free(ibuf); return 21; }
-    let r6: AnyVal = document_get_root(document_header(z6.base) as *const DocumentHeader);
+    let r6: AnyVal = document_get_root(document_header(z6.holder.base) as *const DocumentHeader);
     if !r6.is_ptr()                             { free(ibuf); return 22; }
     let hs6: *const HermesString =
-        (z6.base as i64 + r6.as_offset() as i64) as *const HermesString;
+        (z6.holder.base as i64 + r6.as_offset() as i64) as *const HermesString;
     if hs6.len() != 3 as u64                   { free(ibuf); return 23; }
     let b6_0: u8 = *hs6.bytes();
     let b6_1: u8 = *((hs6.bytes() as i64 + 1) as *const u8);
@@ -139,7 +139,7 @@ unsafe fn main() -> i32 {
     if b6_0 != 97 as u8                       { free(ibuf); return 24; }  // 'a'
     if b6_1 != 10 as u8                       { free(ibuf); return 25; }  // LF
     if b6_2 != 98 as u8                       { free(ibuf); return 26; }  // 'b'
-    z6.destroy();
+    // zone is cleaned up by Drop
 
     // ── 7. {"a\"b": 1} — escaped quote in map key ───────────────────────────
     // Input: [123 34 97 92 34 98 34 58 49 125]
@@ -154,12 +154,12 @@ unsafe fn main() -> i32 {
     wb(ibuf, 7,  58 as u8);  // ':'
     wb(ibuf, 8,  49 as u8);  // '1'
     wb(ibuf, 9, 125 as u8);  // '}'
-    let mut z7: HermesZone = HermesZone::create(8192);
+    let mut z7: Zone<Mutable> = zone_create(8192);
     if !hermes_parse(ibuf as *const u8, 10, &mut z7) { free(ibuf); return 27; }
-    let r7: AnyVal = document_get_root(document_header(z7.base) as *const DocumentHeader);
+    let r7: AnyVal = document_get_root(document_header(z7.holder.base) as *const DocumentHeader);
     if !r7.is_ptr()                             { free(ibuf); return 28; }
     let omap7: *const ObjectMap =
-        (z7.base as i64 + r7.as_offset() as i64) as *const ObjectMap;
+        (z7.holder.base as i64 + r7.as_offset() as i64) as *const ObjectMap;
     let cnt7: u32 = omap7.size_count();
     if cnt7 != 1 as u32                        { free(ibuf); return 29; }
     // Look up key a"b = [97, 34, 98]
@@ -167,10 +167,10 @@ unsafe fn main() -> i32 {
     *((kbuf as i64 + 0) as *mut u8) = 97 as u8;   // 'a'
     *((kbuf as i64 + 1) as *mut u8) = 34 as u8;   // '"'
     *((kbuf as i64 + 2) as *mut u8) = 98 as u8;   // 'b'
-    let got7: AnyVal = omap7.get(z7.base as *const u8,
+    let got7: AnyVal = omap7.get(z7.holder.base as *const u8,
                                  kbuf as *const u8, 3 as u64);
     free(kbuf);
-    z7.destroy();
+    // zone is cleaned up by Drop
     if got7.is_null()                          { free(ibuf); return 30; }
     // New: i24(1) has raw = (1 << 8) | 0x2F = 0x0000012F
     if got7.raw != 0x0000012F as u32           { free(ibuf); return 31; }

@@ -4,12 +4,13 @@
 //
 // HermesCtr — owning container for a Hermes document.
 //
-// Encapsulates zone allocation, text parsing, and stringification.
-// The user creates an HermesCtr, parses text into it, then stringifies
-// and/or prints the result.  All unsafe zone/pointer work is internal.
+// Encapsulates zone allocation and text parsing.
+// The user creates an HermesCtr, parses text into it, then traverses
+// the result via root(), array_get(), map_get_cstr(), etc.
+// All unsafe zone/pointer work is internal.
 //
-// Drop: HermesCtr owns HermesZone and String, both of which implement Drop.
-// The compiler auto-generates drop glue — no explicit `impl Drop` needed here.
+// Drop: HermesCtr implements Drop and calls zone.release() to clean up
+// the reference-counted MemHolder. The zone's lifetime is tied to HermesCtr.
 //
 // Usage:
 //   let mut doc: HermesCtr = HermesCtr::new(8192);
@@ -17,21 +18,17 @@
 //       Result::Ok(())  => {}
 //       Result::Err(_)  => { return 1; }
 //   }
-//   doc.stringify();
-//   doc.print();
+//   let root: AnyVal = doc.root();  // access parsed document
 
 package hermes.ctr;
 
 use hermes.zone;
 use hermes.anyval;
-use hermes.string;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.typetag;
 use hermes.document;
 use hermes.parser;
-use hermes.stringify;
-use std.string;
 
 // cstr_len — byte length of a null-terminated C string.
 unsafe fn cstr_len(s: *const u8) -> i64 {
@@ -63,26 +60,35 @@ pub enum ParseError {
 // ---------------------------------------------------------------------------
 
 pub struct HermesCtr {
-    zone: HermesZone,
-    buf:  String,
+    zone: Zone<Mutable>,
+}
+
+impl Drop for HermesCtr {
+    fn drop(self: HermesCtr) {
+        unsafe {
+            let zone_ptr: *mut Zone<Mutable> = (&self.zone as *const Zone<Mutable>) as *mut Zone<Mutable>;
+            zone_ptr.release();
+        }
+    }
 }
 
 impl HermesCtr {
     // Allocate a new container backed by a zone of `capacity` bytes.
     // Used when you will parse a document into the zone (parser creates DocumentHeader).
     pub static fn new(capacity: i64) -> HermesCtr {
-        return HermesCtr {
-            zone: HermesZone::create(capacity),
-            buf:  String::with_capacity(256),
-        };
+        unsafe {
+            return HermesCtr {
+                zone: zone_create(capacity),
+            };
+        }
     }
 
     // For building a document programmatically (without parsing).
     // Pre-allocates the DocumentHeader at zone offset 0.
     pub static fn builder(capacity: i64) -> HermesCtr {
         unsafe {
-            let mut zone: HermesZone = HermesZone::create(capacity);
-            let hdr_raw: *mut u8 = zone.alloc_raw(8);
+            let mut zone: Zone<Mutable> = zone_create(capacity);
+            let hdr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 8);
             // Guard: alloc_raw returns null if capacity is too small (< 8 bytes).
             // Without this check, document_create(null) would write to address 0.
             if hdr_raw != 0 as *mut u8 {
@@ -90,7 +96,6 @@ impl HermesCtr {
             }
             return HermesCtr {
                 zone: zone,
-                buf:  String::with_capacity(256),
             };
         }
     }
@@ -98,73 +103,21 @@ impl HermesCtr {
     // Parse Hermes text (UTF-8 bytes) into the zone.
     // Returns Ok(()) on success, Err(ParseError::Failed) on parse error.
     pub fn parse(&mut self, text: *const u8, len: i64) -> Result<(), ParseError> {
-        if unsafe { hermes_parse(text, len, &mut self.zone) } {
-            return Result::Ok(());
-        }
-        return Result::Err(ParseError::Failed);
-    }
-
-    // Stringify the parsed document into the internal buffer (compact).
-    // May be called multiple times; each call replaces the previous result.
-    pub fn stringify(&mut self) {
         unsafe {
-            self.buf.clear();
-            stringify_document(self.zone.base as *const u8, &mut self.buf,
-                               StringifyOpts::compact());
+            if hermes_parse(text, len, &mut self.zone) {
+                return Result::Ok(());
+            }
+            return Result::Err(ParseError::Failed);
         }
-    }
-
-    // Stringify with explicit formatting options.
-    pub fn stringify_opts(&mut self, opts: StringifyOpts) {
-        unsafe {
-            self.buf.clear();
-            stringify_document(self.zone.base as *const u8, &mut self.buf, opts);
-        }
-    }
-
-    // Write the stringified bytes to stdout, followed by a newline.
-    // Call stringify() first.
-    pub fn print(&mut self) {
-        unsafe {
-            write(1 as i32, self.buf.as_ptr(), self.buf.len());
-            let nl: u8 = 10 as u8;
-            write(1 as i32, &nl as *const u8, 1 as i64);
-        }
-    }
-
-    // Pointer to the stringified bytes (valid until next stringify/destroy).
-    pub fn data(&self) -> *const u8 {
-        return self.buf.as_ptr();
-    }
-
-    // Length of the stringified output in bytes.
-    pub fn len(&self) -> i64 {
-        return self.buf.len();
     }
 
     // Root AnyVal of the parsed document.
     pub fn root(&self) -> AnyVal {
         unsafe {
-            let doc: *const DocumentHeader = self.zone.base as *const DocumentHeader;
+            let base: *mut u8 = self.zone.holder.base;
+            let doc: *const DocumentHeader = base as *const DocumentHeader;
             return document_get_root(doc);
         }
-    }
-
-    // Zone base pointer (for advanced access to zone-allocated objects).
-    pub fn base(&self) -> *const u8 {
-        unsafe { return self.zone.base as *const u8; }
-    }
-
-    // Stringify and return as an owned String (compact).
-    pub fn to_string(&mut self) -> String {
-        self.stringify();
-        return String::from_bytes(self.data(), self.len());
-    }
-
-    // Stringify with explicit formatting options and return as an owned String.
-    pub fn to_string_opts(&mut self, opts: StringifyOpts) -> String {
-        self.stringify_opts(opts);
-        return String::from_bytes(self.data(), self.len());
     }
 
     // ── Value extraction helpers ───────────────────────────────────────────────
@@ -187,8 +140,8 @@ impl HermesCtr {
     // Number of elements in an ObjectArray AnyVal. Returns 0 if val is not an array.
     pub fn array_len(&self, val: AnyVal) -> u64 {
         unsafe {
-            let base: *const u8 = self.zone.base as *const u8;
-            if !val.is_array(base) { return 0 as u64; }
+            let base: *mut u8 = self.zone.holder.base;
+            if !val.is_array(base as *const u8) { return 0 as u64; }
             let arr: *const ObjectArray =
                 (base as i64 + val.as_offset() as i64) as *const ObjectArray;
             return arr.len();
@@ -199,11 +152,11 @@ impl HermesCtr {
     // Returns AnyVal::null_ptr() if val is not an array or idx is out of bounds.
     pub fn array_get(&self, val: AnyVal, idx: u64) -> AnyVal {
         unsafe {
-            let base: *const u8 = self.zone.base as *const u8;
-            if !val.is_array(base) { return AnyVal::null_ptr(); }
+            let base: *mut u8 = self.zone.holder.base;
+            if !val.is_array(base as *const u8) { return AnyVal::null_ptr(); }
             let arr: *const ObjectArray =
                 (base as i64 + val.as_offset() as i64) as *const ObjectArray;
-            return arr.get(base, idx);
+            return arr.get(base as *const u8, idx);
         }
     }
 
@@ -213,8 +166,8 @@ impl HermesCtr {
     // Returns AnyVal::null_ptr() if val is not a map or key is not found.
     pub fn map_get_cstr(&self, val: AnyVal, key: *const u8) -> AnyVal {
         unsafe {
-            let base: *const u8 = self.zone.base as *const u8;
-            if !val.is_map(base) { return AnyVal::null_ptr(); }
+            let base: *mut u8 = self.zone.holder.base;
+            if !val.is_map(base as *const u8) { return AnyVal::null_ptr(); }
             // Read the descriptor to distinguish TinyObjectMap (hash=98) from
             // ObjectMap (hash=101). TinyObjectMap uses numeric keys only;
             // for string lookups we treat it as not found.
@@ -227,7 +180,7 @@ impl HermesCtr {
             // ObjectMap (hash=101): open-addressing, string keys.
             let omap: *const ObjectMap = obj as *const ObjectMap;
             let klen: i64 = cstr_len(key);
-            return omap.get(base, key, klen as u64);
+            return omap.get(base as *const u8, key, klen as u64);
         }
     }
 
@@ -245,12 +198,12 @@ impl HermesCtr {
             // vlen prefix size varies: 1 byte for len < 249, more for larger strings.
             let prefix_sz: i64 = vlen_encode_size(len) as i64;
             let total: i64 = prefix_sz + slen;
-            let raw: *mut u8 = self.zone.alloc_tagged(
-                total, hermes_tag_string(), hermes_desc_data());
+            let raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone, total, hermes_tag_string(), hermes_desc_data());
             if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             // HermesString::init writes the correct vlen prefix and copies the bytes.
             HermesString::init(raw, s, len);
-            let off: u32 = (raw as i64 - self.zone.base as i64) as u32;
+            let base: *mut u8 = self.zone.holder.base;
+            let off: u32 = (raw as i64 - base as i64) as u32;
             return AnyVal::from_offset(off);
         }
     }
@@ -261,13 +214,14 @@ impl HermesCtr {
     pub fn build_map(&mut self, cap_slots: u32) -> AnyVal {
         unsafe {
             let map_sz: i64 = 16 as i64;  // sizeof ObjectMap
-            let map_raw: *mut u8 = self.zone.alloc_tagged(
+            let map_raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone,
                 map_sz, hermes_tag_map(), hermes_desc_map());
             if map_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let entries_raw: *mut u8 = self.zone.alloc_raw(cap_slots as i64 * 8 as i64);
+            let entries_raw: *mut u8 = zone_m_alloc_raw(&mut self.zone, cap_slots as i64 * 8 as i64);
             if entries_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            ObjectMap::init(map_raw, self.zone.base, entries_raw, cap_slots);
-            let off: u32 = (map_raw as i64 - self.zone.base as i64) as u32;
+            let base: *mut u8 = self.zone.holder.base;
+            ObjectMap::init(map_raw, base, entries_raw, cap_slots);
+            let off: u32 = (map_raw as i64 - base as i64) as u32;
             return AnyVal::from_offset(off);
         }
     }
@@ -277,13 +231,14 @@ impl HermesCtr {
     pub fn build_array(&mut self, cap: u64) -> AnyVal {
         unsafe {
             let oa_sz: i64 = 24 as i64;  // sizeof ObjectArray
-            let oa_raw: *mut u8 = self.zone.alloc_tagged(
+            let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone,
                 oa_sz, hermes_tag_array(), hermes_desc_array());
             if oa_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let buf_raw: *mut u8 = self.zone.alloc_raw(cap as i64 * 4 as i64);
+            let buf_raw: *mut u8 = zone_m_alloc_raw(&mut self.zone, cap as i64 * 4 as i64);
             if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            ObjectArray::init(oa_raw, buf_raw, self.zone.base, cap);
-            let off: u32 = (oa_raw as i64 - self.zone.base as i64) as u32;
+            let base: *mut u8 = self.zone.holder.base;
+            ObjectArray::init(oa_raw, buf_raw, base, cap);
+            let off: u32 = (oa_raw as i64 - base as i64) as u32;
             return AnyVal::from_offset(off);
         }
     }
@@ -295,32 +250,32 @@ impl HermesCtr {
         // ~2^64 bytes from key → out-of-bounds memory access / crash.
         if klen < 0 { return; }
         unsafe {
-            let base: *const u8 = self.zone.base as *const u8;
-            if !map.is_map(base) { return; }
+            let base: *mut u8 = self.zone.holder.base;
+            if !map.is_map(base as *const u8) { return; }
             let omap: *mut ObjectMap =
-                (self.zone.base as i64 + map.as_offset() as i64) as *mut ObjectMap;
+                (base as i64 + map.as_offset() as i64) as *mut ObjectMap;
             // Only allocate a new HermesString if the key is new.
             // On update, ObjectMap::set finds the slot via byte comparison and updates
             // only the value — it never writes key_off. So any non-zero dummy suffices.
             // Default to sentinel 1 (non-zero, used only on the update path).
             let mut key_off: u32 = 1 as u32;
-            if !omap.contains(base, key, klen as u64) {
+            if !omap.contains(base as *const u8, key, klen as u64) {
                 let key_av: AnyVal = self.build_str(key, klen);
                 if key_av.is_null() { return; }
                 key_off = key_av.as_offset();
             }
-            omap.set(self.zone.base, key_off, key, klen as u64, val);
+            omap.set(base, key_off, key, klen as u64, val);
         }
     }
 
     // Push val onto an array AnyVal.
     pub fn array_push(&mut self, arr: AnyVal, val: AnyVal) {
         unsafe {
-            let base: *const u8 = self.zone.base as *const u8;
-            if !arr.is_array(base) { return; }
+            let base: *mut u8 = self.zone.holder.base;
+            if !arr.is_array(base as *const u8) { return; }
             let oa: *mut ObjectArray =
-                (self.zone.base as i64 + arr.as_offset() as i64) as *mut ObjectArray;
-            oa.push(self.zone.base, val);
+                (base as i64 + arr.as_offset() as i64) as *mut ObjectArray;
+            oa.push(base, val);
         }
     }
 
@@ -328,7 +283,8 @@ impl HermesCtr {
     // Only valid after builder() constructor or a successful parse().
     pub fn set_root(&mut self, val: AnyVal) {
         unsafe {
-            let doc: *mut DocumentHeader = self.zone.base as *mut DocumentHeader;
+            let base: *mut u8 = self.zone.holder.base;
+            let doc: *mut DocumentHeader = base as *mut DocumentHeader;
             document_set_root(doc, val);
         }
     }

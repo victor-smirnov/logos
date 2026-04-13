@@ -5,7 +5,6 @@
 package hermes_builder;
 
 use hermes.ctr;
-use std.string;
 
 extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
 
@@ -33,23 +32,11 @@ unsafe fn main() -> i32 {
     // Set the document root.
     doc.set_root(root_map);
 
-    // Stringify and get the result.
-    let s: String = doc.to_string();
-
-    // The output must be non-empty.
-    if s.len() < 5 as i64 { return 3; }
-
-    // First byte must be '{' (123).
-    if *((s.as_ptr() as i64 + 0) as *const u8) != 123 as u8 { return 4; }
-
-    // Last byte must be '}' (125).
-    let last: i64 = s.len() - 1 as i64;
-    if *((s.as_ptr() as i64 + last) as *const u8) != 125 as u8 { return 5; }
-
-    // Print the stringified document for inspection.
-    write(1 as i32, s.as_ptr(), s.len());
-    let nl: u8 = 10 as u8;
-    write(1 as i32, &nl as *const u8, 1 as i64);
+    // TODO: stringification separated from HermesCtr.
+    // Verify that the document was built successfully by checking that
+    // the root is set and accessible.
+    let root: AnyVal = doc.root();
+    if root.is_null() { return 3; }
 
     return 0;
 }
