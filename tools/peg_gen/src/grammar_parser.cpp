@@ -388,6 +388,22 @@ private:
         expect(TK::LBrace, "{");
         while (lex_.peek().kind == TK::Ident) {
             Token name = lex_.next();
+
+            // `group X { NAME = N, ... }` — fields scoped to a named group.
+            if (name.text == "group") {
+                Token gname = expect(TK::Ident, "group name");
+                auto fields_arr = doc_.make_array(8).get();
+                parse_name_decls(fields_arr);  // recursive — inner block
+                auto node = doc_.make_tiny_map(4).get();
+                auto ns   = make_str(gname.text);
+                node.put(ast::CODE,   AnyVal::from_value(ast::GROUP_DECL)).get();
+                node.put(ast::NAME,   AnyVal::from_offset(ns.offset())).get();
+                node.put(ast::FIELDS, AnyVal::from_offset(fields_arr.offset())).get();
+                out.push_back(AnyVal::from_offset(node.offset())).get();
+                try_eat(TK::Comma);
+                continue;
+            }
+
             expect(TK::Equals, "=");
             Token num  = expect(TK::Integer, "integer code");
 
@@ -480,6 +496,19 @@ private:
 
     TinyMap parse_rule() {
         Token name = expect(TK::Ident, "rule name");
+
+        // Optional group tag: `rule_name :group X: <- …`.  Field names in this
+        // rule's action blocks resolve first to the named group, then global.
+        std::string group_name;
+        if (lex_.peek().kind == TK::Colon) {
+            lex_.next();  // :
+            Token gk = expect(TK::Ident, "group keyword");
+            if (gk.text != "group")
+                error(gk, "expected 'group' after ':' in rule tag");
+            Token gn = expect(TK::Ident, "group name");
+            group_name = std::string(gn.text);
+            expect(TK::Colon, ":");
+        }
         expect(TK::Arrow, "<-");
 
         auto alts = doc_.make_array(4).get();
@@ -492,6 +521,10 @@ private:
         node.put(ast::CODE, AnyVal::from_value(ast::RULE)).get();
         node.put(ast::NAME, AnyVal::from_offset(ns.offset())).get();
         node.put(ast::ALTS, AnyVal::from_offset(alts.offset())).get();
+        if (!group_name.empty()) {
+            auto gs = make_str(group_name);
+            node.put(ast::GROUP_NAME, AnyVal::from_offset(gs.offset())).get();
+        }
         return node;
     }
 

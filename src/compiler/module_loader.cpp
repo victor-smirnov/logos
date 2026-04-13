@@ -65,8 +65,8 @@ static std::vector<std::string> extract_uses(hermes::HermesCtrView ast) {
             if (!name_av.is_null() && name_av.is_pointer())
                 dotted = std::string(StringView(name_av.to_offset(), holder).view());
         }
-        if (use_node.has_key(la::PATH_PARTS)) {
-            AnyVal parts_av = use_node.get(la::PATH_PARTS);
+        if (use_node.has_key(la::mod::PATH_PARTS)) {
+            AnyVal parts_av = use_node.get(la::mod::PATH_PARTS);
             if (!parts_av.is_null() && parts_av.is_pointer()) {
                 auto parts = ArrayView(parts_av.to_offset(), holder);
                 for (uint64_t pi = 0; pi < parts.size(); ++pi) {

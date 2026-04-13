@@ -85,6 +85,8 @@ inline constexpr Key INDEX     {"INDEX",     16};  // capture index $n
 inline constexpr Key VERSION   {"VERSION",   17};
 inline constexpr Key NAMESPACE {"NAMESPACE", 18};
 inline constexpr Key OUTPUT    {"OUTPUT",    19};
+inline constexpr Key FIELDS    {"FIELDS",    20};  // GROUP_DECL: array of NameDecls
+inline constexpr Key GROUP_NAME {"GROUP_NAME", 21}; // RULE / NameDecl: group name
 
 // ---------------------------------------------------------------------------
 // Node type discriminants  (stored as value of CODE field)
@@ -94,6 +96,7 @@ inline constexpr Key OUTPUT    {"OUTPUT",    19};
 inline constexpr Code META_INFO     {"META_INFO",     0};
 inline constexpr Code IMPORT        {"IMPORT",        1};
 inline constexpr Code NAME_DECL     {"NAME_DECL",     2};  // %fields / %nodes entry
+inline constexpr Code GROUP_DECL    {"GROUP_DECL",    7};  // %fields group block
 inline constexpr Code TOKEN_DECL    {"TOKEN_DECL",    3};
 inline constexpr Code PREC_LEVEL    {"PREC_LEVEL",    4};
 inline constexpr Code RULE          {"RULE",          5};

@@ -104,8 +104,8 @@ void SemaChecker::simplify_all_types() {
 std::string SemaChecker::read_package_name(TinyMapView mod) {
     if (!mod.has_key(la::NAME)) return {};
     std::string name(str_of(mod.get(la::NAME.code)));
-    if (mod.has_key(la::PATH_PARTS)) {
-        auto parts = arr_of(mod.get(la::PATH_PARTS.code));
+    if (mod.has_key(la::mod::PATH_PARTS)) {
+        auto parts = arr_of(mod.get(la::mod::PATH_PARTS.code));
         for (uint64_t i = 0; i < parts.size(); ++i) {
             auto part = map_of(parts.get(i));
             if (!part.has_key(la::NAME)) continue;

@@ -33,7 +33,7 @@ namespace logos::peg_gen {
 // Keeps the codegen itself free of Hermes navigation.
 // ═══════════════════════════════════════════════════════════════════════════
 
-struct NameDecl  { std::string name; int32_t code; };
+struct NameDecl  { std::string name; int32_t code; std::string group; };
 struct ImportRef { std::string alias; std::string output; }; // output = base name
 
 struct TokenDecl {
@@ -77,6 +77,7 @@ struct Item::Alt {
 
 struct Rule {
     std::string            name;
+    std::string            group;   // rule's group (empty = none)
     std::vector<Item::Alt> alts;
 };
 
@@ -178,10 +179,30 @@ private:
             AnyVal elem = arr.get(i);
             if (elem.is_null()) continue;
             TinyMapView node(elem.to_offset(), h);
-            out.push_back({
-                read_str(node.get(uint8_t(ast::NAME)),  h),
-                read_int(node.get(uint8_t(ast::VALUE)))
-            });
+            int32_t code = read_int(node.get(uint8_t(ast::CODE)));
+            if (code == int32_t(ast::GROUP_DECL)) {
+                // Group block: recurse into FIELDS, tag each entry with the group name.
+                std::string gname = read_str(node.get(uint8_t(ast::NAME)), h);
+                AnyVal fields_av = node.get(uint8_t(ast::FIELDS));
+                if (fields_av.is_null()) continue;
+                ArrayView fields(fields_av.to_offset(), h);
+                for (uint64_t j = 0; j < fields.size(); ++j) {
+                    AnyVal fe = fields.get(j);
+                    if (fe.is_null()) continue;
+                    TinyMapView fn(fe.to_offset(), h);
+                    out.push_back({
+                        read_str(fn.get(uint8_t(ast::NAME)), h),
+                        read_int(fn.get(uint8_t(ast::VALUE))),
+                        gname
+                    });
+                }
+            } else {
+                out.push_back({
+                    read_str(node.get(uint8_t(ast::NAME)),  h),
+                    read_int(node.get(uint8_t(ast::VALUE))),
+                    ""  // global
+                });
+            }
         }
     }
 
@@ -300,6 +321,7 @@ private:
             TinyMapView node(elem.to_offset(), h);
             Rule rule;
             rule.name = read_str(node.get(uint8_t(ast::NAME)), h);
+            rule.group = read_str(node.get(uint8_t(ast::GROUP_NAME)), h);
             AnyVal alts_val = node.get(uint8_t(ast::ALTS));
             if (!alts_val.is_null()) {
                 ArrayView alts(alts_val.to_offset(), h);
@@ -409,6 +431,7 @@ private:
     std::string        ast_ns_;
     int                lc_ = 0;   // label counter — reset per rule, always increasing
     std::string        rcap_var_;       // name of the rule-captures array for $... in current alt
+    std::string        cur_rule_group_; // current rule's group tag (empty = none)
     std::string        cur_fold_var_;   // name of the fold accumulator variable (for $0)
     std::string        fold_init_cap_;  // cap name to initialise the next fold REP from
 
@@ -489,9 +512,30 @@ private:
         w.line();
 
         if (!g_.fields.empty()) {
-            w.line("// Field keys (TinyObjectMap slot indices)");
+            w.line("// Field keys (TinyObjectMap slot indices).  Group-scoped keys");
+            w.line("// live in nested namespaces; the same slot number may be reused");
+            w.line("// across groups because distinct node types never co-exist in one map.");
+            // Emit global first.
             for (const auto& f : g_.fields)
-                w.fmt("inline constexpr Key  {:20s} {{\"{}\", {}}};", f.name, f.name, f.code);
+                if (f.group.empty())
+                    w.fmt("inline constexpr Key  {:20s} {{\"{}\", {}}};", f.name, f.name, f.code);
+            // Emit each group.  Collect groups preserving declaration order.
+            std::vector<std::string> groups;
+            for (const auto& f : g_.fields) {
+                if (f.group.empty()) continue;
+                if (std::find(groups.begin(), groups.end(), f.group) == groups.end())
+                    groups.push_back(f.group);
+            }
+            for (const auto& g : groups) {
+                w.line();
+                w.fmt("namespace {} {{", g);
+                w.indent();
+                for (const auto& f : g_.fields)
+                    if (f.group == g)
+                        w.fmt("inline constexpr Key  {:20s} {{\"{}\", {}}};", f.name, f.name, f.code);
+                w.dedent();
+                w.fmt("}} // namespace {}", g);
+            }
             w.line();
         }
         if (!g_.nodes.empty()) {
@@ -1135,6 +1179,7 @@ private:
 
     void emit_rule(CodeWriter& w, const Rule& rule) {
         lc_ = 0;  // reset label counter for this rule
+        cur_rule_group_ = rule.group;
         w.fmt("AnyVal {}::rule_{}() {{", parser_class_, rule.name);
         w.indent();
         w.line("size_t saved_pos;");
@@ -1513,7 +1558,20 @@ private:
 
         for (const auto& field : action.fields) {
             const auto& expr = field.expr;
-            std::string field_const = ast_ns_ + "::" + field.name;
+            // Resolve field name: prefer the rule's group, fall back to global.
+            std::string field_const;
+            bool found_in_group = false;
+            if (!cur_rule_group_.empty()) {
+                for (const auto& f : g_.fields) {
+                    if (f.group == cur_rule_group_ && f.name == field.name) {
+                        field_const = ast_ns_ + "::" + cur_rule_group_ + "::" + field.name;
+                        found_in_group = true;
+                        break;
+                    }
+                }
+            }
+            if (!found_in_group)
+                field_const = ast_ns_ + "::" + field.name;
 
             switch (expr.kind) {
 

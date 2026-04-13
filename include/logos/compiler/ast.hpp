@@ -41,7 +41,6 @@ inline constexpr Key LHS      {"LHS",      12};  // left-hand side
 inline constexpr Key RHS      {"RHS",      13};  // right-hand side
 inline constexpr Key CALLEE   {"CALLEE",   14};  // call target
 inline constexpr Key ARGS     {"ARGS",     15};  // call arguments
-inline constexpr Key PATH_PARTS {"PATH_PARTS", 16};  // array of sub-nodes (one per component after NAME)
 inline constexpr Key USES     {"USES",     17};  // use declarations array
 inline constexpr Key POINTEE  {"POINTEE",  18};  // pointee type for pointer types
 inline constexpr Key MUTPTR   {"MUTPTR",   19};  // pointer mutability (bool)
@@ -248,5 +247,12 @@ inline constexpr Key HI_NEG    {"HI_NEG",    50};            // hi bound is nega
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;
+
+// ── Group: mod (MODULE, USE) ────────────────────────────────────────────────
+// Fields local to module-level nodes.  Slot numbers here share the 0..51 space
+// with the globals but can reuse slots that are never populated on mod nodes.
+namespace mod {
+    inline constexpr Key PATH_PARTS {"PATH_PARTS", 16};  // array of {NAME} per component after the first
+}
 
 } // namespace logos::compiler::ast
