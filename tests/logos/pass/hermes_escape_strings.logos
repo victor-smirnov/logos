@@ -23,9 +23,8 @@ use hermes.document;
 use hermes.parser;
 use std.string;
 
-// Append a byte to the buffer.  Thin wrapper to keep the test shape compact.
-fn append(buf: &mut String, b: u8) {
-    buf.push_u8(b);
+fn append_str(buf: &mut String, s: *const u8) {
+    buf.push_cstr(s);
 }
 
 // Parse `buf` into a fresh zone and return the root HermesString pointer
@@ -42,76 +41,54 @@ unsafe fn parse_string(buf: &String, zone: &mut Zone<Mutable>) -> *const HermesS
 }
 
 unsafe fn main() -> i32 {
-    // ── 1. "\"" — lone escaped double quote ─────────────────────────────────
-    // Input bytes:  " \ " "   →   decoded: single byte 34 (')
-    let mut b1: String = String::with_capacity(4);
-    append(&mut b1,  34 as u8);  // opening "
-    append(&mut b1,  92 as u8);  // backslash
-    append(&mut b1,  34 as u8);  // "  (escaped)
-    append(&mut b1,  34 as u8);  // closing "
+    // ── 1. "\"" — lone escaped double quote, decodes to byte 34 ────────────
+    let mut b1: String = String::new();
+    append_str(&mut b1, "\"\\\"\"");
     let mut z1: Zone<Mutable> = zone_create(4096);
     let hs1: *const HermesString = parse_string(&b1, &mut z1);
     if hs1 == 0 as *const HermesString { return 1; }
     if hs1.len() != 1 as u64           { return 2; }
     if *hs1.bytes() != 34 as u8        { return 3; }
 
-    // ── 2. "\\" — lone escaped backslash ────────────────────────────────────
-    let mut b2: String = String::with_capacity(4);
-    append(&mut b2,  34 as u8);
-    append(&mut b2,  92 as u8);
-    append(&mut b2,  92 as u8);  // backslash (escaped)
-    append(&mut b2,  34 as u8);
+    // ── 2. "\\" — lone escaped backslash, decodes to byte 92 ────────────────
+    let mut b2: String = String::new();
+    append_str(&mut b2, "\"\\\\\"");
     let mut z2: Zone<Mutable> = zone_create(4096);
     let hs2: *const HermesString = parse_string(&b2, &mut z2);
     if hs2 == 0 as *const HermesString { return 4; }
     if hs2.len() != 1 as u64           { return 5; }
     if *hs2.bytes() != 92 as u8        { return 6; }
 
-    // ── 3. "\n" — escaped newline ────────────────────────────────────────────
-    let mut b3: String = String::with_capacity(4);
-    append(&mut b3,  34 as u8);
-    append(&mut b3,  92 as u8);
-    append(&mut b3, 110 as u8);  // 'n'
-    append(&mut b3,  34 as u8);
+    // ── 3. "\n" — escaped newline, decodes to byte 10 ──────────────────────
+    let mut b3: String = String::new();
+    append_str(&mut b3, "\"\\n\"");
     let mut z3: Zone<Mutable> = zone_create(4096);
     let hs3: *const HermesString = parse_string(&b3, &mut z3);
     if hs3 == 0 as *const HermesString { return 7; }
     if hs3.len() != 1 as u64           { return 8; }
     if *hs3.bytes() != 10 as u8        { return 9; }
 
-    // ── 4. "\t" — escaped tab ────────────────────────────────────────────────
-    let mut b4: String = String::with_capacity(4);
-    append(&mut b4,  34 as u8);
-    append(&mut b4,  92 as u8);
-    append(&mut b4, 116 as u8);  // 't'
-    append(&mut b4,  34 as u8);
+    // ── 4. "\t" — escaped tab, decodes to byte 9 ───────────────────────────
+    let mut b4: String = String::new();
+    append_str(&mut b4, "\"\\t\"");
     let mut z4: Zone<Mutable> = zone_create(4096);
     let hs4: *const HermesString = parse_string(&b4, &mut z4);
     if hs4 == 0 as *const HermesString { return 10; }
     if hs4.len() != 1 as u64           { return 11; }
     if *hs4.bytes() != 9 as u8         { return 12; }
 
-    // ── 5. "\r" — escaped carriage return ───────────────────────────────────
-    let mut b5: String = String::with_capacity(4);
-    append(&mut b5,  34 as u8);
-    append(&mut b5,  92 as u8);
-    append(&mut b5, 114 as u8);  // 'r'
-    append(&mut b5,  34 as u8);
+    // ── 5. "\r" — escaped CR, decodes to byte 13 ───────────────────────────
+    let mut b5: String = String::new();
+    append_str(&mut b5, "\"\\r\"");
     let mut z5: Zone<Mutable> = zone_create(4096);
     let hs5: *const HermesString = parse_string(&b5, &mut z5);
     if hs5 == 0 as *const HermesString { return 13; }
     if hs5.len() != 1 as u64           { return 14; }
     if *hs5.bytes() != 13 as u8        { return 15; }
 
-    // ── 6. "a\nb" — mixed literal and escape ────────────────────────────────
-    // Decoded: [97, 10, 98], length 3
-    let mut b6: String = String::with_capacity(6);
-    append(&mut b6,  34 as u8);
-    append(&mut b6,  97 as u8);  // 'a'
-    append(&mut b6,  92 as u8);
-    append(&mut b6, 110 as u8);  // 'n'
-    append(&mut b6,  98 as u8);  // 'b'
-    append(&mut b6,  34 as u8);
+    // ── 6. "a\nb" — mixed literal and escape, decodes to [97, 10, 98] ──────
+    let mut b6: String = String::new();
+    append_str(&mut b6, "\"a\\nb\"");
     let mut z6: Zone<Mutable> = zone_create(4096);
     let hs6: *const HermesString = parse_string(&b6, &mut z6);
     if hs6 == 0 as *const HermesString { return 16; }
@@ -124,17 +101,8 @@ unsafe fn main() -> i32 {
     if b6_2 != 98 as u8                { return 20; }  // 'b'
 
     // ── 7. {"a\"b": 1} — escaped quote in map key ───────────────────────────
-    let mut b7: String = String::with_capacity(10);
-    append(&mut b7, 123 as u8);  // '{'
-    append(&mut b7,  34 as u8);  // '"'
-    append(&mut b7,  97 as u8);  // 'a'
-    append(&mut b7,  92 as u8);  // '\'
-    append(&mut b7,  34 as u8);  // '"' (escaped)
-    append(&mut b7,  98 as u8);  // 'b'
-    append(&mut b7,  34 as u8);  // '"' (closing)
-    append(&mut b7,  58 as u8);  // ':'
-    append(&mut b7,  49 as u8);  // '1'
-    append(&mut b7, 125 as u8);  // '}'
+    let mut b7: String = String::new();
+    append_str(&mut b7, "{\"a\\\"b\":1}");
     let mut z7: Zone<Mutable> = zone_create(8192);
     if !hermes_parse(b7.as_ptr(), b7.len(), &mut z7) { return 21; }
     let r7: AnyVal = document_get_root(
@@ -144,11 +112,9 @@ unsafe fn main() -> i32 {
         (z7.holder.base as i64 + r7.as_offset() as i64) as *const ObjectMap;
     if omap7.size_count() != 1 as u32 { return 23; }
 
-    // Look up key `a"b` = [97, 34, 98].
-    let mut key: String = String::with_capacity(3);
-    append(&mut key, 97 as u8);
-    append(&mut key, 34 as u8);
-    append(&mut key, 98 as u8);
+    // Look up key `a"b` — 3 bytes.
+    let mut key: String = String::new();
+    append_str(&mut key, "a\"b");
     let got7: AnyVal = omap7.get(z7.holder.base as *const u8,
                                  key.as_ptr(), key.len() as u64);
     if got7.is_null()                { return 24; }
