@@ -41,12 +41,16 @@ pub eidos MapEntry {
 // ---------------------------------------------------------------------------
 
 #[type_code=101]
+pub trait Map {}
+
 pub eidos ObjectMap {
     pub entries_off: u32,  // zone-relative offset to the MapEntry array
     pub capacity:    u32,  // number of slots (power of 2)
     pub count:       u32,  // number of occupied slots
     pub reserved:    u32,  // zero
 }
+
+impl Map for ObjectMap {}
 
 impl ObjectMap {
     // Initialize an ObjectMap at pre-allocated memory.

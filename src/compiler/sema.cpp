@@ -1353,6 +1353,13 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         td.tag_dispatch_system = std::string(str_of(map_of(arr.get(0)).get(la::NAME.code)));
                 }
             }
+            // #[type_code=N] on a trait makes it a genos: the code identifies
+            // the logical datatype family, and each `impl Trait for Eidos`
+            // propagates the code to its target struct during lowering.
+            else if (aname == "type_code" && ann.has_key(la::VALUE)) {
+                auto sv = str_of(ann.get(la::VALUE.code));
+                td.type_code = (uint64_t)parse_int_literal(sv);
+            }
         }
     };
 

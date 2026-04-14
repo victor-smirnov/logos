@@ -117,17 +117,23 @@ pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// HermesString
+// Varchar — logical genos ("variable-length string"), zone-eidos HermesString.
 //
-// A typed anchor for a zone allocation that starts with a vlen length prefix
-// followed immediately by UTF-8 bytes. The 'first' field anchors the type;
-// the actual object has dynamic size = vlen_prefix_size + len bytes.
+// HermesString is a typed anchor for a zone allocation that starts with a
+// vlen length prefix followed immediately by UTF-8 bytes.  The 'first' field
+// anchors the type; the actual object has dynamic size = vlen_prefix_size +
+// len bytes.  The type_code is carried by the Varchar genos and propagates
+// to HermesString via `impl Varchar for HermesString`.
 // ---------------------------------------------------------------------------
 
 #[type_code=28]
+pub trait Varchar {}
+
 pub eidos HermesString {
     pub first: u8,   // first byte of vlen length encoding
 }
+
+impl Varchar for HermesString {}
 
 impl HermesString {
     // Initialize a HermesString at pre-allocated memory.

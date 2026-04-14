@@ -49,10 +49,14 @@ unsafe fn popcount_u64(x: u64) -> u32 {
 // ---------------------------------------------------------------------------
 
 #[type_code=98]
+pub trait TinyMap {}
+
 pub eidos TinyObjectMap {
     pub header: u64,
     pub data:   u32,
 }
+
+impl TinyMap for TinyObjectMap {}
 
 impl TinyObjectMap {
     // Initialize a TinyObjectMap at pre-allocated memory.
@@ -155,11 +159,15 @@ impl TinyObjectMap {
 // ---------------------------------------------------------------------------
 
 #[type_code=100]
+pub trait Array {}
+
 pub eidos ObjectArray {
     pub size:     u64,
     pub capacity: u64,
     pub data:     u32,
 }
+
+impl Array for ObjectArray {}
 
 impl ObjectArray {
     // Initialize an ObjectArray at pre-allocated memory.

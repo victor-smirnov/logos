@@ -573,6 +573,8 @@ struct LTraitDef {
     std::vector<LAssocTypeDef>     assoc_types;        // associated type declarations
     std::vector<LTraitMethodSig>   methods;
     std::string                    tag_dispatch_system; // #[tag_dispatch(system_name)]; empty = none
+    uint64_t                       type_code = 0;       // #[type_code=N] — genos identity;
+                                                        // propagates to each eidos via `impl Trait for Eidos`
 };
 
 struct LImplBlock {

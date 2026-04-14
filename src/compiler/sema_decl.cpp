@@ -465,6 +465,28 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     lir::LImplBlock ib;
     ib.trait_name   = trait_name;
     ib.target_type  = target;
+    // Propagate genos type_code: `impl Varchar for HermesString` on a
+    // trait that carries #[type_code=N] sets the target struct's type_code
+    // (if the struct hasn't got one already).  This is how eide inherit
+    // their identity from the logical datatype family.
+    if (!trait_name.empty() && !target.empty()) {
+        for (const auto& td : prog.traits) {
+            if (td.name != trait_name || td.type_code == 0) continue;
+            for (auto& sd : prog.structs) {
+                if (sd.name != target) continue;
+                // Trait-declared type_code wins over the hash-derived default
+                // auto-assigned at eidos lowering time.  An explicit
+                // `#[type_code]` on the eidos itself would normally also
+                // win, but we don't allow both at the moment.
+                sd.type_code = td.type_code;
+                auto fqn = cur_package_.empty() ? sd.name
+                                                 : cur_package_ + "::" + sd.name;
+                explicit_type_codes_[fqn] = sd.type_code;
+                break;
+            }
+            break;
+        }
+    }
     // Blanket impl detection: target IS one of this impl's own type parameters.
     if (!trait_name.empty()) {
         for (auto& tp : impl_tps) {

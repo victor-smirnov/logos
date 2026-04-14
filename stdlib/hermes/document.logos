@@ -22,13 +22,18 @@ package hermes.document;
 use hermes.anyval;
 
 // ---------------------------------------------------------------------------
-// DocumentHeader eidos (4 bytes)
+// Document — logical genos for Hermes documents; DocumentHeader is the zone
+// eidos (4 bytes carrying the root AnyVal).
 // ---------------------------------------------------------------------------
 
 #[type_code=3]
+pub trait Document {}
+
 pub eidos DocumentHeader {
     pub root: u32,   // AnyVal.raw of the root value
 }
+
+impl Document for DocumentHeader {}
 
 // ---------------------------------------------------------------------------
 // Free functions

@@ -19,13 +19,18 @@ package hermes.scalar;
 use logos.lang.datatypes;
 
 // ---------------------------------------------------------------------------
-// I64 — zone-allocated signed 64-bit integer.
+// Int64 — logical genos (signed 64-bit integer), with I64 as its zone eidos.
+// The type_code is carried by the genos; propagates to eide via impl.
 // ---------------------------------------------------------------------------
 
 #[type_code=26]
+pub trait Int64 {}
+
 pub eidos I64 {
     pub v: i64,
 }
+
+impl Int64 for I64 {}
 
 impl I64 {
     pub unsafe fn init(raw: *mut u8, value: i64) -> *mut I64 {
@@ -40,13 +45,17 @@ impl I64 {
 }
 
 // ---------------------------------------------------------------------------
-// U64 — zone-allocated unsigned 64-bit integer.
+// UInt64 — logical genos (unsigned 64-bit integer), with U64 as its zone eidos.
 // ---------------------------------------------------------------------------
 
 #[type_code=27]
+pub trait UInt64 {}
+
 pub eidos U64 {
     pub v: u64,
 }
+
+impl UInt64 for U64 {}
 
 impl U64 {
     pub unsafe fn init(raw: *mut u8, value: u64) -> *mut U64 {
