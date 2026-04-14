@@ -32,7 +32,7 @@
 package hermes.anyval;
 
 // AnyVal layout: single 4-byte raw field.
-pub datatype AnyVal {
+pub eidos AnyVal {
     pub raw: u32,
 }
 

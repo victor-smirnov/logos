@@ -1,9 +1,9 @@
 package datatype_zone_basic;
-// Phase 2: allocate a datatype in a HermesZone, write and read fields.
+// Phase 2: allocate a eidos in a HermesZone, write and read fields.
 
 use hermes.zone;
 
-datatype Point {
+eidos Point {
     x: i32,
     y: i32,
 }

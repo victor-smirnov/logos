@@ -209,7 +209,7 @@
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
     KW_PACKAGE  = "package"
-    KW_DATATYPE = "datatype"
+    KW_DATATYPE = "eidos"
     KW_STATIC   = "static"
     KW_RETURN   = "return"
     KW_EXTERN   = "extern"
@@ -973,32 +973,29 @@
     log_expr <- cmp_expr
                 ( (AND / OR) cmp_expr
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
-                )+
-              / cmp_expr
+                )*
 
     cmp_expr <- bitwise_expr (EQ / NE / LE / GE / LT / GT) bitwise_expr
                 => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
               / bitwise_expr
 
     // Bitwise and shift operators (higher precedence than comparison)
+    // (zero-or-more to avoid PEG backtracking when no operator follows)
     bitwise_expr <- add_expr
                     ( (SHL / SHR / AMP / CARET / PIPE) add_expr
                         => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
-                    )+
-                  / add_expr
+                    )*
 
     add_expr <- mul_expr
                 ( (PLUS / MINUS) mul_expr
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
-                )+
-              / mul_expr
+                )*
 
     // Rust precedence (low → high): * / %  <  as  <  unary (- * ! & &mut)
     mul_expr <- cast_expr
                 ( (STAR / SLASH / PERCENT) cast_expr
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
-                )+
-              / cast_expr
+                )*
 
     // ── Cast expression: unary_expr as type ──────────────────────
     // Lower precedence than unary operators: (&x) as T, (*p) as i32, (-1) as u32
@@ -1037,8 +1034,10 @@
                   / arr_fill_lit     // [value; N]  — before arr_lit (avoids ambiguity)
                   / arr_lit          // [e1, e2, ...]
                   / LPAREN RPAREN => { CODE: TUPLE_LIT }  // () — unit value
-                  / tuple_lit        // (a, b, ...) — before paren_expr
-                  / paren_expr       // (expr)
+                  / paren_expr       // (expr) — BEFORE tuple_lit so single-expr parens
+                                     // don't pay the cost of tuple-lit backtracking
+                                     // (common case in deeply nested `as`-cast chains).
+                  / tuple_lit        // (a, b, ...)
                   / closure_expr     // |x: i32| -> i32 { ... }
                   / unsafe_block     // unsafe { ... }  — as expression
                   / loop_expr        // loop { ... }  — as expression (break value)

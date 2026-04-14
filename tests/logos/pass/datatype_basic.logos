@@ -1,6 +1,6 @@
 package datatype_basic;
 
-datatype Point {
+eidos Point {
     x: f64,
     y: f64,
 }

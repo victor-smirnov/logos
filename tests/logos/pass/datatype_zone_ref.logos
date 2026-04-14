@@ -4,7 +4,7 @@ package datatype_zone_ref;
 
 use hermes.zone;
 
-datatype Point {
+eidos Point {
     x: i32,
     y: i32,
 }

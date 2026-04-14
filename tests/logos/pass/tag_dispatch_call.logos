@@ -19,13 +19,13 @@ trait Checksum {
 }
 
 #[type_code=128]
-datatype Point {
+eidos Point {
     x: i32,
     y: i32,
 }
 
 #[type_code=129]
-datatype Color {
+eidos Color {
     r: u8,
     g: u8,
     b: u8,

@@ -1,10 +1,10 @@
 package datanode_param_value;
-// Sema fail: passing a DataNode datatype by bare value to a function.
+// Sema fail: passing a DataNode eidos by bare value to a function.
 // FakePtr<T> is a generic Datatype field → Node.is_data_plain = false.
 
-pub datatype FakePtr<T> { offset: u32 }
+pub eidos FakePtr<T> { offset: u32 }
 
-datatype Node {
+eidos Node {
     value: i32,
     next:  FakePtr<Node>,
 }

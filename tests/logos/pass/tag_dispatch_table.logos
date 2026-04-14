@@ -17,12 +17,12 @@ trait Checksum {
     fn checksum(self: &Self) -> i32;
 }
 
-datatype Point {
+eidos Point {
     x: i32,
     y: i32,
 }
 
-datatype Color {
+eidos Color {
     r: u8,
     g: u8,
     b: u8,

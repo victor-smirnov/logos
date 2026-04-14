@@ -2,7 +2,7 @@
 // Copyright 2026 Victor Smirnov
 // Logos stdlib — logos.lang.datatypes
 //
-// Datatype — the bridge between a datatype's *processing* format
+// Datatype — the bridge between a eidos's *processing* format
 // (what code sees and works with: `StringView`, `I64View`, …) and its
 // *storage* format (how it lives in a typed homogeneous container like
 // `Buffer<DT>`).
@@ -54,11 +54,11 @@ pub trait BorrowedStorage: Storage {
 //
 // A Datatype describes how to *interpret* bytes held by a Storage.  `View<S>`
 // is the processing form derived from an S-shaped backing store; e.g. the
-// same `HermesString` datatype yields StringView over either a zone slab
+// same `HermesString` eidos yields StringView over either a zone slab
 // (AOS) or a packed SoA buffer.
 //
 // Datatype itself owns no storage logic — that lives in the Storage
-// hierarchy.  The Container trait below pairs a datatype with a canonical
+// hierarchy.  The Container trait below pairs a eidos with a canonical
 // container-Storage for use by Buffer<DT>.
 // ---------------------------------------------------------------------------
 
@@ -78,7 +78,7 @@ pub trait Datatype {
 pub trait Container: Datatype {
     // Container-Store's Elem matches View<Store>.  Thin bridge methods
     // forward to the Store's DynamicStorage impl.  `ViewInStore` is the
-    // monomorphic view when this datatype uses its canonical Store —
+    // monomorphic view when this eidos uses its canonical Store —
     // declared explicitly to side-step the GAT-instantiation comparison
     // inside generic code (Buffer<DT> sees a plain assoc type, not a GAT).
     type Store: DynamicStorage;
@@ -142,7 +142,7 @@ impl<DT: Container> Drop for Buffer<DT> {
 // ---------------------------------------------------------------------------
 // Primitive — marker trait + inline-storage mapping.
 //
-// A datatype is `Primitive` iff its processing type IS its storage element —
+// A eidos is `Primitive` iff its processing type IS its storage element —
 // no struct view, no padding, no tag bytes.  `Prim` names the inline type
 // (i64 for I64, u64 for U64, …).  The blanket `impl<DT: Primitive> Datatype`
 // below handles the Vec-like `Buffer<DT>` machinery for all such types.
@@ -244,7 +244,7 @@ impl<T> DynamicStorage for PrimVec<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Blankets: every `Primitive` datatype gets `Datatype` + `Container` for free.
+// Blankets: every `Primitive` eidos gets `Datatype` + `Container` for free.
 // The view of a Primitive is always its Prim type regardless of storage —
 // a `PrimVec<i64>` hands back i64, a future shared-memory slab also i64.
 // ---------------------------------------------------------------------------
@@ -277,7 +277,7 @@ impl<DT: Primitive> Container for DT {
 // u32 for bigint limbs, AnyVal for array slots).
 //
 // A blanket impl for UnsizedPayload provides `Datatype + Container` so
-// that a new Hermes datatype needs only declare `Meta` and `Atom` to
+// that a new Hermes eidos needs only declare `Meta` and `Atom` to
 // inherit a Buffer<DT> via a SoA backing store.  (The concrete blanket
 // impl for Container/Store over UnsizedPayload is left out of this first
 // landing — it requires richer multi-assoc-type-argument machinery in

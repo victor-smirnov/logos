@@ -81,7 +81,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         auto dn = datanode_name(fn.ret_type);
         if (!dn.empty()) {
             error(std::format(
-                "return type '{}' is a DataNode datatype — cannot be returned by value. "
+                "return type '{}' is a DataNode eidos — cannot be returned by value. "
                 "Return DataRef<{}> instead.", dn, dn));
         }
     }
@@ -123,7 +123,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                         auto dn = datanode_name(pt);
                         if (!dn.empty()) {
                             error(std::format(
-                                "parameter '{}': DataNode datatype '{}' cannot be passed by "
+                                "parameter '{}': DataNode eidos '{}' cannot be passed by "
                                 "value — it contains relative pointers that require a zone "
                                 "base pointer. Use DataRef<{}> instead.",
                                 pname, dn, dn));

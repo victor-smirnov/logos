@@ -1,10 +1,10 @@
 package datanode_return_value;
-// Sema fail: returning a DataNode datatype by bare value from a function.
+// Sema fail: returning a DataNode eidos by bare value from a function.
 // FakePtr<T> is a generic Datatype field → Node.is_data_plain = false.
 
-pub datatype FakePtr<T> { offset: u32 }
+pub eidos FakePtr<T> { offset: u32 }
 
-datatype Node {
+eidos Node {
     value: i32,
     next:  FakePtr<Node>,
 }

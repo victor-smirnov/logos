@@ -10,7 +10,7 @@ use hermes.anyval;
 use hermes.typetag;
 use hermes.string;
 
-datatype Slot { pub val: i32 }
+eidos Slot { pub val: i32 }
 
 unsafe fn main() -> i32 {
     let mut zone: HermesZone = HermesZone::create(8192);

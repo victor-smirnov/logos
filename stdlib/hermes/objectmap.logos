@@ -31,7 +31,7 @@ use hermes.string;
 // MapEntry — one slot in the hash table (8 bytes)
 // ---------------------------------------------------------------------------
 
-pub datatype MapEntry {
+pub eidos MapEntry {
     pub key_off: u32,  // zone-relative byte offset to HermesString (0 = empty slot)
     pub val:     u32,  // AnyVal.raw
 }
@@ -41,7 +41,7 @@ pub datatype MapEntry {
 // ---------------------------------------------------------------------------
 
 #[type_code=101]
-pub datatype ObjectMap {
+pub eidos ObjectMap {
     pub entries_off: u32,  // zone-relative offset to the MapEntry array
     pub capacity:    u32,  // number of slots (power of 2)
     pub count:       u32,  // number of occupied slots

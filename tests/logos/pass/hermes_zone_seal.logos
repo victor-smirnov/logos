@@ -5,7 +5,7 @@ package hermes_zone_seal;
 
 use hermes.zone;
 
-datatype Pair {
+eidos Pair {
     a: i32,
     b: i32,
 }

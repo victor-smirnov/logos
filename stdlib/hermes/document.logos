@@ -22,11 +22,11 @@ package hermes.document;
 use hermes.anyval;
 
 // ---------------------------------------------------------------------------
-// DocumentHeader datatype (4 bytes)
+// DocumentHeader eidos (4 bytes)
 // ---------------------------------------------------------------------------
 
 #[type_code=3]
-pub datatype DocumentHeader {
+pub eidos DocumentHeader {
     pub root: u32,   // AnyVal.raw of the root value
 }
 

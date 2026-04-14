@@ -1,6 +1,6 @@
 package datatag_typecode;
 // Tests:
-// 1. type_code_of::<T>() — compile-time type_code for a concrete datatype
+// 1. type_code_of::<T>() — compile-time type_code for a concrete eidos
 // 2. hermes.datatag write_tag / read_type_code roundtrip
 // 3. tag_size for single-byte and multi-byte codes
 
@@ -9,12 +9,12 @@ use hermes.datatag;
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
-datatype Point {
+eidos Point {
     x: i32,
     y: i32,
 }
 
-datatype Color {
+eidos Color {
     r: u8,
     g: u8,
     b: u8,

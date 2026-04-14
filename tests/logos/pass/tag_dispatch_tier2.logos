@@ -19,12 +19,12 @@ trait Checksum {
 }
 
 // No explicit type_code — auto-hash assigns a 56-bit code >= 223.
-datatype Widget {
+eidos Widget {
     a: i32,
     b: i32,
 }
 
-datatype Gadget {
+eidos Gadget {
     x: i32,
     y: i32,
     z: i32,

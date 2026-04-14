@@ -39,7 +39,7 @@ use std.string;
 // StringifyOpts — formatting options passed through the recursive walk.
 // ---------------------------------------------------------------------------
 
-pub datatype StringifyOpts {
+pub eidos StringifyOpts {
     pub indent: i64,   // spaces per nesting level; 0 = compact
 }
 
