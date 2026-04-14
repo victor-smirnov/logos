@@ -1949,6 +1949,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         SemaSubst inferred;
 
         // If explicit type args were supplied (Struct::<T1, T2> { ... }), seed inferred from them.
+        std::vector<const LogosType*> explicit_args;
         if (node.has_key(la::TYPE_PARAMS)) {
             AnyVal tpav = node.get(la::TYPE_PARAMS.code);
             if (!tpav.is_null()) {
@@ -1957,15 +1958,34 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     auto items = arr_of(tplist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size() && i < sinfo.type_params.size(); ++i) {
                         auto* resolved = resolve_type(map_of(items.get(i)));
-                        if (resolved && resolved->kind != LogosType::Kind::Error)
+                        if (resolved && resolved->kind != LogosType::Kind::Error) {
                             inferred[sinfo.type_params[i].name] = resolved;
+                            explicit_args.push_back(resolved);
+                        }
                     }
                 }
             }
         }
 
+        // Partial-spec pickup: if the user supplied all type args and there's
+        // a matching spec (full or partial), use its fields for this literal.
+        const SemaStructInfo* spec_info = nullptr;
+        if (!explicit_args.empty() && explicit_args.size() == sinfo.type_params.size())
+            spec_info = find_best_sema_struct_spec(std::string(sname), explicit_args);
+        const SemaStructInfo& eff_sinfo = spec_info ? *spec_info : sinfo;
+
         for (auto& [fname, fval] : fields) {
-            auto* raw_ft = field_type_of(std::string(sname), fname);
+            auto* raw_ft = [&]() -> const LogosType* {
+                if (spec_info) {
+                    for (auto& f : spec_info->fields) {
+                        if (f.name == fname) return f.type;
+                        if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_')
+                            return f.type;
+                    }
+                    return nullptr;
+                }
+                return field_type_of(std::string(sname), fname);
+            }();
             if (!raw_ft) continue;
             if (raw_ft->kind == LogosType::Kind::TypeVar) {
                 auto& tv = raw_ft->type_var_name;
@@ -2045,10 +2065,14 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             : make_generic_struct(std::string(sname), args);
 
         // Check if a concrete specialization exists for these type args.
+        // First try exact-concrete key, then pattern-match (for partial specs).
         std::string concrete = concrete_struct_name(lit_type);
+        const SemaStructInfo* effective = &sinfo;
         auto spec_it = struct_specs_sema_.find(concrete);
-        const SemaStructInfo* effective = (spec_it != struct_specs_sema_.end())
-                                          ? &spec_it->second : &sinfo;
+        if (spec_it != struct_specs_sema_.end())
+            effective = &spec_it->second;
+        else if (auto* pspec = find_best_sema_struct_spec(std::string(sname), args))
+            effective = pspec;
 
         // Validate fields against the effective definition.
         std::unordered_map<std::string, bool> initialized;

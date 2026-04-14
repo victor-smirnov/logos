@@ -605,10 +605,43 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // Lower impl methods as free functions (Target__method).
     // For `impl<T> GenericStruct<T>` blocks, add methods to the struct template instead of
     // prog.functions so mono's instantiate_one_struct can clone them with T substituted.
+    // For `impl<V> PartialSpec<Concrete, V>` attach to the matching partial spec
+    // (so mono picks up methods when instantiating the spec, not the base template).
     lir::LStructDef* target_struct_tmpl = nullptr;
     if (!impl_tps.empty()) {
-        for (auto& sd : prog.structs)
-            if (sd.name == target) { target_struct_tmpl = &sd; break; }
+        // Try matching a partial/full spec first.  The impl's target type,
+        // resolved with impl_tps' TypeVars bound, should match a spec's
+        // spec_patterns via pattern equality (same TypeVar positions, same
+        // concrete positions).
+        if (node.has_key(la::TYPE)) {
+            auto tnode = map_of(node.get(la::TYPE.code));
+            if (code_of(tnode) == la::GENERIC_INST) {
+                auto base_name = std::string(str_of(tnode.get(la::NAME.code)));
+                auto* target_type = resolve_type(tnode);
+                if (target_type && !target_type->type_args.empty()) {
+                    for (auto& ss : prog.struct_specializations) {
+                        if (ss.name != base_name) continue;
+                        if (ss.spec_patterns.size() != target_type->type_args.size()) continue;
+                        bool match = true;
+                        for (size_t i = 0; i < ss.spec_patterns.size(); ++i) {
+                            auto* a = target_type->type_args[i];
+                            auto* p = ss.spec_patterns[i];
+                            if (!a || !p) { match = false; break; }
+                            if (a->kind == LogosType::Kind::TypeVar &&
+                                p->kind == LogosType::Kind::TypeVar) continue;  // both TV, OK
+                            if (a->kind == LogosType::Kind::TypeVar ||
+                                p->kind == LogosType::Kind::TypeVar) { match = false; break; }
+                            if (!types_equal(*a, *p)) { match = false; break; }
+                        }
+                        if (match) { target_struct_tmpl = &ss; break; }
+                    }
+                }
+            }
+        }
+        if (!target_struct_tmpl) {
+            for (auto& sd : prog.structs)
+                if (sd.name == target) { target_struct_tmpl = &sd; break; }
+        }
     }
     std::unordered_set<std::string> overridden;
     // Blanket impls lower methods under a synthetic target name so they don't

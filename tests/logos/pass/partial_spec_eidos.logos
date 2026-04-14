@@ -1,0 +1,36 @@
+// Partial specialization of a generic eidos: `pub eidos Map<Bitmap, V>`
+// partially specializes `Map<K, V>` on K=Bitmap.  Fields and impls from
+// the partial spec override the template for any concrete V.
+package partial_spec_eidos;
+
+pub eidos Map<K, V> {
+    pub x: u64,
+}
+
+pub eidos Bitmap { pub dummy: u32 }
+
+pub eidos Map<Bitmap, V> {
+    pub header: u64,
+    pub data:   u32,
+}
+
+impl<V> Map<Bitmap, V> {
+    pub unsafe fn size(self: *const Map<Bitmap, V>) -> u32 {
+        return ((self.header >> 58) & 0x3F as u64) as u32;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let m: Map<Bitmap, i32> = Map::<Bitmap, i32> {
+        header: (5 as u64) << 58,
+        data:   0 as u32,
+    };
+    let p: *const Map<Bitmap, i32> = &m as *const Map<Bitmap, i32>;
+    if p.size() != 5 as u32 { return 1; }
+
+    // Template instantiation for unrelated K still uses template fields.
+    let t: Map<i32, i32> = Map::<i32, i32> { x: 7 as u64 };
+    if t.x != 7 as u64 { return 2; }
+
+    return 0;
+}

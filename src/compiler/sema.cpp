@@ -1265,6 +1265,66 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
 
 // ── Lowering helpers ─────────────────────────────────────────────────────────
 
+// Match `concrete` against `pattern`, binding TypeVars.  Minimal mirror of
+// mono's match_type — only the cases we need for struct-spec selection.
+static bool match_type_sema(const LogosType* concrete, const LogosType* pattern,
+                            std::unordered_map<std::string, const LogosType*>& bindings) {
+    if (!concrete || !pattern) return false;
+    if (pattern->kind == LogosType::Kind::TypeVar) {
+        auto it = bindings.find(pattern->type_var_name);
+        if (it != bindings.end()) return types_equal(*concrete, *it->second);
+        bindings[pattern->type_var_name] = concrete;
+        return true;
+    }
+    if (pattern->kind != concrete->kind) return false;
+    switch (pattern->kind) {
+    case LogosType::Kind::Ptr:
+        return pattern->mut_ptr == concrete->mut_ptr &&
+               match_type_sema(concrete->pointee, pattern->pointee, bindings);
+    case LogosType::Kind::Ref:
+    case LogosType::Kind::MutRef:
+        return match_type_sema(concrete->pointee, pattern->pointee, bindings);
+    case LogosType::Kind::Array:
+        return pattern->arr_size == concrete->arr_size &&
+               match_type_sema(concrete->elem, pattern->elem, bindings);
+    case LogosType::Kind::Struct:
+    case LogosType::Kind::Datatype:
+        return pattern->struct_name == concrete->struct_name;
+    default:
+        return types_equal(*concrete, *pattern);
+    }
+}
+
+static int specificity_sema(const LogosType* t) {
+    if (!t || t->kind == LogosType::Kind::TypeVar) return 0;
+    if (t->kind == LogosType::Kind::Ptr)   return 1 + specificity_sema(t->pointee);
+    if (t->kind == LogosType::Kind::Array) return 1 + specificity_sema(t->elem);
+    return 100;
+}
+
+// Find the most specific spec in struct_specs_sema_ whose patterns match
+// `type_args` under template `base_name`.  Returns nullptr if none match.
+const SemaChecker::SemaStructInfo* SemaChecker::find_best_sema_struct_spec(
+        std::string_view base_name,
+        const std::vector<const LogosType*>& type_args) {
+    const SemaStructInfo* best       = nullptr;
+    int                   best_score = -1;
+    for (auto& [key, info] : struct_specs_sema_) {
+        if (info.base_name != base_name) continue;
+        if (info.spec_patterns.size() != type_args.size()) continue;
+        std::unordered_map<std::string, const LogosType*> binds;
+        bool ok = true;
+        int  score = 0;
+        for (size_t i = 0; i < type_args.size(); ++i) {
+            if (!match_type_sema(type_args[i], info.spec_patterns[i], binds)) { ok = false; break; }
+            score += specificity_sema(info.spec_patterns[i]);
+        }
+        if (!ok) continue;
+        if (score > best_score) { best = &info; best_score = score; }
+    }
+    return best;
+}
+
 const LogosType* SemaChecker::field_type_of(std::string_view sname, std::string_view fname) {
     SemaStructInfo* si = nullptr;
     { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
@@ -1282,12 +1342,11 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
                                              std::string_view fname) {
     if (!struct_t || (struct_t->kind != LogosType::Kind::Struct &&
                       struct_t->kind != LogosType::Kind::Datatype)) return nullptr;
-    // Check for a concrete specialization first.
+    // Check for a concrete specialization first (including partial specs
+    // via pattern matching).
     if (!struct_t->type_args.empty()) {
-        std::string concrete = concrete_struct_name(struct_t);
-        auto spec_it = struct_specs_sema_.find(concrete);
-        if (spec_it != struct_specs_sema_.end()) {
-            for (auto& f : spec_it->second.fields) {
+        if (auto* spec = find_best_sema_struct_spec(struct_t->struct_name, struct_t->type_args)) {
+            for (auto& f : spec->fields) {
                 if (f.name == fname) return f.type;
                 if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_')
                     return f.type;
@@ -1445,6 +1504,11 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         prog.inst_annotations.push_back(std::move(ia));
                     }
                 }
+            } else if (is_specialization_struct(item)) {
+                // Datatype specialization (e.g. `pub eidos Map<Bitmap, V> { ... }`).
+                auto sd = lower_spec_struct(item);
+                sd.is_datatype = true;
+                prog.struct_specializations.push_back(std::move(sd));
             } else {
                 // Normal datatype definition.
                 auto sd = lower_struct_def(item);

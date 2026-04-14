@@ -314,6 +314,12 @@ private:
                             bool is_pub = false; std::string source_file;
                             std::string package;
                             bool is_data_plain = true;  // false if any field is Kind::Datatype
+                            // Partial-spec support: when this is a specialization,
+                            // base_name is the generic template (e.g. "Map") and
+                            // spec_patterns holds one entry per type-param slot
+                            // (either concrete types or TypeVars for partial specs).
+                            std::string base_name;
+                            std::vector<const LogosType*> spec_patterns;
                           };
     struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
@@ -533,6 +539,8 @@ private:
 
     const LogosType* field_type_of(std::string_view sname, std::string_view fname);
     const LogosType* field_type_of_for_type(const LogosType* struct_t, std::string_view fname);
+    const SemaStructInfo* find_best_sema_struct_spec(std::string_view base_name,
+                                                     const std::vector<const LogosType*>& type_args);
 
     // ── lower_expr ───────────────────────────────────────────────
 

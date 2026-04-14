@@ -37,6 +37,7 @@ void SemaChecker::collect(const std::vector<hermes::HermesCtr>& asts) {
             } else if (ic == la::DATATYPE) {
                 // Explicit instantiation declarations have no NAME key — skip name registration.
                 if (!item.has_key(la::NAME.code)) continue;
+                if (is_specialization_struct(item)) continue;  // partial/full specs registered later
                 auto dname = std::string(str_of(item.get(la::NAME.code)));
                 if (datatypes_.count(dname)) error(std::format("duplicate datatype '{}'", dname));
                 else datatypes_[dname] = {};
@@ -200,6 +201,11 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 // Skip explicit instantiation declarations (no FIELDS key, no NAME key).
                 // These only bind annotations to existing generic instantiations.
                 if (item.has_key(la::NAME.code)) {
+                    bool is_spec = is_specialization_struct(item);
+                    if (is_spec) {
+                        collect_struct_spec(item);
+                        continue;
+                    }
                     collect_datatype(item);
                     // Apply any pending #[type_code=N] to explicit_type_codes_
                     // so collect_impl (same pass) can find it.
@@ -845,32 +851,28 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
         }
     }
 
-    // Check if all patterns are concrete (no TypeVar).
-    bool all_concrete = true;
-    for (auto* p : spec_patterns)
-        if (p->kind == LogosType::Kind::TypeVar) { all_concrete = false; break; }
+    // Register both full and partial specs (e.g. Map<Bitmap, V>): partial
+    // specs are matched via find_best_sema_struct_spec at lookup time.
+    auto* inst_type = make_generic_struct(sname, spec_patterns);
+    std::string concrete = concrete_struct_name(inst_type);
 
-    if (all_concrete) {
-        // Compute concrete name (e.g. "Pair__i32") and build SemaStructInfo.
-        auto* inst_type = make_generic_struct(sname, spec_patterns);
-        std::string concrete = concrete_struct_name(inst_type);
-
-        SemaStructInfo info;
-        info.package = cur_package_;
-        if (node.has_key(la::FIELDS)) {
-            auto fields = arr_of(node.get(la::FIELDS.code));
-            for (uint64_t i = 0; i < fields.size(); ++i) {
-                auto fnode = map_of(fields.get(i));
-                auto fname = str_of(fnode.get(la::NAME.code));
-                auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
-                bool fpub = fnode.has_key(la::IS_PUB) &&
-                            fnode.get(la::IS_PUB.code).is_value() &&
-                            fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
-                info.fields.push_back({fname, ftype, fpub});
-            }
+    SemaStructInfo info;
+    info.package = cur_package_;
+    info.base_name = sname;
+    info.spec_patterns = spec_patterns;
+    if (node.has_key(la::FIELDS)) {
+        auto fields = arr_of(node.get(la::FIELDS.code));
+        for (uint64_t i = 0; i < fields.size(); ++i) {
+            auto fnode = map_of(fields.get(i));
+            auto fname = str_of(fnode.get(la::NAME.code));
+            auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+            bool fpub = fnode.has_key(la::IS_PUB) &&
+                        fnode.get(la::IS_PUB.code).is_value() &&
+                        fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+            info.fields.push_back({fname, ftype, fpub});
         }
-        struct_specs_sema_[std::move(concrete)] = std::move(info);
     }
+    struct_specs_sema_[std::move(concrete)] = std::move(info);
 
     // Clean up pattern TypeVars.
     for (auto& tp : pattern_tvars)
