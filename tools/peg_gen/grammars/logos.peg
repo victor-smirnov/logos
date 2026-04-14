@@ -354,7 +354,11 @@
 
     // static NAME: type = expr;  (module-level mutable static — same repr as const for now)
     // type NAME = type_ref;
-    type_alias <- KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
+    type_alias <- KW_PUB KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
+               => { CODE: TYPE_ALIAS, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6 }
+                / KW_PUB KW_TYPE IDENT ASSIGN type_ref SEMI
+               => { CODE: TYPE_ALIAS, IS_PUB: 1, NAME: $3, TYPE: $5 }
+                / KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
                => { CODE: TYPE_ALIAS, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
                 / KW_TYPE IDENT ASSIGN type_ref SEMI
                => { CODE: TYPE_ALIAS, NAME: $2, TYPE: $4 }

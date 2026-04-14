@@ -1,0 +1,18 @@
+// pub type alias: fn-pointer alias declared with `pub`.
+package pub_type_alias_fnptr;
+
+pub type MemDestroyer = fn(*mut u8, i64) -> ();
+
+unsafe fn noop(p: *mut u8, n: i64) {
+    // intentionally empty
+}
+
+unsafe fn call(d: MemDestroyer) {
+    d(0 as *mut u8, 0 as i64);
+}
+
+unsafe fn main() -> i32 {
+    let d: MemDestroyer = noop;
+    call(d);
+    return 0;
+}

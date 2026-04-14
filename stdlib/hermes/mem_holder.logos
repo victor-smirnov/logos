@@ -31,10 +31,7 @@ extern fn free(ptr: *mut u8);
 // base pointer and capacity.  Fixed signature keeps MemHolder a plain POD;
 // callbacks that need extra state pack it into the buffer or carry it
 // out-of-band.
-//
-// (Spelled inline as `fn(*mut u8, i64)` at each use site — Logos grammar
-// does not yet support `pub type Alias = fn(...) -> ...` for function
-// pointer aliases.)
+pub type MemDestroyer = fn(*mut u8, i64) -> ();
 
 // ---------------------------------------------------------------------------
 // MemHolder — refcounted buffer view + bump cursor.
@@ -51,7 +48,7 @@ pub struct MemHolder {
     pub capacity:  i64,
     pub used:      i64,
     pub rc:        i32,
-    pub destroyer: fn(*mut u8, i64) -> (),
+    pub destroyer: MemDestroyer,
 }
 
 // ── Default destroyer callbacks ──────────────────────────────────────────
@@ -73,7 +70,7 @@ pub unsafe fn memholder_destroy_free(base: *mut u8, capacity: i64) {
 // `buffer` must be valid for the lifetime the destroyer decides to hold.
 pub unsafe fn memholder_wrap(buffer:    *mut u8,
                              capacity:  i64,
-                             destroyer: fn(*mut u8, i64) -> ()) -> *mut MemHolder {
+                             destroyer: MemDestroyer) -> *mut MemHolder {
     let raw:    *mut u8        = malloc(sizeof::<MemHolder>());
     let holder: *mut MemHolder = raw as *mut MemHolder;
     holder.base      = buffer;
@@ -107,7 +104,7 @@ pub unsafe fn memholder_release(holder: *mut MemHolder) {
         // Drop the buffer (destroyer decides what that means).  Callback is
         // never null in practice — memholder_wrap requires one — but guard
         // the raw field in case someone zero-initialised the struct.
-        let d: fn(*mut u8, i64) -> () = holder.destroyer;
+        let d: MemDestroyer = holder.destroyer;
         d(holder.base, holder.capacity);
         free(holder as *mut u8);
     }
