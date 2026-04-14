@@ -112,6 +112,29 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
          s.ptr->type->kind == LogosType::Kind::MutRef))
         elem_type = logos_to_mlir(s.ptr->type->pointee);
     if (!elem_type) elem_type = builder_.getI32Type();
+    // Struct/datatype assignment through a pointer is a byte-level copy:
+    // both sides are represented as `ptr` in MLIR, but the value being
+    // stored is the bytes pointed at by `val`, not the pointer itself.
+    // Emit an llvm.memcpy of sizeof(struct) bytes — resolved via the
+    // registered LLVM struct type, not elem_type (which is just ptr_type
+    // for any struct at MLIR level).
+    const LogosType* pointee_t = (s.ptr->type && s.ptr->type->pointee)
+                                  ? s.ptr->type->pointee : nullptr;
+    if (pointee_t && (pointee_t->kind == LogosType::Kind::Struct ||
+                      pointee_t->kind == LogosType::Kind::Datatype) &&
+        val.getType() == ptr_type()) {
+        auto cname = concrete_struct_name(pointee_t);
+        auto sit = struct_types_.find(cname);
+        if (sit != struct_types_.end()) {
+            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(),
+                builder_.getI64IntegerAttr(bytes));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
+            return;
+        }
+    }
     val = coerce_int(val, elem_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, ptr);
 }

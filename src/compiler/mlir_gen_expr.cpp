@@ -576,9 +576,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
 mlir::Value MLIRGenImpl::gen_expr_kind(const EDeref& e, const LogosType* type) {
     auto ptr = gen_expr(*e.operand);
     if (!ptr) return nullptr;
-    // Structs and classes are always pointer-represented in MLIR/LLVM.
-    // Dereferencing *Struct or &mut Struct just yields the same pointer — no load needed.
-    if (type && type->kind == LogosType::Kind::Struct)
+    // Structs/datatypes are always pointer-represented in MLIR/LLVM; the
+    // logical *-deref just yields the same pointer.  Subsequent field
+    // access or the return-by-value wrap handles the byte-level copy.
+    // (Previously only Struct was covered here — Datatype fell through to
+    // the load branch, producing a bogus double-load through pass-by-ptr
+    // parameters: `*const V3` was treated as `ptr-to-ptr-to-V3`.)
+    if (type && (type->kind == LogosType::Kind::Struct ||
+                 type->kind == LogosType::Kind::Datatype))
         return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
