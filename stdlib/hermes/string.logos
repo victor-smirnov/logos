@@ -216,21 +216,34 @@ pub struct HermesStringStorage {
     pub o_cap: u64,
 }
 
-impl Datatype for HermesString {
-    type View    = StringView;
-    type Storage = HermesStringStorage;
-
-    fn storage_new() -> HermesStringStorage {
-        return HermesStringStorage {
-            bytes: 0 as *mut u8,
-            b_len: 0 as u64,
-            b_cap: 0 as u64,
-            ends:  0 as *mut u32,
-            o_len: 0 as u64,
-            o_cap: 0 as u64,
-        };
+// Storage for HermesStringStorage: SoA layout (packed bytes + end offsets);
+// storage_get materialises a StringView on the fly from (bytes, ends[idx]).
+// The view form matches zone-backed HermesString reads so container clients
+// see a uniform shape.
+impl Storage for HermesStringStorage {
+    type Elem = StringView;
+    fn storage_len(s: *const HermesStringStorage) -> u64 {
+        unsafe { return s.o_len; }
     }
+    fn storage_get(s: *const HermesStringStorage, idx: u64) -> StringView {
+        unsafe {
+            let end_p: *const u32 = (s.ends as i64 + (idx as i64) * 4 as i64) as *const u32;
+            let end_off: u64 = *end_p as u64;
+            let start_off: u64 = if idx == 0 as u64 {
+                0 as u64
+            } else {
+                let prev: *const u32 = (s.ends as i64 + (idx as i64 - 1 as i64) * 4 as i64) as *const u32;
+                *prev as u64
+            };
+            return StringView {
+                ptr: (s.bytes as i64 + start_off as i64) as *const u8,
+                len: end_off - start_off,
+            };
+        }
+    }
+}
 
+impl OwningStorage for HermesStringStorage {
     fn storage_drop(s: *mut HermesStringStorage) {
         unsafe {
             if s.bytes != 0 as *mut u8 {
@@ -245,11 +258,33 @@ impl Datatype for HermesString {
             s.o_len = 0 as u64; s.o_cap = 0 as u64;
         }
     }
+}
 
-    fn storage_len(s: *const HermesStringStorage) -> u64 {
-        unsafe { return s.o_len; }
+impl DynamicStorage for HermesStringStorage {
+    fn storage_new() -> HermesStringStorage {
+        return HermesStringStorage {
+            bytes: 0 as *mut u8,
+            b_len: 0 as u64,
+            b_cap: 0 as u64,
+            ends:  0 as *mut u32,
+            o_len: 0 as u64,
+            o_cap: 0 as u64,
+        };
     }
-
+    fn storage_clear(s: *mut HermesStringStorage) {
+        unsafe {
+            if s.bytes != 0 as *mut u8 {
+                dealloc(s.bytes);
+                s.bytes = 0 as *mut u8;
+            }
+            if s.ends != 0 as *mut u32 {
+                dealloc(s.ends as *mut u8);
+                s.ends = 0 as *mut u32;
+            }
+            s.b_len = 0 as u64; s.b_cap = 0 as u64;
+            s.o_len = 0 as u64; s.o_cap = 0 as u64;
+        }
+    }
     fn storage_push(s: *mut HermesStringStorage, v: StringView) {
         unsafe {
             // Grow bytes buffer to fit the new string.
@@ -294,20 +329,18 @@ impl Datatype for HermesString {
         }
     }
 
-    fn storage_get(s: *const HermesStringStorage, idx: u64) -> StringView {
-        unsafe {
-            let end_p: *const u32 = (s.ends as i64 + (idx as i64) * 4 as i64) as *const u32;
-            let end_off: u64 = *end_p as u64;
-            let start_off: u64 = if idx == 0 as u64 {
-                0 as u64
-            } else {
-                let prev: *const u32 = (s.ends as i64 + (idx as i64 - 1 as i64) * 4 as i64) as *const u32;
-                *prev as u64
-            };
-            return StringView {
-                ptr: (s.bytes as i64 + start_off as i64) as *const u8,
-                len: end_off - start_off,
-            };
-        }
-    }
+}
+
+impl Datatype for HermesString {
+    type View<S: Storage> = StringView;
+}
+
+impl Container for HermesString {
+    type Store       = HermesStringStorage;
+    type ViewInStore = StringView;
+    fn new_store()                                        -> HermesStringStorage { return HermesStringStorage::storage_new(); }
+    fn drop_store(s: *mut HermesStringStorage)                                   { unsafe { HermesStringStorage::storage_drop(s); } }
+    fn store_len(s: *const HermesStringStorage)           -> u64                 { unsafe { return HermesStringStorage::storage_len(s); } }
+    fn store_push(s: *mut HermesStringStorage, v: StringView)                    { unsafe { HermesStringStorage::storage_push(s, v); } }
+    fn store_get(s: *const HermesStringStorage, idx: u64) -> StringView          { unsafe { return HermesStringStorage::storage_get(s, idx); } }
 }

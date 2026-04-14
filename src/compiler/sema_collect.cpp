@@ -140,6 +140,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         auto* concrete = args[i];
         if (!concrete || concrete->kind == LogosType::Kind::Error) continue;
         if (concrete->kind == LogosType::Kind::TypeVar) continue; // defer until mono
+        if (concrete->kind == LogosType::Kind::AssocType) continue; // deferred (bounds checked via trait decl)
 
         std::string concrete_str = type_str(concrete);
         std::string unwrapped_name;

@@ -1038,14 +1038,24 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             } else {
                 auto bit = current_type_bounds_.find(tp_name);
                 if (bit != current_type_bounds_.end()) {
-                    for (auto& bound : bit->second) {
-                        auto tit = traits_.find(bound.trait_name);
-                        if (tit != traits_.end()) {
-                            for (auto& at : tit->second.assoc_types) {
-                                if (at.name == assoc) { trait_for_assoc = bound.trait_name; break; }
-                            }
+                    // Walk each bound trait AND its supertrait chain to find
+                    // the assoc type. A `Container: Datatype` bound pulls in
+                    // Datatype's `View` through the supertrait edge.
+                    std::vector<std::string> worklist;
+                    std::unordered_set<std::string> seen;
+                    for (auto& b : bit->second) worklist.push_back(b.trait_name);
+                    while (!worklist.empty() && trait_for_assoc.empty()) {
+                        std::string tn = std::move(worklist.back());
+                        worklist.pop_back();
+                        if (!seen.insert(tn).second) continue;
+                        auto tit = traits_.find(tn);
+                        if (tit == traits_.end()) continue;
+                        for (auto& at : tit->second.assoc_types) {
+                            if (at.name == assoc) { trait_for_assoc = tn; break; }
                         }
                         if (!trait_for_assoc.empty()) break;
+                        for (auto& sup : tit->second.supertraits)
+                            worklist.push_back(sup.trait_name);
                     }
                 }
             }

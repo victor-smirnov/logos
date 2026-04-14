@@ -32,6 +32,7 @@ use std.mem;
 pub trait Storage {
     type Elem;
     fn storage_len(s: *const Self) -> u64;
+    fn storage_get(s: *const Self, idx: u64) -> Self::Elem;
 }
 
 pub trait OwningStorage: Storage {
@@ -49,65 +50,91 @@ pub trait BorrowedStorage: Storage {
 }
 
 // ---------------------------------------------------------------------------
-// Datatype — View ↔ Storage bridge.
+// Datatype — representation/processing bridge.
+//
+// A Datatype describes how to *interpret* bytes held by a Storage.  `View<S>`
+// is the processing form derived from an S-shaped backing store; e.g. the
+// same `HermesString` datatype yields StringView over either a zone slab
+// (AOS) or a packed SoA buffer.
+//
+// Datatype itself owns no storage logic — that lives in the Storage
+// hierarchy.  The Container trait below pairs a datatype with a canonical
+// container-Storage for use by Buffer<DT>.
 // ---------------------------------------------------------------------------
 
 pub trait Datatype {
-    type View;
-    type Storage;
+    type View<S: Storage>;
+}
 
-    fn storage_new() -> Self::Storage;
-    fn storage_drop(s: *mut Self::Storage);
-    fn storage_len(s: *const Self::Storage) -> u64;
-    fn storage_push(s: *mut Self::Storage, v: Self::View);
-    fn storage_get(s: *const Self::Storage, idx: u64) -> Self::View;
+// ---------------------------------------------------------------------------
+// Container — a Datatype paired with its canonical DynamicStorage.
+//
+// Buffer<DT: Container> uses `DT::Store` as the backing store and funnels
+// all element-level operations through the per-type `container_push` /
+// `container_get` hooks.  Each Datatype chooses how to materialise its
+// view from the container-store layout.
+// ---------------------------------------------------------------------------
+
+pub trait Container: Datatype {
+    // Container-Store's Elem matches View<Store>.  Thin bridge methods
+    // forward to the Store's DynamicStorage impl.  `ViewInStore` is the
+    // monomorphic view when this datatype uses its canonical Store —
+    // declared explicitly to side-step the GAT-instantiation comparison
+    // inside generic code (Buffer<DT> sees a plain assoc type, not a GAT).
+    type Store: DynamicStorage;
+    type ViewInStore;
+    fn new_store() -> Self::Store;
+    fn drop_store(s: *mut Self::Store);
+    fn store_len(s: *const Self::Store) -> u64;
+    fn store_push(s: *mut Self::Store, v: Self::ViewInStore);
+    fn store_get(s: *const Self::Store, idx: u64) -> Self::ViewInStore;
 }
 
 // ---------------------------------------------------------------------------
 // Buffer<DT> — typed homogeneous container.
 //
-// Callers push/get `DT::View`.  Storage layout is `DT::Storage`.
-// Drop releases heap memory via the per-type `storage_drop` hook.
+// Callers push/get the view form `DT::ViewInStore`.  Drop delegates to
+// the store's `storage_drop`.
 // ---------------------------------------------------------------------------
 
-pub struct Buffer<DT: Datatype> {
-    storage: DT::Storage,
+pub struct Buffer<DT: Container> {
+    storage: DT::Store,
 }
 
-impl<DT: Datatype> Buffer<DT> {
+impl<DT: Container> Buffer<DT> {
     pub static fn new() -> Buffer<DT> {
-        return Buffer { storage: DT::storage_new() };
+        return Buffer { storage: DT::new_store() };
     }
 
     pub fn len(&self) -> u64 {
         unsafe {
-            let sp: *const DT::Storage = &self.storage as *const DT::Storage;
-            return DT::storage_len(sp);
+            let sp: *const DT::Store = &self.storage as *const DT::Store;
+            return DT::store_len(sp);
         }
     }
 
-    pub fn push(&mut self, v: DT::View) {
+    pub fn push(&mut self, v: DT::ViewInStore) {
         unsafe {
-            let sp: *mut DT::Storage =
-                (&self.storage as *const DT::Storage) as *mut DT::Storage;
-            DT::storage_push(sp, v);
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::store_push(sp, v);
         }
     }
 
-    pub fn get(&self, idx: u64) -> DT::View {
+    pub fn get(&self, idx: u64) -> DT::ViewInStore {
         unsafe {
-            let sp: *const DT::Storage = &self.storage as *const DT::Storage;
-            return DT::storage_get(sp, idx);
+            let sp: *const DT::Store = &self.storage as *const DT::Store;
+            return DT::store_get(sp, idx);
         }
     }
 }
 
-impl<DT: Datatype> Drop for Buffer<DT> {
+impl<DT: Container> Drop for Buffer<DT> {
     fn drop(self: Buffer<DT>) {
         unsafe {
-            let sp: *mut DT::Storage =
-                (&self.storage as *const DT::Storage) as *mut DT::Storage;
-            DT::storage_drop(sp);
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::drop_store(sp);
         }
     }
 }
@@ -193,6 +220,9 @@ impl<T> Storage for PrimVec<T> {
     fn storage_len(s: *const PrimVec<T>) -> u64 {
         unsafe { return s.len; }
     }
+    fn storage_get(s: *const PrimVec<T>, idx: u64) -> T {
+        unsafe { return s.get(idx); }
+    }
 }
 
 impl<T> OwningStorage for PrimVec<T> {
@@ -214,27 +244,21 @@ impl<T> DynamicStorage for PrimVec<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Blanket: every `Primitive` datatype gets `Datatype` for free.
-// View = DT::Prim (the inline type); Storage = PrimVec<DT::Prim>.
+// Blankets: every `Primitive` datatype gets `Datatype` + `Container` for free.
+// The view of a Primitive is always its Prim type regardless of storage —
+// a `PrimVec<i64>` hands back i64, a future shared-memory slab also i64.
 // ---------------------------------------------------------------------------
 
 impl<DT: Primitive> Datatype for DT {
-    type View    = DT::Prim;
-    type Storage = PrimVec<DT::Prim>;
+    type View<S: Storage> = DT::Prim;
+}
 
-    fn storage_new() -> PrimVec<DT::Prim> {
-        return PrimVec::<DT::Prim>::empty();
-    }
-    fn storage_drop(s: *mut PrimVec<DT::Prim>) {
-        unsafe { s.clear(); }
-    }
-    fn storage_len(s: *const PrimVec<DT::Prim>) -> u64 {
-        unsafe { return s.len; }
-    }
-    fn storage_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) {
-        unsafe { s.push(v); }
-    }
-    fn storage_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim {
-        unsafe { return s.get(idx); }
-    }
+impl<DT: Primitive> Container for DT {
+    type Store       = PrimVec<DT::Prim>;
+    type ViewInStore = DT::Prim;
+    fn new_store() -> PrimVec<DT::Prim> { return PrimVec::<DT::Prim>::empty(); }
+    fn drop_store(s: *mut PrimVec<DT::Prim>) { unsafe { s.clear(); } }
+    fn store_len(s: *const PrimVec<DT::Prim>) -> u64 { unsafe { return s.len; } }
+    fn store_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) { unsafe { s.push(v); } }
+    fn store_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim { unsafe { return s.get(idx); } }
 }
