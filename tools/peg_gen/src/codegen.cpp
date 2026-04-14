@@ -470,6 +470,27 @@ private:
         return false;
     }
 
+    // Rules that carry a packrat memoisation cache.  Each entry is keyed
+    // by the start position and stores (result AST, end position).
+    //
+    // Only safe because peg_gen's emitted code no longer rolls back the
+    // doc arena on backtrack — AST nodes allocated during failed branches
+    // sit in the arena as unreachable garbage rather than being zeroed
+    // and reused, so pointers stashed in the memo stay valid.
+    //
+    // Memoisation pays off for rules that (a) are called at the same pos
+    // from multiple alternative contexts, and (b) do real recursive work.
+    static bool is_memoized(std::string_view rule) {
+        static constexpr std::string_view kMemo[] = {
+            "expr", "log_expr", "cmp_expr", "bitwise_expr",
+            "add_expr", "mul_expr", "cast_expr", "unary_expr",
+            "atom", "primary_expr",
+            "type_ref", "simple_type",
+        };
+        for (auto r : kMemo) if (r == rule) return true;
+        return false;
+    }
+
     // A REP is in fold-mode when its body GROUP has at least one alt with $0 ($FOLD_CAPTURE).
     static bool rep_is_fold(const Item& rep) {
         if (rep.sub_items.empty()) return false;
@@ -493,6 +514,8 @@ private:
         w.fmt("#pragma once");
         w.line();
         w.line("#include <string_view>");
+        w.line("#include <unordered_map>");
+        w.line("#include <utility>");
         w.line("#include <logos/core/named_code.hpp>");
         w.line("#include <logos/hermes/view.hpp>");
         for (const auto& imp : g_.imports)
@@ -601,8 +624,17 @@ private:
         w.indent();
 
         // Rule method declarations.
-        for (const auto& r : g_.rules)
+        for (const auto& r : g_.rules) {
             w.fmt("logos::hermes::AnyVal rule_{}();", r.name);
+            if (is_memoized(r.name))
+                w.fmt("logos::hermes::AnyVal rule_{}_impl();", r.name);
+        }
+        // Packrat memo caches: start_pos → (AST, end_pos).  AST AnyVals
+        // remain valid because emit_alt no longer rolls back the arena.
+        for (const auto& r : g_.rules) {
+            if (!is_memoized(r.name)) continue;
+            w.fmt("std::unordered_map<size_t, std::pair<logos::hermes::AnyVal, size_t>> memo_{}_;", r.name);
+        }
         if (!g_.prec.empty()) {
             w.line();
             w.line("// Pratt expression parser (generated from %prec).");
@@ -1180,7 +1212,42 @@ private:
     void emit_rule(CodeWriter& w, const Rule& rule) {
         lc_ = 0;  // reset label counter for this rule
         cur_rule_group_ = rule.group;
-        w.fmt("AnyVal {}::rule_{}() {{", parser_class_, rule.name);
+
+        // Packrat wrapper.  Key is the logical position of the next
+        // token-to-lex — NOT `pos_` directly, because `pos_` points past
+        // any prefetched lookahead (`have_la_ == true`), which can alias
+        // with a genuine "no lookahead at same pos_" entry from a
+        // different logical context.  We normalise by backing pos_ to
+        // the start of `la_`'s token when a lookahead is live.
+        //
+        // On cache hit we clear have_la_ so the next peek re-lexes at
+        // the stored end position; that also means end position is
+        // always "before any prefetch", matching the key convention.
+        const bool memo = is_memoized(rule.name);
+        if (memo) {
+            w.fmt("AnyVal {}::rule_{}() {{", parser_class_, rule.name);
+            w.indent();
+            w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); have_la_ = false; }");
+            w.line("size_t start = pos_;");
+            w.fmt("auto it = memo_{}_.find(start);", rule.name);
+            w.fmt("if (it != memo_{}_.end()) {{", rule.name);
+            w.indent();
+            w.line("pos_ = it->second.second;");
+            w.line("have_la_ = false;");
+            w.line("return it->second.first;");
+            w.dedent();
+            w.line("}");
+            w.fmt("AnyVal result = rule_{}_impl();", rule.name);
+            w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); have_la_ = false; }");
+            w.fmt("memo_{}_.emplace(start, std::make_pair(result, pos_));", rule.name);
+            w.line("return result;");
+            w.dedent();
+            w.line("}");
+            w.line();
+        }
+
+        const std::string fn = memo ? rule.name + "_impl" : rule.name;
+        w.fmt("AnyVal {}::rule_{}() {{", parser_class_, fn);
         w.indent();
         w.line("size_t saved_pos;");
         w.line("bool   saved_la;");
@@ -1266,7 +1333,7 @@ private:
         w.line("have_la_  = saved_la;");
         w.line("la_       = saved_tok_;");
         w.line("line_     = saved_line_;");
-        w.line("doc_.arena_rollback(saved_doc_);");
+        w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
         w.dedent();
         w.line("}");
         w.line();
@@ -1348,7 +1415,7 @@ private:
                 w.line("}");
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_; line_ = opt_line_;");
-                w.line("doc_.arena_rollback(opt_doc_);");
+                w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
                 w.fmt("{}: ;", done_lbl);
                 w.dedent();
                 w.line("}");
@@ -1374,7 +1441,7 @@ private:
             w.line("}");
             w.fmt("{}: ;", fail_lbl);
             w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_; line_ = opt_line_;");
-            w.line("doc_.arena_rollback(opt_doc_);");
+            w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
             w.fmt("{}: ;", done_lbl);
             w.dedent();
             w.line("}");
@@ -1412,7 +1479,7 @@ private:
                 }
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
-                w.line("doc_.arena_rollback(rep_doc_);");
+                w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
                 w.line("break;");
                 w.dedent();
                 w.line("}");
@@ -1444,7 +1511,7 @@ private:
                 }
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
-                w.line("doc_.arena_rollback(rep_doc_);");
+                w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
                 w.line("break;");
                 w.dedent();
                 w.line("}");
@@ -1507,7 +1574,7 @@ private:
                 w.dedent();
                 w.line("}"); // end inner scope
                 w.fmt("{}: ;", alt_fail);
-                w.line("pos_ = grp_pos_; have_la_ = grp_la_; la_ = grp_tok_; doc_.arena_rollback(grp_doc_); line_ = grp_line_;");
+                w.line("pos_ = grp_pos_; have_la_ = grp_la_; la_ = grp_tok_; line_ = grp_line_;");
                 w.dedent();
                 w.line("}");
             }
@@ -1533,13 +1600,13 @@ private:
                 std::string sub_cap = "la_" + id;
                 emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
             }
-            w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_; doc_.arena_rollback(la_doc_); line_ = la_line_;");
+            w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_; line_ = la_line_;");
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};  // lookahead result (position restored)", cap);
             w.fmt("goto {};", end_lbl);
             w.dedent();
             w.line("}");
             w.fmt("{}: ;", fail_lbl);
-            w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_; doc_.arena_rollback(la_doc_); line_ = la_line_;");
+            w.line("pos_ = la_pos_; have_la_ = la_la_; la_ = la_tok_; line_ = la_line_;");
             w.fmt("goto {};", fail_label);
             w.fmt("{}: ;", end_lbl);
             w.dedent();
@@ -1562,13 +1629,13 @@ private:
                 emit_item_match(w, item.sub_items[0], sub_cap, ok_lbl, 0);
             }
             // Sub-item matched → negation fails.
-            w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_; doc_.arena_rollback(na_doc_); line_ = na_line_;");
+            w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_; line_ = na_line_;");
             w.fmt("goto {};", fail_label);
             w.dedent();
             w.line("}");
             w.fmt("{}: ;", fail_lbl);
             w.fmt("{}: ;", ok_lbl);
-            w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_; doc_.arena_rollback(na_doc_); line_ = na_line_;");
+            w.line("pos_ = na_pos_; have_la_ = na_la_; la_ = na_tok_; line_ = na_line_;");
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};  // negative lookahead succeeded", cap);
             w.dedent();
             w.line("}");
