@@ -173,7 +173,7 @@ unsafe fn main() -> i32 {
     if !r11.is_ptr()                                 { free(ibuf); return 37; }
     let omap11: *const ObjectMap =
         (z11.holder.base as i64 + r11.as_offset() as i64) as *const ObjectMap;
-    let cnt11: u32 = omap11.size_count();
+    let cnt11: u32 = omap11.size();
     let mut xk: u8 = 120 as u8;  // 'x'
     let got11: AnyVal = omap11.get(z11.holder.base as *const u8,
                                    (&mut xk) as *const u8, 1 as u64);
@@ -232,7 +232,7 @@ unsafe fn main() -> i32 {
     if !r15.is_ptr()                                 { free(ibuf); return 49; }
     let omap15: *const ObjectMap =
         (z15.holder.base as i64 + r15.as_offset() as i64) as *const ObjectMap;
-    let cnt15: u32 = omap15.size_count();
+    let cnt15: u32 = omap15.size();
     // zone is cleaned up by Drop
     if cnt15 != 1 as u32                             { free(ibuf); return 50; }
 
@@ -253,7 +253,7 @@ unsafe fn main() -> i32 {
     if !r16.is_ptr()                                  { free(ibuf); return 52; }
     let omap16: *const ObjectMap =
         (z16.holder.base as i64 + r16.as_offset() as i64) as *const ObjectMap;
-    let cnt16: u32 = omap16.size_count();
+    let cnt16: u32 = omap16.size();
     // Look up key "ab" = [97 98]
     let kbuf16: *mut u8 = malloc(2);
     *kbuf16 = 97 as u8;
@@ -285,7 +285,7 @@ unsafe fn main() -> i32 {
     if !r17.is_ptr()                                  { free(ibuf); return 57; }
     let omap17: *const ObjectMap =
         (z17.holder.base as i64 + r17.as_offset() as i64) as *const ObjectMap;
-    let cnt17: u32 = omap17.size_count();
+    let cnt17: u32 = omap17.size();
     // Look up key "n" = [110]
     let mut nk: u8 = 110 as u8;
     let arr17_val: AnyVal = omap17.get(z17.holder.base as *const u8,

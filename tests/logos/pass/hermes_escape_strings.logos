@@ -110,7 +110,7 @@ unsafe fn main() -> i32 {
     if !r7.is_ptr() { return 22; }
     let omap7: *const ObjectMap =
         (z7.holder.base as i64 + r7.as_offset() as i64) as *const ObjectMap;
-    if omap7.size_count() != 1 as u32 { return 23; }
+    if omap7.size() != 1 as u32 { return 23; }
 
     // Look up key `a"b` — 3 bytes.
     let mut key: String = String::new();

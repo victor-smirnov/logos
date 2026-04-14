@@ -23,24 +23,26 @@ use logos.lang.datatypes;
 // The type_code is carried by the genos; propagates to eide via impl.
 // ---------------------------------------------------------------------------
 
+// Canonical operation on any Int64 eidos: read the signed 64-bit value.
+// Generic code can do `fn sum<V: Int64>(vs: &[*const V]) { vs[i].value() }`.
 #[type_code=26]
-pub genos Int64 {}
+pub genos Int64 {
+    unsafe fn value(self: *const Self) -> i64;
+}
 
 pub eidos I64 {
     pub v: i64,
 }
 
-impl Int64 for I64 {}
+impl Int64 for I64 {
+    unsafe fn value(self: *const I64) -> i64 { return self.v; }
+}
 
 impl I64 {
     pub unsafe fn init(raw: *mut u8, value: i64) -> *mut I64 {
         let p: *mut I64 = raw as *mut I64;
         p.v = value;
         return p;
-    }
-
-    pub unsafe fn value(self: *const I64) -> i64 {
-        return self.v;
     }
 }
 
@@ -49,23 +51,23 @@ impl I64 {
 // ---------------------------------------------------------------------------
 
 #[type_code=27]
-pub genos UInt64 {}
+pub genos UInt64 {
+    unsafe fn value(self: *const Self) -> u64;
+}
 
 pub eidos U64 {
     pub v: u64,
 }
 
-impl UInt64 for U64 {}
+impl UInt64 for U64 {
+    unsafe fn value(self: *const U64) -> u64 { return self.v; }
+}
 
 impl U64 {
     pub unsafe fn init(raw: *mut u8, value: u64) -> *mut U64 {
         let p: *mut U64 = raw as *mut U64;
         p.v = value;
         return p;
-    }
-
-    pub unsafe fn value(self: *const U64) -> u64 {
-        return self.v;
     }
 }
 

@@ -150,10 +150,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 // Trait method → direct call: TypeName__method(self, args...)
                 std::string cname;
                 auto* rt = new_recv->type;
-                if (rt->kind == LogosType::Kind::Struct)
+                if (rt->kind == LogosType::Kind::Struct ||
+                    rt->kind == LogosType::Kind::Datatype)
                     cname = concrete_struct_name(rt);
                 else if (rt->kind == LogosType::Kind::Ptr && rt->pointee) {
-                    if (rt->pointee->kind == LogosType::Kind::Struct)
+                    if (rt->pointee->kind == LogosType::Kind::Struct ||
+                        rt->pointee->kind == LogosType::Kind::Datatype)
                         cname = concrete_struct_name(rt->pointee);
                     else
                         cname = type_str(rt);  // full ptr type: *const u8, *mut i32

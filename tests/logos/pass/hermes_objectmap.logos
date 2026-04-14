@@ -21,7 +21,7 @@ unsafe fn main() -> i32 {
     let map: *mut ObjectMap  = ObjectMap::init(map_raw, base, entries_buf, 4 as u32);
 
     // Map starts empty.
-    if map.size_count() != 0 as u32              { return 1; }
+    if map.size() != 0 as u32              { return 1; }
 
     // Build HermesString for key "a" (1 byte) manually:
     //   byte[0] = vlen prefix = 1 (length), byte[1] = 97 ('a').
@@ -46,7 +46,7 @@ unsafe fn main() -> i32 {
     map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i24(42));
     map.set(base, off_b, key_b, 1 as u64, AnyVal::embed_u24(99 as u32));
 
-    if map.size_count() != 2 as u32              { return 2; }
+    if map.size() != 2 as u32              { return 2; }
 
     // Retrieve "a".
     let va: AnyVal = map.get(base as *const u8, key_a, 1 as u64);
@@ -76,7 +76,7 @@ unsafe fn main() -> i32 {
 
     // Update "a" → i32(77) — count must not change.
     map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i24(77));
-    if map.size_count() != 2 as u32              { return 11; }
+    if map.size() != 2 as u32              { return 11; }
     let va2: AnyVal = map.get(base as *const u8, key_a, 1 as u64);
     if va2.as_i24() != 77                        { return 12; }
 

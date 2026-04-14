@@ -40,8 +40,11 @@ pub eidos MapEntry {
 // ObjectMap — the hash table header (16 bytes, all primitives)
 // ---------------------------------------------------------------------------
 
+// Canonical operation on any Map eidos: the current entry count.
 #[type_code=101]
-pub genos Map {}
+pub genos Map {
+    unsafe fn size(self: *const Self) -> u32;
+}
 
 pub eidos ObjectMap {
     pub entries_off: u32,  // zone-relative offset to the MapEntry array
@@ -50,7 +53,9 @@ pub eidos ObjectMap {
     pub reserved:    u32,  // zero
 }
 
-impl Map for ObjectMap {}
+impl Map for ObjectMap {
+    unsafe fn size(self: *const ObjectMap) -> u32 { return self.count; }
+}
 
 impl ObjectMap {
     // Initialize an ObjectMap at pre-allocated memory.
@@ -178,8 +183,4 @@ impl ObjectMap {
         return false;
     }
 
-    // Number of entries stored in the map.
-    pub unsafe fn size_count(self: *const ObjectMap) -> u32 {
-        return self.count;
-    }
 }

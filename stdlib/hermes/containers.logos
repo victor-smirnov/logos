@@ -48,15 +48,22 @@ unsafe fn popcount_u64(x: u64) -> u32 {
 // Insertion: shift elements right by 1 to maintain sorted key order. O(n).
 // ---------------------------------------------------------------------------
 
+// Canonical operation on any TinyMap eidos: the current entry count.
 #[type_code=98]
-pub genos TinyMap {}
+pub genos TinyMap {
+    unsafe fn size(self: *const Self) -> u32;
+}
 
 pub eidos TinyObjectMap {
     pub header: u64,
     pub data:   u32,
 }
 
-impl TinyMap for TinyObjectMap {}
+impl TinyMap for TinyObjectMap {
+    unsafe fn size(self: *const TinyObjectMap) -> u32 {
+        return ((self.header >> 58) & 0x3F as u64) as u32;
+    }
+}
 
 impl TinyObjectMap {
     // Initialize a TinyObjectMap at pre-allocated memory.
@@ -82,11 +89,6 @@ impl TinyObjectMap {
             i = i + 1;
         }
         return map_ptr;
-    }
-
-    // Number of entries currently in the map.
-    pub unsafe fn size(self: *const TinyObjectMap) -> u32 {
-        return ((self.header >> 58) & 0x3F as u64) as u32;
     }
 
     // True if key is present in the map.
@@ -158,8 +160,11 @@ impl TinyObjectMap {
 //   (4 bytes implicit trailing padding)
 // ---------------------------------------------------------------------------
 
+// Canonical operation on any Array eidos: the current element count.
 #[type_code=100]
-pub genos Array {}
+pub genos Array {
+    unsafe fn len(self: *const Self) -> u64;
+}
 
 pub eidos ObjectArray {
     pub size:     u64,
@@ -167,7 +172,9 @@ pub eidos ObjectArray {
     pub data:     u32,
 }
 
-impl Array for ObjectArray {}
+impl Array for ObjectArray {
+    unsafe fn len(self: *const ObjectArray) -> u64 { return self.size; }
+}
 
 impl ObjectArray {
     // Initialize an ObjectArray at pre-allocated memory.
@@ -212,8 +219,4 @@ impl ObjectArray {
         return AnyVal { raw: ep.raw };
     }
 
-    // Number of elements in the array.
-    pub unsafe fn len(self: *const ObjectArray) -> u64 {
-        return self.size;
-    }
 }
