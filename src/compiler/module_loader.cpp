@@ -4,6 +4,8 @@
 
 #include "module_loader.hpp"
 #include "logos_parser.hpp"
+#include <chrono>
+#include <cstdlib>
 
 #include <logos/compiler/ast.hpp>
 #include <logos/hermes/document.hpp>
@@ -135,7 +137,14 @@ std::vector<ParsedModule> load_modules(
         }
 
         LogosParser parser(source);
+        auto pt0 = std::chrono::steady_clock::now();
         auto ast = parser.parse_module();
+        if (std::getenv("LOGOS_TRACE_PHASES")) {
+            auto pt1 = std::chrono::steady_clock::now();
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(pt1 - pt0).count();
+            std::fprintf(stderr, "  parse %8lldus (%zu bytes) %s\n",
+                         (long long)us, source.size(), canonical.c_str());
+        }
         if (ast.is_null()) {
             std::fprintf(stderr, "module_loader: parse failed for '%s'\n", canonical.c_str());
             return;

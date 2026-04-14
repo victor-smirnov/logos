@@ -7,6 +7,7 @@
 // Pipeline: .logos file → PEG parser → Hermes AST → MLIR → LLVM IR → .o file.
 
 #include "mlir_gen.hpp"
+#include <chrono>
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
@@ -68,8 +69,18 @@ int main(int argc, char** argv) {
         else if (arg == "--emit-llvm") { emit_llvm = true; }
     }
 
+    const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
+    auto t_start = std::chrono::steady_clock::now();
+    auto report = [&](const char* label) {
+        if (!trace) return;
+        auto now = std::chrono::steady_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - t_start).count();
+        std::fprintf(stderr, "[trace %6lldms] %s\n", (long long)ms, label);
+        t_start = now;
+    };
     // ── Step 1-2: Load and parse all modules ────────────────────
     auto modules = logos::compiler::load_modules(input_path, search_paths);
+    report("load+parse");
     if (modules.empty()) {
         std::fprintf(stderr, "logosc: no modules loaded\n");
         return 1;
@@ -87,16 +98,19 @@ int main(int argc, char** argv) {
     auto prog = logos::compiler::sema_lower(asts, filenames);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
+    report("sema+lower");
 
     // ── Step 2c: Monomorphization ────────────────────────────────
     prog = logos::compiler::mono_pass(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
+    report("mono");
 
     // ── Step 2d: Borrow checking ─────────────────────────────────
     prog = logos::compiler::borrow_check(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
+    report("borrow");
 
     // ── Step 3: L-IR → MLIR ─────────────────────────────────────
     mlir::MLIRContext mlir_ctx;
@@ -107,6 +121,7 @@ int main(int argc, char** argv) {
     mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
 
     auto mlir_module = logos::compiler::mlir_gen(mlir_ctx, prog);
+    report("mlir_gen");
     if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
     if (!mlir_module) {
         std::fprintf(stderr, "logosc: MLIR generation failed\n");
@@ -130,6 +145,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "logosc: MLIR lowering failed\n");
         return 1;
     }
+    report("mlir->llvm dialect");
 
     // ── Step 5: MLIR LLVM dialect → LLVM IR ─────────────────────
     mlir::registerBuiltinDialectTranslation(mlir_ctx);
@@ -137,6 +153,7 @@ int main(int argc, char** argv) {
 
     llvm::LLVMContext llvm_ctx;
     auto llvm_module = mlir::translateModuleToLLVMIR(*mlir_module, llvm_ctx);
+    report("llvm_ir");
     if (!llvm_module) {
         std::fprintf(stderr, "logosc: LLVM IR translation failed\n");
         return 1;
