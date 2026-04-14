@@ -6,6 +6,16 @@ set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/toolchains/jenny.cmake
 
 project(logos LANGUAGES CXX C ASM)
 
+# Default to an optimised build when the user hasn't explicitly picked one.
+# Single-config generators (Ninja, Make) leave CMAKE_BUILD_TYPE empty by
+# default, which gets no `-O` flags and makes the compiler ~6× slower —
+# Logos' parser alone dropped from 7μs/byte to 0.4μs/byte once Release
+# was enabled. Pick RelWithDebInfo so debuggers still work.
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING
+        "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
