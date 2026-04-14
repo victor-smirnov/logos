@@ -169,6 +169,17 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 }
             }
             if (via_blanket) continue;
+            // Generic-struct impl: `impl<T: X> Trait for GenericStruct<T>`
+            // registers under the base name ("GenericStruct").  Accept the
+            // bound satisfaction if a generic impl for the concrete's base
+            // struct exists; the impl's own type-param bounds are validated
+            // at monomorphization time by recursive check_type_bounds.
+            if ((concrete->kind == LogosType::Kind::Struct ||
+                 concrete->kind == LogosType::Kind::Datatype) &&
+                !concrete->struct_name.empty()) {
+                auto key3 = bound.trait_name + "::" + concrete->struct_name;
+                if (impls_.count(key3)) continue;
+            }
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
                   target_name, concrete_str, bound.trait_name, tp.name));
         }
