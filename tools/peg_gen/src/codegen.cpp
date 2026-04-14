@@ -491,6 +491,26 @@ private:
         return false;
     }
 
+    // A "token-alias" rule is one whose every alternative is a single
+    // TOKEN_REF and carries no user action — i.e. a disjunction of tokens
+    // like `trait_kw <- KW_TRAIT / KW_GENOS`.  Callers that reference such
+    // a rule want "match any of these tokens" semantics and should NOT
+    // collect the result into the per-alt `$...` rcap array (otherwise the
+    // token text pollutes the parent's ITEMS list).  Treated exactly like
+    // a token from the caller's viewpoint.
+    bool is_token_alias(std::string_view rule_name) const {
+        for (const auto& r : g_.rules) {
+            if (r.name != rule_name) continue;
+            for (const auto& a : r.alts) {
+                if (a.action.has_value()) return false;
+                if (a.seq.size() != 1) return false;
+                if (a.seq[0].kind != int32_t(ast::TOKEN_REF)) return false;
+            }
+            return !r.alts.empty();
+        }
+        return false;
+    }
+
     // A REP is in fold-mode when its body GROUP has at least one alt with $0 ($FOLD_CAPTURE).
     static bool rep_is_fold(const Item& rep) {
         if (rep.sub_items.empty()) return false;
@@ -1369,8 +1389,12 @@ private:
                 call = std::format("{0}_.rule_{1}()", item.grammar_alias, item.name);
             w.fmt("[[maybe_unused]] AnyVal {} = {};", cap, call);
             w.fmt("if ({}.is_null()) goto {};", cap, fail_label);
-            // Collect into rule-captures array if $... is used in this alt's action.
-            if (!rcap_var_.empty())
+            // Collect into rule-captures array if $... is used in this alt's
+            // action.  Skip for token-alias rules: a `trait_kw <- KW_TRAIT /
+            // KW_GENOS` call is treated like a token match by the caller —
+            // its result text shouldn't pollute the parent's ITEMS list.
+            if (!rcap_var_.empty() && item.grammar_alias.empty()
+                && !is_token_alias(item.name))
                 w.fmt("{}.push_back({}).get();", rcap_var_, cap);
             break;
         }
