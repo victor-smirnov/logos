@@ -503,6 +503,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         ib.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
     // Resolve trait type args and push into scope
+    std::vector<const LogosType*> impl_trait_args;
     if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
         if (!tpav.is_null()) {
@@ -512,9 +513,36 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto tit = traits_.find(trait_name);
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     auto resolved = resolve_type(map_of(items.get(i)));
+                    impl_trait_args.push_back(resolved);
                     if (tit != traits_.end() && i < tit->second.type_params.size())
                         current_type_params_[tit->second.type_params[i].name] = resolved;
                 }
+            }
+        }
+    }
+    // Propagate type_code from a genos-specialization decl:
+    // `#[type_code=100] pub genos Array<AnyVal>;` + `impl Array<AnyVal> for E`
+    // → E inherits type_code 100.  Only fires if the direct trait didn't
+    // already carry a type_code (handled above).
+    if (!trait_name.empty() && !target.empty() && !impl_trait_args.empty()) {
+        // Build canonical "pkg::Trait<Args>" to look up explicit_type_codes_.
+        // Try both the impl site's package and any known owner of the trait.
+        std::string tpkg = std::string(cur_package_);
+        std::string canon = tpkg + "::" + trait_name + "<";
+        for (size_t i = 0; i < impl_trait_args.size(); ++i) {
+            if (i) canon += ", ";
+            canon += type_str(impl_trait_args[i]);
+        }
+        canon += ">";
+        auto eit = explicit_type_codes_.find(canon);
+        if (eit != explicit_type_codes_.end()) {
+            for (auto& sd : prog.structs) {
+                if (sd.name != target) continue;
+                sd.type_code = eit->second;
+                auto fqn = cur_package_.empty() ? sd.name
+                                                 : cur_package_ + "::" + sd.name;
+                explicit_type_codes_[fqn] = sd.type_code;
+                break;
             }
         }
     }

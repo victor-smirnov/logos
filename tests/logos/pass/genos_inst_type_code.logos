@@ -1,0 +1,24 @@
+// `#[type_code=N] pub genos Array<Arg>;` — explicit genos specialization
+// decl.  An eidos implementing the specialized genos inherits the code.
+package genos_inst_type_code;
+
+pub genos Bag<T> {
+    unsafe fn count(self: *const Self) -> u64;
+}
+
+#[type_code=200]
+pub genos Bag<i32>;
+
+pub eidos IntBag {
+    pub n: u64,
+}
+
+impl Bag<i32> for IntBag {
+    unsafe fn count(self: *const IntBag) -> u64 { return self.n; }
+}
+
+unsafe fn main() -> i32 {
+    let c: u64 = type_code_of::<IntBag>();
+    if c != 200 as u64 { return 1; }
+    return 0;
+}

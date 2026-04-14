@@ -327,7 +327,7 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // ── Annotations ──────────────────────────────────────────────
     // #[name(arg1, arg2)]  — annotation with identifier arguments
@@ -548,6 +548,15 @@
 
     datatype_inst <- KW_DATATYPE type_ref SEMI
                   => { CODE: DATATYPE, TYPE: $2 }
+
+    // Explicit genos specialization decl: `#[type_code=N] pub genos Array<i32>;`.
+    // Binds annotations (type_code, future metadata) to a logical-family
+    // specialization; implementing eidos inherit via impl.
+    pub_trait_inst <- KW_PUB trait_kw type_ref SEMI
+                   => { CODE: TRAIT_DEF, IS_PUB: 1, TYPE: $3 }
+
+    trait_inst <- trait_kw type_ref SEMI
+               => { CODE: TRAIT_DEF, TYPE: $2 }
 
     // ── Struct definition ────────────────────────────────────────
     pub_struct_def <- KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE

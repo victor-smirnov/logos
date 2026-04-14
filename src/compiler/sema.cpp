@@ -1479,9 +1479,63 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         else if (c == la::CONST_DEF)  prog.consts.push_back(lower_const_def(item));
         else if (c == la::TYPE_ALIAS) prog.type_aliases.push_back(lower_type_alias_def(item));
         else if (c == la::TRAIT_DEF) {
-            auto td = lower_trait_def(item);
-            apply_annots_to_trait(td);
-            prog.traits.push_back(std::move(td));
+            // Explicit genos specialization decl: `#[type_code=N] pub genos Array<i32>;`.
+            // No NAME on the decl (name lives inside TYPE node); type_ref is
+            // `Bag<Args>` where Bag is a trait name, not a struct.  Don't call
+            // resolve_type — traits aren't types.  Extract trait_name + args
+            // manually and canonicalize.
+            if (!item.has_key(la::NAME.code) && item.has_key(la::TYPE.code)) {
+                auto type_node = map_of(item.get(la::TYPE.code));
+                if (code_of(type_node) != la::GENERIC_INST) {
+                    error("genos specialization decl must have type arguments");
+                } else {
+                    auto tname = std::string(str_of(type_node.get(la::NAME.code)));
+                    std::string canon = std::string(cur_package_) + "::" + tname + "<";
+                    bool arg_ok = true;
+                    if (type_node.has_key(la::ITEMS.code)) {
+                        auto items2 = arr_of(type_node.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < items2.size(); ++i) {
+                            auto* at = resolve_type(map_of(items2.get(i)));
+                            if (!at || at->kind == LogosType::Kind::Error) { arg_ok = false; break; }
+                            if (i) canon += ", ";
+                            canon += type_str(at);
+                        }
+                    }
+                    canon += ">";
+                    if (!arg_ok) {
+                        error(std::format("genos '{}': cannot resolve type arguments", tname));
+                    } else {
+                        lir::LInstAnnotation ia;
+                        ia.canonical_name = canon;
+                        for (auto& ann : pending_annots) {
+                            auto aname = std::string(str_of(ann.get(la::NAME.code)));
+                            if (aname == "type_code" && ann.has_key(la::VALUE)) {
+                                auto sv = str_of(ann.get(la::VALUE.code));
+                                ia.type_code = (uint64_t)parse_int_literal(sv);
+                            }
+                        }
+                        if (ia.type_code != 0)
+                            explicit_type_codes_[ia.canonical_name] = ia.type_code;
+                        prog.inst_annotations.push_back(std::move(ia));
+                    }
+                }
+            } else {
+                auto td = lower_trait_def(item);
+                apply_annots_to_trait(td);
+                // Reject #[type_code] on a template genos (type_params present).
+                // It would collide at dispatch-table level: every concrete
+                // specialization would land in the same tag-system slot.
+                if (td.type_code != 0) {
+                    auto tit = traits_.find(td.name);
+                    if (tit != traits_.end() && !tit->second.type_params.empty())
+                        error(std::format("genos '{}': #[type_code] on a template "
+                                          "(parametric) genos is forbidden — "
+                                          "attach it to a concrete specialization "
+                                          "(e.g. `#[type_code=N] genos {}<T>;`)",
+                                          td.name, td.name));
+                }
+                prog.traits.push_back(std::move(td));
+            }
         }
         else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);
         pending_annots.clear();

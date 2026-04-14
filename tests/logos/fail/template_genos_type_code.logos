@@ -1,0 +1,10 @@
+// #[type_code] on a parametric genos is forbidden — it would collide
+// at tag-system dispatch-table level across concrete specializations.
+package template_genos_type_code;
+
+#[type_code=55]
+pub genos Bag<T> {
+    unsafe fn count(self: *const Self) -> u64;
+}
+
+fn main() -> i32 { return 0; }
