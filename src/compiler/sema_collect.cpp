@@ -484,6 +484,21 @@ void SemaChecker::collect_impl(TinyMapView node) {
             }
         } else {
             target = std::string(str_of(tnode.get(la::NAME.code)));
+            // Unfold transparent type aliases so `impl Trait for Alias`
+            // registers methods under the aliased type's concrete name.
+            auto ait = type_aliases_.find(target);
+            if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
+                auto* aliased = ait->second.type;
+                if (aliased && (aliased->kind == LogosType::Kind::Struct ||
+                                aliased->kind == LogosType::Kind::Datatype)) {
+                    if (!aliased->type_args.empty()) {
+                        target = concrete_struct_name(aliased);
+                        target_resolved = aliased;
+                    } else {
+                        target = aliased->struct_name;
+                    }
+                }
+            }
         }
     }
     // Note: impl_tps are left in current_type_params_ until after collect_fn calls below.

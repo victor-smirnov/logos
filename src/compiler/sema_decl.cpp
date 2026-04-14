@@ -464,6 +464,21 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         } else {
             target = std::string(str_of(tnode.get(la::NAME.code)));
+            // Unfold type aliases: `type ObjectArray = Array<AnyVal>;` makes
+            // `impl Trait for ObjectArray` equivalent to `impl Trait for Array<AnyVal>`.
+            auto ait = type_aliases_.find(target);
+            if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
+                auto* aliased = ait->second.type;
+                if (aliased && (aliased->kind == LogosType::Kind::Struct ||
+                                aliased->kind == LogosType::Kind::Datatype)) {
+                    if (!aliased->type_args.empty()) {
+                        target = concrete_struct_name(aliased);
+                        target_resolved = aliased;
+                    } else {
+                        target = aliased->struct_name;
+                    }
+                }
+            }
         }
     }
     lir::LImplBlock ib;
@@ -503,8 +518,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // Derive canonical "pkg::BaseName<Args>" from the target type
                 // (use target_resolved captured earlier — always set when the
                 // target is a concrete generic instantiation, i.e. this path).
+                std::string pkg;
                 if (target_resolved) {
-                    std::string pkg;
                     auto dit = datatypes_.find(target_resolved->struct_name);
                     if (dit != datatypes_.end()) pkg = dit->second.package;
                     else {
@@ -514,6 +529,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     if (pkg.empty()) pkg = cur_package_;
                     ia.canonical_name = pkg + "::" + type_str(target_resolved);
                     explicit_type_codes_[ia.canonical_name] = td.type_code;
+                }
+                // Also register the mangled-form key ("pkg::Array$G1$AnyVal")
+                // so the dispatch-entry emission code (which looks up by mangled
+                // target) picks up the propagated type_code.
+                {
+                    std::string p = pkg.empty() ? std::string(cur_package_) : pkg;
+                    std::string mangled_fqn = p.empty() ? target : p + "::" + target;
+                    explicit_type_codes_[mangled_fqn] = td.type_code;
                 }
                 prog.inst_annotations.push_back(std::move(ia));
             }
@@ -703,7 +726,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto target_fqn = cur_package_.empty() ? target : cur_package_ + "::" + target;
                 auto eit = explicit_type_codes_.find(target_fqn);
                 if (eit == explicit_type_codes_.end()) {
-                    auto dit = datatypes_.find(target);
+                    // For a generic-instantiation target ("Array$G1$AnyVal"),
+                    // datatypes_ keys by the base name ("Array").  Strip the
+                    // "$G..." suffix for the package lookup.
+                    std::string base = target;
+                    if (auto p = base.find("$G"); p != std::string::npos)
+                        base = base.substr(0, p);
+                    auto dit = datatypes_.find(base);
                     if (dit != datatypes_.end()) {
                         auto foreign_fqn = dit->second.package + "::" + target;
                         eit = explicit_type_codes_.find(foreign_fqn);

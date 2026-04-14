@@ -166,32 +166,34 @@ pub genos Array {
     unsafe fn len(self: *const Self) -> u64;
 }
 
-pub eidos ObjectArray {
+// Generic array eidos: header + zone-relative offset to a T[] buffer.
+pub eidos Array<T> {
     pub size:     u64,
     pub capacity: u64,
     pub data:     u32,
 }
 
-impl Array for ObjectArray {
-    unsafe fn len(self: *const ObjectArray) -> u64 { return self.size; }
+// Back-compat alias — keeps existing callers working after templatization.
+pub type ObjectArray = Array<AnyVal>;
+
+impl Array for Array<AnyVal> {
+    unsafe fn len(self: *const Array<AnyVal>) -> u64 { return self.size; }
 }
 
-impl ObjectArray {
-    // Initialize an ObjectArray at pre-allocated memory.
-    //   arr_raw  — pointer to ≥sizeof(ObjectArray) bytes
+impl Array<AnyVal> {
+    // Initialize an Array<AnyVal> at pre-allocated memory.
+    //   arr_raw  — pointer to ≥sizeof(Array<AnyVal>) bytes
     //   buf_raw  — pointer to ≥ capacity*4 bytes for the element buffer
     //   base     — zone base pointer
     //   capacity — initial allocated capacity
-    // Returns a *mut ObjectArray.
     pub unsafe fn init(arr_raw: *mut u8, buf_raw: *mut u8,
-                       base: *mut u8, capacity: u64) -> *mut ObjectArray {
+                       base: *mut u8, capacity: u64) -> *mut Array<AnyVal> {
         let base_int: i64  = base as i64;
         let buf_off: u32   = (buf_raw as i64 - base_int) as u32;
-        let arr_ptr: *mut ObjectArray = arr_raw as *mut ObjectArray;
+        let arr_ptr: *mut Array<AnyVal> = arr_raw as *mut Array<AnyVal>;
         arr_ptr.size     = 0 as u64;
         arr_ptr.capacity = capacity;
         arr_ptr.data     = buf_off;
-        // Zero-initialize the buffer.
         let elem_sz: i64 = sizeof::<AnyVal>() as i64;
         let mut i: u64 = 0 as u64;
         while i < capacity {
@@ -203,7 +205,7 @@ impl ObjectArray {
     }
 
     // Append a value. Does nothing if at capacity.
-    pub unsafe fn push(self: *mut ObjectArray, base: *mut u8, val: AnyVal) {
+    pub unsafe fn push(self: *mut Array<AnyVal>, base: *mut u8, val: AnyVal) {
         if self.size >= self.capacity { return; }
         let elem_sz: i64 = sizeof::<AnyVal>() as i64;
         let ep: *mut AnyVal = (base as i64 + self.data as i64 + (self.size as i64) * elem_sz) as *mut AnyVal;
@@ -212,11 +214,10 @@ impl ObjectArray {
     }
 
     // Get element by index. Returns AnyVal::null_ptr() if out of bounds.
-    pub unsafe fn get(self: *const ObjectArray, base: *const u8, idx: u64) -> AnyVal {
+    pub unsafe fn get(self: *const Array<AnyVal>, base: *const u8, idx: u64) -> AnyVal {
         if idx >= self.size { return AnyVal::null_ptr(); }
         let elem_sz: i64 = sizeof::<AnyVal>() as i64;
         let ep: *const AnyVal = (base as i64 + self.data as i64 + (idx as i64) * elem_sz) as *const AnyVal;
         return AnyVal { raw: ep.raw };
     }
-
 }
