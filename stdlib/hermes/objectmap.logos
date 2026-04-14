@@ -47,29 +47,33 @@ pub eidos MapEntry {
 #[type_code=101]
 pub genos Map<Varchar, AnyVal>;
 
-pub eidos ObjectMap {
+// Full specialization (no partial over V — this layout is AnyVal-specific).
+pub eidos Map<Varchar, AnyVal> {
     pub entries_off: u32,  // zone-relative offset to the MapEntry array
     pub capacity:    u32,  // number of slots (power of 2)
     pub count:       u32,  // number of occupied slots
     pub reserved:    u32,  // zero
 }
 
-impl Map<Varchar, AnyVal> for ObjectMap {
-    unsafe fn size(self: *const ObjectMap) -> u32 { return self.count; }
+// Back-compat alias.
+pub type ObjectMap = Map<Varchar, AnyVal>;
+
+impl Map<Varchar, AnyVal> for Map<Varchar, AnyVal> {
+    unsafe fn size(self: *const Map<Varchar, AnyVal>) -> u32 { return self.count; }
 }
 
-impl ObjectMap {
+impl Map<Varchar, AnyVal> {
     // Initialize an ObjectMap at pre-allocated memory.
     //   raw          — pointer to ≥ 16 bytes (zone-allocated ObjectMap header)
     //   base         — zone base pointer
     //   entries_buf  — pointer to ≥ capacity * 8 bytes (for the entry array)
     //   capacity     — number of hash slots (must be a power of 2)
-    // Returns *mut ObjectMap = raw (typed).
+    // Returns *mut Map<Varchar, AnyVal> = raw (typed).
     pub unsafe fn init(raw: *mut u8, base: *mut u8,
-                       entries_buf: *mut u8, capacity: u32) -> *mut ObjectMap {
+                       entries_buf: *mut u8, capacity: u32) -> *mut Map<Varchar, AnyVal> {
         let base_int: i64 = base as i64;
         let off: u32 = (entries_buf as i64 - base_int) as u32;
-        let m: *mut ObjectMap = raw as *mut ObjectMap;
+        let m: *mut Map<Varchar, AnyVal> = raw as *mut Map<Varchar, AnyVal>;
         m.entries_off = off;
         m.capacity    = capacity;
         m.count       = 0 as u32;
@@ -92,7 +96,7 @@ impl ObjectMap {
     //   key_len — byte length of the key
     //   val     — the AnyVal to store
     // If the table is full and the key is new, the insert is silently dropped.
-    pub unsafe fn set(self: *mut ObjectMap, base: *mut u8, key_off: u32,
+    pub unsafe fn set(self: *mut Map<Varchar, AnyVal>, base: *mut u8, key_off: u32,
                       key_ptr: *const u8, key_len: u64, val: AnyVal) {
         let cap: u64   = self.capacity as u64;
         let h: u64     = hermes_fnv1a(key_ptr, key_len);
@@ -129,7 +133,7 @@ impl ObjectMap {
     }
 
     // Look up a key. Returns AnyVal::null_ptr() if not found.
-    pub unsafe fn get(self: *const ObjectMap, base: *const u8,
+    pub unsafe fn get(self: *const Map<Varchar, AnyVal>, base: *const u8,
                       key_ptr: *const u8, key_len: u64) -> AnyVal {
         let cap: u64      = self.capacity as u64;
         let h: u64        = hermes_fnv1a(key_ptr, key_len);
@@ -157,7 +161,7 @@ impl ObjectMap {
     }
 
     // True if the map contains the given key.
-    pub unsafe fn contains(self: *const ObjectMap, base: *const u8,
+    pub unsafe fn contains(self: *const Map<Varchar, AnyVal>, base: *const u8,
                            key_ptr: *const u8, key_len: u64) -> bool {
         let cap: u64      = self.capacity as u64;
         let h: u64        = hermes_fnv1a(key_ptr, key_len);
