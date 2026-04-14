@@ -112,19 +112,29 @@ impl HermesHash for U64 {
     }
 }
 
-// ── ObjectArray (100): order-sensitive element mix ────────────────────────
+// ── AnyVal: internal dispatch through tag bits / zone pointer ─────────────
 
-impl HermesHash for ObjectArray {
+impl HermesHash for AnyVal {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return anyval_hash(AnyVal { raw: (self as *const AnyVal).raw }, ctx); }
+    }
+}
+
+// ── Array<T>: order-sensitive element mix for any T: HermesHash ───────────
+
+impl<T: HermesHash> HermesHash for Array<T> {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let a: *const ObjectArray = self as *const ObjectArray;
+            let a: *const Array<T> = self as *const Array<T>;
+            let n: u64 = a.size;
             let mut h: u64 = fnv_mix_u64(fnv_init(), 100 as u64);
-            let n: u64 = a.len();
             h = fnv_mix_u64(h, n);
+            let elem_sz: i64 = sizeof::<T>() as i64;
+            let base_int: i64 = ctx.base as i64 + a.data as i64;
             let mut i: u64 = 0 as u64;
             while i < n {
-                let e: AnyVal = a.get(ctx.base, i);
-                h = fnv_mix_u64(h, anyval_hash(e, ctx));
+                let e: *const T = (base_int + (i as i64) * elem_sz) as *const T;
+                h = fnv_mix_u64(h, e.hash_value(ctx));
                 i = i + 1 as u64;
             }
             return h;

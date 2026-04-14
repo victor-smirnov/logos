@@ -107,21 +107,34 @@ impl HermesEqual for U64 {
     }
 }
 
-// ── ObjectArray (100): element-wise equality via recursion ────────────────
+// ── AnyVal (inline — internal dispatch through tag bits / zone pointer) ───
 
-impl HermesEqual for ObjectArray {
+impl HermesEqual for AnyVal {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const ObjectArray = self as *const ObjectArray;
-            let b: *const ObjectArray = other as *const ObjectArray;
-            let la: u64 = a.len();
-            let lb: u64 = b.len();
-            if la != lb { return false; }
+            let ob: *const AnyVal = other as *const AnyVal;
+            return anyval_equal(AnyVal { raw: (self as *const AnyVal).raw },
+                                AnyVal { raw: ob.raw }, ctx);
+        }
+    }
+}
+
+// ── Array<T>: element-wise equality for any T: HermesEqual ────────────────
+
+impl<T: HermesEqual> HermesEqual for Array<T> {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const Array<T> = self as *const Array<T>;
+            let b: *const Array<T> = other as *const Array<T>;
+            if a.size != b.size { return false; }
+            let elem_sz: i64 = sizeof::<T>() as i64;
+            let base_a: i64 = ctx.base_self  as i64 + a.data as i64;
+            let base_b: i64 = ctx.base_other as i64 + b.data as i64;
             let mut i: u64 = 0 as u64;
-            while i < la {
-                let ea: AnyVal = a.get(ctx.base_self,  i);
-                let eb: AnyVal = b.get(ctx.base_other, i);
-                if !anyval_equal(ea, eb, ctx) { return false; }
+            while i < a.size {
+                let ea: *const T = (base_a + (i as i64) * elem_sz) as *const T;
+                let eb: *const T = (base_b + (i as i64) * elem_sz) as *const T;
+                if !ea.equal(eb as *const u8, ctx) { return false; }
                 i = i + 1 as u64;
             }
             return true;

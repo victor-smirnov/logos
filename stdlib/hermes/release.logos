@@ -26,7 +26,8 @@ pub trait HermesRelease {
 }
 
 impl HermesRelease for HermesString    { pub fn release(&self) {} }
-impl HermesRelease for ObjectArray     { pub fn release(&self) {} }
+impl HermesRelease for AnyVal          { pub fn release(&self) {} }
+impl<T: HermesRelease> HermesRelease for Array<T> { pub fn release(&self) {} }
 impl HermesRelease for TinyObjectMap   { pub fn release(&self) {} }
 impl HermesRelease for ObjectMap       { pub fn release(&self) {} }
 impl HermesRelease for DocumentHeader  { pub fn release(&self) {} }
