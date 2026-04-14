@@ -1234,8 +1234,9 @@ private:
         for (size_t i = 0; i < alt.seq.size(); ++i) {
             std::string cap = std::format("cap{}", i + 1);
             captures[i + 1] = cap;
-            // For fold-mode REP: provide the preceding item's cap as the fold initialiser.
-            if (alt.seq[i].kind == int32_t(ast::REP) && rep_is_fold(alt.seq[i]) && i > 0)
+            // For fold-mode REP/OPT: provide the preceding item's cap as the fold initialiser.
+            if ((alt.seq[i].kind == int32_t(ast::REP) || alt.seq[i].kind == int32_t(ast::OPT))
+                && rep_is_fold(alt.seq[i]) && i > 0)
                 fold_init_cap_ = captures[i]; // captures[i] = cap of item i-1 (1-indexed)
             emit_item_match(w, alt.seq[i], cap, alt_fail, i);
             fold_init_cap_.clear();
@@ -1322,6 +1323,40 @@ private:
             std::string id       = fresh();
             std::string done_lbl = "opt_done_" + id;
             std::string fail_lbl = "opt_fail_" + id;
+
+            // Fold-mode OPT: body GROUP references $0 via FOLD_CAPTURE, so the
+            // pre-OPT capture must be threaded through.  Matches rep_is_fold's
+            // logic; both quantifiers share the same predicate.
+            const bool fold_mode = rep_is_fold(item) && !fold_init_cap_.empty();
+            if (fold_mode) {
+                std::string fold_acc = "opt_acc_" + id;
+                w.fmt("AnyVal {} = {};", fold_acc, fold_init_cap_);
+                cur_fold_var_ = fold_acc;
+                w.line("{");
+                w.indent();
+                w.line("size_t opt_pos_ = pos_; bool opt_la_ = have_la_; Token opt_tok_ = la_; uint32_t opt_line_ = line_;");
+                w.line("size_t opt_doc_ = doc_.arena_checkpoint();");
+                w.line("{");
+                w.indent();
+                if (!item.sub_items.empty()) {
+                    std::string sub_cap = cap + "_s";
+                    emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
+                    w.fmt("{} = {};", fold_acc, sub_cap);
+                }
+                w.fmt("goto {};", done_lbl);
+                w.dedent();
+                w.line("}");
+                w.fmt("{}: ;", fail_lbl);
+                w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_; line_ = opt_line_;");
+                w.line("doc_.arena_rollback(opt_doc_);");
+                w.fmt("{}: ;", done_lbl);
+                w.dedent();
+                w.line("}");
+                w.fmt("[[maybe_unused]] AnyVal {} = {};", cap, fold_acc);
+                cur_fold_var_.clear();
+                break;
+            }
+
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
             w.line("{");
             w.indent();

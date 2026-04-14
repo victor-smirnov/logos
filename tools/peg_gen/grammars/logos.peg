@@ -740,11 +740,15 @@
 
     // for i in lo..hi { }  (exclusive) and  for i in lo..=hi { }  (inclusive)
     // for item in array { }  (for-each over fixed-size array)
+    //
+    // Factor the shared prefix `KW_FOR IDENT KW_IN expr` so we don't reparse
+    // the iterator expression on each alternative's failure.  The tail rule
+    // dispatches on the operator that follows (DOTDOT / DOTDOTEQ / block).
     for_stmt <- KW_FOR IDENT KW_IN expr DOTDOTEQ expr block
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: true }
-              / KW_FOR IDENT KW_IN expr DOTDOT expr block
+              / KW_FOR IDENT KW_IN expr DOTDOT   expr block
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: false }
-              / KW_FOR IDENT KW_IN expr block
+              / KW_FOR IDENT KW_IN expr                block
              => { CODE: FOR_EACH, NAME: $2, ITER: $4, BODY: $5 }
 
     loop_stmt     <- KW_LOOP block
@@ -975,9 +979,13 @@
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                 )*
 
-    cmp_expr <- bitwise_expr (EQ / NE / LE / GE / LT / GT) bitwise_expr
-                => { CODE: BINOP, OP: $2, LHS: $1, RHS: $3 }
-              / bitwise_expr
+    // Non-chainable: at most one comparison.  Wrapping in `?` removes the
+    // `/ bitwise_expr` fallback that caused bitwise_expr to reparse on
+    // every `(1)`-style leaf expression without a comparator.
+    cmp_expr <- bitwise_expr
+                ( (EQ / NE / LE / GE / LT / GT) bitwise_expr
+                    => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
+                )?
 
     // Bitwise and shift operators (higher precedence than comparison)
     // (zero-or-more to avoid PEG backtracking when no operator follows)
