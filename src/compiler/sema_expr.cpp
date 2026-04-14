@@ -1072,9 +1072,14 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 code = (raw < 128) ? (raw + 128) : raw;
             }
         } else if (elem->kind == LogosType::Kind::Datatype && !elem->type_args.empty()) {
-            // Generic instantiation: look up explicit #[type_code] attached via
-            // `#[type_code=N] pub eidos Foo<Bar>;` instantiation declaration.
-            // Canonical key matches what was written in sema.cpp when lowering the decl.
+            // If any type_arg is a TypeVar, defer resolution to mono so every
+            // instantiation of the surrounding generic function gets its own
+            // concrete type_code.  Otherwise (fully concrete), compute now.
+            bool has_tv = false;
+            for (auto* a : elem->type_args)
+                if (a && a->kind == LogosType::Kind::TypeVar) { has_tv = true; break; }
+            if (has_tv)
+                return make_expr(prim(LogosType::Kind::U64), lir::ETypeCodeOf{elem});
             auto dit = datatypes_.find(elem->struct_name);
             std::string pkg = (dit != datatypes_.end()) ? dit->second.package : std::string(cur_package_);
             std::string canon = pkg + "::" + type_str(elem);
@@ -1082,13 +1087,14 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             if (eit != explicit_type_codes_.end()) {
                 code = eit->second;
             } else {
-                // Auto-assign from hash of the concrete canonical name.
                 auto hash = type_hash_23(canon);
                 uint64_t raw = type_hash_56bit(hash);
                 code = (raw < 128) ? (raw + 128) : raw;
             }
+        } else if (elem->kind == LogosType::Kind::TypeVar) {
+            // `type_code_of::<T>()` inside a generic fn — defer.
+            return make_expr(prim(LogosType::Kind::U64), lir::ETypeCodeOf{elem});
         }
-        // Return code as i64 bits (type is U64; bits identical for values < 2^63).
         return make_expr(prim(LogosType::Kind::U64), lir::ELitInt{(int64_t)code});
     }
 

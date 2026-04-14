@@ -335,6 +335,7 @@ private:
     mlir::Value gen_expr_kind(const EFormatCall& e, const LogosType*);
     mlir::Value gen_expr_kind(const EPackExpand&, const LogosType*);
     mlir::Value gen_expr_kind(const ESizeOf& e, const LogosType*);
+    mlir::Value gen_expr_kind(const ETypeCodeOf& e, const LogosType*);
     mlir::Value gen_expr_kind(const EBlockExpr& e, const LogosType*);
     mlir::Value gen_expr_kind(const ETry& e, const LogosType* type);
 

@@ -5,6 +5,7 @@
 // mono_clone.cpp — Expression/statement substitution and function/type cloning.
 
 #include "mono_impl.hpp"
+#include "logos/compiler/sha256.hpp"
 #include <functional>
 
 namespace logos::compiler {
@@ -453,6 +454,45 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = std::move(nm);
         } else if constexpr (std::is_same_v<K, lir::ESizeOf>) {
             result->kind = lir::ESizeOf{subst_type(k.elem_type, s)};
+        } else if constexpr (std::is_same_v<K, lir::ETypeCodeOf>) {
+            // Re-evaluate after substitution.  If the type is now fully
+            // concrete, fold to ELitInt.  Otherwise keep deferred.
+            auto* resolved = subst_type(k.elem_type, s);
+            bool has_tv = false;
+            std::function<void(const LogosType*)> walk = [&](const LogosType* t) {
+                if (!t || has_tv) return;
+                if (t->kind == LogosType::Kind::TypeVar) { has_tv = true; return; }
+                for (auto* a : t->type_args) walk(a);
+                if (t->pointee) walk(t->pointee);
+                if (t->elem)    walk(t->elem);
+            };
+            walk(resolved);
+            if (has_tv || !resolved) {
+                result->kind = lir::ETypeCodeOf{resolved};
+            } else {
+                // Fully concrete — fold.  Match against already-instantiated
+                // struct's type_code first, then fall back to inst_annotations,
+                // then hash of canonical name.
+                uint64_t code = 0;
+                if (resolved->kind == LogosType::Kind::Struct ||
+                    resolved->kind == LogosType::Kind::Datatype) {
+                    std::string mangled = resolved->type_args.empty()
+                        ? resolved->struct_name : concrete_struct_name(resolved);
+                    for (auto& sd : out_.structs)
+                        if (sd.name == mangled && sd.type_code != 0)
+                            { code = sd.type_code; break; }
+                    if (code == 0)
+                        for (auto& ia : out_.inst_annotations)
+                            if (ia.mangled_name == mangled && ia.type_code != 0)
+                                { code = ia.type_code; break; }
+                }
+                if (code == 0) {
+                    auto hash = type_hash_23(type_str(resolved));
+                    uint64_t raw = type_hash_56bit(hash);
+                    code = (raw < 128) ? (raw + 128) : raw;
+                }
+                result->kind = lir::ELitInt{(int64_t)code};
+            }
         } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
             lir::EBlockExpr nb;
             if (k.block) nb.block = std::make_unique<lir::LBlock>(subst_block(*k.block, s));

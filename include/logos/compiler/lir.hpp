@@ -307,6 +307,12 @@ struct ESizeOf {
     const LogosType* elem_type = nullptr;
 };
 
+// type_code_of::<T>() — Hermes wire-format type_code of T.  Deferred to mono
+// so each instantiation of a generic function gets T's own type_code.
+struct ETypeCodeOf {
+    const LogosType* elem_type = nullptr;
+};
+
 // Try expression: expr? — extract Ok(v) or early-return Err(e).
 // inner must have enum type "Result" with 2 type args [T, E].
 // ok_disc / err_disc are the discriminant values for Ok and Err variants.
@@ -334,7 +340,7 @@ struct LExpr {
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
         EClosureBox, EClosureCall, EFnPtrCall, EFormatCall, EPackExpand,
-        ETry, EMatchExpr, ESizeOf, EBlockExpr
+        ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr
     > kind;
 };
 

@@ -1579,6 +1579,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESizeOf& e, const LogosType*) {
         loc_, builder_.getI64Type(), size_ptr);
 }
 
+mlir::Value MLIRGenImpl::gen_expr_kind(const ETypeCodeOf& e, const LogosType*) {
+    // Should have been folded to ELitInt by mono.  Emit 0 as a defensive
+    // fallback (not expected to be reached for well-formed programs).
+    (void)e;
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(const EBlockExpr& e, const LogosType*) {
     if (e.block) gen_block(*e.block);
     if (is_terminated(builder_.getBlock())) return nullptr;

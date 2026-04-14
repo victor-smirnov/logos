@@ -39,6 +39,24 @@ pub trait HermesClone {
     fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8;
 }
 
+// Per-element clone for homogeneous containers like `Array<T>`.  The default
+// semantic — copy into the dst slot — differs from `HermesClone` (which
+// allocates a fresh zone entry and returns its pointer).  `CloneElem` exists
+// so that blanket `impl<T: CloneElem> HermesClone for Array<T>` can uniformly
+// handle inline T (primitives, AnyVal) where per-element zone allocation
+// doesn't apply.
+pub trait CloneElem {
+    unsafe fn clone_elem(self: *const Self, ctx: *mut CloneCtx, dst: *mut Self);
+}
+
+// AnyVal: delegate to anyval_clone (handles inline-vs-zone dispatch).
+impl CloneElem for AnyVal {
+    pub unsafe fn clone_elem(self: *const AnyVal, ctx: *mut CloneCtx, dst: *mut AnyVal) {
+        let new_val: AnyVal = anyval_clone(AnyVal { raw: self.raw }, ctx);
+        dst.raw = new_val.raw;
+    }
+}
+
 // Clone `val` (resolved against ctx.base_src) into ctx.zone_dst and return
 // an AnyVal with the new offset (or the inline value unchanged).
 // Returns null on OOM.
@@ -105,30 +123,35 @@ impl HermesClone for U64 {
     }
 }
 
-// ── ObjectArray (100) ─────────────────────────────────────────────────────
+// ── Array<T>: blanket over any T: CloneElem ───────────────────────────────
 
-impl HermesClone for ObjectArray {
+impl<T: CloneElem> HermesClone for Array<T> {
     pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
         unsafe {
-            let a: *const ObjectArray = self as *const ObjectArray;
+            let a: *const Array<T> = self as *const Array<T>;
             let cap: u64 = a.capacity;
-            let n:   u64 = a.len();
+            let n:   u64 = a.size;
 
-            let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
+            let oa_sz: i64 = sizeof::<Array<T>>() as i64;
+            let tc: u8     = type_code_of::<Array<T>>() as u8;
             let oa_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, oa_sz,
-                                      hermes_tag_array(), hermes_desc_array());
+                                      tc, hermes_desc_array());
             if oa_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4 as i64);
+            let elem_sz: i64 = sizeof::<T>() as i64;
+            let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * elem_sz);
             if buf_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_base_mut: *mut u8 = ctx.zone_dst.holder.base;
-            let new_arr: *mut ObjectArray =
-                ObjectArray::init(oa_raw, buf_raw, dst_base_mut, cap);
+            let new_arr: *mut Array<T> = oa_raw as *mut Array<T>;
+            new_arr.size     = n;
+            new_arr.capacity = cap;
+            new_arr.data     = (buf_raw as i64 - dst_base_mut as i64) as u32;
 
+            let src_base: i64 = ctx.base_src as i64 + a.data as i64;
             let mut i: u64 = 0 as u64;
             while i < n {
-                let src_elem: AnyVal = a.get(ctx.base_src, i);
-                let new_elem: AnyVal = anyval_clone(src_elem, ctx);
-                new_arr.push(dst_base_mut, new_elem);
+                let src_elem: *const T = (src_base + (i as i64) * elem_sz) as *const T;
+                let dst_elem: *mut T   = (buf_raw  as i64 + (i as i64) * elem_sz) as *mut T;
+                src_elem.clone_elem(ctx, dst_elem);
                 i = i + 1 as u64;
             }
             return oa_raw;
