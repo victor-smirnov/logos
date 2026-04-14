@@ -2,77 +2,120 @@
 // Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.mem_holder
 //
-// MemHolder: heap-allocated, reference-counted zone buffer.
+// MemHolder: reference-counted owner of a byte buffer + bump cursor.
 //
-// Zone<M> and DataRef<T>/DataOwn<T> all hold a *mut MemHolder.
-// Each holder has RC: each live reference increments it via memholder_retain,
-// decrements via memholder_release.  When RC reaches 0, both the zone
-// buffer and the MemHolder struct itself are freed.
-//
-// This enables safe sharing of zone memory:
-//   Zone<Mutable>  → allocate objects, each alloc retains the holder
-//   zone_seal()    → transfers Zone<Mutable> reference → Zone<Immutable>
-//   DataRef<T>     → holds a retained reference; call release() when done
-//   DataOwn<T>     → additionally tracks per-object RC via a separate heap cell
+// Ownership-vs-allocation split (rearranged, not merged):
+//   * MemHolder itself does NOT malloc or free memory.  It tracks the
+//     lifetime of whatever buffer was handed to it via a user-supplied
+//     destroyer callback that fires when the refcount reaches zero.
+//   * memholder_alloc_backed() is a convenience allocator on top:
+//     malloc() the holder struct AND the buffer, wire up libc `free`
+//     as the destroyer.  Use it when you want the default heap
+//     behaviour.
+//   * For shared memory, mmap slabs, arena-from-outside, or anywhere
+//     the buffer's lifetime is controlled by someone else, call
+//     memholder_wrap() with your own destroyer (or the no-op
+//     memholder_destroy_none).
 //
 // RC discipline (caller responsibility — Logos has no auto-Drop for generics):
-//   memholder_create  → RC = 1
-//   memholder_retain  → RC += 1  (for each new Zone / DataRef / DataOwn)
-//   memholder_release → RC -= 1  (call when Zone / DataRef / DataOwn goes away)
+//   memholder_wrap           → RC = 1
+//   memholder_retain         → RC += 1  (for each new Zone / DataRef / DataOwn)
+//   memholder_release        → RC -= 1  (call when Zone / DataRef / DataOwn goes away)
 
 package hermes.mem_holder;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
+// Destroyer callback: called once when RC reaches zero, with the buffer's
+// base pointer and capacity.  Fixed signature keeps MemHolder a plain POD;
+// callbacks that need extra state pack it into the buffer or carry it
+// out-of-band.
+//
+// (Spelled inline as `fn(*mut u8, i64)` at each use site — Logos grammar
+// does not yet support `pub type Alias = fn(...) -> ...` for function
+// pointer aliases.)
+
 // ---------------------------------------------------------------------------
-// MemHolder — heap-allocated zone buffer with embedded reference count.
+// MemHolder — refcounted buffer view + bump cursor.
 //
 // Fields:
-//   base     — pointer to the start of the zone's contiguous memory buffer
-//   capacity — total byte capacity of the buffer
-//   used     — bytes consumed so far (bump-allocation cursor)
-//   rc       — reference count (embedded, no extra allocation needed)
+//   base      — pointer to the start of the underlying byte buffer
+//   capacity  — total byte capacity of the buffer
+//   used      — bytes consumed so far (bump-allocation cursor)
+//   rc        — reference count (embedded, no extra allocation needed)
+//   destroyer — called on (base, capacity) once RC hits zero; may be null
 // ---------------------------------------------------------------------------
 pub struct MemHolder {
-    pub base:     *mut u8,
-    pub capacity: i64,
-    pub used:     i64,
-    pub rc:       i32,
+    pub base:      *mut u8,
+    pub capacity:  i64,
+    pub used:      i64,
+    pub rc:        i32,
+    pub destroyer: fn(*mut u8, i64) -> (),
 }
 
-// Allocate and initialise a new MemHolder on the heap with RC = 1.
-// `capacity` is the initial zone buffer size in bytes.
-pub unsafe fn memholder_create(capacity: i64) -> *mut MemHolder {
-    let h: *mut u8           = malloc(sizeof::<MemHolder>());
-    let holder: *mut MemHolder = h as *mut MemHolder;
-    let buf: *mut u8         = malloc(capacity);
-    holder.base              = buf;
-    holder.capacity          = capacity;
-    holder.used              = 0;
-    holder.rc                = 1;
+// ── Default destroyer callbacks ──────────────────────────────────────────
+
+// No-op destroyer: caller manages the buffer's lifetime independently.
+pub fn memholder_destroy_none(base: *mut u8, capacity: i64) {
+    // intentionally empty
+}
+
+// libc free() destroyer: malloc'd buffers.
+pub unsafe fn memholder_destroy_free(base: *mut u8, capacity: i64) {
+    free(base);
+}
+
+// ── Construction ─────────────────────────────────────────────────────────
+
+// Wrap a pre-allocated buffer.  The MemHolder struct itself is malloc'd
+// (it's a tiny POD — 40 bytes — and refcounted across the program).
+// `buffer` must be valid for the lifetime the destroyer decides to hold.
+pub unsafe fn memholder_wrap(buffer:    *mut u8,
+                             capacity:  i64,
+                             destroyer: fn(*mut u8, i64) -> ()) -> *mut MemHolder {
+    let raw:    *mut u8        = malloc(sizeof::<MemHolder>());
+    let holder: *mut MemHolder = raw as *mut MemHolder;
+    holder.base      = buffer;
+    holder.capacity  = capacity;
+    holder.used      = 0;
+    holder.rc        = 1;
+    holder.destroyer = destroyer;
     return holder;
 }
 
-// Increment RC — call when a new Zone / DataRef / DataOwn starts referencing
-// this holder.
+// Convenience: malloc a fresh buffer of `capacity` bytes and wrap it with
+// the libc-free destroyer.  Equivalent to the old `memholder_create`.
+pub unsafe fn memholder_alloc_backed(capacity: i64) -> *mut MemHolder {
+    let buf: *mut u8 = malloc(capacity);
+    return memholder_wrap(buf, capacity, memholder_destroy_free);
+}
+
+// ── Refcount ─────────────────────────────────────────────────────────────
+
 pub unsafe fn memholder_retain(holder: *mut MemHolder) {
     holder.rc = holder.rc + 1;
 }
 
-// Decrement RC.  When RC reaches 0, frees the zone buffer then the holder
-// struct itself.  Do NOT access holder after this call if RC was 1.
+// Decrement RC.  When RC reaches 0, invokes the destroyer on the buffer
+// then frees the holder struct itself.  Do NOT access holder after this
+// call if RC was 1.
 pub unsafe fn memholder_release(holder: *mut MemHolder) {
     let new_rc: i32 = holder.rc - 1;
     holder.rc       = new_rc;
     if new_rc == 0 {
-        free(holder.base);
+        // Drop the buffer (destroyer decides what that means).  Callback is
+        // never null in practice — memholder_wrap requires one — but guard
+        // the raw field in case someone zero-initialised the struct.
+        let d: fn(*mut u8, i64) -> () = holder.destroyer;
+        d(holder.base, holder.capacity);
         free(holder as *mut u8);
     }
 }
 
-// Bump-allocate `size` bytes (8-byte aligned) from the holder's buffer.
-// Returns null on OOM (used >= capacity after alignment).
+// ── Bump allocation over the wrapped buffer ──────────────────────────────
+
+// Bump-allocate `size` bytes (8-byte aligned).  Returns null on OOM.
 pub unsafe fn memholder_alloc(holder: *mut MemHolder, size: i64) -> *mut u8 {
     let aligned: i64    = (holder.used + 7) / 8 * 8;
     if aligned + size > holder.capacity {
@@ -84,10 +127,10 @@ pub unsafe fn memholder_alloc(holder: *mut MemHolder, size: i64) -> *mut u8 {
     return result;
 }
 
-// Allocate `size` bytes for a tagged object.
-// Reserves 2 bytes immediately before the object for the TypeTag vlen header,
-// then 8-byte aligns.  Writes type_hash at (obj-2) and the encoded descriptor
-// byte at (obj-1).  Returns pointer to the object (after the tag), or null.
+// Allocate `size` bytes for a tagged object.  Reserves 2 bytes immediately
+// before the object for the TypeTag vlen header, then 8-byte aligns.
+// Writes type_hash at (obj-2) and the encoded descriptor byte at (obj-1).
+// Returns pointer to the object (after the tag), or null.
 pub unsafe fn memholder_alloc_tagged(holder: *mut MemHolder, size: i64,
                                      type_hash: u8, descriptor: u8) -> *mut u8 {
     let pre: i64       = holder.used + 2;
@@ -103,4 +146,12 @@ pub unsafe fn memholder_alloc_tagged(holder: *mut MemHolder, size: i64,
     *tag1              = (1 as u32 | (d << 3 as u32)) as u8;
     holder.used        = aligned + size;
     return (base_int + aligned) as *mut u8;
+}
+
+// ── Backward-compat alias ────────────────────────────────────────────────
+// Callers that previously spelled `memholder_create(cap)` get the same
+// libc-malloc-backed behaviour via `memholder_alloc_backed`.
+
+pub unsafe fn memholder_create(capacity: i64) -> *mut MemHolder {
+    return memholder_alloc_backed(capacity);
 }
