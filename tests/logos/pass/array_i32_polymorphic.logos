@@ -1,15 +1,17 @@
-// Polymorphic `Array<T>` stringify with T=i32 — no AnyVal involved.
-// Verifies:
-//   - Generic eidos `Array<T>` with T=i32 has layout (24-byte header + i32[]).
-//   - Blanket `impl<T: HermesStringify> HermesStringify for Array<T>` dispatches
-//     element-by-element via static trait method on the primitive T.
-//   - `impl HermesStringify for i32` is callable through the blanket.
+// Polymorphic `Array<T>` with T=i32 across all Hermes traits — no AnyVal.
+// Verifies blankets dispatch element-by-element via static trait methods on
+// the primitive T, exercising: HermesStringify, HermesEqual, HermesHash,
+// HermesClone (via CloneElem), HermesRelease.
 package array_i32_polymorphic;
 
 use hermes.zone;
 use hermes.anyval;
 use hermes.containers;
 use hermes.stringify;
+use hermes.equal;
+use hermes.hashing;
+use hermes.clone;
+use hermes.release;
 use std.string;
 
 impl HermesStringify for i32 {
@@ -17,6 +19,26 @@ impl HermesStringify for i32 {
         unsafe { ctx.out.push_i64(*self as i64); }
     }
 }
+
+impl HermesEqual for i32 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const i32); }
+    }
+}
+
+impl HermesHash for i32 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
+    }
+}
+
+impl CloneElem for i32 {
+    pub unsafe fn clone_elem(self: *const i32, ctx: *mut CloneCtx, dst: *mut i32) {
+        *dst = *self;
+    }
+}
+
+impl HermesRelease for i32 { pub fn release(&self) {} }
 
 unsafe fn main() -> i32 {
     let mut zone: Zone<Mutable> = zone_create(4096);
@@ -48,5 +70,43 @@ unsafe fn main() -> i32 {
     };
     arr.stringify(&mut ctx);
     if !sb.eq_cstr("[10,20,30]") { return 1; }
+
+    // Equal: arr == arr (self-comparison).
+    let mut ec: EqualCtx = EqualCtx {
+        base_self:  base as *const u8,
+        base_other: base as *const u8,
+    };
+    if !arr.equal(arr_raw as *const u8, &mut ec) { return 2; }
+
+    // Hash: computes deterministically.
+    let mut hc: HashCtx = HashCtx { base: base as *const u8 };
+    let h1: u64 = arr.hash_value(&mut hc);
+    let h2: u64 = arr.hash_value(&mut hc);
+    if h1 != h2 { return 3; }
+    if h1 == 0 as u64 { return 4; }
+
+    // Clone: copy to a second zone and compare.
+    let mut zone2: Zone<Mutable> = zone_create(4096);
+    let mut cc: CloneCtx = CloneCtx {
+        base_src: base as *const u8,
+        zone_dst: &mut zone2,
+    };
+    let new_raw: *mut u8 = arr.clone_to(&mut cc);
+    if new_raw == 0 as *mut u8 { return 5; }
+    let new_arr: *const Array<i32> = new_raw as *const Array<i32>;
+    if new_arr.size != 3 as u64 { return 6; }
+    // Stringify the cloned copy.
+    sb.clear();
+    let mut ctx2: StringifyCtx = StringifyCtx {
+        out:   &mut sb as *mut String,
+        base:  zone2.holder.base as *const u8,
+        opts:  StringifyOpts::compact(),
+        depth: 0 as i64,
+    };
+    new_arr.stringify(&mut ctx2);
+    if !sb.eq_cstr("[10,20,30]") { return 7; }
+
+    // Release: no-op.
+    arr.release();
     return 0;
 }

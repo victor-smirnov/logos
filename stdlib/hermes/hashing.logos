@@ -31,10 +31,10 @@ pub trait HermesHash {
 }
 
 // FNV-1a mixing primitives.
-unsafe fn fnv_init() -> u64 {
+pub unsafe fn fnv_init() -> u64 {
     return 14695981039346656037 as u64;
 }
-unsafe fn fnv_mix_u64(h: u64, v: u64) -> u64 {
+pub unsafe fn fnv_mix_u64(h: u64, v: u64) -> u64 {
     let mut x: u64 = h;
     let mut i: i64 = 0 as i64;
     while i < 8 {
