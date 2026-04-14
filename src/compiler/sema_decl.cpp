@@ -439,6 +439,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         impl_type_params_ = impl_tps;  // so lower_fn includes them in fn.type_params
     }
     std::string target;
+    const LogosType* target_resolved = nullptr;
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         if (code_of(tnode) == la::PTR_TYPE) {
@@ -453,8 +454,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     for (auto* a : resolved->type_args)
                         if (a && a->kind == LogosType::Kind::TypeVar) { concrete = false; break; }
                     if (concrete) {
-                        if (resolved->kind == LogosType::Kind::Struct)
+                        if (resolved->kind == LogosType::Kind::Struct ||
+                            resolved->kind == LogosType::Kind::Datatype) {
                             target = concrete_struct_name(resolved);
+                            target_resolved = resolved;
+                        }
                     }
                 }
             }
@@ -472,6 +476,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     if (!trait_name.empty() && !target.empty()) {
         for (const auto& td : prog.traits) {
             if (td.name != trait_name || td.type_code == 0) continue;
+            bool applied = false;
             for (auto& sd : prog.structs) {
                 if (sd.name != target) continue;
                 // Trait-declared type_code wins over the hash-derived default
@@ -482,7 +487,35 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto fqn = cur_package_.empty() ? sd.name
                                                  : cur_package_ + "::" + sd.name;
                 explicit_type_codes_[fqn] = sd.type_code;
+                applied = true;
                 break;
+            }
+            // Target not found as a concrete struct — it's a generic
+            // instantiation (e.g. `impl Array for Array<AnyVal>` where
+            // target = "Array$G1$AnyVal").  Record as an inst annotation
+            // so mono applies the type_code to the cloned concrete struct,
+            // and also register the canonical name in explicit_type_codes_
+            // so sema-time queries (`type_code_of::<Array<AnyVal>>()`) hit.
+            if (!applied && target.find("$G") != std::string::npos) {
+                lir::LInstAnnotation ia;
+                ia.mangled_name = target;
+                ia.type_code    = td.type_code;
+                // Derive canonical "pkg::BaseName<Args>" from the target type
+                // (use target_resolved captured earlier — always set when the
+                // target is a concrete generic instantiation, i.e. this path).
+                if (target_resolved) {
+                    std::string pkg;
+                    auto dit = datatypes_.find(target_resolved->struct_name);
+                    if (dit != datatypes_.end()) pkg = dit->second.package;
+                    else {
+                        auto sit = structs_.find(target_resolved->struct_name);
+                        if (sit != structs_.end()) pkg = sit->second.package;
+                    }
+                    if (pkg.empty()) pkg = cur_package_;
+                    ia.canonical_name = pkg + "::" + type_str(target_resolved);
+                    explicit_type_codes_[ia.canonical_name] = td.type_code;
+                }
+                prog.inst_annotations.push_back(std::move(ia));
             }
             break;
         }

@@ -2813,7 +2813,22 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         return lower_enum_lit_data_from_static(node, class_name, method_name);
     }
 
-    std::string mangled = std::string(class_name) + "__" + std::string(method_name);
+    // Resolve type aliases: `type ObjectArray = Array<AnyVal>;`
+    // makes `ObjectArray::init(...)` call `Array$G1$AnyVal__init(...)`.
+    std::string resolved_class(class_name);
+    {
+        auto ait = type_aliases_.find(resolved_class);
+        if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
+            auto* aliased = ait->second.type;
+            if (aliased && (aliased->kind == LogosType::Kind::Struct ||
+                            aliased->kind == LogosType::Kind::Datatype)) {
+                resolved_class = aliased->type_args.empty()
+                    ? aliased->struct_name
+                    : concrete_struct_name(aliased);
+            }
+        }
+    }
+    std::string mangled = resolved_class + "__" + std::string(method_name);
 
     std::vector<lir::LExprPtr> arg_exprs;
     if (node.has_key(la::ARGS)) {
