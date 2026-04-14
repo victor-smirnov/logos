@@ -887,6 +887,7 @@ void SemaChecker::collect_datatype(TinyMapView node) {
                     case LogosType::Kind::I8:  case LogosType::Kind::U8:
                     case LogosType::Kind::I16: case LogosType::Kind::U16:
                     case LogosType::Kind::I32: case LogosType::Kind::U32:
+                    case LogosType::Kind::I24: case LogosType::Kind::U24:
                     case LogosType::Kind::I56: case LogosType::Kind::U56:
                     case LogosType::Kind::I64: case LogosType::Kind::U64:
                     case LogosType::Kind::I128: case LogosType::Kind::U128:
@@ -992,6 +993,8 @@ const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
     if (name == "u16")  return prim(LogosType::Kind::U16);
     if (name == "u32")  return prim(LogosType::Kind::U32);
     if (name == "u64")  return prim(LogosType::Kind::U64);
+    if (name == "i24")  return prim(LogosType::Kind::I24);
+    if (name == "u24")  return prim(LogosType::Kind::U24);
     if (name == "i56")  return prim(LogosType::Kind::I56);
     if (name == "u56")  return prim(LogosType::Kind::U56);
     if (name == "i128") return prim(LogosType::Kind::I128);

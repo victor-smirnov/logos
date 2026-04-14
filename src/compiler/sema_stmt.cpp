@@ -1369,6 +1369,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
     // Mirror mlir_gen's loop_type logic: pick the widest bound type (> 32 bits).
     auto int_kind_width = [](LogosType::Kind k) -> int {
         switch (k) {
+            case LogosType::Kind::I24:  case LogosType::Kind::U24:  return 24;
             case LogosType::Kind::I56:  case LogosType::Kind::U56:  return 56;
             case LogosType::Kind::I64:  case LogosType::Kind::U64:  return 64;
             case LogosType::Kind::I128: case LogosType::Kind::U128: return 128;

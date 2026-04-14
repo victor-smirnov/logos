@@ -985,8 +985,8 @@ private:
         w.line("if (!try_suffix(\"usize\") && !try_suffix(\"isize\") &&");
         w.line("    !try_suffix(\"_u64\") && !try_suffix(\"_u32\") && !try_suffix(\"_u16\") && !try_suffix(\"_u8\") &&");
         w.line("    !try_suffix(\"_s64\") && !try_suffix(\"_s32\") && !try_suffix(\"_s16\") && !try_suffix(\"_s8\") &&");
-        w.line("    !try_suffix(\"i128\") && !try_suffix(\"i64\") && !try_suffix(\"i56\") && !try_suffix(\"i32\") && !try_suffix(\"i16\") && !try_suffix(\"i8\") &&");
-        w.line("    !try_suffix(\"u128\") && !try_suffix(\"u64\") && !try_suffix(\"u56\") && !try_suffix(\"u32\") && !try_suffix(\"u16\") && !try_suffix(\"u8\") &&");
+        w.line("    !try_suffix(\"i128\") && !try_suffix(\"i64\") && !try_suffix(\"i56\") && !try_suffix(\"i32\") && !try_suffix(\"i24\") && !try_suffix(\"i16\") && !try_suffix(\"i8\") &&");
+        w.line("    !try_suffix(\"u128\") && !try_suffix(\"u64\") && !try_suffix(\"u56\") && !try_suffix(\"u32\") && !try_suffix(\"u24\") && !try_suffix(\"u16\") && !try_suffix(\"u8\") &&");
         w.line("    !try_suffix(\"ull\") && !try_suffix(\"ul\") && !try_suffix(\"ll\")) {");
         w.line("    // Single-char 'u' — only if not followed by alnum/underscore.");
         w.line("    if (pos_ < source_.size() && source_[pos_] == 'u' &&");

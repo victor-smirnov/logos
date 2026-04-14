@@ -622,6 +622,7 @@ void MLIRGenImpl::gen_for(const SFor& s) {
         (s.lo->type->kind == LogosType::Kind::U8  ||
          s.lo->type->kind == LogosType::Kind::U16 ||
          s.lo->type->kind == LogosType::Kind::U32 ||
+         s.lo->type->kind == LogosType::Kind::U24 ||
          s.lo->type->kind == LogosType::Kind::U56 ||
          s.lo->type->kind == LogosType::Kind::U64 ||
          s.lo->type->kind == LogosType::Kind::U128);
@@ -653,6 +654,7 @@ void MLIRGenImpl::gen_for(const SFor& s) {
         (s.hi->type->kind == LogosType::Kind::U8  ||
          s.hi->type->kind == LogosType::Kind::U16 ||
          s.hi->type->kind == LogosType::Kind::U32 ||
+         s.hi->type->kind == LogosType::Kind::U24 ||
          s.hi->type->kind == LogosType::Kind::U56 ||
          s.hi->type->kind == LogosType::Kind::U64 ||
          s.hi->type->kind == LogosType::Kind::U128);
@@ -1111,6 +1113,7 @@ void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
         (s.index->type->kind == LogosType::Kind::U8  ||
          s.index->type->kind == LogosType::Kind::U16 ||
          s.index->type->kind == LogosType::Kind::U32 ||
+         s.index->type->kind == LogosType::Kind::U24 ||
          s.index->type->kind == LogosType::Kind::U56 ||
          s.index->type->kind == LogosType::Kind::U64 ||
          s.index->type->kind == LogosType::Kind::U128);
@@ -1166,6 +1169,7 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
         (s.index->type->kind == LogosType::Kind::U8  ||
          s.index->type->kind == LogosType::Kind::U16 ||
          s.index->type->kind == LogosType::Kind::U32 ||
+         s.index->type->kind == LogosType::Kind::U24 ||
          s.index->type->kind == LogosType::Kind::U56 ||
          s.index->type->kind == LogosType::Kind::U64 ||
          s.index->type->kind == LogosType::Kind::U128);
@@ -1605,6 +1609,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 (s.scrut->type->kind == LogosType::Kind::U8  ||
                  s.scrut->type->kind == LogosType::Kind::U16 ||
                  s.scrut->type->kind == LogosType::Kind::U32 ||
+                 s.scrut->type->kind == LogosType::Kind::U24 ||
                  s.scrut->type->kind == LogosType::Kind::U56 ||
                  s.scrut->type->kind == LogosType::Kind::U64 ||
                  s.scrut->type->kind == LogosType::Kind::U128);
@@ -1667,6 +1672,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                         (s.scrut->type->kind == LogosType::Kind::U8  ||
                          s.scrut->type->kind == LogosType::Kind::U16 ||
                          s.scrut->type->kind == LogosType::Kind::U32 ||
+                         s.scrut->type->kind == LogosType::Kind::U24 ||
                          s.scrut->type->kind == LogosType::Kind::U56 ||
                          s.scrut->type->kind == LogosType::Kind::U64 ||
                          s.scrut->type->kind == LogosType::Kind::U128);

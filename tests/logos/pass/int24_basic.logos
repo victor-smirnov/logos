@@ -1,0 +1,64 @@
+// i24 / u24: basic operations + casts to/from the other integer widths.
+// i24  range: -8_388_608 .. 8_388_607     (-(1<<23) .. (1<<23)-1)
+// u24  range:              0 .. 16_777_215 ((1<<24)-1)
+package int24_basic;
+
+fn main() -> i32 {
+    // ── literal suffixes ───────────────────────────────────────────────────
+    let a: i24 = 100i24;
+    let b: u24 = 12345u24;
+    let c: i24 = -8388608i24;           // i24::MIN
+    let d: u24 = 16777215u24;           // u24::MAX
+
+    // ── basic arithmetic ───────────────────────────────────────────────────
+    let sum_i: i24 = a + 50i24;         // 150
+    if sum_i != 150i24 { return 1; }
+
+    let sum_u: u24 = b + 55u24;         // 12400
+    if sum_u != 12400u24 { return 2; }
+
+    // ── widening casts ─────────────────────────────────────────────────────
+    let a_64: i64 = a as i64;
+    if a_64 != 100 as i64 { return 3; }
+
+    let b_64: u64 = b as u64;
+    if b_64 != 12345 as u64 { return 4; }
+
+    let neg_i64: i64 = c as i64;        // sign-extend to i64
+    if neg_i64 != -8388608 as i64 { return 5; }
+
+    // ── narrowing casts from wider ─────────────────────────────────────────
+    let from_i32: i24 = 500i32 as i24;
+    if from_i32 != 500i24 { return 6; }
+
+    let from_i64: i24 = (-1234 as i64) as i24;
+    if from_i64 != -1234i24 { return 7; }
+
+    let from_u64: u24 = (999 as u64) as u24;
+    if from_u64 != 999u24 { return 8; }
+
+    // ── i24 ↔ u24 cross-cast ───────────────────────────────────────────────
+    let su: u24 = a as u24;             // 100 round-trips cleanly
+    if su != 100u24 { return 9; }
+
+    let us: i24 = b as i24;             // 12345 fits in i24 positive range
+    if us != 12345i24 { return 10; }
+
+    // ── cast from i8 / u8 (widening) ───────────────────────────────────────
+    let small_i: i8 = -42i8;
+    let wide_i:  i24 = small_i as i24;
+    if wide_i != -42i24 { return 11; }
+
+    let small_u: u8 = 200u8;
+    let wide_u:  u24 = small_u as u24;
+    if wide_u != 200u24 { return 12; }
+
+    // ── edge values preserved through i24 → i64 → i24 round-trip ───────────
+    let rt_min: i24 = (c as i64) as i24;
+    if rt_min != c { return 13; }
+
+    let rt_max: u24 = (d as u64) as u24;
+    if rt_max != d { return 14; }
+
+    return 0;
+}

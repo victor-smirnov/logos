@@ -126,7 +126,9 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                               target->kind == LogosType::Kind::I8   ||
                               target->kind == LogosType::Kind::I16  ||
                               target->kind == LogosType::Kind::U16  ||
+                              target->kind == LogosType::Kind::I24  ||
                               target->kind == LogosType::Kind::I56  ||
+                              target->kind == LogosType::Kind::U24  ||
                               target->kind == LogosType::Kind::U56  ||
                               target->kind == LogosType::Kind::U32  ||
                               target->kind == LogosType::Kind::U64  ||

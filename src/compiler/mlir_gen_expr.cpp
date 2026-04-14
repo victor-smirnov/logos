@@ -32,6 +32,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitInt& e, const LogosType* type) 
         case LogosType::Kind::U8:  width = 8;  break;
         case LogosType::Kind::I16:
         case LogosType::Kind::U16: width = 16; break;
+        case LogosType::Kind::I24:
+        case LogosType::Kind::U24: width = 24; break;
         case LogosType::Kind::I56:
         case LogosType::Kind::U56: width = 56; break;
         case LogosType::Kind::I128:
@@ -318,6 +320,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
                     (e.lhs->type->kind == LogosType::Kind::U8   ||
                      e.lhs->type->kind == LogosType::Kind::U16  ||
                      e.lhs->type->kind == LogosType::Kind::U32  ||
+                     e.lhs->type->kind == LogosType::Kind::U24  ||
                      e.lhs->type->kind == LogosType::Kind::U56  ||
                      e.lhs->type->kind == LogosType::Kind::U64  ||
                      e.lhs->type->kind == LogosType::Kind::U128 ||
@@ -331,6 +334,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
                     (e.rhs->type->kind == LogosType::Kind::U8   ||
                      e.rhs->type->kind == LogosType::Kind::U16  ||
                      e.rhs->type->kind == LogosType::Kind::U32  ||
+                     e.rhs->type->kind == LogosType::Kind::U24  ||
                      e.rhs->type->kind == LogosType::Kind::U56  ||
                      e.rhs->type->kind == LogosType::Kind::U64  ||
                      e.rhs->type->kind == LogosType::Kind::U128 ||
@@ -350,6 +354,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
             (e.rhs->type->kind == LogosType::Kind::U8  ||
              e.rhs->type->kind == LogosType::Kind::U16 ||
              e.rhs->type->kind == LogosType::Kind::U32 ||
+             e.rhs->type->kind == LogosType::Kind::U24 ||
              e.rhs->type->kind == LogosType::Kind::U56 ||
              e.rhs->type->kind == LogosType::Kind::U64 ||
              e.rhs->type->kind == LogosType::Kind::U128);
@@ -364,6 +369,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
             (e.lhs->type->kind == LogosType::Kind::U8  ||
              e.lhs->type->kind == LogosType::Kind::U16 ||
              e.lhs->type->kind == LogosType::Kind::U32 ||
+             e.lhs->type->kind == LogosType::Kind::U24 ||
              e.lhs->type->kind == LogosType::Kind::U56 ||
              e.lhs->type->kind == LogosType::Kind::U64 ||
              e.lhs->type->kind == LogosType::Kind::U128);
@@ -418,6 +424,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
             (e.lhs->type->kind == LogosType::Kind::U8  ||
              e.lhs->type->kind == LogosType::Kind::U16 ||
              e.lhs->type->kind == LogosType::Kind::U32 ||
+             e.lhs->type->kind == LogosType::Kind::U24 ||
              e.lhs->type->kind == LogosType::Kind::U56 ||
              e.lhs->type->kind == LogosType::Kind::U64 ||
              e.lhs->type->kind == LogosType::Kind::U128);
@@ -442,6 +449,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
             (e.lhs->type->kind == LogosType::Kind::U8  ||
              e.lhs->type->kind == LogosType::Kind::U16 ||
              e.lhs->type->kind == LogosType::Kind::U32 ||
+             e.lhs->type->kind == LogosType::Kind::U24 ||
              e.lhs->type->kind == LogosType::Kind::U56 ||
              e.lhs->type->kind == LogosType::Kind::U64 ||
              e.lhs->type->kind == LogosType::Kind::U128));
@@ -468,6 +476,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
             (e.lhs->type->kind == LogosType::Kind::U8  ||
              e.lhs->type->kind == LogosType::Kind::U16 ||
              e.lhs->type->kind == LogosType::Kind::U32 ||
+             e.lhs->type->kind == LogosType::Kind::U24 ||
              e.lhs->type->kind == LogosType::Kind::U56 ||
              e.lhs->type->kind == LogosType::Kind::U64 ||
              e.lhs->type->kind == LogosType::Kind::U128);
@@ -752,6 +761,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
                     (ir->index->type->kind == LogosType::Kind::U8  ||
                      ir->index->type->kind == LogosType::Kind::U16 ||
                      ir->index->type->kind == LogosType::Kind::U32 ||
+                     ir->index->type->kind == LogosType::Kind::U24 ||
                      ir->index->type->kind == LogosType::Kind::U56 ||
                      ir->index->type->kind == LogosType::Kind::U64 ||
                      ir->index->type->kind == LogosType::Kind::U128);
@@ -800,6 +810,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
         (e.index->type->kind == LogosType::Kind::U8  ||
          e.index->type->kind == LogosType::Kind::U16 ||
          e.index->type->kind == LogosType::Kind::U32 ||
+         e.index->type->kind == LogosType::Kind::U24 ||
          e.index->type->kind == LogosType::Kind::U56 ||
          e.index->type->kind == LogosType::Kind::U64 ||
          e.index->type->kind == LogosType::Kind::U128);
@@ -887,6 +898,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
                  (e.operand->type->kind == LogosType::Kind::U8  ||
                   e.operand->type->kind == LogosType::Kind::U16 ||
                   e.operand->type->kind == LogosType::Kind::U32 ||
+                  e.operand->type->kind == LogosType::Kind::U24 ||
                   e.operand->type->kind == LogosType::Kind::U56 ||
                   e.operand->type->kind == LogosType::Kind::U64 ||
                   e.operand->type->kind == LogosType::Kind::U128));
@@ -907,6 +919,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
              (e.operand->type->kind == LogosType::Kind::U8  ||
               e.operand->type->kind == LogosType::Kind::U16 ||
               e.operand->type->kind == LogosType::Kind::U32 ||
+              e.operand->type->kind == LogosType::Kind::U24 ||
               e.operand->type->kind == LogosType::Kind::U56 ||
               e.operand->type->kind == LogosType::Kind::U64 ||
               e.operand->type->kind == LogosType::Kind::U128));
@@ -929,6 +942,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
             (type->kind == LogosType::Kind::U8  ||
              type->kind == LogosType::Kind::U16 ||
              type->kind == LogosType::Kind::U32 ||
+             type->kind == LogosType::Kind::U24 ||
              type->kind == LogosType::Kind::U56 ||
              type->kind == LogosType::Kind::U64 ||
              type->kind == LogosType::Kind::U128);
@@ -944,6 +958,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
             (e.operand->type->kind == LogosType::Kind::U8  ||
              e.operand->type->kind == LogosType::Kind::U16 ||
              e.operand->type->kind == LogosType::Kind::U32 ||
+             e.operand->type->kind == LogosType::Kind::U24 ||
              e.operand->type->kind == LogosType::Kind::U56 ||
              e.operand->type->kind == LogosType::Kind::U64 ||
              e.operand->type->kind == LogosType::Kind::U128);
@@ -1407,6 +1422,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceIndex& e, const LogosType* ty
         (e.index->type->kind == LogosType::Kind::U8  ||
          e.index->type->kind == LogosType::Kind::U16 ||
          e.index->type->kind == LogosType::Kind::U32 ||
+         e.index->type->kind == LogosType::Kind::U24 ||
          e.index->type->kind == LogosType::Kind::U56 ||
          e.index->type->kind == LogosType::Kind::U64 ||
          e.index->type->kind == LogosType::Kind::U128);
@@ -1449,7 +1465,9 @@ int MLIRGenImpl::format_type_tag(const LogosType* t) noexcept {
         case LogosType::Kind::I8:     return 7;
         case LogosType::Kind::I16:    return 0;  // dispatches as i32
         case LogosType::Kind::U16:    return 5;  // dispatches as u32
+        case LogosType::Kind::I24:    return 1;  // dispatches as i64
         case LogosType::Kind::I56:    return 1;  // dispatches as i64
+        case LogosType::Kind::U24:    return 6;  // dispatches as u64
         case LogosType::Kind::U56:    return 6;  // dispatches as u64
         case LogosType::Kind::I128:   return 1;  // dispatches as i64
         case LogosType::Kind::U128:   return 6;  // dispatches as u64
@@ -1496,6 +1514,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFormatCall& e, const LogosType*) {
                 (arg_lt->kind == LogosType::Kind::U8   ||
                  arg_lt->kind == LogosType::Kind::U16  ||
                  arg_lt->kind == LogosType::Kind::U32  ||
+                 arg_lt->kind == LogosType::Kind::U24  ||
                  arg_lt->kind == LogosType::Kind::U56  ||
                  arg_lt->kind == LogosType::Kind::U64  ||
                  arg_lt->kind == LogosType::Kind::U128);
