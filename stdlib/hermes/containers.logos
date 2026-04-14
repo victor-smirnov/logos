@@ -48,39 +48,56 @@ unsafe fn popcount_u64(x: u64) -> u32 {
 // Insertion: shift elements right by 1 to maintain sorted key order. O(n).
 // ---------------------------------------------------------------------------
 
-// Canonical operation on any TinyMap eidos: the current entry count.
-#[type_code=98]
-pub genos TinyMap {
+// Canonical operation on any Map eidos: the current entry count.
+// Template genos; no type_code (that lives on concrete specializations —
+// see `Map<Bitmap, AnyVal>` below and `Map<Varchar, AnyVal>` in
+// `hermes.objectmap`).
+pub genos Map<K, V> {
     unsafe fn size(self: *const Self) -> u32;
 }
 
-pub eidos TinyObjectMap {
+// Abstract Map<K, V> base — never instantiated directly; exists only so
+// partial specializations (e.g. `Map<Bitmap, V>`) can attach fields/impls.
+pub eidos Map<K, V> { }
+
+// Key marker for the compact bitmap-indexed map (max 52 u8 keys, 16 B header).
+pub eidos Bitmap { }
+
+// Concrete genos specialization carrying the Hermes wire-format type_code
+// for the small bitmap-indexed map (was `TinyObjectMap`, type_code=98).
+#[type_code=98]
+pub genos Map<Bitmap, AnyVal>;
+
+// Partial spec: Bitmap-keyed map, any V.  Layout matches the previous
+// TinyObjectMap exactly (16 B header + zone-relative V[]).
+pub eidos Map<Bitmap, V> {
     pub header: u64,
     pub data:   u32,
 }
 
-impl TinyMap for TinyObjectMap {
-    unsafe fn size(self: *const TinyObjectMap) -> u32 {
+// Back-compat alias.
+pub type TinyObjectMap = Map<Bitmap, AnyVal>;
+
+impl<V> Map<Bitmap, V> for Map<Bitmap, V> {
+    unsafe fn size(self: *const Map<Bitmap, V>) -> u32 {
         return ((self.header >> 58) & 0x3F as u64) as u32;
     }
 }
 
-impl TinyObjectMap {
-    // Initialize a TinyObjectMap at pre-allocated memory.
-    //   map_raw  — pointer to ≥sizeof(TinyObjectMap) bytes (zeroed or uninitialized)
+impl Map<Bitmap, AnyVal> {
+    // Initialize a Map<Bitmap, AnyVal> at pre-allocated memory.
+    //   map_raw  — pointer to ≥sizeof(Map<Bitmap, AnyVal>) bytes
     //   arr_raw  — pointer to ≥ capacity*4 bytes for the AnyVal array
-    //   base     — zone base pointer (used to compute zone-relative offsets)
+    //   base     — zone base pointer
     //   capacity — max number of entries (≤ 52)
-    // Returns a *mut TinyObjectMap pointing into the zone.
     pub unsafe fn init(map_raw: *mut u8, arr_raw: *mut u8,
-                       base: *mut u8, capacity: u32) -> *mut TinyObjectMap {
+                       base: *mut u8, capacity: u32) -> *mut Map<Bitmap, AnyVal> {
         let base_int: i64 = base as i64;
         let arr_off: u32  = (arr_raw as i64 - base_int) as u32;
         let cap_bits: u64 = (capacity as u64) << 52;
-        let map_ptr: *mut TinyObjectMap = map_raw as *mut TinyObjectMap;
+        let map_ptr: *mut Map<Bitmap, AnyVal> = map_raw as *mut Map<Bitmap, AnyVal>;
         map_ptr.header = cap_bits;
         map_ptr.data   = arr_off;
-        // Zero-initialize the value array (AnyVal::null_ptr for each slot).
         let elem_sz: i64 = sizeof::<AnyVal>() as i64;
         let mut i: u32 = 0;
         while i < capacity {
@@ -92,14 +109,14 @@ impl TinyObjectMap {
     }
 
     // True if key is present in the map.
-    pub unsafe fn contains(self: *const TinyObjectMap, key: u8) -> bool {
+    pub unsafe fn contains(self: *const Map<Bitmap, AnyVal>, key: u8) -> bool {
         let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
         let key_bit: u64 = 1 as u64 << (key as u64);
         return (bitmap & key_bit) != 0 as u64;
     }
 
     // Get value by key. Returns AnyVal::null_ptr() if key not present.
-    pub unsafe fn get(self: *const TinyObjectMap, base: *const u8, key: u8) -> AnyVal {
+    pub unsafe fn get(self: *const Map<Bitmap, AnyVal>, base: *const u8, key: u8) -> AnyVal {
         let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
         let key_bit: u64 = 1 as u64 << (key as u64);
         if (bitmap & key_bit) == 0 as u64 {
@@ -112,11 +129,8 @@ impl TinyObjectMap {
         return AnyVal { raw: elem.raw };
     }
 
-    // Set or update value by key.
-    // key must be 0..51. If the map is full and key is new, does nothing.
-    // key >= 52 would corrupt the capacity/size bit-fields in the header; guard
-    // it explicitly so callers passing an out-of-range key get a safe no-op.
-    pub unsafe fn set(self: *mut TinyObjectMap, base: *mut u8, key: u8, val: AnyVal) {
+    // Set or update value by key.  key >= 52 is a safe no-op.
+    pub unsafe fn set(self: *mut Map<Bitmap, AnyVal>, base: *mut u8, key: u8, val: AnyVal) {
         if key >= 52 as u8 { return; }
         let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
         let key_bit: u64 = 1 as u64 << (key as u64);
@@ -128,7 +142,6 @@ impl TinyObjectMap {
         let arr_base: i64 = base as i64 + self.data as i64;
 
         if (bitmap & key_bit) == 0 as u64 {
-            // New key: shift elements[pos..size] right by 1 to make room.
             if size >= cap { return; }
             let mut i: u32 = size;
             while i > pos {
@@ -137,14 +150,12 @@ impl TinyObjectMap {
                 dst.raw = src.raw;
                 i = i - 1;
             }
-            // Update bitmap and size in header.
             let new_bitmap: u64  = bitmap | key_bit;
             let new_size: u64    = (size + 1) as u64;
             let cap_bits: u64    = (cap as u64) << 52;
             let size_bits: u64   = new_size << 58;
             self.header = new_bitmap | cap_bits | size_bits;
         }
-        // Write value at its sorted position.
         let dst: *mut AnyVal = (arr_base + (pos as i64) * elem_sz) as *mut AnyVal;
         dst.raw = val.raw;
     }

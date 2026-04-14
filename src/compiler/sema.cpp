@@ -1571,6 +1571,21 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     } else {
                         lir::LInstAnnotation ia;
                         ia.canonical_name = canon;
+                        // Also compute the mangled eidos name ("Map$G2$Bitmap$AnyVal")
+                        // for an eidos with the same name as the genos — this is the
+                        // typical case where `genos Foo<X>` specialization's type_code
+                        // should land on the like-named `eidos Foo<X>` struct.
+                        auto items2 = arr_of(type_node.get(la::ITEMS.code));
+                        std::vector<const LogosType*> resolved_args;
+                        for (uint64_t i = 0; i < items2.size(); ++i)
+                            resolved_args.push_back(resolve_type(map_of(items2.get(i))));
+                        const LogosType* like_eidos = datatypes_.count(tname)
+                            ? make_generic_datatype(tname, resolved_args)
+                            : (structs_.count(tname)
+                                 ? make_generic_struct(tname, resolved_args)
+                                 : nullptr);
+                        if (like_eidos)
+                            ia.mangled_name = concrete_struct_name(like_eidos);
                         for (auto& ann : pending_annots) {
                             auto aname = std::string(str_of(ann.get(la::NAME.code)));
                             if (aname == "type_code" && ann.has_key(la::VALUE)) {
@@ -1578,8 +1593,14 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                                 ia.type_code = (uint64_t)parse_int_literal(sv);
                             }
                         }
-                        if (ia.type_code != 0)
+                        if (ia.type_code != 0) {
                             explicit_type_codes_[ia.canonical_name] = ia.type_code;
+                            // Register mangled fqn key too so the dispatch-entry
+                            // emission (sema_decl.cpp) can find the type_code via
+                            // mangled-target lookup.
+                            if (!ia.mangled_name.empty())
+                                explicit_type_codes_[std::string(cur_package_) + "::" + ia.mangled_name] = ia.type_code;
+                        }
                         prog.inst_annotations.push_back(std::move(ia));
                     }
                 }

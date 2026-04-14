@@ -25,6 +25,7 @@
 package hermes.objectmap;
 
 use hermes.anyval;
+use hermes.containers;
 use hermes.string;
 
 // ---------------------------------------------------------------------------
@@ -40,11 +41,11 @@ pub eidos MapEntry {
 // ObjectMap — the hash table header (16 bytes, all primitives)
 // ---------------------------------------------------------------------------
 
-// Canonical operation on any Map eidos: the current entry count.
+// Concrete genos specialization carrying the Hermes wire-format type_code
+// for the open-addressing hash map (was `ObjectMap`, type_code=101).
+// The Map<K, V> trait itself lives in `hermes.containers`.
 #[type_code=101]
-pub genos Map {
-    unsafe fn size(self: *const Self) -> u32;
-}
+pub genos Map<Varchar, AnyVal>;
 
 pub eidos ObjectMap {
     pub entries_off: u32,  // zone-relative offset to the MapEntry array
@@ -53,7 +54,7 @@ pub eidos ObjectMap {
     pub reserved:    u32,  // zero
 }
 
-impl Map for ObjectMap {
+impl Map<Varchar, AnyVal> for ObjectMap {
     unsafe fn size(self: *const ObjectMap) -> u32 { return self.count; }
 }
 
