@@ -1,40 +1,42 @@
 # Datatypes in Logos — a guided tour
 
-This tutorial shows how the Datatype / Storage / View system works and
-how to add a new Hermes datatype of your own. For the formal rules see
-`openspec/specs/datatypes.md`.
+This tutorial walks through the data-representation layers in Logos.  For the
+formal rules, see `openspec/specs/datatypes.md`.
 
-## Why three concepts?
+## The four layers
 
-A Logos **Datatype** is never a single thing. It is always a trio:
+Logos leans on Greek/Platonic vocabulary to pair with the language name λόγος:
 
-1. **Representation** — the bytes on disk / in a zone. Must be stable:
-   you can `memcpy` it to shared memory and another core reads it with
-   no translation.
-2. **View** — what your code actually talks to. A lightweight handle
-   (usually `ptr + len`, or a primitive). Created on demand.
-3. **Storage** — the thing that holds the bytes. Vec-like heap buffer?
-   A slice of a Hermes zone? An mmap'd read-only view? Same Datatype,
-   same View, different backing.
+1. **`genos`** — the *logical datatype*.  "What the data means."
+   `Varchar`, `Integer`, `Decimal`, `Uuid`.  Stable semantic identity, carries
+   the `type_code`.
+2. **`eidos`** — a *canonical byte layout* of a genos.  "How the data looks
+   on disk / in a zone."  Relocatable, shareable across processes and
+   accelerators.
+3. **`struct`** — regular in-process Logos type.  Includes alternate storages
+   (`HermesStringStorage` for SoA columns), view types, computational
+   mirrors.  Does not cross process boundaries.
+4. **view** — a lightweight processing handle (`StringView = ptr + len`)
+   built on demand from some storage.  What user code actually computes on.
 
-The same `HermesString` datatype lives in at least two storages (zone
-slab and SoA `Buffer<HermesString>`); both produce the same `StringView`
-to the caller.
+A genos can have several eide, but only **one per tag system**: inside a
+given representation context (zone, wire format, …) the logical type maps to
+a single concrete layout.  Different tag systems can choose different eide
+for the same genos.
 
-## The storage ladder
+## Storage ladder
 
 ```
 Storage          — len + indexed read
   ├─ OwningStorage      — + drop
-  │    └─ DynamicStorage — + new + push + clear     (Vec-like)
+  │    └─ DynamicStorage — + new + push + clear   (Vec-like)
   └─ BorrowedStorage     — read-only slice
 ```
 
-Pick the narrowest trait your code needs. A function that only reads
-should take `S: Storage`. A push-only accumulator needs
-`S: DynamicStorage`.
+Pick the narrowest your code needs.  A function that only reads takes
+`S: Storage`; a push-only accumulator wants `S: DynamicStorage`.
 
-## The Datatype ↔ Storage bridge
+## Datatype ↔ Storage bridge
 
 ```
 trait Datatype {
@@ -42,18 +44,17 @@ trait Datatype {
 }
 
 trait Container: Datatype {
-    type Store: DynamicStorage;     // my canonical backing
+    type Store: DynamicStorage;     // canonical backing
     type ViewInStore;               // = View<Store>
-    // bridge methods used by Buffer<DT>
+    // thin bridge methods used by Buffer<DT>
 }
 ```
 
-You don't use `Datatype` directly very often — most of the time you
-reach for `Container` because you want a `Buffer<DT>`. The
-`ViewInStore` assoc type is a convenience: Buffer works in monomorphic
-view-terms without tripping on GAT instantiation.
+Most user code interacts with `Container`, because that's what `Buffer<DT>`
+requires.  `Datatype` is the pure abstract layer; `Container` pairs it with
+its default container-storage.
 
-## The `Buffer<DT>` container
+## `Buffer<DT>`
 
 ```logos
 let mut b: Buffer<I64> = Buffer::<I64>::new();
@@ -70,28 +71,26 @@ b.push(StringView { ptr: ..., len: 5 });
 let v = b.get(0);       // StringView into packed bytes
 ```
 
-`Buffer` doesn't care whether your Datatype is `Primitive` (plain POD
-element) or a complex unsized beast — it picks the right `Store`
-through the `Container` bridge.
+`Buffer` doesn't care whether your type is `Primitive` (plain POD) or an
+unsized beast — it picks the right `Store` through the `Container` bridge.
 
 ## Two blanket shortcuts
 
-### Primitive — one-liner for plain PODs
+### `Primitive` — one-liner for plain PODs
 
 ```logos
 impl Primitive for I64 { type Prim = i64; }
-// I64 now has Datatype + Container + Buffer<I64> automatically.
+// I64 now gets Datatype + Container + Buffer<I64> automatically.
 ```
 
-A *Primitive* Datatype is one where storing and viewing are the same
-thing — `Buffer<I64>` is literally a `PrimVec<i64>` under the hood.
+A *Primitive* datatype is one where storing and viewing are identical types —
+`Buffer<I64>` is literally a `PrimVec<i64>` under the hood.
 
-### UnsizedPayload — two lines for variable-tail types
+### `UnsizedPayload` — two lines for variable-tail types
 
-The class of "fixed meta + variable-length tail" datatypes (strings,
-bignums, decimals, blobs, arrays) shares a SoA backing shape:
-`Vec<Meta>` + offsets + `Vec<Atom>`. A future blanket will collapse this
-to:
+The class of "fixed meta + variable-length tail" eide (strings, bignums,
+decimals, blobs, arrays) shares a SoA backing shape:
+`Vec<Meta>` + offsets + `Vec<Atom>`.  A future blanket will collapse this to:
 
 ```logos
 impl UnsizedPayload for HermesString { type Meta = ();      type Atom = u8; }
@@ -99,40 +98,66 @@ impl UnsizedPayload for BigInteger   { type Meta = ();      type Atom = u32; }
 impl UnsizedPayload for BigDecimal   { type Meta = DecMeta; type Atom = u32; }
 ```
 
-For now the interface is declared; implementations still write their
-own Storage until the blanket lands.
+(The blanket itself is still pending monomorphizer work — for now each such
+eidos spells its storage out by hand.)
 
-## Writing a new Hermes datatype — the checklist
+## Adding a new Hermes datatype — the checklist
 
-Suppose you want to add a `Uuid` datatype (fixed 16 bytes):
+Suppose you want a `Uuid` genos (fixed 16 bytes):
+
+1. Fix the **genos**: name, `type_code`, trait contract
+   (`len() -> 16`, `bytes() -> *const u8`, compare, hash).
+
+2. Choose an **eidos** for each tag system where `Uuid` should exist.  For
+   now that's just the zone tag system:
+
+    ```logos
+    #[type_code = 42]
+    pub eidos Uuid { pub bytes: [u8; 16] }
+
+    impl Uuid { /* zone-side methods: init, bytes, equals, … */ }
+    ```
+
+3. Define a **view** for processing:
+
+    ```logos
+    pub struct UuidView { pub bytes: [u8; 16] }
+    impl Copy for UuidView {}
+    ```
+
+4. Hook up `Datatype` + `Container`:
+
+    ```logos
+    impl Datatype  for Uuid { type View<S: Storage> = UuidView; }
+    impl Container for Uuid { /* Store = PrimVec<UuidView>, bridge methods */ }
+    ```
+
+Once the `UnsizedPayload`-blanket lands, a variable-tail eidos like
+`HermesString` will shrink to:
 
 ```logos
-#[type_code = 42]
-pub datatype Uuid { pub bytes: [u8; 16] }
-
-impl Uuid { /* zone-side methods: init, bytes, … */ }
-
-// Option A (it fits in AnyVal): nothing more — inline encoding handles it.
-
-// Option B (zone-allocated Primitive-ish), quickest path:
-pub struct UuidView { pub bytes: [u8; 16] }
-impl Copy for UuidView {}
-impl Datatype for Uuid { type View<S: Storage> = UuidView; }
-// + Container with PrimVec<UuidView> as Store, bridge methods.
+impl UnsizedPayload for HermesString { type Meta = (); type Atom = u8; }
 ```
 
-Or, once the `UnsizedPayload`-blanket lands:
+## Current state of the vocabulary in the source
 
-```logos
-impl UnsizedPayload for Uuid { type Meta = (); type Atom = u8; }
-// Done. You get Buffer<Uuid> for free.
-```
+The concepts described here are stable; the Logos grammar has not yet grown a
+dedicated `genos` keyword.  At the source level:
 
-## What to read next
+- `#[type_code=N]` still lives on the `eidos` declaration (migration
+  pending).
+- The genus-role is carried by trait names (a trait `Varchar` unifying all
+  eide of that logical type).  When the `genos` keyword lands, such traits
+  become `pub genos Varchar { … }`.
+- Tag-dispatch tables key on eidos names today; they'll migrate to
+  `(tag-system, type_code)` once genos is a first-class surface concept.
 
-- `openspec/specs/datatypes.md` — invariants, known limitations, every
-  rule made explicit.
+## Where to read next
+
+- `openspec/specs/datatypes.md` — invariants, known limitations, every rule
+  made explicit.
 - `openspec/specs/hermes-wire-format.md` — byte-level representation,
   TypeTag encoding, AnyVal slots.
-- `stdlib/hermes/string.logos` — the fully-worked-out example.
+- `stdlib/hermes/string.logos` — the fully-worked-out example (HermesString
+  as an eidos of the Varchar genos).
 - `stdlib/logos/lang/datatypes.logos` — the traits themselves.
