@@ -76,6 +76,22 @@ unsized beast — it picks the right `Store` through the `Container` bridge.
 
 ## Two blanket shortcuts
 
+### POD view convention by size
+
+Plain-old-data eide (no internal relative pointers) split by size:
+
+- **≤ 16 bytes**: View is the value itself, copied in and out.  Use
+  `impl Primitive for T { type Prim = …; }` — the stdlib blanket gives
+  you `Datatype` + `Container` + `Buffer<T>` for free.
+- **> 16 bytes**: View is a pointer — `*const T` on the read side, `*mut T`
+  on the write side.  Today this shape is hand-written per eidos; a
+  `PodRef` marker trait is reserved for the eventual blanket.
+
+Object eide (strings, arrays, maps — anything with zone-relative offsets
+or variable layout) don't participate in either convention.  They design
+their own fat-pointer view (`StringView`) and write `impl Datatype for
+Eidos` directly.
+
 ### `Primitive` — one-liner for plain PODs
 
 ```logos

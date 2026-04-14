@@ -140,17 +140,42 @@ impl<DT: Container> Drop for Buffer<DT> {
 }
 
 // ---------------------------------------------------------------------------
-// Primitive — marker trait + inline-storage mapping.
+// View convention for POD eide
+// ---------------------------------------------------------------------------
 //
-// A eidos is `Primitive` iff its processing type IS its storage element —
-// no struct view, no padding, no tag bytes.  `Prim` names the inline type
-// (i64 for I64, u64 for U64, …).  The blanket `impl<DT: Primitive> Datatype`
-// below handles the Vec-like `Buffer<DT>` machinery for all such types.
+// POD eide (no relative pointers, fixed layout) have two size regimes:
+//
+//   ≤ 16 bytes  → `impl Primitive for DT { type Prim = …; }` — value view,
+//                 copied in/out.  DT is essentially an alias for its Prim
+//                 type at the processing level.
+//
+//   > 16 bytes  → `impl PodRef for DT;` — reference view.  Read-side yields
+//                 `*const DT`, write-side yields `*mut DT`; neither copies.
+//
+// Object eide (relptrs, variable layout) — HermesString, ObjectArray, …
+// — carry their own custom fat-pointer view (StringView, etc.) and do not
+// participate in either blanket.  They declare `impl Datatype` directly.
+//
+// ---------------------------------------------------------------------------
+// Primitive — ≤16B POD, value view
 // ---------------------------------------------------------------------------
 
 pub trait Primitive {
     type Prim;
 }
+
+// ---------------------------------------------------------------------------
+// PodRef — >16B POD, reference view
+//
+// Marker trait: declares that DT is a plain byte layout with no internal
+// pointer relocation needed, but large enough that by-value transfer
+// through a Buffer<DT> would be wasteful.  The blanket impl of Datatype
+// below gives:
+//     type View<S: Storage> = *const DT;
+// and the container-side write path uses `*mut DT`.
+// ---------------------------------------------------------------------------
+
+pub trait PodRef {}
 
 // ---------------------------------------------------------------------------
 // PrimVec<T> — generic Vec-like backing store for primitives.
@@ -262,6 +287,35 @@ impl<DT: Primitive> Container for DT {
     fn store_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) { unsafe { s.push(v); } }
     fn store_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim { unsafe { return s.get(idx); } }
 }
+
+// Convention note for `PodRef` users: since Logos sema currently allows only
+// one blanket `impl<DT: Bound> Datatype for DT` per trait (Primitive already
+// occupies it), PodRef eide hand-write their Datatype + Container impls for
+// now.  The canonical shape is:
+//
+//     impl Datatype for BigPod {
+//         type View<S: Storage> = *const BigPod;
+//     }
+//
+//     impl Container for BigPod {
+//         type Store       = PrimVec<BigPod>;
+//         type ViewInStore = *const BigPod;
+//         fn new_store()   -> PrimVec<BigPod>           { return PrimVec::<BigPod>::empty(); }
+//         fn drop_store(s: *mut PrimVec<BigPod>)        { unsafe { s.clear(); } }
+//         fn store_len(s: *const PrimVec<BigPod>) -> u64 { unsafe { return s.len; } }
+//         fn store_push(s: *mut PrimVec<BigPod>, v: *const BigPod) {
+//             unsafe { s.push(*v); }
+//         }
+//         fn store_get(s: *const PrimVec<BigPod>, idx: u64) -> *const BigPod {
+//             unsafe {
+//                 let stride: i64 = sizeof::<BigPod>();
+//                 return (s.data as i64 + (idx as i64) * stride) as *const BigPod;
+//             }
+//         }
+//     }
+//
+// When sema grows bound-aware blanket impls, this boilerplate will collapse
+// into a single `impl PodRef for BigPod;` line.
 
 // ---------------------------------------------------------------------------
 // UnsizedPayload — abstraction over "fixed meta + variable tail" datatypes.

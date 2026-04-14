@@ -133,6 +133,29 @@ trait Container: Datatype {
 of its eide) or directly for an eidos (when only one eidos exists for the
 genos, as is currently the case for everything in Hermes).
 
+## 5a. POD View Convention
+
+POD eide (no relative pointers, fixed layout) split by size:
+
+| Size of eidos   | Shape                | Marker trait | View          |
+|-----------------|----------------------|--------------|---------------|
+| ≤ 16 bytes      | inline / register    | `Primitive`  | `Prim` by value |
+| > 16 bytes      | heap / buffer slot   | `PodRef`     | `*const Self` / `*mut Self` by context |
+
+The boundary is the informal "fits in two registers" threshold: below it,
+passing by value is cheaper than taking an address; above it, the copy
+dominates and a pointer is faster.  Mutability (const vs mut) is decided
+by the access context — read-side views hand back `*const`, write-side
+(push/set) take an owned value or a `*mut`.
+
+Object eide (relptrs, variable layout — HermesString, ObjectArray …)
+bypass the convention entirely: they carry their own custom fat-pointer
+view (`StringView`, etc.) and declare `impl Datatype` directly.
+
+Today `Primitive` has a ready blanket; `PodRef` is a marker only, the
+blanket is hand-written per eidos until sema grows bound-aware multi-blanket
+resolution.
+
 ## 6. UnsizedPayload — Shape for "Fixed Meta + Variable Tail"
 
 Marker trait for the class of eide that share the
