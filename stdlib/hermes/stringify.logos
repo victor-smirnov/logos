@@ -147,21 +147,33 @@ impl HermesStringify for HermesString {
     }
 }
 
-// ── ObjectArray (type_code=100) ────────────────────────────────────────────
+// ── AnyVal (static dispatch through inline bits) ───────────────────────────
 
-impl HermesStringify for ObjectArray {
+impl HermesStringify for AnyVal {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { stringify_anyval(AnyVal { raw: (self as *const AnyVal).raw }, ctx); }
+    }
+}
+
+// ── Array<T> — blanket over any T: HermesStringify ────────────────────────
+// Works for Array<AnyVal> (previously ObjectArray, type_code=100), Array<i32>,
+// etc.  Element layout is contiguous T[] at the zone-relative `data` offset.
+
+impl<T: HermesStringify> HermesStringify for Array<T> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
-            let arr: *const ObjectArray = self as *const ObjectArray;
+            let arr: *const Array<T> = self as *const Array<T>;
             ctx.out.push_u8(91 as u8);   // '['
-            let sz: u64 = arr.len();
+            let sz: u64 = arr.size;
+            let elem_sz: i64 = sizeof::<T>() as i64;
+            let base_int: i64 = ctx.base as i64 + arr.data as i64;
             let mut i: u64 = 0 as u64;
             while i < sz {
                 if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
                 ctx.depth = ctx.depth + 1 as i64;
                 write_indent(ctx);
-                let elem: AnyVal = arr.get(ctx.base, i);
-                stringify_anyval(elem, ctx);
+                let elem: *const T = (base_int + (i as i64) * elem_sz) as *const T;
+                elem.stringify(ctx);
                 ctx.depth = ctx.depth - 1 as i64;
                 i = i + 1 as u64;
             }

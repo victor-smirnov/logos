@@ -934,7 +934,7 @@ void Mono::instantiate_struct_templates() {
             auto inst = clone_struct_def(*tmpl, subst, packs, cname);
             // Apply explicit instantiation annotation if present (sets type_code
             // on a specific generic instantiation, e.g. `#[type_code=100] eidos Array<AnyVal>;`).
-            for (auto& ia : in_.inst_annotations) {
+            for (auto& ia : out_.inst_annotations) {
                 if (ia.mangled_name == cname && ia.type_code != 0) {
                     inst.type_code = ia.type_code;
                     break;

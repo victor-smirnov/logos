@@ -159,6 +159,60 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Instantiate all generic enums referenced by the output.
     instantiate_enum_templates();
 
+    // Emit dispatch entries for generic-trait-impls over generic structs
+    // (`impl<T> Trait for GenericStruct<T>`).  Sema only emits dispatch
+    // entries for concrete impls; for generic ones, we iterate the
+    // monomorphized struct set and cross-reference against impls whose
+    // target is the template's base name.
+    for (auto& sd : out_.structs) {
+        if (sd.type_code == 0) continue;
+        // Extract the base name: "Array$G1$AnyVal" → "Array".
+        std::string base = sd.name;
+        if (auto p = base.find("$G"); p != std::string::npos)
+            base = base.substr(0, p);
+        for (auto& impl : out_.impls) {
+            if (impl.is_blanket) continue;  // those use a different path
+            if (impl.trait_name.empty()) continue;
+            if (impl.target_type != base) continue;
+            // Find tag_system for this trait.
+            std::string tag_system;
+            for (auto& td : out_.traits)
+                if (td.name == impl.trait_name) { tag_system = td.tag_dispatch_system; break; }
+            if (tag_system.empty()) continue;
+            // Emit entries for each method of the trait that's present as
+            // a cloned method on the concrete struct.
+            for (auto& td : out_.traits) {
+                if (td.name != impl.trait_name) continue;
+                for (auto& tm : td.methods) {
+                    std::string sym = sd.name + "__" + tm.name;
+                    // Only emit if the method actually exists (cloned by mono).
+                    bool has = false;
+                    for (auto& sm : sd.methods) if (sm.name == sym) { has = true; break; }
+                    if (!has) {
+                        for (auto& f : out_.functions) if (f.name == sym) { has = true; break; }
+                    }
+                    if (!has) continue;
+                    // Dedup: skip if an equivalent entry already exists (sema
+                    // may have emitted one for a concrete specialization).
+                    bool dup = false;
+                    for (auto& e : out_.dispatch_entries)
+                        if (e.tag_system == tag_system && e.trait_name == impl.trait_name &&
+                            e.method_name == tm.name && e.type_code == sd.type_code)
+                            { dup = true; break; }
+                    if (dup) continue;
+                    lir::LDispatchEntry de;
+                    de.tag_system     = tag_system;
+                    de.trait_name     = impl.trait_name;
+                    de.method_name    = tm.name;
+                    de.fn_symbol      = sym;
+                    de.impl_type_name = sd.name;
+                    de.type_code      = sd.type_code;
+                    out_.dispatch_entries.push_back(std::move(de));
+                }
+            }
+        }
+    }
+
     out_.diags = std::move(in_.diags);
     return std::move(out_);
 }
