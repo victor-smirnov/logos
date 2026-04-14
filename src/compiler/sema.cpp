@@ -841,7 +841,8 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
                 }
                 if (!satisfied) continue;
                 std::string blanket_key = t->trait_name + "::$blanket$"
-                    + t->trait_name + "$" + bi.target_typevar
+                    + t->trait_name + "$" + bi.bound_trait
+                    + "$" + bi.target_typevar
                     + "::" + t->assoc_type_name;
                 auto bait = assoc_type_impls_.find(blanket_key);
                 if (bait == assoc_type_impls_.end()) continue;

@@ -216,6 +216,35 @@ impl<T> PrimVec<T> {
         }
     }
 
+    // Push by pointer: copy sizeof(T) bytes from `src` into the next slot.
+    // Used by the PodRef blanket, which cannot spell `*v` as a T-value
+    // expression for eidos types larger than a register.
+    pub fn push_raw(&mut self, src: *const T) {
+        unsafe {
+            let stride: i64 = sizeof::<T>();
+            if self.len == self.cap {
+                let new_cap: u64 = if self.cap == 0 as u64 { 4 as u64 } else { self.cap * 2 as u64 };
+                let bytes: i64 = (new_cap as i64) * stride;
+                let new_buf: *mut u8 = if self.data == 0 as *mut T {
+                    alloc(bytes)
+                } else {
+                    realloc_buf(self.data as *mut u8, bytes)
+                };
+                if new_buf == 0 as *mut u8 { return; }
+                self.data = new_buf as *mut T;
+                self.cap  = new_cap;
+            }
+            let slot: *mut u8 = (self.data as i64 + (self.len as i64) * stride) as *mut u8;
+            let s:    *const u8 = src as *const u8;
+            let mut i: i64 = 0;
+            while i < stride {
+                *((slot as i64 + i) as *mut u8) = *((s as i64 + i) as *const u8);
+                i = i + 1;
+            }
+            self.len = self.len + 1 as u64;
+        }
+    }
+
     pub fn get(&self, idx: u64) -> T {
         unsafe {
             let stride: i64 = sizeof::<T>();
@@ -288,34 +317,33 @@ impl<DT: Primitive> Container for DT {
     fn store_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim { unsafe { return s.get(idx); } }
 }
 
-// Convention note for `PodRef` users: since Logos sema currently allows only
-// one blanket `impl<DT: Bound> Datatype for DT` per trait (Primitive already
-// occupies it), PodRef eide hand-write their Datatype + Container impls for
-// now.  The canonical shape is:
-//
-//     impl Datatype for BigPod {
-//         type View<S: Storage> = *const BigPod;
-//     }
-//
-//     impl Container for BigPod {
-//         type Store       = PrimVec<BigPod>;
-//         type ViewInStore = *const BigPod;
-//         fn new_store()   -> PrimVec<BigPod>           { return PrimVec::<BigPod>::empty(); }
-//         fn drop_store(s: *mut PrimVec<BigPod>)        { unsafe { s.clear(); } }
-//         fn store_len(s: *const PrimVec<BigPod>) -> u64 { unsafe { return s.len; } }
-//         fn store_push(s: *mut PrimVec<BigPod>, v: *const BigPod) {
-//             unsafe { s.push(*v); }
-//         }
-//         fn store_get(s: *const PrimVec<BigPod>, idx: u64) -> *const BigPod {
-//             unsafe {
-//                 let stride: i64 = sizeof::<BigPod>();
-//                 return (s.data as i64 + (idx as i64) * stride) as *const BigPod;
-//             }
-//         }
-//     }
-//
-// When sema grows bound-aware blanket impls, this boilerplate will collapse
-// into a single `impl PodRef for BigPod;` line.
+// ---------------------------------------------------------------------------
+// Blankets: every `PodRef` eidos gets `Datatype` + `Container` for free.
+// Read side hands back `*const DT`; push takes a source `*const DT` and
+// copies the value into the store.  Mutable access goes through explicit
+// per-eidos accessors on top of the store pointer.
+// ---------------------------------------------------------------------------
+
+impl<DT: PodRef> Datatype for DT {
+    type View<S: Storage> = *const DT;
+}
+
+impl<DT: PodRef> Container for DT {
+    type Store       = PrimVec<DT>;
+    type ViewInStore = *const DT;
+    fn new_store() -> PrimVec<DT> { return PrimVec::<DT>::empty(); }
+    fn drop_store(s: *mut PrimVec<DT>) { unsafe { s.clear(); } }
+    fn store_len(s: *const PrimVec<DT>) -> u64 { unsafe { return s.len; } }
+    fn store_push(s: *mut PrimVec<DT>, v: *const DT) {
+        unsafe { s.push_raw(v); }
+    }
+    fn store_get(s: *const PrimVec<DT>, idx: u64) -> *const DT {
+        unsafe {
+            let stride: i64 = sizeof::<DT>();
+            return (s.data as i64 + (idx as i64) * stride) as *const DT;
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // UnsizedPayload — abstraction over "fixed meta + variable tail" datatypes.

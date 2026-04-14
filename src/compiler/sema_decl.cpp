@@ -530,7 +530,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // Blanket impls lower methods under a synthetic target name so they don't
     // collide with `T::method` for any other generic `T` in the program.
     std::string lower_target = ib.is_blanket
-        ? ("$blanket$" + trait_name + "$" + target)
+        ? ("$blanket$" + trait_name + "$" + ib.bound_trait + "$" + target)
         : target;
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
@@ -600,7 +600,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // reflect that to pick up the right entries.
     if (!trait_name.empty()) {
         std::string stored_target = ib.is_blanket
-            ? ("$blanket$" + trait_name + "$" + target)
+            ? ("$blanket$" + trait_name + "$" + ib.bound_trait + "$" + target)
             : target;
         auto prefix = trait_name + "::" + stored_target + "::";
         for (auto& [key, entry] : assoc_type_impls_) {

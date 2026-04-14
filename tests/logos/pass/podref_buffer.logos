@@ -1,0 +1,34 @@
+// PodRef: a POD eidos too large for by-value transfer gets its Datatype +
+// Container through the stdlib blanket — View = *const DT, Buffer<DT> stores
+// values in a PrimVec<DT>, reads hand back pointers into the store.
+package podref_buffer;
+
+use logos.lang.datatypes;
+
+pub eidos Vec3 {
+    pub x: i64,
+    pub y: i64,
+    pub z: i64,
+}
+
+impl PodRef for Vec3 {}
+
+unsafe fn main() -> i32 {
+    let mut b: Buffer<Vec3> = Buffer::<Vec3>::new();
+    let a: Vec3 = Vec3 { x: 1 as i64, y: 2 as i64, z: 3 as i64 };
+    let c: Vec3 = Vec3 { x: 10 as i64, y: 20 as i64, z: 30 as i64 };
+    b.push(&a as *const Vec3);
+    b.push(&c as *const Vec3);
+
+    if b.len() != 2 as u64 { return 1; }
+
+    let r0: *const Vec3 = b.get(0 as u64);
+    let r1: *const Vec3 = b.get(1 as u64);
+    if r0.x != 1  as i64 { return 2; }
+    if r0.y != 2  as i64 { return 3; }
+    if r0.z != 3  as i64 { return 4; }
+    if r1.x != 10 as i64 { return 5; }
+    if r1.y != 20 as i64 { return 6; }
+    if r1.z != 30 as i64 { return 7; }
+    return 0;
+}

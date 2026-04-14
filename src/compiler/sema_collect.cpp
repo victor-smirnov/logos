@@ -589,8 +589,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // Blanket impls use a synthetic target name so the method
                 // doesn't collide with `T::method` lookups on other generic
                 // `T: Trait` type parameters that share the same letter.
+                // Blanket key includes the bound trait so distinct blankets
+                // on the same trait (e.g. `impl<DT: Primitive> T for DT` and
+                // `impl<DT: PodRef> T for DT`) register under separate keys.
                 std::string reg_target = is_blanket
-                    ? ("$blanket$" + trait_name + "$" + target)
+                    ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
                     : target;
                 auto mangled = reg_target + "__" + mname;
                 if (!funcs_.count(mangled))
@@ -616,7 +619,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // shadow; the AssocType resolver falls back to blanket keys
                 // when the concrete base satisfies the blanket's bound.
                 std::string key_target = is_blanket
-                    ? ("$blanket$" + trait_name + "$" + target)
+                    ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
                     : target;
                 // Bug 3 fix: detect duplicate assoc type impl for the same trait+type+name.
                 std::string key = trait_name + "::" + key_target + "::" + aname;
@@ -683,7 +686,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // Blanket impls use a synthetic target in their registrations; apply the
     // same mapping here so the completeness check sees the real methods.
     std::string check_target = is_blanket
-        ? ("$blanket$" + trait_name + "$" + target)
+        ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
         : target;
     if (!trait_name.empty()) {
         auto tit = traits_.find(trait_name);

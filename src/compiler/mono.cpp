@@ -87,7 +87,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // template, so normal call resolution (`I64__storage_new`) works.
     for (auto& bi : blanket_impls_) {
         std::string tmpl_prefix =
-            "$blanket$" + bi.trait_name + "$" + bi.target_typevar + "__";
+            "$blanket$" + bi.trait_name + "$" + bi.bound_trait
+            + "$" + bi.target_typevar + "__";
         for (auto& impl : out_.impls) {
             if (impl.is_blanket) continue;
             if (impl.trait_name != bi.bound_trait) continue;
