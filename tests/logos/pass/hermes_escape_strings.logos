@@ -21,160 +21,139 @@ use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use hermes.parser;
+use std.string;
 
-extern fn malloc(size: i64) -> *mut u8;
-extern fn free(ptr: *mut u8);
+// Append a byte to the buffer.  Thin wrapper to keep the test shape compact.
+fn append(buf: &mut String, b: u8) {
+    buf.push_u8(b);
+}
 
-unsafe fn wb(buf: *mut u8, idx: i64, val: u8) {
-    *((buf as i64 + idx) as *mut u8) = val;
+// Parse `buf` into a fresh zone and return the root HermesString pointer
+// (or null if the root isn't a zone-pointer / parse failed).
+unsafe fn parse_string(buf: &String, zone: &mut Zone<Mutable>) -> *const HermesString {
+    if !hermes_parse(buf.as_ptr(), buf.len(), zone) {
+        return 0 as *const HermesString;
+    }
+    let root: AnyVal = document_get_root(
+        document_header(zone.holder.base) as *const DocumentHeader);
+    if !root.is_ptr() { return 0 as *const HermesString; }
+    return (zone.holder.base as i64 + root.as_offset() as i64)
+        as *const HermesString;
 }
 
 unsafe fn main() -> i32 {
-    let ibuf: *mut u8 = malloc(256);
-
     // ── 1. "\"" — lone escaped double quote ─────────────────────────────────
-    // Input: [34 92 34 34]  = '"' '\' '"' '"'
-    // Decoded: one byte = 34 ('"')
-    wb(ibuf, 0, 34 as u8);  // opening "
-    wb(ibuf, 1, 92 as u8);  // backslash
-    wb(ibuf, 2, 34 as u8);  // "  (escaped)
-    wb(ibuf, 3, 34 as u8);  // closing "
+    // Input bytes:  " \ " "   →   decoded: single byte 34 (')
+    let mut b1: String = String::with_capacity(4);
+    append(&mut b1,  34 as u8);  // opening "
+    append(&mut b1,  92 as u8);  // backslash
+    append(&mut b1,  34 as u8);  // "  (escaped)
+    append(&mut b1,  34 as u8);  // closing "
     let mut z1: Zone<Mutable> = zone_create(4096);
-    if !hermes_parse(ibuf as *const u8, 4, &mut z1) { free(ibuf); return 1; }
-    let r1: AnyVal = document_get_root(document_header(z1.holder.base) as *const DocumentHeader);
-    if !r1.is_ptr()                             { free(ibuf); return 2; }
-    let hs1: *const HermesString =
-        (z1.holder.base as i64 + r1.as_offset() as i64) as *const HermesString;
-    if hs1.len() != 1 as u64                   { free(ibuf); return 3; }
-    if *hs1.bytes() != 34 as u8               { free(ibuf); return 4; }
-    // zone is cleaned up by Drop
+    let hs1: *const HermesString = parse_string(&b1, &mut z1);
+    if hs1 == 0 as *const HermesString { return 1; }
+    if hs1.len() != 1 as u64           { return 2; }
+    if *hs1.bytes() != 34 as u8        { return 3; }
 
     // ── 2. "\\" — lone escaped backslash ────────────────────────────────────
-    // Input: [34 92 92 34]  = '"' '\' '\' '"'
-    // Decoded: one byte = 92 ('\')
-    wb(ibuf, 0, 34 as u8);  // opening "
-    wb(ibuf, 1, 92 as u8);  // backslash
-    wb(ibuf, 2, 92 as u8);  // backslash (escaped)
-    wb(ibuf, 3, 34 as u8);  // closing "
+    let mut b2: String = String::with_capacity(4);
+    append(&mut b2,  34 as u8);
+    append(&mut b2,  92 as u8);
+    append(&mut b2,  92 as u8);  // backslash (escaped)
+    append(&mut b2,  34 as u8);
     let mut z2: Zone<Mutable> = zone_create(4096);
-    if !hermes_parse(ibuf as *const u8, 4, &mut z2) { free(ibuf); return 5; }
-    let r2: AnyVal = document_get_root(document_header(z2.holder.base) as *const DocumentHeader);
-    if !r2.is_ptr()                             { free(ibuf); return 6; }
-    let hs2: *const HermesString =
-        (z2.holder.base as i64 + r2.as_offset() as i64) as *const HermesString;
-    if hs2.len() != 1 as u64                   { free(ibuf); return 7; }
-    if *hs2.bytes() != 92 as u8               { free(ibuf); return 8; }
-    // zone is cleaned up by Drop
+    let hs2: *const HermesString = parse_string(&b2, &mut z2);
+    if hs2 == 0 as *const HermesString { return 4; }
+    if hs2.len() != 1 as u64           { return 5; }
+    if *hs2.bytes() != 92 as u8        { return 6; }
 
     // ── 3. "\n" — escaped newline ────────────────────────────────────────────
-    // Input: [34 92 110 34]  = '"' '\' 'n' '"'
-    // Decoded: one byte = 10 (LF)
-    wb(ibuf, 0, 34 as u8);   // opening "
-    wb(ibuf, 1, 92 as u8);   // backslash
-    wb(ibuf, 2, 110 as u8);  // 'n'
-    wb(ibuf, 3, 34 as u8);   // closing "
+    let mut b3: String = String::with_capacity(4);
+    append(&mut b3,  34 as u8);
+    append(&mut b3,  92 as u8);
+    append(&mut b3, 110 as u8);  // 'n'
+    append(&mut b3,  34 as u8);
     let mut z3: Zone<Mutable> = zone_create(4096);
-    if !hermes_parse(ibuf as *const u8, 4, &mut z3) { free(ibuf); return 9; }
-    let r3: AnyVal = document_get_root(document_header(z3.holder.base) as *const DocumentHeader);
-    if !r3.is_ptr()                             { free(ibuf); return 10; }
-    let hs3: *const HermesString =
-        (z3.holder.base as i64 + r3.as_offset() as i64) as *const HermesString;
-    if hs3.len() != 1 as u64                   { free(ibuf); return 11; }
-    if *hs3.bytes() != 10 as u8               { free(ibuf); return 12; }
-    // zone is cleaned up by Drop
+    let hs3: *const HermesString = parse_string(&b3, &mut z3);
+    if hs3 == 0 as *const HermesString { return 7; }
+    if hs3.len() != 1 as u64           { return 8; }
+    if *hs3.bytes() != 10 as u8        { return 9; }
 
     // ── 4. "\t" — escaped tab ────────────────────────────────────────────────
-    // Input: [34 92 116 34]  = '"' '\' 't' '"'
-    // Decoded: one byte = 9 (TAB)
-    wb(ibuf, 0, 34 as u8);   // opening "
-    wb(ibuf, 1, 92 as u8);   // backslash
-    wb(ibuf, 2, 116 as u8);  // 't'
-    wb(ibuf, 3, 34 as u8);   // closing "
+    let mut b4: String = String::with_capacity(4);
+    append(&mut b4,  34 as u8);
+    append(&mut b4,  92 as u8);
+    append(&mut b4, 116 as u8);  // 't'
+    append(&mut b4,  34 as u8);
     let mut z4: Zone<Mutable> = zone_create(4096);
-    if !hermes_parse(ibuf as *const u8, 4, &mut z4) { free(ibuf); return 13; }
-    let r4: AnyVal = document_get_root(document_header(z4.holder.base) as *const DocumentHeader);
-    if !r4.is_ptr()                             { free(ibuf); return 14; }
-    let hs4: *const HermesString =
-        (z4.holder.base as i64 + r4.as_offset() as i64) as *const HermesString;
-    if hs4.len() != 1 as u64                   { free(ibuf); return 15; }
-    if *hs4.bytes() != 9 as u8                { free(ibuf); return 16; }
-    // zone is cleaned up by Drop
+    let hs4: *const HermesString = parse_string(&b4, &mut z4);
+    if hs4 == 0 as *const HermesString { return 10; }
+    if hs4.len() != 1 as u64           { return 11; }
+    if *hs4.bytes() != 9 as u8         { return 12; }
 
     // ── 5. "\r" — escaped carriage return ───────────────────────────────────
-    // Input: [34 92 114 34]  = '"' '\' 'r' '"'
-    // Decoded: one byte = 13 (CR)
-    wb(ibuf, 0, 34 as u8);   // opening "
-    wb(ibuf, 1, 92 as u8);   // backslash
-    wb(ibuf, 2, 114 as u8);  // 'r'
-    wb(ibuf, 3, 34 as u8);   // closing "
+    let mut b5: String = String::with_capacity(4);
+    append(&mut b5,  34 as u8);
+    append(&mut b5,  92 as u8);
+    append(&mut b5, 114 as u8);  // 'r'
+    append(&mut b5,  34 as u8);
     let mut z5: Zone<Mutable> = zone_create(4096);
-    if !hermes_parse(ibuf as *const u8, 4, &mut z5) { free(ibuf); return 17; }
-    let r5: AnyVal = document_get_root(document_header(z5.holder.base) as *const DocumentHeader);
-    if !r5.is_ptr()                             { free(ibuf); return 18; }
-    let hs5: *const HermesString =
-        (z5.holder.base as i64 + r5.as_offset() as i64) as *const HermesString;
-    if hs5.len() != 1 as u64                   { free(ibuf); return 19; }
-    if *hs5.bytes() != 13 as u8               { free(ibuf); return 20; }
-    // zone is cleaned up by Drop
+    let hs5: *const HermesString = parse_string(&b5, &mut z5);
+    if hs5 == 0 as *const HermesString { return 13; }
+    if hs5.len() != 1 as u64           { return 14; }
+    if *hs5.bytes() != 13 as u8        { return 15; }
 
     // ── 6. "a\nb" — mixed literal and escape ────────────────────────────────
-    // Input: [34 97 92 110 98 34]  = '"' 'a' '\' 'n' 'b' '"'
     // Decoded: [97, 10, 98], length 3
-    wb(ibuf, 0, 34 as u8);   // opening "
-    wb(ibuf, 1, 97 as u8);   // 'a'
-    wb(ibuf, 2, 92 as u8);   // backslash
-    wb(ibuf, 3, 110 as u8);  // 'n'
-    wb(ibuf, 4, 98 as u8);   // 'b'
-    wb(ibuf, 5, 34 as u8);   // closing "
+    let mut b6: String = String::with_capacity(6);
+    append(&mut b6,  34 as u8);
+    append(&mut b6,  97 as u8);  // 'a'
+    append(&mut b6,  92 as u8);
+    append(&mut b6, 110 as u8);  // 'n'
+    append(&mut b6,  98 as u8);  // 'b'
+    append(&mut b6,  34 as u8);
     let mut z6: Zone<Mutable> = zone_create(4096);
-    if !hermes_parse(ibuf as *const u8, 6, &mut z6) { free(ibuf); return 21; }
-    let r6: AnyVal = document_get_root(document_header(z6.holder.base) as *const DocumentHeader);
-    if !r6.is_ptr()                             { free(ibuf); return 22; }
-    let hs6: *const HermesString =
-        (z6.holder.base as i64 + r6.as_offset() as i64) as *const HermesString;
-    if hs6.len() != 3 as u64                   { free(ibuf); return 23; }
+    let hs6: *const HermesString = parse_string(&b6, &mut z6);
+    if hs6 == 0 as *const HermesString { return 16; }
+    if hs6.len() != 3 as u64           { return 17; }
     let b6_0: u8 = *hs6.bytes();
     let b6_1: u8 = *((hs6.bytes() as i64 + 1) as *const u8);
     let b6_2: u8 = *((hs6.bytes() as i64 + 2) as *const u8);
-    if b6_0 != 97 as u8                       { free(ibuf); return 24; }  // 'a'
-    if b6_1 != 10 as u8                       { free(ibuf); return 25; }  // LF
-    if b6_2 != 98 as u8                       { free(ibuf); return 26; }  // 'b'
-    // zone is cleaned up by Drop
+    if b6_0 != 97 as u8                { return 18; }  // 'a'
+    if b6_1 != 10 as u8                { return 19; }  // LF
+    if b6_2 != 98 as u8                { return 20; }  // 'b'
 
     // ── 7. {"a\"b": 1} — escaped quote in map key ───────────────────────────
-    // Input: [123 34 97 92 34 98 34 58 49 125]
-    //         '{'  '"' 'a' '\' '"' 'b' '"' ':' '1' '}'
-    wb(ibuf, 0, 123 as u8);  // '{'
-    wb(ibuf, 1,  34 as u8);  // '"'
-    wb(ibuf, 2,  97 as u8);  // 'a'
-    wb(ibuf, 3,  92 as u8);  // '\'
-    wb(ibuf, 4,  34 as u8);  // '"'  (escaped)
-    wb(ibuf, 5,  98 as u8);  // 'b'
-    wb(ibuf, 6,  34 as u8);  // '"'  (closing)
-    wb(ibuf, 7,  58 as u8);  // ':'
-    wb(ibuf, 8,  49 as u8);  // '1'
-    wb(ibuf, 9, 125 as u8);  // '}'
+    let mut b7: String = String::with_capacity(10);
+    append(&mut b7, 123 as u8);  // '{'
+    append(&mut b7,  34 as u8);  // '"'
+    append(&mut b7,  97 as u8);  // 'a'
+    append(&mut b7,  92 as u8);  // '\'
+    append(&mut b7,  34 as u8);  // '"' (escaped)
+    append(&mut b7,  98 as u8);  // 'b'
+    append(&mut b7,  34 as u8);  // '"' (closing)
+    append(&mut b7,  58 as u8);  // ':'
+    append(&mut b7,  49 as u8);  // '1'
+    append(&mut b7, 125 as u8);  // '}'
     let mut z7: Zone<Mutable> = zone_create(8192);
-    if !hermes_parse(ibuf as *const u8, 10, &mut z7) { free(ibuf); return 27; }
-    let r7: AnyVal = document_get_root(document_header(z7.holder.base) as *const DocumentHeader);
-    if !r7.is_ptr()                             { free(ibuf); return 28; }
+    if !hermes_parse(b7.as_ptr(), b7.len(), &mut z7) { return 21; }
+    let r7: AnyVal = document_get_root(
+        document_header(z7.holder.base) as *const DocumentHeader);
+    if !r7.is_ptr() { return 22; }
     let omap7: *const ObjectMap =
         (z7.holder.base as i64 + r7.as_offset() as i64) as *const ObjectMap;
-    let cnt7: u32 = omap7.size_count();
-    if cnt7 != 1 as u32                        { free(ibuf); return 29; }
-    // Look up key a"b = [97, 34, 98]
-    let kbuf: *mut u8 = malloc(3);
-    *((kbuf as i64 + 0) as *mut u8) = 97 as u8;   // 'a'
-    *((kbuf as i64 + 1) as *mut u8) = 34 as u8;   // '"'
-    *((kbuf as i64 + 2) as *mut u8) = 98 as u8;   // 'b'
-    let got7: AnyVal = omap7.get(z7.holder.base as *const u8,
-                                 kbuf as *const u8, 3 as u64);
-    free(kbuf);
-    // zone is cleaned up by Drop
-    if got7.is_null()                          { free(ibuf); return 30; }
-    // New: i24(1) has raw = (1 << 8) | 0x2F = 0x0000012F
-    if got7.raw != 0x0000012F as u32           { free(ibuf); return 31; }
+    if omap7.size_count() != 1 as u32 { return 23; }
 
-    free(ibuf);
+    // Look up key `a"b` = [97, 34, 98].
+    let mut key: String = String::with_capacity(3);
+    append(&mut key, 97 as u8);
+    append(&mut key, 34 as u8);
+    append(&mut key, 98 as u8);
+    let got7: AnyVal = omap7.get(z7.holder.base as *const u8,
+                                 key.as_ptr(), key.len() as u64);
+    if got7.is_null()                { return 24; }
+    // i24(1) has raw = (1 << 8) | 0x2F = 0x0000012F
+    if got7.raw != 0x0000012F as u32 { return 25; }
+
     return 42;
 }
