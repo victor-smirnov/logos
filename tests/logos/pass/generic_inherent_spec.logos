@@ -1,0 +1,22 @@
+// Specialization of inherent impls: a concrete `impl Foo<i32>` must
+// override the blanket `impl<T> Foo<T>` for the i32 instance while
+// leaving other instances picking up the blanket body.
+package generic_inherent_spec;
+
+pub struct Foo<T> { pub x: i32 }
+
+impl<T> Foo<T> {
+    pub fn tag(self: *const Foo<T>) -> i32 { return 1; }
+}
+
+impl Foo<i32> {
+    pub fn tag(self: *const Foo<i32>) -> i32 { return 42; }
+}
+
+fn main() -> i32 {
+    let a: Foo<i32>  = Foo::<i32>  { x: 0 };
+    let b: Foo<bool> = Foo::<bool> { x: 0 };
+    if a.tag() != 42 as i32 { return 1; }
+    if b.tag() != 1  as i32 { return 2; }
+    return 0;
+}

@@ -708,6 +708,17 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         auto sep = m.name.find("__");
         if (sep != std::string::npos)
             nm.name = new_name + m.name.substr(sep);
+        // Specialization: if the user wrote `impl Foo<Concrete> { fn m ... }`
+        // separately from `impl<T> Foo<T> { fn m ... }`, the concrete method
+        // lives in in_.functions under the mangled name.  Skip cloning the
+        // blanket version for this concrete — the free-fn path will emit it
+        // with the correct body.
+        bool overridden = false;
+        for (auto& fn : in_.functions) {
+            if (!fn.type_params.empty()) continue;
+            if (fn.name == nm.name) { overridden = true; break; }
+        }
+        if (overridden) continue;
         // Substitute struct type in params/ret as needed (already done by clone_fn).
         nd.methods.push_back(std::move(nm));
     }
