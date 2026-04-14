@@ -13,6 +13,42 @@ use std.drop;
 use std.mem;
 
 // ---------------------------------------------------------------------------
+// Storage hierarchy — three orthogonal axes factored into a trait hierarchy.
+//
+//   Storage            — base capability: length, element-type, indexed read.
+//   OwningStorage      — holds its own lifetime; must be explicitly dropped.
+//   DynamicStorage     — OwningStorage + grows (push, clear).
+//   BorrowedStorage    — read-only view, no ownership, safe to discard.
+//
+// Concrete implementations pick one leaf:
+//   PrimVec<T>         : DynamicStorage<Elem = T>            (Vec-like)
+//   ZoneSlice<T>       : OwningStorage<Elem = T>             (zone-scoped)
+//   MmapView<T>        : BorrowedStorage<Elem = T>           (read-only)
+//
+// A `Datatype` will select one of these leaves per context and derive its
+// `View<S>` from the leaf's capabilities (see Datatype trait below).
+// ---------------------------------------------------------------------------
+
+pub trait Storage {
+    type Elem;
+    fn storage_len(s: *const Self) -> u64;
+}
+
+pub trait OwningStorage: Storage {
+    fn storage_drop(s: *mut Self);
+}
+
+pub trait DynamicStorage: OwningStorage {
+    fn storage_new()  -> Self;
+    fn storage_push(s: *mut Self, v: Self::Elem);
+    fn storage_clear(s: *mut Self);
+}
+
+pub trait BorrowedStorage: Storage {
+    // Read-only view; no drop, no grow. Marker-like, relies on Storage.
+}
+
+// ---------------------------------------------------------------------------
 // Datatype — View ↔ Storage bridge.
 // ---------------------------------------------------------------------------
 
@@ -145,6 +181,35 @@ impl<T> PrimVec<T> {
                 self.cap  = 0 as u64;
             }
         }
+    }
+}
+
+// PrimVec<T> plugs into the Storage hierarchy as a DynamicStorage<Elem=T>.
+// This lets generic code request any dynamic backing store via the trait
+// rather than naming PrimVec directly.
+
+impl<T> Storage for PrimVec<T> {
+    type Elem = T;
+    fn storage_len(s: *const PrimVec<T>) -> u64 {
+        unsafe { return s.len; }
+    }
+}
+
+impl<T> OwningStorage for PrimVec<T> {
+    fn storage_drop(s: *mut PrimVec<T>) {
+        unsafe { s.clear(); }
+    }
+}
+
+impl<T> DynamicStorage for PrimVec<T> {
+    fn storage_new() -> PrimVec<T> {
+        return PrimVec::<T>::empty();
+    }
+    fn storage_push(s: *mut PrimVec<T>, v: T) {
+        unsafe { s.push(v); }
+    }
+    fn storage_clear(s: *mut PrimVec<T>) {
+        unsafe { s.clear(); }
     }
 }
 
