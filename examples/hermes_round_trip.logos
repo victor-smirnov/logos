@@ -27,9 +27,11 @@ fn main() -> i32 {
         Result::Err(_)  => { return 1; }
     }
 
-    // TODO: stringification separated from HermesCtr.
-    // let s: String = doc.to_string();
-    // println(s.as_ptr());
+    //TODO: stringification separated from HermesCtr.
+    let s: String = doc.to_string();
+    println(s.as_ptr());
+
+    
 
     return 0;
 }
