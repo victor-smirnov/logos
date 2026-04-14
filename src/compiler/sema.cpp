@@ -1422,6 +1422,15 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         lir::LInstAnnotation ia;
                         // Include package prefix for a globally unique canonical name.
                         ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);
+                        // Mangled name for matching against monomorphized struct defs.
+                        if ((resolved->kind == LogosType::Kind::Struct ||
+                             resolved->kind == LogosType::Kind::Datatype) &&
+                            !resolved->type_args.empty()) {
+                            ia.mangled_name = concrete_struct_name(resolved);
+                        } else if (resolved->kind == LogosType::Kind::Struct ||
+                                   resolved->kind == LogosType::Kind::Datatype) {
+                            ia.mangled_name = resolved->struct_name;
+                        }
                         for (auto& ann : pending_annots) {
                             auto aname = std::string(str_of(ann.get(la::NAME.code)));
                             if (aname == "type_code" && ann.has_key(la::VALUE)) {
@@ -1429,6 +1438,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                                 ia.type_code = (uint64_t)parse_int_literal(sv);
                             }
                         }
+                        // Register into explicit_type_codes_ so sema-time queries
+                        // (`type_code_of::<Foo<i32>>()`) resolve to the annotated code.
+                        if (ia.type_code != 0)
+                            explicit_type_codes_[ia.canonical_name] = ia.type_code;
                         prog.inst_annotations.push_back(std::move(ia));
                     }
                 }

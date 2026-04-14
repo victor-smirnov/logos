@@ -1072,8 +1072,21 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 code = (raw < 128) ? (raw + 128) : raw;
             }
         } else if (elem->kind == LogosType::Kind::Datatype && !elem->type_args.empty()) {
-            error("type_code_of::<T>() cannot resolve type_code for uninstantiated generic datatype");
-            return error_expr();
+            // Generic instantiation: look up explicit #[type_code] attached via
+            // `#[type_code=N] pub eidos Foo<Bar>;` instantiation declaration.
+            // Canonical key matches what was written in sema.cpp when lowering the decl.
+            auto dit = datatypes_.find(elem->struct_name);
+            std::string pkg = (dit != datatypes_.end()) ? dit->second.package : std::string(cur_package_);
+            std::string canon = pkg + "::" + type_str(elem);
+            auto eit = explicit_type_codes_.find(canon);
+            if (eit != explicit_type_codes_.end()) {
+                code = eit->second;
+            } else {
+                // Auto-assign from hash of the concrete canonical name.
+                auto hash = type_hash_23(canon);
+                uint64_t raw = type_hash_56bit(hash);
+                code = (raw < 128) ? (raw + 128) : raw;
+            }
         }
         // Return code as i64 bits (type is U64; bits identical for values < 2^63).
         return make_expr(prim(LogosType::Kind::U64), lir::ELitInt{(int64_t)code});

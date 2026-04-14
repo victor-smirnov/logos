@@ -612,6 +612,7 @@ struct LTypeAlias {
 // E.g.: #[type_code=42] datatype Array<i32>;
 struct LInstAnnotation {
     std::string canonical_name;  // fully-qualified canonical type string, e.g. "pkg::Array<i32>"
+    std::string mangled_name;    // concrete struct name after monomorphization, e.g. "Array$G1$i32"
     uint64_t    type_code = 0;   // 0 = not specified
 };
 

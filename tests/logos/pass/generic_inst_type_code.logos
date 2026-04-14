@@ -1,0 +1,20 @@
+// Explicit instantiation declaration `#[type_code=N] pub eidos Foo<T>;`
+// assigns a specific type_code to a generic-eidos specialization.  Other
+// instantiations fall back to the hash-derived auto-code.
+package generic_inst_type_code;
+
+pub eidos Foo<T> {
+    pub x: u32,
+}
+
+#[type_code=200]
+pub eidos Foo<i32>;
+
+unsafe fn main() -> i32 {
+    let c: u64 = type_code_of::<Foo<i32>>();
+    if c != 200 as u64 { return 1; }
+    let c2: u64 = type_code_of::<Foo<bool>>();
+    if c2 == 200 as u64 { return 2; }
+    if c2 == 0   as u64 { return 3; }
+    return 0;
+}
