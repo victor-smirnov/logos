@@ -1,0 +1,42 @@
+// Typed container syntax: parser accepts `<T>[...]` / `<K,V>{...}` headers
+// and skips them; the element/entry storage is unchanged.
+package hermes_parse_typed_containers;
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.parser;
+use hermes.document;
+use hermes.ctr;
+use hermes.stringify;
+use std.string;
+
+unsafe fn main() -> i32 {
+    // <T>[...] — typed array.
+    let mut d1: HermesCtr = HermesCtr::new(4096);
+    match d1.parse("<i32>[1,2,3]" as *const u8, 12 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 1; }
+    }
+    let s1: String = d1.to_string();
+    if !s1.eq_cstr("[1,2,3]") { return 2; }
+
+    // <K,V>{...} — typed map.
+    let mut d2: HermesCtr = HermesCtr::new(4096);
+    match d2.parse("<Varchar,AnyVal>{\"a\":1}" as *const u8, 23 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 3; }
+    }
+    let s2: String = d2.to_string();
+    if !s2.eq_cstr("{\"a\":1}") { return 4; }
+
+    // Nested type args: `<Map<i32,i32>>[]`.
+    let mut d3: HermesCtr = HermesCtr::new(4096);
+    match d3.parse("<Map<i32,i32>>[]" as *const u8, 16 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 5; }
+    }
+    let s3: String = d3.to_string();
+    if !s3.eq_cstr("[]") { return 6; }
+
+    return 0;
+}

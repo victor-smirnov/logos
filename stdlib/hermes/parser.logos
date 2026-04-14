@@ -182,6 +182,7 @@ impl HermesParser {
         if c == 34 as u8  { return self.parse_string(); }   // '"'
         if c == 91 as u8  { return self.parse_array(); }    // '['
         if c == 123 as u8 { return self.parse_map(); }      // '{'
+        if c == 60 as u8  { return self.parse_typed_container(); }  // '<'
 
         // Number: digit or '-' followed by digit
         if self.is_digit(c)
@@ -189,6 +190,40 @@ impl HermesParser {
             return self.parse_number();
         }
 
+        self.ok = false;
+        return AnyVal::null_ptr();
+    }
+
+    // ── Typed container: `<T>[...]` or `<K, V>{...}` ────────────────────────
+    // Type parameters are syntactically accepted and skipped (V is currently
+    // always AnyVal in storage; T is a format hint only).  We lex-skip the
+    // `<...>` header — balancing nested `<>` for `Map<Varchar, Map<...>>`-
+    // style nesting — then dispatch to the regular array / map parser.
+    pub unsafe fn parse_typed_container(&mut self) -> AnyVal {
+        if self.peek() != 60 as u8 {  // '<'
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        self.pos = self.pos + 1 as i64;
+        let mut depth: i64 = 1 as i64;
+        while depth > 0 as i64 && !self.at_end() {
+            let ch: u8 = self.peek();
+            if ch == 60 as u8 { depth = depth + 1 as i64; }
+            else if ch == 62 as u8 { depth = depth - 1 as i64; }  // '>'
+            self.pos = self.pos + 1 as i64;
+        }
+        if depth != 0 as i64 {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        self.skip();
+        if self.at_end() {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        let next: u8 = self.peek();
+        if next == 91 as u8  { return self.parse_array(); }   // '['
+        if next == 123 as u8 { return self.parse_map(); }     // '{'
         self.ok = false;
         return AnyVal::null_ptr();
     }
