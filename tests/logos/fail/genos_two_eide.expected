@@ -1,0 +1,1 @@
+error []: two eide register for genos type_code 200 in tag system 'TsSystem': 'FooA' and 'FooB' — only one eidos per (genos, tag-system) is allowed

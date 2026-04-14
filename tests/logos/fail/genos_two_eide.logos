@@ -1,0 +1,26 @@
+// Violates the "one eidos per (genos, tag-system)" invariant:
+// two different zone eide (FooA, FooB) both claim the same genos Thingy,
+// which in turn dispatches methods through Behave.  The compiler must
+// surface a single clear diagnostic rather than waiting for the linker.
+package genos_two_eide;
+
+#[type_code=200]
+pub genos Thingy {}
+
+#[tag_dispatch(TsSystem)]
+pub trait Behave {
+    fn greet(&self) -> i32 { return 0; }
+}
+
+pub struct TsSystem {}
+
+pub eidos FooA { pub first: u8 }
+pub eidos FooB { pub first: u8 }
+
+impl Thingy for FooA {}
+impl Thingy for FooB {}
+
+impl Behave for FooA { fn greet(&self) -> i32 { return 1; } }
+impl Behave for FooB { fn greet(&self) -> i32 { return 2; } }
+
+unsafe fn main() -> i32 { return 0; }

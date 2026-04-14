@@ -304,6 +304,29 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::HermesCtr>& asts,
     }
 
     lower_program(asts, prog);
+
+    // Enforce the "one eidos per (genos, tag-system)" invariant at compile
+    // time.  Two different impl targets that end up with the same
+    // (tag_system, type_code) pair would overwrite each other in the
+    // dispatch table (and trigger a link-time collision via the sentinel
+    // globals in mlir_gen_dyn.cpp).  Surface a clearer diagnostic here.
+    {
+        std::unordered_map<std::string, std::string> seen;
+        for (const auto& de : prog.dispatch_entries) {
+            if (de.type_code == 0) continue;
+            auto key = de.tag_system + "#" + std::to_string(de.type_code);
+            auto [it, inserted] = seen.emplace(std::move(key), de.impl_type_name);
+            if (!inserted && it->second != de.impl_type_name) {
+                ctx_.clear();
+                error(std::format(
+                    "two eide register for genos type_code {} in tag system '{}': "
+                    "'{}' and '{}' — only one eidos per (genos, tag-system) is allowed",
+                    de.type_code, de.tag_system,
+                    it->second, de.impl_type_name));
+            }
+        }
+    }
+
     prog.diags      = std::move(result_);
     prog.type_pool  = std::move(pool_);
     return prog;

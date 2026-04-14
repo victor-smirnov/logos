@@ -24,7 +24,7 @@ use logos.lang.datatypes;
 // ---------------------------------------------------------------------------
 
 #[type_code=26]
-pub trait Int64 {}
+pub genos Int64 {}
 
 pub eidos I64 {
     pub v: i64,
@@ -49,7 +49,7 @@ impl I64 {
 // ---------------------------------------------------------------------------
 
 #[type_code=27]
-pub trait UInt64 {}
+pub genos UInt64 {}
 
 pub eidos U64 {
     pub v: u64,

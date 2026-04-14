@@ -49,7 +49,7 @@ unsafe fn popcount_u64(x: u64) -> u32 {
 // ---------------------------------------------------------------------------
 
 #[type_code=98]
-pub trait TinyMap {}
+pub genos TinyMap {}
 
 pub eidos TinyObjectMap {
     pub header: u64,
@@ -159,7 +159,7 @@ impl TinyObjectMap {
 // ---------------------------------------------------------------------------
 
 #[type_code=100]
-pub trait Array {}
+pub genos Array {}
 
 pub eidos ObjectArray {
     pub size:     u64,

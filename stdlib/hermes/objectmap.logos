@@ -41,7 +41,7 @@ pub eidos MapEntry {
 // ---------------------------------------------------------------------------
 
 #[type_code=101]
-pub trait Map {}
+pub genos Map {}
 
 pub eidos ObjectMap {
     pub entries_off: u32,  // zone-relative offset to the MapEntry array
