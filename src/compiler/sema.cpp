@@ -1098,6 +1098,10 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
                     if (!at_def.type_params.empty() && gat_args.size() != expected_gat)
                         error(std::format("associated type '{}::{}' expects {} GAT argument(s), got {}",
                                           trait_for_assoc, assoc, expected_gat, gat_args.size()));
+                    // Enforce trait bounds on GAT type parameters.
+                    if (!at_def.type_params.empty() && gat_args.size() == expected_gat)
+                        check_type_bounds(trait_for_assoc + "::" + assoc,
+                                          at_def.type_params, gat_args);
                     break;
                 }
             }

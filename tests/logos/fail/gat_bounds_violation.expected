@@ -1,0 +1,1 @@
+error [fn main]: 'Container::View': type 'NotAStore' does not implement trait 'Storage' required by parameter 'S'

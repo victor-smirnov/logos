@@ -1,0 +1,22 @@
+// GAT type-parameter trait bounds: `type View<S: Storage>`.
+// Declaration and impl parse and collect; bound enforcement is exercised
+// by the fail-side test (fail/gat_bounds_violation).
+package gat_bounds;
+
+trait Storage { fn len(s: *const Self) -> u64; }
+
+trait Container {
+    type View<S: Storage>;
+}
+
+struct Foo {}
+struct MyStore {}
+impl Storage for MyStore { fn len(s: *const MyStore) -> u64 { return 42 as u64; } }
+
+impl Container for Foo {
+    type View<S: Storage> = S;
+}
+
+unsafe fn main() -> i32 {
+    return 0;
+}

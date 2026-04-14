@@ -1,0 +1,21 @@
+// Concrete type passed as GAT arg must satisfy the declared bound.
+// `NotAStore` does not impl Storage, so `Foo::View<NotAStore>` is rejected.
+package gat_bounds_violation;
+
+trait Storage { fn len(s: *const Self) -> u64; }
+
+trait Container {
+    type View<S: Storage>;
+}
+
+struct Foo {}
+struct NotAStore {}
+
+impl Container for Foo {
+    type View<S: Storage> = S;
+}
+
+unsafe fn main() -> i32 {
+    let x: Foo::View<NotAStore> = NotAStore {};
+    return 0;
+}
