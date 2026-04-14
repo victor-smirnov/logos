@@ -538,6 +538,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             auto m = map_of(items.get(i));
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 auto fn = lower_fn(m, lower_target);
+                // Trait-impl methods inherit visibility from the trait itself:
+                // if the trait is reachable, its methods are callable (Rust
+                // semantics).  The grammar does not allow `pub` on trait
+                // methods, so force is_pub=true when lowering under a trait
+                // impl block.  Inherent-impl methods (no trait_name) keep the
+                // explicit `pub fn` / private split.
+                if (!trait_name.empty()) fn.is_pub = true;
                 overridden.insert(fn.name);
                 if (target_struct_tmpl) {
                     // Add to struct template so mono clones it during struct instantiation.
@@ -571,6 +578,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     if (self_type)
                         current_type_params_["Self"] = self_type;
                     auto fn = lower_fn(map_of(m.default_ast), target);
+                    fn.is_pub = true;  // default trait method inherits trait visibility
                     prog.functions.push_back(std::move(fn));
                     current_type_params_.erase("Self");
                 }

@@ -595,6 +595,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 auto mangled = reg_target + "__" + mname;
                 if (!funcs_.count(mangled))
                     collect_fn(m, reg_target);
+                // Trait-impl methods inherit their trait's accessibility:
+                // if the trait is reachable, so are its methods.  The
+                // grammar disallows `pub fn` inside trait / trait-impl
+                // blocks, so force is_pub=true post-collection.  Inherent
+                // impls (no trait_name) keep the explicit pub/private split.
+                if (!trait_name.empty()) {
+                    auto it = funcs_.find(mangled);
+                    if (it != funcs_.end()) it->second.is_pub = true;
+                }
                 if (is_blanket) {
                     blanket_impls_.push_back({
                         trait_name, target, blanket_bound_trait, mname, mangled
@@ -711,6 +720,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (self_type)
                             current_type_params_["Self"] = self_type;
                         collect_fn(map_of(m.default_ast), target);
+                        // Default trait-method: inherits trait accessibility.
+                        auto dmangled = target + "__" + m.name;
+                        auto dit = funcs_.find(dmangled);
+                        if (dit != funcs_.end()) dit->second.is_pub = true;
                         current_type_params_.erase("Self");
                     } else {
                         error(std::format("impl {} for {}: missing method '{}'",

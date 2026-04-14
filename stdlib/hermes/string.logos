@@ -126,14 +126,49 @@ pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
 // to HermesString via `impl Varchar for HermesString`.
 // ---------------------------------------------------------------------------
 
+// Canonical Varchar operations live on the genos itself — generic code
+// can be written against any `V: Varchar` and call `v.len() / v.bytes() /
+// v.hash() / v.equals_bytes(...)` uniformly.  Default bodies for
+// equals_bytes and hash are expressed in terms of len/bytes so every new
+// eidos only supplies the storage-specific primitives.
 #[type_code=28]
-pub genos Varchar {}
+pub genos Varchar {
+    unsafe fn len(self: *const Self) -> u64;
+    unsafe fn bytes(self: *const Self) -> *const u8;
+
+    unsafe fn equals_bytes(self: *const Self, other: *const u8, other_len: u64) -> bool {
+        let my_len: u64 = self.len();
+        if my_len != other_len { return false; }
+        let my_b: *const u8 = self.bytes();
+        let mut i: u64 = 0 as u64;
+        while i < my_len {
+            let pa: *const u8 = (my_b  as i64 + i as i64) as *const u8;
+            let pb: *const u8 = (other as i64 + i as i64) as *const u8;
+            if *pa != *pb { return false; }
+            i = i + 1 as u64;
+        }
+        return true;
+    }
+
+    unsafe fn hash(self: *const Self) -> u64 {
+        return hermes_fnv1a(self.bytes(), self.len());
+    }
+}
 
 pub eidos HermesString {
     pub first: u8,   // first byte of vlen length encoding
 }
 
-impl Varchar for HermesString {}
+impl Varchar for HermesString {
+    unsafe fn len(self: *const HermesString) -> u64 {
+        return vlen_read(self as *const u8);
+    }
+    unsafe fn bytes(self: *const HermesString) -> *const u8 {
+        let src: *const u8 = self as *const u8;
+        let prefix: u32 = vlen_prefix_size(src);
+        return (src as i64 + prefix as i64) as *const u8;
+    }
+}
 
 impl HermesString {
     // Initialize a HermesString at pre-allocated memory.
@@ -152,43 +187,6 @@ impl HermesString {
             i = i + 1 as u64;
         }
         return raw as *mut HermesString;
-    }
-
-    // Byte length of the UTF-8 data (excluding the vlen prefix).
-    pub unsafe fn len(self: *const HermesString) -> u64 {
-        return vlen_read(self as *const u8);
-    }
-
-    // Pointer to the first UTF-8 byte (after the vlen prefix).
-    pub unsafe fn bytes(self: *const HermesString) -> *const u8 {
-        let src: *const u8 = self as *const u8;
-        let prefix: u32 = vlen_prefix_size(src);
-        return (src as i64 + prefix as i64) as *const u8;
-    }
-
-    // True if this string's UTF-8 bytes equal the given byte sequence.
-    pub unsafe fn equals_bytes(self: *const HermesString,
-                               other: *const u8, other_len: u64) -> bool {
-        let my_len: u64 = self.len();
-        if my_len != other_len {
-            return false;
-        }
-        let my_b: *const u8 = self.bytes();
-        let mut i: u64 = 0 as u64;
-        while i < my_len {
-            let pa: *const u8 = (my_b  as i64 + i as i64) as *const u8;
-            let pb: *const u8 = (other as i64 + i as i64) as *const u8;
-            if *pa != *pb {
-                return false;
-            }
-            i = i + 1 as u64;
-        }
-        return true;
-    }
-
-    // FNV-1a hash of the UTF-8 bytes.
-    pub unsafe fn hash(self: *const HermesString) -> u64 {
-        return hermes_fnv1a(self.bytes(), self.len());
     }
 }
 
