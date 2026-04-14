@@ -1012,11 +1012,15 @@
                     => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 }
                 )*
 
-    // ── Cast expression: unary_expr as type ──────────────────────
-    // Lower precedence than unary operators: (&x) as T, (*p) as i32, (-1) as u32
-    cast_expr <- unary_expr KW_AS type_ref
-              => { CODE: CAST, VALUE: $1, TYPE: $3 }
-               / unary_expr
+    // ── Cast expression: unary_expr (as type)* ──────────────────────
+    // Lower precedence than unary operators.  Left-associative chaining
+    // so `x as i64 as i24` folds naturally, and a bare `unary_expr`
+    // pays no backtracking cost (fold-mode `*` with zero iterations
+    // passes the capture through unchanged).
+    cast_expr <- unary_expr
+                ( KW_AS type_ref
+                    => { CODE: CAST, VALUE: $0, TYPE: $2 }
+                )*
 
     unary_expr <- STAR  unary_expr => { CODE: DEREF,      VALUE: $2 }
                 / AMP KW_MUT unary_expr => { CODE: ADDR_OF_MUT, VALUE: $3 }
