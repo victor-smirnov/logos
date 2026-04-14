@@ -27,6 +27,8 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
     case LogosType::Kind::I8:     return builder_.getIntegerType(8);
     case LogosType::Kind::I16:    return builder_.getIntegerType(16);
     case LogosType::Kind::U16:    return builder_.getIntegerType(16);
+    case LogosType::Kind::I24:    return builder_.getIntegerType(24);
+    case LogosType::Kind::U24:    return builder_.getIntegerType(24);
     case LogosType::Kind::I56:    return builder_.getIntegerType(56);
     case LogosType::Kind::U56:    return builder_.getIntegerType(56);
     case LogosType::Kind::U32:    return builder_.getIntegerType(32);
