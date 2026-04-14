@@ -262,3 +262,31 @@ impl<DT: Primitive> Container for DT {
     fn store_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) { unsafe { s.push(v); } }
     fn store_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim { unsafe { return s.get(idx); } }
 }
+
+// ---------------------------------------------------------------------------
+// UnsizedPayload — abstraction over "fixed meta + variable tail" datatypes.
+//
+// The class of Hermes datatypes that share a common SoA-friendly shape:
+// each element has a small fixed-size metadata record (`Meta`) plus a
+// contiguous run of `Atom` values whose length is not compile-time fixed
+// (string bytes, bignum limbs, array AnyVal slots, blob bytes).
+//
+// Meta is the constant portion — for HermesString this is `()`, for a
+// BigDecimal it could be `{precision: u8, scale: u8}`, for BigInteger
+// `()`, and so on.  `Atom` is the unit of the tail (u8 for string bytes,
+// u32 for bigint limbs, AnyVal for array slots).
+//
+// A blanket impl for UnsizedPayload provides `Datatype + Container` so
+// that a new Hermes datatype needs only declare `Meta` and `Atom` to
+// inherit a Buffer<DT> via a SoA backing store.  (The concrete blanket
+// impl for Container/Store over UnsizedPayload is left out of this first
+// landing — it requires richer multi-assoc-type-argument machinery in
+// the monomorphizer than is available today.  The trait is still useful
+// as a class-marker and as the stable interface that future blankets
+// plug into.)
+// ---------------------------------------------------------------------------
+
+pub trait UnsizedPayload {
+    type Meta;
+    type Atom;
+}
