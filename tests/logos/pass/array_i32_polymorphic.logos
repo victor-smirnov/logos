@@ -1,0 +1,52 @@
+// Polymorphic `Array<T>` stringify with T=i32 — no AnyVal involved.
+// Verifies:
+//   - Generic eidos `Array<T>` with T=i32 has layout (24-byte header + i32[]).
+//   - Blanket `impl<T: HermesStringify> HermesStringify for Array<T>` dispatches
+//     element-by-element via static trait method on the primitive T.
+//   - `impl HermesStringify for i32` is callable through the blanket.
+package array_i32_polymorphic;
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.containers;
+use hermes.stringify;
+use std.string;
+
+impl HermesStringify for i32 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_i64(*self as i64); }
+    }
+}
+
+unsafe fn main() -> i32 {
+    let mut zone: Zone<Mutable> = zone_create(4096);
+    let base: *mut u8 = zone.holder.base;
+
+    let arr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, sizeof::<Array<i32>>() as i64);
+    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 16 as i64);
+    let arr: *mut Array<i32> = arr_raw as *mut Array<i32>;
+    arr.size     = 0 as u64;
+    arr.capacity = 4 as u64;
+    arr.data     = (buf_raw as i64 - base as i64) as u32;
+
+    let elem_sz: i64 = sizeof::<i32>() as i64;
+    let values: [i32; 3] = [10 as i32, 20 as i32, 30 as i32];
+    let mut i: u64 = 0 as u64;
+    while i < 3 as u64 {
+        let ep: *mut i32 = (buf_raw as i64 + (i as i64) * elem_sz) as *mut i32;
+        *ep = values[i];
+        i = i + 1 as u64;
+    }
+    arr.size = 3 as u64;
+
+    let mut sb: String = String::new();
+    let mut ctx: StringifyCtx = StringifyCtx {
+        out:   &mut sb as *mut String,
+        base:  base as *const u8,
+        opts:  StringifyOpts::compact(),
+        depth: 0 as i64,
+    };
+    arr.stringify(&mut ctx);
+    if !sb.eq_cstr("[10,20,30]") { return 1; }
+    return 0;
+}

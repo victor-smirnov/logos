@@ -157,8 +157,22 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     if (rt->pointee->kind == LogosType::Kind::Struct ||
                         rt->pointee->kind == LogosType::Kind::Datatype)
                         cname = concrete_struct_name(rt->pointee);
-                    else
-                        cname = type_str(rt);  // full ptr type: *const u8, *mut i32
+                    else {
+                        // Primitive pointee: auto-deref for method dispatch
+                        // (use `i32__method`) unless an explicit impl on the
+                        // pointer type exists (e.g. `impl Display for *const u8`
+                        // registers `*const u8__fmt`).
+                        std::string ptr_cname = type_str(rt);
+                        std::string ptr_fn = ptr_cname + "__" + k.method;
+                        bool ptr_exists = templates_.count(ptr_fn) || specs_.count(ptr_fn);
+                        if (!ptr_exists)
+                            for (auto& f : in_.functions)
+                                if (f.name == ptr_fn) { ptr_exists = true; break; }
+                        if (!ptr_exists)
+                            for (auto& f : out_.functions)
+                                if (f.name == ptr_fn) { ptr_exists = true; break; }
+                        cname = ptr_exists ? ptr_cname : type_str(rt->pointee);
+                    }
                 }
                 // Fallback: primitive types (i32, bool, etc.)
                 if (cname.empty())
