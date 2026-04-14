@@ -23,7 +23,7 @@ use hermes.anyval;
 // Internal helper: popcount of a u64 (used for bitmap position lookup)
 // ---------------------------------------------------------------------------
 
-unsafe fn popcount_u64(x: u64) -> u32 {
+pub unsafe fn popcount_u64(x: u64) -> u32 {
     let mut v: u64 = x;
     let mut n: u32 = 0;
     while v != 0 as u64 {

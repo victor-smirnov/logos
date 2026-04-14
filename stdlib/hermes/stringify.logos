@@ -183,14 +183,16 @@ impl<T: HermesStringify> HermesStringify for Array<T> {
     }
 }
 
-// ── TinyObjectMap (type_code=98) ───────────────────────────────────────────
+// ── Map<Bitmap, V> blanket — bitmap-indexed compact map ───────────────────
 
-impl HermesStringify for TinyObjectMap {
+impl<V: HermesStringify> HermesStringify for Map<Bitmap, V> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
-            let map: *const TinyObjectMap = self as *const TinyObjectMap;
+            let map: *const Map<Bitmap, V> = self as *const Map<Bitmap, V>;
             ctx.out.push_u8(123 as u8);  // '{'
             let bitmap: u64 = map.header & 0x000FFFFFFFFFFFFF as u64;
+            let elem_sz: i64 = sizeof::<V>() as i64;
+            let arr_base: i64 = ctx.base as i64 + map.data as i64;
             let mut first: bool = true;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
@@ -206,8 +208,10 @@ impl HermesStringify for TinyObjectMap {
                     ctx.out.push_u8(34 as u8);   // '"'
                     ctx.out.push_u8(58 as u8);   // ':'
                     if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }
-                    let val: AnyVal = map.get(ctx.base, key);
-                    stringify_anyval(val, ctx);
+                    let mask: u64 = key_bit - 1 as u64;
+                    let pos: u32  = popcount_u64(bitmap & mask);
+                    let elem: *const V = (arr_base + (pos as i64) * elem_sz) as *const V;
+                    elem.stringify(ctx);
                     ctx.depth = ctx.depth - 1 as i64;
                 }
                 key = key + 1 as u8;

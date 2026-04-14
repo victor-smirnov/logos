@@ -142,24 +142,29 @@ impl<T: HermesEqual> HermesEqual for Array<T> {
     }
 }
 
-// ── TinyObjectMap (98): same 52-key bitmap + per-key value equality ───────
+// ── Map<Bitmap, V> blanket — same 52-key bitmap + per-key value equality ──
 
-impl HermesEqual for TinyObjectMap {
+impl<V: HermesEqual> HermesEqual for Map<Bitmap, V> {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const TinyObjectMap = self as *const TinyObjectMap;
-            let b: *const TinyObjectMap = other as *const TinyObjectMap;
+            let a: *const Map<Bitmap, V> = self as *const Map<Bitmap, V>;
+            let b: *const Map<Bitmap, V> = other as *const Map<Bitmap, V>;
             let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
             let ba: u64 = a.header & mask;
             let bb: u64 = b.header & mask;
             if ba != bb { return false; }
+            let elem_sz: i64 = sizeof::<V>() as i64;
+            let base_a: i64 = ctx.base_self  as i64 + a.data as i64;
+            let base_b: i64 = ctx.base_other as i64 + b.data as i64;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
                 let key_bit: u64 = 1 as u64 << key as u64;
                 if (ba & key_bit) != 0 as u64 {
-                    let va: AnyVal = a.get(ctx.base_self,  key);
-                    let vb: AnyVal = b.get(ctx.base_other, key);
-                    if !anyval_equal(va, vb, ctx) { return false; }
+                    let m: u64 = key_bit - 1 as u64;
+                    let pos: u32 = popcount_u64(ba & m);
+                    let va: *const V = (base_a + (pos as i64) * elem_sz) as *const V;
+                    let vb: *const V = (base_b + (pos as i64) * elem_sz) as *const V;
+                    if !va.equal(vb as *const u8, ctx) { return false; }
                 }
                 key = key + 1 as u8;
             }

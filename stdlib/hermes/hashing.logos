@@ -142,25 +142,30 @@ impl<T: HermesHash> HermesHash for Array<T> {
     }
 }
 
-// ── TinyObjectMap (98): key-order-independent mix via XOR ─────────────────
+// ── Map<Bitmap, V> blanket — key-order-independent mix via XOR ────────────
 
-impl HermesHash for TinyObjectMap {
+impl<V: HermesHash> HermesHash for Map<Bitmap, V> {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let a: *const TinyObjectMap = self as *const TinyObjectMap;
-            let base_h: u64 = fnv_mix_u64(fnv_init(), 98 as u64);
+            let a: *const Map<Bitmap, V> = self as *const Map<Bitmap, V>;
+            let tc: u64 = type_code_of::<Map<Bitmap, V>>();
+            let base_h: u64 = fnv_mix_u64(fnv_init(), tc);
             let mut acc: u64 = 0 as u64;
             let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
             let bitmap: u64 = a.header & mask;
             acc = acc ^ fnv_mix_u64(base_h, bitmap);
+            let elem_sz: i64 = sizeof::<V>() as i64;
+            let arr_base: i64 = ctx.base as i64 + a.data as i64;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
                 let key_bit: u64 = 1 as u64 << key as u64;
                 if (bitmap & key_bit) != 0 as u64 {
-                    let v: AnyVal = a.get(ctx.base, key);
+                    let m: u64 = key_bit - 1 as u64;
+                    let pos: u32 = popcount_u64(bitmap & m);
+                    let v: *const V = (arr_base + (pos as i64) * elem_sz) as *const V;
                     let per: u64 = fnv_mix_u64(
                         fnv_mix_byte(base_h, key),
-                        anyval_hash(v, ctx));
+                        v.hash_value(ctx));
                     acc = acc ^ per;
                 }
                 key = key + 1 as u8;
