@@ -144,6 +144,22 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
 // ---------------------------------------------------------------------------
 
 void MLIRGenImpl::gen_let(const SLet& s) {
+    if (s.name == "obj" || s.name == "m" || s.name == "s_av") {
+        std::fprintf(stderr, "mlir_gen: gen_let('%s') type=%s\n",
+                     s.name.c_str(), s.type ? type_str(s.type).c_str() : "<null>");
+    }
+    if (s.type && type_str(s.type) == "AnyVal") {
+        auto val = gen_expr(*s.value);
+        if (!val) return;
+        val = coerce_numeric(val, builder_.getI32Type());
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), builder_.getI32Type(), i64_one());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+        scope_[s.name] = alloca;
+        let_vars_.insert(s.name);
+        var_elem_types_[s.name] = builder_.getI32Type();
+        return;
+    }
     // ── Struct literal ────────────────────────────────────────
     if (std::holds_alternative<EStructLit>(s.value->kind)) {
         auto& lit = std::get<EStructLit>(s.value->kind);
@@ -360,6 +376,48 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
         var_dyn_trait_[s.name] = s.type->trait_name;
+        return;
+    }
+
+    // ── Pointer to struct/datatype ────────────────────────────
+    // Keep raw pointer receivers as raw pointers in scope so method dispatch
+    // on `*const HermesString` / `*mut ObjectMap` can reuse the pointer
+    // directly without an extra alloca(ptr) wrapper.
+    if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee &&
+        (s.type->pointee->kind == LogosType::Kind::Struct ||
+         s.type->pointee->kind == LogosType::Kind::Datatype)) {
+        std::fprintf(stderr, "mlir_gen:   ptr-struct/datatype let branch for '%s'\n",
+                     s.name.c_str());
+        auto val = gen_expr(*s.value);
+        if (s.name == "obj") {
+            std::fprintf(stderr, "mlir_gen:   obj rhs %s\n",
+                         val ? "ok" : "null");
+        }
+        if (!val) return;
+        if (s.is_mut) {
+            // Mutable raw-pointer locals must live in a rebinding slot.
+            // Keeping a bare ptr in scope_ makes later `x = ...` assignments
+            // store through the pointee address instead of rebinding x itself.
+            auto slot = builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), ptr_type(), i64_one());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
+            scope_[s.name] = slot;
+            var_elem_types_[s.name] = ptr_type();
+            auto cname = concrete_struct_name(s.type->pointee);
+            auto sit2 = struct_types_.find(cname);
+            if (sit2 != struct_types_.end())
+                var_local_ptrs_[s.name] = sit2->second.llvm_type;
+        } else {
+            scope_[s.name] = val;
+        }
+        let_vars_.insert(s.name);
+        var_struct_[s.name] = concrete_struct_name(s.type->pointee);
+        if (s.name == "obj") {
+            std::fprintf(stderr, "mlir_gen:   bound '%s' after ptr-branch scope=%d let=%d\n",
+                         s.name.c_str(),
+                         scope_.count(s.name) ? 1 : 0,
+                         let_vars_.count(s.name) ? 1 : 0);
+        }
         return;
     }
 

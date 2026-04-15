@@ -122,6 +122,153 @@ static std::string mangle_type_for_name(const LogosType* t) {
     }
 }
 
+std::string SemaChecker::canonical_func_type_name(const LogosType* t) const {
+    return mangle_type_for_name(t);
+}
+
+std::string SemaChecker::function_signature_key(std::string_view base_name,
+                                                const std::vector<const LogosType*>& param_types,
+                                                bool is_vararg) const {
+    std::string key(base_name);
+    for (auto* pt : param_types) {
+        key += "__";
+        key += canonical_func_type_name(pt);
+    }
+    if (param_types.empty()) key += "__void";
+    if (is_vararg) key += "__vararg";
+    return key;
+}
+
+std::string SemaChecker::function_symbol_name(std::string_view base_name,
+                                             const SemaChecker::SemaFuncInfo& info) const {
+    std::string key = function_signature_key(base_name, info.param_types, info.is_vararg);
+    auto suffix = key.substr(std::string(base_name).size() + 2);
+    return std::string(base_name) + (info.type_params.empty() ? "__f__" : "__g__") + suffix;
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_symbol(std::string_view symbol) const {
+    if (auto it = funcs_.find(std::string(symbol)); it != funcs_.end())
+        return &it->second;
+    if (auto it = generic_funcs_.find(std::string(symbol)); it != generic_funcs_.end())
+        return &it->second;
+    return nullptr;
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view base_name) const {
+    if (auto git = generic_overloads_.find(std::string(base_name)); git != generic_overloads_.end()) {
+        for (auto& sym : git->second) {
+            auto fit = generic_funcs_.find(sym);
+            if (fit != generic_funcs_.end())
+                return &fit->second;
+        }
+    }
+    return nullptr;
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view base_name,
+                                                                size_t n_args) const {
+    const SemaFuncInfo* fallback = nullptr;
+    if (auto git = generic_overloads_.find(std::string(base_name)); git != generic_overloads_.end()) {
+        for (auto& sym : git->second) {
+            auto fit = generic_funcs_.find(sym);
+            if (fit == generic_funcs_.end()) continue;
+            auto& fi = fit->second;
+            if (fi.is_vararg) {
+                if (n_args >= fi.param_types.size()) return &fi;
+            } else if (fi.param_types.size() == n_args) {
+                return &fi;
+            } else if (!fallback) {
+                fallback = &fi;
+            }
+        }
+    }
+    return fallback;
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_base_and_signature(
+        std::string_view base_name,
+        const std::vector<const LogosType*>& param_types,
+        bool is_vararg) const {
+    for (auto* fi : find_func_candidates(base_name)) {
+        if (fi->is_vararg != is_vararg) continue;
+        if (fi->param_types.size() != param_types.size()) continue;
+        bool same = true;
+        for (size_t i = 0; i < param_types.size(); ++i) {
+            if (!fi->param_types[i] || !param_types[i] ||
+                !types_equal(*fi->param_types[i], *param_types[i])) {
+                same = false; break;
+            }
+        }
+        if (same) return fi;
+    }
+    return nullptr;
+}
+
+std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(std::string_view base_name) const {
+    std::vector<const SemaChecker::SemaFuncInfo*> out;
+    if (auto it = func_overloads_.find(std::string(base_name)); it != func_overloads_.end()) {
+        for (auto& sym : it->second) {
+            auto fit = funcs_.find(sym);
+            if (fit != funcs_.end()) out.push_back(&fit->second);
+        }
+    } else {
+        auto fit = funcs_.find(std::string(base_name));
+        if (fit != funcs_.end() && fit->second.source_file.size())
+            out.push_back(&fit->second);
+    }
+    if (auto git = generic_overloads_.find(std::string(base_name)); git != generic_overloads_.end()) {
+        for (auto& sym : git->second) {
+            auto fit = generic_funcs_.find(sym);
+            if (fit != generic_funcs_.end()) out.push_back(&fit->second);
+        }
+    }
+    return out;
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
+        std::string_view base_name,
+        const std::vector<lir::LExprPtr>& arg_exprs,
+        bool allow_generic,
+        bool exact_only) const {
+    const SemaChecker::SemaFuncInfo* best = nullptr;
+    int best_score = -1;
+    bool ambiguous = false;
+
+    auto candidates = find_func_candidates(base_name);
+    for (auto* fi : candidates) {
+        if (!fi || fi->type_params.size() || fi->source_file.empty()) continue;
+        bool arity_ok = fi->is_vararg ? arg_exprs.size() >= fi->param_types.size()
+                                      : arg_exprs.size() == fi->param_types.size();
+        if (!arity_ok) continue;
+
+        int score = 0;
+        bool ok = true;
+        for (size_t i = 0; i < fi->param_types.size(); ++i) {
+            auto* at = arg_exprs[i] ? arg_exprs[i]->type : nullptr;
+            auto* pt = fi->param_types[i];
+            if (!at || !pt) { ok = false; break; }
+            if (types_equal(*at, *pt)) score = std::max(score, 2);
+            else if (!exact_only && types_compatible(at, pt)) score = std::max(score, 1);
+            else { ok = false; break; }
+        }
+        if (!ok) continue;
+        if (score > best_score) {
+            best = fi;
+            best_score = score;
+            ambiguous = false;
+        } else if (score == best_score && best_score != -1) {
+            ambiguous = true;
+        }
+    }
+
+    if (ambiguous) {
+        const_cast<SemaChecker*>(this)->error(std::format("ambiguous call to '{}'", base_name));
+        return nullptr;
+    }
+    if (best || !allow_generic) return best;
+    return nullptr;
+}
+
 // ── types_compatible ─────────────────────────────────────────────────────────
 
 bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
@@ -413,7 +560,15 @@ std::string SemaChecker::drop_fn_for(const LogosType* t) const {
     if (t->kind == LogosType::Kind::Struct) type_name = t->struct_name;
     if (type_name.empty()) return {};
     std::string mangled = type_name + "__drop";
-    if (funcs_.count(mangled)) return mangled;
+    std::vector<const LogosType*> sig{t};
+    if (auto* fi = find_func_by_base_and_signature(mangled, sig, false))
+        return fi->symbol_name.empty() ? mangled : fi->symbol_name;
+    for (auto* cand : find_func_candidates(mangled)) {
+        if (!cand || cand->param_types.size() != 1) continue;
+        auto* pt = cand->param_types[0];
+        if (pt && types_equal(*pt, *t))
+            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
+    }
     return {};
 }
 
@@ -791,10 +946,16 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
              // Even if it's a typevar, perhaps it is a known concrete name like "i32" (though unlikely for TypeVar)
              // actually if it's still a typevar, we can't resolve it yet.
         }
-        // we should lookup concrete by name if it's still not found, but it should already be subbed.
-        if (!concrete && t->assoc_base->kind == LogosType::Kind::TypeVar) {
-           // Not in subst map; maybe it's a concrete type name (like "i32")
-           concrete = const_cast<SemaChecker*>(this)->lookup_type_by_name(t->assoc_base->type_var_name);
+        // If still unresolved, try looking up the *substituted* base typevar by name.
+        // Using the original base (often "Self") here can over-resolve in generic contexts
+        // where Self was already substituted to another typevar (e.g. T).
+        if (!concrete && subbed_base && subbed_base->kind == LogosType::Kind::TypeVar) {
+            if (auto* looked = const_cast<SemaChecker*>(this)->lookup_type_by_name(subbed_base->type_var_name)) {
+                if (looked->kind != LogosType::Kind::TypeVar &&
+                    looked->kind != LogosType::Kind::ConstVar) {
+                    concrete = looked;
+                }
+            }
         }
 
         // Substitute gat_args as well
@@ -1171,6 +1332,10 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::TYPE_REF) {
         auto name = str_of(node.get(la::NAME.code));
+        if (name == "Self") {
+            auto tvit = current_type_params_.find("Self");
+            if (tvit != current_type_params_.end()) return tvit->second;
+        }
         auto* t = lookup_type_by_name(name);
         if (t) return t;
         // Bug 4 fix: give a more informative error when a generic alias is used

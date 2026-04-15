@@ -70,16 +70,16 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         auto* t = lookup(name);
         if (!t) {
             // Check if it's a function name — allow coercion to fn(T)->R type.
-            auto fit = funcs_.find(std::string(name));
-            if (fit != funcs_.end()) {
-                const SemaFuncInfo& fi = fit->second;
+            auto cands = find_func_candidates(name);
+            if (cands.size() == 1) {
+                const SemaFuncInfo& fi = *cands[0];
                 LogosType ft;
                 ft.kind = LogosType::Kind::FnPtr;
                 for (auto* pt : fi.param_types)
                     ft.closure_params.push_back(pt);
                 ft.closure_ret = fi.ret_type ? fi.ret_type : void_t();
                 auto* fn_type = pool_.alloc(std::move(ft));
-                return make_expr(fn_type, lir::EVarRef{std::string(name)});
+                return make_expr(fn_type, lir::EVarRef{fi.symbol_name.empty() ? std::string(name) : fi.symbol_name});
             }
             error(std::format("undefined variable '{}'", name));
             return error_expr();
@@ -349,13 +349,13 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         if (!trait_name.empty()) {
             auto type_name = concrete_struct_name(lt);
             auto mangled = type_name + "__" + method_name;
-            auto fit = funcs_.find(mangled);
-            if (fit != funcs_.end()) {
+            auto fit = find_func_by_base_and_signature(mangled, {lt, rt}, false);
+            if (fit) {
                 std::vector<lir::LExprPtr> args;
                 args.push_back(std::move(lhs));
                 args.push_back(std::move(rhs));
-                return make_expr(fit->second.ret_type,
-                    lir::ECall{mangled, {}, std::move(args)});
+                return make_expr(fit->ret_type,
+                    lir::ECall{fit->symbol_name.empty() ? mangled : fit->symbol_name, {}, std::move(args)});
             }
             // No impl found — fall through to normal type checking
         }
@@ -501,12 +501,12 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         if (!trait_name.empty()) {
             auto type_name = concrete_struct_name(vt);
             auto mangled = type_name + "__" + method_name;
-            auto fit = funcs_.find(mangled);
-            if (fit != funcs_.end()) {
+            auto fit = find_func_by_base_and_signature(mangled, {vt}, false);
+            if (fit) {
                 std::vector<lir::LExprPtr> args;
                 args.push_back(std::move(operand));
-                return make_expr(fit->second.ret_type,
-                    lir::ECall{mangled, {}, std::move(args)});
+                return make_expr(fit->ret_type,
+                    lir::ECall{fit->symbol_name.empty() ? mangled : fit->symbol_name, {}, std::move(args)});
             }
         }
     }
@@ -600,10 +600,112 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         for (uint64_t i = 0; i < args.size(); ++i)
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
     }
+    uint64_t n_args = arg_exprs.size();
+
+    bool call_has_pack_expand = false;
+    for (auto& a : arg_exprs) {
+        if (std::holds_alternative<lir::EPackExpand>(a->kind)) {
+            call_has_pack_expand = true;
+            break;
+        }
+    }
+
+    if (const SemaFuncInfo* exact_fi = resolve_function_call(callee, arg_exprs, false, false);
+        exact_fi && exact_fi->type_params.empty() && !call_has_pack_expand) {
+        check_pub_access(exact_fi->is_pub, exact_fi->package, callee);
+        if (exact_fi->is_unsafe && !inside_unsafe_)
+            error(std::format("call to unsafe function '{}' requires unsafe context", callee));
+        if (exact_fi->is_vararg) {
+            if (n_args < exact_fi->param_types.size()) {
+                error(std::format("call to vararg '{}': expected at least {} args, got {}",
+                      callee, exact_fi->param_types.size(), n_args));
+            } else {
+                for (uint64_t i = 0; i < exact_fi->param_types.size(); ++i) {
+                    auto* at = arg_exprs[i]->type;
+                    auto* pt = exact_fi->param_types[i];
+                    if (at->kind != LogosType::Kind::Error &&
+                        pt->kind != LogosType::Kind::Error &&
+                        !types_compatible(at, pt))
+                        error(std::format("call to '{}' arg {}: expected {}, got {}",
+                              callee, i + 1, type_str(pt), type_str(at)));
+                    if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                        if (auto v = get_intlit_value(arg_exprs[i].get()))
+                            if (!intlit_fits(*v, pt->kind))
+                                error(std::format("call to '{}' arg {}: value {} does not fit in {}",
+                                      callee, i + 1, *v, type_str(pt)));
+                }
+            }
+        } else if (n_args != exact_fi->param_types.size()) {
+            error(std::format("call to '{}': expected {} args, got {}",
+                  callee, exact_fi->param_types.size(), n_args));
+        } else {
+            for (uint64_t i = 0; i < n_args; ++i) {
+                auto* at = arg_exprs[i]->type;
+                auto* pt = exact_fi->param_types[i];
+                if (at->kind != LogosType::Kind::Error &&
+                    pt->kind != LogosType::Kind::Error &&
+                    !types_compatible(at, pt))
+                    error(std::format("call to '{}' arg {}: expected {}, got {}",
+                          callee, i + 1, type_str(pt), type_str(at)));
+                if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                    if (auto v = get_intlit_value(arg_exprs[i].get()))
+                        if (!intlit_fits(*v, pt->kind))
+                            error(std::format("call to '{}' arg {}: value {} does not fit in {}",
+                                  callee, i + 1, *v, type_str(pt)));
+                // Check array literal elements against narrow array param type.
+                if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                    if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
+                        for (size_t ei = 0; ei < al->elems.size(); ++ei)
+                            if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(al->elems[ei].get()))
+                                    if (!intlit_fits(*v, pt->elem->kind))
+                                        error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
+                                              callee, i + 1, ei, *v, type_str(pt->elem)));
+                // Check tuple literal elements against narrow tuple param element types.
+                if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                    if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei) {
+                            if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
+                                if (auto v = get_intlit_value(tl->elems[ei].get()))
+                                    if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                        error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
+                                              callee, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
+                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
+                                pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
+                                    for (size_t ii = 0; ii < ial->elems.size(); ++ii)
+                                        if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
+                                            if (auto v = get_intlit_value(ial->elems[ii].get()))
+                                                if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
+                                                    error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                          callee, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
+                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                                tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
+                                if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
+                                    for (size_t ii = 0; ii < itl->elems.size() && ii < pt->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                        if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
+                                            if (auto v = get_intlit_value(itl->elems[ii].get()))
+                                                if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                    error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                          callee, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
+                        }
+            }
+        }
+
+        for (auto& a : arg_exprs) {
+            if (is_move_type(a->type)) {
+                if (auto* vr = std::get_if<lir::EVarRef>(&a->kind))
+                    mark_moved(vr->name);
+            }
+        }
+        return make_expr(exact_fi->ret_type,
+            lir::ECall{exact_fi->symbol_name.empty() ? std::string(callee) : exact_fi->symbol_name,
+                       {}, std::move(arg_exprs)});
+    }
 
     auto fit  = funcs_.find(std::string(callee));
-    auto git  = generic_funcs_.find(std::string(callee));
-    uint64_t n_args = arg_exprs.size();
+    auto all_cands = find_func_candidates(callee);
+    auto git  = find_generic_func(callee, n_args);
 
     // Resolve the "best" SemaFuncInfo to try.
     // Priority:
@@ -615,14 +717,17 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     // Identify which entry to use
     const SemaFuncInfo* infer_fi = nullptr;
-    if (fit == funcs_.end() && git == generic_funcs_.end()) {
+    const SemaFuncInfo* fi_sel = (fit != funcs_.end()) ? &fit->second : git;
+    if (!fi_sel) {
+        if (!all_cands.empty()) {
+            return make_expr(error_t(), lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
+        }
         error(std::format("call to undefined function '{}'", callee));
         return make_expr(error_t(), lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
     }
     // Pub check and unsafe check.
     {
-        const SemaFuncInfo* fi_chk = (fit != funcs_.end()) ? &fit->second
-                                   : &git->second;
+        const SemaFuncInfo* fi_chk = fi_sel;
         check_pub_access(fi_chk->is_pub, fi_chk->package, callee);
         if (fi_chk->is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe function '{}' requires unsafe context", callee));
@@ -631,21 +736,21 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // Determine if we should try inference
     bool try_inference = false;
     if (fit == funcs_.end()) {
-        // Only in generic_funcs_
-        infer_fi = &git->second;
+        // Only generic overload(s)
+        infer_fi = git;
         try_inference = true;
     } else if (!fit->second.type_params.empty()) {
         // In funcs_ but is a generic function (no non-generic overload exists)
         infer_fi = &fit->second;
         try_inference = true;
-    } else if (git != generic_funcs_.end()) {
+    } else if (git) {
         // Non-generic in funcs_, generic overload in generic_funcs_.
         // Try generic when arity doesn't match the non-generic.
         bool arity_ok = fit->second.is_vararg
             ? n_args >= fit->second.param_types.size()
             : n_args == fit->second.param_types.size();
         if (!arity_ok) {
-            infer_fi = &git->second;
+            infer_fi = git;
             try_inference = true;
         }
     }
@@ -667,15 +772,20 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         if (!in_generic_context) {
             std::vector<const LogosType*> inferred;
             if (infer_type_args(*infer_fi, arg_exprs, inferred))
-                return finish_generic_call(callee, *infer_fi, std::move(inferred), std::move(arg_exprs));
+                return finish_generic_call(
+                    infer_fi->symbol_name.empty() ? callee : infer_fi->symbol_name,
+                    *infer_fi, std::move(inferred), std::move(arg_exprs));
             error(std::format("call to '{}': could not infer all type arguments — use explicit f::<T>(...) syntax", callee));
             return make_expr(error_t(), lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
         }
+        // In generic/pack context inference is deferred to mono, but we still must
+        // route to the generic overload (if available) rather than pinning a concrete one.
+        fi_sel = infer_fi;
         // Fall through to non-generic path (mono will handle instantiation)
     }
 
     // Non-generic path
-    auto& fi = fit->second;
+    auto& fi = *fi_sel;
 
     // If any arg is a pack expansion, skip checking — mono will expand
     bool has_pack_expand = false;
@@ -768,6 +878,27 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             if (auto* vr = std::get_if<lir::EVarRef>(&a->kind))
                 mark_moved(vr->name);
         }
+    }
+
+    // Inside generic context (inference deferred): preserve generic call shape
+    // so mono can instantiate and rewrite callee names correctly.
+    if (!fi.type_params.empty()) {
+        bool has_variadic_tp = !fi.type_params.empty() && fi.type_params.back().is_variadic;
+        if (has_variadic_tp && has_pack_expand) {
+            return make_expr(fi.ret_type, lir::ECall{
+                fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name,
+                {}, std::move(arg_exprs)});
+        }
+        std::vector<const LogosType*> type_var_args;
+        for (auto& tp : fi.type_params)
+            type_var_args.push_back(make_typevar(tp.name));
+        SemaSubst subst;
+        for (size_t i = 0; i < fi.type_params.size() && i < type_var_args.size(); ++i)
+            subst[fi.type_params[i].name] = type_var_args[i];
+        const LogosType* ret = subst_type_sema(fi.ret_type, subst);
+        return make_expr(ret, lir::ECall{
+            fi.symbol_name.empty() ? std::string(callee) : fi.symbol_name,
+            std::move(type_var_args), std::move(arg_exprs)});
     }
 
     return make_expr(fi.ret_type, lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
@@ -882,21 +1013,26 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                       std::vector<const LogosType*> type_args,
                                       std::vector<lir::LExprPtr> arg_exprs) {
     std::string callee{callee_sv};
+    std::string callee_diag = callee;
+    if (auto p = callee_diag.find("__g__"); p != std::string::npos)
+        callee_diag.resize(p);
+    else if (auto p = callee_diag.find("__f__"); p != std::string::npos)
+        callee_diag.resize(p);
     // Unsafe check: covers both inferred (lower_call) and explicit (lower_generic_call) paths.
     if (fi.is_unsafe && !inside_unsafe_)
-        error(std::format("call to unsafe function '{}' requires unsafe context", callee_sv));
+        error(std::format("call to unsafe function '{}' requires unsafe context", callee_diag));
     bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
     size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
 
     // Validate type arg count
     if (!fi.type_params.empty()) {
         if (has_variadic) {
-            if (type_args.size() < non_variadic_count)
-                error(std::format("call to '{}': expected at least {} type arg(s), got {}",
-                      callee, non_variadic_count, type_args.size()));
+                if (type_args.size() < non_variadic_count)
+                    error(std::format("call to '{}': expected at least {} type arg(s), got {}",
+                      callee_diag, non_variadic_count, type_args.size()));
         } else if (type_args.size() != fi.type_params.size()) {
             error(std::format("call to '{}': expected {} type arg(s), got {}",
-                  callee, fi.type_params.size(), type_args.size()));
+                  callee_diag, fi.type_params.size(), type_args.size()));
         }
     }
 
@@ -906,7 +1042,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         subst[fi.type_params[i].name] = type_args[i];
 
     // Validate trait bounds for all type params (including variadic pack elements)
-    check_type_bounds(std::string(callee), fi.type_params, type_args);
+    check_type_bounds(callee_diag, fi.type_params, type_args);
 
     // Substitute return type
     const LogosType* ret = subst_type_sema(fi.ret_type, subst);
@@ -925,7 +1061,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         size_t fixed_params = fi.param_types.size() - 1;
         if (n_args < fixed_params)
             error(std::format("call to '{}': expected at least {} args, got {}",
-                  callee, fixed_params, n_args));
+                  callee_diag, fixed_params, n_args));
         for (uint64_t i = 0; i < fixed_params && i < n_args; ++i) {
             auto* at = arg_exprs[i]->type;
             auto* pt = subst_type_sema(fi.param_types[i], subst);
@@ -934,18 +1070,18 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 pt->kind != LogosType::Kind::TypeVar &&
                 !types_compatible(at, pt))
                 error(std::format("call to '{}' arg {}: expected {}, got {}",
-                      callee, i + 1, type_str(pt), type_str(at)));
+                      callee_diag, i + 1, type_str(pt), type_str(at)));
             if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error &&
                 pt->kind != LogosType::Kind::TypeVar)
                 if (auto v = get_intlit_value(arg_exprs[i].get()))
                     if (!intlit_fits(*v, pt->kind))
                         error(std::format("call to '{}' arg {}: value {} does not fit in {}",
-                              callee, i + 1, *v, type_str(pt)));
+                              callee_diag, i + 1, *v, type_str(pt)));
         }
     } else {
         if (n_args != fi.param_types.size()) {
             error(std::format("call to '{}': expected {} args, got {}",
-                  callee, fi.param_types.size(), n_args));
+                  callee_diag, fi.param_types.size(), n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto* at = arg_exprs[i]->type;
@@ -956,13 +1092,13 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     pt->kind != LogosType::Kind::AssocType &&
                     !types_compatible(at, pt))
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
-                          callee, i + 1, type_str(pt), type_str(at)));
+                          callee_diag, i + 1, type_str(pt), type_str(at)));
                 if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error &&
                     pt->kind != LogosType::Kind::TypeVar)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
                         if (!intlit_fits(*v, pt->kind))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
-                                  callee, i + 1, *v, type_str(pt)));
+                                  callee_diag, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
                 if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
                     if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
@@ -971,7 +1107,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                 if (auto v = get_intlit_value(al->elems[ei].get()))
                                     if (!intlit_fits(*v, pt->elem->kind))
                                         error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
-                                              callee, i + 1, ei, *v, type_str(pt->elem)));
+                                              callee_diag, i + 1, ei, *v, type_str(pt->elem)));
                 // Check tuple literal elements against narrow tuple param element types.
                 if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
                     if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
@@ -980,7 +1116,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                 if (auto v = get_intlit_value(tl->elems[ei].get()))
                                     if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
                                         error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                              callee, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
+                                              callee_diag, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
                             if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
                                 pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
@@ -989,7 +1125,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                             if (auto v = get_intlit_value(ial->elems[ii].get()))
                                                 if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          callee, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
+                                                          callee_diag, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
                             if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
                                 tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
@@ -998,7 +1134,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                             if (auto v = get_intlit_value(itl->elems[ii].get()))
                                                 if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          callee, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
+                                                          callee_diag, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
                         }
             }
         }
@@ -1137,15 +1273,23 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{is_plain ? 1LL : 0LL});
     }
 
+    size_t n_args = 0;
+    if (node.has_key(la::ARGS)) {
+        AnyVal args_av = node.get(la::ARGS.code);
+        if (!args_av.is_null()) {
+            auto args_list = map_of(args_av);
+            if (args_list.has_key(la::ITEMS))
+                n_args = arr_of(args_list.get(la::ITEMS.code)).size();
+        }
+    }
+
     // Prefer the generic overload (for variadic base case overloading)
     SemaFuncInfo* fi_ptr = nullptr;
     {
-        auto git = generic_funcs_.find(std::string(callee));
-        if (git != generic_funcs_.end()) fi_ptr = &git->second;
-        else {
-            auto fit2 = funcs_.find(std::string(callee));
-            if (fit2 != funcs_.end()) fi_ptr = &fit2->second;
-        }
+        auto git = find_generic_func(callee, n_args);
+        if (git) fi_ptr = const_cast<SemaFuncInfo*>(git);
+        else if (auto cands = find_func_candidates(callee); cands.size() == 1)
+            fi_ptr = const_cast<SemaFuncInfo*>(cands[0]);
     }
     if (!fi_ptr) {
         error(std::format("call to undefined function '{}'", callee));
@@ -1181,7 +1325,9 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
     }
 
-    return finish_generic_call(callee, *fi_ptr, std::move(type_args), std::move(arg_exprs));
+    return finish_generic_call(
+        fi_ptr->symbol_name.empty() ? callee : fi_ptr->symbol_name,
+        *fi_ptr, std::move(type_args), std::move(arg_exprs));
 }
 
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
@@ -1531,8 +1677,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             const std::string& base = recv->type->enum_name;
             auto generic_key = base + "__" + std::string(method_name);
             const SemaFuncInfo* fi_ptr = nullptr;
-            if (auto git = funcs_.find(generic_key); git != funcs_.end()) fi_ptr = &git->second;
-            else if (auto git = generic_funcs_.find(generic_key); git != generic_funcs_.end()) fi_ptr = &git->second;
+            {
+                std::vector<const LogosType*> types;
+                types.push_back(recv->type);
+                for (auto& a : arg_exprs) types.push_back(a->type);
+                if (auto fit = find_func_by_base_and_signature(generic_key, types, false))
+                    fi_ptr = fit;
+                else if (auto git = find_generic_func(generic_key))
+                    fi_ptr = git;
+            }
 
             if (fi_ptr && !fi_ptr->type_params.empty()) {
                 if (fi_ptr->is_unsafe && !inside_unsafe_)
@@ -1555,17 +1708,32 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     concrete_enum += type_str(ta);
                 }
                 std::string concrete_mangled = concrete_enum + "__" + std::string(method_name);
+                std::string callee_name = concrete_mangled;
+                if (!fi_ptr->symbol_name.empty()) {
+                    std::string enum_prefix = base + "__";
+                    if (fi_ptr->symbol_name.rfind(enum_prefix, 0) == 0)
+                        callee_name = concrete_enum + fi_ptr->symbol_name.substr(base.size());
+                    else
+                        callee_name = fi_ptr->symbol_name;
+                }
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(recv));
                 for (auto& a : arg_exprs) pargs.push_back(std::move(a));
-                return make_expr(ret, lir::ECall{concrete_mangled, {}, std::move(pargs)});
+                return make_expr(ret, lir::ECall{callee_name, {}, std::move(pargs)});
             }
         }
         auto tname = type_str(recv->type);
         auto mangled_prim = tname + "__" + std::string(method_name);
         const SemaFuncInfo* fi_ptr = nullptr;
-        if (auto pfit = funcs_.find(mangled_prim); pfit != funcs_.end()) fi_ptr = &pfit->second;
-        else if (auto pfit = generic_funcs_.find(mangled_prim); pfit != generic_funcs_.end()) fi_ptr = &pfit->second;
+        {
+            std::vector<const LogosType*> types;
+            types.push_back(recv->type);
+            for (auto& a : arg_exprs) types.push_back(a->type);
+            if (auto pfit = find_func_by_base_and_signature(mangled_prim, types, false))
+                fi_ptr = pfit;
+            else if (auto pfit = find_generic_func(mangled_prim))
+                fi_ptr = pfit;
+        }
 
         if (fi_ptr) {
             if (fi_ptr->is_unsafe && !inside_unsafe_)
@@ -1574,7 +1742,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             pargs.push_back(std::move(recv));
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
             return make_expr(fi_ptr->ret_type,
-                lir::ECall{mangled_prim, {}, std::move(pargs)});
+                lir::ECall{fi_ptr->symbol_name.empty() ? mangled_prim : fi_ptr->symbol_name,
+                           {}, std::move(pargs)});
         }
         error(std::format("method call: receiver is not a struct (got {})",
               type_str(recv->type)));
@@ -1584,8 +1753,94 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     auto mangled = std::string(sname) + "__" + std::string(method_name);
     const SemaFuncInfo* fi_ptr = nullptr;
-    if (auto fit = funcs_.find(mangled); fit != funcs_.end()) fi_ptr = &fit->second;
-    else if (auto fit = generic_funcs_.find(mangled); fit != generic_funcs_.end()) fi_ptr = &fit->second;
+    bool auto_ref_recv = false;
+    bool auto_ref_mut = false;
+    SemaSubst recv_struct_subst;
+    {
+        const LogosType* rst = recv->type;
+        if (rst && rst->kind == LogosType::Kind::Ptr && rst->pointee) {
+            rst = rst->pointee;
+        } else if (rst && is_ref_like(rst->kind) && rst->pointee) {
+            rst = rst->pointee;
+        }
+        if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype) &&
+            !rst->type_args.empty()) {
+            SemaStructInfo* si2 = nullptr;
+            { auto it = structs_.find(rst->struct_name); if (it != structs_.end()) si2 = &it->second; }
+            if (!si2) { auto it = datatypes_.find(rst->struct_name); if (it != datatypes_.end()) si2 = &it->second; }
+            if (si2) {
+                auto& tps = si2->type_params;
+                for (size_t i = 0; i < tps.size() && i < rst->type_args.size(); ++i)
+                    recv_struct_subst[tps[i].name] = rst->type_args[i];
+            }
+        }
+    }
+    {
+        std::vector<const LogosType*> types;
+        types.push_back(recv->type);
+        for (auto& a : arg_exprs) types.push_back(a->type);
+        for (auto* cand : find_func_candidates(mangled)) {
+            if (!cand || !cand->type_params.empty()) continue;
+            if (cand->param_types.size() != types.size()) continue;
+            bool ok = true;
+            bool needs_ref = false;
+            bool needs_mut = false;
+            auto* formal0 = cand->param_types[0];
+            if (!recv_struct_subst.empty())
+                formal0 = subst_type_sema(formal0, recv_struct_subst);
+            auto* actual0 = recv->type;
+            if (actual0 && formal0 && !types_equal(*actual0, *formal0)) {
+                if (actual0->kind != LogosType::Kind::Ref &&
+                    actual0->kind != LogosType::Kind::MutRef &&
+                    actual0->kind != LogosType::Kind::Ptr &&
+                    is_ref_like(formal0->kind) && formal0->pointee &&
+                    types_equal(*actual0, *formal0->pointee)) {
+                    needs_ref = true;
+                    needs_mut = formal0->kind == LogosType::Kind::MutRef;
+                } else if (actual0->kind != LogosType::Kind::Ref &&
+                           actual0->kind != LogosType::Kind::MutRef &&
+                           actual0->kind != LogosType::Kind::Ptr &&
+                           formal0->kind == LogosType::Kind::Ptr &&
+                           formal0->pointee &&
+                           types_equal(*actual0, *formal0->pointee)) {
+                    needs_ref = true;
+                    needs_mut = false;
+                } else if (actual0->kind == LogosType::Kind::Ptr &&
+                           formal0->kind == LogosType::Kind::Ptr &&
+                           actual0->pointee && formal0->pointee &&
+                           types_equal(*actual0->pointee, *formal0->pointee)) {
+                    // const/mut pointer receivers are compatible if pointees match.
+                } else if (!types_compatible(actual0, formal0)) {
+                    ok = false;
+                }
+            }
+            for (size_t i = 1; ok && i < cand->param_types.size(); ++i) {
+                auto* at = types[i];
+                auto* pt = cand->param_types[i];
+                if (!recv_struct_subst.empty())
+                    pt = subst_type_sema(pt, recv_struct_subst);
+                if (!at || !pt || (!types_equal(*at, *pt) && !types_compatible(at, pt))) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (!ok) continue;
+            fi_ptr = cand;
+            auto_ref_recv = needs_ref;
+            auto_ref_mut = needs_mut;
+            break;
+        }
+        if (!fi_ptr)
+            fi_ptr = find_generic_func(mangled);
+    }
+    if (fi_ptr && auto_ref_recv && recv->type &&
+        recv->type->kind != LogosType::Kind::Ref &&
+        recv->type->kind != LogosType::Kind::MutRef &&
+        recv->type->kind != LogosType::Kind::Ptr) {
+        auto addr = make_expr(make_ref(auto_ref_mut, recv->type),
+                              lir::EAddrOfTemp{std::move(recv), auto_ref_mut});
+        recv = std::move(addr);
+    }
 
     // Fallback: for generic structs (Foo$G1$i32), methods may be registered under base name (Foo).
     if (!fi_ptr) {
@@ -1594,14 +1849,77 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             base_sname = base_sname.substr(0, d);
         if (base_sname != sname) {
             auto base_mangled = base_sname + "__" + std::string(method_name);
-            if (auto fit = funcs_.find(base_mangled); fit != funcs_.end()) {
-                fi_ptr = &fit->second;
+            std::vector<const LogosType*> types;
+            types.push_back(recv->type);
+            for (auto& a : arg_exprs) types.push_back(a->type);
+            for (auto* cand : find_func_candidates(base_mangled)) {
+                if (!cand || !cand->type_params.empty()) continue;
+                if (cand->param_types.size() != types.size()) continue;
+                bool ok = true;
+                bool needs_ref = false;
+                bool needs_mut = false;
+                auto* formal0 = cand->param_types[0];
+                if (!recv_struct_subst.empty())
+                    formal0 = subst_type_sema(formal0, recv_struct_subst);
+                auto* actual0 = recv->type;
+                if (actual0 && formal0 && !types_equal(*actual0, *formal0)) {
+                    if (actual0->kind != LogosType::Kind::Ref &&
+                        actual0->kind != LogosType::Kind::MutRef &&
+                        actual0->kind != LogosType::Kind::Ptr &&
+                        is_ref_like(formal0->kind) && formal0->pointee &&
+                        types_equal(*actual0, *formal0->pointee)) {
+                        needs_ref = true;
+                        needs_mut = formal0->kind == LogosType::Kind::MutRef;
+                    } else if (actual0->kind != LogosType::Kind::Ref &&
+                               actual0->kind != LogosType::Kind::MutRef &&
+                               actual0->kind != LogosType::Kind::Ptr &&
+                               formal0->kind == LogosType::Kind::Ptr &&
+                               formal0->pointee &&
+                               types_equal(*actual0, *formal0->pointee)) {
+                        needs_ref = true;
+                        needs_mut = false;
+                    } else if (actual0->kind == LogosType::Kind::Ptr &&
+                               formal0->kind == LogosType::Kind::Ptr &&
+                               actual0->pointee && formal0->pointee &&
+                               types_equal(*actual0->pointee, *formal0->pointee)) {
+                        // const/mut pointer receivers are compatible if pointees match.
+                    } else if (!types_compatible(actual0, formal0)) {
+                        ok = false;
+                    }
+                }
+                for (size_t i = 1; ok && i < cand->param_types.size(); ++i) {
+                    auto* at = types[i];
+                    auto* pt = cand->param_types[i];
+                    if (!recv_struct_subst.empty())
+                        pt = subst_type_sema(pt, recv_struct_subst);
+                    if (!at || !pt || (!types_equal(*at, *pt) && !types_compatible(at, pt))) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (!ok) continue;
+                fi_ptr = cand;
+                auto_ref_recv = needs_ref;
+                auto_ref_mut = needs_mut;
                 mangled = base_mangled;
-            } else if (auto fit = generic_funcs_.find(base_mangled); fit != generic_funcs_.end()) {
-                fi_ptr = &fit->second;
-                mangled = base_mangled;
+                break;
+            }
+            if (!fi_ptr) {
+                if (auto fit = find_generic_func(base_mangled)) {
+                    fi_ptr = fit;
+                    mangled = base_mangled;
+                }
             }
         }
+    }
+
+    if (fi_ptr && auto_ref_recv && recv->type &&
+        recv->type->kind != LogosType::Kind::Ref &&
+        recv->type->kind != LogosType::Kind::MutRef &&
+        recv->type->kind != LogosType::Kind::Ptr) {
+        auto addr = make_expr(make_ref(auto_ref_mut, recv->type),
+                              lir::EAddrOfTemp{std::move(recv), auto_ref_mut});
+        recv = std::move(addr);
     }
 
     if (!fi_ptr) {
@@ -1618,11 +1936,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::string key_full = bi.bound_trait + "::" + std::string(sname);
             std::string key_base = bi.bound_trait + "::" + base_sname;
             if (!impls_.count(key_full) && !impls_.count(key_base)) continue;
+            std::vector<const LogosType*> bi_arg_types;
+            bi_arg_types.push_back(recv->type);
+            for (auto& a : arg_exprs) bi_arg_types.push_back(a->type);
             const SemaFuncInfo* mfi = nullptr;
-            if (auto git = generic_funcs_.find(bi.mangled_name); git != generic_funcs_.end())
-                mfi = &git->second;
-            else if (auto fit = funcs_.find(bi.mangled_name); fit != funcs_.end())
-                mfi = &fit->second;
+            if (auto fit = find_func_by_base_and_signature(bi.mangled_name, bi_arg_types, false))
+                mfi = fit;
+            else if (auto git = find_generic_func(bi.mangled_name))
+                mfi = git;
             if (!mfi) continue;
             // Type arg = receiver's concrete type (unwrapped from ref/ptr).
             const LogosType* recv_inner = recv->type;
@@ -1654,7 +1975,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
-            return finish_generic_call(bi.mangled_name, *mfi,
+            return finish_generic_call(
+                                       mfi->symbol_name.empty() ? bi.mangled_name : mfi->symbol_name, *mfi,
                                        std::move(type_args), std::move(pargs));
         }
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
@@ -2877,11 +3199,26 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // registered with type params end up in generic_funcs_, not funcs_).
     const SemaFuncInfo* fi_ptr = nullptr;
     {
-        auto fit = funcs_.find(mangled);
-        if (fit != funcs_.end()) fi_ptr = &fit->second;
+        std::vector<const LogosType*> arg_types;
+        for (auto& a : arg_exprs) arg_types.push_back(a->type);
+        auto fit = find_func_by_base_and_signature(mangled, arg_types, false);
+        if (fit) fi_ptr = fit;
         else {
-            auto git = generic_funcs_.find(mangled);
-            if (git != generic_funcs_.end()) fi_ptr = &git->second;
+            auto cands = find_func_candidates(mangled);
+            if (cands.size() == 1) {
+                fi_ptr = cands[0];
+            } else {
+                for (auto* cand : cands) {
+                    if (!cand || !cand->type_params.empty()) continue;
+                    if (cand->param_types.size() != arg_exprs.size()) continue;
+                    fi_ptr = cand;
+                    break;
+                }
+            }
+            if (!fi_ptr) {
+            auto git = find_generic_func(mangled);
+            if (git != nullptr) fi_ptr = git;
+            }
         }
     }
     if (!fi_ptr) {
@@ -2925,12 +3262,32 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     self_subst["Self"] = current_type_params_.count(cname_str)
                         ? current_type_params_[cname_str] : make_typevar(cname_str);
                     const LogosType* ret_t = subst_type_sema(m.ret_type, self_subst);
+                    const SemaFuncInfo* mfi = nullptr;
+                    {
+                        auto base = cname_str + "__" + mname_str;
+                        auto cands = find_func_candidates(base);
+                        if (cands.size() == 1) {
+                            mfi = cands[0];
+                        } else if (!cands.empty()) {
+                            for (auto* cand : cands) {
+                                if (!cand) continue;
+                                if (cand->param_types.size() == m.param_types.size()) {
+                                    mfi = cand;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     // Arg-count check.
                     if (arg_exprs.size() != m.param_types.size())
                         error(std::format("method call '{}::{}': expected {} args, got {}",
                               cname_str, mname_str, m.param_types.size(), arg_exprs.size()));
                     return make_expr(ret_t,
-                        lir::ECall{cname_str + "__" + mname_str, {}, std::move(arg_exprs)});
+                        lir::ECall{
+                            mfi && !mfi->symbol_name.empty()
+                                ? mfi->symbol_name
+                                : cname_str + "__" + mname_str,
+                            {}, std::move(arg_exprs)});
                 }
             }
         }
@@ -2994,26 +3351,21 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 const LogosType* ret = subst_type_sema(fi.ret_type, subst);
 
                 // If the host struct is generic (class_name has type params in structs_),
-                // the method lives inside the struct template.  Produce a concrete call
-                // to the already-named method on the instantiated struct
-                // (e.g. "Box$G1$i32__wrap") with NO type_args, so mlir_gen finds it.
+                // keep the template symbol here and let mono rewrite it to the concrete
+                // instantiated struct method later.  That preserves the generic suffix
+                // and avoids emitting a bare "Box$G1$i32__wrap" call too early.
                 auto sit = structs_.find(std::string(class_name));
                 if (sit != structs_.end() && !sit->second.type_params.empty()) {
-                    // Build the concrete struct type using the leading type params
-                    // (the first N params belong to the impl, the rest to the fn itself).
-                    size_t impl_n = sit->second.type_params.size();
-                    std::vector<const LogosType*> struct_args;
-                    for (size_t i = 0; i < impl_n && i < inferred.size(); ++i)
-                        struct_args.push_back(inferred[i]);
-                    const LogosType* struct_t = make_generic_struct(class_name, struct_args);
-                    std::string concrete = concrete_struct_name(struct_t);
-                    std::string concrete_callee = concrete + "__" + std::string(method_name);
-                    return make_expr(ret, lir::ECall{concrete_callee, {}, std::move(arg_exprs)});
+                    return finish_generic_call(
+                        fi.symbol_name.empty() ? mangled : fi.symbol_name,
+                        fi, std::move(inferred), std::move(arg_exprs));
                 }
 
                 // For generic free functions registered via impl (no struct template),
                 // fall through to finish_generic_call which handles them via templates_.
-                return finish_generic_call(mangled, fi, std::move(inferred), std::move(arg_exprs));
+                return finish_generic_call(
+                    fi.symbol_name.empty() ? mangled : fi.symbol_name,
+                    fi, std::move(inferred), std::move(arg_exprs));
             }
             // Could not infer — fall through to concrete path (mono will handle)
         }
@@ -3039,7 +3391,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             for (size_t i = 0; i < fi.type_params.size() && i < type_var_args.size(); ++i)
                 subst[fi.type_params[i].name] = type_var_args[i];
             const LogosType* ret = subst_type_sema(fi.ret_type, subst);
-            return make_expr(ret, lir::ECall{mangled, std::move(type_var_args), std::move(arg_exprs)});
+            return make_expr(ret, lir::ECall{
+                fi.symbol_name.empty() ? mangled : fi.symbol_name,
+                std::move(type_var_args), std::move(arg_exprs)});
         }
     }
 
@@ -3059,7 +3413,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
 
-    return make_expr(fi.ret_type, lir::ECall{mangled, {}, std::move(arg_exprs)});
+    return make_expr(fi.ret_type,
+        lir::ECall{fi.symbol_name.empty() ? mangled : fi.symbol_name, {}, std::move(arg_exprs)});
 }
 
 lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {

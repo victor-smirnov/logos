@@ -49,17 +49,19 @@ struct TypeSets {
 
 static TypeSets build_type_sets(const lir::LProgram& prog) {
     TypeSets ts;
+    auto register_drop_symbol = [&](std::string_view sym) {
+        if (auto p = sym.find("__drop"); p != std::string_view::npos)
+            ts.drop_types.insert(std::string(sym.substr(0, p)));
+    };
     auto scan_fns = [&](const std::vector<LFunction>& fns) {
         for (auto& fn : fns)
-            if (fn.name.size() > 6 && fn.name.ends_with("__drop"))
-                ts.drop_types.insert(fn.name.substr(0, fn.name.size() - 6));
+            register_drop_symbol(fn.name);
     };
     scan_fns(prog.functions);
     scan_fns(prog.specializations);
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            if (m.name.ends_with("__drop"))
-                ts.drop_types.insert(sd.name);
+            register_drop_symbol(m.name);
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);

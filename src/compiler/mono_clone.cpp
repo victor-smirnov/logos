@@ -214,15 +214,38 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         rt = rt->pointee;
                     }
 
-                    if (rt && rt->kind == LogosType::Kind::Struct) {
+                    if (rt &&
+                        (rt->kind == LogosType::Kind::Struct ||
+                         rt->kind == LogosType::Kind::Datatype ||
+                         rt->kind == LogosType::Kind::Enum)) {
                         std::vector<const LogosType*> combined_args = rt->type_args;
                         for (auto* mta : nm.type_args) combined_args.push_back(mta);
 
-                        std::string base_struct = nm.resolved_type.empty()
-                            ? rt->struct_name : nm.resolved_type;
+                        std::string base_struct;
+                        if (!nm.resolved_type.empty()) {
+                            base_struct = nm.resolved_type;
+                        } else if (rt->kind == LogosType::Kind::Enum) {
+                            base_struct = rt->enum_name;
+                        } else {
+                            base_struct = rt->struct_name;
+                        }
                         std::string base_name = base_struct + "__" + nm.method;
+                        auto pick_mono_template_key = [&]() -> std::string {
+                            if (templates_.count(base_name) || specs_.count(base_name))
+                                return base_name;
+                            std::string p = base_name + "__";
+                            for (auto& [kname, _] : templates_) {
+                                if (kname.rfind(p, 0) == 0) return kname;
+                            }
+                            for (auto& [kname, _] : specs_) {
+                                if (kname.rfind(p, 0) == 0) return kname;
+                            }
+                            return {};
+                        };
+                        std::string mono_base = pick_mono_template_key();
 
-                        if (auto* spec = find_best_spec(base_name, combined_args)) {
+                        if (auto* spec = find_best_spec(mono_base.empty() ? base_name : mono_base,
+                                                        combined_args)) {
                             // Specialized method found! Rewrite to ECall.
                             lir::ECall nc;
                             nc.callee = spec->name;
@@ -231,13 +254,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                 nc.args.push_back(subst_expr(*arg, s));
                             result->kind = std::move(nc);
                             rewritten = true;
-                        } else if (!nm.type_args.empty() &&
-                                   (templates_.count(base_name) || specs_.count(base_name))) {
+                        } else if (!combined_args.empty() && !mono_base.empty()) {
                             // Generic direct method call on a concrete receiver:
                             // rewrite to a monomorphized free-function call so it
                             // participates in the normal generic-instantiation flow.
                             lir::ECall nc;
-                            nc.callee = mangle(base_name, combined_args);
+                            nc.callee = mangle(mono_base, combined_args);
                             nc.type_args = combined_args;
                             nc.args.push_back(std::move(nm.receiver));
                             for (auto& arg : k.args)
@@ -757,11 +779,15 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     }
     for (auto& m : tmpl.methods) {
         auto nm = clone_fn(m, s, packs);
-        // Rename method: "OldBase__methodName" → "new_name__methodName"
-        // Method names are stored as "StructName__methodName".
+        // Rename method: "OldBase__methodName" → "new_name__methodName".
+        // If the template method name carries a generic suffix
+        // ("OldBase__method__g__T"), strip it for the instantiated struct
+        // method. The concrete struct name already captures the instantiation.
         auto sep = m.name.find("__");
         if (sep != std::string::npos)
-            nm.name = new_name + m.name.substr(sep);
+            nm.name = new_name + "__" + m.name.substr(sep + 2, m.name.find("__", sep + 2) == std::string::npos
+                ? std::string::npos
+                : m.name.find("__", sep + 2) - (sep + 2));
         // Specialization: if the user wrote `impl Foo<Concrete> { fn m ... }`
         // separately from `impl<T> Foo<T> { fn m ... }`, the concrete method
         // lives in in_.functions under the mangled name.  Skip cloning the

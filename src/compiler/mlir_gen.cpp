@@ -108,6 +108,10 @@ mlir::Value MLIRGenImpl::get_struct_ptr(const std::string& name) {
         std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
         return nullptr;
     }
+    // Mutable raw-pointer locals are stored as alloca(ptr) slots.
+    // For struct receivers we need the pointee pointer value, not the slot address.
+    if (var_local_ptrs_.count(name) && let_vars_.count(name))
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
     return it->second;
 }
 
@@ -138,33 +142,91 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         auto sit = var_struct_.find(name);
         if (sit != var_struct_.end())
             return {get_struct_ptr(name), sit->second};
+        // Local pointer-to-struct/datatype slots already record the concrete
+        // LLVM aggregate type.  Use that as a fallback even if recv.type was
+        // not preserved through lowering.
+        auto lpit = var_local_ptrs_.find(name);
+        if (lpit != var_local_ptrs_.end()) {
+            if (auto sc = scope_.find(name); sc != scope_.end()) {
+                if (recv.type && recv.type->kind == LogosType::Kind::Ptr &&
+                    recv.type->pointee &&
+                    (recv.type->pointee->kind == LogosType::Kind::Struct ||
+                     recv.type->pointee->kind == LogosType::Kind::Datatype)) {
+                    return {sc->second, concrete_struct_name(recv.type->pointee)};
+                }
+                // If the receiver type is unavailable, still treat it as a
+                // struct/datatype pointer using the recorded aggregate type.
+                for (auto& [sname, info] : struct_types_) {
+                    if (info.llvm_type == lpit->second)
+                        return {sc->second, sname};
+                }
+            }
+        }
+        // Last resort: if the receiver is a method parameter/let binding that
+        // already lives in scope as a pointer value, trust the caller-side
+        // lowering and return it directly.  This covers `self: *const T` and
+        // `self: &T` receivers even when the LIR type annotation got dropped.
+        if (auto sc = scope_.find(name); sc != scope_.end()) {
+            if (recv.type) {
+                const LogosType* t = recv.type;
+                if ((t->kind == LogosType::Kind::Ptr ||
+                     t->kind == LogosType::Kind::Ref ||
+                     t->kind == LogosType::Kind::MutRef) && t->pointee &&
+                    (t->pointee->kind == LogosType::Kind::Struct ||
+                     t->pointee->kind == LogosType::Kind::Datatype)) {
+                    return {sc->second, concrete_struct_name(t->pointee)};
+                }
+            }
+            // If this binding is a pointer slot (alloca(ptr)), load the value
+            // directly and let later field/method code decide how to use it.
+            if (var_local_ptrs_.count(name)) {
+                auto ptr_val = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, ptr_type(), sc->second);
+                auto it2 = std::find_if(struct_types_.begin(), struct_types_.end(),
+                    [&](const auto& kv) { return kv.second.llvm_type == var_local_ptrs_[name]; });
+                if (it2 != struct_types_.end())
+                    return {ptr_val, it2->first};
+                return {ptr_val, {}};
+            }
+        }
         // Check if this is a pointer-to-struct variable (e.g. *mut Point).
         // The logical type is Ptr/Ref/MutRef with pointee=Struct/Class.
         if (recv.type) {
             const LogosType* t = recv.type;
+            if (type_str(t) == "AnyVal") {
+                auto sc = scope_.find(name);
+                if (sc != scope_.end())
+                    return {sc->second, "AnyVal"};
+            }
             if ((t->kind == LogosType::Kind::Ptr ||
                  t->kind == LogosType::Kind::Ref ||
                  t->kind == LogosType::Kind::MutRef) && t->pointee) {
                 const LogosType* inner = t->pointee;
+                if (type_str(inner) == "AnyVal") {
+                    auto sc = scope_.find(name);
+                    if (sc != scope_.end())
+                        return {sc->second, "AnyVal"};
+                }
                 if (inner->kind == LogosType::Kind::Struct ||
                     inner->kind == LogosType::Kind::Datatype) {
-                    // Load the pointer value from the alloca, then use it as the struct ptr.
-                    auto alloca = get_struct_ptr(name);  // alloca holding the pointer
-                    if (!alloca) {
-                        // Fall back: try scope lookup
-                        auto sc = scope_.find(name);
-                        if (sc != scope_.end()) alloca = sc->second;
-                    }
-                    if (alloca) {
-                        auto ptr_val = builder_.create<mlir::LLVM::LoadOp>(
-                            loc_, ptr_type(), alloca);
-                        return {ptr_val, concrete_struct_name(inner)};
+                    auto sc = scope_.find(name);
+                    if (sc != scope_.end()) {
+                        // Local let-bound pointer variables are stored in an alloca(slot).
+                        // Parameters / SSA values already are the pointer value.
+                        auto lpit = var_local_ptrs_.find(name);
+                        if (lpit != var_local_ptrs_.end()) {
+                            auto ptr_val = builder_.create<mlir::LLVM::LoadOp>(
+                                loc_, ptr_type(), sc->second);
+                            return {ptr_val, concrete_struct_name(inner)};
+                        }
+                        return {sc->second, concrete_struct_name(inner)};
                     }
                 }
             }
         }
-        std::fprintf(stderr, "mlir_gen: '%s' is not a struct/class var\n", name.c_str());
-        return {nullptr, {}};
+        // Fall through to the general receiver path instead of hard-failing.
+        // Some pointer-like receivers are lowered as plain values in scope_
+        // or through temp SSA values, and gen_expr(recv) can still recover them.
     }
     if (auto* fr = std::get_if<EFieldRead>(&recv.kind)) {
         auto [base_ptr, base_sname] = gen_recv_struct(*fr->receiver);
@@ -200,7 +262,9 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
     auto ptr = gen_expr(recv);
     if (!ptr) return {nullptr, {}};
     // If the result is an aggregate struct (by-value return), spill to alloca.
-    if (mlir::isa<mlir::LLVM::LLVMStructType>(ptr.getType()))
+    // AnyVal is a scalar-like 4-byte slot, not a by-value aggregate receiver.
+    if (mlir::isa<mlir::LLVM::LLVMStructType>(ptr.getType()) &&
+        (!recv.type || type_str(recv.type) != "AnyVal"))
         ptr = spill_to_alloca(ptr);
     if (recv.type) {
         const LogosType* t = recv.type;
@@ -217,6 +281,18 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
 }
 
 mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
+    if (e.name == "AnyVal") {
+        // AnyVal is lowered as a scalar i32 everywhere in MLIR.
+        // Hermes source still spells it as a struct literal (`AnyVal { raw: ... }`),
+        // so treat that syntax as a constructor for the raw slot value.
+        if (e.fields.size() != 1 || e.fields.front().first != "raw") {
+            std::fprintf(stderr, "mlir_gen: AnyVal literal expects a single 'raw' field\n");
+            return nullptr;
+        }
+        auto raw = gen_expr(*e.fields.front().second);
+        if (!raw) return nullptr;
+        return coerce_numeric(raw, builder_.getI32Type());
+    }
     auto sit = struct_types_.find(e.name);
     if (sit == struct_types_.end()) {
         std::fprintf(stderr, "mlir_gen: unknown struct '%s'\n", e.name.c_str());

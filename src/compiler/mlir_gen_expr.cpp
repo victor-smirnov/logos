@@ -10,6 +10,23 @@ namespace logos::compiler {
 
 using namespace lir;
 
+namespace {
+static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name) {
+    if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(name))
+        return fn;
+
+    mlir::func::FuncOp found;
+    mod.walk([&](mlir::func::FuncOp fn) {
+        if (fn.getName().str() == name) {
+            found = fn;
+            return mlir::WalkResult::interrupt();
+        }
+        return mlir::WalkResult::advance();
+    });
+    return found;
+}
+}  // namespace
+
 // ---------------------------------------------------------------------------
 // gen_expr — main dispatcher
 // ---------------------------------------------------------------------------
@@ -124,6 +141,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitStr& e, const LogosType*) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, const LogosType* type) {
+    if (e.name == "obj" || e.name == "m" || e.name == "s_av") {
+        std::fprintf(stderr, "mlir_gen: gen_varref('%s') type=%s scope=%d let=%d\n",
+                     e.name.c_str(),
+                     type ? type_str(type).c_str() : "<null>",
+                     scope_.count(e.name) ? 1 : 0,
+                     let_vars_.count(e.name) ? 1 : 0);
+    }
     // Module constant: re-evaluate inline.
     auto cit = module_consts_.find(e.name);
     if (cit != module_consts_.end())
@@ -178,8 +202,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, const LogosType* type) 
     if (var_tagged_enum_ptr_.count(e.name))
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
     // Struct/class/array/tuple/tagged-enum/dyn-trait variables: return pointer directly.
-    if (var_struct_.count(e.name) || var_subscript_.count(e.name) ||
-        var_class_.count(e.name) || var_tuple_.count(e.name) ||
+    if (var_struct_.count(e.name) || var_class_.count(e.name))
+        return get_struct_ptr(e.name);
+    if (var_subscript_.count(e.name) || var_tuple_.count(e.name) ||
         var_tagged_enum_.count(e.name) || var_dyn_trait_.count(e.name))
         return it->second;
     // Let-bound scalar: load from alloca.
@@ -265,6 +290,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLitData& e, const LogosType* t
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
+    if (e.op == "+" || e.op == "as") {
+        std::fprintf(stderr, "mlir_gen: binop '%s' lhs=%s rhs=%s\n",
+                     e.op.c_str(),
+                     e.lhs && e.lhs->type ? type_str(e.lhs->type).c_str() : "<null>",
+                     e.rhs && e.rhs->type ? type_str(e.rhs->type).c_str() : "<null>");
+    }
     auto lhs = gen_expr(*e.lhs);
     if (!lhs) return nullptr;
 
@@ -571,6 +602,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
     auto* t = e.inner->type;
     if (t && (t->kind == LogosType::Kind::Tuple ||
               t->kind == LogosType::Kind::Struct ||
+              t->kind == LogosType::Kind::Datatype ||
               t->kind == LogosType::Kind::Array))
         return val;  // already a pointer to the value on the stack
     // Scalar: spill to a fresh stack slot.
@@ -631,10 +663,42 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
         return res ? res : nullptr;
     }
 
-    auto callee_fn  = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.callee);
+    auto callee_fn  = find_func_op(parent_mod, e.callee);
     if (!callee_fn) {
-        std::fprintf(stderr, "mlir_gen: undefined function '%s'\n", e.callee.c_str());
-        return nullptr;
+        auto gpos = e.callee.find("__g__");
+        if (gpos != std::string::npos)
+            callee_fn = find_func_op(parent_mod, e.callee.substr(0, gpos));
+        if (!callee_fn) {
+            // Generic instantiations may be emitted without their trailing
+            // `__g__...` suffix in the call site.  Fall back to the concrete
+            // generic symbol with the same base prefix.
+            std::string generic_prefix = e.callee + "__g__";
+            parent_mod.walk([&](mlir::func::FuncOp fn) {
+                auto fn_name = fn.getName().str();
+                if (fn_name.rfind(generic_prefix, 0) == 0) {
+                    callee_fn = fn;
+                    return mlir::WalkResult::interrupt();
+                }
+                return mlir::WalkResult::advance();
+            });
+        }
+    }
+    if (!callee_fn) {
+        llvm::SmallVector<mlir::Value> args;
+        for (size_t i = 0; i < e.args.size(); ++i) {
+            auto v = gen_expr(*e.args[i]);
+            if (!v) return nullptr;
+            args.push_back(v);
+        }
+        llvm::SmallVector<mlir::Type> result_types;
+        if (ret_logos_type) {
+            auto ret_mlir = logos_to_mlir(ret_logos_type);
+            if (ret_mlir)
+                result_types.push_back(ret_mlir);
+        }
+        auto call = builder_.create<mlir::func::CallOp>(
+            loc_, e.callee, result_types, mlir::ValueRange(args));
+        return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
     llvm::SmallVector<mlir::Value> args;
     auto param_types = callee_fn.getFunctionType().getInputs();
@@ -668,6 +732,31 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* ret_logos_type) {
+    if (e.method == "as_offset" && e.receiver && e.receiver->type) {
+        const auto* rt = e.receiver->type;
+        bool is_anyval =
+            type_str(rt) == "AnyVal" ||
+            ((rt->kind == LogosType::Kind::Ptr ||
+              rt->kind == LogosType::Kind::Ref ||
+              rt->kind == LogosType::Kind::MutRef) &&
+             rt->pointee && type_str(rt->pointee) == "AnyVal");
+        if (is_anyval) {
+        std::fprintf(stderr, "mlir_gen: as_offset fastpath recv_t=%s\n", type_str(rt).c_str());
+        auto recv = gen_expr(*e.receiver);
+        if (!recv) {
+            std::fprintf(stderr, "mlir_gen: as_offset fastpath recv=null\n");
+            return nullptr;
+        }
+        if (recv.getType() == ptr_type())
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
+        return coerce_numeric(recv, builder_.getI32Type());
+        }
+    }
+    if (e.method == "as_offset" || e.method == "stringify" || e.method == "as_i64") {
+        std::fprintf(stderr, "mlir_gen: method call '%s' recv=%s\n",
+                     e.method.c_str(),
+                     e.receiver && e.receiver->type ? type_str(e.receiver->type).c_str() : "<null>");
+    }
     // &tagged<TS> Trait dispatch: read type_code, GEP tier-1 table, indirect call.
     if (!e.tag_system.empty()) {
         return gen_tagged_dispatch(e, ret_logos_type);
@@ -680,15 +769,41 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
     }
     auto [ptr, tname] = gen_recv_struct(*e.receiver);
     if (!ptr || tname.empty()) return nullptr;
+    if (tname == "AnyVal" && ptr.getType() != ptr_type()) {
+        auto slot = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), builder_.getI32Type(), i64_one());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
+        ptr = slot;
+    }
     // Direct call: mangled name = TypeName__method
     // If resolved_type is set (inherited method), use the defining class name.
     const std::string& defining = e.resolved_type.empty() ? tname : e.resolved_type;
     auto mangled    = defining + "__" + e.method;
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    auto callee_fn  = parent_mod.lookupSymbol<mlir::func::FuncOp>(mangled);
+    auto callee_fn  = find_func_op(parent_mod, mangled);
+    if (!callee_fn) {
+        // Generic struct methods may retain a trailing generic suffix in the
+        // instantiated symbol name, e.g. `Box$G1$i32__unwrap__g__Box$G1$T`.
+        // Fall back to the first function whose name starts with the concrete
+        // direct-call prefix.
+        std::string generic_prefix = mangled + "__g__";
+        parent_mod.walk([&](mlir::func::FuncOp fn) {
+            auto fn_name = fn.getName().str();
+            if (fn_name.rfind(generic_prefix, 0) == 0) {
+                callee_fn = fn;
+                return mlir::WalkResult::interrupt();
+            }
+            return mlir::WalkResult::advance();
+        });
+    }
     if (!callee_fn) {
         std::fprintf(stderr, "mlir_gen: method '%s' not found\n", mangled.c_str());
         return nullptr;
+    }
+    if (e.method == "as_offset" || e.method == "as_i64" || e.method == "stringify") {
+        std::fprintf(stderr, "mlir_gen: method callee '%s' results=%zu\n",
+                     callee_fn.getName().str().c_str(),
+                     callee_fn.getFunctionType().getResults().size());
     }
     llvm::SmallVector<mlir::Value> args;
     args.push_back(ptr);
@@ -716,6 +831,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EFieldRead& e, const LogosType* type) {
+    if (e.field == "raw" && e.receiver->type) {
+        bool is_anyval = type_str(e.receiver->type) == "AnyVal";
+        bool is_anyval_ptr = (e.receiver->type->kind == LogosType::Kind::Ptr ||
+                              e.receiver->type->kind == LogosType::Kind::Ref ||
+                              e.receiver->type->kind == LogosType::Kind::MutRef) &&
+                             e.receiver->type->pointee &&
+                             type_str(e.receiver->type->pointee) == "AnyVal";
+        if (is_anyval || is_anyval_ptr) {
+            auto recv = gen_expr(*e.receiver);
+            if (!recv) return nullptr;
+            if (recv.getType() == ptr_type())
+                return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
+            return coerce_numeric(recv, builder_.getI32Type());
+        }
+    }
     auto [ptr, sname] = gen_recv_struct(*e.receiver);
     if (!ptr || sname.empty()) return nullptr;
     auto& info = struct_types_[sname];
@@ -884,6 +1014,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, const LogosType* ty
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
+    if (e.operand && e.operand->type && (type_str(type) == "HermesString" ||
+                                        type_str(type).rfind("*const", 0) == 0 ||
+                                        type_str(type).rfind("*mut", 0) == 0)) {
+        std::fprintf(stderr, "mlir_gen: cast from %s to %s\n",
+                     type_str(e.operand->type).c_str(),
+                     type ? type_str(type).c_str() : "<null>");
+    }
     auto val    = gen_expr(*e.operand);
     if (!val) return nullptr;
     auto target = logos_to_mlir(type);

@@ -158,6 +158,14 @@ const lir::LFunction* Mono::find_best_spec(
     const std::string& base_name,
     const std::vector<const LogosType*>& type_args) {
     auto sit = specs_.find(base_name);
+    if (sit == specs_.end()) {
+        std::string raw = base_name;
+        if (auto p = raw.find("__g__"); p != std::string::npos)
+            raw.resize(p);
+        else if (auto p = raw.find("__f__"); p != std::string::npos)
+            raw.resize(p);
+        sit = specs_.find(raw);
+    }
     if (sit == specs_.end()) return nullptr;
 
     const lir::LFunction* best       = nullptr;
