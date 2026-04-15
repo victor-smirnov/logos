@@ -1,9 +1,9 @@
-# OpenSpec: Logos Platform
+# OpenSpec: Logos Language Platform
 
 ## 1. Project Overview
-**Logos** is a programming language, compiler, and execution platform designed for AI-driven software development. AI is the primary code author; humans read, review, and steer.
+**Logos** is a compiled systems programming language and platform designed for AI-driven software development. AI is the primary code author; humans read, review, and steer.
 
-Logos absorbs the functionality of the **Memoria Framework** -- not as an extension layer, but as a full rewrite that imports Memoria's proven algorithms, data structures, and protocols into a new codebase. The rewrite is feasible because AI-assisted coding makes large-scale code generation practical.
+Logos absorbs functionality from the historical **Memoria Framework** -- not as a C++ extension layer, but as a full rewrite into a standalone language stack (compiler, runtime, stdlib, and data model). The rewrite is feasible because AI-assisted coding makes large-scale code generation practical.
 
 ## 2. Core Philosophy
 1. **AI-First**: Syntax, semantics, and tooling optimized for AI generation and verification.

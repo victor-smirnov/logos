@@ -1,43 +1,34 @@
 # Logos
 
-A programming language, compiler, and execution platform designed for AI-driven software development. AI is the primary code author; humans review, steer, and verify.
+Logos is a compiled systems programming language with its own compiler toolchain, runtime stack, standard library, and data model.
 
-Logos absorbs the functionality of the [Memoria Framework](https://github.com/victor-smirnov/memoria) through a full rewrite, reimplementing its proven algorithms and data structures in a new codebase optimized for AI generation and verification.
+The project started as a rewrite of ideas and infrastructure from the [Memoria Framework](https://github.com/victor-smirnov/memoria), but Logos itself is not a C++ framework layer. It is a standalone language platform at the C++/Rust systems level.
 
-## Architecture
+## What Logos Is
 
-```
-Phase 3: Data Stack
-  Containers (B+Tree) | Storage Engines | Semantic Graphs
+- A statically-typed compiled language (`.logos`) with ownership/borrowing, traits, generics, overloads, pattern matching, and specialization.
+- A native compiler pipeline (`logosc`) with semantic analysis, monomorphization, borrow checking, and LLVM/MLIR code generation.
+- A language-level standard library (`stdlib/`) including Hermes integration and core runtime APIs.
+- A comprehensive test suite (`tests/logos`) covering language semantics, diagnostics, integration scenarios, and runtime behavior.
 
-Phase 2: Compiler Stack
-  Parser | Type Checker | LLVM/MLIR Backend | Interpreter
-  RETE Engine | Datalog Engine
-  M-Code (Hermes Document ASTs)
-
-Phase 1: Runtime Foundation
-  1A: Verification Framework (LOGOS_ASSERT, tracing, SQLite diagnostics)
-  1B: Hermes | HRPC | IO Reactor (green fibers) | Custom Clang
-```
-
-## Key Design Decisions
+## Design Direction
 
 - **AI-First**: syntax, semantics, and tooling optimized for AI generation and verification
-- **Code = Data**: all code is Hermes documents, stored in containers, versioned, queried, transmitted
-- **Dependent Types**: maximize compile-time guarantees; AI emits proofs alongside code
-- **Two-Color Execution**: green fibers (segmented stacks) for lightweight concurrency, red code (system stack) for C/C++ compatibility
-- **Self-Applicability (HOCP)**: programs observe and reason about their own execution
-- **Optimistic Convergence**: self-checking runtime with structured diagnostics minimizes human verification effort
+- **Code + Data Unification**: Hermes is a first-class data substrate used directly by language/runtime components
+- **Systems-Level Performance**: ahead-of-time native code generation with explicit control over memory and ownership
+- **Verification-Oriented Development**: strong diagnostics, runtime assertions/tracing, and broad language test coverage
+- **Interop Pragmatism**: C/C++ interoperability exists, but Logos is the primary programming model
 
 ## Technology Stack
 
 | Component | Technology |
 |-----------|------------|
-| Implementation | C++23/26 (Clang custom fork) |
+| Language Implementation | C++23/26 |
+| Frontend / Semantics | Logos parser + sema + borrow checker |
+| Codegen Backend | LLVM / MLIR |
 | Data Substrate | Hermes (relocatable tagged object graphs) |
 | Communication | HRPC (bidirectional streaming RPC) |
 | IO / Runtime | io_uring reactor with green fibers |
-| Compiler Backend | LLVM / MLIR |
 | Build | CMake + Ninja, VCPKG |
 | Platform | Linux (Ubuntu LTS) |
 
@@ -45,10 +36,12 @@ Phase 1: Runtime Foundation
 
 ```
 logos/
-  agent/          Synthea identity + cognitive architecture + development methodology
-  openspec/       Specifications and design documents
-    specs/        Formal specs: Hermes ABI, wire format, verification framework
-  memoria/        Memoria reference (gitignored, read-only)
+  src/            Compiler, runtime, Hermes, reactor, verification
+  stdlib/         Logos standard library modules
+  tests/          Language test suites (smoke/core/ownership/advanced/integration/diagnostics)
+  tools/          Supporting tools (including PEG generator)
+  docs/           Language/runtime documentation and implementation notes
+  openspec/       Formal specs and long-range architecture/design documents
 ```
 
 ## Specifications
@@ -60,10 +53,12 @@ logos/
 - [Hermes ABI (JSON)](openspec/specs/hermes-abi.json)
 - [Hermes Wire Format](openspec/specs/hermes-wire-format.md)
 - [Verification Framework](openspec/specs/verification-framework.md)
+- [Datatypes Guide](docs/datatypes.md)
+- [Language Feature Inventory](docs/rust_feature_inventory.md)
 
 ## Status
 
-**Pre-implementation.** Specification phase. Phase 1A (verification framework) is next.
+**Active implementation.** Logos compiler/runtime/stdlib are in use, and the repository maintains a large executable test suite.
 
 ## License
 

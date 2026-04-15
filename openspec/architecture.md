@@ -1,10 +1,10 @@
-# Logos Platform Architecture
+# Logos Language Platform Architecture
 
 ## 1. System Context
 
-Logos is a new project that absorbs the functionality of the Memoria Framework through a full rewrite. Memoria provides the proven algorithms and data structures; Logos reimplements them in a new codebase designed from scratch for AI-driven development.
+Logos is a standalone compiled systems programming language and platform. It absorbs functionality from the historical Memoria Framework through a full rewrite: algorithms and data structures are reimplemented inside Logos compiler/runtime/stdlib, not wrapped as a C++ framework layer.
 
-The stack has three major layers, built in three phases:
+The stack has three major layers:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -37,6 +37,8 @@ The stack has three major layers, built in three phases:
 ```
 
 ## 2. Phase 1 Components
+
+Phase 1 components are partly implemented today (Hermes, compiler integration, verification infrastructure). Remaining items in this section describe target architecture and completion scope.
 
 ### 2.1 Custom Clang (Green Fiber Support)
 Two-color execution model:
@@ -168,5 +170,5 @@ Runtime metrics are first-class events. RETE rules fire on internal state change
 ### 5.4 Two-Color Concurrency
 Green fibers (segmented stacks) for lightweight concurrency. Red functions (system stack) for system compatibility. Trampolines at boundaries. No viral coroutine problem. Thousands of fibers per core.
 
-### 5.5 C++ as Implementation Language, Not Target
-Logos is written in C++, but C++ interop is secondary. Standard library starts in C++, migrates to Logos. Generated code passes through LLVM, not C++ text. Programmers will stop reading generated code as they stopped reading assembly.
+### 5.5 C++ as Implementation Language
+Logos implementation is written in C++, but Logos itself is the primary programming model. C/C++ interop is pragmatic tooling support, not the project identity. Generated code goes through LLVM/MLIR, and language-level development is centered around Logos source and stdlib.

@@ -1,13 +1,20 @@
 # Logos Development Plan
 
+Logos is a standalone compiled systems language and platform. This plan tracks roadmap and remaining work; it is not a statement that Logos is a C++ framework layer.
+
 ## Constraints
 - Primary developer: AI (via Cursor IDE and similar tools)
 - Human review and build: Victor Smirnov
-- Implementation language: C++23 (Clang, custom fork with green fibers)
+- Language implementation: C++23 (Clang, custom fork with green fibers)
 - Compiler backend: LLVM/MLIR
-- Source of functionality: Memoria Framework (reimplemented, not linked)
+- Source baseline: Memoria Framework concepts/components (reimplemented, not linked)
 - Build: CMake + Ninja, VCPKG for dependencies
 - Platform: Linux (Ubuntu LTS)
+
+## Current Snapshot
+- Logos compiler pipeline, stdlib, and language test suites are actively implemented.
+- Hermes integration and PEG generator are already in practical use.
+- Remaining roadmap items below describe expansion/completion, not initial bootstrap.
 
 ## Project Structure
 ```
@@ -53,7 +60,7 @@ logos/
 
 ## Phase 1: Runtime Foundation
 
-Phase 1 is split into two sub-phases. Phase 1A builds the verification infrastructure and validates it on real Memoria code. Phase 1B uses that infrastructure to port Hermes and the rest of the runtime.
+Phase 1 is split into two sub-phases. Phase 1A builds the verification infrastructure and validates it on real Memoria code. Phase 1B uses that infrastructure to port Hermes and runtime components.
 
 ### 1.0 Verification Framework (Phase 1A)
 
