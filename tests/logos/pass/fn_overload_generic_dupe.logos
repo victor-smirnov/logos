@@ -1,0 +1,12 @@
+package fn_overload_generic_dupe;
+
+fn pick<T>(x: T) -> i32 { return 1; }
+fn pick<T>(x: T, y: T) -> i32 { return 2; }
+
+unsafe fn main() -> i32 {
+    let a: i32 = pick::<i32>(7);
+    let b: i32 = pick::<i32>(7, 8);
+    if a != 1 { return 41; }
+    if b != 2 { return 42; }
+    return 0;
+}

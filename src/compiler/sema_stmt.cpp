@@ -1489,8 +1489,10 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         auto mangled_next = std::string(sname) + "__next";
         const SemaFuncInfo* fi_ptr = nullptr;
-        if (auto fit = funcs_.find(mangled_next); fit != funcs_.end()) fi_ptr = &fit->second;
-        else if (auto git = generic_funcs_.find(mangled_next); git != generic_funcs_.end()) fi_ptr = &git->second;
+        if (auto fit = find_func_by_base_and_signature(mangled_next, {}, false))
+            fi_ptr = fit;
+        else if (auto cands = find_func_candidates(mangled_next); cands.size() == 1)
+            fi_ptr = cands[0];
 
         if (!fi_ptr) {
             error(std::format("for-in: type '{}' has no `next()` method", sname));

@@ -64,6 +64,10 @@ mlir::Value MLIRGenImpl::sizeof_struct(mlir::LLVM::LLVMStructType struct_type) {
 mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
     llvm::SmallVector<mlir::Type> param_types;
     for (auto& p : fn.params) {
+        if (p.type && type_str(p.type) == "AnyVal") {
+            param_types.push_back(builder_.getI32Type());
+            continue;
+        }
         // Arrays (like structs) are passed by pointer.
         if (p.type && p.type->kind == LogosType::Kind::Array)
             param_types.push_back(ptr_type());
@@ -74,6 +78,9 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
     }
     llvm::SmallVector<mlir::Type> ret_types;
     if (fn.ret_type) {
+        if (type_str(fn.ret_type) == "AnyVal") {
+            ret_types.push_back(builder_.getI32Type());
+        } else
         // Tuples and structs are returned by value (as LLVM struct), not by pointer.
         // Returning a pointer to a local alloca would be a dangling pointer after return.
         if (fn.ret_type->kind == LogosType::Kind::Tuple) {
@@ -142,6 +149,11 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
 // ---------------------------------------------------------------------------
 
 bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn) {
+    std::fprintf(stderr, "mlir_gen: enter fn %s\n", fn.name.c_str());
+    for (auto& p : fn.params) {
+        std::fprintf(stderr, "mlir_gen:   param %s : %s\n",
+                     p.name.c_str(), p.type ? type_str(p.type).c_str() : "<null>");
+    }
     auto* entry = func.addEntryBlock();
     builder_.setInsertionPointToStart(entry);
 

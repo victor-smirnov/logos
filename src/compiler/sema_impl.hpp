@@ -325,6 +325,9 @@ private:
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             bool is_pub = false; bool is_const = false; bool is_unsafe = false;
                             bool is_extern = false;
+                            std::string base_name;
+                            std::string signature_key;
+                            std::string symbol_name;
                             std::string source_file; std::string package; };
     struct SemaVariantInfo{
         std::string_view name; int32_t value;
@@ -384,7 +387,12 @@ private:
     std::unordered_map<std::string, SemaStructInfo>   struct_specs_sema_;
     std::unordered_map<std::string, SemaEnumInfo>     enums_;
     std::unordered_map<std::string, SemaFuncInfo>     funcs_;
-    std::unordered_map<std::string, SemaFuncInfo>     generic_funcs_; // overloaded generic variants
+    // base name -> concrete overload symbols stored in funcs_.
+    std::unordered_map<std::string, std::vector<std::string>> func_overloads_;
+    // symbol_name -> generic function info.
+    std::unordered_map<std::string, SemaFuncInfo>     generic_funcs_;
+    // base name -> generic overload symbols stored in generic_funcs_.
+    std::unordered_map<std::string, std::vector<std::string>> generic_overloads_;
     // const fn bodies: mangled_name → (body_block, param_names)
     struct ConstFnBody { hermes::TinyMapView body; std::vector<std::string> param_names; };
     std::unordered_map<std::string, ConstFnBody>      const_fn_bodies_;
@@ -541,6 +549,24 @@ private:
     const LogosType* field_type_of_for_type(const LogosType* struct_t, std::string_view fname);
     const SemaStructInfo* find_best_sema_struct_spec(std::string_view base_name,
                                                      const std::vector<const LogosType*>& type_args);
+    std::string canonical_func_type_name(const LogosType* t) const;
+    std::string function_signature_key(std::string_view base_name,
+                                       const std::vector<const LogosType*>& param_types,
+                                       bool is_vararg) const;
+    std::string function_symbol_name(std::string_view base_name,
+                                     const SemaFuncInfo& info) const;
+    const SemaFuncInfo* find_func_by_symbol(std::string_view symbol) const;
+    const SemaFuncInfo* find_generic_func(std::string_view base_name) const;
+    const SemaFuncInfo* find_generic_func(std::string_view base_name,
+                                          size_t n_args) const;
+    const SemaFuncInfo* find_func_by_base_and_signature(std::string_view base_name,
+                                                        const std::vector<const LogosType*>& param_types,
+                                                        bool is_vararg = false) const;
+    std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
+    const SemaFuncInfo* resolve_function_call(std::string_view base_name,
+                                              const std::vector<lir::LExprPtr>& arg_exprs,
+                                              bool allow_generic = true,
+                                              bool exact_only = false) const;
 
     // ── lower_expr ───────────────────────────────────────────────
 

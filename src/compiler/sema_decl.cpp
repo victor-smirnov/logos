@@ -28,6 +28,16 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     ctx_       = std::format("fn {}", mangled);
     node_line_ = get_line(node);
 
+    // Some trait-default bodies and impl methods refer to `Self` in their
+    // parameter types.  Keep a concrete Self binding alive for the duration
+    // of lowering if the surrounding impl context already determined it.
+    if (!struct_ctx.empty() && !current_type_params_.count("Self")) {
+        if (structs_.count(std::string(struct_ctx)))
+            current_type_params_["Self"] = make_struct_type(struct_ctx);
+        else if (datatypes_.count(std::string(struct_ctx)))
+            current_type_params_["Self"] = make_datatype_type(struct_ctx);
+    }
+
     lir::LFunction fn;
     fn.name      = mangled;
     int32_t node_code = code_of(node);
@@ -39,25 +49,69 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         fn.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
 
+    auto node_tparams = read_type_params(node);
     SemaFuncInfo* fi_ptr = nullptr;
     {
-        // If this AST node actually has type params, prefer generic_funcs_.
-        auto node_tparams = read_type_params(node);
-        if (!node_tparams.empty()) {
-            auto git = generic_funcs_.find(mangled);
-            if (git != generic_funcs_.end()) fi_ptr = &git->second;
+    std::vector<const LogosType*> decl_param_types;
+    size_t decl_param_arity = 0;
+    push_type_params(impl_type_params_);
+    push_type_params(node_tparams);
+    if (node.has_key(la::PARAMS)) {
+        auto params_av = node.get(la::PARAMS.code);
+        if (params_av.is_pointer()) {
+                auto params_node = map_of(params_av);
+                if (params_node.has_key(la::ITEMS)) {
+                    auto arr = arr_of(params_node.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < arr.size(); ++i) {
+                        auto p = map_of(arr.get(i));
+                        if (code_of(p) != la::PARAM) continue;
+                        if (p.has_key(la::TYPE))
+                            decl_param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
+                        else {
+                            auto* self_t = current_type_params_.count("Self")
+                                ? current_type_params_.at("Self") : error_t();
+                            bool is_mut = p.has_key(la::IS_MUT) &&
+                                          !p.get(la::IS_MUT.code).is_null() &&
+                                          p.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+                            decl_param_types.push_back(make_ref(is_mut, self_t));
+                    }
+                }
+            }
+        }
+    }
+    decl_param_arity = decl_param_types.size();
+    pop_type_params(node_tparams);
+    pop_type_params(impl_type_params_);
+
+        // Prefer an exact non-generic declaration when one exists.
+        if (auto fit = find_func_by_base_and_signature(mangled, decl_param_types, fn.is_vararg))
+            fi_ptr = const_cast<SemaFuncInfo*>(fit);
+        else {
+            for (auto* cand : find_func_candidates(mangled)) {
+                if (!cand || cand->type_params.size() != node_tparams.size()) continue;
+                if (cand->param_types.size() != decl_param_types.size()) continue;
+                bool same = true;
+                for (size_t i = 0; i < decl_param_types.size(); ++i) {
+                    if (!cand->param_types[i] || !decl_param_types[i] ||
+                        !types_equal(*cand->param_types[i], *decl_param_types[i])) {
+                        same = false; break;
+                    }
+                }
+                if (same) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
+            }
         }
         if (!fi_ptr) {
-            auto it = funcs_.find(mangled);
-            if (it != funcs_.end()) fi_ptr = &it->second;
-        }
-        if (!fi_ptr) {
-            auto git = generic_funcs_.find(mangled);
-            if (git != generic_funcs_.end()) fi_ptr = &git->second;
+            if (auto fit = find_func_by_symbol(mangled))
+                fi_ptr = const_cast<SemaFuncInfo*>(fit);
+            if (!fi_ptr)
+                fi_ptr = const_cast<SemaFuncInfo*>(find_generic_func(mangled, decl_param_arity));
+            if (!fi_ptr)
+                fi_ptr = const_cast<SemaFuncInfo*>(find_generic_func(mangled));
         }
     }
     if (!fi_ptr) return fn;   // shouldn't happen after collect
 
+    fn.name           = fi_ptr->symbol_name.empty() ? mangled : fi_ptr->symbol_name;
     fn.type_params    = fi_ptr->type_params;
     fn.lifetime_params = read_lifetime_params(node);
     // Robust associated type resolution: call subst_type_sema even if subst is empty
@@ -287,9 +341,11 @@ std::optional<int64_t> SemaChecker::const_eval_expr(TinyMapView e, const ConstEn
     // Nested const fn call: CALL node with a known const fn callee.
     if (c == la::CALL) {
         auto callee_name = str_of(e.get(la::CALLEE.code));
-        auto fit = funcs_.find(std::string(callee_name));
-        if (fit == funcs_.end() || !fit->second.is_const) return std::nullopt;
-        auto bit = const_fn_bodies_.find(std::string(callee_name));
+        const SemaFuncInfo* fi = nullptr;
+        if (auto cands = find_func_candidates(callee_name); cands.size() == 1)
+            fi = cands[0];
+        if (!fi || !fi->is_const) return std::nullopt;
+        auto bit = const_fn_bodies_.find(fi->symbol_name);
         if (bit == const_fn_bodies_.end()) return std::nullopt;
         ConstEnv call_env;
         if (e.has_key(la::ARGS)) {
@@ -349,9 +405,11 @@ std::optional<int64_t> SemaChecker::const_eval_block(TinyMapView block, ConstEnv
 lir::LExprPtr SemaChecker::try_const_fold_call(TinyMapView call_node) {
     if (!call_node.ptr() || code_of(call_node) != la::CALL) return nullptr;
     auto callee_name = str_of(call_node.get(la::CALLEE.code));
-    auto fit = funcs_.find(std::string(callee_name));
-    if (fit == funcs_.end() || !fit->second.is_const) return nullptr;
-    auto bit = const_fn_bodies_.find(std::string(callee_name));
+    const SemaFuncInfo* fi = nullptr;
+    if (auto cands = find_func_candidates(callee_name); cands.size() == 1)
+        fi = cands[0];
+    if (!fi || !fi->is_const) return nullptr;
+    auto bit = const_fn_bodies_.find(fi->symbol_name);
     if (bit == const_fn_bodies_.end()) return nullptr;
 
     // Evaluate arguments as constants.

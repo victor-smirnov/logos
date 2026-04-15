@@ -16,6 +16,7 @@ using namespace lir;
 
 mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
     if (!t) return nullptr;
+    if (type_str(t) == "AnyVal") return builder_.getI32Type();
     switch (t->kind) {
     case LogosType::Kind::Void:   return nullptr;
     case LogosType::Kind::I32:    return builder_.getI32Type();

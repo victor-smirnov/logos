@@ -628,16 +628,39 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
                     : target;
                 auto mangled = reg_target + "__" + mname;
-                if (!funcs_.count(mangled))
-                    collect_fn(m, reg_target);
+                collect_fn(m, reg_target);
                 // Trait-impl methods inherit their trait's accessibility:
                 // if the trait is reachable, so are its methods.  The
                 // grammar disallows `pub fn` inside trait / trait-impl
                 // blocks, so force is_pub=true post-collection.  Inherent
                 // impls (no trait_name) keep the explicit pub/private split.
                 if (!trait_name.empty()) {
-                    auto it = funcs_.find(mangled);
-                    if (it != funcs_.end()) it->second.is_pub = true;
+                    std::vector<const LogosType*> method_param_types;
+                    if (m.has_key(la::PARAMS)) {
+                        auto params_av = m.get(la::PARAMS.code);
+                        if (params_av.is_pointer()) {
+                            auto params_node = map_of(params_av);
+                            if (params_node.has_key(la::ITEMS)) {
+                                auto arr = arr_of(params_node.get(la::ITEMS.code));
+                                for (uint64_t j = 0; j < arr.size(); ++j) {
+                                    auto p = map_of(arr.get(j));
+                                    if (code_of(p) != la::PARAM) continue;
+                                    if (p.has_key(la::TYPE))
+                                        method_param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
+                                    else {
+                                        auto* self_t = current_type_params_.count("Self")
+                                            ? current_type_params_.at("Self") : error_t();
+                                        bool is_mut = p.has_key(la::IS_MUT) &&
+                                                      !p.get(la::IS_MUT.code).is_null() &&
+                                                      p.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+                                        method_param_types.push_back(make_ref(is_mut, self_t));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (auto it = find_func_by_base_and_signature(mangled, method_param_types, false))
+                        const_cast<SemaFuncInfo*>(it)->is_pub = true;
                 }
                 if (is_blanket) {
                     blanket_impls_.push_back({
@@ -725,16 +748,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
         if (tit != traits_.end()) {
             for (auto& m : tit->second.methods) {
                 auto mangled = check_target + "__" + m.name;
-                if (funcs_.count(mangled)) {
-                    auto& impl_fn = funcs_[mangled];
-                    if (m.is_unsafe != impl_fn.is_unsafe) {
+                auto cands = find_func_candidates(mangled);
+                if (!cands.empty()) {
+                    auto* impl_fn = cands[0];
+                    if (m.is_unsafe != impl_fn->is_unsafe) {
                         error(std::format("impl {} for {}: method '{}' has mismatched unsafe parity (trait: {}, impl: {})",
                             trait_name, target, m.name, 
                             m.is_unsafe ? "unsafe" : "safe", 
-                            impl_fn.is_unsafe ? "unsafe" : "safe"));
+                            impl_fn->is_unsafe ? "unsafe" : "safe"));
                     }
                 }
-                if (!funcs_.count(mangled)) {
+                if (cands.empty()) {
                     if (m.has_default) {
                         // Register default method as Target__method.
                         // Push Self → target type so parameter types resolve correctly.
@@ -757,8 +781,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         collect_fn(map_of(m.default_ast), target);
                         // Default trait-method: inherits trait accessibility.
                         auto dmangled = target + "__" + m.name;
-                        auto dit = funcs_.find(dmangled);
-                        if (dit != funcs_.end()) dit->second.is_pub = true;
+                        if (auto dfit = find_func_candidates(dmangled); !dfit.empty())
+                            const_cast<SemaFuncInfo*>(dfit[0])->is_pub = true;
                         current_type_params_.erase("Self");
                     } else {
                         error(std::format("impl {} for {}: missing method '{}'",
@@ -1298,10 +1322,10 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
 
 void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
-    std::string mangled = struct_ctx.empty()
+    std::string base_name = struct_ctx.empty()
         ? std::string(raw_name)
         : std::string(struct_ctx) + "__" + std::string(raw_name);
-    ctx_ = std::format("fn {}", mangled);
+    ctx_ = std::format("fn {}", base_name);
 
     // Specialisations are validated and lowered inline by lower_spec_fn;
     // skip collection-phase registration entirely.
@@ -1309,112 +1333,42 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
 
     SemaFuncInfo info;
     info.type_params = read_type_params(node);
-    // Allow overloading: a non-generic base case and a generic version
-    // can coexist with the same name (for variadic recursion base cases).
-    if (funcs_.count(mangled)) {
-        // extern fn can be declared in multiple modules (they all resolve to the same
-        // C symbol at link time). Silently skip re-registering the duplicate declaration.
-        if (code_of(node) == la::EXTERN_FN && funcs_[mangled].is_extern)
-            return;
-        bool new_is_generic = !info.type_params.empty();
-        bool old_is_generic = !funcs_[mangled].type_params.empty();
-        if (new_is_generic == old_is_generic) {
-            error(std::format("duplicate function '{}'", mangled));
-            return;
-        }
-        // Store the generic version separately; non-generic stays in funcs_.
-        if (new_is_generic) {
-            // Continue with collection, but store under generic_funcs_
-            push_type_params(info.type_params);
-            if (node.has_key(la::PARAMS)) {
-                auto params_av = node.get(la::PARAMS.code);
-                if (params_av.is_pointer()) {
-                    auto params_node = map_of(params_av);
-                    if (params_node.has_key(la::ITEMS)) {
-                        auto arr = arr_of(params_node.get(la::ITEMS.code));
-                        for (uint64_t i = 0; i < arr.size(); ++i) {
-                            auto p = map_of(arr.get(i));
-                            if (code_of(p) != la::PARAM) continue;
-                            const LogosType* pt;
-                            if (p.has_key(la::IS_REF)) {
-                                auto sit = current_type_params_.find("Self");
-                                auto* self_t = sit != current_type_params_.end() ? sit->second : error_t();
-                                bool is_mut = !p.get(la::IS_MUT.code).is_null();
-                                pt = make_ref(is_mut, self_t);
-                            } else {
-                                pt = p.has_key(la::TYPE)
-                                    ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
-                            }
-                            info.param_types.push_back(pt);
-                        }
-                    }
-                }
-            }
-            info.ret_type = node.has_key(la::RET_TYPE)
-                ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
-            if (node.has_key(la::IS_PUB)) {
-                AnyVal av = node.get(la::IS_PUB.code);
-                info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-            }
-            if (node.has_key(la::IS_UNSAFE)) {
-                AnyVal av = node.get(la::IS_UNSAFE.code);
-                info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-            }
-            if (code_of(node) == la::EXTERN_FN) {
-                info.is_pub = true;
-                info.is_unsafe = true;
-            }
-            if (node.has_key(la::IS_CONST)) {
-                AnyVal av = node.get(la::IS_CONST.code);
-                info.is_const = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-            }
-            pop_type_params(info.type_params);
-            if (!impl_type_params_.empty()) {
-                auto combined = impl_type_params_;
-                combined.insert(combined.end(), info.type_params.begin(), info.type_params.end());
-                info.type_params = std::move(combined);
-            }
-            generic_funcs_[mangled] = std::move(info);
-            return;
-        }
-        // else: new is non-generic, old is generic — move old to generic_funcs_
-        generic_funcs_[mangled] = std::move(funcs_[mangled]);
-        funcs_.erase(mangled);
-    }
-    push_type_params(info.type_params);
-    if (node.has_key(la::PARAMS)) {
+    info.base_name = base_name;
+    info.source_file = file_;
+    info.package = cur_package_;
+
+    auto read_param_types = [&]() {
+        if (!node.has_key(la::PARAMS)) return;
         auto params_av = node.get(la::PARAMS.code);
-        if (params_av.is_pointer()) {
-            auto params_node = map_of(params_av);
-            if (params_node.has_key(la::ITEMS)) {
-                auto arr = arr_of(params_node.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < arr.size(); ++i) {
-                    auto p = map_of(arr.get(i));
-                    if (code_of(p) != la::PARAM) continue;
-                    const LogosType* pt;
-                    if (p.has_key(la::IS_REF)) {
-                        auto sit = current_type_params_.find("Self");
-                        auto* self_t = sit != current_type_params_.end() ? sit->second : error_t();
-                        bool is_mut = !p.get(la::IS_MUT.code).is_null();
-                        pt = make_ref(is_mut, self_t);
-                    } else {
-                        pt = resolve_type(map_of(p.get(la::TYPE.code)));
-                    }
-                    info.param_types.push_back(pt);
-                }
+        if (!params_av.is_pointer()) return;
+        auto params_node = map_of(params_av);
+        if (!params_node.has_key(la::ITEMS)) return;
+        auto arr = arr_of(params_node.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < arr.size(); ++i) {
+            auto p = map_of(arr.get(i));
+            if (code_of(p) != la::PARAM) continue;
+            const LogosType* pt;
+            if (p.has_key(la::IS_REF)) {
+                auto sit = current_type_params_.find("Self");
+                auto* self_t = sit != current_type_params_.end() ? sit->second : error_t();
+                bool is_mut = !p.get(la::IS_MUT.code).is_null();
+                pt = make_ref(is_mut, self_t);
+            } else {
+                pt = p.has_key(la::TYPE) ? resolve_type(map_of(p.get(la::TYPE.code))) : error_t();
             }
+            info.param_types.push_back(pt);
         }
-    }
+    };
+
+    push_type_params(info.type_params);
+    read_param_types();
     info.ret_type = node.has_key(la::RET_TYPE)
         ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
         : void_t();
-    // Vararg flag (for extern fn with ... params)
     if (node.has_key(la::IS_VARARG)) {
         AnyVal av = node.get(la::IS_VARARG.code);
         info.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
-    // Visibility: pub fn → is_pub = true; extern fn is always pub (C FFI).
-    // extern fn is also always unsafe (FFI calls require unsafe context, like Rust).
     if (code_of(node) == la::EXTERN_FN) {
         info.is_pub = true;
         info.is_unsafe = true;
@@ -1423,32 +1377,44 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
-    // const fn marker
     if (node.has_key(la::IS_CONST)) {
         AnyVal av = node.get(la::IS_CONST.code);
         info.is_const = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
-    // unsafe fn marker
     if (node.has_key(la::IS_UNSAFE)) {
         AnyVal av = node.get(la::IS_UNSAFE.code);
         info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
-    info.source_file = file_;
-    info.package = cur_package_;
     pop_type_params(info.type_params);
-    // Prepend impl-level type params AFTER the push/pop cycle so they remain
-    // in current_type_params_ (managed by collect_impl's push/pop).
     if (!impl_type_params_.empty()) {
         auto combined = impl_type_params_;
         combined.insert(combined.end(), info.type_params.begin(), info.type_params.end());
         info.type_params = std::move(combined);
     }
-    // Store body AST for const fn evaluation.
-    bool became_const = info.is_const;
-    if (became_const && node.has_key(la::BODY)) {
+
+    info.signature_key = function_signature_key(base_name, info.param_types, info.is_vararg);
+    info.symbol_name = base_name;
+
+    // Extern declarations are ABI symbols, not overloadable implementation
+    // names.  Keep the raw callee name stable so repeated declarations across
+    // stdlib modules (e.g. `malloc` / `free`) still link to the same libc
+    // symbol instead of being mangled into `malloc__f__i64`.
+    if (info.is_extern) {
+        auto& overloads = func_overloads_[base_name];
+        for (auto& sym : overloads) {
+            auto fit = funcs_.find(sym);
+            if (fit != funcs_.end() && fit->second.signature_key == info.signature_key)
+                return;
+        }
+        overloads.push_back(base_name);
+        funcs_[base_name] = std::move(info);
+        return;
+    }
+
+    auto store_const_body = [&]() {
+        if (!(info.is_const && node.has_key(la::BODY))) return;
         ConstFnBody cfb;
         cfb.body = map_of(node.get(la::BODY.code));
-        // Read parameter names.
         if (node.has_key(la::PARAMS)) {
             auto params_av = node.get(la::PARAMS.code);
             if (params_av.is_pointer()) {
@@ -1463,9 +1429,63 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx) {
                 }
             }
         }
-        const_fn_bodies_[mangled] = std::move(cfb);
+        const_fn_bodies_[info.symbol_name] = std::move(cfb);
+    };
+
+    if (!info.type_params.empty()) {
+        info.symbol_name = function_symbol_name(base_name, info);
+        auto& gen_overloads = generic_overloads_[base_name];
+        for (auto& sym : gen_overloads) {
+            auto it = generic_funcs_.find(sym);
+            if (it != generic_funcs_.end() && it->second.signature_key == info.signature_key) {
+                if (code_of(node) == la::EXTERN_FN && it->second.is_extern)
+                    return;
+                error(std::format("duplicate function '{}'", base_name));
+                return;
+            }
+        }
+        store_const_body();
+        gen_overloads.push_back(info.symbol_name);
+        generic_funcs_[info.symbol_name] = std::move(info);
+        return;
     }
-    funcs_[mangled] = std::move(info);  // must come after body storage (info.is_const read above)
+
+    auto& overloads = func_overloads_[base_name];
+    if (!overloads.empty()) {
+        if (overloads.size() == 1 && overloads[0] == base_name) {
+            auto it = funcs_.find(base_name);
+            if (it != funcs_.end()) {
+                auto old_info = std::move(it->second);
+                funcs_.erase(it);
+                std::string renamed = function_symbol_name(base_name, old_info);
+                old_info.symbol_name = renamed;
+                funcs_[renamed] = std::move(old_info);
+                if (auto cfb = const_fn_bodies_.find(base_name); cfb != const_fn_bodies_.end()) {
+                    auto body = std::move(cfb->second);
+                    const_fn_bodies_.erase(cfb);
+                    const_fn_bodies_[renamed] = std::move(body);
+                }
+                overloads[0] = renamed;
+            }
+        }
+        info.symbol_name = function_symbol_name(base_name, info);
+    } else if (generic_overloads_.count(base_name)) {
+        info.symbol_name = function_symbol_name(base_name, info);
+    }
+    for (auto& sym : overloads) {
+        auto fit = funcs_.find(sym);
+        if (fit == funcs_.end()) continue;
+        if (fit->second.signature_key == info.signature_key) {
+            if (code_of(node) == la::EXTERN_FN && fit->second.is_extern)
+                return;
+            error(std::format("duplicate function '{}'", base_name));
+            return;
+        }
+    }
+
+    overloads.push_back(info.symbol_name);
+    store_const_body();
+    funcs_[info.symbol_name] = std::move(info);
 }
 
 
