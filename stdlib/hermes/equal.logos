@@ -210,3 +210,37 @@ impl HermesEqual for ObjectMap {
         }
     }
 }
+
+// ── TypedValue (106): same type name + params + initializer ───────────────
+
+impl HermesEqual for TypedValue {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const TypedValue = self as *const TypedValue;
+            let b: *const TypedValue = other as *const TypedValue;
+
+            let sa: *const HermesString =
+                (ctx.base_self as i64 + a.type_off as i64) as *const HermesString;
+            let sb: *const HermesString =
+                (ctx.base_other as i64 + b.type_off as i64) as *const HermesString;
+            if sa.len() != sb.len() { return false; }
+            let mut i: u64 = 0 as u64;
+            while i < sa.len() {
+                let ca: u8 = *((sa.bytes() as i64 + i as i64) as *const u8);
+                let cb: u8 = *((sb.bytes() as i64 + i as i64) as *const u8);
+                if ca != cb { return false; }
+                i = i + 1 as u64;
+            }
+
+            let pa: AnyVal = AnyVal { raw: a.params_raw };
+            let pb: AnyVal = AnyVal { raw: b.params_raw };
+            if !anyval_equal(pa, pb, ctx) { return false; }
+
+            let ia: AnyVal = AnyVal { raw: a.init_raw };
+            let ib: AnyVal = AnyVal { raw: b.init_raw };
+            if !anyval_equal(ia, ib, ctx) { return false; }
+
+            return true;
+        }
+    }
+}

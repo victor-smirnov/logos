@@ -260,6 +260,54 @@ impl HermesStringify for MapI32AnyVal {
     }
 }
 
+impl HermesStringify for TypedValue {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let tv: *const TypedValue = self as *const TypedValue;
+            let hs: *const HermesString = (ctx.base as i64 + tv.type_off as i64) as *const HermesString;
+            let b: *const u8 = hs.bytes();
+            let n: u64 = hs.len();
+
+            ctx.out.push_u8(64 as u8);   // '@'
+            let mut i: u64 = 0 as u64;
+            while i < n {
+                ctx.out.push_u8(*((b as i64 + i as i64) as *const u8));
+                i = i + 1 as u64;
+            }
+
+            let params: AnyVal = AnyVal { raw: tv.params_raw };
+            if !params.is_null() {
+                ctx.out.push_u8(40 as u8);  // '('
+                if params.is_ptr() {
+                    let pobj: *const u8 = (ctx.base as i64 + params.as_offset() as i64) as *const u8;
+                    let th: u8 = tag_read_hash(pobj);
+                    if th == hermes_tag_array() {
+                        let arr: *const ObjectArray = pobj as *const ObjectArray;
+                        let mut pi: u64 = 0 as u64;
+                        while pi < arr.size {
+                            if pi > 0 as u64 { ctx.out.push_u8(44 as u8); }
+                            let v: AnyVal = arr.get(ctx.base, pi);
+                            stringify_anyval(v, ctx);
+                            pi = pi + 1 as u64;
+                        }
+                    } else {
+                        stringify_anyval(params, ctx);
+                    }
+                } else {
+                    stringify_anyval(params, ctx);
+                }
+                ctx.out.push_u8(41 as u8);  // ')'
+            }
+
+            ctx.out.push_u8(32 as u8);  // ' '
+            ctx.out.push_u8(61 as u8);  // '='
+            ctx.out.push_u8(32 as u8);  // ' '
+            let initv: AnyVal = AnyVal { raw: tv.init_raw };
+            stringify_anyval(initv, ctx);
+        }
+    }
+}
+
 // ── Array<T> — blanket over any T: HermesStringify ────────────────────────
 // Works for Array<AnyVal> (previously ObjectArray, type_code=100), Array<i32>,
 // etc.  Element layout is contiguous T[] at the zone-relative `data` offset.

@@ -24,6 +24,7 @@
 //   103 = TypedMap wrapper (<K>{...}, <K,V>{...})
 //   104 = ArrayI32 (<I32>[...], dense primitive array)
 //   105 = MapI32AnyVal (<I32>{...} / <I32,AnyVal>{...})
+//   106 = TypedValue (@Type(...)=initializer)
 //   3   = Document   (Logos extension — DocumentHeader at zone offset 0)
 //
 // TagDescriptor values (C++ TagDescriptor enum):
@@ -67,6 +68,10 @@ pub unsafe fn hermes_tag_array_i32() -> u8 {
 
 pub unsafe fn hermes_tag_map_i32_anyval() -> u8 {
     return 105 as u8;   // typed map with i32 keys and AnyVal values
+}
+
+pub unsafe fn hermes_tag_typed_value() -> u8 {
+    return 106 as u8;   // typed value wrapper
 }
 
 pub unsafe fn hermes_tag_document() -> u8 {

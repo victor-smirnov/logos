@@ -13,6 +13,7 @@ use hermes.stringify;
 use hermes.equal;
 use hermes.hashing;
 use hermes.clone;
+use hermes.release;
 
 // ── stringify ─────────────────────────────────────────────────────────────
 
@@ -64,4 +65,17 @@ pub unsafe fn hermes_fn_clone(code: u64)
     let raw: *const u8 =
         __logos_dispatch_lookup__HermesTypeTagSystem__HermesClone__clone_to(code);
     return raw as fn(*const u8, *mut CloneCtx) -> *mut u8;
+}
+
+// ── release ───────────────────────────────────────────────────────────────
+
+extern fn __logos_dispatch_lookup__HermesTypeTagSystem__HermesRelease__release(
+    code: u64) -> *const u8;
+
+pub unsafe fn hermes_fn_release(code: u64)
+    -> fn(*const u8) -> ()
+{
+    let raw: *const u8 =
+        __logos_dispatch_lookup__HermesTypeTagSystem__HermesRelease__release(code);
+    return raw as fn(*const u8) -> ();
 }

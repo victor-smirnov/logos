@@ -250,3 +250,29 @@ impl HermesClone for ObjectMap {
         }
     }
 }
+
+// ── TypedValue (106) ───────────────────────────────────────────────────────
+
+impl HermesClone for TypedValue {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let t: *const TypedValue = self as *const TypedValue;
+            let sz: i64 = sizeof::<TypedValue>() as i64;
+            let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sz,
+                                   hermes_tag_typed_value(), hermes_desc_data());
+            if raw == 0 as *mut u8 { return 0 as *mut u8; }
+
+            let ty_av: AnyVal = anyval_clone(AnyVal::from_offset(t.type_off), ctx);
+            if ty_av.is_null() || !ty_av.is_ptr() { return 0 as *mut u8; }
+
+            let params_new: AnyVal = anyval_clone(AnyVal { raw: t.params_raw }, ctx);
+            if t.params_raw != 0 as u32 && params_new.is_null() { return 0 as *mut u8; }
+
+            let init_new: AnyVal = anyval_clone(AnyVal { raw: t.init_raw }, ctx);
+            if t.init_raw != 0 as u32 && init_new.is_null() { return 0 as *mut u8; }
+
+            TypedValue::init(raw, ty_av.as_offset(), params_new, init_new);
+            return raw;
+        }
+    }
+}
