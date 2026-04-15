@@ -141,13 +141,6 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitStr& e, const LogosType*) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, const LogosType* type) {
-    if (e.name == "obj" || e.name == "m" || e.name == "s_av") {
-        std::fprintf(stderr, "mlir_gen: gen_varref('%s') type=%s scope=%d let=%d\n",
-                     e.name.c_str(),
-                     type ? type_str(type).c_str() : "<null>",
-                     scope_.count(e.name) ? 1 : 0,
-                     let_vars_.count(e.name) ? 1 : 0);
-    }
     // Module constant: re-evaluate inline.
     auto cit = module_consts_.find(e.name);
     if (cit != module_consts_.end())
@@ -290,12 +283,6 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLitData& e, const LogosType* t
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
-    if (e.op == "+" || e.op == "as") {
-        std::fprintf(stderr, "mlir_gen: binop '%s' lhs=%s rhs=%s\n",
-                     e.op.c_str(),
-                     e.lhs && e.lhs->type ? type_str(e.lhs->type).c_str() : "<null>",
-                     e.rhs && e.rhs->type ? type_str(e.rhs->type).c_str() : "<null>");
-    }
     auto lhs = gen_expr(*e.lhs);
     if (!lhs) return nullptr;
 
@@ -741,21 +728,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
               rt->kind == LogosType::Kind::MutRef) &&
              rt->pointee && type_str(rt->pointee) == "AnyVal");
         if (is_anyval) {
-        std::fprintf(stderr, "mlir_gen: as_offset fastpath recv_t=%s\n", type_str(rt).c_str());
         auto recv = gen_expr(*e.receiver);
-        if (!recv) {
-            std::fprintf(stderr, "mlir_gen: as_offset fastpath recv=null\n");
-            return nullptr;
-        }
+        if (!recv) return nullptr;
         if (recv.getType() == ptr_type())
             return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
         return coerce_numeric(recv, builder_.getI32Type());
         }
-    }
-    if (e.method == "as_offset" || e.method == "stringify" || e.method == "as_i64") {
-        std::fprintf(stderr, "mlir_gen: method call '%s' recv=%s\n",
-                     e.method.c_str(),
-                     e.receiver && e.receiver->type ? type_str(e.receiver->type).c_str() : "<null>");
     }
     // &tagged<TS> Trait dispatch: read type_code, GEP tier-1 table, indirect call.
     if (!e.tag_system.empty()) {
@@ -799,11 +777,6 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
     if (!callee_fn) {
         std::fprintf(stderr, "mlir_gen: method '%s' not found\n", mangled.c_str());
         return nullptr;
-    }
-    if (e.method == "as_offset" || e.method == "as_i64" || e.method == "stringify") {
-        std::fprintf(stderr, "mlir_gen: method callee '%s' results=%zu\n",
-                     callee_fn.getName().str().c_str(),
-                     callee_fn.getFunctionType().getResults().size());
     }
     llvm::SmallVector<mlir::Value> args;
     args.push_back(ptr);
@@ -1014,13 +987,6 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, const LogosType* ty
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
-    if (e.operand && e.operand->type && (type_str(type) == "HermesString" ||
-                                        type_str(type).rfind("*const", 0) == 0 ||
-                                        type_str(type).rfind("*mut", 0) == 0)) {
-        std::fprintf(stderr, "mlir_gen: cast from %s to %s\n",
-                     type_str(e.operand->type).c_str(),
-                     type ? type_str(type).c_str() : "<null>");
-    }
     auto val    = gen_expr(*e.operand);
     if (!val) return nullptr;
     auto target = logos_to_mlir(type);

@@ -20,6 +20,10 @@
 //   98  = Hermes     (TinyObjectMap)
 //   100 = ObjectArray
 //   101 = ObjectMap  (Logos open-addressing version)
+//   102 = TypedArray wrapper (<T>[...])
+//   103 = TypedMap wrapper (<K>{...}, <K,V>{...})
+//   104 = ArrayI32 (<I32>[...], dense primitive array)
+//   105 = MapI32AnyVal (<I32>{...} / <I32,AnyVal>{...})
 //   3   = Document   (Logos extension — DocumentHeader at zone offset 0)
 //
 // TagDescriptor values (C++ TagDescriptor enum):
@@ -47,6 +51,22 @@ pub unsafe fn hermes_tag_array() -> u8 {
 
 pub unsafe fn hermes_tag_map() -> u8 {
     return 101 as u8;   // ObjectMap (Logos open-addressing version)
+}
+
+pub unsafe fn hermes_tag_typed_array() -> u8 {
+    return 102 as u8;   // TypedArray wrapper
+}
+
+pub unsafe fn hermes_tag_typed_map() -> u8 {
+    return 103 as u8;   // TypedMap wrapper
+}
+
+pub unsafe fn hermes_tag_array_i32() -> u8 {
+    return 104 as u8;   // dense typed primitive array
+}
+
+pub unsafe fn hermes_tag_map_i32_anyval() -> u8 {
+    return 105 as u8;   // typed map with i32 keys and AnyVal values
 }
 
 pub unsafe fn hermes_tag_document() -> u8 {

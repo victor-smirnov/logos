@@ -1,0 +1,39 @@
+// Unsupported typed materializations must return parse error.
+package hermes_typed_materialization_errors;
+
+use hermes.ctr;
+use std.string;
+
+unsafe fn main() -> i32 {
+    // Unknown typed array materialization.
+    let mut d1: HermesCtr = HermesCtr::new(4096);
+    match d1.parse("<U64>[1]" as *const u8, 8 as i64) {
+        Result::Ok(())  => { return 1; }
+        Result::Err(_)  => {}
+    }
+
+    // <I32,AnyVal> must reject non-i32 keys at parse time.
+    let mut d2: HermesCtr = HermesCtr::new(4096);
+    match d2.parse("<I32,AnyVal>{\"a\":1}" as *const u8, 20 as i64) {
+        Result::Ok(())  => { return 2; }
+        Result::Err(_)  => {}
+    }
+
+    // Materialized type with wrong payload element kind.
+    let mut d3: HermesCtr = HermesCtr::new(4096);
+    match d3.parse("<I32>[\"x\"]" as *const u8, 10 as i64) {
+        Result::Ok(())  => { return 3; }
+        Result::Err(_)  => {}
+    }
+
+    // Baseline (untyped) containers must still work.
+    let mut d4: HermesCtr = HermesCtr::new(4096);
+    match d4.parse("[1,2,3]" as *const u8, 7 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 4; }
+    }
+    let s4: String = d4.to_string();
+    if !s4.eq_cstr("[1,2,3]") { return 5; }
+
+    return 0;
+}

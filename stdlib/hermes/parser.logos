@@ -39,6 +39,7 @@ use hermes.typetag;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
+use hermes.scalar;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -80,6 +81,36 @@ pub struct HermesParser {
     pub base:    *mut u8,                // zone.holder.base cached
     pub scratch: *mut u8,                // 1 KiB malloc buffer for string building
     pub ok:      bool,                   // false → parse error
+}
+
+pub struct TypedContainerSpec {
+    pub ok: bool,
+    pub next: u8,         // '[' or '{'
+    pub arg_count: i64,
+    pub a0_start: i64,
+    pub a0_end: i64,
+    pub a1_start: i64,
+    pub a1_end: i64,
+    pub key_atom: u8,     // for map key or array element
+    pub val_atom: u8,     // for map value
+    pub mat: u8,          // selected pre-materialization
+}
+
+impl TypedContainerSpec {
+    pub static fn invalid() -> TypedContainerSpec {
+        return TypedContainerSpec {
+            ok: false,
+            next: 0 as u8,
+            arg_count: 0 as i64,
+            a0_start: 0 as i64,
+            a0_end: 0 as i64,
+            a1_start: 0 as i64,
+            a1_end: 0 as i64,
+            key_atom: 0 as u8,
+            val_atom: 0 as u8,
+            mat: 0 as u8,
+        };
+    }
 }
 
 impl HermesParser {
@@ -273,31 +304,356 @@ impl HermesParser {
         return false;
     }
 
-    // Parse typed container header after initial '<' was consumed.
-    // Returns top-level arg count, or 0 on syntax error.
-    pub unsafe fn parse_typed_header_args(&mut self) -> i64 {
+    pub unsafe fn is_ws(&mut self, c: u8) -> bool {
+        return c == 32 as u8 || c == 9 as u8 || c == 10 as u8 || c == 13 as u8;
+    }
+
+    pub unsafe fn type_expr_is_i32(&mut self, start: i64, end: i64) -> bool {
+        let mut ts: i64 = start;
+        let mut te: i64 = end;
+        while ts < te && self.is_ws(*((self.text as i64 + ts) as *const u8)) {
+            ts = ts + 1 as i64;
+        }
+        while te > ts && self.is_ws(*((self.text as i64 + te - 1 as i64) as *const u8)) {
+            te = te - 1 as i64;
+        }
+        if te - ts != 3 as i64 { return false; }
+        let c0: u8 = *((self.text as i64 + ts + 0 as i64) as *const u8);
+        let c1: u8 = *((self.text as i64 + ts + 1 as i64) as *const u8);
+        let c2: u8 = *((self.text as i64 + ts + 2 as i64) as *const u8);
+        return (c0 == 105 as u8 || c0 == 73 as u8)  // i / I
+            && c1 == 51 as u8 && c2 == 50 as u8;    // 3 2
+    }
+
+    pub unsafe fn ident_eq_span(&mut self, start: i64, end: i64, lit: *const u8, n: i64) -> bool {
+        if end - start != n { return false; }
+        let mut i: i64 = 0 as i64;
+        while i < n {
+            let a: u8 = *((self.text as i64 + start + i) as *const u8);
+            let b: u8 = *((lit as i64 + i) as *const u8);
+            if a != b { return false; }
+            i = i + 1 as i64;
+        }
+        return true;
+    }
+
+    pub unsafe fn atom_unknown(&mut self) -> u8 { return 0 as u8; }
+    pub unsafe fn atom_i32(&mut self) -> u8 { return 1 as u8; }
+    pub unsafe fn atom_varchar(&mut self) -> u8 { return 2 as u8; }
+    pub unsafe fn atom_anyval(&mut self) -> u8 { return 3 as u8; }
+
+    pub unsafe fn mat_unknown(&mut self) -> u8 { return 0 as u8; }
+    pub unsafe fn mat_default_map(&mut self) -> u8 { return 1 as u8; }
+    pub unsafe fn mat_i32_anyval_map(&mut self) -> u8 { return 2 as u8; }
+    pub unsafe fn mat_i32_array(&mut self) -> u8 { return 3 as u8; }
+
+    // Typed-container materialization registry.
+    // Add new pre-materializations by appending rules here, not in parser flow.
+    pub unsafe fn resolve_array_materialization(&mut self, argc: i64, elem_atom: u8) -> u8 {
+        // Rule: <I32>[...] -> dense ArrayI32
+        if argc == 1 as i64 && elem_atom == self.atom_i32() {
+            return self.mat_i32_array();
+        }
+        return self.mat_unknown();
+    }
+
+    pub unsafe fn resolve_map_materialization(&mut self, argc: i64, key_atom: u8, val_atom: u8) -> u8 {
+        // Rule: <Varchar>{...} -> Map<Varchar,AnyVal>
+        if argc == 1 as i64 && key_atom == self.atom_varchar() {
+            return self.mat_default_map();
+        }
+        // Rule: <I32>{...} -> Map<I32,AnyVal>
+        if argc == 1 as i64 && key_atom == self.atom_i32() {
+            return self.mat_i32_anyval_map();
+        }
+        // Rule: <Varchar,AnyVal>{...}
+        if argc == 2 as i64 && key_atom == self.atom_varchar() && val_atom == self.atom_anyval() {
+            return self.mat_default_map();
+        }
+        // Rule: <I32,AnyVal>{...}
+        if argc == 2 as i64 && key_atom == self.atom_i32() && val_atom == self.atom_anyval() {
+            return self.mat_i32_anyval_map();
+        }
+        return self.mat_unknown();
+    }
+
+    pub unsafe fn infer_map_value_atom(&mut self, mat: u8, current: u8) -> u8 {
+        if current != self.atom_unknown() { return current; }
+        if mat == self.mat_default_map() || mat == self.mat_i32_anyval_map() {
+            return self.atom_anyval();
+        }
+        return current;
+    }
+
+    pub unsafe fn parse_type_atom(&mut self, start: i64, end: i64) -> u8 {
+        let mut ts: i64 = start;
+        let mut te: i64 = end;
+        while ts < te && self.is_ws(*((self.text as i64 + ts) as *const u8)) {
+            ts = ts + 1 as i64;
+        }
+        while te > ts && self.is_ws(*((self.text as i64 + te - 1 as i64) as *const u8)) {
+            te = te - 1 as i64;
+        }
+        if ts >= te { return self.atom_unknown(); }
+        if !self.is_ident_start(*((self.text as i64 + ts) as *const u8)) {
+            return self.atom_unknown();
+        }
+        let mut i: i64 = ts + 1 as i64;
+        while i < te && self.is_ident_char(*((self.text as i64 + i) as *const u8)) {
+            i = i + 1 as i64;
+        }
+        while i < te && self.is_ws(*((self.text as i64 + i) as *const u8)) {
+            i = i + 1 as i64;
+        }
+        if i != te { return self.atom_unknown(); }
+
+        if self.type_expr_is_i32(ts, te) { return self.atom_i32(); }
+        if self.ident_eq_span(ts, te, "Varchar" as *const u8, 7 as i64) { return self.atom_varchar(); }
+        if self.ident_eq_span(ts, te, "AnyVal" as *const u8, 6 as i64) { return self.atom_anyval(); }
+        return self.atom_unknown();
+    }
+
+    // Parse `<...>` and resolve pre-materialization policy.
+    // On success returns a fully resolved spec with the next container token
+    // (`[` or `{`) still unconsumed for payload parser.
+    pub unsafe fn parse_typed_container_spec(&mut self) -> TypedContainerSpec {
+        if self.peek() != 60 as u8 {  // '<'
+            return TypedContainerSpec::invalid();
+        }
+        self.pos = self.pos + 1 as i64;
+
         let mut count: i64 = 0 as i64;
+        let mut a0s: i64 = 0 as i64;
+        let mut a0e: i64 = 0 as i64;
+        let mut a1s: i64 = 0 as i64;
+        let mut a1e: i64 = 0 as i64;
+
         while true {
             self.skip();
-            if self.at_end() { return 0 as i64; }
-            if self.peek() == 62 as u8 {  // '>'
-                return 0 as i64;          // empty arg list is invalid
-            }
-            if self.parse_datatype_expr() == false { return 0 as i64; }
+            if self.at_end() { return TypedContainerSpec::invalid(); }
+            if self.peek() == 62 as u8 { return TypedContainerSpec::invalid(); } // empty header
+
+            let arg_start: i64 = self.pos;
+            if self.parse_datatype_expr() == false { return TypedContainerSpec::invalid(); }
+            let arg_end: i64 = self.pos;
             count = count + 1 as i64;
+            if count == 1 as i64 { a0s = arg_start; a0e = arg_end; }
+            if count == 2 as i64 { a1s = arg_start; a1e = arg_end; }
+
             self.skip();
-            if self.at_end() { return 0 as i64; }
+            if self.at_end() { return TypedContainerSpec::invalid(); }
             let ch: u8 = self.peek();
-            if ch == 44 as u8 {           // ','
+            if ch == 44 as u8 {  // ','
                 self.pos = self.pos + 1 as i64;
-            } else if ch == 62 as u8 {    // '>'
+            } else if ch == 62 as u8 {  // '>'
                 self.pos = self.pos + 1 as i64;
-                return count;
+                break;
             } else {
-                return 0 as i64;
+                return TypedContainerSpec::invalid();
             }
         }
-        return 0 as i64;
+
+        self.skip();
+        if self.at_end() { return TypedContainerSpec::invalid(); }
+        let next: u8 = self.peek();
+        if next != 91 as u8 && next != 123 as u8 {  // '[' / '{'
+            return TypedContainerSpec::invalid();
+        }
+
+        let key_atom: u8 = self.parse_type_atom(a0s, a0e);
+        let mut val_atom: u8 = if count >= 2 as i64 { self.parse_type_atom(a1s, a1e) } else { self.atom_unknown() };
+        let mat: u8 = if next == 91 as u8 {
+            self.resolve_array_materialization(count, key_atom)
+        } else {
+            self.resolve_map_materialization(count, key_atom, val_atom)
+        };
+        if mat == self.mat_unknown() { return TypedContainerSpec::invalid(); }
+        val_atom = self.infer_map_value_atom(mat, val_atom);
+
+        return TypedContainerSpec {
+            ok: true,
+            next: next,
+            arg_count: count,
+            a0_start: a0s,
+            a0_end: a0e,
+            a1_start: a1s,
+            a1_end: a1e,
+            key_atom: key_atom,
+            val_atom: val_atom,
+            mat: mat,
+        };
+    }
+
+    pub unsafe fn anyval_to_i32(&mut self, v: AnyVal) -> i32 {
+        let mut n: i64 = 0 as i64;
+        if v.is_ptr() {
+            if v.is_null() {
+                self.ok = false;
+                return 0 as i32;
+            }
+            let obj: *const u8 = (self.base as i64 + v.as_offset() as i64) as *const u8;
+            let th: u8 = tag_read_hash(obj);
+            if th == hermes_tag_i64() {
+                let p: *const I64 = obj as *const I64;
+                n = p.v;
+            } else if th == hermes_tag_u64() {
+                let p: *const U64 = obj as *const U64;
+                if p.v > 2147483647 as u64 {
+                    self.ok = false;
+                    return 0 as i32;
+                }
+                n = p.v as i64;
+            } else {
+                self.ok = false;
+                return 0 as i32;
+            }
+        } else if v.is_int() {
+            n = v.as_i24() as i64;
+        } else if v.is_uint() {
+            n = v.as_u24() as i64;
+        } else {
+            self.ok = false;
+            return 0 as i32;
+        }
+        if n < -2147483648 as i64 || n > 2147483647 as i64 {
+            self.ok = false;
+            return 0 as i32;
+        }
+        return n as i32;
+    }
+
+    pub unsafe fn parse_typed_array_i32(&mut self) -> AnyVal {
+        if self.peek() != 91 as u8 {  // '['
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        self.pos = self.pos + 1 as i64;
+
+        let cap: u64 = 64 as u64;
+        let arr_sz: i64 = sizeof::<ArrayI32>() as i64;
+        let arr_raw: *mut u8 = zone_m_alloc_tagged(self.zone, arr_sz,
+                                  hermes_tag_array_i32(), hermes_desc_array());
+        let buf_raw: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4 as i64);
+        if arr_raw == 0 as *mut u8 || buf_raw == 0 as *mut u8 {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        let arr: *mut ArrayI32 = ArrayI32::init(arr_raw, buf_raw, self.base, cap);
+
+        self.skip();
+        if self.peek() == 93 as u8 {  // ']'
+            self.pos = self.pos + 1 as i64;
+            let off0: u32 = (arr_raw as i64 - self.base as i64) as u32;
+            return AnyVal::from_offset(off0);
+        }
+
+        let mut going: bool = true;
+        while going == true {
+            let elem: AnyVal = self.parse_value();
+            if self.ok == false { return AnyVal::null_ptr(); }
+            let n32: i32 = self.anyval_to_i32(elem);
+            if self.ok == false { return AnyVal::null_ptr(); }
+
+            if arr.size >= arr.capacity {
+                self.ok = false;
+                return AnyVal::null_ptr();
+            }
+            let ep: *mut i32 =
+                (self.base as i64 + arr.data as i64 + (arr.size as i64) * 4 as i64) as *mut i32;
+            *ep = n32;
+            arr.size = arr.size + 1 as u64;
+
+            self.skip();
+            if self.peek() == 93 as u8 {        // ']'
+                self.pos = self.pos + 1 as i64;
+                going = false;
+            } else if self.peek() == 44 as u8 { // ','
+                self.pos = self.pos + 1 as i64;
+                self.skip();
+                if self.peek() == 93 as u8 {    // trailing comma
+                    self.pos = self.pos + 1 as i64;
+                    going = false;
+                }
+            } else {
+                self.ok = false;
+                return AnyVal::null_ptr();
+            }
+        }
+
+        let off: u32 = (arr_raw as i64 - self.base as i64) as u32;
+        return AnyVal::from_offset(off);
+    }
+
+    pub unsafe fn parse_typed_map_i32_anyval(&mut self) -> AnyVal {
+        if self.peek() != 123 as u8 {  // '{'
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        self.pos = self.pos + 1 as i64;
+
+        let cap: u32 = 64 as u32;
+        let map_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
+        let map_raw: *mut u8 = zone_m_alloc_tagged(self.zone, map_sz,
+                                   hermes_tag_map_i32_anyval(), hermes_desc_map());
+        let keys_raw: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4 as i64);
+        let vals_raw: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4 as i64);
+        if map_raw == 0 as *mut u8 || keys_raw == 0 as *mut u8 || vals_raw == 0 as *mut u8 {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        let m: *mut MapI32AnyVal = MapI32AnyVal::init(map_raw, keys_raw, vals_raw, self.base, cap);
+
+        self.skip();
+        if self.peek() == 125 as u8 {  // '}'
+            self.pos = self.pos + 1 as i64;
+            let off0: u32 = (map_raw as i64 - self.base as i64) as u32;
+            return AnyVal::from_offset(off0);
+        }
+
+        let mut going: bool = true;
+        while going == true {
+            self.skip();
+
+            if !(self.is_digit(self.peek()) || self.peek() == 45 as u8) {
+                self.ok = false;
+                return AnyVal::null_ptr();
+            }
+            let key_val: AnyVal = self.parse_number();
+            if self.ok == false { return AnyVal::null_ptr(); }
+            let key_i32: i32 = self.anyval_to_i32(key_val);
+            if self.ok == false { return AnyVal::null_ptr(); }
+
+            self.skip();
+            if self.peek() != 58 as u8 {  // ':'
+                self.ok = false;
+                return AnyVal::null_ptr();
+            }
+            self.pos = self.pos + 1 as i64;
+
+            let val: AnyVal = self.parse_value();
+            if self.ok == false { return AnyVal::null_ptr(); }
+
+            m.set(self.base, key_i32, val);
+
+            self.skip();
+            if self.peek() == 125 as u8 {       // '}'
+                self.pos = self.pos + 1 as i64;
+                going = false;
+            } else if self.peek() == 44 as u8 { // ','
+                self.pos = self.pos + 1 as i64;
+                self.skip();
+                if self.peek() == 125 as u8 {   // trailing comma
+                    self.pos = self.pos + 1 as i64;
+                    going = false;
+                }
+            } else {
+                self.ok = false;
+                return AnyVal::null_ptr();
+            }
+        }
+
+        let off: u32 = (map_raw as i64 - self.base as i64) as u32;
+        return AnyVal::from_offset(off);
     }
 
     // ── Value dispatch ────────────────────────────────────────────────────────
@@ -329,46 +685,17 @@ impl HermesParser {
     }
 
     // ── Typed container: `<T>[...]` or `<K, V>{...}` ────────────────────────
-    // Type parameters are syntactically validated and skipped (V is currently
-    // always AnyVal in storage; T is a format hint only).
-    //
-    // Accepted arity:
-    //   array: exactly one type arg (`<T>[...]`)
-    //   map:   one or two type args (`<K>{...}` / `<K,V>{...}`)
-    //
-    // Header is parsed as nested datatype expressions:
-    //   Datatype := Ident | Ident<Datatype, ...>
+    // Header is parsed into TypedContainerSpec, then dispatched by selected
+    // pre-materialization policy.
     pub unsafe fn parse_typed_container(&mut self) -> AnyVal {
-        if self.peek() != 60 as u8 {  // '<'
+        let spec: TypedContainerSpec = self.parse_typed_container_spec();
+        if spec.ok == false {
             self.ok = false;
             return AnyVal::null_ptr();
         }
-        self.pos = self.pos + 1 as i64;
-        let arg_count: i64 = self.parse_typed_header_args();
-        if arg_count <= 0 as i64 {
-            self.ok = false;
-            return AnyVal::null_ptr();
-        }
-        self.skip();
-        if self.at_end() {
-            self.ok = false;
-            return AnyVal::null_ptr();
-        }
-        let next: u8 = self.peek();
-        if next == 91 as u8 {   // '['
-            if arg_count != 1 as i64 {
-                self.ok = false;
-                return AnyVal::null_ptr();
-            }
-            return self.parse_array();
-        }
-        if next == 123 as u8 {  // '{'
-            if arg_count != 1 as i64 && arg_count != 2 as i64 {
-                self.ok = false;
-                return AnyVal::null_ptr();
-            }
-            return self.parse_map();
-        }
+        if spec.mat == self.mat_i32_array() { return self.parse_typed_array_i32(); }
+        if spec.mat == self.mat_default_map() { return self.parse_map(); }
+        if spec.mat == self.mat_i32_anyval_map() { return self.parse_typed_map_i32_anyval(); }
         self.ok = false;
         return AnyVal::null_ptr();
     }

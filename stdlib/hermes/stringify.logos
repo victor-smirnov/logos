@@ -155,6 +155,111 @@ impl HermesStringify for AnyVal {
     }
 }
 
+// ── Typed wrappers: preserve `<...>` header in SDN round-trip ──────────────
+
+impl HermesStringify for TypedArray {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let ta: *const TypedArray = self as *const TypedArray;
+            let hs: *const HermesString = (ctx.base as i64 + ta.type_off as i64) as *const HermesString;
+            let b: *const u8 = hs.bytes();
+            let n: u64 = hs.len();
+            ctx.out.push_u8(60 as u8);   // '<'
+            let mut i: u64 = 0 as u64;
+            while i < n {
+                ctx.out.push_u8(*((b as i64 + i as i64) as *const u8));
+                i = i + 1 as u64;
+            }
+            ctx.out.push_u8(62 as u8);   // '>'
+            ctx.out.push_u8(32 as u8);   // ' '
+            stringify_anyval(AnyVal::from_offset(ta.arr_off), ctx);
+        }
+    }
+}
+
+impl HermesStringify for TypedMap {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let tm: *const TypedMap = self as *const TypedMap;
+            let hs: *const HermesString = (ctx.base as i64 + tm.type_off as i64) as *const HermesString;
+            let b: *const u8 = hs.bytes();
+            let n: u64 = hs.len();
+            ctx.out.push_u8(60 as u8);   // '<'
+            let mut i: u64 = 0 as u64;
+            while i < n {
+                ctx.out.push_u8(*((b as i64 + i as i64) as *const u8));
+                i = i + 1 as u64;
+            }
+            ctx.out.push_u8(62 as u8);   // '>'
+            ctx.out.push_u8(32 as u8);   // ' '
+            stringify_anyval(AnyVal::from_offset(tm.map_off), ctx);
+        }
+    }
+}
+
+impl HermesStringify for ArrayI32 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let arr: *const ArrayI32 = self as *const ArrayI32;
+            ctx.out.push_u8(60 as u8);   // '<'
+            ctx.out.push_u8(73 as u8);   // 'I'
+            ctx.out.push_u8(51 as u8);   // '3'
+            ctx.out.push_u8(50 as u8);   // '2'
+            ctx.out.push_u8(62 as u8);   // '>'
+            ctx.out.push_u8(32 as u8);   // ' '
+            ctx.out.push_u8(91 as u8);   // '['
+
+            let mut i: u64 = 0 as u64;
+            while i < arr.size {
+                if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
+                let ep: *const i32 =
+                    (ctx.base as i64 + arr.data as i64 + (i as i64) * 4 as i64) as *const i32;
+                ctx.out.push_i64(*ep as i64);
+                i = i + 1 as u64;
+            }
+            ctx.out.push_u8(93 as u8);   // ']'
+        }
+    }
+}
+
+impl HermesStringify for MapI32AnyVal {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let m: *const MapI32AnyVal = self as *const MapI32AnyVal;
+            ctx.out.push_u8(60 as u8);   // '<'
+            ctx.out.push_u8(73 as u8);   // 'I'
+            ctx.out.push_u8(51 as u8);   // '3'
+            ctx.out.push_u8(50 as u8);   // '2'
+            ctx.out.push_u8(44 as u8);   // ','
+            ctx.out.push_u8(65 as u8);   // 'A'
+            ctx.out.push_u8(110 as u8);  // 'n'
+            ctx.out.push_u8(121 as u8);  // 'y'
+            ctx.out.push_u8(86 as u8);   // 'V'
+            ctx.out.push_u8(97 as u8);   // 'a'
+            ctx.out.push_u8(108 as u8);  // 'l'
+            ctx.out.push_u8(62 as u8);   // '>'
+            ctx.out.push_u8(32 as u8);   // ' '
+            ctx.out.push_u8(123 as u8);  // '{'
+
+            let mut i: u32 = 0 as u32;
+            while i < m.size {
+                if i > 0 as u32 { ctx.out.push_u8(44 as u8); }
+                let kp: *const i32 =
+                    (ctx.base as i64 + m.keys as i64 + (i as i64) * 4 as i64) as *const i32;
+                ctx.out.push_i64(*kp as i64);
+                ctx.out.push_u8(58 as u8);   // ':'
+                if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }
+                let vp: *const AnyVal =
+                    (ctx.base as i64 + m.vals as i64 + (i as i64) * 4 as i64) as *const AnyVal;
+                let vv: AnyVal = AnyVal { raw: vp.raw };
+                stringify_anyval(vv, ctx);
+                i = i + 1 as u32;
+            }
+            ctx.out.push_u8(125 as u8);  // '}'
+        }
+    }
+}
+
 // ── Array<T> — blanket over any T: HermesStringify ────────────────────────
 // Works for Array<AnyVal> (previously ObjectArray, type_code=100), Array<i32>,
 // etc.  Element layout is contiguous T[] at the zone-relative `data` offset.

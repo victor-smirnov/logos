@@ -18,7 +18,8 @@ fn main() -> i32 {
             version:42,
             active:true,
             count:7_s8,
-            tags:["fast","safe"]
+            tags:["fast","safe"],
+            i32_array: <I32> [1,2,3,4]
         }
     "#;
 

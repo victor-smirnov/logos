@@ -149,11 +149,6 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
 // ---------------------------------------------------------------------------
 
 bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn) {
-    std::fprintf(stderr, "mlir_gen: enter fn %s\n", fn.name.c_str());
-    for (auto& p : fn.params) {
-        std::fprintf(stderr, "mlir_gen:   param %s : %s\n",
-                     p.name.c_str(), p.type ? type_str(p.type).c_str() : "<null>");
-    }
     auto* entry = func.addEntryBlock();
     builder_.setInsertionPointToStart(entry);
 

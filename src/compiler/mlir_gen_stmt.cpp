@@ -144,10 +144,6 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
 // ---------------------------------------------------------------------------
 
 void MLIRGenImpl::gen_let(const SLet& s) {
-    if (s.name == "obj" || s.name == "m" || s.name == "s_av") {
-        std::fprintf(stderr, "mlir_gen: gen_let('%s') type=%s\n",
-                     s.name.c_str(), s.type ? type_str(s.type).c_str() : "<null>");
-    }
     if (s.type && type_str(s.type) == "AnyVal") {
         auto val = gen_expr(*s.value);
         if (!val) return;
@@ -386,13 +382,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee &&
         (s.type->pointee->kind == LogosType::Kind::Struct ||
          s.type->pointee->kind == LogosType::Kind::Datatype)) {
-        std::fprintf(stderr, "mlir_gen:   ptr-struct/datatype let branch for '%s'\n",
-                     s.name.c_str());
         auto val = gen_expr(*s.value);
-        if (s.name == "obj") {
-            std::fprintf(stderr, "mlir_gen:   obj rhs %s\n",
-                         val ? "ok" : "null");
-        }
         if (!val) return;
         if (s.is_mut) {
             // Mutable raw-pointer locals must live in a rebinding slot.
@@ -412,12 +402,6 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         }
         let_vars_.insert(s.name);
         var_struct_[s.name] = concrete_struct_name(s.type->pointee);
-        if (s.name == "obj") {
-            std::fprintf(stderr, "mlir_gen:   bound '%s' after ptr-branch scope=%d let=%d\n",
-                         s.name.c_str(),
-                         scope_.count(s.name) ? 1 : 0,
-                         let_vars_.count(s.name) ? 1 : 0);
-        }
         return;
     }
 

@@ -232,3 +232,155 @@ impl Array<AnyVal> {
         return AnyVal { raw: ep.raw };
     }
 }
+
+// ---------------------------------------------------------------------------
+// Typed container wrappers for Hermes SDN round-trip.
+//
+// These wrappers preserve `<...>` type headers from textual SDN:
+//   <T> [ ... ]  -> TypedArray { type_off, arr_off }
+//   <K,V> { ... } / <K> { ... } -> TypedMap { type_off, map_off }
+//
+// The payload containers remain regular Array<AnyVal>/Map<Varchar,AnyVal>.
+// ---------------------------------------------------------------------------
+
+#[type_code=102]
+pub genos TypedArrayMeta {
+    unsafe fn type_name_off(self: *const Self) -> u32;
+}
+
+pub eidos TypedArray {
+    pub type_off: u32,   // HermesString with the type expression (without <>)
+    pub arr_off:  u32,   // Array<AnyVal> payload
+}
+
+impl TypedArray {
+    pub unsafe fn init(raw: *mut u8, type_off: u32, arr_off: u32) -> *mut TypedArray {
+        let p: *mut TypedArray = raw as *mut TypedArray;
+        p.type_off = type_off;
+        p.arr_off  = arr_off;
+        return p;
+    }
+}
+
+impl TypedArrayMeta for TypedArray {
+    unsafe fn type_name_off(self: *const TypedArray) -> u32 {
+        return self.type_off;
+    }
+}
+
+#[type_code=103]
+pub genos TypedMapMeta {
+    unsafe fn type_name_off(self: *const Self) -> u32;
+}
+
+pub eidos TypedMap {
+    pub type_off: u32,   // HermesString with the type expression (without <>)
+    pub map_off:  u32,   // Map<Varchar,AnyVal> payload
+}
+
+impl TypedMap {
+    pub unsafe fn init(raw: *mut u8, type_off: u32, map_off: u32) -> *mut TypedMap {
+        let p: *mut TypedMap = raw as *mut TypedMap;
+        p.type_off = type_off;
+        p.map_off  = map_off;
+        return p;
+    }
+}
+
+impl TypedMapMeta for TypedMap {
+    unsafe fn type_name_off(self: *const TypedMap) -> u32 {
+        return self.type_off;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pre-materialized typed primitive array: <I32>[...]
+//
+// Dense contiguous i32 storage, tagged with a dedicated type_code so
+// stringify/equal/hash/clone/release can dispatch through type handlers.
+// ---------------------------------------------------------------------------
+
+#[type_code=104]
+pub genos ArrayI32Tag {
+    unsafe fn len(self: *const Self) -> u64;
+}
+
+pub eidos ArrayI32 {
+    pub size:     u64,
+    pub capacity: u64,
+    pub data:     u32,
+}
+
+impl ArrayI32Tag for ArrayI32 {
+    unsafe fn len(self: *const ArrayI32) -> u64 { return self.size; }
+}
+
+impl ArrayI32 {
+    pub unsafe fn init(arr_raw: *mut u8, buf_raw: *mut u8,
+                       base: *mut u8, capacity: u64) -> *mut ArrayI32 {
+        let base_int: i64 = base as i64;
+        let buf_off: u32  = (buf_raw as i64 - base_int) as u32;
+        let arr: *mut ArrayI32 = arr_raw as *mut ArrayI32;
+        arr.size     = 0 as u64;
+        arr.capacity = capacity;
+        arr.data     = buf_off;
+        return arr;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pre-materialized typed map: <I32,AnyVal>{...}
+//
+// Dense key/value arrays with linear lookup/update.
+// Keys are i32, values are AnyVal.
+// ---------------------------------------------------------------------------
+
+#[type_code=105]
+pub genos MapI32AnyValTag {
+    unsafe fn len(self: *const Self) -> u64;
+}
+
+pub eidos MapI32AnyVal {
+    pub size:     u32,
+    pub capacity: u32,
+    pub keys:     u32,   // zone-relative offset to i32[]
+    pub vals:     u32,   // zone-relative offset to AnyVal[]
+}
+
+impl MapI32AnyValTag for MapI32AnyVal {
+    unsafe fn len(self: *const MapI32AnyVal) -> u64 { return self.size as u64; }
+}
+
+impl MapI32AnyVal {
+    pub unsafe fn init(map_raw: *mut u8, keys_raw: *mut u8, vals_raw: *mut u8,
+                       base: *mut u8, capacity: u32) -> *mut MapI32AnyVal {
+        let base_i: i64 = base as i64;
+        let m: *mut MapI32AnyVal = map_raw as *mut MapI32AnyVal;
+        m.size     = 0 as u32;
+        m.capacity = capacity;
+        m.keys     = (keys_raw as i64 - base_i) as u32;
+        m.vals     = (vals_raw as i64 - base_i) as u32;
+        return m;
+    }
+
+    // Insert or update.
+    pub unsafe fn set(self: *mut MapI32AnyVal, base: *mut u8, key: i32, val: AnyVal) {
+        let mut i: u32 = 0 as u32;
+        while i < self.size {
+            let kp: *const i32 = (base as i64 + self.keys as i64 + (i as i64) * 4 as i64) as *const i32;
+            if *kp == key {
+                let vp: *mut AnyVal = (base as i64 + self.vals as i64 + (i as i64) * 4 as i64) as *mut AnyVal;
+                vp.raw = val.raw;
+                return;
+            }
+            i = i + 1 as u32;
+        }
+        if self.size >= self.capacity { return; }
+        let n: u32 = self.size;
+        let kdst: *mut i32 = (base as i64 + self.keys as i64 + (n as i64) * 4 as i64) as *mut i32;
+        let vdst: *mut AnyVal = (base as i64 + self.vals as i64 + (n as i64) * 4 as i64) as *mut AnyVal;
+        *kdst = key;
+        vdst.raw = val.raw;
+        self.size = self.size + 1 as u32;
+    }
+}

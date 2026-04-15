@@ -1,0 +1,48 @@
+// Typed map materialization: <I32>{...} and <I32,AnyVal>{...}
+package hermes_typed_map_i32_materialize;
+
+use hermes.ctr;
+use hermes.anyval;
+use hermes.typetag;
+use hermes.containers;
+use std.string;
+
+unsafe fn main() -> i32 {
+    let mut d1: HermesCtr = HermesCtr::new(4096);
+    match d1.parse("<I32,AnyVal>{1:10,2:20}" as *const u8, 23 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 1; }
+    }
+
+    let r1: AnyVal = d1.root();
+    if !r1.is_ptr() { return 2; }
+    let b1: *const u8 = d1.base();
+    let o1: *const u8 = (b1 as i64 + r1.as_offset() as i64) as *const u8;
+    if tag_read_hash(o1) != 105 as u8 { return 3; }
+
+    let m1: *const MapI32AnyVal = o1 as *const MapI32AnyVal;
+    if m1.size != 2 as u32 { return 4; }
+
+    let k0: i32 = *((b1 as i64 + m1.keys as i64 + 0 as i64 * 4 as i64) as *const i32);
+    let k1: i32 = *((b1 as i64 + m1.keys as i64 + 1 as i64 * 4 as i64) as *const i32);
+    if k0 != 1 as i32 || k1 != 2 as i32 { return 5; }
+
+    let v0: *const AnyVal = (b1 as i64 + m1.vals as i64 + 0 as i64 * 4 as i64) as *const AnyVal;
+    let v1: *const AnyVal = (b1 as i64 + m1.vals as i64 + 1 as i64 * 4 as i64) as *const AnyVal;
+    if d1.get_i64(AnyVal { raw: v0.raw }) != 10 as i64 { return 6; }
+    if d1.get_i64(AnyVal { raw: v1.raw }) != 20 as i64 { return 7; }
+
+    let s1: String = d1.to_string();
+    if !s1.eq_cstr("<I32,AnyVal> {1:10,2:20}") { return 8; }
+
+    // Short map form <K>{...} defaults V to AnyVal.
+    let mut d2: HermesCtr = HermesCtr::new(4096);
+    match d2.parse("<I32>{7:8}" as *const u8, 10 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 9; }
+    }
+    let s2: String = d2.to_string();
+    if !s2.eq_cstr("<I32,AnyVal> {7:8}") { return 10; }
+
+    return 0;
+}
