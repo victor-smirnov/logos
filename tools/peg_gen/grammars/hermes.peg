@@ -5,7 +5,9 @@
 // Hermes data format grammar.
 //
 // This grammar can be %imported by other grammars (SQL, DSL) to add native
-// Hermes literal support. Exported rules: value, map, array, typed_value.
+// Hermes literal support.
+//
+// Exported rules: value, map, array, typed_value, typed_collection.
 
 %meta {
     name:      "hermes"
@@ -14,7 +16,7 @@
     output:    "hermes_parser"
 }
 
-%export { value map array typed_value }
+%export { value map array typed_value typed_collection }
 
 // ── AST field keys ────────────────────────────────────────────────────────
 %fields {
@@ -77,6 +79,7 @@
 %rules {
     // Top-level value — the entry point for embedding in other grammars.
     value <- typed_value
+           / typed_collection
            / map
            / array
            / STRING      => { CODE: STRING,   VALUE: $1 }
@@ -101,7 +104,25 @@
     typed_value <- datatype LPAREN value RPAREN
                 => { CODE: TYPED_VALUE, NAME: $1, VALUE: $3 }
 
-    // TypeName  or  TypeName<Param, Param>
-    datatype <- IDENT (LANGLE (datatype (COMMA datatype)*)? RANGLE)?
+    // Typed collections:
+    //   <T>[...]        — typed array
+    //   <K>{...}        — typed map, V defaults to AnyVal
+    //   <K,V>{...}      — typed map
+    // Runtime Hermes parser keeps type params as syntax hints and returns
+    // regular ARRAY / MAP nodes.
+    typed_collection <- typed_array / typed_map
+
+    typed_array <- LANGLE datatype RANGLE array
+
+    typed_map <- LANGLE datatype RANGLE map
+              / LANGLE datatype COMMA datatype RANGLE map
+
+    // TypeName  or  TypeName<Arg, Arg>
+    // Arg can be a nested datatype or a non-type integer literal (C++-like).
+    // Generic argument list is non-empty when '<...>' is present.
+    datatype <- IDENT (LANGLE type_arg (COMMA type_arg)* RANGLE)?
              => { CODE: DATATYPE, NAME: $1, PARAMS: $... }
+
+    type_arg <- datatype
+             / INTEGER
 }

@@ -1,5 +1,8 @@
-// Typed container syntax: parser accepts `<T>[...]` / `<K,V>{...}` headers
-// and skips them; the element/entry storage is unchanged.
+// Typed container syntax:
+//   array: <T>[...]
+//   map:   <K>{...} or <K,V>{...}
+// Parser validates header arity, skips type parameters, and keeps container
+// storage unchanged.
 package hermes_parse_typed_containers;
 
 use hermes.zone;
@@ -37,6 +40,167 @@ unsafe fn main() -> i32 {
     }
     let s3: String = d3.to_string();
     if !s3.eq_cstr("[]") { return 6; }
+
+    // Short typed map form: `<K>{...}`.
+    let mut d4: HermesCtr = HermesCtr::new(4096);
+    match d4.parse("<Varchar>{\"x\":7}" as *const u8, 16 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 7; }
+    }
+    let s4: String = d4.to_string();
+    if !s4.eq_cstr("{\"x\":7}") { return 8; }
+
+    // Typed header with spaces.
+    let mut d5: HermesCtr = HermesCtr::new(4096);
+    match d5.parse("<  i32  >  [4,5]" as *const u8, 16 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 9; }
+    }
+    let s5: String = d5.to_string();
+    if !s5.eq_cstr("[4,5]") { return 10; }
+
+    // Invalid arity for arrays: `<A,B>[...]` must fail.
+    let mut d6: HermesCtr = HermesCtr::new(4096);
+    match d6.parse("<A,B>[1]" as *const u8, 8 as i64) {
+        Result::Ok(())  => { return 11; }
+        Result::Err(_)  => {}
+    }
+
+    // Invalid arity for maps: `<A,B,C>{...}` must fail.
+    let mut d7: HermesCtr = HermesCtr::new(4096);
+    match d7.parse("<A,B,C>{\"k\":1}" as *const u8, 14 as i64) {
+        Result::Ok(())  => { return 12; }
+        Result::Err(_)  => {}
+    }
+
+    // Empty typed header must fail.
+    let mut d8: HermesCtr = HermesCtr::new(4096);
+    match d8.parse("<>{}" as *const u8, 4 as i64) {
+        Result::Ok(())  => { return 13; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed type: extra leading '<' in arg.
+    let mut d9: HermesCtr = HermesCtr::new(4096);
+    match d9.parse("<<i32>>[]" as *const u8, 9 as i64) {
+        Result::Ok(())  => { return 14; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed type: missing comma between args.
+    let mut d10: HermesCtr = HermesCtr::new(4096);
+    match d10.parse("<A B>[1]" as *const u8, 8 as i64) {
+        Result::Ok(())  => { return 15; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed type: invalid token '+' in type list.
+    let mut d11: HermesCtr = HermesCtr::new(4096);
+    match d11.parse("<A,+B>{}" as *const u8, 8 as i64) {
+        Result::Ok(())  => { return 16; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed type: trailing garbage inside generic args.
+    let mut d12: HermesCtr = HermesCtr::new(4096);
+    match d12.parse("<Map<i32>i32>[]"
+                    as *const u8, 15 as i64) {
+        Result::Ok(())  => { return 17; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed type: bad nested generic list.
+    let mut d13: HermesCtr = HermesCtr::new(4096);
+    match d13.parse("<Map<i32,,i32>>[]"
+                    as *const u8, 17 as i64) {
+        Result::Ok(())  => { return 18; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed nested type: trailing comma in nested generic arg list.
+    let mut d14: HermesCtr = HermesCtr::new(4096);
+    match d14.parse("<Map<i32,>>[]"
+                    as *const u8, 13 as i64) {
+        Result::Ok(())  => { return 19; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed nested type: deep trailing comma.
+    let mut d15: HermesCtr = HermesCtr::new(4096);
+    match d15.parse("<Map<i32,Map<u8,>>>[]"
+                    as *const u8, 22 as i64) {
+        Result::Ok(())  => { return 20; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed nested type: trailing comma before closing nested generic.
+    let mut d16: HermesCtr = HermesCtr::new(4096);
+    match d16.parse("<Outer<Inner<A,>,B>>[]"
+                    as *const u8, 22 as i64) {
+        Result::Ok(())  => { return 21; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed nested type: comma-only tail in nested generic.
+    let mut d17: HermesCtr = HermesCtr::new(4096);
+    match d17.parse("<X<Y<Z,>>>[]"
+                    as *const u8, 12 as i64) {
+        Result::Ok(())  => { return 22; }
+        Result::Err(_)  => {}
+    }
+
+    // Malformed nested type with spaces/comments around a trailing comma.
+    let mut d18: HermesCtr = HermesCtr::new(4096);
+    match d18.parse("<Map<i32, /*x*/ >>[]"
+                    as *const u8, 20 as i64) {
+        Result::Ok(())  => { return 23; }
+        Result::Err(_)  => {}
+    }
+
+    // Non-type nested generic arg (C++-like): `<Vec<16>>[]`.
+    let mut d19: HermesCtr = HermesCtr::new(4096);
+    match d19.parse("<Vec<16>>[]" as *const u8, 11 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 24; }
+    }
+    let s19: String = d19.to_string();
+    if !s19.eq_cstr("[]") { return 25; }
+
+    // Map with nested non-type arg in value type.
+    let mut d20: HermesCtr = HermesCtr::new(4096);
+    match d20.parse("<Varchar,Fixed<32>>{\"a\":1}" as *const u8, 26 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 26; }
+    }
+    let s20: String = d20.to_string();
+    if !s20.eq_cstr("{\"a\":1}") { return 27; }
+
+    // Multiple nested numeric args.
+    let mut d21: HermesCtr = HermesCtr::new(4096);
+    match d21.parse("<Outer<Inner<1,2>>>[]" as *const u8, 21 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 28; }
+    }
+    let s21: String = d21.to_string();
+    if !s21.eq_cstr("[]") { return 29; }
+
+    // Hex literal in nested generic arg.
+    let mut d22: HermesCtr = HermesCtr::new(4096);
+    match d22.parse("<Blob<0x20>>[1]" as *const u8, 15 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 30; }
+    }
+    let s22: String = d22.to_string();
+    if !s22.eq_cstr("[1]") { return 31; }
+
+    // Signed integer nested generic arg.
+    let mut d23: HermesCtr = HermesCtr::new(4096);
+    match d23.parse("<Range<-1>>[]" as *const u8, 13 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 32; }
+    }
+    let s23: String = d23.to_string();
+    if !s23.eq_cstr("[]") { return 33; }
 
     return 0;
 }
