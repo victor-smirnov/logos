@@ -1,0 +1,25 @@
+// Decimal typed-value validation: accepted forms.
+package hermes_typed_decimal_validation_pass;
+
+use hermes.ctr;
+use std.string;
+
+unsafe fn main() -> i32 {
+    let mut d1: HermesCtr = HermesCtr::new(2048);
+    match d1.parse("@Decimal(10,2)=\"123.45\"" as *const u8, 23 as i64) {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 1; }
+    }
+    let s1: String = d1.to_string();
+    if !s1.eq_cstr("@Decimal(10,2) = \"123.45\"") { return 2; }
+
+    let mut d2: HermesCtr = HermesCtr::new(2048);
+    match d2.parse("\"123.45\"@Decimal(10,2)" as *const u8, 22 as i64) {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 3; }
+    }
+    let s2: String = d2.to_string();
+    if !s2.eq_cstr("@Decimal(10,2) = \"123.45\"") { return 4; }
+
+    return 0;
+}

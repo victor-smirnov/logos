@@ -27,7 +27,7 @@ unsafe fn main() -> i32 {
 
     // Out-of-range key is invalid for i32.
     let mut d4: HermesCtr = HermesCtr::new(4096);
-    match d4.parse("<I32,AnyVal>{2147483648:1}" as *const u8, 27 as i64) {
+    match d4.parse("<I32,AnyVal>{2147483648:1}" as *const u8, 26 as i64) {
         Result::Ok(()) => { return 4; }
         Result::Err(_) => {}
     }

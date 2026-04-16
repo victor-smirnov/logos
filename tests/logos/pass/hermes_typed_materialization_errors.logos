@@ -14,7 +14,7 @@ unsafe fn main() -> i32 {
 
     // <I32,AnyVal> must reject non-i32 keys at parse time.
     let mut d2: HermesCtr = HermesCtr::new(4096);
-    match d2.parse("<I32,AnyVal>{\"a\":1}" as *const u8, 20 as i64) {
+    match d2.parse("<I32,AnyVal>{\"a\":1}" as *const u8, 19 as i64) {
         Result::Ok(())  => { return 2; }
         Result::Err(_)  => {}
     }

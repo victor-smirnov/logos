@@ -450,6 +450,12 @@ impl HermesParser {
         }
         self.pos = self.pos + 1 as i64;
 
+        self.skip();
+        if self.peek() == 41 as u8 {  // ')'
+            self.pos = self.pos + 1 as i64;
+            return AnyVal::null_ptr();  // canonical: no subtype data
+        }
+
         let cap: u64 = 32 as u64;
         let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
         let oa_raw: *mut u8 = zone_m_alloc_tagged(self.zone, oa_sz,
@@ -460,13 +466,6 @@ impl HermesParser {
             return AnyVal::null_ptr();
         }
         let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, self.base, cap);
-
-        self.skip();
-        if self.peek() == 41 as u8 {  // ')'
-            self.pos = self.pos + 1 as i64;
-            let off0: u32 = (oa_raw as i64 - self.base as i64) as u32;
-            return AnyVal::from_offset(off0);
-        }
 
         let mut going: bool = true;
         while going == true {
@@ -484,9 +483,9 @@ impl HermesParser {
             } else if self.peek() == 44 as u8 { // ','
                 self.pos = self.pos + 1 as i64;
                 self.skip();
-                if self.peek() == 41 as u8 {    // trailing comma
-                    self.pos = self.pos + 1 as i64;
-                    going = false;
+                if self.peek() == 41 as u8 {    // trailing comma is invalid
+                    self.ok = false;
+                    return AnyVal::null_ptr();
                 }
             } else {
                 self.ok = false;
@@ -509,6 +508,68 @@ impl HermesParser {
         TypedValue::init(tv_raw, type_off, params, initv);
         let off: u32 = (tv_raw as i64 - self.base as i64) as u32;
         return AnyVal::from_offset(off);
+    }
+
+    pub unsafe fn type_name_eq(&mut self, type_off: u32, lit: *const u8, n: i64) -> bool {
+        if type_off == 0 as u32 { return false; }
+        let hs: *const HermesString =
+            (self.base as i64 + type_off as i64) as *const HermesString;
+        if hs.len() as i64 != n { return false; }
+        let b: *const u8 = hs.bytes();
+        let mut i: i64 = 0 as i64;
+        while i < n {
+            let c0: u8 = *((b as i64 + i) as *const u8);
+            let c1: u8 = *((lit as i64 + i) as *const u8);
+            if c0 != c1 { return false; }
+            i = i + 1 as i64;
+        }
+        return true;
+    }
+
+    // Validate Decimal(P,S) typed value.
+    // Rules:
+    //   - params required and must be exactly two integer-like values
+    //   - P > 0
+    //   - S >= 0
+    //   - S <= P
+    //   - initializer must be string (for from_string pipeline)
+    pub unsafe fn validate_decimal_typed_value(&mut self, params: AnyVal, initv: AnyVal) -> bool {
+        if !initv.is_string(self.base as *const u8) {
+            self.ok = false;
+            return false;
+        }
+        if params.is_null() || !params.is_ptr() {
+            self.ok = false;
+            return false;
+        }
+        let pobj: *const u8 = (self.base as i64 + params.as_offset() as i64) as *const u8;
+        if tag_read_hash(pobj) != hermes_tag_array() {
+            self.ok = false;
+            return false;
+        }
+        let arr: *const ObjectArray = pobj as *const ObjectArray;
+        if arr.size != 2 as u64 {
+            self.ok = false;
+            return false;
+        }
+        let p_raw: AnyVal = arr.get(self.base as *const u8, 0 as u64);
+        let s_raw: AnyVal = arr.get(self.base as *const u8, 1 as u64);
+        let p: i32 = self.anyval_to_i32(p_raw);
+        if self.ok == false { return false; }
+        let s: i32 = self.anyval_to_i32(s_raw);
+        if self.ok == false { return false; }
+        if p <= 0 as i32 { self.ok = false; return false; }
+        if s < 0 as i32 { self.ok = false; return false; }
+        if s > p { self.ok = false; return false; }
+        return true;
+    }
+
+    pub unsafe fn validate_typed_value(&mut self, type_off: u32, params: AnyVal, initv: AnyVal) -> bool {
+        // Decimal is currently string-initialized only.
+        if self.type_name_eq(type_off, "Decimal" as *const u8, 7 as i64) {
+            return self.validate_decimal_typed_value(params, initv);
+        }
+        return true;
     }
 
     // Prefix form: @Type(params?) = initializer
@@ -540,6 +601,10 @@ impl HermesParser {
         self.pos = self.pos + 1 as i64;
         let initv: AnyVal = self.parse_value();
         if self.ok == false { return AnyVal::null_ptr(); }
+        if !self.validate_typed_value(type_off, params, initv) {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
         return self.make_typed_value(type_off, params, initv);
     }
 
@@ -563,6 +628,10 @@ impl HermesParser {
         }
         let params: AnyVal = self.parse_optional_type_assoc_params();
         if self.ok == false { return AnyVal::null_ptr(); }
+        if !self.validate_typed_value(type_off, params, initv) {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
         return self.make_typed_value(type_off, params, initv);
     }
 
@@ -673,6 +742,32 @@ impl HermesParser {
             return 0 as i32;
         }
         return n as i32;
+    }
+
+    pub unsafe fn alloc_i64_anyval(&mut self, v: i64) -> AnyVal {
+        let sz: i64 = sizeof::<I64>() as i64;
+        let raw: *mut u8 = zone_m_alloc_tagged(self.zone, sz,
+                               hermes_tag_i64(), hermes_desc_data());
+        if raw == 0 as *mut u8 {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        I64::init(raw, v);
+        let off: u32 = (raw as i64 - self.base as i64) as u32;
+        return AnyVal::from_offset(off);
+    }
+
+    pub unsafe fn alloc_u64_anyval(&mut self, v: u64) -> AnyVal {
+        let sz: i64 = sizeof::<U64>() as i64;
+        let raw: *mut u8 = zone_m_alloc_tagged(self.zone, sz,
+                               hermes_tag_u64(), hermes_desc_data());
+        if raw == 0 as *mut u8 {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        U64::init(raw, v);
+        let off: u32 = (raw as i64 - self.base as i64) as u32;
+        return AnyVal::from_offset(off);
     }
 
     pub unsafe fn parse_typed_array_i32(&mut self) -> AnyVal {
@@ -927,15 +1022,30 @@ impl HermesParser {
             let c: u8 = self.peek();
             if c >= 48 as u8 && c <= 57 as u8 {
                 let base: u64 = if hex { 16 as u64 } else { 10 as u64 };
-                uval = uval * base + (c - 48 as u8) as u64;
+                let digit: u64 = (c - 48 as u8) as u64;
+                if uval > (18446744073709551615 as u64 - digit) / base {
+                    self.ok = false;
+                    return AnyVal::null_ptr();
+                }
+                uval = uval * base + digit;
                 self.pos = self.pos + 1 as i64;
             } else if hex && c >= 97 as u8 && c <= 102 as u8 {
                 // a-f
-                uval = uval * 16 as u64 + (c - 97 as u8 + 10 as u8) as u64;
+                let digit: u64 = (c - 97 as u8 + 10 as u8) as u64;
+                if uval > (18446744073709551615 as u64 - digit) / 16 as u64 {
+                    self.ok = false;
+                    return AnyVal::null_ptr();
+                }
+                uval = uval * 16 as u64 + digit;
                 self.pos = self.pos + 1 as i64;
             } else if hex && c >= 65 as u8 && c <= 70 as u8 {
                 // A-F
-                uval = uval * 16 as u64 + (c - 65 as u8 + 10 as u8) as u64;
+                let digit: u64 = (c - 65 as u8 + 10 as u8) as u64;
+                if uval > (18446744073709551615 as u64 - digit) / 16 as u64 {
+                    self.ok = false;
+                    return AnyVal::null_ptr();
+                }
+                uval = uval * 16 as u64 + digit;
                 self.pos = self.pos + 1 as i64;
             } else {
                 going = false;
@@ -1063,10 +1173,33 @@ impl HermesParser {
             }
         }
 
-        // Default: i24
-        let mut v: i32 = uval as i32;
-        if neg { v = 0 as i32 - v; }
-        return AnyVal::embed_i24(v);
+        // Default (no suffix):
+        // - keep i24 inline when it fits
+        // - otherwise allocate i64/u64 object instead of truncating to 24 bits
+        if neg {
+            if uval <= 8388608 as u64 {
+                let mut v: i32 = uval as i32;
+                v = 0 as i32 - v;
+                return AnyVal::embed_i24(v);
+            }
+            if uval > 9223372036854775808 as u64 {
+                self.ok = false;
+                return AnyVal::null_ptr();
+            }
+            if uval == 9223372036854775808 as u64 {
+                return self.alloc_i64_anyval(-9223372036854775807 as i64 - 1 as i64);
+            }
+            let iv: i64 = 0 as i64 - uval as i64;
+            return self.alloc_i64_anyval(iv);
+        }
+
+        if uval <= 8388607 as u64 {
+            return AnyVal::embed_i24(uval as i32);
+        }
+        if uval <= 9223372036854775807 as u64 {
+            return self.alloc_i64_anyval(uval as i64);
+        }
+        return self.alloc_u64_anyval(uval);
     }
 
     // ── String ────────────────────────────────────────────────────────────────

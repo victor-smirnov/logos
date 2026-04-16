@@ -91,7 +91,7 @@ unsafe fn main() -> i32 {
 
     // String key must fail for <I32,AnyVal>.
     let mut d10: HermesCtr = HermesCtr::new(4096);
-    match d10.parse("<I32,AnyVal>{\"a\":1}" as *const u8, 20 as i64) {
+    match d10.parse("<I32,AnyVal>{\"a\":1}" as *const u8, 19 as i64) {
         Result::Ok(())  => { return 15; }
         Result::Err(_)  => {}
     }
