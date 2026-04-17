@@ -52,6 +52,7 @@ unsafe fn main() -> i32 {
     let mut cctx: CloneCtx = CloneCtx {
         base_src: d.base(),
         zone_dst: &mut dst as *mut Zone<Mutable>,
+        map: 0 as *mut CloneMap,
     };
     let copy_obj: *mut u8 = fc(obj, &mut cctx);
     if copy_obj == 0 as *mut u8 { return 11; }

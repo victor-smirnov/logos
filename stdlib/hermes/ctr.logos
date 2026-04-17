@@ -626,11 +626,16 @@ impl HermesCtr {
             let dst_holder: *mut MemHolder = self.zone.holder;
             if dst_holder == 0 as *mut MemHolder { return AnyVal::null_ptr(); }
 
+            let mut clone_map: CloneMap = clone_map_create();
+            if clone_map.keys == 0 as *mut u32 { return AnyVal::null_ptr(); }
             let mut ctx: CloneCtx = CloneCtx {
                 base_src: src_base as *const u8,
                 zone_dst: &mut self.zone as *mut Zone<Mutable>,
+                map: &mut clone_map,
             };
-            return anyval_clone(src_val, &mut ctx);
+            let result: AnyVal = anyval_clone(src_val, &mut ctx);
+            clone_map_free(&mut clone_map);
+            return result;
         }
     }
 
@@ -673,11 +678,18 @@ impl HermesCtr {
             };
             if dst_holder != 0 as *mut MemHolder
                 && src_base != 0 as *mut u8 {
+                let mut clone_map: CloneMap = clone_map_create();
                 let mut ctx: CloneCtx = CloneCtx {
                     base_src: src_base as *const u8,
                     zone_dst: &mut new_ctr.zone as *mut Zone<Mutable>,
+                    map: if clone_map.keys != 0 as *mut u32 {
+                        &mut clone_map as *mut CloneMap
+                    } else {
+                        0 as *mut CloneMap
+                    },
                 };
                 let new_val: AnyVal = anyval_clone(src_val, &mut ctx);
+                clone_map_free(&mut clone_map);
                 // Re-read dst base after clone (zone grow may have relocated
                 // the backing buffer). Bug 4 guard: base may still be null
                 // if the destination buffer never backed — skip set_root.

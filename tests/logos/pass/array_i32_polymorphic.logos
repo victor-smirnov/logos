@@ -90,6 +90,7 @@ unsafe fn main() -> i32 {
     let mut cc: CloneCtx = CloneCtx {
         base_src: base as *const u8,
         zone_dst: &mut zone2,
+        map: 0 as *mut CloneMap,
     };
     let new_raw: *mut u8 = arr.clone_to(&mut cc);
     if new_raw == 0 as *mut u8 { return 5; }

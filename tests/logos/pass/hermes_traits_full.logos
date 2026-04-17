@@ -63,6 +63,7 @@ unsafe fn main() -> i32 {
     let mut c_ctx: CloneCtx = CloneCtx {
         base_src: b1,
         zone_dst: dst.zone_mut(),
+        map: 0 as *mut CloneMap,
     };
     let cloned_root: AnyVal = anyval_clone(r1, &mut c_ctx);
     if cloned_root.is_null() { return 5; }
