@@ -5,18 +5,26 @@
 // Structural integrity check for a Hermes zone document.
 //
 // Algorithm (depth-first walk, reference: Memoria hermes_core.cpp):
-//   1. Allocate a visited bitmap: 1 bit per zone byte.
-//   2. Mark the DocumentHeader region (offset 0..7) as used.
+//   1. Allocate two bitmaps (1 bit per zone byte each):
+//        `visited` — set for every byte covered by check_mark (overlap
+//                    detection between distinct objects/buffers).
+//        `starts`  — set only at (obj_offset - 2) for each object that
+//                    the walk has entered (DAG / shared-subtree short-
+//                    circuit).  Separating these prevents a corrupt
+//                    AnyVal that lands inside another object's data
+//                    buffer from being silently accepted as "visited".
+//   2. Mark the DocumentHeader region (offset 0..7) in `visited`.
 //   3. Walk the object graph from root via anyval_check().
 //   4. For each non-null zone-pointer AnyVal:
 //        a. Depth guard (max 256).
 //        b. Offset bounds check.
-//        c. Cycle / shared-subtree gate: if already visited, return OK.
+//        c. Short-circuit if `starts` bit at (off - 2) is set.
 //        d. Validate the TypeTag is known (BadTag otherwise).
 //        e. Dispatch through HermesCheck trait table.
 //        f. Per-type check marks all bytes (TypeTag + header + data buffer)
-//           as visited and recurses into contained AnyVals.
-//   5. Free the bitmap and return the result.
+//           in `visited`, records the object-start in `starts`, and
+//           recurses into contained AnyVals.
+//   5. Free both bitmaps and return the result.
 //
 // Inline AnyVals (boolean, integer, null) carry no zone address and are
 // always considered valid.
@@ -55,24 +63,52 @@ pub enum CheckError {
 
 // ---------------------------------------------------------------------------
 // CheckState -- transient state for one document_check() invocation.
+//
+// Two bitmaps (1 bit per zone byte each):
+//   visited  — set for every byte covered by check_mark().  Used to detect
+//              overlap between distinct objects/buffers.
+//   starts   — set only at the first byte of each object's TypeTag prefix
+//              (i.e. at (obj_offset - 2)).  Used as the DAG/cycle short-
+//              circuit in anyval_check().  Separating starts from visited
+//              prevents a corrupt AnyVal whose target offset happens to land
+//              inside another object's data buffer from being silently
+//              accepted as "already-visited".
 // ---------------------------------------------------------------------------
 
 pub struct CheckState {
     pub base:       *const u8,   // zone buffer start
     pub zone_sz:    i64,         // zone_used bytes
-    pub visited:    *mut u8,     // calloc'd bitmap: 1 bit per zone byte
-    pub bitmap_len: i64,         // length of `visited` in bytes
+    pub visited:    *mut u8,     // calloc'd bitmap: byte-used tracking
+    pub starts:     *mut u8,     // calloc'd bitmap: object-start markers
+    pub bitmap_len: i64,         // length of each bitmap in bytes
     pub depth:      i64,         // current call depth
     pub error:      CheckError,  // first error seen (Ok = none so far)
 }
 
 pub unsafe fn check_state_create(base: *const u8, zone_sz: i64) -> CheckState {
     let bitmap_len: i64 = (zone_sz + 7 as i64) / 8 as i64;
-    let visited: *mut u8 = calloc(bitmap_len, 1 as i64);  // returns zeroed memory
+    let visited: *mut u8 = calloc(bitmap_len, 1 as i64);
+    let starts:  *mut u8 = calloc(bitmap_len, 1 as i64);
+    // If either calloc failed, release the other and leave both null so the
+    // caller's "null == OOM" check catches it cleanly.
+    if visited == 0 as *mut u8 || starts == 0 as *mut u8 {
+        if visited != 0 as *mut u8 { free(visited); }
+        if starts  != 0 as *mut u8 { free(starts);  }
+        return CheckState {
+            base:       base,
+            zone_sz:    zone_sz,
+            visited:    0 as *mut u8,
+            starts:     0 as *mut u8,
+            bitmap_len: 0 as i64,
+            depth:      0 as i64,
+            error:      CheckError::Ok,
+        };
+    }
     return CheckState {
         base:       base,
         zone_sz:    zone_sz,
         visited:    visited,
+        starts:     starts,
         bitmap_len: bitmap_len,
         depth:      0 as i64,
         error:      CheckError::Ok,
@@ -84,21 +120,36 @@ pub unsafe fn check_state_free(state: *mut CheckState) {
         free(state.visited);
         state.visited = 0 as *mut u8;
     }
+    if state.starts != 0 as *mut u8 {
+        free(state.starts);
+        state.starts = 0 as *mut u8;
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Bitmap helpers
 // ---------------------------------------------------------------------------
 
-// Returns true if the bit for byte `zone_off` is already set.
-pub unsafe fn check_is_visited(state: *mut CheckState, zone_off: i64) -> bool {
+// Set the "object starts here" bit for `zone_off` (the first byte of an
+// object's TypeTag prefix).  Called once per object after its header has
+// been marked.  Used by anyval_check() to short-circuit revisits of the
+// same object via legitimately shared references (DAG protection).
+pub unsafe fn check_mark_start(state: *mut CheckState, zone_off: i64) {
     let byte_idx: i64 = zone_off / 8 as i64;
     let bit: u32 = 1 as u32 << ((zone_off & 7 as i64) as u32);
-    let p: *const u8 = (state.visited as i64 + byte_idx) as *const u8;
+    let p: *mut u8 = (state.starts as i64 + byte_idx) as *mut u8;
+    *p = ((*p as u32) | bit) as u8;
+}
+
+// Returns true if `zone_off` has been recorded as an object-start.
+pub unsafe fn check_is_object_start(state: *mut CheckState, zone_off: i64) -> bool {
+    let byte_idx: i64 = zone_off / 8 as i64;
+    let bit: u32 = 1 as u32 << ((zone_off & 7 as i64) as u32);
+    let p: *const u8 = (state.starts as i64 + byte_idx) as *const u8;
     return ((*p) as u32 & bit) != 0 as u32;
 }
 
-// Mark bits [zone_off, zone_off + nbytes).
+// Mark bits [zone_off, zone_off + nbytes) in the `visited` bitmap.
 // Returns false (and sets state.error = Overlap) if any bit was already set.
 pub unsafe fn check_mark(state: *mut CheckState, zone_off: i64, nbytes: i64) -> bool {
     let mut i: i64 = zone_off;
@@ -122,10 +173,18 @@ pub unsafe fn check_mark(state: *mut CheckState, zone_off: i64, nbytes: i64) -> 
 // Bounds check
 // ---------------------------------------------------------------------------
 
-// Returns false (and sets OutOfBounds) if [zone_off, zone_off+nbytes) lies
-// outside [0, state.zone_sz).
+// Returns false (and sets OutOfBounds) if [zone_off, zone_off+nbytes) does
+// not lie fully inside [0, state.zone_sz).  Hardened against corrupt inputs:
+//   - rejects negative zone_off and nbytes
+//   - computes the upper bound via `nbytes > zone_sz - zone_off`, which
+//     never overflows because all three operands are non-negative i64 in
+//     [0, 2^63-1).
 pub unsafe fn check_bounds(state: *mut CheckState, zone_off: i64, nbytes: i64) -> bool {
-    if zone_off < 0 as i64 || zone_off + nbytes > state.zone_sz {
+    if zone_off < 0 as i64 || nbytes < 0 as i64 {
+        state.error = CheckError::OutOfBounds;
+        return false;
+    }
+    if nbytes > state.zone_sz - zone_off {
         state.error = CheckError::OutOfBounds;
         return false;
     }
@@ -151,15 +210,20 @@ impl HermesCheck for HermesString {
         unsafe {
             let obj: *const u8 = self as *const HermesString as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
-            // Need at least 2 TypeTag + 1 vlen byte.
+            // Need at least 2 TypeTag bytes + 1 vlen byte to determine prefix size.
             if !check_bounds(state, off - 2 as i64, 3 as i64) { return false; }
 
+            // vlen_prefix_size only reads obj[0], but vlen_read may read up to
+            // vlen_sz bytes starting at obj[0]; bounds-check before calling it.
             let vlen_sz: i64 = vlen_prefix_size(obj) as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + vlen_sz) { return false; }
+
             let str_len: i64 = vlen_read(obj) as i64;
             let total: i64 = vlen_sz + str_len;
 
             if !check_bounds(state, off - 2 as i64, 2 as i64 + total) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + total) { return false; }
+            check_mark_start(state, off - 2 as i64);
             return true;
         }
     }
@@ -175,6 +239,7 @@ impl HermesCheck for I64 {
             let sz: i64 = sizeof::<I64>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
             return true;
         }
     }
@@ -190,6 +255,7 @@ impl HermesCheck for U64 {
             let sz: i64 = sizeof::<U64>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
             return true;
         }
     }
@@ -209,6 +275,7 @@ impl HermesCheck for Decimal {
             let total: i64 = hdr + (nlimbs as i64) * 4 as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + total) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + total) { return false; }
+            check_mark_start(state, off - 2 as i64);
             return true;
         }
     }
@@ -225,6 +292,7 @@ impl HermesCheck for Array<AnyVal> {
             let hdr_sz: i64 = sizeof::<Array<AnyVal>>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
 
             let sz: u64  = arr.size;
             let cap: u64 = arr.capacity;
@@ -269,6 +337,7 @@ impl<V> HermesCheck for Map<Bitmap, V> {
             let hdr_sz: i64 = sizeof::<Map<Bitmap, V>>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
 
             let sz: u32  = ((m.header >> 58 as u64) & 0x3F as u64) as u32;
             let cap: u32 = ((m.header >> 52 as u64) & 0x3F as u64) as u32;
@@ -314,6 +383,7 @@ impl HermesCheck for ObjectMap {
             let hdr_sz: i64 = sizeof::<ObjectMap>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
 
             let cap: u32 = m.capacity;
             let cnt: u32 = m.count;
@@ -334,6 +404,15 @@ impl HermesCheck for ObjectMap {
                 let ep: *const MapEntry =
                     (state.base as i64 + ent_off + (slot as i64) * 8 as i64) as *const MapEntry;
                 if ep.key_off != 0 as u32 {
+                    // A valid key_off is a clean zone-relative offset (LSB=0).
+                    // If LSB=1, AnyVal::from_offset() would interpret the u32
+                    // as an inline AnyVal and anyval_check would silently return
+                    // true without validating the (nonexistent) HermesString.
+                    if (ep.key_off & 1 as u32) != 0 as u32 {
+                        state.error = CheckError::BadTag;
+                        state.depth = state.depth - 1 as i64;
+                        return false;
+                    }
                     let key_av: AnyVal = AnyVal::from_offset(ep.key_off);
                     if !anyval_check(key_av, state) {
                         state.depth = state.depth - 1 as i64;
@@ -364,6 +443,7 @@ impl HermesCheck for TypedValue {
             let sz: i64 = sizeof::<TypedValue>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
 
             state.depth = state.depth + 1 as i64;
 
@@ -399,6 +479,7 @@ impl HermesCheck for TypedArray {
             let sz: i64 = sizeof::<TypedArray>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
 
             state.depth = state.depth + 1 as i64;
 
@@ -429,6 +510,7 @@ impl HermesCheck for TypedMap {
             let sz: i64 = sizeof::<TypedMap>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
 
             state.depth = state.depth + 1 as i64;
 
@@ -459,6 +541,7 @@ impl HermesCheck for ArrayI32 {
             let hdr_sz: i64 = sizeof::<ArrayI32>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
 
             let sz: u64  = arr.size;
             let cap: u64 = arr.capacity;
@@ -488,6 +571,7 @@ impl HermesCheck for MapI32AnyVal {
             let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
             if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
             if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            check_mark_start(state, off - 2 as i64);
 
             let sz: u32  = m.size;
             let cap: u32 = m.capacity;
@@ -565,7 +649,7 @@ pub unsafe fn anyval_check(val: AnyVal, state: *mut CheckState) -> bool {
         return false;
     }
 
-    if check_is_visited(state, off - 2 as i64) { return true; }
+    if check_is_object_start(state, off - 2 as i64) { return true; }
 
     let obj: *const u8 = (state.base as i64 + off) as *const u8;
     let tag: u8 = tag_read_hash(obj);
@@ -592,6 +676,10 @@ pub unsafe fn document_check(zone: *const Zone<Mutable>) -> bool {
     if zone_sz < 8 as i64  { return false; }   // too small for DocumentHeader
 
     let base: *const u8 = holder.base as *const u8;
+    // MemHolder.base is null if the backing malloc failed; without this
+    // guard the subsequent pointer arithmetic would dereference base+off.
+    if base == 0 as *const u8 { return false; }
+
     let mut state: CheckState = check_state_create(base, zone_sz);
     if state.visited == 0 as *mut u8 { return false; }  // calloc failed
 
