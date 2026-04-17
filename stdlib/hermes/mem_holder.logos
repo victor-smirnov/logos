@@ -180,5 +180,5 @@ pub unsafe fn memholder_create(capacity: i64) -> *mut MemHolder {
 // Used to write storage-agnostic code over Zone<M>, HermesCtr, etc.
 
 pub trait HasMemHolder {
-    unsafe fn mem_holder(self: *const Self) -> *mut MemHolder;
+    fn mem_holder(&self) -> *mut MemHolder;
 }

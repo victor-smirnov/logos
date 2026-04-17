@@ -72,7 +72,7 @@ impl<M> Zone<M> {
 }
 
 impl<M> HasMemHolder for Zone<M> {
-    pub unsafe fn mem_holder(self: *const Zone<M>) -> *mut MemHolder {
+    pub fn mem_holder(&self) -> *mut MemHolder {
         return self.holder;
     }
 }
