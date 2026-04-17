@@ -28,6 +28,7 @@ use hermes.objectmap;
 use hermes.document;
 use hermes.scalar;
 use hermes.decimal;
+use hermes.mem_holder;
 use std.string;
 
 pub struct CloneCtx {
@@ -300,4 +301,65 @@ impl HermesClone for TypedValue {
             return raw;
         }
     }
+}
+
+// ── Document compactify ───────────────────────────────────────────────────────
+//
+// Creates a fresh zone, deep-copies every object reachable from the document
+// root into it (unreachable/garbage objects are skipped), and returns the new
+// zone.  The caller takes ownership of the returned Zone<Mutable>.
+//
+// capacity_hint: initial byte capacity for the destination zone.
+//   Pass 0 to auto-size from the source zone's `used` bytes.
+//
+// Returns a zero-holder Zone on OOM or if the source has no DocumentHeader.
+pub unsafe fn document_compactify(src_zone: *const Zone<Mutable>,
+                                  capacity_hint: i64) -> Zone<Mutable> {
+    if src_zone == 0 as *const Zone<Mutable> {
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+    let src_holder: *mut MemHolder = src_zone.holder;
+    if src_holder == 0 as *mut MemHolder {
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+
+    let src_base: *const u8 = src_holder.base as *const u8;
+
+    // Determine destination capacity.
+    let cap: i64 = if capacity_hint > 0 as i64 {
+        capacity_hint
+    } else {
+        let u: i64 = src_holder.used;
+        if u < 64 as i64 { 64 as i64 } else { u }
+    };
+
+    // Allocate destination zone.
+    let mut dst_zone: Zone<Mutable> = zone_create(cap);
+    if dst_zone.holder == 0 as *mut MemHolder {
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+
+    // Pre-allocate DocumentHeader at dst offset 0.
+    let hdr_raw: *mut u8 = zone_m_alloc_raw(&mut dst_zone, 8);
+    if hdr_raw == 0 as *mut u8 {
+        dst_zone.release();
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+    let dst_doc: *mut DocumentHeader = document_create(hdr_raw);
+
+    // Read root from source.
+    let src_doc: *const DocumentHeader = src_base as *const DocumentHeader;
+    let src_root: AnyVal = document_get_root(src_doc);
+
+    // Clone the reachable object graph starting from root.
+    let mut ctx: CloneCtx = CloneCtx {
+        base_src: src_base,
+        zone_dst: &mut dst_zone,
+    };
+    let new_root: AnyVal = anyval_clone(src_root, &mut ctx);
+
+    // Store cloned root in destination header.
+    document_set_root(dst_doc, new_root);
+
+    return dst_zone;
 }

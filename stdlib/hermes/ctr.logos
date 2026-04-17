@@ -36,6 +36,7 @@ use hermes.parser;
 use hermes.scalar;
 use hermes.decimal;
 use hermes.stringify;
+use hermes.clone;
 use std.string;
 use std.drop;
 
@@ -561,6 +562,25 @@ impl HermesCtr {
             let doc: *mut DocumentHeader = base as *mut DocumentHeader;
             document_set_root(doc, val);
         }
+    }
+
+    // Deep-copy all objects reachable from the document root into a fresh zone,
+    // discarding unreachable (garbage) objects.  Returns a new HermesCtr that
+    // owns the compacted zone.
+    //
+    // capacity_hint: initial byte capacity for the destination zone.
+    //   Pass 0 to auto-size from the source zone's current usage.
+    pub fn compactify(&self, capacity_hint: i64) -> HermesCtr {
+        unsafe {
+            let new_zone: Zone<Mutable> =
+                document_compactify(&self.zone, capacity_hint);
+            return HermesCtr { zone: new_zone };
+        }
+    }
+
+    // Convenience overload: auto-size destination zone from source usage.
+    pub fn compactify(&self) -> HermesCtr {
+        return self.compactify(0 as i64);
     }
 
 }
