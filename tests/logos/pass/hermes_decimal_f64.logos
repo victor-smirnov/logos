@@ -1,0 +1,112 @@
+// Decimal ↔ f64 conversion tests
+package hermes_decimal_f64;
+use hermes.ctr;
+use std.string;
+
+unsafe fn main() -> i32 {
+    // ── decimal_to_f64 ────────────────────────────────────────────────────────
+
+    // 1. zero → 0.0
+    let mut d1: HermesCtr = HermesCtr::builder(4096);
+    let z1: AnyVal = d1.decimal_from_string(10 as i32, 2 as i32, "0.00");
+    if z1.is_null() { return 1; }
+    let f1: f64 = d1.decimal_to_f64(z1);
+    if f1 != 0.0 { return 2; }
+
+    // 2. positive integer → f64
+    let mut d2: HermesCtr = HermesCtr::builder(4096);
+    let v2: AnyVal = d2.decimal_from_string(10 as i32, 0 as i32, "42");
+    if v2.is_null() { return 3; }
+    let f2: f64 = d2.decimal_to_f64(v2);
+    if f2 != 42.0 { return 4; }
+
+    // 3. positive fractional → f64
+    let mut d3: HermesCtr = HermesCtr::builder(4096);
+    let v3: AnyVal = d3.decimal_from_string(6 as i32, 2 as i32, "123.45");
+    if v3.is_null() { return 5; }
+    let f3: f64 = d3.decimal_to_f64(v3);
+    if f3 != 123.45 { return 6; }
+
+    // 4. negative value → f64
+    let mut d4: HermesCtr = HermesCtr::builder(4096);
+    let v4: AnyVal = d4.decimal_from_string(6 as i32, 2 as i32, "-7.50");
+    if v4.is_null() { return 7; }
+    let f4: f64 = d4.decimal_to_f64(v4);
+    if f4 != -7.5 { return 8; }
+
+    // 5. null AnyVal → 0.0
+    let mut d5: HermesCtr = HermesCtr::builder(4096);
+    let f5: f64 = d5.decimal_to_f64(AnyVal::null_ptr());
+    if f5 != 0.0 { return 9; }
+
+    // ── decimal_from_f64 ──────────────────────────────────────────────────────
+
+    // 6. basic: 3.14 → Decimal(5,2) → "3.14"
+    let mut d6: HermesCtr = HermesCtr::builder(4096);
+    let v6: AnyVal = d6.decimal_from_f64(5 as i32, 2 as i32, 3.14);
+    if v6.is_null() { return 10; }
+    let s6: String = d6.decimal_to_string(v6);
+    if !s6.eq_cstr("3.14") { return 11; }
+
+    // 7. integer: 42.0 → Decimal(10,0) → "42"
+    let mut d7: HermesCtr = HermesCtr::builder(4096);
+    let v7: AnyVal = d7.decimal_from_f64(10 as i32, 0 as i32, 42.0);
+    if v7.is_null() { return 12; }
+    let s7: String = d7.decimal_to_string(v7);
+    if !s7.eq_cstr("42") { return 13; }
+
+    // 8. zero: 0.0 → Decimal(5,2) → "0.00"
+    let mut d8: HermesCtr = HermesCtr::builder(4096);
+    let v8: AnyVal = d8.decimal_from_f64(5 as i32, 2 as i32, 0.0);
+    if v8.is_null() { return 14; }
+    let s8: String = d8.decimal_to_string(v8);
+    if !s8.eq_cstr("0.00") { return 15; }
+
+    // 9. negative: -1.5 → Decimal(5,2) → "-1.50"
+    let mut d9: HermesCtr = HermesCtr::builder(4096);
+    let v9: AnyVal = d9.decimal_from_f64(5 as i32, 2 as i32, -1.5);
+    if v9.is_null() { return 16; }
+    let s9: String = d9.decimal_to_string(v9);
+    if !s9.eq_cstr("-1.50") { return 17; }
+
+    // 10. purely fractional: 0.05 → Decimal(3,2) → "0.05"
+    let mut d10: HermesCtr = HermesCtr::builder(4096);
+    let v10: AnyVal = d10.decimal_from_f64(3 as i32, 2 as i32, 0.05);
+    if v10.is_null() { return 18; }
+    let s10: String = d10.decimal_to_string(v10);
+    if !s10.eq_cstr("0.05") { return 19; }
+
+    // 11. precision overflow: 999.0 into Decimal(3,0) max is 999 → OK
+    let mut d11: HermesCtr = HermesCtr::builder(4096);
+    let v11: AnyVal = d11.decimal_from_f64(3 as i32, 0 as i32, 999.0);
+    if v11.is_null() { return 20; }
+    let s11: String = d11.decimal_to_string(v11);
+    if !s11.eq_cstr("999") { return 21; }
+
+    // 12. precision overflow: 1000.0 into Decimal(3,0) must be null
+    let mut d12: HermesCtr = HermesCtr::builder(4096);
+    let bad12: AnyVal = d12.decimal_from_f64(3 as i32, 0 as i32, 1000.0);
+    if !bad12.is_null() { return 22; }
+
+    // 13. round-trip: Decimal → f64 → Decimal, string must match
+    let mut d13: HermesCtr = HermesCtr::builder(4096);
+    let orig13: AnyVal = d13.decimal_from_string(8 as i32, 4 as i32, "1234.5678");
+    if orig13.is_null() { return 23; }
+    let f13: f64 = d13.decimal_to_f64(orig13);
+    let rt13: AnyVal = d13.decimal_from_f64(8 as i32, 4 as i32, f13);
+    if rt13.is_null() { return 24; }
+    let s13: String = d13.decimal_to_string(rt13);
+    if !s13.eq_cstr("1234.5678") { return 25; }
+
+    // 14. invalid P=0 must be null
+    let mut d14: HermesCtr = HermesCtr::builder(4096);
+    let bad14: AnyVal = d14.decimal_from_f64(0 as i32, 0 as i32, 1.0);
+    if !bad14.is_null() { return 26; }
+
+    // 15. S > P must be null
+    let mut d15: HermesCtr = HermesCtr::builder(4096);
+    let bad15: AnyVal = d15.decimal_from_f64(2 as i32, 3 as i32, 1.0);
+    if !bad15.is_null() { return 27; }
+
+    return 0;
+}

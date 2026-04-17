@@ -1,0 +1,651 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.decimal
+//
+// Decimal(P,S) storage:
+//   eidos Decimal { spec_and_len: u32, limbs[]: inline u32 tail }
+//
+// Packed spec_and_len (u32):
+//   bits [0..11]   scale S      (0..4095)
+//   bits [12..23]  precision P  (1..4095)
+//   bits [24..30]  limbs_len    (0..127)
+//   bit  [31]      sign         (1 = negative)
+//
+// Limbs are little-endian base 1e9:
+//   value_abs = sum(limbs[i] * (1e9^i))
+// Decimal logical value:
+//   value = sign ? -(value_abs / 10^S) : +(value_abs / 10^S)
+
+package hermes.decimal;
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.typetag;
+use std.string;
+
+const DEC_BASE: u64 = 1000000000 as u64;
+const DECIMAL_MAX_LIMBS: u32 = 127 as u32;
+const DECIMAL_MAX_DIGITS: u32 = 1143 as u32;  // 127 limbs * 9 digits
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+#[type_code=107]
+pub eidos Decimal {
+    pub spec_and_len: u32,
+}
+
+impl Decimal {
+    pub unsafe fn init(raw: *mut u8, p: u32, s: u32, nlimbs: u32, neg: bool) -> *mut Decimal {
+        let d: *mut Decimal = raw as *mut Decimal;
+        d.spec_and_len = decimal_pack_spec(p, s, nlimbs, neg);
+        return d;
+    }
+
+    pub unsafe fn precision(self: *const Decimal) -> u32 {
+        return decimal_precision(self.spec_and_len);
+    }
+
+    pub unsafe fn scale(self: *const Decimal) -> u32 {
+        return decimal_scale(self.spec_and_len);
+    }
+
+    pub unsafe fn len(self: *const Decimal) -> u32 {
+        return decimal_limb_len(self.spec_and_len);
+    }
+
+    pub unsafe fn is_negative(self: *const Decimal) -> bool {
+        return decimal_is_negative(self.spec_and_len);
+    }
+
+    pub unsafe fn limbs(self: *const Decimal) -> *const u32 {
+        return (self as i64 + sizeof::<Decimal>() as i64) as *const u32;
+    }
+
+    pub unsafe fn limbs_mut(self: *const Decimal) -> *mut u32 {
+        return (self as i64 + sizeof::<Decimal>() as i64) as *mut u32;
+    }
+
+    pub unsafe fn limb_at(self: *const Decimal, idx: u32) -> u32 {
+        if idx >= self.len() { return 0 as u32; }
+        return *((self.limbs() as i64 + (idx as i64) * 4 as i64) as *const u32);
+    }
+}
+
+pub unsafe fn decimal_pack_spec(p: u32, s: u32, nlimbs: u32, neg: bool) -> u32 {
+    let mut sign: u32 = 0 as u32;
+    if neg { sign = 1 as u32; }
+    return ((s & 0xFFF as u32) << 0 as u32)
+         | ((p & 0xFFF as u32) << 12 as u32)
+         | ((nlimbs & 0x7F as u32) << 24 as u32)
+         | (sign << 31 as u32);
+}
+
+pub unsafe fn decimal_precision(spec: u32) -> u32 {
+    return (spec >> 12 as u32) & 0xFFF as u32;
+}
+
+pub unsafe fn decimal_scale(spec: u32) -> u32 {
+    return spec & 0xFFF as u32;
+}
+
+pub unsafe fn decimal_limb_len(spec: u32) -> u32 {
+    return (spec >> 24 as u32) & 0x7F as u32;
+}
+
+pub unsafe fn decimal_is_negative(spec: u32) -> bool {
+    return ((spec >> 31 as u32) & 1 as u32) != 0 as u32;
+}
+
+pub unsafe fn decimal_ptr(base: *const u8, v: AnyVal) -> *const Decimal {
+    if !v.is_ptr() || v.is_null() { return 0 as *const Decimal; }
+    let obj: *const u8 = (base as i64 + v.as_offset() as i64) as *const u8;
+    if tag_read_hash(obj) != hermes_tag_decimal() { return 0 as *const Decimal; }
+    return obj as *const Decimal;
+}
+
+unsafe fn decimal_digits_u32(v: u32) -> u32 {
+    if v >= 1000000000 as u32 { return 10 as u32; }
+    if v >= 100000000 as u32 { return 9 as u32; }
+    if v >= 10000000 as u32 { return 8 as u32; }
+    if v >= 1000000 as u32 { return 7 as u32; }
+    if v >= 100000 as u32 { return 6 as u32; }
+    if v >= 10000 as u32 { return 5 as u32; }
+    if v >= 1000 as u32 { return 4 as u32; }
+    if v >= 100 as u32 { return 3 as u32; }
+    if v >= 10 as u32 { return 2 as u32; }
+    return 1 as u32;
+}
+
+unsafe fn decimal_trim_len(limbs: *const u32, n: u32) -> u32 {
+    let mut m: i64 = n as i64;
+    while m > 0 as i64 {
+        let x: u32 = *((limbs as i64 + (m - 1 as i64) * 4 as i64) as *const u32);
+        if x != 0 as u32 { break; }
+        m = m - 1 as i64;
+    }
+    return m as u32;
+}
+
+unsafe fn decimal_abs_cmp(a: *const u32, an: u32, b: *const u32, bn: u32) -> i32 {
+    if an > bn { return 1 as i32; }
+    if an < bn { return -1 as i32; }
+    if an == 0 as u32 { return 0 as i32; }
+    let mut i: i64 = an as i64 - 1 as i64;
+    while i >= 0 as i64 {
+        let av: u32 = *((a as i64 + i * 4 as i64) as *const u32);
+        let bv: u32 = *((b as i64 + i * 4 as i64) as *const u32);
+        if av > bv { return 1 as i32; }
+        if av < bv { return -1 as i32; }
+        i = i - 1 as i64;
+    }
+    return 0 as i32;
+}
+
+unsafe fn decimal_abs_add(out: *mut u32, a: *const u32, an: u32, b: *const u32, bn: u32) -> u32 {
+    let mut n: u32 = an;
+    if bn > n { n = bn; }
+    let mut carry: u64 = 0 as u64;
+    let mut i: u32 = 0 as u32;
+    while i < n {
+        let mut av: u64 = 0 as u64;
+        if i < an {
+            av = *((a as i64 + (i as i64) * 4 as i64) as *const u32) as u64;
+        }
+        let mut bv: u64 = 0 as u64;
+        if i < bn {
+            bv = *((b as i64 + (i as i64) * 4 as i64) as *const u32) as u64;
+        }
+        let sum: u64 = av + bv + carry;
+        *((out as i64 + (i as i64) * 4 as i64) as *mut u32) = (sum % DEC_BASE) as u32;
+        carry = sum / DEC_BASE;
+        i = i + 1 as u32;
+    }
+    if carry != 0 as u64 {
+        *((out as i64 + (n as i64) * 4 as i64) as *mut u32) = carry as u32;
+        return n + 1 as u32;
+    }
+    return n;
+}
+
+unsafe fn decimal_abs_sub(out: *mut u32, a: *const u32, an: u32, b: *const u32, bn: u32) -> u32 {
+    // Precondition: |a| >= |b|
+    let mut borrow: i64 = 0 as i64;
+    let mut i: u32 = 0 as u32;
+    while i < an {
+        let av: i64 = *((a as i64 + (i as i64) * 4 as i64) as *const u32) as i64;
+        let mut bv: i64 = 0 as i64;
+        if i < bn {
+            bv = *((b as i64 + (i as i64) * 4 as i64) as *const u32) as i64;
+        }
+        let mut cur: i64 = av - bv - borrow;
+        if cur < 0 as i64 {
+            cur = cur + DEC_BASE as i64;
+            borrow = 1 as i64;
+        } else {
+            borrow = 0 as i64;
+        }
+        *((out as i64 + (i as i64) * 4 as i64) as *mut u32) = cur as u32;
+        i = i + 1 as u32;
+    }
+    return decimal_trim_len(out as *const u32, an);
+}
+
+unsafe fn decimal_append_u32_padded9(out: *mut String, v: u32) {
+    let mut div: u32 = 100000000 as u32;
+    while div > 0 as u32 {
+        let d: u32 = (v / div) % 10 as u32;
+        out.push_u8((48 as u32 + d) as u8);
+        div = div / 10 as u32;
+    }
+}
+
+pub unsafe fn decimal_write_number(d: *const Decimal, out: *mut String) {
+    let s: u32 = d.scale();
+    let n: u32 = d.len();
+    let neg: bool = d.is_negative();
+    let limbs: *const u32 = d.limbs();
+
+    if n == 0 as u32 {
+        if s == 0 as u32 {
+            out.push_u8(48 as u8);  // '0'
+            return;
+        }
+        out.push_u8(48 as u8);      // '0'
+        out.push_u8(46 as u8);      // '.'
+        let mut k: u32 = 0 as u32;
+        while k < s {
+            out.push_u8(48 as u8);
+            k = k + 1 as u32;
+        }
+        return;
+    }
+
+    let mut digits: String = String::with_capacity((n as i64) * 9 as i64 + 4 as i64);
+    let hi_idx: u32 = n - 1 as u32;
+    let hi: u32 = *((limbs as i64 + (hi_idx as i64) * 4 as i64) as *const u32);
+    digits.push_u64(hi as u64);
+
+    let mut i: i64 = hi_idx as i64 - 1 as i64;
+    while i >= 0 as i64 {
+        let lv: u32 = *((limbs as i64 + i * 4 as i64) as *const u32);
+        decimal_append_u32_padded9(&mut digits, lv);
+        i = i - 1 as i64;
+    }
+
+    let dlen: i64 = digits.len();
+    if neg { out.push_u8(45 as u8); }  // '-'
+
+    if s == 0 as u32 {
+        out.push_bytes(digits.as_ptr(), dlen);
+        return;
+    }
+
+    let s_i: i64 = s as i64;
+    if dlen <= s_i {
+        out.push_u8(48 as u8);   // '0'
+        out.push_u8(46 as u8);   // '.'
+        let mut z: i64 = 0 as i64;
+        while z < s_i - dlen {
+            out.push_u8(48 as u8);
+            z = z + 1 as i64;
+        }
+        out.push_bytes(digits.as_ptr(), dlen);
+        return;
+    }
+
+    let int_len: i64 = dlen - s_i;
+    out.push_bytes(digits.as_ptr(), int_len);
+    out.push_u8(46 as u8);  // '.'
+    out.push_bytes((digits.as_ptr() as i64 + int_len) as *const u8, s_i);
+}
+
+unsafe fn decimal_alloc(zone: *mut Zone<Mutable>, p: u32, s: u32, nlimbs: u32, neg: bool) -> *mut Decimal {
+    if p == 0 as u32 || p > DECIMAL_MAX_DIGITS { return 0 as *mut Decimal; }
+    if s > p || s > 4095 as u32 { return 0 as *mut Decimal; }
+    if nlimbs > DECIMAL_MAX_LIMBS { return 0 as *mut Decimal; }
+    let total: i64 = sizeof::<Decimal>() as i64 + (nlimbs as i64) * 4 as i64;
+    let raw: *mut u8 = zone_m_alloc_tagged(zone, total, hermes_tag_decimal(), hermes_desc_data());
+    if raw == 0 as *mut u8 { return 0 as *mut Decimal; }
+    let d: *mut Decimal = Decimal::init(raw, p, s, nlimbs, neg);
+    let mut i: u32 = 0 as u32;
+    let lp: *mut u32 = d.limbs_mut();
+    while i < nlimbs {
+        *((lp as i64 + (i as i64) * 4 as i64) as *mut u32) = 0 as u32;
+        i = i + 1 as u32;
+    }
+    return d;
+}
+
+pub unsafe fn decimal_from_string_in_zone(zone: *mut Zone<Mutable>,
+                                           p_i: i32, s_i: i32,
+                                           text: *const u8, len: i64) -> AnyVal {
+    if zone == 0 as *mut Zone<Mutable> { return AnyVal::null_ptr(); }
+    if text == 0 as *const u8 { return AnyVal::null_ptr(); }
+    if len <= 0 as i64 { return AnyVal::null_ptr(); }
+    if p_i <= 0 as i32 || s_i < 0 as i32 || s_i > p_i { return AnyVal::null_ptr(); }
+
+    let p: u32 = p_i as u32;
+    let s: u32 = s_i as u32;
+    if p > DECIMAL_MAX_DIGITS { return AnyVal::null_ptr(); }
+
+    if len > 9223372036854775800 as i64 - s as i64 {
+        return AnyVal::null_ptr();
+    }
+
+    let digits_buf: *mut u8 = malloc(len + s as i64 + 4 as i64);
+    if digits_buf == 0 as *mut u8 { return AnyVal::null_ptr(); }
+
+    let mut pos: i64 = 0 as i64;
+    let mut neg: bool = false;
+    let c0: u8 = *((text as i64 + pos) as *const u8);
+    if c0 == 45 as u8 {  // '-'
+        neg = true;
+        pos = pos + 1 as i64;
+    } else if c0 == 43 as u8 {  // '+'
+        pos = pos + 1 as i64;
+    }
+    if pos >= len {
+        free(digits_buf);
+        return AnyVal::null_ptr();
+    }
+
+    let mut nd: i64 = 0 as i64;
+    let mut seen_dot: bool = false;
+    let mut frac_digits: u32 = 0 as u32;
+    let mut saw_digit: bool = false;
+
+    while pos < len {
+        let c: u8 = *((text as i64 + pos) as *const u8);
+        if c >= 48 as u8 && c <= 57 as u8 {
+            *((digits_buf as i64 + nd) as *mut u8) = c;
+            nd = nd + 1 as i64;
+            saw_digit = true;
+            if seen_dot { frac_digits = frac_digits + 1 as u32; }
+        } else if c == 46 as u8 {  // '.'
+            if seen_dot {
+                free(digits_buf);
+                return AnyVal::null_ptr();
+            }
+            seen_dot = true;
+        } else {
+            free(digits_buf);
+            return AnyVal::null_ptr();
+        }
+        pos = pos + 1 as i64;
+    }
+
+    if !saw_digit {
+        free(digits_buf);
+        return AnyVal::null_ptr();
+    }
+    if frac_digits > s {
+        free(digits_buf);
+        return AnyVal::null_ptr();
+    }
+
+    let pad: u32 = s - frac_digits;
+    let mut j: u32 = 0 as u32;
+    while j < pad {
+        *((digits_buf as i64 + nd) as *mut u8) = 48 as u8;
+        nd = nd + 1 as i64;
+        j = j + 1 as u32;
+    }
+
+    let mut lead: i64 = 0 as i64;
+    while lead < nd && *((digits_buf as i64 + lead) as *const u8) == 48 as u8 {
+        lead = lead + 1 as i64;
+    }
+    let sig_digits: u32 = (nd - lead) as u32;
+    if sig_digits > p {
+        free(digits_buf);
+        return AnyVal::null_ptr();
+    }
+
+    if sig_digits == 0 as u32 {
+        neg = false;
+        let dz: *mut Decimal = decimal_alloc(zone, p, s, 0 as u32, false);
+        free(digits_buf);
+        if dz == 0 as *mut Decimal { return AnyVal::null_ptr(); }
+        let base: *mut u8 = zone.holder.base;
+        return AnyVal::from_offset((dz as i64 - base as i64) as u32);
+    }
+
+    let nlimbs: u32 = ((sig_digits + 8 as u32) / 9 as u32) as u32;
+    let d: *mut Decimal = decimal_alloc(zone, p, s, nlimbs, neg);
+    if d == 0 as *mut Decimal {
+        free(digits_buf);
+        return AnyVal::null_ptr();
+    }
+    let out_limbs: *mut u32 = d.limbs_mut();
+
+    let mut end: i64 = nd;
+    let mut out_i: u32 = 0 as u32;
+    while end > lead {
+        let mut begin: i64 = end - 9 as i64;
+        if begin < lead { begin = lead; }
+        let mut acc: u32 = 0 as u32;
+        let mut k: i64 = begin;
+        while k < end {
+            let ch: u8 = *((digits_buf as i64 + k) as *const u8);
+            acc = acc * 10 as u32 + (ch as u32 - 48 as u32);
+            k = k + 1 as i64;
+        }
+        *((out_limbs as i64 + (out_i as i64) * 4 as i64) as *mut u32) = acc;
+        out_i = out_i + 1 as u32;
+        end = begin;
+    }
+
+    free(digits_buf);
+    let base: *mut u8 = zone.holder.base;
+    return AnyVal::from_offset((d as i64 - base as i64) as u32);
+}
+
+pub unsafe fn decimal_to_string_value(base: *const u8, v: AnyVal) -> String {
+    let mut out: String = String::with_capacity(64);
+    let d: *const Decimal = decimal_ptr(base, v);
+    if d != 0 as *const Decimal {
+        let op: *mut String = (&out as *const String) as *mut String;
+        decimal_write_number(d, op);
+    }
+    return out;
+}
+
+unsafe fn decimal_binary_op(zone: *mut Zone<Mutable>, a: AnyVal, b: AnyVal, sub: bool) -> AnyVal {
+    if zone == 0 as *mut Zone<Mutable> { return AnyVal::null_ptr(); }
+    let base: *const u8 = zone.holder.base as *const u8;
+    let da: *const Decimal = decimal_ptr(base, a);
+    let db: *const Decimal = decimal_ptr(base, b);
+    if da == 0 as *const Decimal || db == 0 as *const Decimal { return AnyVal::null_ptr(); }
+
+    let pa: u32 = da.precision();
+    let pb: u32 = db.precision();
+    let sa: u32 = da.scale();
+    let sb: u32 = db.scale();
+    if pa != pb || sa != sb { return AnyVal::null_ptr(); }
+
+    let mut sgn_a: bool = da.is_negative();
+    let mut sgn_b: bool = db.is_negative();
+    if sub { sgn_b = !sgn_b; }
+
+    let a_limbs: *const u32 = da.limbs();
+    let b_limbs: *const u32 = db.limbs();
+    let an: u32 = da.len();
+    let bn: u32 = db.len();
+
+    let tmp_raw: *mut u8 = malloc(130 as i64 * 4 as i64);
+    if tmp_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+    let tmp: *mut u32 = tmp_raw as *mut u32;
+    let mut z: u32 = 0 as u32;
+    while z < 130 as u32 {
+        *((tmp as i64 + (z as i64) * 4 as i64) as *mut u32) = 0 as u32;
+        z = z + 1 as u32;
+    }
+
+    let mut out_neg: bool = false;
+    let mut out_n: u32 = 0 as u32;
+
+    if sgn_a == sgn_b {
+        out_n = decimal_abs_add(tmp, a_limbs, an, b_limbs, bn);
+        out_neg = sgn_a;
+    } else {
+        let cmp: i32 = decimal_abs_cmp(a_limbs, an, b_limbs, bn);
+        if cmp == 0 as i32 {
+            out_n = 0 as u32;
+            out_neg = false;
+        } else if cmp > 0 as i32 {
+            out_n = decimal_abs_sub(tmp, a_limbs, an, b_limbs, bn);
+            out_neg = sgn_a;
+        } else {
+            out_n = decimal_abs_sub(tmp, b_limbs, bn, a_limbs, an);
+            out_neg = sgn_b;
+        }
+    }
+
+    out_n = decimal_trim_len(tmp as *const u32, out_n);
+    if out_n == 0 as u32 { out_neg = false; }
+    if out_n > 127 as u32 {
+        free(tmp_raw);
+        return AnyVal::null_ptr();
+    }
+
+    let mut digits: u32 = 1 as u32;
+    if out_n != 0 as u32 {
+        let hi: u32 =
+            *((tmp as i64 + ((out_n - 1 as u32) as i64) * 4 as i64) as *const u32);
+        digits = (out_n - 1 as u32) * 9 as u32 + decimal_digits_u32(hi);
+    }
+    if digits > pa {
+        free(tmp_raw);
+        return AnyVal::null_ptr();
+    }
+
+    let out_d: *mut Decimal = decimal_alloc(zone, pa, sa, out_n, out_neg);
+    if out_d == 0 as *mut Decimal {
+        free(tmp_raw);
+        return AnyVal::null_ptr();
+    }
+    let dst: *mut u32 = out_d.limbs_mut();
+    let mut i: u32 = 0 as u32;
+    while i < out_n {
+        *((dst as i64 + (i as i64) * 4 as i64) as *mut u32) =
+            *((tmp as i64 + (i as i64) * 4 as i64) as *const u32);
+        i = i + 1 as u32;
+    }
+
+    let base_mut: *mut u8 = zone.holder.base;
+    free(tmp_raw);
+    return AnyVal::from_offset((out_d as i64 - base_mut as i64) as u32);
+}
+
+pub unsafe fn decimal_add_in_zone(zone: *mut Zone<Mutable>, a: AnyVal, b: AnyVal) -> AnyVal {
+    return decimal_binary_op(zone, a, b, false);
+}
+
+pub unsafe fn decimal_sub_in_zone(zone: *mut Zone<Mutable>, a: AnyVal, b: AnyVal) -> AnyVal {
+    return decimal_binary_op(zone, a, b, true);
+}
+
+// ── f64 conversion helpers ──────────────────────────────────────────────────
+
+// Compute 10.0^exp as f64.  For exp > 308 the result overflows to +Inf,
+// which the callers use as a "too large" sentinel.
+unsafe fn decimal_pow10_f64(exp: i32) -> f64 {
+    let mut r: f64 = 1.0;
+    let mut i: i32 = 0 as i32;
+    while i < exp {
+        r = r * 10.0;
+        i = i + 1 as i32;
+    }
+    return r;
+}
+
+// Convert a zone Decimal to f64.
+// Accuracy is limited to ~15-17 significant digits (f64 mantissa).
+// Returns 0.0 for null / non-Decimal AnyVal.
+pub unsafe fn decimal_to_f64_value(base: *const u8, v: AnyVal) -> f64 {
+    let d: *const Decimal = decimal_ptr(base, v);
+    if d == 0 as *const Decimal { return 0.0; }
+    let n: u32 = d.len();
+    if n == 0 as u32 { return 0.0; }
+    let limbs: *const u32 = d.limbs();
+    // Horner-style accumulation from most-significant limb down.
+    let mut acc: f64 = 0.0;
+    let mut i: i64 = (n as i64) - 1 as i64;
+    while i >= 0 as i64 {
+        let lv: u32 = *((limbs as i64 + i * 4 as i64) as *const u32);
+        acc = acc * 1000000000.0 + lv as f64;
+        i = i - 1 as i64;
+    }
+    let s: u32 = d.scale();
+    if s > 0 as u32 {
+        acc = acc / decimal_pow10_f64(s as i32);
+    }
+    if d.is_negative() { return 0.0 - acc; }
+    return acc;
+}
+
+// Convert f64 → Decimal(p_i, s_i), rounding half-up.
+//
+// Returns null_ptr when:
+//   • val is NaN or infinite
+//   • |val * 10^s_i| >= 2^53 (beyond exact f64 integer range ~9e15)
+//   • the rounded result overflows Decimal(p_i, s_i) precision
+pub unsafe fn decimal_from_f64_in_zone(zone: *mut Zone<Mutable>,
+                                        p_i: i32, s_i: i32, val: f64) -> AnyVal {
+    if zone == 0 as *mut Zone<Mutable> { return AnyVal::null_ptr(); }
+    if p_i <= 0 as i32 || s_i < 0 as i32 || s_i > p_i { return AnyVal::null_ptr(); }
+
+    // NaN / Inf guard: for both NaN and +/-Inf, val * 0.0 yields NaN (≠ 0.0).
+    let fc: f64 = val * 0.0;
+    if fc != 0.0 { return AnyVal::null_ptr(); }
+
+    let neg: bool = val < 0.0;
+    let mut abs_val: f64 = val;
+    if neg { abs_val = 0.0 - val; }
+
+    // Scale up and round to nearest integer (half-up).
+    let scale_f: f64 = decimal_pow10_f64(s_i);
+    let scaled: f64 = abs_val * scale_f + 0.5;
+
+    // Reject values beyond exact f64 integer range (2^53 = 9007199254740992).
+    let max_exact: u64 = 9007199254740992 as u64;
+    let max_exact_f: f64 = max_exact as f64;
+    if scaled >= max_exact_f { return AnyVal::null_ptr(); }
+
+    // Reject values that overflow the Decimal precision.
+    let limit_f: f64 = decimal_pow10_f64(p_i);
+    if scaled >= limit_f { return AnyVal::null_ptr(); }
+
+    let n: u64 = scaled as u64;
+
+    // Write the unscaled integer as decimal digits.
+    let dgt: *mut u8 = malloc(24 as i64);
+    if dgt == 0 as *mut u8 { return AnyVal::null_ptr(); }
+    let ndigits: i64 = write_u64(dgt, 0 as i64, n);
+
+    // Build the final decimal string (sign + integer digits + '.' + fractional).
+    // Max size: 1(sign) + 20(digits) + 1(dot) + s_i(leading zeros) + 1(null)
+    let buf_sz: i64 = 24 as i64 + s_i as i64;
+    let buf: *mut u8 = malloc(buf_sz);
+    if buf == 0 as *mut u8 { free(dgt); return AnyVal::null_ptr(); }
+
+    let mut pos: i64 = 0 as i64;
+
+    if neg && n != 0 as u64 {
+        *((buf as i64 + pos) as *mut u8) = 45 as u8;  // '-'
+        pos = pos + 1 as i64;
+    }
+
+    let s64: i64 = s_i as i64;
+
+    if s_i == 0 as i32 {
+        // Integer decimal — copy digits verbatim.
+        let mut k: i64 = 0 as i64;
+        while k < ndigits {
+            *((buf as i64 + pos) as *mut u8) = *((dgt as i64 + k) as *const u8);
+            pos = pos + 1 as i64;
+            k = k + 1 as i64;
+        }
+    } else if ndigits <= s64 {
+        // Purely fractional: "0." + leading zeros + digits.
+        *((buf as i64 + pos) as *mut u8) = 48 as u8;  // '0'
+        pos = pos + 1 as i64;
+        *((buf as i64 + pos) as *mut u8) = 46 as u8;  // '.'
+        pos = pos + 1 as i64;
+        let mut k: i64 = 0 as i64;
+        while k < s64 - ndigits {
+            *((buf as i64 + pos) as *mut u8) = 48 as u8;
+            pos = pos + 1 as i64;
+            k = k + 1 as i64;
+        }
+        let mut k: i64 = 0 as i64;
+        while k < ndigits {
+            *((buf as i64 + pos) as *mut u8) = *((dgt as i64 + k) as *const u8);
+            pos = pos + 1 as i64;
+            k = k + 1 as i64;
+        }
+    } else {
+        // Has integer part: (ndigits - s64) integer digits, '.', s64 fractional.
+        let int_len: i64 = ndigits - s64;
+        let mut k: i64 = 0 as i64;
+        while k < int_len {
+            *((buf as i64 + pos) as *mut u8) = *((dgt as i64 + k) as *const u8);
+            pos = pos + 1 as i64;
+            k = k + 1 as i64;
+        }
+        *((buf as i64 + pos) as *mut u8) = 46 as u8;  // '.'
+        pos = pos + 1 as i64;
+        let mut k: i64 = 0 as i64;
+        while k < s64 {
+            *((buf as i64 + pos) as *mut u8) = *((dgt as i64 + int_len + k) as *const u8);
+            pos = pos + 1 as i64;
+            k = k + 1 as i64;
+        }
+    }
+
+    free(dgt);
+    let result: AnyVal = decimal_from_string_in_zone(zone, p_i, s_i, buf as *const u8, pos);
+    free(buf);
+    return result;
+}
