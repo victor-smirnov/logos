@@ -33,7 +33,8 @@ impl HermesHash for i32 {
 }
 
 impl CloneElem for i32 {
-    pub unsafe fn clone_elem(self: *const i32, ctx: *mut CloneCtx, dst: *mut i32) {
+    pub unsafe fn clone_elem(self: *const i32, ctx: *mut CloneCtx, dst_off: u32) {
+        let dst: *mut i32 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut i32;
         *dst = *self;
     }
 }

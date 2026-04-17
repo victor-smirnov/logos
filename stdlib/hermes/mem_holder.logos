@@ -25,6 +25,7 @@
 package hermes.mem_holder;
 
 extern fn malloc(size: i64) -> *mut u8;
+extern fn realloc(ptr: *mut u8, size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
 // Destroyer callback: called once when RC reaches zero, with the buffer's
@@ -112,11 +113,32 @@ pub unsafe fn memholder_release(holder: *mut MemHolder) {
 
 // ── Bump allocation over the wrapped buffer ──────────────────────────────
 
-// Bump-allocate `size` bytes (8-byte aligned).  Returns null on OOM.
+// Grow the holder's buffer to fit at least `need` total bytes.
+// Only works for malloc-backed holders (destroyer == memholder_destroy_free).
+// Returns true on success; on success holder.base and holder.capacity are updated.
+pub unsafe fn memholder_grow(holder: *mut MemHolder, need: i64) -> bool {
+    if holder.destroyer as *const u8 != memholder_destroy_free as *const u8 {
+        return false;
+    }
+    let new_cap: i64 = if holder.capacity * 2 as i64 >= need {
+        holder.capacity * 2 as i64
+    } else {
+        need
+    };
+    let new_buf: *mut u8 = realloc(holder.base, new_cap);
+    if new_buf == 0 as *mut u8 { return false; }
+    holder.base     = new_buf;
+    holder.capacity = new_cap;
+    return true;
+}
+
+// Bump-allocate `size` bytes (8-byte aligned).
+// Grows the backing buffer if needed (malloc-backed holders only).
+// Returns null on OOM or if the holder is externally managed and full.
 pub unsafe fn memholder_alloc(holder: *mut MemHolder, size: i64) -> *mut u8 {
     let aligned: i64    = (holder.used + 7) / 8 * 8;
     if aligned + size > holder.capacity {
-        return 0 as *mut u8;
+        if !memholder_grow(holder, aligned + size) { return 0 as *mut u8; }
     }
     let base_int: i64   = holder.base as i64;
     let result: *mut u8 = (base_int + aligned) as *mut u8;
@@ -127,13 +149,13 @@ pub unsafe fn memholder_alloc(holder: *mut MemHolder, size: i64) -> *mut u8 {
 // Allocate `size` bytes for a tagged object.  Reserves 2 bytes immediately
 // before the object for the TypeTag vlen header, then 8-byte aligns.
 // Writes type_hash at (obj-2) and the encoded descriptor byte at (obj-1).
-// Returns pointer to the object (after the tag), or null.
+// Grows the backing buffer if needed.  Returns pointer to the object, or null.
 pub unsafe fn memholder_alloc_tagged(holder: *mut MemHolder, size: i64,
                                      type_hash: u8, descriptor: u8) -> *mut u8 {
     let pre: i64       = holder.used + 2;
     let aligned: i64   = (pre + 7) / 8 * 8;
     if aligned + size > holder.capacity {
-        return 0 as *mut u8;
+        if !memholder_grow(holder, aligned + size) { return 0 as *mut u8; }
     }
     let base_int: i64  = holder.base as i64;
     let tag0: *mut u8  = (base_int + aligned - 2) as *mut u8;

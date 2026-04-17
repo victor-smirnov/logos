@@ -48,13 +48,17 @@ impl<T: HermesHash> HermesHash for RelPtr<T> {
 }
 
 // CloneElem: clone the pointee into ctx.zone_dst via HermesClone and
-// store the new offset in the dst slot.
+// store the new offset in the dst slot.  dst_off is a zone-relative byte
+// offset into ctx.zone_dst; we recompute the raw pointer after clone_to
+// because the zone may have grown (and thus relocated) during the clone.
 impl<T: HermesClone> CloneElem for RelPtr<T> {
-    pub unsafe fn clone_elem(self: *const RelPtr<T>, ctx: *mut CloneCtx, dst: *mut RelPtr<T>) {
+    pub unsafe fn clone_elem(self: *const RelPtr<T>, ctx: *mut CloneCtx, dst_off: u32) {
         let target: *const T = self.resolve(ctx.base_src);
         let new_raw: *mut u8 = target.clone_to(ctx);
-        let dst_base: *mut u8 = ctx.zone_dst.holder.base;
-        dst.offset = (new_raw as i64 - dst_base as i64) as u32;
+        // Recompute dst after possible zone grow inside clone_to.
+        let cur_base: *mut u8 = ctx.zone_dst.holder.base;
+        let dst: *mut RelPtr<T> = (cur_base as i64 + dst_off as i64) as *mut RelPtr<T>;
+        dst.offset = (new_raw as i64 - cur_base as i64) as u32;
     }
 }
 
