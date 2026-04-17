@@ -37,6 +37,7 @@ use hermes.scalar;
 use hermes.decimal;
 use hermes.stringify;
 use hermes.clone;
+use hermes.check;
 use std.string;
 use std.drop;
 
@@ -588,6 +589,16 @@ impl HermesCtr {
     pub fn clone(&self) -> HermesCtr {
         unsafe {
             return HermesCtr { zone: document_clone(&self.zone) };
+        }
+    }
+
+    // Validate structural integrity of the document zone.
+    // Checks that every zone-pointer AnyVal is within bounds, every object's
+    // TypeTag and size fields are consistent, and no two objects share memory.
+    // Returns true if everything is OK, false on the first violation.
+    pub fn check(&self) -> bool {
+        unsafe {
+            return document_check(&self.zone);
         }
     }
 

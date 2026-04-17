@@ -1,0 +1,611 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib -- hermes.check
+//
+// Structural integrity check for a Hermes zone document.
+//
+// Algorithm (depth-first walk, reference: Memoria hermes_core.cpp):
+//   1. Allocate a visited bitmap: 1 bit per zone byte.
+//   2. Mark the DocumentHeader region (offset 0..7) as used.
+//   3. Walk the object graph from root via anyval_check().
+//   4. For each non-null zone-pointer AnyVal:
+//        a. Depth guard (max 256).
+//        b. Offset bounds check.
+//        c. Cycle / shared-subtree gate: if already visited, return OK.
+//        d. Validate the TypeTag is known (BadTag otherwise).
+//        e. Dispatch through HermesCheck trait table.
+//        f. Per-type check marks all bytes (TypeTag + header + data buffer)
+//           as visited and recurses into contained AnyVals.
+//   5. Free the bitmap and return the result.
+//
+// Inline AnyVals (boolean, integer, null) carry no zone address and are
+// always considered valid.
+
+package hermes.check;
+
+use hermes.anyval;
+use hermes.zone;
+use hermes.string;
+use hermes.typetag;
+use hermes.tag_system;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
+use hermes.scalar;
+use hermes.decimal;
+use hermes.mem_holder;
+
+extern fn calloc(count: i64, size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+const MAX_CHECK_DEPTH: i64 = 256;
+
+// ---------------------------------------------------------------------------
+// CheckError -- result of a failed structural check.
+// ---------------------------------------------------------------------------
+
+pub enum CheckError {
+    Ok,
+    OutOfBounds,   // offset or object extends outside zone
+    BadTag,        // type tag not in the known set
+    Overlap,       // object memory overlaps with a previously visited region
+    BadSize,       // container: size > capacity
+    TooDeep,       // recursion depth exceeded MAX_CHECK_DEPTH
+}
+
+// ---------------------------------------------------------------------------
+// CheckState -- transient state for one document_check() invocation.
+// ---------------------------------------------------------------------------
+
+pub struct CheckState {
+    pub base:       *const u8,   // zone buffer start
+    pub zone_sz:    i64,         // zone_used bytes
+    pub visited:    *mut u8,     // calloc'd bitmap: 1 bit per zone byte
+    pub bitmap_len: i64,         // length of `visited` in bytes
+    pub depth:      i64,         // current call depth
+    pub error:      CheckError,  // first error seen (Ok = none so far)
+}
+
+pub unsafe fn check_state_create(base: *const u8, zone_sz: i64) -> CheckState {
+    let bitmap_len: i64 = (zone_sz + 7 as i64) / 8 as i64;
+    let visited: *mut u8 = calloc(bitmap_len, 1 as i64);  // returns zeroed memory
+    return CheckState {
+        base:       base,
+        zone_sz:    zone_sz,
+        visited:    visited,
+        bitmap_len: bitmap_len,
+        depth:      0 as i64,
+        error:      CheckError::Ok,
+    };
+}
+
+pub unsafe fn check_state_free(state: *mut CheckState) {
+    if state.visited != 0 as *mut u8 {
+        free(state.visited);
+        state.visited = 0 as *mut u8;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bitmap helpers
+// ---------------------------------------------------------------------------
+
+// Returns true if the bit for byte `zone_off` is already set.
+pub unsafe fn check_is_visited(state: *mut CheckState, zone_off: i64) -> bool {
+    let byte_idx: i64 = zone_off / 8 as i64;
+    let bit: u32 = 1 as u32 << ((zone_off & 7 as i64) as u32);
+    let p: *const u8 = (state.visited as i64 + byte_idx) as *const u8;
+    return ((*p) as u32 & bit) != 0 as u32;
+}
+
+// Mark bits [zone_off, zone_off + nbytes).
+// Returns false (and sets state.error = Overlap) if any bit was already set.
+pub unsafe fn check_mark(state: *mut CheckState, zone_off: i64, nbytes: i64) -> bool {
+    let mut i: i64 = zone_off;
+    let end: i64 = zone_off + nbytes;
+    while i < end {
+        let byte_idx: i64 = i / 8 as i64;
+        let bit: u32 = 1 as u32 << ((i & 7 as i64) as u32);
+        let p: *mut u8 = (state.visited as i64 + byte_idx) as *mut u8;
+        let curr: u8 = *p;
+        if ((curr as u32) & bit) != 0 as u32 {
+            state.error = CheckError::Overlap;
+            return false;
+        }
+        *p = ((curr as u32) | bit) as u8;
+        i = i + 1 as i64;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Bounds check
+// ---------------------------------------------------------------------------
+
+// Returns false (and sets OutOfBounds) if [zone_off, zone_off+nbytes) lies
+// outside [0, state.zone_sz).
+pub unsafe fn check_bounds(state: *mut CheckState, zone_off: i64, nbytes: i64) -> bool {
+    if zone_off < 0 as i64 || zone_off + nbytes > state.zone_sz {
+        state.error = CheckError::OutOfBounds;
+        return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// HermesCheck trait -- tag-dispatched per-type structural validator.
+// Each impl validates bounds, marks memory, and recurses through any
+// referenced AnyVals.  Called from anyval_check() once the tag has been
+// validated as a known type_code.
+// ---------------------------------------------------------------------------
+
+#[tag_dispatch(HermesTypeTagSystem)]
+pub trait HermesCheck {
+    fn check_obj(&self, state: *mut CheckState) -> bool;
+}
+
+// ── HermesString (28) ─────────────────────────────────────────────────────
+
+impl HermesCheck for HermesString {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let obj: *const u8 = self as *const HermesString as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            // Need at least 2 TypeTag + 1 vlen byte.
+            if !check_bounds(state, off - 2 as i64, 3 as i64) { return false; }
+
+            let vlen_sz: i64 = vlen_prefix_size(obj) as i64;
+            let str_len: i64 = vlen_read(obj) as i64;
+            let total: i64 = vlen_sz + str_len;
+
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + total) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + total) { return false; }
+            return true;
+        }
+    }
+}
+
+// ── I64 (26) ──────────────────────────────────────────────────────────────
+
+impl HermesCheck for I64 {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let obj: *const u8 = self as *const I64 as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let sz: i64 = sizeof::<I64>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+            return true;
+        }
+    }
+}
+
+// ── U64 (27) ──────────────────────────────────────────────────────────────
+
+impl HermesCheck for U64 {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let obj: *const u8 = self as *const U64 as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let sz: i64 = sizeof::<U64>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+            return true;
+        }
+    }
+}
+
+// ── Decimal (107) ─────────────────────────────────────────────────────────
+
+impl HermesCheck for Decimal {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let d: *const Decimal = self as *const Decimal;
+            let obj: *const u8 = d as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let hdr: i64 = sizeof::<Decimal>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr) { return false; }
+            let nlimbs: u32 = d.len();
+            let total: i64 = hdr + (nlimbs as i64) * 4 as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + total) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + total) { return false; }
+            return true;
+        }
+    }
+}
+
+// ── Array<AnyVal> (100): 24-byte header + capacity*4 data buffer ─────────
+
+impl HermesCheck for Array<AnyVal> {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let arr: *const Array<AnyVal> = self as *const Array<AnyVal>;
+            let obj: *const u8 = arr as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let hdr_sz: i64 = sizeof::<Array<AnyVal>>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+
+            let sz: u64  = arr.size;
+            let cap: u64 = arr.capacity;
+            if sz > cap {
+                state.error = CheckError::BadSize;
+                return false;
+            }
+            let buf_off: i64   = arr.data as i64;
+            let buf_bytes: i64 = (cap as i64) * 4 as i64;
+            if buf_bytes > 0 as i64 {
+                if !check_bounds(state, buf_off, buf_bytes) { return false; }
+                if !check_mark(state,  buf_off, buf_bytes)  { return false; }
+            }
+
+            state.depth = state.depth + 1 as i64;
+            let mut i: u64 = 0 as u64;
+            while i < sz {
+                let ep: *const AnyVal =
+                    (state.base as i64 + buf_off + (i as i64) * 4 as i64) as *const AnyVal;
+                let val: AnyVal = AnyVal { raw: ep.raw };
+                if !anyval_check(val, state) {
+                    state.depth = state.depth - 1 as i64;
+                    return false;
+                }
+                i = i + 1 as u64;
+            }
+            state.depth = state.depth - 1 as i64;
+            return true;
+        }
+    }
+}
+
+// ── Map<Bitmap, V> (98): 16-byte header + capacity*4 data buffer ────────
+// Blanket impl — matches the pattern used for HermesStringify/HermesClone.
+
+impl<V> HermesCheck for Map<Bitmap, V> {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let m: *const Map<Bitmap, V> = self as *const Map<Bitmap, V>;
+            let obj: *const u8 = m as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let hdr_sz: i64 = sizeof::<Map<Bitmap, V>>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+
+            let sz: u32  = ((m.header >> 58 as u64) & 0x3F as u64) as u32;
+            let cap: u32 = ((m.header >> 52 as u64) & 0x3F as u64) as u32;
+            if sz > cap {
+                state.error = CheckError::BadSize;
+                return false;
+            }
+            let buf_off: i64   = m.data as i64;
+            let buf_bytes: i64 = (cap as i64) * 4 as i64;
+            if buf_bytes > 0 as i64 {
+                if !check_bounds(state, buf_off, buf_bytes) { return false; }
+                if !check_mark(state,  buf_off, buf_bytes)  { return false; }
+            }
+
+            state.depth = state.depth + 1 as i64;
+            let mut i: u32 = 0 as u32;
+            while i < sz {
+                let ep: *const AnyVal =
+                    (state.base as i64 + buf_off + (i as i64) * 4 as i64) as *const AnyVal;
+                let val: AnyVal = AnyVal { raw: ep.raw };
+                if !anyval_check(val, state) {
+                    state.depth = state.depth - 1 as i64;
+                    return false;
+                }
+                i = i + 1 as u32;
+            }
+            state.depth = state.depth - 1 as i64;
+            return true;
+        }
+    }
+}
+
+// ── Map<Varchar, AnyVal> / ObjectMap (101) ────────────────────────────────
+// 16-byte header + capacity*8 entries buffer.
+// Each MapEntry: key_off (u32, 0=empty) + val (u32 = AnyVal raw).
+
+impl HermesCheck for ObjectMap {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let m: *const ObjectMap = self as *const ObjectMap;
+            let obj: *const u8 = m as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let hdr_sz: i64 = sizeof::<ObjectMap>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+
+            let cap: u32 = m.capacity;
+            let cnt: u32 = m.count;
+            if cnt > cap {
+                state.error = CheckError::BadSize;
+                return false;
+            }
+            let ent_off: i64   = m.entries_off as i64;
+            let ent_bytes: i64 = (cap as i64) * 8 as i64;
+            if ent_bytes > 0 as i64 {
+                if !check_bounds(state, ent_off, ent_bytes) { return false; }
+                if !check_mark(state,  ent_off, ent_bytes)  { return false; }
+            }
+
+            state.depth = state.depth + 1 as i64;
+            let mut slot: u32 = 0 as u32;
+            while slot < cap {
+                let ep: *const MapEntry =
+                    (state.base as i64 + ent_off + (slot as i64) * 8 as i64) as *const MapEntry;
+                if ep.key_off != 0 as u32 {
+                    let key_av: AnyVal = AnyVal::from_offset(ep.key_off);
+                    if !anyval_check(key_av, state) {
+                        state.depth = state.depth - 1 as i64;
+                        return false;
+                    }
+                    let val: AnyVal = AnyVal { raw: ep.val };
+                    if !anyval_check(val, state) {
+                        state.depth = state.depth - 1 as i64;
+                        return false;
+                    }
+                }
+                slot = slot + 1 as u32;
+            }
+            state.depth = state.depth - 1 as i64;
+            return true;
+        }
+    }
+}
+
+// ── TypedValue (106) ──────────────────────────────────────────────────────
+
+impl HermesCheck for TypedValue {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let t: *const TypedValue = self as *const TypedValue;
+            let obj: *const u8 = t as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let sz: i64 = sizeof::<TypedValue>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+
+            state.depth = state.depth + 1 as i64;
+
+            let type_av: AnyVal = AnyVal::from_offset(t.type_off);
+            if !anyval_check(type_av, state) {
+                state.depth = state.depth - 1 as i64;
+                return false;
+            }
+            let params: AnyVal = AnyVal { raw: t.params_raw };
+            if !anyval_check(params, state) {
+                state.depth = state.depth - 1 as i64;
+                return false;
+            }
+            let init_v: AnyVal = AnyVal { raw: t.init_raw };
+            if !anyval_check(init_v, state) {
+                state.depth = state.depth - 1 as i64;
+                return false;
+            }
+            state.depth = state.depth - 1 as i64;
+            return true;
+        }
+    }
+}
+
+// ── TypedArray (102) ──────────────────────────────────────────────────────
+
+impl HermesCheck for TypedArray {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let t: *const TypedArray = self as *const TypedArray;
+            let obj: *const u8 = t as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let sz: i64 = sizeof::<TypedArray>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+
+            state.depth = state.depth + 1 as i64;
+
+            let type_av: AnyVal = AnyVal::from_offset(t.type_off);
+            if !anyval_check(type_av, state) {
+                state.depth = state.depth - 1 as i64;
+                return false;
+            }
+            let arr_av: AnyVal = AnyVal::from_offset(t.arr_off);
+            if !anyval_check(arr_av, state) {
+                state.depth = state.depth - 1 as i64;
+                return false;
+            }
+            state.depth = state.depth - 1 as i64;
+            return true;
+        }
+    }
+}
+
+// ── TypedMap (103) ────────────────────────────────────────────────────────
+
+impl HermesCheck for TypedMap {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let t: *const TypedMap = self as *const TypedMap;
+            let obj: *const u8 = t as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let sz: i64 = sizeof::<TypedMap>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + sz) { return false; }
+
+            state.depth = state.depth + 1 as i64;
+
+            let type_av: AnyVal = AnyVal::from_offset(t.type_off);
+            if !anyval_check(type_av, state) {
+                state.depth = state.depth - 1 as i64;
+                return false;
+            }
+            let map_av: AnyVal = AnyVal::from_offset(t.map_off);
+            if !anyval_check(map_av, state) {
+                state.depth = state.depth - 1 as i64;
+                return false;
+            }
+            state.depth = state.depth - 1 as i64;
+            return true;
+        }
+    }
+}
+
+// ── ArrayI32 (104): 24-byte header + capacity*4 i32 data (no AnyVal refs)
+
+impl HermesCheck for ArrayI32 {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let arr: *const ArrayI32 = self as *const ArrayI32;
+            let obj: *const u8 = arr as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let hdr_sz: i64 = sizeof::<ArrayI32>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+
+            let sz: u64  = arr.size;
+            let cap: u64 = arr.capacity;
+            if sz > cap {
+                state.error = CheckError::BadSize;
+                return false;
+            }
+            let buf_off: i64   = arr.data as i64;
+            let buf_bytes: i64 = (cap as i64) * 4 as i64;
+            if buf_bytes > 0 as i64 {
+                if !check_bounds(state, buf_off, buf_bytes) { return false; }
+                if !check_mark(state,  buf_off, buf_bytes)  { return false; }
+            }
+            return true;
+        }
+    }
+}
+
+// ── MapI32AnyVal (105): 16-byte header + capacity*4 keys + capacity*4 vals
+
+impl HermesCheck for MapI32AnyVal {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let m: *const MapI32AnyVal = self as *const MapI32AnyVal;
+            let obj: *const u8 = m as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
+            if !check_bounds(state, off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 2 as i64, 2 as i64 + hdr_sz) { return false; }
+
+            let sz: u32  = m.size;
+            let cap: u32 = m.capacity;
+            if sz > cap {
+                state.error = CheckError::BadSize;
+                return false;
+            }
+            let keys_off: i64   = m.keys as i64;
+            let vals_off: i64   = m.vals as i64;
+            let buf_bytes: i64  = (cap as i64) * 4 as i64;
+            if buf_bytes > 0 as i64 {
+                if !check_bounds(state, keys_off, buf_bytes) { return false; }
+                if !check_mark(state,  keys_off, buf_bytes)  { return false; }
+                if !check_bounds(state, vals_off, buf_bytes) { return false; }
+                if !check_mark(state,  vals_off, buf_bytes)  { return false; }
+            }
+
+            state.depth = state.depth + 1 as i64;
+            let mut i: u32 = 0 as u32;
+            while i < sz {
+                let vp: *const AnyVal =
+                    (state.base as i64 + vals_off + (i as i64) * 4 as i64) as *const AnyVal;
+                let val: AnyVal = AnyVal { raw: vp.raw };
+                if !anyval_check(val, state) {
+                    state.depth = state.depth - 1 as i64;
+                    return false;
+                }
+                i = i + 1 as u32;
+            }
+            state.depth = state.depth - 1 as i64;
+            return true;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Known-tag validator.  Trait dispatch cannot detect unknown tags (the lookup
+// would return a null function pointer and crash); check() is specifically
+// meant to handle corrupted/unknown tag bytes gracefully, so we pre-validate.
+// ---------------------------------------------------------------------------
+
+pub unsafe fn is_known_tag(tag: u8) -> bool {
+    if tag == hermes_tag_string()         { return true; }
+    if tag == hermes_tag_i64()            { return true; }
+    if tag == hermes_tag_u64()            { return true; }
+    if tag == hermes_tag_decimal()        { return true; }
+    if tag == hermes_tag_array()          { return true; }
+    if tag == hermes_tag_tiny_map()       { return true; }
+    if tag == hermes_tag_map()            { return true; }
+    if tag == hermes_tag_typed_value()    { return true; }
+    if tag == hermes_tag_typed_array()    { return true; }
+    if tag == hermes_tag_typed_map()      { return true; }
+    if tag == hermes_tag_array_i32()      { return true; }
+    if tag == hermes_tag_map_i32_anyval() { return true; }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Main AnyVal dispatcher -- shared by all containers that contain AnyVals.
+// ---------------------------------------------------------------------------
+
+pub unsafe fn anyval_check(val: AnyVal, state: *mut CheckState) -> bool {
+    if val.is_null() { return true; }
+    if !val.is_ptr() { return true; }
+
+    if state.depth >= MAX_CHECK_DEPTH {
+        state.error = CheckError::TooDeep;
+        return false;
+    }
+
+    let off: i64 = val.as_offset() as i64;
+
+    if off < 2 as i64 || off >= state.zone_sz {
+        state.error = CheckError::OutOfBounds;
+        return false;
+    }
+
+    if check_is_visited(state, off - 2 as i64) { return true; }
+
+    let obj: *const u8 = (state.base as i64 + off) as *const u8;
+    let tag: u8 = tag_read_hash(obj);
+    if !is_known_tag(tag) {
+        state.error = CheckError::BadTag;
+        return false;
+    }
+
+    let tagged_obj: &tagged<HermesTypeTagSystem> HermesCheck = obj;
+    return tagged_obj.check_obj(state);
+}
+
+// ---------------------------------------------------------------------------
+// Document-level entry point
+// ---------------------------------------------------------------------------
+
+pub unsafe fn document_check(zone: *const Zone<Mutable>) -> bool {
+    if zone == 0 as *const Zone<Mutable> { return true; }
+    let holder: *mut MemHolder = zone.holder;
+    if holder == 0 as *mut MemHolder { return true; }
+
+    let zone_sz: i64 = holder.used;
+    if zone_sz == 0 as i64 { return true; }   // empty zone: valid
+    if zone_sz < 8 as i64  { return false; }   // too small for DocumentHeader
+
+    let base: *const u8 = holder.base as *const u8;
+    let mut state: CheckState = check_state_create(base, zone_sz);
+    if state.visited == 0 as *mut u8 { return false; }  // calloc failed
+
+    // Mark DocumentHeader (untagged, 8 bytes at offset 0).
+    if !check_mark(&mut state, 0 as i64, 8 as i64) {
+        check_state_free(&mut state);
+        return false;
+    }
+
+    // Walk from root.
+    let doc: *const DocumentHeader = base as *const DocumentHeader;
+    let root: AnyVal = document_get_root(doc);
+    let ok: bool = anyval_check(root, &mut state);
+
+    check_state_free(&mut state);
+    return ok;
+}
