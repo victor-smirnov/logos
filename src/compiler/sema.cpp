@@ -541,7 +541,8 @@ const LogosType* SemaChecker::lookup_type_by_name(std::string_view name) {
     auto tvit = current_type_params_.find(std::string(name));
     if (tvit != current_type_params_.end()) return tvit->second;
     auto ait = type_aliases_.find(std::string(name));
-    if (ait != type_aliases_.end() && ait->second.type_params.empty())
+    if (ait != type_aliases_.end() &&
+        ait->second.type_params.empty() && ait->second.lifetime_params.empty())
         return ait->second.type;
     if (structs_.count(std::string(name))) return make_struct_type(name);
     if (datatypes_.count(std::string(name))) return make_datatype_type(name);
@@ -846,7 +847,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         return (it != s.end()) ? it->second : t;
     }
     case LogosType::Kind::Array: {
-        auto* elem = subst_type_sema(t->elem, s);
+        auto* elem = subst_type_sema(t->elem, s, ls);
         uint64_t size = t->arr_size;
         std::string symbolic = t->arr_size_var;
         if (!symbolic.empty()) {
@@ -864,15 +865,17 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         return make_array(elem, size, symbolic);
     }
     case LogosType::Kind::Ptr: {
-        auto* inner = subst_type_sema(t->pointee, s);
+        auto* inner = subst_type_sema(t->pointee, s, ls);
         if (inner == t->pointee) return t;
         return make_ptr(t->mut_ptr, inner);
     }
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef: {
-        auto* inner = subst_type_sema(t->pointee, s);
-        if (inner == t->pointee) return t;
-        return make_ref(t->kind == LogosType::Kind::MutRef, inner, t->lifetime);
+        auto* inner = subst_type_sema(t->pointee, s, ls);
+        std::string lt = t->lifetime;
+        if (!lt.empty()) { auto it = ls.find(lt); if (it != ls.end()) lt = it->second; }
+        if (inner == t->pointee && lt == t->lifetime) return t;
+        return make_ref(t->kind == LogosType::Kind::MutRef, inner, lt);
     }
     case LogosType::Kind::Struct:
     case LogosType::Kind::Datatype: {
@@ -927,7 +930,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         std::vector<const LogosType*> new_elems;
         bool changed = false;
         for (auto* e : t->tuple_elems) {
-            auto* ne = subst_type_sema(e, s);
+            auto* ne = subst_type_sema(e, s, ls);
             changed |= (ne != e);
             new_elems.push_back(ne);
         }
@@ -935,7 +938,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         return make_tuple_type(std::move(new_elems));
     }
     case LogosType::Kind::Slice: {
-        auto* elem = subst_type_sema(t->elem, s);
+        auto* elem = subst_type_sema(t->elem, s, ls);
         if (elem == t->elem) return t;
         return make_slice_type(elem);
     }
@@ -944,11 +947,11 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         std::vector<const LogosType*> new_params;
         bool changed = false;
         for (auto* p : t->closure_params) {
-            auto* np = subst_type_sema(p, s);
+            auto* np = subst_type_sema(p, s, ls);
             changed |= (np != p);
             new_params.push_back(np);
         }
-        auto* new_ret = subst_type_sema(t->closure_ret, s);
+        auto* new_ret = subst_type_sema(t->closure_ret, s, ls);
         changed |= (new_ret != t->closure_ret);
         if (!changed) return t;
 
@@ -960,7 +963,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
     }
     case LogosType::Kind::AssocType: {
         // Substitute the base type first.
-        auto* subbed_base = subst_type_sema(t->assoc_base, s);
+        auto* subbed_base = subst_type_sema(t->assoc_base, s, ls);
         
         // Try resolving: if base is substituted to a concrete type, look up impl.
         const LogosType* concrete = nullptr;
@@ -1365,7 +1368,8 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         // Bug 4 fix: give a more informative error when a generic alias is used
         // without its required type arguments.
         auto ait = type_aliases_.find(std::string(name));
-        if (ait != type_aliases_.end() && !ait->second.type_params.empty())
+        if (ait != type_aliases_.end() &&
+            (!ait->second.type_params.empty() || !ait->second.lifetime_params.empty()))
             error(std::format("generic type alias '{}' requires type arguments", name));
         else
             error(std::format("unknown type '{}'", name));
@@ -1398,6 +1402,10 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
                 if (args.size() != expected)
                     error(std::format("type alias '{}' expects {} type argument(s), got {}",
                                       name, expected, args.size()));
+                size_t lt_expected = ait->second.lifetime_params.size();
+                if (lt_args.size() != lt_expected)
+                    error(std::format("type alias '{}' expects {} lifetime argument(s), got {}",
+                                      name, lt_expected, lt_args.size()));
                 SemaSubst s;
                 for (size_t i = 0; i < expected && i < args.size(); ++i)
                     s[ait->second.type_params[i].name] = args[i];
