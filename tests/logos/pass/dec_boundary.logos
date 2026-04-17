@@ -1,0 +1,107 @@
+// Decimal boundary and invariant tests
+// Looking for: sign/limb interaction, boundary precision, negative-zero normalization
+package dec_boundary;
+use hermes.ctr;
+use std.string;
+
+unsafe fn main() -> i32 {
+    // ── 1. S > P must be rejected ─────────────────────────────────────────────
+    let mut b1: HermesCtr = HermesCtr::builder(4096);
+    let v1: AnyVal = b1.decimal_from(2 as i32, 3 as i32, "0.001");
+    if !v1.is_null() { return 1; }
+
+    // ── 2. P=0 must be rejected ───────────────────────────────────────────────
+    let mut b2: HermesCtr = HermesCtr::builder(4096);
+    let v2: AnyVal = b2.decimal_from(0 as i32, 0 as i32, "0");
+    if !v2.is_null() { return 2; }
+
+    // ── 3. Negative P must be rejected ───────────────────────────────────────
+    let mut b3: HermesCtr = HermesCtr::builder(4096);
+    let v3: AnyVal = b3.decimal_from(-1 as i32, 0 as i32, "0");
+    if !v3.is_null() { return 3; }
+
+    // ── 4. add with same value but opposite signs → exactly 0.00 ────────────
+    let mut b4: HermesCtr = HermesCtr::builder(4096);
+    let pos4: AnyVal = b4.decimal_from(10 as i32, 2 as i32, "999.99");
+    let neg4: AnyVal = b4.decimal_from(10 as i32, 2 as i32, "-999.99");
+    if pos4.is_null() { return 4; }
+    if neg4.is_null() { return 5; }
+    let z4: AnyVal = b4.decimal_add(pos4, neg4);
+    if z4.is_null() { return 6; }
+    if b4.decimal_is_negative(z4) { return 7; }
+    if b4.decimal_len(z4) != 0 as u32 { return 8; }
+    let s4: String = b4.decimal_to_string(z4);
+    if !s4.eq_cstr("0.00") { return 9; }
+
+    // ── 5. sub(0, positive) = negative ───────────────────────────────────────
+    let mut b5: HermesCtr = HermesCtr::builder(4096);
+    let z5: AnyVal = b5.decimal_from(5 as i32, 2 as i32, "0.00");
+    let p5: AnyVal = b5.decimal_from(5 as i32, 2 as i32, "1.50");
+    if z5.is_null() { return 10; }
+    if p5.is_null() { return 11; }
+    let r5: AnyVal = b5.decimal_sub(z5, p5);
+    if r5.is_null() { return 12; }
+    if !b5.decimal_is_negative(r5) { return 13; }
+    let s5: String = b5.decimal_to_string(r5);
+    if !s5.eq_cstr("-1.50") { return 14; }
+
+    // ── 6. sub(0, 0) = 0, not negative ───────────────────────────────────────
+    let mut b6: HermesCtr = HermesCtr::builder(4096);
+    let z6a: AnyVal = b6.decimal_from(5 as i32, 2 as i32, "0.00");
+    let z6b: AnyVal = b6.decimal_from(5 as i32, 2 as i32, "0.00");
+    if z6a.is_null() { return 15; }
+    if z6b.is_null() { return 16; }
+    let r6: AnyVal = b6.decimal_sub(z6a, z6b);
+    if r6.is_null() { return 17; }
+    if b6.decimal_is_negative(r6) { return 18; }
+    let s6: String = b6.decimal_to_string(r6);
+    if !s6.eq_cstr("0.00") { return 19; }
+
+    // ── 7. add(negative, positive where |pos| > |neg|) should be positive ───
+    let mut b7: HermesCtr = HermesCtr::builder(4096);
+    let n7: AnyVal = b7.decimal_from(10 as i32, 2 as i32, "-1.00");
+    let p7: AnyVal = b7.decimal_from(10 as i32, 2 as i32, "2.00");
+    if n7.is_null() { return 20; }
+    if p7.is_null() { return 21; }
+    let r7: AnyVal = b7.decimal_add(n7, p7);
+    if r7.is_null() { return 22; }
+    if b7.decimal_is_negative(r7) { return 23; }
+    let s7: String = b7.decimal_to_string(r7);
+    if !s7.eq_cstr("1.00") { return 24; }
+
+    // ── 8. add(negative, positive where |neg| > |pos|) should be negative ───
+    let mut b8: HermesCtr = HermesCtr::builder(4096);
+    let n8: AnyVal = b8.decimal_from(10 as i32, 2 as i32, "-3.00");
+    let p8: AnyVal = b8.decimal_from(10 as i32, 2 as i32, "1.00");
+    if n8.is_null() { return 25; }
+    if p8.is_null() { return 26; }
+    let r8: AnyVal = b8.decimal_add(n8, p8);
+    if r8.is_null() { return 27; }
+    if !b8.decimal_is_negative(r8) { return 28; }
+    let s8: String = b8.decimal_to_string(r8);
+    if !s8.eq_cstr("-2.00") { return 29; }
+
+    // ── 9. Decimal precision metadata preserved after arithmetic ──────────────
+    let mut b9: HermesCtr = HermesCtr::builder(4096);
+    let a9: AnyVal = b9.decimal_from(7 as i32, 3 as i32, "123.456");
+    let b9v: AnyVal = b9.decimal_from(7 as i32, 3 as i32, "001.001");
+    if a9.is_null() { return 30; }
+    if b9v.is_null() { return 31; }
+    let r9: AnyVal = b9.decimal_add(a9, b9v);
+    if r9.is_null() { return 32; }
+    if b9.decimal_precision(r9) != 7 as u32 { return 33; }
+    if b9.decimal_scale(r9) != 3 as u32 { return 34; }
+    let s9: String = b9.decimal_to_string(r9);
+    if !s9.eq_cstr("124.457") { return 35; }
+
+    // ── 10. add overflow: P=3 S=0, 999 + 1 = 1000 overflows ─────────────────
+    let mut b10: HermesCtr = HermesCtr::builder(4096);
+    let a10: AnyVal = b10.decimal_from(3 as i32, 0 as i32, "999");
+    let b10v: AnyVal = b10.decimal_from(3 as i32, 0 as i32, "1");
+    if a10.is_null() { return 36; }
+    if b10v.is_null() { return 37; }
+    let ov10: AnyVal = b10.decimal_add(a10, b10v);
+    if !ov10.is_null() { return 38; }
+
+    return 0;
+}

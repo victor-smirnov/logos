@@ -202,6 +202,8 @@
     PAT_REF                     = 158   // &pat or &mut pat reference pattern
     PAT_FIELD                   = 159   // field binding in struct pattern
     PAT_REST                    = 160   // .. rest in struct/slice pattern
+    CHAIN_FIELD_WRITE           = 161   // a.b.c = val
+    CHAIN_FIELD_COMPOUND_ASSIGN = 162   // a.b.c op= val
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
