@@ -836,7 +836,8 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
 
 // ── Sema-side type substitution ──────────────────────────────────────────────
 
-const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubst& s) {
+const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubst& s,
+                                               const SemaLifetimeSubst& ls) {
     if (!t) return t;
     switch (t->kind) {
     case LogosType::Kind::ConstVar:
@@ -879,33 +880,47 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         std::vector<const LogosType*> new_args;
         bool changed = false;
         for (auto* a : t->type_args) {
-            auto* na = subst_type_sema(a, s);
+            auto* na = subst_type_sema(a, s, ls);
             changed |= (na != a);
             new_args.push_back(na);
         }
-        if (!changed) return t;
+        std::vector<std::string> new_lt_args;
+        bool lt_changed = false;
+        for (auto& lt : t->lifetime_args) {
+            auto it = ls.find(lt);
+            if (it != ls.end()) { new_lt_args.push_back(it->second); lt_changed = true; }
+            else                  new_lt_args.push_back(lt);
+        }
+        if (!changed && !lt_changed) return t;
         LogosType nt;
         nt.kind = t->kind;
         nt.struct_name = t->struct_name;
         nt.type_args = std::move(new_args);
-        nt.lifetime_args = t->lifetime_args;  // preserve lifetime args through substitution
+        nt.lifetime_args = std::move(new_lt_args);
         return pool_.alloc(std::move(nt));
     }
     case LogosType::Kind::Enum: {
-        if (t->type_args.empty()) return t;
+        if (t->type_args.empty() && t->lifetime_args.empty()) return t;
         std::vector<const LogosType*> new_args;
         bool changed = false;
         for (auto* a : t->type_args) {
-            auto* na = subst_type_sema(a, s);
+            auto* na = subst_type_sema(a, s, ls);
             changed |= (na != a);
             new_args.push_back(na);
         }
-        if (!changed) return t;
+        std::vector<std::string> new_lt_args;
+        bool lt_changed = false;
+        for (auto& lt : t->lifetime_args) {
+            auto it = ls.find(lt);
+            if (it != ls.end()) { new_lt_args.push_back(it->second); lt_changed = true; }
+            else                  new_lt_args.push_back(lt);
+        }
+        if (!changed && !lt_changed) return t;
         LogosType nt;
         nt.kind = LogosType::Kind::Enum;
         nt.enum_name = t->enum_name;
         nt.type_args = std::move(new_args);
-        nt.lifetime_args = t->lifetime_args;
+        nt.lifetime_args = std::move(new_lt_args);
         return pool_.alloc(std::move(nt));
     }
     case LogosType::Kind::Tuple: {
@@ -1363,20 +1378,22 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         // Generic type alias: type Foo<T> = Bar<T>;  →  Foo<i32> resolves to Bar<i32>
         {
             auto ait = type_aliases_.find(std::string(name));
-            if (ait != type_aliases_.end() && !ait->second.type_params.empty()) {
-                // Resolve the type arguments at the call site.
-                // Lifetime args are skipped (aliases expand to their target type
-                // which carries its own lifetime args).
+            if (ait != type_aliases_.end() &&
+                (!ait->second.type_params.empty() || !ait->second.lifetime_params.empty())) {
+                // Resolve type and lifetime arguments at the call site.
                 std::vector<const LogosType*> args;
+                std::vector<std::string> lt_args;
                 if (node.has_key(la::ITEMS)) {
                     auto items = arr_of(node.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size(); ++i) {
                         auto item = map_of(items.get(i));
-                        if (code_of(item) == la::LIFETIME_PARAM) continue;  // expanded via target
+                        if (code_of(item) == la::LIFETIME_PARAM) {
+                            lt_args.push_back(std::string(str_of(item.get(la::NAME.code))));
+                            continue;
+                        }
                         args.push_back(resolve_type(item));
                     }
                 }
-                // Bug 2 fix: check arity matches the alias definition.
                 size_t expected = ait->second.type_params.size();
                 if (args.size() != expected)
                     error(std::format("type alias '{}' expects {} type argument(s), got {}",
@@ -1384,7 +1401,11 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
                 SemaSubst s;
                 for (size_t i = 0; i < expected && i < args.size(); ++i)
                     s[ait->second.type_params[i].name] = args[i];
-                return subst_type_sema(ait->second.type, s);
+                SemaLifetimeSubst ls;
+                auto& lparams = ait->second.lifetime_params;
+                for (size_t i = 0; i < lparams.size() && i < lt_args.size(); ++i)
+                    ls[lparams[i]] = lt_args[i];
+                return subst_type_sema(ait->second.type, s, ls);
             }
         }
 

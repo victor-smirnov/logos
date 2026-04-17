@@ -399,9 +399,13 @@ private:
     std::unordered_map<std::string, ConstFnBody>      const_fn_bodies_;
     // Generic type alias entry: non-generic aliases have type_params empty.
     struct TypeAliasEntry {
-        const LogosType*       type;
-        std::vector<TypeParam> type_params;
+        const LogosType*         type;
+        std::vector<TypeParam>   type_params;
+        std::vector<std::string> lifetime_params;  // e.g. ["'z"] for type Foo<'z, T> = ...
     };
+
+    // Lifetime substitution map: "'z" → "'a"  (name → name, erased at codegen).
+    using SemaLifetimeSubst = std::unordered_map<std::string, std::string>;
     std::unordered_map<std::string, TypeAliasEntry> type_aliases_;
     std::unordered_map<std::string, const LogosType*> module_consts_;
     std::unordered_map<std::string, SemaTraitInfo>    traits_;
@@ -473,7 +477,8 @@ private:
 
     using SemaSubst = std::unordered_map<std::string, const LogosType*>;
 
-    const LogosType* subst_type_sema(const LogosType* t, const SemaSubst& s);
+    const LogosType* subst_type_sema(const LogosType* t, const SemaSubst& s,
+                                      const SemaLifetimeSubst& ls = {});
 
     // ── Compatibility ────────────────────────────────────────────
     bool compat(const LogosType* from, const LogosType* to) const {
