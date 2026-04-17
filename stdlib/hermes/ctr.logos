@@ -583,4 +583,12 @@ impl HermesCtr {
         return self.compactify(0 as i64);
     }
 
+    // Raw byte-copy of the zone (O(used), preserves garbage).
+    // Faster than compactify(); use when you want a quick snapshot.
+    pub fn clone(&self) -> HermesCtr {
+        unsafe {
+            return HermesCtr { zone: document_clone(&self.zone) };
+        }
+    }
+
 }

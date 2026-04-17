@@ -31,6 +31,7 @@ use hermes.decimal;
 use hermes.mem_holder;
 use std.string;
 
+
 pub struct CloneCtx {
     pub base_src: *const u8,
     pub zone_dst: *mut Zone<Mutable>,
@@ -360,6 +361,45 @@ pub unsafe fn document_compactify(src_zone: *const Zone<Mutable>,
 
     // Store cloned root in destination header.
     document_set_root(dst_doc, new_root);
+
+    return dst_zone;
+}
+
+// ── Document clone ────────────────────────────────────────────────────────────
+//
+// Raw byte-copy of the source zone: O(used bytes), faster than compactify
+// because it skips dispatch and just memcpy's the entire live region.
+// Unreachable (garbage) objects are preserved in the copy.
+//
+// Use clone() for a fast snapshot; use compactify() to reclaim space.
+pub unsafe fn document_clone(src_zone: *const Zone<Mutable>) -> Zone<Mutable> {
+    if src_zone == 0 as *const Zone<Mutable> {
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+    let src_holder: *mut MemHolder = src_zone.holder;
+    if src_holder == 0 as *mut MemHolder {
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+
+    let nbytes: i64 = src_holder.used;
+
+    // Allocate destination zone sized exactly to the live bytes.
+    let mut dst_zone: Zone<Mutable> = zone_create(nbytes);
+    if dst_zone.holder == 0 as *mut MemHolder {
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+
+    // Raw copy of the entire live region; all offsets remain valid because
+    // they are zone-relative (AnyVal stores u32 offsets, not absolute pointers).
+    let src_bytes: *const u8 = src_holder.base as *const u8;
+    let dst_holder: *mut MemHolder = dst_zone.holder;
+    let dst_bytes: *mut u8 = dst_holder.base;
+    let mut bi: i64 = 0 as i64;
+    while bi < nbytes {
+        *((dst_bytes as i64 + bi) as *mut u8) = *((src_bytes as i64 + bi) as *const u8);
+        bi = bi + 1 as i64;
+    }
+    dst_holder.used = nbytes;
 
     return dst_zone;
 }
