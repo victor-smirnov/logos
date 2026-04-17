@@ -71,10 +71,40 @@ impl Decimal {
         return *((self.limbs() as i64 + (idx as i64) * 4 as i64) as *const u32);
     }
 
-    pub unsafe fn to_f64(self: *const Decimal) -> f64 {
-        let n: u32 = self.len();
+}
+
+pub struct DecimalView {
+    ptr: *const Decimal,
+}
+
+impl DecimalView {
+    pub unsafe fn from_anyval(base: *const u8, v: AnyVal) -> DecimalView {
+        return DecimalView { ptr: decimal_ptr(base, v) };
+    }
+
+    pub unsafe fn from_ptr(ptr: *const Decimal) -> DecimalView {
+        return DecimalView { ptr: ptr };
+    }
+
+    pub unsafe fn null() -> DecimalView {
+        return DecimalView { ptr: 0 as *const Decimal };
+    }
+
+    pub unsafe fn is_null(&self) -> bool {
+        return self.ptr == 0 as *const Decimal;
+    }
+
+    pub unsafe fn precision(&self) -> u32 { return self.ptr.precision(); }
+    pub unsafe fn scale(&self) -> u32     { return self.ptr.scale(); }
+    pub unsafe fn len(&self) -> u32       { return self.ptr.len(); }
+    pub unsafe fn is_negative(&self) -> bool { return self.ptr.is_negative(); }
+    pub unsafe fn limb_at(&self, idx: u32) -> u32 { return self.ptr.limb_at(idx); }
+
+    pub unsafe fn to_f64(&self) -> f64 {
+        if self.ptr == 0 as *const Decimal { return 0.0; }
+        let n: u32 = self.ptr.len();
         if n == 0 as u32 { return 0.0; }
-        let limbs: *const u32 = self.limbs();
+        let limbs: *const u32 = self.ptr.limbs();
         let mut acc: f64 = 0.0;
         let mut i: i64 = (n as i64) - 1 as i64;
         while i >= 0 as i64 {
@@ -82,18 +112,19 @@ impl Decimal {
             acc = acc * 1000000000.0 + lv as f64;
             i = i - 1 as i64;
         }
-        let s: u32 = self.scale();
+        let s: u32 = self.ptr.scale();
         if s > 0 as u32 {
             acc = acc / decimal_pow10_f64(s as i32);
         }
-        if self.is_negative() { return 0.0 - acc; }
+        if self.ptr.is_negative() { return 0.0 - acc; }
         return acc;
     }
 
-    pub unsafe fn to_string_value(self: *const Decimal) -> String {
+    pub unsafe fn to_string_value(&self) -> String {
+        if self.ptr == 0 as *const Decimal { return String::with_capacity(0); }
         let mut out: String = String::with_capacity(64);
         let op: *mut String = (&out as *const String) as *mut String;
-        decimal_write_number(self, op);
+        decimal_write_number(self.ptr, op);
         return out;
     }
 }
@@ -428,9 +459,7 @@ pub unsafe fn decimal_from_string_in_zone(zone: *mut Zone<Mutable>,
 }
 
 pub unsafe fn decimal_to_string_value(base: *const u8, v: AnyVal) -> String {
-    let d: *const Decimal = decimal_ptr(base, v);
-    if d == 0 as *const Decimal { return String::with_capacity(0); }
-    return d.to_string_value();
+    return DecimalView::from_anyval(base, v).to_string_value();
 }
 
 unsafe fn decimal_binary_op(zone: *mut Zone<Mutable>, a: AnyVal, b: AnyVal, sub: bool) -> AnyVal {
@@ -544,9 +573,7 @@ unsafe fn decimal_pow10_f64(exp: i32) -> f64 {
 
 // Convert a zone Decimal (via AnyVal offset) to f64. Returns 0.0 for null/invalid.
 pub unsafe fn decimal_to_f64_value(base: *const u8, v: AnyVal) -> f64 {
-    let d: *const Decimal = decimal_ptr(base, v);
-    if d == 0 as *const Decimal { return 0.0; }
-    return d.to_f64();
+    return DecimalView::from_anyval(base, v).to_f64();
 }
 
 // Convert f64 → Decimal(p_i, s_i), rounding half-up.
