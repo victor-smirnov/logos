@@ -1,0 +1,949 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.hbs_read
+//
+// HBS (Hermes Binary Serialization) reader / deserializer.
+//
+// Frame-based iterative deserializer; no recursion.
+
+package hermes.hbs_read;
+
+use hermes.anyval;
+use hermes.zone;
+use hermes.string;
+use hermes.typetag;
+use hermes.containers;
+use hermes.objectmap;
+use hermes.document;
+use hermes.scalar;
+use hermes.decimal;
+use hermes.mem_holder;
+use std.string;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn realloc(ptr: *mut u8, size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// ---------------------------------------------------------------------------
+// Limits
+// ---------------------------------------------------------------------------
+
+const HBS_MAX_NODES:      u32 = 16000000 as u32;
+const HBS_MAX_STRING_LEN: u32 = 64000000 as u32;
+const HBS_MAX_OBJECTS:    u32 = 1000000 as u32;
+const HBS_MAX_DEPTH:      u32 = 10000 as u32;
+
+// ---------------------------------------------------------------------------
+// Error enum
+// ---------------------------------------------------------------------------
+
+pub enum HbsError {
+    Ok,
+    Truncated,
+    BadLeadByte,
+    BadUtf8,
+    StringTooLong,
+    TooManyNodes,
+    TooManyObjects,
+    TooDeep,
+    InvalidRef,
+    BadFrame,
+    OOM,
+}
+
+// ---------------------------------------------------------------------------
+// Frame kinds
+// ---------------------------------------------------------------------------
+
+const FR_ARRAY:       u8 = 0;
+const FR_OBJMAP:      u8 = 1;
+const FR_TINYMAP:     u8 = 2;
+const FR_TYPED_ARRAY: u8 = 3;
+const FR_TYPED_MAP:   u8 = 4;
+const FR_TYPED_VALUE: u8 = 5;
+const FR_MI32_VAL:    u8 = 6;
+
+pub eidos ReadFrame {
+    pub kind:     u8,
+    pub _pad0:    u8,
+    pub _pad1:    u8,
+    pub _pad2:    u8,
+    pub zone_off: u32,
+    pub idx:      u32,
+    pub total:    u32,
+    pub aux:      u32,
+    pub aux2:     u32,
+}
+
+// ---------------------------------------------------------------------------
+// Deserialize context
+// ---------------------------------------------------------------------------
+
+pub struct DeserCtx {
+    pub buf:          *const u8,
+    pub pos:          u32,
+    pub end:          u32,
+    pub node_count:   u32,
+    pub zone:         *mut Zone<Mutable>,
+    pub objects:      *mut u32,
+    pub objects_len:  u32,
+    pub objects_cap:  u32,
+    pub frames:       *mut ReadFrame,
+    pub frames_len:   u32,
+    pub frames_cap:   u32,
+    pub error:        HbsError,
+    pub has_pending:  bool,
+    pub pending:      ReadFrame,
+}
+
+// ---------------------------------------------------------------------------
+// Byte reading helpers
+// ---------------------------------------------------------------------------
+
+unsafe fn deser_read_u8(ctx: *mut DeserCtx) -> u8 {
+    if ctx.pos >= ctx.end {
+        ctx.error = HbsError::Truncated;
+        return 0 as u8;
+    }
+    let v: u8 = *((ctx.buf as i64 + ctx.pos as i64) as *const u8);
+    ctx.pos = ctx.pos + 1 as u32;
+    return v;
+}
+
+unsafe fn deser_peek_u8(ctx: *mut DeserCtx) -> u8 {
+    if ctx.pos >= ctx.end { return 0 as u8; }
+    return *((ctx.buf as i64 + ctx.pos as i64) as *const u8);
+}
+
+unsafe fn deser_read_u16(ctx: *mut DeserCtx) -> u16 {
+    let a: u8 = deser_read_u8(ctx);
+    let b: u8 = deser_read_u8(ctx);
+    return (a as u16) | ((b as u16) << 8 as u16);
+}
+
+unsafe fn deser_read_u32(ctx: *mut DeserCtx) -> u32 {
+    let a: u8 = deser_read_u8(ctx);
+    let b: u8 = deser_read_u8(ctx);
+    let c: u8 = deser_read_u8(ctx);
+    let d: u8 = deser_read_u8(ctx);
+    return (a as u32) | ((b as u32) << 8 as u32) | ((c as u32) << 16 as u32) | ((d as u32) << 24 as u32);
+}
+
+unsafe fn deser_read_u64(ctx: *mut DeserCtx) -> u64 {
+    let lo: u32 = deser_read_u32(ctx);
+    let hi: u32 = deser_read_u32(ctx);
+    return (lo as u64) | ((hi as u64) << 32 as u64);
+}
+
+// ---------------------------------------------------------------------------
+// UTF-8 validation (simple byte-range check)
+// ---------------------------------------------------------------------------
+
+unsafe fn is_valid_utf8(ptr: *const u8, len: u32) -> bool {
+    let mut i: u32 = 0 as u32;
+    while i < len {
+        let b: u8 = *((ptr as i64 + i as i64) as *const u8);
+        if b < 0x80 as u8 {
+            i = i + 1 as u32;
+        } else if b >= 0xC2 as u8 && b <= 0xDF as u8 {
+            if i + 1 as u32 >= len { return false; }
+            let b2: u8 = *((ptr as i64 + (i + 1 as u32) as i64) as *const u8);
+            if b2 < 0x80 as u8 || b2 > 0xBF as u8 { return false; }
+            i = i + 2 as u32;
+        } else if b >= 0xE0 as u8 && b <= 0xEF as u8 {
+            if i + 2 as u32 >= len { return false; }
+            let b2: u8 = *((ptr as i64 + (i + 1 as u32) as i64) as *const u8);
+            let b3: u8 = *((ptr as i64 + (i + 2 as u32) as i64) as *const u8);
+            if b2 < 0x80 as u8 || b2 > 0xBF as u8 { return false; }
+            if b3 < 0x80 as u8 || b3 > 0xBF as u8 { return false; }
+            i = i + 3 as u32;
+        } else if b >= 0xF0 as u8 && b <= 0xF4 as u8 {
+            if i + 3 as u32 >= len { return false; }
+            let b2: u8 = *((ptr as i64 + (i + 1 as u32) as i64) as *const u8);
+            let b3: u8 = *((ptr as i64 + (i + 2 as u32) as i64) as *const u8);
+            let b4: u8 = *((ptr as i64 + (i + 3 as u32) as i64) as *const u8);
+            if b2 < 0x80 as u8 || b2 > 0xBF as u8 { return false; }
+            if b3 < 0x80 as u8 || b3 > 0xBF as u8 { return false; }
+            if b4 < 0x80 as u8 || b4 > 0xBF as u8 { return false; }
+            i = i + 4 as u32;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Object registry (DEF id → AnyVal.raw)
+// ---------------------------------------------------------------------------
+
+unsafe fn deser_register_object(ctx: *mut DeserCtx, id: u32, val: AnyVal) -> bool {
+    if id == 0 as u32 || id > HBS_MAX_OBJECTS {
+        ctx.error = HbsError::TooManyObjects;
+        return false;
+    }
+    // Grow objects array if needed (1-based: id-1 is index)
+    let idx: u32 = id - 1 as u32;
+    if idx >= ctx.objects_cap {
+        let new_cap: u32 = if ctx.objects_cap == 0 as u32 { 64 as u32 } else { ctx.objects_cap * 2 as u32 };
+        let nc: u32 = if new_cap <= idx + 1 as u32 { idx + 64 as u32 } else { new_cap };
+        let new_obj: *mut u32 = realloc(ctx.objects as *mut u8, nc as i64 * 4 as i64) as *mut u32;
+        if new_obj == 0 as *mut u32 {
+            ctx.error = HbsError::OOM;
+            return false;
+        }
+        // Zero-initialize new entries
+        let mut i: u32 = ctx.objects_cap;
+        while i < nc {
+            *((new_obj as i64 + (i as i64) * 4 as i64) as *mut u32) = 0 as u32;
+            i = i + 1 as u32;
+        }
+        ctx.objects = new_obj;
+        ctx.objects_cap = nc;
+    }
+    *((ctx.objects as i64 + (idx as i64) * 4 as i64) as *mut u32) = val.raw;
+    if idx >= ctx.objects_len { ctx.objects_len = idx + 1 as u32; }
+    return true;
+}
+
+unsafe fn deser_get_object(ctx: *mut DeserCtx, id: u32) -> AnyVal {
+    if id == 0 as u32 || id > ctx.objects_len {
+        ctx.error = HbsError::InvalidRef;
+        return AnyVal::null_ptr();
+    }
+    let idx: u32 = id - 1 as u32;
+    let raw: u32 = *((ctx.objects as i64 + (idx as i64) * 4 as i64) as *const u32);
+    return AnyVal { raw: raw };
+}
+
+// ---------------------------------------------------------------------------
+// Frame stack
+// ---------------------------------------------------------------------------
+
+unsafe fn deser_push_frame(ctx: *mut DeserCtx, frame: ReadFrame) -> bool {
+    if ctx.frames_len >= HBS_MAX_DEPTH {
+        ctx.error = HbsError::TooDeep;
+        return false;
+    }
+    if ctx.frames_len >= ctx.frames_cap {
+        let new_cap: u32 = if ctx.frames_cap == 0 as u32 { 64 as u32 } else { ctx.frames_cap * 2 as u32 };
+        let new_f: *mut ReadFrame = realloc(ctx.frames as *mut u8,
+            new_cap as i64 * sizeof::<ReadFrame>() as i64) as *mut ReadFrame;
+        if new_f == 0 as *mut ReadFrame {
+            ctx.error = HbsError::OOM;
+            return false;
+        }
+        ctx.frames = new_f;
+        ctx.frames_cap = new_cap;
+    }
+    let p: *mut ReadFrame = (ctx.frames as i64 + ctx.frames_len as i64 * sizeof::<ReadFrame>() as i64)
+        as *mut ReadFrame;
+    p.kind     = frame.kind;
+    p._pad0    = frame._pad0;
+    p._pad1    = frame._pad1;
+    p._pad2    = frame._pad2;
+    p.zone_off = frame.zone_off;
+    p.idx      = frame.idx;
+    p.total    = frame.total;
+    p.aux      = frame.aux;
+    p.aux2     = frame.aux2;
+    ctx.frames_len = ctx.frames_len + 1 as u32;
+    return true;
+}
+
+unsafe fn deser_top_frame(ctx: *mut DeserCtx) -> *mut ReadFrame {
+    return (ctx.frames as i64 + (ctx.frames_len - 1 as u32) as i64 * sizeof::<ReadFrame>() as i64)
+        as *mut ReadFrame;
+}
+
+unsafe fn deser_pop_frame(ctx: *mut DeserCtx) {
+    if ctx.frames_len > 0 as u32 {
+        ctx.frames_len = ctx.frames_len - 1 as u32;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Zone allocation helpers
+// ---------------------------------------------------------------------------
+
+unsafe fn alloc_string_in_zone(ctx: *mut DeserCtx, str_ptr: *const u8, str_len: u32) -> AnyVal {
+    let len64: u64 = str_len as u64;
+    let prefix_sz: i64 = vlen_encode_size(len64) as i64;
+    let total: i64 = prefix_sz + str_len as i64;
+    let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone, total,
+        hermes_tag_string(), hermes_desc_data());
+    if raw == 0 as *mut u8 {
+        ctx.error = HbsError::OOM;
+        return AnyVal::null_ptr();
+    }
+    HermesString::init(raw, str_ptr, len64);
+    let base: *mut u8 = ctx.zone.holder.base;
+    let off: u32 = (raw as i64 - base as i64) as u32;
+    return AnyVal::from_offset(off);
+}
+
+unsafe fn alloc_tagged_in_zone(ctx: *mut DeserCtx, size: i64, tag: u8) -> *mut u8 {
+    let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone, size, tag, hermes_desc_data());
+    if raw == 0 as *mut u8 {
+        ctx.error = HbsError::OOM;
+    }
+    return raw;
+}
+
+unsafe fn alloc_raw_in_zone(ctx: *mut DeserCtx, size: i64) -> *mut u8 {
+    let raw: *mut u8 = zone_m_alloc_raw(ctx.zone, size);
+    if raw == 0 as *mut u8 {
+        ctx.error = HbsError::OOM;
+    }
+    return raw;
+}
+
+// ---------------------------------------------------------------------------
+// Apply a value to the top frame
+// ---------------------------------------------------------------------------
+
+unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
+    if ctx.frames_len == 0 as u32 {
+        ctx.error = HbsError::BadFrame;
+        return false;
+    }
+    let top: *mut ReadFrame = deser_top_frame(ctx);
+    let base: *mut u8 = ctx.zone.holder.base;
+
+    if top.kind == FR_ARRAY {
+        // Write val to arr[idx]
+        let arr: *mut Array<AnyVal> = (base as i64 + top.zone_off as i64) as *mut Array<AnyVal>;
+        let buf_off: i64 = arr.data as i64;
+        let ep: *mut AnyVal = (base as i64 + buf_off + top.idx as i64 * 4 as i64) as *mut AnyVal;
+        ep.raw = val.raw;
+        arr.size = arr.size + 1 as u64;
+        top.idx = top.idx + 1 as u32;
+        if top.idx >= top.total { deser_pop_frame(ctx); }
+        return true;
+    }
+
+    if top.kind == FR_OBJMAP {
+        if (top.idx & 1 as u32) == 0 as u32 {
+            // Key received
+            if val.is_null() || !val.is_ptr() {
+                ctx.error = HbsError::BadFrame;
+                return false;
+            }
+            top.aux = val.as_offset();
+            top.idx = top.idx + 1 as u32;
+        } else {
+            // Value received
+            let m: *mut ObjectMap = (base as i64 + top.zone_off as i64) as *mut ObjectMap;
+            objectmap_insert(ctx.zone, base as *const u8, m, top.aux, val);
+            top.idx = top.idx + 1 as u32;
+            if top.idx >= top.total * 2 as u32 { deser_pop_frame(ctx); }
+        }
+        return true;
+    }
+
+    if top.kind == FR_TINYMAP {
+        if (top.idx & 1 as u32) == 0 as u32 {
+            // Key received (u8 inline value)
+            top.aux = val.as_u64() as u32;  // key_bit
+            top.idx = top.idx + 1 as u32;
+        } else {
+            // Value received
+            let m: *mut Map<Bitmap, AnyVal> = (base as i64 + top.zone_off as i64) as *mut Map<Bitmap, AnyVal>;
+            let key_bit: u8 = top.aux as u8;
+            tinymap_set_bit(base as *const u8, m, key_bit, val);
+            top.idx = top.idx + 1 as u32;
+            if top.idx >= top.total * 2 as u32 { deser_pop_frame(ctx); }
+        }
+        return true;
+    }
+
+    if top.kind == FR_TYPED_ARRAY {
+        if top.idx == 0 as u32 {
+            // type received
+            top.aux = val.as_offset();
+            top.idx = 1 as u32;
+        } else {
+            // arr received
+            let ta: *mut TypedArray = (base as i64 + top.zone_off as i64) as *mut TypedArray;
+            ta.type_off = top.aux;
+            ta.arr_off  = val.as_offset();
+            deser_pop_frame(ctx);
+        }
+        return true;
+    }
+
+    if top.kind == FR_TYPED_MAP {
+        if top.idx == 0 as u32 {
+            top.aux = val.as_offset();
+            top.idx = 1 as u32;
+        } else {
+            let tm: *mut TypedMap = (base as i64 + top.zone_off as i64) as *mut TypedMap;
+            tm.type_off = top.aux;
+            tm.map_off  = val.as_offset();
+            deser_pop_frame(ctx);
+        }
+        return true;
+    }
+
+    if top.kind == FR_TYPED_VALUE {
+        if top.idx == 0 as u32 {
+            top.aux = val.as_offset();  // type_off
+            top.idx = 1 as u32;
+        } else if top.idx == 1 as u32 {
+            top.aux2 = val.raw;  // params_raw
+            top.idx = 2 as u32;
+        } else {
+            let tv: *mut TypedValue = (base as i64 + top.zone_off as i64) as *mut TypedValue;
+            tv.type_off   = top.aux;
+            tv.params_raw = top.aux2;
+            tv.init_raw   = val.raw;
+            deser_pop_frame(ctx);
+        }
+        return true;
+    }
+
+    if top.kind == FR_MI32_VAL {
+        let m: *mut MapI32AnyVal = (base as i64 + top.zone_off as i64) as *mut MapI32AnyVal;
+        let vals_ptr: *mut AnyVal = (base as i64 + m.vals as i64) as *mut AnyVal;
+        let ep: *mut AnyVal = (vals_ptr as i64 + top.idx as i64 * 4 as i64) as *mut AnyVal;
+        ep.raw = val.raw;
+        top.idx = top.idx + 1 as u32;
+        if top.idx >= top.total { deser_pop_frame(ctx); }
+        return true;
+    }
+
+    ctx.error = HbsError::BadFrame;
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// TinyObjectMap insertion helper
+// ---------------------------------------------------------------------------
+
+unsafe fn tinymap_set_bit(base: *const u8, m: *mut Map<Bitmap, AnyVal>, key_bit: u8, val: AnyVal) {
+    let kb: u64 = 1 as u64 << key_bit as u64;
+    let bitmap: u64 = m.header & 0x000FFFFFFFFFFFFF as u64;
+    let mask: u64 = kb - 1 as u64;
+    let pos: u32 = popcount_u64(bitmap & mask);
+    let sz: u32 = ((m.header >> 58 as u64) & 0x3F as u64) as u32;
+
+    // Shift elements right if this key is new
+    if (bitmap & kb) == 0 as u64 {
+        // Shift existing elements right to make room at `pos`
+        let data_off: i64 = m.data as i64;
+        let mut i: i32 = sz as i32 - 1 as i32;
+        while i >= pos as i32 {
+            let src: *const AnyVal = (base as i64 + data_off + i as i64 * 4 as i64) as *const AnyVal;
+            let dst: *mut AnyVal = (base as i64 + data_off + (i + 1 as i32) as i64 * 4 as i64) as *mut AnyVal;
+            dst.raw = src.raw;
+            i = i - 1 as i32;
+        }
+        // Write value at pos
+        let ep: *mut AnyVal = (base as i64 + data_off + pos as i64 * 4 as i64) as *mut AnyVal;
+        ep.raw = val.raw;
+        // Update header: set bitmap bit, increment size
+        let new_bitmap: u64 = bitmap | kb;
+        let new_sz: u64 = (sz as u64) + 1 as u64;
+        let cap: u64 = (m.header >> 52 as u64) & 0x3F as u64;
+        m.header = new_bitmap | (cap << 52 as u64) | (new_sz << 58 as u64);
+    } else {
+        // Update existing value
+        let data_off: i64 = m.data as i64;
+        let ep: *mut AnyVal = (base as i64 + data_off + pos as i64 * 4 as i64) as *mut AnyVal;
+        ep.raw = val.raw;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// objectmap_insert free function (wraps ObjectMap::set with key as offset)
+// ---------------------------------------------------------------------------
+
+unsafe fn objectmap_insert(zone: *mut Zone<Mutable>, base: *const u8, m: *mut ObjectMap,
+                           key_off: u32, val: AnyVal) {
+    // Get key string bytes for hashing
+    let hs: *const HermesString = (base as i64 + key_off as i64) as *const HermesString;
+    let key_ptr: *const u8 = hs.bytes();
+    let key_len: u64 = hs.len();
+    m.set(base as *mut u8, key_off, key_ptr, key_len, val);
+}
+
+// ---------------------------------------------------------------------------
+// deser_read_one_header: allocate zone object and set pending frame.
+// Does NOT handle DEF/REF — call only for actual type lead bytes.
+// Returns the AnyVal for the object (or inline value).
+// ---------------------------------------------------------------------------
+
+unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
+    ctx.has_pending = false;
+    let lead: u8 = deser_read_u8(ctx);
+    if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+
+    ctx.node_count = ctx.node_count + 1 as u32;
+    if ctx.node_count > HBS_MAX_NODES {
+        ctx.error = HbsError::TooManyNodes;
+        return AnyVal::null_ptr();
+    }
+
+    if lead == 0x00 as u8 { return AnyVal::null_ptr(); }
+    if lead == 0x01 as u8 { return AnyVal::embed_bool(false); }
+    if lead == 0x02 as u8 { return AnyVal::embed_bool(true); }
+
+    if lead == 0x10 as u8 {
+        let v: u8 = deser_read_u8(ctx);
+        return AnyVal::embed_i8(v as i8);
+    }
+    if lead == 0x11 as u8 {
+        let v: u8 = deser_read_u8(ctx);
+        return AnyVal::embed_u8(v);
+    }
+    if lead == 0x12 as u8 {
+        let v: u16 = deser_read_u16(ctx);
+        return AnyVal::embed_i16(v as i16);
+    }
+    if lead == 0x13 as u8 {
+        let v: u16 = deser_read_u16(ctx);
+        return AnyVal::embed_u16(v);
+    }
+    if lead == 0x14 as u8 {
+        let v: u32 = deser_read_u32(ctx);
+        return AnyVal::embed_i24(v as i32);
+    }
+    if lead == 0x15 as u8 {
+        let v: u32 = deser_read_u32(ctx);
+        return AnyVal::embed_u24(v);
+    }
+    if lead == 0x16 as u8 {
+        let v: u64 = deser_read_u64(ctx);
+        // i64 boxed inline as u64 cast
+        return AnyVal::embed_i24(v as i32); // shouldn't happen without boxing
+    }
+    if lead == 0x17 as u8 {
+        let v: u64 = deser_read_u64(ctx);
+        return AnyVal::embed_u24(v as u32); // shouldn't happen without boxing
+    }
+
+    if lead == 0x22 as u8 {
+        // Decimal: spec_and_len(u32) + nlimbs*4 bytes
+        let spec: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let nlimbs: u32 = decimal_limb_len(spec);
+        let hdr_sz: i64 = sizeof::<Decimal>() as i64;
+        let total: i64 = hdr_sz + nlimbs as i64 * 4 as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, total, hermes_tag_decimal());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let d: *mut Decimal = raw as *mut Decimal;
+        d.spec_and_len = spec;
+        let limbs_ptr: *mut u32 = (raw as i64 + hdr_sz) as *mut u32;
+        let mut li: u32 = 0 as u32;
+        while li < nlimbs {
+            let lv: u32 = deser_read_u32(ctx);
+            if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+            *((limbs_ptr as i64 + (li as i64) * 4 as i64) as *mut u32) = lv;
+            li = li + 1 as u32;
+        }
+        let base: *mut u8 = ctx.zone.holder.base;
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x30 as u8 {
+        let slen: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        if slen > HBS_MAX_STRING_LEN {
+            ctx.error = HbsError::StringTooLong;
+            return AnyVal::null_ptr();
+        }
+        if ctx.pos + slen > ctx.end {
+            ctx.error = HbsError::Truncated;
+            return AnyVal::null_ptr();
+        }
+        let str_ptr: *const u8 = (ctx.buf as i64 + ctx.pos as i64) as *const u8;
+        if !is_valid_utf8(str_ptr, slen) {
+            ctx.error = HbsError::BadUtf8;
+            return AnyVal::null_ptr();
+        }
+        let val: AnyVal = alloc_string_in_zone(ctx, str_ptr, slen);
+        ctx.pos = ctx.pos + slen;
+        return val;
+    }
+
+    if lead == 0x40 as u8 {
+        // Array<AnyVal>
+        let count: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let hdr_sz: i64 = sizeof::<Array<AnyVal>>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_array());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let buf_raw: *mut u8 = if count > 0 as u32 {
+            alloc_raw_in_zone(ctx, count as i64 * 4 as i64)
+        } else {
+            0 as *mut u8
+        };
+        if count > 0 as u32 && buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let base: *mut u8 = ctx.zone.holder.base;
+        let arr: *mut Array<AnyVal> = raw as *mut Array<AnyVal>;
+        arr.size = 0 as u64;
+        arr.capacity = count as u64;
+        arr.data = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        if count > 0 as u32 {
+            ctx.has_pending = true;
+            ctx.pending = ReadFrame {
+                kind: FR_ARRAY, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
+                zone_off: off, idx: 0 as u32, total: count, aux: 0 as u32, aux2: 0 as u32,
+            };
+        }
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x41 as u8 {
+        // ObjectMap
+        let count: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let cap_slots: u32 = if count == 0 as u32 { 4 as u32 } else {
+            let mut c: u32 = 4 as u32;
+            while c < count * 2 as u32 { c = c * 2 as u32; }
+            c
+        };
+        let hdr_sz: i64 = sizeof::<ObjectMap>() as i64;
+        let map_raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_map());
+        if map_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let entries_raw: *mut u8 = alloc_raw_in_zone(ctx, cap_slots as i64 * 8 as i64);
+        if entries_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let base: *mut u8 = ctx.zone.holder.base;
+        ObjectMap::init(map_raw, base, entries_raw, cap_slots);
+        let off: u32 = (map_raw as i64 - base as i64) as u32;
+        if count > 0 as u32 {
+            ctx.has_pending = true;
+            ctx.pending = ReadFrame {
+                kind: FR_OBJMAP, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
+                zone_off: off, idx: 0 as u32, total: count, aux: 0 as u32, aux2: 0 as u32,
+            };
+        }
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x42 as u8 {
+        // TinyObjectMap
+        let count: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let cap: u32 = if count == 0 as u32 { 8 as u32 } else {
+            let mut c: u32 = 8 as u32;
+            while c < count { c = c + 8 as u32; }
+            c
+        };
+        if cap > 52 as u32 {
+            ctx.error = HbsError::BadFrame;
+            return AnyVal::null_ptr();
+        }
+        let hdr_sz: i64 = sizeof::<Map<Bitmap, AnyVal>>() as i64;
+        let map_raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_tiny_map());
+        if map_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let arr_raw: *mut u8 = alloc_raw_in_zone(ctx, cap as i64 * 4 as i64);
+        if arr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let base: *mut u8 = ctx.zone.holder.base;
+        TinyObjectMap::init(map_raw, arr_raw, base, cap);
+        let off: u32 = (map_raw as i64 - base as i64) as u32;
+        if count > 0 as u32 {
+            ctx.has_pending = true;
+            ctx.pending = ReadFrame {
+                kind: FR_TINYMAP, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
+                zone_off: off, idx: 0 as u32, total: count, aux: 0 as u32, aux2: 0 as u32,
+            };
+        }
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x50 as u8 {
+        // TypedValue
+        let sz: i64 = sizeof::<TypedValue>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, sz, hermes_tag_typed_value());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let base: *mut u8 = ctx.zone.holder.base;
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        ctx.has_pending = true;
+        ctx.pending = ReadFrame {
+            kind: FR_TYPED_VALUE, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
+            zone_off: off, idx: 0 as u32, total: 3 as u32, aux: 0 as u32, aux2: 0 as u32,
+        };
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x51 as u8 {
+        // TypedArray
+        let sz: i64 = sizeof::<TypedArray>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, sz, hermes_tag_typed_array());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let base: *mut u8 = ctx.zone.holder.base;
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        ctx.has_pending = true;
+        ctx.pending = ReadFrame {
+            kind: FR_TYPED_ARRAY, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
+            zone_off: off, idx: 0 as u32, total: 2 as u32, aux: 0 as u32, aux2: 0 as u32,
+        };
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x52 as u8 {
+        // TypedMap
+        let sz: i64 = sizeof::<TypedMap>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, sz, hermes_tag_typed_map());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let base: *mut u8 = ctx.zone.holder.base;
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        ctx.has_pending = true;
+        ctx.pending = ReadFrame {
+            kind: FR_TYPED_MAP, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
+            zone_off: off, idx: 0 as u32, total: 2 as u32, aux: 0 as u32, aux2: 0 as u32,
+        };
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x60 as u8 {
+        let v: u64 = deser_read_u64(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let sz: i64 = sizeof::<I64>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, sz, hermes_tag_i64());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        I64::init(raw, v as i64);
+        let base: *mut u8 = ctx.zone.holder.base;
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x61 as u8 {
+        let v: u64 = deser_read_u64(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let sz: i64 = sizeof::<U64>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, sz, hermes_tag_u64());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        U64::init(raw, v);
+        let base: *mut u8 = ctx.zone.holder.base;
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x62 as u8 {
+        // ArrayI32
+        let count: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let hdr_sz: i64 = sizeof::<ArrayI32>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_array_i32());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let buf_raw: *mut u8 = if count > 0 as u32 {
+            alloc_raw_in_zone(ctx, count as i64 * 4 as i64)
+        } else {
+            0 as *mut u8
+        };
+        if count > 0 as u32 && buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let base: *mut u8 = ctx.zone.holder.base;
+        let arr: *mut ArrayI32 = raw as *mut ArrayI32;
+        arr.size = count as u64;
+        arr.capacity = count as u64;
+        arr.data = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        // Read i32 values inline
+        let mut i: u32 = 0 as u32;
+        while i < count {
+            let v: u32 = deser_read_u32(ctx);
+            if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+            *((buf_raw as i64 + (i as i64) * 4 as i64) as *mut u32) = v;
+            i = i + 1 as u32;
+        }
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        return AnyVal::from_offset(off);
+    }
+
+    if lead == 0x63 as u8 {
+        // MapI32AnyVal
+        let count: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_map_i32_anyval());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let keys_raw: *mut u8 = if count > 0 as u32 {
+            alloc_raw_in_zone(ctx, count as i64 * 4 as i64)
+        } else {
+            0 as *mut u8
+        };
+        let vals_raw: *mut u8 = if count > 0 as u32 {
+            alloc_raw_in_zone(ctx, count as i64 * 4 as i64)
+        } else {
+            0 as *mut u8
+        };
+        if count > 0 as u32 && (keys_raw == 0 as *mut u8 || vals_raw == 0 as *mut u8) {
+            return AnyVal::null_ptr();
+        }
+        let base: *mut u8 = ctx.zone.holder.base;
+        let m: *mut MapI32AnyVal = raw as *mut MapI32AnyVal;
+        m.size = count;
+        m.capacity = count;
+        m.keys = if count > 0 as u32 { (keys_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        m.vals = if count > 0 as u32 { (vals_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        // Read i32 keys inline
+        let mut i: u32 = 0 as u32;
+        while i < count {
+            let v: u32 = deser_read_u32(ctx);
+            if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+            *((keys_raw as i64 + (i as i64) * 4 as i64) as *mut u32) = v;
+            i = i + 1 as u32;
+        }
+        let off: u32 = (raw as i64 - base as i64) as u32;
+        if count > 0 as u32 {
+            ctx.has_pending = true;
+            ctx.pending = ReadFrame {
+                kind: FR_MI32_VAL, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
+                zone_off: off, idx: 0 as u32, total: count, aux: 0 as u32, aux2: 0 as u32,
+            };
+        }
+        return AnyVal::from_offset(off);
+    }
+
+    ctx.error = HbsError::BadLeadByte;
+    return AnyVal::null_ptr();
+}
+
+// ---------------------------------------------------------------------------
+// deser_read_one_value: read one value (handling DEF/REF)
+// ---------------------------------------------------------------------------
+
+unsafe fn deser_read_one_value(ctx: *mut DeserCtx) -> AnyVal {
+    ctx.has_pending = false;
+    let lead: u8 = deser_peek_u8(ctx);
+    if ctx.pos >= ctx.end {
+        ctx.error = HbsError::Truncated;
+        return AnyVal::null_ptr();
+    }
+
+    if lead == 0xFD as u8 {
+        ctx.pos = ctx.pos + 1 as u32;  // consume 0xFD
+        let id: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        if id == 0 as u32 || id > HBS_MAX_OBJECTS {
+            ctx.error = HbsError::TooManyObjects;
+            return AnyVal::null_ptr();
+        }
+        let val: AnyVal = deser_read_one_header(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        if !deser_register_object(ctx, id, val) { return AnyVal::null_ptr(); }
+        return val;
+    }
+
+    if lead == 0xFE as u8 {
+        ctx.pos = ctx.pos + 1 as u32;  // consume 0xFE
+        let id: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        return deser_get_object(ctx, id);
+    }
+
+    return deser_read_one_header(ctx);
+}
+
+// ---------------------------------------------------------------------------
+// hbs_read: deserialize HBS bytes into a zone
+// ---------------------------------------------------------------------------
+
+pub unsafe fn hbs_read(data: *const u8, len: i64, zone: *mut Zone<Mutable>) -> bool {
+    if data == 0 as *const u8 || len < 12 as i64 { return false; }
+
+    // Verify magic
+    let h0: u8 = *((data as i64 + 0 as i64) as *const u8);
+    let h1: u8 = *((data as i64 + 1 as i64) as *const u8);
+    let h2: u8 = *((data as i64 + 2 as i64) as *const u8);
+    let h3: u8 = *((data as i64 + 3 as i64) as *const u8);
+    if h0 != 72 as u8 || h1 != 66 as u8 || h2 != 83 as u8 || h3 != 49 as u8 {
+        return false;
+    }
+
+    // Read flags (u32 at offset 4) and zone_used (u32 at offset 8) — ignored for now
+    // Skip to offset 12 (start of values)
+
+    let doc_raw: *mut u8 = zone_m_alloc_raw(zone, 8 as i64);
+    if doc_raw == 0 as *mut u8 { return false; }
+    document_create(doc_raw);
+
+    let init_obj_cap: u32 = 64 as u32;
+    let init_frm_cap: u32 = 64 as u32;
+
+    let objects: *mut u32 = malloc(init_obj_cap as i64 * 4 as i64) as *mut u32;
+    if objects == 0 as *mut u32 { return false; }
+    let frames: *mut ReadFrame = malloc(init_frm_cap as i64 * sizeof::<ReadFrame>() as i64) as *mut ReadFrame;
+    if frames == 0 as *mut ReadFrame {
+        free(objects as *mut u8);
+        return false;
+    }
+
+    let mut ctx: DeserCtx = DeserCtx {
+        buf:         data,
+        pos:         12 as u32,
+        end:         len as u32,
+        node_count:  0 as u32,
+        zone:        zone,
+        objects:     objects,
+        objects_len: 0 as u32,
+        objects_cap: init_obj_cap,
+        frames:      frames,
+        frames_len:  0 as u32,
+        frames_cap:  init_frm_cap,
+        error:       HbsError::Ok,
+        has_pending: false,
+        pending:     ReadFrame {
+            kind: 0 as u8, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
+            zone_off: 0 as u32, idx: 0 as u32, total: 0 as u32,
+            aux: 0 as u32, aux2: 0 as u32,
+        },
+    };
+
+    // Check if there's anything to read
+    if ctx.pos >= ctx.end {
+        // Empty document — just has DocumentHeader with null root
+        free(objects as *mut u8);
+        free(frames as *mut ReadFrame as *mut u8);
+        return true;
+    }
+
+    // Read the root value
+    let root: AnyVal = deser_read_one_value(&mut ctx);
+    if ctx.error != HbsError::Ok {
+        free(ctx.objects as *mut u8);
+        free(ctx.frames as *mut u8);
+        return false;
+    }
+
+    // Set document root
+    let base: *mut u8 = zone.holder.base;
+    let doc: *mut DocumentHeader = base as *mut DocumentHeader;
+    document_set_root(doc, root);
+
+    // If root had a pending frame, push it now (AFTER applying to outer context)
+    if ctx.has_pending {
+        let root_frame: ReadFrame = ctx.pending;
+        if !deser_push_frame(&mut ctx, root_frame) {
+            free(ctx.objects as *mut u8);
+            free(ctx.frames as *mut u8);
+            return false;
+        }
+    }
+
+    // Main loop: fill all pending frames
+    while ctx.frames_len > 0 as u32 && ctx.error == HbsError::Ok {
+        let val: AnyVal = deser_read_one_value(&mut ctx);
+        if ctx.error != HbsError::Ok { break; }
+
+        // If this value has a pending frame, save it
+        let has_pending: bool = ctx.has_pending;
+        let pending_frame: ReadFrame = ctx.pending;
+
+        // Apply value to top frame (before pushing inner frame)
+        if !deser_apply_value(&mut ctx, val) { break; }
+
+        // Now push inner frame if any
+        if has_pending {
+            if !deser_push_frame(&mut ctx, pending_frame) { break; }
+        }
+    }
+
+    let ok: bool = ctx.error == HbsError::Ok;
+    free(ctx.objects as *mut u8);
+    free(ctx.frames as *mut u8);
+    return ok;
+}

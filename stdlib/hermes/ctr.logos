@@ -38,6 +38,8 @@ use hermes.decimal;
 use hermes.stringify;
 use hermes.clone;
 use hermes.check;
+use hermes.hbs_write;
+use hermes.hbs_read;
 use hermes.mem_holder;
 use std.string;
 use std.drop;
@@ -710,6 +712,25 @@ impl HermesCtr {
     pub fn check(&self) -> bool {
         unsafe {
             return document_check(&self.zone);
+        }
+    }
+
+    // Serialize the document to HBS binary format.
+    // Returns an owned String containing the binary data.
+    pub fn serialize(&self) -> String {
+        let mut buf: String = String::with_capacity(256 as i64);
+        unsafe {
+            hbs_write(&self.zone as *const Zone<Mutable>, &mut buf);
+        }
+        return buf;
+    }
+
+    // Deserialize HBS binary data into this container's zone.
+    // The container must be freshly created (builder or new without parse).
+    // Returns true on success, false on error.
+    pub fn deserialize(&mut self, data: *const u8, len: i64) -> bool {
+        unsafe {
+            return hbs_read(data, len, &mut self.zone);
         }
     }
 
