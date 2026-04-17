@@ -38,6 +38,7 @@ use hermes.decimal;
 use hermes.stringify;
 use hermes.clone;
 use hermes.check;
+use hermes.mem_holder;
 use std.string;
 use std.drop;
 
@@ -590,6 +591,109 @@ impl HermesCtr {
         unsafe {
             return HermesCtr { zone: document_clone(&self.zone) };
         }
+    }
+
+    // ── Import / export across containers ─────────────────────────────────────
+    //
+    // import_from: deep-copy the object graph reachable from `src_val` out of
+    // `src`'s zone into `self`'s zone. Returns an AnyVal whose offset is valid
+    // in `self`. The returned handle is orphaned — unless the caller inserts it
+    // somewhere reachable from the document root (or keeps it alive outside the
+    // zone), the next compactify() will treat the imported subgraph as garbage.
+    // Returns AnyVal::null_ptr() if `src` is null or a zone allocation fails.
+    //
+    // Inline AnyVals (ints, bools, etc.) are passed through unchanged — they
+    // carry no zone reference.
+    pub fn import_from(&mut self, src: *const HermesCtr, src_val: AnyVal) -> AnyVal {
+        if src == 0 as *const HermesCtr { return AnyVal::null_ptr(); }
+        unsafe {
+            // Bug 1 guard: self-import would alias src and dst zones.  A grow
+            // of the dst backing buffer during anyval_clone would invalidate
+            // the captured `base_src`, causing reads from freed memory.
+            let self_ptr: *const HermesCtr = self as *const HermesCtr;
+            if src == self_ptr { return AnyVal::null_ptr(); }
+
+            let src_holder: *mut MemHolder = src.zone.holder;
+            if src_holder == 0 as *mut MemHolder { return AnyVal::null_ptr(); }
+
+            // Bug 2 guard: holder may be non-null with a null backing buffer
+            // (memholder_alloc_backed OOM path).
+            let src_base: *mut u8 = src_holder.base;
+            if src_base == 0 as *mut u8 { return AnyVal::null_ptr(); }
+
+            // Bug 3 guard: destination must have a live zone or allocations
+            // inside anyval_clone dereference a null holder.
+            let dst_holder: *mut MemHolder = self.zone.holder;
+            if dst_holder == 0 as *mut MemHolder { return AnyVal::null_ptr(); }
+
+            let mut ctx: CloneCtx = CloneCtx {
+                base_src: src_base as *const u8,
+                zone_dst: &mut self.zone as *mut Zone<Mutable>,
+            };
+            return anyval_clone(src_val, &mut ctx);
+        }
+    }
+
+    // export: build a fresh container holding only the subgraph reachable from
+    // `src_val`, with the cloned root already installed in the destination's
+    // DocumentHeader. This is the second half of import/export: no manual
+    // wiring is required by the caller.
+    //
+    // capacity_hint: initial byte capacity for the destination zone.
+    //   Pass 0 to auto-size from this container's `used` bytes (an upper bound
+    //   — the subgraph may be strictly smaller, in which case compactify()
+    //   later can trim further).
+    //
+    // Returns a container with a null holder on OOM of the destination zone.
+    pub fn export(&self, src_val: AnyVal, capacity_hint: i64) -> HermesCtr {
+        unsafe {
+            let cap: i64 = if capacity_hint > 0 as i64 {
+                capacity_hint
+            } else {
+                let h: *mut MemHolder = self.zone.holder;
+                if h == 0 as *mut MemHolder {
+                    64 as i64
+                } else {
+                    let u: i64 = h.used;
+                    if u < 64 as i64 { 64 as i64 } else { u }
+                }
+            };
+            let mut new_ctr: HermesCtr = HermesCtr::builder(cap);
+            // Single-return structure: every branch falls through to `return
+            // new_ctr`. This keeps the borrow checker happy about a Drop type
+            // that would otherwise be "moved" by an early-return inside `if`.
+            let dst_holder: *mut MemHolder = new_ctr.zone.holder;
+            let src_holder: *mut MemHolder = self.zone.holder;
+            // Bug 5 guard: source holder non-null but with null backing — do
+            // not dereference garbage. Also Bug 3 guard for dst holder.
+            let src_base: *mut u8 = if src_holder == 0 as *mut MemHolder {
+                0 as *mut u8
+            } else {
+                src_holder.base
+            };
+            if dst_holder != 0 as *mut MemHolder
+                && src_base != 0 as *mut u8 {
+                let mut ctx: CloneCtx = CloneCtx {
+                    base_src: src_base as *const u8,
+                    zone_dst: &mut new_ctr.zone as *mut Zone<Mutable>,
+                };
+                let new_val: AnyVal = anyval_clone(src_val, &mut ctx);
+                // Re-read dst base after clone (zone grow may have relocated
+                // the backing buffer). Bug 4 guard: base may still be null
+                // if the destination buffer never backed — skip set_root.
+                let dst_base: *mut u8 = dst_holder.base;
+                if dst_base != 0 as *mut u8 {
+                    let doc: *mut DocumentHeader = dst_base as *mut DocumentHeader;
+                    document_set_root(doc, new_val);
+                }
+            }
+            return new_ctr;
+        }
+    }
+
+    // Convenience overload: auto-size destination zone.
+    pub fn export(&self, src_val: AnyVal) -> HermesCtr {
+        return self.export(src_val, 0 as i64);
     }
 
     // Validate structural integrity of the document zone.
