@@ -870,7 +870,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
     }
     case LogosType::Kind::Struct:
     case LogosType::Kind::Datatype: {
-        if (t->type_args.empty()) return t;
+        if (t->type_args.empty() && t->lifetime_args.empty()) return t;
         std::vector<const LogosType*> new_args;
         bool changed = false;
         for (auto* a : t->type_args) {
@@ -879,9 +879,12 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
             new_args.push_back(na);
         }
         if (!changed) return t;
-        if (t->kind == LogosType::Kind::Datatype)
-            return make_generic_datatype(t->struct_name, std::move(new_args));
-        return make_generic_struct(t->struct_name, std::move(new_args));
+        LogosType nt;
+        nt.kind = t->kind;
+        nt.struct_name = t->struct_name;
+        nt.type_args = std::move(new_args);
+        nt.lifetime_args = t->lifetime_args;  // preserve lifetime args through substitution
+        return pool_.alloc(std::move(nt));
     }
     case LogosType::Kind::Enum: {
         if (t->type_args.empty()) return t;
@@ -1394,13 +1397,18 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             return error_t();
         }
         // Resolve each type arg (TypeVars in current scope are expanded).
-        // Skip LIFETIME_PARAM items ('a) — lifetimes are erased at runtime.
+        // Collect LIFETIME_PARAM items ('a) separately — erased at codegen but
+        // tracked for borrow checking (struct fields that borrow through a lifetime).
         std::vector<const LogosType*> args;
+        std::vector<std::string> lt_args;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto item = map_of(items.get(i));
-                if (code_of(item) == la::LIFETIME_PARAM) continue;
+                if (code_of(item) == la::LIFETIME_PARAM) {
+                    lt_args.push_back(std::string(str_of(item.get(la::NAME.code))));
+                    continue;
+                }
                 args.push_back(resolve_type(item));
             }
         }
@@ -1415,13 +1423,21 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         if (is_dtype) {
             auto dit = datatypes_.find(std::string(name));
             if (dit != datatypes_.end()) check_type_bounds(std::string(name), dit->second.type_params, args);
-            if (args.empty()) return make_datatype_type(name);
-            return make_generic_datatype(name, std::move(args));
+            LogosType t; t.kind = LogosType::Kind::Datatype;
+            t.struct_name = std::string(name);
+            t.type_args = std::move(args);
+            t.lifetime_args = std::move(lt_args);
+            return pool_.alloc(std::move(t));
         }
         auto sit = structs_.find(std::string(name));
         if (sit != structs_.end()) check_type_bounds(std::string(name), sit->second.type_params, args);
-        if (args.empty()) return make_struct_type(name);  // degenerate: no args
-        return make_generic_struct(name, std::move(args));
+        {
+            LogosType t; t.kind = LogosType::Kind::Struct;
+            t.struct_name = std::string(name);
+            t.type_args = std::move(args);
+            t.lifetime_args = std::move(lt_args);
+            return pool_.alloc(std::move(t));
+        }
     }
 
     error(std::format("unexpected type node code {}", tc));

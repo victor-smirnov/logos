@@ -538,7 +538,8 @@ struct LField {
 
 struct LStructDef {
     std::string              name;
-    std::vector<TypeParam>   type_params;  // empty for non-generic structs
+    std::vector<TypeParam>   type_params;    // empty for non-generic structs
+    std::vector<std::string> lifetime_params; // e.g. ["'a", "'z"]; erased at codegen
     std::vector<LField>      fields;
     std::vector<LFunction>   methods;
     bool                     is_pub        = false;

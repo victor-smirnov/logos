@@ -311,6 +311,7 @@ private:
 
     struct SemaFieldInfo  { std::string_view name; const LogosType* type; bool is_pub = false; bool is_variadic = false; };
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params;
+                            std::vector<std::string> lifetime_params;
                             bool is_pub = false; std::string source_file;
                             std::string package;
                             bool is_data_plain = true;  // false if any field is Kind::Datatype

@@ -1001,6 +1001,7 @@ void SemaChecker::collect_struct(TinyMapView node) {
     ctx_ = std::format("struct {}", sname);
     SemaStructInfo info;
     info.type_params = read_type_params(node);
+    info.lifetime_params = read_lifetime_params(node);
     info.package = cur_package_;
     push_type_params(info.type_params);
     if (node.has_key(la::FIELDS)) {

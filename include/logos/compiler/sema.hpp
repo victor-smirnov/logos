@@ -72,6 +72,10 @@ struct LogosType {
     // Empty for plain (non-generic) structs.
     std::vector<const LogosType*> type_args;
 
+    // Lifetime arguments for struct instantiation: StringView<'z> → lifetime_args=["'z"]
+    // Parallel to type_args but for lifetime params. Erased at codegen.
+    std::vector<std::string> lifetime_args;
+
     // Tuple
     std::vector<const LogosType*> tuple_elems;  // element types (Tuple kind only)
 

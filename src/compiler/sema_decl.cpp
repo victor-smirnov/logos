@@ -307,6 +307,7 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
         return sd;
     }
     sd.type_params = sinfo->type_params;
+    sd.lifetime_params = sinfo->lifetime_params;
     push_type_params(sd.type_params);
     for (auto& f : sinfo->fields)
         sd.fields.push_back({std::string(f.name), f.type, f.is_variadic});

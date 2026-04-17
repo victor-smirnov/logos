@@ -510,6 +510,10 @@ class BorrowChecker {
                 declare_var(s.name);
                 if (is_ref_kind(s.type))
                     prov_[s.name] = prov_of(s.value);
+                else if (s.type && !s.type->lifetime_args.empty() &&
+                         (s.type->kind == LogosType::Kind::Struct ||
+                          s.type->kind == LogosType::Kind::Datatype))
+                    prov_[s.name] = prov_of(s.value);  // struct<'z> borrows through lifetime
 
             // ── Assignment ───────────────────────────────────────────────
             } else if constexpr (std::is_same_v<S, SAssign>) {

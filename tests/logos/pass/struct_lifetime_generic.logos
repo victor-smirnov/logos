@@ -1,0 +1,20 @@
+// Test: struct with mixed lifetime + type parameters: Wrapper<'z, T>
+package struct_lifetime_generic;
+
+struct Slice<'z, T> {
+    pub ptr: *const T,
+    pub len: u32,
+}
+
+fn make_slice<'z, T>(p: *const T, n: u32) -> Slice<'z, T> {
+    return Slice { ptr: p, len: n };
+}
+
+unsafe fn main() -> i32 {
+    let arr: [i32; 3] = [10, 20, 30];
+    let s: Slice<i32> = make_slice::<i32>(&arr[0] as *const i32, 3 as u32);
+    if s.len != 3 as u32 { return 1; }
+    let first: i32 = *(s.ptr);
+    if first != 10 { return 2; }
+    return 0;
+}
