@@ -505,7 +505,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
             // Unfold transparent type aliases so `impl Trait for Alias`
             // registers methods under the aliased type's concrete name.
             auto ait = type_aliases_.find(target);
-            if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
+            if (ait != type_aliases_.end() &&
+                ait->second.type_params.empty() && ait->second.lifetime_params.empty()) {
                 auto* aliased = ait->second.type;
                 if (aliased && (aliased->kind == LogosType::Kind::Struct ||
                                 aliased->kind == LogosType::Kind::Datatype)) {
@@ -541,13 +542,28 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     std::vector<const LogosType*> tv_args;
                     for (auto& tp : impl_tps)
                         tv_args.push_back(make_typevar(tp.name));
-                    self_type = make_generic_struct(sname, std::move(tv_args));
+                    // Bug 2: include struct's lifetime params so Self carries lifetime_args.
+                    std::vector<std::string> lt_args;
+                    if (auto sit = structs_.find(sname); sit != structs_.end())
+                        lt_args = sit->second.lifetime_params;
+                    self_type = make_generic_struct(sname, std::move(tv_args), std::move(lt_args));
                 } else {
                     self_type = make_struct_type(target);
                 }
             } else if (datatypes_.count(base_target) || datatypes_.count(target)) {
                 std::string dname = datatypes_.count(target) ? target : base_target;
-                self_type = make_datatype_type(dname);
+                // Bug 3: datatypes with lifetime params also need lifetime_args in Self.
+                if (!impl_tps.empty()) {
+                    std::vector<const LogosType*> tv_args;
+                    for (auto& tp : impl_tps)
+                        tv_args.push_back(make_typevar(tp.name));
+                    std::vector<std::string> lt_args;
+                    if (auto dit = datatypes_.find(dname); dit != datatypes_.end())
+                        lt_args = dit->second.lifetime_params;
+                    self_type = make_generic_datatype(dname, std::move(tv_args), std::move(lt_args));
+                } else {
+                    self_type = make_datatype_type(dname);
+                }
             } else {
                 // Blanket impl (impl<T: Bound> Trait for T): target IS a type
                 // parameter in impl_tps.  Self resolves to that TypeVar so

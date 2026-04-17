@@ -1604,15 +1604,23 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
         }
     }
 
-    auto sit = structs_.find(struct_t->struct_name);
-    if (sit == structs_.end()) return raw;
+    // Bug 5: look up structs_ OR datatypes_ for the substitution info.
+    SemaStructInfo* si2 = nullptr;
+    { auto it = structs_.find(struct_t->struct_name); if (it != structs_.end()) si2 = &it->second; }
+    if (!si2) { auto it = datatypes_.find(struct_t->struct_name); if (it != datatypes_.end()) si2 = &it->second; }
+    if (!si2) return raw;
     SemaSubst subst;
-    auto& tps = sit->second.type_params;
-    for (size_t i = 0, j = 0; i < tps.size() && j < struct_t->type_args.size(); ++i) {
-        if (tps[i].is_variadic) break;
-        subst[tps[i].name] = struct_t->type_args[j++];
+    auto& tps2 = si2->type_params;
+    for (size_t i = 0, j = 0; i < tps2.size() && j < struct_t->type_args.size(); ++i) {
+        if (tps2[i].is_variadic) break;
+        subst[tps2[i].name] = struct_t->type_args[j++];
     }
-    return subst_type_sema(raw, subst);
+    // Bug 4: build lifetime substitution so &'z T fields resolve to caller's lifetime.
+    SemaLifetimeSubst ls;
+    auto& lps = si2->lifetime_params;
+    for (size_t i = 0; i < lps.size() && i < struct_t->lifetime_args.size(); ++i)
+        ls[lps[i]] = struct_t->lifetime_args[i];
+    return subst_type_sema(raw, subst, ls);
 }
 
 // ── lower_program and lower_module_items ─────────────────────────────────────
