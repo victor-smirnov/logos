@@ -380,10 +380,15 @@ std::string type_str(const LogosType* t) {
         return std::format("[{}; {}]", type_str(t->elem), t->arr_size);
     case LogosType::Kind::Struct:
     case LogosType::Kind::Datatype:
-        if (t->type_args.empty()) return t->struct_name;
+        if (t->type_args.empty() && t->lifetime_args.empty()) return t->struct_name;
         { std::string r = t->struct_name + "<";
+          bool first = true;
+          for (auto& lt : t->lifetime_args) {
+              if (!first) r += ", "; first = false;
+              r += lt;
+          }
           for (size_t i = 0; i < t->type_args.size(); ++i) {
-              if (i) r += ", ";
+              if (!first) r += ", "; first = false;
               r += type_str(t->type_args[i]);
           }
           return r + ">"; }
@@ -900,6 +905,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         nt.kind = LogosType::Kind::Enum;
         nt.enum_name = t->enum_name;
         nt.type_args = std::move(new_args);
+        nt.lifetime_args = t->lifetime_args;
         return pool_.alloc(std::move(nt));
     }
     case LogosType::Kind::Tuple: {
@@ -1359,12 +1365,14 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             auto ait = type_aliases_.find(std::string(name));
             if (ait != type_aliases_.end() && !ait->second.type_params.empty()) {
                 // Resolve the type arguments at the call site.
+                // Lifetime args are skipped (aliases expand to their target type
+                // which carries its own lifetime args).
                 std::vector<const LogosType*> args;
                 if (node.has_key(la::ITEMS)) {
                     auto items = arr_of(node.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size(); ++i) {
                         auto item = map_of(items.get(i));
-                        if (code_of(item) == la::LIFETIME_PARAM) continue;
+                        if (code_of(item) == la::LIFETIME_PARAM) continue;  // expanded via target
                         args.push_back(resolve_type(item));
                     }
                 }
@@ -1418,6 +1426,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             LogosType t; t.kind = LogosType::Kind::Enum;
             t.enum_name = std::string(name);
             t.type_args = std::move(args);
+            t.lifetime_args = std::move(lt_args);
             return pool_.alloc(std::move(t));
         }
         if (is_dtype) {
