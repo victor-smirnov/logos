@@ -188,6 +188,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     lir::EMethodCall nm;
                     nm.receiver = std::move(new_recv);
                     nm.method = k.method;
+                    nm.resolved_symbol = k.resolved_symbol;
                     nm.vtable_index = k.vtable_index;
                     nm.resolved_type = k.resolved_type;
                     nm.tag_system = k.tag_system;
@@ -199,6 +200,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 lir::EMethodCall nm;
                 nm.receiver = std::move(new_recv);
                 nm.method = k.method;
+                nm.resolved_symbol = k.resolved_symbol;
                 for (auto* ta : k.type_args) nm.type_args.push_back(subst_type(ta, s));
                 nm.vtable_index = k.vtable_index;
                 nm.tag_system = k.tag_system;

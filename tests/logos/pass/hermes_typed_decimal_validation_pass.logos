@@ -6,7 +6,7 @@ use std.string;
 
 unsafe fn main() -> i32 {
     let mut d1: HermesCtr = HermesCtr::new(2048);
-    match d1.parse("@Decimal(10,2)=\"123.45\"" as *const u8, 23 as i64) {
+    match d1.parse("@Decimal(10,2)=\"123.45\"") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 1; }
     }
@@ -14,7 +14,7 @@ unsafe fn main() -> i32 {
     if !s1.eq_cstr("@Decimal(10,2) = \"123.45\"") { return 2; }
 
     let mut d2: HermesCtr = HermesCtr::new(2048);
-    match d2.parse("\"123.45\"@Decimal(10,2)" as *const u8, 22 as i64) {
+    match d2.parse("\"123.45\"@Decimal(10,2)") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 3; }
     }

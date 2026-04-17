@@ -27,6 +27,7 @@ use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use hermes.scalar;
+use hermes.decimal;
 use std.string;
 
 pub struct CloneCtx {
@@ -118,6 +119,30 @@ impl HermesClone for U64 {
                                    hermes_tag_u64(), hermes_desc_data());
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             U64::init(raw, a.value());
+            return raw;
+        }
+    }
+}
+
+impl HermesClone for Decimal {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let d: *const Decimal = self as *const Decimal;
+            let n: u32 = d.len();
+            let total: i64 = sizeof::<Decimal>() as i64 + (n as i64) * 4 as i64;
+            let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, total,
+                                   hermes_tag_decimal(), hermes_desc_data());
+            if raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let out: *mut Decimal = raw as *mut Decimal;
+            out.spec_and_len = d.spec_and_len;
+            let mut i: u32 = 0 as u32;
+            let src: *const u32 = d.limbs();
+            let dst: *mut u32 = out.limbs_mut();
+            while i < n {
+                *((dst as i64 + (i as i64) * 4 as i64) as *mut u32) =
+                    *((src as i64 + (i as i64) * 4 as i64) as *const u32);
+                i = i + 1 as u32;
+            }
             return raw;
         }
     }

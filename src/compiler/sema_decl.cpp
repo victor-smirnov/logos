@@ -32,10 +32,11 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // parameter types.  Keep a concrete Self binding alive for the duration
     // of lowering if the surrounding impl context already determined it.
     if (!struct_ctx.empty() && !current_type_params_.count("Self")) {
-        if (structs_.count(std::string(struct_ctx)))
-            current_type_params_["Self"] = make_struct_type(struct_ctx);
-        else if (datatypes_.count(std::string(struct_ctx)))
+        // Prefer datatype Self when a name exists in both tables.
+        if (datatypes_.count(std::string(struct_ctx)))
             current_type_params_["Self"] = make_datatype_type(struct_ctx);
+        else if (structs_.count(std::string(struct_ctx)))
+            current_type_params_["Self"] = make_struct_type(struct_ctx);
     }
 
     lir::LFunction fn;
@@ -100,9 +101,62 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 if (same) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
             }
         }
+        // Relaxed method match for overloaded members: if only `self` disagrees
+        // (e.g. Struct-vs-Datatype Self representation), still accept candidate
+        // when all explicit parameters match exactly.
+        if (!fi_ptr && !struct_ctx.empty() && decl_param_types.size() >= 1) {
+            for (auto* cand : find_func_candidates(mangled)) {
+                if (!cand || cand->type_params.size() != node_tparams.size()) continue;
+                if (cand->param_types.size() != decl_param_types.size()) continue;
+                bool same_tail = true;
+                for (size_t i = 1; i < decl_param_types.size(); ++i) {
+                    if (!cand->param_types[i] || !decl_param_types[i] ||
+                        !types_equal(*cand->param_types[i], *decl_param_types[i])) {
+                        same_tail = false;
+                        break;
+                    }
+                }
+                if (same_tail) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
+            }
+        }
+        // Method-decl fallback: some parser paths provide PARAMS without explicit
+        // `self` in the reconstructed decl signature. For overloaded methods this
+        // makes exact arity matching fail and leaves fi_ptr unresolved.
+        if (!fi_ptr && !struct_ctx.empty()) {
+            const LogosType* self_t = nullptr;
+            if (auto it = datatypes_.find(std::string(struct_ctx)); it != datatypes_.end())
+                self_t = make_datatype_type(struct_ctx);
+            else if (auto it = structs_.find(std::string(struct_ctx)); it != structs_.end())
+                self_t = make_struct_type(struct_ctx);
+            if (self_t) {
+                for (auto* cand : find_func_candidates(mangled)) {
+                    if (!cand || cand->type_params.size() != node_tparams.size()) continue;
+                    if (cand->param_types.size() != decl_param_types.size() + 1) continue;
+                    auto* self_param = cand->param_types[0];
+                    if (!self_param ||
+                        (self_param->kind != LogosType::Kind::Ref &&
+                         self_param->kind != LogosType::Kind::MutRef &&
+                         self_param->kind != LogosType::Kind::Ptr) ||
+                        !self_param->pointee ||
+                        !types_equal(*self_param->pointee, *self_t))
+                        continue;
+                    bool same_tail = true;
+                    for (size_t i = 0; i < decl_param_types.size(); ++i) {
+                        auto* dt = decl_param_types[i];
+                        auto* pt = cand->param_types[i + 1];
+                        if (!dt || !pt || !types_equal(*dt, *pt)) {
+                            same_tail = false;
+                            break;
+                        }
+                    }
+                    if (same_tail) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
+                }
+            }
+        }
         if (!fi_ptr) {
-            if (auto fit = find_func_by_symbol(mangled))
+            if (auto fit = find_func_by_symbol(mangled)) {
                 fi_ptr = const_cast<SemaFuncInfo*>(fit);
+            }
             if (!fi_ptr)
                 fi_ptr = const_cast<SemaFuncInfo*>(find_generic_func(mangled, decl_param_arity));
             if (!fi_ptr)

@@ -22,9 +22,13 @@ unsafe fn cstr_eq_bytes(p: *const u8, n: u64, lit: *const u8) -> bool {
 unsafe fn main() -> i32 {
     let mut d: HermesCtr = HermesCtr::new(8192);
     let txt: *const u8 =
-        "{\"a\":@I64=42,\"b\":\"123.45\"@Decimal(10,2),\"c\":@Point({\"fmt\":\"xy\"})={\"x\":1,\"y\":2}}";
+        r#"{
+            "a": @I64 = 42, 
+            "b": "123.45" @Decimal(10,2),
+            "c": @Point({"fmt": "xy"})={"x":1,"y":2}
+        }"#;
 
-    match d.parse(txt, 79 as i64) {
+    match d.parse(txt) {
         Result::Ok(()) => {}
         Result::Err(_) => { return 1; }
     }
@@ -32,61 +36,49 @@ unsafe fn main() -> i32 {
     let root: AnyVal = d.root();
     if !root.is_ptr() { return 2; }
 
-    let va: AnyVal = d.map_get_cstr(root, "a" as *const u8);
-    let vb: AnyVal = d.map_get_cstr(root, "b" as *const u8);
-    let vc: AnyVal = d.map_get_cstr(root, "c" as *const u8);
+    let va: AnyVal = d.map_get(root, "a");
+    let vb: AnyVal = d.map_get(root, "b");
+    let vc: AnyVal = d.map_get(root, "c");
     if va.is_null() || vb.is_null() || vc.is_null() { return 3; }
 
     let base: *const u8 = d.base();
     let oa: *const u8 = (base as i64 + va.as_offset() as i64) as *const u8;
     let ob: *const u8 = (base as i64 + vb.as_offset() as i64) as *const u8;
     let oc: *const u8 = (base as i64 + vc.as_offset() as i64) as *const u8;
-    if tag_read_hash(oa) != 106 as u8 || tag_read_hash(ob) != 106 as u8 || tag_read_hash(oc) != 106 as u8 {
+    if tag_read_hash(oa) != 106 as u8 || tag_read_hash(ob) != 107 as u8 || tag_read_hash(oc) != 106 as u8 {
         return 4;
     }
 
     let ta: *const TypedValue = oa as *const TypedValue;
-    let tb: *const TypedValue = ob as *const TypedValue;
     let tc: *const TypedValue = oc as *const TypedValue;
 
     let hsa: *const HermesString = (base as i64 + ta.type_off as i64) as *const HermesString;
-    let hsb: *const HermesString = (base as i64 + tb.type_off as i64) as *const HermesString;
     let hsc: *const HermesString = (base as i64 + tc.type_off as i64) as *const HermesString;
-    if !cstr_eq_bytes(hsa.bytes(), hsa.len(), "I64" as *const u8) { return 5; }
-    if !cstr_eq_bytes(hsb.bytes(), hsb.len(), "Decimal" as *const u8) { return 6; }
-    if !cstr_eq_bytes(hsc.bytes(), hsc.len(), "Point" as *const u8) { return 7; }
+    if !cstr_eq_bytes(hsa.bytes(), hsa.len(), "I64") { return 5; }
+    if !cstr_eq_bytes(hsc.bytes(), hsc.len(), "Point") { return 6; }
 
     let inita: AnyVal = AnyVal { raw: ta.init_raw };
-    if d.get_i64(inita) != 42 as i64 { return 8; }
-
-    let paramsb: AnyVal = AnyVal { raw: tb.params_raw };
-    if !paramsb.is_ptr() { return 9; }
-    let opb: *const u8 = (base as i64 + paramsb.as_offset() as i64) as *const u8;
-    if tag_read_hash(opb) != 100 as u8 { return 10; }
-    let arrb: *const ObjectArray = opb as *const ObjectArray;
-    if arrb.size != 2 as u64 { return 11; }
-    if d.get_i64(arrb.get(base, 0 as u64)) != 10 as i64 { return 12; }
-    if d.get_i64(arrb.get(base, 1 as u64)) != 2 as i64 { return 13; }
-
-    let initb: AnyVal = AnyVal { raw: tb.init_raw };
-    let sv: StringView = d.get_str_view(initb);
-    if !cstr_eq_bytes(sv.ptr, sv.len, "123.45" as *const u8) { return 14; }
+    if d.get_i64(inita) != 42 as i64 { return 7; }
+    if d.decimal_precision(vb) != 10 as u32 { return 8; }
+    if d.decimal_scale(vb) != 2 as u32 { return 9; }
+    let ds: String = d.decimal_to_string(vb);
+    if !ds.eq_cstr("123.45") { return 10; }
 
     let paramsc: AnyVal = AnyVal { raw: tc.params_raw };
-    if !paramsc.is_ptr() { return 15; }
+    if !paramsc.is_ptr() { return 11; }
     let opc: *const u8 = (base as i64 + paramsc.as_offset() as i64) as *const u8;
-    if tag_read_hash(opc) != 100 as u8 { return 16; }
+    if tag_read_hash(opc) != 100 as u8 { return 12; }
     let arrc: *const ObjectArray = opc as *const ObjectArray;
-    if arrc.size != 1 as u64 { return 17; }
+    if arrc.size != 1 as u64 { return 13; }
     let p0: AnyVal = arrc.get(base, 0 as u64);
-    if !p0.is_ptr() { return 18; }
+    if !p0.is_ptr() { return 14; }
     let p0o: *const u8 = (base as i64 + p0.as_offset() as i64) as *const u8;
-    if tag_read_hash(p0o) != 101 as u8 { return 19; }
+    if tag_read_hash(p0o) != 101 as u8 { return 15; }
 
     let initc: AnyVal = AnyVal { raw: tc.init_raw };
-    if !initc.is_ptr() { return 20; }
+    if !initc.is_ptr() { return 16; }
     let i0: *const u8 = (base as i64 + initc.as_offset() as i64) as *const u8;
-    if tag_read_hash(i0) != 101 as u8 { return 21; }
+    if tag_read_hash(i0) != 101 as u8 { return 17; }
 
     return 0;
 }

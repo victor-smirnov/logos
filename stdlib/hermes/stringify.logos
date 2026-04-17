@@ -33,6 +33,7 @@ use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use hermes.scalar;
+use hermes.decimal;
 use std.string;
 
 // ---------------------------------------------------------------------------
@@ -429,6 +430,33 @@ impl HermesStringify for U64 {
         unsafe {
             let a: *const U64 = self as *const U64;
             ctx.out.push_u64(a.value());
+        }
+    }
+}
+
+impl HermesStringify for Decimal {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let d: *const Decimal = self as *const Decimal;
+            ctx.out.push_u8(64 as u8);   // '@'
+            ctx.out.push_u8(68 as u8);   // 'D'
+            ctx.out.push_u8(101 as u8);  // 'e'
+            ctx.out.push_u8(99 as u8);   // 'c'
+            ctx.out.push_u8(105 as u8);  // 'i'
+            ctx.out.push_u8(109 as u8);  // 'm'
+            ctx.out.push_u8(97 as u8);   // 'a'
+            ctx.out.push_u8(108 as u8);  // 'l'
+            ctx.out.push_u8(40 as u8);   // '('
+            ctx.out.push_u64(d.precision() as u64);
+            ctx.out.push_u8(44 as u8);   // ','
+            ctx.out.push_u64(d.scale() as u64);
+            ctx.out.push_u8(41 as u8);   // ')'
+            ctx.out.push_u8(32 as u8);   // ' '
+            ctx.out.push_u8(61 as u8);   // '='
+            ctx.out.push_u8(32 as u8);   // ' '
+            ctx.out.push_u8(34 as u8);   // '"'
+            decimal_write_number(d, ctx.out);
+            ctx.out.push_u8(34 as u8);   // '"'
         }
     }
 }

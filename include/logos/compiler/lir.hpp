@@ -149,6 +149,9 @@ struct ECall      {
 struct EMethodCall {
     LExprPtr                      receiver;
     std::string                   method;
+    // Concrete function symbol selected by sema for direct calls.
+    // Empty means "resolve by receiver type + method name" in later phases.
+    std::string                   resolved_symbol{};
     std::vector<const LogosType*> type_args;  // [NEW] for generic methods
     std::vector<LExprPtr>         args;
     int32_t                       vtable_index = -1;  // -1 = direct (struct), >=0 = virtual (class)

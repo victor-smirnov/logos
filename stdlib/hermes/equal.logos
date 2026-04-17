@@ -23,6 +23,7 @@ use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use hermes.scalar;
+use hermes.decimal;
 
 pub struct EqualCtx {
     pub base_self:  *const u8,
@@ -103,6 +104,23 @@ impl HermesEqual for U64 {
             let a: *const U64 = self as *const U64;
             let b: *const U64 = other as *const U64;
             return a.value() == b.value();
+        }
+    }
+}
+
+impl HermesEqual for Decimal {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let a: *const Decimal = self as *const Decimal;
+            let b: *const Decimal = other as *const Decimal;
+            if a.spec_and_len != b.spec_and_len { return false; }
+            let n: u32 = a.len();
+            let mut i: u32 = 0 as u32;
+            while i < n {
+                if a.limb_at(i) != b.limb_at(i) { return false; }
+                i = i + 1 as u32;
+            }
+            return true;
         }
     }
 }

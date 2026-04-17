@@ -20,6 +20,7 @@ use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use hermes.scalar;
+use hermes.decimal;
 
 pub struct HashCtx {
     pub base: *const u8,
@@ -108,6 +109,23 @@ impl HermesHash for U64 {
             let a: *const U64 = self as *const U64;
             let h0: u64 = fnv_mix_u64(fnv_init(), 27 as u64);
             return fnv_mix_u64(h0, a.value());
+        }
+    }
+}
+
+impl HermesHash for Decimal {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe {
+            let d: *const Decimal = self as *const Decimal;
+            let mut h: u64 = fnv_mix_u64(fnv_init(), 107 as u64);
+            h = fnv_mix_u64(h, d.spec_and_len as u64);
+            let n: u32 = d.len();
+            let mut i: u32 = 0 as u32;
+            while i < n {
+                h = fnv_mix_u64(h, d.limb_at(i) as u64);
+                i = i + 1 as u32;
+            }
+            return h;
         }
     }
 }

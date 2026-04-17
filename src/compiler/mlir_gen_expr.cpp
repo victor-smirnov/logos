@@ -753,18 +753,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
         builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
         ptr = slot;
     }
-    // Direct call: mangled name = TypeName__method
+    // Direct call:
+    // 1) prefer sema-resolved concrete symbol (overload-safe),
+    // 2) fallback to legacy TypeName__method lookup.
     // If resolved_type is set (inherited method), use the defining class name.
     const std::string& defining = e.resolved_type.empty() ? tname : e.resolved_type;
     auto mangled    = defining + "__" + e.method;
+    auto callee_name = e.resolved_symbol.empty() ? mangled : e.resolved_symbol;
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    auto callee_fn  = find_func_op(parent_mod, mangled);
+    auto callee_fn  = find_func_op(parent_mod, callee_name);
     if (!callee_fn) {
         // Generic struct methods may retain a trailing generic suffix in the
         // instantiated symbol name, e.g. `Box$G1$i32__unwrap__g__Box$G1$T`.
         // Fall back to the first function whose name starts with the concrete
         // direct-call prefix.
-        std::string generic_prefix = mangled + "__g__";
+        std::string generic_prefix = callee_name + "__g__";
         parent_mod.walk([&](mlir::func::FuncOp fn) {
             auto fn_name = fn.getName().str();
             if (fn_name.rfind(generic_prefix, 0) == 0) {
@@ -774,8 +777,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
             return mlir::WalkResult::advance();
         });
     }
+    // If sema provided a resolved symbol and it wasn't found (e.g. mono renamed),
+    // try legacy receiver-based lookup as a final compatibility fallback.
+    if (!callee_fn && !e.resolved_symbol.empty()) {
+        callee_name = mangled;
+        callee_fn = find_func_op(parent_mod, callee_name);
+        if (!callee_fn) {
+            std::string generic_prefix = callee_name + "__g__";
+            parent_mod.walk([&](mlir::func::FuncOp fn) {
+                auto fn_name = fn.getName().str();
+                if (fn_name.rfind(generic_prefix, 0) == 0) {
+                    callee_fn = fn;
+                    return mlir::WalkResult::interrupt();
+                }
+                return mlir::WalkResult::advance();
+            });
+        }
+    }
     if (!callee_fn) {
-        std::fprintf(stderr, "mlir_gen: method '%s' not found\n", mangled.c_str());
+        std::fprintf(stderr, "mlir_gen: method '%s' not found\n", callee_name.c_str());
         return nullptr;
     }
     llvm::SmallVector<mlir::Value> args;

@@ -255,31 +255,31 @@ impl HermesCtr {
     // ── Decimal builders / accessors ───────────────────────────────────────
 
     // Parse decimal text into a zone Decimal(P,S). Returns null on parse/overflow error.
-    pub fn decimal_from_string(&mut self, p: i32, s: i32,
-                               txt: *const u8, len: i64) -> AnyVal {
+    pub fn decimal_from(&mut self, p: i32, s: i32,
+                        txt: *const u8, len: i64) -> AnyVal {
         unsafe {
             return decimal_from_string_in_zone(&mut self.zone, p, s, txt, len);
         }
     }
 
-    // C-string convenience overload.
-    pub fn decimal_from_string(&mut self, p: i32, s: i32, txt: *const u8) -> AnyVal {
+    // C-string overload.
+    pub fn decimal_from(&mut self, p: i32, s: i32, txt: *const u8) -> AnyVal {
         if txt == 0 as *const u8 { return AnyVal::null_ptr(); }
         unsafe {
-            return self.decimal_from_string(p, s, txt, cstr_len(txt));
+            return self.decimal_from(p, s, txt, cstr_len(txt));
         }
     }
 
-    // StringView convenience overload.
-    pub fn decimal_from_string(&mut self, p: i32, s: i32, txt: StringView) -> AnyVal {
-        return self.decimal_from_string(p, s, txt.ptr, txt.len as i64);
+    // StringView overload.
+    pub fn decimal_from(&mut self, p: i32, s: i32, txt: StringView) -> AnyVal {
+        return self.decimal_from(p, s, txt.ptr, txt.len as i64);
     }
 
-    // C-string convenience wrapper.
-    pub fn decimal_from_cstr(&mut self, p: i32, s: i32, txt: *const u8) -> AnyVal {
-        if txt == 0 as *const u8 { return AnyVal::null_ptr(); }
+    // f64 overload: build Decimal(p,s) from f64, rounding half-up.
+    // Returns null on NaN/Inf, precision overflow, or |val * 10^s| >= 2^53.
+    pub fn decimal_from(&mut self, p: i32, s: i32, val: f64) -> AnyVal {
         unsafe {
-            return decimal_from_string_in_zone(&mut self.zone, p, s, txt, cstr_len(txt));
+            return decimal_from_f64_in_zone(&mut self.zone, p, s, val);
         }
     }
 
@@ -306,14 +306,6 @@ impl HermesCtr {
     pub fn decimal_to_f64(&self, val: AnyVal) -> f64 {
         unsafe {
             return decimal_to_f64_value(self.zone.holder.base as *const u8, val);
-        }
-    }
-
-    // Build Decimal(p,s) from f64, rounding half-up.
-    // Returns null on NaN/Inf, precision overflow, or |val * 10^s| >= 2^53.
-    pub fn decimal_from_f64(&mut self, p: i32, s: i32, val: f64) -> AnyVal {
-        unsafe {
-            return decimal_from_f64_in_zone(&mut self.zone, p, s, val);
         }
     }
 

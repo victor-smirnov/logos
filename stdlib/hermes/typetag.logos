@@ -25,6 +25,7 @@
 //   104 = ArrayI32 (<I32>[...], dense primitive array)
 //   105 = MapI32AnyVal (<I32>{...} / <I32,AnyVal>{...})
 //   106 = TypedValue (@Type(...)=initializer)
+//   107 = Decimal (fixed-precision decimal with inline limb tail)
 //   3   = Document   (Logos extension — DocumentHeader at zone offset 0)
 //
 // TagDescriptor values (C++ TagDescriptor enum):
@@ -72,6 +73,10 @@ pub unsafe fn hermes_tag_map_i32_anyval() -> u8 {
 
 pub unsafe fn hermes_tag_typed_value() -> u8 {
     return 106 as u8;   // typed value wrapper
+}
+
+pub unsafe fn hermes_tag_decimal() -> u8 {
+    return 107 as u8;   // Decimal(P,S) with inline u32 limbs tail
 }
 
 pub unsafe fn hermes_tag_document() -> u8 {

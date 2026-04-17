@@ -40,6 +40,7 @@ use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
 use hermes.scalar;
+use hermes.decimal;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -532,6 +533,7 @@ impl HermesParser {
     //   - P > 0
     //   - S >= 0
     //   - S <= P
+    //   - P <= 1143 (current Decimal limb encoding budget: 127*9)
     //   - initializer must be string (for from_string pipeline)
     pub unsafe fn validate_decimal_typed_value(&mut self, params: AnyVal, initv: AnyVal) -> bool {
         if !initv.is_string(self.base as *const u8) {
@@ -561,6 +563,7 @@ impl HermesParser {
         if p <= 0 as i32 { self.ok = false; return false; }
         if s < 0 as i32 { self.ok = false; return false; }
         if s > p { self.ok = false; return false; }
+        if p > 1143 as i32 { self.ok = false; return false; }
         return true;
     }
 
@@ -570,6 +573,34 @@ impl HermesParser {
             return self.validate_decimal_typed_value(params, initv);
         }
         return true;
+    }
+
+    // Decimal typed-value materialization path:
+    //   @Decimal(P,S)="..."
+    //   "..."@Decimal(P,S)
+    // Returns null_ptr when no special materialization applies.
+    pub unsafe fn try_materialize_typed_value(&mut self, type_off: u32,
+                                              params: AnyVal, initv: AnyVal) -> AnyVal {
+        if !self.type_name_eq(type_off, "Decimal" as *const u8, 7 as i64) {
+            return AnyVal::null_ptr();
+        }
+
+        let pobj: *const u8 = (self.base as i64 + params.as_offset() as i64) as *const u8;
+        let arr: *const ObjectArray = pobj as *const ObjectArray;
+        let p_raw: AnyVal = arr.get(self.base as *const u8, 0 as u64);
+        let s_raw: AnyVal = arr.get(self.base as *const u8, 1 as u64);
+        let p: i32 = self.anyval_to_i32(p_raw);
+        if self.ok == false { return AnyVal::null_ptr(); }
+        let s: i32 = self.anyval_to_i32(s_raw);
+        if self.ok == false { return AnyVal::null_ptr(); }
+
+        let hs: *const HermesString = (self.base as i64 + initv.as_offset() as i64) as *const HermesString;
+        let dv: AnyVal = decimal_from_string_in_zone(self.zone, p, s, hs.bytes(), hs.len() as i64);
+        if dv.is_null() {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        return dv;
     }
 
     // Prefix form: @Type(params?) = initializer
@@ -605,6 +636,9 @@ impl HermesParser {
             self.ok = false;
             return AnyVal::null_ptr();
         }
+        let mat: AnyVal = self.try_materialize_typed_value(type_off, params, initv);
+        if self.ok == false { return AnyVal::null_ptr(); }
+        if !mat.is_null() { return mat; }
         return self.make_typed_value(type_off, params, initv);
     }
 
@@ -632,6 +666,9 @@ impl HermesParser {
             self.ok = false;
             return AnyVal::null_ptr();
         }
+        let mat: AnyVal = self.try_materialize_typed_value(type_off, params, initv);
+        if self.ok == false { return AnyVal::null_ptr(); }
+        if !mat.is_null() { return mat; }
         return self.make_typed_value(type_off, params, initv);
     }
 
