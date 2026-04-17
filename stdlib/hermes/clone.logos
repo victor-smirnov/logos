@@ -359,6 +359,13 @@ pub unsafe fn document_compactify(src_zone: *const Zone<Mutable>,
     };
     let new_root: AnyVal = anyval_clone(src_root, &mut ctx);
 
+    // OOM: anyval_clone returns null when a non-null zone-pointer couldn't be copied.
+    // src_root.is_null() covers raw=0 (null ptr, which also has b0=0 and is_ptr=true).
+    if !src_root.is_null() && new_root.is_null() {
+        dst_zone.release();
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+
     // Store cloned root in destination header.
     document_set_root(dst_doc, new_root);
 
@@ -383,8 +390,20 @@ pub unsafe fn document_clone(src_zone: *const Zone<Mutable>) -> Zone<Mutable> {
 
     let nbytes: i64 = src_holder.used;
 
-    // Allocate destination zone sized exactly to the live bytes.
-    let mut dst_zone: Zone<Mutable> = zone_create(nbytes);
+    // Empty source: nothing to copy.
+    if nbytes <= 0 as i64 {
+        return Zone { holder: 0 as *mut MemHolder };
+    }
+
+    // Add headroom so the clone zone is not immediately full.
+    // Small zones get a flat 4096-byte bonus; larger get 25% extra.
+    let cap: i64 = if nbytes < 4096 as i64 {
+        nbytes + 4096 as i64
+    } else {
+        nbytes + nbytes / 4 as i64
+    };
+
+    let mut dst_zone: Zone<Mutable> = zone_create(cap);
     if dst_zone.holder == 0 as *mut MemHolder {
         return Zone { holder: 0 as *mut MemHolder };
     }

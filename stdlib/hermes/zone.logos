@@ -64,8 +64,10 @@ impl<M> Zone<M> {
     // If RC reaches 0, frees both the zone buffer and the MemHolder struct.
     // Do NOT use this Zone<M> after calling release().
     pub unsafe fn release(self: *mut Zone<M>) {
-        memholder_release(self.holder);
-        self.holder = 0 as *mut MemHolder;
+        if self.holder != 0 as *mut MemHolder {
+            memholder_release(self.holder);
+            self.holder = 0 as *mut MemHolder;
+        }
     }
 }
 

@@ -94,11 +94,26 @@ impl DecimalView {
         return self.ptr == 0 as *const Decimal;
     }
 
-    pub unsafe fn precision(&self) -> u32 { return self.ptr.precision(); }
-    pub unsafe fn scale(&self) -> u32     { return self.ptr.scale(); }
-    pub unsafe fn len(&self) -> u32       { return self.ptr.len(); }
-    pub unsafe fn is_negative(&self) -> bool { return self.ptr.is_negative(); }
-    pub unsafe fn limb_at(&self, idx: u32) -> u32 { return self.ptr.limb_at(idx); }
+    pub unsafe fn precision(&self) -> u32 {
+        if self.ptr == 0 as *const Decimal { return 0 as u32; }
+        return self.ptr.precision();
+    }
+    pub unsafe fn scale(&self) -> u32 {
+        if self.ptr == 0 as *const Decimal { return 0 as u32; }
+        return self.ptr.scale();
+    }
+    pub unsafe fn len(&self) -> u32 {
+        if self.ptr == 0 as *const Decimal { return 0 as u32; }
+        return self.ptr.len();
+    }
+    pub unsafe fn is_negative(&self) -> bool {
+        if self.ptr == 0 as *const Decimal { return false; }
+        return self.ptr.is_negative();
+    }
+    pub unsafe fn limb_at(&self, idx: u32) -> u32 {
+        if self.ptr == 0 as *const Decimal { return 0 as u32; }
+        return self.ptr.limb_at(idx);
+    }
 
     pub unsafe fn to_f64(&self) -> f64 {
         if self.ptr == 0 as *const Decimal { return 0.0; }
