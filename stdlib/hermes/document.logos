@@ -30,7 +30,7 @@ use hermes.anyval;
 pub genos Document {}
 
 pub eidos DocumentHeader {
-    pub root: u32,   // AnyVal.raw of the root value
+    pub root: AnyVal,
 }
 
 impl Document for DocumentHeader {}
@@ -44,18 +44,20 @@ impl Document for DocumentHeader {}
 // Returns *mut DocumentHeader = raw (typed).
 pub unsafe fn document_create(raw: *mut u8) -> *mut DocumentHeader {
     let doc: *mut DocumentHeader = raw as *mut DocumentHeader;
-    doc.root = 0 as u32;
+    doc.root = AnyVal::null_ptr();
     return doc;
 }
 
 // Get the document root as an AnyVal.
 pub unsafe fn document_get_root(doc: *const DocumentHeader) -> AnyVal {
-    return AnyVal { raw: doc.root };
+    let rp: *const u32 = &doc.root as *const AnyVal as *const u32;
+    return AnyVal { raw: *rp };
 }
 
 // Set the document root.
 pub unsafe fn document_set_root(doc: *mut DocumentHeader, val: AnyVal) {
-    doc.root = val.raw;
+    let rp: *mut u32 = &doc.root as *const AnyVal as *mut u32;
+    *rp = val.raw;
 }
 
 // Cast the zone base pointer to a DocumentHeader pointer (zone offset 0).
