@@ -620,6 +620,8 @@ private:
     lir::LStmt lower_for_each(hermes::TinyMapView node);
     lir::LStmt lower_loop(hermes::TinyMapView node);
     lir::LStmt lower_field_write(hermes::TinyMapView node);
+    lir::LStmt lower_chain_field_write(hermes::TinyMapView node);
+    lir::LStmt lower_chain_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_tuple_field_write(hermes::TinyMapView node);
     lir::LStmt lower_tuple_field_compound_assign(hermes::TinyMapView node);

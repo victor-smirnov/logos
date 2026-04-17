@@ -50,14 +50,13 @@ pub unsafe fn document_create(raw: *mut u8) -> *mut DocumentHeader {
 
 // Get the document root as an AnyVal.
 pub unsafe fn document_get_root(doc: *const DocumentHeader) -> AnyVal {
-    let rp: *const u32 = &doc.root as *const AnyVal as *const u32;
-    return AnyVal { raw: *rp };
+    let r: u32 = doc.root.raw;
+    return AnyVal { raw: r };
 }
 
 // Set the document root.
 pub unsafe fn document_set_root(doc: *mut DocumentHeader, val: AnyVal) {
-    let rp: *mut u32 = &doc.root as *const AnyVal as *mut u32;
-    *rp = val.raw;
+    doc.root.raw = val.raw;
 }
 
 // Cast the zone base pointer to a DocumentHeader pointer (zone offset 0).

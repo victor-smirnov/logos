@@ -51,6 +51,7 @@ void MLIRGenImpl::gen_stmt_kind(const SContinue& s) {
 void MLIRGenImpl::gen_stmt_kind(const SFieldWrite& s)       { gen_field_write(s); }
 void MLIRGenImpl::gen_stmt_kind(const STupleWrite& s)       { gen_tuple_write(s); }
 void MLIRGenImpl::gen_stmt_kind(const SDerefFieldWrite& s)  { gen_deref_field_write(s); }
+void MLIRGenImpl::gen_stmt_kind(const SChainFieldWrite& s)  { gen_chain_field_write(s); }
 void MLIRGenImpl::gen_stmt_kind(const SIndexWrite& s)       { gen_index_write(s); }
 void MLIRGenImpl::gen_stmt_kind(const SFieldIndexWrite& s)  { gen_field_index_write(s); }
 void MLIRGenImpl::gen_stmt_kind(const SExprStmt& s)    { gen_expr(*s.expr); }
@@ -1099,6 +1100,92 @@ void MLIRGenImpl::gen_deref_field_write(const SDerefFieldWrite& s) {
         }
     }
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+}
+
+void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
+    // a.mid_field.field = value
+    // Step 1: resolve outer struct ptr (same logic as gen_field_write).
+    mlir::Value outer_ptr;
+    std::string outer_type_name;
+
+    auto sit = var_struct_.find(s.receiver);
+    auto cit = sit == var_struct_.end() ? var_class_.find(s.receiver) : var_class_.end();
+    if (sit != var_struct_.end()) {
+        outer_ptr = get_struct_ptr(s.receiver);
+        outer_type_name = sit->second;
+    } else if (cit != var_class_.end()) {
+        outer_ptr = get_struct_ptr(s.receiver);
+        outer_type_name = cit->second;
+    } else {
+        auto sc = scope_.find(s.receiver);
+        if (sc != scope_.end()) {
+            auto lpit = var_local_ptrs_.find(s.receiver);
+            if (lpit != var_local_ptrs_.end()) {
+                for (auto& [sn, si] : struct_types_) {
+                    if (si.llvm_type == lpit->second) { outer_type_name = sn; break; }
+                }
+            }
+            if (!outer_type_name.empty()) {
+                outer_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), sc->second);
+            }
+        }
+        if (!outer_ptr || outer_type_name.empty()) {
+            std::fprintf(stderr, "mlir_gen: chain-field-write: '%s' is not a struct\n",
+                         s.receiver.c_str());
+            return;
+        }
+    }
+
+    // Step 2: GEP into mid_field — gives *mut MidType.
+    auto oit = struct_types_.find(outer_type_name);
+    if (oit == struct_types_.end()) {
+        std::fprintf(stderr, "mlir_gen: chain-field-write: unknown outer type '%s'\n",
+                     outer_type_name.c_str());
+        return;
+    }
+    auto mid_gep = gep_field(outer_ptr, oit->second, s.mid_field);
+    if (!mid_gep) return;
+
+    // Determine mid struct type name by looking at the field's LLVM type.
+    std::string mid_type_name;
+    mlir::Type mid_llvm_type;
+    for (auto& f : oit->second.fields) {
+        if (f.name == s.mid_field) { mid_llvm_type = f.type; break; }
+    }
+    if (mid_llvm_type) {
+        for (auto& [sn, si] : struct_types_) {
+            if (si.llvm_type == mid_llvm_type) { mid_type_name = sn; break; }
+        }
+    }
+    if (mid_type_name.empty()) {
+        std::fprintf(stderr, "mlir_gen: chain-field-write: cannot resolve struct type for '%s.%s'\n",
+                     outer_type_name.c_str(), s.mid_field.c_str());
+        return;
+    }
+
+    // Step 3: GEP into final field using mid_gep as base pointer.
+    auto mit = struct_types_.find(mid_type_name);
+    if (mit == struct_types_.end()) {
+        std::fprintf(stderr, "mlir_gen: chain-field-write: unknown mid type '%s'\n",
+                     mid_type_name.c_str());
+        return;
+    }
+    auto field_gep = gep_field(mid_gep, mit->second, s.field);
+    if (!field_gep) return;
+
+    // Step 4: generate value and store.
+    auto val = gen_expr(*s.value);
+    if (!val) return;
+    for (auto& f : mit->second.fields) {
+        if (f.name == s.field) {
+            if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type) && val.getType() == ptr_type())
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, val);
+            else
+                val = coerce_int(val, f.type);
+            break;
+        }
+    }
+    builder_.create<mlir::LLVM::StoreOp>(loc_, val, field_gep);
 }
 
 void MLIRGenImpl::gen_tuple_write(const STupleWrite& s) {

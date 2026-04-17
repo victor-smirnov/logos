@@ -420,6 +420,15 @@ struct SDerefFieldWrite {
     LExprPtr    value;
 };
 
+// a.mid_field.field = value  — chained field write (2 levels deep)
+// Emitted as two GEPs: outer struct → mid field ptr → inner field ptr → store.
+struct SChainFieldWrite {
+    std::string receiver;    // outer variable name
+    std::string mid_field;   // intermediate field name
+    std::string field;       // final field name
+    LExprPtr    value;
+};
+
 struct SExprStmt  { LExprPtr expr; };
 
 struct SDelete    { LExprPtr expr; };   // delete ptr — call free on a class pointer
@@ -473,7 +482,7 @@ struct LStmt {
     std::variant<
         SLet, SAssign, SReturn, SIf, SWhile, SFor, SLoop,
         SBreak, SContinue, SBlock, SFieldWrite, SIndexWrite, SFieldIndexWrite, SExprStmt, SMatch, SDelete, SForEach, SDerefWrite,
-        SDrop, SDerefFieldWrite, STupleWrite, SLetElse
+        SDrop, SDerefFieldWrite, STupleWrite, SLetElse, SChainFieldWrite
     > kind;
 };
 

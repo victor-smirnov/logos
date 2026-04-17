@@ -556,6 +556,11 @@ class BorrowChecker {
                 visit(s.index, /*consuming=*/true, ln);
                 visit(s.value, /*consuming=*/true, ln);
 
+            // ── Chain field write: recv.mid.field = value ────────────────
+            } else if constexpr (std::is_same_v<S, SChainFieldWrite>) {
+                check_live(s.receiver, ln);
+                visit(s.value, /*consuming=*/true, ln);
+
             // ── Deref-field write: (*recv).field = value ─────────────────
             } else if constexpr (std::is_same_v<S, SDerefFieldWrite>) {
                 check_live(s.receiver, ln);

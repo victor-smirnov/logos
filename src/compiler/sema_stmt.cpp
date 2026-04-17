@@ -106,6 +106,8 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     if (c == la::FOR_EACH)     return lower_for_each(stmt);
     if (c == la::LOOP)         return lower_loop(stmt);
     if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
+    if (c == la::CHAIN_FIELD_WRITE)  return lower_chain_field_write(stmt);
+    if (c == la::CHAIN_FIELD_COMPOUND_ASSIGN) return lower_chain_field_compound_assign(stmt);
     if (c == la::FIELD_COMPOUND_ASSIGN) return lower_field_compound_assign(stmt);
     if (c == la::TUPLE_FIELD_WRITE)  return lower_tuple_field_write(stmt);
     if (c == la::TUPLE_FIELD_COMPOUND_ASSIGN) return lower_tuple_field_compound_assign(stmt);
@@ -1792,6 +1794,119 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     sfw.field    = std::string(field_name);
     sfw.value    = std::move(val);
     return make_stmt(node_line_, std::move(sfw));
+}
+
+// a.mid.field = val  — chained 2-level field write
+lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
+    auto recv_name  = str_of(node.get(la::RECEIVER.code));
+    auto mid_name   = str_of(node.get(la::NAME.code));
+    auto field_name = str_of(node.get(la::FIELD.code));
+
+    // Resolve outer type (handles *mut T transparently).
+    auto outer_sname = struct_name_of(recv_name);
+    if (outer_sname.empty()) {
+        error(std::format("chain field write: '{}' is not a struct", recv_name));
+        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+    }
+    // Require mutable receiver.
+    auto* recv_type = lookup(recv_name);
+    if (recv_type && recv_type->kind == LogosType::Kind::Ref)
+        error(std::format("chain field write '{}': receiver is &T (shared reference)", recv_name));
+    else if (recv_type && recv_type->kind != LogosType::Kind::Ptr && !lookup_is_mut(recv_name))
+        error(std::format("chain field write to immutable variable '{}'", recv_name));
+    if (recv_type && recv_type->kind == LogosType::Kind::Ptr && !recv_type->mut_ptr)
+        error(std::format("chain field write '{}': receiver is *const pointer", recv_name));
+
+    // Get mid-field type.
+    const LogosType* mid_ft = field_type_of(std::string(outer_sname), mid_name);
+    if (!mid_ft) {
+        error(std::format("chain field write: struct '{}' has no field '{}'", outer_sname, mid_name));
+        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+    }
+    // Resolve through pointer if mid-field is itself a pointer type.
+    const LogosType* mid_struct_t = mid_ft;
+    if (mid_struct_t->kind == LogosType::Kind::Ptr) mid_struct_t = mid_struct_t->pointee;
+
+    auto mid_sname = mid_struct_t ? concrete_struct_name(mid_struct_t) : std::string{};
+    if (mid_sname.empty()) {
+        error(std::format("chain field write: '{}.{}' has no struct type", recv_name, mid_name));
+        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+    }
+
+    // Get final field type.
+    const LogosType* ft = field_type_of(mid_sname, field_name);
+    if (!ft) {
+        error(std::format("chain field write: struct '{}' has no field '{}'", mid_sname, field_name));
+        return make_stmt(node_line_, lir::SExprStmt{error_expr()});
+    }
+
+    if (!inside_unsafe_ && recv_type && recv_type->kind == LogosType::Kind::Ptr)
+        error("chain field write through raw pointer requires unsafe context");
+
+    lir::LExprPtr val = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        : error_expr();
+    if (ft->kind != LogosType::Kind::Error && val->type->kind != LogosType::Kind::Error
+        && !types_compatible(val->type, ft))
+        error(std::format("chain field write '{}.{}.{}': expected {}, got {}",
+              recv_name, mid_name, field_name, type_str(ft), type_str(val->type)));
+
+    lir::SChainFieldWrite scfw;
+    scfw.receiver  = std::string(recv_name);
+    scfw.mid_field = std::string(mid_name);
+    scfw.field     = std::string(field_name);
+    scfw.value     = std::move(val);
+    return make_stmt(node_line_, std::move(scfw));
+}
+
+// a.mid.field op= val  →  a.mid.field = a.mid.field op val
+lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
+    auto recv_name  = str_of(node.get(la::RECEIVER.code));
+    auto mid_name   = str_of(node.get(la::NAME.code));
+    auto field_name = str_of(node.get(la::FIELD.code));
+    auto op_tok     = str_of(node.get(la::OP.code));
+    std::string base_op = (op_tok.size() >= 2 && op_tok.back() == '=')
+        ? std::string(op_tok.substr(0, op_tok.size() - 1))
+        : std::string(op_tok);
+
+    auto outer_sname = struct_name_of(recv_name);
+    const LogosType* mid_ft = outer_sname.empty()
+        ? nullptr : field_type_of(std::string(outer_sname), mid_name);
+    const LogosType* mid_struct_t = mid_ft;
+    if (mid_struct_t && mid_struct_t->kind == LogosType::Kind::Ptr)
+        mid_struct_t = mid_struct_t->pointee;
+    auto mid_sname = mid_struct_t ? concrete_struct_name(mid_struct_t) : std::string{};
+    const LogosType* ft = mid_sname.empty()
+        ? nullptr : field_type_of(mid_sname, field_name);
+
+    if (!outer_sname.empty() && !ft)
+        error(std::format("chain field compound assign: could not resolve '{}.{}.{}'",
+              recv_name, mid_name, field_name));
+
+    // Lower RHS value.
+    lir::LExprPtr rhs = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        : error_expr();
+
+    // Build read: recv.mid.field
+    auto recv_expr = make_expr(lookup(recv_name) ? lookup(recv_name) : error_t(),
+                               lir::EVarRef{std::string(recv_name)});
+    // mid read: recv.mid  (as EFieldRead)
+    const LogosType* mid_read_t = mid_ft ? mid_ft : error_t();
+    auto mid_expr = make_expr(mid_read_t, lir::EFieldRead{std::move(recv_expr), std::string(mid_name)});
+    // field read: (recv.mid).field  (as EFieldRead)
+    const LogosType* ft2 = ft ? ft : error_t();
+    auto field_expr = make_expr(ft2, lir::EFieldRead{std::move(mid_expr), std::string(field_name)});
+
+    // op(old, rhs)
+    lir::LExprPtr combined = make_expr(ft2, lir::EBinOp{base_op, std::move(field_expr), std::move(rhs)});
+
+    lir::SChainFieldWrite scfw;
+    scfw.receiver  = std::string(recv_name);
+    scfw.mid_field = std::string(mid_name);
+    scfw.field     = std::string(field_name);
+    scfw.value     = std::move(combined);
+    return make_stmt(node_line_, std::move(scfw));
 }
 
 // s.field op= expr  →  s.field = s.field op expr

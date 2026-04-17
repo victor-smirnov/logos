@@ -656,6 +656,9 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
             ns.kind = lir::SFieldWrite{k.receiver, k.field, subst_expr(*k.value, s)};
 
+        } else if constexpr (std::is_same_v<K, lir::SChainFieldWrite>) {
+            ns.kind = lir::SChainFieldWrite{k.receiver, k.mid_field, k.field, subst_expr(*k.value, s)};
+
         } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
             ns.kind = lir::SDerefFieldWrite{k.receiver, k.type_name, k.field, subst_expr(*k.value, s)};
 
@@ -888,6 +891,8 @@ void Mono::collect_struct_needs_from_stmt(const lir::LStmt& st) {
         } else if constexpr (std::is_same_v<K, lir::SBlock>) {
             collect_struct_needs_from_block(*k.body);
         } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
+            collect_struct_needs_from_expr(*k.value);
+        } else if constexpr (std::is_same_v<K, lir::SChainFieldWrite>) {
             collect_struct_needs_from_expr(*k.value);
         } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
             collect_struct_needs_from_expr(*k.value);

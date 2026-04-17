@@ -224,6 +224,8 @@ inline constexpr Code PAT_AT      {"PAT_AT",      157};  // n @ sub_pat binding
 inline constexpr Code PAT_REF     {"PAT_REF",     158};  // &pat or &mut pat reference pattern
 inline constexpr Code PAT_FIELD   {"PAT_FIELD",   159};  // named field in struct pattern
 inline constexpr Code PAT_REST    {"PAT_REST",    160};  // .. rest in struct/slice pattern
+inline constexpr Code CHAIN_FIELD_WRITE          {"CHAIN_FIELD_WRITE",          161};  // a.b.c = val
+inline constexpr Code CHAIN_FIELD_COMPOUND_ASSIGN{"CHAIN_FIELD_COMPOUND_ASSIGN", 162};  // a.b.c op= val
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

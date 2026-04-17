@@ -70,6 +70,8 @@ void Mono::scan_stmt(const lir::LStmt& st) {
             // NM1: scan scrutinee and the else diverge-block for generic calls.
             scan_expr(*k.scrut);
             scan_block(*k.else_block);
+        } else if constexpr (std::is_same_v<K, lir::SChainFieldWrite>) {
+            scan_expr(*k.value);
         } else if constexpr (std::is_same_v<K, lir::SBreak>) {
             // NM5: break-with-value expressions may contain generic calls.
             if (k.value) scan_expr(*k.value);

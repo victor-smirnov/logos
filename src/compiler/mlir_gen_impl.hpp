@@ -279,6 +279,7 @@ private:
     void gen_stmt_kind(const SDrop& s);
     void gen_stmt_kind(const SDerefWrite& s);
     void gen_stmt_kind(const SLetElse& s);
+    void gen_stmt_kind(const SChainFieldWrite& s);
 
     void gen_let(const SLet& s);
     void gen_assign(const SAssign& s);
@@ -292,6 +293,7 @@ private:
     void gen_for_each(const SForEach& s);
     void gen_field_write(const SFieldWrite& s);
     void gen_deref_field_write(const SDerefFieldWrite& s);
+    void gen_chain_field_write(const SChainFieldWrite& s);
     void gen_tuple_write(const STupleWrite& s);
     void gen_index_write(const SIndexWrite& s);
     void gen_field_index_write(const SFieldIndexWrite& s);

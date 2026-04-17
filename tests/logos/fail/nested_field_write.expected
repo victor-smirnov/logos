@@ -1,1 +1,1 @@
-syntax error near
+chain field write through raw pointer requires unsafe context

@@ -746,6 +746,8 @@
           / deref_field_write_stmt
           / tuple_field_compound_assign_stmt
           / tuple_field_write_stmt
+          / chain_field_compound_assign_stmt
+          / chain_field_write_stmt
           / field_compound_assign_stmt
           / field_write_stmt
           / index_compound_assign_stmt
@@ -947,9 +949,17 @@
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
 
+    // a.b.c = val;  — chained field write (2 levels deep)
+    chain_field_write_stmt <- IDENT DOT IDENT DOT IDENT ASSIGN expr SEMI
+                           => { CODE: CHAIN_FIELD_WRITE, RECEIVER: $1, NAME: $3, FIELD: $5, VALUE: $7 }
+
     // s.field op= expr;  — compound assign to struct field
     field_compound_assign_stmt <- IDENT DOT IDENT compound_assign_op expr SEMI
                                => { CODE: FIELD_COMPOUND_ASSIGN, RECEIVER: $1, FIELD: $3, OP: $4, VALUE: $5 }
+
+    // a.b.c op= val;  — chained field compound assign (2 levels deep)
+    chain_field_compound_assign_stmt <- IDENT DOT IDENT DOT IDENT compound_assign_op expr SEMI
+                                     => { CODE: CHAIN_FIELD_COMPOUND_ASSIGN, RECEIVER: $1, NAME: $3, FIELD: $5, OP: $6, VALUE: $7 }
 
     // arr[i] op= expr;  — compound assign to array index
     index_compound_assign_stmt <- IDENT LBRACKET expr RBRACKET compound_assign_op expr SEMI
