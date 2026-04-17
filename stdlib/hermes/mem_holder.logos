@@ -174,3 +174,11 @@ pub unsafe fn memholder_alloc_tagged(holder: *mut MemHolder, size: i64,
 pub unsafe fn memholder_create(capacity: i64) -> *mut MemHolder {
     return memholder_alloc_backed(capacity);
 }
+
+// ── HasMemHolder trait ────────────────────────────────────────────────────
+// Objects that own or borrow a MemHolder expose this trait.
+// Used to write storage-agnostic code over Zone<M>, HermesCtr, etc.
+
+pub trait HasMemHolder {
+    unsafe fn mem_holder(self: *const Self) -> *mut MemHolder;
+}

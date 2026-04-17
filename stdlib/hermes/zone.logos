@@ -71,6 +71,12 @@ impl<M> Zone<M> {
     }
 }
 
+impl<M> HasMemHolder for Zone<M> {
+    pub unsafe fn mem_holder(self: *const Zone<M>) -> *mut MemHolder {
+        return self.holder;
+    }
+}
+
 // Create a new mutable zone backed by `capacity` bytes.  Holder RC = 1.
 pub unsafe fn zone_create(capacity: i64) -> Zone<Mutable> {
     let holder: *mut MemHolder = memholder_create(capacity);

@@ -73,7 +73,8 @@ impl Decimal {
 
 }
 
-pub struct DecimalView {
+// 'z ties the view's validity to the zone that contains the Decimal object.
+pub struct DecimalView<'z> {
     ptr: *const Decimal,
 }
 

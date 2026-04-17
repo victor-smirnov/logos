@@ -77,6 +77,12 @@ pub struct HermesCtr {
     zone: Zone<Mutable>,
 }
 
+impl HasMemHolder for HermesCtr {
+    pub unsafe fn mem_holder(self: *const HermesCtr) -> *mut MemHolder {
+        return self.zone.holder;
+    }
+}
+
 impl Drop for HermesCtr {
     fn drop(self: HermesCtr) {
         unsafe {
