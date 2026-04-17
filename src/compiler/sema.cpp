@@ -989,7 +989,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         std::vector<const LogosType*> subbed_gat_args;
         bool gat_changed = false;
         for (auto* ga : t->gat_args) {
-            auto* nga = subst_type_sema(ga, s);
+            auto* nga = subst_type_sema(ga, s, ls);
             gat_changed |= (nga != ga);
             subbed_gat_args.push_back(nga);
         }

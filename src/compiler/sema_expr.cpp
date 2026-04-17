@@ -2202,7 +2202,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // Bug 3 fix: only apply non-generic aliases here; generic aliases need type args
         // at the call site and we can't infer them from just the struct literal name.
         auto ait = type_aliases_.find(sname_buf);
-        if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
+        if (ait != type_aliases_.end() &&
+            ait->second.type_params.empty() && ait->second.lifetime_params.empty()) {
             auto* aliased = ait->second.type;
             if (aliased && (aliased->kind == LogosType::Kind::Struct ||
                             aliased->kind == LogosType::Kind::Datatype)) {
@@ -2389,9 +2390,12 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             }
         }
         check_type_bounds(std::string(sname), sinfo.type_params, args);
+        std::vector<std::string> lit_lt_args;
+        if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname))
+            lit_lt_args = hint_struct_type_->lifetime_args;
         const LogosType* lit_type = datatypes_.count(std::string(sname))
-            ? make_generic_datatype(std::string(sname), args)
-            : make_generic_struct(std::string(sname), args);
+            ? make_generic_datatype(std::string(sname), args, lit_lt_args)
+            : make_generic_struct(std::string(sname), args, lit_lt_args);
 
         // Check if a concrete specialization exists for these type args.
         // First try exact-concrete key, then pattern-match (for partial specs).
@@ -2591,9 +2595,15 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 mark_moved(vr->name);
     }
 
-    const LogosType* lit_result_type = datatypes_.count(std::string(sname))
-        ? make_datatype_type(std::string(sname))
-        : make_struct_type(std::string(sname));
+    std::vector<std::string> ng_lt_args;
+    if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname))
+        ng_lt_args = hint_struct_type_->lifetime_args;
+    LogosType ng_t;
+    ng_t.kind = datatypes_.count(std::string(sname))
+                ? LogosType::Kind::Datatype : LogosType::Kind::Struct;
+    ng_t.struct_name   = std::string(sname);
+    ng_t.lifetime_args = std::move(ng_lt_args);
+    const LogosType* lit_result_type = pool_.alloc(std::move(ng_t));
     return make_expr(lit_result_type,
         lir::EStructLit{std::string(sname), std::move(fields)});
 }

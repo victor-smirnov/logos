@@ -111,17 +111,21 @@ private:
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_generic_datatype(std::string_view name,
-                                            std::vector<const LogosType*> args) {
+                                            std::vector<const LogosType*> args,
+                                            std::vector<std::string> lt_args = {}) {
         LogosType t; t.kind = LogosType::Kind::Datatype;
-        t.struct_name = std::string(name);
-        t.type_args   = std::move(args);
+        t.struct_name   = std::string(name);
+        t.type_args     = std::move(args);
+        t.lifetime_args = std::move(lt_args);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_generic_struct(std::string_view name,
-                                          std::vector<const LogosType*> args) {
+                                          std::vector<const LogosType*> args,
+                                          std::vector<std::string> lt_args = {}) {
         LogosType t; t.kind = LogosType::Kind::Struct;
-        t.struct_name = std::string(name);
-        t.type_args   = std::move(args);
+        t.struct_name   = std::string(name);
+        t.type_args     = std::move(args);
+        t.lifetime_args = std::move(lt_args);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_enum_type(std::string_view name) {
