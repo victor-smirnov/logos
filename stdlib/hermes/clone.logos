@@ -866,8 +866,13 @@ pub unsafe fn document_clone(src_zone: *const Zone<Mutable>) -> Zone<Mutable> {
 //
 // After memcpy, each slot's 4-byte AnyVal is overwritten with resolved[value_idx].
 pub unsafe fn hermes_clone_template(dst: *mut Zone<Mutable>, tmpl: *const u8, tmpl_size: i64, slots: *const u32, n_slots: i64, resolved: *const u32, n_values: i64) {
+    // C3 bug 1: guard tmpl/dst/tmpl_size as before.
     if tmpl == 0 as *const u8 || tmpl_size <= 0 as i64 { return; }
     if dst == 0 as *mut Zone<Mutable> { return; }
+    // C3 bug 2: guard slots pointer when there are slots to process.
+    if n_slots > 0 as i64 && slots == 0 as *const u32 { return; }
+    // C3 bug 3: guard resolved pointer when there are values to look up.
+    if n_values > 0 as i64 && resolved == 0 as *const u32 { return; }
 
     // Allocate space in the destination zone and memcpy the template.
     let dst_base: *mut u8 = zone_m_alloc_raw(dst, tmpl_size);
@@ -880,12 +885,14 @@ pub unsafe fn hermes_clone_template(dst: *mut Zone<Mutable>, tmpl: *const u8, tm
     }
 
     // Patch each PARAM slot with the corresponding resolved AnyVal.
+    let tmpl_size_u32: u32 = tmpl_size as u32;
     let mut si: i64 = 0 as i64;
     while si < n_slots {
         let off: u32   = *((slots as i64 + si * 8 as i64) as *const u32);
         let vidx: u32  = *((slots as i64 + si * 8 as i64 + 4 as i64) as *const u32)
                          & 0xFFFFFF as u32;  // mask to u24
-        if (vidx as i64) < n_values {
+        // C3 bug 4: bounds-check off+4 <= tmpl_size before writing the 4-byte AnyVal.
+        if (vidx as i64) < n_values && off + 4 as u32 <= tmpl_size_u32 {
             let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4 as i64) as *const u32);
             let slot_ptr: *mut u32 = (dst_base as i64 + off as i64) as *mut u32;
             *slot_ptr = av_raw;

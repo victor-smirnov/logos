@@ -755,8 +755,10 @@ impl HermesCtr {
 //
 // Allocates a fresh zone, memcpy's the template, and patches each PARAM slot.
 pub unsafe fn hermes_build_from_template(tmpl: *const u8, tmpl_size: i64, slots: *const u32, n_slots: i64, resolved: *const u32, n_values: i64) -> HermesCtr {
-    // Headroom: template bytes + some extra for string captures (runtime alloc).
-    let cap: i64 = tmpl_size + 4096 as i64;
+    // Headroom: template bytes + 4096 for future string captures (C5).
+    // C3 bug 5: clamp to avoid i64 overflow when tmpl_size is very large.
+    let mut cap: i64 = tmpl_size;
+    if tmpl_size < 9223372036854771711 as i64 { cap = tmpl_size + 4096 as i64; }
     let mut ctr: HermesCtr = HermesCtr { zone: zone_create(cap) };
     hermes_clone_template(&mut ctr.zone, tmpl, tmpl_size, slots, n_slots, resolved, n_values);
     return ctr;
