@@ -604,6 +604,18 @@ private:
     lir::LExprPtr lower_arr_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_arr_fill_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_hermes_lit(hermes::TinyMapView node);
+
+    // Capture context: non-null while lowering a hermes literal that has $-captures.
+    // lower_hermes_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.
+    struct HermesCapCtx {
+        std::vector<lir::LExprPtr>               exprs;       // unique capture expressions
+        std::vector<const LogosType*>             types;       // corresponding types
+        uint32_t                                  next_slot = 0; // next param_index
+        // dedup: symbol binding name → value_index (for pure EIdent captures)
+        std::unordered_map<std::string, uint32_t> ident_dedup;
+    };
+    HermesCapCtx* hermes_cap_ctx_ = nullptr;
+
     lir::HermesValPtr lower_hermes_val(hermes::TinyMapView node);
     lir::LExprPtr lower_enum_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_enum_lit_data(hermes::TinyMapView node);

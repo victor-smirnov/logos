@@ -142,15 +142,31 @@ struct HVArray {
     std::string elem_type;  // "" = AnyVal (ObjectArray tc=100); "I32" = ArrayI32 tc=104; "U64" = ArrayU64 tc=108
 };
 
+// Runtime capture placeholder: $x or ${expr} inside an @-literal.
+// param_index: position of this PARAM slot in the template blob (0-based, unique per slot).
+// value_index: deduplicated capture value (multiple slots can share one value_index if
+//              they capture the same pure identifier — one coercion, multiple writes).
+struct HVCapture {
+    uint32_t param_index;   // slot position in template (unique)
+    uint32_t value_index;   // which resolved value to use (deduplicated)
+};
+
 struct HermesVal {
-    std::variant<HVNull, HVBool, HVInt, HVFloat, HVStr, HVMap, HVArray> kind;
+    std::variant<HVNull, HVBool, HVInt, HVFloat, HVStr, HVMap, HVArray, HVCapture> kind;
 };
 
 // A Hermes SDN literal (@{...}, @[...], @scalar) lowered to a tree.
-// Phase 1: type is *const u8 (placeholder). Phase 2 will compute zone size N
-// and emit the blob as a static LLVM global, returning a pointer to its root.
+// If has_captures == false: pure compile-time blob (current ZoneBuilder path).
+// If has_captures == true:  template blob + runtime substitution.
+//   capture_exprs[v] = Logos expression for value_index v.
+//   capture_types[v] = resolved LogosType* for value_index v (for coercion).
+//   capture_param_count = total number of PARAM slots in template.
 struct EHermesLit {
     HermesValPtr root;
+    bool has_captures = false;
+    std::vector<LExprPtr>                    capture_exprs;   // one per unique value
+    std::vector<const struct LogosType*>     capture_types;   // one per unique value
+    uint32_t                                 capture_param_count = 0; // total slots
 };
 
 // ── Expression node payloads ──────────────────────────────────────────────

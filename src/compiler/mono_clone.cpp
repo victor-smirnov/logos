@@ -549,12 +549,20 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         for (auto& elem : kk.elements)
                             na.elements.push_back(clone_hv(*elem));
                         out->kind = std::move(na);
+                    } else if constexpr (std::is_same_v<KK, lir::HVCapture>) {
+                        out->kind = kk;  // plain struct copy (two uint32_t)
                     }
                 }, v.kind);
                 return out;
             };
             lir::EHermesLit nl;
             if (k.root) nl.root = clone_hv(*k.root);
+            nl.has_captures        = k.has_captures;
+            nl.capture_param_count = k.capture_param_count;
+            for (auto& ce : k.capture_exprs)
+                nl.capture_exprs.push_back(subst_expr(*ce, s, {}));
+            for (auto* ct : k.capture_types)
+                nl.capture_types.push_back(subst_type(ct, s));
             result->kind = std::move(nl);
         }
     }, e.kind);

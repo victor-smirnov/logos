@@ -4041,10 +4041,76 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     }
 
     if (c == la::HERMES_CAP_IDENT.code || c == la::HERMES_CAP_EXPR.code) {
-        // Valid placement (untyped @[...] / @{...} / @<K,AnyVal>{...}).
-        // Full implementation in C2 (LIR HVCapture). For now, emit a stub error.
-        error("$-captures in @-literals are not yet implemented");
-        return nullptr;
+        if (!hermes_cap_ctx_) {
+            error("$-capture used outside of a capturable @-literal context");
+            return nullptr;
+        }
+        // Resolve the captured Logos expression.
+        auto is_capturable = [&](const LogosType* t) -> bool {
+            if (!t) return false;
+            using K = LogosType::Kind;
+            switch (t->kind) {
+                case K::I8: case K::I16: case K::I32: case K::I64:
+                case K::U8: case K::U16: case K::U32: case K::U64:
+                case K::F32: case K::F64: case K::Bool:
+                    return true;
+                case K::Struct:
+                    return t->struct_name == "String" || t->struct_name == "AnyVal";
+                case K::Ptr: case K::Ref: case K::MutRef:
+                    // *const u8 (C string) is acceptable
+                    return t->pointee && t->pointee->kind == K::U8;
+                default:
+                    return false;
+            }
+        };
+
+        if (c == la::HERMES_CAP_IDENT.code) {
+            auto name_sv = str_of(node.get(la::NAME.code));
+            std::string name(name_sv);
+            auto* var_type = lookup(name);
+            if (!var_type) {
+                error(std::format("$-capture: unknown variable '{}'", name));
+                return nullptr;
+            }
+            if (!is_capturable(var_type)) {
+                error(std::format(
+                    "$-capture: cannot capture '{}' of type '{}' in @-literal; "
+                    "only scalars, strings, and AnyVal are supported",
+                    name, type_str(var_type)));
+                return nullptr;
+            }
+            // Deduplicate: same identifier → same value_index.
+            auto it = hermes_cap_ctx_->ident_dedup.find(name);
+            uint32_t value_idx;
+            if (it != hermes_cap_ctx_->ident_dedup.end()) {
+                value_idx = it->second;
+            } else {
+                value_idx = static_cast<uint32_t>(hermes_cap_ctx_->exprs.size());
+                hermes_cap_ctx_->exprs.push_back(make_expr(var_type, lir::EVarRef{name}));
+                hermes_cap_ctx_->types.push_back(var_type);
+                hermes_cap_ctx_->ident_dedup[name] = value_idx;
+            }
+            uint32_t param_idx = hermes_cap_ctx_->next_slot++;
+            return std::make_unique<lir::HermesVal>(lir::HVCapture{param_idx, value_idx});
+        } else {
+            // HERMES_CAP_EXPR: ${expr} — always fresh (no dedup: may have side effects).
+            auto expr_node = map_of(node.get(la::VALUE.code));
+            auto cap_expr = lower_expr(expr_node);
+            if (!cap_expr) return nullptr;
+            auto* expr_type = cap_expr->type;
+            if (!is_capturable(expr_type)) {
+                error(std::format(
+                    "${{...}}-capture: expression of type '{}' cannot be captured in @-literal; "
+                    "only scalars, strings, and AnyVal are supported",
+                    type_str(expr_type)));
+                return nullptr;
+            }
+            uint32_t value_idx = static_cast<uint32_t>(hermes_cap_ctx_->exprs.size());
+            uint32_t param_idx = hermes_cap_ctx_->next_slot++;
+            hermes_cap_ctx_->exprs.push_back(std::move(cap_expr));
+            hermes_cap_ctx_->types.push_back(expr_type);
+            return std::make_unique<lir::HermesVal>(lir::HVCapture{param_idx, value_idx});
+        }
     }
 
     error("unexpected Hermes literal node kind");
@@ -4052,9 +4118,26 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
+    // First pass: probe for captures without collecting (cheap walk).
+    // We do a full walk with a capture context: if any $-captures exist they'll
+    // be collected; if not, ctx.exprs stays empty and we use the static path.
+    HermesCapCtx ctx;
+    hermes_cap_ctx_ = &ctx;
     auto val = lower_hermes_val(node);
+    hermes_cap_ctx_ = nullptr;
     if (!val) return error_expr();
-    return make_expr(make_ptr(false, u8_t()), lir::EHermesLit{std::move(val)});
+
+    lir::EHermesLit lit;
+    lit.root = std::move(val);
+    if (!ctx.exprs.empty()) {
+        lit.has_captures = true;
+        lit.capture_exprs = std::move(ctx.exprs);
+        lit.capture_types = std::move(ctx.types);
+        lit.capture_param_count = ctx.next_slot;
+    }
+    // Type: *const u8 for static blobs; HermesCtr for captures (codegen handles both).
+    auto* result_type = lit.has_captures ? make_struct_type("HermesCtr") : make_ptr(false, u8_t());
+    return make_expr(result_type, std::move(lit));
 }
 
 } // namespace logos::compiler
