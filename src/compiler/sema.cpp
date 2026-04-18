@@ -1389,12 +1389,14 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         auto key_name = str_of(node.get(la::TYPE.code));
         auto val_name = node.has_key(la::RET_TYPE.code)
             ? str_of(node.get(la::RET_TYPE.code)) : std::string_view{"AnyVal"};
+        // C6-fix1: removed "Varchar" — it was advertised as supported but key_t
+        // resolution only handled "I32", producing silent error_t() for Varchar.
         static const std::unordered_map<std::string, const char*> map_key_map = {
-            {"I32", "I32"}, {"Varchar", "Varchar"},
+            {"I32", "I32"},
         };
         if (map_key_map.find(std::string(key_name)) == map_key_map.end()) {
             error(std::format("<{},{}>" "{{}} type: unsupported key type '{}'; "
-                              "supported: I32, Varchar", key_name, val_name, key_name));
+                              "supported: I32", key_name, val_name, key_name));
             return error_t();
         }
         const LogosType* key_t = nullptr;
@@ -1407,7 +1409,10 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             vt.struct_name = "AnyVal";
             val_t = pool_.alloc(std::move(vt));
         } else {
-            val_t = error_t();
+            // C6-fix2: emit error for unsupported val type (previously silent error_t()).
+            error(std::format("<{},{}>" "{{}} type: unsupported val type '{}'; "
+                              "supported: AnyVal", key_name, val_name, val_name));
+            return error_t();
         }
         LogosType t{};
         t.kind = LogosType::Kind::Struct;

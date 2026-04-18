@@ -126,9 +126,19 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     return error_expr();
                 }
                 // Validate element type compatibility.
+                // C6-fix3: elem_t must be non-null (resolve_type always sets it for valid types).
                 const LogosType* elem_t = !target->type_args.empty()
                     ? target->type_args[0] : nullptr;
-                if (elem_t && src->elem && elem_t->kind != src->elem->kind) {
+                if (!elem_t) {
+                    error("internal: <T>[] type missing element type");
+                    return error_expr();
+                }
+                // C6-fix4: src->elem must be non-null; don't skip type check silently.
+                if (!src->elem) {
+                    error("'as <T>[]': source slice has unresolved element type");
+                    return error_expr();
+                }
+                if (elem_t->kind != src->elem->kind) {
                     error(std::format(
                         "'as <T>[]' element type mismatch: slice has '{}', target needs '{}'",
                         type_str(src->elem), type_str(elem_t)));
@@ -136,7 +146,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 }
                 // Pick the stdlib builder function name.
                 std::string build_fn;
-                if (!elem_t || elem_t->kind == LogosType::Kind::I32)
+                if (elem_t->kind == LogosType::Kind::I32)
                     build_fn = "hermes_build_array_i32";
                 else if (elem_t->kind == LogosType::Kind::U64)
                     build_fn = "hermes_build_array_u64";
