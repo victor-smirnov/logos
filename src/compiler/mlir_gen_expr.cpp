@@ -1020,7 +1020,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
                          e.hermes_build_fn.c_str());
             return nullptr;
         }
-        if (build_fn.getNumArguments() == 3) {
+        // fix3: dispatch by function name prefix, not arg count — getNumArguments() is fragile
+        // (any future 3-arg array builder would silently take the wrong path).
+        if (e.hermes_build_fn.rfind("hermes_build_map_", 0) == 0) {
             // Map source: alloca ptr to MapSliceI32 { &[i32], &[AnyVal] }.
             // LLVM layout: { ptr (→keys_slice {ptr,i64}), ptr (→vals_slice {ptr,i64}) }
             auto mtype = mlir::LLVM::LLVMStructType::getLiteral(

@@ -912,14 +912,21 @@ pub struct MapSliceI32 {
 // The document root is set to the resulting MapI32AnyVal AnyVal.
 pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal, len: i64) -> HermesCtr {
     if len <= 0 as i64 { return HermesCtr::builder(8 as i64); }
+    // fix2: guard u32 overflow — MapI32AnyVal.size/capacity are u32.
+    if len > 4294967295 as i64 { return HermesCtr::builder(8 as i64); }
     let key_bytes: i64 = len * 4 as i64;
     let val_bytes: i64 = len * 4 as i64;
     let cap: i64 = 8 as i64 + key_bytes + val_bytes + sizeof::<MapI32AnyVal>() as i64 + 64 as i64;
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
     let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
     if keys_raw != 0 as *mut u8 {
+        // fix1: compute keys_off immediately after allocation — keys_raw is valid relative to
+        // current base now; a subsequent alloc (vals_raw) could trigger zone realloc, after
+        // which keys_raw would point to old (freed) memory and keys_raw - new_base = garbage.
+        let keys_off: u32 = (keys_raw as i64 - ctr.zone.holder.base as i64) as u32;
         let vals_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, val_bytes);
         if vals_raw != 0 as *mut u8 {
+            let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
             let mut bi: i64 = 0 as i64;
             while bi < key_bytes {
                 *((keys_raw as i64 + bi) as *mut u8) = *((keys as i64 + bi) as *const u8);
@@ -930,8 +937,6 @@ pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal,
                 *((vals_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
                 bi = bi + 1 as i64;
             }
-            let keys_off: u32 = (keys_raw as i64 - ctr.zone.holder.base as i64) as u32;
-            let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
                                        sizeof::<MapI32AnyVal>() as i64,
                                        hermes_tag_map_i32_anyval() as u64);

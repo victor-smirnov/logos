@@ -166,6 +166,11 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 return make_expr(ctr_t,
                     lir::ECast{std::move(inner), std::move(build_fn)});
             }
+            // fix5: explicit guard — outer if allows HermesArr||HermesMap; must be HermesMap here.
+            if (target->struct_name != "HermesMap") {
+                error("internal: unexpected hermes container type in map cast path");
+                return error_expr();
+            }
             // HermesMap: source must be MapSliceI32 for <I32,AnyVal>{}.
             {
                 auto* src = inner->type;
@@ -190,9 +195,12 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     }
                     map_fn = "hermes_build_map_i32_anyval";
                 } else {
+                    // fix4: guard against calling type_str on error types — check kind first.
+                    auto key_str = (key_t->kind != LogosType::Kind::Error) ? type_str(key_t) : "?";
+                    auto val_str = (val_t->kind != LogosType::Kind::Error) ? type_str(val_t) : "?";
                     error(std::format(
                         "'as <{},{}>{{}}': unsupported combination; supported: <I32,AnyVal>",
-                        type_str(key_t), type_str(val_t)));
+                        key_str, val_str));
                     return error_expr();
                 }
                 auto* ctr_t = lookup_type_by_name("HermesCtr");
