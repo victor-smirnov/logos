@@ -1,0 +1,11 @@
+package test_chain;
+
+pub struct Inner { pub x: u32 }
+pub struct Outer { pub inner: Inner }
+
+unsafe fn main() -> i32 {
+    let mut o: Outer = Outer { inner: Inner { x: 0 as u32 } };
+    o.inner.x = 42 as u32;
+    if o.inner.x != 42 as u32 { return 1; }
+    return 0;
+}
