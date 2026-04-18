@@ -1020,7 +1020,37 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
                          e.hermes_build_fn.c_str());
             return nullptr;
         }
-        // val is an alloca ptr to { ptr, i64 } (slice representation).
+        if (build_fn.getNumArguments() == 3) {
+            // Map source: alloca ptr to MapSliceI32 { &[i32], &[AnyVal] }.
+            // LLVM layout: { ptr (→keys_slice {ptr,i64}), ptr (→vals_slice {ptr,i64}) }
+            auto mtype = mlir::LLVM::LLVMStructType::getLiteral(
+                builder_.getContext(), {ptr_type(), ptr_type()});
+            auto stype = slice_llvm_type();  // { ptr, i64 }
+            // Load keys_slice alloca ptr from field 0.
+            llvm::SmallVector<mlir::LLVM::GEPArg> k0i{int32_t(0), int32_t(0)};
+            auto kpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), mtype, val, k0i);
+            auto keys_slice = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), kpp);
+            // Extract data ptr (field 0 of keys_slice).
+            llvm::SmallVector<mlir::LLVM::GEPArg> kdi{int32_t(0), int32_t(0)};
+            auto kdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, keys_slice, kdi);
+            auto keys_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), kdp);
+            // Extract len (field 1 of keys_slice).
+            llvm::SmallVector<mlir::LLVM::GEPArg> kli{int32_t(0), int32_t(1)};
+            auto klp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, keys_slice, kli);
+            auto len = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getIntegerType(64), klp);
+            // Load vals_slice alloca ptr from field 1.
+            llvm::SmallVector<mlir::LLVM::GEPArg> v0i{int32_t(0), int32_t(1)};
+            auto vpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), mtype, val, v0i);
+            auto vals_slice = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vpp);
+            // Extract data ptr (field 0 of vals_slice).
+            llvm::SmallVector<mlir::LLVM::GEPArg> vdi{int32_t(0), int32_t(0)};
+            auto vdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, vals_slice, vdi);
+            auto vals_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vdp);
+            auto call = builder_.create<mlir::func::CallOp>(
+                loc_, build_fn, mlir::ValueRange{keys_ptr, vals_ptr, len});
+            return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
+        }
+        // Array source: alloca ptr to { ptr, i64 } (slice representation).
         // Extract data_ptr (field 0) and len (field 1).
         auto stype = slice_llvm_type();
         llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};

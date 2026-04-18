@@ -898,6 +898,58 @@ pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
     return ctr;
 }
 
+// ── C6: Logos-struct → Hermes MapI32AnyVal builder ───────────────────────────
+
+// Source type for `as <I32, AnyVal>{}` cast: parallel key and value slices.
+// Len is derived from keys.len at the cast site; both slices must be the same length.
+pub struct MapSliceI32 {
+    pub keys: &[i32],
+    pub vals: &[AnyVal],
+}
+
+// Builds a MapI32AnyVal HermesCtr from parallel key and value arrays (len entries).
+// Layout: keys buffer (4 bytes/elem), vals buffer (4 bytes/elem), then tagged header.
+// The document root is set to the resulting MapI32AnyVal AnyVal.
+pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal, len: i64) -> HermesCtr {
+    if len <= 0 as i64 { return HermesCtr::builder(8 as i64); }
+    let key_bytes: i64 = len * 4 as i64;
+    let val_bytes: i64 = len * 4 as i64;
+    let cap: i64 = 8 as i64 + key_bytes + val_bytes + sizeof::<MapI32AnyVal>() as i64 + 64 as i64;
+    let mut ctr: HermesCtr = HermesCtr::builder(cap);
+    let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
+    if keys_raw != 0 as *mut u8 {
+        let vals_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, val_bytes);
+        if vals_raw != 0 as *mut u8 {
+            let mut bi: i64 = 0 as i64;
+            while bi < key_bytes {
+                *((keys_raw as i64 + bi) as *mut u8) = *((keys as i64 + bi) as *const u8);
+                bi = bi + 1 as i64;
+            }
+            bi = 0 as i64;
+            while bi < val_bytes {
+                *((vals_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1 as i64;
+            }
+            let keys_off: u32 = (keys_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                       sizeof::<MapI32AnyVal>() as i64,
+                                       hermes_tag_map_i32_anyval() as u64);
+            if hdr_raw != 0 as *mut u8 {
+                let m: *mut MapI32AnyVal = hdr_raw as *mut MapI32AnyVal;
+                m.size     = len as u32;
+                m.capacity = len as u32;
+                m.keys     = keys_off;
+                m.vals     = vals_off;
+                let map_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+                let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+                document_set_root(doc, AnyVal::from_offset(map_off));
+            }
+        }
+    }
+    return ctr;
+}
+
 // Patches PARAM slots in a zone that was populated via hermes_template_ctr_new.
 // resolved[i] = AnyVal.raw for capture value i; slots is the ParamSlot table
 // (interleaved u32 pairs: blob_offset, value_idx).

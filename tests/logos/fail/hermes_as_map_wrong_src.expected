@@ -1,0 +1,1 @@
+error [fn main]: 'as <I32,AnyVal>{}' requires a MapSliceI32 as source

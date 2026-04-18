@@ -166,9 +166,45 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 return make_expr(ctr_t,
                     lir::ECast{std::move(inner), std::move(build_fn)});
             }
-            // HermesMap: not yet implemented — reject.
-            error("'as <K,V>{}' map cast is not yet implemented");
-            return error_expr();
+            // HermesMap: source must be MapSliceI32 for <I32,AnyVal>{}.
+            {
+                auto* src = inner->type;
+                const LogosType* key_t = !target->type_args.empty()
+                    ? target->type_args[0] : nullptr;
+                const LogosType* val_t = target->type_args.size() > 1
+                    ? target->type_args[1] : nullptr;
+                if (!key_t || !val_t) {
+                    error("internal: <K,V>{} type missing key/val types");
+                    return error_expr();
+                }
+                std::string map_fn;
+                if (key_t->kind == LogosType::Kind::I32 &&
+                    val_t->kind == LogosType::Kind::Struct &&
+                    val_t->struct_name == "AnyVal") {
+                    if (!src || src->kind != LogosType::Kind::Struct ||
+                        src->struct_name != "MapSliceI32") {
+                        error(std::format(
+                            "'as <I32,AnyVal>{{}}' requires a MapSliceI32 as source; got '{}'",
+                            src ? type_str(src) : "?"));
+                        return error_expr();
+                    }
+                    map_fn = "hermes_build_map_i32_anyval";
+                } else {
+                    error(std::format(
+                        "'as <{},{}>{{}}': unsupported combination; supported: <I32,AnyVal>",
+                        type_str(key_t), type_str(val_t)));
+                    return error_expr();
+                }
+                auto* ctr_t = lookup_type_by_name("HermesCtr");
+                if (!ctr_t) {
+                    LogosType t{};
+                    t.kind = LogosType::Kind::Struct;
+                    t.struct_name = "HermesCtr";
+                    ctr_t = pool_.alloc(std::move(t));
+                }
+                return make_expr(ctr_t,
+                    lir::ECast{std::move(inner), std::move(map_fn)});
+            }
         }
 
         // ── Ordinary numeric/pointer cast. ────────────────────────────────────
