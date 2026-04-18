@@ -2085,8 +2085,12 @@ static uint32_t build_map_i32_anyval(ZoneBuilder& zb, const lir::HVMap& map) {
     zb.write32le(hdr_off + 12, vals_off);
 
     // Write values.
-    for (uint32_t i = 0; i < count; i++)
+    // C4 bug fix: call record_param_if so PARAM captures in MapI32AnyVal values
+    // are tracked in param_slots (same as ObjectMap and ObjectArray do).
+    for (uint32_t i = 0; i < count; i++) {
         zb.write32le(vals_off + i * 4, val_avs[i]);
+        record_param_if(zb, vals_off + i * 4, val_avs[i]);
+    }
 
     return hdr_off;
 }
@@ -2239,12 +2243,14 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, const LogosType* t)
     using K = LogosType::Kind;
     switch (t->kind) {
         case K::Bool: {
-            // AnyVal::embed_bool: raw = (v << 8) | 0x4Du (type_hash=38=0x26, bit0=1 → 0x4D)
+            // C4 bug fix: AnyVal::embed_bool uses type_hash=37, tag_byte=0x4B (not 0x4D=38).
+            // build_hermes_val uses 0x4Bu; coerce must match.
+            // raw = (bool_val << 8) | 0x4B
             mlir::Value b = coerce_numeric(v, i32_mlir);
             mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, b,
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 32));
             return builder_.create<mlir::arith::OrIOp>(loc_, shifted,
-                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0x4D, 32));
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0x4B, 32));
         }
         case K::I8:  case K::I16: case K::I32:
         case K::U8:  case K::U16: case K::U32:
@@ -2259,8 +2265,7 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, const LogosType* t)
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 0x2F, 32));
         }
         case K::I64: case K::U64: {
-            // For values fitting in i24: embed_i24. Otherwise: return 0 stub (C5 will alloc zone obj).
-            // For now always embed as i24 (truncated); large values need C5 zone alloc.
+            // Truncate to low 24 bits and embed as i24. Values outside ±8M need C5.
             mlir::Value iv = coerce_numeric(v, i32_mlir);
             mlir::Value masked = builder_.create<mlir::arith::AndIOp>(loc_, iv,
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 0xFFFFFF, 32));
@@ -2269,12 +2274,20 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, const LogosType* t)
             return builder_.create<mlir::arith::OrIOp>(loc_, shifted,
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 0x2F, 32));
         }
+        case K::F32: case K::F64:
+            // C4 bug fix: F32/F64 need zone-alloc RelPtr encoding (C5).
+            // is_capturable no longer allows these; return null AnyVal as fallback.
+            return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        case K::Ptr: case K::Ref: case K::MutRef:
+            // C4 bug fix: pointer/reference captures need varchar/C5 zone alloc.
+            // is_capturable no longer allows these; return null AnyVal as fallback.
+            return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
         case K::Struct:
             if (t->struct_name == "AnyVal") {
-                // AnyVal is already stored as u32 internally; extract the raw field.
-                // AnyVal = eidos { raw: u32 } — represented as { i32 } in LLVM.
-                // ExtractValueOp for struct { i32 }.
-                return builder_.create<mlir::LLVM::ExtractValueOp>(loc_, v, llvm::ArrayRef<int64_t>{0});
+                // C4 bug fix: use mlir::ArrayRef (not llvm::ArrayRef) for ExtractValueOp
+                // to match the MLIR dialect API which takes mlir::ArrayRef<int64_t>.
+                return builder_.create<mlir::LLVM::ExtractValueOp>(
+                    loc_, v, mlir::ArrayRef<int64_t>{0});
             }
             break;
         default:
