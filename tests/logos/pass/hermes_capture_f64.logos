@@ -1,4 +1,5 @@
 // Hermes capture: f64 value captured as zone-allocated F64 object.
+// C7-fix1: added is_ptr() checks — confirms root is a zone object (not inline/null).
 package hermes_capture_f64;
 use hermes.ctr;
 
@@ -8,18 +9,30 @@ unsafe fn main() -> i32 {
     let doc: HermesCtr = @{"price": $price};
     let root: AnyVal = doc.root();
     if root.is_null() { return 1; }
+    // Map root must be a zone pointer (ObjectMap), not inline.
+    if !root.is_ptr() { return 2; }
+    // Verify root points to a map object.
+    let base: *const u8 = doc.base();
+    if !root.is_map(base) { return 3; }
 
     // Capture f64 in an array.
     let arr: HermesCtr = @[$price, ${1.5 + 0.5}];
     let arr_root: AnyVal = arr.root();
-    if arr_root.is_null() { return 2; }
+    if arr_root.is_null() { return 4; }
+    // Array root must be a zone pointer (ObjectArray), not inline.
+    if !arr_root.is_ptr() { return 5; }
+    let arr_base: *const u8 = arr.base();
+    if !arr_root.is_array(arr_base) { return 6; }
 
     // Mix: i32 + f64 in same literal (mixed zone-alloc + inline).
     let count: i32 = 42;
     let ratio: f64 = 0.5;
     let mix: HermesCtr = @{"n": $count, "r": $ratio};
     let mix_root: AnyVal = mix.root();
-    if mix_root.is_null() { return 3; }
+    if mix_root.is_null() { return 7; }
+    if !mix_root.is_ptr() { return 8; }
+    let mix_base: *const u8 = mix.base();
+    if !mix_root.is_map(mix_base) { return 9; }
 
     return 0;
 }

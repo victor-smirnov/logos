@@ -133,7 +133,7 @@ endfunction()
 
 function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access)
-    set(FAIL_HERMES_USERS hermes_capture_bad_type hermes_capture_typed_array hermes_as_array_bad_type hermes_as_array_not_slice)
+    set(FAIL_HERMES_USERS hermes_capture_bad_type hermes_capture_typed_array hermes_as_array_bad_type hermes_as_array_not_slice hermes_as_array_elem_mismatch)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
         set(_extra -I ${PUB_LIB})
     elseif (BASE IN_LIST FAIL_HERMES_USERS)
