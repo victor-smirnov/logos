@@ -1836,22 +1836,25 @@ namespace {
 // document: a 4-byte AnyVal root at offset 0, followed by all objects.
 //
 // Memory layout rules (from stdlib/hermes/):
-//   - All allocations are 8-byte aligned (raw base + alignment padding).
-//   - Tagged objects: 1-byte type_code vlen prefix immediately before the
-//     object body. The object pointer is the byte AFTER the type byte, i.e.
-//     alloc returns (buf_offset + 1) after writing the tag.
-//   - AnyVal (32-bit):
-//       null   = 0
-//       bool   = (v << 8) | 0x4B         (type_code 37 in bits[7:1])
-//       i24    = ((v & 0xFFFFFF) << 8) | 0x2F  (type_code 23 in bits[7:1])
-//       zone ptr = zone_offset (bit0 = 0, must be even)
-//   - DocumentHeader: 4 bytes, AnyVal root at zone offset 0 (allocated as 8 bytes).
-//   - HermesString (tc=28): 4-byte length prefix + UTF-8 bytes, no NUL.
-//   - ObjectArray (tc=100): 24 bytes: u64 size, u64 capacity, u32 data_off.
+//   - All allocations are 8-byte aligned.
+//   - Tagged objects (tc 1-222): 1-byte type_code at obj[-1] (immediately before
+//     body). Alignment: pre = offset + 1, aligned = ceil(pre / 8) * 8. Tag byte
+//     written at buf[aligned-1]; body starts at buf[aligned].
+//   - AnyVal (32-bit, little-endian):
+//       null     = 0
+//       bool     = (v << 8) | 0x4B       (type_hash 37, tag byte bits[7:1])
+//       i24 int  = ((v & 0xFFFFFF) << 8) | 0x2F  (type_hash 23, fits -8388608..8388607)
+//       zone ptr = zone_offset            (bit0 = 0; 8-byte aligned objects)
+//   - DocumentHeader: 4-byte AnyVal root at zone offset 0 (allocated as 8 bytes).
+//   - HermesString (tc=28): vlen-encoded length prefix + UTF-8 bytes, no NUL.
+//     vlen: 1 byte if len < 249, else 1 + N bytes (249+N marker, then N LE bytes).
+//   - ObjectArray (tc=100): u64 size, u64 capacity, u32 data_off (+ 4B pad = 24B).
 //     Data buffer: capacity × 4-byte AnyVal values.
-//   - ObjectMap (tc=101): 16 bytes: u32 entries_off, u32 capacity, u32 count, u32 reserved.
-//     Entries buffer: capacity × 8 bytes each (key_off: u32, val: u32 AnyVal).
-//     Hash: FNV-1a, linear probing.
+//   - ObjectMap (tc=101): u32 entries_off, u32 capacity, u32 count, u32 reserved (16B).
+//     Entries buffer: capacity × 8 bytes (key_off: u32, val: u32 AnyVal).
+//     Hash: FNV-1a over raw key bytes, linear probing, cap = power-of-2 >= 2*count.
+//   - I64 (tc=26): 8 bytes i64 body (large integers only; small ones use inline i24).
+//   - F64 (tc=31): 8 bytes f64 body.
 
 struct ZoneBuilder {
     std::vector<uint8_t> buf;
@@ -1883,14 +1886,15 @@ struct ZoneBuilder {
     }
 
     // Allocate a tagged object with type_code `tc`.
-    // Returns the offset of the first byte of the object body (after the tag).
+    // Tag byte is written at buf[aligned-1] (i.e. obj[-1] per datatag.logos).
+    // Returns the offset of the first byte of the object body.
     uint32_t alloc_tagged(uint8_t tc, size_t body_sz) {
-        // Align to 8, then write tag byte, then object body.
-        align8();
-        push8(tc);
-        // 7 padding bytes so body starts at next 8-byte boundary.
-        for (int i = 0; i < 7; i++) push8(0);
-        uint32_t obj_off = static_cast<uint32_t>(buf.size());
+        // pre = current end + 1 tag byte; aligned = next 8-byte boundary.
+        size_t pre     = buf.size() + 1;
+        size_t aligned = (pre + 7) / 8 * 8;
+        buf.resize(aligned, 0);      // zero-pad up to alignment boundary
+        buf[aligned - 1] = tc;       // tag at obj[-1]
+        uint32_t obj_off = static_cast<uint32_t>(aligned);
         buf.resize(buf.size() + body_sz, 0);
         return obj_off;
     }
@@ -1917,14 +1921,40 @@ static uint64_t fnv1a_str(const std::string& s) {
 // Forward declaration.
 static uint32_t build_hermes_val(ZoneBuilder& zb, const lir::HermesVal& v);
 
+// vlen_encode_size: bytes needed to encode `value` in Hermes vlen format.
+// values < 249: 1 byte; values >= 249: 1 + N bytes (N = ceil(log256(value))).
+static size_t vlen_encode_size(uint64_t value) {
+    if (value < 249) return 1;
+    size_t n = 0;
+    uint64_t v = value;
+    while (v > 0) { v >>= 8; ++n; }
+    if (n > 7) n = 7;
+    return 1 + n;
+}
+
 // Build a HermesString object. Returns zone offset of the object body.
+// Layout: vlen-encoded length prefix + raw UTF-8 bytes (no NUL).
 static uint32_t build_string(ZoneBuilder& zb, const std::string& s) {
-    // Object body: 4-byte length prefix + bytes.
-    uint32_t body_sz = 4 + static_cast<uint32_t>(s.size());
+    uint64_t slen    = s.size();
+    size_t   vlen_sz = vlen_encode_size(slen);
+    size_t   body_sz = vlen_sz + slen;
     uint32_t obj_off = zb.alloc_tagged(28, body_sz);
-    zb.write32le(obj_off, static_cast<uint32_t>(s.size()));
-    for (size_t i = 0; i < s.size(); i++)
-        zb.buf[obj_off + 4 + i] = static_cast<uint8_t>(s[i]);
+
+    // Write vlen prefix.
+    if (slen < 249) {
+        zb.buf[obj_off] = static_cast<uint8_t>(slen);
+    } else {
+        size_t n = vlen_sz - 1;
+        zb.buf[obj_off] = static_cast<uint8_t>(248 + n);
+        uint64_t v = slen;
+        for (size_t i = 0; i < n; ++i) {
+            zb.buf[obj_off + 1 + i] = static_cast<uint8_t>(v & 0xFF);
+            v >>= 8;
+        }
+    }
+    // Write UTF-8 bytes.
+    for (size_t i = 0; i < s.size(); ++i)
+        zb.buf[obj_off + vlen_sz + i] = static_cast<uint8_t>(s[i]);
     return obj_off;
 }
 
@@ -2029,14 +2059,21 @@ static uint32_t build_hermes_val(ZoneBuilder& zb, const lir::HermesVal& v) {
             uint32_t payload = k.value ? 1u : 0u;
             return (payload << 8) | 0x4Bu;
         } else if constexpr (std::is_same_v<T, lir::HVInt>) {
-            // Encode as i64 zone object (type_code 26).
-            // Build I64 object: 8 bytes.
+            // Small integers (fitting in 24 signed bits) use inline AnyVal embed_i24
+            // (type_hash 23, tag byte 0x2F). Matches parser wire format and allows
+            // anyval.as_i64() to work correctly.
+            if (k.value >= -8388608LL && k.value <= 8388607LL) {
+                uint32_t raw = (static_cast<uint32_t>(static_cast<int32_t>(k.value))
+                                & 0xFFFFFFu) << 8 | 0x2Fu;
+                return raw;
+            }
+            // Larger integers: I64 zone object (type_code 26), 8-byte body.
             uint32_t obj_off = zb.alloc_tagged(26, 8);
             zb.write64le(obj_off, static_cast<uint64_t>(k.value));
-            return obj_off;  // zone pointer AnyVal (bit0=0)
+            return obj_off;
         } else if constexpr (std::is_same_v<T, lir::HVFloat>) {
-            // Encode double as zone object (type_code 27).
-            uint32_t obj_off = zb.alloc_tagged(27, 8);
+            // F64/Double zone object: type_code 31 (not 27 which is U64).
+            uint32_t obj_off = zb.alloc_tagged(31, 8);
             uint64_t bits;
             static_assert(sizeof(double) == 8);
             std::memcpy(&bits, &k.value, 8);

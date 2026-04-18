@@ -3840,7 +3840,24 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 if (!hv) return nullptr;
                 lir::HVMapEntry e;
                 if (!key_raw.empty() && key_raw[0] == '"') {
-                    std::string ks(key_raw.substr(1, key_raw.size()-2));
+                    // Strip quotes then unescape (same logic as HERMES_STR values).
+                    std::string raw_inner(key_raw.substr(1, key_raw.size()-2));
+                    std::string ks;
+                    for (size_t ki = 0; ki < raw_inner.size(); ++ki) {
+                        if (raw_inner[ki] == '\\' && ki + 1 < raw_inner.size()) {
+                            switch (raw_inner[++ki]) {
+                            case 'n':  ks += '\n'; break;
+                            case 't':  ks += '\t'; break;
+                            case 'r':  ks += '\r'; break;
+                            case '\\': ks += '\\'; break;
+                            case '"':  ks += '"';  break;
+                            case '0':  ks += '\0'; break;
+                            default:   ks += '\\'; ks += raw_inner[ki]; break;
+                            }
+                        } else {
+                            ks += raw_inner[ki];
+                        }
+                    }
                     e.key = std::move(ks);
                 } else {
                     e.key = (int64_t)std::stoll(std::string(key_raw));
