@@ -829,6 +829,68 @@ pub unsafe fn hermes_ctr_alloc_cstr(ctr: *mut HermesCtr, ptr: *const u8) -> u32 
     return hermes_ctr_alloc_str(ctr, ptr, cstr_len(ptr));
 }
 
+// ── C6: Logos-slice → Hermes typed array builders ────────────────────────────
+
+// Builds an ArrayI32 HermesCtr from a raw i32 slice (ptr + element count).
+// Layout: data buffer first (4 bytes/elem, raw), then tagged ArrayI32 header.
+// The document root is set to the resulting ArrayI32 AnyVal.
+pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
+    let byte_len: i64 = len * 4 as i64;
+    let cap: i64 = 8 as i64 + byte_len + sizeof::<ArrayI32>() as i64 + 64 as i64;
+    let mut ctr: HermesCtr = HermesCtr::builder(cap);
+    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+    if buf_raw != 0 as *mut u8 {
+        let mut bi: i64 = 0 as i64;
+        while bi < byte_len {
+            *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+            bi = bi + 1 as i64;
+        }
+    }
+    let buf_off: u32 = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+    let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                               sizeof::<ArrayI32>() as i64,
+                               hermes_tag_array_i32() as u64);
+    if hdr_raw != 0 as *mut u8 {
+        let arr: *mut ArrayI32 = hdr_raw as *mut ArrayI32;
+        arr.size     = len as u64;
+        arr.capacity = len as u64;
+        arr.data     = buf_off;
+        let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+        document_set_root(doc, AnyVal::from_offset(arr_off));
+    }
+    return ctr;
+}
+
+// Builds an ArrayU64 HermesCtr from a raw u64 slice (ptr + element count).
+pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
+    let byte_len: i64 = len * 8 as i64;
+    let cap: i64 = 8 as i64 + byte_len + sizeof::<ArrayU64>() as i64 + 64 as i64;
+    let mut ctr: HermesCtr = HermesCtr::builder(cap);
+    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+    if buf_raw != 0 as *mut u8 {
+        let mut bi: i64 = 0 as i64;
+        while bi < byte_len {
+            *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+            bi = bi + 1 as i64;
+        }
+    }
+    let buf_off: u32 = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+    let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                               sizeof::<ArrayU64>() as i64,
+                               hermes_tag_array_u64() as u64);
+    if hdr_raw != 0 as *mut u8 {
+        let arr: *mut ArrayU64 = hdr_raw as *mut ArrayU64;
+        arr.size     = len as u64;
+        arr.capacity = len as u64;
+        arr.data     = buf_off;
+        let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+        document_set_root(doc, AnyVal::from_offset(arr_off));
+    }
+    return ctr;
+}
+
 // Patches PARAM slots in a zone that was populated via hermes_template_ctr_new.
 // resolved[i] = AnyVal.raw for capture value i; slots is the ParamSlot table
 // (interleaved u32 pairs: blob_offset, value_idx).

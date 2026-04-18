@@ -366,7 +366,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = std::move(na);
 
         } else if constexpr (std::is_same_v<K, lir::ECast>) {
-            result->kind = lir::ECast{subst_expr(*k.operand, s)};
+            result->kind = lir::ECast{subst_expr(*k.operand, s), k.hermes_build_fn};
 
         } else if constexpr (std::is_same_v<K, lir::ENew>) {
             lir::ENew nn;

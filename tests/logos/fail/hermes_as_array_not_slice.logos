@@ -1,0 +1,9 @@
+// Fail: as <I32>[] with non-slice source.
+package hermes_as_array_not_slice;
+use hermes.ctr;
+
+unsafe fn main() -> i32 {
+    let x: i32 = 5;
+    let ctr: HermesCtr = x as <I32>[];
+    return 0;
+}

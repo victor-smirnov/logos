@@ -1357,6 +1357,66 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         return result;
     }
 
+    // <ElemType>[] and <K,V>{} — Hermes typed container type-expressions.
+    // Resolved to a special Struct type: struct_name="HermesArr"/"HermesMap",
+    // type_args[0] = elem/key type, type_args[1] = val type (map only).
+    // The result type of an `as <T>[]` cast is always HermesCtr (owning zone).
+    if (tc == la::HERMES_ARR_TYPE) {
+        auto elem_name = str_of(node.get(la::TYPE.code));
+        // Resolve element type — must be a known Hermes scalar type name.
+        static const std::unordered_map<std::string, const char*> arr_elem_map = {
+            {"I32", "ArrayI32"}, {"U64", "ArrayU64"},
+        };
+        auto it = arr_elem_map.find(std::string(elem_name));
+        if (it == arr_elem_map.end()) {
+            error(std::format("<{}>[] type: unsupported element type '{}'; "
+                              "supported: I32, U64", elem_name, elem_name));
+            return error_t();
+        }
+        // Resolve the underlying logos primitive type for the element.
+        const LogosType* elem_t = nullptr;
+        if (elem_name == "I32") elem_t = prim(LogosType::Kind::I32);
+        else if (elem_name == "U64") elem_t = prim(LogosType::Kind::U64);
+        else elem_t = error_t();
+        // Result type: struct LogosType with special name "HermesArr".
+        LogosType t{};
+        t.kind = LogosType::Kind::Struct;
+        t.struct_name = "HermesArr";
+        t.type_args.push_back(elem_t);
+        return pool_.alloc(std::move(t));
+    }
+    if (tc == la::HERMES_MAP_TYPE) {
+        auto key_name = str_of(node.get(la::TYPE.code));
+        auto val_name = node.has_key(la::RET_TYPE.code)
+            ? str_of(node.get(la::RET_TYPE.code)) : std::string_view{"AnyVal"};
+        static const std::unordered_map<std::string, const char*> map_key_map = {
+            {"I32", "I32"}, {"Varchar", "Varchar"},
+        };
+        if (map_key_map.find(std::string(key_name)) == map_key_map.end()) {
+            error(std::format("<{},{}>" "{{}} type: unsupported key type '{}'; "
+                              "supported: I32, Varchar", key_name, val_name, key_name));
+            return error_t();
+        }
+        const LogosType* key_t = nullptr;
+        if (key_name == "I32") key_t = prim(LogosType::Kind::I32);
+        else key_t = error_t();
+        const LogosType* val_t = nullptr;
+        if (val_name == "AnyVal") {
+            LogosType vt{};
+            vt.kind = LogosType::Kind::Struct;
+            vt.struct_name = "AnyVal";
+            val_t = pool_.alloc(std::move(vt));
+        } else {
+            val_t = error_t();
+        }
+        LogosType t{};
+        t.kind = LogosType::Kind::Struct;
+        t.struct_name = "HermesMap";
+        t.type_args.push_back(key_t);
+        t.type_args.push_back(val_t);
+        return pool_.alloc(std::move(t));
+    }
+
     if (tc == la::TYPE_REF) {
         auto name = str_of(node.get(la::NAME.code));
         if (name == "Self") {

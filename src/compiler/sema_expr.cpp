@@ -113,7 +113,55 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         const LogosType* target = expr.has_key(la::TYPE)
             ? resolve_type(map_of(expr.get(la::TYPE.code)))
             : error_t();
-        // Reject aggregate-to-primitive casts (struct/class/array/tuple/enum → scalar).
+
+        // ── Hermes typed container casts: &[T] as <I32>[] → HermesCtr. ──────
+        if (target && target->kind == LogosType::Kind::Struct &&
+            (target->struct_name == "HermesArr" || target->struct_name == "HermesMap")) {
+            if (target->struct_name == "HermesArr") {
+                auto* src = inner->type;
+                if (!src || src->kind != LogosType::Kind::Slice) {
+                    error(std::format(
+                        "'as <T>[]' requires a &[T] slice as source; got '{}'",
+                        src ? type_str(src) : "?"));
+                    return error_expr();
+                }
+                // Validate element type compatibility.
+                const LogosType* elem_t = !target->type_args.empty()
+                    ? target->type_args[0] : nullptr;
+                if (elem_t && src->elem && elem_t->kind != src->elem->kind) {
+                    error(std::format(
+                        "'as <T>[]' element type mismatch: slice has '{}', target needs '{}'",
+                        type_str(src->elem), type_str(elem_t)));
+                    return error_expr();
+                }
+                // Pick the stdlib builder function name.
+                std::string build_fn;
+                if (!elem_t || elem_t->kind == LogosType::Kind::I32)
+                    build_fn = "hermes_build_array_i32";
+                else if (elem_t->kind == LogosType::Kind::U64)
+                    build_fn = "hermes_build_array_u64";
+                else {
+                    error(std::format("'as <T>[]': unsupported element type '{}'; "
+                                      "supported: i32/I32, u64/U64", type_str(elem_t)));
+                    return error_expr();
+                }
+                // Result type: HermesCtr.
+                auto* ctr_t = lookup_type_by_name("HermesCtr");
+                if (!ctr_t) {
+                    LogosType t{};
+                    t.kind = LogosType::Kind::Struct;
+                    t.struct_name = "HermesCtr";
+                    ctr_t = pool_.alloc(std::move(t));
+                }
+                return make_expr(ctr_t,
+                    lir::ECast{std::move(inner), std::move(build_fn)});
+            }
+            // HermesMap: not yet implemented — reject.
+            error("'as <K,V>{}' map cast is not yet implemented");
+            return error_expr();
+        }
+
+        // ── Ordinary numeric/pointer cast. ────────────────────────────────────
         if (inner->type && target &&
             inner->type->kind != LogosType::Kind::Error &&
             target->kind != LogosType::Kind::Error) {

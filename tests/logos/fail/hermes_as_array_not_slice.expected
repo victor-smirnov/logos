@@ -1,0 +1,1 @@
+error [fn main]: 'as <T>[]' requires a &[T] slice as source

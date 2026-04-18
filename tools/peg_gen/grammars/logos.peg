@@ -217,6 +217,8 @@
     HERMES_TYPED_MAP            = 173   // @<K,V>{...} — typed map literal
     HERMES_CAP_IDENT            = 174   // $x — capture identifier; NAME = var name
     HERMES_CAP_EXPR             = 175   // ${expr} — capture expression; VALUE = expr
+    HERMES_ARR_TYPE             = 176   // <ElemType>[] type expression; TYPE = elem name
+    HERMES_MAP_TYPE             = 177   // <K,V>{} type expression; TYPE = key, RET_TYPE = val
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -649,7 +651,17 @@
     impl_type <- KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    type_ref <- ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
+    type_ref <- hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / assoc_type_ref / simple_type
+
+    // <ElemType>[] — Hermes typed array type expression (e.g. val as <I32>[])
+    hermes_arr_type <- LT IDENT GT_TYPE LBRACKET RBRACKET
+                    => { CODE: HERMES_ARR_TYPE, TYPE: $2 }
+
+    // <K,V>{} or <K>{} — Hermes typed map type expression (e.g. m as <I32,AnyVal>{})
+    hermes_map_type <- LT IDENT COMMA IDENT GT_TYPE LBRACE RBRACE
+                    => { CODE: HERMES_MAP_TYPE, TYPE: $2, RET_TYPE: $4 }
+                   / LT IDENT GT_TYPE LBRACE RBRACE
+                    => { CODE: HERMES_MAP_TYPE, TYPE: $2 }
 
     // T::Item / T::Item<A, B> — associated type reference (plain or GAT with type args)
     assoc_type_ref <- simple_type

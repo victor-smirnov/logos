@@ -1009,6 +1009,31 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, const LogosType* ty
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
+    // ── Hermes typed container cast: &[T] as <I32>[] → HermesCtr. ──────────
+    if (!e.hermes_build_fn.empty()) {
+        auto val = gen_expr(*e.operand);
+        if (!val) return nullptr;
+        auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        auto build_fn = find_func_op(parent_mod, e.hermes_build_fn);
+        if (!build_fn) {
+            std::fprintf(stderr, "mlir_gen: '%s' not found — add 'use hermes.ctr;'\n",
+                         e.hermes_build_fn.c_str());
+            return nullptr;
+        }
+        // val is an alloca ptr to { ptr, i64 } (slice representation).
+        // Extract data_ptr (field 0) and len (field 1).
+        auto stype = slice_llvm_type();
+        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+        auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, val, pi);
+        auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+        llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+        auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, val, li);
+        auto len = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getIntegerType(64), lp);
+        auto call = builder_.create<mlir::func::CallOp>(
+            loc_, build_fn, mlir::ValueRange{data_ptr, len});
+        return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
+    }
+
     auto val    = gen_expr(*e.operand);
     if (!val) return nullptr;
     auto target = logos_to_mlir(type);
