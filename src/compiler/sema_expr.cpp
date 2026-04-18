@@ -3956,7 +3956,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         // Validate val type if present.
         if (!val_type_s.empty() && val_type_s != "AnyVal") {
             error(std::format(
-                "@<{},{}> {{}} — unsupported value type '{}'; only AnyVal is supported",
+                "@<{},{}> — unsupported value type '{}'; only AnyVal is supported",
                 key_type, val_type_s, val_type_s));
             return nullptr;
         }
@@ -3971,7 +3971,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             lir_key_type = "";  // same as untyped ObjectMap
         } else {
             error(std::format(
-                "@<{}> {{}} — unsupported key type '{}'; supported: I32, Varchar",
+                "@<{}> — unsupported key type '{}'; supported: I32, Varchar",
                 key_type, key_type));
             return nullptr;
         }

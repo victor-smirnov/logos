@@ -2042,7 +2042,7 @@ static uint32_t build_array(ZoneBuilder& zb, const lir::HVArray& arr) {
     return build_anyval_array(zb, arr);
 }
 
-// Build an ObjectMap using FNV-1a hash + linear probing. Returns zone offset.
+// Build a MapI32AnyVal (tc=105): dense parallel keys[]/vals[] arrays. Returns zone offset.
 static uint32_t build_map_i32_anyval(ZoneBuilder& zb, const lir::HVMap& map) {
     uint32_t count = static_cast<uint32_t>(map.entries.size());
 
@@ -2052,9 +2052,10 @@ static uint32_t build_map_i32_anyval(ZoneBuilder& zb, const lir::HVMap& map) {
     for (auto& e : map.entries)
         val_avs.push_back(build_hermes_val(zb, *e.val));
 
-    // Alloc keys buffer (count * 4) and vals buffer (count * 4).
-    uint32_t keys_off = zb.alloc_raw(static_cast<size_t>(count) * 4);
-    uint32_t vals_off = zb.alloc_raw(static_cast<size_t>(count) * 4);
+    // Alloc keys/vals buffers only when non-empty (alloc_raw(0) is a no-op and
+    // two consecutive calls return the same offset, corrupting the header).
+    uint32_t keys_off = count > 0 ? zb.alloc_raw(static_cast<size_t>(count) * 4) : 0;
+    uint32_t vals_off = count > 0 ? zb.alloc_raw(static_cast<size_t>(count) * 4) : 0;
 
     // Write keys.
     for (uint32_t i = 0; i < count; i++) {
