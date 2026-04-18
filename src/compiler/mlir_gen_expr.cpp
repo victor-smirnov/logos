@@ -1910,6 +1910,13 @@ struct ZoneBuilder {
         write32le(off,     static_cast<uint32_t>(v));
         write32le(off + 4, static_cast<uint32_t>(v >> 32));
     }
+
+    uint32_t read32le(uint32_t off) const {
+        return static_cast<uint32_t>(buf[off])
+             | (static_cast<uint32_t>(buf[off + 1]) << 8)
+             | (static_cast<uint32_t>(buf[off + 2]) << 16)
+             | (static_cast<uint32_t>(buf[off + 3]) << 24);
+    }
 };
 
 static uint64_t fnv1a_str(const std::string& s) {
@@ -1968,9 +1975,9 @@ static uint32_t build_array(ZoneBuilder& zb, const lir::HVArray& arr) {
     for (auto& ep : arr.elements)
         elem_anyvals.push_back(build_hermes_val(zb, *ep));
 
-    // Data buffer: capacity × 4 bytes (AnyVal).
-    uint64_t cap = count ? count : 1;  // at least 1 slot to avoid zero-size buf
-    uint32_t data_raw_off = zb.alloc_raw(cap * 4);
+    // Data buffer: capacity × 4 bytes (AnyVal). Empty array → cap=0, no data bytes.
+    uint64_t cap = count;
+    uint32_t data_raw_off = zb.alloc_raw(static_cast<size_t>(cap) * 4);
     for (uint64_t i = 0; i < count; i++)
         zb.write32le(data_raw_off + static_cast<uint32_t>(i) * 4, elem_anyvals[i]);
 
@@ -2023,15 +2030,10 @@ static uint32_t build_map(ZoneBuilder& zb, const lir::HVMap& map) {
 
         uint64_t h = fnv1a_str(key_str);
         uint32_t slot = static_cast<uint32_t>(h & (cap - 1));
-        // Linear probe: find empty slot (key_off == 0).
-        while (true) {
-            uint32_t existing_key = 0;
-            auto ep = entries_raw_off + slot * 8;
-            existing_key = static_cast<uint32_t>(zb.buf[ep])
-                         | (static_cast<uint32_t>(zb.buf[ep + 1]) << 8)
-                         | (static_cast<uint32_t>(zb.buf[ep + 2]) << 16)
-                         | (static_cast<uint32_t>(zb.buf[ep + 3]) << 24);
-            if (existing_key == 0) break;
+        // Linear probe: find empty slot (key_off == 0). Cap >= 2*count ensures termination.
+        for (uint32_t probed = 0; probed < cap; ++probed) {
+            uint32_t ep = entries_raw_off + slot * 8;
+            if (zb.read32le(ep) == 0) break;
             slot = (slot + 1) & (cap - 1);
         }
         uint32_t ep = entries_raw_off + slot * 8;
