@@ -1481,8 +1481,10 @@ private:
                 // Accumulator starts from the preceding sequence item.
                 // Each iteration: GROUP matches a postfix suffix, builds a new node
                 // with RECEIVER=$0 (= fold accumulator), then fold_acc = new node.
-                std::string fold_acc = "fold_acc_" + id;
+                std::string fold_acc     = "fold_acc_" + id;
+                std::string matched_var  = "rep_matched_" + id;
                 w.fmt("AnyVal {} = {};", fold_acc, fold_init_cap_);
+                w.fmt("bool {} = false;", matched_var);
                 // Set cur_fold_var_ so that $0 inside GROUP alt actions resolves correctly.
                 cur_fold_var_ = fold_acc;
                 w.line("{");
@@ -1497,6 +1499,7 @@ private:
                     std::string sub_cap = "rep_item_" + id;
                     emit_item_match(w, item.sub_items[0], sub_cap, fail_lbl, 0);
                     w.fmt("{} = {};", fold_acc, sub_cap);
+                    w.fmt("{} = true;", matched_var);
                     w.line("continue;");
                     w.dedent();
                     w.line("}");
@@ -1512,7 +1515,7 @@ private:
                 w.fmt("[[maybe_unused]] AnyVal {} = {};", cap, fold_acc);
                 cur_fold_var_.clear();
                 if (item.min > 0)
-                    w.fmt("if ({}.is_null()) goto {};", fold_acc, fail_label);
+                    w.fmt("if (!{}) goto {};", matched_var, fail_label);
             } else {
                 // ── Array-accumulation mode (original behaviour) ─────────────────
                 std::string arr_var = "arr_" + id;
