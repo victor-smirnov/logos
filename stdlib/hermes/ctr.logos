@@ -742,3 +742,22 @@ impl HermesCtr {
     }
 
 }
+
+// Build a HermesCtr from a compile-time template blob with runtime capture substitution.
+//
+// Called by compiler-generated code for @-literals that contain $-captures.
+//   tmpl       — pointer to template blob in rodata
+//   tmpl_size  — byte size of the template blob
+//   slots      — pointer to ParamSlot table: pairs of u32 (blob_offset, value_idx u24)
+//   n_slots    — number of ParamSlot entries
+//   resolved   — pointer to array of AnyVal.raw (u32) values, one per unique capture
+//   n_values   — number of unique capture values in resolved[]
+//
+// Allocates a fresh zone, memcpy's the template, and patches each PARAM slot.
+pub unsafe fn hermes_build_from_template(tmpl: *const u8, tmpl_size: i64, slots: *const u32, n_slots: i64, resolved: *const u32, n_values: i64) -> HermesCtr {
+    // Headroom: template bytes + some extra for string captures (runtime alloc).
+    let cap: i64 = tmpl_size + 4096 as i64;
+    let mut ctr: HermesCtr = HermesCtr { zone: zone_create(cap) };
+    hermes_clone_template(&mut ctr.zone, tmpl, tmpl_size, slots, n_slots, resolved, n_values);
+    return ctr;
+}

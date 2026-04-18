@@ -1,0 +1,27 @@
+// Hermes capture: scalar values captured from variables into @-literals.
+package hermes_capture_scalar;
+use hermes.ctr;
+
+unsafe fn main() -> i32 {
+    let id: i32 = 42;
+
+    // Capture i32 scalar into untyped map.
+    let doc: HermesCtr = @{"id": $id};
+    let root: AnyVal = doc.root();
+    if root.is_null() { return 1; }
+
+    // Capture bool scalar.
+    let flag: bool = true;
+    let doc2: HermesCtr = @{"ok": $flag};
+    let root2: AnyVal = doc2.root();
+    if root2.is_null() { return 2; }
+
+    // Capture expression.
+    let a: i32 = 10;
+    let b: i32 = 5;
+    let doc3: HermesCtr = @{"sum": ${a + b}};
+    let root3: AnyVal = doc3.root();
+    if root3.is_null() { return 3; }
+
+    return 0;
+}

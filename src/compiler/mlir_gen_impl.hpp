@@ -342,6 +342,8 @@ private:
     mlir::Value gen_expr_kind(const EBlockExpr& e, const LogosType*);
     mlir::Value gen_expr_kind(const ETry& e, const LogosType* type);
     mlir::Value gen_expr_kind(const EHermesLit& e, const LogosType*);
+    // Coerce a Logos runtime value to AnyVal.raw (u32) for hermes capture substitution.
+    mlir::Value coerce_to_anyval_raw(mlir::Value v, const LogosType* t);
 
     // ── Struct helpers ────────────────────────────────────────────
     mlir::Value get_struct_ptr(const std::string& name);

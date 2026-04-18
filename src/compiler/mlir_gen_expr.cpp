@@ -1858,6 +1858,9 @@ namespace {
 
 struct ZoneBuilder {
     std::vector<uint8_t> buf;
+    // (blob_offset, value_idx): where each PARAM AnyVal slot lives in buf.
+    // Populated when build_hermes_val encounters an HVCapture node.
+    std::vector<std::pair<uint32_t, uint32_t>> param_slots;
 
     void push8(uint8_t v)  { buf.push_back(v); }
 
@@ -1965,6 +1968,12 @@ static uint32_t build_string(ZoneBuilder& zb, const std::string& s) {
     return obj_off;
 }
 
+static inline void record_param_if(ZoneBuilder& zb, uint32_t av_off, uint32_t av_raw) {
+    if ((av_raw & 0xFFu) == 0xFFu)
+        zb.param_slots.push_back({av_off, (av_raw >> 8u) & 0xFFFFFFu});
+}
+
+
 // Build an ObjectArray (tc=100). Returns zone offset of the object body.
 static uint32_t build_anyval_array(ZoneBuilder& zb, const lir::HVArray& arr) {
     uint64_t count = arr.elements.size();
@@ -1978,8 +1987,11 @@ static uint32_t build_anyval_array(ZoneBuilder& zb, const lir::HVArray& arr) {
     // Data buffer: capacity × 4 bytes (AnyVal). Empty array → cap=0, no data bytes.
     uint64_t cap = count;
     uint32_t data_raw_off = zb.alloc_raw(static_cast<size_t>(cap) * 4);
-    for (uint64_t i = 0; i < count; i++)
-        zb.write32le(data_raw_off + static_cast<uint32_t>(i) * 4, elem_anyvals[i]);
+    for (uint64_t i = 0; i < count; i++) {
+        uint32_t av_off = data_raw_off + static_cast<uint32_t>(i) * 4;
+        zb.write32le(av_off, elem_anyvals[i]);
+        record_param_if(zb, av_off, elem_anyvals[i]);
+    }
 
     // ObjectArray header: u64 size, u64 capacity, u32 data_off, u32 padding.
     uint32_t hdr_off = zb.alloc_tagged(100, 24);
@@ -2128,6 +2140,7 @@ static uint32_t build_map(ZoneBuilder& zb, const lir::HVMap& map) {
         uint32_t ep = entries_raw_off + slot * 8;
         zb.write32le(ep,     raw[i].key_off);
         zb.write32le(ep + 4, raw[i].val);
+        record_param_if(zb, ep + 4, raw[i].val);
     }
 
     // ObjectMap header: u32 entries_off, u32 capacity, u32 count, u32 reserved.
@@ -2179,16 +2192,27 @@ static uint32_t build_hermes_val(ZoneBuilder& zb, const lir::HermesVal& v) {
         } else if constexpr (std::is_same_v<T, lir::HVMap>) {
             uint32_t obj_off = build_map(zb, k);
             return obj_off;
+        } else if constexpr (std::is_same_v<T, lir::HVCapture>) {
+            // PARAM placeholder AnyVal: type_hash=127 (0x7F), bit0=1.
+            // raw = (param_index << 8) | 0xFF
+            // Offset is recorded at caller when the AnyVal is written to buf.
+            return (k.param_index << 8u) | 0xFFu;
         } else {
             return 0;
         }
     }, v.kind);
 }
 
+
+struct HermesZoneBuild {
+    std::vector<uint8_t>                        blob;
+    std::vector<std::pair<uint32_t, uint32_t>>  param_slots;  // (blob_off, value_idx)
+};
+
 // Build the full zone blob for an EHermesLit node.
-// Returns byte vector: DocumentHeader (4 bytes AnyVal root at offset 0) +
-// all objects packed into 8-byte-aligned slots.
-static std::vector<uint8_t> build_hermes_zone(const lir::EHermesLit& e) {
+// blob[0..7]: DocumentHeader (root AnyVal at offset 0, 4 bytes + 4 pad).
+// param_slots: (blob_offset, value_idx) for each PARAM AnyVal in the blob.
+static HermesZoneBuild build_hermes_zone(const lir::EHermesLit& e) {
     ZoneBuilder zb;
 
     // Reserve 8 bytes at offset 0 for DocumentHeader (AnyVal root, 4 bytes + 4 pad).
@@ -2197,22 +2221,78 @@ static std::vector<uint8_t> build_hermes_zone(const lir::EHermesLit& e) {
     // Build the root value tree.
     uint32_t root_av = build_hermes_val(zb, *e.root);
 
-    // Write root AnyVal at offset 0.
+    // Write root AnyVal at offset 0 (DocumentHeader).
     zb.write32le(0, root_av);
+    record_param_if(zb, 0, root_av);
 
-    return zb.buf;
+    return {std::move(zb.buf), std::move(zb.param_slots)};
 }
 
 }  // namespace (zone builder helpers)
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType*) {
-    std::vector<uint8_t> blob = build_hermes_zone(e);
+// Coerce a Logos runtime value to AnyVal.raw (u32) for hermes capture substitution.
+// Handles scalars that fit in 24 bits (embed_i24/embed_bool/etc.) and AnyVal passthrough.
+// String/large-integer coercion is implemented in C5.
+mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, const LogosType* t) {
+    if (!v || !t) return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+    auto i32_mlir = builder_.getIntegerType(32);
+    using K = LogosType::Kind;
+    switch (t->kind) {
+        case K::Bool: {
+            // AnyVal::embed_bool: raw = (v << 8) | 0x4Du (type_hash=38=0x26, bit0=1 → 0x4D)
+            mlir::Value b = coerce_numeric(v, i32_mlir);
+            mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, b,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 32));
+            return builder_.create<mlir::arith::OrIOp>(loc_, shifted,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0x4D, 32));
+        }
+        case K::I8:  case K::I16: case K::I32:
+        case K::U8:  case K::U16: case K::U32:
+        case K::I24: case K::U24: {
+            // AnyVal::embed_i24: raw = ((v & 0xFFFFFF) << 8) | 0x2F (type_hash=23=0x17)
+            mlir::Value iv = coerce_numeric(v, i32_mlir);
+            mlir::Value masked = builder_.create<mlir::arith::AndIOp>(loc_, iv,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0xFFFFFF, 32));
+            mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, masked,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 32));
+            return builder_.create<mlir::arith::OrIOp>(loc_, shifted,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0x2F, 32));
+        }
+        case K::I64: case K::U64: {
+            // For values fitting in i24: embed_i24. Otherwise: return 0 stub (C5 will alloc zone obj).
+            // For now always embed as i24 (truncated); large values need C5 zone alloc.
+            mlir::Value iv = coerce_numeric(v, i32_mlir);
+            mlir::Value masked = builder_.create<mlir::arith::AndIOp>(loc_, iv,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0xFFFFFF, 32));
+            mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, masked,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 32));
+            return builder_.create<mlir::arith::OrIOp>(loc_, shifted,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0x2F, 32));
+        }
+        case K::Struct:
+            if (t->struct_name == "AnyVal") {
+                // AnyVal is already stored as u32 internally; extract the raw field.
+                // AnyVal = eidos { raw: u32 } — represented as { i32 } in LLVM.
+                // ExtractValueOp for struct { i32 }.
+                return builder_.create<mlir::LLVM::ExtractValueOp>(loc_, v, llvm::ArrayRef<int64_t>{0});
+            }
+            break;
+        default:
+            break;
+    }
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+}
 
-    auto global_name = "__hermes_lit_" + std::to_string(hermes_lit_counter_++);
+mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret_type) {
+    auto [blob, param_slots] = build_hermes_zone(e);
+
+    auto lit_idx    = hermes_lit_counter_++;
+    auto global_name = "__hermes_lit_" + std::to_string(lit_idx);
     auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto save_pt     = builder_.saveInsertionPoint();
     builder_.setInsertionPointToStart(parent_mod.getBody());
 
+    // Emit template blob as a rodata global.
     auto i8       = builder_.getIntegerType(8);
     auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, blob.size());
     auto blob_attr = builder_.getStringAttr(
@@ -2221,8 +2301,104 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType*) {
         loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
         global_name, blob_attr);
 
+    if (!e.has_captures) {
+        builder_.restoreInsertionPoint(save_pt);
+        return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
+    }
+
+    // ── Capture path ─────────────────────────────────────────────────────────
+    // Emit slots table: array of u32 pairs [blob_off, value_idx, ...].
+    auto slots_name = "__hermes_slots_" + std::to_string(lit_idx);
+    size_t n_slots  = param_slots.size();
+    size_t n_values = e.capture_exprs.size();
+
+    {
+        auto u32_type  = builder_.getIntegerType(32);
+        auto slots_arr = mlir::LLVM::LLVMArrayType::get(u32_type, n_slots * 2);
+        // Build slots initializer attribute: interleaved (blob_off, value_idx) pairs.
+        llvm::SmallVector<mlir::Attribute> slot_elems;
+        for (auto& [off, vidx] : param_slots) {
+            slot_elems.push_back(builder_.getI32IntegerAttr(static_cast<int32_t>(off)));
+            slot_elems.push_back(builder_.getI32IntegerAttr(static_cast<int32_t>(vidx)));
+        }
+        auto slots_attr = mlir::DenseIntElementsAttr::get(
+            mlir::RankedTensorType::get({static_cast<int64_t>(n_slots * 2)}, u32_type),
+            llvm::SmallVector<uint32_t>(
+                [&]() {
+                    llvm::SmallVector<uint32_t> v;
+                    for (auto& [off, vidx] : param_slots) { v.push_back(off); v.push_back(vidx); }
+                    return v;
+                }()
+            )
+        );
+        builder_.create<mlir::LLVM::GlobalOp>(
+            loc_, slots_arr, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
+            slots_name, slots_attr);
+    }
+
     builder_.restoreInsertionPoint(save_pt);
-    return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
+
+    // Allocate resolved[] on stack: n_values × u32.
+    mlir::Value resolved_ptr = nullptr;
+    auto u32_mlir = builder_.getIntegerType(32);
+    if (n_values > 0) {
+        auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
+        resolved_ptr = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), arr_t, i64_one());
+    } else {
+        // Zero captures: pass null (won't be dereferenced).
+        mlir::Value zero64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        resolved_ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), zero64);
+    }
+
+    // For each unique capture: gen_expr, coerce to AnyVal.raw (u32), store to resolved[i].
+    for (size_t i = 0; i < n_values; ++i) {
+        // gen_expr evaluates the capture expression.
+        mlir::Value cap_val = gen_expr(*e.capture_exprs[i]);
+        if (!cap_val) cap_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+
+        // Coerce to u32 AnyVal raw value — C5 will implement proper coercion.
+        // For now: truncate/zero-extend to i32 (works for scalars; strings TBD in C5).
+        mlir::Value raw_u32 = coerce_to_anyval_raw(cap_val, e.capture_types[i]);
+        if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+
+        // GEP into resolved[i] and store.
+        llvm::SmallVector<mlir::Value> gep_idx{
+            builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64),
+            builder_.create<mlir::arith::ConstantIntOp>(loc_, static_cast<int64_t>(i), 64)};
+        auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
+        auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), arr_t, resolved_ptr, gep_idx);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, raw_u32, slot_ptr);
+    }
+
+    // Call hermes_build_from_template(tmpl, tmpl_size, slots, n_slots, resolved, n_values).
+    auto build_fn = find_func_op(parent_mod, "hermes_build_from_template");
+    if (!build_fn) {
+        std::fprintf(stderr, "mlir_gen: hermes_build_from_template not found — "
+                     "add 'use hermes.ctr;' to your file\n");
+        return nullptr;
+    }
+
+    mlir::Value tmpl_ptr   = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
+    mlir::Value tmpl_size  = builder_.create<mlir::arith::ConstantIntOp>(
+        loc_, static_cast<int64_t>(blob.size()), 64);
+    mlir::Value slots_ptr  = n_slots > 0
+        ? builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), slots_name).getResult()
+        : [&]() -> mlir::Value {
+            mlir::Value z = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+            return builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), z);
+          }();
+    mlir::Value n_slots_v  = builder_.create<mlir::arith::ConstantIntOp>(
+        loc_, static_cast<int64_t>(n_slots), 64);
+    mlir::Value n_values_v = builder_.create<mlir::arith::ConstantIntOp>(
+        loc_, static_cast<int64_t>(n_values), 64);
+
+    llvm::SmallVector<mlir::Value> build_args{
+        tmpl_ptr, tmpl_size, slots_ptr, n_slots_v, resolved_ptr, n_values_v};
+    auto build_call = builder_.create<mlir::func::CallOp>(loc_, build_fn, mlir::ValueRange(build_args));
+    if (build_call.getNumResults() == 0) return nullptr;
+    return build_call.getResult(0);
 }
 
 } // namespace logos::compiler
