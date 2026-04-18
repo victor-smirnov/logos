@@ -415,7 +415,7 @@ impl HermesCtr {
             // for string lookups we treat it as not found.
             let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
             let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == 98 as u64 {
+            if tag_hash == hermes_tag_tiny_map() as u64 {
                 // TinyObjectMap: keys are u8 integers, not strings.
                 return AnyVal::null_ptr();
             }

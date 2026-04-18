@@ -12,7 +12,7 @@
 // be allocated there (this is what makes raw=0 a safe null sentinel in AnyVal).
 //
 // Usage:
-//   let raw: *mut u8 = zone.alloc_raw(8);       // first allocation → offset 0
+//   let raw: *mut u8 = zone_m_alloc_raw(&mut zone, 8);  // first allocation → offset 0
 //   let doc: *mut DocumentHeader = document_create(raw);
 //   document_set_root(doc, AnyVal::from_offset(obj_off));
 //   let root: AnyVal = document_get_root(doc);

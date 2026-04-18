@@ -91,8 +91,8 @@ impl TagSystem for DataTypeTagSystem {
 // The type_code is the little-endian u64 at byte offset 0 of the object.
 // Bug fix: the comment previously said "at a fixed 8-byte offset" but meant
 // the field is 8 bytes wide, not offset 8 — the field IS at offset 0.
-// Bug fix: TomTagSystem reads raw u64; caller must validate reserved codes
-// (0 and 1-127) aren't accepted if semantics require valid codes only.
+// Note: TomTagSystem reads raw u64 from the object header; code 0 is the
+// unset/invalid sentinel and callers should reject it if needed.
 // TODO: verify against actual TOM C++ layout when sync tool is available.
 pub struct TomTagSystem {}
 

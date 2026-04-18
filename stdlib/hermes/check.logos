@@ -17,7 +17,7 @@
 //   3. Walk the object graph from root via an explicit queue.
 //   4. For each non-null zone-pointer AnyVal in the queue:
 //        a. Offset bounds check.
-//        b. Short-circuit if `starts` bit at (off - 2) is set.
+//        b. Short-circuit if `starts` bit at (off - 1) is set.
 //        c. Validate the TypeTag is known (BadTag otherwise).
 //        d. Dispatch through HermesCheck trait table.
 //        e. Per-type check marks all bytes (TypeTag + header + data buffer)

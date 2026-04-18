@@ -180,10 +180,10 @@ impl AnyVal {
 
     // --- Safe type-check accessors (pointer mode, need zone base) ---
     //
-    // TypeTag layout: 2 bytes immediately before the object.
-    //   byte[obj-2] = type_hash
-    //   byte[obj-1] = (descriptor << 3) | code_len
-    // Descriptor 0 = Data (strings), 1 = Array, 2 = Map.
+    // TypeTag layout: vlen bytes immediately before the object.
+    //   obj[-1] = type_code directly for codes 1-222 (single byte)
+    //   obj[-1] = length header for codes 223+ (multi-byte LE)
+    // Tag is read via read_type_code(obj) → u64.
 
     // True if this AnyVal points to a Varchar/HermesString (type_code=28).
     pub unsafe fn is_string(self: *const AnyVal, base: *const u8) -> bool {
