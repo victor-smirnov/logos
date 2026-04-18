@@ -2415,19 +2415,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
         auto alloc_f64_fn = find_func_op(parent_mod, "hermes_ctr_alloc_f64");
         auto alloc_str_fn = find_func_op(parent_mod, "hermes_ctr_alloc_str");
         auto alloc_cstr_fn = find_func_op(parent_mod, "hermes_ctr_alloc_cstr");
-        if (!new_fn || !patch_fn) {
-            std::fprintf(stderr, "mlir_gen: hermes_template_ctr_new / hermes_template_patch "
-                         "not found — add 'use hermes.ctr;' to your file\n");
+        // C5-fix4: check all alloc helpers upfront — missing functions cause silent null AnyVal.
+        if (!new_fn || !patch_fn || !alloc_f64_fn || !alloc_str_fn || !alloc_cstr_fn) {
+            std::fprintf(stderr, "mlir_gen: hermes zone-alloc helpers not found — "
+                         "add 'use hermes.ctr;' to your file\n");
             return nullptr;
         }
 
-        // Count zone-alloc captures for capacity estimate (4096 per string, 16 per f64).
+        // Count zone-alloc captures for capacity estimate (4096 per string, 16 per f64/f32).
+        // C5-fix3: only count zone-alloc captures (skip scalar/AnyVal captures).
+        // C5-fix2: include K::FloatLit in the f64 branch (16 bytes), not the string branch.
         int64_t extra_cap_bytes = 0;
         for (auto* ct : e.capture_types) {
             using K = LogosType::Kind;
-            if (!ct) continue;
-            if (ct->kind == K::F64 || ct->kind == K::F32) extra_cap_bytes += 16;
-            else extra_cap_bytes += 4096;  // string: generous estimate
+            if (!ct || !is_zone_alloc_cap(ct)) continue;
+            if (ct->kind == K::F64 || ct->kind == K::F32 || ct->kind == K::FloatLit)
+                extra_cap_bytes += 16;
+            else
+                extra_cap_bytes += 4096;  // string: generous estimate
         }
         mlir::Value extra_cap_v = builder_.create<mlir::arith::ConstantIntOp>(
             loc_, extra_cap_bytes, 64);
