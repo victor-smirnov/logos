@@ -235,6 +235,7 @@ inline constexpr Code HERMES_BOOL  {"HERMES_BOOL",  168};  // bool value in Herm
 inline constexpr Code HERMES_NULL  {"HERMES_NULL",  169};  // null in Hermes literal
 inline constexpr Code HERMES_ENTRY        {"HERMES_ENTRY",        170};  // key:val pair in Hermes map
 inline constexpr Code HERMES_TYPED_ARRAY  {"HERMES_TYPED_ARRAY",  171};  // @<ElemType>[v,...] typed array literal
+inline constexpr Code HERMES_NEG_INT      {"HERMES_NEG_INT",      172};  // negative integer in Hermes literal: @-42
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
@@ -256,6 +257,7 @@ inline constexpr Key SUPERS    {"SUPERS",    48};            // supertrait bound
 inline constexpr Key LO_NEG    {"LO_NEG",    49};            // lo bound is negative (PAT_RANGE)
 inline constexpr Key HI_NEG    {"HI_NEG",    50};            // hi bound is negative (PAT_RANGE)
 inline constexpr Key KEY       {"KEY",       51};            // map key in HERMES_ENTRY (string or int token)
+inline constexpr Key NEG       {"NEG",       52};            // negation flag: key/value is negated (HERMES_ENTRY with -int key)
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

@@ -60,6 +60,10 @@ pub unsafe fn hermes_tag_array_i32() -> u8 {
     return 104 as u8;   // dense typed primitive array
 }
 
+pub unsafe fn hermes_tag_array_u64() -> u8 {
+    return 108 as u8;   // dense typed u64 array
+}
+
 pub unsafe fn hermes_tag_map_i32_anyval() -> u8 {
     return 105 as u8;   // typed map with i32 keys and AnyVal values
 }

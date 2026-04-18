@@ -757,6 +757,36 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         return AnyVal::from_offset(off);
     }
 
+    if lead == 0x64 as u8 {
+        // ArrayU64
+        let count: u32 = deser_read_u32(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let hdr_sz: i64 = sizeof::<ArrayU64>() as i64;
+        let raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_array_u64());
+        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let hdr_off: u32 = (raw as i64 - ctx.zone.holder.base as i64) as u32;
+        let buf_raw: *mut u8 = if count > 0 as u32 {
+            alloc_raw_in_zone(ctx, count as i64 * 8 as i64)
+        } else {
+            0 as *mut u8
+        };
+        if count > 0 as u32 && buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+        let base: *mut u8 = ctx.zone.holder.base;
+        let arr: *mut ArrayU64 = (base as i64 + hdr_off as i64) as *mut ArrayU64;
+        arr.size = count as u64;
+        arr.capacity = count as u64;
+        arr.data = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        let mut i: u32 = 0 as u32;
+        while i < count {
+            let v: u64 = deser_read_u64(ctx);
+            if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+            *((buf_raw as i64 + (i as i64) * 8 as i64) as *mut u64) = v;
+            i = i + 1 as u32;
+        }
+        let off: u32 = hdr_off;
+        return AnyVal::from_offset(off);
+    }
+
     if lead == 0x63 as u8 {
         // MapI32AnyVal
         let count: u32 = deser_read_u32(ctx);

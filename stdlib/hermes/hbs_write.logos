@@ -15,7 +15,7 @@
 //   0x14 i32LE    0x15 u32LE    0x16 i64LE   0x17 u64LE
 //   0x22 decimal  0x30 string   0x40 array   0x41 objectmap
 //   0x42 tinymap  0x50 tv       0x51 ta      0x52 tm
-//   0x60 i64box   0x61 u64box   0x62 arr_i32 0x63 map_i32_anyval
+//   0x60 i64box   0x61 u64box   0x62 arr_i32 0x63 map_i32_anyval 0x64 arr_u64
 //   0xFD DEF      0xFE REF
 
 package hermes.hbs_write;
@@ -484,6 +484,21 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         while i < sz {
             let iv: i32 = *((data_ptr as i64 + (i as i64) * 4 as i64) as *const i32);
             hbs_write_u32(buf, iv as u32);
+            i = i + 1 as u64;
+        }
+        return;
+    }
+
+    if tag == hermes_tag_array_u64() as u64 {  // 108
+        let arr: *const ArrayU64 = obj as *const ArrayU64;
+        let sz: u64 = arr.size;
+        hbs_write_u8(buf, 0x64 as u8);
+        hbs_write_u32(buf, sz as u32);
+        let data_ptr: *const u8 = (base as i64 + arr.data as i64) as *const u8;
+        let mut i: u64 = 0 as u64;
+        while i < sz {
+            let uv: u64 = *((data_ptr as i64 + (i as i64) * 8 as i64) as *const u64);
+            hbs_write_u64(buf, uv);
             i = i + 1 as u64;
         }
         return;

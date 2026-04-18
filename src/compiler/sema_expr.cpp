@@ -213,6 +213,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::HERMES_MAP:
     case la::HERMES_ARRAY:
     case la::HERMES_TYPED_ARRAY:
+    case la::HERMES_NEG_INT:
     case la::HERMES_STR:
     case la::HERMES_INT:
     case la::HERMES_FLOAT:
@@ -3760,6 +3761,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
 lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     int32_t c = code_of(node);
 
+    if (c == la::HERMES_NEG_INT.code) {
+        auto sv = str_of(node.get(la::VALUE.code));
+        int64_t v = std::stoll(std::string(sv));
+        return std::make_unique<lir::HermesVal>(lir::HVInt{-v});
+    }
+
     if (c == la::HERMES_NULL.code)
         return std::make_unique<lir::HermesVal>(lir::HVNull{});
 
@@ -3862,7 +3869,9 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                     }
                     e.key = std::move(ks);
                 } else {
-                    e.key = (int64_t)std::stoll(std::string(key_raw));
+                    int64_t kv = (int64_t)std::stoll(std::string(key_raw));
+                    if (entry.has_key(la::NEG)) kv = -kv;
+                    e.key = kv;
                 }
                 e.val = std::move(hv);
                 m.entries.push_back(std::move(e));
@@ -3914,6 +3923,17 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 auto elem = map_of(items.get(i));
                 auto hv = lower_hermes_val(elem);
                 if (!hv) return nullptr;
+                // Bounds-check I32 elements at compile time.
+                if (type_name == "I32") {
+                    if (auto* hvi = std::get_if<lir::HVInt>(&hv->kind)) {
+                        if (hvi->value < -2147483648LL || hvi->value > 2147483647LL) {
+                            error(std::format(
+                                "@<I32> element [{}] value {} is out of i32 range [-2147483648, 2147483647]",
+                                i, hvi->value));
+                            return nullptr;
+                        }
+                    }
+                }
                 a.elements.push_back(std::move(hv));
             }
         }

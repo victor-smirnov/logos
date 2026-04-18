@@ -573,6 +573,88 @@ impl HermesClone for TypedMap {
     }
 }
 
+// ── ArrayI32 (tc=104) ─────────────────────────────────────────────────────────
+
+impl HermesClone for ArrayI32 {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
+            let a: *const ArrayI32 = (ctx.base_src as i64 + src_off as i64) as *const ArrayI32;
+            let cap: u64 = a.capacity;
+            let n:   u64 = a.size;
+            let src_data_off: u32 = a.data;
+
+            // Alloc data buffer first (4 bytes per i32 element).
+            let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4 as i64);
+            if buf_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let buf_off: u32 = (buf_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
+
+            // Copy raw i32 data bytes.
+            let src_data_ptr: *const u8 = (ctx.base_src as i64 + src_data_off as i64) as *const u8;
+            let mut bi: u64 = 0 as u64;
+            while bi < n * 4 as u64 {
+                let dst_byte: *mut u8 = (ctx.zone_dst.holder.base as i64 + buf_off as i64 + bi as i64) as *mut u8;
+                *dst_byte = *((src_data_ptr as i64 + bi as i64) as *const u8);
+                bi = bi + 1 as u64;
+            }
+
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
+                                       sizeof::<ArrayI32>() as i64,
+                                       hermes_tag_array_i32() as u64);
+            if hdr_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let dst_off: u32 = (hdr_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
+            if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
+
+            let new_arr: *mut ArrayI32 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut ArrayI32;
+            new_arr.size     = n;
+            new_arr.capacity = cap;
+            new_arr.data     = buf_off;
+            return (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut u8;
+        }
+    }
+}
+
+// ── ArrayU64 (tc=108) ─────────────────────────────────────────────────────────
+
+impl HermesClone for ArrayU64 {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
+            let a: *const ArrayU64 = (ctx.base_src as i64 + src_off as i64) as *const ArrayU64;
+            let cap: u64 = a.capacity;
+            let n:   u64 = a.size;
+            let src_data_off: u32 = a.data;
+
+            // Alloc data buffer first (8 bytes per u64 element).
+            let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 8 as i64);
+            if buf_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let buf_off: u32 = (buf_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
+
+            // Copy raw u64 data bytes.
+            let src_data_ptr: *const u8 = (ctx.base_src as i64 + src_data_off as i64) as *const u8;
+            let mut bi: u64 = 0 as u64;
+            while bi < n * 8 as u64 {
+                let dst_byte: *mut u8 = (ctx.zone_dst.holder.base as i64 + buf_off as i64 + bi as i64) as *mut u8;
+                *dst_byte = *((src_data_ptr as i64 + bi as i64) as *const u8);
+                bi = bi + 1 as u64;
+            }
+
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
+                                       sizeof::<ArrayU64>() as i64,
+                                       hermes_tag_array_u64() as u64);
+            if hdr_raw == 0 as *mut u8 { return 0 as *mut u8; }
+            let dst_off: u32 = (hdr_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
+            if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
+
+            let new_arr: *mut ArrayU64 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut ArrayU64;
+            new_arr.size     = n;
+            new_arr.capacity = cap;
+            new_arr.data     = buf_off;
+            return (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut u8;
+        }
+    }
+}
+
 // ── Document compactify ───────────────────────────────────────────────────────
 //
 // Creates a fresh zone, deep-copies every object reachable from the document

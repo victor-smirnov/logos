@@ -622,6 +622,7 @@ pub unsafe fn is_known_tag(tag: u64) -> bool {
     if tag == hermes_tag_typed_array()    as u64 { return true; }
     if tag == hermes_tag_typed_map()      as u64 { return true; }
     if tag == hermes_tag_array_i32()      as u64 { return true; }
+    if tag == hermes_tag_array_u64()      as u64 { return true; }
     if tag == hermes_tag_map_i32_anyval() as u64 { return true; }
     return false;
 }

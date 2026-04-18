@@ -71,6 +71,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
+    NEG            = 52    // negation flag: key is a negative integer (HERMES_ENTRY)
 
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
@@ -214,6 +215,7 @@
     HERMES_NULL                 = 169   // null value in Hermes literal
     HERMES_ENTRY                = 170   // key:val pair in Hermes map
     HERMES_TYPED_ARRAY          = 171   // @<ElemType>[v,...] — typed dense array literal
+    HERMES_NEG_INT              = 172   // negative integer: @-42 or inner -42 in array/map
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1151,6 +1153,7 @@
                / AT RAW_STRING => { CODE: HERMES_STR, VALUE: $2 }
                / AT STRING     => { CODE: HERMES_STR, VALUE: $2 }
                / AT FLOAT      => { CODE: HERMES_FLOAT, VALUE: $2 }
+               / AT MINUS INTEGER => { CODE: HERMES_NEG_INT, VALUE: $3 }
                / AT INTEGER    => { CODE: HERMES_INT, VALUE: $2 }
                / AT KW_TRUE    => { CODE: HERMES_BOOL, VALUE: true }
                / AT KW_FALSE   => { CODE: HERMES_BOOL, VALUE: false }
@@ -1162,9 +1165,11 @@
     hermes_array <- LBRACKET (hermes_val (COMMA hermes_val)* COMMA?)? RBRACKET
                  => { CODE: HERMES_ARRAY, ITEMS: $... }
 
-    // key can be a quoted string or an integer (for TinyObjectMap-style maps)
+    // key can be a quoted string, integer, or negative integer (for TinyObjectMap-style maps)
     hermes_entry <- STRING COLON hermes_val
                  => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
+                 / MINUS INTEGER COLON hermes_val
+                 => { CODE: HERMES_ENTRY, KEY: $2, VALUE: $4, NEG: true }
                  / INTEGER COLON hermes_val
                  => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
 
@@ -1174,6 +1179,7 @@
                / RAW_STRING => { CODE: HERMES_STR, VALUE: $1 }
                / STRING     => { CODE: HERMES_STR, VALUE: $1 }
                / FLOAT      => { CODE: HERMES_FLOAT, VALUE: $1 }
+               / MINUS INTEGER => { CODE: HERMES_NEG_INT, VALUE: $2 }
                / INTEGER    => { CODE: HERMES_INT, VALUE: $1 }
                / KW_TRUE    => { CODE: HERMES_BOOL, VALUE: true }
                / KW_FALSE   => { CODE: HERMES_BOOL, VALUE: false }

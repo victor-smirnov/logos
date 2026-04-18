@@ -39,8 +39,12 @@ pub unsafe fn main() -> i32 {
     rc = check(@false as *const u8, "false", 3);
     if rc != 0 { return rc; }
 
-    // 4. integer 42  (inline i24)
+    // 4a. integer 42  (inline i24)
     rc = check(@42 as *const u8, "42", 4);
+    if rc != 0 { return rc; }
+
+    // 4b. negative integer -1  (inline i24 with sign extension)
+    rc = check(@-1 as *const u8, "-1", 40);
     if rc != 0 { return rc; }
 
     // 5. string "hello"
