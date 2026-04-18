@@ -220,6 +220,12 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::HERMES_FLOAT:
     case la::HERMES_BOOL:
     case la::HERMES_NULL:  return lower_hermes_lit(expr);
+    // C1 bug fix: $-capture nodes must not appear as standalone expressions;
+    // they are only valid inside hermes_val (within lower_hermes_val).
+    case la::HERMES_CAP_IDENT:
+    case la::HERMES_CAP_EXPR:
+        error("$-capture is not valid as a standalone expression");
+        return error_expr();
     case la::ENUM_LIT:    return lower_enum_lit(expr);
     case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
     case la::IF:          return lower_if_expr(expr);
@@ -3676,6 +3682,10 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
                 if (k.block) scan_block(*k.block);
                 if (k.result) scan_captures(*k.result);
+            } else if constexpr (std::is_same_v<K, lir::EHermesLit>) {
+                // C2 bug fix: scan capture_exprs so closures that use $-captures
+                // correctly include those outer variables in their capture list.
+                for (auto& ce : k.capture_exprs) scan_captures(*ce);
             }
         }, e.kind);
     };
@@ -4050,15 +4060,16 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             if (!t) return false;
             using K = LogosType::Kind;
             switch (t->kind) {
+                // Scalar integer types and bool can be coerced to inline AnyVal (embed_i24).
+                // F32/F64 deferred to C5 (require zone allocation for AnyVal encoding).
                 case K::I8: case K::I16: case K::I32: case K::I64:
                 case K::U8: case K::U16: case K::U32: case K::U64:
-                case K::F32: case K::F64: case K::Bool:
+                case K::Bool:
                     return true;
+                // AnyVal passes through; String deferred to C5 (requires varchar zone alloc).
                 case K::Struct:
-                    return t->struct_name == "String" || t->struct_name == "AnyVal";
-                case K::Ptr: case K::Ref: case K::MutRef:
-                    // *const u8 (C string) is acceptable
-                    return t->pointee && t->pointee->kind == K::U8;
+                    return t->struct_name == "AnyVal";
+                // Raw pointer / references to u8 (C strings) deferred to C5.
                 default:
                     return false;
             }
@@ -4075,7 +4086,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             if (!is_capturable(var_type)) {
                 error(std::format(
                     "$-capture: cannot capture '{}' of type '{}' in @-literal; "
-                    "only scalars, strings, and AnyVal are supported",
+                    "supported types: integer scalars (i8..i64, u8..u64), bool, AnyVal "
+                    "(String and float captures are deferred to C5)",
                     name, type_str(var_type)));
                 return nullptr;
             }
@@ -4101,7 +4113,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             if (!is_capturable(expr_type)) {
                 error(std::format(
                     "${{...}}-capture: expression of type '{}' cannot be captured in @-literal; "
-                    "only scalars, strings, and AnyVal are supported",
+                    "supported types: integer scalars (i8..i64, u8..u64), bool, AnyVal "
+                    "(String and float captures are deferred to C5)",
                     type_str(expr_type)));
                 return nullptr;
             }
@@ -4121,10 +4134,16 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
     // First pass: probe for captures without collecting (cheap walk).
     // We do a full walk with a capture context: if any $-captures exist they'll
     // be collected; if not, ctx.exprs stays empty and we use the static path.
+    //
+    // C1/C2 bug fix: save and restore hermes_cap_ctx_ so that a static @-literal
+    // inside a ${expr} capture (e.g. @{"a": ${fn(@[1,2,3])}, "b": $x}) doesn't
+    // clobber the outer context.  Without the save/restore, the inner lower_hermes_lit
+    // call sets hermes_cap_ctx_ = nullptr, causing a null-deref on subsequent $-captures.
+    HermesCapCtx* saved_cap_ctx = hermes_cap_ctx_;
     HermesCapCtx ctx;
     hermes_cap_ctx_ = &ctx;
     auto val = lower_hermes_val(node);
-    hermes_cap_ctx_ = nullptr;
+    hermes_cap_ctx_ = saved_cap_ctx;
     if (!val) return error_expr();
 
     lir::EHermesLit lit;
