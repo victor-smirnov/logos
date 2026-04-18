@@ -1965,8 +1965,8 @@ static uint32_t build_string(ZoneBuilder& zb, const std::string& s) {
     return obj_off;
 }
 
-// Build an ObjectArray. Returns zone offset of the object body.
-static uint32_t build_array(ZoneBuilder& zb, const lir::HVArray& arr) {
+// Build an ObjectArray (tc=100). Returns zone offset of the object body.
+static uint32_t build_anyval_array(ZoneBuilder& zb, const lir::HVArray& arr) {
     uint64_t count = arr.elements.size();
 
     // Build all element AnyVals first (may allocate), then write array header.
@@ -1988,6 +1988,58 @@ static uint32_t build_array(ZoneBuilder& zb, const lir::HVArray& arr) {
     zb.write32le(hdr_off + 16, data_raw_off);
     // bytes 20-23: padding, already 0
     return hdr_off;
+}
+
+// Build an ArrayI32 (tc=104): dense i32 elements.
+// Layout: { u64 size, u64 capacity, u32 data_off, u32 pad } + capacity×4 i32 bytes.
+static uint32_t build_typed_array_i32(ZoneBuilder& zb, const lir::HVArray& arr) {
+    uint64_t count = arr.elements.size();
+    uint32_t data_raw_off = zb.alloc_raw(static_cast<size_t>(count) * 4);
+    for (uint64_t i = 0; i < count; i++) {
+        int32_t v = 0;
+        if (arr.elements[i]) {
+            std::visit([&](const auto& k) {
+                if constexpr (std::is_same_v<std::decay_t<decltype(k)>, lir::HVInt>)
+                    v = static_cast<int32_t>(k.value);
+            }, arr.elements[i]->kind);
+        }
+        zb.write32le(data_raw_off + static_cast<uint32_t>(i) * 4,
+                     static_cast<uint32_t>(v));
+    }
+    uint32_t hdr_off = zb.alloc_tagged(104, 24);
+    zb.write64le(hdr_off,      count);
+    zb.write64le(hdr_off + 8,  count);
+    zb.write32le(hdr_off + 16, data_raw_off);
+    return hdr_off;
+}
+
+// Build an ArrayU64 (tc=108): dense u64 elements.
+// Layout: { u64 size, u64 capacity, u32 data_off, u32 pad } + capacity×8 u64 bytes.
+static uint32_t build_typed_array_u64(ZoneBuilder& zb, const lir::HVArray& arr) {
+    uint64_t count = arr.elements.size();
+    uint32_t data_raw_off = zb.alloc_raw(static_cast<size_t>(count) * 8);
+    for (uint64_t i = 0; i < count; i++) {
+        uint64_t v = 0;
+        if (arr.elements[i]) {
+            std::visit([&](const auto& k) {
+                if constexpr (std::is_same_v<std::decay_t<decltype(k)>, lir::HVInt>)
+                    v = static_cast<uint64_t>(k.value);
+            }, arr.elements[i]->kind);
+        }
+        zb.write64le(data_raw_off + static_cast<uint32_t>(i) * 8, v);
+    }
+    uint32_t hdr_off = zb.alloc_tagged(108, 24);
+    zb.write64le(hdr_off,      count);
+    zb.write64le(hdr_off + 8,  count);
+    zb.write32le(hdr_off + 16, data_raw_off);
+    return hdr_off;
+}
+
+// Dispatch: typed array → dense builder; untyped → ObjectArray.
+static uint32_t build_array(ZoneBuilder& zb, const lir::HVArray& arr) {
+    if (arr.elem_type == "I32") return build_typed_array_i32(zb, arr);
+    if (arr.elem_type == "U64") return build_typed_array_u64(zb, arr);
+    return build_anyval_array(zb, arr);
 }
 
 // Build an ObjectMap using FNV-1a hash + linear probing. Returns zone offset.

@@ -233,7 +233,8 @@ inline constexpr Code HERMES_INT   {"HERMES_INT",   166};  // integer value in H
 inline constexpr Code HERMES_FLOAT {"HERMES_FLOAT", 167};  // float value in Hermes literal
 inline constexpr Code HERMES_BOOL  {"HERMES_BOOL",  168};  // bool value in Hermes literal
 inline constexpr Code HERMES_NULL  {"HERMES_NULL",  169};  // null in Hermes literal
-inline constexpr Code HERMES_ENTRY {"HERMES_ENTRY", 170};  // key:val pair in Hermes map
+inline constexpr Code HERMES_ENTRY        {"HERMES_ENTRY",        170};  // key:val pair in Hermes map
+inline constexpr Code HERMES_TYPED_ARRAY  {"HERMES_TYPED_ARRAY",  171};  // @<ElemType>[v,...] typed array literal
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

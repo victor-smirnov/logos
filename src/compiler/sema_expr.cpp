@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <format>
 #include <functional>
+#include <map>
 #include <unordered_set>
 
 namespace logos::compiler {
@@ -211,6 +212,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
     case la::HERMES_MAP:
     case la::HERMES_ARRAY:
+    case la::HERMES_TYPED_ARRAY:
     case la::HERMES_STR:
     case la::HERMES_INT:
     case la::HERMES_FLOAT:
@@ -3871,6 +3873,41 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
 
     if (c == la::HERMES_ARRAY.code) {
         lir::HVArray a;
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto elem = map_of(items.get(i));
+                auto hv = lower_hermes_val(elem);
+                if (!hv) return nullptr;
+                a.elements.push_back(std::move(hv));
+            }
+        }
+        return std::make_unique<lir::HermesVal>(std::move(a));
+    }
+
+    if (c == la::HERMES_TYPED_ARRAY.code) {
+        // @<ElemType>[v,...] — typed dense array (e.g. @<I32>[1,2,3])
+        // Known element types: I32 (ArrayI32, tc=104), U64 (ArrayU64, tc=108).
+        // The corresponding array struct must be in scope (use hermes.containers).
+        struct ElemInfo { std::string struct_name; uint64_t type_code; };
+        static const std::map<std::string, ElemInfo> known = {
+            {"I32", {"ArrayI32", 104}},
+            {"U64", {"ArrayU64", 108}},
+        };
+        auto type_name = std::string(str_of(node.get(la::TYPE.code)));
+        auto kit = known.find(type_name);
+        if (kit == known.end()) {
+            error(std::format("unknown typed array element type '{}'; supported: I32, U64", type_name));
+            return nullptr;
+        }
+        if (!datatypes_.count(kit->second.struct_name)) {
+            error(std::format(
+                "typed array @<{}>[...] requires '{}' in scope — add 'use hermes.containers;'",
+                type_name, kit->second.struct_name));
+            return nullptr;
+        }
+        lir::HVArray a;
+        a.elem_type = type_name;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {

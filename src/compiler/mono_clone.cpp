@@ -544,6 +544,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         out->kind = std::move(nm);
                     } else if constexpr (std::is_same_v<KK, lir::HVArray>) {
                         lir::HVArray na;
+                        na.elem_type = kk.elem_type;
                         for (auto& elem : kk.elements)
                             na.elements.push_back(clone_hv(*elem));
                         out->kind = std::move(na);

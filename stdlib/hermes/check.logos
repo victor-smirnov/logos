@@ -719,3 +719,33 @@ pub unsafe fn document_check(zone: *const Zone<Mutable>) -> bool {
     check_state_free(&mut state);
     return ok;
 }
+
+// ── ArrayU64 (108): 24-byte header + capacity*8 u64 data (no AnyVal refs)
+
+impl HermesCheck for ArrayU64 {
+    pub fn check_obj(&self, state: *mut CheckState) -> bool {
+        unsafe {
+            let arr: *const ArrayU64 = self as *const ArrayU64;
+            let obj: *const u8 = arr as *const u8;
+            let off: i64 = (obj as i64) - (state.base as i64);
+            let hdr_sz: i64 = sizeof::<ArrayU64>() as i64;
+            if !check_bounds(state, off - 1 as i64, 1 as i64 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 1 as i64, 1 as i64 + hdr_sz) { return false; }
+            check_mark_start(state, off - 1 as i64);
+
+            let sz: u64  = arr.size;
+            let cap: u64 = arr.capacity;
+            if sz > cap {
+                state.error = CheckError::BadSize;
+                return false;
+            }
+            let buf_off: i64   = arr.data as i64;
+            let buf_bytes: i64 = (cap as i64) * 8 as i64;
+            if buf_bytes > 0 as i64 {
+                if !check_bounds(state, buf_off, buf_bytes) { return false; }
+                if !check_mark(state,  buf_off, buf_bytes)  { return false; }
+            }
+            return true;
+        }
+    }
+}

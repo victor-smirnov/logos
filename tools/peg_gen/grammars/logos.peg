@@ -213,6 +213,7 @@
     HERMES_BOOL                 = 168   // bool value in Hermes literal
     HERMES_NULL                 = 169   // null value in Hermes literal
     HERMES_ENTRY                = 170   // key:val pair in Hermes map
+    HERMES_TYPED_ARRAY          = 171   // @<ElemType>[v,...] — typed dense array literal
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1139,8 +1140,13 @@
                  => { CODE: ARR_FILL_LIT, VALUE: $2, SIZE: $4 }
 
     // ── Hermes SDN literals: @{k:v,...}  @[v,...]  @"s"  @42  @true  @null ──
+    // @<ElemType>[v,...] — typed dense array (e.g. @<I32>[1,2,3])
     // Only the outermost literal needs the @ sigil; inner values are plain.
-    hermes_lit <- AT hermes_map
+    hermes_typed_array <- LT IDENT GT LBRACKET (hermes_val (COMMA hermes_val)* COMMA?)? RBRACKET
+                       => { CODE: HERMES_TYPED_ARRAY, TYPE: $2, ITEMS: $... }
+
+    hermes_lit <- AT hermes_typed_array
+               / AT hermes_map
                / AT hermes_array
                / AT RAW_STRING => { CODE: HERMES_STR, VALUE: $2 }
                / AT STRING     => { CODE: HERMES_STR, VALUE: $2 }

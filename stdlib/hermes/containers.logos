@@ -329,6 +329,40 @@ impl ArrayI32 {
 }
 
 // ---------------------------------------------------------------------------
+// Pre-materialized typed primitive array: <U64>[...]
+//
+// Dense contiguous u64 storage, tagged with type_code=108.
+// ---------------------------------------------------------------------------
+
+#[type_code=108]
+pub genos ArrayU64Tag {
+    unsafe fn len(self: *const Self) -> u64;
+}
+
+pub eidos ArrayU64 {
+    pub size:     u64,
+    pub capacity: u64,
+    pub data:     u32,
+}
+
+impl ArrayU64Tag for ArrayU64 {
+    unsafe fn len(self: *const ArrayU64) -> u64 { return self.size; }
+}
+
+impl ArrayU64 {
+    pub unsafe fn init(arr_raw: *mut u8, buf_raw: *mut u8,
+                       base: *mut u8, capacity: u64) -> *mut ArrayU64 {
+        let base_int: i64 = base as i64;
+        let buf_off: u32  = (buf_raw as i64 - base_int) as u32;
+        let arr: *mut ArrayU64 = arr_raw as *mut ArrayU64;
+        arr.size     = 0 as u64;
+        arr.capacity = capacity;
+        arr.data     = buf_off;
+        return arr;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Pre-materialized typed map: <I32,AnyVal>{...}
 //
 // Dense key/value arrays with linear lookup/update.

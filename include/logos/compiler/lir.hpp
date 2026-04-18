@@ -134,7 +134,10 @@ struct HVMapEntry {
 };
 
 struct HVMap   { std::vector<HVMapEntry> entries; };
-struct HVArray { std::vector<HermesValPtr> elements; };
+struct HVArray {
+    std::vector<HermesValPtr> elements;
+    std::string elem_type;  // "" = AnyVal (ObjectArray tc=100); "I32" = ArrayI32 tc=104; "U64" = ArrayU64 tc=108
+};
 
 struct HermesVal {
     std::variant<HVNull, HVBool, HVInt, HVFloat, HVStr, HVMap, HVArray> kind;

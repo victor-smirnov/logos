@@ -224,6 +224,31 @@ impl HermesStringify for ArrayI32 {
     }
 }
 
+impl HermesStringify for ArrayU64 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let arr: *const ArrayU64 = self as *const ArrayU64;
+            ctx.out.push_u8(60 as u8);   // '<'
+            ctx.out.push_u8(85 as u8);   // 'U'
+            ctx.out.push_u8(54 as u8);   // '6'
+            ctx.out.push_u8(52 as u8);   // '4'
+            ctx.out.push_u8(62 as u8);   // '>'
+            ctx.out.push_u8(32 as u8);   // ' '
+            ctx.out.push_u8(91 as u8);   // '['
+
+            let mut i: u64 = 0 as u64;
+            while i < arr.size {
+                if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
+                let ep: *const u64 =
+                    (ctx.base as i64 + arr.data as i64 + (i as i64) * 8 as i64) as *const u64;
+                ctx.out.push_u64(*ep);
+                i = i + 1 as u64;
+            }
+            ctx.out.push_u8(93 as u8);   // ']'
+        }
+    }
+}
+
 impl HermesStringify for MapI32AnyVal {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
