@@ -6,6 +6,8 @@
 
 #include "mlir_gen_impl.hpp"
 
+#include <cstring>
+
 namespace logos::compiler {
 
 using namespace lir;
@@ -1824,13 +1826,275 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, const LogosType* type) {
 }
 
 // ---------------------------------------------------------------------------
-// Hermes SDN literal — Phase 1 stub (blob generation in Phase 2)
+// Hermes SDN literal — Phase 2: compile-time zone blob builder
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit&, const LogosType*) {
-    // Phase 1: emit null *const u8. Phase 2 will emit a static zone blob and
-    // return a pointer to the document root within it.
-    return builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+namespace {
+
+// Compile-time Hermes zone builder.
+// Produces a flat byte buffer that is a valid sealed Hermes zone with one
+// document: a 4-byte AnyVal root at offset 0, followed by all objects.
+//
+// Memory layout rules (from stdlib/hermes/):
+//   - All allocations are 8-byte aligned (raw base + alignment padding).
+//   - Tagged objects: 1-byte type_code vlen prefix immediately before the
+//     object body. The object pointer is the byte AFTER the type byte, i.e.
+//     alloc returns (buf_offset + 1) after writing the tag.
+//   - AnyVal (32-bit):
+//       null   = 0
+//       bool   = (v << 8) | 0x4B         (type_code 37 in bits[7:1])
+//       i24    = ((v & 0xFFFFFF) << 8) | 0x2F  (type_code 23 in bits[7:1])
+//       zone ptr = zone_offset (bit0 = 0, must be even)
+//   - DocumentHeader: 4 bytes, AnyVal root at zone offset 0 (allocated as 8 bytes).
+//   - HermesString (tc=28): 4-byte length prefix + UTF-8 bytes, no NUL.
+//   - ObjectArray (tc=100): 24 bytes: u64 size, u64 capacity, u32 data_off.
+//     Data buffer: capacity × 4-byte AnyVal values.
+//   - ObjectMap (tc=101): 16 bytes: u32 entries_off, u32 capacity, u32 count, u32 reserved.
+//     Entries buffer: capacity × 8 bytes each (key_off: u32, val: u32 AnyVal).
+//     Hash: FNV-1a, linear probing.
+
+struct ZoneBuilder {
+    std::vector<uint8_t> buf;
+
+    void push8(uint8_t v)  { buf.push_back(v); }
+
+    void push32le(uint32_t v) {
+        buf.push_back(v & 0xFF);
+        buf.push_back((v >> 8) & 0xFF);
+        buf.push_back((v >> 16) & 0xFF);
+        buf.push_back((v >> 24) & 0xFF);
+    }
+
+    void push64le(uint64_t v) {
+        push32le(static_cast<uint32_t>(v));
+        push32le(static_cast<uint32_t>(v >> 32));
+    }
+
+    void align8() {
+        while (buf.size() % 8 != 0) buf.push_back(0);
+    }
+
+    // Allocate `sz` bytes aligned to 8, returning the offset of the first byte.
+    uint32_t alloc_raw(size_t sz) {
+        align8();
+        uint32_t off = static_cast<uint32_t>(buf.size());
+        buf.resize(buf.size() + sz, 0);
+        return off;
+    }
+
+    // Allocate a tagged object with type_code `tc`.
+    // Returns the offset of the first byte of the object body (after the tag).
+    uint32_t alloc_tagged(uint8_t tc, size_t body_sz) {
+        // Align to 8, then write tag byte, then object body.
+        align8();
+        push8(tc);
+        // 7 padding bytes so body starts at next 8-byte boundary.
+        for (int i = 0; i < 7; i++) push8(0);
+        uint32_t obj_off = static_cast<uint32_t>(buf.size());
+        buf.resize(buf.size() + body_sz, 0);
+        return obj_off;
+    }
+
+    void write32le(uint32_t off, uint32_t v) {
+        buf[off]     = v & 0xFF;
+        buf[off + 1] = (v >> 8) & 0xFF;
+        buf[off + 2] = (v >> 16) & 0xFF;
+        buf[off + 3] = (v >> 24) & 0xFF;
+    }
+
+    void write64le(uint32_t off, uint64_t v) {
+        write32le(off,     static_cast<uint32_t>(v));
+        write32le(off + 4, static_cast<uint32_t>(v >> 32));
+    }
+};
+
+static uint64_t fnv1a_str(const std::string& s) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (unsigned char c : s) h = (h ^ c) * 0x100000001b3ULL;
+    return h;
+}
+
+// Forward declaration.
+static uint32_t build_hermes_val(ZoneBuilder& zb, const lir::HermesVal& v);
+
+// Build a HermesString object. Returns zone offset of the object body.
+static uint32_t build_string(ZoneBuilder& zb, const std::string& s) {
+    // Object body: 4-byte length prefix + bytes.
+    uint32_t body_sz = 4 + static_cast<uint32_t>(s.size());
+    uint32_t obj_off = zb.alloc_tagged(28, body_sz);
+    zb.write32le(obj_off, static_cast<uint32_t>(s.size()));
+    for (size_t i = 0; i < s.size(); i++)
+        zb.buf[obj_off + 4 + i] = static_cast<uint8_t>(s[i]);
+    return obj_off;
+}
+
+// Build an ObjectArray. Returns zone offset of the object body.
+static uint32_t build_array(ZoneBuilder& zb, const lir::HVArray& arr) {
+    uint64_t count = arr.elements.size();
+
+    // Build all element AnyVals first (may allocate), then write array header.
+    std::vector<uint32_t> elem_anyvals;
+    elem_anyvals.reserve(count);
+    for (auto& ep : arr.elements)
+        elem_anyvals.push_back(build_hermes_val(zb, *ep));
+
+    // Data buffer: capacity × 4 bytes (AnyVal).
+    uint64_t cap = count ? count : 1;  // at least 1 slot to avoid zero-size buf
+    uint32_t data_raw_off = zb.alloc_raw(cap * 4);
+    for (uint64_t i = 0; i < count; i++)
+        zb.write32le(data_raw_off + static_cast<uint32_t>(i) * 4, elem_anyvals[i]);
+
+    // ObjectArray header: u64 size, u64 capacity, u32 data_off, u32 padding.
+    uint32_t hdr_off = zb.alloc_tagged(100, 24);
+    zb.write64le(hdr_off,      count);
+    zb.write64le(hdr_off + 8,  cap);
+    zb.write32le(hdr_off + 16, data_raw_off);
+    // bytes 20-23: padding, already 0
+    return hdr_off;
+}
+
+// Build an ObjectMap using FNV-1a hash + linear probing. Returns zone offset.
+static uint32_t build_map(ZoneBuilder& zb, const lir::HVMap& map) {
+    uint32_t count = static_cast<uint32_t>(map.entries.size());
+
+    // Collect all key strings and their HermesString offsets; build values.
+    // Entry = (key_str_obj_off, val_anyval).
+    struct RawEntry { uint32_t key_off; uint32_t val; };
+    std::vector<RawEntry> raw;
+    raw.reserve(count);
+
+    for (auto& e : map.entries) {
+        std::string key_str;
+        if (std::holds_alternative<std::string>(e.key))
+            key_str = std::get<std::string>(e.key);
+        else
+            key_str = std::to_string(std::get<int64_t>(e.key));
+
+        uint32_t key_off = build_string(zb, key_str);
+        uint32_t val_av  = build_hermes_val(zb, *e.val);
+        raw.push_back({key_off, val_av});
+    }
+
+    // Hash table: capacity = smallest power of 2 >= 2*count (minimum 8).
+    uint32_t cap = 8;
+    while (cap < count * 2) cap *= 2;
+
+    // Entries buffer: cap × 8 bytes (key_off: u32, val: u32).
+    // Empty slot sentinel: key_off = 0 (zone offset 0 = DocumentHeader = never a string).
+    uint32_t entries_raw_off = zb.alloc_raw(static_cast<size_t>(cap) * 8);
+
+    // Insert entries using FNV-1a over key string + linear probing.
+    for (size_t i = 0; i < map.entries.size(); i++) {
+        std::string key_str;
+        if (std::holds_alternative<std::string>(map.entries[i].key))
+            key_str = std::get<std::string>(map.entries[i].key);
+        else
+            key_str = std::to_string(std::get<int64_t>(map.entries[i].key));
+
+        uint64_t h = fnv1a_str(key_str);
+        uint32_t slot = static_cast<uint32_t>(h & (cap - 1));
+        // Linear probe: find empty slot (key_off == 0).
+        while (true) {
+            uint32_t existing_key = 0;
+            auto ep = entries_raw_off + slot * 8;
+            existing_key = static_cast<uint32_t>(zb.buf[ep])
+                         | (static_cast<uint32_t>(zb.buf[ep + 1]) << 8)
+                         | (static_cast<uint32_t>(zb.buf[ep + 2]) << 16)
+                         | (static_cast<uint32_t>(zb.buf[ep + 3]) << 24);
+            if (existing_key == 0) break;
+            slot = (slot + 1) & (cap - 1);
+        }
+        uint32_t ep = entries_raw_off + slot * 8;
+        zb.write32le(ep,     raw[i].key_off);
+        zb.write32le(ep + 4, raw[i].val);
+    }
+
+    // ObjectMap header: u32 entries_off, u32 capacity, u32 count, u32 reserved.
+    uint32_t hdr_off = zb.alloc_tagged(101, 16);
+    zb.write32le(hdr_off,      entries_raw_off);
+    zb.write32le(hdr_off + 4,  cap);
+    zb.write32le(hdr_off + 8,  count);
+    // bytes 12-15: reserved = 0
+    return hdr_off;
+}
+
+// Build a HermesVal node, return its AnyVal encoding (32-bit).
+static uint32_t build_hermes_val(ZoneBuilder& zb, const lir::HermesVal& v) {
+    return std::visit([&](auto& k) -> uint32_t {
+        using T = std::decay_t<decltype(k)>;
+        if constexpr (std::is_same_v<T, lir::HVNull>) {
+            return 0;  // AnyVal null
+        } else if constexpr (std::is_same_v<T, lir::HVBool>) {
+            // type_code 37 → bits[7:1] = 37 → raw bits = 0x4A; bit0=1 → 0x4B
+            uint32_t payload = k.value ? 1u : 0u;
+            return (payload << 8) | 0x4Bu;
+        } else if constexpr (std::is_same_v<T, lir::HVInt>) {
+            // Encode as i64 zone object (type_code 26).
+            // Build I64 object: 8 bytes.
+            uint32_t obj_off = zb.alloc_tagged(26, 8);
+            zb.write64le(obj_off, static_cast<uint64_t>(k.value));
+            return obj_off;  // zone pointer AnyVal (bit0=0)
+        } else if constexpr (std::is_same_v<T, lir::HVFloat>) {
+            // Encode double as zone object (type_code 27).
+            uint32_t obj_off = zb.alloc_tagged(27, 8);
+            uint64_t bits;
+            static_assert(sizeof(double) == 8);
+            std::memcpy(&bits, &k.value, 8);
+            zb.write64le(obj_off, bits);
+            return obj_off;
+        } else if constexpr (std::is_same_v<T, lir::HVStr>) {
+            uint32_t obj_off = build_string(zb, k.value);
+            return obj_off;
+        } else if constexpr (std::is_same_v<T, lir::HVArray>) {
+            uint32_t obj_off = build_array(zb, k);
+            return obj_off;
+        } else if constexpr (std::is_same_v<T, lir::HVMap>) {
+            uint32_t obj_off = build_map(zb, k);
+            return obj_off;
+        } else {
+            return 0;
+        }
+    }, v.kind);
+}
+
+// Build the full zone blob for an EHermesLit node.
+// Returns byte vector: DocumentHeader (4 bytes AnyVal root at offset 0) +
+// all objects packed into 8-byte-aligned slots.
+static std::vector<uint8_t> build_hermes_zone(const lir::EHermesLit& e) {
+    ZoneBuilder zb;
+
+    // Reserve 8 bytes at offset 0 for DocumentHeader (AnyVal root, 4 bytes + 4 pad).
+    zb.alloc_raw(8);
+
+    // Build the root value tree.
+    uint32_t root_av = build_hermes_val(zb, *e.root);
+
+    // Write root AnyVal at offset 0.
+    zb.write32le(0, root_av);
+
+    return zb.buf;
+}
+
+}  // namespace (zone builder helpers)
+
+mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType*) {
+    std::vector<uint8_t> blob = build_hermes_zone(e);
+
+    auto global_name = "__hermes_lit_" + std::to_string(hermes_lit_counter_++);
+    auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    auto save_pt     = builder_.saveInsertionPoint();
+    builder_.setInsertionPointToStart(parent_mod.getBody());
+
+    auto i8       = builder_.getIntegerType(8);
+    auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, blob.size());
+    auto blob_attr = builder_.getStringAttr(
+        llvm::StringRef(reinterpret_cast<const char*>(blob.data()), blob.size()));
+    builder_.create<mlir::LLVM::GlobalOp>(
+        loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
+        global_name, blob_attr);
+
+    builder_.restoreInsertionPoint(save_pt);
+    return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
 }
 
 } // namespace logos::compiler

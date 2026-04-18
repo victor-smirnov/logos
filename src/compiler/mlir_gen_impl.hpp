@@ -126,6 +126,7 @@ private:
     std::vector<LoopBlocks> loop_stack_;
 
     int str_counter_ = 0;
+    int hermes_lit_counter_ = 0;
 
     // "Trait::Type" → mangled method names in vtable slot order
     std::unordered_map<std::string, std::vector<std::string>> dyn_vtable_methods_;
