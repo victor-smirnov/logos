@@ -17,8 +17,8 @@
 //   skipper := (space | tab | newline | '//' to-eol)*
 //
 // Not supported: raw strings ('...'), Unicode escapes (\uXXXX),
-//   parameters (?name),
 //   type declarations, type directory (#{...}).
+// Supported: $N positional PARAM placeholders (embed_param, type_hash=127).
 //
 // Array capacity: 64 elements.  Map capacity: 64 slots (power-of-2).
 // Strings: max 1023 UTF-8 bytes (scratch buffer limit).
@@ -964,6 +964,7 @@ impl HermesParser {
         if c == 123 as u8 { return self.parse_map(); }      // '{'
         if c == 60 as u8  { return self.parse_typed_container(); }  // '<'
         if c == 64 as u8  { return self.parse_typed_value_prefix(); }  // '@'
+        if c == 36 as u8  { return self.parse_param_val(); }          // '$'
 
         // Number: digit or '-' followed by digit
         if self.is_digit(c)
@@ -973,6 +974,42 @@ impl HermesParser {
 
         self.ok = false;
         return AnyVal::null_ptr();
+    }
+
+    // ── $N — positional PARAM placeholder ────────────────────────────────────
+    // Syntax: '$' followed immediately by a non-negative decimal integer.
+    // Produces AnyVal::embed_param(N).  Used in document templates.
+
+    pub unsafe fn parse_param_val(&mut self) -> AnyVal {
+        if self.peek() != 36 as u8 {  // '$'
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+        self.pos = self.pos + 1 as i64;
+
+        if self.at_end() || !self.is_digit(self.peek()) {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+
+        let mut idx: u32 = 0 as u32;
+        while !self.at_end() && self.is_digit(self.peek()) {
+            let d: u32 = (self.peek() - 48 as u8) as u32;
+            if idx > (16777215 as u32 - d) / 10 as u32 {
+                self.ok = false;
+                return AnyVal::null_ptr();
+            }
+            idx = idx * 10 as u32 + d;
+            self.pos = self.pos + 1 as i64;
+        }
+
+        // Must not be followed by an identifier character
+        if !self.at_end() && self.is_ident_char(self.peek()) {
+            self.ok = false;
+            return AnyVal::null_ptr();
+        }
+
+        return AnyVal::embed_param(idx);
     }
 
     // ── Typed container: `<T>[...]` or `<K, V>{...}` ────────────────────────

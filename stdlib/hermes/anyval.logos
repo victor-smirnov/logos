@@ -128,6 +128,25 @@ impl AnyVal {
         return AnyVal { raw: raw };
     }
 
+    // Embed a PARAM placeholder (type_hash=127, tag=0xFF).
+    // Used for parameterized document templates.  param_index is the u24
+    // position of this slot in the ParamSlot table.  On substitution,
+    // hermes_clone_template overwrites this AnyVal with the resolved value.
+    pub fn embed_param(param_index: u32) -> AnyVal {
+        let raw: u32 = ((param_index & 0xFFFFFF as u32) << 8 as u32) | 0xFF as u32;
+        return AnyVal { raw: raw };
+    }
+
+    // True when this AnyVal is a PARAM placeholder (tag byte = 0xFF).
+    pub unsafe fn is_param(self: *const AnyVal) -> bool {
+        return (self.raw & 0xFF as u32) == 0xFF as u32;
+    }
+
+    // Extract the param_index from a PARAM AnyVal (undefined if !is_param()).
+    pub unsafe fn param_index(self: *const AnyVal) -> u32 {
+        return (self.raw >> 8 as u32) & 0xFFFFFF as u32;
+    }
+
     // --- Value extraction (only valid when !is_ptr()) ---
 
     pub unsafe fn as_i24(self: *const AnyVal) -> i32 {

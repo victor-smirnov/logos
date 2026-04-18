@@ -41,6 +41,7 @@
     TYPED_VALUE = 7     // Typename(value)  e.g. Date("2026-01-01")
     DATATYPE    = 8     // Typename<Param, ...>
     MAP_ENTRY   = 9
+    PARAM_VAL   = 10    // $N  — positional PARAM placeholder (type_hash=127)
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -57,6 +58,7 @@
     COLON       = ":"
     COMMA       = ","
     EQUALS      = "="
+    DOLLAR      = "$"
 
     // Literals
     TRUE        = "true"
@@ -78,7 +80,8 @@
 // ── Rules ─────────────────────────────────────────────────────────────────
 %rules {
     // Top-level value — the entry point for embedding in other grammars.
-    value <- typed_value
+    value <- param_val
+           / typed_value
            / typed_collection
            / map
            / array
@@ -125,4 +128,9 @@
 
     type_arg <- datatype
              / INTEGER
+
+    // $N — positional PARAM placeholder (type_hash=127, tag=0xFF).
+    // Used in document templates; N is a non-negative decimal integer.
+    param_val <- DOLLAR INTEGER
+              => { CODE: PARAM_VAL, VALUE: $2 }
 }

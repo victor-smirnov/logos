@@ -1,0 +1,34 @@
+// Test: $N param placeholder parsing in the Hermes SDN parser.
+package hermes_param_roundtrip;
+use hermes.ctr;
+
+unsafe fn main() -> i32 {
+    // ── 1. AnyVal::embed_param encoding ──────────────────────────────────
+    let p0: AnyVal = AnyVal::embed_param(0 as u32);
+    if !p0.is_param() { return 1; }
+    if p0.param_index() != 0 as u32 { return 2; }
+
+    let p42: AnyVal = AnyVal::embed_param(42 as u32);
+    if !p42.is_param() { return 3; }
+    if p42.param_index() != 42 as u32 { return 4; }
+
+    // ── 2. $N parsed; root AnyVal is_param ───────────────────────────────
+    let mut ctr2: HermesCtr = HermesCtr::new(4096);
+    match ctr2.parse("$0") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 5; }
+    }
+    let root2: AnyVal = ctr2.root();
+    if !root2.is_param() { return 6; }
+    if root2.param_index() != 0 as u32 { return 7; }
+
+    // ── 3. $N in array ────────────────────────────────────────────────────
+    let mut ctr3: HermesCtr = HermesCtr::new(4096);
+    match ctr3.parse("[$0, $1]") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 8; }
+    }
+    if ctr3.root().is_null() { return 9; }
+
+    return 0;
+}
