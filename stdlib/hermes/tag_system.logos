@@ -5,13 +5,10 @@
 // TagSystem: abstraction over the mechanism used to read a type tag
 // from a memory object.  Different subsystems use different tag formats:
 //
-//   HermesTypeTagSystem — legacy 2-byte TypeTag: byte[-2]=type_hash (u8),
-//                         byte[-1]=code_len|descriptor. Used by HermesString,
-//                         ObjectArray, ObjectMap, TinyObjectMap, DocumentHeader.
-//                         Codes 1-255 (type_hash is a u8).
-//   DataTypeTagSystem   — TypeTag stored variable-length immediately before
-//                         the object in a Hermes zone (1-8 bytes).
-//                         Codes 128-222: single byte; 223+: multi-byte.
+//   HermesTypeTagSystem — vlen TypeTag: 1-8 bytes immediately before the object.
+//                         Codes 1-222: single byte; 223+: multi-byte.
+//                         Used by all Hermes core and user datatypes.
+//   DataTypeTagSystem   — alias/synonym: same vlen format as HermesTypeTagSystem.
 //                         Used by user datatypes with #[type_code=N].
 //   TomTagSystem        — type_code stored as little-endian u64 at byte
 //                         offset 0 of the object header (TinyObjectMap).
@@ -47,21 +44,20 @@ pub trait TagSystem {
 // HermesTypeTagSystem
 // ---------------------------------------------------------------------------
 
-// TagSystem for Hermes core zone datatypes with legacy 2-byte tag format.
-// Tag layout (2 bytes immediately before the object):
-//   byte[-2] = type_hash (u8)
-//   byte[-1] = code_len (bits 0-2) | descriptor (bits 3-7)
-// Tag value returned is just the type_hash byte (fits in u64 for uniformity
-// with other TagSystems).
+// TagSystem for Hermes core zone datatypes with vlen TypeTag format.
+// Tag layout: variable-length bytes immediately before the object.
+//   byte[-1] ∈ [1,222] → single-byte tag; type_code = that byte
+//   byte[-1] ∈ [223,255] → multi-byte; header + code bytes follow
+// Tag value returned is the type_code (u64).
 pub struct HermesTypeTagSystem {}
 
 impl TagSystem for HermesTypeTagSystem {
     type Tag = u64;
 
-    // Safety: `obj` must point to a validly-tagged Hermes legacy object
-    // (allocated via zone_m_alloc_tagged with type_hash and descriptor).
+    // Safety: `obj` must point to a validly-tagged Hermes zone object
+    // (allocated via zone_m_alloc_tagged with a valid type_code).
     pub fn read_tag(self: &HermesTypeTagSystem, obj: *const u8) -> u64 {
-        return unsafe { *((obj as i64 - 2) as *const u8) } as u64;
+        return unsafe { read_type_code(obj) };
     }
 }
 
@@ -69,12 +65,11 @@ impl TagSystem for HermesTypeTagSystem {
 // DataTypeTagSystem
 // ---------------------------------------------------------------------------
 
-// TagSystem for Hermes zone datatypes.
+// TagSystem for Hermes zone datatypes (user datatypes with #[type_code=N]).
+// Uses the same vlen format as HermesTypeTagSystem.
 // Tags are variable-length (1-8 bytes) stored immediately before the object:
-//   obj[-1] ∈ [128,222] → single-byte tag; type_code = that byte
+//   obj[-1] ∈ [1,222] → single-byte tag; type_code = that byte
 //   obj[-1] ∈ [223,255] → multi-byte; length = obj[-1]-223+1; code follows
-// Bug fix: codes 0 and 1-127 are reserved (unset and inline AnyVal);
-// only codes 128+ appear in zone tags.
 pub struct DataTypeTagSystem {}
 
 impl TagSystem for DataTypeTagSystem {

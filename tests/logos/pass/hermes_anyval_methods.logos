@@ -7,6 +7,7 @@ package hermes_anyval_methods;
 use hermes.anyval;
 use hermes.zone;
 use hermes.typetag;
+use hermes.datatag;
 
 unsafe fn main() -> i32 {
     // --- is_null ---
@@ -43,15 +44,15 @@ unsafe fn main() -> i32 {
     if vb.as_i64() != 0 as i64 { return 13; }
 
     // --- is_string, is_array, is_map: need a zone ---
-    let mut zone: HermesZone = HermesZone::create(4096 as i64);
-    let base: *const u8 = zone.base as *const u8;
+    let mut zone: Zone<Mutable> = zone_create(4096 as i64);
+    let base: *const u8 = zone.holder.base as *const u8;
 
     // Reserve offset 0 for DocumentHeader sentinel (offset 0 = null).
-    let _hdr: *mut u8 = zone.alloc_raw(8 as i64);
+    let _hdr: *mut u8 = zone_m_alloc_raw(&mut zone, 8 as i64);
 
-    // Allocate a HermesString tagged object (descriptor=0, hash=28).
+    // Allocate a HermesString tagged object (type_code=28).
     // Content: 1-byte vlen=1 + 'X'.
-    let hs_raw: *mut u8 = zone.alloc_tagged(2 as i64, hermes_tag_string(), hermes_desc_data());
+    let hs_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 2 as i64, hermes_tag_string() as u64);
     *((hs_raw as i64 + 0 as i64) as *mut u8) = 1 as u8;   // vlen
     *((hs_raw as i64 + 1 as i64) as *mut u8) = 88 as u8;  // 'X'
     let hs_off: u32 = (hs_raw as i64 - base as i64) as u32;
@@ -61,9 +62,9 @@ unsafe fn main() -> i32 {
     if  hs_val.is_array(base)  { return 15; }
     if  hs_val.is_map(base)    { return 16; }
 
-    // Allocate an ObjectArray tagged object (descriptor=1).
+    // Allocate an ObjectArray tagged object (type_code=100).
     // Minimal: just a 24-byte header (no element buffer needed for the type check).
-    let oa_raw: *mut u8 = zone.alloc_tagged(24 as i64, hermes_tag_array(), hermes_desc_array());
+    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 24 as i64, hermes_tag_array() as u64);
     // zero-init: size=0, capacity=0, data=0
     let mut k: i64 = 0 as i64;
     while k < 24 as i64 {
@@ -77,8 +78,8 @@ unsafe fn main() -> i32 {
     if !oa_val.is_array(base)  { return 18; }
     if  oa_val.is_map(base)    { return 19; }
 
-    // Allocate a TinyObjectMap tagged object (descriptor=2, hash=98).
-    let tm_raw: *mut u8 = zone.alloc_tagged(16 as i64, hermes_tag_tiny_map(), hermes_desc_map());
+    // Allocate a TinyObjectMap tagged object (type_code=98).
+    let tm_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 16 as i64, hermes_tag_tiny_map() as u64);
     let mut m: i64 = 0 as i64;
     while m < 16 as i64 {
         *((tm_raw as i64 + m) as *mut u8) = 0 as u8;
@@ -96,6 +97,6 @@ unsafe fn main() -> i32 {
     if nul.is_array(base)  { return 24; }
     if nul.is_map(base)    { return 25; }
 
-    zone.destroy();
+    zone.release();
     return 42;
 }

@@ -9,6 +9,7 @@ package hermes_stringbuf_grow;
 use hermes.zone;
 use hermes.anyval;
 use hermes.typetag;
+use hermes.datatag;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
@@ -17,16 +18,16 @@ use std.string;
 
 unsafe fn main() -> i32 {
     // Set up a zone with a DocumentHeader.
-    let mut zone: HermesZone = HermesZone::create(4096);
-    let base: *mut u8 = zone.base;
-    let hdr_raw: *mut u8 = zone.alloc_raw(8);
+    let mut zone: Zone<Mutable> = zone_create(4096 as i64);
+    let base: *mut u8 = zone.holder.base;
+    let hdr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 8 as i64);
     let doc: *mut DocumentHeader = document_create(hdr_raw);
 
     // Build an ObjectArray with 20 i32 values so the stringified output
     // exceeds the String's initial small capacity.
     let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
-    let oa_raw: *mut u8 = zone.alloc_tagged(oa_sz, hermes_tag_array(), hermes_desc_array());
-    let oa_buf: *mut u8 = zone.alloc_raw(20 as i64 * 4 as i64);
+    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, oa_sz, hermes_tag_array() as u64);
+    let oa_buf: *mut u8 = zone_m_alloc_raw(&mut zone, 20 as i64 * 4 as i64);
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 20 as u64);
 
     // Push integers 0..19
@@ -57,6 +58,6 @@ unsafe fn main() -> i32 {
     // Capacity must be at least as large as the length.
     if sb.capacity() < sb.len() { return 4; }
 
-    zone.destroy();
+    zone.release();
     return 42;
 }

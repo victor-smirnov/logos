@@ -28,6 +28,7 @@ package hermes.stringify;
 use hermes.anyval;
 use hermes.string;
 use hermes.typetag;
+use hermes.datatag;
 use hermes.tag_system;
 use hermes.containers;
 use hermes.objectmap;
@@ -281,8 +282,8 @@ impl HermesStringify for TypedValue {
                 ctx.out.push_u8(40 as u8);  // '('
                 if params.is_ptr() {
                     let pobj: *const u8 = (ctx.base as i64 + params.as_offset() as i64) as *const u8;
-                    let th: u8 = tag_read_hash(pobj);
-                    if th == hermes_tag_array() {
+                    let th: u64 = read_type_code(pobj);
+                    if th == hermes_tag_array() as u64 {
                         let arr: *const ObjectArray = pobj as *const ObjectArray;
                         let mut pi: u64 = 0 as u64;
                         while pi < arr.size {

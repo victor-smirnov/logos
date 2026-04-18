@@ -24,6 +24,7 @@ use hermes.anyval;
 use hermes.zone;
 use hermes.string;
 use hermes.typetag;
+use hermes.datatag;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.document;
@@ -352,12 +353,12 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
     let base: *const u8 = ws.base;
     let buf: *mut String = ws.buf;
     let obj: *const u8 = (base as i64 + off as i64) as *const u8;
-    let tag: u8 = tag_read_hash(obj);
+    let tag: u64 = read_type_code(obj);
 
     hbs_write_u8(buf, 0xFD as u8);
     hbs_write_u32(buf, stream_id);
 
-    if tag == hermes_tag_string() {  // 28
+    if tag == hermes_tag_string() as u64 {  // 28
         let vlen_sz: i64 = vlen_prefix_size(obj) as i64;
         let str_len: i64 = vlen_read(obj) as i64;
         hbs_write_u8(buf, 0x30 as u8);
@@ -367,21 +368,21 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_i64() {  // 26
+    if tag == hermes_tag_i64() as u64 {  // 26
         let p: *const I64 = obj as *const I64;
         hbs_write_u8(buf, 0x60 as u8);
         hbs_write_u64(buf, p.value() as u64);
         return;
     }
 
-    if tag == hermes_tag_u64() {  // 27
+    if tag == hermes_tag_u64() as u64 {  // 27
         let p: *const U64 = obj as *const U64;
         hbs_write_u8(buf, 0x61 as u8);
         hbs_write_u64(buf, p.value());
         return;
     }
 
-    if tag == hermes_tag_decimal() {  // 107
+    if tag == hermes_tag_decimal() as u64 {  // 107
         let d: *const Decimal = obj as *const Decimal;
         let nlimbs: u32 = d.len();
         hbs_write_u8(buf, 0x22 as u8);
@@ -398,7 +399,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_array() {  // 100
+    if tag == hermes_tag_array() as u64 {  // 100
         let arr: *const Array<AnyVal> = obj as *const Array<AnyVal>;
         let sz: u64 = arr.size;
         hbs_write_u8(buf, 0x40 as u8);
@@ -413,7 +414,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_tiny_map() {  // 98
+    if tag == hermes_tag_tiny_map() as u64 {  // 98
         let m: *const Map<Bitmap, AnyVal> = obj as *const Map<Bitmap, AnyVal>;
         let bitmap: u64 = m.header & 0x000FFFFFFFFFFFFF as u64;
         let sz: u32 = ((m.header >> 58 as u64) & 0x3F as u64) as u32;
@@ -431,7 +432,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_map() {  // 101
+    if tag == hermes_tag_map() as u64 {  // 101
         let m: *const ObjectMap = obj as *const ObjectMap;
         let cnt: u32 = m.count;
         hbs_write_u8(buf, 0x41 as u8);
@@ -445,7 +446,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_typed_value() {  // 106
+    if tag == hermes_tag_typed_value() as u64 {  // 106
         let tv: *const TypedValue = obj as *const TypedValue;
         hbs_write_u8(buf, 0x50 as u8);
         // Push in reverse order (stack is LIFO): init last, params middle, type first
@@ -457,7 +458,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_typed_array() {  // 102
+    if tag == hermes_tag_typed_array() as u64 {  // 102
         let ta: *const TypedArray = obj as *const TypedArray;
         hbs_write_u8(buf, 0x51 as u8);
         push_wk_val(ws, AnyVal::from_offset(ta.arr_off).raw);
@@ -465,7 +466,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_typed_map() {  // 103
+    if tag == hermes_tag_typed_map() as u64 {  // 103
         let tm: *const TypedMap = obj as *const TypedMap;
         hbs_write_u8(buf, 0x52 as u8);
         push_wk_val(ws, AnyVal::from_offset(tm.map_off).raw);
@@ -473,7 +474,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_array_i32() {  // 104
+    if tag == hermes_tag_array_i32() as u64 {  // 104
         let arr: *const ArrayI32 = obj as *const ArrayI32;
         let sz: u64 = arr.size;
         hbs_write_u8(buf, 0x62 as u8);
@@ -488,7 +489,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_map_i32_anyval() {  // 105
+    if tag == hermes_tag_map_i32_anyval() as u64 {  // 105
         let m: *const MapI32AnyVal = obj as *const MapI32AnyVal;
         let sz: u32 = m.size;
         hbs_write_u8(buf, 0x63 as u8);

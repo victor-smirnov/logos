@@ -6,6 +6,7 @@ package hermes_typed_datatype_values;
 use hermes.ctr;
 use hermes.anyval;
 use hermes.typetag;
+use hermes.datatag;
 use hermes.containers;
 use hermes.string;
 
@@ -45,7 +46,7 @@ unsafe fn main() -> i32 {
     let oa: *const u8 = (base as i64 + va.as_offset() as i64) as *const u8;
     let ob: *const u8 = (base as i64 + vb.as_offset() as i64) as *const u8;
     let oc: *const u8 = (base as i64 + vc.as_offset() as i64) as *const u8;
-    if tag_read_hash(oa) != 106 as u8 || tag_read_hash(ob) != 107 as u8 || tag_read_hash(oc) != 106 as u8 {
+    if read_type_code(oa) != 106 as u64 || read_type_code(ob) != 107 as u64 || read_type_code(oc) != 106 as u64 {
         return 4;
     }
 
@@ -67,18 +68,18 @@ unsafe fn main() -> i32 {
     let paramsc: AnyVal = AnyVal { raw: tc.params_raw };
     if !paramsc.is_ptr() { return 11; }
     let opc: *const u8 = (base as i64 + paramsc.as_offset() as i64) as *const u8;
-    if tag_read_hash(opc) != 100 as u8 { return 12; }
+    if read_type_code(opc) != 100 as u64 { return 12; }
     let arrc: *const ObjectArray = opc as *const ObjectArray;
     if arrc.size != 1 as u64 { return 13; }
     let p0: AnyVal = arrc.get(base, 0 as u64);
     if !p0.is_ptr() { return 14; }
     let p0o: *const u8 = (base as i64 + p0.as_offset() as i64) as *const u8;
-    if tag_read_hash(p0o) != 101 as u8 { return 15; }
+    if read_type_code(p0o) != 101 as u64 { return 15; }
 
     let initc: AnyVal = AnyVal { raw: tc.init_raw };
     if !initc.is_ptr() { return 16; }
     let i0: *const u8 = (base as i64 + initc.as_offset() as i64) as *const u8;
-    if tag_read_hash(i0) != 101 as u8 { return 17; }
+    if read_type_code(i0) != 101 as u64 { return 17; }
 
     return 0;
 }

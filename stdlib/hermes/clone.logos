@@ -226,7 +226,7 @@ impl HermesClone for HermesString {
             let len: u64 = a.len();
             let total: i64 = vlen_encode_size(len) as i64 + len as i64;
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, total,
-                                   hermes_tag_string(), hermes_desc_data());
+                                   hermes_tag_string() as u64);
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -245,7 +245,7 @@ impl HermesClone for I64 {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let a: *const I64 = (ctx.base_src as i64 + src_off as i64) as *const I64;
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<I64>() as i64,
-                                   hermes_tag_i64(), hermes_desc_data());
+                                   hermes_tag_i64() as u64);
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -263,7 +263,7 @@ impl HermesClone for U64 {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let a: *const U64 = (ctx.base_src as i64 + src_off as i64) as *const U64;
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<U64>() as i64,
-                                   hermes_tag_u64(), hermes_desc_data());
+                                   hermes_tag_u64() as u64);
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -281,7 +281,7 @@ impl HermesClone for Decimal {
             let n: u32 = d.len();
             let total: i64 = sizeof::<Decimal>() as i64 + (n as i64) * 4 as i64;
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, total,
-                                   hermes_tag_decimal(), hermes_desc_data());
+                                   hermes_tag_decimal() as u64);
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -314,7 +314,7 @@ impl<T: CloneElem> HermesClone for Array<T> {
 
             let tc: u8 = type_code_of::<Array<T>>() as u8;
             let oa_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<Array<T>>() as i64,
-                                      tc, hermes_desc_array());
+                                      tc as u64);
             if oa_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (oa_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -364,7 +364,7 @@ impl<V: CloneElem> HermesClone for Map<Bitmap, V> {
 
             let tc: u8 = type_code_of::<Map<Bitmap, V>>() as u8;
             let tm_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
-                                      sizeof::<Map<Bitmap, V>>() as i64, tc, hermes_desc_map());
+                                      sizeof::<Map<Bitmap, V>>() as i64, tc as u64);
             if tm_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (tm_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -414,7 +414,7 @@ impl HermesClone for ObjectMap {
             let src_entries_off: u32 = a.entries_off;
 
             let om_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<ObjectMap>() as i64,
-                                      hermes_tag_map(), hermes_desc_map());
+                                      hermes_tag_map() as u64);
             if om_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (om_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -476,7 +476,7 @@ impl HermesClone for TypedValue {
             let src_init_raw: u32 = t.init_raw;
 
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<TypedValue>() as i64,
-                                   hermes_tag_typed_value(), hermes_desc_data());
+                                   hermes_tag_typed_value() as u64);
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -518,7 +518,7 @@ impl HermesClone for TypedArray {
             let src_arr_off: u32  = t.arr_off;
 
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<TypedArray>() as i64,
-                                   hermes_tag_typed_array(), hermes_desc_data());
+                                   hermes_tag_typed_array() as u64);
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
@@ -551,7 +551,7 @@ impl HermesClone for TypedMap {
             let src_map_off: u32  = t.map_off;
 
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<TypedMap>() as i64,
-                                   hermes_tag_typed_map(), hermes_desc_data());
+                                   hermes_tag_typed_map() as u64);
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }

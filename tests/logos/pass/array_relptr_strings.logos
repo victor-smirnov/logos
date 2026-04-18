@@ -18,7 +18,7 @@ unsafe fn alloc_hstr(zone: *mut Zone<Mutable>, bytes: *const u8, n: u64) -> u32 
     let base: *mut u8 = zone.holder.base;
     let prefix: i64 = vlen_encode_size(n) as i64;
     let raw: *mut u8 = zone_m_alloc_tagged(zone, prefix + n as i64,
-                                           hermes_tag_string(), hermes_desc_data());
+                                           hermes_tag_string() as u64);
     HermesString::init(raw, bytes, n);
     return (raw as i64 - base as i64) as u32;
 }

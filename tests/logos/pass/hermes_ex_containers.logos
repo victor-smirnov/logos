@@ -8,21 +8,22 @@ package hermes_ex_containers;
 use hermes.zone;
 use hermes.anyval;
 use hermes.typetag;
+use hermes.datatag;
 use hermes.containers;
 use hermes.objectmap;
 use hermes.string;
 
 unsafe fn main() -> i32 {
-    let mut zone: HermesZone = HermesZone::create(8192);
-    let base: *mut u8 = zone.base;
+    let mut zone: Zone<Mutable> = zone_create(8192 as i64);
+    let base: *mut u8 = zone.holder.base;
 
     // Reserve zone offset 0 — ObjectMap uses key_off==0 as the empty-slot sentinel.
-    let _hdr: *mut u8 = zone.alloc_raw(8);
+    let _hdr: *mut u8 = zone_m_alloc_raw(&mut zone, 8 as i64);
 
     // ── TinyObjectMap basic ──────────────────────────────────────────────────
     let tm_sz: i64 = sizeof::<TinyObjectMap>() as i64;
-    let tm_raw: *mut u8 = zone.alloc_tagged(tm_sz, hermes_tag_tiny_map(), hermes_desc_map());
-    let tm_arr: *mut u8 = zone.alloc_raw(208);   // 52 AnyVal slots × 4 bytes
+    let tm_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map() as u64);
+    let tm_arr: *mut u8 = zone_m_alloc_raw(&mut zone, 208 as i64);   // 52 AnyVal slots × 4 bytes
     let tmap: *mut TinyObjectMap = TinyObjectMap::init(tm_raw, tm_arr, base, 52 as u32);
 
     // Fresh map: size=0, bitmap lower 52 bits all zero.
@@ -62,15 +63,14 @@ unsafe fn main() -> i32 {
     // Absent key returns null.
     if !tmap.get(base as *const u8, 1 as u8).is_null()         { return 14; }
 
-    // TypeTag raw bytes: byte[-2]=98, byte[-1]=1|(2<<3)=17.
-    let b_hash: u8 = *((tm_raw as i64 - 2) as *const u8);
-    let b_desc: u8 = *((tm_raw as i64 - 1) as *const u8);
-    if b_hash != 98 as u8                                       { return 15; }
-    if b_desc != 17 as u8                                       { return 16; }  // 1|(2<<3)
+    // TypeTag vlen: byte[-1] = type_code = 98 (TinyObjectMap).
+    let b_tc: u8 = *((tm_raw as i64 - 1) as *const u8);
+    if b_tc != 98 as u8                                         { return 15; }
+    if read_type_code(tm_raw as *const u8) != 98 as u64         { return 16; }
 
     // ── TinyObjectMap update ─────────────────────────────────────────────────
-    let tu_raw: *mut u8 = zone.alloc_tagged(tm_sz, hermes_tag_tiny_map(), hermes_desc_map());
-    let tu_arr: *mut u8 = zone.alloc_raw(32);   // 8 * 4 bytes
+    let tu_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map() as u64);
+    let tu_arr: *mut u8 = zone_m_alloc_raw(&mut zone, 32 as i64);   // 8 * 4 bytes
     let tmap2: *mut TinyObjectMap = TinyObjectMap::init(tu_raw, tu_arr, base, 8 as u32);
 
     tmap2.set(base, 3 as u8, AnyVal::embed_i24(10));
@@ -84,8 +84,8 @@ unsafe fn main() -> i32 {
     if tmap2.get(base as *const u8, 3 as u8).as_i24() != 20    { return 20; }
 
     // ── TinyObjectMap stress: all 52 keys ────────────────────────────────────
-    let ts_raw: *mut u8 = zone.alloc_tagged(tm_sz, hermes_tag_tiny_map(), hermes_desc_map());
-    let ts_arr: *mut u8 = zone.alloc_raw(208);   // 52 * 4 bytes
+    let ts_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map() as u64);
+    let ts_arr: *mut u8 = zone_m_alloc_raw(&mut zone, 208 as i64);   // 52 * 4 bytes
     let tmap3: *mut TinyObjectMap = TinyObjectMap::init(ts_raw, ts_arr, base, 52 as u32);
 
     let mut k: u8 = 0 as u8;
@@ -114,8 +114,8 @@ unsafe fn main() -> i32 {
 
     // ── ObjectArray ──────────────────────────────────────────────────────────
     let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
-    let oa_raw: *mut u8 = zone.alloc_tagged(oa_sz, hermes_tag_array(), hermes_desc_array());
-    let oa_buf: *mut u8 = zone.alloc_raw(32);   // 8 AnyVal slots × 4 bytes
+    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, oa_sz, hermes_tag_array() as u64);
+    let oa_buf: *mut u8 = zone_m_alloc_raw(&mut zone, 32 as i64);   // 8 AnyVal slots × 4 bytes
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 8 as u64);
 
     // Fresh array: size=0, capacity=8.
@@ -143,16 +143,15 @@ unsafe fn main() -> i32 {
     if arr.get(base as *const u8, 2 as u64).as_i24() != 30     { return 34; }
     if !arr.get(base as *const u8, 100 as u64).is_null()        { return 35; }
 
-    // TypeTag raw: byte[-2]=100, byte[-1]=1|(1<<3)=9.
-    let ba_hash: u8 = *((oa_raw as i64 - 2) as *const u8);
-    let ba_desc: u8 = *((oa_raw as i64 - 1) as *const u8);
-    if ba_hash != 100 as u8                                     { return 36; }
-    if ba_desc != 9 as u8                                       { return 37; }  // 1|(1<<3)
+    // TypeTag vlen: byte[-1] = type_code = 100 (ObjectArray).
+    let ba_tc: u8 = *((oa_raw as i64 - 1) as *const u8);
+    if ba_tc != 100 as u8                                       { return 36; }
+    if read_type_code(oa_raw as *const u8) != 100 as u64        { return 37; }
 
     // ── ObjectMap basic ──────────────────────────────────────────────────────
     let om_sz: i64 = sizeof::<ObjectMap>() as i64;
-    let om_raw: *mut u8 = zone.alloc_tagged(om_sz, hermes_tag_map(), hermes_desc_map());
-    let om_ent: *mut u8 = zone.alloc_raw(128);   // 16 × 8-byte MapEntry
+    let om_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, om_sz, hermes_tag_map() as u64);
+    let om_ent: *mut u8 = zone_m_alloc_raw(&mut zone, 128 as i64);   // 16 × 8-byte MapEntry
     let omap: *mut ObjectMap = ObjectMap::init(om_raw, base, om_ent, 16 as u32);
 
     // Header fields: entries_off=zone-relative offset of om_ent, capacity=16, count=0.
@@ -169,7 +168,7 @@ unsafe fn main() -> i32 {
     }
 
     // Key "name" (n=110, a=97, m=109, e=101 → 4 bytes).
-    let hs_name: *mut u8 = zone.alloc_raw(5);
+    let hs_name: *mut u8 = zone_m_alloc_raw(&mut zone, 5 as i64);
     *((hs_name as i64 + 0) as *mut u8) = 4 as u8;
     *((hs_name as i64 + 1) as *mut u8) = 110 as u8; // 'n'
     *((hs_name as i64 + 2) as *mut u8) = 97 as u8;  // 'a'
@@ -179,7 +178,7 @@ unsafe fn main() -> i32 {
     let key_name: *const u8 = (hs_name as i64 + 1) as *const u8;
 
     // Key "age" (a=97, g=103, e=101 → 3 bytes).
-    let hs_age: *mut u8 = zone.alloc_raw(4);
+    let hs_age: *mut u8 = zone_m_alloc_raw(&mut zone, 4 as i64);
     *((hs_age as i64 + 0) as *mut u8) = 3 as u8;
     *((hs_age as i64 + 1) as *mut u8) = 97 as u8;   // 'a'
     *((hs_age as i64 + 2) as *mut u8) = 103 as u8;  // 'g'
@@ -188,7 +187,7 @@ unsafe fn main() -> i32 {
     let key_age: *const u8 = (hs_age as i64 + 1) as *const u8;
 
     // Absent key "miss".
-    let hs_miss: *mut u8 = zone.alloc_raw(5);
+    let hs_miss: *mut u8 = zone_m_alloc_raw(&mut zone, 5 as i64);
     *((hs_miss as i64 + 0) as *mut u8) = 4 as u8;
     *((hs_miss as i64 + 1) as *mut u8) = 109 as u8; // 'm'
     *((hs_miss as i64 + 2) as *mut u8) = 105 as u8; // 'i'
@@ -208,19 +207,18 @@ unsafe fn main() -> i32 {
     if omap.get(base as *const u8, key_age,  3 as u64).as_i24() != 30 { return 47; }
     if !omap.get(base as *const u8, key_miss, 4 as u64).is_null()     { return 48; }
 
-    // TypeTag raw: byte[-2]=101, byte[-1]=1|(2<<3)=17.
-    let bm_hash: u8 = *((om_raw as i64 - 2) as *const u8);
-    let bm_desc: u8 = *((om_raw as i64 - 1) as *const u8);
-    if bm_hash != 101 as u8                                     { return 49; }
-    if bm_desc != 17 as u8                                      { return 50; }
+    // TypeTag vlen: byte[-1] = type_code = 101 (ObjectMap).
+    let bm_tc: u8 = *((om_raw as i64 - 1) as *const u8);
+    if bm_tc != 101 as u8                                       { return 49; }
+    if read_type_code(om_raw as *const u8) != 101 as u64        { return 50; }
 
     // ── ObjectMap update ─────────────────────────────────────────────────────
-    let om2_raw: *mut u8 = zone.alloc_tagged(om_sz, hermes_tag_map(), hermes_desc_map());
-    let om2_ent: *mut u8 = zone.alloc_raw(128);   // 16 × 8-byte MapEntry
+    let om2_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, om_sz, hermes_tag_map() as u64);
+    let om2_ent: *mut u8 = zone_m_alloc_raw(&mut zone, 128 as i64);   // 16 × 8-byte MapEntry
     let omap2: *mut ObjectMap = ObjectMap::init(om2_raw, base, om2_ent, 16 as u32);
 
     // Key "key" (k=107, e=101, y=121 → 3 bytes).
-    let hs_key: *mut u8 = zone.alloc_raw(4);
+    let hs_key: *mut u8 = zone_m_alloc_raw(&mut zone, 4 as i64);
     *((hs_key as i64 + 0) as *mut u8) = 3 as u8;
     *((hs_key as i64 + 1) as *mut u8) = 107 as u8;  // 'k'
     *((hs_key as i64 + 2) as *mut u8) = 101 as u8;  // 'e'
@@ -260,6 +258,6 @@ unsafe fn main() -> i32 {
     // val must be the raw of AnyVal::embed_i24(2).
     if found_val != AnyVal::embed_i24(2).raw                    { return 55; }
 
-    zone.destroy();
+    zone.release();
     return 42;
 }

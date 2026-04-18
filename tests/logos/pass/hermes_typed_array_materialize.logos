@@ -6,6 +6,7 @@ use hermes.ctr;
 use hermes.anyval;
 use hermes.containers;
 use hermes.typetag;
+use hermes.datatag;
 use hermes.registry;
 use hermes.stringify;
 use std.string;
@@ -22,7 +23,7 @@ unsafe fn main() -> i32 {
 
     let base: *const u8 = doc.base();
     let obj: *const u8 = (base as i64 + root.as_offset() as i64) as *const u8;
-    if tag_read_hash(obj) != 104 as u8 { return 3; }  // ArrayI32 type_code
+    if read_type_code(obj) != 104 as u64 { return 3; }  // ArrayI32 type_code
 
     let arr: *const ArrayI32 = obj as *const ArrayI32;
     if arr.size != 3 as u64 { return 4; }

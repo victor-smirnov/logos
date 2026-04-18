@@ -19,7 +19,7 @@ unsafe fn main() -> i32 {
     let prefix_sz: i64 = vlen_encode_size(2 as u64) as i64;
     let total: i64 = prefix_sz + 2;
     let raw: *mut u8 = zone_m_alloc_tagged(&mut zone, total,
-        hermes_tag_string(), hermes_desc_data());
+        hermes_tag_string() as u64);
     HermesString::init(raw, msg, 2 as u64);
 
     // Build a StringifyCtx.

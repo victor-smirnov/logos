@@ -4,6 +4,7 @@ package hermes_typed_datatype_trait_coverage;
 use hermes.ctr;
 use hermes.anyval;
 use hermes.typetag;
+use hermes.datatag;
 use hermes.registry;
 use hermes.stringify;
 use hermes.equal;
@@ -22,7 +23,7 @@ unsafe fn main() -> i32 {
     let root: AnyVal = d.root();
     if !root.is_ptr() { return 2; }
     let obj: *const u8 = (d.base() as i64 + root.as_offset() as i64) as *const u8;
-    if tag_read_hash(obj) != 106 as u8 { return 3; }
+    if read_type_code(obj) != 106 as u64 { return 3; }
 
     let fs: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(106 as u64);
     if (fs as *const u8) == 0 as *const u8 { return 4; }

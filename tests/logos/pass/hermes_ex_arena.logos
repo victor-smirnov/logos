@@ -8,6 +8,7 @@ use hermes.zone;
 use hermes.relptr;
 use hermes.anyval;
 use hermes.typetag;
+use hermes.datatag;
 use hermes.string;
 
 eidos Slot { pub val: i32 }
@@ -110,59 +111,53 @@ unsafe fn main() -> i32 {
     if vi24.is_ptr()                                            { return 33; }
     if vu24.is_ptr()                                            { return 34; }
 
-    // ── TypeTag raw memory layout ────────────────────────────────────────────
-    // Spec: byte[obj-2] = type_hash, byte[obj-1] = code_len | (descriptor << 3).
-    // alloc_tagged always uses code_len = 1, so byte[obj-1] = 1 | (descriptor << 3).
-    //
-    // Expected byte[obj-1] values:
-    //   Data(0):  1 | (0 << 3) = 1
-    //   Array(1): 1 | (1 << 3) = 9
-    //   Map(2):   1 | (2 << 3) = 17
+    // ── TypeTag vlen memory layout ───────────────────────────────────────────
+    // New vlen format: 1 byte for codes 1-222, at obj[-1] = type_code directly.
+    // Use Zone<Mutable> for tagged allocation.
+    let mut tz: Zone<Mutable> = zone_create(4096 as i64);
+    let _thdr: *mut u8 = zone_m_alloc_raw(&mut tz, 8 as i64);  // reserve offset 0
 
-    // hash=20, descriptor=Data(0) → byte[-2]=20, byte[-1]=1
-    let obj20: *mut u8 = zone.alloc_tagged(4, 20 as u8, hermes_desc_data());
-    let b20_hash: u8 = *((obj20 as i64 - 2 as i64) as *const u8);
-    let b20_desc: u8 = *((obj20 as i64 - 1 as i64) as *const u8);
-    if b20_hash != 20 as u8                                     { return 35; }
-    if b20_desc != 1 as u8                                      { return 36; }  // 1|(0<<3)
+    // type_code=20, tag_size=1 → byte[-1]=20
+    let obj20: *mut u8 = zone_m_alloc_tagged(&mut tz, 4 as i64, 20 as u64);
+    let b20_tc: u8 = *((obj20 as i64 - 1 as i64) as *const u8);
+    if b20_tc != 20 as u8                                       { return 35; }
+    if read_type_code(obj20 as *const u8) != 20 as u64         { return 36; }
 
-    // hash=28 (Varchar), descriptor=Data(0) → byte[-1]=1
-    let obj28: *mut u8 = zone.alloc_tagged(8, hermes_tag_string(), hermes_desc_data());
-    let b28_hash: u8 = *((obj28 as i64 - 2 as i64) as *const u8);
-    let b28_desc: u8 = *((obj28 as i64 - 1 as i64) as *const u8);
-    if b28_hash != 28 as u8                                     { return 37; }
-    if b28_desc != 1 as u8                                      { return 38; }
+    // type_code=28 (Varchar) → byte[-1]=28
+    let obj28: *mut u8 = zone_m_alloc_tagged(&mut tz, 8 as i64, hermes_tag_string() as u64);
+    let b28_tc: u8 = *((obj28 as i64 - 1 as i64) as *const u8);
+    if b28_tc != 28 as u8                                       { return 37; }
+    if read_type_code(obj28 as *const u8) != 28 as u64         { return 38; }
 
-    // hash=98 (TinyObjectMap), descriptor=Map(2) → byte[-1]=17
-    let obj98: *mut u8 = zone.alloc_tagged(16, hermes_tag_tiny_map(), hermes_desc_map());
-    let b98_hash: u8 = *((obj98 as i64 - 2 as i64) as *const u8);
-    let b98_desc: u8 = *((obj98 as i64 - 1 as i64) as *const u8);
-    if b98_hash != 98 as u8                                     { return 39; }
-    if b98_desc != 17 as u8                                     { return 40; }  // 1|(2<<3)
+    // type_code=98 (TinyObjectMap) → byte[-1]=98
+    let obj98: *mut u8 = zone_m_alloc_tagged(&mut tz, 16 as i64, hermes_tag_tiny_map() as u64);
+    let b98_tc: u8 = *((obj98 as i64 - 1 as i64) as *const u8);
+    if b98_tc != 98 as u8                                       { return 39; }
+    if read_type_code(obj98 as *const u8) != 98 as u64         { return 40; }
 
-    // hash=100 (ObjectArray), descriptor=Array(1) → byte[-1]=9
-    let obj100: *mut u8 = zone.alloc_tagged(24, hermes_tag_array(), hermes_desc_array());
-    let b100_hash: u8 = *((obj100 as i64 - 2 as i64) as *const u8);
-    let b100_desc: u8 = *((obj100 as i64 - 1 as i64) as *const u8);
-    if b100_hash != 100 as u8                                   { return 41; }
-    if b100_desc != 9 as u8                                     { return 42; }  // 1|(1<<3)
+    // type_code=100 (ObjectArray) → byte[-1]=100
+    let obj100: *mut u8 = zone_m_alloc_tagged(&mut tz, 24 as i64, hermes_tag_array() as u64);
+    let b100_tc: u8 = *((obj100 as i64 - 1 as i64) as *const u8);
+    if b100_tc != 100 as u8                                     { return 41; }
+    if read_type_code(obj100 as *const u8) != 100 as u64       { return 42; }
 
-    // hash=101 (ObjectMap), descriptor=Map(2) → byte[-1]=17
-    let obj101: *mut u8 = zone.alloc_tagged(16, hermes_tag_map(), hermes_desc_map());
-    let b101_hash: u8 = *((obj101 as i64 - 2 as i64) as *const u8);
-    let b101_desc: u8 = *((obj101 as i64 - 1 as i64) as *const u8);
-    if b101_hash != 101 as u8                                   { return 43; }
-    if b101_desc != 17 as u8                                    { return 44; }
+    // type_code=101 (ObjectMap) → byte[-1]=101
+    let obj101: *mut u8 = zone_m_alloc_tagged(&mut tz, 16 as i64, hermes_tag_map() as u64);
+    let b101_tc: u8 = *((obj101 as i64 - 1 as i64) as *const u8);
+    if b101_tc != 101 as u8                                     { return 43; }
+    if read_type_code(obj101 as *const u8) != 101 as u64       { return 44; }
 
-    // tag_read_* helpers must agree with the raw bytes.
-    if tag_read_hash(obj98 as *const u8) != b98_hash            { return 45; }
-    if tag_read_descriptor(obj98 as *const u8) != hermes_desc_map() { return 46; }
+    // tag_size for all codes 1-222 must be 1.
+    if tag_size(28 as u64)  != 1 as i64                        { return 45; }
+    if tag_size(98 as u64)  != 1 as i64                        { return 46; }
 
     // Objects must not overlap.
     if obj28 as i64 <= obj20 as i64                             { return 47; }
     if obj98 as i64 <= obj28 as i64                             { return 48; }
     if obj100 as i64 <= obj98 as i64                            { return 49; }
     if obj101 as i64 <= obj100 as i64                           { return 50; }
+
+    tz.release();
 
     // ── vlen: encoding AND raw byte layout ───────────────────────────────────
     let vbuf: *mut u8 = zone.alloc_raw(16);

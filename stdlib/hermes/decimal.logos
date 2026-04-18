@@ -21,6 +21,7 @@ package hermes.decimal;
 use hermes.zone;
 use hermes.anyval;
 use hermes.typetag;
+use hermes.datatag;
 use std.string;
 
 const DEC_BASE: u64 = 1000000000 as u64;
@@ -172,7 +173,8 @@ pub unsafe fn decimal_is_negative(spec: u32) -> bool {
 pub unsafe fn decimal_ptr(base: *const u8, v: AnyVal) -> *const Decimal {
     if !v.is_ptr() || v.is_null() { return 0 as *const Decimal; }
     let obj: *const u8 = (base as i64 + v.as_offset() as i64) as *const u8;
-    if tag_read_hash(obj) != hermes_tag_decimal() { return 0 as *const Decimal; }
+    let th: u64 = read_type_code(obj);
+    if th != hermes_tag_decimal() as u64 { return 0 as *const Decimal; }
     return obj as *const Decimal;
 }
 
@@ -337,7 +339,7 @@ unsafe fn decimal_alloc(zone: *mut Zone<Mutable>, p: u32, s: u32, nlimbs: u32, n
     if s > p || s > 4095 as u32 { return 0 as *mut Decimal; }
     if nlimbs > DECIMAL_MAX_LIMBS { return 0 as *mut Decimal; }
     let total: i64 = sizeof::<Decimal>() as i64 + (nlimbs as i64) * 4 as i64;
-    let raw: *mut u8 = zone_m_alloc_tagged(zone, total, hermes_tag_decimal(), hermes_desc_data());
+    let raw: *mut u8 = zone_m_alloc_tagged(zone, total, hermes_tag_decimal() as u64);
     if raw == 0 as *mut u8 { return 0 as *mut Decimal; }
     let d: *mut Decimal = Decimal::init(raw, p, s, nlimbs, neg);
     let mut i: u32 = 0 as u32;

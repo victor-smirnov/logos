@@ -103,10 +103,10 @@ pub unsafe fn zone_alloc_typed<T>(z: *mut Zone<Mutable>) -> DataRef<T> {
 }
 
 // Allocate a tagged object (`size` bytes) in a mutable zone.
-// Reserves 2 TypeTag bytes before the object.  Returns raw *mut u8 to object.
-pub unsafe fn zone_m_alloc_tagged(z: *mut Zone<Mutable>, size: i64,
-                                   type_hash: u8, descriptor: u8) -> *mut u8 {
-    return memholder_alloc_tagged(z.holder, size, type_hash, descriptor);
+// Reserves tag_size(type_code) bytes before the object (vlen format).
+// Returns raw *mut u8 to object.
+pub unsafe fn zone_m_alloc_tagged(z: *mut Zone<Mutable>, size: i64, type_code: u64) -> *mut u8 {
+    return memholder_alloc_tagged(z.holder, size, type_code);
 }
 
 // Seal the zone: consume Zone<Mutable> and return Zone<Immutable>.

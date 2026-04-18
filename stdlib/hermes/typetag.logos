@@ -2,20 +2,18 @@
 // Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.typetag
 //
-// Phase 11: TypeTag helpers — canonical type-hash constants, TagDescriptor
-// constants, and the 2-byte tag read/write helpers.
+// TypeTag helpers — canonical type_code constants for Hermes zone objects.
 //
-// TypeTag wire format (2 bytes immediately before every tagged object):
-//   byte[obj-1] = code_len (bits 0-2) | descriptor (bits 3-7)
-//                 code_len = 1 for all Hermes core types (2-byte tag total)
-//   byte[obj-2] = type_hash low byte
+// TypeTag wire format (vlen, 1 byte for codes 1-222):
+//   obj[-1] = type_code directly for codes 1-222
+//   obj[-1] = length header for codes 223+ (multi-byte encoding)
 //
-// This is the little-endian serialisation of the C++ TypeTag uint64:
-//   raw_ = (type_hash << 8) | (descriptor << 3) | code_len
-// Since all core type hashes fit in 8 bits and use code_len=1, only 2 bytes
-// are written.  Compatible with C++ TypeTag::read_before / write_before.
+// Read/write of the vlen tag is handled by hermes.datatag:
+//   write_tag(obj, type_code: u64)
+//   read_type_code(obj) -> u64
+//   tag_size(type_code) -> i64
 //
-// Canonical type-hash values (from hermes-abi.json / type_registry.hpp):
+// Canonical type_code values:
 //   28  = Varchar    (HermesString / ArenaString)
 //   98  = Hermes     (TinyObjectMap)
 //   100 = ObjectArray
@@ -27,11 +25,6 @@
 //   106 = TypedValue (@Type(...)=initializer)
 //   107 = Decimal (fixed-precision decimal with inline limb tail)
 //   3   = Document   (Logos extension — DocumentHeader at zone offset 0)
-//
-// TagDescriptor values (C++ TagDescriptor enum):
-//   0 = Data   (plain data types: strings, integers, …)
-//   1 = Array  (ObjectArray)
-//   2 = Map    (TinyObjectMap or ObjectMap)
 
 package hermes.typetag;
 
@@ -83,37 +76,3 @@ pub unsafe fn hermes_tag_document() -> u8 {
     return 3 as u8;     // DocumentHeader (Logos extension, no C++ counterpart)
 }
 
-// ---------------------------------------------------------------------------
-// TagDescriptor constants
-// ---------------------------------------------------------------------------
-
-pub unsafe fn hermes_desc_data() -> u8 {
-    return 0 as u8;   // TagDescriptor::Data
-}
-
-pub unsafe fn hermes_desc_array() -> u8 {
-    return 1 as u8;   // TagDescriptor::Array
-}
-
-pub unsafe fn hermes_desc_map() -> u8 {
-    return 2 as u8;   // TagDescriptor::Map
-}
-
-// ---------------------------------------------------------------------------
-// Tag read helpers
-// (Valid for all tags written by HermesZone::alloc_tagged with code_len=1.)
-// ---------------------------------------------------------------------------
-
-// Read the type_hash byte from the 2-byte tag preceding the object at `ptr`.
-pub unsafe fn tag_read_hash(ptr: *const u8) -> u8 {
-    let p: *const u8 = (ptr as i64 - 2) as *const u8;
-    return *p;
-}
-
-// Read the TagDescriptor from the 2-byte tag preceding `ptr`.
-// Returns the upper 5 bits of byte[obj-1]: descriptor in bits [7:3].
-pub unsafe fn tag_read_descriptor(ptr: *const u8) -> u8 {
-    let p: *const u8 = (ptr as i64 - 1) as *const u8;
-    let raw: u8 = *p;
-    return (raw as u32 >> 3 as u32) as u8;
-}

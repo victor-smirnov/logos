@@ -31,6 +31,9 @@
 
 package hermes.anyval;
 
+use hermes.datatag;
+use hermes.typetag;
+
 // AnyVal layout: single 4-byte raw field.
 pub eidos AnyVal {
     pub raw: u32,
@@ -182,35 +185,29 @@ impl AnyVal {
     //   byte[obj-1] = (descriptor << 3) | code_len
     // Descriptor 0 = Data (strings), 1 = Array, 2 = Map.
 
-    // True if this AnyVal points to a Varchar/HermesString (descriptor=0, hash=28).
+    // True if this AnyVal points to a Varchar/HermesString (type_code=28).
     pub unsafe fn is_string(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
         let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
-        let tag_hash: u8 = *((obj as i64 - 2 as i64) as *const u8);
-        let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
-        let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
-        return desc == 0 as u8 && tag_hash == 28 as u8;
+        return read_type_code(obj) == hermes_tag_string() as u64;
     }
 
-    // True if this AnyVal points to an ObjectArray (descriptor=1).
+    // True if this AnyVal points to an ObjectArray (type_code=100).
     pub unsafe fn is_array(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
         let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
-        let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
-        let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
-        return desc == 1 as u8;
+        return read_type_code(obj) == hermes_tag_array() as u64;
     }
 
-    // True if this AnyVal points to a map object (descriptor=2).
+    // True if this AnyVal points to a map object (type_code=101 ObjectMap or 98 TinyObjectMap).
     pub unsafe fn is_map(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
         let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
-        let tag_desc_raw: u8 = *((obj as i64 - 1 as i64) as *const u8);
-        let desc: u8 = (tag_desc_raw as u32 >> 3 as u32) as u8;
-        return desc == 2 as u8;
+        let tc: u64 = read_type_code(obj);
+        return tc == hermes_tag_map() as u64 || tc == hermes_tag_tiny_map() as u64;
     }
 
     // --- Safe value extraction ---
