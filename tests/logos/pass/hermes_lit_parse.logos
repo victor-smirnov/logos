@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// hermes_lit_parse.logos — Phase 1: verify @-literal grammar parses correctly.
+// Phase 1 codegen stub emits null *const u8; we just check the program compiles.
+
+package hermes_lit_parse;
+
+pub fn main() -> i32 {
+    // map literal
+    let _m: *const u8 = @{"name": "Alice", "age": 42};
+    // array literal
+    let _a: *const u8 = @[1, 2, 3];
+    // scalar literals
+    let _s: *const u8 = @"hello";
+    let _i: *const u8 = @42;
+    let _b: *const u8 = @true;
+    let _n: *const u8 = @null;
+    // nested
+    let _nested: *const u8 = @{"items": [1, 2], "flag": true};
+    return 0;
+}

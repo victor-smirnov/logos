@@ -87,7 +87,7 @@ impl DecimalView {
         return DecimalView { ptr: ptr };
     }
 
-    pub unsafe fn null() -> DecimalView {
+    pub unsafe fn null_view() -> DecimalView {
         return DecimalView { ptr: 0 as *const Decimal };
     }
 

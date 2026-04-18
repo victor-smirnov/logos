@@ -603,6 +603,8 @@ private:
     lir::LExprPtr lower_index_read(hermes::TinyMapView node);
     lir::LExprPtr lower_arr_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_arr_fill_lit(hermes::TinyMapView node);
+    lir::LExprPtr lower_hermes_lit(hermes::TinyMapView node);
+    lir::HermesValPtr lower_hermes_val(hermes::TinyMapView node);
     lir::LExprPtr lower_enum_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_enum_lit_data(hermes::TinyMapView node);
     lir::LExprPtr lower_enum_lit_data_from_static(

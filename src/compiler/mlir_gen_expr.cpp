@@ -1823,4 +1823,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, const LogosType* type) {
     return builder_.create<mlir::LLVM::LoadOp>(loc_, ok_mlir, result_alloca);
 }
 
+// ---------------------------------------------------------------------------
+// Hermes SDN literal — Phase 1 stub (blob generation in Phase 2)
+// ---------------------------------------------------------------------------
+
+mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit&, const LogosType*) {
+    // Phase 1: emit null *const u8. Phase 2 will emit a static zone blob and
+    // return a pointer to the document root within it.
+    return builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+}
+
 } // namespace logos::compiler

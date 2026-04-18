@@ -209,6 +209,13 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::INDEX_READ:  return lower_index_read(expr);
     case la::ARR_LIT:      return lower_arr_lit(expr);
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
+    case la::HERMES_MAP:
+    case la::HERMES_ARRAY:
+    case la::HERMES_STR:
+    case la::HERMES_INT:
+    case la::HERMES_FLOAT:
+    case la::HERMES_BOOL:
+    case la::HERMES_NULL:  return lower_hermes_lit(expr);
     case la::ENUM_LIT:    return lower_enum_lit(expr);
     case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
     case la::IF:          return lower_if_expr(expr);
@@ -3743,5 +3750,130 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     return make_expr(ctype, lir::EClosureBox{std::move(ec)});
 }
 
+
+// ---------------------------------------------------------------------------
+// Hermes SDN literal lowering
+// ---------------------------------------------------------------------------
+
+lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
+    int32_t c = code_of(node);
+
+    if (c == la::HERMES_NULL.code)
+        return std::make_unique<lir::HermesVal>(lir::HVNull{});
+
+    if (c == la::HERMES_BOOL.code) {
+        AnyVal av = node.get(la::VALUE.code);
+        bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        return std::make_unique<lir::HermesVal>(lir::HVBool{v});
+    }
+
+    if (c == la::HERMES_INT.code) {
+        auto sv = str_of(node.get(la::VALUE.code));
+        // Strip suffix (i32, u64, etc.) and parse
+        std::string s(sv);
+        static const char* suffixes[] = {
+            "i8","i16","i24","i32","i56","i64","i128",
+            "u8","u16","u24","u32","u56","u64","u128","usize","isize"
+        };
+        for (auto* suf : suffixes) {
+            if (s.size() > strlen(suf) && s.substr(s.size()-strlen(suf)) == suf)
+                { s = s.substr(0, s.size()-strlen(suf)); break; }
+        }
+        bool neg = !s.empty() && s[0] == '-';
+        if (neg) s = s.substr(1);
+        int64_t v = 0;
+        if (s.size() > 2 && s[0] == '0' && s[1] == 'x')
+            v = (int64_t)std::stoull(s.substr(2), nullptr, 16);
+        else if (s.size() > 2 && s[0] == '0' && s[1] == 'b')
+            v = (int64_t)std::stoull(s.substr(2), nullptr, 2);
+        else
+            v = (int64_t)std::stoull(s, nullptr, 10);
+        if (neg) v = -v;
+        return std::make_unique<lir::HermesVal>(lir::HVInt{v});
+    }
+
+    if (c == la::HERMES_FLOAT.code) {
+        auto sv = str_of(node.get(la::VALUE.code));
+        std::string s(sv);
+        // strip f32/f64 suffix
+        if (s.size() > 3 && (s.substr(s.size()-3) == "f32" || s.substr(s.size()-3) == "f64"))
+            s = s.substr(0, s.size()-3);
+        double v = std::stod(s);
+        return std::make_unique<lir::HermesVal>(lir::HVFloat{v});
+    }
+
+    if (c == la::HERMES_STR.code) {
+        auto sv = str_of(node.get(la::VALUE.code));
+        std::string s(sv);
+        // Strip surrounding quotes and handle basic escapes
+        if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
+            s = s.substr(1, s.size()-2);
+        // Process escape sequences
+        std::string out;
+        for (size_t i = 0; i < s.size(); ++i) {
+            if (s[i] == '\\' && i+1 < s.size()) {
+                switch (s[++i]) {
+                case 'n':  out += '\n'; break;
+                case 't':  out += '\t'; break;
+                case 'r':  out += '\r'; break;
+                case '\\': out += '\\'; break;
+                case '"':  out += '"';  break;
+                case '0':  out += '\0'; break;
+                default:   out += '\\'; out += s[i]; break;
+                }
+            } else {
+                out += s[i];
+            }
+        }
+        return std::make_unique<lir::HermesVal>(lir::HVStr{std::move(out)});
+    }
+
+    if (c == la::HERMES_MAP.code) {
+        lir::HVMap m;
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto entry = map_of(items.get(i));
+                auto key_raw = str_of(entry.get(la::KEY.code));
+                auto val_node = map_of(entry.get(la::VALUE.code));
+                auto hv = lower_hermes_val(val_node);
+                if (!hv) return nullptr;
+                lir::HVMapEntry e;
+                if (!key_raw.empty() && key_raw[0] == '"') {
+                    std::string ks(key_raw.substr(1, key_raw.size()-2));
+                    e.key = std::move(ks);
+                } else {
+                    e.key = (int64_t)std::stoll(std::string(key_raw));
+                }
+                e.val = std::move(hv);
+                m.entries.push_back(std::move(e));
+            }
+        }
+        return std::make_unique<lir::HermesVal>(std::move(m));
+    }
+
+    if (c == la::HERMES_ARRAY.code) {
+        lir::HVArray a;
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto elem = map_of(items.get(i));
+                auto hv = lower_hermes_val(elem);
+                if (!hv) return nullptr;
+                a.elements.push_back(std::move(hv));
+            }
+        }
+        return std::make_unique<lir::HermesVal>(std::move(a));
+    }
+
+    error("unexpected Hermes literal node kind");
+    return nullptr;
+}
+
+lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
+    auto val = lower_hermes_val(node);
+    if (!val) return error_expr();
+    return make_expr(make_ptr(false, u8_t()), lir::EHermesLit{std::move(val)});
+}
 
 } // namespace logos::compiler

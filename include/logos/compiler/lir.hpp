@@ -117,6 +117,36 @@ struct LMatchArm {
     std::optional<LExprPtr>  guard;  // if-guard: arm only matches when guard is true
 };
 
+// ── Hermes SDN literal tree ───────────────────────────────────────────────
+
+struct HermesVal;
+using HermesValPtr = std::unique_ptr<HermesVal>;
+
+struct HVNull  {};
+struct HVBool  { bool value; };
+struct HVInt   { int64_t value; };
+struct HVFloat { double value; };
+struct HVStr   { std::string value; };
+
+struct HVMapEntry {
+    std::variant<std::string, int64_t> key;
+    HermesValPtr val;
+};
+
+struct HVMap   { std::vector<HVMapEntry> entries; };
+struct HVArray { std::vector<HermesValPtr> elements; };
+
+struct HermesVal {
+    std::variant<HVNull, HVBool, HVInt, HVFloat, HVStr, HVMap, HVArray> kind;
+};
+
+// A Hermes SDN literal (@{...}, @[...], @scalar) lowered to a tree.
+// Phase 1: type is *const u8 (placeholder). Phase 2 will compute zone size N
+// and emit the blob as a static LLVM global, returning a pointer to its root.
+struct EHermesLit {
+    HermesValPtr root;
+};
+
 // ── Expression node payloads ──────────────────────────────────────────────
 
 struct ELitInt    { int64_t value; };
@@ -343,7 +373,8 @@ struct LExpr {
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
         EClosureBox, EClosureCall, EFnPtrCall, EFormatCall, EPackExpand,
-        ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr
+        ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr,
+        EHermesLit
     > kind;
 };
 

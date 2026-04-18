@@ -524,6 +524,36 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = std::move(nb);
         } else if constexpr (std::is_same_v<K, lir::EAddrOfTemp>) {
             result->kind = lir::EAddrOfTemp{subst_expr(*k.inner, s), k.is_mut};
+        } else if constexpr (std::is_same_v<K, lir::EHermesLit>) {
+            // Deep-clone the Hermes value tree (no type variables inside).
+            std::function<lir::HermesValPtr(const lir::HermesVal&)> clone_hv =
+                [&](const lir::HermesVal& v) -> lir::HermesValPtr {
+                auto out = std::make_unique<lir::HermesVal>();
+                std::visit([&](const auto& kk) {
+                    using KK = std::decay_t<decltype(kk)>;
+                    if constexpr (std::is_same_v<KK, lir::HVNull>  ||
+                                  std::is_same_v<KK, lir::HVBool>  ||
+                                  std::is_same_v<KK, lir::HVInt>   ||
+                                  std::is_same_v<KK, lir::HVFloat> ||
+                                  std::is_same_v<KK, lir::HVStr>) {
+                        out->kind = kk;
+                    } else if constexpr (std::is_same_v<KK, lir::HVMap>) {
+                        lir::HVMap nm;
+                        for (auto& e : kk.entries)
+                            nm.entries.push_back({e.key, clone_hv(*e.val)});
+                        out->kind = std::move(nm);
+                    } else if constexpr (std::is_same_v<KK, lir::HVArray>) {
+                        lir::HVArray na;
+                        for (auto& elem : kk.elements)
+                            na.elements.push_back(clone_hv(*elem));
+                        out->kind = std::move(na);
+                    }
+                }, v.kind);
+                return out;
+            };
+            lir::EHermesLit nl;
+            if (k.root) nl.root = clone_hv(*k.root);
+            result->kind = std::move(nl);
         }
     }, e.kind);
 

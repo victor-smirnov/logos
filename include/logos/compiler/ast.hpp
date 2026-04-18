@@ -226,6 +226,14 @@ inline constexpr Code PAT_FIELD   {"PAT_FIELD",   159};  // named field in struc
 inline constexpr Code PAT_REST    {"PAT_REST",    160};  // .. rest in struct/slice pattern
 inline constexpr Code CHAIN_FIELD_WRITE          {"CHAIN_FIELD_WRITE",          161};  // a.b.c = val
 inline constexpr Code CHAIN_FIELD_COMPOUND_ASSIGN{"CHAIN_FIELD_COMPOUND_ASSIGN", 162};  // a.b.c op= val
+inline constexpr Code HERMES_MAP   {"HERMES_MAP",   163};  // @{k:v,...} Hermes map literal
+inline constexpr Code HERMES_ARRAY {"HERMES_ARRAY", 164};  // @[v,...] Hermes array literal
+inline constexpr Code HERMES_STR   {"HERMES_STR",   165};  // string value in Hermes literal
+inline constexpr Code HERMES_INT   {"HERMES_INT",   166};  // integer value in Hermes literal
+inline constexpr Code HERMES_FLOAT {"HERMES_FLOAT", 167};  // float value in Hermes literal
+inline constexpr Code HERMES_BOOL  {"HERMES_BOOL",  168};  // bool value in Hermes literal
+inline constexpr Code HERMES_NULL  {"HERMES_NULL",  169};  // null in Hermes literal
+inline constexpr Code HERMES_ENTRY {"HERMES_ENTRY", 170};  // key:val pair in Hermes map
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
@@ -246,6 +254,7 @@ inline constexpr Key LABEL     {"LABEL",     47};            // loop label (e.g.
 inline constexpr Key SUPERS    {"SUPERS",    48};            // supertrait bound list on TRAIT_DEF
 inline constexpr Key LO_NEG    {"LO_NEG",    49};            // lo bound is negative (PAT_RANGE)
 inline constexpr Key HI_NEG    {"HI_NEG",    50};            // hi bound is negative (PAT_RANGE)
+inline constexpr Key KEY       {"KEY",       51};            // map key in HERMES_ENTRY (string or int token)
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr int32_t VIS_PRIVATE = 0;
 inline constexpr int32_t VIS_PUBLIC  = 1;

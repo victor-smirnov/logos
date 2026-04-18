@@ -80,7 +80,8 @@ set(LOGOS_INTEGRATION_TESTS
     hermes_memholder_rc
     hermes_check
     hermes_import_export
-    hermes_hbs)
+    hermes_hbs
+    hermes_lit_parse)
 
 function(logos_determine_suite MODE BASE OUT_VAR)
     if (BASE IN_LIST LOGOS_SMOKE_TESTS)

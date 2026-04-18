@@ -340,6 +340,7 @@ private:
     mlir::Value gen_expr_kind(const ETypeCodeOf& e, const LogosType*);
     mlir::Value gen_expr_kind(const EBlockExpr& e, const LogosType*);
     mlir::Value gen_expr_kind(const ETry& e, const LogosType* type);
+    mlir::Value gen_expr_kind(const EHermesLit& e, const LogosType*);
 
     // ── Struct helpers ────────────────────────────────────────────
     mlir::Value get_struct_ptr(const std::string& name);

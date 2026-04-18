@@ -70,6 +70,7 @@
     SUPERS         = 48
     LO_NEG         = 49
     HI_NEG         = 50
+    KEY            = 51    // map key in HERMES_ENTRY
 
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
@@ -204,6 +205,14 @@
     PAT_REST                    = 160   // .. rest in struct/slice pattern
     CHAIN_FIELD_WRITE           = 161   // a.b.c = val
     CHAIN_FIELD_COMPOUND_ASSIGN = 162   // a.b.c op= val
+    HERMES_MAP                  = 163   // @{k:v,...} or inner {k:v,...} Hermes map literal
+    HERMES_ARRAY                = 164   // @[v,...] or inner [v,...] Hermes array literal
+    HERMES_STR                  = 165   // string value in Hermes literal
+    HERMES_INT                  = 166   // integer value in Hermes literal
+    HERMES_FLOAT                = 167   // float value in Hermes literal
+    HERMES_BOOL                 = 168   // bool value in Hermes literal
+    HERMES_NULL                 = 169   // null value in Hermes literal
+    HERMES_ENTRY                = 170   // key:val pair in Hermes map
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -245,6 +254,7 @@
     KW_UNSAFE   = "unsafe"
     KW_MOVE     = "move"
     KW_REF      = "ref"
+    KW_NULL     = "null"
 
     // Punctuation
     LBRACE      = "{"
@@ -1072,7 +1082,8 @@
             )*
 
     // ── Primary expressions (base of a postfix chain) ─────────────
-    primary_expr <- generic_struct_lit // IDENT::<T> { fields } — before struct_lit
+    primary_expr <- hermes_lit    // @{...} @[...] @scalar — Hermes SDN literal (before IDENT)
+                  / generic_struct_lit // IDENT::<T> { fields } — before struct_lit
                   / struct_update_lit  // IDENT { fields, ..base } — before struct_lit
                   / struct_lit       // IDENT { fields }  — before plain IDENT
                   / arr_fill_lit     // [value; N]  — before arr_lit (avoids ambiguity)
@@ -1126,6 +1137,41 @@
     // ── Array fill literal: [value; N] ───────────────────────────
     arr_fill_lit <- LBRACKET expr SEMI INTEGER RBRACKET
                  => { CODE: ARR_FILL_LIT, VALUE: $2, SIZE: $4 }
+
+    // ── Hermes SDN literals: @{k:v,...}  @[v,...]  @"s"  @42  @true  @null ──
+    // Only the outermost literal needs the @ sigil; inner values are plain.
+    hermes_lit <- AT hermes_map
+               / AT hermes_array
+               / AT RAW_STRING => { CODE: HERMES_STR, VALUE: $2 }
+               / AT STRING     => { CODE: HERMES_STR, VALUE: $2 }
+               / AT FLOAT      => { CODE: HERMES_FLOAT, VALUE: $2 }
+               / AT INTEGER    => { CODE: HERMES_INT, VALUE: $2 }
+               / AT KW_TRUE    => { CODE: HERMES_BOOL, VALUE: true }
+               / AT KW_FALSE   => { CODE: HERMES_BOOL, VALUE: false }
+               / AT KW_NULL    => { CODE: HERMES_NULL }
+
+    hermes_map <- LBRACE (hermes_entry (COMMA hermes_entry)* COMMA?)? RBRACE
+               => { CODE: HERMES_MAP, ITEMS: $... }
+
+    hermes_array <- LBRACKET (hermes_val (COMMA hermes_val)* COMMA?)? RBRACKET
+                 => { CODE: HERMES_ARRAY, ITEMS: $... }
+
+    // key can be a quoted string or an integer (for TinyObjectMap-style maps)
+    hermes_entry <- STRING COLON hermes_val
+                 => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
+                 / INTEGER COLON hermes_val
+                 => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
+
+    // recursive: inner values don't need the @ prefix
+    hermes_val <- hermes_map
+               / hermes_array
+               / RAW_STRING => { CODE: HERMES_STR, VALUE: $1 }
+               / STRING     => { CODE: HERMES_STR, VALUE: $1 }
+               / FLOAT      => { CODE: HERMES_FLOAT, VALUE: $1 }
+               / INTEGER    => { CODE: HERMES_INT, VALUE: $1 }
+               / KW_TRUE    => { CODE: HERMES_BOOL, VALUE: true }
+               / KW_FALSE   => { CODE: HERMES_BOOL, VALUE: false }
+               / KW_NULL    => { CODE: HERMES_NULL }
 
     // ── Array literal: [e1, e2, ...] ─────────────────────────────
     arr_lit <- LBRACKET (expr (COMMA expr)* COMMA?)? RBRACKET
