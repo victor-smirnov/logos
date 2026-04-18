@@ -215,6 +215,8 @@
     HERMES_TYPED_ARRAY          = 171   // @<ElemType>[v,...] — typed dense array literal
     HERMES_NEG_INT              = 172   // negative integer: @-42 or inner -42 in array/map
     HERMES_TYPED_MAP            = 173   // @<K,V>{...} — typed map literal
+    HERMES_CAP_IDENT            = 174   // $x — capture identifier; NAME = var name
+    HERMES_CAP_EXPR             = 175   // ${expr} — capture expression; VALUE = expr
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -310,6 +312,7 @@
     CARET       = "^"
     HASH        = "#"
     AT          = "@"
+    DOLLAR      = "$"
 
     // Literals & identifiers
     RAW_STRING  = /r"[^"]*"/
@@ -1180,7 +1183,10 @@
                  => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
 
     // recursive: inner values don't need the @ prefix
-    hermes_val <- hermes_map
+    // $ident and ${expr} are runtime capture placeholders
+    hermes_val <- DOLLAR LBRACE expr RBRACE => { CODE: HERMES_CAP_EXPR, VALUE: $3 }
+               / DOLLAR IDENT              => { CODE: HERMES_CAP_IDENT, NAME: $2 }
+               / hermes_map
                / hermes_array
                / RAW_STRING => { CODE: HERMES_STR, VALUE: $1 }
                / STRING     => { CODE: HERMES_STR, VALUE: $1 }

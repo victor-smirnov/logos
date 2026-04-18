@@ -237,6 +237,8 @@ inline constexpr Code HERMES_ENTRY        {"HERMES_ENTRY",        170};  // key:
 inline constexpr Code HERMES_TYPED_ARRAY  {"HERMES_TYPED_ARRAY",  171};  // @<ElemType>[v,...] typed array literal
 inline constexpr Code HERMES_NEG_INT      {"HERMES_NEG_INT",      172};  // negative integer in Hermes literal: @-42
 inline constexpr Code HERMES_TYPED_MAP    {"HERMES_TYPED_MAP",    173};  // @<K,V>{...} typed map literal
+inline constexpr Code HERMES_CAP_IDENT   {"HERMES_CAP_IDENT",    174};  // $x capture of identifier; NAME(1) = var name
+inline constexpr Code HERMES_CAP_EXPR    {"HERMES_CAP_EXPR",     175};  // ${expr} capture of expression; VALUE(7) = expr
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

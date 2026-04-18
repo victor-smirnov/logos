@@ -3922,6 +3922,16 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto elem = map_of(items.get(i));
+                // Typed arrays store raw element values (not AnyVal), so capture
+                // placeholders have no slot to occupy.
+                if (code_of(elem) == la::HERMES_CAP_IDENT.code ||
+                    code_of(elem) == la::HERMES_CAP_EXPR.code) {
+                    error(std::format(
+                        "@<{}>[...] does not support $-captures; typed arrays store raw {}"
+                        " values, not AnyVal — use an untyped @[...] literal instead",
+                        type_name, type_name));
+                    return nullptr;
+                }
                 auto hv = lower_hermes_val(elem);
                 if (!hv) return nullptr;
                 // Bounds-check I32 elements at compile time.
@@ -4028,6 +4038,13 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             }
         }
         return std::make_unique<lir::HermesVal>(std::move(m));
+    }
+
+    if (c == la::HERMES_CAP_IDENT.code || c == la::HERMES_CAP_EXPR.code) {
+        // Valid placement (untyped @[...] / @{...} / @<K,AnyVal>{...}).
+        // Full implementation in C2 (LIR HVCapture). For now, emit a stub error.
+        error("$-captures in @-literals are not yet implemented");
+        return nullptr;
     }
 
     error("unexpected Hermes literal node kind");
