@@ -850,3 +850,46 @@ pub unsafe fn document_clone(src_zone: *const Zone<Mutable>) -> Zone<Mutable> {
 
     return dst_zone;
 }
+
+// Clone a compile-time Hermes template blob into a mutable zone and substitute
+// runtime capture values in-place.
+//
+// The template blob (`tmpl`, `tmpl_size`) is a Hermes document in rodata.
+// Capture placeholder slots are encoded as AnyVal with type_hash=127 (raw & 0xFF == 0xFF).
+//
+// `slots` — ParamSlot table: n_slots pairs of u32 values:
+//   slots[2*k+0] = byte offset of the PARAM AnyVal slot in the template
+//   slots[2*k+1] = value_index (u24) into `resolved` array
+//
+// `resolved` — n_values AnyVal.raw values (one per unique capture), already
+//   coerced from Logos runtime values by the caller.
+//
+// After memcpy, each slot's 4-byte AnyVal is overwritten with resolved[value_idx].
+pub unsafe fn hermes_clone_template(dst: *mut Zone<Mutable>, tmpl: *const u8, tmpl_size: i64, slots: *const u32, n_slots: i64, resolved: *const u32, n_values: i64) {
+    if tmpl == 0 as *const u8 || tmpl_size <= 0 as i64 { return; }
+    if dst == 0 as *mut Zone<Mutable> { return; }
+
+    // Allocate space in the destination zone and memcpy the template.
+    let dst_base: *mut u8 = zone_m_alloc_raw(dst, tmpl_size);
+    if dst_base == 0 as *mut u8 { return; }
+
+    let mut bi: i64 = 0 as i64;
+    while bi < tmpl_size {
+        *((dst_base as i64 + bi) as *mut u8) = *((tmpl as i64 + bi) as *const u8);
+        bi = bi + 1 as i64;
+    }
+
+    // Patch each PARAM slot with the corresponding resolved AnyVal.
+    let mut si: i64 = 0 as i64;
+    while si < n_slots {
+        let off: u32   = *((slots as i64 + si * 8 as i64) as *const u32);
+        let vidx: u32  = *((slots as i64 + si * 8 as i64 + 4 as i64) as *const u32)
+                         & 0xFFFFFF as u32;  // mask to u24
+        if (vidx as i64) < n_values {
+            let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4 as i64) as *const u32);
+            let slot_ptr: *mut u32 = (dst_base as i64 + off as i64) as *mut u32;
+            *slot_ptr = av_raw;
+        }
+        si = si + 1 as i64;
+    }
+}
