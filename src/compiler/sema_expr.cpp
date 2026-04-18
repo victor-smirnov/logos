@@ -4060,16 +4060,21 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             if (!t) return false;
             using K = LogosType::Kind;
             switch (t->kind) {
-                // Scalar integer types and bool can be coerced to inline AnyVal (embed_i24).
-                // F32/F64 deferred to C5 (require zone allocation for AnyVal encoding).
+                // Scalar integer types and bool: coerced to inline AnyVal.
                 case K::I8: case K::I16: case K::I32: case K::I64:
                 case K::U8: case K::U16: case K::U32: case K::U64:
                 case K::Bool:
                     return true;
-                // AnyVal passes through; String deferred to C5 (requires varchar zone alloc).
+                // F64/F32/FloatLit: zone-alloc F64 object (type_code=31) — C5.
+                case K::F64: case K::F32: case K::FloatLit:
+                    return true;
+                // AnyVal passes through; StringView captures as varchar — C5.
                 case K::Struct:
-                    return t->struct_name == "AnyVal";
-                // Raw pointer / references to u8 (C strings) deferred to C5.
+                    return t->struct_name == "AnyVal" ||
+                           t->struct_name == "StringView";
+                // *const u8 / *mut u8 captured as C-string varchar — C5.
+                case K::Ptr:
+                    return t->pointee && t->pointee->kind == K::U8;
                 default:
                     return false;
             }
@@ -4086,8 +4091,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             if (!is_capturable(var_type)) {
                 error(std::format(
                     "$-capture: cannot capture '{}' of type '{}' in @-literal; "
-                    "supported types: integer scalars (i8..i64, u8..u64), bool, AnyVal "
-                    "(String and float captures are deferred to C5)",
+                    "supported types: integer scalars (i8..i64, u8..u64), bool, "
+                    "f64, f32, *const u8 (C-string), StringView, AnyVal",
                     name, type_str(var_type)));
                 return nullptr;
             }
@@ -4113,8 +4118,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             if (!is_capturable(expr_type)) {
                 error(std::format(
                     "${{...}}-capture: expression of type '{}' cannot be captured in @-literal; "
-                    "supported types: integer scalars (i8..i64, u8..u64), bool, AnyVal "
-                    "(String and float captures are deferred to C5)",
+                    "supported types: integer scalars (i8..i64, u8..u64), bool, "
+                    "f64, f32, *const u8 (C-string), StringView, AnyVal",
                     type_str(expr_type)));
                 return nullptr;
             }

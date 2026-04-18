@@ -2328,22 +2328,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
     {
         auto u32_type  = builder_.getIntegerType(32);
         auto slots_arr = mlir::LLVM::LLVMArrayType::get(u32_type, n_slots * 2);
-        // Build slots initializer attribute: interleaved (blob_off, value_idx) pairs.
-        llvm::SmallVector<mlir::Attribute> slot_elems;
-        for (auto& [off, vidx] : param_slots) {
-            slot_elems.push_back(builder_.getI32IntegerAttr(static_cast<int32_t>(off)));
-            slot_elems.push_back(builder_.getI32IntegerAttr(static_cast<int32_t>(vidx)));
-        }
+        llvm::SmallVector<uint32_t> slot_vals;
+        for (auto& [off, vidx] : param_slots) { slot_vals.push_back(off); slot_vals.push_back(vidx); }
         auto slots_attr = mlir::DenseIntElementsAttr::get(
             mlir::RankedTensorType::get({static_cast<int64_t>(n_slots * 2)}, u32_type),
-            llvm::SmallVector<uint32_t>(
-                [&]() {
-                    llvm::SmallVector<uint32_t> v;
-                    for (auto& [off, vidx] : param_slots) { v.push_back(off); v.push_back(vidx); }
-                    return v;
-                }()
-            )
-        );
+            llvm::SmallVector<uint32_t>(slot_vals));
         builder_.create<mlir::LLVM::GlobalOp>(
             loc_, slots_arr, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
             slots_name, slots_attr);
@@ -2351,52 +2340,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
 
     builder_.restoreInsertionPoint(save_pt);
 
-    // Allocate resolved[] on stack: n_values × u32.
-    mlir::Value resolved_ptr = nullptr;
-    auto u32_mlir = builder_.getIntegerType(32);
-    if (n_values > 0) {
-        auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
-        resolved_ptr = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), arr_t, i64_one());
-    } else {
-        // Zero captures: pass null (won't be dereferenced).
-        mlir::Value zero64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
-        resolved_ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), zero64);
+    // Check if any capture requires zone allocation (f64, string, *const u8).
+    // Zone-alloc captures need the HermesCtr to exist before coercion, so we
+    // use the hermes_template_ctr_new + hermes_ctr_alloc_* + hermes_template_patch path.
+    auto is_zone_alloc_cap = [](const LogosType* t) -> bool {
+        if (!t) return false;
+        using K = LogosType::Kind;
+        if (t->kind == K::F64 || t->kind == K::F32 || t->kind == K::FloatLit) return true;
+        if (t->kind == K::Ptr) return true;  // *const u8 → C-string varchar
+        if (t->kind == K::Struct && t->struct_name == "StringView") return true;
+        return false;
+    };
+    bool any_zone_alloc = false;
+    for (auto* ct : e.capture_types) {
+        if (is_zone_alloc_cap(ct)) { any_zone_alloc = true; break; }
     }
 
-    // For each unique capture: gen_expr, coerce to AnyVal.raw (u32), store to resolved[i].
-    for (size_t i = 0; i < n_values; ++i) {
-        // gen_expr evaluates the capture expression.
-        mlir::Value cap_val = gen_expr(*e.capture_exprs[i]);
-        if (!cap_val) cap_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-
-        // Coerce to u32 AnyVal raw value — C5 will implement proper coercion.
-        // For now: truncate/zero-extend to i32 (works for scalars; strings TBD in C5).
-        mlir::Value raw_u32 = coerce_to_anyval_raw(cap_val, e.capture_types[i]);
-        if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
-
-        // GEP into resolved[i] and store.
-        llvm::SmallVector<mlir::Value> gep_idx{
-            builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64),
-            builder_.create<mlir::arith::ConstantIntOp>(loc_, static_cast<int64_t>(i), 64)};
-        auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
-        auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), arr_t, resolved_ptr, gep_idx);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, raw_u32, slot_ptr);
-    }
-
-    // Call hermes_build_from_template(tmpl, tmpl_size, slots, n_slots, resolved, n_values).
-    auto build_fn = find_func_op(parent_mod, "hermes_build_from_template");
-    if (!build_fn) {
-        std::fprintf(stderr, "mlir_gen: hermes_build_from_template not found — "
-                     "add 'use hermes.ctr;' to your file\n");
-        return nullptr;
-    }
-
-    mlir::Value tmpl_ptr   = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
-    mlir::Value tmpl_size  = builder_.create<mlir::arith::ConstantIntOp>(
+    // Shared: build slots_ptr, tmpl_ptr, tmpl_size_val, n_slots_v, n_values_v.
+    mlir::Value tmpl_ptr_v = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
+    mlir::Value tmpl_size_v = builder_.create<mlir::arith::ConstantIntOp>(
         loc_, static_cast<int64_t>(blob.size()), 64);
-    mlir::Value slots_ptr  = n_slots > 0
+    mlir::Value slots_ptr_v = n_slots > 0
         ? builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), slots_name).getResult()
         : [&]() -> mlir::Value {
             mlir::Value z = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
@@ -2407,8 +2371,151 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
     mlir::Value n_values_v = builder_.create<mlir::arith::ConstantIntOp>(
         loc_, static_cast<int64_t>(n_values), 64);
 
+    // Allocate resolved[] on stack: n_values × u32.
+    mlir::Value resolved_ptr = nullptr;
+    auto u32_mlir = builder_.getIntegerType(32);
+    if (n_values > 0) {
+        auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
+        resolved_ptr = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), arr_t, i64_one());
+    } else {
+        mlir::Value zero64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        resolved_ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), zero64);
+    }
+
+    // ── Zone-alloc path (C5): one or more captures need varchar/f64 in the zone. ─
+    if (any_zone_alloc) {
+        auto new_fn    = find_func_op(parent_mod, "hermes_template_ctr_new");
+        auto patch_fn  = find_func_op(parent_mod, "hermes_template_patch");
+        auto alloc_f64_fn = find_func_op(parent_mod, "hermes_ctr_alloc_f64");
+        auto alloc_str_fn = find_func_op(parent_mod, "hermes_ctr_alloc_str");
+        auto alloc_cstr_fn = find_func_op(parent_mod, "hermes_ctr_alloc_cstr");
+        if (!new_fn || !patch_fn) {
+            std::fprintf(stderr, "mlir_gen: hermes_template_ctr_new / hermes_template_patch "
+                         "not found — add 'use hermes.ctr;' to your file\n");
+            return nullptr;
+        }
+
+        // Count zone-alloc captures for capacity estimate (4096 per string, 16 per f64).
+        int64_t extra_cap_bytes = 0;
+        for (auto* ct : e.capture_types) {
+            using K = LogosType::Kind;
+            if (!ct) continue;
+            if (ct->kind == K::F64 || ct->kind == K::F32) extra_cap_bytes += 16;
+            else extra_cap_bytes += 4096;  // string: generous estimate
+        }
+        mlir::Value extra_cap_v = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, extra_cap_bytes, 64);
+
+        // Create the HermesCtr with template pre-loaded.
+        auto new_call = builder_.create<mlir::func::CallOp>(
+            loc_, new_fn,
+            mlir::ValueRange{tmpl_ptr_v, tmpl_size_v, extra_cap_v});
+        if (new_call.getNumResults() == 0) return nullptr;
+        mlir::Value ctr_val  = new_call.getResult(0);
+        mlir::Type  ctr_type = new_fn.getFunctionType().getResult(0);
+
+        // Alloca HermesCtr so we can take its address for alloc helpers.
+        mlir::Value ctr_alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), ctr_type, i64_one());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, ctr_val, ctr_alloca);
+
+        // For each unique capture: gen_expr, coerce, store in resolved[i].
+        for (size_t i = 0; i < n_values; ++i) {
+            mlir::Value cap_val = gen_expr(*e.capture_exprs[i]);
+            if (!cap_val) cap_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+
+            const LogosType* ct = e.capture_types[i];
+            mlir::Value raw_u32 = nullptr;
+
+            if (is_zone_alloc_cap(ct)) {
+                using K = LogosType::Kind;
+                if ((ct->kind == K::F64 || ct->kind == K::F32 ||
+                     ct->kind == K::FloatLit) && alloc_f64_fn) {
+                    // Widen f32 → f64 if needed. FloatLit defaults to f64.
+                    mlir::Value f64_val = cap_val;
+                    if (ct->kind == K::F32) {
+                        auto f64_type = builder_.getF64Type();
+                        f64_val = builder_.create<mlir::arith::ExtFOp>(loc_, f64_type, cap_val);
+                    }
+                    // If FloatLit/F64 but value is f32-typed MLIR, widen.
+                    if (f64_val && mlir::isa<mlir::Float32Type>(f64_val.getType())) {
+                        auto f64_type = builder_.getF64Type();
+                        f64_val = builder_.create<mlir::arith::ExtFOp>(loc_, f64_type, f64_val);
+                    }
+                    auto r = builder_.create<mlir::func::CallOp>(
+                        loc_, alloc_f64_fn, mlir::ValueRange{ctr_alloca, f64_val});
+                    raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
+                } else if (ct->kind == K::Ptr && alloc_cstr_fn) {
+                    // *const u8 — treat as null-terminated C-string.
+                    auto r = builder_.create<mlir::func::CallOp>(
+                        loc_, alloc_cstr_fn, mlir::ValueRange{ctr_alloca, cap_val});
+                    raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
+                } else if (ct->kind == K::Struct && ct->struct_name == "StringView"
+                           && alloc_str_fn) {
+                    // StringView: extract ptr (field 0) and len (field 1).
+                    mlir::Value sv_ptr = builder_.create<mlir::LLVM::ExtractValueOp>(
+                        loc_, cap_val, mlir::ArrayRef<int64_t>{0});
+                    mlir::Value sv_len = builder_.create<mlir::LLVM::ExtractValueOp>(
+                        loc_, cap_val, mlir::ArrayRef<int64_t>{1});
+                    // len is u64; hermes_ctr_alloc_str takes i64 — reinterpret as i64.
+                    auto i64_type = builder_.getIntegerType(64);
+                    if (sv_len.getType() != i64_type)
+                        sv_len = builder_.create<mlir::arith::BitcastOp>(loc_, i64_type, sv_len);
+                    auto r = builder_.create<mlir::func::CallOp>(
+                        loc_, alloc_str_fn, mlir::ValueRange{ctr_alloca, sv_ptr, sv_len});
+                    raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
+                }
+            } else {
+                raw_u32 = coerce_to_anyval_raw(cap_val, ct);
+            }
+
+            if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+
+            // Store to resolved[i].
+            llvm::SmallVector<mlir::Value> gep_idx{
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64),
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, static_cast<int64_t>(i), 64)};
+            auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
+            auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), arr_t, resolved_ptr, gep_idx);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, raw_u32, slot_ptr);
+        }
+
+        // Patch PARAM slots in the cloned zone.
+        builder_.create<mlir::func::CallOp>(
+            loc_, patch_fn,
+            mlir::ValueRange{ctr_alloca, slots_ptr_v, n_slots_v, resolved_ptr, n_values_v});
+
+        // Return the HermesCtr by value (load from alloca).
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ctr_type, ctr_alloca);
+    }
+
+    // ── Scalar-only path (C4): all captures are inline AnyVal (no zone alloc). ──
+    for (size_t i = 0; i < n_values; ++i) {
+        mlir::Value cap_val = gen_expr(*e.capture_exprs[i]);
+        if (!cap_val) cap_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+
+        mlir::Value raw_u32 = coerce_to_anyval_raw(cap_val, e.capture_types[i]);
+        if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+
+        llvm::SmallVector<mlir::Value> gep_idx{
+            builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64),
+            builder_.create<mlir::arith::ConstantIntOp>(loc_, static_cast<int64_t>(i), 64)};
+        auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
+        auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), arr_t, resolved_ptr, gep_idx);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, raw_u32, slot_ptr);
+    }
+
+    auto build_fn = find_func_op(parent_mod, "hermes_build_from_template");
+    if (!build_fn) {
+        std::fprintf(stderr, "mlir_gen: hermes_build_from_template not found — "
+                     "add 'use hermes.ctr;' to your file\n");
+        return nullptr;
+    }
     llvm::SmallVector<mlir::Value> build_args{
-        tmpl_ptr, tmpl_size, slots_ptr, n_slots_v, resolved_ptr, n_values_v};
+        tmpl_ptr_v, tmpl_size_v, slots_ptr_v, n_slots_v, resolved_ptr, n_values_v};
     auto build_call = builder_.create<mlir::func::CallOp>(loc_, build_fn, mlir::ValueRange(build_args));
     if (build_call.getNumResults() == 0) return nullptr;
     return build_call.getResult(0);

@@ -1,0 +1,26 @@
+// Hermes capture: *const u8 (C-string) captured as varchar into @-literals.
+package hermes_capture_str;
+use hermes.ctr;
+
+unsafe fn main() -> i32 {
+    // Capture a C-string pointer into a map.
+    let s: *const u8 = "hello";
+    let doc: HermesCtr = @{"msg": $s};
+    let root: AnyVal = doc.root();
+    if root.is_null() { return 1; }
+
+    // Capture C-string in an array.
+    let key: *const u8 = "world";
+    let arr_doc: HermesCtr = @[$key, $s];
+    let arr_root: AnyVal = arr_doc.root();
+    if arr_root.is_null() { return 2; }
+
+    // Mix: scalar + string capture in same literal.
+    let id: i32 = 7;
+    let label: *const u8 = "item";
+    let mix: HermesCtr = @{"id": $id, "label": $label};
+    let mix_root: AnyVal = mix.root();
+    if mix_root.is_null() { return 3; }
+
+    return 0;
+}

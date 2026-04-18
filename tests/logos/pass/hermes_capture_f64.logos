@@ -1,0 +1,25 @@
+// Hermes capture: f64 value captured as zone-allocated F64 object.
+package hermes_capture_f64;
+use hermes.ctr;
+
+unsafe fn main() -> i32 {
+    // Capture an f64 into a map.
+    let price: f64 = 3.14;
+    let doc: HermesCtr = @{"price": $price};
+    let root: AnyVal = doc.root();
+    if root.is_null() { return 1; }
+
+    // Capture f64 in an array.
+    let arr: HermesCtr = @[$price, ${1.5 + 0.5}];
+    let arr_root: AnyVal = arr.root();
+    if arr_root.is_null() { return 2; }
+
+    // Mix: i32 + f64 in same literal (mixed zone-alloc + inline).
+    let count: i32 = 42;
+    let ratio: f64 = 0.5;
+    let mix: HermesCtr = @{"n": $count, "r": $ratio};
+    let mix_root: AnyVal = mix.root();
+    if mix_root.is_null() { return 3; }
+
+    return 0;
+}

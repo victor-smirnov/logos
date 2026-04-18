@@ -1,0 +1,14 @@
+// Fail: capture a non-capturable type (struct with no coercion).
+package hermes_capture_bad_type;
+use hermes.ctr;
+
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+
+unsafe fn main() -> i32 {
+    let p: Point = Point { x: 1, y: 2 };
+    let doc: HermesCtr = @{"pt": $p};
+    return 0;
+}

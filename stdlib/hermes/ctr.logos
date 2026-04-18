@@ -763,3 +763,94 @@ pub unsafe fn hermes_build_from_template(tmpl: *const u8, tmpl_size: i64, slots:
     hermes_clone_template(&mut ctr.zone, tmpl, tmpl_size, slots, n_slots, resolved, n_values);
     return ctr;
 }
+
+// ── C5: Zone-alloc capture helpers ───────────────────────────────────────────
+//
+// These are used by capture-literal codegen when one or more $-captures require
+// zone allocation (f64 objects, varchar strings).  The caller:
+//   1. hermes_template_ctr_new — copies the template blob into a fresh zone
+//   2. hermes_ctr_alloc_* — allocates dynamic captures, collects AnyVal.raw values
+//   3. hermes_template_patch  — patches PARAM slots with the resolved AnyVal.raw values
+//
+// All three use the same HermesCtr (passed by *mut pointer so they can mutate the zone).
+
+// Creates a HermesCtr with the template blob memcpy'd to the start of the zone.
+// extra_cap is reserved headroom for subsequent dynamic allocations.
+// PARAM placeholders are left in place; call hermes_ctr_alloc_* + hermes_template_patch
+// to resolve them.
+pub unsafe fn hermes_template_ctr_new(
+        tmpl: *const u8, tmpl_size: i64, extra_cap: i64) -> HermesCtr {
+    let mut total_cap: i64 = tmpl_size;
+    if tmpl_size < 9223372036854771711 as i64 - extra_cap {
+        total_cap = tmpl_size + extra_cap;
+    }
+    let mut ctr: HermesCtr = HermesCtr { zone: zone_create(total_cap) };
+    if tmpl != 0 as *const u8 && tmpl_size > 0 as i64 {
+        let dst: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, tmpl_size);
+        if dst != 0 as *mut u8 {
+            let mut bi: i64 = 0 as i64;
+            while bi < tmpl_size {
+                *((dst as i64 + bi) as *mut u8) = *((tmpl as i64 + bi) as *const u8);
+                bi = bi + 1 as i64;
+            }
+        }
+    }
+    return ctr;
+}
+
+// Allocates an F64 zone object (type_code=31, 8-byte body) in ctr's zone.
+// Returns AnyVal.raw (zone-relative byte offset, pointer mode, bit0=0).
+// Returns 0 (null AnyVal) on OOM.
+pub unsafe fn hermes_ctr_alloc_f64(ctr: *mut HermesCtr, val: f64) -> u32 {
+    let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, 8 as i64, 31 as u64);
+    if raw == 0 as *mut u8 { return 0 as u32; }
+    *(raw as *mut f64) = val;
+    let base: *const u8 = ctr.zone.holder.base as *const u8;
+    return (raw as i64 - base as i64) as u32;
+}
+
+// Allocates a varchar string in ctr's zone from (ptr, len).
+// Returns AnyVal.raw (zone-relative offset). Returns 0 on null ptr, negative len, or OOM.
+pub unsafe fn hermes_ctr_alloc_str(ctr: *mut HermesCtr, ptr: *const u8, len: i64) -> u32 {
+    if ptr == 0 as *const u8 || len < 0 as i64 { return 0 as u32; }
+    let lu: u64 = len as u64;
+    let prefix_sz: i64 = vlen_encode_size(lu) as i64;
+    let total: i64 = prefix_sz + len;
+    let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, total, hermes_tag_string() as u64);
+    if raw == 0 as *mut u8 { return 0 as u32; }
+    HermesString::init(raw, ptr, lu);
+    let base: *const u8 = ctr.zone.holder.base as *const u8;
+    return (raw as i64 - base as i64) as u32;
+}
+
+// C-string (null-terminated) variant.
+pub unsafe fn hermes_ctr_alloc_cstr(ctr: *mut HermesCtr, ptr: *const u8) -> u32 {
+    if ptr == 0 as *const u8 { return 0 as u32; }
+    return hermes_ctr_alloc_str(ctr, ptr, cstr_len(ptr));
+}
+
+// Patches PARAM slots in a zone that was populated via hermes_template_ctr_new.
+// resolved[i] = AnyVal.raw for capture value i; slots is the ParamSlot table
+// (interleaved u32 pairs: blob_offset, value_idx).
+// The template starts at zone.holder.base (offset 0 in the zone).
+pub unsafe fn hermes_template_patch(
+        ctr: *mut HermesCtr,
+        slots: *const u32, n_slots: i64,
+        resolved: *const u32, n_values: i64) {
+    if n_slots <= 0 as i64 || slots == 0 as *const u32 { return; }
+    if n_values > 0 as i64 && resolved == 0 as *const u32 { return; }
+    let base: *mut u8 = ctr.zone.holder.base;
+    let zone_used: i64 = ctr.zone.holder.used;
+    let mut si: i64 = 0 as i64;
+    while si < n_slots {
+        let off: u32  = *((slots as i64 + si * 8 as i64) as *const u32);
+        let vidx: u32 = *((slots as i64 + si * 8 as i64 + 4 as i64) as *const u32)
+                        & 0xFFFFFF as u32;
+        if (vidx as i64) < n_values && (off as i64) + 4 as i64 <= zone_used {
+            let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4 as i64) as *const u32);
+            let slot_ptr: *mut u32 = (base as i64 + off as i64) as *mut u32;
+            *slot_ptr = av_raw;
+        }
+        si = si + 1 as i64;
+    }
+}
