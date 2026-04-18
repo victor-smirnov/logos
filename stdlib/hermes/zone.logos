@@ -116,6 +116,21 @@ pub fn zone_seal(z: Zone<Mutable>) -> Zone<Immutable> {
     return Zone { holder: z.holder };
 }
 
+// Wrap a read-only static byte buffer (e.g. a compile-time Hermes @-literal blob)
+// as a Zone<Immutable>.  The buffer is NOT freed when the zone is dropped —
+// memholder_destroy_none is used as the destroyer.  Only the MemHolder struct
+// itself (40 bytes, heap-allocated) is freed on drop.
+//
+// `base` must point to a valid Hermes zone (DocumentHeader at offset 0).
+// `size` is the total byte length of the buffer.
+pub unsafe fn hermes_static_zone(base: *const u8, size: i64) -> Zone<Immutable> {
+    let mh: *mut MemHolder = memholder_wrap(
+        base as *mut u8, size, memholder_destroy_none);
+    mh.used = size;
+    let z: Zone<Mutable> = Zone { holder: mh };
+    return zone_seal(z);
+}
+
 // ===========================================================================
 // DataRef<T> — fat zone pointer: holder reference + u32 offset.
 //

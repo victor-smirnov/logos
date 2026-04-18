@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// hermes_sdn_lit.logos — Phase 3: verify @-literal blobs via stringify_document.
+//
+// Each @-literal produces a compile-time Hermes zone blob.  We call
+// stringify_document on the blob and compare to the expected SDN text.
+
+package hermes_sdn_lit;
+
+use hermes.zone;
+use hermes.document;
+use hermes.stringify;
+use hermes.mem_holder;
+use std.string;
+
+extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
+
+unsafe fn check(base: *const u8, expected: *const u8, err_code: i32) -> i32 {
+    let mut buf: String = String::with_capacity(256);
+    stringify_document(base, &mut buf, StringifyOpts::compact());
+    if !buf.eq_cstr(expected) {
+        return err_code;
+    }
+    return 0;
+}
+
+pub unsafe fn main() -> i32 {
+    let mut rc: i32 = 0;
+
+    // 1. null
+    rc = check(@null as *const u8, "null", 1);
+    if rc != 0 { return rc; }
+
+    // 2. true
+    rc = check(@true as *const u8, "true", 2);
+    if rc != 0 { return rc; }
+
+    // 3. false
+    rc = check(@false as *const u8, "false", 3);
+    if rc != 0 { return rc; }
+
+    // 4. integer 42  (inline i24)
+    rc = check(@42 as *const u8, "42", 4);
+    if rc != 0 { return rc; }
+
+    // 5. string "hello"
+    rc = check(@"hello" as *const u8, "\"hello\"", 5);
+    if rc != 0 { return rc; }
+
+    // 6. array [1, 2, 3]
+    rc = check(@[1, 2, 3] as *const u8, "[1,2,3]", 6);
+    if rc != 0 { return rc; }
+
+    // 7. single-key map — expected output determined by slot order
+    rc = check(@{"k": 99} as *const u8, "{\"k\":99}", 7);
+    if rc != 0 { return rc; }
+
+    // 8. hermes_static_zone: wrap blob and stringify via zone base
+    let base: *const u8 = @{"x": true} as *const u8;
+    let sz: i64 = 128;   // generous upper bound; zone.used tracks real usage
+    let mut z: Zone<Immutable> = hermes_static_zone(base, sz);
+    let zbase: *const u8 = z.holder.base as *const u8;
+    let mut buf: String = String::with_capacity(64);
+    stringify_document(zbase, &mut buf, StringifyOpts::compact());
+    if !buf.eq_cstr("{\"x\":true}") { return 8; }
+    z.release();
+
+    return 0;
+}
