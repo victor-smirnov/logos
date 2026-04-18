@@ -71,8 +71,6 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
-    NEG            = 52    // negation flag: key is a negative integer (HERMES_ENTRY)
-
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
     // the same 0..51 space as global fields; peg_gen resolves action field
@@ -216,6 +214,7 @@
     HERMES_ENTRY                = 170   // key:val pair in Hermes map
     HERMES_TYPED_ARRAY          = 171   // @<ElemType>[v,...] — typed dense array literal
     HERMES_NEG_INT              = 172   // negative integer: @-42 or inner -42 in array/map
+    HERMES_TYPED_MAP            = 173   // @<K,V>{...} — typed map literal
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1143,11 +1142,18 @@
 
     // ── Hermes SDN literals: @{k:v,...}  @[v,...]  @"s"  @42  @true  @null ──
     // @<ElemType>[v,...] — typed dense array (e.g. @<I32>[1,2,3])
+    // @<K,V>{...} / @<K>{...} — typed map (e.g. @<I32,AnyVal>{1:42})
     // Only the outermost literal needs the @ sigil; inner values are plain.
     hermes_typed_array <- LT IDENT GT LBRACKET (hermes_val (COMMA hermes_val)* COMMA?)? RBRACKET
                        => { CODE: HERMES_TYPED_ARRAY, TYPE: $2, ITEMS: $... }
 
-    hermes_lit <- AT hermes_typed_array
+    hermes_typed_map <- LT IDENT COMMA IDENT GT LBRACE (hermes_entry (COMMA hermes_entry)* COMMA?)? RBRACE
+                     => { CODE: HERMES_TYPED_MAP, TYPE: $2, RET_TYPE: $4, ITEMS: $... }
+                     / LT IDENT GT LBRACE (hermes_entry (COMMA hermes_entry)* COMMA?)? RBRACE
+                     => { CODE: HERMES_TYPED_MAP, TYPE: $2, ITEMS: $... }
+
+    hermes_lit <- AT hermes_typed_map
+               / AT hermes_typed_array
                / AT hermes_map
                / AT hermes_array
                / AT RAW_STRING => { CODE: HERMES_STR, VALUE: $2 }
@@ -1169,7 +1175,7 @@
     hermes_entry <- STRING COLON hermes_val
                  => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
                  / MINUS INTEGER COLON hermes_val
-                 => { CODE: HERMES_ENTRY, KEY: $2, VALUE: $4, NEG: true }
+                 => { CODE: HERMES_ENTRY, KEY: $2, VALUE: $4, LO_NEG: true }
                  / INTEGER COLON hermes_val
                  => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
 

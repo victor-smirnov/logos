@@ -2043,7 +2043,43 @@ static uint32_t build_array(ZoneBuilder& zb, const lir::HVArray& arr) {
 }
 
 // Build an ObjectMap using FNV-1a hash + linear probing. Returns zone offset.
+static uint32_t build_map_i32_anyval(ZoneBuilder& zb, const lir::HVMap& map) {
+    uint32_t count = static_cast<uint32_t>(map.entries.size());
+
+    // First pass: build all values (may cause zone growth — track by offset only).
+    std::vector<uint32_t> val_avs;
+    val_avs.reserve(count);
+    for (auto& e : map.entries)
+        val_avs.push_back(build_hermes_val(zb, *e.val));
+
+    // Alloc keys buffer (count * 4) and vals buffer (count * 4).
+    uint32_t keys_off = zb.alloc_raw(static_cast<size_t>(count) * 4);
+    uint32_t vals_off = zb.alloc_raw(static_cast<size_t>(count) * 4);
+
+    // Write keys.
+    for (uint32_t i = 0; i < count; i++) {
+        int32_t k = 0;
+        if (auto* iv = std::get_if<int64_t>(&map.entries[i].key))
+            k = static_cast<int32_t>(*iv);
+        zb.write32le(keys_off + i * 4, static_cast<uint32_t>(k));
+    }
+
+    // MapI32AnyVal header (tc=105): size(u32), capacity(u32), keys(u32), vals(u32) = 16 bytes.
+    uint32_t hdr_off = zb.alloc_tagged(105, 16);
+    zb.write32le(hdr_off,      count);
+    zb.write32le(hdr_off + 4,  count);
+    zb.write32le(hdr_off + 8,  keys_off);
+    zb.write32le(hdr_off + 12, vals_off);
+
+    // Write values.
+    for (uint32_t i = 0; i < count; i++)
+        zb.write32le(vals_off + i * 4, val_avs[i]);
+
+    return hdr_off;
+}
+
 static uint32_t build_map(ZoneBuilder& zb, const lir::HVMap& map) {
+    if (map.key_type == "I32") return build_map_i32_anyval(zb, map);
     uint32_t count = static_cast<uint32_t>(map.entries.size());
 
     // Collect all key strings and their HermesString offsets; build values.

@@ -213,6 +213,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::HERMES_MAP:
     case la::HERMES_ARRAY:
     case la::HERMES_TYPED_ARRAY:
+    case la::HERMES_TYPED_MAP:
     case la::HERMES_NEG_INT:
     case la::HERMES_STR:
     case la::HERMES_INT:
@@ -3870,7 +3871,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                     e.key = std::move(ks);
                 } else {
                     int64_t kv = (int64_t)std::stoll(std::string(key_raw));
-                    if (entry.has_key(la::NEG)) kv = -kv;
+                    if (entry.has_key(la::LO_NEG)) kv = -kv;
                     e.key = kv;
                 }
                 e.val = std::move(hv);
@@ -3938,6 +3939,95 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             }
         }
         return std::make_unique<lir::HermesVal>(std::move(a));
+    }
+
+    if (c == la::HERMES_TYPED_MAP.code) {
+        // @<K,V>{...} or @<K>{...} — typed map literal.
+        // Supported: I32 / I32+AnyVal → MapI32AnyVal (tc=105)
+        //            Varchar / Varchar+AnyVal → ObjectMap (tc=101, same as untyped)
+        // TYPE (slot 3) holds key type; RET_TYPE (slot 6) holds optional val type.
+        auto key_type_sv = str_of(node.get(la::TYPE.code));
+        std::string key_type(key_type_sv);
+        std::string val_type_s;
+        if (node.has_key(la::RET_TYPE)) {
+            auto vt = str_of(node.get(la::RET_TYPE.code));
+            val_type_s = std::string(vt);
+        }
+        // Validate val type if present.
+        if (!val_type_s.empty() && val_type_s != "AnyVal") {
+            error(std::format(
+                "@<{},{}> {{}} — unsupported value type '{}'; only AnyVal is supported",
+                key_type, val_type_s, val_type_s));
+            return nullptr;
+        }
+        std::string lir_key_type;
+        if (key_type == "I32") {
+            if (!datatypes_.count("MapI32AnyVal")) {
+                error("typed map @<I32>{...} requires 'use hermes.containers;'");
+                return nullptr;
+            }
+            lir_key_type = "I32";
+        } else if (key_type == "Varchar") {
+            lir_key_type = "";  // same as untyped ObjectMap
+        } else {
+            error(std::format(
+                "@<{}> {{}} — unsupported key type '{}'; supported: I32, Varchar",
+                key_type, key_type));
+            return nullptr;
+        }
+        lir::HVMap m;
+        m.key_type = lir_key_type;
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto entry = map_of(items.get(i));
+                auto key_raw = str_of(entry.get(la::KEY.code));
+                auto val_node = map_of(entry.get(la::VALUE.code));
+                auto hv = lower_hermes_val(val_node);
+                if (!hv) return nullptr;
+                lir::HVMapEntry e;
+                if (!key_raw.empty() && key_raw[0] == '"') {
+                    // String key — strip quotes and unescape.
+                    std::string raw_inner(key_raw.substr(1, key_raw.size()-2));
+                    std::string ks;
+                    for (size_t ki = 0; ki < raw_inner.size(); ++ki) {
+                        if (raw_inner[ki] == '\\' && ki + 1 < raw_inner.size()) {
+                            switch (raw_inner[++ki]) {
+                            case 'n':  ks += '\n'; break;
+                            case 't':  ks += '\t'; break;
+                            case 'r':  ks += '\r'; break;
+                            case '\\': ks += '\\'; break;
+                            case '"':  ks += '"';  break;
+                            case '0':  ks += '\0'; break;
+                            default:   ks += '\\'; ks += raw_inner[ki]; break;
+                            }
+                        } else {
+                            ks += raw_inner[ki];
+                        }
+                    }
+                    if (lir_key_type == "I32") {
+                        error(std::format(
+                            "@<I32> map entry [{}] has string key '{}'; I32 maps require integer keys",
+                            i, ks));
+                        return nullptr;
+                    }
+                    e.key = std::move(ks);
+                } else {
+                    int64_t kv = (int64_t)std::stoll(std::string(key_raw));
+                    if (entry.has_key(la::LO_NEG)) kv = -kv;
+                    if (lir_key_type == "I32" &&
+                        (kv < -2147483648LL || kv > 2147483647LL)) {
+                        error(std::format(
+                            "@<I32> map key [{}] value {} is out of i32 range", i, kv));
+                        return nullptr;
+                    }
+                    e.key = kv;
+                }
+                e.val = std::move(hv);
+                m.entries.push_back(std::move(e));
+            }
+        }
+        return std::make_unique<lir::HermesVal>(std::move(m));
     }
 
     error("unexpected Hermes literal node kind");
