@@ -587,6 +587,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         break;
                     }
                 }
+                // Primitive target (e.g. impl Hash for i32): look up by name.
+                if (!self_type) {
+                    if (auto* prim_t = lookup_type_by_name(target))
+                        self_type = prim_t;
+                }
             }
         }
         if (self_type)

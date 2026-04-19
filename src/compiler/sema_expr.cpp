@@ -1918,6 +1918,36 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (fi_ptr) {
             if (fi_ptr->is_unsafe && !inside_unsafe_)
                 error(std::format("call to unsafe method '{}' requires unsafe context", mangled_prim));
+            // Generic method on primitive receiver (e.g. i32::hash<H>): infer
+            // method-level type args and route through finish_generic_call so
+            // mono emits a concrete specialization.
+            if (!fi_ptr->type_params.empty()) {
+                SemaSubst seed;
+                seed["Self"] = recv->type;
+                std::vector<const LogosType*> m_type_args;
+                if (!infer_type_args(*fi_ptr, arg_exprs, m_type_args, seed, 1)) {
+                    error(std::format("could not infer type arguments for generic method '{}'",
+                                      mangled_prim));
+                }
+                // Auto-ref receiver if method expects &Self / &mut Self.
+                if (!fi_ptr->param_types.empty()) {
+                    auto* formal0 = fi_ptr->param_types[0];
+                    if (formal0 && is_ref_like(formal0->kind) && recv->type &&
+                        !is_ref_like(recv->type->kind) &&
+                        recv->type->kind != LogosType::Kind::Ptr) {
+                        bool is_mut = formal0->kind == LogosType::Kind::MutRef;
+                        auto addr = make_expr(make_ref(is_mut, recv->type),
+                                              lir::EAddrOfTemp{std::move(recv), is_mut});
+                        recv = std::move(addr);
+                    }
+                }
+                std::vector<lir::LExprPtr> pargs;
+                pargs.push_back(std::move(recv));
+                for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+                return finish_generic_call(
+                    fi_ptr->symbol_name.empty() ? mangled_prim : fi_ptr->symbol_name,
+                    *fi_ptr, std::move(m_type_args), std::move(pargs));
+            }
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
@@ -2266,6 +2296,50 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // Merge method bindings into struct_subst for return type substitution
         for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
             struct_subst[fi.type_params[i].name] = m_type_args[i];
+
+        // Route generic trait-method call through finish_generic_call so mono
+        // emits a concrete specialization (mirrors the blanket-impl path above).
+        // Only when there is a genuine *method-level* type param (i.e. some
+        // type param is NOT already bound by the receiver's struct_subst);
+        // pure struct-level generic methods (e.g. Zone<M>::release) stay on
+        // the existing EMethodCall/mono path.
+        bool has_method_level = false;
+        {
+            // Rebuild struct_subst view without method bindings (we just added them).
+            SemaSubst struct_only = struct_subst;
+            for (auto& tp : fi.type_params) struct_only.erase(tp.name);
+            // Re-add only receiver-derived ones.
+            const LogosType* rst = recv->type;
+            if (rst && (rst->kind == LogosType::Kind::Ptr || is_ref_like(rst->kind)) && rst->pointee)
+                rst = rst->pointee;
+            if (rst && (rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype)) {
+                SemaStructInfo* si2 = nullptr;
+                if (auto it = structs_.find(rst->struct_name); it != structs_.end()) si2 = &it->second;
+                if (!si2) if (auto it = datatypes_.find(rst->struct_name); it != datatypes_.end()) si2 = &it->second;
+                if (si2) {
+                    auto& tps = si2->type_params;
+                    std::unordered_set<std::string> struct_names;
+                    for (auto& tp : tps) struct_names.insert(tp.name);
+                    for (auto& tp : fi.type_params)
+                        if (!struct_names.count(tp.name)) { has_method_level = true; break; }
+                }
+            } else {
+                // Non-struct receiver: any fi.type_params is method-level.
+                if (!fi.type_params.empty()) has_method_level = true;
+            }
+        }
+        bool all_concrete = has_method_level && m_type_args.size() == fi.type_params.size();
+        for (auto* ta : m_type_args)
+            if (!ta || ta->kind == LogosType::Kind::TypeVar ||
+                ta->kind == LogosType::Kind::Error) { all_concrete = false; break; }
+        if (all_concrete) {
+            std::vector<lir::LExprPtr> pargs;
+            pargs.push_back(std::move(recv));
+            for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+            return finish_generic_call(
+                fi.symbol_name.empty() ? mangled : fi.symbol_name, fi,
+                std::move(m_type_args), std::move(pargs));
+        }
     }
 
     // Substitute TypeVars in return type using the combined substitution.

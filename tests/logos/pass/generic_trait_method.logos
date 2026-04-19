@@ -1,0 +1,29 @@
+package generic_trait_method;
+
+trait Hasher {
+    fn write_u64(&mut self, val: u64);
+}
+
+trait Hash {
+    fn hash<H: Hasher>(&self, state: &mut H);
+}
+
+struct DummyHasher { s: u64 }
+
+impl Hasher for DummyHasher {
+    fn write_u64(&mut self, val: u64) { self.s = self.s + val; }
+}
+
+impl Hash for i32 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(*self as u64);
+    }
+}
+
+fn main() -> i32 {
+    let mut h: DummyHasher = DummyHasher { s: 0 as u64 };
+    let x: i32 = 42;
+    x.hash(&mut h);
+    if h.s == 42 as u64 { return 42; }
+    return 1;
+}
