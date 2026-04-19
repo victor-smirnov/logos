@@ -1,0 +1,43 @@
+package test;
+
+use std.hashmap;
+
+fn main() -> i32 {
+    unsafe {
+        // u64 keys
+        let mut mu: HashMap<u64, i32> = hashmap_new::<u64, i32>();
+        let pmu: *mut HashMap<u64, i32> = &mut mu;
+        pmu.insert(1000 as u64, 1);
+        pmu.insert(2000 as u64, 2);
+        pmu.insert(3000 as u64, 3);
+        if pmu.len() != 3 as i64 { return 1; }
+        let k2: u64 = 2000 as u64;
+        let p: *const i32 = pmu.get(&k2);
+        if p == 0 as *const i32 { return 2; }
+        if *p != 2 { return 3; }
+
+        // bool keys (only 2 possible)
+        let mut mb: HashMap<bool, i32> = hashmap_new::<bool, i32>();
+        let pmb: *mut HashMap<bool, i32> = &mut mb;
+        pmb.insert(true, 111);
+        pmb.insert(false, 222);
+        if pmb.len() != 2 as i64 { return 4; }
+        let t: bool = true;
+        let pt: *const i32 = pmb.get(&t);
+        if *pt != 111 { return 5; }
+        let f: bool = false;
+        let pf: *const i32 = pmb.get(&f);
+        if *pf != 222 { return 6; }
+
+        // i64 keys, negative values
+        let mut mi: HashMap<i64, i32> = hashmap_new::<i64, i32>();
+        let pmi: *mut HashMap<i64, i32> = &mut mi;
+        pmi.insert(-1 as i64, 7);
+        pmi.insert(-100 as i64, 8);
+        let k_neg: i64 = -1 as i64;
+        let pn: *const i32 = pmi.get(&k_neg);
+        if *pn != 7 { return 7; }
+
+        return 9;
+    }
+}

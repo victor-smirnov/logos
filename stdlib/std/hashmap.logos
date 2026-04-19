@@ -13,6 +13,8 @@ package std.hashmap;
 use std.mem;
 use std.hash;
 use std.cmp;
+use std.option;
+use std.iter;
 
 const SLOT_EMPTY:     u8 = 0 as u8;
 const SLOT_OCCUPIED:  u8 = 1 as u8;
@@ -171,6 +173,106 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
         dealloc(old_states);
         dealloc(old_entries as *mut u8);
+    }
+}
+
+// ── Iteration ────────────────────────────────────────────────────────────────
+
+pub struct HashMapIter<K, V> {
+    states:  *const u8,
+    entries: *const Entry<K, V>,
+    cap:     i64,
+    idx:     i64,
+}
+
+impl<K: Hash + Eq, V> Iterator<ZipPair<K, V>> for HashMapIter<K, V> {
+    fn next(self: &mut HashMapIter<K, V>) -> Option<ZipPair<K, V>> {
+        unsafe {
+            while self.idx < self.cap {
+                let i: i64 = self.idx;
+                self.idx = self.idx + 1 as i64;
+                if self.states[i] == SLOT_OCCUPIED {
+                    let e: *const Entry<K, V> = &self.entries[i];
+                    return Option::Some(ZipPair { first: e.key, second: e.val });
+                }
+            }
+            return Option::None;
+        }
+    }
+}
+
+pub struct HashMapKeys<K, V> {
+    states:  *const u8,
+    entries: *const Entry<K, V>,
+    cap:     i64,
+    idx:     i64,
+}
+
+impl<K: Hash + Eq, V> Iterator<K> for HashMapKeys<K, V> {
+    fn next(self: &mut HashMapKeys<K, V>) -> Option<K> {
+        unsafe {
+            while self.idx < self.cap {
+                let i: i64 = self.idx;
+                self.idx = self.idx + 1 as i64;
+                if self.states[i] == SLOT_OCCUPIED {
+                    let e: *const Entry<K, V> = &self.entries[i];
+                    return Option::Some(e.key);
+                }
+            }
+            return Option::None;
+        }
+    }
+}
+
+pub struct HashMapValues<K, V> {
+    states:  *const u8,
+    entries: *const Entry<K, V>,
+    cap:     i64,
+    idx:     i64,
+}
+
+impl<K: Hash + Eq, V> Iterator<V> for HashMapValues<K, V> {
+    fn next(self: &mut HashMapValues<K, V>) -> Option<V> {
+        unsafe {
+            while self.idx < self.cap {
+                let i: i64 = self.idx;
+                self.idx = self.idx + 1 as i64;
+                if self.states[i] == SLOT_OCCUPIED {
+                    let e: *const Entry<K, V> = &self.entries[i];
+                    return Option::Some(e.val);
+                }
+            }
+            return Option::None;
+        }
+    }
+}
+
+impl<K: Hash + Eq, V> HashMap<K, V> {
+    pub unsafe fn iter(self: *const HashMap<K, V>) -> HashMapIter<K, V> {
+        return HashMapIter {
+            states:  self.states as *const u8,
+            entries: self.entries as *const Entry<K, V>,
+            cap:     self.cap,
+            idx:     0 as i64,
+        };
+    }
+
+    pub unsafe fn keys(self: *const HashMap<K, V>) -> HashMapKeys<K, V> {
+        return HashMapKeys {
+            states:  self.states as *const u8,
+            entries: self.entries as *const Entry<K, V>,
+            cap:     self.cap,
+            idx:     0 as i64,
+        };
+    }
+
+    pub unsafe fn values(self: *const HashMap<K, V>) -> HashMapValues<K, V> {
+        return HashMapValues {
+            states:  self.states as *const u8,
+            entries: self.entries as *const Entry<K, V>,
+            cap:     self.cap,
+            idx:     0 as i64,
+        };
     }
 }
 
