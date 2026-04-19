@@ -164,6 +164,7 @@ pub trait HermesRead {
 
     // Look up a key (C-string) in an ObjectMap. Returns null_ptr if not found.
     fn map_get_cstr(self: &Self, val: AnyVal, key: *const u8) -> AnyVal {
+        if key == 0 as *const u8 { return AnyVal::null_ptr(); }
         unsafe {
             let base: *const u8 = self.base();
             if !val.is_map(base) { return AnyVal::null_ptr(); }
@@ -363,9 +364,12 @@ pub trait HermesWrite: HermesRead {
                 let base2: *mut u8 = zone2.holder.base;
                 key_off = (raw as i64 - base2 as i64) as u32;
             }
+            // Bug fix: zone_m_alloc_tagged above may have reallocated the zone,
+            // making the earlier `omap` pointer stale. Recompute from current base.
             let zone3: *mut Zone<Mutable> = self.zone_mut();
             let base3: *mut u8 = zone3.holder.base;
-            omap.set(base3, key_off, key, klen as u64, val);
+            let omap3: *mut ObjectMap = (base3 as i64 + map.as_offset() as i64) as *mut ObjectMap;
+            omap3.set(base3, key_off, key, klen as u64, val);
         }
     }
 
@@ -398,9 +402,11 @@ pub trait HermesWrite: HermesRead {
                 let base2: *mut u8 = zone2.holder.base;
                 key_off = (raw as i64 - base2 as i64) as u32;
             }
+            // Bug fix: zone may have grown during key string alloc; recompute omap.
             let zone3: *mut Zone<Mutable> = self.zone_mut();
             let base3: *mut u8 = zone3.holder.base;
-            omap.set(base3, key_off, key, klen as u64, val);
+            let omap3: *mut ObjectMap = (base3 as i64 + map.as_offset() as i64) as *mut ObjectMap;
+            omap3.set(base3, key_off, key, klen as u64, val);
         }
     }
 

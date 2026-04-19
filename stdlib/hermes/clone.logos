@@ -885,14 +885,15 @@ pub unsafe fn hermes_clone_template(dst: *mut Zone<Mutable>, tmpl: *const u8, tm
     }
 
     // Patch each PARAM slot with the corresponding resolved AnyVal.
-    let tmpl_size_u32: u32 = tmpl_size as u32;
     let mut si: i64 = 0 as i64;
     while si < n_slots {
         let off: u32   = *((slots as i64 + si * 8 as i64) as *const u32);
         let vidx: u32  = *((slots as i64 + si * 8 as i64 + 4 as i64) as *const u32)
                          & 0xFFFFFF as u32;  // mask to u24
-        // C3 bug 4: bounds-check off+4 <= tmpl_size before writing the 4-byte AnyVal.
-        if (vidx as i64) < n_values && off + 4 as u32 <= tmpl_size_u32 {
+        // Bug fix: use i64 arithmetic for the bounds check to avoid u32 overflow
+        // when off is near u32::MAX (off + 4 would wrap around to a small value,
+        // falsely passing the check).
+        if (vidx as i64) < n_values && (off as i64) + 4 as i64 <= tmpl_size {
             let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4 as i64) as *const u32);
             let slot_ptr: *mut u32 = (dst_base as i64 + off as i64) as *mut u32;
             *slot_ptr = av_raw;

@@ -2312,9 +2312,14 @@ static uint32_t build_hermes_val(ZoneBuilder& zb, const lir::HermesVal& v) {
             return obj_off;
         } else if constexpr (std::is_same_v<T, lir::HVCapture>) {
             // PARAM placeholder AnyVal: type_hash=127 (0x7F), bit0=1.
-            // raw = (param_index << 8) | 0xFF
-            // Offset is recorded at caller when the AnyVal is written to buf.
-            return (k.param_index << 8u) | 0xFFu;
+            // raw = (value_index << 8) | 0xFF  — value_index, NOT param_index.
+            // record_param_if extracts (raw >> 8) as the slot-table value_index,
+            // which the runtime uses to index resolved[].  param_index is the
+            // unique slot number; value_index is the deduplicated expression index.
+            // Using param_index here broke dedup: two slots sharing the same
+            // capture expression would each get a different "vidx" → resolved[]
+            // out-of-bounds or wrong value for the second slot.
+            return (k.value_index << 8u) | 0xFFu;
         } else {
             return 0;
         }

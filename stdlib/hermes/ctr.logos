@@ -452,22 +452,30 @@ pub unsafe fn hermes_ctr_alloc_cstr(ctr: *mut HermesCtr, ptr: *const u8) -> u32 
 // Layout: data buffer first (4 bytes/elem, raw), then tagged ArrayI32 header.
 // The document root is set to the resulting ArrayI32 AnyVal.
 pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
-    // C6-fix5: guard negative/zero len — avoids negative byte_len in alloc and
-    // size field being set to a huge u64 on negative-len cast.
-    if len <= 0 as i64 { return HermesCtr::builder(8 as i64); }
+    // Bug 7/9 fix: negative len is invalid; very large len overflows len*4.
+    // len==0 is valid (empty typed array); guard only negative and overflow cases.
+    if len < 0 as i64 { return HermesCtr::builder(8 as i64); }
+    if len > 536870911 as i64 { return HermesCtr::builder(8 as i64); }
     let byte_len: i64 = len * 4 as i64;
     let cap: i64 = 8 as i64 + byte_len + sizeof::<ArrayI32>() as i64 + 64 as i64;
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
-    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
-    // C5-fix1: guard buf_off and array header init on buf_raw != null.
-    // If buf_raw == 0 (OOM), computing buf_off = (0 - base) as u32 is garbage.
-    if buf_raw != 0 as *mut u8 {
-        let mut bi: i64 = 0 as i64;
-        while bi < byte_len {
-            *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
-            bi = bi + 1 as i64;
+    // Bug 7 fix: for len==0 skip data alloc (buf_off stays 0); still build header.
+    let mut buf_off: u32 = 0 as u32;
+    let mut ok: bool = true;
+    if byte_len > 0 as i64 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0 as i64;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1 as i64;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
         }
-        let buf_off: u32 = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+    }
+    if ok {
         let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
                                    sizeof::<ArrayI32>() as i64,
                                    hermes_tag_array_i32() as u64);
@@ -486,18 +494,28 @@ pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
 
 // Builds an ArrayU64 HermesCtr from a raw u64 slice (ptr + element count).
 pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
-    if len <= 0 as i64 { return HermesCtr::builder(8 as i64); }
+    // Bug 8/10 fix: guard negative/overflow; len==0 → empty typed array (not null-root).
+    if len < 0 as i64 { return HermesCtr::builder(8 as i64); }
+    if len > 268435455 as i64 { return HermesCtr::builder(8 as i64); }
     let byte_len: i64 = len * 8 as i64;
     let cap: i64 = 8 as i64 + byte_len + sizeof::<ArrayU64>() as i64 + 64 as i64;
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
-    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
-    if buf_raw != 0 as *mut u8 {
-        let mut bi: i64 = 0 as i64;
-        while bi < byte_len {
-            *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
-            bi = bi + 1 as i64;
+    let mut buf_off: u32 = 0 as u32;
+    let mut ok: bool = true;
+    if byte_len > 0 as i64 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0 as i64;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1 as i64;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
         }
-        let buf_off: u32 = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+    }
+    if ok {
         let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
                                    sizeof::<ArrayU64>() as i64,
                                    hermes_tag_array_u64() as u64);
@@ -540,15 +558,18 @@ pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal,
         // current base now; a subsequent alloc (vals_raw) could trigger zone realloc, after
         // which keys_raw would point to old (freed) memory and keys_raw - new_base = garbage.
         let keys_off: u32 = (keys_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        // Bug fix: copy key bytes BEFORE allocating vals_raw.
+        // The second alloc may trigger zone realloc, invalidating keys_raw.
+        // Write through the offset-based pointer instead to be safe after any grow.
+        let mut bk: i64 = 0 as i64;
+        while bk < key_bytes {
+            *((keys_raw as i64 + bk) as *mut u8) = *((keys as i64 + bk) as *const u8);
+            bk = bk + 1 as i64;
+        }
         let vals_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, val_bytes);
         if vals_raw != 0 as *mut u8 {
             let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
             let mut bi: i64 = 0 as i64;
-            while bi < key_bytes {
-                *((keys_raw as i64 + bi) as *mut u8) = *((keys as i64 + bi) as *const u8);
-                bi = bi + 1 as i64;
-            }
-            bi = 0 as i64;
             while bi < val_bytes {
                 *((vals_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
                 bi = bi + 1 as i64;
