@@ -784,7 +784,19 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 }
                 if (target_struct_tmpl) {
                     // Add to struct template so mono clones it during struct instantiation.
-                    fn.type_params.clear();
+                    // Drop impl/struct-level type params (mono re-injects them); keep
+                    // method-level ones (e.g. `fn m<H>` on an `impl<T> Trait for Foo<T>`).
+                    if (!fn.type_params.empty()) {
+                        std::vector<TypeParam> kept;
+                        kept.reserve(fn.type_params.size());
+                        for (auto& tp : fn.type_params) {
+                            bool is_impl_level = false;
+                            for (auto& itp : impl_tps)
+                                if (itp.name == tp.name) { is_impl_level = true; break; }
+                            if (!is_impl_level) kept.push_back(tp);
+                        }
+                        fn.type_params = std::move(kept);
+                    }
                     target_struct_tmpl->methods.push_back(std::move(fn));
                 } else {
                     prog.functions.push_back(std::move(fn));

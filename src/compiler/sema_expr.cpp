@@ -743,6 +743,26 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return make_expr(str_t, std::move(ec));
     }
 
+    // Bitwise intrinsics on u64 — map to LLVM intrinsics in codegen.
+    //   popcount_u64(x: u64)        -> u32   (llvm.ctpop)
+    //   leading_zeros_u64(x: u64)   -> u32   (llvm.ctlz,  is_zero_poison=false)
+    //   trailing_zeros_u64(x: u64)  -> u32   (llvm.cttz,  is_zero_poison=false)
+    //   bswap_u64(x: u64)           -> u64   (llvm.bswap)
+    //   bitreverse_u64(x: u64)      -> u64   (llvm.bitreverse)
+    if (callee == "popcount_u64"        || callee == "leading_zeros_u64" ||
+        callee == "trailing_zeros_u64"  || callee == "bswap_u64"         ||
+        callee == "bitreverse_u64") {
+        if (n_args != 1)
+            error(std::format("{} requires exactly 1 u64 argument", callee));
+        const LogosType* ret = (callee == "bswap_u64" || callee == "bitreverse_u64")
+                               ? prim(LogosType::Kind::U64)
+                               : prim(LogosType::Kind::U32);
+        lir::ECall ec;
+        ec.callee = callee;
+        for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
+        return make_expr(ret, std::move(ec));
+    }
+
     bool call_has_pack_expand = false;
     for (auto& a : arg_exprs) {
         if (std::holds_alternative<lir::EPackExpand>(a->kind)) {

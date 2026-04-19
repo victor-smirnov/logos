@@ -478,8 +478,30 @@ private:
     std::vector<TypeParam> read_type_params_from(hermes::TinyMapView node, int32_t field_code);
     std::vector<TypeParam> read_type_params(hermes::TinyMapView node);
 
+    // Save-and-restore stack so shadowing (e.g. trait<T> + method<T>) doesn't
+    // wipe the outer binding on pop. Each push records the old value (if any)
+    // keyed by call site (vector address); pop restores in reverse order.
+    struct ShadowFrame {
+        std::string name;
+        const LogosType* old_type = nullptr;
+        bool had_type = false;
+        std::vector<TraitBound> old_bounds;
+        bool had_bounds = false;
+    };
+    std::vector<std::vector<ShadowFrame>> type_param_shadow_stack_;
+
     void push_type_params(const std::vector<TypeParam>& tps) {
+        type_param_shadow_stack_.emplace_back();
+        auto& frames = type_param_shadow_stack_.back();
+        frames.reserve(tps.size());
         for (auto& tp : tps) {
+            ShadowFrame f;
+            f.name = tp.name;
+            auto it = current_type_params_.find(tp.name);
+            if (it != current_type_params_.end()) { f.had_type = true; f.old_type = it->second; }
+            auto bit = current_type_bounds_.find(tp.name);
+            if (bit != current_type_bounds_.end()) { f.had_bounds = true; f.old_bounds = bit->second; }
+            frames.push_back(std::move(f));
             if (tp.is_const) {
                 LogosType c; c.kind = LogosType::Kind::ConstVar;
                 c.type_var_name = tp.name;
@@ -490,14 +512,21 @@ private:
             }
             if (!tp.bounds.empty()) {
                 current_type_bounds_[tp.name] = tp.bounds;
+            } else {
+                current_type_bounds_.erase(tp.name);
             }
         }
     }
-    void pop_type_params(const std::vector<TypeParam>& tps) {
-        for (auto& tp : tps) {
-            current_type_params_.erase(tp.name);
-            current_type_bounds_.erase(tp.name);
+    void pop_type_params(const std::vector<TypeParam>& /*tps*/) {
+        if (type_param_shadow_stack_.empty()) return;
+        auto& frames = type_param_shadow_stack_.back();
+        for (auto rit = frames.rbegin(); rit != frames.rend(); ++rit) {
+            if (rit->had_type) current_type_params_[rit->name] = rit->old_type;
+            else               current_type_params_.erase(rit->name);
+            if (rit->had_bounds) current_type_bounds_[rit->name] = rit->old_bounds;
+            else                 current_type_bounds_.erase(rit->name);
         }
+        type_param_shadow_stack_.pop_back();
     }
 
     // ── Sema-side type substitution (TypeVar → concrete) ────────────

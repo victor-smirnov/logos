@@ -660,6 +660,38 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
         }
     }
 
+    // Bitwise intrinsics on u64 — emit LLVM dialect ops.
+    // popcount/ctlz/cttz return i64 from i64 input; truncate to i32 for u32 return.
+    if (e.callee == "popcount_u64"        || e.callee == "leading_zeros_u64"  ||
+        e.callee == "trailing_zeros_u64"  || e.callee == "bswap_u64"          ||
+        e.callee == "bitreverse_u64") {
+        if (e.args.size() == 1) {
+            auto v = gen_expr(*e.args[0]); if (!v) return nullptr;
+            auto i64_ty = builder_.getIntegerType(64);
+            auto i32_ty = builder_.getIntegerType(32);
+            v = coerce_int(v, i64_ty);
+            mlir::Value res;
+            if (e.callee == "popcount_u64")
+                res = builder_.create<mlir::LLVM::CtPopOp>(loc_, i64_ty, v);
+            else if (e.callee == "leading_zeros_u64")
+                res = builder_.create<mlir::LLVM::CountLeadingZerosOp>(
+                    loc_, i64_ty, v, /*is_zero_poison=*/false);
+            else if (e.callee == "trailing_zeros_u64")
+                res = builder_.create<mlir::LLVM::CountTrailingZerosOp>(
+                    loc_, i64_ty, v, /*is_zero_poison=*/false);
+            else if (e.callee == "bswap_u64")
+                res = builder_.create<mlir::LLVM::ByteSwapOp>(loc_, i64_ty, v);
+            else // bitreverse_u64
+                res = builder_.create<mlir::LLVM::BitReverseOp>(loc_, i64_ty, v);
+            // popcount/ctlz/cttz: Logos return type is u32; truncate.
+            if (e.callee == "popcount_u64"       ||
+                e.callee == "leading_zeros_u64"  ||
+                e.callee == "trailing_zeros_u64")
+                res = coerce_int(res, i32_ty);
+            return res;
+        }
+    }
+
     // Check if this is a vararg extern fn (declared as llvm.func)
     if (vararg_fns_.count(e.callee)) {
         auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(e.callee);
