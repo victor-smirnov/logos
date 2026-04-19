@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.cmp
+//
+// Eq trait — total equality. Float types are intentionally not impl'd
+// because NaN != NaN breaks total equality; use a separate PartialEq
+// later if needed. For HashMap<K, V> K must be Eq + Hash.
+
+package std.cmp;
+
+pub trait Eq {
+    fn eq(&self, other: &Self) -> bool;
+}
+
+impl Eq for i32  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i64  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u32  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u64  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u8   { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i8   { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u16  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i16  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for bool { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for usize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }

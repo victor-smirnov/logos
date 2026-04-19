@@ -37,6 +37,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             current_type_params_["Self"] = make_datatype_type(struct_ctx);
         else if (structs_.count(std::string(struct_ctx)))
             current_type_params_["Self"] = make_struct_type(struct_ctx);
+        else if (auto* prim_t = lookup_type_by_name(struct_ctx))
+            current_type_params_["Self"] = prim_t;
     }
 
     lir::LFunction fn;

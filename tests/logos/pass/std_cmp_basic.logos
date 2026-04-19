@@ -1,0 +1,22 @@
+package std_cmp_basic;
+
+use std.cmp;
+
+fn main() -> i32 {
+    let a: i32 = 7;
+    let b: i32 = 7;
+    let c: i32 = 8;
+    if !a.eq(&b) { return 1; }
+    if a.eq(&c)  { return 2; }
+
+    let u: u64 = 100 as u64;
+    let v: u64 = 100 as u64;
+    if !u.eq(&v) { return 3; }
+
+    let t: bool = true;
+    let f: bool = false;
+    if t.eq(&f)  { return 4; }
+    if !t.eq(&t) { return 5; }
+
+    return 42;
+}

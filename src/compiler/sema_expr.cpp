@@ -1901,8 +1901,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& a : arg_exprs) types.push_back(a->type);
             if (auto pfit = find_func_by_base_and_signature(mangled_prim, types, false))
                 fi_ptr = pfit;
-            else if (auto pfit = find_generic_func(mangled_prim))
-                fi_ptr = pfit;
+            // Auto-ref receiver variants: methods may declare &self / &mut self
+            // where Self is a primitive, so try &T and &mut T as param[0].
+            if (!fi_ptr) {
+                auto types_ref = types; types_ref[0] = make_ref(false, recv->type);
+                if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_ref, false))
+                    fi_ptr = pfit;
+            }
+            if (!fi_ptr) {
+                auto types_mut = types; types_mut[0] = make_ref(true, recv->type);
+                if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_mut, false))
+                    fi_ptr = pfit;
+            }
+            if (!fi_ptr)
+                if (auto pfit = find_generic_func(mangled_prim)) fi_ptr = pfit;
             // `str` resolves to Slice<u8> (type_str → "&[u8]"), but impl methods
             // are registered under "str__method".  Try the alias fallback.
             else if (tname == "&[u8]") {
@@ -1947,6 +1959,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 return finish_generic_call(
                     fi_ptr->symbol_name.empty() ? mangled_prim : fi_ptr->symbol_name,
                     *fi_ptr, std::move(m_type_args), std::move(pargs));
+            }
+            // Auto-ref receiver if method expects &Self / &mut Self.
+            if (!fi_ptr->param_types.empty()) {
+                auto* formal0 = fi_ptr->param_types[0];
+                if (formal0 && is_ref_like(formal0->kind) && recv->type &&
+                    !is_ref_like(recv->type->kind) &&
+                    recv->type->kind != LogosType::Kind::Ptr) {
+                    bool is_mut = formal0->kind == LogosType::Kind::MutRef;
+                    auto addr = make_expr(make_ref(is_mut, recv->type),
+                                          lir::EAddrOfTemp{std::move(recv), is_mut});
+                    recv = std::move(addr);
+                }
             }
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
