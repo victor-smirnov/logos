@@ -241,6 +241,7 @@ inline constexpr Code HERMES_CAP_IDENT   {"HERMES_CAP_IDENT",    174};  // $x ca
 inline constexpr Code HERMES_CAP_EXPR    {"HERMES_CAP_EXPR",     175};  // ${expr} capture of expression; VALUE(7) = expr
 inline constexpr Code HERMES_ARR_TYPE    {"HERMES_ARR_TYPE",     176};  // <ElemType>[] type expression (type-position); TYPE(3) = elem name
 inline constexpr Code HERMES_MAP_TYPE    {"HERMES_MAP_TYPE",     177};  // <K,V>{} type expression (type-position); TYPE(3)=key, RET_TYPE(6)=val
+inline constexpr Code LIST_COMP          {"LIST_COMP",           178};  // [elem for x in iter (if guard)?]; VALUE=elem, NAME=var, ITER=iter, GUARD?=pred
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

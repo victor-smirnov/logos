@@ -8,7 +8,7 @@ package std.vec;
 
 use std.mem;
 
-struct Vec<T> {
+pub struct Vec<T> {
     ptr: *mut T;
     len: i64;
     cap: i64;
