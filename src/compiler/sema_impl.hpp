@@ -368,6 +368,7 @@ private:
     // ── Trait info ───────────────────────────────────────────────
     struct SemaTraitMethodInfo {
         std::string name;
+        std::vector<TypeParam> type_params;  // method-level: `fn hash<H: Hasher>(...)` has [H]
         std::vector<const LogosType*> param_types;  // includes self
         const LogosType* ret_type = nullptr;
         bool has_default = false;   // trait method has a default body

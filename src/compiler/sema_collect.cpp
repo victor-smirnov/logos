@@ -406,6 +406,12 @@ void SemaChecker::collect_trait(TinyMapView node) {
             if (code_of(m) != la::FN) continue;
             SemaTraitMethodInfo mi;
             mi.name = std::string(str_of(m.get(la::NAME.code)));
+            // Method-level type params: `fn hash<H: Hasher>(...)`. Push them on the
+            // scope stack so resolve_type() can see H inside param/ret types.
+            if (m.has_key(la::TYPE_PARAMS)) {
+                mi.type_params = read_type_params_from(m, la::TYPE_PARAMS.code);
+                push_type_params(mi.type_params);
+            }
             if (m.has_key(la::PARAMS)) {
                 auto pav = m.get(la::PARAMS.code);
                 if (!pav.is_null() && pav.is_pointer()) {
@@ -445,6 +451,8 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 AnyVal av = m.get(la::IS_UNSAFE);
                 mi.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
             }
+            if (!mi.type_params.empty())
+                pop_type_params(mi.type_params);
             info.methods.push_back(std::move(mi));
         }
     }
@@ -656,6 +664,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // blocks, so force is_pub=true post-collection.  Inherent
                 // impls (no trait_name) keep the explicit pub/private split.
                 if (!trait_name.empty()) {
+                    // Push method-level type params so `fn m<H: Bound>(&self, x: &mut H)`
+                    // can resolve H when re-walking params for public-visibility promotion.
+                    auto method_tps = read_type_params(m);
+                    if (!method_tps.empty()) push_type_params(method_tps);
                     std::vector<const LogosType*> method_param_types;
                     if (m.has_key(la::PARAMS)) {
                         auto params_av = m.get(la::PARAMS.code);
@@ -680,6 +692,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             }
                         }
                     }
+                    if (!method_tps.empty()) pop_type_params(method_tps);
                     if (auto it = find_func_by_base_and_signature(mangled, method_param_types, false))
                         const_cast<SemaFuncInfo*>(it)->is_pub = true;
                 }
