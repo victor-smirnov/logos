@@ -1,0 +1,32 @@
+// C8f: HermesCtrView — non-owning view of a live HermesCtr.
+package hermes_ctr_view;
+use hermes.ctr;
+use hermes.view;
+use std.string;
+
+unsafe fn main() -> i32 {
+    // Build a small document.
+    let mut ctr: HermesCtr = HermesCtr::new(4096);
+    match ctr.parse("{\"x\": 1, \"y\": 2}") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 1; }
+    }
+
+    // Obtain a view — borrows ctr.
+    let v: HermesCtrView = ctr.as_view();
+    let root: AnyVal = v.root();
+    if root.is_null() { return 2; }
+
+    // stringify via view.
+    let text: String = v.to_string();
+    if !text.eq_str("{\"x\":1,\"y\":2}") { return 3; }
+
+    // View of a capture-literal HermesCtr.
+    let id: i32 = 99;
+    let doc: HermesCtr = @{"id": $id};
+    let dv: HermesCtrView = doc.as_view();
+    let dr: AnyVal = dv.root();
+    if dr.is_null() { return 4; }
+
+    return 0;
+}

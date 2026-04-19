@@ -20,7 +20,7 @@ use hermes.view;
 use std.string;
 use std.io;
 
-unsafe fn section(title: str) {
+fn section(title: str) {
     println("---");
     println(title);
 }
@@ -28,7 +28,7 @@ unsafe fn section(title: str) {
 // print_doc — stringify via the HermesRead trait default to_string().
 // Works for HermesCtr (owning), HermesCtrView<'a> (borrowing),
 // and HermesStatic ('static rodata) — all impl HermesRead.
-unsafe fn print_doc(label: str, ctr: &HermesCtr) {
+fn print_doc(label: str, ctr: &HermesCtr) {
     let s: String = ctr.to_string();
     let mut out: String = String::with_capacity(128);
     out.push_str("  ");
@@ -38,7 +38,7 @@ unsafe fn print_doc(label: str, ctr: &HermesCtr) {
     println_string(&out);
 }
 
-unsafe fn print_static(label: str, hs: &HermesStatic) {
+fn print_static(label: str, hs: &HermesStatic) {
     let s: String = hs.to_string();
     let mut out: String = String::with_capacity(128);
     out.push_str("  ");
@@ -48,7 +48,7 @@ unsafe fn print_static(label: str, hs: &HermesStatic) {
     println_string(&out);
 }
 
-pub unsafe fn main() -> i32 {
+pub fn main() -> i32 {
     // ------------------------------------------------------------------ //
     // 1. Static @-literals                                                //
     //    Document lives in read-only data — no heap allocation.          //
