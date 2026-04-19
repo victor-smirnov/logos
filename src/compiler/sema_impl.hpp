@@ -659,6 +659,10 @@ private:
     lir::LExprPtr lower_map_comp(hermes::TinyMapView node);
     lir::LExprPtr lower_hermes_list_comp(hermes::TinyMapView node);
     lir::LExprPtr lower_hermes_map_comp(hermes::TinyMapView node);
+    lir::LExprPtr coerce_to_hermes_anyval(lir::LExprPtr val,
+                                          const std::string& ctr_var,
+                                          const LogosType* ctr_t,
+                                          std::string_view context);
     lir::LExprPtr lower_hermes_lit(hermes::TinyMapView node);
 
     // Capture context: non-null while lowering a hermes literal that has $-captures.

@@ -1,0 +1,50 @@
+package hermes_comp_coerce;
+
+use hermes.ctr;
+use hermes.anyval;
+use hermes.containers;
+
+fn main() -> i32 {
+    let xs: [i32; 4] = [1, 2, 3, 4];
+
+    // List comprehension with raw i32 value (auto-coerced to AnyVal).
+    let la: HermesCtr = @[x * x for x in xs];
+
+    // Bool value, auto-coerced.
+    let lb: HermesCtr = @[(x % 2) == 0 for x in xs];
+
+    // Map with string values — auto-coerced to Varchar in the zone.
+    let keys: [str; 3] = ["a", "b", "c"];
+    let idx:  [i32; 3] = [0, 1, 2];
+    let md: HermesCtr = @{keys[x as i64]: "val" for x in idx};
+
+    unsafe {
+        // la: [1, 4, 9, 16]
+        let ra: AnyVal = la.root();
+        let ba: *const u8 = la.base();
+        let oa: *const ObjectArray =
+            (ba as i64 + ra.as_offset() as i64) as *const ObjectArray;
+        if oa.len() != 4 as u64 { return 1; }
+        if oa.get(ba, 2 as u64).as_i24() != 9 { return 2; }
+        if oa.get(ba, 3 as u64).as_i24() != 16 { return 3; }
+
+        // lb: [false, true, false, true] — check first two via AnyVal method
+        let rb: AnyVal = lb.root();
+        let bb: *const u8 = lb.base();
+        let ob: *const ObjectArray =
+            (bb as i64 + rb.as_offset() as i64) as *const ObjectArray;
+        if ob.len() != 4 as u64 { return 4; }
+        if ob.get(bb, 1 as u64).as_bool() != true  { return 5; }
+        if ob.get(bb, 0 as u64).as_bool() != false { return 6; }
+
+        // md: {"a": "val", "b": "val", "c": "val"}
+        let rm: AnyVal = md.root();
+        let bm: *const u8 = md.base();
+        if !rm.is_map(bm) { return 7; }
+        let v: AnyVal = md.map_get(rm, "b");
+        let pv: *const AnyVal = &v as *const AnyVal;
+        if !pv.is_string(bm) { return 8; }
+    }
+
+    return 42;
+}

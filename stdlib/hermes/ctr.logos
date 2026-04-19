@@ -662,3 +662,20 @@ pub fn hermes_map_comp_put(c: &mut HermesCtr, k: str, v: AnyVal) {
     let m: AnyVal = c.root();
     c.map_set(m, k, v);
 }
+
+// Scalar → AnyVal coercion helpers for comprehension values.
+// Compiler auto-wraps the element expression in one of these based on its
+// Logos type.  AnyVal values bypass coercion entirely.
+
+pub fn hermes_coerce_i8(v: i8)   -> AnyVal { return AnyVal::embed_i8(v); }
+pub fn hermes_coerce_i16(v: i16) -> AnyVal { return AnyVal::embed_i16(v); }
+pub fn hermes_coerce_i32(v: i32) -> AnyVal { return AnyVal::embed_i24(v); }
+pub fn hermes_coerce_i64(v: i64) -> AnyVal { return AnyVal::embed_i24(v as i32); }
+pub fn hermes_coerce_u8(v: u8)   -> AnyVal { return AnyVal::embed_u8(v); }
+pub fn hermes_coerce_u16(v: u16) -> AnyVal { return AnyVal::embed_u16(v); }
+pub fn hermes_coerce_u32(v: u32) -> AnyVal { return AnyVal::embed_u24(v); }
+pub fn hermes_coerce_u64(v: u64) -> AnyVal { return AnyVal::embed_u24(v as u32); }
+pub fn hermes_coerce_bool(v: bool) -> AnyVal { return AnyVal::embed_bool(v); }
+pub fn hermes_coerce_str(c: &mut HermesCtr, s: str) -> AnyVal {
+    return c.build_str(s);
+}

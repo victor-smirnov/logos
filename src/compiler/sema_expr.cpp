@@ -3386,17 +3386,12 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
     pop_scope();
 
-    // Require VALUE to produce AnyVal.
-    const LogosType* vt = val_expr_body->type;
-    if (!(vt && (vt->kind == LogosType::Kind::Struct
-                 || vt->kind == LogosType::Kind::Datatype)
-              && vt->struct_name == "AnyVal")) {
-        error(std::format(
-            "hermes list comprehension: element expression must be AnyVal "
-            "(got {}); wrap scalars with AnyVal::embed_i24/embed_bool/etc.",
-            type_str(vt)));
+    // Coerce VALUE to AnyVal (no-op if already AnyVal).
+    val_expr_body = coerce_to_hermes_anyval(
+        std::move(val_expr_body), ctr_var, ctr_t,
+        "hermes list comprehension element");
+    if (!val_expr_body || val_expr_body->type->kind == LogosType::Kind::Void)
         return error_expr();
-    }
 
     // SLet: let mut __hlc_c = hermes_list_comp_new(128);
     std::string new_sym = new_fi->symbol_name.empty() ? "hermes_list_comp_new"
@@ -3518,17 +3513,12 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         return error_expr();
     }
 
-    // Require VALUE to produce AnyVal.
-    const LogosType* vt = val_expr->type;
-    if (!(vt && (vt->kind == LogosType::Kind::Struct
-                 || vt->kind == LogosType::Kind::Datatype)
-              && vt->struct_name == "AnyVal")) {
-        error(std::format(
-            "hermes map comprehension: value expression must be AnyVal "
-            "(got {}); wrap scalars with AnyVal::embed_i24/embed_bool/etc.",
-            type_str(vt)));
+    // Coerce VALUE to AnyVal (no-op if already AnyVal).
+    val_expr = coerce_to_hermes_anyval(
+        std::move(val_expr), ctr_var, ctr_t,
+        "hermes map comprehension value");
+    if (!val_expr || val_expr->type->kind == LogosType::Kind::Void)
         return error_expr();
-    }
 
     std::string new_sym = new_fi->symbol_name.empty() ? "hermes_map_comp_new"
                                                       : new_fi->symbol_name;
@@ -3587,6 +3577,76 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
 
     auto result = make_expr(ctr_t, lir::EVarRef{ctr_var});
     return make_expr(ctr_t, lir::EBlockExpr{std::move(outer), std::move(result)});
+}
+
+// Coerce an arbitrary value to AnyVal for use inside a Hermes comprehension.
+// Returns the original expr if already AnyVal; otherwise wraps in a call to
+// one of the `hermes_coerce_*` helpers in hermes/ctr.logos. String coercion
+// requires `&mut ctr_var` because the string is copied into the zone.
+lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
+        lir::LExprPtr val,
+        const std::string& ctr_var,
+        const LogosType* ctr_t,
+        std::string_view context) {
+    if (!val || !val->type) return val;
+    const LogosType* t = val->type;
+
+    // AnyVal passthrough (datatype or struct form).
+    if ((t->kind == LogosType::Kind::Struct
+         || t->kind == LogosType::Kind::Datatype)
+        && t->struct_name == "AnyVal") {
+        return val;
+    }
+
+    const char* helper = nullptr;
+    bool needs_ctr = false;
+    using K = LogosType::Kind;
+    switch (t->kind) {
+        case K::Bool: helper = "hermes_coerce_bool"; break;
+        case K::I8:   helper = "hermes_coerce_i8";   break;
+        case K::I16:  helper = "hermes_coerce_i16";  break;
+        case K::I32:  case K::I24: case K::IntLit:
+                      helper = "hermes_coerce_i32"; break;
+        case K::I64:  helper = "hermes_coerce_i64"; break;
+        case K::U8:   helper = "hermes_coerce_u8";   break;
+        case K::U16:  helper = "hermes_coerce_u16";  break;
+        case K::U32:  case K::U24:
+                      helper = "hermes_coerce_u32"; break;
+        case K::U64:  helper = "hermes_coerce_u64"; break;
+        case K::Slice:
+            if (t->elem && t->elem->kind == K::U8) {
+                helper = "hermes_coerce_str";
+                needs_ctr = true;
+            }
+            break;
+        default: break;
+    }
+
+    if (!helper) {
+        error(std::format(
+            "{}: cannot coerce {} to AnyVal; wrap explicitly or use "
+            "AnyVal/str/numeric scalar",
+            context, type_str(t)));
+        return error_expr();
+    }
+
+    auto cands = find_func_candidates(helper);
+    if (cands.empty()) {
+        error(std::format("{}: {} not found; `use hermes.ctr;`",
+                          context, helper));
+        return error_expr();
+    }
+    const SemaFuncInfo* fi = cands.front();
+    const LogosType* ret_t = fi->ret_type;
+
+    std::vector<lir::LExprPtr> args;
+    if (needs_ctr) {
+        auto recv = make_expr(make_ptr(true, ctr_t), lir::EAddrOf{ctr_var});
+        args.push_back(std::move(recv));
+    }
+    args.push_back(std::move(val));
+    std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+    return make_expr(ret_t, lir::ECall{sym, {}, std::move(args)});
 }
 
 lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
