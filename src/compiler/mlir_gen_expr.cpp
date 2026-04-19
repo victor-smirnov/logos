@@ -637,6 +637,33 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
                         }
                     }
                 }
+            } else if (auto* fr = std::get_if<EFieldRead>(&ir->receiver->kind)) {
+                auto [struct_ptr, sname] = gen_recv_struct(*fr->receiver);
+                if (struct_ptr && !sname.empty()) {
+                    auto& info = struct_types_[sname];
+                    auto field_ptr = gep_field(struct_ptr, info, fr->field);
+                    if (field_ptr) {
+                        bool field_is_ptr = ir->receiver->type &&
+                                            ir->receiver->type->kind == LogosType::Kind::Ptr;
+                        if (field_is_ptr) {
+                            base_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                                loc_, ptr_type(), field_ptr);
+                            if (ir->receiver->type->pointee &&
+                                (ir->receiver->type->pointee->kind == LogosType::Kind::Struct ||
+                                 ir->receiver->type->pointee->kind == LogosType::Kind::Datatype)) {
+                                auto cname = concrete_struct_name(ir->receiver->type->pointee);
+                                auto sit2  = struct_types_.find(cname);
+                                if (sit2 != struct_types_.end())
+                                    elem_type = sit2->second.llvm_type;
+                            }
+                            if (!elem_type)
+                                elem_type = logos_to_mlir(t);
+                        } else {
+                            base_ptr  = field_ptr;
+                            elem_type = logos_to_mlir(t);
+                        }
+                    }
+                }
             }
             if (base_ptr && elem_type) {
                 auto idx = gen_expr(*ir->index);
@@ -1074,6 +1101,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
                                     e.receiver->type->kind == LogosType::Kind::Ptr;
                 if (field_is_ptr) {
                     arr_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_ptr);
+                    // Use struct LLVM type for stride when pointee is a struct/datatype.
+                    if (e.receiver->type->pointee &&
+                        (e.receiver->type->pointee->kind == LogosType::Kind::Struct ||
+                         e.receiver->type->pointee->kind == LogosType::Kind::Datatype)) {
+                        auto cname = concrete_struct_name(e.receiver->type->pointee);
+                        auto sit   = struct_types_.find(cname);
+                        if (sit != struct_types_.end())
+                            elem_type = sit->second.llvm_type;
+                    }
                 } else {
                     arr_ptr = field_ptr;
                 }

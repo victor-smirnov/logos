@@ -6,7 +6,7 @@ fn main() -> i32 {
     unsafe {
         let mut m: HashMap<i32, i32> = hashmap_new::<i32, i32>();
         let pm: *mut HashMap<i32, i32> = &mut m;
-        let c: i64 = pm.capacity();
-        return c as i32;
+        pm.insert(1, 10);
+        return pm.len() as i32;
     }
 }
