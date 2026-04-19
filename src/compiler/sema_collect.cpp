@@ -768,50 +768,80 @@ void SemaChecker::collect_impl(TinyMapView node) {
             for (auto& m : tit->second.methods) {
                 auto mangled = check_target + "__" + m.name;
                 auto cands = find_func_candidates(mangled);
-                if (!cands.empty()) {
-                    auto* impl_fn = cands[0];
-                    if (m.is_unsafe != impl_fn->is_unsafe) {
-                        error(std::format("impl {} for {}: method '{}' has mismatched unsafe parity (trait: {}, impl: {})",
-                            trait_name, target, m.name, 
-                            m.is_unsafe ? "unsafe" : "safe", 
-                            impl_fn->is_unsafe ? "unsafe" : "safe"));
+                // Find if THIS specific overload was explicitly provided.
+                // Match by arity and non-receiver param types.
+                // Receiver (param[0]) is &TypeVar(Self) in the trait vs
+                // &ConcreteType in the impl — always skip it.
+                // A TypeVar in the trait param (possibly inside Ref/Ptr) is a
+                // generic param and matches any concrete impl type.
+                auto is_generic_param = [](const LogosType* t) -> bool {
+                    while (t && (t->kind == LogosType::Kind::Ref ||
+                                 t->kind == LogosType::Kind::MutRef ||
+                                 t->kind == LogosType::Kind::Ptr))
+                        t = t->pointee;
+                    if (!t) return false;
+                    // TypeVar = generic type param (T); AssocType = T::Item
+                    // Both are polymorphic from the trait's perspective and
+                    // match any concrete type in the impl.
+                    return t->kind == LogosType::Kind::TypeVar ||
+                           t->kind == LogosType::Kind::AssocType;
+                };
+                const SemaFuncInfo* matching = nullptr;
+                for (auto* c : cands) {
+                    if (c->param_types.size() != m.param_types.size()) continue;
+                    bool sig_match = true;
+                    for (size_t k = 1; k < m.param_types.size(); ++k) {
+                        auto* tp = m.param_types[k];
+                        auto* cp = c->param_types[k];
+                        if (!tp || !cp) { sig_match = false; break; }
+                        // If the trait param is generic (TypeVar or AssocType),
+                        // it matches any concrete impl type.
+                        if (is_generic_param(tp)) continue;
+                        if (is_generic_param(cp)) continue;
+                        if (!types_equal(*tp, *cp)) { sig_match = false; break; }
                     }
+                    if (sig_match) { matching = c; break; }
                 }
-                if (cands.empty()) {
-                    if (m.has_default) {
-                        // Register default method as Target__method.
-                        // Push Self → target type so parameter types resolve correctly.
-                        // Build Self type; for generic impls include the type params as TypeVars.
-                        const LogosType* self_type = nullptr;
-                        if (structs_.count(target)) {
-                            if (!impl_tps.empty()) {
-                                std::vector<const LogosType*> tv_args;
-                                for (auto& tp : impl_tps)
-                                    tv_args.push_back(make_typevar(tp.name));
-                                self_type = make_generic_struct(target, std::move(tv_args));
-                            } else {
-                                self_type = make_struct_type(target);
-                            }
-                        } else if (datatypes_.count(target)) {
-                            self_type = make_datatype_type(target);
-                        }
-                        if (self_type)
-                            current_type_params_["Self"] = self_type;
-                        // Switch holder to the zone that owns the default AST node —
-                        // it may live in a different module's zone (cross-module trait).
-                        auto* saved_holder = holder_;
-                        if (m.default_holder) holder_ = m.default_holder;
-                        collect_fn(map_of(m.default_ast), target);
-                        holder_ = saved_holder;
-                        // Default trait-method: inherits trait accessibility.
-                        auto dmangled = target + "__" + m.name;
-                        if (auto dfit = find_func_candidates(dmangled); !dfit.empty())
-                            const_cast<SemaFuncInfo*>(dfit[0])->is_pub = true;
-                        current_type_params_.erase("Self");
-                    } else {
-                        error(std::format("impl {} for {}: missing method '{}'",
-                              trait_name, target, m.name));
+                if (matching) {
+                    if (m.is_unsafe != matching->is_unsafe) {
+                        error(std::format("impl {} for {}: method '{}' has mismatched unsafe parity (trait: {}, impl: {})",
+                            trait_name, target, m.name,
+                            m.is_unsafe ? "unsafe" : "safe",
+                            matching->is_unsafe ? "unsafe" : "safe"));
                     }
+                } else if (m.has_default) {
+                    // This overload not explicitly provided; register the default.
+                    // Build Self type; for generic impls include the type params as TypeVars.
+                    const LogosType* self_type = nullptr;
+                    if (structs_.count(target)) {
+                        if (!impl_tps.empty()) {
+                            std::vector<const LogosType*> tv_args;
+                            for (auto& tp : impl_tps)
+                                tv_args.push_back(make_typevar(tp.name));
+                            self_type = make_generic_struct(target, std::move(tv_args));
+                        } else {
+                            self_type = make_struct_type(target);
+                        }
+                    } else if (datatypes_.count(target)) {
+                        self_type = make_datatype_type(target);
+                    }
+                    if (self_type)
+                        current_type_params_["Self"] = self_type;
+                    // Switch holder to the zone that owns the default AST node —
+                    // it may live in a different module's zone (cross-module trait).
+                    auto* saved_holder = holder_;
+                    if (m.default_holder) holder_ = m.default_holder;
+                    collect_fn(map_of(m.default_ast), target);
+                    holder_ = saved_holder;
+                    // Default trait-method: inherits trait accessibility.
+                    // Mark ALL newly-registered overloads as pub (not just first).
+                    auto dmangled = target + "__" + m.name;
+                    for (auto* df : find_func_candidates(dmangled))
+                        const_cast<SemaFuncInfo*>(df)->is_pub = true;
+                    current_type_params_.erase("Self");
+                } else {
+                    error(std::format("impl {} for {}: missing method '{}'",
+                          trait_name, target, m.name));
                 }
             }
         }

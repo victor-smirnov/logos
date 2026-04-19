@@ -230,7 +230,7 @@ pub trait HermesRead {
 // Supertrait HermesRead gives all getters for free.
 // Single primitive: zone_mut().
 
-pub trait HermesWrite {
+pub trait HermesWrite: HermesRead {
     fn zone_mut(self: &mut Self) -> *mut Zone<Mutable>;
 
     fn build_i64(self: &mut Self, v: i64) -> AnyVal {
@@ -259,7 +259,7 @@ pub trait HermesWrite {
         }
     }
 
-    fn build_str_n(self: &mut Self, s: *const u8, slen: i64) -> AnyVal {
+    fn build_str(self: &mut Self, s: *const u8, slen: i64) -> AnyVal {
         if slen < 0 { return AnyVal::null_ptr(); }
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
@@ -273,6 +273,10 @@ pub trait HermesWrite {
             let off: u32 = (raw as i64 - base as i64) as u32;
             return AnyVal::from_offset(off);
         }
+    }
+
+    fn build_str(self: &mut Self, sv: StringView) -> AnyVal {
+        return self.build_str(sv.ptr, sv.len as i64);
     }
 
     fn build_str(self: &mut Self, s: *const u8) -> AnyVal {
@@ -349,6 +353,10 @@ pub trait HermesWrite {
         }
     }
 
+    fn map_set(self: &mut Self, map: AnyVal, key: StringView, val: AnyVal) {
+        return self.map_set_str(map, key.ptr, key.len as i64, val);
+    }
+
     fn map_set(self: &mut Self, map: AnyVal, key: *const u8, val: AnyVal) {
         if key == 0 as *const u8 { return; }
         unsafe {
@@ -396,7 +404,18 @@ pub trait HermesWrite {
         }
     }
 
-    fn decimal_from_n(self: &mut Self, p: i32, s: i32, txt: *const u8, len: i64) -> AnyVal {
+    fn decimal_from(self: &mut Self, p: i32, s: i32, val: f64) -> AnyVal {
+        unsafe {
+            let zone: *mut Zone<Mutable> = self.zone_mut();
+            return decimal_from_f64_in_zone(zone, p, s, val);
+        }
+    }
+
+    fn decimal_from(self: &mut Self, p: i32, s: i32, sv: StringView) -> AnyVal {
+        unsafe { return decimal_from_string_in_zone(self.zone_mut(), p, s, sv.ptr, sv.len as i64); }
+    }
+
+    fn decimal_from(self: &mut Self, p: i32, s: i32, txt: *const u8, len: i64) -> AnyVal {
         unsafe { return decimal_from_string_in_zone(self.zone_mut(), p, s, txt, len); }
     }
 

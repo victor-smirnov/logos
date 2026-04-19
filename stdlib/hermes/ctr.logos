@@ -111,27 +111,6 @@ impl Drop for HermesCtr {
 }
 
 impl HermesCtr {
-    // build_str with explicit length (overload not possible in trait defaults).
-    pub fn build_str(&mut self, s: *const u8, slen: i64) -> AnyVal {
-        if slen < 0 as i64 { return AnyVal::null_ptr(); }
-        unsafe {
-            let lu: u64 = slen as u64;
-            let prefix_sz: i64 = vlen_encode_size(lu) as i64;
-            let total: i64 = prefix_sz + slen;
-            let raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone, total, hermes_tag_string() as u64);
-            if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            HermesString::init(raw, s, lu);
-            let base: *mut u8 = self.zone.holder.base;
-            let off: u32 = (raw as i64 - base as i64) as u32;
-            return AnyVal::from_offset(off);
-        }
-    }
-
-    // decimal_from f64 (overload not possible in trait defaults alongside cstr version).
-    pub fn decimal_from(&mut self, p: i32, s: i32, val: f64) -> AnyVal {
-        unsafe { return decimal_from_f64_in_zone(&mut self.zone, p, s, val); }
-    }
-
     // Allocate a new container backed by a zone of `capacity` bytes.
     // Used when you will parse a document into the zone (parser creates DocumentHeader).
     pub static fn new(capacity: i64) -> HermesCtr {

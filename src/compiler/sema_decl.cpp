@@ -776,6 +776,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // explicit `pub fn` / private split.
                 if (!trait_name.empty()) fn.is_pub = true;
                 overridden.insert(fn.name);
+                // Also track base name so overloaded explicit methods block
+                // their corresponding defaults (overloads share a base name).
+                if (!trait_name.empty() && m.has_key(la::NAME)) {
+                    auto raw = std::string(str_of(m.get(la::NAME.code)));
+                    overridden.insert(lower_target + "__" + raw);
+                }
                 if (target_struct_tmpl) {
                     // Add to struct template so mono clones it during struct instantiation.
                     fn.type_params.clear();
