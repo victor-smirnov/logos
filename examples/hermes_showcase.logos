@@ -12,6 +12,7 @@
 //   5. Typed array cast   — &[i32] → <I32>[] HermesCtr
 //   6. Typed map cast     — MapSliceI32 → <I32,AnyVal>{} HermesCtr
 //   7. HermesCtrView      — non-owning borrow of a zone document
+//   8. List/map comprehensions — @[expr for x in iter] / @{k: v for …}
 
 package hermes_showcase;
 
@@ -187,6 +188,37 @@ pub fn main() -> i32 {
     vout.push_str("  view: ");
     vout.push_bytes(s_view.as_ptr(), s_view.len());
     println_string(&vout);
+
+    // ------------------------------------------------------------------ //
+    // 8. Comprehensions — @[expr for x in iter] and @{k: v for x in …}   //
+    //    Scalars (i32/u32/i16/…, bool, str) auto-coerced to AnyVal;      //
+    //    AnyVal values pass through. `if guard` optional.                //
+    // ------------------------------------------------------------------ //
+    section("8. Comprehensions  (auto-coerce scalars/bool/str)");
+
+    let nums: [i32; 6] = [1, 2, 3, 4, 5, 6];
+
+    // Plain list comprehension — i32 auto-coerced.
+    let squares: HermesCtr = @[x * x for x in nums];
+    print_doc("squares", &squares);
+
+    // Guarded list comprehension — keep evens, double them.
+    let evens: HermesCtr = @[x * 2 for x in nums if (x % 2) == 0];
+    print_doc("evens*2", &evens);
+
+    // Bool values auto-coerced.
+    let flags: HermesCtr = @[(x % 2) == 0 for x in nums];
+    print_doc("is_even", &flags);
+
+    // Map comprehension with dynamic str keys and i32 values.
+    let labels: [str; 4] = ["a", "b", "c", "d"];
+    let idx:    [i32; 4] = [0, 1, 2, 3];
+    let lookup: HermesCtr = @{labels[x as i64]: x * 100 for x in idx};
+    print_doc("lookup", &lookup);
+
+    // Map comprehension with string values (copied into zone as Varchar).
+    let tags: HermesCtr = @{labels[x as i64]: "on" for x in idx if x < 2};
+    print_doc("tags", &tags);
 
     println("---");
     println("done.");
