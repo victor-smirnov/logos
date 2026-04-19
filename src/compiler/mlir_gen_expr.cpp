@@ -599,6 +599,45 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
         }
         // Fall through to the general path for non-struct fields.
     }
+    // `&mut arr[i]` on a struct-element-typed array/pointer: take GEP address
+    // directly instead of loading the struct by value and then needing to
+    // re-spill.  Without this, EIndexRead's trailing LoadOp hands back a
+    // struct value that subsequent struct-access ops mis-interpret as a ptr.
+    if (auto* ir = std::get_if<EIndexRead>(&e.inner->kind)) {
+        auto* t = e.inner->type;
+        if (t && (t->kind == LogosType::Kind::Struct ||
+                  t->kind == LogosType::Kind::Datatype)) {
+            mlir::Value base_ptr;
+            mlir::Type  elem_type;
+            if (auto* vr = std::get_if<EVarRef>(&ir->receiver->kind)) {
+                auto lpit = var_local_ptrs_.find(vr->name);
+                if (lpit != var_local_ptrs_.end()) {
+                    auto slot = get_subscript_ptr(vr->name);
+                    base_ptr  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
+                    elem_type = lpit->second;
+                } else if (ir->receiver->type &&
+                           ir->receiver->type->kind == LogosType::Kind::Ptr &&
+                           ir->receiver->type->pointee) {
+                    auto cname = concrete_struct_name(ir->receiver->type->pointee);
+                    auto sit   = struct_types_.find(cname);
+                    if (sit != struct_types_.end()) {
+                        auto sc = scope_.find(vr->name);
+                        if (sc != scope_.end()) {
+                            base_ptr  = sc->second;
+                            elem_type = sit->second.llvm_type;
+                        }
+                    }
+                }
+            }
+            if (base_ptr && elem_type) {
+                auto idx = gen_expr(*ir->index);
+                if (!idx) return nullptr;
+                llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
+                return builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), elem_type, base_ptr, indices);
+            }
+        }
+    }
     auto val = gen_expr(*e.inner);
     if (!val) return nullptr;
     auto* t = e.inner->type;
@@ -957,6 +996,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
             auto alloca = get_subscript_ptr(vr->name);
             arr_ptr   = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), alloca);
             elem_type = lpit->second;
+        } else if (e.receiver->type &&
+                   e.receiver->type->kind == LogosType::Kind::Ptr &&
+                   e.receiver->type->pointee &&
+                   (e.receiver->type->pointee->kind == LogosType::Kind::Struct ||
+                    e.receiver->type->pointee->kind == LogosType::Kind::Datatype)) {
+            // Non-mut `let pp: *mut Struct = …`: scope_ holds the pointer directly.
+            // Use the struct's LLVM type as element so [i] strides by struct size,
+            // not the default i32.
+            auto cname = concrete_struct_name(e.receiver->type->pointee);
+            auto sit   = struct_types_.find(cname);
+            if (sit != struct_types_.end()) {
+                auto sc = scope_.find(vr->name);
+                if (sc != scope_.end()) {
+                    arr_ptr   = sc->second;
+                    elem_type = sit->second.llvm_type;
+                }
+            }
+            if (!arr_ptr) {
+                arr_ptr   = get_subscript_ptr(vr->name);
+                elem_type = subscript_elem_type(vr->name);
+            }
         } else {
             arr_ptr   = get_subscript_ptr(vr->name);
             elem_type = subscript_elem_type(vr->name);

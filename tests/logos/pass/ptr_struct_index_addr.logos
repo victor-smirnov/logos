@@ -1,0 +1,14 @@
+package test;
+
+struct Point { x: i32, y: i32, }
+
+fn main() -> i32 {
+    unsafe {
+        let mut p: Point = Point { x: 0 as i32, y: 0 as i32 };
+        let pp: *mut Point = &mut p;
+        let i: i64 = 0 as i64;
+        let e: *mut Point = &mut pp[i];
+        e.x = 42 as i32;
+        return e.x;
+    }
+}

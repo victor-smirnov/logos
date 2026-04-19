@@ -20,18 +20,11 @@ package hermes.containers;
 use hermes.anyval;
 
 // ---------------------------------------------------------------------------
-// Internal helper: popcount of a u64 (used for bitmap position lookup)
+// popcount_u64 and friends are compiler intrinsics; see sema_expr.cpp /
+// mlir_gen_expr.cpp. No declaration needed — recognised by callee name.
+// Available: popcount_u64, leading_zeros_u64, trailing_zeros_u64,
+//            bswap_u64, bitreverse_u64.
 // ---------------------------------------------------------------------------
-
-pub unsafe fn popcount_u64(x: u64) -> u32 {
-    let mut v: u64 = x;
-    let mut n: u32 = 0;
-    while v != 0 as u64 {
-        v = v & (v - 1 as u64);
-        n = n + 1;
-    }
-    return n;
-}
 
 // ---------------------------------------------------------------------------
 // TinyObjectMap
