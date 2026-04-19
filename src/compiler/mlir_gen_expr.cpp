@@ -660,6 +660,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
             if (base_ptr && elem_type) {
                 auto idx = gen_expr(*ir->index);
                 if (!idx) return nullptr;
+                bool idx_unsigned = ir->index->type &&
+                    (ir->index->type->kind == LogosType::Kind::U8  ||
+                     ir->index->type->kind == LogosType::Kind::U16 ||
+                     ir->index->type->kind == LogosType::Kind::U32 ||
+                     ir->index->type->kind == LogosType::Kind::U24 ||
+                     ir->index->type->kind == LogosType::Kind::U56 ||
+                     ir->index->type->kind == LogosType::Kind::U64 ||
+                     ir->index->type->kind == LogosType::Kind::U128);
+                if (idx_unsigned && idx.getType() != builder_.getI64Type())
+                    idx = builder_.create<mlir::arith::ExtUIOp>(
+                        loc_, builder_.getI64Type(), idx);
                 llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
                 return builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), elem_type, base_ptr, indices);
