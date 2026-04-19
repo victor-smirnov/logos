@@ -3332,7 +3332,7 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
 // ObjectArray of AnyVals, iterating over iter_expr and optionally
 // filtering by guard.  Element expression must evaluate to AnyVal
 // (user coerces scalars explicitly via AnyVal::embed_i24 etc.).
-// Requires `use hermes.view;` in scope.
+// Requires `use hermes.ctr;` in scope.
 lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
@@ -3356,20 +3356,28 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    auto new_cands  = find_func_candidates("hermes_list_comp_new");
-    auto push_cands = find_func_candidates("hermes_list_comp_push");
-    if (new_cands.empty() || push_cands.empty()) {
+    if (structs_.find("HermesCtr") == structs_.end()) {
         error("hermes list comprehension requires `use hermes.ctr;`");
         return error_expr();
     }
-    const SemaFuncInfo* new_fi  = new_cands.front();
-    const SemaFuncInfo* push_fi = push_cands.front();
+
+    auto new_cands  = find_func_candidates("hermes_list_comp_new");
+    auto push_cands = find_func_candidates("hermes_list_comp_push");
+    const SemaFuncInfo* new_fi  = nullptr;
+    const SemaFuncInfo* push_fi = nullptr;
+    for (auto* fi : new_cands)  if (fi->param_types.size() == 1) { new_fi  = fi; break; }
+    for (auto* fi : push_cands) if (fi->param_types.size() == 2) { push_fi = fi; break; }
+    if (!new_fi || !push_fi) {
+        error("hermes list comprehension requires `use hermes.ctr;`");
+        return error_expr();
+    }
 
     const LogosType* ctr_t = make_struct_type("HermesCtr");
 
     std::string ctr_var = "__hlc_c_" + std::to_string(tmp_var_count_++);
 
     push_scope();
+    define(ctr_var, ctr_t, true);
     define(std::string(var_name), elem_type, false);
     auto val_expr_body = lower_expr(map_of(node.get(la::VALUE.code)));
     lir::LExprPtr guard_body = nullptr;
@@ -3393,7 +3401,8 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     std::string new_sym = new_fi->symbol_name.empty() ? "hermes_list_comp_new"
                                                       : new_fi->symbol_name;
     std::vector<lir::LExprPtr> new_args;
-    new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{128}));
+    int64_t cap_hint = arr_size > 0 ? (arr_size * 8 + 128) : 128;
+    new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{cap_hint}));
     auto call_new = make_expr(ctr_t,
         lir::ECall{new_sym, {}, std::move(new_args)});
     lir::SLet let_c;
