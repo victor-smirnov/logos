@@ -1,0 +1,31 @@
+package list_comp_basic;
+
+use std.vec;
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+
+    // Bare list comprehension: array iteration
+    let doubled = [x * 2 for x in arr];
+
+    // With guard: keep only evens, square them
+    let even_sq = [x * x for x in arr if (x % 2) == 0];
+
+    unsafe {
+        let pd: *mut Vec<i32> = &mut doubled;
+        let pe: *mut Vec<i32> = &mut even_sq;
+
+        if pd.length() != 5 as i64 { return 1; }
+        if pe.length() != 2 as i64 { return 2; }
+
+        // doubled = [2, 4, 6, 8, 10]
+        if pd.get(0) != 2  { return 3; }
+        if pd.get(4) != 10 { return 4; }
+
+        // even_sq = [4, 16]
+        if pe.get(0) != 4  { return 5; }
+        if pe.get(1) != 16 { return 6; }
+    }
+
+    return 42;
+}

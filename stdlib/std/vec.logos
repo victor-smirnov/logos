@@ -9,9 +9,9 @@ package std.vec;
 use std.mem;
 
 pub struct Vec<T> {
-    ptr: *mut T;
-    len: i64;
-    cap: i64;
+    ptr: *mut T,
+    len: i64,
+    cap: i64,
 }
 
 pub fn vec_new<T>() -> Vec<T> {

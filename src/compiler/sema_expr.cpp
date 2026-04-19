@@ -322,6 +322,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::INDEX_READ:  return lower_index_read(expr);
     case la::ARR_LIT:      return lower_arr_lit(expr);
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
+    case la::LIST_COMP:    return lower_list_comp(expr);
     case la::HERMES_MAP:
     case la::HERMES_ARRAY:
     case la::HERMES_TYPED_ARRAY:
@@ -3115,6 +3116,112 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     }
 
     return make_expr(make_array(elem_type, elems.size()), lir::EArrLit{std::move(elems)});
+}
+
+// List comprehension:  [elem_expr for x in iter_expr (if guard)?]
+// Desugars to a block expression that creates a Vec<T>, iterates over
+// iter_expr, optionally filters by guard, and pushes elem_expr into the Vec.
+// Requires `use std.vec;` in scope.
+// Iterator support: array / slice (via SForEach); generic iterator path
+// (types with .next() returning Option<T>) is deferred.
+lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
+    auto var_name = str_of(node.get(la::NAME.code));
+
+    lir::LExprPtr iter = node.has_key(la::ITER)
+        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
+    const LogosType* iter_type = iter->type;
+
+    // Only array/slice iteration supported for now.
+    const LogosType* elem_type = nullptr;
+    int64_t arr_size = 0;
+    bool is_slice = false;
+    if (iter_type->kind == LogosType::Kind::Array) {
+        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        arr_size  = (int64_t)iter_type->arr_size;
+    } else if (iter_type->kind == LogosType::Kind::Slice) {
+        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        is_slice  = true;
+    } else {
+        error(std::format(
+            "list comprehension: only array/slice iteration supported (got {})",
+            type_str(iter_type)));
+        return error_expr();
+    }
+
+    // Require Vec<T> available (via `use std.vec`).
+    if (structs_.find("Vec") == structs_.end()) {
+        error("list comprehension requires `use std.vec;`");
+        return error_expr();
+    }
+    auto* vec_new_fi = find_generic_func("vec_new");
+    if (!vec_new_fi) {
+        error("list comprehension: vec_new not found; add `use std.vec;`");
+        return error_expr();
+    }
+
+    const LogosType* vec_t = make_generic_struct("Vec", {elem_type});
+
+    std::string vec_var = "__lc_v_" + std::to_string(tmp_var_count_++);
+
+    // SLet: let mut vec_var: Vec<T> = vec_new::<T>();
+    // Use symbol_name (may include __g__... suffix for method-level generics).
+    std::string vec_new_sym = vec_new_fi->symbol_name.empty() ? "vec_new"
+                                                              : vec_new_fi->symbol_name;
+    auto call_new = make_expr(vec_t, lir::ECall{vec_new_sym, {elem_type}, {}});
+    lir::SLet let_v;
+    let_v.name   = vec_var;
+    let_v.type   = vec_t;
+    let_v.is_mut = true;
+    let_v.value  = std::move(call_new);
+
+    // Lower VALUE + optional GUARD with var_name in scope.
+    push_scope();
+    define(vec_var, vec_t, true);
+    define(std::string(var_name), elem_type, false);
+    auto elem_expr = lower_expr(map_of(node.get(la::VALUE.code)));
+    lir::LExprPtr guard_expr = nullptr;
+    if (node.has_key(la::GUARD))
+        guard_expr = lower_expr(map_of(node.get(la::GUARD.code)));
+    pop_scope();
+
+    // Call Vec::push(&mut vec_var, elem) as a direct ECall.
+    // Emit with callee "Vec__push" and type_args=[elem_type]; mono_clone will
+    // rewrite to the struct-specialized name (e.g. Vec$G1$i32__push).
+    auto recv = make_expr(make_ptr(true, vec_t), lir::EAddrOf{vec_var});
+    std::vector<lir::LExprPtr> push_args;
+    push_args.push_back(std::move(recv));
+    push_args.push_back(std::move(elem_expr));
+    auto push_call = make_expr(void_t(),
+        lir::ECall{"Vec__push", {elem_type}, std::move(push_args)});
+
+    lir::SExprStmt push_stmt;
+    push_stmt.expr = std::move(push_call);
+
+    auto loop_body = std::make_unique<lir::LBlock>();
+    if (guard_expr) {
+        lir::SIf sif;
+        sif.cond = std::move(guard_expr);
+        sif.then_ = std::make_unique<lir::LBlock>();
+        sif.then_->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
+        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
+    } else {
+        loop_body->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
+    }
+
+    lir::SForEach sfe;
+    sfe.var       = std::string(var_name);
+    sfe.iter      = std::move(iter);
+    sfe.elem_type = elem_type;
+    sfe.arr_size  = arr_size;
+    sfe.is_slice  = is_slice;
+    sfe.body      = std::move(loop_body);
+
+    auto outer = std::make_unique<lir::LBlock>();
+    outer->stmts.push_back(make_stmt(node_line_, std::move(let_v)));
+    outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
+
+    auto result = make_expr(vec_t, lir::EVarRef{vec_var});
+    return make_expr(vec_t, lir::EBlockExpr{std::move(outer), std::move(result)});
 }
 
 lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
