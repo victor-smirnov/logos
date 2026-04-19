@@ -3390,7 +3390,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     val_expr_body = coerce_to_hermes_anyval(
         std::move(val_expr_body), ctr_var, ctr_t,
         "hermes list comprehension element");
-    if (!val_expr_body || val_expr_body->type->kind == LogosType::Kind::Void)
+    if (!val_expr_body || val_expr_body->type->kind == LogosType::Kind::Error)
         return error_expr();
 
     // SLet: let mut __hlc_c = hermes_list_comp_new(128);
@@ -3517,7 +3517,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     val_expr = coerce_to_hermes_anyval(
         std::move(val_expr), ctr_var, ctr_t,
         "hermes map comprehension value");
-    if (!val_expr || val_expr->type->kind == LogosType::Kind::Void)
+    if (!val_expr || val_expr->type->kind == LogosType::Kind::Error)
         return error_expr();
 
     std::string new_sym = new_fi->symbol_name.empty() ? "hermes_map_comp_new"
@@ -3605,14 +3605,14 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
         case K::Bool: helper = "hermes_coerce_bool"; break;
         case K::I8:   helper = "hermes_coerce_i8";   break;
         case K::I16:  helper = "hermes_coerce_i16";  break;
-        case K::I32:  case K::I24: case K::IntLit:
+        case K::I32:  case K::IntLit:
                       helper = "hermes_coerce_i32"; break;
-        case K::I64:  helper = "hermes_coerce_i64"; break;
         case K::U8:   helper = "hermes_coerce_u8";   break;
         case K::U16:  helper = "hermes_coerce_u16";  break;
-        case K::U32:  case K::U24:
-                      helper = "hermes_coerce_u32"; break;
-        case K::U64:  helper = "hermes_coerce_u64"; break;
+        case K::U32:  helper = "hermes_coerce_u32"; break;
+        // i64/u64/i24/u24/i56/u56/i128/u128 intentionally omitted: embedding
+        // them via i24 would silently truncate high bits.  User must cast
+        // explicitly (e.g. `x as i32`) or wrap with AnyVal::embed_i24.
         case K::Slice:
             if (t->elem && t->elem->kind == K::U8) {
                 helper = "hermes_coerce_str";
@@ -3624,19 +3624,23 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
 
     if (!helper) {
         error(std::format(
-            "{}: cannot coerce {} to AnyVal; wrap explicitly or use "
-            "AnyVal/str/numeric scalar",
+            "{}: cannot auto-coerce {} to AnyVal; cast to i32/u32/bool/str "
+            "explicitly, or wrap with AnyVal::embed_*",
             context, type_str(t)));
         return error_expr();
     }
 
+    size_t want_arity = needs_ctr ? 2 : 1;
     auto cands = find_func_candidates(helper);
-    if (cands.empty()) {
+    const SemaFuncInfo* fi = nullptr;
+    for (auto* c : cands) {
+        if (c->param_types.size() == want_arity) { fi = c; break; }
+    }
+    if (!fi) {
         error(std::format("{}: {} not found; `use hermes.ctr;`",
                           context, helper));
         return error_expr();
     }
-    const SemaFuncInfo* fi = cands.front();
     const LogosType* ret_t = fi->ret_type;
 
     std::vector<lir::LExprPtr> args;
