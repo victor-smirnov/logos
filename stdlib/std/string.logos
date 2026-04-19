@@ -12,8 +12,8 @@
 //
 // Usage:
 //   let mut s: String = String::new();
-//   s.push_cstr("hello, ");
-//   s.push_cstr("world");
+//   s.push_str("hello, ");
+//   s.push_str("world");
 //   write(1, s.as_ptr(), s.len());
 
 package std.string;

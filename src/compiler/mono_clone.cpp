@@ -91,6 +91,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                             cname = concrete_struct_name(t);
                         else
                             cname = type_str(t);
+                        if (cname == "&[u8]") cname = "str";
                         if (!cname.empty())
                             nc.callee = cname + nc.callee.substr(sep);
                     }
@@ -178,8 +179,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 // Fallback: primitive types (i32, bool, etc.)
                 if (cname.empty())
                     cname = type_str(rt);
-                // `str` resolves to Slice<u8> (type_str → "&[u8]") but impl methods
-                // are registered as "str__method".  Map "&[u8]" back to "str".
+                // `str` resolves to Slice<u8>; type_str() → "&[u8]" but impl
+                // methods are registered as "str__method".  Map back to "str".
+                // This covers BOTH the EMethodCall path (TypeVar→str) and the
+                // ECall prefix-rewriting path where the substitution map binds
+                // a TypeVar to Slice<u8> and the callee is "T__method".
                 if (cname == "&[u8]") cname = "str";
                 if (!cname.empty()) {
                     lir::ECall nc;

@@ -23,16 +23,13 @@ fn main() -> i32 {
         }
     "#;
 
-    match doc.parse(text, str_len(text)) {
+    match doc.parse(text) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 1; }
     }
 
-    //TODO: stringification separated from HermesCtr.
     let s: String = doc.to_string();
-    println(s.as_ptr());
-
-    
+    println_string(&s);
 
     return 0;
 }

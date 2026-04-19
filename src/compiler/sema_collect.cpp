@@ -905,7 +905,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
         // Register an alias entry so satisfaction checks find the impl.
         if (target == "str")
-            impls_[trait_name + "::&[u8]"] = {trait_name, "str", impl_is_unsafe};
+            impls_[trait_name + "::&[u8]"] = {trait_name, "&[u8]", impl_is_unsafe};
     }
 }
 

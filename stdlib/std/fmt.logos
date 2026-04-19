@@ -7,7 +7,7 @@
 // Usage:
 //   use std.fmt;
 //   let s: String = format::<i32, bool>("n={}, ok={}", 42, true);
-//   println(s.as_ptr());
+//   println(s);
 //   // s freed automatically by Drop
 
 package std.fmt;

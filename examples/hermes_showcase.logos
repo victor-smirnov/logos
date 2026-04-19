@@ -7,7 +7,7 @@
 // Demonstrates:
 //   1. Static @-literals  — blob in rodata, zero runtime cost; wrap as HermesStatic
 //   2. Scalar capture     — $ident and ${expr} (i32, bool) → HermesCtr
-//   3. String capture     — *const u8 captured as zone Varchar
+//   3. String capture     — str captured as zone Varchar
 //   4. Mixed capture      — scalars + strings + expressions
 //   5. Typed array cast   — &[i32] → <I32>[] HermesCtr
 //   6. Typed map cast     — MapSliceI32 → <I32,AnyVal>{} HermesCtr
@@ -20,7 +20,7 @@ use hermes.view;
 use std.string;
 use std.io;
 
-unsafe fn section(title: *const u8) {
+unsafe fn section(title: str) {
     println("---");
     println(title);
 }
@@ -28,24 +28,24 @@ unsafe fn section(title: *const u8) {
 // print_doc — stringify via the HermesRead trait default to_string().
 // Works for HermesCtr (owning), HermesCtrView<'a> (borrowing),
 // and HermesStatic ('static rodata) — all impl HermesRead.
-unsafe fn print_doc(label: *const u8, ctr: &HermesCtr) {
+unsafe fn print_doc(label: str, ctr: &HermesCtr) {
     let s: String = ctr.to_string();
     let mut out: String = String::with_capacity(128);
-    out.push_cstr("  ");
-    out.push_cstr(label);
-    out.push_cstr(": ");
-    out.push_cstr(s.as_ptr());
-    println(out.as_ptr());
+    out.push_str("  ");
+    out.push_str(label);
+    out.push_str(": ");
+    out.push_bytes(s.as_ptr(), s.len());
+    println_string(&out);
 }
 
-unsafe fn print_static(label: *const u8, hs: &HermesStatic) {
+unsafe fn print_static(label: str, hs: &HermesStatic) {
     let s: String = hs.to_string();
     let mut out: String = String::with_capacity(128);
-    out.push_cstr("  ");
-    out.push_cstr(label);
-    out.push_cstr(": ");
-    out.push_cstr(s.as_ptr());
-    println(out.as_ptr());
+    out.push_str("  ");
+    out.push_str(label);
+    out.push_str(": ");
+    out.push_bytes(s.as_ptr(), s.len());
+    println_string(&out);
 }
 
 pub unsafe fn main() -> i32 {
@@ -73,9 +73,9 @@ pub unsafe fn main() -> i32 {
     let view_arr: HermesCtrView = hs_arr.as_view();
     let s_arr: String = view_arr.to_string();
     let mut out: String = String::with_capacity(64);
-    out.push_cstr("  view: ");
-    out.push_cstr(s_arr.as_ptr());
-    println(out.as_ptr());
+    out.push_str("  view: ");
+    out.push_bytes(s_arr.as_ptr(), s_arr.len());
+    println_string(&out);
 
     // ------------------------------------------------------------------ //
     // 2. Scalar capture — $ident and ${expr}                              //
@@ -106,17 +106,17 @@ pub unsafe fn main() -> i32 {
     print_doc("arr", &doc_arr);
 
     // ------------------------------------------------------------------ //
-    // 3. String capture — *const u8 becomes zone Varchar                  //
+    // 3. String capture — str becomes zone Varchar                         //
     // ------------------------------------------------------------------ //
-    section("3. String capture  (*const u8 → zone Varchar)");
+    section("3. String capture  (str → zone Varchar)");
 
-    let name:  *const u8 = "Alice";
-    let lang:  *const u8 = "Logos";
+    let name:  str = "Alice";
+    let lang:  str = "Logos";
     let doc_str: HermesCtr = @{"name": $name, "lang": $lang};
     print_doc("strings", &doc_str);
 
-    let greeting: *const u8 = "hello";
-    let farewell: *const u8 = "bye";
+    let greeting: str = "hello";
+    let farewell: str = "bye";
     let doc_strarr: HermesCtr = @[$greeting, $farewell];
     print_doc("str arr", &doc_strarr);
 
@@ -125,10 +125,10 @@ pub unsafe fn main() -> i32 {
     // ------------------------------------------------------------------ //
     section("4. Mixed capture");
 
-    let item_id:    i32       = 101;
-    let item_name:  *const u8 = "widget";
-    let qty:        i32       = 5;
-    let unit_price: i32       = 20;
+    let item_id:    i32 = 101;
+    let item_name:  str = "widget";
+    let qty:        i32 = 5;
+    let unit_price: i32 = 20;
 
     let doc_order: HermesCtr = @{
         "id":    $item_id,
@@ -184,9 +184,9 @@ pub unsafe fn main() -> i32 {
     };
     let s_view: String = view.to_string();
     let mut vout: String = String::with_capacity(64);
-    vout.push_cstr("  view: ");
-    vout.push_cstr(s_view.as_ptr());
-    println(vout.as_ptr());
+    vout.push_str("  view: ");
+    vout.push_bytes(s_view.as_ptr(), s_view.len());
+    println_string(&vout);
 
     println("---");
     println("done.");

@@ -244,6 +244,16 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             if (src_agg && tgt_scalar)
                 error(std::format("cannot cast '{}' to '{}'",
                       type_str(inner->type), type_str(target)));
+            // str (Slice<u8>) -> *mut u8 is unsound: str points to rodata.
+            bool src_is_str = inner->type->kind == LogosType::Kind::Slice &&
+                              inner->type->elem &&
+                              inner->type->elem->kind == LogosType::Kind::U8;
+            bool tgt_is_mut_ptr = target->kind == LogosType::Kind::Ptr &&
+                                  target->mut_ptr &&
+                                  target->pointee &&
+                                  target->pointee->kind == LogosType::Kind::U8;
+            if (src_is_str && tgt_is_mut_ptr)
+                error("cannot cast 'str' to '*mut u8': str data is read-only; use '*const u8'");
         }
         return make_expr(target, lir::ECast{std::move(inner)});
     }
