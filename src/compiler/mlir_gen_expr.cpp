@@ -568,6 +568,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOf& e, const LogosType*) {
         std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", e.var_name.c_str());
         return nullptr;
     }
+    // Fn parameters are bound as SSA values (not allocas).  Taking `&x` on a
+    // scalar-typed param requires materializing an on-stack copy so callers
+    // can receive a real pointer.
+    if (it->second && it->second.getType() != ptr_type()) {
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), it->second.getType(), i64_one());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
+        return alloca;
+    }
     return it->second;
 }
 
