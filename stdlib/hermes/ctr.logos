@@ -641,3 +641,18 @@ pub fn hermes_list_comp_push(c: &mut HermesCtr, v: AnyVal) {
     let arr: AnyVal = c.root();
     c.array_push(arr, v);
 }
+
+// Map comprehension: @{kexpr: vexpr for x in iter (if guard)?}
+// v1: string keys only; values must be AnyVal.
+
+pub fn hermes_map_comp_new(cap: i64) -> HermesCtr {
+    let mut c: HermesCtr = HermesCtr::builder(cap);
+    let m: AnyVal = c.build_map(8 as u32);
+    c.set_root(m);
+    return c;
+}
+
+pub fn hermes_map_comp_put(c: &mut HermesCtr, k: str, v: AnyVal) {
+    let m: AnyVal = c.root();
+    c.map_set(m, k, v);
+}

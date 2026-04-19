@@ -1,0 +1,37 @@
+package hermes_map_comp_basic;
+
+use hermes.ctr;
+use hermes.anyval;
+use hermes.containers;
+
+fn main() -> i32 {
+    let arr: [i32; 4] = [10, 20, 30, 40];
+
+    // Static keys (v1): one fixed key per iteration — but key must depend on x.
+    // Use a conditional string by taking a substring of a constant based on x%2.
+    // Simpler: all-same-key test — tests the put path, last-write-wins.
+    let doc: HermesCtr =
+        @{"k": AnyVal::embed_i24(x) for x in arr};
+
+    // Guarded: keep only even x.
+    let doc2: HermesCtr =
+        @{"k": AnyVal::embed_i24(x * 2) for x in arr if (x % 20) == 0};
+
+    unsafe {
+        let r1: AnyVal = doc.root();
+        let b1: *const u8 = doc.base();
+        if !r1.is_map(b1) { return 1; }
+        // Last element wins: 40.
+        let v1: AnyVal = doc.map_get(r1, "k");
+        if v1.as_i24() != 40 { return 2; }
+
+        let r2: AnyVal = doc2.root();
+        let b2: *const u8 = doc2.base();
+        if !r2.is_map(b2) { return 3; }
+        // Even-mod-20 elements: 20, 40 → last is 80.
+        let v2: AnyVal = doc2.map_get(r2, "k");
+        if v2.as_i24() != 80 { return 4; }
+    }
+
+    return 42;
+}

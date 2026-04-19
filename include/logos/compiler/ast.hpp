@@ -244,6 +244,7 @@ inline constexpr Code HERMES_MAP_TYPE    {"HERMES_MAP_TYPE",     177};  // <K,V>
 inline constexpr Code LIST_COMP          {"LIST_COMP",           178};  // [elem for x in iter (if guard)?]; VALUE=elem, NAME=var, ITER=iter, GUARD?=pred
 inline constexpr Code MAP_COMP           {"MAP_COMP",            179};  // {k: v for x in iter (if guard)?}; KEY=kexpr, VALUE=vexpr, NAME=var, ITER=iter, GUARD?=pred
 inline constexpr Code HERMES_LIST_COMP   {"HERMES_LIST_COMP",    180};  // @[elem for x in iter (if guard)?]; VALUE=elem, NAME=var, ITER=iter, GUARD?=pred
+inline constexpr Code HERMES_MAP_COMP    {"HERMES_MAP_COMP",     181};  // @{k: v for x in iter (if guard)?}; KEY=kexpr, VALUE=vexpr, NAME=var, ITER=iter, GUARD?=pred
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

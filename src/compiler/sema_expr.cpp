@@ -325,6 +325,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::LIST_COMP:    return lower_list_comp(expr);
     case la::MAP_COMP:     return lower_map_comp(expr);
     case la::HERMES_LIST_COMP: return lower_hermes_list_comp(expr);
+    case la::HERMES_MAP_COMP:  return lower_hermes_map_comp(expr);
     case la::HERMES_MAP:
     case la::HERMES_ARRAY:
     case la::HERMES_TYPED_ARRAY:
@@ -3433,6 +3434,137 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
     } else {
         loop_body->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
+    }
+
+    lir::SForEach sfe;
+    sfe.var       = std::string(var_name);
+    sfe.iter      = std::move(iter);
+    sfe.elem_type = elem_type;
+    sfe.arr_size  = arr_size;
+    sfe.is_slice  = is_slice;
+    sfe.body      = std::move(loop_body);
+
+    auto outer = std::make_unique<lir::LBlock>();
+    outer->stmts.push_back(make_stmt(node_line_, std::move(let_c)));
+    outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
+
+    auto result = make_expr(ctr_t, lir::EVarRef{ctr_var});
+    return make_expr(ctr_t, lir::EBlockExpr{std::move(outer), std::move(result)});
+}
+
+// Hermes map comprehension:  @{kexpr: vexpr for x in iter (if guard)?}
+// v1: string keys only (`str`); values must be AnyVal.
+// Requires `use hermes.ctr;` in scope.
+lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
+    auto var_name = str_of(node.get(la::NAME.code));
+
+    lir::LExprPtr iter = node.has_key(la::ITER)
+        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
+    const LogosType* iter_type = iter->type;
+
+    const LogosType* elem_type = nullptr;
+    int64_t arr_size = 0;
+    bool is_slice = false;
+    if (iter_type->kind == LogosType::Kind::Array) {
+        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        arr_size  = (int64_t)iter_type->arr_size;
+    } else if (iter_type->kind == LogosType::Kind::Slice) {
+        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        is_slice  = true;
+    } else {
+        error(std::format(
+            "hermes map comprehension: only array/slice iteration supported (got {})",
+            type_str(iter_type)));
+        return error_expr();
+    }
+
+    if (structs_.find("HermesCtr") == structs_.end()) {
+        error("hermes map comprehension requires `use hermes.ctr;`");
+        return error_expr();
+    }
+
+    auto new_cands = find_func_candidates("hermes_map_comp_new");
+    auto put_cands = find_func_candidates("hermes_map_comp_put");
+    const SemaFuncInfo* new_fi = nullptr;
+    const SemaFuncInfo* put_fi = nullptr;
+    for (auto* fi : new_cands) if (fi->param_types.size() == 1) { new_fi = fi; break; }
+    for (auto* fi : put_cands) if (fi->param_types.size() == 3) { put_fi = fi; break; }
+    if (!new_fi || !put_fi) {
+        error("hermes map comprehension requires `use hermes.ctr;`");
+        return error_expr();
+    }
+
+    const LogosType* ctr_t = make_struct_type("HermesCtr");
+
+    std::string ctr_var = "__hmc_c_" + std::to_string(tmp_var_count_++);
+
+    push_scope();
+    define(ctr_var, ctr_t, true);
+    define(std::string(var_name), elem_type, false);
+    auto key_expr = lower_expr(map_of(node.get(la::KEY.code)));
+    auto val_expr = lower_expr(map_of(node.get(la::VALUE.code)));
+    lir::LExprPtr guard_body = nullptr;
+    if (node.has_key(la::GUARD))
+        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
+    pop_scope();
+
+    // Require KEY to be str (&[u8] slice).
+    const LogosType* kt = key_expr->type;
+    if (!(kt && kt->kind == LogosType::Kind::Slice && kt->elem
+              && kt->elem->kind == LogosType::Kind::U8)) {
+        error(std::format(
+            "hermes map comprehension: key expression must be str (got {})",
+            type_str(kt)));
+        return error_expr();
+    }
+
+    // Require VALUE to produce AnyVal.
+    const LogosType* vt = val_expr->type;
+    if (!(vt && (vt->kind == LogosType::Kind::Struct
+                 || vt->kind == LogosType::Kind::Datatype)
+              && vt->struct_name == "AnyVal")) {
+        error(std::format(
+            "hermes map comprehension: value expression must be AnyVal "
+            "(got {}); wrap scalars with AnyVal::embed_i24/embed_bool/etc.",
+            type_str(vt)));
+        return error_expr();
+    }
+
+    std::string new_sym = new_fi->symbol_name.empty() ? "hermes_map_comp_new"
+                                                      : new_fi->symbol_name;
+    int64_t cap_hint = arr_size > 0 ? (arr_size * 16 + 128) : 128;
+    std::vector<lir::LExprPtr> new_args;
+    new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{cap_hint}));
+    auto call_new = make_expr(ctr_t,
+        lir::ECall{new_sym, {}, std::move(new_args)});
+    lir::SLet let_c;
+    let_c.name   = ctr_var;
+    let_c.type   = ctr_t;
+    let_c.is_mut = true;
+    let_c.value  = std::move(call_new);
+
+    std::string put_sym = put_fi->symbol_name.empty() ? "hermes_map_comp_put"
+                                                      : put_fi->symbol_name;
+    auto recv = make_expr(make_ptr(true, ctr_t), lir::EAddrOf{ctr_var});
+    std::vector<lir::LExprPtr> put_args;
+    put_args.push_back(std::move(recv));
+    put_args.push_back(std::move(key_expr));
+    put_args.push_back(std::move(val_expr));
+    auto put_call = make_expr(void_t(),
+        lir::ECall{put_sym, {}, std::move(put_args)});
+
+    lir::SExprStmt put_stmt;
+    put_stmt.expr = std::move(put_call);
+
+    auto loop_body = std::make_unique<lir::LBlock>();
+    if (guard_body) {
+        lir::SIf sif;
+        sif.cond = std::move(guard_body);
+        sif.then_ = std::make_unique<lir::LBlock>();
+        sif.then_->stmts.push_back(make_stmt(node_line_, std::move(put_stmt)));
+        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
+    } else {
+        loop_body->stmts.push_back(make_stmt(node_line_, std::move(put_stmt)));
     }
 
     lir::SForEach sfe;
