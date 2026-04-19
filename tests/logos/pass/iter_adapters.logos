@@ -1,0 +1,79 @@
+// Tests for all Iterator adapter types in std.iter.
+package iter_adapters;
+
+use std.option;
+use std.iter;
+use std.range;
+
+unsafe fn main() -> i32 {
+    // ── TakeIter ──────────────────────────────────────────────────────────────
+    // range 0..10, take 4 → sum = 0+1+2+3 = 6
+    let r1: RangeI32 = range_i32(0, 10);
+    let t1: TakeIter<RangeI32, i32> = iter_take::<RangeI32, i32>(r1, 4 as i64, 0);
+    let s1: i32 = iter_sum_i32::<TakeIter<RangeI32, i32>>(t1);
+    if s1 != 6 { return 1; }
+
+    // ── SkipIter ──────────────────────────────────────────────────────────────
+    // range 0..5, skip 3 → items 3,4 → sum = 7
+    let r2: RangeI32 = range_i32(0, 5);
+    let sk: SkipIter<RangeI32, i32> = iter_skip::<RangeI32, i32>(r2, 3 as i64, 0);
+    let s2: i32 = iter_sum_i32::<SkipIter<RangeI32, i32>>(sk);
+    if s2 != 7 { return 2; }
+
+    // ── ChainIter ─────────────────────────────────────────────────────────────
+    // range 0..3 chain range 10..13 → 0+1+2+10+11+12 = 36
+    let ra: RangeI32 = range_i32(0, 3);
+    let rb: RangeI32 = range_i32(10, 13);
+    let ch: ChainIter<RangeI32, RangeI32, i32> = iter_chain::<RangeI32, RangeI32, i32>(ra, rb, 0);
+    let s3: i32 = iter_sum_i32::<ChainIter<RangeI32, RangeI32, i32>>(ch);
+    if s3 != 36 { return 3; }
+
+    // ── iter_count via take ───────────────────────────────────────────────────
+    let r3: RangeI32 = range_i32(0, 10);
+    let t2: TakeIter<RangeI32, i32> = iter_take::<RangeI32, i32>(r3, 7 as i64, 0);
+    let cnt: i64 = iter_count::<TakeIter<RangeI32, i32>, i32>(t2);
+    if cnt != 7 as i64 { return 4; }
+
+    // ── EnumIter ─────────────────────────────────────────────────────────────
+    // range 5..8 → pairs (0,5),(1,6),(2,7) → sum of idx+val = (0+5)+(1+6)+(2+7) = 21
+    let r4: RangeI32 = range_i32(5, 8);
+    let en: EnumIter<RangeI32, i32> = iter_enumerate::<RangeI32, i32>(r4, 0);
+    let mut acc: i32 = 0;
+    let mut eit: EnumIter<RangeI32, i32> = en;
+    loop {
+        match eit.next() {
+            Option::None => { break; }
+            Option::Some(p) => {
+                acc = acc + (p.idx as i32) + p.val;
+            }
+        }
+    }
+    if acc != 21 { return 5; }
+
+    // ── ZipIter ───────────────────────────────────────────────────────────────
+    // zip(0..3, 10..13) → (0,10),(1,11),(2,12) → sum first+second = (0+10)+(1+11)+(2+12) = 36
+    let rl: RangeI32 = range_i32(0, 3);
+    let rr: RangeI32 = range_i32(10, 13);
+    let zp: ZipIter<RangeI32, RangeI32, i32, i32> = iter_zip::<RangeI32, RangeI32, i32, i32>(rl, rr, 0, 0);
+    let mut zacc: i32 = 0;
+    let mut zit: ZipIter<RangeI32, RangeI32, i32, i32> = zp;
+    loop {
+        match zit.next() {
+            Option::None => { break; }
+            Option::Some(pair) => {
+                zacc = zacc + pair.first + pair.second;
+            }
+        }
+    }
+    if zacc != 36 { return 6; }
+
+    // ── MapIter chained with take ─────────────────────────────────────────────
+    // range 1..100, map x*2, take 5 → 2+4+6+8+10 = 30
+    let r5: RangeI32 = range_i32(1, 100);
+    let m5: MapIter<RangeI32, i32, i32> = iter_map::<RangeI32, i32, i32>(r5, |x: i32| -> i32 { return x * 2; });
+    let t5: TakeIter<MapIter<RangeI32, i32, i32>, i32> = iter_take::<MapIter<RangeI32, i32, i32>, i32>(m5, 5 as i64, 0);
+    let s5: i32 = iter_sum_i32::<TakeIter<MapIter<RangeI32, i32, i32>, i32>>(t5);
+    if s5 != 30 { return 7; }
+
+    return 42;
+}

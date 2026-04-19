@@ -71,8 +71,8 @@ pub struct TakeIter<I, T> {
     _t: T,
 }
 
-impl<I: Iterator<T>, T> TakeIter<I, T> {
-    pub fn next(self: &mut TakeIter<I, T>) -> Option<T> {
+impl<I: Iterator<T>, T> Iterator<T> for TakeIter<I, T> {
+    fn next(self: &mut TakeIter<I, T>) -> Option<T> {
         if self.remaining <= 0 as i64 { return Option::None; }
         self.remaining = self.remaining - 1 as i64;
         return self.inner.next();
@@ -91,8 +91,8 @@ pub struct SkipIter<I, T> {
     _t: T,
 }
 
-impl<I: Iterator<T>, T> SkipIter<I, T> {
-    pub fn next(self: &mut SkipIter<I, T>) -> Option<T> {
+impl<I: Iterator<T>, T> Iterator<T> for SkipIter<I, T> {
+    fn next(self: &mut SkipIter<I, T>) -> Option<T> {
         while self.remaining > 0 as i64 {
             self.remaining = self.remaining - 1 as i64;
             match self.inner.next() {
@@ -121,8 +121,8 @@ pub struct EnumIter<I, T> {
     _t: T,
 }
 
-impl<I: Iterator<T>, T> EnumIter<I, T> {
-    pub unsafe fn next(self: &mut EnumIter<I, T>) -> Option<EnumPair<T>> {
+impl<I: Iterator<T>, T> Iterator<EnumPair<T>> for EnumIter<I, T> {
+    fn next(self: &mut EnumIter<I, T>) -> Option<EnumPair<T>> {
         match self.inner.next() {
             Option::None => { return Option::None; }
             Option::Some(v) => {
@@ -147,8 +147,8 @@ pub struct ChainIter<A, B, T> {
     _t: T,
 }
 
-impl<A: Iterator<T>, B: Iterator<T>, T> ChainIter<A, B, T> {
-    pub unsafe fn next(self: &mut ChainIter<A, B, T>) -> Option<T> {
+impl<A: Iterator<T>, B: Iterator<T>, T> Iterator<T> for ChainIter<A, B, T> {
+    fn next(self: &mut ChainIter<A, B, T>) -> Option<T> {
         if !self.first_done {
             match self.first.next() {
                 Option::Some(v) => { return Option::Some(v); }
@@ -177,8 +177,8 @@ pub struct ZipIter<A, B, T, U> {
     _u: U,
 }
 
-impl<A: Iterator<T>, B: Iterator<U>, T, U> ZipIter<A, B, T, U> {
-    pub unsafe fn next(self: &mut ZipIter<A, B, T, U>) -> Option<ZipPair<T, U>> {
+impl<A: Iterator<T>, B: Iterator<U>, T, U> Iterator<ZipPair<T, U>> for ZipIter<A, B, T, U> {
+    fn next(self: &mut ZipIter<A, B, T, U>) -> Option<ZipPair<T, U>> {
         match self.left.next() {
             Option::None => { return Option::None; }
             Option::Some(a) => {
@@ -205,12 +205,14 @@ pub struct SliceIter<T> {
     idx: i64,
 }
 
-impl<T> SliceIter<T> {
-    pub unsafe fn next(self: &mut SliceIter<T>) -> Option<T> {
-        if self.idx >= self.len { return Option::None; }
-        let val: T = self.data[self.idx];
-        self.idx = self.idx + 1 as i64;
-        return Option::Some(val);
+impl<T> Iterator<T> for SliceIter<T> {
+    fn next(self: &mut SliceIter<T>) -> Option<T> {
+        unsafe {
+            if self.idx >= self.len { return Option::None; }
+            let val: T = self.data[self.idx];
+            self.idx = self.idx + 1 as i64;
+            return Option::Some(val);
+        }
     }
 }
 

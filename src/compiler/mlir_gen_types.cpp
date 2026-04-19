@@ -225,10 +225,18 @@ const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
                                                         const LogosType* type) {
     auto tit = tagged_enums_.find(name);
     if (tit != tagged_enums_.end()) return &tit->second;
-    // For generic enums: compute concrete name from type_args
+    // For generic enums: compute concrete name from type_args.
+    // Must match the mangling used by mono's record_needed_enum:
+    // struct/datatype args use concrete_struct_name(), others use type_str().
     if (type && type->kind == LogosType::Kind::Enum && !type->type_args.empty()) {
+        auto mangle_arg = [](const LogosType* a) -> std::string {
+            if (!a) return "null";
+            if (a->kind == LogosType::Kind::Struct || a->kind == LogosType::Kind::Datatype)
+                return concrete_struct_name(a);
+            return type_str(a);
+        };
         std::string cname = type->enum_name;
-        for (auto* a : type->type_args) { cname += "__"; cname += type_str(a); }
+        for (auto* a : type->type_args) { cname += "__"; cname += mangle_arg(a); }
         tit = tagged_enums_.find(cname);
         if (tit != tagged_enums_.end()) return &tit->second;
     }
