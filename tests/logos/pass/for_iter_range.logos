@@ -1,0 +1,37 @@
+// Verify `for x in iter { body }` works for Iterator trait types.
+package for_iter_range;
+
+use std.option;
+use std.iter;
+use std.range;
+
+unsafe fn main() -> i32 {
+    // Sum of 0..10 = 45
+    let r: RangeI32 = range_i32(0, 10);
+    let mut s: i32 = 0;
+    for x in r {
+        s = s + x;
+    }
+    if s != 45 { return 1; }
+
+    // Sum through a map adapter: (x*2) for x in 1..5 → 2+4+6+8 = 20
+    let r2: RangeI32 = range_i32(1, 5);
+    let m: MapIter<RangeI32, i32, i32> =
+        iter_map::<RangeI32, i32, i32>(r2, |x: i32| -> i32 { return x * 2; });
+    let mut s2: i32 = 0;
+    for y in m {
+        s2 = s2 + y;
+    }
+    if s2 != 20 { return 2; }
+
+    // Take from a range: first 3 of 0..100 → 0+1+2 = 3
+    let r3: RangeI32 = range_i32(0, 100);
+    let t: TakeIter<RangeI32, i32> = iter_take::<RangeI32, i32>(r3, 3 as i64, 0);
+    let mut s3: i32 = 0;
+    for z in t {
+        s3 = s3 + z;
+    }
+    if s3 != 3 { return 3; }
+
+    return 42;
+}

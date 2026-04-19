@@ -1489,6 +1489,10 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             return make_stmt(node_line_, lir::SBreak{});
         }
 
+        // For generic iterators (MapIter<I,T,R>) trait-impl methods are registered
+        // under the BASE struct name (MapIter__next), not the mangled concrete
+        // name.  Try both: concrete first (inherent impls like RangeI32__next),
+        // then base (generic/trait impls).
         auto mangled_next = std::string(sname) + "__next";
         const SemaFuncInfo* fi_ptr = nullptr;
         if (auto fit = find_func_by_base_and_signature(mangled_next, {}, false))
@@ -1497,17 +1501,40 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             fi_ptr = cands[0];
 
         if (!fi_ptr) {
+            // Try base name (generic impl).
+            std::string base_name;
+            if (iter_type->kind == LogosType::Kind::Struct ||
+                iter_type->kind == LogosType::Kind::Datatype)
+                base_name = iter_type->struct_name;
+            else if (is_ref_like(iter_type->kind) && iter_type->pointee)
+                base_name = iter_type->pointee->struct_name;
+            if (!base_name.empty() && base_name != std::string(sname)) {
+                auto base_next = base_name + "__next";
+                if (auto git = find_generic_func(base_next))
+                    fi_ptr = git;
+                else if (auto cands = find_func_candidates(base_next); cands.size() == 1)
+                    fi_ptr = cands[0];
+            }
+        }
+
+        if (!fi_ptr) {
             error(std::format("for-in: type '{}' has no `next()` method", sname));
             return make_stmt(node_line_, lir::SBreak{});
         }
 
         // next() must return an enum (Option-like)
         const LogosType* next_ret = fi_ptr->ret_type;
-        // Substitute type args if iterator is generic
+        // Substitute type args if iterator is generic.  structs_ is keyed by
+        // the BASE struct name, not the mangled concrete name.
         if (!iter_type->type_args.empty()) {
+            std::string lookup_name =
+                (iter_type->kind == LogosType::Kind::Struct ||
+                 iter_type->kind == LogosType::Kind::Datatype)
+                    ? iter_type->struct_name
+                    : std::string(sname);
             SemaStructInfo* si = nullptr;
-            { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
-            if (!si) { auto it = datatypes_.find(std::string(sname)); if (it != datatypes_.end()) si = &it->second; }
+            { auto it = structs_.find(lookup_name); if (it != structs_.end()) si = &it->second; }
+            if (!si) { auto it = datatypes_.find(lookup_name); if (it != datatypes_.end()) si = &it->second; }
             if (si) {
                 SemaSubst subst;
                 auto& tps = si->type_params;
