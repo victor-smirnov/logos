@@ -595,15 +595,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
             if (sit != struct_types_.end()) {
                 auto& info = sit->second;
                 auto gep = gep_field(ptr, info, fr->field);
-                if (gep) {
-                    for (auto& f : info.fields) {
-                        if (f.name == fr->field) {
-                            if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type))
-                                return gep;  // inline struct: GEP is the address
-                            break;
-                        }
-                    }
-                }
+                if (gep) return gep;  // field address into original struct
             }
         }
         // Fall through to the general path for non-struct fields.

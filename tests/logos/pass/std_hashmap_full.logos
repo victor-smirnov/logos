@@ -1,0 +1,93 @@
+package test;
+
+use std.hashmap;
+
+fn main() -> i32 {
+    unsafe {
+        let mut m: HashMap<i32, i32> = hashmap_new::<i32, i32>();
+        let pm: *mut HashMap<i32, i32> = &mut m;
+
+        // Insert 50 elements — forces at least one resize from cap=16.
+        let mut i: i32 = 0;
+        while i < 50 {
+            pm.insert(i, i * 10);
+            i = i + 1;
+        }
+        if pm.len() != 50 as i64 { return 1; }
+
+        // Read everything back.
+        let mut j: i32 = 0;
+        while j < 50 {
+            let k: i32 = j;
+            let p: *const i32 = pm.get(&k);
+            if p == 0 as *const i32 { return 2; }
+            if *p != j * 10 { return 3; }
+            j = j + 1;
+        }
+
+        // contains_key for present and absent keys.
+        let k1: i32 = 7;
+        if !pm.contains_key(&k1) { return 4; }
+        let k2: i32 = 999;
+        if pm.contains_key(&k2) { return 5; }
+
+        // get_mut: mutate in place.
+        let k3: i32 = 5;
+        let pv: *mut i32 = pm.get_mut(&k3);
+        if pv == 0 as *mut i32 { return 6; }
+        *pv = 12345;
+        let p2: *const i32 = pm.get(&k3);
+        if *p2 != 12345 { return 7; }
+
+        // Overwrite via insert — len unchanged.
+        pm.insert(5, 999);
+        if pm.len() != 50 as i64 { return 8; }
+        let p3: *const i32 = pm.get(&k3);
+        if *p3 != 999 { return 9; }
+
+        // Remove half the keys.
+        let mut r: i32 = 0;
+        while r < 50 {
+            if r % 2 == 0 {
+                if !pm.remove(&r) { return 10; }
+            }
+            r = r + 1;
+        }
+        if pm.len() != 25 as i64 { return 11; }
+
+        // Removed keys absent, odd keys still present.
+        let mut c: i32 = 0;
+        while c < 50 {
+            let kc: i32 = c;
+            let got: bool = pm.contains_key(&kc);
+            if c % 2 == 0 {
+                if got { return 12; }
+            } else {
+                if !got { return 13; }
+            }
+            c = c + 1;
+        }
+
+        // Re-insert a removed key through a tombstone slot.
+        let k4: i32 = 4;
+        pm.insert(k4, 444);
+        if pm.len() != 26 as i64 { return 14; }
+        let p4: *const i32 = pm.get(&k4);
+        if *p4 != 444 { return 15; }
+
+        // Clear resets len but keeps capacity.
+        pm.clear();
+        if !pm.is_empty() { return 16; }
+        if pm.capacity() < 16 as i64 { return 17; }
+
+        // Reinsert after clear works.
+        pm.insert(1, 100);
+        pm.insert(2, 200);
+        if pm.len() != 2 as i64 { return 18; }
+        let one: i32 = 1;
+        let pp: *const i32 = pm.get(&one);
+        if *pp != 100 { return 19; }
+
+        return 42;
+    }
+}
