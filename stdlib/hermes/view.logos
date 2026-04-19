@@ -22,6 +22,8 @@ use hermes.objectmap;
 use hermes.containers;
 use hermes.decimal;
 use hermes.string;
+use hermes.datatag;
+use hermes.typetag;
 use std.string;
 
 pub unsafe fn view_cstr_len(s: *const u8) -> i64 {
@@ -418,6 +420,140 @@ pub trait HermesWrite: HermesRead {
             let oa: *mut ObjectArray =
                 (base as i64 + arr.as_offset() as i64) as *mut ObjectArray;
             oa.push(base, val);
+        }
+    }
+
+    // ── Typed array builders (ArrayI32 / ArrayU64) ───────────────────────────
+    //
+    // Two-step construction: reserve capacity, then push elements one at a time.
+    // Push silently no-ops past capacity (mirrors Array<AnyVal>::push semantics).
+    // Caller must size cap ≥ expected element count; grow-on-push is not
+    // supported because zone reallocation would strand the returned AnyVal.
+
+    fn build_array_i32(self: &mut Self, cap: u64) -> AnyVal {
+        unsafe {
+            let zone: *mut Zone<Mutable> = self.zone_mut();
+            let hdr_sz: i64 = sizeof::<ArrayI32>() as i64;
+            let buf_bytes: i64 = (cap as i64) * 4 as i64;
+            // Alloc buf first, then CAPTURE its zone offset immediately — a
+            // subsequent alloc may realloc the zone, stranding buf_raw.
+            let mut buf_off: u32 = 0 as u32;
+            if buf_bytes > 0 as i64 {
+                let buf_raw: *mut u8 = zone_m_alloc_raw(zone, buf_bytes);
+                if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+                buf_off = (buf_raw as i64 - zone.holder.base as i64) as u32;
+            }
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(zone, hdr_sz,
+                                       hermes_tag_array_i32() as u64);
+            if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+            let base: *mut u8 = zone.holder.base;
+            let arr: *mut ArrayI32 = hdr_raw as *mut ArrayI32;
+            arr.size     = 0 as u64;
+            arr.capacity = cap;
+            arr.data     = buf_off;
+            let off: u32 = (hdr_raw as i64 - base as i64) as u32;
+            return AnyVal::from_offset(off);
+        }
+    }
+
+    fn array_i32_push(self: &mut Self, arr: AnyVal, val: i32) {
+        unsafe {
+            let zone: *mut Zone<Mutable> = self.zone_mut();
+            let base: *mut u8 = zone.holder.base;
+            if !arr.is_ptr() { return; }
+            if arr.is_null() { return; }
+            let obj: *const u8 = (base as i64 + arr.as_offset() as i64) as *const u8;
+            if read_type_code(obj) != hermes_tag_array_i32() as u64 { return; }
+            let ai: *mut ArrayI32 =
+                (base as i64 + arr.as_offset() as i64) as *mut ArrayI32;
+            ai.push(base, val);
+        }
+    }
+
+    fn build_array_u64(self: &mut Self, cap: u64) -> AnyVal {
+        unsafe {
+            let zone: *mut Zone<Mutable> = self.zone_mut();
+            let hdr_sz: i64 = sizeof::<ArrayU64>() as i64;
+            let buf_bytes: i64 = (cap as i64) * 8 as i64;
+            let mut buf_off: u32 = 0 as u32;
+            if buf_bytes > 0 as i64 {
+                let buf_raw: *mut u8 = zone_m_alloc_raw(zone, buf_bytes);
+                if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+                buf_off = (buf_raw as i64 - zone.holder.base as i64) as u32;
+            }
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(zone, hdr_sz,
+                                       hermes_tag_array_u64() as u64);
+            if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+            let base: *mut u8 = zone.holder.base;
+            let arr: *mut ArrayU64 = hdr_raw as *mut ArrayU64;
+            arr.size     = 0 as u64;
+            arr.capacity = cap;
+            arr.data     = buf_off;
+            let off: u32 = (hdr_raw as i64 - base as i64) as u32;
+            return AnyVal::from_offset(off);
+        }
+    }
+
+    fn array_u64_push(self: &mut Self, arr: AnyVal, val: u64) {
+        unsafe {
+            let zone: *mut Zone<Mutable> = self.zone_mut();
+            let base: *mut u8 = zone.holder.base;
+            if !arr.is_ptr() { return; }
+            if arr.is_null() { return; }
+            let obj: *const u8 = (base as i64 + arr.as_offset() as i64) as *const u8;
+            if read_type_code(obj) != hermes_tag_array_u64() as u64 { return; }
+            let au: *mut ArrayU64 =
+                (base as i64 + arr.as_offset() as i64) as *mut ArrayU64;
+            au.push(base, val);
+        }
+    }
+
+    // ── Typed map builder (MapI32AnyVal) ─────────────────────────────────────
+
+    fn build_map_i32_anyval(self: &mut Self, cap: u32) -> AnyVal {
+        unsafe {
+            let zone: *mut Zone<Mutable> = self.zone_mut();
+            let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
+            let key_bytes: i64 = (cap as i64) * 4 as i64;
+            let val_bytes: i64 = (cap as i64) * 4 as i64;
+            // Each alloc may realloc the zone; stash offsets immediately.
+            let mut keys_off: u32 = 0 as u32;
+            if key_bytes > 0 as i64 {
+                let keys_raw: *mut u8 = zone_m_alloc_raw(zone, key_bytes);
+                if keys_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+                keys_off = (keys_raw as i64 - zone.holder.base as i64) as u32;
+            }
+            let mut vals_off: u32 = 0 as u32;
+            if val_bytes > 0 as i64 {
+                let vals_raw: *mut u8 = zone_m_alloc_raw(zone, val_bytes);
+                if vals_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+                vals_off = (vals_raw as i64 - zone.holder.base as i64) as u32;
+            }
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(zone, hdr_sz,
+                                       hermes_tag_map_i32_anyval() as u64);
+            if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+            let base: *mut u8 = zone.holder.base;
+            let m: *mut MapI32AnyVal = hdr_raw as *mut MapI32AnyVal;
+            m.size     = 0 as u32;
+            m.capacity = cap;
+            m.keys     = keys_off;
+            m.vals     = vals_off;
+            let off: u32 = (hdr_raw as i64 - base as i64) as u32;
+            return AnyVal::from_offset(off);
+        }
+    }
+
+    fn map_i32_anyval_set(self: &mut Self, map: AnyVal, key: i32, val: AnyVal) {
+        unsafe {
+            let zone: *mut Zone<Mutable> = self.zone_mut();
+            let base: *mut u8 = zone.holder.base;
+            if !map.is_ptr() { return; }
+            if map.is_null() { return; }
+            let obj: *const u8 = (base as i64 + map.as_offset() as i64) as *const u8;
+            if read_type_code(obj) != hermes_tag_map_i32_anyval() as u64 { return; }
+            let m: *mut MapI32AnyVal =
+                (base as i64 + map.as_offset() as i64) as *mut MapI32AnyVal;
+            m.set(base, key, val);
         }
     }
 

@@ -1,0 +1,59 @@
+// Incremental push for typed Hermes containers:
+// ArrayI32, ArrayU64, MapI32AnyVal.
+package hermes_typed_push;
+
+use hermes.ctr;
+use hermes.view;
+use hermes.anyval;
+use hermes.containers;
+
+unsafe fn main() -> i32 {
+    // ArrayI32: build cap=8, push 5 ints, read back via Array trait on header.
+    let mut c: HermesCtr = HermesCtr::builder(128 as i64);
+    let arr: AnyVal = c.build_array_i32(8 as u64);
+    c.set_root(arr);
+    c.array_i32_push(arr, 10);
+    c.array_i32_push(arr, 20);
+    c.array_i32_push(arr, 30);
+    c.array_i32_push(arr, 40);
+    c.array_i32_push(arr, 50);
+
+    let base: *const u8 = c.base();
+    let ai: *const ArrayI32 = (base as i64 + arr.as_offset() as i64) as *const ArrayI32;
+    if ai.size != 5 as u64 { return 1; }
+    if ai.get(base, 0 as u64) != 10 { return 2; }
+    if ai.get(base, 4 as u64) != 50 { return 3; }
+
+    // Over-capacity push is a no-op; size stays at capacity.
+    c.array_i32_push(arr, 60);
+    c.array_i32_push(arr, 70);
+    c.array_i32_push(arr, 80);
+    c.array_i32_push(arr, 90);  // 9th push, cap=8, this one drops
+    let ai2: *const ArrayI32 = (c.base() as i64 + arr.as_offset() as i64) as *const ArrayI32;
+    if ai2.size != 8 as u64 { return 4; }
+
+    // ArrayU64
+    let mut c2: HermesCtr = HermesCtr::builder(128 as i64);
+    let au: AnyVal = c2.build_array_u64(4 as u64);
+    c2.set_root(au);
+    c2.array_u64_push(au, 1000 as u64);
+    c2.array_u64_push(au, 2000 as u64);
+    c2.array_u64_push(au, 3000 as u64);
+    let base2: *const u8 = c2.base();
+    let a64: *const ArrayU64 = (base2 as i64 + au.as_offset() as i64) as *const ArrayU64;
+    if a64.size != 3 as u64 { return 5; }
+    if a64.get(base2, 2 as u64) != 3000 as u64 { return 6; }
+
+    // MapI32AnyVal
+    let mut c3: HermesCtr = HermesCtr::builder(128 as i64);
+    let mp: AnyVal = c3.build_map_i32_anyval(4 as u32);
+    c3.set_root(mp);
+    c3.map_i32_anyval_set(mp, 1, AnyVal::embed_i24(100));
+    c3.map_i32_anyval_set(mp, 2, AnyVal::embed_i24(200));
+    c3.map_i32_anyval_set(mp, 1, AnyVal::embed_i24(111));  // update existing
+    let base3: *const u8 = c3.base();
+    let mpp: *const MapI32AnyVal = (base3 as i64 + mp.as_offset() as i64) as *const MapI32AnyVal;
+    if mpp.size != 2 as u32 { return 7; }
+
+    return 42;
+}

@@ -326,6 +326,21 @@ impl ArrayI32 {
         arr.data     = buf_off;
         return arr;
     }
+
+    // Append an i32 value. Does nothing if at capacity.
+    pub unsafe fn push(self: *mut ArrayI32, base: *mut u8, val: i32) {
+        if self.size >= self.capacity { return; }
+        let ep: *mut i32 = (base as i64 + self.data as i64 + (self.size as i64) * 4 as i64) as *mut i32;
+        *ep = val;
+        self.size = self.size + 1 as u64;
+    }
+
+    // Get element by index. Returns 0 if out of bounds.
+    pub unsafe fn get(self: *const ArrayI32, base: *const u8, idx: u64) -> i32 {
+        if idx >= self.size { return 0; }
+        let ep: *const i32 = (base as i64 + self.data as i64 + (idx as i64) * 4 as i64) as *const i32;
+        return *ep;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +374,21 @@ impl ArrayU64 {
         arr.capacity = capacity;
         arr.data     = buf_off;
         return arr;
+    }
+
+    // Append a u64 value. Does nothing if at capacity.
+    pub unsafe fn push(self: *mut ArrayU64, base: *mut u8, val: u64) {
+        if self.size >= self.capacity { return; }
+        let ep: *mut u64 = (base as i64 + self.data as i64 + (self.size as i64) * 8 as i64) as *mut u64;
+        *ep = val;
+        self.size = self.size + 1 as u64;
+    }
+
+    // Get element by index. Returns 0 if out of bounds.
+    pub unsafe fn get(self: *const ArrayU64, base: *const u8, idx: u64) -> u64 {
+        if idx >= self.size { return 0 as u64; }
+        let ep: *const u64 = (base as i64 + self.data as i64 + (idx as i64) * 8 as i64) as *const u64;
+        return *ep;
     }
 }
 
