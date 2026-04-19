@@ -1728,6 +1728,22 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             } else {
                 SemaSubst self_subst;
                 self_subst["Self"] = recv_inner;
+                // Infer method-level type params (e.g. `fn hash<H: Hasher>`) from
+                // arg types so the compat check sees substituted param types.
+                if (!chosen_method->type_params.empty()) {
+                    std::unordered_map<std::string, const LogosType*> bindings(
+                        self_subst.begin(), self_subst.end());
+                    for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
+                        if (i + 1 >= chosen_method->param_types.size()) break;
+                        auto* pt0 = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
+                        unify_types(pt0, arg_exprs[i]->type, bindings);
+                    }
+                    for (auto& tp : chosen_method->type_params) {
+                        auto it = bindings.find(tp.name);
+                        if (it != bindings.end() && it->second)
+                            self_subst[tp.name] = it->second;
+                    }
+                }
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto* at = arg_exprs[i]->type;
                     auto* pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
@@ -2247,6 +2263,19 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
 
+    // Pre-infer method-level type args so the arg-compat check below sees the
+    // substituted param types.  Without this, calling a generic trait method
+    // (e.g. `fn hash<H: Hasher>(&self, s: &mut H)`) from a generic context where
+    // `Self` is trait-bounded reports `expected &mut H, got &mut FxHasher` even
+    // though H could be inferred from the arg.
+    std::vector<const LogosType*> m_type_args;
+    if (!fi.type_params.empty()) {
+        infer_type_args(fi, arg_exprs, m_type_args, struct_subst, 1);
+        for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
+            if (m_type_args[i])
+                struct_subst[fi.type_params[i].name] = m_type_args[i];
+    }
+
     uint64_t explicit_args = arg_exprs.size();
     size_t expected_explicit = fi.param_types.size() > 0 ? fi.param_types.size() - 1 : 0;
     if (explicit_args != expected_explicit)
@@ -2310,16 +2339,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
 
-    // Infer method type args if generic (Bug 12)
-    std::vector<const LogosType*> m_type_args;
+    // Method type args inferred above; verify and bounds-check here.
     if (!fi.type_params.empty()) {
-        if (!infer_type_args(fi, arg_exprs, m_type_args, struct_subst, 1)) {
+        bool all_bound = m_type_args.size() == fi.type_params.size();
+        for (auto* ta : m_type_args)
+            if (!ta) { all_bound = false; break; }
+        if (!all_bound)
             error(std::format("could not infer type arguments for generic method '{}'", mangled));
-        }
         check_type_bounds(mangled, fi.type_params, m_type_args);
-        // Merge method bindings into struct_subst for return type substitution
-        for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
-            struct_subst[fi.type_params[i].name] = m_type_args[i];
 
         // Route generic trait-method call through finish_generic_call so mono
         // emits a concrete specialization (mirrors the blanket-impl path above).
