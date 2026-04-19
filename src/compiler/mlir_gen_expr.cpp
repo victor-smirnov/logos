@@ -2362,19 +2362,55 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
     auto save_pt     = builder_.saveInsertionPoint();
     builder_.setInsertionPointToStart(parent_mod.getBody());
 
-    // Emit template blob as a rodata global.
-    auto i8       = builder_.getIntegerType(8);
+    // C8e: static @-literals get an 8-byte little-endian size prefix in rodata
+    // so that HermesStatic::size() can read *(ptr - 8) without a separate symbol.
+    // Capture path still uses the raw blob (no prefix) because the blob is
+    // memcpy'd into a live HermesCtr at runtime.
+    auto i8 = builder_.getIntegerType(8);
+    if (!e.has_captures) {
+        // Emit [u64 size_le][blob bytes...] as one rodata global.
+        auto size_le = static_cast<uint64_t>(blob.size());
+        std::vector<uint8_t> prefixed(8);
+        for (int k = 0; k < 8; ++k)
+            prefixed[k] = static_cast<uint8_t>((size_le >> (k * 8)) & 0xFF);
+        prefixed.insert(prefixed.end(), blob.begin(), blob.end());
+
+        auto arr_type  = mlir::LLVM::LLVMArrayType::get(i8, prefixed.size());
+        auto blob_attr = builder_.getStringAttr(
+            llvm::StringRef(reinterpret_cast<const char*>(prefixed.data()), prefixed.size()));
+        builder_.create<mlir::LLVM::GlobalOp>(
+            loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
+            global_name, blob_attr);
+
+        builder_.restoreInsertionPoint(save_pt);
+
+        // ptr = address_of(global) + 8  (points past the size prefix, to the blob).
+        auto global_ptr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
+        mlir::Value offset8 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
+        auto blob_ptr = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), i8, global_ptr, mlir::ValueRange{offset8});
+
+        // Return HermesStatic { ptr: blob_ptr } as an alloca (DataPlain struct).
+        auto sit = struct_types_.find("HermesStatic");
+        if (sit == struct_types_.end()) {
+            // Fallback: HermesStatic not yet registered (shouldn't happen in normal builds).
+            return blob_ptr;
+        }
+        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), sit->second.llvm_type, i64_one());
+        auto gep = gep_field(alloca, sit->second, "ptr");
+        if (!gep) return blob_ptr;
+        builder_.create<mlir::LLVM::StoreOp>(loc_, blob_ptr, gep);
+        return alloca;
+    }
+
+    // Capture path: emit plain blob (no size prefix).
     auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, blob.size());
     auto blob_attr = builder_.getStringAttr(
         llvm::StringRef(reinterpret_cast<const char*>(blob.data()), blob.size()));
     builder_.create<mlir::LLVM::GlobalOp>(
         loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::Internal,
         global_name, blob_attr);
-
-    if (!e.has_captures) {
-        builder_.restoreInsertionPoint(save_pt);
-        return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
-    }
 
     // ── Capture path ─────────────────────────────────────────────────────────
     // Emit slots table: array of u32 pairs [blob_off, value_idx, ...].

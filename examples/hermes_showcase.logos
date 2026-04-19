@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
 //
-// Hermes showcase: compile-time literals, runtime capture, typed casts.
+// Hermes showcase: compile-time literals, runtime capture, typed casts,
+// and the HermesRead/HermesWrite trait API.
 //
 // Demonstrates:
-//   1. Static @-literals  — blob in rodata, zero runtime cost
-//   2. Scalar capture     — $ident and ${expr} (i32, bool)
+//   1. Static @-literals  — blob in rodata, zero runtime cost; wrap as HermesStatic
+//   2. Scalar capture     — $ident and ${expr} (i32, bool) → HermesCtr
 //   3. String capture     — *const u8 captured as zone Varchar
 //   4. Mixed capture      — scalars + strings + expressions
 //   5. Typed array cast   — &[i32] → <I32>[] HermesCtr
 //   6. Typed map cast     — MapSliceI32 → <I32,AnyVal>{} HermesCtr
+//   7. HermesCtrView      — non-owning borrow of a zone document
 
 package hermes_showcase;
 
 use hermes.ctr;
+use hermes.view;
 use std.string;
 use std.io;
 
@@ -22,8 +25,21 @@ unsafe fn section(title: *const u8) {
     println(title);
 }
 
+// print_doc — stringify via the HermesRead trait default to_string().
+// Works for HermesCtr (owning), HermesCtrView<'a> (borrowing),
+// and HermesStatic ('static rodata) — all impl HermesRead.
 unsafe fn print_doc(label: *const u8, ctr: &HermesCtr) {
     let s: String = ctr.to_string();
+    let mut out: String = String::with_capacity(128);
+    out.push_cstr("  ");
+    out.push_cstr(label);
+    out.push_cstr(": ");
+    out.push_cstr(s.as_ptr());
+    println(out.as_ptr());
+}
+
+unsafe fn print_static(label: *const u8, hs: &HermesStatic) {
+    let s: String = hs.to_string();
     let mut out: String = String::with_capacity(128);
     out.push_cstr("  ");
     out.push_cstr(label);
@@ -35,23 +51,31 @@ unsafe fn print_doc(label: *const u8, ctr: &HermesCtr) {
 pub unsafe fn main() -> i32 {
     // ------------------------------------------------------------------ //
     // 1. Static @-literals                                                //
-    //    Entire document lives in read-only data — no heap allocation.   //
+    //    Document lives in read-only data — no heap allocation.          //
+    //    @-literal directly returns HermesStatic (blob + 8-byte size     //
+    //    prefix in rodata). HermesRead methods (to_string, root, …)      //
+    //    work on it without any wrapping or allocation.                   //
     // ------------------------------------------------------------------ //
-    section("1. Static @-literals");
+    section("1. Static @-literals (HermesStatic / HermesRead)");
 
-    // Scalars, strings, arrays — all compile-time blobs in rodata.
-    let _null:  *const u8 = @null;
-    let _true:  *const u8 = @true;
-    let _num:   *const u8 = @42;
-    let _str:   *const u8 = @"hello";
-    let _arr:   *const u8 = @[1, 2, 3];
-    let _map:   *const u8 = @{"key": "value", "n": 7};
+    // @-literals directly return HermesStatic — no wrapping needed.
+    let hs_arr:  HermesStatic = @[1, 2, 3];
+    let hs_map:  HermesStatic = @{"key": "value", "n": 7};
+    let hs_i32:  HermesStatic = @<I32>[10, 20, 30];
+    let hs_mkv:  HermesStatic = @<I32, AnyVal>{1: 100, 2: 200};
 
-    // Typed containers: ArrayI32 and MapI32AnyVal blobs in rodata.
-    let _i32arr: *const u8 = @<I32>[10, 20, 30];
-    let _mapkv:  *const u8 = @<I32, AnyVal>{1: 100, 2: 200};
+    print_static("arr  ", &hs_arr);
+    print_static("map  ", &hs_map);
+    print_static("I32[]", &hs_i32);
+    print_static("I32{}", &hs_mkv);
 
-    println("  static blobs ready (null/true/42/hello/[1,2,3]/map/typed-arr/typed-map)");
+    // HermesCtrView: non-owning borrow of any HermesStatic blob.
+    let view_arr: HermesCtrView = hs_arr.as_view();
+    let s_arr: String = view_arr.to_string();
+    let mut out: String = String::with_capacity(64);
+    out.push_cstr("  view: ");
+    out.push_cstr(s_arr.as_ptr());
+    println(out.as_ptr());
 
     // ------------------------------------------------------------------ //
     // 2. Scalar capture — $ident and ${expr}                              //
@@ -63,11 +87,9 @@ pub unsafe fn main() -> i32 {
     let active:  bool = true;
     let score:   i32  = 95;
 
-    // Simple variable capture.
     let doc_user: HermesCtr = @{"id": $user_id, "active": $active};
     print_doc("user", &doc_user);
 
-    // Expression capture: ${...} evaluates arbitrary Logos expressions.
     let a: i32 = 10;
     let b: i32 = 7;
     let doc_expr: HermesCtr = @{
@@ -77,7 +99,6 @@ pub unsafe fn main() -> i32 {
     };
     print_doc("expr", &doc_expr);
 
-    // Array of captured scalars.
     let x: i32 = 1;
     let y: i32 = 2;
     let z: i32 = 3;
@@ -94,7 +115,6 @@ pub unsafe fn main() -> i32 {
     let doc_str: HermesCtr = @{"name": $name, "lang": $lang};
     print_doc("strings", &doc_str);
 
-    // C-string in array.
     let greeting: *const u8 = "hello";
     let farewell: *const u8 = "bye";
     let doc_strarr: HermesCtr = @[$greeting, $farewell];
@@ -120,8 +140,8 @@ pub unsafe fn main() -> i32 {
     print_doc("order", &doc_order);
 
     // ------------------------------------------------------------------ //
-    // 5. Typed array cast — &[i32] → <I32>[] HermesCtr                   //
-    //    Produces a dense ArrayI32 with TypeTag in zone.                  //
+    // 5. Typed array cast — &[T] as <T>[]                                 //
+    //    Produces a dense ArrayI32/ArrayU64 HermesCtr.                    //
     // ------------------------------------------------------------------ //
     section("5. Typed array cast  (&[T] as <T>[])");
 
@@ -136,7 +156,7 @@ pub unsafe fn main() -> i32 {
     print_doc("ArrayU64", &arr_u64_ctr);
 
     // ------------------------------------------------------------------ //
-    // 6. Typed map cast — MapSliceI32 → <I32,AnyVal>{} HermesCtr          //
+    // 6. Typed map cast — MapSliceI32 as <I32,AnyVal>{}                   //
     //    Keys: dense i32 array; values: AnyVal (inline embed_i24).        //
     // ------------------------------------------------------------------ //
     section("6. Typed map cast  (MapSliceI32 as <I32,AnyVal>{})");
@@ -151,6 +171,22 @@ pub unsafe fn main() -> i32 {
     let ms: MapSliceI32 = MapSliceI32 { keys: &keys, vals: &vals };
     let map_ctr: HermesCtr = ms as <I32, AnyVal>{};
     print_doc("MapI32AnyVal", &map_ctr);
+
+    // ------------------------------------------------------------------ //
+    // 7. HermesCtrView — non-owning borrow over an existing HermesCtr     //
+    //    Borrows the zone without copying; HermesRead methods work on it. //
+    // ------------------------------------------------------------------ //
+    section("7. HermesCtrView  (non-owning borrow)");
+
+    let view: HermesCtrView = HermesCtrView {
+        base: doc_order.base(),
+        size: doc_order.size(),
+    };
+    let s_view: String = view.to_string();
+    let mut vout: String = String::with_capacity(64);
+    vout.push_cstr("  view: ");
+    vout.push_cstr(s_view.as_ptr());
+    println(vout.as_ptr());
 
     println("---");
     println("done.");

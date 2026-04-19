@@ -9,20 +9,14 @@
 
 package hermes_typed_arr_lit;
 
-use hermes.zone;
-use hermes.document;
+use hermes.view;
 use hermes.stringify;
 use hermes.containers;
 use std.string;
 
-extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
-
-unsafe fn check(base: *const u8, expected: *const u8, err_code: i32) -> i32 {
-    let mut buf: String = String::with_capacity(128);
-    stringify_document(base, &mut buf, StringifyOpts::compact());
-    if !buf.eq_cstr(expected) {
-        return err_code;
-    }
+unsafe fn check(hs: &HermesStatic, expected: *const u8, err_code: i32) -> i32 {
+    let s: String = hs.to_string();
+    if !s.eq_cstr(expected) { return err_code; }
     return 0;
 }
 
@@ -30,23 +24,28 @@ pub unsafe fn main() -> i32 {
     let mut rc: i32 = 0;
 
     // 1. @<I32>[10, 20, 30] → ArrayI32 (tc=104) → "<I32> [10,20,30]"
-    rc = check(@<I32>[10, 20, 30] as *const u8, "<I32> [10,20,30]", 1);
+    let lit1: HermesStatic = @<I32>[10, 20, 30];
+    rc = check(&lit1, "<I32> [10,20,30]", 1);
     if rc != 0 { return rc; }
 
     // 2. @<I32>[] — empty typed array
-    rc = check(@<I32>[] as *const u8, "<I32> []", 2);
+    let lit2: HermesStatic = @<I32>[];
+    rc = check(&lit2, "<I32> []", 2);
     if rc != 0 { return rc; }
 
     // 3. @<U64>[1, 2, 3, 4, 5] → ArrayU64 (tc=108) → "<U64> [1,2,3,4,5]"
-    rc = check(@<U64>[1, 2, 3, 4, 5] as *const u8, "<U64> [1,2,3,4,5]", 3);
+    let lit3: HermesStatic = @<U64>[1, 2, 3, 4, 5];
+    rc = check(&lit3, "<U64> [1,2,3,4,5]", 3);
     if rc != 0 { return rc; }
 
     // 4. @<U64>[] — empty u64 array
-    rc = check(@<U64>[] as *const u8, "<U64> []", 4);
+    let lit4: HermesStatic = @<U64>[];
+    rc = check(&lit4, "<U64> []", 4);
     if rc != 0 { return rc; }
 
     // 5. Negative i32 values
-    rc = check(@<I32>[-1, 0, 1] as *const u8, "<I32> [-1,0,1]", 5);
+    let lit5: HermesStatic = @<I32>[-1, 0, 1];
+    rc = check(&lit5, "<I32> [-1,0,1]", 5);
     if rc != 0 { return rc; }
 
     return 0;

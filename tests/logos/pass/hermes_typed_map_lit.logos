@@ -4,20 +4,14 @@
 
 package hermes_typed_map_lit;
 
-use hermes.zone;
-use hermes.document;
+use hermes.view;
 use hermes.stringify;
 use hermes.containers;
 use std.string;
 
-extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
-
-unsafe fn check(base: *const u8, expected: *const u8, err_code: i32) -> i32 {
-    let mut buf: String = String::with_capacity(128);
-    stringify_document(base, &mut buf, StringifyOpts::compact());
-    if !buf.eq_cstr(expected) {
-        return err_code;
-    }
+unsafe fn check(hs: &HermesStatic, expected: *const u8, err_code: i32) -> i32 {
+    let s: String = hs.to_string();
+    if !s.eq_cstr(expected) { return err_code; }
     return 0;
 }
 
@@ -25,23 +19,28 @@ pub unsafe fn main() -> i32 {
     let mut rc: i32 = 0;
 
     // 1. @<I32,AnyVal>{1: 10, 2: 20} → MapI32AnyVal (tc=105)
-    rc = check(@<I32,AnyVal>{1: 10, 2: 20} as *const u8, "<I32,AnyVal> {1:10,2:20}", 1);
+    let lit1: HermesStatic = @<I32,AnyVal>{1: 10, 2: 20};
+    rc = check(&lit1, "<I32,AnyVal> {1:10,2:20}", 1);
     if rc != 0 { return rc; }
 
     // 2. @<I32>{3: true, 4: false} — single type arg
-    rc = check(@<I32>{3: true, 4: false} as *const u8, "<I32,AnyVal> {3:true,4:false}", 2);
+    let lit2: HermesStatic = @<I32>{3: true, 4: false};
+    rc = check(&lit2, "<I32,AnyVal> {3:true,4:false}", 2);
     if rc != 0 { return rc; }
 
     // 3. Empty @<I32,AnyVal>{}
-    rc = check(@<I32,AnyVal>{} as *const u8, "<I32,AnyVal> {}", 3);
+    let lit3: HermesStatic = @<I32,AnyVal>{};
+    rc = check(&lit3, "<I32,AnyVal> {}", 3);
     if rc != 0 { return rc; }
 
     // 4. Negative keys: @<I32>{-1: "neg", 0: "zero"}
-    rc = check(@<I32>{-1: "neg", 0: "zero"} as *const u8, "<I32,AnyVal> {-1:\"neg\",0:\"zero\"}", 4);
+    let lit4: HermesStatic = @<I32>{-1: "neg", 0: "zero"};
+    rc = check(&lit4, "<I32,AnyVal> {-1:\"neg\",0:\"zero\"}", 4);
     if rc != 0 { return rc; }
 
     // 5. @<Varchar,AnyVal>{"a": 1, "b": 2} — same as untyped @{"a":1,"b":2}
-    rc = check(@<Varchar,AnyVal>{"a": 1, "b": 2} as *const u8, "{\"a\":1,\"b\":2}", 5);
+    let lit5: HermesStatic = @<Varchar,AnyVal>{"a": 1, "b": 2};
+    rc = check(&lit5, "{\"a\":1,\"b\":2}", 5);
     if rc != 0 { return rc; }
 
     return 0;

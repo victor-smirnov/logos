@@ -1,24 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// hermes_sdn_lit.logos — Phase 3: verify @-literal blobs via stringify_document.
+// hermes_sdn_lit.logos — @-literals return HermesStatic (C8e); verify via stringify.
 //
-// Each @-literal produces a compile-time Hermes zone blob.  We call
-// stringify_document on the blob and compare to the expected SDN text.
+// Each @-literal produces a compile-time Hermes zone blob in rodata with an
+// 8-byte size prefix.  HermesStatic.ptr points past the prefix to the blob;
+// HermesStatic.size() reads the prefix via *(ptr - 8).
+//
+// We stringify via HermesRead.to_string() and compare to expected SDN text.
 
 package hermes_sdn_lit;
 
+use hermes.view;
 use hermes.zone;
 use hermes.document;
 use hermes.stringify;
 use hermes.mem_holder;
 use std.string;
 
-extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
-
-unsafe fn check(base: *const u8, expected: *const u8, err_code: i32) -> i32 {
-    let mut buf: String = String::with_capacity(256);
-    stringify_document(base, &mut buf, StringifyOpts::compact());
-    if !buf.eq_cstr(expected) {
+unsafe fn check(hs: &HermesStatic, expected: *const u8, err_code: i32) -> i32 {
+    let s: String = hs.to_string();
+    if !s.eq_cstr(expected) {
         return err_code;
     }
     return 0;
@@ -28,41 +29,50 @@ pub unsafe fn main() -> i32 {
     let mut rc: i32 = 0;
 
     // 1. null
-    rc = check(@null as *const u8, "null", 1);
+    let lit1: HermesStatic = @null;
+    rc = check(&lit1, "null", 1);
     if rc != 0 { return rc; }
 
     // 2. true
-    rc = check(@true as *const u8, "true", 2);
+    let lit2: HermesStatic = @true;
+    rc = check(&lit2, "true", 2);
     if rc != 0 { return rc; }
 
     // 3. false
-    rc = check(@false as *const u8, "false", 3);
+    let lit3: HermesStatic = @false;
+    rc = check(&lit3, "false", 3);
     if rc != 0 { return rc; }
 
     // 4a. integer 42  (inline i24)
-    rc = check(@42 as *const u8, "42", 4);
+    let lit4: HermesStatic = @42;
+    rc = check(&lit4, "42", 4);
     if rc != 0 { return rc; }
 
     // 4b. negative integer -1  (inline i24 with sign extension)
-    rc = check(@-1 as *const u8, "-1", 40);
+    let lit40: HermesStatic = @-1;
+    rc = check(&lit40, "-1", 40);
     if rc != 0 { return rc; }
 
     // 5. string "hello"
-    rc = check(@"hello" as *const u8, "\"hello\"", 5);
+    let lit5: HermesStatic = @"hello";
+    rc = check(&lit5, "\"hello\"", 5);
     if rc != 0 { return rc; }
 
     // 6. array [1, 2, 3]
-    rc = check(@[1, 2, 3] as *const u8, "[1,2,3]", 6);
+    let lit6: HermesStatic = @[1, 2, 3];
+    rc = check(&lit6, "[1,2,3]", 6);
     if rc != 0 { return rc; }
 
-    // 7. single-key map — expected output determined by slot order
-    rc = check(@{"k": 99} as *const u8, "{\"k\":99}", 7);
+    // 7. single-key map
+    let lit7: HermesStatic = @{"k": 99};
+    rc = check(&lit7, "{\"k\":99}", 7);
     if rc != 0 { return rc; }
 
-    // 8. hermes_static_zone: wrap blob and stringify via zone base
-    let base: *const u8 = @{"x": true} as *const u8;
-    let sz: i64 = 128;   // generous upper bound; zone.used tracks real usage
-    let mut z: Zone<Immutable> = hermes_static_zone(base, sz);
+    // 8. hermes_static_zone: wrap blob via .ptr and stringify via zone base.
+    //    Also verifies that hermes_static_size reads the size prefix correctly.
+    let lit8: HermesStatic = @{"x": true};
+    let sz: u64 = lit8.size();
+    let mut z: Zone<Immutable> = hermes_static_zone(lit8.ptr, sz as i64);
     let zbase: *const u8 = z.holder.base as *const u8;
     let mut buf: String = String::with_capacity(64);
     stringify_document(zbase, &mut buf, StringifyOpts::compact());

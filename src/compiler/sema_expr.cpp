@@ -4261,8 +4261,8 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
         lit.capture_types = std::move(ctx.types);
         lit.capture_param_count = ctx.next_slot;
     }
-    // Type: *const u8 for static blobs; HermesCtr for captures (codegen handles both).
-    auto* result_type = lit.has_captures ? make_struct_type("HermesCtr") : make_ptr(false, u8_t());
+    // Type: HermesStatic for static blobs; HermesCtr for captures (codegen handles both).
+    auto* result_type = lit.has_captures ? make_struct_type("HermesCtr") : make_struct_type("HermesStatic");
     return make_expr(result_type, std::move(lit));
 }
 
