@@ -1832,6 +1832,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             mc.receiver = std::move(recv);
             mc.method   = std::string(method_name);
             mc.type_args = {};
+            // Propagate method-level type params (e.g. H in `hash<H>`) inferred above.
+            if (!chosen_method->type_params.empty()) {
+                std::unordered_map<std::string, const LogosType*> bindings(
+                    self_subst.begin(), self_subst.end());
+                for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
+                    if (i + 1 >= chosen_method->param_types.size()) break;
+                    auto* pt0 = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
+                    unify_types(pt0, arg_exprs[i]->type, bindings);
+                }
+                for (auto& tp : chosen_method->type_params) {
+                    auto it = bindings.find(tp.name);
+                    mc.type_args.push_back(it != bindings.end() ? it->second : nullptr);
+                }
+            }
             mc.args     = std::move(arg_exprs);
             mc.vtable_index = -1;
             mc.resolved_type = "";

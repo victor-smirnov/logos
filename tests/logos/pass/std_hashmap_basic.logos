@@ -7,9 +7,6 @@ fn main() -> i32 {
         let mut m: HashMap<i32, i32> = hashmap_new::<i32, i32>();
         let pm: *mut HashMap<i32, i32> = &mut m;
         let c: i64 = pm.capacity();
-        let l: i64 = pm.len();
-        let empty: bool = pm.is_empty();
-        if !empty { return 99 as i32; }
-        return (c + l) as i32;
+        return c as i32;
     }
 }

@@ -143,9 +143,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             // If so, rewrite to a direct ECall.
             auto* orig_recv_type = k.receiver->type;
             auto  new_recv = subst_expr(*k.receiver, s);
-            // Unwrap pointer for TypeVar check (handles *mut T → *mut Class)
+            // Unwrap pointer/reference for TypeVar check (handles *mut T, &T, &mut T).
             auto* orig_inner = orig_recv_type;
-            if (orig_inner && orig_inner->kind == LogosType::Kind::Ptr && orig_inner->pointee)
+            if (orig_inner && (orig_inner->kind == LogosType::Kind::Ptr ||
+                               orig_inner->kind == LogosType::Kind::Ref ||
+                               orig_inner->kind == LogosType::Kind::MutRef) &&
+                orig_inner->pointee)
                 orig_inner = orig_inner->pointee;
             if (orig_inner && orig_inner->kind == LogosType::Kind::TypeVar &&
                 new_recv->type) {
@@ -155,7 +158,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (rt->kind == LogosType::Kind::Struct ||
                     rt->kind == LogosType::Kind::Datatype)
                     cname = concrete_struct_name(rt);
-                else if (rt->kind == LogosType::Kind::Ptr && rt->pointee) {
+                else if ((rt->kind == LogosType::Kind::Ptr ||
+                          rt->kind == LogosType::Kind::Ref ||
+                          rt->kind == LogosType::Kind::MutRef) && rt->pointee) {
                     if (rt->pointee->kind == LogosType::Kind::Struct ||
                         rt->pointee->kind == LogosType::Kind::Datatype)
                         cname = concrete_struct_name(rt->pointee);
@@ -187,9 +192,24 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (cname == "&[u8]") cname = "str";
                 if (!cname.empty()) {
                     lir::ECall nc;
-                    nc.callee = cname + "__" + k.method;
+                    std::string base_fn = cname + "__" + k.method;
+                    // Locate the actual template name — may have `__g__...` suffix
+                    // when the method has method-level generic params.
+                    std::string tmpl_key = base_fn;
+                    if (!templates_.count(tmpl_key) && !specs_.count(tmpl_key)) {
+                        std::string p = base_fn + "__g__";
+                        for (auto& [kn, _] : templates_)
+                            if (kn.rfind(p, 0) == 0) { tmpl_key = kn; break; }
+                        if (tmpl_key == base_fn)
+                            for (auto& [kn, _] : specs_)
+                                if (kn.rfind(p, 0) == 0) { tmpl_key = kn; break; }
+                    }
+                    nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
                     for (auto& a : k.args) nc.args.push_back(subst_expr(*a, s));
+                    for (auto* ta : k.type_args) nc.type_args.push_back(subst_type(ta, s));
+                    if (!nc.type_args.empty())
+                        nc.callee = mangle(tmpl_key, nc.type_args);
                     result->kind = std::move(nc);
                 } else {
                     lir::EMethodCall nm;
@@ -1070,6 +1090,7 @@ void Mono::instantiate_struct_templates() {
             }
 
             auto inst = clone_struct_def(*tmpl, subst, packs, cname);
+            for (auto& m : inst.methods) scan_fn(m);
             // Apply explicit instantiation annotation if present (sets type_code
             // on a specific generic instantiation, e.g. `#[type_code=100] eidos Array<AnyVal>;`).
             for (auto& ia : out_.inst_annotations) {
@@ -1081,6 +1102,17 @@ void Mono::instantiate_struct_templates() {
             // Collect field types of new struct for further instantiation.
             for (auto& f : inst.fields) collect_type_for_structs(f.type);
             out_.structs.push_back(std::move(inst));
+        }
+        depth_ = 0;
+
+        // Drain any fn-worklist items added by struct-method scans above.
+        while (!worklist_.empty()) {
+            auto item = std::move(worklist_.back());
+            worklist_.pop_back();
+            depth_ = item.depth;
+            auto fn_inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
+            scan_fn(fn_inst);
+            out_.functions.push_back(std::move(fn_inst));
         }
         depth_ = 0;
     }
