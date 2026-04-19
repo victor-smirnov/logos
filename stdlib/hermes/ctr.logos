@@ -617,3 +617,27 @@ pub unsafe fn hermes_template_patch(
         si = si + 1 as i64;
     }
 }
+
+// ---------------------------------------------------------------------------
+// List / map comprehension runtime helpers
+// ---------------------------------------------------------------------------
+//
+// `@[expr for x in iter (if g)?]` desugars to:
+//     { let mut c = hermes_list_comp_new(cap);
+//       for x in iter { [if g] hermes_list_comp_push(&mut c, expr); }
+//       c }
+//
+// The element expression must already produce `AnyVal` (wrap scalars with
+// `AnyVal::embed_i24(...)` etc.).  Implicit coercion is a future extension.
+
+pub fn hermes_list_comp_new(cap: i64) -> HermesCtr {
+    let mut c: HermesCtr = HermesCtr::builder(cap);
+    let arr: AnyVal = c.build_array(8 as u64);
+    c.set_root(arr);
+    return c;
+}
+
+pub fn hermes_list_comp_push(c: &mut HermesCtr, v: AnyVal) {
+    let arr: AnyVal = c.root();
+    c.array_push(arr, v);
+}

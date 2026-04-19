@@ -50,11 +50,11 @@ fn print_static(label: str, hs: &HermesStatic) {
 
 pub fn main() -> i32 {
     // ------------------------------------------------------------------ //
-    // 1. Static @-literals                                                //
+    // 1. Static @-literals                                               //
     //    Document lives in read-only data — no heap allocation.          //
     //    @-literal directly returns HermesStatic (blob + 8-byte size     //
     //    prefix in rodata). HermesRead methods (to_string, root, …)      //
-    //    work on it without any wrapping or allocation.                   //
+    //    work on it without any wrapping or allocation.                  //
     // ------------------------------------------------------------------ //
     section("1. Static @-literals (HermesStatic / HermesRead)");
 
@@ -78,8 +78,8 @@ pub fn main() -> i32 {
     println_string(&out);
 
     // ------------------------------------------------------------------ //
-    // 2. Scalar capture — $ident and ${expr}                              //
-    //    Template blob in rodata; values substituted at runtime.          //
+    // 2. Scalar capture — $ident and ${expr}                             //
+    //    Template blob in rodata; values substituted at runtime.         //
     // ------------------------------------------------------------------ //
     section("2. Scalar capture  ($ident and ${expr})");
 
@@ -106,7 +106,7 @@ pub fn main() -> i32 {
     print_doc("arr", &doc_arr);
 
     // ------------------------------------------------------------------ //
-    // 3. String capture — str becomes zone Varchar                         //
+    // 3. String capture — str becomes zone Varchar                       //
     // ------------------------------------------------------------------ //
     section("3. String capture  (str → zone Varchar)");
 
@@ -121,7 +121,7 @@ pub fn main() -> i32 {
     print_doc("str arr", &doc_strarr);
 
     // ------------------------------------------------------------------ //
-    // 4. Mixed capture — scalars + strings + expressions                  //
+    // 4. Mixed capture — scalars + strings + expressions                 //
     // ------------------------------------------------------------------ //
     section("4. Mixed capture");
 
@@ -140,8 +140,8 @@ pub fn main() -> i32 {
     print_doc("order", &doc_order);
 
     // ------------------------------------------------------------------ //
-    // 5. Typed array cast — &[T] as <T>[]                                 //
-    //    Produces a dense ArrayI32/ArrayU64 HermesCtr.                    //
+    // 5. Typed array cast — &[T] as <T>[]                                //
+    //    Produces a dense ArrayI32/ArrayU64 HermesCtr.                   //
     // ------------------------------------------------------------------ //
     section("5. Typed array cast  (&[T] as <T>[])");
 
@@ -156,8 +156,8 @@ pub fn main() -> i32 {
     print_doc("ArrayU64", &arr_u64_ctr);
 
     // ------------------------------------------------------------------ //
-    // 6. Typed map cast — MapSliceI32 as <I32,AnyVal>{}                   //
-    //    Keys: dense i32 array; values: AnyVal (inline embed_i24).        //
+    // 6. Typed map cast — MapSliceI32 as <I32,AnyVal>{}                  //
+    //    Keys: dense i32 array; values: AnyVal (inline embed_i24).       //
     // ------------------------------------------------------------------ //
     section("6. Typed map cast  (MapSliceI32 as <I32,AnyVal>{})");
 
@@ -173,8 +173,8 @@ pub fn main() -> i32 {
     print_doc("MapI32AnyVal", &map_ctr);
 
     // ------------------------------------------------------------------ //
-    // 7. HermesCtrView — non-owning borrow over an existing HermesCtr     //
-    //    Borrows the zone without copying; HermesRead methods work on it. //
+    // 7. HermesCtrView — non-owning borrow over an existing HermesCtr    //
+    //    Borrows the zone without copying; HermesRead methods work on it.//
     // ------------------------------------------------------------------ //
     section("7. HermesCtrView  (non-owning borrow)");
 

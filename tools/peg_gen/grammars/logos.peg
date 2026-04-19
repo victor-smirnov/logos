@@ -221,6 +221,7 @@
     HERMES_MAP_TYPE             = 177   // <K,V>{} type expression; TYPE = key, RET_TYPE = val
     LIST_COMP                   = 178   // [elem for x in iter (if guard)?]; VALUE=elem, NAME=var, ITER=iter, GUARD?=pred
     MAP_COMP                    = 179   // {k:v for x in iter (if guard)?}; KEY=k, VALUE=v, NAME=var, ITER=iter, GUARD?=pred
+    HERMES_LIST_COMP            = 180   // @[elem for x in iter (if guard)?]; VALUE=elem, NAME=var, ITER=iter, GUARD?=pred
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1199,7 +1200,13 @@
                      / LT IDENT GT LBRACE (hermes_entry (COMMA hermes_entry)* COMMA?)? RBRACE
                      => { CODE: HERMES_TYPED_MAP, TYPE: $2, ITEMS: $... }
 
-    hermes_lit <- AT hermes_typed_map
+    hermes_list_comp <- AT LBRACKET expr KW_FOR IDENT KW_IN expr KW_IF expr RBRACKET
+                     => { CODE: HERMES_LIST_COMP, VALUE: $3, NAME: $5, ITER: $7, GUARD: $9 }
+                      / AT LBRACKET expr KW_FOR IDENT KW_IN expr RBRACKET
+                     => { CODE: HERMES_LIST_COMP, VALUE: $3, NAME: $5, ITER: $7 }
+
+    hermes_lit <- hermes_list_comp
+               / AT hermes_typed_map
                / AT hermes_typed_array
                / AT hermes_map
                / AT hermes_array

@@ -324,6 +324,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
     case la::LIST_COMP:    return lower_list_comp(expr);
     case la::MAP_COMP:     return lower_map_comp(expr);
+    case la::HERMES_LIST_COMP: return lower_hermes_list_comp(expr);
     case la::HERMES_MAP:
     case la::HERMES_ARRAY:
     case la::HERMES_TYPED_ARRAY:
@@ -3324,6 +3325,121 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
 
     auto result = make_expr(hm_t, lir::EVarRef{hm_var});
     return make_expr(hm_t, lir::EBlockExpr{std::move(outer), std::move(result)});
+}
+
+// Hermes list comprehension:  @[expr for x in iter_expr (if guard)?]
+// Desugars to a block that builds a HermesCtr whose root is an
+// ObjectArray of AnyVals, iterating over iter_expr and optionally
+// filtering by guard.  Element expression must evaluate to AnyVal
+// (user coerces scalars explicitly via AnyVal::embed_i24 etc.).
+// Requires `use hermes.view;` in scope.
+lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
+    auto var_name = str_of(node.get(la::NAME.code));
+
+    lir::LExprPtr iter = node.has_key(la::ITER)
+        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
+    const LogosType* iter_type = iter->type;
+
+    const LogosType* elem_type = nullptr;
+    int64_t arr_size = 0;
+    bool is_slice = false;
+    if (iter_type->kind == LogosType::Kind::Array) {
+        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        arr_size  = (int64_t)iter_type->arr_size;
+    } else if (iter_type->kind == LogosType::Kind::Slice) {
+        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        is_slice  = true;
+    } else {
+        error(std::format(
+            "hermes list comprehension: only array/slice iteration supported (got {})",
+            type_str(iter_type)));
+        return error_expr();
+    }
+
+    auto new_cands  = find_func_candidates("hermes_list_comp_new");
+    auto push_cands = find_func_candidates("hermes_list_comp_push");
+    if (new_cands.empty() || push_cands.empty()) {
+        error("hermes list comprehension requires `use hermes.ctr;`");
+        return error_expr();
+    }
+    const SemaFuncInfo* new_fi  = new_cands.front();
+    const SemaFuncInfo* push_fi = push_cands.front();
+
+    const LogosType* ctr_t = make_struct_type("HermesCtr");
+
+    std::string ctr_var = "__hlc_c_" + std::to_string(tmp_var_count_++);
+
+    push_scope();
+    define(std::string(var_name), elem_type, false);
+    auto val_expr_body = lower_expr(map_of(node.get(la::VALUE.code)));
+    lir::LExprPtr guard_body = nullptr;
+    if (node.has_key(la::GUARD))
+        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
+    pop_scope();
+
+    // Require VALUE to produce AnyVal.
+    const LogosType* vt = val_expr_body->type;
+    if (!(vt && (vt->kind == LogosType::Kind::Struct
+                 || vt->kind == LogosType::Kind::Datatype)
+              && vt->struct_name == "AnyVal")) {
+        error(std::format(
+            "hermes list comprehension: element expression must be AnyVal "
+            "(got {}); wrap scalars with AnyVal::embed_i24/embed_bool/etc.",
+            type_str(vt)));
+        return error_expr();
+    }
+
+    // SLet: let mut __hlc_c = hermes_list_comp_new(128);
+    std::string new_sym = new_fi->symbol_name.empty() ? "hermes_list_comp_new"
+                                                      : new_fi->symbol_name;
+    std::vector<lir::LExprPtr> new_args;
+    new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{128}));
+    auto call_new = make_expr(ctr_t,
+        lir::ECall{new_sym, {}, std::move(new_args)});
+    lir::SLet let_c;
+    let_c.name   = ctr_var;
+    let_c.type   = ctr_t;
+    let_c.is_mut = true;
+    let_c.value  = std::move(call_new);
+
+    // hermes_list_comp_push(&mut __hlc_c, val);
+    std::string push_sym = push_fi->symbol_name.empty() ? "hermes_list_comp_push"
+                                                        : push_fi->symbol_name;
+    auto recv = make_expr(make_ptr(true, ctr_t), lir::EAddrOf{ctr_var});
+    std::vector<lir::LExprPtr> push_args;
+    push_args.push_back(std::move(recv));
+    push_args.push_back(std::move(val_expr_body));
+    auto push_call = make_expr(void_t(),
+        lir::ECall{push_sym, {}, std::move(push_args)});
+
+    lir::SExprStmt push_stmt;
+    push_stmt.expr = std::move(push_call);
+
+    auto loop_body = std::make_unique<lir::LBlock>();
+    if (guard_body) {
+        lir::SIf sif;
+        sif.cond = std::move(guard_body);
+        sif.then_ = std::make_unique<lir::LBlock>();
+        sif.then_->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
+        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
+    } else {
+        loop_body->stmts.push_back(make_stmt(node_line_, std::move(push_stmt)));
+    }
+
+    lir::SForEach sfe;
+    sfe.var       = std::string(var_name);
+    sfe.iter      = std::move(iter);
+    sfe.elem_type = elem_type;
+    sfe.arr_size  = arr_size;
+    sfe.is_slice  = is_slice;
+    sfe.body      = std::move(loop_body);
+
+    auto outer = std::make_unique<lir::LBlock>();
+    outer->stmts.push_back(make_stmt(node_line_, std::move(let_c)));
+    outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
+
+    auto result = make_expr(ctr_t, lir::EVarRef{ctr_var});
+    return make_expr(ctr_t, lir::EBlockExpr{std::move(outer), std::move(result)});
 }
 
 lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {

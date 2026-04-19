@@ -1,0 +1,45 @@
+// Hermes list comprehension:
+//   @[expr for x in iter (if guard)?] → HermesCtr whose root is
+//   an ObjectArray of AnyVals.
+package hermes_list_comp_basic;
+
+use hermes.ctr;
+use hermes.anyval;
+use hermes.containers;
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+
+    // Plain: square each element.
+    let mut doc: HermesCtr =
+        @[AnyVal::embed_i24(x * x) for x in arr];
+
+    // Guarded: even elements, times 10.
+    let mut evens: HermesCtr =
+        @[AnyVal::embed_i24(x * 10) for x in arr if (x % 2) == 0];
+
+    unsafe {
+        let root1: AnyVal = doc.root();
+        let base1: *const u8 = doc.base();
+        if !root1.is_array(base1) { return 1; }
+        let oa1: *const ObjectArray =
+            (base1 as i64 + root1.as_offset() as i64) as *const ObjectArray;
+        if oa1.len() != 5 as u64 { return 2; }
+        let v3: AnyVal = oa1.get(base1, 2 as u64);  // 3*3 = 9
+        if v3.as_i24() != 9 { return 3; }
+        let v5: AnyVal = oa1.get(base1, 4 as u64);  // 5*5 = 25
+        if v5.as_i24() != 25 { return 4; }
+
+        let root2: AnyVal = evens.root();
+        let base2: *const u8 = evens.base();
+        let oa2: *const ObjectArray =
+            (base2 as i64 + root2.as_offset() as i64) as *const ObjectArray;
+        if oa2.len() != 2 as u64 { return 5; }
+        let e0: AnyVal = oa2.get(base2, 0 as u64);  // 2*10
+        if e0.as_i24() != 20 { return 6; }
+        let e1: AnyVal = oa2.get(base2, 1 as u64);  // 4*10
+        if e1.as_i24() != 40 { return 7; }
+    }
+
+    return 42;
+}
