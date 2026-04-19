@@ -220,6 +220,7 @@
     HERMES_ARR_TYPE             = 176   // <ElemType>[] type expression; TYPE = elem name
     HERMES_MAP_TYPE             = 177   // <K,V>{} type expression; TYPE = key, RET_TYPE = val
     LIST_COMP                   = 178   // [elem for x in iter (if guard)?]; VALUE=elem, NAME=var, ITER=iter, GUARD?=pred
+    MAP_COMP                    = 179   // {k:v for x in iter (if guard)?}; KEY=k, VALUE=v, NAME=var, ITER=iter, GUARD?=pred
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1121,6 +1122,7 @@
                   / struct_update_lit  // IDENT { fields, ..base } — before struct_lit
                   / struct_lit       // IDENT { fields }  — before plain IDENT
                   / list_comp        // [expr for x in iter (if p)?] — before arr_fill_lit/arr_lit
+                  / map_comp         // {k: v for x in iter (if p)?} — before struct_lit (no IDENT prefix, but keep early)
                   / arr_fill_lit     // [value; N]  — before arr_lit (avoids ambiguity)
                   / arr_lit          // [e1, e2, ...]
                   / LPAREN RPAREN => { CODE: TUPLE_LIT }  // () — unit value
@@ -1178,6 +1180,12 @@
               => { CODE: LIST_COMP, VALUE: $2, NAME: $4, ITER: $6, GUARD: $8 }
                / LBRACKET expr KW_FOR IDENT KW_IN expr RBRACKET
               => { CODE: LIST_COMP, VALUE: $2, NAME: $4, ITER: $6 }
+
+    // ── Map comprehension: {kexpr: vexpr for x in iter (if p)?} ──
+    map_comp <- LBRACE expr COLON expr KW_FOR IDENT KW_IN expr KW_IF expr RBRACE
+             => { CODE: MAP_COMP, KEY: $2, VALUE: $4, NAME: $6, ITER: $8, GUARD: $10 }
+              / LBRACE expr COLON expr KW_FOR IDENT KW_IN expr RBRACE
+             => { CODE: MAP_COMP, KEY: $2, VALUE: $4, NAME: $6, ITER: $8 }
 
     // ── Hermes SDN literals: @{k:v,...}  @[v,...]  @"s"  @42  @true  @null ──
     // @<ElemType>[v,...] — typed dense array (e.g. @<I32>[1,2,3])

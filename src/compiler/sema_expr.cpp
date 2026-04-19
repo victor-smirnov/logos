@@ -323,6 +323,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::ARR_LIT:      return lower_arr_lit(expr);
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
     case la::LIST_COMP:    return lower_list_comp(expr);
+    case la::MAP_COMP:     return lower_map_comp(expr);
     case la::HERMES_MAP:
     case la::HERMES_ARRAY:
     case la::HERMES_TYPED_ARRAY:
@@ -3222,6 +3223,107 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
 
     auto result = make_expr(vec_t, lir::EVarRef{vec_var});
     return make_expr(vec_t, lir::EBlockExpr{std::move(outer), std::move(result)});
+}
+
+// Map comprehension:  {kexpr: vexpr for x in iter_expr (if guard)?}
+// Desugars to a block that creates a HashMap<K,V>, iterates over iter_expr,
+// optionally filters by guard, and inserts (kexpr, vexpr) pairs.
+// Requires `use std.hashmap;` in scope.
+lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
+    auto var_name = str_of(node.get(la::NAME.code));
+
+    lir::LExprPtr iter = node.has_key(la::ITER)
+        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
+    const LogosType* iter_type = iter->type;
+
+    const LogosType* elem_type = nullptr;
+    int64_t arr_size = 0;
+    bool is_slice = false;
+    if (iter_type->kind == LogosType::Kind::Array) {
+        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        arr_size  = (int64_t)iter_type->arr_size;
+    } else if (iter_type->kind == LogosType::Kind::Slice) {
+        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+        is_slice  = true;
+    } else {
+        error(std::format(
+            "map comprehension: only array/slice iteration supported (got {})",
+            type_str(iter_type)));
+        return error_expr();
+    }
+
+    if (structs_.find("HashMap") == structs_.end()) {
+        error("map comprehension requires `use std.hashmap;`");
+        return error_expr();
+    }
+    auto* hm_new_fi = find_generic_func("hashmap_new");
+    if (!hm_new_fi) {
+        error("map comprehension: hashmap_new not found; add `use std.hashmap;`");
+        return error_expr();
+    }
+
+    std::string hm_var = "__mc_m_" + std::to_string(tmp_var_count_++);
+
+    push_scope();
+    define(std::string(var_name), elem_type, false);
+    auto key_expr_body = lower_expr(map_of(node.get(la::KEY.code)));
+    auto val_expr_body = lower_expr(map_of(node.get(la::VALUE.code)));
+    lir::LExprPtr guard_body = nullptr;
+    if (node.has_key(la::GUARD))
+        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
+    pop_scope();
+
+    const LogosType* k_type = key_expr_body->type;
+    const LogosType* v_type = val_expr_body->type;
+    const LogosType* hm_t = make_generic_struct("HashMap", {k_type, v_type});
+
+    std::string hm_new_sym = hm_new_fi->symbol_name.empty() ? "hashmap_new"
+                                                            : hm_new_fi->symbol_name;
+    auto call_new = make_expr(hm_t, lir::ECall{hm_new_sym, {k_type, v_type}, {}});
+    lir::SLet let_m;
+    let_m.name   = hm_var;
+    let_m.type   = hm_t;
+    let_m.is_mut = true;
+    let_m.value  = std::move(call_new);
+
+    // HashMap::insert(&mut hm, key, val) — unsafe method, emitted as direct ECall
+    // "HashMap__insert" so mono_clone rewrites to HashMap$G1$..$G2$..__insert.
+    auto recv = make_expr(make_ptr(true, hm_t), lir::EAddrOf{hm_var});
+    std::vector<lir::LExprPtr> ins_args;
+    ins_args.push_back(std::move(recv));
+    ins_args.push_back(std::move(key_expr_body));
+    ins_args.push_back(std::move(val_expr_body));
+    auto ins_call = make_expr(void_t(),
+        lir::ECall{"HashMap__insert", {k_type, v_type}, std::move(ins_args)});
+
+    lir::SExprStmt ins_stmt;
+    ins_stmt.expr = std::move(ins_call);
+
+    auto loop_body = std::make_unique<lir::LBlock>();
+    if (guard_body) {
+        lir::SIf sif;
+        sif.cond = std::move(guard_body);
+        sif.then_ = std::make_unique<lir::LBlock>();
+        sif.then_->stmts.push_back(make_stmt(node_line_, std::move(ins_stmt)));
+        loop_body->stmts.push_back(make_stmt(node_line_, std::move(sif)));
+    } else {
+        loop_body->stmts.push_back(make_stmt(node_line_, std::move(ins_stmt)));
+    }
+
+    lir::SForEach sfe;
+    sfe.var       = std::string(var_name);
+    sfe.iter      = std::move(iter);
+    sfe.elem_type = elem_type;
+    sfe.arr_size  = arr_size;
+    sfe.is_slice  = is_slice;
+    sfe.body      = std::move(loop_body);
+
+    auto outer = std::make_unique<lir::LBlock>();
+    outer->stmts.push_back(make_stmt(node_line_, std::move(let_m)));
+    outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
+
+    auto result = make_expr(hm_t, lir::EVarRef{hm_var});
+    return make_expr(hm_t, lir::EBlockExpr{std::move(outer), std::move(result)});
 }
 
 lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {

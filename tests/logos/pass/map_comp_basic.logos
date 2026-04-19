@@ -1,0 +1,36 @@
+package map_comp_basic;
+
+use std.hashmap;
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+
+    // Map comp: keys = value, vals = value*value.
+    let sq = {x: x * x for x in arr};
+
+    // With guard: only evens.
+    let ev = {x: x * 10 for x in arr if (x % 2) == 0};
+
+    unsafe {
+        let ps: *mut HashMap<i32, i32> = &mut sq;
+        let pe: *mut HashMap<i32, i32> = &mut ev;
+
+        if ps.len() != 5 as i64 { return 1; }
+        if pe.len() != 2 as i64 { return 2; }
+
+        let k1: i32 = 3;
+        let p = ps.get(&k1);
+        if p == 0 as *const i32 { return 3; }
+        unsafe { if *p != 9 { return 4; } }
+
+        let k2: i32 = 4;
+        let pv = pe.get(&k2);
+        if pv == 0 as *const i32 { return 5; }
+        unsafe { if *pv != 40 { return 6; } }
+
+        let k3: i32 = 3;
+        if pe.contains_key(&k3) { return 7; }
+    }
+
+    return 42;
+}
