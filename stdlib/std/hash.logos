@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.hash
+//
+// Hasher/Hash traits + default FxHasher implementation.
+// FxHash is a fast non-cryptographic hash (used internally by rustc); it's
+// adequate for HashMap collision distribution on non-adversarial inputs.
+// SipHash-2-4 can be slotted in later with the same trait surface.
+
+package std.hash;
+
+pub trait Hasher {
+    fn write_u64(&mut self, val: u64);
+    fn write_u32(&mut self, val: u32);
+    fn write_i64(&mut self, val: i64);
+    fn write_i32(&mut self, val: i32);
+    fn write_bool(&mut self, val: bool);
+    fn finish(&self) -> u64;
+}
+
+pub trait Hash {
+    fn hash<H: Hasher>(&self, state: &mut H);
+}
+
+// ── FxHasher ────────────────────────────────────────────────────────────────
+// state ← (state.rotate_left(5) ^ x) * SEED
+
+pub struct FxHasher { s: u64 }
+
+pub fn fx_hasher_new() -> FxHasher {
+    return FxHasher { s: 0 as u64 };
+}
+
+impl Hasher for FxHasher {
+    fn write_u64(&mut self, val: u64) {
+        let rot: u64 = (self.s << 5 as u64) | (self.s >> 59 as u64);
+        let seed: u64 = 0x517cc1b727220a95 as u64;
+        self.s = (rot ^ val) * seed;
+    }
+    fn write_u32(&mut self, val: u32) { self.write_u64(val as u64); }
+    fn write_i64(&mut self, val: i64) { self.write_u64(val as u64); }
+    fn write_i32(&mut self, val: i32) { self.write_u64(val as i64 as u64); }
+    fn write_bool(&mut self, val: bool) {
+        if val { self.write_u64(1 as u64); } else { self.write_u64(0 as u64); }
+    }
+    fn finish(&self) -> u64 { return self.s; }
+}
+
+// ── Hash impls for primitives ───────────────────────────────────────────────
+
+impl Hash for i32 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_i32(*self); }
+}
+impl Hash for i64 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_i64(*self); }
+}
+impl Hash for u32 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_u32(*self); }
+}
+impl Hash for u64 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self); }
+}
+impl Hash for u8 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self as u64); }
+}
+impl Hash for i8 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_i64(*self as i64); }
+}
+impl Hash for bool {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_bool(*self); }
+}
+impl Hash for usize {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self as u64); }
+}

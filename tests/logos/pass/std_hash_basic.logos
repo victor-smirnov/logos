@@ -1,0 +1,39 @@
+package std_hash_basic;
+
+use std.hash;
+
+fn main() -> i32 {
+    let mut h: FxHasher = fx_hasher_new();
+    let x: i32 = 42;
+    x.hash(&mut h);
+    let h1: u64 = h.finish();
+
+    let mut h2: FxHasher = fx_hasher_new();
+    let y: i32 = 42;
+    y.hash(&mut h2);
+    let v2: u64 = h2.finish();
+
+    // Same input → same hash.
+    if h1 != v2 { return 1; }
+
+    let mut h3: FxHasher = fx_hasher_new();
+    let z: i32 = 43;
+    z.hash(&mut h3);
+    let v3: u64 = h3.finish();
+
+    // Different input → different hash (very likely).
+    if h1 == v3 { return 2; }
+
+    // Hash a sequence of u64s — ensure the hasher accumulates.
+    let mut hm: FxHasher = fx_hasher_new();
+    let a: u64 = 1 as u64;
+    let b: u64 = 2 as u64;
+    let c: u64 = 3 as u64;
+    a.hash(&mut hm);
+    b.hash(&mut hm);
+    c.hash(&mut hm);
+    let seq: u64 = hm.finish();
+    if seq == 0 as u64 { return 3; }
+
+    return 42;
+}
