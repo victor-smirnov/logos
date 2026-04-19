@@ -15,7 +15,7 @@ unsafe fn main() -> i32 {
     let mut zone: Zone<Mutable> = zone_create(4096);
 
     // Allocate a HermesString "ok".
-    let msg: *const u8 = "ok";
+    let msg: str = "ok";
     let prefix_sz: i64 = vlen_encode_size(2 as u64) as i64;
     let total: i64 = prefix_sz + 2;
     let raw: *mut u8 = zone_m_alloc_tagged(&mut zone, total,
@@ -53,8 +53,8 @@ unsafe fn main() -> i32 {
     if (none as *const u8) != 0 as *const u8 { return 2; }
 
     // Both buffers must equal `"ok"`.
-    if !buf_trait.eq_cstr("\"ok\"") { return 3; }
-    if !buf_reg.eq_cstr("\"ok\"")   { return 4; }
+    if !buf_trait.eq_str("\"ok\"") { return 3; }
+    if !buf_reg.eq_str("\"ok\"")   { return 4; }
 
     return 0;
 }

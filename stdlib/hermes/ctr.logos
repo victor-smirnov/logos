@@ -162,6 +162,11 @@ impl HermesCtr {
         return self.parse(text.ptr, text.len as i64);
     }
 
+    // str convenience overload.
+    pub fn parse(&mut self, text: str) -> Result<(), ParseError> {
+        return self.parse(text.as_ptr(), text.len());
+    }
+
     // Deep-copy all objects reachable from the document root into a fresh zone,
     // discarding unreachable (garbage) objects.  Returns a new HermesCtr that
     // owns the compacted zone.

@@ -1,4 +1,4 @@
-// Test: String — push_cstr, push_bytes, len, as_ptr, clear, Drop
+// Test: String — push_str, push_bytes, len, as_ptr, clear, Drop
 package string_basic;
 
 use std.string;
@@ -8,13 +8,13 @@ extern fn strlen(s: *const u8) -> i64;
 
 unsafe fn main() -> i32 {
     // from_cstr
-    let mut s: String = String::from_cstr("hello");
+    let mut s: String = String::from_cstr("hello".as_ptr());
     if s.len() != 5 {
         return 1;
     }
 
-    // push_cstr
-    s.push_cstr(", world");
+    // push_str
+    s.push_str(", world");
     if s.len() != 12 {
         return 2;
     }
@@ -26,7 +26,7 @@ unsafe fn main() -> i32 {
     }
 
     // print the string
-    println(s.as_ptr());
+    println_string(&s);
 
     // clear keeps allocation
     s.clear();
@@ -37,9 +37,9 @@ unsafe fn main() -> i32 {
         return 5;
     }
 
-    // push_bytes
-    let lit: *const u8 = "42";
-    s.push_bytes(lit, 2);
+    // push_bytes via as_ptr + len
+    let lit: str = "42";
+    s.push_bytes(lit.as_ptr(), 2);
     if s.len() != 2 {
         return 6;
     }

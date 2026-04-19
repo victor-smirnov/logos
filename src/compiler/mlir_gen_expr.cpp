@@ -121,21 +121,34 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitStr& e, const LogosType*) {
             }
         }
     }
-    text.push_back('\0');
-
+    // LLVM requires string globals to include a null terminator in the array type.
+    // The fat pointer's `len` field holds the content length (without the null byte).
     auto global_name = ".str." + std::to_string(str_counter_++);
     auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto save_pt     = builder_.saveInsertionPoint();
     builder_.setInsertionPointToStart(parent_mod.getBody());
 
+    std::string text_with_null = text + '\0';
     auto i8       = builder_.getIntegerType(8);
-    auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, text.size());
-    auto str_attr = builder_.getStringAttr(llvm::StringRef(text.data(), text.size()));
+    auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, text_with_null.size());
+    auto str_attr = builder_.getStringAttr(llvm::StringRef(text_with_null.data(), text_with_null.size()));
     builder_.create<mlir::LLVM::GlobalOp>(
         loc_, arr_type, true, mlir::LLVM::Linkage::Internal, global_name, str_attr);
 
     builder_.restoreInsertionPoint(save_pt);
-    return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
+    auto raw_ptr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), global_name);
+
+    // Build fat pointer {ptr, len} on the stack and return pointer to it.
+    auto stype  = slice_llvm_type();
+    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), stype, i64_one());
+    llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+    auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
+    builder_.create<mlir::LLVM::StoreOp>(loc_, raw_ptr, pp);
+    llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, li);
+    auto len_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)text.size(), 64);
+    builder_.create<mlir::LLVM::StoreOp>(loc_, len_val, lp);
+    return alloca;
 }
 
 // ---------------------------------------------------------------------------
@@ -1068,6 +1081,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
 
     auto val    = gen_expr(*e.operand);
     if (!val) return nullptr;
+
+    // str (Slice<u8> = fat pointer {ptr, i64}) as *const u8 → extract field 0.
+    // Must be checked BEFORE the val.getType() == target early-return because
+    // both the alloca ptr (fat struct) and *const u8 are !llvm.ptr in LLVM 17.
+    if (e.operand->type && e.operand->type->kind == LogosType::Kind::Slice &&
+        e.operand->type->elem && e.operand->type->elem->kind == LogosType::Kind::U8 &&
+        type && type->kind == LogosType::Kind::Ptr &&
+        type->pointee && type->pointee->kind == LogosType::Kind::U8) {
+        auto stype = slice_llvm_type();
+        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+        auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, val, pi);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+    }
+
     auto target = logos_to_mlir(type);
     if (!target || val.getType() == target) return val;
 
@@ -1627,6 +1654,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLen& e, const LogosType*) {
     llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
     auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, li);
     return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+}
+
+mlir::Value MLIRGenImpl::gen_expr_kind(const ESlicePtr& e, const LogosType*) {
+    auto slice = gen_expr(*e.slice);
+    if (!slice) return nullptr;
+    auto stype = slice_llvm_type();
+    // Load ptr from field 0
+    llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+    auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, pi);
+    return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
 }
 
 // ---------------------------------------------------------------------------
@@ -2441,6 +2478,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
         using K = LogosType::Kind;
         if (t->kind == K::F64 || t->kind == K::F32 || t->kind == K::FloatLit) return true;
         if (t->kind == K::Ptr) return true;  // *const u8 → C-string varchar
+        if (t->kind == K::Slice && t->elem && t->elem->kind == K::U8) return true; // str → varchar
         if (t->kind == K::Struct && t->struct_name == "StringView") return true;
         return false;
     };
@@ -2548,6 +2586,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
                     // *const u8 — treat as null-terminated C-string.
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_cstr_fn, mlir::ValueRange{ctr_alloca, cap_val});
+                    raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
+                } else if (ct->kind == K::Slice && ct->elem && ct->elem->kind == K::U8
+                           && alloc_str_fn) {
+                    // str (&[u8]) fat pointer — load ptr+len fields from the alloca.
+                    auto stype = slice_llvm_type();
+                    llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+                    auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, cap_val, pi);
+                    mlir::Value sv_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+                    llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+                    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, cap_val, li);
+                    mlir::Value sv_len = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, builder_.getI64Type(), lp);
+                    auto r = builder_.create<mlir::func::CallOp>(
+                        loc_, alloc_str_fn, mlir::ValueRange{ctr_alloca, sv_ptr, sv_len});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
                 } else if (ct->kind == K::Struct && ct->struct_name == "StringView"
                            && alloc_str_fn) {

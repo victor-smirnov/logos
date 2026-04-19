@@ -31,7 +31,7 @@ unsafe fn main() -> i32 {
     if b4.decimal_is_negative(z4) { return 7; }
     if b4.decimal_len(z4) != 0 as u32 { return 8; }
     let s4: String = b4.decimal_to_string(z4);
-    if !s4.eq_cstr("0.00") { return 9; }
+    if !s4.eq_str("0.00") { return 9; }
 
     // ── 5. sub(0, positive) = negative ───────────────────────────────────────
     let mut b5: HermesCtr = HermesCtr::builder(4096);
@@ -43,7 +43,7 @@ unsafe fn main() -> i32 {
     if r5.is_null() { return 12; }
     if !b5.decimal_is_negative(r5) { return 13; }
     let s5: String = b5.decimal_to_string(r5);
-    if !s5.eq_cstr("-1.50") { return 14; }
+    if !s5.eq_str("-1.50") { return 14; }
 
     // ── 6. sub(0, 0) = 0, not negative ───────────────────────────────────────
     let mut b6: HermesCtr = HermesCtr::builder(4096);
@@ -55,7 +55,7 @@ unsafe fn main() -> i32 {
     if r6.is_null() { return 17; }
     if b6.decimal_is_negative(r6) { return 18; }
     let s6: String = b6.decimal_to_string(r6);
-    if !s6.eq_cstr("0.00") { return 19; }
+    if !s6.eq_str("0.00") { return 19; }
 
     // ── 7. add(negative, positive where |pos| > |neg|) should be positive ───
     let mut b7: HermesCtr = HermesCtr::builder(4096);
@@ -67,7 +67,7 @@ unsafe fn main() -> i32 {
     if r7.is_null() { return 22; }
     if b7.decimal_is_negative(r7) { return 23; }
     let s7: String = b7.decimal_to_string(r7);
-    if !s7.eq_cstr("1.00") { return 24; }
+    if !s7.eq_str("1.00") { return 24; }
 
     // ── 8. add(negative, positive where |neg| > |pos|) should be negative ───
     let mut b8: HermesCtr = HermesCtr::builder(4096);
@@ -79,7 +79,7 @@ unsafe fn main() -> i32 {
     if r8.is_null() { return 27; }
     if !b8.decimal_is_negative(r8) { return 28; }
     let s8: String = b8.decimal_to_string(r8);
-    if !s8.eq_cstr("-2.00") { return 29; }
+    if !s8.eq_str("-2.00") { return 29; }
 
     // ── 9. Decimal precision metadata preserved after arithmetic ──────────────
     let mut b9: HermesCtr = HermesCtr::builder(4096);
@@ -92,7 +92,7 @@ unsafe fn main() -> i32 {
     if b9.decimal_precision(r9) != 7 as u32 { return 33; }
     if b9.decimal_scale(r9) != 3 as u32 { return 34; }
     let s9: String = b9.decimal_to_string(r9);
-    if !s9.eq_cstr("124.457") { return 35; }
+    if !s9.eq_str("124.457") { return 35; }
 
     // ── 10. add overflow: P=3 S=0, 999 + 1 = 1000 overflows ─────────────────
     let mut b10: HermesCtr = HermesCtr::builder(4096);

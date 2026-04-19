@@ -16,7 +16,7 @@ unsafe fn main() -> i32 {
     // root is null in both; stringify should produce "null"
     let mut buf1: String = String::with_capacity(64);
     dst1.stringify(&mut buf1);
-    if !buf1.eq_cstr("null") { return 1; }
+    if !buf1.eq_str("null") { return 1; }
 
     // ── 2. Scalar integer root ────────────────────────────────────────────
     let mut src2: HermesCtr = HermesCtr::new(4096);
@@ -27,7 +27,7 @@ unsafe fn main() -> i32 {
     let dst2: HermesCtr = src2.compactify();
     let mut buf2: String = String::with_capacity(64);
     dst2.stringify(&mut buf2);
-    if !buf2.eq_cstr("42") { return 3; }
+    if !buf2.eq_str("42") { return 3; }
 
     // ── 3. String root ────────────────────────────────────────────────────
     let mut src3: HermesCtr = HermesCtr::new(4096);
@@ -38,7 +38,7 @@ unsafe fn main() -> i32 {
     let dst3: HermesCtr = src3.compactify();
     let mut buf3: String = String::with_capacity(64);
     dst3.stringify(&mut buf3);
-    if !buf3.eq_cstr("\"hello\"") { return 5; }
+    if !buf3.eq_str("\"hello\"") { return 5; }
 
     // ── 4. Array root ─────────────────────────────────────────────────────
     let mut src4: HermesCtr = HermesCtr::new(4096);
@@ -49,7 +49,7 @@ unsafe fn main() -> i32 {
     let dst4: HermesCtr = src4.compactify();
     let mut buf4: String = String::with_capacity(64);
     dst4.stringify(&mut buf4);
-    if !buf4.eq_cstr("[1,2,3]") { return 7; }
+    if !buf4.eq_str("[1,2,3]") { return 7; }
 
     // ── 5. Map root ───────────────────────────────────────────────────────
     let mut src5: HermesCtr = HermesCtr::new(4096);
@@ -62,7 +62,7 @@ unsafe fn main() -> i32 {
     let mut buf5d: String = String::with_capacity(64);
     src5.stringify(&mut buf5o);
     dst5.stringify(&mut buf5d);
-    if !buf5d.eq_cstr(buf5o.as_ptr()) { return 9; }
+    if !buf5d.eq_string(&buf5o) { return 9; }
 
     // ── 6. Nested document ────────────────────────────────────────────────
     let mut src6: HermesCtr = HermesCtr::new(4096);
@@ -75,7 +75,7 @@ unsafe fn main() -> i32 {
     let mut buf6d: String = String::with_capacity(128);
     src6.stringify(&mut buf6o);
     dst6.stringify(&mut buf6d);
-    if !buf6d.eq_cstr(buf6o.as_ptr()) { return 11; }
+    if !buf6d.eq_string(&buf6o) { return 11; }
 
     // ── 7. compactify with explicit capacity hint ─────────────────────────
     let mut src7: HermesCtr = HermesCtr::new(4096);
@@ -86,7 +86,7 @@ unsafe fn main() -> i32 {
     let dst7: HermesCtr = src7.compactify(512 as i64);
     let mut buf7: String = String::with_capacity(64);
     dst7.stringify(&mut buf7);
-    if !buf7.eq_cstr("[true,false,null]") { return 13; }
+    if !buf7.eq_str("[true,false,null]") { return 13; }
 
     // ── 8. Compactify preserves Decimal typed value ───────────────────────
     let mut src8: HermesCtr = HermesCtr::builder(4096);
@@ -97,7 +97,7 @@ unsafe fn main() -> i32 {
     let view8: DecimalView = dst8.decimal_view(dst8.root());
     if view8.is_null() { return 15; }
     let s8: String = view8.to_string_value();
-    if !s8.eq_cstr("123.45") { return 16; }
+    if !s8.eq_str("123.45") { return 16; }
 
     return 0;
 }

@@ -1,7 +1,7 @@
 package closure_type_param;
 // Closure type annotations in function parameter position.
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printiii(fmt: *const u8, a: i32, b: i32, c: i32) { unsafe { printf(fmt, a, b, c); } }
+fn printiii(fmt: str, a: i32, b: i32, c: i32) { unsafe { printf(fmt.as_ptr(), a, b, c); } }
 
 fn apply(f: |i32| -> i32, x: i32) -> i32 { return f(x); }
 fn apply2(f: |i32, i32| -> i32, x: i32, y: i32) -> i32 { return f(x, y); }

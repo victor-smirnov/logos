@@ -33,7 +33,7 @@ unsafe fn main() -> i32 {
         Result::Err(_)  => { return 4; }
     }
     let s4: String = d4.to_string();
-    if !s4.eq_cstr("[1,2,3]") { return 5; }
+    if !s4.eq_str("[1,2,3]") { return 5; }
 
     return 0;
 }

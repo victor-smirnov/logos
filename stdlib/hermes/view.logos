@@ -190,6 +190,18 @@ pub trait HermesRead {
         }
     }
 
+    fn map_get(self: &Self, val: AnyVal, key: str) -> AnyVal {
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_map(base) { return AnyVal::null_ptr(); }
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag_hash: u64 = read_type_code(obj);
+            if tag_hash == hermes_tag_tiny_map() as u64 { return AnyVal::null_ptr(); }
+            let omap: *const ObjectMap = obj as *const ObjectMap;
+            return omap.get(base, key.as_ptr(), key.len() as u64);
+        }
+    }
+
     // DecimalView for a zone Decimal AnyVal.
     fn decimal_view(self: &Self, val: AnyVal) -> DecimalView {
         unsafe { return DecimalView::from_anyval(self.base(), val); }
@@ -279,6 +291,10 @@ pub trait HermesWrite: HermesRead {
         return self.build_str(sv.ptr, sv.len as i64);
     }
 
+    fn build_str(self: &mut Self, sv: str) -> AnyVal {
+        return self.build_str(sv.as_ptr(), sv.len());
+    }
+
     fn build_str(self: &mut Self, s: *const u8) -> AnyVal {
         if s == 0 as *const u8 { return AnyVal::null_ptr(); }
         unsafe {
@@ -357,6 +373,10 @@ pub trait HermesWrite: HermesRead {
         return self.map_set_str(map, key.ptr, key.len as i64, val);
     }
 
+    fn map_set(self: &mut Self, map: AnyVal, key: str, val: AnyVal) {
+        return self.map_set_str(map, key.as_ptr(), key.len(), val);
+    }
+
     fn map_set(self: &mut Self, map: AnyVal, key: *const u8, val: AnyVal) {
         if key == 0 as *const u8 { return; }
         unsafe {
@@ -413,6 +433,10 @@ pub trait HermesWrite: HermesRead {
 
     fn decimal_from(self: &mut Self, p: i32, s: i32, sv: StringView) -> AnyVal {
         unsafe { return decimal_from_string_in_zone(self.zone_mut(), p, s, sv.ptr, sv.len as i64); }
+    }
+
+    fn decimal_from(self: &mut Self, p: i32, s: i32, sv: str) -> AnyVal {
+        unsafe { return decimal_from_string_in_zone(self.zone_mut(), p, s, sv.as_ptr(), sv.len()); }
     }
 
     fn decimal_from(self: &mut Self, p: i32, s: i32, txt: *const u8, len: i64) -> AnyVal {

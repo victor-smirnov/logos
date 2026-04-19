@@ -37,10 +37,10 @@ unsafe fn main() -> i32 {
     // Put them in a map so the traits exercise dispatch from containers.
     let mut m: AnyVal = d1.build_map(4 as u32);
     if m.is_null() { return 5; }
-    let ka: *const u8 = "a";
-    let kb: *const u8 = "b";
-    d1.map_set_str(m, ka, 1 as i64, iv);
-    d1.map_set_str(m, kb, 1 as i64, uv);
+    let ka: str = "a";
+    let kb: str = "b";
+    d1.map_set(m, ka, iv);
+    d1.map_set(m, kb, uv);
     d1.set_root(m);
 
     // Stringify — should produce {"a":9000000000,"b":18000000000} (order
@@ -54,8 +54,8 @@ unsafe fn main() -> i32 {
     let iv2: AnyVal = d2.build_i64(big_i);
     let uv2: AnyVal = d2.build_u64(big_u);
     let mut m2: AnyVal = d2.build_map(4 as u32);
-    d2.map_set_str(m2, ka, 1 as i64, iv2);
-    d2.map_set_str(m2, kb, 1 as i64, uv2);
+    d2.map_set(m2, ka, iv2);
+    d2.map_set(m2, kb, uv2);
     d2.set_root(m2);
 
     let r1: AnyVal = d1.root();
@@ -75,8 +75,8 @@ unsafe fn main() -> i32 {
     let iv3: AnyVal = d3.build_i64(big_i + 1 as i64);
     let uv3: AnyVal = d3.build_u64(big_u);
     let mut m3: AnyVal = d3.build_map(4 as u32);
-    d3.map_set_str(m3, ka, 1 as i64, iv3);
-    d3.map_set_str(m3, kb, 1 as i64, uv3);
+    d3.map_set(m3, ka, iv3);
+    d3.map_set(m3, kb, uv3);
     d3.set_root(m3);
     let r3: AnyVal = d3.root();
     let b3: *const u8 = d3.base();
@@ -96,7 +96,7 @@ unsafe fn main() -> i32 {
 
     let s_orig:   String = d1.to_string();
     let s_cloned: String = dst.to_string();
-    if !s_orig.eq_cstr(s_cloned.as_ptr()) { return 11; }
+    if !s_orig.eq_string(&s_cloned) { return 11; }
 
     return 0;
 }

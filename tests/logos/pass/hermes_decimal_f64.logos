@@ -46,42 +46,42 @@ unsafe fn main() -> i32 {
     let v6: AnyVal = d6.decimal_from(5 as i32, 2 as i32, 3.14);
     if v6.is_null() { return 10; }
     let s6: String = d6.decimal_to_string(v6);
-    if !s6.eq_cstr("3.14") { return 11; }
+    if !s6.eq_str("3.14") { return 11; }
 
     // 7. integer: 42.0 → Decimal(10,0) → "42"
     let mut d7: HermesCtr = HermesCtr::builder(4096);
     let v7: AnyVal = d7.decimal_from(10 as i32, 0 as i32, 42.0);
     if v7.is_null() { return 12; }
     let s7: String = d7.decimal_to_string(v7);
-    if !s7.eq_cstr("42") { return 13; }
+    if !s7.eq_str("42") { return 13; }
 
     // 8. zero: 0.0 → Decimal(5,2) → "0.00"
     let mut d8: HermesCtr = HermesCtr::builder(4096);
     let v8: AnyVal = d8.decimal_from(5 as i32, 2 as i32, 0.0);
     if v8.is_null() { return 14; }
     let s8: String = d8.decimal_to_string(v8);
-    if !s8.eq_cstr("0.00") { return 15; }
+    if !s8.eq_str("0.00") { return 15; }
 
     // 9. negative: -1.5 → Decimal(5,2) → "-1.50"
     let mut d9: HermesCtr = HermesCtr::builder(4096);
     let v9: AnyVal = d9.decimal_from(5 as i32, 2 as i32, -1.5);
     if v9.is_null() { return 16; }
     let s9: String = d9.decimal_to_string(v9);
-    if !s9.eq_cstr("-1.50") { return 17; }
+    if !s9.eq_str("-1.50") { return 17; }
 
     // 10. purely fractional: 0.05 → Decimal(3,2) → "0.05"
     let mut d10: HermesCtr = HermesCtr::builder(4096);
     let v10: AnyVal = d10.decimal_from(3 as i32, 2 as i32, 0.05);
     if v10.is_null() { return 18; }
     let s10: String = d10.decimal_to_string(v10);
-    if !s10.eq_cstr("0.05") { return 19; }
+    if !s10.eq_str("0.05") { return 19; }
 
     // 11. precision overflow: 999.0 into Decimal(3,0) max is 999 → OK
     let mut d11: HermesCtr = HermesCtr::builder(4096);
     let v11: AnyVal = d11.decimal_from(3 as i32, 0 as i32, 999.0);
     if v11.is_null() { return 20; }
     let s11: String = d11.decimal_to_string(v11);
-    if !s11.eq_cstr("999") { return 21; }
+    if !s11.eq_str("999") { return 21; }
 
     // 12. precision overflow: 1000.0 into Decimal(3,0) must be null
     let mut d12: HermesCtr = HermesCtr::builder(4096);
@@ -96,7 +96,7 @@ unsafe fn main() -> i32 {
     let rt13: AnyVal = d13.decimal_from(8 as i32, 4 as i32, f13);
     if rt13.is_null() { return 24; }
     let s13: String = d13.decimal_to_string(rt13);
-    if !s13.eq_cstr("1234.5678") { return 25; }
+    if !s13.eq_str("1234.5678") { return 25; }
 
     // 14. invalid P=0 must be null
     let mut d14: HermesCtr = HermesCtr::builder(4096);

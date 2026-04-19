@@ -13,7 +13,7 @@ unsafe fn main() -> i32 {
     let dst1: HermesCtr = src1.clone();
     let mut buf1: String = String::with_capacity(64);
     dst1.stringify(&mut buf1);
-    if !buf1.eq_cstr("42") { return 2; }
+    if !buf1.eq_str("42") { return 2; }
 
     // ── 2. String root ────────────────────────────────────────────────────
     let mut src2: HermesCtr = HermesCtr::new(4096);
@@ -24,7 +24,7 @@ unsafe fn main() -> i32 {
     let dst2: HermesCtr = src2.clone();
     let mut buf2: String = String::with_capacity(64);
     dst2.stringify(&mut buf2);
-    if !buf2.eq_cstr("\"world\"") { return 4; }
+    if !buf2.eq_str("\"world\"") { return 4; }
 
     // ── 3. Array ──────────────────────────────────────────────────────────
     let mut src3: HermesCtr = HermesCtr::new(4096);
@@ -35,7 +35,7 @@ unsafe fn main() -> i32 {
     let dst3: HermesCtr = src3.clone();
     let mut buf3: String = String::with_capacity(64);
     dst3.stringify(&mut buf3);
-    if !buf3.eq_cstr("[1,2,3]") { return 6; }
+    if !buf3.eq_str("[1,2,3]") { return 6; }
 
     // ── 4. Map ────────────────────────────────────────────────────────────
     let mut src4: HermesCtr = HermesCtr::new(4096);
@@ -48,7 +48,7 @@ unsafe fn main() -> i32 {
     let mut buf4d: String = String::with_capacity(64);
     src4.stringify(&mut buf4o);
     dst4.stringify(&mut buf4d);
-    if !buf4d.eq_cstr(buf4o.as_ptr()) { return 8; }
+    if !buf4d.eq_string(&buf4o) { return 8; }
 
     // ── 5. Clone is independent: mutating src doesn't affect dst ──────────
     let mut src5: HermesCtr = HermesCtr::new(4096);
@@ -61,7 +61,7 @@ unsafe fn main() -> i32 {
     let _v: AnyVal = src5.build_str("mutation");
     let mut buf5: String = String::with_capacity(64);
     dst5.stringify(&mut buf5);
-    if !buf5.eq_cstr("99") { return 10; }
+    if !buf5.eq_str("99") { return 10; }
 
     // ── 6. Nested document ────────────────────────────────────────────────
     let mut src6: HermesCtr = HermesCtr::new(4096);
@@ -74,7 +74,7 @@ unsafe fn main() -> i32 {
     let mut buf6d: String = String::with_capacity(128);
     src6.stringify(&mut buf6o);
     dst6.stringify(&mut buf6d);
-    if !buf6d.eq_cstr(buf6o.as_ptr()) { return 12; }
+    if !buf6d.eq_string(&buf6o) { return 12; }
 
     return 0;
 }

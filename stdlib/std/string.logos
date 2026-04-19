@@ -51,8 +51,8 @@ pub fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
         m = 0 - n;
         if m < 0 {
             // n == i32::MIN (-2147483648): negation overflows, hardcode output.
-            let s: *const u8 = "-2147483648";
-            mem_copy(buf, off, s, 11);
+            let s: str = "-2147483648";
+            mem_copy(buf, off, s.as_ptr(), 11);
             return 11;
         }
     }
@@ -88,8 +88,8 @@ pub fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
         m = 0 as i64 - n;
         if m < 0 as i64 {
             // n == i64::MIN (-9223372036854775808): negation overflows, hardcode output.
-            let s: *const u8 = "-9223372036854775808";
-            mem_copy(buf, off, s, 20);
+            let s: str = "-9223372036854775808";
+            mem_copy(buf, off, s.as_ptr(), 20);
             return 20;
         }
     }
@@ -228,6 +228,11 @@ impl String {
         self.push_bytes(s, n);
     }
 
+    // Append a str slice.
+    pub fn push_str(&mut self, s: str) {
+        self.push_bytes(s.as_ptr(), s.len());
+    }
+
     // Read-only pointer to the bytes. Always null-terminated.
     pub fn as_ptr(&self) -> *const u8 {
         return self.data as *const u8;
@@ -285,6 +290,28 @@ impl String {
         let ptr: *mut u8 = self.spare_ptr(22);
         let n: i64 = write_u64(ptr, 0, v);
         self.advance_len(n);
+    }
+
+    // True if the string content equals another String.
+    pub fn eq_string(&self, other: &String) -> bool {
+        return self.eq_cstr(other.as_ptr());
+    }
+
+    // True if the string content equals the str slice `s`.
+    pub fn eq_str(&self, s: str) -> bool {
+        let n: i64 = s.len();
+        if self.nbytes != n { return false; }
+        let sp: *const u8 = s.as_ptr();
+        let mut i: i64 = 0;
+        while i < n {
+            unsafe {
+                let ap: *const u8 = (self.data as i64 + i) as *const u8;
+                let bp: *const u8 = (sp as i64 + i) as *const u8;
+                if *ap != *bp { return false; }
+            }
+            i = i + 1;
+        }
+        return true;
     }
 
     // True if the string content equals the null-terminated C string `s`.
@@ -369,9 +396,9 @@ impl Display for i64 {
 impl Display for bool {
     fn fmt(self: bool, buf: &mut String) {
         if self {
-            buf.push_cstr("true");
+            buf.push_str("true");
         } else {
-            buf.push_cstr("false");
+            buf.push_str("false");
         }
     }
 }
@@ -387,6 +414,13 @@ impl Display for *const u8 {
     fn fmt(self: *const u8, buf: &mut String) {
         let n: i64 = str_len(self);
         buf.push_bytes(self, n);
+    }
+}
+
+// Display for str slices.
+impl Display for str {
+    fn fmt(self: str, buf: &mut String) {
+        buf.push_str(self);
     }
 }
 

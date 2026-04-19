@@ -2,7 +2,7 @@
 package drop_reverse_order;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 trait Drop { fn drop(self: Self); }
 

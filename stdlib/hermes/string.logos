@@ -180,6 +180,10 @@ impl HermesString {
     //   text: source UTF-8 bytes
     //   len:  byte count
     // Returns *mut HermesString = raw (same pointer, typed).
+    pub unsafe fn init(raw: *mut u8, text: str, len: u64) -> *mut HermesString {
+        return HermesString::init(raw, text.as_ptr(), len);
+    }
+
     pub unsafe fn init(raw: *mut u8, text: *const u8, len: u64) -> *mut HermesString {
         let written: u32 = vlen_write(raw, len);
         let body: *mut u8 = (raw as i64 + written as i64) as *mut u8;

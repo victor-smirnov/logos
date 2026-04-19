@@ -3,7 +3,7 @@ package linked_list;
 extern fn printf(fmt: *const u8, ...) -> i32;
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
-fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 // struct Node: i32(4) + pad(4) + *ptr(8) = 16 bytes
 struct Node {

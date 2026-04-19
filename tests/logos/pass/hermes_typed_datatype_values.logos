@@ -22,7 +22,7 @@ unsafe fn cstr_eq_bytes(p: *const u8, n: u64, lit: *const u8) -> bool {
 
 unsafe fn main() -> i32 {
     let mut d: HermesCtr = HermesCtr::new(8192);
-    let txt: *const u8 =
+    let txt: str =
         r#"{
             "a": @I64 = 42, 
             "b": "123.45" @Decimal(10,2),
@@ -55,15 +55,15 @@ unsafe fn main() -> i32 {
 
     let hsa: *const HermesString = (base as i64 + ta.type_off as i64) as *const HermesString;
     let hsc: *const HermesString = (base as i64 + tc.type_off as i64) as *const HermesString;
-    if !cstr_eq_bytes(hsa.bytes(), hsa.len(), "I64") { return 5; }
-    if !cstr_eq_bytes(hsc.bytes(), hsc.len(), "Point") { return 6; }
+    if !cstr_eq_bytes(hsa.bytes(), hsa.len(), "I64".as_ptr()) { return 5; }
+    if !cstr_eq_bytes(hsc.bytes(), hsc.len(), "Point".as_ptr()) { return 6; }
 
     let inita: AnyVal = AnyVal { raw: ta.init_raw };
     if d.get_i64(inita) != 42 as i64 { return 7; }
     if d.decimal_precision(vb) != 10 as u32 { return 8; }
     if d.decimal_scale(vb) != 2 as u32 { return 9; }
     let ds: String = d.decimal_to_string(vb);
-    if !ds.eq_cstr("123.45") { return 10; }
+    if !ds.eq_str("123.45") { return 10; }
 
     let paramsc: AnyVal = AnyVal { raw: tc.params_raw };
     if !paramsc.is_ptr() { return 11; }

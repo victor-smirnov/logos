@@ -1,6 +1,6 @@
 package clone_test;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printii(fmt: *const u8, a: i32, b: i32) { unsafe { printf(fmt, a, b); } }
+fn printii(fmt: str, a: i32, b: i32) { unsafe { printf(fmt.as_ptr(), a, b); } }
 
 trait Clone { fn clone(self: Self) -> Self; }
 

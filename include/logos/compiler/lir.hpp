@@ -346,6 +346,11 @@ struct ESliceLen {
     LExprPtr slice;
 };
 
+// Slice / str as_ptr: s.as_ptr() → *const u8
+struct ESlicePtr {
+    LExprPtr slice;
+};
+
 // format() compiler built-in: format("x={}, y={}", x, y)
 // Returns *mut u8 (heap-allocated, caller frees via format_free).
 // The compiler builds tags[] and data[] arrays and calls __format_impl.
@@ -397,7 +402,7 @@ struct LExpr {
         ELitInt, ELitFloat, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EAddrOfTemp, EDeref,
         EFieldRead, EIndexRead, EStructLit, EArrLit, ECast, ENew, EIfExpr,
-        ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen,
+        ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen, ESlicePtr,
         EClosureBox, EClosureCall, EFnPtrCall, EFormatCall, EPackExpand,
         ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr,
         EHermesLit

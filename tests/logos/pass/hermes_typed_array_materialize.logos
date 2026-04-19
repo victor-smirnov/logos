@@ -44,11 +44,11 @@ unsafe fn main() -> i32 {
         depth: 0 as i64,
     };
     f(obj, &mut ctx);
-    if !s1.eq_cstr("<I32> [10,20,30]") { return 8; }
+    if !s1.eq_str("<I32> [10,20,30]") { return 8; }
 
     // Public API path must match the same round-trip output.
     let s2: String = doc.to_string();
-    if !s2.eq_cstr("<I32> [10,20,30]") { return 9; }
+    if !s2.eq_str("<I32> [10,20,30]") { return 9; }
 
     return 0;
 }

@@ -16,8 +16,8 @@ unsafe fn bytes_eq(a: *const u8, b: *const u8, n: u64) -> bool {
     return true;
 }
 
-unsafe fn sv(lit: *const u8, n: u64) -> StringView {
-    return StringView { ptr: lit, len: n };
+unsafe fn sv(s: str, n: u64) -> StringView {
+    return StringView { ptr: s.as_ptr(), len: n };
 }
 
 unsafe fn main() -> i32 {
@@ -32,14 +32,14 @@ unsafe fn main() -> i32 {
 
     let s0: StringView = b.get(0 as u64);
     if s0.len != 5 as u64 { return 10; }
-    if !bytes_eq(s0.ptr, "alpha", 5 as u64) { return 11; }
+    if !bytes_eq(s0.ptr, "alpha".as_ptr(), 5 as u64) { return 11; }
 
     let s1: StringView = b.get(1 as u64);
     if s1.len != 0 as u64 { return 20; }
 
     let s2: StringView = b.get(2 as u64);
     if s2.len != 6 as u64 { return 30; }
-    if !bytes_eq(s2.ptr, "gamma!", 6 as u64) { return 31; }
+    if !bytes_eq(s2.ptr, "gamma!".as_ptr(), 6 as u64) { return 31; }
 
     // Force several bytes-buffer growths to exercise realloc.
     let mut k: i32 = 0;
@@ -51,7 +51,7 @@ unsafe fn main() -> i32 {
 
     let last: StringView = b.get(52 as u64);
     if last.len != 11 as u64 { return 41; }
-    if !bytes_eq(last.ptr, "lorem-ipsum", 11 as u64) { return 42; }
+    if !bytes_eq(last.ptr, "lorem-ipsum".as_ptr(), 11 as u64) { return 42; }
 
     return 0;
 }

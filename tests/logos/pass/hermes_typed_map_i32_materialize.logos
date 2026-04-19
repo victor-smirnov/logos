@@ -34,7 +34,7 @@ unsafe fn main() -> i32 {
     if d1.get_i64(AnyVal { raw: v1.raw }) != 20 as i64 { return 7; }
 
     let s1: String = d1.to_string();
-    if !s1.eq_cstr("<I32,AnyVal> {1:10,2:20}") { return 8; }
+    if !s1.eq_str("<I32,AnyVal> {1:10,2:20}") { return 8; }
 
     // Short map form <K>{...} defaults V to AnyVal.
     let mut d2: HermesCtr = HermesCtr::new(4096);
@@ -43,7 +43,7 @@ unsafe fn main() -> i32 {
         Result::Err(_)  => { return 9; }
     }
     let s2: String = d2.to_string();
-    if !s2.eq_cstr("<I32,AnyVal> {7:8}") { return 10; }
+    if !s2.eq_str("<I32,AnyVal> {7:8}") { return 10; }
 
     return 0;
 }

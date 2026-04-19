@@ -23,8 +23,8 @@ use hermes.document;
 use hermes.parser;
 use std.string;
 
-fn append_str(buf: &mut String, s: *const u8) {
-    buf.push_cstr(s);
+fn append_str(buf: &mut String, s: str) {
+    buf.push_str(s);
 }
 
 // Parse `buf` into a fresh zone and return the root HermesString pointer

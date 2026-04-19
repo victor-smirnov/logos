@@ -851,6 +851,8 @@ void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
             visit(k.index, /*consuming=*/true,  line);
         } else if constexpr (std::is_same_v<K, ESliceLen>) {
             visit(k.slice, /*consuming=*/false, line);
+        } else if constexpr (std::is_same_v<K, ESlicePtr>) {
+            visit(k.slice, /*consuming=*/false, line);
 
         // ── Format call ────────────────────────────────────────────────
         } else if constexpr (std::is_same_v<K, EFormatCall>) {

@@ -15,9 +15,9 @@ use hermes.equal;
 use hermes.hashing;
 use hermes.clone;
 
-unsafe fn build_doc(text: *const u8, len: i64) -> HermesCtr {
+unsafe fn build_doc(text: str) -> HermesCtr {
     let mut doc: HermesCtr = HermesCtr::new(8192);
-    match doc.parse(text, len) {
+    match doc.parse(text) {
         Result::Ok(())  => {}
         Result::Err(_)  => {}
     }
@@ -25,13 +25,13 @@ unsafe fn build_doc(text: *const u8, len: i64) -> HermesCtr {
 }
 
 unsafe fn main() -> i32 {
-    let t1: *const u8 = "{a:1,b:\"hi\",c:[1,2,3]}";
-    let t2: *const u8 = "{a:1,b:\"hi\",c:[1,2,3]}";
-    let t3: *const u8 = "{a:1,b:\"hi\",c:[1,2,4]}";
+    let t1: str = "{a:1,b:\"hi\",c:[1,2,3]}";
+    let t2: str = "{a:1,b:\"hi\",c:[1,2,3]}";
+    let t3: str = "{a:1,b:\"hi\",c:[1,2,4]}";
 
-    let mut d1: HermesCtr = build_doc(t1, 22 as i64);
-    let mut d2: HermesCtr = build_doc(t2, 22 as i64);
-    let mut d3: HermesCtr = build_doc(t3, 22 as i64);
+    let mut d1: HermesCtr = build_doc(t1);
+    let mut d2: HermesCtr = build_doc(t2);
+    let mut d3: HermesCtr = build_doc(t3);
 
     let r1: AnyVal = d1.root();
     let r2: AnyVal = d2.root();
@@ -71,7 +71,7 @@ unsafe fn main() -> i32 {
 
     let s_orig:   String = d1.to_string();
     let s_cloned: String = dst.to_string();
-    if !s_orig.eq_cstr(s_cloned.as_ptr()) { return 6; }
+    if !s_orig.eq_string(&s_cloned) { return 6; }
 
     return 0;
 }

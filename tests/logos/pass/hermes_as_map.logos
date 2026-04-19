@@ -19,7 +19,7 @@ unsafe fn main() -> i32 {
     if root.is_null() { return 1; }
     if !root.is_ptr() { return 2; }
     let text: String = ctr.to_string();
-    if !text.eq_cstr("<I32,AnyVal> {1:10,2:20,3:30}") { return 3; }
+    if !text.eq_str("<I32,AnyVal> {1:10,2:20,3:30}") { return 3; }
 
     return 0;
 }

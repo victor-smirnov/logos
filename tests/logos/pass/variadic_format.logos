@@ -5,7 +5,7 @@ use std.fmt;
 use std.io;
 
 unsafe fn main() -> i32 {
-    let s: String = format::<*const u8, i32, bool>("{} says: x={}, ok={}", "logos", 42, true);
-    println(s.as_ptr());
+    let s: String = format::<str, i32, bool>("{} says: x={}, ok={}", "logos", 42, true);
+    println_string(&s);
     return 42;
 }

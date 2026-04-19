@@ -236,38 +236,10 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         return;
     }
 
-    // ── Slice value ──────────────────────────────────────────
+    // ── Slice / str value ────────────────────────────────────
     if (s.type && s.type->kind == LogosType::Kind::Slice) {
         auto val = gen_expr(*s.value);
         if (!val) return;
-        // String literal → &str coercion: val is a ptr (from ELitStr global),
-        // we need to wrap it in a fat pointer {ptr, len}.
-        if (s.value->type && s.value->type->kind == LogosType::Kind::Ptr &&
-            val.getType() == ptr_type() &&
-            std::holds_alternative<ELitStr>(s.value->kind)) {
-            auto& lit = std::get<ELitStr>(s.value->kind);
-            // Compute string length (strip quotes, process escapes)
-            std::string raw = lit.value;
-            if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
-                raw = raw.substr(1, raw.size() - 2);
-            // Count actual bytes (escape sequences are single bytes)
-            size_t len = 0;
-            for (size_t i = 0; i < raw.size(); ++i) {
-                if (raw[i] == '\\' && i + 1 < raw.size()) ++i;
-                ++len;
-            }
-            auto stype = slice_llvm_type();
-            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_type(), stype, i64_one());
-            llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
-            auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, pp);
-            llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
-            auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, li);
-            auto len_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)len, 64);
-            builder_.create<mlir::LLVM::StoreOp>(loc_, len_val, lp);
-            val = alloca;
-        }
         scope_[s.name] = val;
         let_vars_.insert(s.name);
         var_tuple_.insert(s.name);

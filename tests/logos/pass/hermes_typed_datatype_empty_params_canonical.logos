@@ -62,8 +62,8 @@ unsafe fn main() -> i32 {
 
     let s2: String = d2.to_string();
     let s3: String = d3.to_string();
-    if !s2.eq_cstr("@I64 = 42") { return 11; }
-    if !s3.eq_cstr("@I64 = 42") { return 12; }
+    if !s2.eq_str("@I64 = 42") { return 11; }
+    if !s3.eq_str("@I64 = 42") { return 12; }
 
     return 0;
 }

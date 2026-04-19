@@ -178,6 +178,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 // Fallback: primitive types (i32, bool, etc.)
                 if (cname.empty())
                     cname = type_str(rt);
+                // `str` resolves to Slice<u8> (type_str → "&[u8]") but impl methods
+                // are registered as "str__method".  Map "&[u8]" back to "str".
+                if (cname == "&[u8]") cname = "str";
                 if (!cname.empty()) {
                     lir::ECall nc;
                     nc.callee = cname + "__" + k.method;
@@ -430,6 +433,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
 
         } else if constexpr (std::is_same_v<K, lir::ESliceLen>) {
             result->kind = lir::ESliceLen{subst_expr(*k.slice, s)};
+
+        } else if constexpr (std::is_same_v<K, lir::ESlicePtr>) {
+            result->kind = lir::ESlicePtr{subst_expr(*k.slice, s)};
 
         } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
             lir::EEnumLitData ne;

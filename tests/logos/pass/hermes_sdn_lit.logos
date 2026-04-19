@@ -17,9 +17,9 @@ use hermes.stringify;
 use hermes.mem_holder;
 use std.string;
 
-unsafe fn check(hs: &HermesStatic, expected: *const u8, err_code: i32) -> i32 {
+unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
     let s: String = hs.to_string();
-    if !s.eq_cstr(expected) {
+    if !s.eq_str(expected) {
         return err_code;
     }
     return 0;
@@ -76,7 +76,7 @@ pub unsafe fn main() -> i32 {
     let zbase: *const u8 = z.holder.base as *const u8;
     let mut buf: String = String::with_capacity(64);
     stringify_document(zbase, &mut buf, StringifyOpts::compact());
-    if !buf.eq_cstr("{\"x\":true}") { return 8; }
+    if !buf.eq_str("{\"x\":true}") { return 8; }
     z.release();
 
     return 0;

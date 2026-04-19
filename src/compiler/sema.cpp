@@ -291,11 +291,6 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
     if (from->kind == LogosType::Kind::Array && to->kind == LogosType::Kind::Array &&
         from->arr_size == to->arr_size && from->elem && to->elem)
         return types_compatible(from->elem, to->elem);
-    // *const u8 → &[u8] (string literal to str coercion)
-    if (from->kind == LogosType::Kind::Ptr && to->kind == LogosType::Kind::Slice &&
-        from->pointee && to->elem &&
-        from->pointee->kind == LogosType::Kind::U8 && to->elem->kind == LogosType::Kind::U8)
-        return true;
     // Tuple: element-wise compatibility (e.g. ({integer}, {integer}) → (i32, i32))
     if (from->kind == LogosType::Kind::Tuple && to->kind == LogosType::Kind::Tuple) {
         if (from->tuple_elems.size() != to->tuple_elems.size()) return false;

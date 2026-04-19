@@ -1,6 +1,6 @@
 package match_guard;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printf6i(fmt: *const u8, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32) { unsafe { printf(fmt, a, b, c, d, e, f); } }
+fn printf6i(fmt: str, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32) { unsafe { printf(fmt.as_ptr(), a, b, c, d, e, f); } }
 enum Opt { Some(i32), None }
 fn sign(n: i32) -> i32 {
     match n {

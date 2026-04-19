@@ -1,7 +1,7 @@
 package for_in_iter_call;
 // Iterator created from a static factory method (struct returned by value)
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 enum Option<T> { None, Some(T), }
 struct Range { current: i32, end: i32, }
 impl Range {

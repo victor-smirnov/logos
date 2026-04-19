@@ -17,7 +17,7 @@ use std.string;
 // ── Format engine (variadic) ──────────────────────────────────────────────
 
 // Base case: no more args — copy remaining format string into buf.
-unsafe fn fmt_into(fmt: *const u8, fi: i64, flen: i64, buf: &mut String) {
+unsafe fn fmt_into(fmt: str, fi: i64, flen: i64, buf: &mut String) {
     let mut i: i64 = fi;
     while i < flen {
         buf.push_u8(fmt[i]);
@@ -26,7 +26,7 @@ unsafe fn fmt_into(fmt: *const u8, fi: i64, flen: i64, buf: &mut String) {
 }
 
 // Recursive case: find next {}, format one arg via Display, recurse on rest.
-unsafe fn fmt_into<H: Display, T...>(fmt: *const u8, fi: i64, flen: i64,
+unsafe fn fmt_into<H: Display, T...>(fmt: str, fi: i64, flen: i64,
                                      buf: &mut String,
                                      first: H, rest: T...) {
     let mut i: i64 = fi;
@@ -49,8 +49,8 @@ unsafe fn fmt_into<H: Display, T...>(fmt: *const u8, fi: i64, flen: i64,
 
 // format::<T...>(pattern, args...) -> String
 // Returns an owned String. Drop frees it automatically.
-pub unsafe fn format<T...: Display>(pattern: *const u8, args: T...) -> String {
-    let flen: i64 = str_len(pattern);
+pub unsafe fn format<T...: Display>(pattern: str, args: T...) -> String {
+    let flen: i64 = pattern.len();
     let mut buf: String = String::new();
     fmt_into(pattern, 0 as i64, flen, &mut buf, args...);
     return buf;

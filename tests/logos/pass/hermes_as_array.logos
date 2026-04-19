@@ -15,7 +15,7 @@ unsafe fn main() -> i32 {
     if !root.is_ptr() { return 2; }
     // C7-fix5: verify stringify produces expected text.
     let text: String = ctr.to_string();
-    if !text.eq_cstr("<I32> [10,20,30]") { return 3; }
+    if !text.eq_str("<I32> [10,20,30]") { return 3; }
 
     // u64 slice → ArrayU64 HermesCtr.
     let arr2: [u64; 2] = [100, 200];
@@ -25,7 +25,7 @@ unsafe fn main() -> i32 {
     if root2.is_null() { return 4; }
     if !root2.is_ptr() { return 5; }
     let text2: String = ctr2.to_string();
-    if !text2.eq_cstr("<U64> [100,200]") { return 6; }
+    if !text2.eq_str("<U64> [100,200]") { return 6; }
 
     return 0;
 }

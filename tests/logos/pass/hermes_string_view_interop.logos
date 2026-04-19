@@ -31,9 +31,9 @@ unsafe fn views_eq(a: StringView, b: StringView) -> bool {
 
 unsafe fn main() -> i32 {
     // Parse a document with three strings in an array.
-    let text: *const u8 = r#"["hello", "", "world!"]"#;
+    let text: str = r#"["hello", "", "world!"]"#;
     let mut doc: HermesCtr = HermesCtr::new(8192);
-    match doc.parse(text, 23 as i64) {
+    match doc.parse(text) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 99; }
     }

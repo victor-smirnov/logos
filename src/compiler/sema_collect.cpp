@@ -518,6 +518,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     } else {
                         target = aliased->struct_name;
                     }
+                } else if (aliased && aliased->kind == LogosType::Kind::Slice) {
+                    target = type_str(aliased);
                 }
             }
         }
@@ -897,8 +899,14 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // Clean up impl's own type params (pushed at top for standalone generic impl)
     if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
     // Register the impl mapping (only for trait impls)
-    if (!trait_name.empty())
+    if (!trait_name.empty()) {
         impls_[trait_name + "::" + target] = {trait_name, target, impl_is_unsafe};
+        // `str` is a built-in that resolves to Slice<u8>; type_str() produces
+        // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
+        // Register an alias entry so satisfaction checks find the impl.
+        if (target == "str")
+            impls_[trait_name + "::&[u8]"] = {trait_name, "str", impl_is_unsafe};
+    }
 }
 
 // Collect a struct specialization into struct_specs_sema_.

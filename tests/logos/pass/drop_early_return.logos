@@ -2,8 +2,8 @@
 package drop_early_return;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn print(s: *const u8) { unsafe { printf(s); } }
-fn printi(fmt: *const u8, v: i32) { unsafe { printf(fmt, v); } }
+fn print(s: str) { unsafe { printf(s.as_ptr()); } }
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 trait Drop {
     fn drop(self: Self);

@@ -53,7 +53,7 @@ unsafe fn main() -> i32 {
         depth: 0 as i64,
     };
     arr.stringify(&mut ctx);
-    if !sb.eq_cstr("[\"aa\",\"bb\"]") { return 1; }
+    if !sb.eq_str("[\"aa\",\"bb\"]") { return 1; }
 
     // Clone the whole Array<RelPtr<HermesString>> into a fresh zone.  Each
     // RelPtr<HermesString> gets its pointee allocated in the destination
@@ -76,7 +76,7 @@ unsafe fn main() -> i32 {
         depth: 0 as i64,
     };
     new_arr.stringify(&mut ctx2);
-    if !sb.eq_cstr("[\"aa\",\"bb\"]") { return 3; }
+    if !sb.eq_str("[\"aa\",\"bb\"]") { return 3; }
 
     return 0;
 }

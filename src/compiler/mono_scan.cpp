@@ -130,6 +130,8 @@ void Mono::scan_expr(const lir::LExpr& e) {
             scan_expr(*k.slice); scan_expr(*k.index);
         } else if constexpr (std::is_same_v<K, lir::ESliceLen>) {
             scan_expr(*k.slice);
+        } else if constexpr (std::is_same_v<K, lir::ESlicePtr>) {
+            scan_expr(*k.slice);
         } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
             for (auto& a : k.payload) scan_expr(*a);
         } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {

@@ -13,21 +13,21 @@ unsafe fn main() -> i32 {
     let r1: AnyVal = d1.decimal_sub(a1, b1);  // = 1000000000
     if r1.is_null() { return 3; }
     let s1: String = d1.decimal_to_string(r1);
-    if !s1.eq_cstr("1000000000") { return 4; }
+    if !s1.eq_str("1000000000") { return 4; }
 
     // ── 2. Zero with S=0 → "0" ────────────────────────────────────────────────
     let mut d2: HermesCtr = HermesCtr::builder(4096);
     let z0: AnyVal = d2.decimal_from(5 as i32, 0 as i32, "0");
     if z0.is_null() { return 5; }
     let sz0: String = d2.decimal_to_string(z0);
-    if !sz0.eq_cstr("0") { return 6; }
+    if !sz0.eq_str("0") { return 6; }
 
     // ── 3. Zero with S=3 → "0.000" ───────────────────────────────────────────
     let mut d3: HermesCtr = HermesCtr::builder(4096);
     let z3: AnyVal = d3.decimal_from(5 as i32, 3 as i32, "0.000");
     if z3.is_null() { return 7; }
     let sz3: String = d3.decimal_to_string(z3);
-    if !sz3.eq_cstr("0.000") { return 8; }
+    if !sz3.eq_str("0.000") { return 8; }
 
     // ── 4. decimal_len/limb of 1000000000 (2 limbs: [0,1]) ───────────────────
     let mut d4: HermesCtr = HermesCtr::builder(4096);
@@ -44,7 +44,7 @@ unsafe fn main() -> i32 {
     let sum5: AnyVal = d5.decimal_add(c5, c5);
     if sum5.is_null() { return 14; }
     let ssum5: String = d5.decimal_to_string(sum5);
-    if !ssum5.eq_cstr("2000000002") { return 15; }
+    if !ssum5.eq_str("2000000002") { return 15; }
 
     // ── 6. Negative 2-limb: -12345678.90 ─────────────────────────────────────
     let mut d6: HermesCtr = HermesCtr::builder(4096);
@@ -52,14 +52,14 @@ unsafe fn main() -> i32 {
     if neg6.is_null() { return 16; }
     if !d6.decimal_is_negative(neg6) { return 17; }
     let sneg6: String = d6.decimal_to_string(neg6);
-    if !sneg6.eq_cstr("-12345678.90") { return 18; }
+    if !sneg6.eq_str("-12345678.90") { return 18; }
 
     // ── 7. S=P=3, value "0.123" → "0.123" ────────────────────────────────────
     let mut d7: HermesCtr = HermesCtr::builder(4096);
     let v7: AnyVal = d7.decimal_from(3 as i32, 3 as i32, "0.123");
     if v7.is_null() { return 19; }
     let s7: String = d7.decimal_to_string(v7);
-    if !s7.eq_cstr("0.123") { return 20; }
+    if !s7.eq_str("0.123") { return 20; }
 
     // ── 8. S=P boundary: "0.999" valid, "1.000" rejected (4 sig digits > P=3) ─
     let mut d8: HermesCtr = HermesCtr::builder(4096);
@@ -73,7 +73,7 @@ unsafe fn main() -> i32 {
     let v9: AnyVal = d9.decimal_from(11 as i32, 9 as i32, "12.000000001");
     if v9.is_null() { return 23; }
     let s9: String = d9.decimal_to_string(v9);
-    if !s9.eq_cstr("12.000000001") { return 24; }
+    if !s9.eq_str("12.000000001") { return 24; }
 
     // ── 10. Subtraction: 1 - 1000000001 = -1000000000 ────────────────────────
     let mut d10: HermesCtr = HermesCtr::builder(4096);
@@ -85,7 +85,7 @@ unsafe fn main() -> i32 {
     if diff10.is_null() { return 27; }
     if !d10.decimal_is_negative(diff10) { return 28; }
     let sdiff10: String = d10.decimal_to_string(diff10);
-    if !sdiff10.eq_cstr("-1000000000") { return 29; }
+    if !sdiff10.eq_str("-1000000000") { return 29; }
 
     return 0;
 }

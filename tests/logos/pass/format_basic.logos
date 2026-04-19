@@ -6,6 +6,6 @@ use std.io;
 
 unsafe fn main() -> i32 {
     let s: String = format::<i32, i32>("n={}, m={}", 40, 2);
-    println(s.as_ptr());
+    println_string(&s);
     return 42;
 }

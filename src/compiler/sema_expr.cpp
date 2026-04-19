@@ -63,7 +63,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     }
     case la::LIT_STR: {
         auto sv = str_of(expr.get(la::VALUE.code));
-        return make_expr(make_ptr(false, u8_t()), lir::ELitStr{std::string(sv)});
+        return make_expr(make_slice_type(u8_t()), lir::ELitStr{std::string(sv)});
     }
 
     case la::VAR_REF: {
@@ -1453,11 +1453,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
 
-    // Slice built-in methods: .len()
+    // Slice / str built-in methods: .len(), .as_ptr()
     if (recv->type->kind == LogosType::Kind::Slice) {
         if (method_name == "len") {
             return make_expr(prim(LogosType::Kind::I64),
                 lir::ESliceLen{std::move(recv)});
+        }
+        if (method_name == "as_ptr") {
+            return make_expr(make_ptr(false, u8_t()),
+                lir::ESlicePtr{std::move(recv)});
         }
         error(std::format("slice has no method '{}'", method_name));
         return error_expr();
@@ -1852,6 +1856,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 fi_ptr = pfit;
             else if (auto pfit = find_generic_func(mangled_prim))
                 fi_ptr = pfit;
+            // `str` resolves to Slice<u8> (type_str → "&[u8]"), but impl methods
+            // are registered under "str__method".  Try the alias fallback.
+            else if (tname == "&[u8]") {
+                auto str_mangled = std::string("str__") + std::string(method_name);
+                if (auto pfit = find_func_by_base_and_signature(str_mangled, types, false))
+                    fi_ptr = pfit;
+                else if (auto pfit = find_generic_func(str_mangled))
+                    fi_ptr = pfit;
+                if (fi_ptr) mangled_prim = std::string("str__") + std::string(method_name);
+            }
         }
 
         if (fi_ptr) {
@@ -3768,6 +3782,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures(*k.slice); scan_captures(*k.index);
             } else if constexpr (std::is_same_v<K, lir::ESliceLen>) {
                 scan_captures(*k.slice);
+            } else if constexpr (std::is_same_v<K, lir::ESlicePtr>) {
+                scan_captures(*k.slice);
             } else if constexpr (std::is_same_v<K, lir::EClosureBox>) {
                 if (k.inner) {
                     for (auto& cap : k.inner->captures)
@@ -4177,6 +4193,9 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 // *const u8 / *mut u8 captured as C-string varchar — C5.
                 case K::Ptr:
                     return t->pointee && t->pointee->kind == K::U8;
+                // str (&[u8] slice) captured as varchar — same as *const u8 but with length.
+                case K::Slice:
+                    return t->elem && t->elem->kind == K::U8;
                 default:
                     return false;
             }

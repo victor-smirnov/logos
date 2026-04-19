@@ -17,22 +17,21 @@ unsafe fn main() -> i32 {
     if root_map.is_null() { return 1; }
 
     // Build a string value "hello".
-    let hello: *const u8 = "hello";
-    let hello_val: AnyVal = doc.build_str(hello, 5 as i64);
+    let hello: str = "hello";
+    let hello_val: AnyVal = doc.build_str(hello);
     if hello_val.is_null() { return 2; }
 
     // Set "msg" → hello_val in the map.
-    let msg_key: *const u8 = "msg";
-    doc.map_set_str(root_map, msg_key, 3 as i64, hello_val);
+    let msg_key: str = "msg";
+    doc.map_set(root_map, msg_key, hello_val);
 
     // Set "code" → i32(42) in the map.
-    let code_key: *const u8 = "code";
-    doc.map_set_str(root_map, code_key, 4 as i64, AnyVal::embed_i24(42 as i32));
+    let code_key: str = "code";
+    doc.map_set(root_map, code_key, AnyVal::embed_i24(42 as i32));
 
     // Set the document root.
     doc.set_root(root_map);
 
-    // TODO: stringification separated from HermesCtr.
     // Verify that the document was built successfully by checking that
     // the root is set and accessible.
     let root: AnyVal = doc.root();

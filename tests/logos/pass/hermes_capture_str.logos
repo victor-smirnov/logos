@@ -6,30 +6,30 @@ use std.string;
 
 unsafe fn main() -> i32 {
     // Capture a C-string pointer into a map.
-    let s: *const u8 = "hello";
+    let s: str = "hello";
     let doc: HermesCtr = @{"msg": $s};
     let root: AnyVal = doc.root();
     if root.is_null() { return 1; }
     // Verify the map contains the expected string value.
     let t1: String = doc.to_string();
-    if !t1.eq_cstr("{\"msg\":\"hello\"}") { return 2; }
+    if !t1.eq_str("{\"msg\":\"hello\"}") { return 2; }
 
     // Capture C-string in an array.
-    let key: *const u8 = "world";
+    let key: str = "world";
     let arr_doc: HermesCtr = @[$key, $s];
     let arr_root: AnyVal = arr_doc.root();
     if arr_root.is_null() { return 3; }
     let t2: String = arr_doc.to_string();
-    if !t2.eq_cstr("[\"world\",\"hello\"]") { return 4; }
+    if !t2.eq_str("[\"world\",\"hello\"]") { return 4; }
 
     // Mix: scalar + string capture in same literal.
     let id: i32 = 7;
-    let label: *const u8 = "item";
+    let label: str = "item";
     let mix: HermesCtr = @{"id": $id, "label": $label};
     let mix_root: AnyVal = mix.root();
     if mix_root.is_null() { return 5; }
     let t3: String = mix.to_string();
-    if !t3.eq_cstr("{\"id\":7,\"label\":\"item\"}") { return 6; }
+    if !t3.eq_str("{\"id\":7,\"label\":\"item\"}") { return 6; }
 
     return 0;
 }

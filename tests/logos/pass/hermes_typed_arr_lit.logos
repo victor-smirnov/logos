@@ -14,9 +14,9 @@ use hermes.stringify;
 use hermes.containers;
 use std.string;
 
-unsafe fn check(hs: &HermesStatic, expected: *const u8, err_code: i32) -> i32 {
+unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
     let s: String = hs.to_string();
-    if !s.eq_cstr(expected) { return err_code; }
+    if !s.eq_str(expected) { return err_code; }
     return 0;
 }
 
