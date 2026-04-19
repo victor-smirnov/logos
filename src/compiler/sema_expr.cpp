@@ -781,6 +781,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                   callee, exact_fi->param_types.size(), n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
+                try_coerce_closure_to_fnptr(arg_exprs[i], exact_fi->param_types[i]);
                 auto* at = arg_exprs[i]->type;
                 auto* pt = exact_fi->param_types[i];
                 if (at->kind != LogosType::Kind::Error &&
@@ -942,6 +943,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                   callee, fi.param_types.size(), n_args));
         } else {
             for (uint64_t i = 0; i < fi.param_types.size(); ++i) {
+                try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
                 auto* at = arg_exprs[i]->type;
                 auto* pt = fi.param_types[i];
                 if (at->kind != LogosType::Kind::Error &&
@@ -961,6 +963,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
               callee, fi.param_types.size(), n_args));
     } else {
         for (uint64_t i = 0; i < n_args; ++i) {
+            try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
             auto* at = arg_exprs[i]->type;
             auto* pt = fi.param_types[i];
             if (at->kind != LogosType::Kind::Error &&
@@ -1204,8 +1207,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             error(std::format("call to '{}': expected at least {} args, got {}",
                   callee_diag, fixed_params, n_args));
         for (uint64_t i = 0; i < fixed_params && i < n_args; ++i) {
-            auto* at = arg_exprs[i]->type;
             auto* pt = subst_type_sema(fi.param_types[i], subst);
+            try_coerce_closure_to_fnptr(arg_exprs[i], pt);
+            auto* at = arg_exprs[i]->type;
             if (at->kind != LogosType::Kind::Error &&
                 pt->kind != LogosType::Kind::Error &&
                 pt->kind != LogosType::Kind::TypeVar &&
@@ -1225,8 +1229,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                   callee_diag, fi.param_types.size(), n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
-                auto* at = arg_exprs[i]->type;
                 auto* pt = subst_type_sema(fi.param_types[i], subst);
+                try_coerce_closure_to_fnptr(arg_exprs[i], pt);
+                auto* at = arg_exprs[i]->type;
                 if (at->kind != LogosType::Kind::Error &&
                     pt->kind != LogosType::Kind::Error &&
                     pt->kind != LogosType::Kind::TypeVar &&

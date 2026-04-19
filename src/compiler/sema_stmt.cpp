@@ -28,8 +28,8 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
                block_always_returns(map_of(stmt.get(la::BODY.code)));
     }
     if (c == la::LOOP) {
-        return stmt.has_key(la::BODY) &&
-               block_always_returns(map_of(stmt.get(la::BODY.code)));
+        // `loop {}` is an infinite loop — it never falls through to the next statement.
+        return true;
     }
     if (c == la::IF) {
         if (!stmt.has_key(la::ELSE)) return false;

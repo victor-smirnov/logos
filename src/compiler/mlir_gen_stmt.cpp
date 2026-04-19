@@ -755,6 +755,11 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
         builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
 
     builder_.setInsertionPointToStart(exit_block);
+    // If exit_block has no predecessors the loop never breaks — it's unreachable.
+    // Emit llvm.unreachable so gen_block sees this block as terminated and stops
+    // emitting dead code after the loop (avoids invalid func.return in dead blocks).
+    if (exit_block->hasNoPredecessors())
+        builder_.create<mlir::LLVM::UnreachableOp>(loc_);
 }
 
 // ---------------------------------------------------------------------------

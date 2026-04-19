@@ -1,0 +1,280 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.iter
+//
+// Iterator trait + adapters + terminal operations.
+// Adapters take fn-pointer transformers; non-capturing closures coerce automatically.
+
+package std.iter;
+
+use std.option;
+
+// ── Core trait ───────────────────────────────────────────────────────────────
+
+pub trait Iterator<Item> {
+    fn next(self: &mut Self) -> Option<Item>;
+}
+
+// ── MapIter<I, T, R> — lazy map ──────────────────────────────────────────────
+
+pub struct MapIter<I, T, R> {
+    inner: I,
+    f: fn(T) -> R,
+}
+
+impl<I: Iterator<T>, T, R> Iterator<R> for MapIter<I, T, R> {
+    fn next(self: &mut MapIter<I, T, R>) -> Option<R> {
+        let f = self.f;
+        match self.inner.next() {
+            Option::Some(v) => { return Option::Some(f(v)); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+pub fn iter_map<I: Iterator<T>, T, R>(iter: I, f: fn(T) -> R) -> MapIter<I, T, R> {
+    return MapIter { inner: iter, f: f };
+}
+
+// ── FilterIter<I, T> — lazy filter ───────────────────────────────────────────
+
+pub struct FilterIter<I, T> {
+    inner: I,
+    pred: fn(T) -> bool,
+}
+
+impl<I: Iterator<T>, T> Iterator<T> for FilterIter<I, T> {
+    fn next(self: &mut FilterIter<I, T>) -> Option<T> {
+        unsafe {
+            loop {
+                match self.inner.next() {
+                    Option::Some(v) => {
+                        let v_copy: T = *((&v) as *const T);
+                        let pred = self.pred;
+                        if pred(v_copy) { return Option::Some(v); }
+                    }
+                    Option::None => { return Option::None; }
+                }
+            }
+        }
+    }
+}
+
+pub fn iter_filter<I: Iterator<T>, T>(iter: I, pred: fn(T) -> bool) -> FilterIter<I, T> {
+    return FilterIter { inner: iter, pred: pred };
+}
+
+// ── TakeIter<I, T> — limit to first n items ──────────────────────────────────
+
+pub struct TakeIter<I, T> {
+    inner: I,
+    remaining: i64,
+    _t: T,
+}
+
+impl<I: Iterator<T>, T> TakeIter<I, T> {
+    pub fn next(self: &mut TakeIter<I, T>) -> Option<T> {
+        if self.remaining <= 0 as i64 { return Option::None; }
+        self.remaining = self.remaining - 1 as i64;
+        return self.inner.next();
+    }
+}
+
+pub unsafe fn iter_take<I: Iterator<T>, T>(iter: I, n: i64, zero: T) -> TakeIter<I, T> {
+    return TakeIter { inner: iter, remaining: n, _t: zero };
+}
+
+// ── SkipIter<I, T> — skip first n items ──────────────────────────────────────
+
+pub struct SkipIter<I, T> {
+    inner: I,
+    remaining: i64,
+    _t: T,
+}
+
+impl<I: Iterator<T>, T> SkipIter<I, T> {
+    pub fn next(self: &mut SkipIter<I, T>) -> Option<T> {
+        while self.remaining > 0 as i64 {
+            self.remaining = self.remaining - 1 as i64;
+            match self.inner.next() {
+                Option::None => { return Option::None; }
+                Option::Some(v) => { }
+            }
+        }
+        return self.inner.next();
+    }
+}
+
+pub unsafe fn iter_skip<I: Iterator<T>, T>(iter: I, n: i64, zero: T) -> SkipIter<I, T> {
+    return SkipIter { inner: iter, remaining: n, _t: zero };
+}
+
+// ── EnumIter<I, T> — pair each item with its index ───────────────────────────
+
+pub struct EnumPair<T> {
+    pub idx: i64,
+    pub val: T,
+}
+
+pub struct EnumIter<I, T> {
+    inner: I,
+    idx: i64,
+    _t: T,
+}
+
+impl<I: Iterator<T>, T> EnumIter<I, T> {
+    pub unsafe fn next(self: &mut EnumIter<I, T>) -> Option<EnumPair<T>> {
+        match self.inner.next() {
+            Option::None => { return Option::None; }
+            Option::Some(v) => {
+                let i = self.idx;
+                self.idx = self.idx + 1 as i64;
+                return Option::Some(EnumPair { idx: i, val: v });
+            }
+        }
+    }
+}
+
+pub unsafe fn iter_enumerate<I: Iterator<T>, T>(iter: I, zero: T) -> EnumIter<I, T> {
+    return EnumIter { inner: iter, idx: 0 as i64, _t: zero };
+}
+
+// ── ChainIter<A, B, T> — concatenate two iterators of the same Item ──────────
+
+pub struct ChainIter<A, B, T> {
+    first: A,
+    second: B,
+    first_done: bool,
+    _t: T,
+}
+
+impl<A: Iterator<T>, B: Iterator<T>, T> ChainIter<A, B, T> {
+    pub unsafe fn next(self: &mut ChainIter<A, B, T>) -> Option<T> {
+        if !self.first_done {
+            match self.first.next() {
+                Option::Some(v) => { return Option::Some(v); }
+                Option::None    => { self.first_done = true; }
+            }
+        }
+        return self.second.next();
+    }
+}
+
+pub unsafe fn iter_chain<A: Iterator<T>, B: Iterator<T>, T>(a: A, b: B, zero: T) -> ChainIter<A, B, T> {
+    return ChainIter { first: a, second: b, first_done: false, _t: zero };
+}
+
+// ── ZipPair<A, B> ─────────────────────────────────────────────────────────────
+
+pub struct ZipPair<A, B> {
+    pub first: A,
+    pub second: B,
+}
+
+pub struct ZipIter<A, B, T, U> {
+    left: A,
+    right: B,
+    _t: T,
+    _u: U,
+}
+
+impl<A: Iterator<T>, B: Iterator<U>, T, U> ZipIter<A, B, T, U> {
+    pub unsafe fn next(self: &mut ZipIter<A, B, T, U>) -> Option<ZipPair<T, U>> {
+        match self.left.next() {
+            Option::None => { return Option::None; }
+            Option::Some(a) => {
+                match self.right.next() {
+                    Option::None => { return Option::None; }
+                    Option::Some(b) => {
+                        return Option::Some(ZipPair { first: a, second: b });
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn iter_zip<A: Iterator<T>, B: Iterator<U>, T, U>(a: A, b: B, zt: T, zu: U) -> ZipIter<A, B, T, U> {
+    return ZipIter { left: a, right: b, _t: zt, _u: zu };
+}
+
+// ── SliceIter<T> — iterator over a slice &[T] ────────────────────────────────
+
+pub struct SliceIter<T> {
+    data: *const T,
+    len: i64,
+    idx: i64,
+}
+
+impl<T> SliceIter<T> {
+    pub unsafe fn next(self: &mut SliceIter<T>) -> Option<T> {
+        if self.idx >= self.len { return Option::None; }
+        let val: T = self.data[self.idx];
+        self.idx = self.idx + 1 as i64;
+        return Option::Some(val);
+    }
+}
+
+pub unsafe fn iter_over_slice<T>(s: &[T]) -> SliceIter<T> {
+    let p: *const T = s.as_ptr() as *const T;
+    return SliceIter { data: p, len: s.len() as i64, idx: 0 as i64 };
+}
+
+// ── Terminal operations ───────────────────────────────────────────────────────
+
+pub fn iter_count<I: Iterator<T>, T>(iter: I) -> i64 {
+    let mut it: I = iter;
+    let mut n: i64 = 0 as i64;
+    loop {
+        match it.next() {
+            Option::None    => { return n; }
+            Option::Some(v) => { n = n + 1 as i64; }
+        }
+    }
+    return n;
+}
+
+pub fn iter_fold<I: Iterator<T>, T, B>(iter: I, init: B, f: fn(B, T) -> B) -> B {
+    let mut it: I = iter;
+    let mut acc: B = init;
+    loop {
+        match it.next() {
+            Option::None    => { return acc; }
+            Option::Some(v) => { acc = f(acc, v); }
+        }
+    }
+    return acc;
+}
+
+pub fn iter_for_each<I: Iterator<T>, T>(iter: I, f: fn(T) -> ()) {
+    let mut it: I = iter;
+    loop {
+        match it.next() {
+            Option::None    => { return; }
+            Option::Some(v) => { f(v); }
+        }
+    }
+}
+
+pub unsafe fn iter_sum_i32<I: Iterator<i32>>(iter: I) -> i32 {
+    let mut it: I = iter;
+    let mut s: i32 = 0;
+    loop {
+        match it.next() {
+            Option::None    => { return s; }
+            Option::Some(v) => { s = s + v; }
+        }
+    }
+    return s;
+}
+
+pub unsafe fn iter_sum_i64<I: Iterator<i64>>(iter: I) -> i64 {
+    let mut it: I = iter;
+    let mut s: i64 = 0 as i64;
+    loop {
+        match it.next() {
+            Option::None    => { return s; }
+            Option::Some(v) => { s = s + v; }
+        }
+    }
+    return s;
+}

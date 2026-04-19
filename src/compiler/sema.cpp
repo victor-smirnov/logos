@@ -685,6 +685,18 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
     auto tplist = map_of(tpav);
     if (!tplist.has_key(la::ITEMS)) return result;
     auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+    // Pre-pass: add all type param names as typevars so bounds referencing sibling params resolve.
+    std::vector<std::string> temp_params;
+    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+        auto tpnode = map_of(tpitems.get(i));
+        if (code_of(tpnode) == la::TYPE_PARAM) {
+            auto name = std::string(str_of(tpnode.get(la::NAME.code)));
+            if (!current_type_params_.count(name)) {
+                current_type_params_[name] = make_typevar(name);
+                temp_params.push_back(name);
+            }
+        }
+    }
     for (uint64_t i = 0; i < tpitems.size(); ++i) {
         auto tpnode = map_of(tpitems.get(i));
         if (code_of(tpnode) == la::LIFETIME_PARAM) continue;
@@ -729,6 +741,9 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
         }
         result.push_back(std::move(tp));
     }
+    // Remove temp typevars added in pre-pass (push_type_params will re-add them properly).
+    for (auto& name : temp_params)
+        current_type_params_.erase(name);
     return result;
 }
 
@@ -741,6 +756,18 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
     auto tplist = map_of(tpav);
     if (!tplist.has_key(la::ITEMS)) return result;
     auto tpitems = arr_of(tplist.get(la::ITEMS.code));
+    // Pre-pass: add all type param names as typevars so bounds referencing sibling params resolve.
+    std::vector<std::string> temp_params;
+    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+        auto tpnode = map_of(tpitems.get(i));
+        if (code_of(tpnode) == la::TYPE_PARAM) {
+            auto name = std::string(str_of(tpnode.get(la::NAME.code)));
+            if (!current_type_params_.count(name)) {
+                current_type_params_[name] = make_typevar(name);
+                temp_params.push_back(name);
+            }
+        }
+    }
     for (uint64_t i = 0; i < tpitems.size(); ++i) {
         auto tpnode = map_of(tpitems.get(i));
         // Skip lifetime params ('a) — deferred to borrow checker.
@@ -791,6 +818,9 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
             error("variadic type parameter must be last in the type parameter list");
         result.push_back(std::move(tp));
     }
+    // Remove temp typevars added in pre-pass.
+    for (auto& name : temp_params)
+        current_type_params_.erase(name);
     // Merge bounds from `where T: Trait, U: Trait2` clause.
     if (node.has_key(la::WHERE)) {
         AnyVal wav = node.get(la::WHERE.code);

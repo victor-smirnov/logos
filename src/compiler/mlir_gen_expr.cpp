@@ -727,8 +727,36 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
     // Look up Logos-level param types for dyn coercion
     auto fpit = fn_param_types_.find(e.callee);
     for (size_t i = 0; i < e.args.size(); ++i) {
-        auto v = gen_expr(*e.args[i]);
+        mlir::Value v;
+        // When the callee expects a pointer and the arg is an EFieldRead of an
+        // inline-embedded struct, pass the field's GEP directly instead of
+        // load+spill. This ensures mutations (e.g. &mut self.inner) write back
+        // to the original struct, not a disconnected alloca copy.
+        if (i < param_types.size() && param_types[i] == ptr_type()) {
+            if (auto* fr = std::get_if<EFieldRead>(&e.args[i]->kind)) {
+                auto [base_ptr, base_sname] = gen_recv_struct(*fr->receiver);
+                if (base_ptr && !base_sname.empty()) {
+                    auto bit = struct_types_.find(base_sname);
+                    if (bit != struct_types_.end()) {
+                        auto gep = gep_field(base_ptr, bit->second, fr->field);
+                        if (gep) {
+                            // Only use GEP directly when the field is an inline
+                            // struct — primitives/pointers don't need this.
+                            for (auto& f : bit->second.fields) {
+                                if (f.name == fr->field &&
+                                    mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
+                                    v = gep;
+                                    goto arg_push;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        v = gen_expr(*e.args[i]);
         if (!v) return nullptr;
+    arg_push:
         // Coerce concrete struct/class → &dyn Trait if param expects it
         if (fpit != fn_param_types_.end() && i < fpit->second.size()) {
             auto* param_lt = fpit->second[i];
@@ -744,7 +772,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
                 param_types[i] == ptr_type() &&
                 mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
                 v = spill_to_alloca(v);
-            else
+            else if (v.getType() != ptr_type())
                 v = coerce_numeric(v, param_types[i]);
         }
         args.push_back(v);

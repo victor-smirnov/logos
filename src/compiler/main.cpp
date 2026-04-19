@@ -134,6 +134,7 @@ int main(int argc, char** argv) {
     }
 
     // ── Step 4: MLIR → LLVM dialect ─────────────────────────────
+    if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
     mlir::PassManager pm(&mlir_ctx);
     pm.addPass(mlir::createSCFToControlFlowPass());
     pm.addPass(mlir::createConvertControlFlowToLLVMPass());

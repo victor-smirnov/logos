@@ -1,0 +1,38 @@
+// Basic iterator: RangeI32 + iter_map + iter_filter + iter_count + iter_sum_i32
+// Also tests closure→fn-ptr coercion for non-capturing closures.
+package iter_basic;
+
+use std.range;
+use std.iter;
+use std.option;
+
+unsafe fn main() -> i32 {
+    // range_i32: 0..5 = 0,1,2,3,4
+    let r1 = range_i32(0, 5);
+    let s1 = iter_sum_i32::<RangeI32>(r1);
+    if s1 != 10 { return 1; }
+
+    // iter_map: double each element — non-capturing closure coerces to fn ptr
+    let r2 = range_i32(1, 6);     // 1,2,3,4,5
+    let m2 = iter_map::<RangeI32, i32, i32>(r2, |x: i32| -> i32 { return x * 2; });
+    let s2 = iter_sum_i32::<MapIter<RangeI32, i32, i32>>(m2);
+    if s2 != 30 { return 2; }     // 2+4+6+8+10 = 30
+
+    // iter_filter: keep only even numbers in 0..8
+    let r3 = range_i32(0, 8);     // 0,1,2,3,4,5,6,7
+    let f3 = iter_filter::<RangeI32, i32>(r3, |x: i32| -> bool { return x % 2 == 0; });
+    let s3 = iter_sum_i32::<FilterIter<RangeI32, i32>>(f3);
+    if s3 != 12 { return 3; }     // 0+2+4+6 = 12
+
+    // iter_count: count items in 3..7
+    let r4 = range_i32(3, 7);
+    let c4 = iter_count::<RangeI32, i32>(r4);
+    if c4 != 4 as i64 { return 4; }
+
+    // iter_fold: sum via fold
+    let r5 = range_i32(1, 5);     // 1,2,3,4
+    let s5 = iter_fold::<RangeI32, i32, i32>(r5, 0, |acc: i32, x: i32| -> i32 { return acc + x; });
+    if s5 != 10 { return 5; }
+
+    return 42;
+}

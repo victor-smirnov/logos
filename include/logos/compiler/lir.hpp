@@ -571,6 +571,8 @@ struct EClosure {
     bool                            is_move = false;
     std::vector<std::string>        captures;
     std::vector<const LogosType*>   capture_types;
+    // When true: non-capturing closure coerced to fn ptr; emitted without env_ptr.
+    bool                            as_fn_ptr = false;
 };
 
 struct LFunction {

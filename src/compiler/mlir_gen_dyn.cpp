@@ -863,6 +863,70 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto save_pt = builder_.saveInsertionPoint();
 
+    // Non-capturing closure coerced to fn ptr: emit as plain function (no env_ptr).
+    if (e.as_fn_ptr) {
+        // Build function type without env_ptr: (params...) -> ret
+        llvm::SmallVector<mlir::Type> fn_params;
+        for (auto& p : e.params) {
+            auto pt = logos_to_mlir(p.type);
+            if (pt) fn_params.push_back(pt);
+        }
+        mlir::Type llvm_ret = e.ret_type
+            ? logos_to_mlir(e.ret_type)
+            : mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+        if (!llvm_ret) llvm_ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+        auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(llvm_ret, fn_params, false);
+        builder_.setInsertionPointToEnd(parent_mod.getBody());
+        auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, e.closure_id, llvm_fn_type);
+        fn.setLinkage(mlir::LLVM::Linkage::Private);
+        auto* entry = fn.addEntryBlock(builder_);
+        builder_.setInsertionPointToStart(entry);
+        // Save/restore state (same as regular closure)
+        auto saved_scope      = scope_;
+        auto saved_lets       = let_vars_;
+        auto saved_elems      = var_elem_types_;
+        auto saved_ret        = cur_ret_type_;
+        auto saved_struct     = var_struct_;
+        auto saved_class      = var_class_;
+        auto saved_subscript  = var_subscript_;
+        auto saved_tuple      = var_tuple_;
+        auto saved_te         = var_tagged_enum_;
+        auto saved_te_ptr     = var_tagged_enum_ptr_;
+        auto saved_local_ptrs = var_local_ptrs_;
+        auto saved_dyn_trait  = var_dyn_trait_;
+        auto saved_loop_stack = loop_stack_;
+        scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
+        var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
+        var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
+        var_local_ptrs_.clear(); var_dyn_trait_.clear(); loop_stack_.clear();
+        cur_ret_type_ = e.ret_type ? logos_to_mlir(e.ret_type) : mlir::Type{};
+        // Bind params starting from arg 0 (no env_ptr)
+        for (size_t i = 0; i < e.params.size(); ++i)
+            scope_[e.params[i].name] = entry->getArgument(i);
+        bool saved_in_llvm = in_llvm_func_;
+        in_llvm_func_ = true;
+        gen_block(e.body);
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+        in_llvm_func_ = saved_in_llvm;
+        scope_              = saved_scope;
+        let_vars_           = saved_lets;
+        var_elem_types_     = saved_elems;
+        cur_ret_type_       = saved_ret;
+        var_struct_         = saved_struct;
+        var_class_          = saved_class;
+        var_subscript_      = saved_subscript;
+        var_tuple_          = saved_tuple;
+        var_tagged_enum_    = saved_te;
+        var_tagged_enum_ptr_ = saved_te_ptr;
+        var_local_ptrs_     = saved_local_ptrs;
+        var_dyn_trait_      = saved_dyn_trait;
+        loop_stack_         = saved_loop_stack;
+        builder_.restoreInsertionPoint(save_pt);
+        // Return the function address (this IS the fn ptr value)
+        return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), e.closure_id);
+    }
+
     std::vector<bool> capture_is_struct(e.captures.size(), false);
     std::vector<bool> capture_is_class(e.captures.size(), false);
     std::vector<bool> capture_is_array(e.captures.size(), false);

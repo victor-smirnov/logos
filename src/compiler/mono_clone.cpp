@@ -407,6 +407,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 nc->ret_type = subst_type(k.inner->ret_type, s);
                 nc->body = subst_block(k.inner->body, s);
                 nc->is_move = k.inner->is_move;
+                nc->as_fn_ptr = k.inner->as_fn_ptr;
                 nc->captures = k.inner->captures;
                 for (auto* ct : k.inner->capture_types)
                     nc->capture_types.push_back(subst_type(ct, s));

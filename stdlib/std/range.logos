@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.range
+//
+// RangeI32 / RangeI64 — explicit range iterator types.
+// `for i in 0..10` uses the compiler's built-in FOR node (no struct needed).
+// These types are for when you need a *value* range to pass to adapters.
+
+package std.range;
+
+use std.option;
+use std.iter;
+
+// ── RangeI32 — exclusive range [start, end) over i32 ─────────────────────────
+
+pub struct RangeI32 {
+    pub current: i32,
+    pub end: i32,
+}
+
+pub fn range_i32(lo: i32, hi: i32) -> RangeI32 {
+    return RangeI32 { current: lo, end: hi };
+}
+
+impl Iterator<i32> for RangeI32 {
+    fn next(self: &mut RangeI32) -> Option<i32> {
+        if self.current >= self.end { return Option::None; }
+        let v: i32 = self.current;
+        self.current = self.current + 1;
+        return Option::Some(v);
+    }
+}
+
+// ── RangeI64 — exclusive range [start, end) over i64 ─────────────────────────
+
+pub struct RangeI64 {
+    pub current: i64,
+    pub end: i64,
+}
+
+pub fn range_i64(lo: i64, hi: i64) -> RangeI64 {
+    return RangeI64 { current: lo, end: hi };
+}
+
+impl Iterator<i64> for RangeI64 {
+    fn next(self: &mut RangeI64) -> Option<i64> {
+        if self.current >= self.end { return Option::None; }
+        let v: i64 = self.current;
+        self.current = self.current + 1 as i64;
+        return Option::Some(v);
+    }
+}

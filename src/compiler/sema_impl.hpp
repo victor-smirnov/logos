@@ -143,6 +143,27 @@ private:
         t.closure_ret = ret;
         return pool_.alloc(std::move(t));
     }
+    const LogosType* make_fn_ptr_type(std::vector<const LogosType*> params, const LogosType* ret) {
+        LogosType t; t.kind = LogosType::Kind::FnPtr;
+        t.closure_params = std::move(params);
+        t.closure_ret = ret ? ret : void_t();
+        return pool_.alloc(std::move(t));
+    }
+    // Coerce a non-capturing closure to fn ptr when target type is FnPtr.
+    // Returns true if coercion was applied (arg's type is changed to FnPtr).
+    bool try_coerce_closure_to_fnptr(lir::LExprPtr& arg, const LogosType* expected) {
+        if (!arg || !expected || expected->kind != LogosType::Kind::FnPtr) return false;
+        auto* at = arg->type;
+        if (!at || at->kind != LogosType::Kind::Closure) return false;
+        auto* box = std::get_if<lir::EClosureBox>(&arg->kind);
+        if (!box || !box->inner || !box->inner->captures.empty()) return false;
+        if (at->closure_params.size() != expected->closure_params.size()) return false;
+        for (size_t i = 0; i < at->closure_params.size(); ++i)
+            if (!types_compatible(at->closure_params[i], expected->closure_params[i])) return false;
+        box->inner->as_fn_ptr = true;
+        arg->type = make_fn_ptr_type(at->closure_params, at->closure_ret);
+        return true;
+    }
     const LogosType* make_slice_type(const LogosType* elem) {
         LogosType t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
