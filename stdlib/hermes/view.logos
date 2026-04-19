@@ -419,16 +419,14 @@ pub trait HermesWrite: HermesRead {
             if !arr.is_array(base as *const u8) { return; }
             let oa: *mut ObjectArray =
                 (base as i64 + arr.as_offset() as i64) as *mut ObjectArray;
-            oa.push(base, val);
+            oa.push(zone.holder, val);
         }
     }
 
     // ── Typed array builders (ArrayI32 / ArrayU64) ───────────────────────────
     //
     // Two-step construction: reserve capacity, then push elements one at a time.
-    // Push silently no-ops past capacity (mirrors Array<AnyVal>::push semantics).
-    // Caller must size cap ≥ expected element count; grow-on-push is not
-    // supported because zone reallocation would strand the returned AnyVal.
+    // Push grows the buffer 2× on demand (see Array<T>::push).
 
     fn build_array_i32(self: &mut Self, cap: u64) -> AnyVal {
         unsafe {
@@ -466,7 +464,7 @@ pub trait HermesWrite: HermesRead {
             if read_type_code(obj) != hermes_tag_array_i32() as u64 { return; }
             let ai: *mut ArrayI32 =
                 (base as i64 + arr.as_offset() as i64) as *mut ArrayI32;
-            ai.push(base, val);
+            ai.push(zone.holder, val);
         }
     }
 
@@ -504,7 +502,7 @@ pub trait HermesWrite: HermesRead {
             if read_type_code(obj) != hermes_tag_array_u64() as u64 { return; }
             let au: *mut ArrayU64 =
                 (base as i64 + arr.as_offset() as i64) as *mut ArrayU64;
-            au.push(base, val);
+            au.push(zone.holder, val);
         }
     }
 

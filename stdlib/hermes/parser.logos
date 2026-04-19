@@ -476,7 +476,8 @@ impl HermesParser {
                 self.ok = false;
                 return AnyVal::null_ptr();
             }
-            arr.push(self.base, v);
+            arr.push(self.zone.holder, v);
+            self.base = self.zone.holder.base;
             self.skip();
             if self.peek() == 41 as u8 {       // ')'
                 self.pos = self.pos + 1 as i64;
@@ -1384,7 +1385,8 @@ impl HermesParser {
         while going == true {
             let elem: AnyVal = self.parse_value();
             if self.ok == false { return AnyVal::null_ptr(); }
-            arr.push(self.base, elem);
+            arr.push(self.zone.holder, elem);
+            self.base = self.zone.holder.base;
 
             self.skip();
             if self.peek() == 93 as u8 {       // ']'

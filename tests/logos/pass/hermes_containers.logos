@@ -4,6 +4,7 @@ package hermes_containers;
 use hermes.zone;
 use hermes.anyval;
 use hermes.containers;
+use hermes.mem_holder;
 
 unsafe fn main() -> i32 {
     let mut zone: HermesZone = HermesZone::create(4096);
@@ -63,9 +64,13 @@ unsafe fn main() -> i32 {
     let obuf:    *mut u8 = zone.alloc_raw(64);   // 8 * 8
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, obuf, base, 8 as u64);
 
-    arr.push(base, AnyVal::embed_i24(10));
-    arr.push(base, AnyVal::embed_i24(20));
-    arr.push(base, AnyVal::embed_i24(30));
+    // Wrap zone.base in a MemHolder so growable push() has a zone to alloc in.
+    // Capacity is preset to 8 and we push only 3, so grow never fires.
+    let holder: *mut MemHolder =
+        memholder_wrap(base, 4096, memholder_destroy_none);
+    arr.push(holder, AnyVal::embed_i24(10));
+    arr.push(holder, AnyVal::embed_i24(20));
+    arr.push(holder, AnyVal::embed_i24(30));
 
     if arr.len() != 3 as u64            { return 14; }
 

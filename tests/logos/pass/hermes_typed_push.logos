@@ -24,13 +24,14 @@ unsafe fn main() -> i32 {
     if ai.get(base, 0 as u64) != 10 { return 2; }
     if ai.get(base, 4 as u64) != 50 { return 3; }
 
-    // Over-capacity push is a no-op; size stays at capacity.
+    // Past initial capacity: push grows the buffer 2× on demand.
     c.array_i32_push(arr, 60);
     c.array_i32_push(arr, 70);
     c.array_i32_push(arr, 80);
-    c.array_i32_push(arr, 90);  // 9th push, cap=8, this one drops
+    c.array_i32_push(arr, 90);  // 9th push: grow to cap=16
     let ai2: *const ArrayI32 = (c.base() as i64 + arr.as_offset() as i64) as *const ArrayI32;
-    if ai2.size != 8 as u64 { return 4; }
+    if ai2.size != 9 as u64 { return 4; }
+    if ai2.get(c.base(), 8 as u64) != 90 { return 44; }
 
     // ArrayU64
     let mut c2: HermesCtr = HermesCtr::builder(128 as i64);

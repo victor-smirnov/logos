@@ -126,9 +126,9 @@ unsafe fn main() -> i32 {
     let expected_off: u32 = (oa_buf as i64 - base as i64) as u32;
     if arr.data != expected_off                                 { return 29; }
 
-    arr.push(base, AnyVal::embed_i24(10));
-    arr.push(base, AnyVal::embed_i24(20));
-    arr.push(base, AnyVal::embed_i24(30));
+    arr.push(zone.holder, AnyVal::embed_i24(10));
+    arr.push(zone.holder, AnyVal::embed_i24(20));
+    arr.push(zone.holder, AnyVal::embed_i24(30));
 
     if arr.size != 3 as u64                                     { return 30; }
 

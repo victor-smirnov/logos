@@ -33,7 +33,7 @@ unsafe fn main() -> i32 {
     // Push integers 0..19
     let mut i: i64 = 0 as i64;
     while i < 20 as i64 {
-        arr.push(base, AnyVal::embed_i24(i as i32));
+        arr.push(zone.holder, AnyVal::embed_i24(i as i32));
         i = i + 1 as i64;
     }
 

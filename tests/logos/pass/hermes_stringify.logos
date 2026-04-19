@@ -91,8 +91,8 @@ unsafe fn main() -> i32 {
                               hermes_tag_array() as u64);
     let oa_buf: *mut u8 = zone_m_alloc_raw(&mut zone, 64);
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 8 as u64);
-    arr.push(base, AnyVal::embed_i24(1));
-    arr.push(base, AnyVal::embed_i24(2));
+    arr.push(zone.holder, AnyVal::embed_i24(1));
+    arr.push(zone.holder, AnyVal::embed_i24(2));
 
     stringify_one(AnyVal::from_offset((oa_raw as i64 - base as i64) as u32), b, &mut sb);
     if !sb.eq_str("[1,2]") { return 11; }
