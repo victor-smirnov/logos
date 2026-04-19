@@ -452,7 +452,15 @@
               / trait_kw IDENT LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, ITEMS: $... }
 
-    trait_method <- KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+    trait_method <- KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref block
+                 => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
+                  / KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref SEMI
+                 => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9 }
+                  / KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN block
+                 => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
+                  / KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN SEMI
+                 => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6 }
+                  / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
                   / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
@@ -460,6 +468,14 @@
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, BODY: $7 }
                   / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN SEMI
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5 }
+                  / KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref block
+                 => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
+                  / KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref SEMI
+                 => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8 }
+                  / KW_FN IDENT type_param_list LPAREN param_list? RPAREN block
+                 => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, BODY: $7 }
+                  / KW_FN IDENT type_param_list LPAREN param_list? RPAREN SEMI
+                 => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5 }
                   / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
                  => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
                   / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
