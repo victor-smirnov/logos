@@ -1,0 +1,158 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// Hermes showcase: compile-time literals, runtime capture, typed casts.
+//
+// Demonstrates:
+//   1. Static @-literals  — blob in rodata, zero runtime cost
+//   2. Scalar capture     — $ident and ${expr} (i32, bool)
+//   3. String capture     — *const u8 captured as zone Varchar
+//   4. Mixed capture      — scalars + strings + expressions
+//   5. Typed array cast   — &[i32] → <I32>[] HermesCtr
+//   6. Typed map cast     — MapSliceI32 → <I32,AnyVal>{} HermesCtr
+
+package hermes_showcase;
+
+use hermes.ctr;
+use std.string;
+use std.io;
+
+unsafe fn section(title: *const u8) {
+    println("---");
+    println(title);
+}
+
+unsafe fn print_doc(label: *const u8, ctr: &HermesCtr) {
+    let s: String = ctr.to_string();
+    let mut out: String = String::with_capacity(128);
+    out.push_cstr("  ");
+    out.push_cstr(label);
+    out.push_cstr(": ");
+    out.push_cstr(s.as_ptr());
+    println(out.as_ptr());
+}
+
+pub unsafe fn main() -> i32 {
+    // ------------------------------------------------------------------ //
+    // 1. Static @-literals                                                //
+    //    Entire document lives in read-only data — no heap allocation.   //
+    // ------------------------------------------------------------------ //
+    section("1. Static @-literals");
+
+    // Scalars, strings, arrays — all compile-time blobs in rodata.
+    let _null:  *const u8 = @null;
+    let _true:  *const u8 = @true;
+    let _num:   *const u8 = @42;
+    let _str:   *const u8 = @"hello";
+    let _arr:   *const u8 = @[1, 2, 3];
+    let _map:   *const u8 = @{"key": "value", "n": 7};
+
+    // Typed containers: ArrayI32 and MapI32AnyVal blobs in rodata.
+    let _i32arr: *const u8 = @<I32>[10, 20, 30];
+    let _mapkv:  *const u8 = @<I32, AnyVal>{1: 100, 2: 200};
+
+    println("  static blobs ready (null/true/42/hello/[1,2,3]/map/typed-arr/typed-map)");
+
+    // ------------------------------------------------------------------ //
+    // 2. Scalar capture — $ident and ${expr}                              //
+    //    Template blob in rodata; values substituted at runtime.          //
+    // ------------------------------------------------------------------ //
+    section("2. Scalar capture  ($ident and ${expr})");
+
+    let user_id: i32  = 42;
+    let active:  bool = true;
+    let score:   i32  = 95;
+
+    // Simple variable capture.
+    let doc_user: HermesCtr = @{"id": $user_id, "active": $active};
+    print_doc("user", &doc_user);
+
+    // Expression capture: ${...} evaluates arbitrary Logos expressions.
+    let a: i32 = 10;
+    let b: i32 = 7;
+    let doc_expr: HermesCtr = @{
+        "sum":  ${a + b},
+        "diff": ${a - b},
+        "cond": ${score > 90}
+    };
+    print_doc("expr", &doc_expr);
+
+    // Array of captured scalars.
+    let x: i32 = 1;
+    let y: i32 = 2;
+    let z: i32 = 3;
+    let doc_arr: HermesCtr = @[$x, $y, ${x + y + z}];
+    print_doc("arr", &doc_arr);
+
+    // ------------------------------------------------------------------ //
+    // 3. String capture — *const u8 becomes zone Varchar                  //
+    // ------------------------------------------------------------------ //
+    section("3. String capture  (*const u8 → zone Varchar)");
+
+    let name:  *const u8 = "Alice";
+    let lang:  *const u8 = "Logos";
+    let doc_str: HermesCtr = @{"name": $name, "lang": $lang};
+    print_doc("strings", &doc_str);
+
+    // C-string in array.
+    let greeting: *const u8 = "hello";
+    let farewell: *const u8 = "bye";
+    let doc_strarr: HermesCtr = @[$greeting, $farewell];
+    print_doc("str arr", &doc_strarr);
+
+    // ------------------------------------------------------------------ //
+    // 4. Mixed capture — scalars + strings + expressions                  //
+    // ------------------------------------------------------------------ //
+    section("4. Mixed capture");
+
+    let item_id:    i32       = 101;
+    let item_name:  *const u8 = "widget";
+    let qty:        i32       = 5;
+    let unit_price: i32       = 20;
+
+    let doc_order: HermesCtr = @{
+        "id":    $item_id,
+        "name":  $item_name,
+        "qty":   $qty,
+        "total": ${qty * unit_price},
+        "ready": ${qty > 0}
+    };
+    print_doc("order", &doc_order);
+
+    // ------------------------------------------------------------------ //
+    // 5. Typed array cast — &[i32] → <I32>[] HermesCtr                   //
+    //    Produces a dense ArrayI32 with TypeTag in zone.                  //
+    // ------------------------------------------------------------------ //
+    section("5. Typed array cast  (&[T] as <T>[])");
+
+    let raw_i32: [i32; 5] = [2, 3, 5, 7, 11];
+    let slice_i32: &[i32] = &raw_i32;
+    let arr_ctr: HermesCtr = slice_i32 as <I32>[];
+    print_doc("ArrayI32", &arr_ctr);
+
+    let raw_u64: [u64; 3] = [1000000, 2000000, 3000000];
+    let slice_u64: &[u64] = &raw_u64;
+    let arr_u64_ctr: HermesCtr = slice_u64 as <U64>[];
+    print_doc("ArrayU64", &arr_u64_ctr);
+
+    // ------------------------------------------------------------------ //
+    // 6. Typed map cast — MapSliceI32 → <I32,AnyVal>{} HermesCtr          //
+    //    Keys: dense i32 array; values: AnyVal (inline embed_i24).        //
+    // ------------------------------------------------------------------ //
+    section("6. Typed map cast  (MapSliceI32 as <I32,AnyVal>{})");
+
+    let keys: [i32; 4]    = [1, 2, 3, 4];
+    let vals: [AnyVal; 4] = [
+        AnyVal::embed_i24(10),
+        AnyVal::embed_i24(20),
+        AnyVal::embed_i24(30),
+        AnyVal::embed_i24(40),
+    ];
+    let ms: MapSliceI32 = MapSliceI32 { keys: &keys, vals: &vals };
+    let map_ctr: HermesCtr = ms as <I32, AnyVal>{};
+    print_doc("MapI32AnyVal", &map_ctr);
+
+    println("---");
+    println("done.");
+    return 0;
+}

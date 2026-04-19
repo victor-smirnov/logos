@@ -437,8 +437,10 @@ void SemaChecker::collect_trait(TinyMapView node) {
             mi.ret_type = m.has_key(la::RET_TYPE)
                 ? resolve_type(map_of(m.get(la::RET_TYPE.code))) : void_t();
             mi.has_default = m.has_key(la::BODY);
-            if (mi.has_default)
-                mi.default_ast = items.get(i);
+            if (mi.has_default) {
+                mi.default_ast    = items.get(i);
+                mi.default_holder = holder_;  // remember zone that owns the AST node
+            }
             if (m.has_key(la::IS_UNSAFE)) {
                 AnyVal av = m.get(la::IS_UNSAFE);
                 mi.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
@@ -795,7 +797,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         }
                         if (self_type)
                             current_type_params_["Self"] = self_type;
+                        // Switch holder to the zone that owns the default AST node —
+                        // it may live in a different module's zone (cross-module trait).
+                        auto* saved_holder = holder_;
+                        if (m.default_holder) holder_ = m.default_holder;
                         collect_fn(map_of(m.default_ast), target);
+                        holder_ = saved_holder;
                         // Default trait-method: inherits trait accessibility.
                         auto dmangled = target + "__" + m.name;
                         if (auto dfit = find_func_candidates(dmangled); !dfit.empty())

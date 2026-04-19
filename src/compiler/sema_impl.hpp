@@ -351,7 +351,8 @@ private:
         const LogosType* ret_type = nullptr;
         bool has_default = false;   // trait method has a default body
         bool is_unsafe = false;     // declared unsafe fn in trait
-        hermes::AnyVal default_ast{};  // AST node for default method (valid when has_default)
+        hermes::AnyVal default_ast{};    // AST node for default method (valid when has_default)
+        hermes::MemHolder* default_holder = nullptr;  // zone that owns default_ast
     };
     struct SemaAssocTypeInfo {
         std::string name;              // e.g. "Item"

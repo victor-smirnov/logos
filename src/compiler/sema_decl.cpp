@@ -807,7 +807,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     }
                     if (self_type)
                         current_type_params_["Self"] = self_type;
+                    // Switch holder to the zone that owns the default AST node
+                    // (may be a different module's zone for cross-module traits).
+                    auto* saved_holder = holder_;
+                    if (m.default_holder) holder_ = m.default_holder;
                     auto fn = lower_fn(map_of(m.default_ast), target);
+                    holder_ = saved_holder;
                     fn.is_pub = true;  // default trait method inherits trait visibility
                     prog.functions.push_back(std::move(fn));
                     current_type_params_.erase("Self");

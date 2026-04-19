@@ -35,3 +35,4 @@ function(logos_add_example NAME)
 endfunction()
 
 logos_add_example(hermes_round_trip)
+logos_add_example(hermes_showcase)

@@ -25,6 +25,7 @@
 
 package hermes.ctr;
 
+use hermes.view;
 use hermes.zone;
 use hermes.anyval;
 use hermes.datatag;
@@ -78,6 +79,21 @@ pub struct HermesCtr {
     zone: Zone<Mutable>,
 }
 
+impl HermesRead for HermesCtr {
+    pub fn base(self: &HermesCtr) -> *const u8 {
+        unsafe { return self.zone.holder.base as *const u8; }
+    }
+    pub fn size(self: &HermesCtr) -> u64 {
+        unsafe { return self.zone.holder.used as u64; }
+    }
+}
+
+impl HermesWrite for HermesCtr {
+    pub fn zone_mut(self: &mut HermesCtr) -> *mut Zone<Mutable> {
+        unsafe { return &mut self.zone as *mut Zone<Mutable>; }
+    }
+}
+
 impl HasMemHolder for HermesCtr {
     pub fn mem_holder(&self) -> *mut MemHolder {
         return self.zone.holder;
@@ -95,6 +111,27 @@ impl Drop for HermesCtr {
 }
 
 impl HermesCtr {
+    // build_str with explicit length (overload not possible in trait defaults).
+    pub fn build_str(&mut self, s: *const u8, slen: i64) -> AnyVal {
+        if slen < 0 as i64 { return AnyVal::null_ptr(); }
+        unsafe {
+            let lu: u64 = slen as u64;
+            let prefix_sz: i64 = vlen_encode_size(lu) as i64;
+            let total: i64 = prefix_sz + slen;
+            let raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone, total, hermes_tag_string() as u64);
+            if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
+            HermesString::init(raw, s, lu);
+            let base: *mut u8 = self.zone.holder.base;
+            let off: u32 = (raw as i64 - base as i64) as u32;
+            return AnyVal::from_offset(off);
+        }
+    }
+
+    // decimal_from f64 (overload not possible in trait defaults alongside cstr version).
+    pub fn decimal_from(&mut self, p: i32, s: i32, val: f64) -> AnyVal {
+        unsafe { return decimal_from_f64_in_zone(&mut self.zone, p, s, val); }
+    }
+
     // Allocate a new container backed by a zone of `capacity` bytes.
     // Used when you will parse a document into the zone (parser creates DocumentHeader).
     pub static fn new(capacity: i64) -> HermesCtr {
@@ -144,435 +181,6 @@ impl HermesCtr {
     // StringView convenience overload.
     pub fn parse(&mut self, text: StringView) -> Result<(), ParseError> {
         return self.parse(text.ptr, text.len as i64);
-    }
-
-    // ── Stringification ────────────────────────────────────────────────────
-    //
-    // Buffer is a per-operation context — pass in a String you own; it gets
-    // cleared and overwritten.  HermesCtr itself holds no buffer.
-
-    // Stringify into `buf` with compact formatting.
-    pub fn stringify(&self, buf: &mut String) {
-        unsafe {
-            buf.clear();
-            stringify_document(self.zone.holder.base as *const u8, buf,
-                               StringifyOpts::compact());
-        }
-    }
-
-    // Stringify into `buf` with explicit formatting options.
-    pub fn stringify_opts(&self, buf: &mut String, opts: StringifyOpts) {
-        unsafe {
-            buf.clear();
-            stringify_document(self.zone.holder.base as *const u8, buf, opts);
-        }
-    }
-
-    // Stringify and return a new owned String (compact).
-    pub fn to_string(&self) -> String {
-        let mut buf: String = String::with_capacity(256);
-        self.stringify(&mut buf);
-        return buf;
-    }
-
-    // Stringify and return a new owned String with explicit options.
-    pub fn to_string_opts(&self, opts: StringifyOpts) -> String {
-        let mut buf: String = String::with_capacity(256);
-        self.stringify_opts(&mut buf, opts);
-        return buf;
-    }
-
-    // Raw zone base pointer (for cross-zone operations such as clone/equal).
-    pub fn base(&self) -> *const u8 {
-        unsafe { return self.zone.holder.base as *const u8; }
-    }
-
-    // Mutable reference to the underlying zone (for cross-zone clone-in).
-    pub fn zone_mut(&mut self) -> *mut Zone<Mutable> {
-        unsafe { return &mut self.zone as *mut Zone<Mutable>; }
-    }
-
-    // Root AnyVal of the parsed document.
-    pub fn root(&self) -> AnyVal {
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            let doc: *const DocumentHeader = base as *const DocumentHeader;
-            return document_get_root(doc);
-        }
-    }
-
-    // ── Value extraction helpers ───────────────────────────────────────────────
-
-    // Return i64 value of an Integer AnyVal (hash=23). Returns 0 if not int.
-    pub fn get_int(&self, val: AnyVal) -> i64 {
-        unsafe { return val.as_i64(); }
-    }
-
-    // Return bool value of a Boolean AnyVal (hash=37). Returns false if not bool.
-    pub fn get_bool(&self, val: AnyVal) -> bool {
-        unsafe {
-            if !val.is_bool() { return false; }
-            return val.as_bool();
-        }
-    }
-
-    // ── StringView accessor (interop with Buffer<HermesString>) ───────────────
-
-    // Extract a StringView from a zone-stored HermesString.  This is the same
-    // view type `Buffer<HermesString>` exposes, so callers can write storage-
-    // agnostic code (pass a StringView and forget where it came from).
-    // Returns StringView{null, 0} if `val` is not a pointer-mode string.
-    pub fn get_str_view(&self, val: AnyVal) -> StringView {
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            if !val.is_string(base as *const u8) {
-                return StringView { ptr: 0 as *const u8, len: 0 as u64 };
-            }
-            let hs: *const HermesString =
-                (base as i64 + val.as_offset() as i64) as *const HermesString;
-            return StringView { ptr: hs.bytes(), len: hs.len() };
-        }
-    }
-
-    // ── Scalar builders / accessors ───────────────────────────────────────────
-
-    // Allocate a zone-backed I64. Use this when the value doesn't fit inline
-    // (Integer is capped at 24 bits) or when a stable pointer is needed.
-    pub fn build_i64(&mut self, v: i64) -> AnyVal {
-        unsafe {
-            let sz: i64 = sizeof::<I64>() as i64;
-            let raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone, sz,
-                                   hermes_tag_i64() as u64);
-            if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            I64::init(raw, v);
-            let base: *mut u8 = self.zone.holder.base;
-            let off: u32 = (raw as i64 - base as i64) as u32;
-            return AnyVal::from_offset(off);
-        }
-    }
-
-    pub fn build_u64(&mut self, v: u64) -> AnyVal {
-        unsafe {
-            let sz: i64 = sizeof::<U64>() as i64;
-            let raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone, sz,
-                                   hermes_tag_u64() as u64);
-            if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            U64::init(raw, v);
-            let base: *mut u8 = self.zone.holder.base;
-            let off: u32 = (raw as i64 - base as i64) as u32;
-            return AnyVal::from_offset(off);
-        }
-    }
-
-    // ── Decimal builders / accessors ───────────────────────────────────────
-
-    // Parse decimal text into a zone Decimal(P,S). Returns null on parse/overflow error.
-    pub fn decimal_from(&mut self, p: i32, s: i32,
-                        txt: *const u8, len: i64) -> AnyVal {
-        unsafe {
-            return decimal_from_string_in_zone(&mut self.zone, p, s, txt, len);
-        }
-    }
-
-    // C-string overload.
-    pub fn decimal_from(&mut self, p: i32, s: i32, txt: *const u8) -> AnyVal {
-        if txt == 0 as *const u8 { return AnyVal::null_ptr(); }
-        unsafe {
-            return self.decimal_from(p, s, txt, cstr_len(txt));
-        }
-    }
-
-    // StringView overload.
-    pub fn decimal_from(&mut self, p: i32, s: i32, txt: StringView) -> AnyVal {
-        return self.decimal_from(p, s, txt.ptr, txt.len as i64);
-    }
-
-    // f64 overload: build Decimal(p,s) from f64, rounding half-up.
-    // Returns null on NaN/Inf, precision overflow, or |val * 10^s| >= 2^53.
-    pub fn decimal_from(&mut self, p: i32, s: i32, val: f64) -> AnyVal {
-        unsafe {
-            return decimal_from_f64_in_zone(&mut self.zone, p, s, val);
-        }
-    }
-
-    pub fn decimal_view(&self, val: AnyVal) -> DecimalView {
-        unsafe {
-            return DecimalView::from_anyval(self.zone.holder.base as *const u8, val);
-        }
-    }
-
-    pub fn decimal_to_string(&self, val: AnyVal) -> String {
-        unsafe { return self.decimal_view(val).to_string_value(); }
-    }
-
-    pub fn decimal_to_f64(&self, val: AnyVal) -> f64 {
-        unsafe { return self.decimal_view(val).to_f64(); }
-    }
-
-    pub fn decimal_add(&mut self, a: AnyVal, b: AnyVal) -> AnyVal {
-        unsafe {
-            return decimal_add_in_zone(&mut self.zone, a, b);
-        }
-    }
-
-    pub fn decimal_sub(&mut self, a: AnyVal, b: AnyVal) -> AnyVal {
-        unsafe {
-            return decimal_sub_in_zone(&mut self.zone, a, b);
-        }
-    }
-
-    pub fn decimal_precision(&self, val: AnyVal) -> u32 {
-        unsafe { return self.decimal_view(val).precision(); }
-    }
-
-    pub fn decimal_scale(&self, val: AnyVal) -> u32 {
-        unsafe { return self.decimal_view(val).scale(); }
-    }
-
-    pub fn decimal_len(&self, val: AnyVal) -> u32 {
-        unsafe { return self.decimal_view(val).len(); }
-    }
-
-    pub fn decimal_is_negative(&self, val: AnyVal) -> bool {
-        unsafe { return self.decimal_view(val).is_negative(); }
-    }
-
-    pub fn decimal_limb(&self, val: AnyVal, idx: u32) -> u32 {
-        unsafe { return self.decimal_view(val).limb_at(idx); }
-    }
-
-    // Extract an i64 from either an inline Integer (hash=23) or a zone I64
-    // (type_code=26). Returns 0 if val is neither.
-    pub fn get_i64(&self, val: AnyVal) -> i64 {
-        unsafe {
-            if !val.is_ptr() {
-                if val.is_int() { return val.as_i24() as i64; }
-                return 0 as i64;
-            }
-            if val.is_null() { return 0 as i64; }
-            let base: *mut u8 = self.zone.holder.base;
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag: u64 = read_type_code(obj);
-            if tag != 26 as u64 { return 0 as i64; }
-            let p: *const I64 = obj as *const I64;
-            return p.value();
-        }
-    }
-
-    // Extract a u64 from either an inline UInteger (hash=25) or a zone U64
-    // (type_code=27). Returns 0 if val is neither.
-    pub fn get_u64(&self, val: AnyVal) -> u64 {
-        unsafe {
-            if !val.is_ptr() {
-                if val.is_uint() { return val.as_u24() as u64; }
-                return 0 as u64;
-            }
-            if val.is_null() { return 0 as u64; }
-            let base: *mut u8 = self.zone.holder.base;
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag: u64 = read_type_code(obj);
-            if tag != 27 as u64 { return 0 as u64; }
-            let p: *const U64 = obj as *const U64;
-            return p.value();
-        }
-    }
-
-    // ── Array traversal ───────────────────────────────────────────────────────
-
-    // Number of elements in an ObjectArray AnyVal. Returns 0 if val is not an array.
-    pub fn array_len(&self, val: AnyVal) -> u64 {
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            if !val.is_array(base as *const u8) { return 0 as u64; }
-            let arr: *const ObjectArray =
-                (base as i64 + val.as_offset() as i64) as *const ObjectArray;
-            return arr.len();
-        }
-    }
-
-    // Get element at `idx` from an ObjectArray AnyVal.
-    // Returns AnyVal::null_ptr() if val is not an array or idx is out of bounds.
-    pub fn array_get(&self, val: AnyVal, idx: u64) -> AnyVal {
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            if !val.is_array(base as *const u8) { return AnyVal::null_ptr(); }
-            let arr: *const ObjectArray =
-                (base as i64 + val.as_offset() as i64) as *const ObjectArray;
-            return arr.get(base as *const u8, idx);
-        }
-    }
-
-    // ── Map traversal ─────────────────────────────────────────────────────────
-
-    // Look up a key in an ObjectMap AnyVal by null-terminated C string.
-    // Returns AnyVal::null_ptr() if val is not a map or key is not found.
-    pub fn map_get_cstr(&self, val: AnyVal, key: *const u8) -> AnyVal {
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            if !val.is_map(base as *const u8) { return AnyVal::null_ptr(); }
-            // Read the descriptor to distinguish TinyObjectMap (hash=98) from
-            // ObjectMap (hash=101). TinyObjectMap uses numeric keys only;
-            // for string lookups we treat it as not found.
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == hermes_tag_tiny_map() as u64 {
-                // TinyObjectMap: keys are u8 integers, not strings.
-                return AnyVal::null_ptr();
-            }
-            // ObjectMap (hash=101): open-addressing, string keys.
-            let omap: *const ObjectMap = obj as *const ObjectMap;
-            let klen: i64 = cstr_len(key);
-            return omap.get(base as *const u8, key, klen as u64);
-        }
-    }
-
-    // Convenience overloads over map_get_cstr/map_set_str for "normal" string usage.
-    pub fn map_get(&self, val: AnyVal, key: *const u8) -> AnyVal {
-        if key == 0 as *const u8 { return AnyVal::null_ptr(); }
-        return self.map_get_cstr(val, key);
-    }
-
-    pub fn map_get(&self, val: AnyVal, key: StringView) -> AnyVal {
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            if !val.is_map(base as *const u8) { return AnyVal::null_ptr(); }
-            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
-            let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == 98 as u64 {
-                return AnyVal::null_ptr();
-            }
-            let omap: *const ObjectMap = obj as *const ObjectMap;
-            return omap.get(base as *const u8, key.ptr, key.len);
-        }
-    }
-
-    // ── Document mutation API ──────────────────────────────────────────────────
-
-    // Allocate a HermesString in the zone from a raw byte pointer + length.
-    // Returns an AnyVal in pointer mode pointing to the string.
-    // Returns AnyVal::null_ptr() on OOM.
-    pub fn build_str(&mut self, s: *const u8, slen: i64) -> AnyVal {
-        // Bug 2 guard: negative slen wraps to u64::MAX, making vlen_encode_size
-        // return 8 and total = 7, then HermesString::init tries to copy ~2^64 bytes.
-        if slen < 0 { return AnyVal::null_ptr(); }
-        unsafe {
-            let len: u64 = slen as u64;
-            // vlen prefix size varies: 1 byte for len < 249, more for larger strings.
-            let prefix_sz: i64 = vlen_encode_size(len) as i64;
-            let total: i64 = prefix_sz + slen;
-            let raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone, total, hermes_tag_string() as u64);
-            if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            // HermesString::init writes the correct vlen prefix and copies the bytes.
-            HermesString::init(raw, s, len);
-            let base: *mut u8 = self.zone.holder.base;
-            let off: u32 = (raw as i64 - base as i64) as u32;
-            return AnyVal::from_offset(off);
-        }
-    }
-
-    // C-string convenience overload.
-    pub fn build_str(&mut self, s: *const u8) -> AnyVal {
-        if s == 0 as *const u8 { return AnyVal::null_ptr(); }
-        unsafe {
-            return self.build_str(s, cstr_len(s));
-        }
-    }
-
-    // StringView convenience overload.
-    pub fn build_str(&mut self, s: StringView) -> AnyVal {
-        return self.build_str(s.ptr, s.len as i64);
-    }
-
-    // Allocate an ObjectMap in the zone with `cap_slots` hash slots.
-    // cap_slots must be a power of 2 and >= 4.
-    // Returns AnyVal pointer to the map, or null_ptr on OOM.
-    pub fn build_map(&mut self, cap_slots: u32) -> AnyVal {
-        unsafe {
-            let map_sz: i64 = 16 as i64;  // sizeof ObjectMap
-            let map_raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone,
-                map_sz, hermes_tag_map() as u64);
-            if map_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let entries_raw: *mut u8 = zone_m_alloc_raw(&mut self.zone, cap_slots as i64 * 8 as i64);
-            if entries_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let base: *mut u8 = self.zone.holder.base;
-            ObjectMap::init(map_raw, base, entries_raw, cap_slots);
-            let off: u32 = (map_raw as i64 - base as i64) as u32;
-            return AnyVal::from_offset(off);
-        }
-    }
-
-    // Allocate an ObjectArray in the zone with `cap` initial capacity.
-    // Returns AnyVal pointer to the array, or null_ptr on OOM.
-    pub fn build_array(&mut self, cap: u64) -> AnyVal {
-        unsafe {
-            let oa_sz: i64 = 24 as i64;  // sizeof ObjectArray
-            let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut self.zone,
-                oa_sz, hermes_tag_array() as u64);
-            if oa_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let buf_raw: *mut u8 = zone_m_alloc_raw(&mut self.zone, cap as i64 * 4 as i64);
-            if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let base: *mut u8 = self.zone.holder.base;
-            ObjectArray::init(oa_raw, buf_raw, base, cap);
-            let off: u32 = (oa_raw as i64 - base as i64) as u32;
-            return AnyVal::from_offset(off);
-        }
-    }
-
-    // Set key → val in a map AnyVal.
-    // key is a C string pointer; klen is its byte length (NOT counting null).
-    pub fn map_set_str(&mut self, map: AnyVal, key: *const u8, klen: i64, val: AnyVal) {
-        // Bug 3 guard: negative klen wraps to u64::MAX, making hermes_fnv1a read
-        // ~2^64 bytes from key → out-of-bounds memory access / crash.
-        if klen < 0 { return; }
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            if !map.is_map(base as *const u8) { return; }
-            let omap: *mut ObjectMap =
-                (base as i64 + map.as_offset() as i64) as *mut ObjectMap;
-            // Only allocate a new HermesString if the key is new.
-            // On update, ObjectMap::set finds the slot via byte comparison and updates
-            // only the value — it never writes key_off. So any non-zero dummy suffices.
-            // Default to sentinel 1 (non-zero, used only on the update path).
-            let mut key_off: u32 = 1 as u32;
-            if !omap.contains(base as *const u8, key, klen as u64) {
-                let key_av: AnyVal = self.build_str(key, klen);
-                if key_av.is_null() { return; }
-                key_off = key_av.as_offset();
-            }
-            omap.set(base, key_off, key, klen as u64, val);
-        }
-    }
-
-    pub fn map_set(&mut self, map: AnyVal, key: *const u8, val: AnyVal) {
-        if key == 0 as *const u8 { return; }
-        unsafe {
-            self.map_set_str(map, key, cstr_len(key), val);
-        }
-    }
-
-    pub fn map_set(&mut self, map: AnyVal, key: StringView, val: AnyVal) {
-        self.map_set_str(map, key.ptr, key.len as i64, val);
-    }
-
-    // Push val onto an array AnyVal.
-    pub fn array_push(&mut self, arr: AnyVal, val: AnyVal) {
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            if !arr.is_array(base as *const u8) { return; }
-            let oa: *mut ObjectArray =
-                (base as i64 + arr.as_offset() as i64) as *mut ObjectArray;
-            oa.push(base, val);
-        }
-    }
-
-    // Set the document root to val.
-    // Only valid after builder() constructor or a successful parse().
-    pub fn set_root(&mut self, val: AnyVal) {
-        unsafe {
-            let base: *mut u8 = self.zone.holder.base;
-            let doc: *mut DocumentHeader = base as *mut DocumentHeader;
-            document_set_root(doc, val);
-        }
     }
 
     // Deep-copy all objects reachable from the document root into a fresh zone,
