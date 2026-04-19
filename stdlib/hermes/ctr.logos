@@ -138,8 +138,18 @@ impl HermesCtr {
         }
     }
 
-    // Parse Hermes text (UTF-8 bytes) into the zone.
+    // Parse Hermes text into the zone.
     // Returns Ok(()) on success, Err(ParseError::Failed) on parse error.
+    pub fn parse(&mut self, text: str) -> Result<(), ParseError> {
+        unsafe {
+            if hermes_parse(text, &mut self.zone) {
+                return Result::Ok(());
+            }
+            return Result::Err(ParseError::Failed);
+        }
+    }
+
+    // Raw bytes overload — kept for test compatibility.
     pub fn parse(&mut self, text: *const u8, len: i64) -> Result<(), ParseError> {
         unsafe {
             if hermes_parse(text, len, &mut self.zone) {
@@ -153,18 +163,21 @@ impl HermesCtr {
     pub fn parse(&mut self, text: *const u8) -> Result<(), ParseError> {
         if text == 0 as *const u8 { return Result::Err(ParseError::Failed); }
         unsafe {
-            return self.parse(text, cstr_len(text));
+            if hermes_parse(text, cstr_len(text), &mut self.zone) {
+                return Result::Ok(());
+            }
+            return Result::Err(ParseError::Failed);
         }
     }
 
     // StringView convenience overload.
     pub fn parse(&mut self, text: StringView) -> Result<(), ParseError> {
-        return self.parse(text.ptr, text.len as i64);
-    }
-
-    // str convenience overload.
-    pub fn parse(&mut self, text: str) -> Result<(), ParseError> {
-        return self.parse(text.as_ptr(), text.len());
+        unsafe {
+            if hermes_parse(text.ptr, text.len as i64, &mut self.zone) {
+                return Result::Ok(());
+            }
+            return Result::Err(ParseError::Failed);
+        }
     }
 
     // Deep-copy all objects reachable from the document root into a fresh zone,
