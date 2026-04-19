@@ -731,6 +731,18 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     }
     uint64_t n_args = arg_exprs.size();
 
+    // str_from_raw(ptr: *const u8, len: i64) -> str — compiler intrinsic.
+    // Constructs a str fat-pointer; codegen in mlir_gen_expr.cpp handles emission.
+    if (callee == "str_from_raw") {
+        if (n_args != 2)
+            error("str_from_raw requires exactly 2 arguments: (ptr: *const u8, len: i64)");
+        auto* str_t = make_slice_type(u8_t());
+        lir::ECall ec;
+        ec.callee = "str_from_raw";
+        for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
+        return make_expr(str_t, std::move(ec));
+    }
+
     bool call_has_pack_expand = false;
     for (auto& a : arg_exprs) {
         if (std::holds_alternative<lir::EPackExpand>(a->kind)) {

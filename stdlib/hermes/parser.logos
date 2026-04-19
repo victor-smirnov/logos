@@ -60,7 +60,7 @@ unsafe fn f32_to_bits(v: f32) -> u32 {
 
 // Return 10^n as f32 for small non-negative n (n <= 38).
 // Uses a simple multiplication loop.
-unsafe fn pow10_f32(n: i64) -> f32 {
+fn pow10_f32(n: i64) -> f32 {
     let mut result: f32 = 1.0;
     let mut i: i64 = 0 as i64;
     while i < n {
@@ -75,9 +75,8 @@ unsafe fn pow10_f32(n: i64) -> f32 {
 // ---------------------------------------------------------------------------
 
 pub struct HermesParser {
-    pub text_ptr: *const u8,             // input bytes (not owned)
-    pub text_len: i64,                   // input byte count
-    pub pos:      i64,                   // current read position
+    pub text: str,                       // input (not owned)
+    pub pos:  i64,                       // current read position
     pub zone:    *mut Zone<Mutable>,     // output zone (not owned)
     pub base:    *mut u8,                // zone.holder.base cached
     pub scratch: *mut u8,                // 1 KiB malloc buffer for string building
@@ -124,9 +123,8 @@ impl HermesParser {
         let ok: bool = sc != 0 as *mut u8;
         let base: *mut u8 = zone.holder.base;
         return HermesParser {
-            text_ptr: text.as_ptr(),
-            text_len: text.len(),
-            pos:      0 as i64,
+            text: text,
+            pos:  0 as i64,
             zone:    zone,
             base:    base,
             scratch: sc,
@@ -142,19 +140,19 @@ impl HermesParser {
     // ── Character access ─────────────────────────────────────────────────────
 
     pub unsafe fn at_end(&mut self) -> bool {
-        return self.pos >= self.text_len;
+        return self.pos >= self.text.len();
     }
 
     pub unsafe fn peek(&mut self) -> u8 {
         if self.at_end() { return 0 as u8; }
-        return *((self.text_ptr as i64 + self.pos) as *const u8);
+        return *((self.text.as_ptr() as i64 + self.pos) as *const u8);
     }
 
     // Peek at current position + off (0-indexed from pos).
     pub unsafe fn peek_at(&mut self, off: i64) -> u8 {
         let p: i64 = self.pos + off;
-        if p >= self.text_len { return 0 as u8; }
-        return *((self.text_ptr as i64 + p) as *const u8);
+        if p >= self.text.len() { return 0 as u8; }
+        return *((self.text.as_ptr() as i64 + p) as *const u8);
     }
 
     pub unsafe fn advance(&mut self) -> u8 {
@@ -312,16 +310,16 @@ impl HermesParser {
     pub unsafe fn type_expr_is_i32(&mut self, start: i64, end: i64) -> bool {
         let mut ts: i64 = start;
         let mut te: i64 = end;
-        while ts < te && self.is_ws(*((self.text_ptr as i64 + ts) as *const u8)) {
+        while ts < te && self.is_ws(*((self.text.as_ptr() as i64 + ts) as *const u8)) {
             ts = ts + 1 as i64;
         }
-        while te > ts && self.is_ws(*((self.text_ptr as i64 + te - 1 as i64) as *const u8)) {
+        while te > ts && self.is_ws(*((self.text.as_ptr() as i64 + te - 1 as i64) as *const u8)) {
             te = te - 1 as i64;
         }
         if te - ts != 3 as i64 { return false; }
-        let c0: u8 = *((self.text_ptr as i64 + ts + 0 as i64) as *const u8);
-        let c1: u8 = *((self.text_ptr as i64 + ts + 1 as i64) as *const u8);
-        let c2: u8 = *((self.text_ptr as i64 + ts + 2 as i64) as *const u8);
+        let c0: u8 = *((self.text.as_ptr() as i64 + ts + 0 as i64) as *const u8);
+        let c1: u8 = *((self.text.as_ptr() as i64 + ts + 1 as i64) as *const u8);
+        let c2: u8 = *((self.text.as_ptr() as i64 + ts + 2 as i64) as *const u8);
         return (c0 == 105 as u8 || c0 == 73 as u8)  // i / I
             && c1 == 51 as u8 && c2 == 50 as u8;    // 3 2
     }
@@ -332,7 +330,7 @@ impl HermesParser {
         let lp: *const u8 = lit.as_ptr();
         let mut i: i64 = 0 as i64;
         while i < n {
-            let a: u8 = *((self.text_ptr as i64 + start + i) as *const u8);
+            let a: u8 = *((self.text.as_ptr() as i64 + start + i) as *const u8);
             let b: u8 = *((lp as i64 + i) as *const u8);
             if a != b { return false; }
             i = i + 1 as i64;
@@ -391,21 +389,21 @@ impl HermesParser {
     pub unsafe fn parse_type_atom(&mut self, start: i64, end: i64) -> u8 {
         let mut ts: i64 = start;
         let mut te: i64 = end;
-        while ts < te && self.is_ws(*((self.text_ptr as i64 + ts) as *const u8)) {
+        while ts < te && self.is_ws(*((self.text.as_ptr() as i64 + ts) as *const u8)) {
             ts = ts + 1 as i64;
         }
-        while te > ts && self.is_ws(*((self.text_ptr as i64 + te - 1 as i64) as *const u8)) {
+        while te > ts && self.is_ws(*((self.text.as_ptr() as i64 + te - 1 as i64) as *const u8)) {
             te = te - 1 as i64;
         }
         if ts >= te { return self.atom_unknown(); }
-        if !self.is_ident_start(*((self.text_ptr as i64 + ts) as *const u8)) {
+        if !self.is_ident_start(*((self.text.as_ptr() as i64 + ts) as *const u8)) {
             return self.atom_unknown();
         }
         let mut i: i64 = ts + 1 as i64;
-        while i < te && self.is_ident_char(*((self.text_ptr as i64 + i) as *const u8)) {
+        while i < te && self.is_ident_char(*((self.text.as_ptr() as i64 + i) as *const u8)) {
             i = i + 1 as i64;
         }
-        while i < te && self.is_ws(*((self.text_ptr as i64 + i) as *const u8)) {
+        while i < te && self.is_ws(*((self.text.as_ptr() as i64 + i) as *const u8)) {
             i = i + 1 as i64;
         }
         if i != te { return self.atom_unknown(); }
@@ -419,10 +417,10 @@ impl HermesParser {
     pub unsafe fn alloc_string_span(&mut self, start: i64, end: i64) -> u32 {
         let mut s: i64 = start;
         let mut e: i64 = end;
-        while s < e && self.is_ws(*((self.text_ptr as i64 + s) as *const u8)) {
+        while s < e && self.is_ws(*((self.text.as_ptr() as i64 + s) as *const u8)) {
             s = s + 1 as i64;
         }
-        while e > s && self.is_ws(*((self.text_ptr as i64 + e - 1 as i64) as *const u8)) {
+        while e > s && self.is_ws(*((self.text.as_ptr() as i64 + e - 1 as i64) as *const u8)) {
             e = e - 1 as i64;
         }
         if e < s { return 0 as u32; }
@@ -435,7 +433,7 @@ impl HermesParser {
         let body: *mut u8 = (raw as i64 + pfx) as *mut u8;
         let mut i: i64 = 0 as i64;
         while i < n {
-            let sp: *const u8 = (self.text_ptr as i64 + s + i) as *const u8;
+            let sp: *const u8 = (self.text.as_ptr() as i64 + s + i) as *const u8;
             let dp: *mut u8 = (body as i64 + i) as *mut u8;
             *dp = *sp;
             i = i + 1 as i64;
@@ -1465,7 +1463,7 @@ impl HermesParser {
                 }
                 let id_len: i64 = self.pos - id_start;
                 let id_src: *const u8 =
-                    (self.text_ptr as i64 + id_start) as *const u8;
+                    (self.text.as_ptr() as i64 + id_start) as *const u8;
                 let pfx: i64 = vlen_encode_size(id_len as u64) as i64;
                 let raw: *mut u8 = zone_m_alloc_tagged(self.zone, pfx + id_len,
                                        hermes_tag_string() as u64);
@@ -1565,13 +1563,12 @@ pub unsafe fn hermes_parse(text: *const u8, len: i64,
 
     let sc: *mut u8 = malloc(1024);
     let mut p: HermesParser = HermesParser {
-        text_ptr: text,
-        text_len: len,
-        pos:      0 as i64,
-        zone:     zone_ptr,
-        base:     zone_ptr.holder.base,
-        scratch:  sc,
-        ok:       sc != 0 as *mut u8,
+        text: str_from_raw(text, len),
+        pos:  0 as i64,
+        zone: zone_ptr,
+        base: zone_ptr.holder.base,
+        scratch: sc,
+        ok:   sc != 0 as *mut u8,
     };
 
     p.skip();

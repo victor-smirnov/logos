@@ -23,6 +23,24 @@ use std.drop;
 
 // ── Low-level primitives (used by std.fmt and String internals) ────────────
 
+// Construct a str fat-pointer from a raw pointer and explicit byte count.
+// Compiler intrinsic — no body needed; intercepted in sema_expr.cpp by name.
+// Analogous to Rust's std::slice::from_raw_parts::<u8>.
+// Safety: ptr must be valid for `len` bytes and remain alive for the str lifetime.
+pub unsafe fn str_from_raw(ptr: *const u8, len: i64) -> str {
+    // Compiler intrinsic: sema intercepts all call sites and emits the
+    // fat-pointer {ptr, len} construction directly (mlir_gen_expr.cpp).
+    // This body is compiled but never called.
+    return "";
+}
+
+// Construct a str from a null-terminated C string (length via str_len).
+// Safety: ptr must be a valid non-null null-terminated byte string.
+pub unsafe fn str_from_cstr(ptr: *const u8) -> str {
+    let n: i64 = str_len(ptr);
+    return str_from_raw(ptr, n);
+}
+
 pub fn str_len(s: *const u8) -> i64 {
     let mut n: i64 = 0;
     while (unsafe { s[n]; } as i32) != 0 {

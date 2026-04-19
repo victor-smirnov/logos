@@ -640,6 +640,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EDeref& e, const LogosType* type) {
 mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logos_type) {
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
+    // ── Compiler intrinsics recognised by name ────────────────────────────────
+    // str_from_raw(ptr: *const u8, len: i64) -> str
+    // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.
+    if (e.callee == "str__str_from_raw" || e.callee == "str_from_raw") {
+        if (e.args.size() == 2) {
+            auto ptr_v = gen_expr(*e.args[0]); if (!ptr_v) return nullptr;
+            auto len_v = gen_expr(*e.args[1]); if (!len_v) return nullptr;
+            auto stype  = slice_llvm_type();
+            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), stype, i64_one());
+            llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+            auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, ptr_v, pp);
+            llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+            auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, li);
+            auto len_i64 = coerce_numeric(len_v, builder_.getIntegerType(64));
+            builder_.create<mlir::LLVM::StoreOp>(loc_, len_i64, lp);
+            return alloca;
+        }
+    }
+
     // Check if this is a vararg extern fn (declared as llvm.func)
     if (vararg_fns_.count(e.callee)) {
         auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(e.callee);
