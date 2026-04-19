@@ -645,9 +645,15 @@ pub fn hermes_list_comp_push(c: &mut HermesCtr, v: AnyVal) {
 // Map comprehension: @{kexpr: vexpr for x in iter (if guard)?}
 // v1: string keys only; values must be AnyVal.
 
-pub fn hermes_map_comp_new(cap: i64) -> HermesCtr {
+pub fn hermes_map_comp_new(cap: i64, slot_hint: i64) -> HermesCtr {
     let mut c: HermesCtr = HermesCtr::builder(cap);
-    let m: AnyVal = c.build_map(8 as u32);
+    // Round slot_hint up to next power of two (min 8).  ObjectMap::set relies
+    // on cap being a power of two for `slot & (cap-1)` masking.
+    let mut slots: u32 = 8 as u32;
+    let mut want: i64 = slot_hint * 2 as i64;
+    if want < 8 as i64 { want = 8 as i64; }
+    while (slots as i64) < want { slots = slots * 2 as u32; }
+    let m: AnyVal = c.build_map(slots);
     c.set_root(m);
     return c;
 }

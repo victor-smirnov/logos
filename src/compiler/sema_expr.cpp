@@ -3487,7 +3487,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     auto put_cands = find_func_candidates("hermes_map_comp_put");
     const SemaFuncInfo* new_fi = nullptr;
     const SemaFuncInfo* put_fi = nullptr;
-    for (auto* fi : new_cands) if (fi->param_types.size() == 1) { new_fi = fi; break; }
+    for (auto* fi : new_cands) if (fi->param_types.size() == 2) { new_fi = fi; break; }
     for (auto* fi : put_cands) if (fi->param_types.size() == 3) { put_fi = fi; break; }
     if (!new_fi || !put_fi) {
         error("hermes map comprehension requires `use hermes.ctr;`");
@@ -3532,9 +3532,15 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
 
     std::string new_sym = new_fi->symbol_name.empty() ? "hermes_map_comp_new"
                                                       : new_fi->symbol_name;
-    int64_t cap_hint = arr_size > 0 ? (arr_size * 16 + 128) : 128;
+    // Byte-cap hint for zone, and slot-count hint for map buckets.
+    // For slices (arr_size==0 at compile time) we don't know iter length, so
+    // use a generous default to reduce the risk of silent drops.  This is a
+    // v1 limitation — objectmap_set has no auto-grow.
+    int64_t slot_hint = arr_size > 0 ? arr_size : 64;
+    int64_t cap_hint  = arr_size > 0 ? (arr_size * 48 + 256) : 4096;
     std::vector<lir::LExprPtr> new_args;
     new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{cap_hint}));
+    new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{slot_hint}));
     auto call_new = make_expr(ctr_t,
         lir::ECall{new_sym, {}, std::move(new_args)});
     lir::SLet let_c;
