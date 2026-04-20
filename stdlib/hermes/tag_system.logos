@@ -111,9 +111,9 @@ impl TagSystem for TomTagSystem {
             // Bug fix: pointer arithmetic could overflow if obj + 7 > i64::MAX.
             // Caller must ensure obj is in valid range (< i64::MAX - 7).
             let offset_addr: i64 = obj as i64 + i;
-            if offset_addr < obj as i64 { return 0 as u64; }  // overflow detected
+            if offset_addr < obj as i64 { return 0; }  // overflow detected
             let b: u64 = unsafe { *( offset_addr as *const u8) } as u64;
-            code = code | (b << (i as u64 * 8 as u64));
+            code = code | (b << (i as u64 * 8));
             i = i + 1;
         }
         return code;

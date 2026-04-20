@@ -31,42 +31,42 @@ package hermes.typetag;
 // ---------------------------------------------------------------------------
 
 pub unsafe fn hermes_tag_string() -> u8 {
-    return 28 as u8;    // Varchar / HermesString (ArenaString in C++)
+    return 28;    // Varchar / HermesString (ArenaString in C++)
 }
 
 pub unsafe fn hermes_tag_tiny_map() -> u8 {
-    return 98 as u8;    // TinyObjectMap (type_hash::Hermes in C++)
+    return 98;    // TinyObjectMap (type_hash::Hermes in C++)
 }
 
 pub unsafe fn hermes_tag_array() -> u8 {
-    return 100 as u8;   // ObjectArray
+    return 100;   // ObjectArray
 }
 
 pub unsafe fn hermes_tag_map() -> u8 {
-    return 101 as u8;   // ObjectMap (Logos open-addressing version)
+    return 101;   // ObjectMap (Logos open-addressing version)
 }
 
 pub unsafe fn hermes_tag_array_i32() -> u8 {
-    return 104 as u8;   // dense typed primitive array
+    return 104;   // dense typed primitive array
 }
 
 pub unsafe fn hermes_tag_array_u64() -> u8 {
-    return 108 as u8;   // dense typed u64 array
+    return 108;   // dense typed u64 array
 }
 
 pub unsafe fn hermes_tag_map_i32_anyval() -> u8 {
-    return 105 as u8;   // typed map with i32 keys and AnyVal values
+    return 105;   // typed map with i32 keys and AnyVal values
 }
 
 pub unsafe fn hermes_tag_typed_value() -> u8 {
-    return 106 as u8;   // typed value wrapper
+    return 106;   // typed value wrapper
 }
 
 pub unsafe fn hermes_tag_decimal() -> u8 {
-    return 107 as u8;   // Decimal(P,S) with inline u32 limbs tail
+    return 107;   // Decimal(P,S) with inline u32 limbs tail
 }
 
 pub unsafe fn hermes_tag_document() -> u8 {
-    return 3 as u8;     // DocumentHeader (Logos extension, no C++ counterpart)
+    return 3;     // DocumentHeader (Logos extension, no C++ counterpart)
 }
 

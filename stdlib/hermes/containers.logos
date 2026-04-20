@@ -76,7 +76,7 @@ pub type TinyObjectMap = Map<Bitmap, AnyVal>;
 
 impl<V> Map<Bitmap, V> for Map<Bitmap, V> {
     unsafe fn size(self: *const Map<Bitmap, V>) -> u32 {
-        return ((self.header >> 58) & 0x3F as u64) as u32;
+        return ((self.header >> 58) & 0x3F) as u32;
     }
 }
 
@@ -97,7 +97,7 @@ impl Map<Bitmap, AnyVal> {
         let mut i: u32 = 0;
         while i < capacity {
             let ep: *mut AnyVal = arr.add(i as i64);
-            ep.raw = 0 as u32;
+            ep.raw = 0;
             i = i + 1;
         }
         return map_ptr;
@@ -105,19 +105,19 @@ impl Map<Bitmap, AnyVal> {
 
     // True if key is present in the map.
     pub unsafe fn contains(self: *const Map<Bitmap, AnyVal>, key: u8) -> bool {
-        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
-        let key_bit: u64 = 1 as u64 << (key as u64);
+        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF;
+        let key_bit: u64 = 1 << (key as u64);
         return (bitmap & key_bit) != 0;
     }
 
     // Get value by key. Returns AnyVal::null_ptr() if key not present.
     pub unsafe fn get(self: *const Map<Bitmap, AnyVal>, base: *const u8, key: u8) -> AnyVal {
-        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
-        let key_bit: u64 = 1 as u64 << (key as u64);
-        if (bitmap & key_bit) == 0 as u64 {
+        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF;
+        let key_bit: u64 = 1 << (key as u64);
+        if (bitmap & key_bit) == 0 {
             return AnyVal::null_ptr();
         }
-        let mask: u64 = key_bit - 1 as u64;
+        let mask: u64 = key_bit - 1;
         let pos: u32  = popcount_u64(bitmap & mask);
         let arr_base: *const AnyVal = base.byte_add(self.data.offset) as *const AnyVal;
         let elem: *const AnyVal = arr_base.add(pos as i64);
@@ -126,16 +126,16 @@ impl Map<Bitmap, AnyVal> {
 
     // Set or update value by key.  key >= 52 is a safe no-op.
     pub unsafe fn set(self: *mut Map<Bitmap, AnyVal>, base: *mut u8, key: u8, val: AnyVal) {
-        if key >= 52 as u8 { return; }
-        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF as u64;
-        let key_bit: u64 = 1 as u64 << (key as u64);
-        let mask: u64    = key_bit - 1 as u64;
+        if key >= 52 { return; }
+        let bitmap: u64  = self.header & 0x000FFFFFFFFFFFFF;
+        let key_bit: u64 = 1 << (key as u64);
+        let mask: u64    = key_bit - 1;
         let pos: u32     = popcount_u64(bitmap & mask);
-        let size: u32    = ((self.header >> 58) & 0x3F as u64) as u32;
-        let cap: u32     = ((self.header >> 52) & 0x3F as u64) as u32;
+        let size: u32    = ((self.header >> 58) & 0x3F) as u32;
+        let cap: u32     = ((self.header >> 52) & 0x3F) as u32;
         let arr_base: *mut AnyVal = base.byte_add(self.data.offset) as *mut AnyVal;
 
-        if (bitmap & key_bit) == 0 as u64 {
+        if (bitmap & key_bit) == 0 {
             if size >= cap { return; }
             let mut i: u32 = size;
             while i > pos {
@@ -201,7 +201,7 @@ impl<T> Array<T> {
         let buf: *mut T = base.byte_add(self.data.offset) as *mut T;
         let ep: *mut T = buf.add(self.size as i64);
         *ep = *val_ptr;
-        self.size = self.size + 1 as u64;
+        self.size = self.size + 1;
     }
 
     // Dynamic push with 2× growth via MemHolder.  On grow, `self` may be
@@ -212,8 +212,8 @@ impl<T> Array<T> {
         let arr_off: u32 = (self as *const u8).byte_offset_from(holder.base as *const u8) as u32;
         if self.size >= self.capacity {
             let old_cap: u64 = self.capacity;
-            let new_cap: u64 = if old_cap == 0 as u64 { 8 as u64 }
-                               else { old_cap * 2 as u64 };
+            let new_cap: u64 = if old_cap == 0 { 8 }
+                               else { old_cap * 2 };
             let new_bytes: i64 = (new_cap as i64) * elem_sz;
             let new_buf: *mut u8 = memholder_alloc(holder, new_bytes);
             if new_buf == 0 as *mut u8 { return; }
@@ -233,14 +233,14 @@ impl<T> Array<T> {
             let buf2: *mut T = new_buf as *mut T;
             let ep2: *mut T = buf2.add(arr2.size as i64);
             *ep2 = val;
-            arr2.size = arr2.size + 1 as u64;
+            arr2.size = arr2.size + 1;
             return;
         }
         let base: *mut u8 = holder.base;
         let buf: *mut T = base.byte_add(self.data.offset) as *mut T;
         let ep: *mut T = buf.add(self.size as i64);
         *ep = val;
-        self.size = self.size + 1 as u64;
+        self.size = self.size + 1;
     }
 
     // Returns a pointer to the element at idx, or null on OOB.
@@ -272,8 +272,8 @@ impl Array<AnyVal> {
         let mut i: u64 = 0;
         while i < capacity {
             let ep: *mut AnyVal = buf.add(i as i64);
-            ep.raw = 0 as u32;
-            i = i + 1 as u64;
+            ep.raw = 0;
+            i = i + 1;
         }
         return arr_ptr;
     }
@@ -338,7 +338,7 @@ impl MapI32AnyVal {
                        base: *mut u8, capacity: u32) -> *mut MapI32AnyVal {
         let base_c: *const u8 = base as *const u8;
         let m: *mut MapI32AnyVal = map_raw as *mut MapI32AnyVal;
-        m.size     = 0 as u32;
+        m.size     = 0;
         m.capacity = capacity;
         m.keys.offset = (keys_raw as *const u8).byte_offset_from(base_c) as u32;
         m.vals.offset = (vals_raw as *const u8).byte_offset_from(base_c) as u32;
@@ -349,7 +349,7 @@ impl MapI32AnyVal {
     pub unsafe fn set(self: *mut MapI32AnyVal, base: *mut u8, key: i32, val: AnyVal) {
         let keys: *mut i32    = base.byte_add(self.keys.offset) as *mut i32;
         let vals: *mut AnyVal = base.byte_add(self.vals.offset) as *mut AnyVal;
-        let mut i: u32 = 0 as u32;
+        let mut i: u32 = 0;
         while i < self.size {
             let kp: *mut i32 = keys.add(i as i64);
             if *kp == key {
@@ -357,7 +357,7 @@ impl MapI32AnyVal {
                 vp.raw = val.raw;
                 return;
             }
-            i = i + 1 as u32;
+            i = i + 1;
         }
         if self.size >= self.capacity { return; }
         let n: u32 = self.size;
@@ -365,7 +365,7 @@ impl MapI32AnyVal {
         let vdst: *mut AnyVal = vals.add(n as i64);
         *kdst = key;
         vdst.raw = val.raw;
-        self.size = self.size + 1 as u32;
+        self.size = self.size + 1;
     }
 }
 

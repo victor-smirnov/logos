@@ -100,15 +100,15 @@ impl TypedContainerSpec {
     pub static fn invalid() -> TypedContainerSpec {
         return TypedContainerSpec {
             ok: false,
-            next: 0 as u8,
-            arg_count: 0 as i64,
-            a0_start: 0 as i64,
-            a0_end: 0 as i64,
-            a1_start: 0 as i64,
-            a1_end: 0 as i64,
-            key_atom: 0 as u8,
-            val_atom: 0 as u8,
-            mat: 0 as u8,
+            next: 0,
+            arg_count: 0,
+            a0_start: 0,
+            a0_end: 0,
+            a1_start: 0,
+            a1_end: 0,
+            key_atom: 0,
+            val_atom: 0,
+            mat: 0,
         };
     }
 }
@@ -124,7 +124,7 @@ impl HermesParser {
         let base: *mut u8 = zone.holder.base;
         return HermesParser {
             text: text,
-            pos:  0 as i64,
+            pos:  0,
             zone:    zone,
             base:    base,
             scratch: sc,
@@ -144,14 +144,14 @@ impl HermesParser {
     }
 
     pub unsafe fn peek(&mut self) -> u8 {
-        if self.at_end() { return 0 as u8; }
+        if self.at_end() { return 0; }
         return *((self.text.as_ptr() as i64 + self.pos) as *const u8);
     }
 
     // Peek at current position + off (0-indexed from pos).
     pub unsafe fn peek_at(&mut self, off: i64) -> u8 {
         let p: i64 = self.pos + off;
-        if p >= self.text.len() { return 0 as u8; }
+        if p >= self.text.len() { return 0; }
         return *((self.text.as_ptr() as i64 + p) as *const u8);
     }
 
@@ -168,12 +168,12 @@ impl HermesParser {
         while going == true && !self.at_end() {
             let c: u8 = self.peek();
             // space=32, tab=9, LF=10, CR=13
-            if c == 32 as u8 || c == 9 as u8 || c == 10 as u8 || c == 13 as u8 {
+            if c == 32 || c == 9 || c == 10 || c == 13 {
                 self.pos = self.pos + 1;
-            } else if c == 47 as u8 && self.peek_at(1) == 47 as u8 {
+            } else if c == 47 && self.peek_at(1) == 47 {
                 // '//' comment: skip to end of line
-                self.pos = self.pos + 2 as i64;
-                while !self.at_end() && self.peek() != 10 as u8 {
+                self.pos = self.pos + 2;
+                while !self.at_end() && self.peek() != 10 {
                     self.pos = self.pos + 1;
                 }
             } else {
@@ -185,12 +185,12 @@ impl HermesParser {
     // ── Character classification ──────────────────────────────────────────────
 
     pub unsafe fn is_digit(&mut self, c: u8) -> bool {
-        return c >= 48 as u8 && c <= 57 as u8;
+        return c >= 48 && c <= 57;
     }
     pub unsafe fn is_ident_start(&mut self, c: u8) -> bool {
-        return (c >= 65 as u8 && c <= 90 as u8)
-            || (c >= 97 as u8 && c <= 122 as u8)
-            || c == 95 as u8;
+        return (c >= 65 && c <= 90)
+            || (c >= 97 && c <= 122)
+            || c == 95;
     }
     pub unsafe fn is_ident_char(&mut self, c: u8) -> bool {
         return self.is_ident_start(c) || self.is_digit(c);
@@ -217,7 +217,7 @@ impl HermesParser {
         if self.at_end() { return false; }
 
         // Optional leading '-'
-        if self.peek() == 45 as u8 {  // '-'
+        if self.peek() == 45 {  // '-'
             self.pos = self.pos + 1;
             if self.at_end() || !self.is_digit(self.peek()) {
                 return false;
@@ -225,15 +225,15 @@ impl HermesParser {
         }
 
         // Hex integer: 0x[0-9a-fA-F]+
-        if self.peek() == 48 as u8 && (self.peek_at(1) == 120 as u8 || self.peek_at(1) == 88 as u8) {
-            self.pos = self.pos + 2 as i64;  // 0x / 0X
+        if self.peek() == 48 && (self.peek_at(1) == 120 || self.peek_at(1) == 88) {
+            self.pos = self.pos + 2;  // 0x / 0X
             let mut n_hex: i64 = 0;
             while !self.at_end() {
                 let c: u8 = self.peek();
                 let is_hex: bool =
-                    (c >= 48 as u8 && c <= 57 as u8)   // 0-9
-                    || (c >= 97 as u8 && c <= 102 as u8)  // a-f
-                    || (c >= 65 as u8 && c <= 70 as u8);  // A-F
+                    (c >= 48 && c <= 57)   // 0-9
+                    || (c >= 97 && c <= 102)  // a-f
+                    || (c >= 65 && c <= 70);  // A-F
                 if is_hex == false { break; }
                 self.pos = self.pos + 1;
                 n_hex = n_hex + 1;
@@ -259,7 +259,7 @@ impl HermesParser {
         if self.is_ident_start(c) {
             return self.parse_datatype_expr();
         }
-        if self.is_digit(c) || (c == 45 as u8 && self.is_digit(self.peek_at(1))) {
+        if self.is_digit(c) || (c == 45 && self.is_digit(self.peek_at(1))) {
             return self.parse_type_int_lit();
         }
         return false;
@@ -272,7 +272,7 @@ impl HermesParser {
     pub unsafe fn parse_datatype_expr(&mut self) -> bool {
         if self.parse_type_ident() == false { return false; }
         self.skip();
-        if self.at_end() || self.peek() != 60 as u8 {  // '<'
+        if self.at_end() || self.peek() != 60 {  // '<'
             return true;
         }
         self.pos = self.pos + 1;
@@ -283,16 +283,16 @@ impl HermesParser {
             if self.at_end() { return false; }
             let ch: u8 = self.peek();
             if expect_arg == true {
-                if ch == 62 as u8 {       // '>'
+                if ch == 62 {       // '>'
                     return false;         // empty arg list or trailing comma
                 }
                 if self.parse_type_arg() == false { return false; }
                 expect_arg = false;
             } else {
-                if ch == 44 as u8 {       // ','
+                if ch == 44 {       // ','
                     self.pos = self.pos + 1;
                     expect_arg = true;
-                } else if ch == 62 as u8 { // '>'
+                } else if ch == 62 { // '>'
                     self.pos = self.pos + 1;
                     return true;
                 } else {
@@ -304,7 +304,7 @@ impl HermesParser {
     }
 
     pub unsafe fn is_ws(&mut self, c: u8) -> bool {
-        return c == 32 as u8 || c == 9 as u8 || c == 10 as u8 || c == 13 as u8;
+        return c == 32 || c == 9 || c == 10 || c == 13;
     }
 
     pub unsafe fn type_expr_is_i32(&mut self, start: i64, end: i64) -> bool {
@@ -316,12 +316,12 @@ impl HermesParser {
         while te > ts && self.is_ws(*((self.text.as_ptr() as i64 + te - 1) as *const u8)) {
             te = te - 1;
         }
-        if te - ts != 3 as i64 { return false; }
-        let c0: u8 = *((self.text.as_ptr() as i64 + ts + 0 as i64) as *const u8);
+        if te - ts != 3 { return false; }
+        let c0: u8 = *((self.text.as_ptr() as i64 + ts + 0) as *const u8);
         let c1: u8 = *((self.text.as_ptr() as i64 + ts + 1) as *const u8);
-        let c2: u8 = *((self.text.as_ptr() as i64 + ts + 2 as i64) as *const u8);
-        return (c0 == 105 as u8 || c0 == 73 as u8)  // i / I
-            && c1 == 51 as u8 && c2 == 50 as u8;    // 3 2
+        let c2: u8 = *((self.text.as_ptr() as i64 + ts + 2) as *const u8);
+        return (c0 == 105 || c0 == 73)  // i / I
+            && c1 == 51 && c2 == 50;    // 3 2
     }
 
     pub unsafe fn ident_eq_span(&mut self, start: i64, end: i64, lit: str) -> bool {
@@ -338,21 +338,21 @@ impl HermesParser {
         return true;
     }
 
-    pub unsafe fn atom_unknown(&mut self) -> u8 { return 0 as u8; }
-    pub unsafe fn atom_i32(&mut self) -> u8 { return 1 as u8; }
-    pub unsafe fn atom_varchar(&mut self) -> u8 { return 2 as u8; }
-    pub unsafe fn atom_anyval(&mut self) -> u8 { return 3 as u8; }
+    pub unsafe fn atom_unknown(&mut self) -> u8 { return 0; }
+    pub unsafe fn atom_i32(&mut self) -> u8 { return 1; }
+    pub unsafe fn atom_varchar(&mut self) -> u8 { return 2; }
+    pub unsafe fn atom_anyval(&mut self) -> u8 { return 3; }
 
-    pub unsafe fn mat_unknown(&mut self) -> u8 { return 0 as u8; }
-    pub unsafe fn mat_default_map(&mut self) -> u8 { return 1 as u8; }
-    pub unsafe fn mat_i32_anyval_map(&mut self) -> u8 { return 2 as u8; }
-    pub unsafe fn mat_i32_array(&mut self) -> u8 { return 3 as u8; }
+    pub unsafe fn mat_unknown(&mut self) -> u8 { return 0; }
+    pub unsafe fn mat_default_map(&mut self) -> u8 { return 1; }
+    pub unsafe fn mat_i32_anyval_map(&mut self) -> u8 { return 2; }
+    pub unsafe fn mat_i32_array(&mut self) -> u8 { return 3; }
 
     // Typed-container materialization registry.
     // Add new pre-materializations by appending rules here, not in parser flow.
     pub unsafe fn resolve_array_materialization(&mut self, argc: i64, elem_atom: u8) -> u8 {
         // Rule: <I32>[...] -> dense Array<i32>
-        if argc == 1 as i64 && elem_atom == self.atom_i32() {
+        if argc == 1 && elem_atom == self.atom_i32() {
             return self.mat_i32_array();
         }
         return self.mat_unknown();
@@ -360,19 +360,19 @@ impl HermesParser {
 
     pub unsafe fn resolve_map_materialization(&mut self, argc: i64, key_atom: u8, val_atom: u8) -> u8 {
         // Rule: <Varchar>{...} -> Map<Varchar,AnyVal>
-        if argc == 1 as i64 && key_atom == self.atom_varchar() {
+        if argc == 1 && key_atom == self.atom_varchar() {
             return self.mat_default_map();
         }
         // Rule: <I32>{...} -> Map<I32,AnyVal>
-        if argc == 1 as i64 && key_atom == self.atom_i32() {
+        if argc == 1 && key_atom == self.atom_i32() {
             return self.mat_i32_anyval_map();
         }
         // Rule: <Varchar,AnyVal>{...}
-        if argc == 2 as i64 && key_atom == self.atom_varchar() && val_atom == self.atom_anyval() {
+        if argc == 2 && key_atom == self.atom_varchar() && val_atom == self.atom_anyval() {
             return self.mat_default_map();
         }
         // Rule: <I32,AnyVal>{...}
-        if argc == 2 as i64 && key_atom == self.atom_i32() && val_atom == self.atom_anyval() {
+        if argc == 2 && key_atom == self.atom_i32() && val_atom == self.atom_anyval() {
             return self.mat_i32_anyval_map();
         }
         return self.mat_unknown();
@@ -423,12 +423,12 @@ impl HermesParser {
         while e > s && self.is_ws(*((self.text.as_ptr() as i64 + e - 1) as *const u8)) {
             e = e - 1;
         }
-        if e < s { return 0 as u32; }
+        if e < s { return 0; }
         let n: i64 = e - s;
         let pfx: i64 = vlen_encode_size(n as u64) as i64;
         let raw: *mut u8 = zone_m_alloc_tagged(self.zone, pfx + n,
                                hermes_tag_string() as u64);
-        if raw == 0 as *mut u8 { return 0 as u32; }
+        if raw == 0 as *mut u8 { return 0; }
         vlen_write(raw, n as u64);
         let body: *mut u8 = (raw as i64 + pfx) as *mut u8;
         let mut i: i64 = 0;
@@ -446,18 +446,18 @@ impl HermesParser {
     //   Type(a,b,c)     -> Array<AnyVal>[a,b,c]
     pub unsafe fn parse_optional_type_assoc_params(&mut self) -> AnyVal {
         self.skip();
-        if self.peek() != 40 as u8 {  // '('
+        if self.peek() != 40 {  // '('
             return AnyVal::null_ptr();
         }
         self.pos = self.pos + 1;
 
         self.skip();
-        if self.peek() == 41 as u8 {  // ')'
+        if self.peek() == 41 {  // ')'
             self.pos = self.pos + 1;
             return AnyVal::null_ptr();  // canonical: no subtype data
         }
 
-        let cap: u64 = 32 as u64;
+        let cap: u64 = 32;
         let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
         let oa_raw: *mut u8 = zone_m_alloc_tagged(self.zone, oa_sz,
                                   hermes_tag_array() as u64);
@@ -479,13 +479,13 @@ impl HermesParser {
             arr.push(self.zone.holder, v);
             self.base = self.zone.holder.base;
             self.skip();
-            if self.peek() == 41 as u8 {       // ')'
+            if self.peek() == 41 {       // ')'
                 self.pos = self.pos + 1;
                 going = false;
-            } else if self.peek() == 44 as u8 { // ','
+            } else if self.peek() == 44 { // ','
                 self.pos = self.pos + 1;
                 self.skip();
-                if self.peek() == 41 as u8 {    // trailing comma is invalid
+                if self.peek() == 41 {    // trailing comma is invalid
                     self.ok = false;
                     return AnyVal::null_ptr();
                 }
@@ -513,7 +513,7 @@ impl HermesParser {
     }
 
     pub unsafe fn type_name_eq(&mut self, type_off: u32, lit: str) -> bool {
-        if type_off == 0 as u32 { return false; }
+        if type_off == 0 { return false; }
         let hs: *const HermesString =
             (self.base as i64 + type_off as i64) as *const HermesString;
         let n: i64 = lit.len();
@@ -553,20 +553,20 @@ impl HermesParser {
             return false;
         }
         let arr: *const ObjectArray = pobj as *const ObjectArray;
-        if arr.size != 2 as u64 {
+        if arr.size != 2 {
             self.ok = false;
             return false;
         }
-        let p_raw: AnyVal = arr.get(self.base as *const u8, 0 as u64);
-        let s_raw: AnyVal = arr.get(self.base as *const u8, 1 as u64);
+        let p_raw: AnyVal = arr.get(self.base as *const u8, 0);
+        let s_raw: AnyVal = arr.get(self.base as *const u8, 1);
         let p: i32 = self.anyval_to_i32(p_raw);
         if self.ok == false { return false; }
         let s: i32 = self.anyval_to_i32(s_raw);
         if self.ok == false { return false; }
-        if p <= 0 as i32 { self.ok = false; return false; }
-        if s < 0 as i32 { self.ok = false; return false; }
+        if p <= 0 { self.ok = false; return false; }
+        if s < 0 { self.ok = false; return false; }
         if s > p { self.ok = false; return false; }
-        if p > 1143 as i32 { self.ok = false; return false; }
+        if p > 1143 { self.ok = false; return false; }
         return true;
     }
 
@@ -590,8 +590,8 @@ impl HermesParser {
 
         let pobj: *const u8 = (self.base as i64 + params.as_offset() as i64) as *const u8;
         let arr: *const ObjectArray = pobj as *const ObjectArray;
-        let p_raw: AnyVal = arr.get(self.base as *const u8, 0 as u64);
-        let s_raw: AnyVal = arr.get(self.base as *const u8, 1 as u64);
+        let p_raw: AnyVal = arr.get(self.base as *const u8, 0);
+        let s_raw: AnyVal = arr.get(self.base as *const u8, 1);
         let p: i32 = self.anyval_to_i32(p_raw);
         if self.ok == false { return AnyVal::null_ptr(); }
         let s: i32 = self.anyval_to_i32(s_raw);
@@ -608,7 +608,7 @@ impl HermesParser {
 
     // Prefix form: @Type(params?) = initializer
     pub unsafe fn parse_typed_value_prefix(&mut self) -> AnyVal {
-        if self.peek() != 64 as u8 {  // '@'
+        if self.peek() != 64 {  // '@'
             self.ok = false;
             return AnyVal::null_ptr();
         }
@@ -621,14 +621,14 @@ impl HermesParser {
         }
         let t1: i64 = self.pos;
         let type_off: u32 = self.alloc_string_span(t0, t1);
-        if type_off == 0 as u32 {
+        if type_off == 0 {
             self.ok = false;
             return AnyVal::null_ptr();
         }
         let params: AnyVal = self.parse_optional_type_assoc_params();
         if self.ok == false { return AnyVal::null_ptr(); }
         self.skip();
-        if self.peek() != 61 as u8 {   // '='
+        if self.peek() != 61 {   // '='
             self.ok = false;
             return AnyVal::null_ptr();
         }
@@ -649,7 +649,7 @@ impl HermesParser {
     //   "..." @Type(params?)
     pub unsafe fn parse_typed_value_postfix(&mut self, initv: AnyVal) -> AnyVal {
         self.skip();
-        if self.peek() != 64 as u8 { return initv; }  // no postfix
+        if self.peek() != 64 { return initv; }  // no postfix
         self.pos = self.pos + 1;
         self.skip();
         let t0: i64 = self.pos;
@@ -659,7 +659,7 @@ impl HermesParser {
         }
         let t1: i64 = self.pos;
         let type_off: u32 = self.alloc_string_span(t0, t1);
-        if type_off == 0 as u32 {
+        if type_off == 0 {
             self.ok = false;
             return AnyVal::null_ptr();
         }
@@ -679,7 +679,7 @@ impl HermesParser {
     // On success returns a fully resolved spec with the next container token
     // (`[` or `{`) still unconsumed for payload parser.
     pub unsafe fn parse_typed_container_spec(&mut self) -> TypedContainerSpec {
-        if self.peek() != 60 as u8 {  // '<'
+        if self.peek() != 60 {  // '<'
             return TypedContainerSpec::invalid();
         }
         self.pos = self.pos + 1;
@@ -693,21 +693,21 @@ impl HermesParser {
         while true {
             self.skip();
             if self.at_end() { return TypedContainerSpec::invalid(); }
-            if self.peek() == 62 as u8 { return TypedContainerSpec::invalid(); } // empty header
+            if self.peek() == 62 { return TypedContainerSpec::invalid(); } // empty header
 
             let arg_start: i64 = self.pos;
             if self.parse_datatype_expr() == false { return TypedContainerSpec::invalid(); }
             let arg_end: i64 = self.pos;
             count = count + 1;
-            if count == 1 as i64 { a0s = arg_start; a0e = arg_end; }
-            if count == 2 as i64 { a1s = arg_start; a1e = arg_end; }
+            if count == 1 { a0s = arg_start; a0e = arg_end; }
+            if count == 2 { a1s = arg_start; a1e = arg_end; }
 
             self.skip();
             if self.at_end() { return TypedContainerSpec::invalid(); }
             let ch: u8 = self.peek();
-            if ch == 44 as u8 {  // ','
+            if ch == 44 {  // ','
                 self.pos = self.pos + 1;
-            } else if ch == 62 as u8 {  // '>'
+            } else if ch == 62 {  // '>'
                 self.pos = self.pos + 1;
                 break;
             } else {
@@ -718,13 +718,13 @@ impl HermesParser {
         self.skip();
         if self.at_end() { return TypedContainerSpec::invalid(); }
         let next: u8 = self.peek();
-        if next != 91 as u8 && next != 123 as u8 {  // '[' / '{'
+        if next != 91 && next != 123 {  // '[' / '{'
             return TypedContainerSpec::invalid();
         }
 
         let key_atom: u8 = self.parse_type_atom(a0s, a0e);
-        let mut val_atom: u8 = if count >= 2 as i64 { self.parse_type_atom(a1s, a1e) } else { self.atom_unknown() };
-        let mat: u8 = if next == 91 as u8 {
+        let mut val_atom: u8 = if count >= 2 { self.parse_type_atom(a1s, a1e) } else { self.atom_unknown() };
+        let mat: u8 = if next == 91 {
             self.resolve_array_materialization(count, key_atom)
         } else {
             self.resolve_map_materialization(count, key_atom, val_atom)
@@ -751,7 +751,7 @@ impl HermesParser {
         if v.is_ptr() {
             if v.is_null() {
                 self.ok = false;
-                return 0 as i32;
+                return 0;
             }
             let obj: *const u8 = (self.base as i64 + v.as_offset() as i64) as *const u8;
             let th: u64 = read_type_code(obj);
@@ -760,14 +760,14 @@ impl HermesParser {
                 n = p.v;
             } else if th == hermes_tag_u64() as u64 {
                 let p: *const U64 = obj as *const U64;
-                if p.v > 2147483647 as u64 {
+                if p.v > 2147483647 {
                     self.ok = false;
-                    return 0 as i32;
+                    return 0;
                 }
                 n = p.v as i64;
             } else {
                 self.ok = false;
-                return 0 as i32;
+                return 0;
             }
         } else if v.is_int() {
             n = v.as_i24() as i64;
@@ -775,11 +775,11 @@ impl HermesParser {
             n = v.as_u24() as i64;
         } else {
             self.ok = false;
-            return 0 as i32;
+            return 0;
         }
-        if n < -2147483648 as i64 || n > 2147483647 as i64 {
+        if n < -2147483648 || n > 2147483647 {
             self.ok = false;
-            return 0 as i32;
+            return 0;
         }
         return n as i32;
     }
@@ -811,13 +811,13 @@ impl HermesParser {
     }
 
     pub unsafe fn parse_typed_array_i32(&mut self) -> AnyVal {
-        if self.peek() != 91 as u8 {  // '['
+        if self.peek() != 91 {  // '['
             self.ok = false;
             return AnyVal::null_ptr();
         }
         self.pos = self.pos + 1;
 
-        let cap: u64 = 64 as u64;
+        let cap: u64 = 64;
         let arr_sz: i64 = sizeof::<Array<i32>>() as i64;
         let arr_raw: *mut u8 = zone_m_alloc_tagged(self.zone, arr_sz,
                                   hermes_tag_array_i32() as u64);
@@ -832,7 +832,7 @@ impl HermesParser {
         arr.data.offset = (buf_raw as i64 - self.base as i64) as u32;
 
         self.skip();
-        if self.peek() == 93 as u8 {  // ']'
+        if self.peek() == 93 {  // ']'
             self.pos = self.pos + 1;
             let off0: u32 = (arr_raw as i64 - self.base as i64) as u32;
             return AnyVal::from_offset(off0);
@@ -852,16 +852,16 @@ impl HermesParser {
             let ep: *mut i32 =
                 (self.base as i64 + arr.data.offset + (arr.size as i64) * 4) as *mut i32;
             *ep = n32;
-            arr.size = arr.size + 1 as u64;
+            arr.size = arr.size + 1;
 
             self.skip();
-            if self.peek() == 93 as u8 {        // ']'
+            if self.peek() == 93 {        // ']'
                 self.pos = self.pos + 1;
                 going = false;
-            } else if self.peek() == 44 as u8 { // ','
+            } else if self.peek() == 44 { // ','
                 self.pos = self.pos + 1;
                 self.skip();
-                if self.peek() == 93 as u8 {    // trailing comma
+                if self.peek() == 93 {    // trailing comma
                     self.pos = self.pos + 1;
                     going = false;
                 }
@@ -876,13 +876,13 @@ impl HermesParser {
     }
 
     pub unsafe fn parse_typed_map_i32_anyval(&mut self) -> AnyVal {
-        if self.peek() != 123 as u8 {  // '{'
+        if self.peek() != 123 {  // '{'
             self.ok = false;
             return AnyVal::null_ptr();
         }
         self.pos = self.pos + 1;
 
-        let cap: u32 = 64 as u32;
+        let cap: u32 = 64;
         let map_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
         let map_raw: *mut u8 = zone_m_alloc_tagged(self.zone, map_sz,
                                    hermes_tag_map_i32_anyval() as u64);
@@ -895,7 +895,7 @@ impl HermesParser {
         let m: *mut MapI32AnyVal = MapI32AnyVal::init(map_raw, keys_raw, vals_raw, self.base, cap);
 
         self.skip();
-        if self.peek() == 125 as u8 {  // '}'
+        if self.peek() == 125 {  // '}'
             self.pos = self.pos + 1;
             let off0: u32 = (map_raw as i64 - self.base as i64) as u32;
             return AnyVal::from_offset(off0);
@@ -905,7 +905,7 @@ impl HermesParser {
         while going == true {
             self.skip();
 
-            if !(self.is_digit(self.peek()) || self.peek() == 45 as u8) {
+            if !(self.is_digit(self.peek()) || self.peek() == 45) {
                 self.ok = false;
                 return AnyVal::null_ptr();
             }
@@ -915,7 +915,7 @@ impl HermesParser {
             if self.ok == false { return AnyVal::null_ptr(); }
 
             self.skip();
-            if self.peek() != 58 as u8 {  // ':'
+            if self.peek() != 58 {  // ':'
                 self.ok = false;
                 return AnyVal::null_ptr();
             }
@@ -927,13 +927,13 @@ impl HermesParser {
             m.set(self.base, key_i32, val);
 
             self.skip();
-            if self.peek() == 125 as u8 {       // '}'
+            if self.peek() == 125 {       // '}'
                 self.pos = self.pos + 1;
                 going = false;
-            } else if self.peek() == 44 as u8 { // ','
+            } else if self.peek() == 44 { // ','
                 self.pos = self.pos + 1;
                 self.skip();
-                if self.peek() == 125 as u8 {   // trailing comma
+                if self.peek() == 125 {   // trailing comma
                     self.pos = self.pos + 1;
                     going = false;
                 }
@@ -957,23 +957,23 @@ impl HermesParser {
         }
         let c: u8 = self.peek();
 
-        if c == 110 as u8 { return self.parse_null(); }     // 'n'
-        if c == 116 as u8 { return self.parse_true_kw(); }  // 't'
-        if c == 102 as u8 { return self.parse_false_kw(); } // 'f'
-        if c == 34 as u8  {
+        if c == 110 { return self.parse_null(); }     // 'n'
+        if c == 116 { return self.parse_true_kw(); }  // 't'
+        if c == 102 { return self.parse_false_kw(); } // 'f'
+        if c == 34  {
             let s: AnyVal = self.parse_string();            // '"'
             if self.ok == false { return AnyVal::null_ptr(); }
             return self.parse_typed_value_postfix(s);
         }
-        if c == 91 as u8  { return self.parse_array(); }    // '['
-        if c == 123 as u8 { return self.parse_map(); }      // '{'
-        if c == 60 as u8  { return self.parse_typed_container(); }  // '<'
-        if c == 64 as u8  { return self.parse_typed_value_prefix(); }  // '@'
-        if c == 36 as u8  { return self.parse_param_val(); }          // '$'
+        if c == 91  { return self.parse_array(); }    // '['
+        if c == 123 { return self.parse_map(); }      // '{'
+        if c == 60  { return self.parse_typed_container(); }  // '<'
+        if c == 64  { return self.parse_typed_value_prefix(); }  // '@'
+        if c == 36  { return self.parse_param_val(); }          // '$'
 
         // Number: digit or '-' followed by digit
         if self.is_digit(c)
-        || (c == 45 as u8 && self.is_digit(self.peek_at(1))) {
+        || (c == 45 && self.is_digit(self.peek_at(1))) {
             return self.parse_number();
         }
 
@@ -986,7 +986,7 @@ impl HermesParser {
     // Produces AnyVal::embed_param(N).  Used in document templates.
 
     pub unsafe fn parse_param_val(&mut self) -> AnyVal {
-        if self.peek() != 36 as u8 {  // '$'
+        if self.peek() != 36 {  // '$'
             self.ok = false;
             return AnyVal::null_ptr();
         }
@@ -997,14 +997,14 @@ impl HermesParser {
             return AnyVal::null_ptr();
         }
 
-        let mut idx: u32 = 0 as u32;
+        let mut idx: u32 = 0;
         while !self.at_end() && self.is_digit(self.peek()) {
-            let d: u32 = (self.peek() - 48 as u8) as u32;
-            if idx > (16777215 as u32 - d) / 10 as u32 {
+            let d: u32 = (self.peek() - 48) as u32;
+            if idx > (16777215 - d) / 10 {
                 self.ok = false;
                 return AnyVal::null_ptr();
             }
-            idx = idx * 10 as u32 + d;
+            idx = idx * 10 + d;
             self.pos = self.pos + 1;
         }
 
@@ -1037,8 +1037,8 @@ impl HermesParser {
 
     pub unsafe fn parse_null(&mut self) -> AnyVal {
         // n=110 u=117 l=108 l=108
-        if self.peek_at(0) != 110 as u8 || self.peek_at(1) != 117 as u8
-        || self.peek_at(2) != 108 as u8 || self.peek_at(3) != 108 as u8
+        if self.peek_at(0) != 110 || self.peek_at(1) != 117
+        || self.peek_at(2) != 108 || self.peek_at(3) != 108
         || self.is_ident_char(self.peek_at(4)) {
             self.ok = false;
             return AnyVal::null_ptr();
@@ -1051,8 +1051,8 @@ impl HermesParser {
 
     pub unsafe fn parse_true_kw(&mut self) -> AnyVal {
         // t=116 r=114 u=117 e=101
-        if self.peek_at(0) != 116 as u8 || self.peek_at(1) != 114 as u8
-        || self.peek_at(2) != 117 as u8 || self.peek_at(3) != 101 as u8
+        if self.peek_at(0) != 116 || self.peek_at(1) != 114
+        || self.peek_at(2) != 117 || self.peek_at(3) != 101
         || self.is_ident_char(self.peek_at(4)) {
             self.ok = false;
             return AnyVal::null_ptr();
@@ -1063,14 +1063,14 @@ impl HermesParser {
 
     pub unsafe fn parse_false_kw(&mut self) -> AnyVal {
         // f=102 a=97 l=108 s=115 e=101
-        if self.peek_at(0) != 102 as u8 || self.peek_at(1) != 97 as u8
-        || self.peek_at(2) != 108 as u8 || self.peek_at(3) != 115 as u8
-        || self.peek_at(4) != 101 as u8
+        if self.peek_at(0) != 102 || self.peek_at(1) != 97
+        || self.peek_at(2) != 108 || self.peek_at(3) != 115
+        || self.peek_at(4) != 101
         || self.is_ident_char(self.peek_at(5)) {
             self.ok = false;
             return AnyVal::null_ptr();
         }
-        self.pos = self.pos + 5 as i64;
+        self.pos = self.pos + 5;
         return AnyVal::embed_bool(false);
     }
 
@@ -1081,17 +1081,17 @@ impl HermesParser {
 
     pub unsafe fn parse_number(&mut self) -> AnyVal {
         let mut neg: bool = false;
-        if self.peek() == 45 as u8 {  // '-'
+        if self.peek() == 45 {  // '-'
             neg = true;
             self.pos = self.pos + 1;
         }
 
         // Hex prefix 0x / 0X
         let mut hex: bool = false;
-        if self.peek() == 48 as u8
-        && (self.peek_at(1) == 120 as u8 || self.peek_at(1) == 88 as u8) {
+        if self.peek() == 48
+        && (self.peek_at(1) == 120 || self.peek_at(1) == 88) {
             hex = true;
-            self.pos = self.pos + 2 as i64;
+            self.pos = self.pos + 2;
         }
 
         // Accumulate unsigned magnitude
@@ -1100,32 +1100,32 @@ impl HermesParser {
         let mut going: bool = true;
         while going == true && !self.at_end() {
             let c: u8 = self.peek();
-            if c >= 48 as u8 && c <= 57 as u8 {
-                let base: u64 = if hex { 16 as u64 } else { 10 as u64 };
-                let digit: u64 = (c - 48 as u8) as u64;
-                if uval > (18446744073709551615 as u64 - digit) / base {
+            if c >= 48 && c <= 57 {
+                let base: u64 = if hex { 16 } else { 10 };
+                let digit: u64 = (c - 48) as u64;
+                if uval > (18446744073709551615 - digit) / base {
                     self.ok = false;
                     return AnyVal::null_ptr();
                 }
                 uval = uval * base + digit;
                 self.pos = self.pos + 1;
-            } else if hex && c >= 97 as u8 && c <= 102 as u8 {
+            } else if hex && c >= 97 && c <= 102 {
                 // a-f
-                let digit: u64 = (c - 97 as u8 + 10 as u8) as u64;
-                if uval > (18446744073709551615 as u64 - digit) / 16 as u64 {
+                let digit: u64 = (c - 97 + 10) as u64;
+                if uval > (18446744073709551615 - digit) / 16 {
                     self.ok = false;
                     return AnyVal::null_ptr();
                 }
-                uval = uval * 16 as u64 + digit;
+                uval = uval * 16 + digit;
                 self.pos = self.pos + 1;
-            } else if hex && c >= 65 as u8 && c <= 70 as u8 {
+            } else if hex && c >= 65 && c <= 70 {
                 // A-F
-                let digit: u64 = (c - 65 as u8 + 10 as u8) as u64;
-                if uval > (18446744073709551615 as u64 - digit) / 16 as u64 {
+                let digit: u64 = (c - 65 + 10) as u64;
+                if uval > (18446744073709551615 - digit) / 16 {
                     self.ok = false;
                     return AnyVal::null_ptr();
                 }
-                uval = uval * 16 as u64 + digit;
+                uval = uval * 16 + digit;
                 self.pos = self.pos + 1;
             } else {
                 going = false;
@@ -1138,7 +1138,7 @@ impl HermesParser {
         }
 
         // Detect float: '.' followed by a digit (not hex, not a suffix like ull)
-        if hex == false && self.peek() == 46 as u8 && self.is_digit(self.peek_at(1)) {
+        if hex == false && self.peek() == 46 && self.is_digit(self.peek_at(1)) {
             return self.parse_float_tail(uval, neg);
         }
 
@@ -1161,9 +1161,9 @@ impl HermesParser {
 
         // Optional exponent: e or E, optional sign, digits
         if !self.at_end()
-        && (self.peek() == 101 as u8 || self.peek() == 69 as u8) {  // 'e' or 'E'
+        && (self.peek() == 101 || self.peek() == 69) {  // 'e' or 'E'
             self.pos = self.pos + 1;
-            if !self.at_end() && (self.peek() == 45 as u8 || self.peek() == 43 as u8) {
+            if !self.at_end() && (self.peek() == 45 || self.peek() == 43) {
                 self.pos = self.pos + 1;
             }
             // Must have at least one exponent digit
@@ -1192,63 +1192,63 @@ impl HermesParser {
         let c4: u8 = self.peek_at(4);
 
         // '_' prefix suffixes
-        if c0 == 95 as u8 {
+        if c0 == 95 {
             // _u64  (_=95 u=117 6=54 4=52)
-            if c1 == 117 as u8 && c2 == 54 as u8 && c3 == 52 as u8
+            if c1 == 117 && c2 == 54 && c3 == 52
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4;
                 // u64 not embeddable — store as u24 (lower 24 bits)
                 return AnyVal::embed_u24(uval as u32);
             }
             // _u32  (_=95 u=117 3=51 2=50)
-            if c1 == 117 as u8 && c2 == 51 as u8 && c3 == 50 as u8
+            if c1 == 117 && c2 == 51 && c3 == 50
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4;
                 return AnyVal::embed_u24(uval as u32);
             }
             // _u16  (_=95 u=117 1=49 6=54)
-            if c1 == 117 as u8 && c2 == 49 as u8 && c3 == 54 as u8
+            if c1 == 117 && c2 == 49 && c3 == 54
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4;
                 return AnyVal::embed_u16(uval as u16);
             }
             // _u8   (_=95 u=117 8=56)
-            if c1 == 117 as u8 && c2 == 56 as u8
+            if c1 == 117 && c2 == 56
             && !self.is_ident_char(c3) {
-                self.pos = self.pos + 3 as i64;
+                self.pos = self.pos + 3;
                 return AnyVal::embed_u8(uval as u8);
             }
             // _s64  (_=95 s=115 6=54 4=52)
-            if c1 == 115 as u8 && c2 == 54 as u8 && c3 == 52 as u8
+            if c1 == 115 && c2 == 54 && c3 == 52
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4;
                 // s64 not embeddable — store as i24 (lower 24 bits).
                 let mut v: i32 = uval as i32;
-                if neg { v = 0 as i32 - v; }
+                if neg { v = 0 - v; }
                 return AnyVal::embed_i24(v);
             }
             // _s32  (_=95 s=115 3=51 2=50)
-            if c1 == 115 as u8 && c2 == 51 as u8 && c3 == 50 as u8
+            if c1 == 115 && c2 == 51 && c3 == 50
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4;
                 let mut v: i32 = uval as i32;
-                if neg { v = 0 as i32 - v; }
+                if neg { v = 0 - v; }
                 return AnyVal::embed_i24(v);
             }
             // _s16  (_=95 s=115 1=49 6=54)
-            if c1 == 115 as u8 && c2 == 49 as u8 && c3 == 54 as u8
+            if c1 == 115 && c2 == 49 && c3 == 54
             && !self.is_ident_char(c4) {
                 self.pos = self.pos + 4;
                 let mut v: i16 = uval as i16;
-                if neg { v = 0 as i16 - v; }
+                if neg { v = 0 - v; }
                 return AnyVal::embed_i16(v);
             }
             // _s8   (_=95 s=115 8=56)
-            if c1 == 115 as u8 && c2 == 56 as u8
+            if c1 == 115 && c2 == 56
             && !self.is_ident_char(c3) {
-                self.pos = self.pos + 3 as i64;
+                self.pos = self.pos + 3;
                 let mut v: i8 = uval as i8;
-                if neg { v = 0 as i8 - v; }
+                if neg { v = 0 - v; }
                 return AnyVal::embed_i8(v);
             }
         }
@@ -1257,26 +1257,26 @@ impl HermesParser {
         // - keep i24 inline when it fits
         // - otherwise allocate i64/u64 object instead of truncating to 24 bits
         if neg {
-            if uval <= 8388608 as u64 {
+            if uval <= 8388608 {
                 let mut v: i32 = uval as i32;
-                v = 0 as i32 - v;
+                v = 0 - v;
                 return AnyVal::embed_i24(v);
             }
-            if uval > 9223372036854775808 as u64 {
+            if uval > 9223372036854775808 {
                 self.ok = false;
                 return AnyVal::null_ptr();
             }
-            if uval == 9223372036854775808 as u64 {
-                return self.alloc_i64_anyval(-9223372036854775807 as i64 - 1);
+            if uval == 9223372036854775808 {
+                return self.alloc_i64_anyval(-9223372036854775807 - 1);
             }
-            let iv: i64 = 0 as i64 - uval as i64;
+            let iv: i64 = 0 - uval as i64;
             return self.alloc_i64_anyval(iv);
         }
 
-        if uval <= 8388607 as u64 {
+        if uval <= 8388607 {
             return AnyVal::embed_i24(uval as i32);
         }
-        if uval <= 9223372036854775807 as u64 {
+        if uval <= 9223372036854775807 {
             return self.alloc_i64_anyval(uval as i64);
         }
         return self.alloc_u64_anyval(uval);
@@ -1288,7 +1288,7 @@ impl HermesParser {
     // as an alloc_tagged HermesString (vlen prefix + UTF-8 bytes).
 
     pub unsafe fn parse_string(&mut self) -> AnyVal {
-        if self.peek() != 34 as u8 {  // '"'
+        if self.peek() != 34 {  // '"'
             self.ok = false;
             return AnyVal::null_ptr();
         }
@@ -1298,31 +1298,31 @@ impl HermesParser {
         let mut going: bool = true;
         while going == true && !self.at_end() {
             let c: u8 = self.peek();
-            if c == 34 as u8 {  // closing '"'
+            if c == 34 {  // closing '"'
                 going = false;
-            } else if c == 92 as u8 {  // '\'
+            } else if c == 92 {  // '\'
                 self.pos = self.pos + 1;
                 if self.at_end() { self.ok = false; return AnyVal::null_ptr(); }
                 let esc: u8 = self.advance();
-                let mut byte: u8 = 0 as u8;
+                let mut byte: u8 = 0;
                 let mut valid: bool = true;
-                if esc == 34 as u8  { byte = 34 as u8; }   // \" → "
-                else if esc == 92 as u8  { byte = 92 as u8; }   // \\ → \
-                else if esc == 47 as u8  { byte = 47 as u8; }   // \/ → /
-                else if esc == 110 as u8 { byte = 10 as u8; }   // \n → LF
-                else if esc == 114 as u8 { byte = 13 as u8; }   // \r → CR
-                else if esc == 116 as u8 { byte = 9 as u8;  }   // \t → TAB
-                else if esc == 98 as u8  { byte = 8 as u8;  }   // \b → BS
-                else if esc == 102 as u8 { byte = 12 as u8; }   // \f → FF
+                if esc == 34  { byte = 34; }   // \" → "
+                else if esc == 92  { byte = 92; }   // \\ → \
+                else if esc == 47  { byte = 47; }   // \/ → /
+                else if esc == 110 { byte = 10; }   // \n → LF
+                else if esc == 114 { byte = 13; }   // \r → CR
+                else if esc == 116 { byte = 9;  }   // \t → TAB
+                else if esc == 98  { byte = 8;  }   // \b → BS
+                else if esc == 102 { byte = 12; }   // \f → FF
                 else { valid = false; }
                 if valid == false { self.ok = false; return AnyVal::null_ptr(); }
-                if slen < 1023 as i64 {
+                if slen < 1023 {
                     let dst: *mut u8 = (self.scratch as i64 + slen) as *mut u8;
                     *dst = byte;
                 }
                 slen = slen + 1;
             } else {
-                if slen < 1023 as i64 {
+                if slen < 1023 {
                     let dst: *mut u8 = (self.scratch as i64 + slen) as *mut u8;
                     *dst = c;
                 }
@@ -1333,7 +1333,7 @@ impl HermesParser {
         if self.at_end() { self.ok = false; return AnyVal::null_ptr(); }
         self.pos = self.pos + 1;  // consume closing '"'
 
-        if slen > 1023 as i64 { self.ok = false; return AnyVal::null_ptr(); }
+        if slen > 1023 { self.ok = false; return AnyVal::null_ptr(); }
 
         // Allocate zone object: tagged HermesString
         let prefix_sz: i64 = vlen_encode_size(slen as u64) as i64;
@@ -1360,13 +1360,13 @@ impl HermesParser {
     // Pre-allocates ObjectArray with capacity 64. Elements beyond that are lost.
 
     pub unsafe fn parse_array(&mut self) -> AnyVal {
-        if self.peek() != 91 as u8 {  // '['
+        if self.peek() != 91 {  // '['
             self.ok = false;
             return AnyVal::null_ptr();
         }
         self.pos = self.pos + 1;
 
-        let cap: u64 = 64 as u64;
+        let cap: u64 = 64;
         let oa_sz:  i64 = sizeof::<ObjectArray>() as i64;
         let oa_raw: *mut u8 = zone_m_alloc_tagged(self.zone, oa_sz,
                                   hermes_tag_array() as u64);
@@ -1378,7 +1378,7 @@ impl HermesParser {
         let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, self.base, cap);
 
         self.skip();
-        if self.peek() == 93 as u8 {  // ']' empty array
+        if self.peek() == 93 {  // ']' empty array
             self.pos = self.pos + 1;
             let off: u32 = (oa_raw as i64 - self.base as i64) as u32;
             return AnyVal::from_offset(off);
@@ -1392,13 +1392,13 @@ impl HermesParser {
             self.base = self.zone.holder.base;
 
             self.skip();
-            if self.peek() == 93 as u8 {       // ']'
+            if self.peek() == 93 {       // ']'
                 self.pos = self.pos + 1;
                 going = false;
-            } else if self.peek() == 44 as u8 { // ','
+            } else if self.peek() == 44 { // ','
                 self.pos = self.pos + 1;
                 self.skip();
-                if self.peek() == 93 as u8 {   // trailing comma
+                if self.peek() == 93 {   // trailing comma
                     self.pos = self.pos + 1;
                     going = false;
                 }
@@ -1417,18 +1417,18 @@ impl HermesParser {
     // Pre-allocates ObjectMap with 64 slots.
 
     pub unsafe fn parse_map(&mut self) -> AnyVal {
-        if self.peek() != 123 as u8 {  // '{'
+        if self.peek() != 123 {  // '{'
             self.ok = false;
             return AnyVal::null_ptr();
         }
         self.pos = self.pos + 1;
 
-        let cap: u32 = 64 as u32;
+        let cap: u32 = 64;
         let om_sz:  i64 = sizeof::<ObjectMap>() as i64;
         let om_raw: *mut u8 = zone_m_alloc_tagged(self.zone, om_sz,
                                   hermes_tag_map() as u64);
         // 64 × 8-byte MapEntry
-        let om_ent: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 8 as i64);
+        let om_ent: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 8);
         if om_raw == 0 as *mut u8 || om_ent == 0 as *mut u8 {
             self.ok = false;
             return AnyVal::null_ptr();
@@ -1436,7 +1436,7 @@ impl HermesParser {
         let omap: *mut ObjectMap = ObjectMap::init(om_raw, self.base, om_ent, cap);
 
         self.skip();
-        if self.peek() == 125 as u8 {  // '}' empty map
+        if self.peek() == 125 {  // '}' empty map
             self.pos = self.pos + 1;
             let off: u32 = (om_raw as i64 - self.base as i64) as u32;
             return AnyVal::from_offset(off);
@@ -1447,11 +1447,11 @@ impl HermesParser {
             self.skip();
 
             // ── key ──────────────────────────────────────────────────────────
-            let mut key_off: u32 = 0 as u32;
+            let mut key_off: u32 = 0;
             let mut key_ptr: *const u8 = 0 as *const u8;
             let mut key_len: u64 = 0;
 
-            if self.peek() == 34 as u8 {
+            if self.peek() == 34 {
                 // Quoted string key
                 let kv: AnyVal = self.parse_string();
                 if self.ok == false { return AnyVal::null_ptr(); }
@@ -1495,7 +1495,7 @@ impl HermesParser {
 
             // ── ':' ──────────────────────────────────────────────────────────
             self.skip();
-            if self.peek() != 58 as u8 {  // ':'
+            if self.peek() != 58 {  // ':'
                 self.ok = false;
                 return AnyVal::null_ptr();
             }
@@ -1509,13 +1509,13 @@ impl HermesParser {
 
             // ── separator / terminator ────────────────────────────────────────
             self.skip();
-            if self.peek() == 125 as u8 {       // '}'
+            if self.peek() == 125 {       // '}'
                 self.pos = self.pos + 1;
                 going = false;
-            } else if self.peek() == 44 as u8 { // ','
+            } else if self.peek() == 44 { // ','
                 self.pos = self.pos + 1;
                 self.skip();
-                if self.peek() == 125 as u8 {   // trailing comma
+                if self.peek() == 125 {   // trailing comma
                     self.pos = self.pos + 1;
                     going = false;
                 }
@@ -1569,7 +1569,7 @@ pub unsafe fn hermes_parse(text: *const u8, len: i64,
     let sc: *mut u8 = malloc(1024);
     let mut p: HermesParser = HermesParser {
         text: str_from_raw(text, len),
-        pos:  0 as i64,
+        pos:  0,
         zone: zone_ptr,
         base: zone_ptr.holder.base,
         scratch: sc,

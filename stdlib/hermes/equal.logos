@@ -77,7 +77,7 @@ impl HermesEqual for HermesString {
                 let ca: u8 = *pa.byte_add(i as i64);
                 let cb: u8 = *pb.byte_add(i as i64);
                 if ca != cb { return false; }
-                i = i + 1 as u64;
+                i = i + 1;
             }
             return true;
         }
@@ -127,10 +127,10 @@ impl HermesEqual for Decimal {
             let b: *const Decimal = other as *const Decimal;
             if a.spec_and_len != b.spec_and_len { return false; }
             let n: u32 = a.len();
-            let mut i: u32 = 0 as u32;
+            let mut i: u32 = 0;
             while i < n {
                 if a.limb_at(i) != b.limb_at(i) { return false; }
-                i = i + 1 as u32;
+                i = i + 1;
             }
             return true;
         }
@@ -164,7 +164,7 @@ impl<T: HermesEqual> HermesEqual for Array<T> {
                 let ea: *const T = buf_a.add(i as i64);
                 let eb: *const T = buf_b.add(i as i64);
                 if !ea.equal(eb as *const u8, ctx) { return false; }
-                i = i + 1 as u64;
+                i = i + 1;
             }
             return true;
         }
@@ -178,23 +178,23 @@ impl<V: HermesEqual> HermesEqual for Map<Bitmap, V> {
         unsafe {
             let a: *const Map<Bitmap, V> = self as *const Map<Bitmap, V>;
             let b: *const Map<Bitmap, V> = other as *const Map<Bitmap, V>;
-            let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
+            let mask: u64 = 0x000FFFFFFFFFFFFF;
             let ba: u64 = a.header & mask;
             let bb: u64 = b.header & mask;
             if ba != bb { return false; }
             let buf_a: *const V = ctx.base_self.byte_add(a.data.offset) as *const V;
             let buf_b: *const V = ctx.base_other.byte_add(b.data.offset) as *const V;
-            let mut key: u8 = 0 as u8;
-            while key < 52 as u8 {
-                let key_bit: u64 = 1 as u64 << key as u64;
-                if (ba & key_bit) != 0 as u64 {
-                    let m: u64 = key_bit - 1 as u64;
+            let mut key: u8 = 0;
+            while key < 52 {
+                let key_bit: u64 = 1 << key as u64;
+                if (ba & key_bit) != 0 {
+                    let m: u64 = key_bit - 1;
                     let pos: u32 = popcount_u64(ba & m);
                     let va: *const V = buf_a.add(pos as i64);
                     let vb: *const V = buf_b.add(pos as i64);
                     if !va.equal(vb as *const u8, ctx) { return false; }
                 }
-                key = key + 1 as u8;
+                key = key + 1;
             }
             return true;
         }
@@ -214,10 +214,10 @@ impl HermesEqual for ObjectMap {
             let cap_a: u32 = a.capacity;
             let base_a_ent: *const MapEntry =
                 ctx.base_self.byte_add(a.entries_off.offset as i64) as *const MapEntry;
-            let mut slot: u32 = 0 as u32;
+            let mut slot: u32 = 0;
             while slot < cap_a {
                 let ep_a: *const MapEntry = base_a_ent.add(slot as i64);
-                if ep_a.key_off.offset != 0 as u32 {
+                if ep_a.key_off.offset != 0 {
                     let hs_a: *const HermesString =
                         ctx.base_self.byte_add(ep_a.key_off.offset as i64) as *const HermesString;
                     let kb: *const u8 = hs_a.bytes();
@@ -232,7 +232,7 @@ impl HermesEqual for ObjectMap {
                     let vb: AnyVal = AnyVal { raw: vb_raw };
                     if !anyval_equal(va, vb, ctx) { return false; }
                 }
-                slot = slot + 1 as u32;
+                slot = slot + 1;
             }
             return true;
         }
@@ -257,7 +257,7 @@ impl HermesEqual for TypedValue {
                 let ca: u8 = *sa.bytes().byte_add(i as i64);
                 let cb: u8 = *sb.bytes().byte_add(i as i64);
                 if ca != cb { return false; }
-                i = i + 1 as u64;
+                i = i + 1;
             }
 
             let pa: AnyVal = AnyVal { raw: a.params_raw };

@@ -81,9 +81,9 @@ pub struct CheckState {
 }
 
 pub unsafe fn check_state_create(base: *const u8, zone_sz: i64) -> CheckState {
-    let bitmap_len: i64 = (zone_sz + 7 as i64) / 8 as i64;
-    let visited: *mut u8 = calloc(bitmap_len, 1 as i64);
-    let starts:  *mut u8 = calloc(bitmap_len, 1 as i64);
+    let bitmap_len: i64 = (zone_sz + 7) / 8;
+    let visited: *mut u8 = calloc(bitmap_len, 1);
+    let starts:  *mut u8 = calloc(bitmap_len, 1);
     if visited == 0 as *mut u8 || starts == 0 as *mut u8 {
         if visited != 0 as *mut u8 { free(visited); }
         if starts  != 0 as *mut u8 { free(starts);  }
@@ -92,15 +92,15 @@ pub unsafe fn check_state_create(base: *const u8, zone_sz: i64) -> CheckState {
             zone_sz:    zone_sz,
             visited:    0 as *mut u8,
             starts:     0 as *mut u8,
-            bitmap_len: 0 as i64,
+            bitmap_len: 0,
             queue:      0 as *mut u32,
-            queue_len:  0 as i64,
-            queue_cap:  0 as i64,
-            node_count: 0 as i64,
+            queue_len:  0,
+            queue_cap:  0,
+            node_count: 0,
             error:      CheckError::Ok,
         };
     }
-    let init_cap: i64 = 256 as i64;
+    let init_cap: i64 = 256;
     let queue: *mut u32 = malloc(init_cap * 4) as *mut u32;
     if queue == 0 as *mut u32 {
         free(visited);
@@ -110,11 +110,11 @@ pub unsafe fn check_state_create(base: *const u8, zone_sz: i64) -> CheckState {
             zone_sz:    zone_sz,
             visited:    0 as *mut u8,
             starts:     0 as *mut u8,
-            bitmap_len: 0 as i64,
+            bitmap_len: 0,
             queue:      0 as *mut u32,
-            queue_len:  0 as i64,
-            queue_cap:  0 as i64,
-            node_count: 0 as i64,
+            queue_len:  0,
+            queue_cap:  0,
+            node_count: 0,
             error:      CheckError::Ok,
         };
     }
@@ -125,9 +125,9 @@ pub unsafe fn check_state_create(base: *const u8, zone_sz: i64) -> CheckState {
         starts:     starts,
         bitmap_len: bitmap_len,
         queue:      queue,
-        queue_len:  0 as i64,
+        queue_len:  0,
         queue_cap:  init_cap,
-        node_count: 0 as i64,
+        node_count: 0,
         error:      CheckError::Ok,
     };
 }
@@ -156,7 +156,7 @@ pub unsafe fn check_push_val(state: *mut CheckState, val: AnyVal) -> bool {
     if val.is_null() { return true; }
     if !val.is_ptr() { return true; }
     if state.queue_len >= state.queue_cap {
-        let new_cap: i64 = state.queue_cap * 2 as i64;
+        let new_cap: i64 = state.queue_cap * 2;
         let new_q: *mut u32 = realloc(state.queue as *mut u8, new_cap * 4) as *mut u32;
         if new_q == 0 as *mut u32 { return false; }
         state.queue = new_q;
@@ -173,28 +173,28 @@ pub unsafe fn check_push_val(state: *mut CheckState, val: AnyVal) -> bool {
 // ---------------------------------------------------------------------------
 
 pub unsafe fn check_mark_start(state: *mut CheckState, zone_off: i64) {
-    let byte_idx: i64 = zone_off / 8 as i64;
-    let bit: u32 = 1 as u32 << ((zone_off & 7 as i64) as u32);
+    let byte_idx: i64 = zone_off / 8;
+    let bit: u32 = 1 << ((zone_off & 7) as u32);
     let p: *mut u8 = (state.starts as i64 + byte_idx) as *mut u8;
     *p = ((*p as u32) | bit) as u8;
 }
 
 pub unsafe fn check_is_object_start(state: *mut CheckState, zone_off: i64) -> bool {
-    let byte_idx: i64 = zone_off / 8 as i64;
-    let bit: u32 = 1 as u32 << ((zone_off & 7 as i64) as u32);
+    let byte_idx: i64 = zone_off / 8;
+    let bit: u32 = 1 << ((zone_off & 7) as u32);
     let p: *const u8 = (state.starts as i64 + byte_idx) as *const u8;
-    return ((*p) as u32 & bit) != 0 as u32;
+    return ((*p) as u32 & bit) != 0;
 }
 
 pub unsafe fn check_mark(state: *mut CheckState, zone_off: i64, nbytes: i64) -> bool {
     let mut i: i64 = zone_off;
     let end: i64 = zone_off + nbytes;
     while i < end {
-        let byte_idx: i64 = i / 8 as i64;
-        let bit: u32 = 1 as u32 << ((i & 7 as i64) as u32);
+        let byte_idx: i64 = i / 8;
+        let bit: u32 = 1 << ((i & 7) as u32);
         let p: *mut u8 = (state.visited as i64 + byte_idx) as *mut u8;
         let curr: u8 = *p;
-        if ((curr as u32) & bit) != 0 as u32 {
+        if ((curr as u32) & bit) != 0 {
             state.error = CheckError::Overlap;
             return false;
         }
@@ -209,7 +209,7 @@ pub unsafe fn check_mark(state: *mut CheckState, zone_off: i64, nbytes: i64) -> 
 // ---------------------------------------------------------------------------
 
 pub unsafe fn check_bounds(state: *mut CheckState, zone_off: i64, nbytes: i64) -> bool {
-    if zone_off < 0 as i64 || nbytes < 0 as i64 {
+    if zone_off < 0 || nbytes < 0 {
         state.error = CheckError::OutOfBounds;
         return false;
     }
@@ -236,13 +236,13 @@ impl HermesCheck for HermesString {
         unsafe {
             let obj: *const u8 = self as *const HermesString as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
-            if !check_bounds(state, off - 1, 2 as i64) { return false; }
+            if !check_bounds(state, off - 1, 2) { return false; }
             let vlen_sz: i64 = vlen_prefix_size(obj) as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + vlen_sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + vlen_sz) { return false; }
             let str_len: i64 = vlen_read(obj) as i64;
             let total: i64 = vlen_sz + str_len;
-            if !check_bounds(state, off - 1, 1 as i64 + total) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + total) { return false; }
+            if !check_bounds(state, off - 1, 1 + total) { return false; }
+            if !check_mark(state,  off - 1, 1 + total) { return false; }
             check_mark_start(state, off - 1);
             return true;
         }
@@ -257,8 +257,8 @@ impl HermesCheck for I64 {
             let obj: *const u8 = self as *const I64 as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let sz: i64 = sizeof::<I64>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + sz) { return false; }
             check_mark_start(state, off - 1);
             return true;
         }
@@ -273,8 +273,8 @@ impl HermesCheck for U64 {
             let obj: *const u8 = self as *const U64 as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let sz: i64 = sizeof::<U64>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + sz) { return false; }
             check_mark_start(state, off - 1);
             return true;
         }
@@ -290,11 +290,11 @@ impl HermesCheck for Decimal {
             let obj: *const u8 = d as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr: i64 = sizeof::<Decimal>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + hdr) { return false; }
+            if !check_bounds(state, off - 1, 1 + hdr) { return false; }
             let nlimbs: u32 = d.len();
             let total: i64 = hdr + (nlimbs as i64) * 4;
-            if !check_bounds(state, off - 1, 1 as i64 + total) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + total) { return false; }
+            if !check_bounds(state, off - 1, 1 + total) { return false; }
+            if !check_mark(state,  off - 1, 1 + total) { return false; }
             check_mark_start(state, off - 1);
             return true;
         }
@@ -310,8 +310,8 @@ impl HermesCheck for Array<AnyVal> {
             let obj: *const u8 = arr as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr_sz: i64 = sizeof::<Array<AnyVal>>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + hdr_sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + hdr_sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + hdr_sz) { return false; }
             check_mark_start(state, off - 1);
 
             let sz: u64  = arr.size;
@@ -336,7 +336,7 @@ impl HermesCheck for Array<AnyVal> {
                     state.error = CheckError::TooManyNodes;
                     return false;
                 }
-                i = i + 1 as u64;
+                i = i + 1;
             }
             return true;
         }
@@ -352,12 +352,12 @@ impl<V> HermesCheck for Map<Bitmap, V> {
             let obj: *const u8 = m as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr_sz: i64 = sizeof::<Map<Bitmap, V>>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + hdr_sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + hdr_sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + hdr_sz) { return false; }
             check_mark_start(state, off - 1);
 
-            let sz: u32  = ((m.header >> 58 as u64) & 0x3F as u64) as u32;
-            let cap: u32 = ((m.header >> 52 as u64) & 0x3F as u64) as u32;
+            let sz: u32  = ((m.header >> 58) & 0x3F) as u32;
+            let cap: u32 = ((m.header >> 52) & 0x3F) as u32;
             if sz > cap {
                 state.error = CheckError::BadSize;
                 return false;
@@ -373,7 +373,7 @@ impl<V> HermesCheck for Map<Bitmap, V> {
             // For other V, no AnyVal references to push.
             // We only push AnyVal values (4 bytes each) when V = AnyVal.
             // Since this is a blanket impl, we push all sz slots as AnyVal.
-            let mut i: u32 = 0 as u32;
+            let mut i: u32 = 0;
             while i < sz {
                 let ep: *const AnyVal =
                     (state.base as i64 + buf_off + (i as i64) * 4) as *const AnyVal;
@@ -382,7 +382,7 @@ impl<V> HermesCheck for Map<Bitmap, V> {
                     state.error = CheckError::TooManyNodes;
                     return false;
                 }
-                i = i + 1 as u32;
+                i = i + 1;
             }
             return true;
         }
@@ -398,8 +398,8 @@ impl HermesCheck for ObjectMap {
             let obj: *const u8 = m as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr_sz: i64 = sizeof::<ObjectMap>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + hdr_sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + hdr_sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + hdr_sz) { return false; }
             check_mark_start(state, off - 1);
 
             let cap: u32 = m.capacity;
@@ -409,18 +409,18 @@ impl HermesCheck for ObjectMap {
                 return false;
             }
             let ent_off: i64   = m.entries_off.offset as i64;
-            let ent_bytes: i64 = (cap as i64) * 8 as i64;
+            let ent_bytes: i64 = (cap as i64) * 8;
             if ent_bytes > 0 {
                 if !check_bounds(state, ent_off, ent_bytes) { return false; }
                 if !check_mark(state,  ent_off, ent_bytes)  { return false; }
             }
 
-            let mut slot: u32 = 0 as u32;
+            let mut slot: u32 = 0;
             while slot < cap {
                 let ep: *const MapEntry =
-                    (state.base as i64 + ent_off + (slot as i64) * 8 as i64) as *const MapEntry;
-                if ep.key_off.offset != 0 as u32 {
-                    if (ep.key_off.offset & 1 as u32) != 0 as u32 {
+                    (state.base as i64 + ent_off + (slot as i64) * 8) as *const MapEntry;
+                if ep.key_off.offset != 0 {
+                    if (ep.key_off.offset & 1) != 0 {
                         state.error = CheckError::BadTag;
                         return false;
                     }
@@ -435,7 +435,7 @@ impl HermesCheck for ObjectMap {
                         return false;
                     }
                 }
-                slot = slot + 1 as u32;
+                slot = slot + 1;
             }
             return true;
         }
@@ -451,8 +451,8 @@ impl HermesCheck for TypedValue {
             let obj: *const u8 = t as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let sz: i64 = sizeof::<TypedValue>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + sz) { return false; }
             check_mark_start(state, off - 1);
 
             let type_av: AnyVal = AnyVal::from_offset(t.type_off.offset);
@@ -484,8 +484,8 @@ impl HermesCheck for Array<i32> {
             let obj: *const u8 = arr as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr_sz: i64 = sizeof::<Array<i32>>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + hdr_sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + hdr_sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + hdr_sz) { return false; }
             check_mark_start(state, off - 1);
 
             let sz: u64  = arr.size;
@@ -514,8 +514,8 @@ impl HermesCheck for MapI32AnyVal {
             let obj: *const u8 = m as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + hdr_sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + hdr_sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + hdr_sz) { return false; }
             check_mark_start(state, off - 1);
 
             let sz: u32  = m.size;
@@ -534,7 +534,7 @@ impl HermesCheck for MapI32AnyVal {
                 if !check_mark(state,  vals_off, buf_bytes)  { return false; }
             }
 
-            let mut i: u32 = 0 as u32;
+            let mut i: u32 = 0;
             while i < sz {
                 let vp: *const AnyVal =
                     (state.base as i64 + vals_off + (i as i64) * 4) as *const AnyVal;
@@ -543,7 +543,7 @@ impl HermesCheck for MapI32AnyVal {
                     state.error = CheckError::TooManyNodes;
                     return false;
                 }
-                i = i + 1 as u32;
+                i = i + 1;
             }
             return true;
         }
@@ -586,7 +586,7 @@ pub unsafe fn anyval_check_one(val: AnyVal, state: *mut CheckState) -> bool {
 
     let off: i64 = val.as_offset() as i64;
 
-    if off < 1 as i64 || off >= state.zone_sz {
+    if off < 1 || off >= state.zone_sz {
         state.error = CheckError::OutOfBounds;
         return false;
     }
@@ -622,8 +622,8 @@ pub unsafe fn document_check(zone: *const Zone<Mutable>) -> bool {
     if holder == 0 as *mut MemHolder { return true; }
 
     let zone_sz: i64 = holder.used;
-    if zone_sz == 0 as i64 { return true; }
-    if zone_sz < 8 as i64  { return false; }
+    if zone_sz == 0 { return true; }
+    if zone_sz < 8  { return false; }
 
     let base: *const u8 = holder.base as *const u8;
     if base == 0 as *const u8 { return false; }
@@ -636,7 +636,7 @@ pub unsafe fn document_check(zone: *const Zone<Mutable>) -> bool {
     }
 
     // Mark DocumentHeader (untagged, 8 bytes at offset 0).
-    if !check_mark(&mut state, 0 as i64, 8 as i64) {
+    if !check_mark(&mut state, 0, 8) {
         check_state_free(&mut state);
         return false;
     }
@@ -672,8 +672,8 @@ impl HermesCheck for Array<u64> {
             let obj: *const u8 = arr as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr_sz: i64 = sizeof::<Array<u64>>() as i64;
-            if !check_bounds(state, off - 1, 1 as i64 + hdr_sz) { return false; }
-            if !check_mark(state,  off - 1, 1 as i64 + hdr_sz) { return false; }
+            if !check_bounds(state, off - 1, 1 + hdr_sz) { return false; }
+            if !check_mark(state,  off - 1, 1 + hdr_sz) { return false; }
             check_mark_start(state, off - 1);
 
             let sz: u64  = arr.size;
@@ -683,7 +683,7 @@ impl HermesCheck for Array<u64> {
                 return false;
             }
             let buf_off: i64   = arr.data.offset;
-            let buf_bytes: i64 = (cap as i64) * 8 as i64;
+            let buf_bytes: i64 = (cap as i64) * 8;
             if buf_bytes > 0 {
                 if !check_bounds(state, buf_off, buf_bytes) { return false; }
                 if !check_mark(state,  buf_off, buf_bytes)  { return false; }

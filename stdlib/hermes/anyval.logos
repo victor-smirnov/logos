@@ -43,12 +43,12 @@ pub eidos AnyVal {
 impl AnyVal {
     // True if this slot is in pointer mode (discriminant == 0).
     pub unsafe fn is_ptr(self: *const AnyVal) -> bool {
-        return (self.raw & 1 as u32) == 0 as u32;
+        return (self.raw & 1) == 0;
     }
 
     // True if this is the null pointer (raw == 0).
     pub unsafe fn is_null(self: *const AnyVal) -> bool {
-        return self.raw == 0 as u32;
+        return self.raw == 0;
     }
 
     // Segment-relative offset (only valid in pointer mode).
@@ -68,14 +68,14 @@ impl AnyVal {
 
     // 7-bit type_hash from the tag byte (only valid in value mode).
     pub unsafe fn type_hash(self: *const AnyVal) -> u8 {
-        return ((self.raw >> 1 as u32) & 0x7F as u32) as u8;
+        return ((self.raw >> 1) & 0x7F) as u8;
     }
 
     // --- Constructors ---
 
     // Null pointer sentinel (raw=0).
     pub fn null_ptr() -> AnyVal {
-        return AnyVal { raw: 0 as u32 };
+        return AnyVal { raw: 0 };
     }
 
     // Pointer mode: store a segment-relative offset.
@@ -85,43 +85,43 @@ impl AnyVal {
 
     // Embed i24 (Integer, hash=23, tag=0x2F).
     pub fn embed_i24(v: i32) -> AnyVal {
-        let raw: u32 = (((v as u32) & 0xFFFFFF as u32) << 8 as u32) | 0x2F as u32;
+        let raw: u32 = (((v as u32) & 0xFFFFFF) << 8) | 0x2F;
         return AnyVal { raw: raw };
     }
 
     // Embed u24 (UInteger, hash=25, tag=0x33).
     pub fn embed_u24(v: u32) -> AnyVal {
-        let raw: u32 = ((v & 0xFFFFFF as u32) << 8 as u32) | 0x33 as u32;
+        let raw: u32 = ((v & 0xFFFFFF) << 8) | 0x33;
         return AnyVal { raw: raw };
     }
 
     // Embed i16 (SmallInt, hash=22, tag=0x2D).
     pub fn embed_i16(v: i16) -> AnyVal {
-        let raw: u32 = ((((v as i32) as u32) & 0xFFFFFF as u32) << 8 as u32) | 0x2D as u32;
+        let raw: u32 = ((((v as i32) as u32) & 0xFFFFFF) << 8) | 0x2D;
         return AnyVal { raw: raw };
     }
 
     // Embed u16 (USmallInt, hash=24, tag=0x31).
     pub fn embed_u16(v: u16) -> AnyVal {
-        let raw: u32 = ((v as u32) << 8 as u32) | 0x31 as u32;
+        let raw: u32 = ((v as u32) << 8) | 0x31;
         return AnyVal { raw: raw };
     }
 
     // Embed i8 (TinyInt, hash=20, tag=0x29).
     pub fn embed_i8(v: i8) -> AnyVal {
-        let raw: u32 = ((((v as i32) as u32) & 0xFFFFFF as u32) << 8 as u32) | 0x29 as u32;
+        let raw: u32 = ((((v as i32) as u32) & 0xFFFFFF) << 8) | 0x29;
         return AnyVal { raw: raw };
     }
 
     // Embed u8 (UTinyInt, hash=21, tag=0x2B).
     pub fn embed_u8(v: u8) -> AnyVal {
-        let raw: u32 = ((v as u32) << 8 as u32) | 0x2B as u32;
+        let raw: u32 = ((v as u32) << 8) | 0x2B;
         return AnyVal { raw: raw };
     }
 
     // Embed bool (Boolean, hash=37, tag=0x4B).
     pub fn embed_bool(v: bool) -> AnyVal {
-        let raw: u32 = ((v as u32) << 8 as u32) | 0x4B as u32;
+        let raw: u32 = ((v as u32) << 8) | 0x4B;
         return AnyVal { raw: raw };
     }
 
@@ -130,18 +130,18 @@ impl AnyVal {
     // position of this slot in the ParamSlot table.  On substitution,
     // hermes_clone_template overwrites this AnyVal with the resolved value.
     pub fn embed_param(param_index: u32) -> AnyVal {
-        let raw: u32 = ((param_index & 0xFFFFFF as u32) << 8 as u32) | 0xFF as u32;
+        let raw: u32 = ((param_index & 0xFFFFFF) << 8) | 0xFF;
         return AnyVal { raw: raw };
     }
 
     // True when this AnyVal is a PARAM placeholder (tag byte = 0xFF).
     pub unsafe fn is_param(self: *const AnyVal) -> bool {
-        return (self.raw & 0xFF as u32) == 0xFF as u32;
+        return (self.raw & 0xFF) == 0xFF;
     }
 
     // Extract the param_index from a PARAM AnyVal (undefined if !is_param()).
     pub unsafe fn param_index(self: *const AnyVal) -> u32 {
-        return (self.raw >> 8 as u32) & 0xFFFFFF as u32;
+        return (self.raw >> 8) & 0xFFFFFF;
     }
 
     // --- Value extraction (only valid when !is_ptr()) ---
@@ -171,7 +171,7 @@ impl AnyVal {
     }
 
     pub unsafe fn as_bool(self: *const AnyVal) -> bool {
-        return (((self.raw >> 8) as u32) & 1 as u32) != 0 as u32;
+        return (((self.raw >> 8) as u32) & 1) != 0;
     }
 
     // --- Safe type-check accessors (value mode) ---
@@ -179,19 +179,19 @@ impl AnyVal {
     // True if this AnyVal holds an embedded integer (i24, hash=23).
     pub unsafe fn is_int(self: *const AnyVal) -> bool {
         if self.is_ptr() { return false; }
-        return self.type_hash() == 23 as u8;
+        return self.type_hash() == 23;
     }
 
     // True if this AnyVal holds an embedded unsigned integer (u24, hash=25).
     pub unsafe fn is_uint(self: *const AnyVal) -> bool {
         if self.is_ptr() { return false; }
-        return self.type_hash() == 25 as u8;
+        return self.type_hash() == 25;
     }
 
     // True if this AnyVal holds an embedded bool (Boolean, hash=37).
     pub unsafe fn is_bool(self: *const AnyVal) -> bool {
         if self.is_ptr() { return false; }
-        return self.type_hash() == 37 as u8;
+        return self.type_hash() == 37;
     }
 
     // --- Safe type-check accessors (pointer mode, need zone base) ---
@@ -230,13 +230,13 @@ impl AnyVal {
 
     // Return the integer value if is_int(), otherwise 0.
     pub unsafe fn as_i64(self: *const AnyVal) -> i64 {
-        if !self.is_int() { return 0 as i64; }
+        if !self.is_int() { return 0; }
         return self.as_i24() as i64;
     }
 
     // Return the unsigned integer value if is_uint(), otherwise 0.
     pub unsafe fn as_u64(self: *const AnyVal) -> u64 {
-        if !self.is_uint() { return 0 as u64; }
+        if !self.is_uint() { return 0; }
         return self.as_u24() as u64;
     }
 }
@@ -281,7 +281,7 @@ pub unsafe fn hermes_pat_eq_str(av: *const AnyVal, base: *const u8,
         let a: *const u8 = p.byte_add(i as i64);
         let b: *const u8 = sp.byte_add(i as i64);
         if *a != *b { return false; }
-        i = i + (1 as u64);
+        i = i + (1);
     }
     return true;
 }

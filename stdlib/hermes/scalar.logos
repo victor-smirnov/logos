@@ -258,17 +258,17 @@ impl Bool {
 
 // ── Canonical type-hash constants for the tag-writing helpers ───────────
 
-pub fn hermes_tag_i8()   -> u8 { return 20 as u8; }
-pub fn hermes_tag_u8()   -> u8 { return 21 as u8; }
-pub fn hermes_tag_i16()  -> u8 { return 22 as u8; }
-pub fn hermes_tag_i24()  -> u8 { return 23 as u8; }
-pub fn hermes_tag_u16()  -> u8 { return 24 as u8; }
-pub fn hermes_tag_u24()  -> u8 { return 25 as u8; }
-pub fn hermes_tag_i64()  -> u8 { return 26 as u8; }
-pub fn hermes_tag_u64()  -> u8 { return 27 as u8; }
-pub fn hermes_tag_f32()  -> u8 { return 30 as u8; }
-pub fn hermes_tag_f64()  -> u8 { return 31 as u8; }
-pub fn hermes_tag_bool() -> u8 { return 37 as u8; }
+pub fn hermes_tag_i8()   -> u8 { return 20; }
+pub fn hermes_tag_u8()   -> u8 { return 21; }
+pub fn hermes_tag_i16()  -> u8 { return 22; }
+pub fn hermes_tag_i24()  -> u8 { return 23; }
+pub fn hermes_tag_u16()  -> u8 { return 24; }
+pub fn hermes_tag_u24()  -> u8 { return 25; }
+pub fn hermes_tag_i64()  -> u8 { return 26; }
+pub fn hermes_tag_u64()  -> u8 { return 27; }
+pub fn hermes_tag_f32()  -> u8 { return 30; }
+pub fn hermes_tag_f64()  -> u8 { return 31; }
+pub fn hermes_tag_bool() -> u8 { return 37; }
 
 // ── Datatype-ification via the Primitive blanket ────────────────────────
 // All eide above are byte-level POD wrappers around a single scalar field,

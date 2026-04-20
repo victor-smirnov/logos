@@ -217,7 +217,7 @@ impl HermesZone {
         let tag1: *mut u8  = (base_int + aligned - 1) as *mut u8;
         *tag0 = type_hash;
         let d: u32         = descriptor as u32;
-        *tag1              = (1 as u32 | (d << 3 as u32)) as u8;
+        *tag1              = (1 | (d << 3)) as u8;
         self.offset = aligned + size;
         return (base_int + aligned) as *mut u8;
     }
@@ -262,7 +262,7 @@ pub unsafe fn zone_alloc_tagged(zone: *mut HermesZone, size: i64,
     let tag1: *mut u8  = (base_int + aligned - 1) as *mut u8;
     *tag0 = type_hash;
     let d: u32         = descriptor as u32;
-    *tag1              = (1 as u32 | (d << 3 as u32)) as u8;
+    *tag1              = (1 | (d << 3)) as u8;
     zone.offset = aligned + size;
     return (base_int + aligned) as *mut u8;
 }

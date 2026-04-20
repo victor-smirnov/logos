@@ -79,21 +79,21 @@ pub struct StringifyCtx {
 // ---------------------------------------------------------------------------
 
 unsafe fn write_indent(ctx: *mut StringifyCtx) {
-    if ctx.opts.indent <= 0 as i64 { return; }
-    ctx.out.push_u8(10 as u8);
+    if ctx.opts.indent <= 0 { return; }
+    ctx.out.push_u8(10);
     let spaces: i64 = ctx.opts.indent * ctx.depth;
     let mut i: i64 = 0;
     while i < spaces {
-        ctx.out.push_u8(32 as u8);
+        ctx.out.push_u8(32);
         i = i + 1;
     }
 }
 
 unsafe fn write_null(out: *mut String) {
-    out.push_u8(110 as u8);  // 'n'
-    out.push_u8(117 as u8);  // 'u'
-    out.push_u8(108 as u8);  // 'l'
-    out.push_u8(108 as u8);  // 'l'
+    out.push_u8(110);  // 'n'
+    out.push_u8(117);  // 'u'
+    out.push_u8(108);  // 'l'
+    out.push_u8(108);  // 'l'
 }
 
 // ---------------------------------------------------------------------------
@@ -101,28 +101,28 @@ unsafe fn write_null(out: *mut String) {
 // ---------------------------------------------------------------------------
 
 unsafe fn write_quoted_hs(hs: *const HermesString, out: *mut String) {
-    out.push_u8(34 as u8);   // '"'
+    out.push_u8(34);   // '"'
     let len: u64   = hs.len();
     let bptr: *const u8 = hs.bytes();
     let mut i: u64 = 0;
     while i < len {
         let c: u8 = *bptr.byte_add(i as i64);
-        if c == 34 as u8 {
-            out.push_u8(92 as u8); out.push_u8(34 as u8);
-        } else if c == 92 as u8 {
-            out.push_u8(92 as u8); out.push_u8(92 as u8);
-        } else if c == 10 as u8 {
-            out.push_u8(92 as u8); out.push_u8(110 as u8);
-        } else if c == 13 as u8 {
-            out.push_u8(92 as u8); out.push_u8(114 as u8);
-        } else if c == 9 as u8 {
-            out.push_u8(92 as u8); out.push_u8(116 as u8);
+        if c == 34 {
+            out.push_u8(92); out.push_u8(34);
+        } else if c == 92 {
+            out.push_u8(92); out.push_u8(92);
+        } else if c == 10 {
+            out.push_u8(92); out.push_u8(110);
+        } else if c == 13 {
+            out.push_u8(92); out.push_u8(114);
+        } else if c == 9 {
+            out.push_u8(92); out.push_u8(116);
         } else {
             out.push_u8(c);
         }
-        i = i + 1 as u64;
+        i = i + 1;
     }
-    out.push_u8(34 as u8);
+    out.push_u8(34);
 }
 
 // ---------------------------------------------------------------------------
@@ -161,23 +161,23 @@ impl HermesStringify for Array<i32> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let arr: *const Array<i32> = self as *const Array<i32>;
-            ctx.out.push_u8(60 as u8);   // '<'
-            ctx.out.push_u8(73 as u8);   // 'I'
-            ctx.out.push_u8(51 as u8);   // '3'
-            ctx.out.push_u8(50 as u8);   // '2'
-            ctx.out.push_u8(62 as u8);   // '>'
-            ctx.out.push_u8(32 as u8);   // ' '
-            ctx.out.push_u8(91 as u8);   // '['
+            ctx.out.push_u8(60);   // '<'
+            ctx.out.push_u8(73);   // 'I'
+            ctx.out.push_u8(51);   // '3'
+            ctx.out.push_u8(50);   // '2'
+            ctx.out.push_u8(62);   // '>'
+            ctx.out.push_u8(32);   // ' '
+            ctx.out.push_u8(91);   // '['
 
             let mut i: u64 = 0;
             while i < arr.size {
-                if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
+                if i > 0 { ctx.out.push_u8(44); }
                 let buf: *const i32 = ctx.base.byte_add(arr.data.offset) as *const i32;
                 let ep: *const i32 = buf.add(i as i64);
                 ctx.out.push_i64(*ep as i64);
-                i = i + 1 as u64;
+                i = i + 1;
             }
-            ctx.out.push_u8(93 as u8);   // ']'
+            ctx.out.push_u8(93);   // ']'
         }
     }
 }
@@ -186,23 +186,23 @@ impl HermesStringify for Array<u64> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let arr: *const Array<u64> = self as *const Array<u64>;
-            ctx.out.push_u8(60 as u8);   // '<'
-            ctx.out.push_u8(85 as u8);   // 'U'
-            ctx.out.push_u8(54 as u8);   // '6'
-            ctx.out.push_u8(52 as u8);   // '4'
-            ctx.out.push_u8(62 as u8);   // '>'
-            ctx.out.push_u8(32 as u8);   // ' '
-            ctx.out.push_u8(91 as u8);   // '['
+            ctx.out.push_u8(60);   // '<'
+            ctx.out.push_u8(85);   // 'U'
+            ctx.out.push_u8(54);   // '6'
+            ctx.out.push_u8(52);   // '4'
+            ctx.out.push_u8(62);   // '>'
+            ctx.out.push_u8(32);   // ' '
+            ctx.out.push_u8(91);   // '['
 
             let mut i: u64 = 0;
             while i < arr.size {
-                if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
+                if i > 0 { ctx.out.push_u8(44); }
                 let buf: *const u64 = ctx.base.byte_add(arr.data.offset) as *const u64;
                 let ep: *const u64 = buf.add(i as i64);
                 ctx.out.push_u64(*ep);
-                i = i + 1 as u64;
+                i = i + 1;
             }
-            ctx.out.push_u8(93 as u8);   // ']'
+            ctx.out.push_u8(93);   // ']'
         }
     }
 }
@@ -211,36 +211,36 @@ impl HermesStringify for MapI32AnyVal {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let m: *const MapI32AnyVal = self as *const MapI32AnyVal;
-            ctx.out.push_u8(60 as u8);   // '<'
-            ctx.out.push_u8(73 as u8);   // 'I'
-            ctx.out.push_u8(51 as u8);   // '3'
-            ctx.out.push_u8(50 as u8);   // '2'
-            ctx.out.push_u8(44 as u8);   // ','
-            ctx.out.push_u8(65 as u8);   // 'A'
-            ctx.out.push_u8(110 as u8);  // 'n'
-            ctx.out.push_u8(121 as u8);  // 'y'
-            ctx.out.push_u8(86 as u8);   // 'V'
-            ctx.out.push_u8(97 as u8);   // 'a'
-            ctx.out.push_u8(108 as u8);  // 'l'
-            ctx.out.push_u8(62 as u8);   // '>'
-            ctx.out.push_u8(32 as u8);   // ' '
-            ctx.out.push_u8(123 as u8);  // '{'
+            ctx.out.push_u8(60);   // '<'
+            ctx.out.push_u8(73);   // 'I'
+            ctx.out.push_u8(51);   // '3'
+            ctx.out.push_u8(50);   // '2'
+            ctx.out.push_u8(44);   // ','
+            ctx.out.push_u8(65);   // 'A'
+            ctx.out.push_u8(110);  // 'n'
+            ctx.out.push_u8(121);  // 'y'
+            ctx.out.push_u8(86);   // 'V'
+            ctx.out.push_u8(97);   // 'a'
+            ctx.out.push_u8(108);  // 'l'
+            ctx.out.push_u8(62);   // '>'
+            ctx.out.push_u8(32);   // ' '
+            ctx.out.push_u8(123);  // '{'
 
-            let mut i: u32 = 0 as u32;
+            let mut i: u32 = 0;
             while i < m.size {
-                if i > 0 as u32 { ctx.out.push_u8(44 as u8); }
+                if i > 0 { ctx.out.push_u8(44); }
                 let keys: *const i32 = ctx.base.byte_add(m.keys.offset) as *const i32;
                 let kp: *const i32 = keys.add(i as i64);
                 ctx.out.push_i64(*kp as i64);
-                ctx.out.push_u8(58 as u8);   // ':'
-                if ctx.opts.indent > 0 { ctx.out.push_u8(32 as u8); }
+                ctx.out.push_u8(58);   // ':'
+                if ctx.opts.indent > 0 { ctx.out.push_u8(32); }
                 let vals: *const AnyVal = ctx.base.byte_add(m.vals.offset) as *const AnyVal;
                 let vp: *const AnyVal = vals.add(i as i64);
                 let vv: AnyVal = AnyVal { raw: vp.raw };
                 stringify_anyval(vv, ctx);
-                i = i + 1 as u32;
+                i = i + 1;
             }
-            ctx.out.push_u8(125 as u8);  // '}'
+            ctx.out.push_u8(125);  // '}'
         }
     }
 }
@@ -253,16 +253,16 @@ impl HermesStringify for TypedValue {
             let b: *const u8 = hs.bytes();
             let n: u64 = hs.len();
 
-            ctx.out.push_u8(64 as u8);   // '@'
+            ctx.out.push_u8(64);   // '@'
             let mut i: u64 = 0;
             while i < n {
                 ctx.out.push_u8(*b.byte_add(i as i64));
-                i = i + 1 as u64;
+                i = i + 1;
             }
 
             let params: AnyVal = AnyVal { raw: tv.params_raw };
             if !params.is_null() {
-                ctx.out.push_u8(40 as u8);  // '('
+                ctx.out.push_u8(40);  // '('
                 if params.is_ptr() {
                     let pobj: *const u8 = ctx.base.byte_add(params.as_offset() as i64);
                     let th: u64 = read_type_code(pobj);
@@ -270,10 +270,10 @@ impl HermesStringify for TypedValue {
                         let arr: *const ObjectArray = pobj as *const ObjectArray;
                         let mut pi: u64 = 0;
                         while pi < arr.size {
-                            if pi > 0 as u64 { ctx.out.push_u8(44 as u8); }
+                            if pi > 0 { ctx.out.push_u8(44); }
                             let v: AnyVal = arr.get(ctx.base, pi);
                             stringify_anyval(v, ctx);
-                            pi = pi + 1 as u64;
+                            pi = pi + 1;
                         }
                     } else {
                         stringify_anyval(params, ctx);
@@ -281,12 +281,12 @@ impl HermesStringify for TypedValue {
                 } else {
                     stringify_anyval(params, ctx);
                 }
-                ctx.out.push_u8(41 as u8);  // ')'
+                ctx.out.push_u8(41);  // ')'
             }
 
-            ctx.out.push_u8(32 as u8);  // ' '
-            ctx.out.push_u8(61 as u8);  // '='
-            ctx.out.push_u8(32 as u8);  // ' '
+            ctx.out.push_u8(32);  // ' '
+            ctx.out.push_u8(61);  // '='
+            ctx.out.push_u8(32);  // ' '
             let initv: AnyVal = AnyVal { raw: tv.init_raw };
             stringify_anyval(initv, ctx);
         }
@@ -312,23 +312,23 @@ impl ArrayElemTag for AnyVal {
 
 impl ArrayElemTag for i32 {
     unsafe fn emit_tag(self: *const i32, out: *mut String) {
-        out.push_u8(60 as u8);   // '<'
-        out.push_u8(73 as u8);   // 'I'
-        out.push_u8(51 as u8);   // '3'
-        out.push_u8(50 as u8);   // '2'
-        out.push_u8(62 as u8);   // '>'
-        out.push_u8(32 as u8);   // ' '
+        out.push_u8(60);   // '<'
+        out.push_u8(73);   // 'I'
+        out.push_u8(51);   // '3'
+        out.push_u8(50);   // '2'
+        out.push_u8(62);   // '>'
+        out.push_u8(32);   // ' '
     }
 }
 
 impl ArrayElemTag for u64 {
     unsafe fn emit_tag(self: *const u64, out: *mut String) {
-        out.push_u8(60 as u8);   // '<'
-        out.push_u8(85 as u8);   // 'U'
-        out.push_u8(54 as u8);   // '6'
-        out.push_u8(52 as u8);   // '4'
-        out.push_u8(62 as u8);   // '>'
-        out.push_u8(32 as u8);   // ' '
+        out.push_u8(60);   // '<'
+        out.push_u8(85);   // 'U'
+        out.push_u8(54);   // '6'
+        out.push_u8(52);   // '4'
+        out.push_u8(62);   // '>'
+        out.push_u8(32);   // ' '
     }
 }
 
@@ -358,21 +358,21 @@ impl<T: HermesStringify + ArrayElemTag> HermesStringify for Array<T> {
             let arr: *const Array<T> = self as *const Array<T>;
             let phantom: *const T = 0 as *const T;
             phantom.emit_tag(ctx.out);
-            ctx.out.push_u8(91 as u8);   // '['
+            ctx.out.push_u8(91);   // '['
             let sz: u64 = arr.size;
             let base: *const T = ctx.base.byte_add(arr.data.offset) as *const T;
             let mut i: u64 = 0;
             while i < sz {
-                if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
+                if i > 0 { ctx.out.push_u8(44); }
                 ctx.depth = ctx.depth + 1;
                 write_indent(ctx);
                 let elem: *const T = base.add(i as i64);
                 elem.stringify(ctx);
                 ctx.depth = ctx.depth - 1;
-                i = i + 1 as u64;
+                i = i + 1;
             }
-            if sz > 0 as u64 { write_indent(ctx); }
-            ctx.out.push_u8(93 as u8);   // ']'
+            if sz > 0 { write_indent(ctx); }
+            ctx.out.push_u8(93);   // ']'
         }
     }
 }
@@ -383,34 +383,34 @@ impl<V: HermesStringify> HermesStringify for Map<Bitmap, V> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let map: *const Map<Bitmap, V> = self as *const Map<Bitmap, V>;
-            ctx.out.push_u8(123 as u8);  // '{'
-            let bitmap: u64 = map.header & 0x000FFFFFFFFFFFFF as u64;
+            ctx.out.push_u8(123);  // '{'
+            let bitmap: u64 = map.header & 0x000FFFFFFFFFFFFF;
             let arr_base: *const V = ctx.base.byte_add(map.data.offset) as *const V;
             let mut first: bool = true;
-            let mut key: u8 = 0 as u8;
-            while key < 52 as u8 {
-                let key_bit: u64 = 1 as u64 << key as u64;
-                if (bitmap & key_bit) != 0 as u64 {
-                    if !first { ctx.out.push_u8(44 as u8); }
+            let mut key: u8 = 0;
+            while key < 52 {
+                let key_bit: u64 = 1 << key as u64;
+                if (bitmap & key_bit) != 0 {
+                    if !first { ctx.out.push_u8(44); }
                     first = false;
                     ctx.depth = ctx.depth + 1;
                     write_indent(ctx);
-                    ctx.out.push_u8(34 as u8);   // '"'
-                    ctx.out.push_u8(107 as u8);  // 'k'
+                    ctx.out.push_u8(34);   // '"'
+                    ctx.out.push_u8(107);  // 'k'
                     ctx.out.push_u64(key as u64);
-                    ctx.out.push_u8(34 as u8);   // '"'
-                    ctx.out.push_u8(58 as u8);   // ':'
-                    if ctx.opts.indent > 0 { ctx.out.push_u8(32 as u8); }
-                    let mask: u64 = key_bit - 1 as u64;
+                    ctx.out.push_u8(34);   // '"'
+                    ctx.out.push_u8(58);   // ':'
+                    if ctx.opts.indent > 0 { ctx.out.push_u8(32); }
+                    let mask: u64 = key_bit - 1;
                     let pos: u32  = popcount_u64(bitmap & mask);
                     let elem: *const V = arr_base.add(pos as i64);
                     elem.stringify(ctx);
                     ctx.depth = ctx.depth - 1;
                 }
-                key = key + 1 as u8;
+                key = key + 1;
             }
             if !first { write_indent(ctx); }
-            ctx.out.push_u8(125 as u8);  // '}'
+            ctx.out.push_u8(125);  // '}'
         }
     }
 }
@@ -421,31 +421,31 @@ impl HermesStringify for ObjectMap {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let map: *const ObjectMap = self as *const ObjectMap;
-            ctx.out.push_u8(123 as u8);  // '{'
+            ctx.out.push_u8(123);  // '{'
             let cap: u32 = map.capacity;
             let ent_base: *const MapEntry = ctx.base.byte_add(map.entries_off.offset as i64) as *const MapEntry;
             let mut first: bool = true;
-            let mut slot: u32 = 0 as u32;
+            let mut slot: u32 = 0;
             while slot < cap {
                 let ep: *const MapEntry = ent_base.add(slot as i64);
-                if ep.key_off.offset != 0 as u32 {
-                    if !first { ctx.out.push_u8(44 as u8); }
+                if ep.key_off.offset != 0 {
+                    if !first { ctx.out.push_u8(44); }
                     first = false;
                     ctx.depth = ctx.depth + 1;
                     write_indent(ctx);
                     let hs: *const HermesString =
                         ctx.base.byte_add(ep.key_off.offset as i64) as *const HermesString;
                     write_quoted_hs(hs, ctx.out);
-                    ctx.out.push_u8(58 as u8);   // ':'
-                    if ctx.opts.indent > 0 { ctx.out.push_u8(32 as u8); }
+                    ctx.out.push_u8(58);   // ':'
+                    if ctx.opts.indent > 0 { ctx.out.push_u8(32); }
                     let val: AnyVal = AnyVal { raw: ep.val };
                     stringify_anyval(val, ctx);
                     ctx.depth = ctx.depth - 1;
                 }
-                slot = slot + 1 as u32;
+                slot = slot + 1;
             }
             if !first { write_indent(ctx); }
-            ctx.out.push_u8(125 as u8);  // '}'
+            ctx.out.push_u8(125);  // '}'
         }
     }
 }
@@ -476,22 +476,22 @@ impl HermesStringify for Decimal {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let d: *const Decimal = self as *const Decimal;
-            ctx.out.push_u8(34 as u8);   // '"'
+            ctx.out.push_u8(34);   // '"'
             decimal_write_number(d, ctx.out);
-            ctx.out.push_u8(34 as u8);   // '"'
-            ctx.out.push_u8(64 as u8);   // '@'
-            ctx.out.push_u8(68 as u8);   // 'D'
-            ctx.out.push_u8(101 as u8);  // 'e'
-            ctx.out.push_u8(99 as u8);   // 'c'
-            ctx.out.push_u8(105 as u8);  // 'i'
-            ctx.out.push_u8(109 as u8);  // 'm'
-            ctx.out.push_u8(97 as u8);   // 'a'
-            ctx.out.push_u8(108 as u8);  // 'l'
-            ctx.out.push_u8(40 as u8);   // '('
+            ctx.out.push_u8(34);   // '"'
+            ctx.out.push_u8(64);   // '@'
+            ctx.out.push_u8(68);   // 'D'
+            ctx.out.push_u8(101);  // 'e'
+            ctx.out.push_u8(99);   // 'c'
+            ctx.out.push_u8(105);  // 'i'
+            ctx.out.push_u8(109);  // 'm'
+            ctx.out.push_u8(97);   // 'a'
+            ctx.out.push_u8(108);  // 'l'
+            ctx.out.push_u8(40);   // '('
             ctx.out.push_u64(d.precision() as u64);
-            ctx.out.push_u8(44 as u8);   // ','
+            ctx.out.push_u8(44);   // ','
             ctx.out.push_u64(d.scale() as u64);
-            ctx.out.push_u8(41 as u8);   // ')'
+            ctx.out.push_u8(41);   // ')'
         }
     }
 }
@@ -514,33 +514,33 @@ pub unsafe fn stringify_anyval(val: AnyVal, ctx: *mut StringifyCtx) {
     // Inline mode: switch on type_hash.
     let th: u8 = val.type_hash();
     let out: *mut String = ctx.out;
-    if th == 23 as u8 {
+    if th == 23 {
         out.push_i64(val.as_i24() as i64);
-    } else if th == 25 as u8 {
+    } else if th == 25 {
         out.push_u64(val.as_u24() as u64);
-        out.push_u8(95 as u8); out.push_u8(117 as u8);
-        out.push_u8(51 as u8); out.push_u8(50 as u8);   // "_u32"
-    } else if th == 20 as u8 {
+        out.push_u8(95); out.push_u8(117);
+        out.push_u8(51); out.push_u8(50);   // "_u32"
+    } else if th == 20 {
         out.push_i64(val.as_i8() as i64);
-        out.push_u8(95 as u8); out.push_u8(115 as u8); out.push_u8(56 as u8);   // "_s8"
-    } else if th == 21 as u8 {
+        out.push_u8(95); out.push_u8(115); out.push_u8(56);   // "_s8"
+    } else if th == 21 {
         out.push_u64(val.as_u8() as u64);
-        out.push_u8(95 as u8); out.push_u8(117 as u8); out.push_u8(56 as u8);   // "_u8"
-    } else if th == 22 as u8 {
+        out.push_u8(95); out.push_u8(117); out.push_u8(56);   // "_u8"
+    } else if th == 22 {
         out.push_i64(val.as_i16() as i64);
-        out.push_u8(95 as u8); out.push_u8(115 as u8);
-        out.push_u8(49 as u8); out.push_u8(54 as u8);   // "_s16"
-    } else if th == 24 as u8 {
+        out.push_u8(95); out.push_u8(115);
+        out.push_u8(49); out.push_u8(54);   // "_s16"
+    } else if th == 24 {
         out.push_u64(val.as_u16() as u64);
-        out.push_u8(95 as u8); out.push_u8(117 as u8);
-        out.push_u8(49 as u8); out.push_u8(54 as u8);   // "_u16"
-    } else if th == 37 as u8 {
+        out.push_u8(95); out.push_u8(117);
+        out.push_u8(49); out.push_u8(54);   // "_u16"
+    } else if th == 37 {
         if val.as_bool() {
-            out.push_u8(116 as u8); out.push_u8(114 as u8);
-            out.push_u8(117 as u8); out.push_u8(101 as u8);   // "true"
+            out.push_u8(116); out.push_u8(114);
+            out.push_u8(117); out.push_u8(101);   // "true"
         } else {
-            out.push_u8(102 as u8); out.push_u8(97 as u8); out.push_u8(108 as u8);
-            out.push_u8(115 as u8); out.push_u8(101 as u8);   // "false"
+            out.push_u8(102); out.push_u8(97); out.push_u8(108);
+            out.push_u8(115); out.push_u8(101);   // "false"
         }
     } else {
         write_null(out);
@@ -558,7 +558,7 @@ pub unsafe fn stringify_document(base: *const u8, out: *mut String, opts: String
         out:   out,
         base:  base,
         opts:  opts,
-        depth: 0 as i64,
+        depth: 0,
     };
     stringify_anyval(root, &mut ctx);
 }

@@ -122,8 +122,8 @@ pub unsafe fn memholder_grow(holder: *mut MemHolder, need: i64) -> bool {
     if holder.destroyer as *const u8 != memholder_destroy_free as *const u8 {
         return false;
     }
-    let new_cap: i64 = if holder.capacity * 2 as i64 >= need {
-        holder.capacity * 2 as i64
+    let new_cap: i64 = if holder.capacity * 2 >= need {
+        holder.capacity * 2
     } else {
         need
     };

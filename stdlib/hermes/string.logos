@@ -22,15 +22,15 @@ use std.mem;
 // ---------------------------------------------------------------------------
 
 pub unsafe fn hermes_fnv1a(ptr: *const u8, len: u64) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325 as u64;
-    let prime: u64 = 0x100000001b3 as u64;
+    let mut h: u64 = 0xcbf29ce484222325;
+    let prime: u64 = 0x100000001b3;
     let mut i: u64 = 0;
     while i < len {
         let p: *const u8 = ptr.byte_add(i as i64);
         let b: u64 = (*p) as u64;
         h = h ^ b;
         h = h * prime;
-        i = i + 1 as u64;
+        i = i + 1;
     }
     return h;
 }
@@ -44,64 +44,64 @@ pub unsafe fn hermes_fnv1a(ptr: *const u8, len: u64) -> u64 {
 // byte (248+N) would overflow u8.  Such values are capped to the 7-byte
 // maximum so that the returned size is always representable.
 pub unsafe fn vlen_encode_size(value: u64) -> u32 {
-    if value < 249 as u64 {
-        return 1 as u32;
+    if value < 249 {
+        return 1;
     }
-    let mut n: u32 = 0 as u32;
+    let mut n: u32 = 0;
     let mut v: u64 = value;
-    while v > 0 as u64 {
+    while v > 0 {
         v = v >> 8;
-        n = n + 1 as u32;
+        n = n + 1;
     }
-    if n > 7 as u32 { n = 7 as u32; }
-    return 1 as u32 + n;
+    if n > 7 { n = 7; }
+    return 1 + n;
 }
 
 // Write vlen-encoded `value` to dst. Returns number of bytes written.
 pub unsafe fn vlen_write(dst: *mut u8, value: u64) -> u32 {
-    if value < 249 as u64 {
+    if value < 249 {
         *dst = value as u8;
-        return 1 as u32;
+        return 1;
     }
-    let mut n: u32 = 0 as u32;
+    let mut n: u32 = 0;
     let mut v: u64 = value;
-    while v > 0 as u64 {
+    while v > 0 {
         v = v >> 8;
-        n = n + 1 as u32;
+        n = n + 1;
     }
     // Values >= 2^56 need n >= 8 data bytes; the marker byte (248+N) would
     // overflow u8.  Saturate to 7 (max the format can represent).
-    if n > 7 as u32 { n = 7 as u32; }
-    let marker: u8 = (248 as u32 + n) as u8;
+    if n > 7 { n = 7; }
+    let marker: u8 = (248 + n) as u8;
     *dst = marker;
-    let mut i: u32 = 0 as u32;
+    let mut i: u32 = 0;
     let mut rem: u64 = value;
     while i < n {
         let p: *mut u8 = dst.byte_add(1 + i as i64);
-        let byte_val: u8 = (rem & 0xFF as u64) as u8;
+        let byte_val: u8 = (rem & 0xFF) as u8;
         *p = byte_val;
         rem = rem >> 8;
-        i = i + 1 as u32;
+        i = i + 1;
     }
-    return 1 as u32 + n;
+    return 1 + n;
 }
 
 // Decode vlen value from src. Returns the decoded u64.
 pub unsafe fn vlen_read(src: *const u8) -> u64 {
     let first: u8 = *src;
     let first_u32: u32 = first as u32;
-    if first_u32 < 249 as u32 {
+    if first_u32 < 249 {
         return first as u64;
     }
-    let n: u32 = first_u32 - 248 as u32;
+    let n: u32 = first_u32 - 248;
     let mut value: u64 = 0;
-    let mut i: u32 = 0 as u32;
+    let mut i: u32 = 0;
     while i < n {
         let p: *const u8 = src.byte_add(1 + i as i64);
         let b: u64 = (*p) as u64;
-        let shift: u64 = (i * 8 as u32) as u64;
+        let shift: u64 = (i * 8) as u64;
         value = value | (b << shift);
-        i = i + 1 as u32;
+        i = i + 1;
     }
     return value;
 }
@@ -110,10 +110,10 @@ pub unsafe fn vlen_read(src: *const u8) -> u64 {
 pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
     let first: u8 = *src;
     let first_u32: u32 = first as u32;
-    if first_u32 < 249 as u32 {
-        return 1 as u32;
+    if first_u32 < 249 {
+        return 1;
     }
-    return first_u32 - 248 as u32 + 1 as u32;
+    return first_u32 - 248 + 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ pub genos Varchar {
             let pa: *const u8 = my_b.byte_add(i as i64);
             let pb: *const u8 = other.byte_add(i as i64);
             if *pa != *pb { return false; }
-            i = i + 1 as u64;
+            i = i + 1;
         }
         return true;
     }
@@ -192,7 +192,7 @@ impl HermesString {
             let src_p: *const u8 = text.byte_add(i as i64);
             let dst_p: *mut u8   = body.byte_add(i as i64);
             *dst_p = *src_p;
-            i = i + 1 as u64;
+            i = i + 1;
         }
         return raw as *mut HermesString;
     }
@@ -241,8 +241,8 @@ impl Storage for HermesStringStorage {
         unsafe {
             let end_p: *mut u32 = s.ends.add(idx as i64);
             let end_off: u64 = *end_p as u64;
-            let start_off: u64 = if idx == 0 as u64 {
-                0 as u64
+            let start_off: u64 = if idx == 0 {
+                0
             } else {
                 let prev: *mut u32 = s.ends.add(idx as i64 - 1);
                 *prev as u64
@@ -276,11 +276,11 @@ impl DynamicStorage for HermesStringStorage {
     fn storage_new() -> HermesStringStorage {
         return HermesStringStorage {
             bytes: 0 as *mut u8,
-            b_len: 0 as u64,
-            b_cap: 0 as u64,
+            b_len: 0,
+            b_cap: 0,
             ends:  0 as *mut u32,
-            o_len: 0 as u64,
-            o_cap: 0 as u64,
+            o_len: 0,
+            o_cap: 0,
         };
     }
     fn storage_clear(s: *mut HermesStringStorage) {
@@ -302,8 +302,8 @@ impl DynamicStorage for HermesStringStorage {
             // Grow bytes buffer to fit the new string.
             let need_b: u64 = s.b_len + v.len;
             if need_b > s.b_cap {
-                let mut new_cap: u64 = if s.b_cap == 0 as u64 { 16 as u64 } else { s.b_cap * 2 as u64 };
-                while new_cap < need_b { new_cap = new_cap * 2 as u64; }
+                let mut new_cap: u64 = if s.b_cap == 0 { 16 } else { s.b_cap * 2 };
+                while new_cap < need_b { new_cap = new_cap * 2; }
                 let new_buf: *mut u8 = if s.bytes == 0 as *mut u8 {
                     alloc(new_cap as i64)
                 } else {
@@ -315,11 +315,11 @@ impl DynamicStorage for HermesStringStorage {
             }
             // Grow offsets buffer to fit the new end offset.
             if s.o_len == s.o_cap {
-                let new_cap: u64 = if s.o_cap == 0 as u64 { 4 as u64 } else { s.o_cap * 2 as u64 };
+                let new_cap: u64 = if s.o_cap == 0 { 4 } else { s.o_cap * 2 };
                 let new_buf: *mut u8 = if s.ends == 0 as *mut u32 {
-                    alloc((new_cap * 4 as u64) as i64)
+                    alloc((new_cap * 4) as i64)
                 } else {
-                    realloc_buf(s.ends as *mut u8, (new_cap * 4 as u64) as i64)
+                    realloc_buf(s.ends as *mut u8, (new_cap * 4) as i64)
                 };
                 if new_buf == 0 as *mut u8 { return; }
                 s.ends  = new_buf as *mut u32;
@@ -331,13 +331,13 @@ impl DynamicStorage for HermesStringStorage {
                 let dst: *mut u8 = s.bytes.byte_add(s.b_len as i64 + i as i64);
                 let src: *const u8 = v.ptr.byte_add(i as i64);
                 *dst = *src;
-                i = i + 1 as u64;
+                i = i + 1;
             }
             s.b_len = s.b_len + v.len;
             // Append end-offset.
             let slot: *mut u32 = s.ends.add(s.o_len as i64);
             *slot = s.b_len as u32;
-            s.o_len = s.o_len + 1 as u64;
+            s.o_len = s.o_len + 1;
         }
     }
 

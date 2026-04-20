@@ -76,14 +76,14 @@ impl Map<Varchar, AnyVal> {
         let m: *mut Map<Varchar, AnyVal> = raw as *mut Map<Varchar, AnyVal>;
         m.entries_off.offset = off;
         m.capacity    = capacity;
-        m.count       = 0 as u32;
-        m.reserved    = 0 as u32;
+        m.count       = 0;
+        m.reserved    = 0;
         // Zero-initialize all entry slots (key_off = 0 → empty).
-        let total: i64 = capacity as i64 * 8 as i64;
+        let total: i64 = capacity as i64 * 8;
         let mut i: i64 = 0;
         while i < total {
             let p: *mut u8 = entries_buf.byte_add(i);
-            *p = 0 as u8;
+            *p = 0;
             i = i + 1;
         }
         return m;
@@ -102,16 +102,16 @@ impl Map<Varchar, AnyVal> {
         let h: u64     = hermes_fnv1a(key_ptr, key_len);
         let ent_base: *mut MapEntry =
             base.byte_add(self.entries_off.offset) as *mut MapEntry;
-        let mut slot: u64 = h & (cap - 1 as u64);
+        let mut slot: u64 = h & (cap - 1);
         let mut done: bool = false;
         let mut probed: u64 = 0;
         while done == false && probed < cap {
             let ep: *mut MapEntry = ent_base.add(slot as i64);
-            if ep.key_off.offset == 0 as u32 {
+            if ep.key_off.offset == 0 {
                 // Empty slot — insert new entry.
                 ep.key_off.offset = key_off;
                 ep.val     = val.raw;
-                self.count = self.count + 1 as u32;
+                self.count = self.count + 1;
                 done = true;
             } else {
                 let ks: *const HermesString =
@@ -121,11 +121,11 @@ impl Map<Varchar, AnyVal> {
                     ep.val = val.raw;
                     done = true;
                 } else {
-                    slot = slot + 1 as u64;
+                    slot = slot + 1;
                     if slot >= cap {
                         slot = 0;
                     }
-                    probed = probed + 1 as u64;
+                    probed = probed + 1;
                 }
             }
         }
@@ -139,11 +139,11 @@ impl Map<Varchar, AnyVal> {
         let h: u64        = hermes_fnv1a(key_ptr, key_len);
         let ent_base: *const MapEntry =
             base.byte_add(self.entries_off.offset) as *const MapEntry;
-        let mut slot: u64 = h & (cap - 1 as u64);
+        let mut slot: u64 = h & (cap - 1);
         let mut probed: u64 = 0;
         while probed < cap {
             let ep: *const MapEntry = ent_base.add(slot as i64);
-            if ep.key_off.offset == 0 as u32 {
+            if ep.key_off.offset == 0 {
                 return AnyVal::null_ptr();
             }
             let ks: *const HermesString =
@@ -151,11 +151,11 @@ impl Map<Varchar, AnyVal> {
             if ks.equals_bytes(key_ptr, key_len) {
                 return AnyVal { raw: ep.val };
             }
-            slot = slot + 1 as u64;
+            slot = slot + 1;
             if slot >= cap {
                 slot = 0;
             }
-            probed = probed + 1 as u64;
+            probed = probed + 1;
         }
         return AnyVal::null_ptr();
     }
@@ -167,11 +167,11 @@ impl Map<Varchar, AnyVal> {
         let h: u64        = hermes_fnv1a(key_ptr, key_len);
         let ent_base: *const MapEntry =
             base.byte_add(self.entries_off.offset) as *const MapEntry;
-        let mut slot: u64 = h & (cap - 1 as u64);
+        let mut slot: u64 = h & (cap - 1);
         let mut probed: u64 = 0;
         while probed < cap {
             let ep: *const MapEntry = ent_base.add(slot as i64);
-            if ep.key_off.offset == 0 as u32 {
+            if ep.key_off.offset == 0 {
                 return false;
             }
             let ks: *const HermesString =
@@ -179,11 +179,11 @@ impl Map<Varchar, AnyVal> {
             if ks.equals_bytes(key_ptr, key_len) {
                 return true;
             }
-            slot = slot + 1 as u64;
+            slot = slot + 1;
             if slot >= cap {
                 slot = 0;
             }
-            probed = probed + 1 as u64;
+            probed = probed + 1;
         }
         return false;
     }
