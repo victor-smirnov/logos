@@ -24,7 +24,7 @@ pub unsafe fn hermes_pat_map_slot(av: *const AnyVal, base: *const u8,
                                   key: str) -> AnyVal {
     if av.is_null() { return AnyVal::null_ptr(); }
     if !av.is_map(base) { return AnyVal::null_ptr(); }
-    let obj: *const u8 = (base as i64 + av.as_offset() as i64) as *const u8;
+    let obj: *const u8 = base.byte_add(av.as_offset() as i64);
     let tag: u64 = read_type_code(obj);
     if tag == hermes_tag_tiny_map() as u64 { return AnyVal::null_ptr(); }
     let omap: *const Map<Varchar, AnyVal> = obj as *const Map<Varchar, AnyVal>;
@@ -36,7 +36,7 @@ pub unsafe fn hermes_pat_array_slot(av: *const AnyVal, base: *const u8,
     if av.is_null() { return AnyVal::null_ptr(); }
     if !av.is_array(base) { return AnyVal::null_ptr(); }
     let arr: *const Array<AnyVal> =
-        (base as i64 + av.as_offset() as i64) as *const Array<AnyVal>;
+        base.byte_add(av.as_offset() as i64) as *const Array<AnyVal>;
     return arr.get(base, idx);
 }
 
@@ -45,7 +45,7 @@ pub unsafe fn hermes_pat_array_len_eq(av: *const AnyVal, base: *const u8,
     if av.is_null() { return false; }
     if !av.is_array(base) { return false; }
     let arr: *const Array<AnyVal> =
-        (base as i64 + av.as_offset() as i64) as *const Array<AnyVal>;
+        base.byte_add(av.as_offset() as i64) as *const Array<AnyVal>;
     return arr.size == n;
 }
 
@@ -54,7 +54,7 @@ pub unsafe fn hermes_pat_has_type_code(av: *const AnyVal, base: *const u8,
                                        tc: u64) -> bool {
     if av.is_null() { return false; }
     if !av.is_ptr() { return false; }
-    let obj: *const u8 = (base as i64 + av.as_offset() as i64) as *const u8;
+    let obj: *const u8 = base.byte_add(av.as_offset() as i64);
     return read_type_code(obj) == tc;
 }
 
@@ -63,6 +63,6 @@ pub unsafe fn hermes_pat_array_len_ge(av: *const AnyVal, base: *const u8,
     if av.is_null() { return false; }
     if !av.is_array(base) { return false; }
     let arr: *const Array<AnyVal> =
-        (base as i64 + av.as_offset() as i64) as *const Array<AnyVal>;
+        base.byte_add(av.as_offset() as i64) as *const Array<AnyVal>;
     return arr.size >= n;
 }

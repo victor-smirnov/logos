@@ -58,16 +58,12 @@ impl AnyVal {
 
     // Resolve pointer-mode AnyVal to a raw const pointer given the segment base.
     pub unsafe fn resolve(self: *const AnyVal, base: *const u8) -> *const u8 {
-        let base_int: i64 = base as i64;
-        let off: i64 = self.raw as i64;
-        return (base_int + off) as *const u8;
+        return base.byte_add(self.raw as i64);
     }
 
     // Resolve pointer-mode AnyVal to a mutable pointer given the segment base.
     pub unsafe fn resolve_mut(self: *const AnyVal, base: *mut u8) -> *mut u8 {
-        let base_int: i64 = base as i64;
-        let off: i64 = self.raw as i64;
-        return (base_int + off) as *mut u8;
+        return base.byte_add(self.raw as i64);
     }
 
     // 7-bit type_hash from the tag byte (only valid in value mode).
@@ -209,7 +205,7 @@ impl AnyVal {
     pub unsafe fn is_string(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
-        let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
+        let obj: *const u8 = base.byte_add(self.raw as i64);
         return read_type_code(obj) == hermes_tag_string() as u64;
     }
 
@@ -217,7 +213,7 @@ impl AnyVal {
     pub unsafe fn is_array(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
-        let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
+        let obj: *const u8 = base.byte_add(self.raw as i64);
         return read_type_code(obj) == hermes_tag_array() as u64;
     }
 
@@ -225,7 +221,7 @@ impl AnyVal {
     pub unsafe fn is_map(self: *const AnyVal, base: *const u8) -> bool {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
-        let obj: *const u8 = (base as i64 + self.raw as i64) as *const u8;
+        let obj: *const u8 = base.byte_add(self.raw as i64);
         let tc: u64 = read_type_code(obj);
         return tc == hermes_tag_map() as u64 || tc == hermes_tag_tiny_map() as u64;
     }
@@ -275,15 +271,15 @@ pub unsafe fn hermes_pat_eq_str(av: *const AnyVal, base: *const u8,
     if av.is_null() { return false; }
     if !av.is_string(base) { return false; }
     let hs: *const HermesString =
-        (base as i64 + av.as_offset() as i64) as *const HermesString;
+        base.byte_add(av.as_offset() as i64) as *const HermesString;
     let n: u64 = s.len() as u64;
     if hs.len() != n { return false; }
     let p: *const u8 = hs.bytes();
     let sp: *const u8 = s.as_ptr();
     let mut i: u64 = 0;
     while i < n {
-        let a: *const u8 = (p as i64 + i as i64) as *const u8;
-        let b: *const u8 = (sp as i64 + i as i64) as *const u8;
+        let a: *const u8 = p.byte_add(i as i64);
+        let b: *const u8 = sp.byte_add(i as i64);
         if *a != *b { return false; }
         i = i + (1 as u64);
     }
