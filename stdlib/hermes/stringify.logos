@@ -479,6 +479,9 @@ impl HermesStringify for Decimal {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let d: *const Decimal = self as *const Decimal;
+            ctx.out.push_u8(34 as u8);   // '"'
+            decimal_write_number(d, ctx.out);
+            ctx.out.push_u8(34 as u8);   // '"'
             ctx.out.push_u8(64 as u8);   // '@'
             ctx.out.push_u8(68 as u8);   // 'D'
             ctx.out.push_u8(101 as u8);  // 'e'
@@ -492,12 +495,6 @@ impl HermesStringify for Decimal {
             ctx.out.push_u8(44 as u8);   // ','
             ctx.out.push_u64(d.scale() as u64);
             ctx.out.push_u8(41 as u8);   // ')'
-            ctx.out.push_u8(32 as u8);   // ' '
-            ctx.out.push_u8(61 as u8);   // '='
-            ctx.out.push_u8(32 as u8);   // ' '
-            ctx.out.push_u8(34 as u8);   // '"'
-            decimal_write_number(d, ctx.out);
-            ctx.out.push_u8(34 as u8);   // '"'
         }
     }
 }
