@@ -1357,7 +1357,11 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
     std::function<bool(const lir::Pattern&)> is_irrefutable;
     is_irrefutable = [&](const lir::Pattern& p) -> bool {
         if (std::holds_alternative<lir::PatWild>(p))     return true;
-        if (std::holds_alternative<lir::PatTuple>(p))    return true;
+        if (auto* pt = std::get_if<lir::PatTuple>(&p)) {
+            if (pt->subs.empty()) return true;  // legacy all-wild tuple
+            for (auto& s : pt->subs) if (!is_irrefutable(s)) return false;
+            return true;
+        }
         if (std::holds_alternative<lir::PatStruct>(p))   return true;
         if (std::holds_alternative<lir::PatSlice>(p))    return true;
         if (std::holds_alternative<lir::PatRefBind>(p))  return true;
@@ -1825,6 +1829,41 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 // Irrefutable PatAt (no sub) — arm always runs.
                 else_block = arm_entry;
             }
+        } else if (auto* pt = std::get_if<lir::PatTuple>(&arm.pat); pt && !pt->subs.empty()) {
+            // Refutable tuple: GEP each refutable element and AND-chain equality tests.
+            auto ttype = tuple_llvm_type(s.scrut->type);
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
+                mlir::Value cond =
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
+                for (size_t i = 0; i < pt->subs.size() && ttype; ++i) {
+                    const lir::Pattern& sub = pt->subs[i];
+                    if (std::holds_alternative<lir::PatWild>(sub)) continue;
+                    int64_t sub_val = 0;
+                    if (auto* pi = std::get_if<lir::PatInt>(&sub))       sub_val = pi->value;
+                    else if (auto* pb = std::get_if<lir::PatBool>(&sub)) sub_val = pb->value ? 1 : 0;
+                    else continue;
+                    auto elem_mlir = i < pt->binding_types.size()
+                                     ? logos_to_mlir(pt->binding_types[i]) : mlir::Type();
+                    if (!elem_mlir) continue;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(i)};
+                    auto fp = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), ttype, tptr, fi);
+                    auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
+                    auto cv = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, sub_val, 64),
+                        elem_mlir);
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
+                    cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
+                }
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+            }
+            else_block = test_block;
         } else {
             int64_t disc = 0;
             if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;

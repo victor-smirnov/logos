@@ -85,6 +85,7 @@ struct PatOr   { std::vector<Pattern> alts; };
 struct PatTuple {
     std::vector<std::string>        bindings;      // bound variable names (or "_" to skip)
     std::vector<const LogosType*>   binding_types; // their types (filled by sema)
+    std::vector<Pattern>            subs;          // sub-pattern per element (parallel to bindings)
 };
 // PatFieldBinding: sub empty = shorthand binding, sub[0] = explicit sub-pattern.
 struct PatFieldBinding {

@@ -613,6 +613,7 @@ static lir::Pattern subst_pattern(const lir::Pattern& pat, const TypeSubstFn& st
     if (auto* pt = std::get_if<lir::PatTuple>(&pat)) {
         lir::PatTuple n = *pt;
         for (auto& bt : n.binding_types) bt = st(bt);
+        for (auto& sp : n.subs) sp = subst_pattern(sp, st);
         return n;
     }
     if (auto* pa = std::get_if<lir::PatAt>(&pat)) {

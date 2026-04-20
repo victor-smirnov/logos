@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+// Tuple patterns with bool + neg-int + wildcard mix.
+
+package match_tuple_bool;
+
+fn pick(p: (bool, i32)) -> i32 {
+    match p {
+        (true, 0)   => 10,
+        (false, 0)  => 20,
+        (true, -1)  => 30,
+        (_, n)      => n + 100,
+    }
+}
+
+fn main() -> i32 {
+    let s: i32 =
+        pick((true, 0))     // 10
+      + pick((false, 0))    // 20
+      + pick((true, -1))    // 30
+      + pick((false, 7));   // 107
+    return s;                // 167
+}

@@ -925,12 +925,23 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                 int32_t sc = code_of(sub);
                 // Each element in a tuple pattern must be a simple binding (PAT_WILD = identifier)
                 // or _ (wildcard). Nested patterns aren't supported yet.
+                // Element type for this position, used by recursive build_pattern for type-checking.
+                const LogosType* elem_ty = nullptr;
+                if (scrut_type && scrut_type->kind == LogosType::Kind::Tuple &&
+                    i < scrut_type->tuple_elems.size())
+                    elem_ty = scrut_type->tuple_elems[i];
                 if (sc == la::PAT_WILD.code) {
-                    pt.bindings.push_back(std::string(str_of(sub.get(la::NAME.code))));
-                } else {
-                    // PAT_INT, PAT_BOOL etc. in a tuple pattern — not supported yet.
-                    error("tuple pattern elements must be simple bindings");
+                    auto nm = std::string(str_of(sub.get(la::NAME.code)));
+                    pt.bindings.push_back(nm);
+                    pt.subs.push_back(lir::PatWild{nm});
+                } else if (sc == la::PAT_INT.code || sc == la::PAT_NEG_INT.code ||
+                           sc == la::PAT_BOOL.code) {
                     pt.bindings.push_back("_");
+                    pt.subs.push_back(build_pattern(sub, elem_ty));
+                } else {
+                    error("tuple pattern element: only _, name, integer, or bool literals are supported");
+                    pt.bindings.push_back("_");
+                    pt.subs.push_back(lir::PatWild{"_"});
                 }
             }
         }
