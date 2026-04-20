@@ -403,19 +403,9 @@ impl TypedMapMeta for TypedMap {
 // ---------------------------------------------------------------------------
 
 #[type_code=104]
-pub genos ArrayI32Tag {
-    unsafe fn len(self: *const Self) -> u64;
-}
+pub eidos Array<i32>;
 
-pub eidos ArrayI32 {
-    pub size:     u64,
-    pub capacity: u64,
-    pub data:     u32,
-}
-
-impl ArrayI32Tag for ArrayI32 {
-    unsafe fn len(self: *const ArrayI32) -> u64 { return self.size; }
-}
+pub type ArrayI32 = Array<i32>;
 
 impl ArrayI32 {
     pub unsafe fn init(arr_raw: *mut u8, buf_raw: *mut u8,
@@ -482,19 +472,9 @@ impl ArrayI32 {
 // ---------------------------------------------------------------------------
 
 #[type_code=108]
-pub genos ArrayU64Tag {
-    unsafe fn len(self: *const Self) -> u64;
-}
+pub eidos Array<u64>;
 
-pub eidos ArrayU64 {
-    pub size:     u64,
-    pub capacity: u64,
-    pub data:     u32,
-}
-
-impl ArrayU64Tag for ArrayU64 {
-    unsafe fn len(self: *const ArrayU64) -> u64 { return self.size; }
-}
+pub type ArrayU64 = Array<u64>;
 
 impl ArrayU64 {
     pub unsafe fn init(arr_raw: *mut u8, buf_raw: *mut u8,

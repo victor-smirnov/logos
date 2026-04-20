@@ -4806,7 +4806,10 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             error(std::format("unknown typed array element type '{}'; supported: I32, U64", type_name));
             return nullptr;
         }
-        if (!datatypes_.count(kit->second.struct_name)) {
+        // Accept either the original eidos name or a type-alias pointing
+        // at the generic instantiation (e.g. `pub type ArrayI32 = Array<i32>;`).
+        if (!datatypes_.count(kit->second.struct_name) &&
+            !type_aliases_.count(kit->second.struct_name)) {
             error(std::format(
                 "typed array @<{}>[...] requires '{}' in scope — add 'use hermes.containers;'",
                 type_name, kit->second.struct_name));
@@ -4868,7 +4871,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         }
         std::string lir_key_type;
         if (key_type == "I32") {
-            if (!datatypes_.count("MapI32AnyVal")) {
+            if (!datatypes_.count("MapI32AnyVal") &&
+                !type_aliases_.count("MapI32AnyVal")) {
                 error("typed map @<I32>{...} requires 'use hermes.containers;'");
                 return nullptr;
             }
