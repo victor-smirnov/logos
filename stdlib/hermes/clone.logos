@@ -593,13 +593,13 @@ impl HermesClone for MapI32AnyVal {
     }
 }
 
-// ── ArrayI32 (tc=104) ─────────────────────────────────────────────────────────
+// ── Array<i32> (tc=104) ─────────────────────────────────────────────────────────
 
-impl HermesClone for ArrayI32 {
+impl HermesClone for Array<i32> {
     pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
         unsafe {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
-            let a: *const ArrayI32 = (ctx.base_src as i64 + src_off as i64) as *const ArrayI32;
+            let a: *const Array<i32> = (ctx.base_src as i64 + src_off as i64) as *const Array<i32>;
             let cap: u64 = a.capacity;
             let n:   u64 = a.size;
             let src_data_off: u32 = a.data.offset;
@@ -619,13 +619,13 @@ impl HermesClone for ArrayI32 {
             }
 
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
-                                       sizeof::<ArrayI32>() as i64,
+                                       sizeof::<Array<i32>>() as i64,
                                        hermes_tag_array_i32() as u64);
             if hdr_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (hdr_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
 
-            let new_arr: *mut ArrayI32 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut ArrayI32;
+            let new_arr: *mut Array<i32> = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut Array<i32>;
             new_arr.size     = n;
             new_arr.capacity = cap;
             new_arr.data.offset     = buf_off;
@@ -634,13 +634,13 @@ impl HermesClone for ArrayI32 {
     }
 }
 
-// ── ArrayU64 (tc=108) ─────────────────────────────────────────────────────────
+// ── Array<u64> (tc=108) ─────────────────────────────────────────────────────────
 
-impl HermesClone for ArrayU64 {
+impl HermesClone for Array<u64> {
     pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
         unsafe {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
-            let a: *const ArrayU64 = (ctx.base_src as i64 + src_off as i64) as *const ArrayU64;
+            let a: *const Array<u64> = (ctx.base_src as i64 + src_off as i64) as *const Array<u64>;
             let cap: u64 = a.capacity;
             let n:   u64 = a.size;
             let src_data_off: u32 = a.data.offset;
@@ -660,13 +660,13 @@ impl HermesClone for ArrayU64 {
             }
 
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
-                                       sizeof::<ArrayU64>() as i64,
+                                       sizeof::<Array<u64>>() as i64,
                                        hermes_tag_array_u64() as u64);
             if hdr_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (hdr_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
 
-            let new_arr: *mut ArrayU64 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut ArrayU64;
+            let new_arr: *mut Array<u64> = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut Array<u64>;
             new_arr.size     = n;
             new_arr.capacity = cap;
             new_arr.data.offset     = buf_off;

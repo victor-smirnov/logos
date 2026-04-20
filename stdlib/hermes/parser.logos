@@ -351,7 +351,7 @@ impl HermesParser {
     // Typed-container materialization registry.
     // Add new pre-materializations by appending rules here, not in parser flow.
     pub unsafe fn resolve_array_materialization(&mut self, argc: i64, elem_atom: u8) -> u8 {
-        // Rule: <I32>[...] -> dense ArrayI32
+        // Rule: <I32>[...] -> dense Array<i32>
         if argc == 1 as i64 && elem_atom == self.atom_i32() {
             return self.mat_i32_array();
         }
@@ -818,7 +818,7 @@ impl HermesParser {
         self.pos = self.pos + 1 as i64;
 
         let cap: u64 = 64 as u64;
-        let arr_sz: i64 = sizeof::<ArrayI32>() as i64;
+        let arr_sz: i64 = sizeof::<Array<i32>>() as i64;
         let arr_raw: *mut u8 = zone_m_alloc_tagged(self.zone, arr_sz,
                                   hermes_tag_array_i32() as u64);
         let buf_raw: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4 as i64);
@@ -826,7 +826,7 @@ impl HermesParser {
             self.ok = false;
             return AnyVal::null_ptr();
         }
-        let arr: *mut ArrayI32 = arr_raw as *mut ArrayI32;
+        let arr: *mut Array<i32> = arr_raw as *mut Array<i32>;
         arr.size     = 0 as u64;
         arr.capacity = cap;
         arr.data.offset = (buf_raw as i64 - self.base as i64) as u32;

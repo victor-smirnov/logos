@@ -196,19 +196,19 @@ pub fn main() -> i32 {
 
     // ------------------------------------------------------------------ //
     // 5. Typed array cast — &[T] as <T>[]                                //
-    //    Produces a dense ArrayI32/ArrayU64 HermesCtr.                   //
+    //    Produces a dense Array<i32>/Array<u64> HermesCtr.                   //
     // ------------------------------------------------------------------ //
     section("5. Typed array cast  (&[T] as <T>[])");
 
     let raw_i32: [i32; 5] = [2, 3, 5, 7, 11];
     let slice_i32: &[i32] = &raw_i32;
     let arr_ctr: HermesCtr = slice_i32 as <I32>[];
-    print_doc("ArrayI32", &arr_ctr);
+    print_doc("Array<i32>", &arr_ctr);
 
     let raw_u64: [u64; 3] = [1000000, 2000000, 3000000];
     let slice_u64: &[u64] = &raw_u64;
     let arr_u64_ctr: HermesCtr = slice_u64 as <U64>[];
-    print_doc("ArrayU64", &arr_u64_ctr);
+    print_doc("Array<u64>", &arr_u64_ctr);
 
     // ------------------------------------------------------------------ //
     // 6. Typed map cast — MapSliceI32 as <I32,AnyVal>{}                  //

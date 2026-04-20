@@ -475,15 +475,15 @@ impl HermesCheck for TypedValue {
     }
 }
 
-// ── ArrayI32 (104): 24-byte header + capacity*4 i32 data (no AnyVal refs)
+// ── Array<i32> (104): 24-byte header + capacity*4 i32 data (no AnyVal refs)
 
-impl HermesCheck for ArrayI32 {
+impl HermesCheck for Array<i32> {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let arr: *const ArrayI32 = self as *const ArrayI32;
+            let arr: *const Array<i32> = self as *const Array<i32>;
             let obj: *const u8 = arr as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
-            let hdr_sz: i64 = sizeof::<ArrayI32>() as i64;
+            let hdr_sz: i64 = sizeof::<Array<i32>>() as i64;
             if !check_bounds(state, off - 1 as i64, 1 as i64 + hdr_sz) { return false; }
             if !check_mark(state,  off - 1 as i64, 1 as i64 + hdr_sz) { return false; }
             check_mark_start(state, off - 1 as i64);
@@ -663,15 +663,15 @@ pub unsafe fn document_check(zone: *const Zone<Mutable>) -> bool {
     return ok;
 }
 
-// ── ArrayU64 (108): 24-byte header + capacity*8 u64 data (no AnyVal refs)
+// ── Array<u64> (108): 24-byte header + capacity*8 u64 data (no AnyVal refs)
 
-impl HermesCheck for ArrayU64 {
+impl HermesCheck for Array<u64> {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let arr: *const ArrayU64 = self as *const ArrayU64;
+            let arr: *const Array<u64> = self as *const Array<u64>;
             let obj: *const u8 = arr as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
-            let hdr_sz: i64 = sizeof::<ArrayU64>() as i64;
+            let hdr_sz: i64 = sizeof::<Array<u64>>() as i64;
             if !check_bounds(state, off - 1 as i64, 1 as i64 + hdr_sz) { return false; }
             if !check_mark(state,  off - 1 as i64, 1 as i64 + hdr_sz) { return false; }
             check_mark_start(state, off - 1 as i64);

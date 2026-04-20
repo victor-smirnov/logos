@@ -449,16 +449,16 @@ pub unsafe fn hermes_ctr_alloc_cstr(ctr: *mut HermesCtr, ptr: *const u8) -> u32 
 
 // ── C6: Logos-slice → Hermes typed array builders ────────────────────────────
 
-// Builds an ArrayI32 HermesCtr from a raw i32 slice (ptr + element count).
-// Layout: data buffer first (4 bytes/elem, raw), then tagged ArrayI32 header.
-// The document root is set to the resulting ArrayI32 AnyVal.
+// Builds an Array<i32> HermesCtr from a raw i32 slice (ptr + element count).
+// Layout: data buffer first (4 bytes/elem, raw), then tagged Array<i32> header.
+// The document root is set to the resulting Array<i32> AnyVal.
 pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
     // Bug 7/9 fix: negative len is invalid; very large len overflows len*4.
     // len==0 is valid (empty typed array); guard only negative and overflow cases.
     if len < 0 as i64 { return HermesCtr::builder(8 as i64); }
     if len > 536870911 as i64 { return HermesCtr::builder(8 as i64); }
     let byte_len: i64 = len * 4 as i64;
-    let cap: i64 = 8 as i64 + byte_len + sizeof::<ArrayI32>() as i64 + 64 as i64;
+    let cap: i64 = 8 as i64 + byte_len + sizeof::<Array<i32>>() as i64 + 64 as i64;
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
     // Bug 7 fix: for len==0 skip data alloc (buf_off stays 0); still build header.
     let mut buf_off: u32 = 0 as u32;
@@ -478,10 +478,10 @@ pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
     }
     if ok {
         let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
-                                   sizeof::<ArrayI32>() as i64,
+                                   sizeof::<Array<i32>>() as i64,
                                    hermes_tag_array_i32() as u64);
         if hdr_raw != 0 as *mut u8 {
-            let arr: *mut ArrayI32 = hdr_raw as *mut ArrayI32;
+            let arr: *mut Array<i32> = hdr_raw as *mut Array<i32>;
             arr.size     = len as u64;
             arr.capacity = len as u64;
             arr.data.offset     = buf_off;
@@ -493,13 +493,13 @@ pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
     return ctr;
 }
 
-// Builds an ArrayU64 HermesCtr from a raw u64 slice (ptr + element count).
+// Builds an Array<u64> HermesCtr from a raw u64 slice (ptr + element count).
 pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
     // Bug 8/10 fix: guard negative/overflow; len==0 → empty typed array (not null-root).
     if len < 0 as i64 { return HermesCtr::builder(8 as i64); }
     if len > 268435455 as i64 { return HermesCtr::builder(8 as i64); }
     let byte_len: i64 = len * 8 as i64;
-    let cap: i64 = 8 as i64 + byte_len + sizeof::<ArrayU64>() as i64 + 64 as i64;
+    let cap: i64 = 8 as i64 + byte_len + sizeof::<Array<u64>>() as i64 + 64 as i64;
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
     let mut buf_off: u32 = 0 as u32;
     let mut ok: bool = true;
@@ -518,10 +518,10 @@ pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
     }
     if ok {
         let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
-                                   sizeof::<ArrayU64>() as i64,
+                                   sizeof::<Array<u64>>() as i64,
                                    hermes_tag_array_u64() as u64);
         if hdr_raw != 0 as *mut u8 {
-            let arr: *mut ArrayU64 = hdr_raw as *mut ArrayU64;
+            let arr: *mut Array<u64> = hdr_raw as *mut Array<u64>;
             arr.size     = len as u64;
             arr.capacity = len as u64;
             arr.data.offset     = buf_off;

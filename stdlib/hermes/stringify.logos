@@ -157,10 +157,10 @@ impl HermesStringify for AnyVal {
     }
 }
 
-impl HermesStringify for ArrayI32 {
+impl HermesStringify for Array<i32> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
-            let arr: *const ArrayI32 = self as *const ArrayI32;
+            let arr: *const Array<i32> = self as *const Array<i32>;
             ctx.out.push_u8(60 as u8);   // '<'
             ctx.out.push_u8(73 as u8);   // 'I'
             ctx.out.push_u8(51 as u8);   // '3'
@@ -182,10 +182,10 @@ impl HermesStringify for ArrayI32 {
     }
 }
 
-impl HermesStringify for ArrayU64 {
+impl HermesStringify for Array<u64> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
-            let arr: *const ArrayU64 = self as *const ArrayU64;
+            let arr: *const Array<u64> = self as *const Array<u64>;
             ctx.out.push_u8(60 as u8);   // '<'
             ctx.out.push_u8(85 as u8);   // 'U'
             ctx.out.push_u8(54 as u8);   // '6'

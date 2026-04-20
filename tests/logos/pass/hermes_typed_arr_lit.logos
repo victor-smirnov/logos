@@ -3,8 +3,8 @@
 // hermes_typed_arr_lit.logos — verify @<ElemType>[...] compile-time typed array blobs.
 //
 // Tests that:
-//  - @<I32>[...] emits ArrayI32 (tc=104) blob with correct dense i32 layout
-//  - @<U64>[...] emits ArrayU64 (tc=108) blob with correct dense u64 layout
+//  - @<I32>[...] emits Array<i32> (tc=104) blob with correct dense i32 layout
+//  - @<U64>[...] emits Array<u64> (tc=108) blob with correct dense u64 layout
 //  - stringify_document produces the expected <Type> [elem,...] text
 
 package hermes_typed_arr_lit;
@@ -23,7 +23,7 @@ unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
 pub unsafe fn main() -> i32 {
     let mut rc: i32 = 0;
 
-    // 1. @<I32>[10, 20, 30] → ArrayI32 (tc=104) → "<I32> [10,20,30]"
+    // 1. @<I32>[10, 20, 30] → Array<i32> (tc=104) → "<I32> [10,20,30]"
     let lit1: HermesStatic = @<I32>[10, 20, 30];
     rc = check(&lit1, "<I32> [10,20,30]", 1);
     if rc != 0 { return rc; }
@@ -33,7 +33,7 @@ pub unsafe fn main() -> i32 {
     rc = check(&lit2, "<I32> []", 2);
     if rc != 0 { return rc; }
 
-    // 3. @<U64>[1, 2, 3, 4, 5] → ArrayU64 (tc=108) → "<U64> [1,2,3,4,5]"
+    // 3. @<U64>[1, 2, 3, 4, 5] → Array<u64> (tc=108) → "<U64> [1,2,3,4,5]"
     let lit3: HermesStatic = @<U64>[1, 2, 3, 4, 5];
     rc = check(&lit3, "<U64> [1,2,3,4,5]", 3);
     if rc != 0 { return rc; }

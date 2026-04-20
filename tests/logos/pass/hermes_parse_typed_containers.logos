@@ -1,6 +1,6 @@
 // Typed containers are pre-materialized through type handlers.
 // Supported now:
-//   <I32>[...]  -> dense primitive ArrayI32
+//   <I32>[...]  -> dense primitive Array<i32>
 // Unsupported headers still return parse error.
 package hermes_parse_typed_containers;
 

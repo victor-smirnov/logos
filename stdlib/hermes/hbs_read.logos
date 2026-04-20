@@ -668,10 +668,10 @@ if lead == 0x60 as u8 {
     }
 
     if lead == 0x62 as u8 {
-        // ArrayI32
+        // Array<i32>
         let count: u32 = deser_read_u32(ctx);
         if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
-        let hdr_sz: i64 = sizeof::<ArrayI32>() as i64;
+        let hdr_sz: i64 = sizeof::<Array<i32>>() as i64;
         let raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_array_i32());
         if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let hdr_off: u32 = (raw as i64 - ctx.zone.holder.base as i64) as u32;
@@ -682,7 +682,7 @@ if lead == 0x60 as u8 {
         };
         if count > 0 as u32 && buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let base: *mut u8 = ctx.zone.holder.base;
-        let arr: *mut ArrayI32 = (base as i64 + hdr_off as i64) as *mut ArrayI32;
+        let arr: *mut Array<i32> = (base as i64 + hdr_off as i64) as *mut Array<i32>;
         arr.size = count as u64;
         arr.capacity = count as u64;
         arr.data.offset = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
@@ -699,10 +699,10 @@ if lead == 0x60 as u8 {
     }
 
     if lead == 0x64 as u8 {
-        // ArrayU64
+        // Array<u64>
         let count: u32 = deser_read_u32(ctx);
         if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
-        let hdr_sz: i64 = sizeof::<ArrayU64>() as i64;
+        let hdr_sz: i64 = sizeof::<Array<u64>>() as i64;
         let raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_array_u64());
         if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let hdr_off: u32 = (raw as i64 - ctx.zone.holder.base as i64) as u32;
@@ -713,7 +713,7 @@ if lead == 0x60 as u8 {
         };
         if count > 0 as u32 && buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let base: *mut u8 = ctx.zone.holder.base;
-        let arr: *mut ArrayU64 = (base as i64 + hdr_off as i64) as *mut ArrayU64;
+        let arr: *mut Array<u64> = (base as i64 + hdr_off as i64) as *mut Array<u64>;
         arr.size = count as u64;
         arr.capacity = count as u64;
         arr.data.offset = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };

@@ -5,19 +5,19 @@ use hermes.ctr;
 use std.string;
 
 unsafe fn main() -> i32 {
-    // Build an i32 slice from a local array and cast to ArrayI32 HermesCtr.
+    // Build an i32 slice from a local array and cast to Array<i32> HermesCtr.
     let arr: [i32; 3] = [10, 20, 30];
     let s: &[i32] = &arr;
     let ctr: HermesCtr = s as <I32>[];
     let root: AnyVal = ctr.root();
     if root.is_null() { return 1; }
-    // C7-fix3: verify root is a zone pointer (not inline) → ArrayI32 object.
+    // C7-fix3: verify root is a zone pointer (not inline) → Array<i32> object.
     if !root.is_ptr() { return 2; }
     // C7-fix5: verify stringify produces expected text.
     let text: String = ctr.to_string();
     if !text.eq_str("<I32> [10,20,30]") { return 3; }
 
-    // u64 slice → ArrayU64 HermesCtr.
+    // u64 slice → Array<u64> HermesCtr.
     let arr2: [u64; 2] = [100, 200];
     let s2: &[u64] = &arr2;
     let ctr2: HermesCtr = s2 as <U64>[];

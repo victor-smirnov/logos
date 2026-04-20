@@ -1,4 +1,4 @@
-// Typed container materialization: <I32>[...] must become dense ArrayI32
+// Typed container materialization: <I32>[...] must become dense Array<i32>
 // and be reachable via Hermes tag-dispatch tables.
 package hermes_typed_array_materialize;
 
@@ -23,9 +23,9 @@ unsafe fn main() -> i32 {
 
     let base: *const u8 = doc.base();
     let obj: *const u8 = (base as i64 + root.as_offset() as i64) as *const u8;
-    if read_type_code(obj) != 104 as u64 { return 3; }  // ArrayI32 type_code
+    if read_type_code(obj) != 104 as u64 { return 3; }  // Array<i32> type_code
 
-    let arr: *const ArrayI32 = obj as *const ArrayI32;
+    let arr: *const Array<i32> = obj as *const Array<i32>;
     if arr.size != 3 as u64 { return 4; }
     let p0: *const i32 = (base as i64 + arr.data.offset as i64 + 0 as i64) as *const i32;
     let p1: *const i32 = (base as i64 + arr.data.offset as i64 + 4 as i64) as *const i32;

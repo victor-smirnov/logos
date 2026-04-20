@@ -18,7 +18,7 @@
 //   98  = Hermes     (TinyObjectMap)
 //   100 = ObjectArray
 //   101 = ObjectMap  (Logos open-addressing version)
-//   104 = ArrayI32 (<I32>[...], dense primitive array)
+//   104 = Array<i32> (<I32>[...], dense primitive array)
 //   105 = MapI32AnyVal (<I32>{...} / <I32,AnyVal>{...})
 //   106 = TypedValue (@Type(...)=initializer)
 //   107 = Decimal (fixed-precision decimal with inline limb tail)

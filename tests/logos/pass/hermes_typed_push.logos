@@ -1,5 +1,5 @@
 // Incremental push for typed Hermes containers:
-// ArrayI32, ArrayU64, MapI32AnyVal.
+// Array<i32>, Array<u64>, MapI32AnyVal.
 package hermes_typed_push;
 
 use hermes.ctr;
@@ -8,7 +8,7 @@ use hermes.anyval;
 use hermes.containers;
 
 unsafe fn main() -> i32 {
-    // ArrayI32: build cap=8, push 5 ints, read back via Array trait on header.
+    // Array<i32>: build cap=8, push 5 ints, read back via Array trait on header.
     let mut c: HermesCtr = HermesCtr::builder(128 as i64);
     let arr: AnyVal = c.build_array_i32(8 as u64);
     c.set_root(arr);
@@ -19,7 +19,7 @@ unsafe fn main() -> i32 {
     c.array_i32_push(arr, 50);
 
     let base: *const u8 = c.base();
-    let ai: *const ArrayI32 = (base as i64 + arr.as_offset() as i64) as *const ArrayI32;
+    let ai: *const Array<i32> = (base as i64 + arr.as_offset() as i64) as *const Array<i32>;
     if ai.size != 5 as u64 { return 1; }
     if *ai.get_ptr(base, 0 as u64) != 10 { return 2; }
     if *ai.get_ptr(base, 4 as u64) != 50 { return 3; }
@@ -29,11 +29,11 @@ unsafe fn main() -> i32 {
     c.array_i32_push(arr, 70);
     c.array_i32_push(arr, 80);
     c.array_i32_push(arr, 90);  // 9th push: grow to cap=16
-    let ai2: *const ArrayI32 = (c.base() as i64 + arr.as_offset() as i64) as *const ArrayI32;
+    let ai2: *const Array<i32> = (c.base() as i64 + arr.as_offset() as i64) as *const Array<i32>;
     if ai2.size != 9 as u64 { return 4; }
     if *ai2.get_ptr(c.base(), 8 as u64) != 90 { return 44; }
 
-    // ArrayU64
+    // Array<u64>
     let mut c2: HermesCtr = HermesCtr::builder(128 as i64);
     let au: AnyVal = c2.build_array_u64(4 as u64);
     c2.set_root(au);
@@ -41,7 +41,7 @@ unsafe fn main() -> i32 {
     c2.array_u64_push(au, 2000 as u64);
     c2.array_u64_push(au, 3000 as u64);
     let base2: *const u8 = c2.base();
-    let a64: *const ArrayU64 = (base2 as i64 + au.as_offset() as i64) as *const ArrayU64;
+    let a64: *const Array<u64> = (base2 as i64 + au.as_offset() as i64) as *const Array<u64>;
     if a64.size != 3 as u64 { return 5; }
     if *a64.get_ptr(base2, 2 as u64) != 3000 as u64 { return 6; }
 

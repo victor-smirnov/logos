@@ -424,7 +424,7 @@ pub trait HermesWrite: HermesRead {
         }
     }
 
-    // ── Typed array builders (ArrayI32 / ArrayU64) ───────────────────────────
+    // ── Typed array builders (Array<i32> / Array<u64>) ───────────────────────────
     //
     // Two-step construction: reserve capacity, then push elements one at a time.
     // Push grows the buffer 2× on demand (see Array<T>::push).
@@ -432,7 +432,7 @@ pub trait HermesWrite: HermesRead {
     fn build_array_i32(self: &mut Self, cap: u64) -> AnyVal {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
-            let hdr_sz: i64 = sizeof::<ArrayI32>() as i64;
+            let hdr_sz: i64 = sizeof::<Array<i32>>() as i64;
             let buf_bytes: i64 = (cap as i64) * 4 as i64;
             // Alloc buf first, then CAPTURE its zone offset immediately — a
             // subsequent alloc may realloc the zone, stranding buf_raw.
@@ -446,7 +446,7 @@ pub trait HermesWrite: HermesRead {
                                        hermes_tag_array_i32() as u64);
             if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
-            let arr: *mut ArrayI32 = hdr_raw as *mut ArrayI32;
+            let arr: *mut Array<i32> = hdr_raw as *mut Array<i32>;
             arr.size     = 0 as u64;
             arr.capacity = cap;
             arr.data.offset     = buf_off;
@@ -463,8 +463,8 @@ pub trait HermesWrite: HermesRead {
             if arr.is_null() { return; }
             let obj: *const u8 = (base as i64 + arr.as_offset() as i64) as *const u8;
             if read_type_code(obj) != hermes_tag_array_i32() as u64 { return; }
-            let ai: *mut ArrayI32 =
-                (base as i64 + arr.as_offset() as i64) as *mut ArrayI32;
+            let ai: *mut Array<i32> =
+                (base as i64 + arr.as_offset() as i64) as *mut Array<i32>;
             ai.push(zone.holder, &val);
         }
     }
@@ -472,7 +472,7 @@ pub trait HermesWrite: HermesRead {
     fn build_array_u64(self: &mut Self, cap: u64) -> AnyVal {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
-            let hdr_sz: i64 = sizeof::<ArrayU64>() as i64;
+            let hdr_sz: i64 = sizeof::<Array<u64>>() as i64;
             let buf_bytes: i64 = (cap as i64) * 8 as i64;
             let mut buf_off: u32 = 0 as u32;
             if buf_bytes > 0 as i64 {
@@ -484,7 +484,7 @@ pub trait HermesWrite: HermesRead {
                                        hermes_tag_array_u64() as u64);
             if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
-            let arr: *mut ArrayU64 = hdr_raw as *mut ArrayU64;
+            let arr: *mut Array<u64> = hdr_raw as *mut Array<u64>;
             arr.size     = 0 as u64;
             arr.capacity = cap;
             arr.data.offset     = buf_off;
@@ -501,8 +501,8 @@ pub trait HermesWrite: HermesRead {
             if arr.is_null() { return; }
             let obj: *const u8 = (base as i64 + arr.as_offset() as i64) as *const u8;
             if read_type_code(obj) != hermes_tag_array_u64() as u64 { return; }
-            let au: *mut ArrayU64 =
-                (base as i64 + arr.as_offset() as i64) as *mut ArrayU64;
+            let au: *mut Array<u64> =
+                (base as i64 + arr.as_offset() as i64) as *mut Array<u64>;
             au.push(zone.holder, &val);
         }
     }
