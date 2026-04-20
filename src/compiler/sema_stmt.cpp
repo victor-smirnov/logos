@@ -1337,6 +1337,26 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
     };
+    // Emit `hermes_pat_array_len_ge(&sv, base, n)` as a bool expr.
+    auto emit_array_len_ge = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
+        const char* helper = "hermes_pat_array_len_ge";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 3) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use hermes.pat;`",
+                helper));
+            return make_expr(bool_t(), lir::ELitBool{false});
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(make_expr(u8_ptr_t_outer, lir::EVarRef{base_var}));
+        args.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)n}));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+    };
     // Emit `hermes_pat_is_map(&sv, base)` bool expr.
     auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
         const char* helper = "hermes_pat_is_map";
@@ -1421,16 +1441,30 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return acc;
         }
         if (pc == la::PAT_HERMES_ARR) {
-            uint64_t n = 0;
+            uint64_t n_total = 0;
+            bool has_rest = false;
             hermes::TinyMapView arr_wrap;
             if (p.has_key(la::ITEMS)) {
                 arr_wrap = map_of(p.get(la::ITEMS.code));
-                n = arr_of(arr_wrap.get(la::ITEMS.code)).size();
+                auto items = arr_of(arr_wrap.get(la::ITEMS.code));
+                n_total = items.size();
+                for (uint64_t i = 0; i < n_total; ++i) {
+                    if (code_of(map_of(items.get(i))) == la::PAT_REST) {
+                        if (i + 1 != n_total) {
+                            error("`..` must be the last element in a Hermes "
+                                  "array pattern");
+                            return make_expr(bool_t(), lir::ELitBool{false});
+                        }
+                        has_rest = true;
+                    }
+                }
             }
-            auto acc = emit_array_len_eq(sv, n);
+            uint64_t n_bind = has_rest ? (n_total - 1) : n_total;
+            auto acc = has_rest ? emit_array_len_ge(sv, n_bind)
+                                : emit_array_len_eq(sv, n_bind);
             if (p.has_key(la::ITEMS)) {
                 auto items = arr_of(arr_wrap.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < items.size(); ++i) {
+                for (uint64_t i = 0; i < n_bind; ++i) {
                     std::vector<lir::LExprPtr> xargs;
                     xargs.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)i}));
                     std::string child = emit_child_let(

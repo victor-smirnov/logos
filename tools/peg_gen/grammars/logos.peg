@@ -911,7 +911,12 @@
     pat_hermes_map_entries <- pat_hermes_map_entry (COMMA pat_hermes_map_entry)* COMMA?
                            => { ITEMS: $... }
 
-    pat_hermes_arr_elems <- pat_single (COMMA pat_single)* COMMA?
+    // Array elements allow a trailing `..` to match length ≥ n.
+    pat_hermes_arr_elem <- DOTDOT
+                        => { CODE: PAT_REST }
+                         / pat_single
+
+    pat_hermes_arr_elems <- pat_hermes_arr_elem (COMMA pat_hermes_arr_elem)* COMMA?
                          => { ITEMS: $... }
 
     // ── pat_single: all pattern alternatives ─────────────────────────────
