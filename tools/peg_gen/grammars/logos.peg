@@ -226,6 +226,7 @@
     PAT_HERMES_NULL             = 182   // @null pattern
     PAT_HERMES_BOOL             = 183   // @true / @false pattern; VALUE
     PAT_HERMES_INT              = 184   // @<int> or @-<int> pattern; VALUE, IS_NEG
+    PAT_HERMES_STR              = 185   // @"..." pattern; VALUE = string literal
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -935,6 +936,8 @@
         => { CODE: PAT_HERMES_INT, VALUE: $3, LO_NEG: true }
         / AT INTEGER
         => { CODE: PAT_HERMES_INT, VALUE: $2 }
+        / AT STRING
+        => { CODE: PAT_HERMES_STR, VALUE: $2 }
         / IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
         => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
         / IDENT COLONCOLON IDENT

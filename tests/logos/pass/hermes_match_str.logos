@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+// Test: Hermes string pattern — @"str" matches HermesString root.
+
+package hermes_match_str;
+
+use hermes.anyval;
+use hermes.ctr;
+use hermes.view;
+
+unsafe fn mk_str(s: str) -> HermesCtr {
+    let mut c: HermesCtr = HermesCtr::builder(128 as i64);
+    let v: AnyVal = c.build_str(s);
+    c.set_root(v);
+    return c;
+}
+
+unsafe fn mk_i(i: i32) -> HermesCtr {
+    let mut c: HermesCtr = HermesCtr::builder(128 as i64);
+    c.set_root(AnyVal::embed_i24(i));
+    return c;
+}
+
+unsafe fn classify(d: &HermesCtr) -> i32 {
+    match d {
+        @"hello" => 1,
+        @"world" => 2,
+        @42      => 3,
+        _        => 0,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: HermesCtr = mk_str("hello");
+    let b: HermesCtr = mk_str("world");
+    let c: HermesCtr = mk_i(42);
+    let d: HermesCtr = mk_str("other");
+    // 1+2+3+0 = 6
+    return classify(&a) + classify(&b) + classify(&c) + classify(&d);
+}

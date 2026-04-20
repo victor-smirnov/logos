@@ -248,6 +248,7 @@ inline constexpr Code HERMES_MAP_COMP    {"HERMES_MAP_COMP",     181};  // @{k: 
 inline constexpr Code PAT_HERMES_NULL    {"PAT_HERMES_NULL",     182};  // @null pattern (AnyVal == null)
 inline constexpr Code PAT_HERMES_BOOL    {"PAT_HERMES_BOOL",     183};  // @true / @false pattern (AnyVal bool); VALUE(7) = true/false
 inline constexpr Code PAT_HERMES_INT     {"PAT_HERMES_INT",      184};  // @<int> / @-<int> pattern (AnyVal i24); VALUE(7) = integer, IS_NEG(5)? = true
+inline constexpr Code PAT_HERMES_STR     {"PAT_HERMES_STR",      185};  // @"..." pattern (AnyVal Varchar); VALUE(7) = string literal
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

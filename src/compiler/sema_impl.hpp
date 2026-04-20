@@ -701,7 +701,8 @@ private:
     // (which must be an AnyVal).  Returns nullptr otherwise.
     lir::LExprPtr build_hermes_pat_guard(hermes::TinyMapView pnode,
                                          const std::string& scrut_var,
-                                         const LogosType* scrut_type);
+                                         const LogosType* scrut_type,
+                                         const std::string& base_var);
     // Returns the "inner" (ref-stripped) view type if `t` is HermesCtr,
     // HermesCtrView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
     const LogosType* hermes_view_inner(const LogosType* t) const {

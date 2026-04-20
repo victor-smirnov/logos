@@ -33,6 +33,7 @@ package hermes.anyval;
 
 use hermes.datatag;
 use hermes.typetag;
+use hermes.string;
 
 // AnyVal layout: single 4-byte raw field.
 pub eidos AnyVal {
@@ -262,5 +263,25 @@ pub unsafe fn hermes_pat_eq_i24(av: *const AnyVal, v: i32) -> bool {
     if av.is_null() { return false; }
     if !av.is_int() { return false; }
     return av.as_i24() == v;
+}
+
+pub unsafe fn hermes_pat_eq_str(av: *const AnyVal, base: *const u8,
+                                s: str) -> bool {
+    if av.is_null() { return false; }
+    if !av.is_string(base) { return false; }
+    let hs: *const HermesString =
+        (base as i64 + av.as_offset() as i64) as *const HermesString;
+    let n: u64 = s.len() as u64;
+    if hs.len() != n { return false; }
+    let p: *const u8 = hs.bytes();
+    let sp: *const u8 = s.as_ptr();
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        let a: *const u8 = (p as i64 + i as i64) as *const u8;
+        let b: *const u8 = (sp as i64 + i as i64) as *const u8;
+        if *a != *b { return false; }
+        i = i + (1 as u64);
+    }
+    return true;
 }
 

@@ -1180,11 +1180,11 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
     // PatWild unchanged; the caller validates scrutinee type & synthesizes
     // the guard using build_hermes_pat_guard.
     if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-        pc == la::PAT_HERMES_INT) {
+        pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR) {
         if (!in_match_hermes_ctx_) {
-            error("Hermes scalar pattern (@null/@true/@false/@<int>) is only "
-                  "supported in `match` arms, not in if-let / while-let / "
-                  "let-bindings / nested pattern positions.");
+            error("Hermes scalar pattern (@null/@true/@false/@<int>/@\"str\") "
+                  "is only supported in `match` arms, not in if-let / "
+                  "while-let / let-bindings / nested pattern positions.");
         }
         return lir::PatWild{"_"};
     }
@@ -1204,20 +1204,21 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
 // PAT_OR unwraps transparently.
 lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         TinyMapView pnode, const std::string& scrut_var,
-        const LogosType* scrut_type) {
+        const LogosType* scrut_type, const std::string& base_var) {
     // Single-leaf builder.
     auto build_leaf = [&](TinyMapView p) -> lir::LExprPtr {
         int32_t pc = code_of(p);
         if (pc != la::PAT_HERMES_NULL && pc != la::PAT_HERMES_BOOL &&
-            pc != la::PAT_HERMES_INT)
+            pc != la::PAT_HERMES_INT  && pc != la::PAT_HERMES_STR)
             return nullptr;
 
         // Caller guarantees scrut_type is AnyVal (result of view.root()).
         const LogosType* ptr_t = make_ptr(false, scrut_type);
+        const LogosType* u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
 
         const char* helper = nullptr;
         size_t want_arity = 1;
-        lir::LExprPtr second_arg;
+        std::vector<lir::LExprPtr> extra_args;
         if (pc == la::PAT_HERMES_NULL) {
             helper = "hermes_pat_is_null";
         } else if (pc == la::PAT_HERMES_BOOL) {
@@ -1225,8 +1226,8 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             want_arity = 2;
             AnyVal bv = p.get(la::VALUE.code);
             bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
-            second_arg = make_expr(bool_t(), lir::ELitBool{bval});
-        } else {  // PAT_HERMES_INT
+            extra_args.push_back(make_expr(bool_t(), lir::ELitBool{bval}));
+        } else if (pc == la::PAT_HERMES_INT) {
             helper = "hermes_pat_eq_i24";
             want_arity = 2;
             auto sv = str_of(p.get(la::VALUE.code));
@@ -1241,7 +1242,14 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                 error(std::format("@<int> pattern: value {} does not fit in i24", v));
                 v = 0;
             }
-            second_arg = make_expr(i32_t(), lir::ELitInt{v});
+            extra_args.push_back(make_expr(i32_t(), lir::ELitInt{v}));
+        } else {  // PAT_HERMES_STR — hermes_pat_eq_str(*av, base, str)
+            helper = "hermes_pat_eq_str";
+            want_arity = 3;
+            auto sv = str_of(p.get(la::VALUE.code));
+            std::string lit(sv);
+            extra_args.push_back(make_expr(make_slice_type(prim(LogosType::Kind::U8)),
+                lir::ELitStr{std::move(lit)}));
         }
 
         auto cands = find_func_candidates(helper);
@@ -1250,13 +1258,17 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             if (c->param_types.size() == want_arity) { fi = c; break; }
         if (!fi) {
             error(std::format(
-                "Hermes scalar pattern needs stdlib helper `{}`; `use hermes.anyval;`",
+                "Hermes pattern needs stdlib helper `{}`; `use hermes.anyval;`",
                 helper));
             return make_expr(bool_t(), lir::ELitBool{false});
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(make_expr(ptr_t, lir::EAddrOf{scrut_var}));
-        if (second_arg) args.push_back(std::move(second_arg));
+        if (pc == la::PAT_HERMES_STR) {
+            // hermes_pat_eq_str(av, base, s, n)
+            args.push_back(make_expr(u8_ptr_t, lir::EVarRef{base_var}));
+        }
+        for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
     };
@@ -1272,7 +1284,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         for (uint64_t i = 0; i < alts.size(); ++i) {
             int32_t pc = code_of(map_of(alts.get(i)));
             if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-                pc == la::PAT_HERMES_INT) any_hermes = true;
+                pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR) any_hermes = true;
             else any_non = true;
         }
         if (!any_hermes) return nullptr;
@@ -2595,7 +2607,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     // synthesized guards can take `&__hmatch_av` without re-evaluating scrut.
     auto is_hermes_pat_code = [](int32_t pc) {
         return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-               pc == la::PAT_HERMES_INT;
+               pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR;
     };
     // A pattern tree "contains" a Hermes scalar if it IS one, or a PAT_OR
     // alt is one.  We only unwrap PAT_OR here — nested PAT_AT/PAT_REF wrapping
@@ -2626,8 +2638,10 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     //   let __hmatch_view = <scrut>;            // the view (HermesCtr/View/Static or &)
     //   let __hmatch_root: AnyVal = view.root(); // root AnyVal, used by guard helpers
     std::string root_var;
+    std::string base_var;
     lir::LStmt hoist_let_view;
     lir::LStmt hoist_let_root;
+    lir::LStmt hoist_let_base;
     bool has_hoist_let = false;
     const LogosType* anyval_t = nullptr;
     if (has_hermes_pat) {
@@ -2655,6 +2669,17 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             sl.value = std::move(root_call);
             hoist_let_root = make_stmt(node_line_, std::move(sl));
         }
+        base_var = "__hmatch_base_" + std::to_string(tmp_var_count_++);
+        {
+            const LogosType* u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
+            auto view_ref = make_expr(scrut_type, lir::EVarRef{view_var});
+            auto base_call = make_expr(u8_ptr_t,
+                lir::EMethodCall{std::move(view_ref), "base", "", {}, {}, -1});
+            lir::SLet sl;
+            sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
+            sl.value = std::move(base_call);
+            hoist_let_base = make_stmt(node_line_, std::move(sl));
+        }
         has_hoist_let = true;
         scrut = make_expr(scrut_type, lir::EVarRef{view_var});
     }
@@ -2672,7 +2697,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             lir::LExprPtr synth_guard;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
                 synth_guard = build_hermes_pat_guard(
-                    map_of(arm.get(la::LHS.code)), root_var, anyval_t);
+                    map_of(arm.get(la::LHS.code)), root_var, anyval_t, base_var);
             }
 
             // Build pattern
@@ -2792,6 +2817,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         auto blk = std::make_unique<lir::LBlock>();
         blk->stmts.push_back(std::move(hoist_let_view));
         blk->stmts.push_back(std::move(hoist_let_root));
+        blk->stmts.push_back(std::move(hoist_let_base));
         blk->stmts.push_back(make_stmt(node_line_, std::move(smatch)));
         return make_stmt(node_line_, lir::SBlock{std::move(blk)});
     }
@@ -2825,7 +2851,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     // Hermes scalar pattern hoisting (symmetric to lower_match).
     auto is_hermes_pc = [](int32_t pc) {
         return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-               pc == la::PAT_HERMES_INT;
+               pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR;
     };
     auto pat_has_hermes = [&](TinyMapView p) -> bool {
         if (is_hermes_pc(code_of(p))) return true;
@@ -2848,10 +2874,12 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
         }
     }
-    // Symmetric to lower_match: hoist view + root AnyVal.
+    // Symmetric to lower_match: hoist view + root AnyVal + base ptr.
     std::string root_var;
+    std::string base_var;
     lir::LStmt hoist_let_view;
     lir::LStmt hoist_let_root;
+    lir::LStmt hoist_let_base;
     bool has_hoist_let = false;
     const LogosType* anyval_t = nullptr;
     if (has_hermes_pat) {
@@ -2879,6 +2907,17 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             sl.value = std::move(root_call);
             hoist_let_root = make_stmt(node_line_, std::move(sl));
         }
+        base_var = "__hmatche_base_" + std::to_string(tmp_var_count_++);
+        {
+            const LogosType* u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
+            auto view_ref = make_expr(scrut_type, lir::EVarRef{view_var});
+            auto base_call = make_expr(u8_ptr_t,
+                lir::EMethodCall{std::move(view_ref), "base", "", {}, {}, -1});
+            lir::SLet sl;
+            sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
+            sl.value = std::move(base_call);
+            hoist_let_base = make_stmt(node_line_, std::move(sl));
+        }
         has_hoist_let = true;
         scrut = make_expr(scrut_type, lir::EVarRef{view_var});
     }
@@ -2896,7 +2935,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             lir::LExprPtr synth_guard;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
                 synth_guard = build_hermes_pat_guard(
-                    map_of(arm.get(la::LHS.code)), root_var, anyval_t);
+                    map_of(arm.get(la::LHS.code)), root_var, anyval_t, base_var);
             }
 
             in_match_hermes_ctx_ = has_hermes_pat;
@@ -3019,6 +3058,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         auto blk = std::make_unique<lir::LBlock>();
         blk->stmts.push_back(std::move(hoist_let_view));
         blk->stmts.push_back(std::move(hoist_let_root));
+        blk->stmts.push_back(std::move(hoist_let_base));
         return make_expr(result_type,
             lir::EBlockExpr{std::move(blk), std::move(me_expr)});
     }
