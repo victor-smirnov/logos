@@ -537,7 +537,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
             }
         }
         else if (cur_ret_type_)
-            val = coerce_numeric(val, cur_ret_type_);
+            val = coerce_numeric(val, cur_ret_type_, s.value->type);
         if (in_llvm_func_)
             builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{val});
         else

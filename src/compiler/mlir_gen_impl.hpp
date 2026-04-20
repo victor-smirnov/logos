@@ -158,14 +158,25 @@ private:
         return alloca;
     }
 
-    mlir::Value coerce_int(mlir::Value v, mlir::Type to) {
+    mlir::Value coerce_int(mlir::Value v, mlir::Type to,
+                           const LogosType* src_lt = nullptr) {
         if (!v || !to || v.getType() == to) return v;
         auto fi = mlir::dyn_cast<mlir::IntegerType>(v.getType());
         auto ti = mlir::dyn_cast<mlir::IntegerType>(to);
         if (!fi || !ti) return v;
         if (ti.getWidth() > fi.getWidth()) {
-            // i1 (bool) must be zero-extended; other integers sign-extended.
-            if (fi.getWidth() == 1)
+            // Pick zero vs sign extend by *source* signedness when known.
+            // Bool (i1) is always zero-extended.  Without src_lt, fall back
+            // to sign-extend to preserve legacy behavior for signed sources.
+            bool src_unsigned = fi.getWidth() == 1;
+            if (src_lt) {
+                using K = LogosType::Kind;
+                auto k = src_lt->kind;
+                src_unsigned = src_unsigned ||
+                    k == K::U8 || k == K::U16 || k == K::U24 || k == K::U32 ||
+                    k == K::U56 || k == K::U64 || k == K::U128 || k == K::Bool;
+            }
+            if (src_unsigned)
                 return builder_.create<mlir::arith::ExtUIOp>(loc_, to, v);
             return builder_.create<mlir::arith::ExtSIOp>(loc_, to, v);
         }
@@ -192,7 +203,7 @@ private:
         if (!v || !to || v.getType() == to) return v;
         // int → int
         if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::IntegerType>(to))
-            return coerce_int(v, to);
+            return coerce_int(v, to, src_lt);
         // float → float (truncate or extend)
         if (mlir::isa<mlir::FloatType>(v.getType()) && mlir::isa<mlir::FloatType>(to))
             return coerce_float(v, to);

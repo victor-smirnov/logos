@@ -786,9 +786,64 @@ inline bool is_integer_kind(LogosType::Kind k) noexcept {
            k == LogosType::Kind::IntLit || k == LogosType::Kind::Enum;
 }
 
+// Bit-width and signedness of a concrete integer kind.  Returns {0,false}
+// for non-concrete-integer kinds (IntLit, Enum, non-integers).
+inline std::pair<unsigned, bool> int_rank(LogosType::Kind k) noexcept {
+    using K = LogosType::Kind;
+    switch (k) {
+    case K::I8:   return {8, true};
+    case K::U8:   return {8, false};
+    case K::I16:  return {16, true};
+    case K::U16:  return {16, false};
+    case K::I24:  return {24, true};
+    case K::U24:  return {24, false};
+    case K::I32:  return {32, true};
+    case K::U32:  return {32, false};
+    case K::I56:  return {56, true};
+    case K::U56:  return {56, false};
+    case K::I64:  return {64, true};
+    case K::U64:  return {64, false};
+    case K::I128: return {128, true};
+    case K::U128: return {128, false};
+    default:      return {0, false};
+    }
+}
+
+// True iff every value of `from` is representable in `to` — i.e. a safe
+// implicit widening:
+//   signed   → signed   : to_width ≥ from_width
+//   unsigned → unsigned : to_width ≥ from_width
+//   unsigned → signed   : to_width > from_width (need one extra bit)
+//   signed   → unsigned : never (loses negative values)
+inline bool can_widen_int(LogosType::Kind from, LogosType::Kind to) noexcept {
+    auto [fw, fs] = int_rank(from);
+    auto [tw, ts] = int_rank(to);
+    if (fw == 0 || tw == 0) return false;
+    if (fs == ts) return tw >= fw;
+    if (!fs && ts) return tw > fw;
+    return false;
+}
+
 inline const LogosType* unify_int(const LogosType* a, const LogosType* b) noexcept {
     if (a->kind == LogosType::Kind::IntLit) return b;
+    if (b->kind == LogosType::Kind::IntLit) return a;
+    // Widen narrower to wider when safe: caller has already verified compat.
+    if (can_widen_int(a->kind, b->kind)) return b;
+    if (can_widen_int(b->kind, a->kind)) return a;
     return a;
+}
+
+// If `e`'s type is a concrete integer kind strictly narrower than `target`,
+// and widens safely, wrap `e` in ECast(target).  No-op for IntLit (literals
+// are retyped directly, not cast) and for types that don't safely widen.
+inline void widen_int_expr(lir::LExprPtr& e, const LogosType* target) {
+    if (!e || !target || !e->type) return;
+    if (e->type->kind == target->kind) return;
+    if (!can_widen_int(e->type->kind, target->kind)) return;
+    auto inner = std::move(e);
+    e = std::make_unique<lir::LExpr>();
+    e->kind = lir::ECast{std::move(inner)};
+    e->type = target;
 }
 
 // Like unify_int but also promotes FloatLit to a concrete float type (F32/F64).

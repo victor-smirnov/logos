@@ -883,7 +883,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
                 mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
                 v = spill_to_alloca(v);
             else if (v.getType() != ptr_type())
-                v = coerce_numeric(v, param_types[i]);
+                v = coerce_numeric(v, param_types[i], e.args[i]->type);
         }
         args.push_back(v);
     }
@@ -984,7 +984,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
                 mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
                 v = spill_to_alloca(v);
             else
-                v = coerce_numeric(v, param_types[pi]);
+                v = coerce_numeric(v, param_types[pi], e.args[i]->type);
         }
         args.push_back(v);
     }

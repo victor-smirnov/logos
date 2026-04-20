@@ -283,6 +283,9 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
          to->kind == LogosType::Kind::TypeVar)) return true;
     if (from->kind == LogosType::Kind::Enum   && is_integer_kind(to->kind)) return true;
     if (is_integer_kind(from->kind) && to->kind == LogosType::Kind::Enum)   return true;
+    // Safe implicit integer widening (e.g. u32 → i64, i32 → i64, u8 → u32).
+    // Value preservation guaranteed; signed→unsigned never allowed here.
+    if (can_widen_int(from->kind, to->kind)) return true;
     if (from->kind == LogosType::Kind::Array &&
         to->kind   == LogosType::Kind::Ptr   &&
         from->elem && to->pointee)

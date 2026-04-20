@@ -1,0 +1,44 @@
+package int_widen_implicit;
+
+unsafe fn take_i64(x: i64) -> i64 { return x; }
+unsafe fn take_u64(x: u64) -> u64 { return x; }
+
+unsafe fn main() -> i32 {
+    // let-binding widening
+    let a: u32 = 2147483648 as u32;    // 0x80000000 — high bit set
+    let b: i64 = a;                     // u32 → i64 (zero-extend!)
+    if b != 2147483648 as i64 { return 1; }
+
+    // binop widening
+    let c: u32 = 100 as u32;
+    let d: u64 = 200 as u64;
+    let sum: u64 = c + d;               // u32 + u64 → u64
+    if sum != 300 as u64 { return 2; }
+
+    // signed widening
+    let x: i32 = -5;
+    let y: i64 = x;                     // i32 → i64 (sign-extend)
+    if y != -5 as i64 { return 3; }
+
+    // mixed binop with literal
+    let p: u32 = 1000 as u32;
+    let q: i64 = p * 3 as i64;
+    if q != 3000 as i64 { return 4; }
+
+    // function argument widening
+    let ua: u32 = 2147483648 as u32;
+    let r: i64 = take_i64(ua);          // u32 → i64 arg (zero-extend)
+    if r != 2147483648 as i64 { return 5; }
+
+    let ub: u32 = 4000000000 as u32;    // > i32 max
+    let s: u64 = take_u64(ub);          // u32 → u64 arg
+    if s != 4000000000 as u64 { return 6; }
+
+    // assignment widening
+    let mut t: i64 = 0 as i64;
+    let uc: u32 = 3000000000 as u32;    // > i32 max
+    t = uc;                              // u32 → i64 (zero-extend)
+    if t != 3000000000 as i64 { return 7; }
+
+    return 42;
+}

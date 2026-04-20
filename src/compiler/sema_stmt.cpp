@@ -417,6 +417,14 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             error(std::format("let '{}': type mismatch — expected {}, got {}",
                   name, type_str(ann), type_str(rhs_type)));
         }
+        // Implicit safe integer widening: u32 → i64, i32 → i64, u8 → u32, ...
+        if (ann && is_integer_kind(ann->kind) && is_integer_kind(rhs_type->kind) &&
+            rhs_type->kind != LogosType::Kind::IntLit &&
+            rhs_type->kind != LogosType::Kind::Enum &&
+            can_widen_int(rhs_type->kind, ann->kind)) {
+            widen_int_expr(rhs, ann);
+            rhs_type = rhs->type;
+        }
         // Retype float literal to concrete annotation type (f32 or f64).
         if (rhs_type->kind == LogosType::Kind::FloatLit && ann &&
             (ann->kind == LogosType::Kind::F32 || ann->kind == LogosType::Kind::F64))
@@ -605,6 +613,13 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
         !types_compatible(rhs->type, var_type)) {
         error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
               name, type_str(var_type), type_str(rhs->type)));
+    }
+    // Implicit safe integer widening on assignment.
+    if (var_type && is_integer_kind(var_type->kind) && is_integer_kind(rhs->type->kind) &&
+        rhs->type->kind != LogosType::Kind::IntLit &&
+        rhs->type->kind != LogosType::Kind::Enum &&
+        can_widen_int(rhs->type->kind, var_type->kind)) {
+        widen_int_expr(rhs, var_type);
     }
     // Check IntLit literal fits in the variable's declared type.
     if (rhs->type->kind == LogosType::Kind::IntLit &&
