@@ -593,6 +593,14 @@ struct LFunction {
     //   for partial specialisations (e.g. fn foo<*T> → pattern = *const TypeVar<T>).
     bool                          is_specialization = false;
     std::vector<const LogosType*> spec_patterns;
+
+    // Impl-level type params (with their bounds) that were stripped from
+    // type_params when this method was attached to a generic struct template.
+    // Preserved so mono can check whether the impl bound is satisfied for the
+    // struct's concrete type args before instantiating this method.
+    // Each entry: bound on struct's type-param at position `index` within the
+    // struct's type_params.  Empty when no impl-level type params.
+    std::vector<TypeParam>        impl_type_params;
 };
 
 struct LField {

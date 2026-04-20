@@ -7,6 +7,7 @@ package array_i32_polymorphic;
 use hermes.zone;
 use hermes.anyval;
 use hermes.containers;
+use hermes.relptr;
 use hermes.stringify;
 use hermes.equal;
 use hermes.hashing;
@@ -23,7 +24,7 @@ unsafe fn main() -> i32 {
     let arr: *mut Array<i32> = arr_raw as *mut Array<i32>;
     arr.size     = 0 as u64;
     arr.capacity = 4 as u64;
-    arr.data     = (buf_raw as i64 - base as i64) as u32;
+    arr.data.offset     = (buf_raw as i64 - base as i64) as u32;
 
     let elem_sz: i64 = sizeof::<i32>() as i64;
     let values: [i32; 3] = [10 as i32, 20 as i32, 30 as i32];

@@ -30,6 +30,7 @@ use hermes.zone;
 use hermes.anyval;
 use hermes.datatag;
 use hermes.containers;
+use hermes.relptr;
 use hermes.objectmap;
 use hermes.typetag;
 use hermes.tag_system;
@@ -483,7 +484,7 @@ pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
             let arr: *mut ArrayI32 = hdr_raw as *mut ArrayI32;
             arr.size     = len as u64;
             arr.capacity = len as u64;
-            arr.data     = buf_off;
+            arr.data.offset     = buf_off;
             let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
             let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
             document_set_root(doc, AnyVal::from_offset(arr_off));
@@ -523,7 +524,7 @@ pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
             let arr: *mut ArrayU64 = hdr_raw as *mut ArrayU64;
             arr.size     = len as u64;
             arr.capacity = len as u64;
-            arr.data     = buf_off;
+            arr.data.offset     = buf_off;
             let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
             let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
             document_set_root(doc, AnyVal::from_offset(arr_off));

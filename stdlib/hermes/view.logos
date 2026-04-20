@@ -20,6 +20,7 @@ use hermes.anyval;
 use hermes.scalar;
 use hermes.objectmap;
 use hermes.containers;
+use hermes.relptr;
 use hermes.decimal;
 use hermes.string;
 use hermes.datatag;
@@ -448,7 +449,7 @@ pub trait HermesWrite: HermesRead {
             let arr: *mut ArrayI32 = hdr_raw as *mut ArrayI32;
             arr.size     = 0 as u64;
             arr.capacity = cap;
-            arr.data     = buf_off;
+            arr.data.offset     = buf_off;
             let off: u32 = (hdr_raw as i64 - base as i64) as u32;
             return AnyVal::from_offset(off);
         }
@@ -486,7 +487,7 @@ pub trait HermesWrite: HermesRead {
             let arr: *mut ArrayU64 = hdr_raw as *mut ArrayU64;
             arr.size     = 0 as u64;
             arr.capacity = cap;
-            arr.data     = buf_off;
+            arr.data.offset     = buf_off;
             let off: u32 = (hdr_raw as i64 - base as i64) as u32;
             return AnyVal::from_offset(off);
         }

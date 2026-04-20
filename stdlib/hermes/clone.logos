@@ -326,7 +326,7 @@ impl<T: CloneElem> HermesClone for Array<T> {
             let a: *const Array<T> = (ctx.base_src as i64 + src_off as i64) as *const Array<T>;
             let cap: u64 = a.capacity;
             let n:   u64 = a.size;
-            let src_data_off: u32 = a.data;
+            let src_data_off: u32 = a.data.offset;
 
             let tc: u8 = type_code_of::<Array<T>>() as u8;
             let oa_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<Array<T>>() as i64,
@@ -349,7 +349,7 @@ impl<T: CloneElem> HermesClone for Array<T> {
             let new_arr: *mut Array<T> = (dst_base as i64 + dst_off as i64) as *mut Array<T>;
             new_arr.size     = n;
             new_arr.capacity = cap;
-            new_arr.data     = buf_off;
+            new_arr.data.offset     = buf_off;
 
             // Clone elements — each clone_elem receives a dst zone offset and
             // recomputes its raw pointer after any internal zone grow.
@@ -375,7 +375,7 @@ impl<V: CloneElem> HermesClone for Map<Bitmap, V> {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let a: *const Map<Bitmap, V> = (ctx.base_src as i64 + src_off as i64) as *const Map<Bitmap, V>;
             let src_header: u64 = a.header;
-            let src_data_off: u32 = a.data;
+            let src_data_off: u32 = a.data.offset;
             let cap: u32 = ((src_header >> 52 as u64) & 0x3F as u64) as u32;
 
             let tc: u8 = type_code_of::<Map<Bitmap, V>>() as u8;
@@ -397,7 +397,7 @@ impl<V: CloneElem> HermesClone for Map<Bitmap, V> {
             let dst_base: *mut u8 = ctx.zone_dst.holder.base;
             let new_map: *mut Map<Bitmap, V> = (dst_base as i64 + dst_off as i64) as *mut Map<Bitmap, V>;
             new_map.header = src_header;
-            new_map.data   = arr_off;
+            new_map.data.offset   = arr_off;
 
             let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
             let bitmap: u64 = src_header & mask;
@@ -668,7 +668,7 @@ impl HermesClone for ArrayI32 {
             let a: *const ArrayI32 = (ctx.base_src as i64 + src_off as i64) as *const ArrayI32;
             let cap: u64 = a.capacity;
             let n:   u64 = a.size;
-            let src_data_off: u32 = a.data;
+            let src_data_off: u32 = a.data.offset;
 
             // Alloc data buffer first (4 bytes per i32 element).
             let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4 as i64);
@@ -694,7 +694,7 @@ impl HermesClone for ArrayI32 {
             let new_arr: *mut ArrayI32 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut ArrayI32;
             new_arr.size     = n;
             new_arr.capacity = cap;
-            new_arr.data     = buf_off;
+            new_arr.data.offset     = buf_off;
             return (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut u8;
         }
     }
@@ -709,7 +709,7 @@ impl HermesClone for ArrayU64 {
             let a: *const ArrayU64 = (ctx.base_src as i64 + src_off as i64) as *const ArrayU64;
             let cap: u64 = a.capacity;
             let n:   u64 = a.size;
-            let src_data_off: u32 = a.data;
+            let src_data_off: u32 = a.data.offset;
 
             // Alloc data buffer first (8 bytes per u64 element).
             let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 8 as i64);
@@ -735,7 +735,7 @@ impl HermesClone for ArrayU64 {
             let new_arr: *mut ArrayU64 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut ArrayU64;
             new_arr.size     = n;
             new_arr.capacity = cap;
-            new_arr.data     = buf_off;
+            new_arr.data.offset     = buf_off;
             return (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut u8;
         }
     }

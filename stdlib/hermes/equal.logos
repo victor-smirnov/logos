@@ -160,8 +160,8 @@ impl<T: HermesEqual> HermesEqual for Array<T> {
             let b: *const Array<T> = other as *const Array<T>;
             if a.size != b.size { return false; }
             let elem_sz: i64 = sizeof::<T>() as i64;
-            let base_a: i64 = ctx.base_self  as i64 + a.data as i64;
-            let base_b: i64 = ctx.base_other as i64 + b.data as i64;
+            let base_a: i64 = ctx.base_self  as i64 + a.data.offset as i64;
+            let base_b: i64 = ctx.base_other as i64 + b.data.offset as i64;
             let mut i: u64 = 0 as u64;
             while i < a.size {
                 let ea: *const T = (base_a + (i as i64) * elem_sz) as *const T;
@@ -186,8 +186,8 @@ impl<V: HermesEqual> HermesEqual for Map<Bitmap, V> {
             let bb: u64 = b.header & mask;
             if ba != bb { return false; }
             let elem_sz: i64 = sizeof::<V>() as i64;
-            let base_a: i64 = ctx.base_self  as i64 + a.data as i64;
-            let base_b: i64 = ctx.base_other as i64 + b.data as i64;
+            let base_a: i64 = ctx.base_self  as i64 + a.data.offset as i64;
+            let base_b: i64 = ctx.base_other as i64 + b.data.offset as i64;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
                 let key_bit: u64 = 1 as u64 << key as u64;

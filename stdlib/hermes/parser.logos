@@ -847,7 +847,7 @@ impl HermesParser {
                 return AnyVal::null_ptr();
             }
             let ep: *mut i32 =
-                (self.base as i64 + arr.data as i64 + (arr.size as i64) * 4 as i64) as *mut i32;
+                (self.base as i64 + arr.data.offset as i64 + (arr.size as i64) * 4 as i64) as *mut i32;
             *ep = n32;
             arr.size = arr.size + 1 as u64;
 

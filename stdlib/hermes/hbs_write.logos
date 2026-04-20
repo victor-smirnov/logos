@@ -479,7 +479,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         let sz: u64 = arr.size;
         hbs_write_u8(buf, 0x62 as u8);
         hbs_write_u32(buf, sz as u32);
-        let data_ptr: *const i32 = (base as i64 + arr.data as i64) as *const i32;
+        let data_ptr: *const i32 = (base as i64 + arr.data.offset as i64) as *const i32;
         let mut i: u64 = 0 as u64;
         while i < sz {
             let iv: i32 = *((data_ptr as i64 + (i as i64) * 4 as i64) as *const i32);
@@ -494,7 +494,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         let sz: u64 = arr.size;
         hbs_write_u8(buf, 0x64 as u8);
         hbs_write_u32(buf, sz as u32);
-        let data_ptr: *const u8 = (base as i64 + arr.data as i64) as *const u8;
+        let data_ptr: *const u8 = (base as i64 + arr.data.offset as i64) as *const u8;
         let mut i: u64 = 0 as u64;
         while i < sz {
             let uv: u64 = *((data_ptr as i64 + (i as i64) * 8 as i64) as *const u64);
@@ -571,7 +571,7 @@ unsafe fn process_wk_arr_idx(ws: *mut HbsWriteState, obj_off: u32, idx: u32) {
             obj_off: obj_off, idx: next_idx,
         });
     }
-    let buf_off: i64 = arr.data as i64;
+    let buf_off: i64 = arr.data.offset as i64;
     let ep: *const AnyVal = (base as i64 + buf_off + (idx as i64) * 4 as i64) as *const AnyVal;
     let elem_raw: u32 = ep.raw;
     // Push the element value AFTER the continuation (LIFO: elem processed first)
@@ -654,7 +654,7 @@ unsafe fn process_wk_tmap_idx(ws: *mut HbsWriteState, obj_off: u32, idx: u32) {
     // Get the value at position = popcount(bitmap & bits_below_key_bit).
     let mask: u64 = (1 as u64 << key_bit as u64) - 1 as u64;
     let pos: u32 = popcount_u64(bitmap & mask);
-    let data_off: i64 = m.data as i64;
+    let data_off: i64 = m.data.offset as i64;
     let ep: *const AnyVal = (base as i64 + data_off + (pos as i64) * 4 as i64) as *const AnyVal;
     let val_raw: u32 = ep.raw;
 

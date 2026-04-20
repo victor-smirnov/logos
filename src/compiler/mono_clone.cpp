@@ -855,6 +855,41 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         }
     }
     for (auto& m : tmpl.methods) {
+        // Bound gate: if this method came from `impl<T: Bound> Trait for S<T>`,
+        // skip cloning when the concrete type substituted for T doesn't satisfy
+        // Bound.  Without this gate, methods get cloned with bodies that call
+        // functions (e.g. `T::clone_to`) that don't exist for unsupported Ts,
+        // producing dangling references at mlir-gen time.
+        bool bound_ok = true;
+        for (auto& itp : m.impl_type_params) {
+            if (itp.bounds.empty()) continue;
+            auto sit = s.find(itp.name);
+            if (sit == s.end()) continue;  // TypeVar not substituted — keep.
+            const LogosType* concrete = sit->second;
+            if (!concrete) continue;
+            std::string cname;
+            if (concrete->kind == LogosType::Kind::Struct ||
+                concrete->kind == LogosType::Kind::Datatype)
+                cname = concrete_struct_name(concrete);
+            else if (concrete->kind == LogosType::Kind::Enum)
+                cname = concrete->enum_name;
+            else
+                cname = type_str(concrete);
+            // Strip instantiation suffix — impls are keyed on base name.
+            if (auto p = cname.find("$G"); p != std::string::npos)
+                cname = cname.substr(0, p);
+            for (auto& tb : itp.bounds) {
+                std::string key = tb.trait_name + "::" + cname;
+                bool has = concrete_impls_.count(key) > 0;
+                if (!has) {
+                    for (auto& bi : blanket_impls_)
+                        if (bi.trait_name == tb.trait_name) { has = true; break; }
+                }
+                if (!has) { bound_ok = false; break; }
+            }
+            if (!bound_ok) break;
+        }
+        if (!bound_ok) continue;
         auto nm = clone_fn(m, s, packs);
         // Rename method: "OldBase__methodName" → "new_name__methodName".
         // If the template method name carries a generic suffix

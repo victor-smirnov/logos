@@ -162,7 +162,7 @@ impl<T: HermesHash> HermesHash for Array<T> {
             let mut h: u64 = fnv_mix_u64(fnv_init(), 100 as u64);
             h = fnv_mix_u64(h, n);
             let elem_sz: i64 = sizeof::<T>() as i64;
-            let base_int: i64 = ctx.base as i64 + a.data as i64;
+            let base_int: i64 = ctx.base as i64 + a.data.offset as i64;
             let mut i: u64 = 0 as u64;
             while i < n {
                 let e: *const T = (base_int + (i as i64) * elem_sz) as *const T;
@@ -187,7 +187,7 @@ impl<V: HermesHash> HermesHash for Map<Bitmap, V> {
             let bitmap: u64 = a.header & mask;
             acc = acc ^ fnv_mix_u64(base_h, bitmap);
             let elem_sz: i64 = sizeof::<V>() as i64;
-            let arr_base: i64 = ctx.base as i64 + a.data as i64;
+            let arr_base: i64 = ctx.base as i64 + a.data.offset as i64;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
                 let key_bit: u64 = 1 as u64 << key as u64;

@@ -36,7 +36,7 @@ unsafe fn main() -> i32 {
     let arr: *mut Array<RelPtr<HermesString>> = arr_raw as *mut Array<RelPtr<HermesString>>;
     arr.size     = 2 as u64;
     arr.capacity = 2 as u64;
-    arr.data     = (buf_raw as i64 - base as i64) as u32;
+    arr.data.offset     = (buf_raw as i64 - base as i64) as u32;
 
     let e0: *mut RelPtr<HermesString> = buf_raw as *mut RelPtr<HermesString>;
     e0.offset = off_a;

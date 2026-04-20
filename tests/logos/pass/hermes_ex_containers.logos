@@ -124,7 +124,7 @@ unsafe fn main() -> i32 {
 
     // data field must be the zone-relative offset of oa_buf.
     let expected_off: u32 = (oa_buf as i64 - base as i64) as u32;
-    if arr.data != expected_off                                 { return 29; }
+    if arr.data.offset != expected_off                          { return 29; }
 
     arr.push(zone.holder, AnyVal::embed_i24(10));
     arr.push(zone.holder, AnyVal::embed_i24(20));

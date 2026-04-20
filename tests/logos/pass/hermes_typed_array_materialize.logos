@@ -27,9 +27,9 @@ unsafe fn main() -> i32 {
 
     let arr: *const ArrayI32 = obj as *const ArrayI32;
     if arr.size != 3 as u64 { return 4; }
-    let p0: *const i32 = (base as i64 + arr.data as i64 + 0 as i64) as *const i32;
-    let p1: *const i32 = (base as i64 + arr.data as i64 + 4 as i64) as *const i32;
-    let p2: *const i32 = (base as i64 + arr.data as i64 + 8 as i64) as *const i32;
+    let p0: *const i32 = (base as i64 + arr.data.offset as i64 + 0 as i64) as *const i32;
+    let p1: *const i32 = (base as i64 + arr.data.offset as i64 + 4 as i64) as *const i32;
+    let p2: *const i32 = (base as i64 + arr.data.offset as i64 + 8 as i64) as *const i32;
     if *p0 != 10 as i32 { return 5; }
     if *p1 != 20 as i32 { return 6; }
     if *p2 != 30 as i32 { return 7; }

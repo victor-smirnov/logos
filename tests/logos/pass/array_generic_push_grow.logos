@@ -6,6 +6,7 @@ package array_generic_push_grow;
 use hermes.zone;
 use hermes.mem_holder;
 use hermes.containers;
+use hermes.relptr;
 
 impl<T> Array<T> {
     pub unsafe fn push_grow(self: *mut Array<T>, holder: *mut MemHolder, val_ptr: *const T) {
@@ -20,7 +21,7 @@ impl<T> Array<T> {
             let base2: *mut u8 = holder.base;
             let arr2: *mut Array<T> = (base2 as i64 + arr_off as i64) as *mut Array<T>;
             let old_size: u64 = arr2.size;
-            let old_data_off: u32 = arr2.data;
+            let old_data_off: u32 = arr2.data.offset;
             let old_bytes: i64 = (old_size as i64) * elem_sz;
             let mut i: i64 = 0 as i64;
             while i < old_bytes {
@@ -28,16 +29,16 @@ impl<T> Array<T> {
                     *((base2 as i64 + old_data_off as i64 + i) as *const u8);
                 i = i + 1 as i64;
             }
-            arr2.data     = (new_buf as i64 - base2 as i64) as u32;
+            arr2.data.offset     = (new_buf as i64 - base2 as i64) as u32;
             arr2.capacity = new_cap;
-            let ep2: *mut T = (base2 as i64 + arr2.data as i64
+            let ep2: *mut T = (base2 as i64 + arr2.data.offset as i64
                                + (arr2.size as i64) * elem_sz) as *mut T;
             *ep2 = *val_ptr;
             arr2.size = arr2.size + 1 as u64;
             return;
         }
         let base: *mut u8 = holder.base;
-        let ep: *mut T = (base as i64 + self.data as i64
+        let ep: *mut T = (base as i64 + self.data.offset as i64
                           + (self.size as i64) * elem_sz) as *mut T;
         *ep = *val_ptr;
         self.size = self.size + 1 as u64;

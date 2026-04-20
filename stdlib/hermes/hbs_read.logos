@@ -13,6 +13,7 @@ use hermes.zone;
 use hermes.string;
 use hermes.typetag;
 use hermes.containers;
+use hermes.relptr;
 use hermes.objectmap;
 use hermes.document;
 use hermes.scalar;
@@ -313,7 +314,7 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
     if top.kind == FR_ARRAY {
         // Write val to arr[idx]
         let arr: *mut Array<AnyVal> = (base as i64 + top.zone_off as i64) as *mut Array<AnyVal>;
-        let buf_off: i64 = arr.data as i64;
+        let buf_off: i64 = arr.data.offset as i64;
         let ep: *mut AnyVal = (base as i64 + buf_off + top.idx as i64 * 4 as i64) as *mut AnyVal;
         ep.raw = val.raw;
         arr.size = arr.size + 1 as u64;
@@ -430,7 +431,7 @@ unsafe fn tinymap_set_bit(base: *const u8, m: *mut Map<Bitmap, AnyVal>, key_bit:
     // Shift elements right if this key is new
     if (bitmap & kb) == 0 as u64 {
         // Shift existing elements right to make room at `pos`
-        let data_off: i64 = m.data as i64;
+        let data_off: i64 = m.data.offset as i64;
         let mut i: i32 = sz as i32 - 1 as i32;
         while i >= pos as i32 {
             let src: *const AnyVal = (base as i64 + data_off + i as i64 * 4 as i64) as *const AnyVal;
@@ -448,7 +449,7 @@ unsafe fn tinymap_set_bit(base: *const u8, m: *mut Map<Bitmap, AnyVal>, key_bit:
         m.header = new_bitmap | (cap << 52 as u64) | (new_sz << 58 as u64);
     } else {
         // Update existing value
-        let data_off: i64 = m.data as i64;
+        let data_off: i64 = m.data.offset as i64;
         let ep: *mut AnyVal = (base as i64 + data_off + pos as i64 * 4 as i64) as *mut AnyVal;
         ep.raw = val.raw;
     }
@@ -585,7 +586,7 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         let arr: *mut Array<AnyVal> = (base as i64 + hdr_off as i64) as *mut Array<AnyVal>;
         arr.size = 0 as u64;
         arr.capacity = count as u64;
-        arr.data = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        arr.data.offset = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
         let off: u32 = hdr_off;
         if count > 0 as u32 {
             ctx.has_pending = true;
@@ -744,7 +745,7 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         let arr: *mut ArrayI32 = (base as i64 + hdr_off as i64) as *mut ArrayI32;
         arr.size = count as u64;
         arr.capacity = count as u64;
-        arr.data = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        arr.data.offset = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
         // Read i32 values inline
         let mut i: u32 = 0 as u32;
         while i < count {
@@ -775,7 +776,7 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         let arr: *mut ArrayU64 = (base as i64 + hdr_off as i64) as *mut ArrayU64;
         arr.size = count as u64;
         arr.capacity = count as u64;
-        arr.data = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        arr.data.offset = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
         let mut i: u32 = 0 as u32;
         while i < count {
             let v: u64 = deser_read_u64(ctx);

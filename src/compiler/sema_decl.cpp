@@ -799,6 +799,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         }
                         fn.type_params = std::move(kept);
                     }
+                    // Preserve impl-level type params with their bounds so mono
+                    // can gate instantiation on bound satisfaction.
+                    fn.impl_type_params = impl_tps;
                     target_struct_tmpl->methods.push_back(std::move(fn));
                 } else {
                     prog.functions.push_back(std::move(fn));

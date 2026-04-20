@@ -2302,8 +2302,16 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
     if (recv_type && recv_type->kind == LogosType::Kind::Ptr && !recv_type->mut_ptr)
         error(std::format("chain field write '{}': receiver is *const pointer", recv_name));
 
-    // Get mid-field type.
-    const LogosType* mid_ft = field_type_of(std::string(outer_sname), mid_name);
+    // Get mid-field type — use typed lookup so generic type args are substituted
+    // (e.g. Array<i32>.data resolves to RelPtr<i32>, not RelPtr<T>).
+    const LogosType* outer_struct_t = recv_type;
+    if (outer_struct_t && outer_struct_t->kind == LogosType::Kind::Ptr)
+        outer_struct_t = outer_struct_t->pointee;
+    else if (outer_struct_t && is_ref_like(outer_struct_t->kind))
+        outer_struct_t = outer_struct_t->pointee;
+    const LogosType* mid_ft = outer_struct_t
+        ? field_type_of_for_type(outer_struct_t, mid_name)
+        : field_type_of(std::string(outer_sname), mid_name);
     if (!mid_ft) {
         error(std::format("chain field write: struct '{}' has no field '{}'", outer_sname, mid_name));
         return make_stmt(node_line_, lir::SExprStmt{error_expr()});
@@ -2318,8 +2326,8 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
         return make_stmt(node_line_, lir::SExprStmt{error_expr()});
     }
 
-    // Get final field type.
-    const LogosType* ft = field_type_of(mid_sname, field_name);
+    // Get final field type — again via typed lookup for generic substitution.
+    const LogosType* ft = field_type_of_for_type(mid_struct_t, field_name);
     if (!ft) {
         error(std::format("chain field write: struct '{}' has no field '{}'", mid_sname, field_name));
         return make_stmt(node_line_, lir::SExprStmt{error_expr()});
@@ -2355,14 +2363,22 @@ lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
         : std::string(op_tok);
 
     auto outer_sname = struct_name_of(recv_name);
-    const LogosType* mid_ft = outer_sname.empty()
-        ? nullptr : field_type_of(std::string(outer_sname), mid_name);
+    auto* recv_type_for_cfca = lookup(recv_name);
+    const LogosType* outer_struct_t_cfca = recv_type_for_cfca;
+    if (outer_struct_t_cfca && outer_struct_t_cfca->kind == LogosType::Kind::Ptr)
+        outer_struct_t_cfca = outer_struct_t_cfca->pointee;
+    else if (outer_struct_t_cfca && is_ref_like(outer_struct_t_cfca->kind))
+        outer_struct_t_cfca = outer_struct_t_cfca->pointee;
+    const LogosType* mid_ft = outer_struct_t_cfca
+        ? field_type_of_for_type(outer_struct_t_cfca, mid_name)
+        : (outer_sname.empty() ? nullptr : field_type_of(std::string(outer_sname), mid_name));
     const LogosType* mid_struct_t = mid_ft;
     if (mid_struct_t && mid_struct_t->kind == LogosType::Kind::Ptr)
         mid_struct_t = mid_struct_t->pointee;
     auto mid_sname = mid_struct_t ? concrete_struct_name(mid_struct_t) : std::string{};
-    const LogosType* ft = mid_sname.empty()
-        ? nullptr : field_type_of(mid_sname, field_name);
+    const LogosType* ft = mid_struct_t
+        ? field_type_of_for_type(mid_struct_t, field_name)
+        : (mid_sname.empty() ? nullptr : field_type_of(mid_sname, field_name));
 
     if (!outer_sname.empty() && !ft)
         error(std::format("chain field compound assign: could not resolve '{}.{}.{}'",

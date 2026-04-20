@@ -215,7 +215,7 @@ impl HermesStringify for ArrayI32 {
             while i < arr.size {
                 if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
                 let ep: *const i32 =
-                    (ctx.base as i64 + arr.data as i64 + (i as i64) * 4 as i64) as *const i32;
+                    (ctx.base as i64 + arr.data.offset as i64 + (i as i64) * 4 as i64) as *const i32;
                 ctx.out.push_i64(*ep as i64);
                 i = i + 1 as u64;
             }
@@ -240,7 +240,7 @@ impl HermesStringify for ArrayU64 {
             while i < arr.size {
                 if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
                 let ep: *const u64 =
-                    (ctx.base as i64 + arr.data as i64 + (i as i64) * 8 as i64) as *const u64;
+                    (ctx.base as i64 + arr.data.offset as i64 + (i as i64) * 8 as i64) as *const u64;
                 ctx.out.push_u64(*ep);
                 i = i + 1 as u64;
             }
@@ -403,7 +403,7 @@ impl<T: HermesStringify + ArrayElemTag> HermesStringify for Array<T> {
             ctx.out.push_u8(91 as u8);   // '['
             let sz: u64 = arr.size;
             let elem_sz: i64 = sizeof::<T>() as i64;
-            let base_int: i64 = ctx.base as i64 + arr.data as i64;
+            let base_int: i64 = ctx.base as i64 + arr.data.offset as i64;
             let mut i: u64 = 0 as u64;
             while i < sz {
                 if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
@@ -429,7 +429,7 @@ impl<V: HermesStringify> HermesStringify for Map<Bitmap, V> {
             ctx.out.push_u8(123 as u8);  // '{'
             let bitmap: u64 = map.header & 0x000FFFFFFFFFFFFF as u64;
             let elem_sz: i64 = sizeof::<V>() as i64;
-            let arr_base: i64 = ctx.base as i64 + map.data as i64;
+            let arr_base: i64 = ctx.base as i64 + map.data.offset as i64;
             let mut first: bool = true;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {

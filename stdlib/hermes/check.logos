@@ -320,7 +320,7 @@ impl HermesCheck for Array<AnyVal> {
                 state.error = CheckError::BadSize;
                 return false;
             }
-            let buf_off: i64   = arr.data as i64;
+            let buf_off: i64   = arr.data.offset as i64;
             let buf_bytes: i64 = (cap as i64) * 4 as i64;
             if buf_bytes > 0 as i64 {
                 if !check_bounds(state, buf_off, buf_bytes) { return false; }
@@ -362,7 +362,7 @@ impl<V> HermesCheck for Map<Bitmap, V> {
                 state.error = CheckError::BadSize;
                 return false;
             }
-            let buf_off: i64   = m.data as i64;
+            let buf_off: i64   = m.data.offset as i64;
             let buf_bytes: i64 = (cap as i64) * 4 as i64;
             if buf_bytes > 0 as i64 {
                 if !check_bounds(state, buf_off, buf_bytes) { return false; }
@@ -550,7 +550,7 @@ impl HermesCheck for ArrayI32 {
                 state.error = CheckError::BadSize;
                 return false;
             }
-            let buf_off: i64   = arr.data as i64;
+            let buf_off: i64   = arr.data.offset as i64;
             let buf_bytes: i64 = (cap as i64) * 4 as i64;
             if buf_bytes > 0 as i64 {
                 if !check_bounds(state, buf_off, buf_bytes) { return false; }
@@ -740,7 +740,7 @@ impl HermesCheck for ArrayU64 {
                 state.error = CheckError::BadSize;
                 return false;
             }
-            let buf_off: i64   = arr.data as i64;
+            let buf_off: i64   = arr.data.offset as i64;
             let buf_bytes: i64 = (cap as i64) * 8 as i64;
             if buf_bytes > 0 as i64 {
                 if !check_bounds(state, buf_off, buf_bytes) { return false; }

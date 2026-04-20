@@ -70,3 +70,16 @@ impl<T: HermesClone> CloneElem for RelPtr<T> {
 }
 
 impl<T: HermesRelease> HermesRelease for RelPtr<T> { pub fn release(&self) {} }
+
+// HermesClone for RelPtr<T>: resolve and clone the pointee; result slot carries
+// the new offset.  Required so nested `RelPtr<RelPtr<T>>` (as produced by
+// `Array<RelPtr<T>>.data: RelPtr<RelPtr<T>>`) composes cleanly.
+impl<T: HermesClone> HermesClone for RelPtr<T> {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        unsafe {
+            let rp: *const RelPtr<T> = self as *const RelPtr<T>;
+            let target: *const T = rp.resolve(ctx.base_src);
+            return target.clone_to(ctx);
+        }
+    }
+}
