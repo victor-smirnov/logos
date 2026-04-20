@@ -71,15 +71,15 @@ impl<T: HermesClone> CloneElem for RelPtr<T> {
 
 impl<T: HermesRelease> HermesRelease for RelPtr<T> { pub fn release(&self) {} }
 
-// HermesClone for RelPtr<T>: resolve and clone the pointee; result slot carries
-// the new offset.  Required so nested `RelPtr<RelPtr<T>>` (as produced by
-// `Array<RelPtr<T>>.data: RelPtr<RelPtr<T>>`) composes cleanly.
+// HermesClone for RelPtr<T> exists only to satisfy the `T: HermesClone` bound
+// when RelPtr<T> appears as the element type of another generic container
+// (e.g. `Array<RelPtr<T>>` needs `RelPtr<T>: HermesClone` on the blanket).
+// It is never invoked via tag-dispatch: RelPtr<T> is an inline field, never
+// a tagged zone allocation, so anyval_clone never dispatches to it.  The
+// actual element copy for RelPtr-typed containers goes through CloneElem
+// (above).  Return null to make accidental dispatch explicit.
 impl<T: HermesClone> HermesClone for RelPtr<T> {
     pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
-        unsafe {
-            let rp: *const RelPtr<T> = self as *const RelPtr<T>;
-            let target: *const T = rp.resolve(ctx.base_src);
-            return target.clone_to(ctx);
-        }
+        return 0 as *mut u8;
     }
 }

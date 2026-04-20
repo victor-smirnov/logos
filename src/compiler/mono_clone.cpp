@@ -878,14 +878,26 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             // Strip instantiation suffix — impls are keyed on base name.
             if (auto p = cname.find("$G"); p != std::string::npos)
                 cname = cname.substr(0, p);
-            for (auto& tb : itp.bounds) {
-                std::string key = tb.trait_name + "::" + cname;
-                bool has = concrete_impls_.count(key) > 0;
-                if (!has) {
-                    for (auto& bi : blanket_impls_)
-                        if (bi.trait_name == tb.trait_name) { has = true; break; }
+            // Recursive satisfaction: C impls T if a concrete impl exists,
+            // or if any blanket `impl<U: B> T for U` exists and C impls B.
+            // Cycle-guarded via `seen`.
+            std::function<bool(const std::string&, const std::string&,
+                               std::unordered_set<std::string>&)> has_impl;
+            has_impl = [&](const std::string& trait, const std::string& cn,
+                           std::unordered_set<std::string>& seen) -> bool {
+                std::string k = trait + "::" + cn;
+                if (!seen.insert(k).second) return false;
+                if (concrete_impls_.count(k)) return true;
+                for (auto& bi : blanket_impls_) {
+                    if (bi.trait_name != trait) continue;
+                    if (bi.bound_trait.empty()) return true;
+                    if (has_impl(bi.bound_trait, cn, seen)) return true;
                 }
-                if (!has) { bound_ok = false; break; }
+                return false;
+            };
+            for (auto& tb : itp.bounds) {
+                std::unordered_set<std::string> seen;
+                if (!has_impl(tb.trait_name, cname, seen)) { bound_ok = false; break; }
             }
             if (!bound_ok) break;
         }

@@ -2364,6 +2364,12 @@ lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
 
     auto outer_sname = struct_name_of(recv_name);
     auto* recv_type_for_cfca = lookup(recv_name);
+    if (recv_type_for_cfca && recv_type_for_cfca->kind == LogosType::Kind::Ref)
+        error(std::format("chain field compound assign '{}': receiver is &T (shared reference)", recv_name));
+    else if (recv_type_for_cfca && recv_type_for_cfca->kind != LogosType::Kind::Ptr && !lookup_is_mut(recv_name))
+        error(std::format("chain field compound assign to immutable variable '{}'", recv_name));
+    if (recv_type_for_cfca && recv_type_for_cfca->kind == LogosType::Kind::Ptr && !recv_type_for_cfca->mut_ptr)
+        error(std::format("chain field compound assign '{}': receiver is *const pointer", recv_name));
     const LogosType* outer_struct_t_cfca = recv_type_for_cfca;
     if (outer_struct_t_cfca && outer_struct_t_cfca->kind == LogosType::Kind::Ptr)
         outer_struct_t_cfca = outer_struct_t_cfca->pointee;
