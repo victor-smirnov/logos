@@ -427,7 +427,7 @@ impl HermesClone for ObjectMap {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let a: *const ObjectMap = (ctx.base_src as i64 + src_off as i64) as *const ObjectMap;
             let cap: u32 = a.capacity;
-            let src_entries_off: u32 = a.entries_off;
+            let src_entries_off: u32 = a.entries_off.offset;
 
             let om_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<ObjectMap>() as i64,
                                       hermes_tag_map() as u64);

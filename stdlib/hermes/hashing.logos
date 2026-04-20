@@ -217,7 +217,7 @@ impl HermesHash for ObjectMap {
             let mut acc: u64 = 0 as u64;
             acc = acc ^ fnv_mix_u64(base_h, a.count as u64);
             let cap: u32 = a.capacity;
-            let ent_base: i64 = ctx.base as i64 + a.entries_off as i64;
+            let ent_base: i64 = ctx.base as i64 + a.entries_off.offset as i64;
             let mut slot: u32 = 0 as u32;
             while slot < cap {
                 let ep: *const MapEntry =

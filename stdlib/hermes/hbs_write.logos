@@ -586,7 +586,7 @@ unsafe fn process_wk_map_slot(ws: *mut HbsWriteState, obj_off: u32, slot: u32) {
     let base: *const u8 = ws.base;
     let m: *const ObjectMap = (base as i64 + obj_off as i64) as *const ObjectMap;
     let cap: u32 = m.capacity;
-    let ent_off: i64 = m.entries_off as i64;
+    let ent_off: i64 = m.entries_off.offset as i64;
 
     // Find next non-empty slot starting from `slot`
     let mut s: u32 = slot;

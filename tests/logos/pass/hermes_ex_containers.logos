@@ -155,7 +155,7 @@ unsafe fn main() -> i32 {
     let omap: *mut ObjectMap = ObjectMap::init(om_raw, base, om_ent, 16 as u32);
 
     // Header fields: entries_off=zone-relative offset of om_ent, capacity=16, count=0.
-    if omap.entries_off != (om_ent as i64 - base as i64) as u32 { return 38; }
+    if omap.entries_off.offset != (om_ent as i64 - base as i64) as u32 { return 38; }
     if omap.capacity != 16 as u32                               { return 39; }
     if omap.count != 0 as u32                                   { return 40; }
 
@@ -240,7 +240,7 @@ unsafe fn main() -> i32 {
     let h: u64 = hermes_fnv1a(raw_key, 3 as u64);
     let slot: u64 = h & 15 as u64;  // capacity=16, mask=15
     // Linear probe until we find key_off == off_key.
-    let ent_base: i64 = base as i64 + omap2.entries_off as i64;
+    let ent_base: i64 = base as i64 + omap2.entries_off.offset as i64;
     let mut probe: u64 = slot;
     let mut found_val: u32 = 0 as u32;
     let mut fi2: u64 = 0 as u64;

@@ -467,7 +467,7 @@ impl HermesStringify for ObjectMap {
             let map: *const ObjectMap = self as *const ObjectMap;
             ctx.out.push_u8(123 as u8);  // '{'
             let cap: u32 = map.capacity;
-            let ent_base: i64 = ctx.base as i64 + map.entries_off as i64;
+            let ent_base: i64 = ctx.base as i64 + map.entries_off.offset as i64;
             let mut first: bool = true;
             let mut slot: u32 = 0 as u32;
             while slot < cap {

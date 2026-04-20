@@ -408,7 +408,7 @@ impl HermesCheck for ObjectMap {
                 state.error = CheckError::BadSize;
                 return false;
             }
-            let ent_off: i64   = m.entries_off as i64;
+            let ent_off: i64   = m.entries_off.offset as i64;
             let ent_bytes: i64 = (cap as i64) * 8 as i64;
             if ent_bytes > 0 as i64 {
                 if !check_bounds(state, ent_off, ent_bytes) { return false; }

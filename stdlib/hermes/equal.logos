@@ -216,7 +216,7 @@ impl HermesEqual for ObjectMap {
             // For each occupied slot in `a`, find the matching key in `b` and
             // compare values. Lookup handles open-addressing details.
             let cap_a: u32 = a.capacity;
-            let base_a_ent: i64 = ctx.base_self  as i64 + a.entries_off as i64;
+            let base_a_ent: i64 = ctx.base_self  as i64 + a.entries_off.offset as i64;
             let mut slot: u32 = 0 as u32;
             while slot < cap_a {
                 let ep_a: *const MapEntry =
