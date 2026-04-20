@@ -1384,8 +1384,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             auto nm = str_of(p.get(la::NAME.code));
             std::string name(nm);
             if (!name.empty() && name != "_") {
-                error("binding inside @{...}/@[...] pattern is not yet supported; "
-                      "use `_` for now");
+                out_bindings.push_back(HermesPatBinding{name, sv});
             }
             return mk_true();
         }
@@ -2890,6 +2889,8 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
 
             // Synthesize guard for Hermes patterns (scalar + structural).
             lir::LExprPtr synth_guard;
+            std::vector<lir::LStmt> body_prologue;
+            std::vector<HermesPatBinding> body_binds;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
                 std::vector<lir::LStmt> g_stmts;
                 std::vector<HermesPatBinding> g_binds;
@@ -2904,6 +2905,15 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 } else {
                     synth_guard = std::move(raw);
                 }
+                // Re-run pattern lowering to produce parallel stmts/bindings
+                // for body scope. Locals get fresh tmp_var_count_ names; the
+                // bindings' av_var refers to those new names, consistent with
+                // body_prologue.
+                if (!g_binds.empty()) {
+                    (void)build_hermes_pat_guard(
+                        map_of(arm.get(la::LHS.code)), root_var, anyval_t,
+                        base_var, body_prologue, body_binds);
+                }
             }
 
             // Build pattern
@@ -2916,6 +2926,10 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             // Build body block — push pattern bindings into scope
             push_scope();
             bind_pattern(pat, scrut_type);
+            // Register Hermes @-pattern bindings in scope (visible in body + guard).
+            for (const auto& b : body_binds) {
+                define(b.name, anyval_t, /*is_mut=*/false);
+            }
 
             // Optional guard: `pattern if expr =>`
             std::optional<lir::LExprPtr> guard;
@@ -2960,6 +2974,20 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     lir::SExprStmt es; es.expr = std::move(val);
                     body->stmts.push_back(make_stmt(node_line_, std::move(es)));
                 }
+            }
+            // Prepend Hermes @-pattern prologue (helper __hp_N lets + user
+            // binding lets) to body so bindings are live inside the arm body.
+            if (!body_prologue.empty() || !body_binds.empty()) {
+                std::vector<lir::LStmt> prologue = std::move(body_prologue);
+                for (const auto& b : body_binds) {
+                    lir::SLet sl;
+                    sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
+                    sl.value = make_expr(anyval_t, lir::EVarRef{b.av_var});
+                    prologue.push_back(make_stmt(node_line_, std::move(sl)));
+                }
+                body->stmts.insert(body->stmts.begin(),
+                    std::make_move_iterator(prologue.begin()),
+                    std::make_move_iterator(prologue.end()));
             }
             pop_scope();
             smatch.arms.push_back({std::move(pat), std::move(body), std::move(guard)});
@@ -3140,6 +3168,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (code_of(arm) != la::MATCH_ARM) continue;
 
             lir::LExprPtr synth_guard;
+            std::vector<lir::LStmt> body_prologue;
+            std::vector<HermesPatBinding> body_binds;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
                 std::vector<lir::LStmt> g_stmts;
                 std::vector<HermesPatBinding> g_binds;
@@ -3154,6 +3184,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 } else {
                     synth_guard = std::move(raw);
                 }
+                if (!g_binds.empty()) {
+                    (void)build_hermes_pat_guard(
+                        map_of(arm.get(la::LHS.code)), root_var, anyval_t,
+                        base_var, body_prologue, body_binds);
+                }
             }
 
             in_match_hermes_ctx_ = has_hermes_pat;
@@ -3164,6 +3199,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
             push_scope();
             bind_pattern(pat, scrut_type);
+            for (const auto& b : body_binds) {
+                define(b.name, anyval_t, /*is_mut=*/false);
+            }
 
             std::optional<lir::LExprPtr> guard;
             if (arm.has_key(la::GUARD)) {
@@ -3186,6 +3224,22 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
 
             lir::LExprPtr val = lower_expr(map_of(arm.get(la::EXPR.code)));
+            // Wrap arm value with Hermes @-pattern prologue so bindings are
+            // live during evaluation.
+            if (!body_prologue.empty() || !body_binds.empty()) {
+                std::vector<lir::LStmt> prologue = std::move(body_prologue);
+                for (const auto& b : body_binds) {
+                    lir::SLet sl;
+                    sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
+                    sl.value = make_expr(anyval_t, lir::EVarRef{b.av_var});
+                    prologue.push_back(make_stmt(node_line_, std::move(sl)));
+                }
+                auto blk = std::make_unique<lir::LBlock>();
+                blk->stmts = std::move(prologue);
+                const LogosType* vt = val->type;
+                val = make_expr(vt,
+                    lir::EBlockExpr{std::move(blk), std::move(val)});
+            }
             if (result_type->kind == LogosType::Kind::Error) {
                 result_type = val->type;
             } else if (val->type->kind != LogosType::Kind::Error) {
