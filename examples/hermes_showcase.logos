@@ -13,10 +13,12 @@
 //   6. Typed map cast     — MapSliceI32 → <I32,AnyVal>{} HermesCtr
 //   7. HermesCtrView      — non-owning borrow of a zone document
 //   8. List/map comprehensions — @[expr for x in iter] / @{k: v for …}
+//   9. Pattern matching  — scalar @-patterns, structural, typed, or, tuple
 
 package hermes_showcase;
 
 use hermes.ctr;
+use hermes.pat;
 use hermes.view;
 use std.string;
 use std.io;
@@ -47,6 +49,58 @@ fn print_static(label: str, hs: &HermesStatic) {
     out.push_str(": ");
     out.push_bytes(s.as_ptr(), s.len());
     println_string(&out);
+}
+
+// Section-9 helpers: Hermes pattern matching dispatchers.
+
+fn describe(d: &HermesStatic) -> str {
+    match d {
+        @null                            => "null",
+        @<I32>[..] | @<U64>[..]          => "typed-arr(num)",
+        @<Varchar, AnyVal>{..}           => "typed-map(str-to-any)",
+        @[..]                            => "array",
+        @{}                              => "map",
+        @true | @false                   => "bool",
+        @0                               => "zero",
+        @42                              => "the-answer",
+        @"hello"                         => "greeting",
+        _                                => "other",
+    }
+}
+
+unsafe fn sum_first_two(d: &HermesStatic) -> i32 {
+    match d {
+        @[a, b, ..] => a.as_i24() + b.as_i24(),
+        _           => -1,
+    }
+}
+
+unsafe fn key_k(d: &HermesStatic) -> i32 {
+    match d {
+        @{"k": x} => x.as_i24(),
+        _         => -1,
+    }
+}
+
+// User guard on a non-Hermes arm, combined with Hermes scalar arms.
+fn sign(d: &HermesStatic, hint: i32) -> str {
+    match d {
+        @0 => "zero",
+        @1 => "one",
+        _ if hint > 0  => "positive-hint",
+        _ if hint < 0  => "negative-hint",
+        _              => "other",
+    }
+}
+
+fn classify(p: (i32, i32)) -> i32 {
+    match p {
+        (0, 0)  => 1,
+        (0, _)  => 2,
+        (_, 0)  => 3,
+        (1, 1)  => 4,
+        (a, b)  => a + b + 100,
+    }
 }
 
 pub fn main() -> i32 {
@@ -219,6 +273,76 @@ pub fn main() -> i32 {
     // Map comprehension with string values (copied into zone as Varchar).
     let tags: HermesCtr = @{labels[x as i64]: "on" for x in idx if x < 2};
     print_doc("tags", &tags);
+
+    // ------------------------------------------------------------------ //
+    // 9. Pattern matching  — match over Hermes values and tuples         //
+    //    Scalar (@null/@true/@42/@"s"), structural (@[..]/@{..}), typed  //
+    //    (@<T>[..]/@<K,V>{..}), or-patterns, rest bindings, user guards, //
+    //    and tuple patterns with literal sub-patterns.                   //
+    // ------------------------------------------------------------------ //
+    section("9. Pattern matching");
+
+    // See `describe` above — classifies a Hermes value by shape / type.
+    let m_null:  HermesStatic = @null;
+    let m_arr:   HermesStatic = @[1, 2, 3];
+    let m_map:   HermesStatic = @{"k": 1};
+    let m_ti32:  HermesStatic = @<I32>[7, 8, 9];
+    let m_tu64:  HermesStatic = @<U64>[100, 200];
+    let m_tmap:  HermesStatic = @<Varchar, AnyVal>{"a": 1};
+    let m_true:  HermesStatic = @true;
+    let m_42:    HermesStatic = @42;
+    let m_hi:    HermesStatic = @"hello";
+    let m_other: HermesStatic = @3.14;
+
+    let mut shapes_line: String = String::with_capacity(96);
+    shapes_line.push_str("  shapes:");
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_null));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_arr));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_map));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_ti32));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_tu64));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_tmap));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_true));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_42));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_hi));
+    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_other));
+    println_string(&shapes_line);
+
+    // Structural destructuring with @-patterns:
+    //   @[a, b, ..] binds the first two elements as AnyVal;
+    //   @{"k": x}   binds value at key "k".
+    let s12: i32 = unsafe { sum_first_two(&m_arr) };   // 1 + 2 = 3
+    let vk:  i32 = unsafe { key_k(&m_map) };           // 1
+    let mut bind_line: String = String::with_capacity(64);
+    bind_line.push_str("  bind: a+b=");
+    s12.fmt(&mut bind_line);
+    bind_line.push_str(", k=");
+    vk.fmt(&mut bind_line);
+    println_string(&bind_line);
+
+    // User guard combined with Hermes scalar arms — see `sign` above.
+    let hs_z: HermesStatic = @0;
+    let hs_o: HermesStatic = @1;
+    let hs_n: HermesStatic = @null;
+    let mut sign_line: String = String::with_capacity(80);
+    sign_line.push_str("  sign: ");
+    sign_line.push_str(sign(&hs_z,  0)); sign_line.push_str(" ");
+    sign_line.push_str(sign(&hs_o,  0)); sign_line.push_str(" ");
+    sign_line.push_str(sign(&hs_n,  5)); sign_line.push_str(" ");
+    sign_line.push_str(sign(&hs_n, -5)); sign_line.push_str(" ");
+    sign_line.push_str(sign(&hs_n,  0));
+    println_string(&sign_line);
+
+    // Tuple patterns with literal sub-patterns — see `classify` above.
+    let classify_sum: i32 = classify((0, 0))
+                          + classify((0, 9))
+                          + classify((5, 0))
+                          + classify((1, 1))
+                          + classify((2, 3));   // 1 + 2 + 3 + 4 + 105 = 115
+    let mut tuple_line: String = String::with_capacity(64);
+    tuple_line.push_str("  tuple: classify sum = ");
+    classify_sum.fmt(&mut tuple_line);
+    println_string(&tuple_line);
 
     println("---");
     println("done.");
