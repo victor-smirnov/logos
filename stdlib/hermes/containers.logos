@@ -338,66 +338,6 @@ impl Array<AnyVal> {
 }
 
 // ---------------------------------------------------------------------------
-// Typed container wrappers for Hermes SDN round-trip.
-//
-// These wrappers preserve `<...>` type headers from textual SDN:
-//   <T> [ ... ]  -> TypedArray { type_off, arr_off }
-//   <K,V> { ... } / <K> { ... } -> TypedMap { type_off, map_off }
-//
-// The payload containers remain regular Array<AnyVal>/Map<Varchar,AnyVal>.
-// ---------------------------------------------------------------------------
-
-#[type_code=102]
-pub genos TypedArrayMeta {
-    unsafe fn type_name_off(self: *const Self) -> u32;
-}
-
-pub eidos TypedArray {
-    pub type_off: RelPtr<HermesString>,  // type expression string (without <>)
-    pub arr_off:  u32,                   // Array<AnyVal> payload
-}
-
-impl TypedArray {
-    pub unsafe fn init(raw: *mut u8, type_off: u32, arr_off: u32) -> *mut TypedArray {
-        let p: *mut TypedArray = raw as *mut TypedArray;
-        p.type_off.offset = type_off;
-        p.arr_off  = arr_off;
-        return p;
-    }
-}
-
-impl TypedArrayMeta for TypedArray {
-    unsafe fn type_name_off(self: *const TypedArray) -> u32 {
-        return self.type_off.offset;
-    }
-}
-
-#[type_code=103]
-pub genos TypedMapMeta {
-    unsafe fn type_name_off(self: *const Self) -> u32;
-}
-
-pub eidos TypedMap {
-    pub type_off: RelPtr<HermesString>,  // type expression string (without <>)
-    pub map_off:  u32,                   // Map<Varchar,AnyVal> payload
-}
-
-impl TypedMap {
-    pub unsafe fn init(raw: *mut u8, type_off: u32, map_off: u32) -> *mut TypedMap {
-        let p: *mut TypedMap = raw as *mut TypedMap;
-        p.type_off.offset = type_off;
-        p.map_off  = map_off;
-        return p;
-    }
-}
-
-impl TypedMapMeta for TypedMap {
-    unsafe fn type_name_off(self: *const TypedMap) -> u32 {
-        return self.type_off.offset;
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Pre-materialized typed primitive array: <I32>[...]
 //
 // Dense contiguous i32 storage, tagged with a dedicated type_code so

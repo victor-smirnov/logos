@@ -157,48 +157,6 @@ impl HermesStringify for AnyVal {
     }
 }
 
-// ── Typed wrappers: preserve `<...>` header in SDN round-trip ──────────────
-
-impl HermesStringify for TypedArray {
-    pub fn stringify(&self, ctx: *mut StringifyCtx) {
-        unsafe {
-            let ta: *const TypedArray = self as *const TypedArray;
-            let hs: *const HermesString = (ctx.base as i64 + ta.type_off.offset as i64) as *const HermesString;
-            let b: *const u8 = hs.bytes();
-            let n: u64 = hs.len();
-            ctx.out.push_u8(60 as u8);   // '<'
-            let mut i: u64 = 0 as u64;
-            while i < n {
-                ctx.out.push_u8(*((b as i64 + i as i64) as *const u8));
-                i = i + 1 as u64;
-            }
-            ctx.out.push_u8(62 as u8);   // '>'
-            ctx.out.push_u8(32 as u8);   // ' '
-            stringify_anyval(AnyVal::from_offset(ta.arr_off), ctx);
-        }
-    }
-}
-
-impl HermesStringify for TypedMap {
-    pub fn stringify(&self, ctx: *mut StringifyCtx) {
-        unsafe {
-            let tm: *const TypedMap = self as *const TypedMap;
-            let hs: *const HermesString = (ctx.base as i64 + tm.type_off.offset as i64) as *const HermesString;
-            let b: *const u8 = hs.bytes();
-            let n: u64 = hs.len();
-            ctx.out.push_u8(60 as u8);   // '<'
-            let mut i: u64 = 0 as u64;
-            while i < n {
-                ctx.out.push_u8(*((b as i64 + i as i64) as *const u8));
-                i = i + 1 as u64;
-            }
-            ctx.out.push_u8(62 as u8);   // '>'
-            ctx.out.push_u8(32 as u8);   // ' '
-            stringify_anyval(AnyVal::from_offset(tm.map_off), ctx);
-        }
-    }
-}
-
 impl HermesStringify for ArrayI32 {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {

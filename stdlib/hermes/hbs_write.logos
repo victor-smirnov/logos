@@ -458,22 +458,6 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         return;
     }
 
-    if tag == hermes_tag_typed_array() as u64 {  // 102
-        let ta: *const TypedArray = obj as *const TypedArray;
-        hbs_write_u8(buf, 0x51 as u8);
-        push_wk_val(ws, AnyVal::from_offset(ta.arr_off).raw);
-        push_wk_val(ws, AnyVal::from_offset(ta.type_off.offset).raw);
-        return;
-    }
-
-    if tag == hermes_tag_typed_map() as u64 {  // 103
-        let tm: *const TypedMap = obj as *const TypedMap;
-        hbs_write_u8(buf, 0x52 as u8);
-        push_wk_val(ws, AnyVal::from_offset(tm.map_off).raw);
-        push_wk_val(ws, AnyVal::from_offset(tm.type_off.offset).raw);
-        return;
-    }
-
     if tag == hermes_tag_array_i32() as u64 {  // 104
         let arr: *const ArrayI32 = obj as *const ArrayI32;
         let sz: u64 = arr.size;

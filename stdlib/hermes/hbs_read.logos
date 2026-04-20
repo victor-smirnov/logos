@@ -59,8 +59,6 @@ pub enum HbsError {
 const FR_ARRAY:       u8 = 0;
 const FR_OBJMAP:      u8 = 1;
 const FR_TINYMAP:     u8 = 2;
-const FR_TYPED_ARRAY: u8 = 3;
-const FR_TYPED_MAP:   u8 = 4;
 const FR_TYPED_VALUE: u8 = 5;
 const FR_MI32_VAL:    u8 = 6;
 
@@ -358,34 +356,6 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
         return true;
     }
 
-    if top.kind == FR_TYPED_ARRAY {
-        if top.idx == 0 as u32 {
-            // type received
-            top.aux = val.as_offset();
-            top.idx = 1 as u32;
-        } else {
-            // arr received
-            let ta: *mut TypedArray = (base as i64 + top.zone_off as i64) as *mut TypedArray;
-            ta.type_off.offset = top.aux;
-            ta.arr_off  = val.as_offset();
-            deser_pop_frame(ctx);
-        }
-        return true;
-    }
-
-    if top.kind == FR_TYPED_MAP {
-        if top.idx == 0 as u32 {
-            top.aux = val.as_offset();
-            top.idx = 1 as u32;
-        } else {
-            let tm: *mut TypedMap = (base as i64 + top.zone_off as i64) as *mut TypedMap;
-            tm.type_off.offset = top.aux;
-            tm.map_off  = val.as_offset();
-            deser_pop_frame(ctx);
-        }
-        return true;
-    }
-
     if top.kind == FR_TYPED_VALUE {
         if top.idx == 0 as u32 {
             top.aux = val.as_offset();  // type_off
@@ -673,37 +643,7 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         return AnyVal::from_offset(off);
     }
 
-    if lead == 0x51 as u8 {
-        // TypedArray
-        let sz: i64 = sizeof::<TypedArray>() as i64;
-        let raw: *mut u8 = alloc_tagged_in_zone(ctx, sz, hermes_tag_typed_array());
-        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-        let base: *mut u8 = ctx.zone.holder.base;
-        let off: u32 = (raw as i64 - base as i64) as u32;
-        ctx.has_pending = true;
-        ctx.pending = ReadFrame {
-            kind: FR_TYPED_ARRAY, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
-            zone_off: off, idx: 0 as u32, total: 2 as u32, aux: 0 as u32, aux2: 0 as u32,
-        };
-        return AnyVal::from_offset(off);
-    }
-
-    if lead == 0x52 as u8 {
-        // TypedMap
-        let sz: i64 = sizeof::<TypedMap>() as i64;
-        let raw: *mut u8 = alloc_tagged_in_zone(ctx, sz, hermes_tag_typed_map());
-        if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-        let base: *mut u8 = ctx.zone.holder.base;
-        let off: u32 = (raw as i64 - base as i64) as u32;
-        ctx.has_pending = true;
-        ctx.pending = ReadFrame {
-            kind: FR_TYPED_MAP, _pad0: 0 as u8, _pad1: 0 as u8, _pad2: 0 as u8,
-            zone_off: off, idx: 0 as u32, total: 2 as u32, aux: 0 as u32, aux2: 0 as u32,
-        };
-        return AnyVal::from_offset(off);
-    }
-
-    if lead == 0x60 as u8 {
+if lead == 0x60 as u8 {
         let v: u64 = deser_read_u64(ctx);
         if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
         let sz: i64 = sizeof::<I64>() as i64;
