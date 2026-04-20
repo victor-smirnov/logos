@@ -48,10 +48,8 @@ pub unsafe fn anyval_equal(a: AnyVal, b: AnyVal, ctx: *mut EqualCtx) -> bool {
     }
 
     // Pointer mode: resolve both offsets, match tags, dispatch.
-    let obj_a: *const u8 =
-        (ctx.base_self  as i64 + a.as_offset() as i64) as *const u8;
-    let obj_b: *const u8 =
-        (ctx.base_other as i64 + b.as_offset() as i64) as *const u8;
+    let obj_a: *const u8 = ctx.base_self.byte_add(a.as_offset() as i64);
+    let obj_b: *const u8 = ctx.base_other.byte_add(b.as_offset() as i64);
     // Bug fix: use TagSystem::read_tag instead of manual byte reading to support variable-length tags.
     let ts: HermesTypeTagSystem = HermesTypeTagSystem {};
     let tag_a: u64 = ts.read_tag(obj_a);
@@ -76,8 +74,8 @@ impl HermesEqual for HermesString {
             let pb: *const u8 = b.bytes();
             let mut i: u64 = 0;
             while i < la {
-                let ca: u8 = *((pa as i64 + i as i64) as *const u8);
-                let cb: u8 = *((pb as i64 + i as i64) as *const u8);
+                let ca: u8 = *pa.byte_add(i as i64);
+                let cb: u8 = *pb.byte_add(i as i64);
                 if ca != cb { return false; }
                 i = i + 1 as u64;
             }
@@ -159,13 +157,12 @@ impl<T: HermesEqual> HermesEqual for Array<T> {
             let a: *const Array<T> = self as *const Array<T>;
             let b: *const Array<T> = other as *const Array<T>;
             if a.size != b.size { return false; }
-            let elem_sz: i64 = sizeof::<T>() as i64;
-            let base_a: i64 = ctx.base_self  as i64 + a.data.offset;
-            let base_b: i64 = ctx.base_other as i64 + b.data.offset;
+            let buf_a: *const T = ctx.base_self.byte_add(a.data.offset) as *const T;
+            let buf_b: *const T = ctx.base_other.byte_add(b.data.offset) as *const T;
             let mut i: u64 = 0;
             while i < a.size {
-                let ea: *const T = (base_a + (i as i64) * elem_sz) as *const T;
-                let eb: *const T = (base_b + (i as i64) * elem_sz) as *const T;
+                let ea: *const T = buf_a.add(i as i64);
+                let eb: *const T = buf_b.add(i as i64);
                 if !ea.equal(eb as *const u8, ctx) { return false; }
                 i = i + 1 as u64;
             }
@@ -185,17 +182,16 @@ impl<V: HermesEqual> HermesEqual for Map<Bitmap, V> {
             let ba: u64 = a.header & mask;
             let bb: u64 = b.header & mask;
             if ba != bb { return false; }
-            let elem_sz: i64 = sizeof::<V>() as i64;
-            let base_a: i64 = ctx.base_self  as i64 + a.data.offset;
-            let base_b: i64 = ctx.base_other as i64 + b.data.offset;
+            let buf_a: *const V = ctx.base_self.byte_add(a.data.offset) as *const V;
+            let buf_b: *const V = ctx.base_other.byte_add(b.data.offset) as *const V;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
                 let key_bit: u64 = 1 as u64 << key as u64;
                 if (ba & key_bit) != 0 as u64 {
                     let m: u64 = key_bit - 1 as u64;
                     let pos: u32 = popcount_u64(ba & m);
-                    let va: *const V = (base_a + (pos as i64) * elem_sz) as *const V;
-                    let vb: *const V = (base_b + (pos as i64) * elem_sz) as *const V;
+                    let va: *const V = buf_a.add(pos as i64);
+                    let vb: *const V = buf_b.add(pos as i64);
                     if !va.equal(vb as *const u8, ctx) { return false; }
                 }
                 key = key + 1 as u8;
@@ -216,14 +212,14 @@ impl HermesEqual for ObjectMap {
             // For each occupied slot in `a`, find the matching key in `b` and
             // compare values. Lookup handles open-addressing details.
             let cap_a: u32 = a.capacity;
-            let base_a_ent: i64 = ctx.base_self  as i64 + a.entries_off.offset as i64;
+            let base_a_ent: *const MapEntry =
+                ctx.base_self.byte_add(a.entries_off.offset as i64) as *const MapEntry;
             let mut slot: u32 = 0 as u32;
             while slot < cap_a {
-                let ep_a: *const MapEntry =
-                    (base_a_ent + slot as i64 * 8 as i64) as *const MapEntry;
+                let ep_a: *const MapEntry = base_a_ent.add(slot as i64);
                 if ep_a.key_off.offset != 0 as u32 {
                     let hs_a: *const HermesString =
-                        (ctx.base_self as i64 + ep_a.key_off.offset as i64) as *const HermesString;
+                        ctx.base_self.byte_add(ep_a.key_off.offset as i64) as *const HermesString;
                     let kb: *const u8 = hs_a.bytes();
                     let klen: u64 = hs_a.len();
                     // Bug fix: check key presence explicitly. get() returns null
@@ -252,14 +248,14 @@ impl HermesEqual for TypedValue {
             let b: *const TypedValue = other as *const TypedValue;
 
             let sa: *const HermesString =
-                (ctx.base_self as i64 + a.type_off.offset as i64) as *const HermesString;
+                ctx.base_self.byte_add(a.type_off.offset as i64) as *const HermesString;
             let sb: *const HermesString =
-                (ctx.base_other as i64 + b.type_off.offset as i64) as *const HermesString;
+                ctx.base_other.byte_add(b.type_off.offset as i64) as *const HermesString;
             if sa.len() != sb.len() { return false; }
             let mut i: u64 = 0;
             while i < sa.len() {
-                let ca: u8 = *((sa.bytes() as i64 + i as i64) as *const u8);
-                let cb: u8 = *((sb.bytes() as i64 + i as i64) as *const u8);
+                let ca: u8 = *sa.bytes().byte_add(i as i64);
+                let cb: u8 = *sb.bytes().byte_add(i as i64);
                 if ca != cb { return false; }
                 i = i + 1 as u64;
             }
