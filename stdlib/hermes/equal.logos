@@ -252,9 +252,9 @@ impl HermesEqual for TypedValue {
             let b: *const TypedValue = other as *const TypedValue;
 
             let sa: *const HermesString =
-                (ctx.base_self as i64 + a.type_off as i64) as *const HermesString;
+                (ctx.base_self as i64 + a.type_off.offset as i64) as *const HermesString;
             let sb: *const HermesString =
-                (ctx.base_other as i64 + b.type_off as i64) as *const HermesString;
+                (ctx.base_other as i64 + b.type_off.offset as i64) as *const HermesString;
             if sa.len() != sb.len() { return false; }
             let mut i: u64 = 0 as u64;
             while i < sa.len() {

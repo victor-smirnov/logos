@@ -455,7 +455,7 @@ impl HermesCheck for TypedValue {
             if !check_mark(state,  off - 1 as i64, 1 as i64 + sz) { return false; }
             check_mark_start(state, off - 1 as i64);
 
-            let type_av: AnyVal = AnyVal::from_offset(t.type_off);
+            let type_av: AnyVal = AnyVal::from_offset(t.type_off.offset);
             if !check_push_val(state, type_av) {
                 state.error = CheckError::TooManyNodes;
                 return false;
@@ -488,7 +488,7 @@ impl HermesCheck for TypedArray {
             if !check_mark(state,  off - 1 as i64, 1 as i64 + sz) { return false; }
             check_mark_start(state, off - 1 as i64);
 
-            let type_av: AnyVal = AnyVal::from_offset(t.type_off);
+            let type_av: AnyVal = AnyVal::from_offset(t.type_off.offset);
             if !check_push_val(state, type_av) {
                 state.error = CheckError::TooManyNodes;
                 return false;
@@ -516,7 +516,7 @@ impl HermesCheck for TypedMap {
             if !check_mark(state,  off - 1 as i64, 1 as i64 + sz) { return false; }
             check_mark_start(state, off - 1 as i64);
 
-            let type_av: AnyVal = AnyVal::from_offset(t.type_off);
+            let type_av: AnyVal = AnyVal::from_offset(t.type_off.offset);
             if !check_push_val(state, type_av) {
                 state.error = CheckError::TooManyNodes;
                 return false;

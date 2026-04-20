@@ -252,7 +252,7 @@ impl HermesHash for TypedValue {
         unsafe {
             let tv: *const TypedValue = self as *const TypedValue;
             let hs: *const HermesString =
-                (ctx.base as i64 + tv.type_off as i64) as *const HermesString;
+                (ctx.base as i64 + tv.type_off.offset as i64) as *const HermesString;
             let mut h: u64 = fnv_mix_u64(fnv_init(), 106 as u64);
             let n: u64 = hs.len();
             h = fnv_mix_u64(h, n);

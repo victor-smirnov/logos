@@ -53,8 +53,8 @@ unsafe fn main() -> i32 {
     let ta: *const TypedValue = oa as *const TypedValue;
     let tc: *const TypedValue = oc as *const TypedValue;
 
-    let hsa: *const HermesString = (base as i64 + ta.type_off as i64) as *const HermesString;
-    let hsc: *const HermesString = (base as i64 + tc.type_off as i64) as *const HermesString;
+    let hsa: *const HermesString = (base as i64 + ta.type_off.offset as i64) as *const HermesString;
+    let hsc: *const HermesString = (base as i64 + tc.type_off.offset as i64) as *const HermesString;
     if !cstr_eq_bytes(hsa.bytes(), hsa.len(), "I64".as_ptr()) { return 5; }
     if !cstr_eq_bytes(hsc.bytes(), hsc.len(), "Point".as_ptr()) { return 6; }
 

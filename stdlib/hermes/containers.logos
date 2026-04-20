@@ -20,6 +20,7 @@ package hermes.containers;
 use hermes.anyval;
 use hermes.mem_holder;
 use hermes.relptr;
+use hermes.string;
 
 // ---------------------------------------------------------------------------
 // popcount_u64 and friends are compiler intrinsics; see sema_expr.cpp /
@@ -352,14 +353,14 @@ pub genos TypedArrayMeta {
 }
 
 pub eidos TypedArray {
-    pub type_off: u32,   // HermesString with the type expression (without <>)
-    pub arr_off:  u32,   // Array<AnyVal> payload
+    pub type_off: RelPtr<HermesString>,  // type expression string (without <>)
+    pub arr_off:  u32,                   // Array<AnyVal> payload
 }
 
 impl TypedArray {
     pub unsafe fn init(raw: *mut u8, type_off: u32, arr_off: u32) -> *mut TypedArray {
         let p: *mut TypedArray = raw as *mut TypedArray;
-        p.type_off = type_off;
+        p.type_off.offset = type_off;
         p.arr_off  = arr_off;
         return p;
     }
@@ -367,7 +368,7 @@ impl TypedArray {
 
 impl TypedArrayMeta for TypedArray {
     unsafe fn type_name_off(self: *const TypedArray) -> u32 {
-        return self.type_off;
+        return self.type_off.offset;
     }
 }
 
@@ -377,14 +378,14 @@ pub genos TypedMapMeta {
 }
 
 pub eidos TypedMap {
-    pub type_off: u32,   // HermesString with the type expression (without <>)
-    pub map_off:  u32,   // Map<Varchar,AnyVal> payload
+    pub type_off: RelPtr<HermesString>,  // type expression string (without <>)
+    pub map_off:  u32,                   // Map<Varchar,AnyVal> payload
 }
 
 impl TypedMap {
     pub unsafe fn init(raw: *mut u8, type_off: u32, map_off: u32) -> *mut TypedMap {
         let p: *mut TypedMap = raw as *mut TypedMap;
-        p.type_off = type_off;
+        p.type_off.offset = type_off;
         p.map_off  = map_off;
         return p;
     }
@@ -392,7 +393,7 @@ impl TypedMap {
 
 impl TypedMapMeta for TypedMap {
     unsafe fn type_name_off(self: *const TypedMap) -> u32 {
-        return self.type_off;
+        return self.type_off.offset;
     }
 }
 
@@ -608,21 +609,21 @@ pub genos TypedValueTag {
 }
 
 pub eidos TypedValue {
-    pub type_off:   u32,  // HermesString with type expression
-    pub params_raw: u32,  // AnyVal raw for params (usually Array<AnyVal> or null_ptr)
-    pub init_raw:   u32,  // AnyVal raw for initializer
+    pub type_off:   RelPtr<HermesString>,  // type expression string
+    pub params_raw: u32,                   // AnyVal raw for params (usually Array<AnyVal> or null_ptr)
+    pub init_raw:   u32,                   // AnyVal raw for initializer
 }
 
 impl TypedValueTag for TypedValue {
     unsafe fn type_name_off(self: *const TypedValue) -> u32 {
-        return self.type_off;
+        return self.type_off.offset;
     }
 }
 
 impl TypedValue {
     pub unsafe fn init(raw: *mut u8, type_off: u32, params: AnyVal, initv: AnyVal) -> *mut TypedValue {
         let tv: *mut TypedValue = raw as *mut TypedValue;
-        tv.type_off = type_off;
+        tv.type_off.offset = type_off;
         tv.params_raw = params.raw;
         tv.init_raw = initv.raw;
         return tv;

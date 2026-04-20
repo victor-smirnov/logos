@@ -366,7 +366,7 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
         } else {
             // arr received
             let ta: *mut TypedArray = (base as i64 + top.zone_off as i64) as *mut TypedArray;
-            ta.type_off = top.aux;
+            ta.type_off.offset = top.aux;
             ta.arr_off  = val.as_offset();
             deser_pop_frame(ctx);
         }
@@ -379,7 +379,7 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
             top.idx = 1 as u32;
         } else {
             let tm: *mut TypedMap = (base as i64 + top.zone_off as i64) as *mut TypedMap;
-            tm.type_off = top.aux;
+            tm.type_off.offset = top.aux;
             tm.map_off  = val.as_offset();
             deser_pop_frame(ctx);
         }
@@ -395,7 +395,7 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
             top.idx = 2 as u32;
         } else {
             let tv: *mut TypedValue = (base as i64 + top.zone_off as i64) as *mut TypedValue;
-            tv.type_off   = top.aux;
+            tv.type_off.offset = top.aux;
             tv.params_raw = top.aux2;
             tv.init_raw   = val.raw;
             deser_pop_frame(ctx);

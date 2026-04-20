@@ -487,7 +487,7 @@ impl HermesClone for TypedValue {
         unsafe {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let t: *const TypedValue = (ctx.base_src as i64 + src_off as i64) as *const TypedValue;
-            let src_type_off: u32 = t.type_off;
+            let src_type_off: u32 = t.type_off.offset;
             let src_params_raw: u32 = t.params_raw;
             let src_init_raw: u32 = t.init_raw;
 
@@ -530,7 +530,7 @@ impl HermesClone for TypedArray {
         unsafe {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let t: *const TypedArray = (ctx.base_src as i64 + src_off as i64) as *const TypedArray;
-            let src_type_off: u32 = t.type_off;
+            let src_type_off: u32 = t.type_off.offset;
             let src_arr_off: u32  = t.arr_off;
 
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<TypedArray>() as i64,
@@ -563,7 +563,7 @@ impl HermesClone for TypedMap {
         unsafe {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let t: *const TypedMap = (ctx.base_src as i64 + src_off as i64) as *const TypedMap;
-            let src_type_off: u32 = t.type_off;
+            let src_type_off: u32 = t.type_off.offset;
             let src_map_off: u32  = t.map_off;
 
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, sizeof::<TypedMap>() as i64,

@@ -454,7 +454,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         // Push: init (processed last), params (middle), type (first)
         push_wk_val(ws, AnyVal { raw: tv.init_raw }.raw);
         push_wk_val(ws, AnyVal { raw: tv.params_raw }.raw);
-        push_wk_val(ws, AnyVal::from_offset(tv.type_off).raw);
+        push_wk_val(ws, AnyVal::from_offset(tv.type_off.offset).raw);
         return;
     }
 
@@ -462,7 +462,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         let ta: *const TypedArray = obj as *const TypedArray;
         hbs_write_u8(buf, 0x51 as u8);
         push_wk_val(ws, AnyVal::from_offset(ta.arr_off).raw);
-        push_wk_val(ws, AnyVal::from_offset(ta.type_off).raw);
+        push_wk_val(ws, AnyVal::from_offset(ta.type_off.offset).raw);
         return;
     }
 
@@ -470,7 +470,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         let tm: *const TypedMap = obj as *const TypedMap;
         hbs_write_u8(buf, 0x52 as u8);
         push_wk_val(ws, AnyVal::from_offset(tm.map_off).raw);
-        push_wk_val(ws, AnyVal::from_offset(tm.type_off).raw);
+        push_wk_val(ws, AnyVal::from_offset(tm.type_off.offset).raw);
         return;
     }
 

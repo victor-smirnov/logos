@@ -163,7 +163,7 @@ impl HermesStringify for TypedArray {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let ta: *const TypedArray = self as *const TypedArray;
-            let hs: *const HermesString = (ctx.base as i64 + ta.type_off as i64) as *const HermesString;
+            let hs: *const HermesString = (ctx.base as i64 + ta.type_off.offset as i64) as *const HermesString;
             let b: *const u8 = hs.bytes();
             let n: u64 = hs.len();
             ctx.out.push_u8(60 as u8);   // '<'
@@ -183,7 +183,7 @@ impl HermesStringify for TypedMap {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let tm: *const TypedMap = self as *const TypedMap;
-            let hs: *const HermesString = (ctx.base as i64 + tm.type_off as i64) as *const HermesString;
+            let hs: *const HermesString = (ctx.base as i64 + tm.type_off.offset as i64) as *const HermesString;
             let b: *const u8 = hs.bytes();
             let n: u64 = hs.len();
             ctx.out.push_u8(60 as u8);   // '<'
@@ -291,7 +291,7 @@ impl HermesStringify for TypedValue {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let tv: *const TypedValue = self as *const TypedValue;
-            let hs: *const HermesString = (ctx.base as i64 + tv.type_off as i64) as *const HermesString;
+            let hs: *const HermesString = (ctx.base as i64 + tv.type_off.offset as i64) as *const HermesString;
             let b: *const u8 = hs.bytes();
             let n: u64 = hs.len();
 
