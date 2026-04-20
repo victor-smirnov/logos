@@ -702,6 +702,10 @@ private:
     lir::LExprPtr build_hermes_pat_guard(hermes::TinyMapView pnode,
                                          const std::string& scrut_var,
                                          const LogosType* scrut_type);
+    // True while lowering match arms where Hermes scalar patterns are
+    // explicitly handled by the caller (desugared to guard). Outside this
+    // context, PAT_HERMES_* in build_pattern is a diagnostic.
+    bool in_match_hermes_ctx_ = false;
     void bind_pattern(const lir::Pattern& pat,
                       const LogosType* scrut_type = nullptr);
     lir::LStmt lower_if(hermes::TinyMapView node);
