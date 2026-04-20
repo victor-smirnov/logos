@@ -473,13 +473,13 @@ impl HermesStringify for ObjectMap {
             while slot < cap {
                 let ep: *const MapEntry =
                     (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
-                if ep.key_off != 0 as u32 {
+                if ep.key_off.offset != 0 as u32 {
                     if !first { ctx.out.push_u8(44 as u8); }
                     first = false;
                     ctx.depth = ctx.depth + 1 as i64;
                     write_indent(ctx);
                     let hs: *const HermesString =
-                        (ctx.base as i64 + ep.key_off as i64) as *const HermesString;
+                        (ctx.base as i64 + ep.key_off.offset as i64) as *const HermesString;
                     write_quoted_hs(hs, ctx.out);
                     ctx.out.push_u8(58 as u8);   // ':'
                     if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }

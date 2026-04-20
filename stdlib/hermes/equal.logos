@@ -221,9 +221,9 @@ impl HermesEqual for ObjectMap {
             while slot < cap_a {
                 let ep_a: *const MapEntry =
                     (base_a_ent + slot as i64 * 8 as i64) as *const MapEntry;
-                if ep_a.key_off != 0 as u32 {
+                if ep_a.key_off.offset != 0 as u32 {
                     let hs_a: *const HermesString =
-                        (ctx.base_self as i64 + ep_a.key_off as i64) as *const HermesString;
+                        (ctx.base_self as i64 + ep_a.key_off.offset as i64) as *const HermesString;
                     let kb: *const u8 = hs_a.bytes();
                     let klen: u64 = hs_a.len();
                     // Bug fix: check key presence explicitly. get() returns null

@@ -593,7 +593,7 @@ unsafe fn process_wk_map_slot(ws: *mut HbsWriteState, obj_off: u32, slot: u32) {
     while s < cap {
         let ep: *const MapEntry =
             (base as i64 + ent_off + (s as i64) * 8 as i64) as *const MapEntry;
-        if ep.key_off != 0 as u32 {
+        if ep.key_off.offset != 0 as u32 {
             // Found a non-empty slot.
             let next_s: u32 = s + 1 as u32;
             if next_s < cap {
@@ -605,7 +605,7 @@ unsafe fn process_wk_map_slot(ws: *mut HbsWriteState, obj_off: u32, slot: u32) {
             // Push val then key (LIFO: key processed first)
             let val: AnyVal = AnyVal { raw: ep.val };
             push_wk_val(ws, val.raw);
-            push_wk_val(ws, AnyVal::from_offset(ep.key_off).raw);
+            push_wk_val(ws, AnyVal::from_offset(ep.key_off.offset).raw);
             return;
         }
         s = s + 1 as u32;

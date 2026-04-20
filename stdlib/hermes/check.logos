@@ -419,12 +419,12 @@ impl HermesCheck for ObjectMap {
             while slot < cap {
                 let ep: *const MapEntry =
                     (state.base as i64 + ent_off + (slot as i64) * 8 as i64) as *const MapEntry;
-                if ep.key_off != 0 as u32 {
-                    if (ep.key_off & 1 as u32) != 0 as u32 {
+                if ep.key_off.offset != 0 as u32 {
+                    if (ep.key_off.offset & 1 as u32) != 0 as u32 {
                         state.error = CheckError::BadTag;
                         return false;
                     }
-                    let key_av: AnyVal = AnyVal::from_offset(ep.key_off);
+                    let key_av: AnyVal = AnyVal::from_offset(ep.key_off.offset);
                     if !check_push_val(state, key_av) {
                         state.error = CheckError::TooManyNodes;
                         return false;

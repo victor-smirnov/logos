@@ -222,9 +222,9 @@ impl HermesHash for ObjectMap {
             while slot < cap {
                 let ep: *const MapEntry =
                     (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
-                if ep.key_off != 0 as u32 {
+                if ep.key_off.offset != 0 as u32 {
                     let hs: *const HermesString =
-                        (ctx.base as i64 + ep.key_off as i64) as *const HermesString;
+                        (ctx.base as i64 + ep.key_off.offset as i64) as *const HermesString;
                     let mut kh: u64 = base_h;
                     let klen: u64 = hs.len();
                     kh = fnv_mix_u64(kh, klen);

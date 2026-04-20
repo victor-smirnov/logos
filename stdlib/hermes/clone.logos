@@ -455,8 +455,8 @@ impl HermesClone for ObjectMap {
             while slot < cap {
                 let ep: *const MapEntry =
                     (src_ent_base + slot as i64 * 8 as i64) as *const MapEntry;
-                if ep.key_off != 0 as u32 {
-                    let new_key_av: AnyVal = anyval_clone(AnyVal::from_offset(ep.key_off), ctx);
+                if ep.key_off.offset != 0 as u32 {
+                    let new_key_av: AnyVal = anyval_clone(AnyVal::from_offset(ep.key_off.offset), ctx);
                     if new_key_av.is_null() { return 0 as *mut u8; }
                     let new_key_off: u32 = new_key_av.as_offset();
 

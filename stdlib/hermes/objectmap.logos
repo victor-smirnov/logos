@@ -27,14 +27,15 @@ package hermes.objectmap;
 use hermes.anyval;
 use hermes.containers;
 use hermes.string;
+use hermes.relptr;
 
 // ---------------------------------------------------------------------------
 // MapEntry — one slot in the hash table (8 bytes)
 // ---------------------------------------------------------------------------
 
 pub eidos MapEntry {
-    pub key_off: u32,  // zone-relative byte offset to HermesString (0 = empty slot)
-    pub val:     u32,  // AnyVal.raw
+    pub key_off: RelPtr<HermesString>,  // zone-relative byte offset to HermesString (0 = empty slot)
+    pub val:     u32,                    // AnyVal.raw
 }
 
 // ---------------------------------------------------------------------------
@@ -107,15 +108,15 @@ impl Map<Varchar, AnyVal> {
         while done == false && probed < cap {
             let ep: *mut MapEntry =
                 (ent_base + slot as i64 * 8 as i64) as *mut MapEntry;
-            if ep.key_off == 0 as u32 {
+            if ep.key_off.offset == 0 as u32 {
                 // Empty slot — insert new entry.
-                ep.key_off = key_off;
+                ep.key_off.offset = key_off;
                 ep.val     = val.raw;
                 self.count = self.count + 1 as u32;
                 done = true;
             } else {
                 let ks: *const HermesString =
-                    (base as i64 + ep.key_off as i64) as *const HermesString;
+                    (base as i64 + (ep.key_off.offset) as i64) as *const HermesString;
                 if ks.equals_bytes(key_ptr, key_len) {
                     // Key already present — update value.
                     ep.val = val.raw;
@@ -143,11 +144,11 @@ impl Map<Varchar, AnyVal> {
         while probed < cap {
             let ep: *const MapEntry =
                 (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
-            if ep.key_off == 0 as u32 {
+            if ep.key_off.offset == 0 as u32 {
                 return AnyVal::null_ptr();
             }
             let ks: *const HermesString =
-                (base as i64 + ep.key_off as i64) as *const HermesString;
+                (base as i64 + ep.key_off.offset as i64) as *const HermesString;
             if ks.equals_bytes(key_ptr, key_len) {
                 return AnyVal { raw: ep.val };
             }
@@ -171,11 +172,11 @@ impl Map<Varchar, AnyVal> {
         while probed < cap {
             let ep: *const MapEntry =
                 (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
-            if ep.key_off == 0 as u32 {
+            if ep.key_off.offset == 0 as u32 {
                 return false;
             }
             let ks: *const HermesString =
-                (base as i64 + ep.key_off as i64) as *const HermesString;
+                (base as i64 + ep.key_off.offset as i64) as *const HermesString;
             if ks.equals_bytes(key_ptr, key_len) {
                 return true;
             }
