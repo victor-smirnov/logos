@@ -184,6 +184,22 @@ pub trait CloneElem {
     unsafe fn clone_elem(self: *const Self, ctx: *mut CloneCtx, dst_off: u32);
 }
 
+// Primitive scalars: identity copy. Zone never grows inside these
+// (no alloc), so dst_off resolves against the current base.
+impl CloneElem for i32 {
+    pub unsafe fn clone_elem(self: *const i32, ctx: *mut CloneCtx, dst_off: u32) {
+        let dst: *mut i32 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut i32;
+        *dst = *self;
+    }
+}
+
+impl CloneElem for u64 {
+    pub unsafe fn clone_elem(self: *const u64, ctx: *mut CloneCtx, dst_off: u32) {
+        let dst: *mut u64 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut u64;
+        *dst = *self;
+    }
+}
+
 // AnyVal: delegate to anyval_clone, then write result via recomputed pointer.
 impl CloneElem for AnyVal {
     pub unsafe fn clone_elem(self: *const AnyVal, ctx: *mut CloneCtx, dst_off: u32) {

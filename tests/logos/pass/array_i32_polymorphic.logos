@@ -14,27 +14,6 @@ use hermes.clone;
 use hermes.release;
 use std.string;
 
-impl HermesEqual for i32 {
-    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
-        unsafe { return *self == *(other as *const i32); }
-    }
-}
-
-impl HermesHash for i32 {
-    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
-        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
-    }
-}
-
-impl CloneElem for i32 {
-    pub unsafe fn clone_elem(self: *const i32, ctx: *mut CloneCtx, dst_off: u32) {
-        let dst: *mut i32 = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut i32;
-        *dst = *self;
-    }
-}
-
-impl HermesRelease for i32 { pub fn release(&self) {} }
-
 unsafe fn main() -> i32 {
     let mut zone: Zone<Mutable> = zone_create(4096);
     let base: *mut u8 = zone.holder.base;

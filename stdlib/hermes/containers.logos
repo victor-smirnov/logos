@@ -198,10 +198,47 @@ impl<T> Array<T> {
     }
 
     // Append a T via a value pointer.  Caller must ensure self.size < self.capacity.
-    // (Dynamic growth via MemHolder is deferred — a codegen bug prevents reading
-    // `holder.base` from *mut MemHolder inside generic methods.)
     pub unsafe fn push_ptr(self: *mut Array<T>, base: *mut u8, val_ptr: *const T) {
         let elem_sz: i64 = sizeof::<T>() as i64;
+        let ep: *mut T = (base as i64 + self.data as i64
+                          + (self.size as i64) * elem_sz) as *mut T;
+        *ep = *val_ptr;
+        self.size = self.size + 1 as u64;
+    }
+
+    // Dynamic push with 2× growth via MemHolder.  On grow, `self` may be
+    // invalidated by the realloc — callers must re-resolve through the
+    // zone base afterwards if they kept a pointer.
+    pub unsafe fn push(self: *mut Array<T>, holder: *mut MemHolder, val_ptr: *const T) {
+        let elem_sz: i64 = sizeof::<T>() as i64;
+        let arr_off: u32 = (self as i64 - holder.base as i64) as u32;
+        if self.size >= self.capacity {
+            let old_cap: u64 = self.capacity;
+            let new_cap: u64 = if old_cap == 0 as u64 { 8 as u64 }
+                               else { old_cap * 2 as u64 };
+            let new_bytes: i64 = (new_cap as i64) * elem_sz;
+            let new_buf: *mut u8 = memholder_alloc(holder, new_bytes);
+            if new_buf == 0 as *mut u8 { return; }
+            let base2: *mut u8 = holder.base;
+            let arr2: *mut Array<T> = (base2 as i64 + arr_off as i64) as *mut Array<T>;
+            let old_size: u64 = arr2.size;
+            let old_data_off: u32 = arr2.data;
+            let old_bytes: i64 = (old_size as i64) * elem_sz;
+            let mut i: i64 = 0 as i64;
+            while i < old_bytes {
+                *((new_buf as i64 + i) as *mut u8) =
+                    *((base2 as i64 + old_data_off as i64 + i) as *const u8);
+                i = i + 1 as i64;
+            }
+            arr2.data     = (new_buf as i64 - base2 as i64) as u32;
+            arr2.capacity = new_cap;
+            let ep2: *mut T = (base2 as i64 + arr2.data as i64
+                               + (arr2.size as i64) * elem_sz) as *mut T;
+            *ep2 = *val_ptr;
+            arr2.size = arr2.size + 1 as u64;
+            return;
+        }
+        let base: *mut u8 = holder.base;
         let ep: *mut T = (base as i64 + self.data as i64
                           + (self.size as i64) * elem_sz) as *mut T;
         *ep = *val_ptr;

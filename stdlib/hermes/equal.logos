@@ -86,6 +86,20 @@ impl HermesEqual for HermesString {
     }
 }
 
+// ── Raw primitive scalars (used by Array<T> blanket when T is known) ───────
+
+impl HermesEqual for i32 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const i32); }
+    }
+}
+
+impl HermesEqual for u64 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const u64); }
+    }
+}
+
 // ── I64 (26) / U64 (27): byte-identical payload ────────────────────────────
 
 impl HermesEqual for I64 {
