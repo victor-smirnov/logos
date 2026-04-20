@@ -833,23 +833,18 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         return lir::PatVariantData{pename, pvname, disc,
                                    std::move(bindings), std::move(binding_types)};
     }
-    if (pc == la::PAT_INT) {
+    if (pc == la::PAT_INT || pc == la::PAT_NEG_INT) {
         auto sv = str_of(pnode.get(la::VALUE.code));
         int64_t v = parse_int_literal(sv);
-        // Check that the literal fits in the scrutinee's type.
-        if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
-            !intlit_fits(v, scrut_type->kind))
-            error(std::format("match pattern: value {} does not fit in {}",
-                  v, type_str(scrut_type)));
-        return lir::PatInt{v};
-    }
-    if (pc == la::PAT_NEG_INT) {
-        auto sv = str_of(pnode.get(la::VALUE.code));
-        int64_t v = -parse_int_literal(sv);
-        if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
-            !intlit_fits(v, scrut_type->kind))
-            error(std::format("match pattern: value {} does not fit in {}",
-                  v, type_str(scrut_type)));
+        if (pc == la::PAT_NEG_INT) v = -v;
+        if (scrut_type && scrut_type->kind != LogosType::Kind::Error) {
+            if (!is_integer(scrut_type))
+                error(std::format("integer pattern requires integer scrutinee, got '{}'",
+                      type_str(scrut_type)));
+            else if (!intlit_fits(v, scrut_type->kind))
+                error(std::format("match pattern: value {} does not fit in {}",
+                      v, type_str(scrut_type)));
+        }
         return lir::PatInt{v};
     }
     if (pc == la::PAT_OR) {
@@ -882,6 +877,10 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                 { if (!prb->name.empty() && prb->name != "_") out.push_back(prb->name); }
             else if (auto* prp = std::get_if<lir::PatRefPat>(&p))
                 { if (!prp->inner.empty()) collect_names(prp->inner[0], out); }
+            else if (auto* psl = std::get_if<lir::PatSlice>(&p))
+                { for (auto& sp : psl->prefix) collect_names(sp, out);
+                  for (auto& sp : psl->rest)   collect_names(sp, out);
+                  for (auto& sp : psl->suffix) collect_names(sp, out); }
         };
         if (!por.alts.empty()) {
             std::vector<std::string> first_names;
@@ -900,6 +899,10 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
     if (pc == la::PAT_BOOL) {
         AnyVal bv = pnode.get(la::VALUE.code);
         bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
+        if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
+            scrut_type->kind != LogosType::Kind::Bool)
+            error(std::format("bool pattern requires bool scrutinee, got '{}'",
+                  type_str(scrut_type)));
         return lir::PatBool{bval};
     }
     if (pc == la::PAT_TUPLE) {
@@ -1105,6 +1108,18 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                         pfb.field_name = fname;
                         if (fnode.has_key(la::VALUE)) {
                             auto sub = build_pattern(map_of(fnode.get(la::VALUE.code)), ftype);
+                            // Struct field sub-patterns must currently be irrefutable:
+                            // only _ / name bindings, references, or @-bindings. Literals
+                            // and other refutable kinds aren't tested by codegen yet and
+                            // would silently match — reject early.
+                            bool sub_irrefutable =
+                                std::holds_alternative<lir::PatWild>(sub) ||
+                                std::holds_alternative<lir::PatRefBind>(sub) ||
+                                std::holds_alternative<lir::PatRefPat>(sub) ||
+                                std::holds_alternative<lir::PatAt>(sub);
+                            if (!sub_irrefutable)
+                                error("struct pattern: refutable field sub-pattern "
+                                      "not yet supported");
                             pfb.sub.push_back(std::move(sub));
                         }
                         ps.fields.push_back(std::move(pfb));

@@ -1362,8 +1362,17 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             for (auto& s : pt->subs) if (!is_irrefutable(s)) return false;
             return true;
         }
-        if (std::holds_alternative<lir::PatStruct>(p))   return true;
-        if (std::holds_alternative<lir::PatSlice>(p))    return true;
+        if (auto* ps = std::get_if<lir::PatStruct>(&p)) {
+            for (auto& pfb : ps->fields)
+                if (!pfb.sub.empty() && !is_irrefutable(pfb.sub[0])) return false;
+            return true;
+        }
+        if (auto* psl = std::get_if<lir::PatSlice>(&p)) {
+            for (auto& sp : psl->prefix) if (!is_irrefutable(sp)) return false;
+            for (auto& sp : psl->rest)   if (!is_irrefutable(sp)) return false;
+            for (auto& sp : psl->suffix) if (!is_irrefutable(sp)) return false;
+            return true;
+        }
         if (std::holds_alternative<lir::PatRefBind>(p))  return true;
         if (auto* pa = std::get_if<lir::PatAt>(&p))
             return pa->sub.empty() || is_irrefutable(pa->sub[0]);
@@ -1388,7 +1397,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         bool has_true = false, has_false = false, has_wild = false;
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
-            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
+            if (is_irrefutable(arm.pat)) { has_wild = true; break; }
             auto check_bool = [&](const lir::Pattern& p) {
                 if (auto* pb = std::get_if<lir::PatBool>(&p)) {
                     if (pb->value) has_true = true; else has_false = true;
@@ -1410,7 +1419,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         };
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
-            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
+            if (is_irrefutable(arm.pat)) { has_wild = true; break; }
             if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
                 for (auto& alt : por->alts) cover_enum(alt);
             } else {
@@ -1764,11 +1773,18 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 int64_t disc = get_disc(por->alts[static_cast<size_t>(ai)]);
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                auto disc_val = coerce_int(
-                    builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), scrut_type);
-                auto eq = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
-                builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, cur_else);
+                if (disc == std::numeric_limits<int64_t>::min()) {
+                    // Unrepresentable alt (e.g. PatRange, structural): skip to next test.
+                    // Sema should have rejected this, but fall-through safely instead of
+                    // emitting a bogus cmp-eq-INT64_MIN that can spuriously match.
+                    builder_.create<mlir::cf::BranchOp>(loc_, cur_else);
+                } else {
+                    auto disc_val = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), scrut_type);
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, cur_else);
+                }
                 cur_else = test_block;
             }
             else_block = cur_else;
@@ -1865,23 +1881,31 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             }
             else_block = test_block;
         } else {
+            bool have_disc = false;
             int64_t disc = 0;
-            if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;
-            else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) disc = pvd->disc;
-            else if (auto* pi = std::get_if<PatInt>(&arm.pat))  disc = pi->value;
-            else if (auto* pb = std::get_if<PatBool>(&arm.pat)) disc = pb->value ? 1 : 0;
+            if (auto* pv = std::get_if<PatVariant>(&arm.pat))      { disc = pv->disc;  have_disc = true; }
+            else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) { disc = pvd->disc; have_disc = true; }
+            else if (auto* pi = std::get_if<PatInt>(&arm.pat))     { disc = pi->value; have_disc = true; }
+            else if (auto* pb = std::get_if<PatBool>(&arm.pat))    { disc = pb->value ? 1 : 0; have_disc = true; }
 
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                auto disc_val = coerce_int(
-                    builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64),
-                    scrut_type);
-                auto eq = builder_.create<mlir::arith::CmpIOp>(
-                    loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
-                builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+                if (!have_disc) {
+                    // Unhandled refutable pattern kind (e.g. PatRefPat with refutable
+                    // inner). Sema should have rejected or lowered this elsewhere; fall
+                    // through safely rather than comparing scrut to an arbitrary 0.
+                    builder_.create<mlir::cf::BranchOp>(loc_, else_block);
+                } else {
+                    auto disc_val = coerce_int(
+                        builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64),
+                        scrut_type);
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, scrut, disc_val);
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
+                }
             }
             else_block = test_block;
         }
