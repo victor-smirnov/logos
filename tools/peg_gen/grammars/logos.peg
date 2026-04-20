@@ -71,6 +71,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
+    IS_NEG         = 52    // negative integer flag (PAT_HERMES_INT)
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
     // the same 0..51 space as global fields; peg_gen resolves action field
@@ -223,6 +224,9 @@
     MAP_COMP                    = 179   // {k:v for x in iter (if guard)?}; KEY=k, VALUE=v, NAME=var, ITER=iter, GUARD?=pred
     HERMES_LIST_COMP            = 180   // @[elem for x in iter (if guard)?]; VALUE=elem, NAME=var, ITER=iter, GUARD?=pred
     HERMES_MAP_COMP             = 181   // @{k:v for x in iter (if guard)?}; KEY=k, VALUE=v, NAME=var, ITER=iter, GUARD?=pred
+    PAT_HERMES_NULL             = 182   // @null pattern
+    PAT_HERMES_BOOL             = 183   // @true / @false pattern; VALUE
+    PAT_HERMES_INT              = 184   // @<int> or @-<int> pattern; VALUE, IS_NEG
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -919,7 +923,20 @@
         / pat_single_base
 
     pat_single_base
-        <- IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
+        // Hermes scalar patterns: @null / @true / @false / @42 / @-42
+        // Must precede other alternatives that could also consume AT via PAT_AT
+        // (PAT_AT is `IDENT AT pat_single`, different leading token, so no conflict).
+        <- AT KW_NULL
+        => { CODE: PAT_HERMES_NULL }
+        / AT KW_TRUE
+        => { CODE: PAT_HERMES_BOOL, VALUE: true }
+        / AT KW_FALSE
+        => { CODE: PAT_HERMES_BOOL, VALUE: false }
+        / AT MINUS INTEGER
+        => { CODE: PAT_HERMES_INT, VALUE: $3, IS_NEG: true }
+        / AT INTEGER
+        => { CODE: PAT_HERMES_INT, VALUE: $2 }
+        / IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
         => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
         / IDENT COLONCOLON IDENT
         => { CODE: PAT_VARIANT, NAME: $1, FIELD: $3 }

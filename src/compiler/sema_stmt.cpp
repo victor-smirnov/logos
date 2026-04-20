@@ -1151,6 +1151,17 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         return psl;
     }
 
+    // ── Hermes scalar patterns (not yet fully supported) ─────────────────
+    // Grammar accepts `@null`, `@true`, `@false`, `@<int>`, `@-<int>`, but
+    // sema/codegen plumbing is still TODO.  Reject with a clear message so
+    // users don't hit an opaque MLIR verification failure.
+    if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
+        pc == la::PAT_HERMES_INT) {
+        error("Hermes scalar patterns (@null/@true/@false/@<int>) are not yet "
+              "implemented; track: MVP in progress");
+        return lir::PatWild{"_"};
+    }
+
     // PAT_WILD or fallback
     auto wname = str_of(pnode.get(la::NAME.code));
     return lir::PatWild{std::string(wname)};

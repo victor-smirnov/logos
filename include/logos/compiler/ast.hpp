@@ -245,6 +245,9 @@ inline constexpr Code LIST_COMP          {"LIST_COMP",           178};  // [elem
 inline constexpr Code MAP_COMP           {"MAP_COMP",            179};  // {k: v for x in iter (if guard)?}; KEY=kexpr, VALUE=vexpr, NAME=var, ITER=iter, GUARD?=pred
 inline constexpr Code HERMES_LIST_COMP   {"HERMES_LIST_COMP",    180};  // @[elem for x in iter (if guard)?]; VALUE=elem, NAME=var, ITER=iter, GUARD?=pred
 inline constexpr Code HERMES_MAP_COMP    {"HERMES_MAP_COMP",     181};  // @{k: v for x in iter (if guard)?}; KEY=kexpr, VALUE=vexpr, NAME=var, ITER=iter, GUARD?=pred
+inline constexpr Code PAT_HERMES_NULL    {"PAT_HERMES_NULL",     182};  // @null pattern (AnyVal == null)
+inline constexpr Code PAT_HERMES_BOOL    {"PAT_HERMES_BOOL",     183};  // @true / @false pattern (AnyVal bool); VALUE(7) = true/false
+inline constexpr Code PAT_HERMES_INT     {"PAT_HERMES_INT",      184};  // @<int> / @-<int> pattern (AnyVal i24); VALUE(7) = integer, IS_NEG(5)? = true
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
@@ -266,6 +269,7 @@ inline constexpr Key SUPERS    {"SUPERS",    48};            // supertrait bound
 inline constexpr Key LO_NEG    {"LO_NEG",    49};            // lo bound is negative (PAT_RANGE)
 inline constexpr Key HI_NEG    {"HI_NEG",    50};            // hi bound is negative (PAT_RANGE)
 inline constexpr Key KEY       {"KEY",       51};            // map key in HERMES_ENTRY (string or int token)
+inline constexpr Key IS_NEG    {"IS_NEG",    52};            // negative integer flag (PAT_HERMES_INT)
 // HERMES_ENTRY reuses LO_NEG (49) as "negation flag" (hermes entries never have LO_NEG).
 // HERMES_TYPED_MAP reuses TYPE (3) for key type and RET_TYPE (6) for val type.
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
