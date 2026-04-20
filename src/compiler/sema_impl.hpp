@@ -696,6 +696,12 @@ private:
     lir::LStmt lower_assign(hermes::TinyMapView node);
     lir::LStmt lower_return(hermes::TinyMapView node);
     lir::Pattern build_pattern(hermes::TinyMapView pnode, const LogosType* scrut_type);
+    // If pnode is a Hermes scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
+    // bool-typed guard call that evaluates the pattern against `scrut_var`
+    // (which must be an AnyVal).  Returns nullptr otherwise.
+    lir::LExprPtr build_hermes_pat_guard(hermes::TinyMapView pnode,
+                                         const std::string& scrut_var,
+                                         const LogosType* scrut_type);
     void bind_pattern(const lir::Pattern& pat,
                       const LogosType* scrut_type = nullptr);
     lir::LStmt lower_if(hermes::TinyMapView node);
