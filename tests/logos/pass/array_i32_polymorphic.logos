@@ -14,12 +14,6 @@ use hermes.clone;
 use hermes.release;
 use std.string;
 
-impl HermesStringify for i32 {
-    pub fn stringify(&self, ctx: *mut StringifyCtx) {
-        unsafe { ctx.out.push_i64(*self as i64); }
-    }
-}
-
 impl HermesEqual for i32 {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe { return *self == *(other as *const i32); }
@@ -70,7 +64,7 @@ unsafe fn main() -> i32 {
         depth: 0 as i64,
     };
     arr.stringify(&mut ctx);
-    if !sb.eq_str("[10,20,30]") { return 1; }
+    if !sb.eq_str("<I32> [10,20,30]") { return 1; }
 
     // Equal: arr == arr (self-comparison).
     let mut ec: EqualCtx = EqualCtx {
@@ -106,7 +100,7 @@ unsafe fn main() -> i32 {
         depth: 0 as i64,
     };
     new_arr.stringify(&mut ctx2);
-    if !sb.eq_str("[10,20,30]") { return 7; }
+    if !sb.eq_str("<I32> [10,20,30]") { return 7; }
 
     // Release: no-op.
     arr.release();

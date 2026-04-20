@@ -25,6 +25,13 @@ impl<T: HermesStringify> HermesStringify for RelPtr<T> {
     }
 }
 
+// RelPtr-as-element never carries a presentational tag — the pointed-to
+// type emits its own if relevant.  Needed so `Array<RelPtr<T>>` satisfies
+// the Array<T> stringify blanket.
+impl<T: HermesStringify> ArrayElemTag for RelPtr<T> {
+    unsafe fn emit_tag(self: *const RelPtr<T>, _out: *mut String) {}
+}
+
 impl<T: HermesEqual> HermesEqual for RelPtr<T> {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {

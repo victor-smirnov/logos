@@ -335,14 +335,71 @@ impl HermesStringify for TypedValue {
     }
 }
 
-// ── Array<T> — blanket over any T: HermesStringify ────────────────────────
+// ── ArrayElemTag — presentational `<TAG> ` prefix for Array<T> stringify ──
+// Orthogonal to HermesStringify: tag is about how the *container* is
+// introduced in text, not how elements are formatted.  Types that should
+// appear without a prefix (AnyVal, RelPtr<_>) impl it as a no-op.
+
+// Self-method form (not associated fn) to work around a compiler bug:
+// `T::emit_tag(out)` on a generic type param fails to monomorphize the
+// impl; `phantom.emit_tag(out)` through EMethodCall works.  The self
+// pointer is never dereferenced.
+pub genos ArrayElemTag {
+    unsafe fn emit_tag(self: *const Self, out: *mut String);
+}
+
+impl ArrayElemTag for AnyVal {
+    unsafe fn emit_tag(self: *const AnyVal, _out: *mut String) {}
+}
+
+impl ArrayElemTag for i32 {
+    unsafe fn emit_tag(self: *const i32, out: *mut String) {
+        out.push_u8(60 as u8);   // '<'
+        out.push_u8(73 as u8);   // 'I'
+        out.push_u8(51 as u8);   // '3'
+        out.push_u8(50 as u8);   // '2'
+        out.push_u8(62 as u8);   // '>'
+        out.push_u8(32 as u8);   // ' '
+    }
+}
+
+impl ArrayElemTag for u64 {
+    unsafe fn emit_tag(self: *const u64, out: *mut String) {
+        out.push_u8(60 as u8);   // '<'
+        out.push_u8(85 as u8);   // 'U'
+        out.push_u8(54 as u8);   // '6'
+        out.push_u8(52 as u8);   // '4'
+        out.push_u8(62 as u8);   // '>'
+        out.push_u8(32 as u8);   // ' '
+    }
+}
+
+// Primitive HermesStringify impls — used when T is statically known
+// (e.g. Array<i32> element formatting); no tag dispatch needed.
+impl HermesStringify for i32 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_i64(*self as i64); }
+    }
+}
+
+impl HermesStringify for u64 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_u64(*self); }
+    }
+}
+
+// ── Array<T> — blanket over any T: HermesStringify + ArrayElemTag ─────────
 // Works for Array<AnyVal> (previously ObjectArray, type_code=100), Array<i32>,
 // etc.  Element layout is contiguous T[] at the zone-relative `data` offset.
+// `T::emit_tag` inserts `<I32> ` / `<U64> ` for primitive typed arrays;
+// AnyVal and RelPtr<_> emit nothing.
 
-impl<T: HermesStringify> HermesStringify for Array<T> {
+impl<T: HermesStringify + ArrayElemTag> HermesStringify for Array<T> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
             let arr: *const Array<T> = self as *const Array<T>;
+            let phantom: *const T = 0 as *const T;
+            phantom.emit_tag(ctx.out);
             ctx.out.push_u8(91 as u8);   // '['
             let sz: u64 = arr.size;
             let elem_sz: i64 = sizeof::<T>() as i64;
