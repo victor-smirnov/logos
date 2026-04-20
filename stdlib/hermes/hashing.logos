@@ -37,12 +37,12 @@ pub unsafe fn fnv_init() -> u64 {
 }
 pub unsafe fn fnv_mix_u64(h: u64, v: u64) -> u64 {
     let mut x: u64 = h;
-    let mut i: i64 = 0 as i64;
+    let mut i: i64 = 0;
     while i < 8 {
         let byte: u64 = (v >> (i as u64 * 8 as u64)) & 0xFF as u64;
         x = x ^ byte;
         x = x * 1099511628211 as u64;
-        i = i + 1 as i64;
+        i = i + 1;
     }
     return x;
 }
@@ -80,7 +80,7 @@ impl HermesHash for HermesString {
             let len: u64 = a.len();
             h = fnv_mix_u64(h, len);
             let bp: *const u8 = a.bytes();
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < len {
                 let c: u8 = *((bp as i64 + i as i64) as *const u8);
                 h = fnv_mix_byte(h, c);
@@ -162,8 +162,8 @@ impl<T: HermesHash> HermesHash for Array<T> {
             let mut h: u64 = fnv_mix_u64(fnv_init(), 100 as u64);
             h = fnv_mix_u64(h, n);
             let elem_sz: i64 = sizeof::<T>() as i64;
-            let base_int: i64 = ctx.base as i64 + a.data.offset as i64;
-            let mut i: u64 = 0 as u64;
+            let base_int: i64 = ctx.base as i64 + a.data.offset;
+            let mut i: u64 = 0;
             while i < n {
                 let e: *const T = (base_int + (i as i64) * elem_sz) as *const T;
                 h = fnv_mix_u64(h, e.hash_value(ctx));
@@ -182,12 +182,12 @@ impl<V: HermesHash> HermesHash for Map<Bitmap, V> {
             let a: *const Map<Bitmap, V> = self as *const Map<Bitmap, V>;
             let tc: u64 = type_code_of::<Map<Bitmap, V>>();
             let base_h: u64 = fnv_mix_u64(fnv_init(), tc);
-            let mut acc: u64 = 0 as u64;
+            let mut acc: u64 = 0;
             let mask: u64 = 0x000FFFFFFFFFFFFF as u64;
             let bitmap: u64 = a.header & mask;
             acc = acc ^ fnv_mix_u64(base_h, bitmap);
             let elem_sz: i64 = sizeof::<V>() as i64;
-            let arr_base: i64 = ctx.base as i64 + a.data.offset as i64;
+            let arr_base: i64 = ctx.base as i64 + a.data.offset;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
                 let key_bit: u64 = 1 as u64 << key as u64;
@@ -214,7 +214,7 @@ impl HermesHash for ObjectMap {
         unsafe {
             let a: *const ObjectMap = self as *const ObjectMap;
             let base_h: u64 = fnv_mix_u64(fnv_init(), 101 as u64);
-            let mut acc: u64 = 0 as u64;
+            let mut acc: u64 = 0;
             acc = acc ^ fnv_mix_u64(base_h, a.count as u64);
             let cap: u32 = a.capacity;
             let ent_base: i64 = ctx.base as i64 + a.entries_off.offset as i64;
@@ -229,7 +229,7 @@ impl HermesHash for ObjectMap {
                     let klen: u64 = hs.len();
                     kh = fnv_mix_u64(kh, klen);
                     let kb: *const u8 = hs.bytes();
-                    let mut i: u64 = 0 as u64;
+                    let mut i: u64 = 0;
                     while i < klen {
                         kh = fnv_mix_byte(kh, *((kb as i64 + i as i64) as *const u8));
                         i = i + 1 as u64;
@@ -257,7 +257,7 @@ impl HermesHash for TypedValue {
             let n: u64 = hs.len();
             h = fnv_mix_u64(h, n);
             let bp: *const u8 = hs.bytes();
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < n {
                 h = fnv_mix_byte(h, *((bp as i64 + i as i64) as *const u8));
                 i = i + 1 as u64;

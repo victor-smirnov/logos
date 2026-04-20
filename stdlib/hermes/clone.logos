@@ -80,10 +80,10 @@ pub unsafe fn clone_map_lookup(m: *mut CloneMap, key: u32) -> *const u32 {
     let mut h: u32 = (key >> 3 as u32) & mask;
     let mut probe: u32 = 0 as u32;
     while probe < m.cap {
-        let kp: *const u32 = (m.keys as i64 + (h as i64) * 4 as i64) as *const u32;
+        let kp: *const u32 = (m.keys as i64 + (h as i64) * 4) as *const u32;
         let k: u32 = *kp;
         if k == 0 as u32 { return 0 as *const u32; }
-        if k == key { return (m.vals as i64 + (h as i64) * 4 as i64) as *const u32; }
+        if k == key { return (m.vals as i64 + (h as i64) * 4) as *const u32; }
         h = (h + 1 as u32) & mask;
         probe = probe + 1 as u32;
     }
@@ -102,16 +102,16 @@ unsafe fn clone_map_grow(m: *mut CloneMap) -> bool {
     let new_mask: u32 = new_cap - 1 as u32;
     let mut i: u32 = 0 as u32;
     while i < m.cap {
-        let k: u32 = *((m.keys as i64 + (i as i64) * 4 as i64) as *const u32);
+        let k: u32 = *((m.keys as i64 + (i as i64) * 4) as *const u32);
         if k != 0 as u32 {
-            let v: u32 = *((m.vals as i64 + (i as i64) * 4 as i64) as *const u32);
+            let v: u32 = *((m.vals as i64 + (i as i64) * 4) as *const u32);
             let mut h: u32 = (k >> 3 as u32) & new_mask;
             let mut placed: bool = false;
             while !placed {
-                let slot_k: *mut u32 = (new_keys as i64 + (h as i64) * 4 as i64) as *mut u32;
+                let slot_k: *mut u32 = (new_keys as i64 + (h as i64) * 4) as *mut u32;
                 if *slot_k == 0 as u32 {
                     *slot_k = k;
-                    *((new_vals as i64 + (h as i64) * 4 as i64) as *mut u32) = v;
+                    *((new_vals as i64 + (h as i64) * 4) as *mut u32) = v;
                     placed = true;
                 } else {
                     h = (h + 1 as u32) & new_mask;
@@ -137,11 +137,11 @@ pub unsafe fn clone_map_insert(m: *mut CloneMap, key: u32, val: u32) -> bool {
     let mut h: u32 = (key >> 3 as u32) & mask;
     let mut probe: u32 = 0 as u32;
     while probe < m.cap {
-        let kp: *mut u32 = (m.keys as i64 + (h as i64) * 4 as i64) as *mut u32;
+        let kp: *mut u32 = (m.keys as i64 + (h as i64) * 4) as *mut u32;
         let k: u32 = *kp;
         if k == 0 as u32 {
             *kp = key;
-            *((m.vals as i64 + (h as i64) * 4 as i64) as *mut u32) = val;
+            *((m.vals as i64 + (h as i64) * 4) as *mut u32) = val;
             m.cnt = m.cnt + 1 as u32;
             return true;
         }
@@ -295,7 +295,7 @@ impl HermesClone for Decimal {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let d: *const Decimal = (ctx.base_src as i64 + src_off as i64) as *const Decimal;
             let n: u32 = d.len();
-            let total: i64 = sizeof::<Decimal>() as i64 + (n as i64) * 4 as i64;
+            let total: i64 = sizeof::<Decimal>() as i64 + (n as i64) * 4;
             let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst, total,
                                    hermes_tag_decimal() as u64);
             if raw == 0 as *mut u8 { return 0 as *mut u8; }
@@ -308,8 +308,8 @@ impl HermesClone for Decimal {
             let dst_limbs: *mut u32 = out.limbs_mut();
             let mut i: u32 = 0 as u32;
             while i < n {
-                *((dst_limbs as i64 + (i as i64) * 4 as i64) as *mut u32) =
-                    *((src_limbs as i64 + (i as i64) * 4 as i64) as *const u32);
+                *((dst_limbs as i64 + (i as i64) * 4) as *mut u32) =
+                    *((src_limbs as i64 + (i as i64) * 4) as *const u32);
                 i = i + 1 as u32;
             }
             return raw;
@@ -354,7 +354,7 @@ impl<T: CloneElem> HermesClone for Array<T> {
             // Clone elements — each clone_elem receives a dst zone offset and
             // recomputes its raw pointer after any internal zone grow.
             let src_base: i64 = ctx.base_src as i64 + src_data_off as i64;
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < n {
                 let src_elem: *const T = (src_base + (i as i64) * elem_sz) as *const T;
                 let elem_dst_off: u32  = buf_off + ((i as i64) * elem_sz) as u32;
@@ -537,7 +537,7 @@ impl HermesClone for MapI32AnyVal {
             // after its allocation — a subsequent alloc may realloc the zone,
             // making any earlier raw pointer stale.
             let keys_raw: *mut u8 = if cap > 0 as u32 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4 as i64)
+                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4)
             } else { 0 as *mut u8 };
             if cap > 0 as u32 && keys_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let keys_buf_off: u32 = if cap > 0 as u32 {
@@ -545,7 +545,7 @@ impl HermesClone for MapI32AnyVal {
             } else { 0 as u32 };
 
             let vals_raw: *mut u8 = if cap > 0 as u32 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4 as i64)
+                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4)
             } else { 0 as *mut u8 };
             if cap > 0 as u32 && vals_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let vals_buf_off: u32 = if cap > 0 as u32 {
@@ -553,7 +553,7 @@ impl HermesClone for MapI32AnyVal {
             } else { 0 as u32 };
 
             // Copy i32 keys (no zone references, plain raw bytes).
-            let src_keys: *const u8 = (ctx.base_src as i64 + m.keys.offset as i64) as *const u8;
+            let src_keys: *const u8 = (ctx.base_src as i64 + m.keys.offset) as *const u8;
             let mut bi: u32 = 0 as u32;
             while bi < sz * 4 as u32 {
                 let dst: *mut u8 = (ctx.zone_dst.holder.base as i64
@@ -576,15 +576,15 @@ impl HermesClone for MapI32AnyVal {
             new_m.vals.offset = vals_buf_off;
 
             // Clone AnyVal values (may contain zone pointers).
-            let src_vals: *const AnyVal = (ctx.base_src as i64 + m.vals.offset as i64) as *const AnyVal;
+            let src_vals: *const AnyVal = (ctx.base_src as i64 + m.vals.offset) as *const AnyVal;
             let mut vi: u32 = 0 as u32;
             while vi < sz {
-                let src_v: AnyVal = AnyVal { raw: ((src_vals as i64 + (vi as i64) * 4 as i64) as *const AnyVal).raw };
+                let src_v: AnyVal = AnyVal { raw: ((src_vals as i64 + (vi as i64) * 4) as *const AnyVal).raw };
                 let new_v: AnyVal = anyval_clone(src_v, ctx);
                 // Re-read after potential grow.
                 let vdst: *mut AnyVal = (ctx.zone_dst.holder.base as i64
                                         + vals_buf_off as i64
-                                        + (vi as i64) * 4 as i64) as *mut AnyVal;
+                                        + (vi as i64) * 4) as *mut AnyVal;
                 vdst.raw = new_v.raw;
                 vi = vi + 1 as u32;
             }
@@ -605,15 +605,15 @@ impl HermesClone for Array<i32> {
             let src_data_off: u32 = a.data.offset;
 
             // Alloc data buffer first (4 bytes per i32 element).
-            let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4 as i64);
+            let buf_raw: *mut u8 = zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4);
             if buf_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let buf_off: u32 = (buf_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
 
             // Copy raw i32 data bytes.
             let src_data_ptr: *const u8 = (ctx.base_src as i64 + src_data_off as i64) as *const u8;
-            let mut bi: u64 = 0 as u64;
+            let mut bi: u64 = 0;
             while bi < n * 4 as u64 {
-                let dst_byte: *mut u8 = (ctx.zone_dst.holder.base as i64 + buf_off as i64 + bi as i64) as *mut u8;
+                let dst_byte: *mut u8 = (ctx.zone_dst.holder.base as i64 + buf_off + bi as i64) as *mut u8;
                 *dst_byte = *((src_data_ptr as i64 + bi as i64) as *const u8);
                 bi = bi + 1 as u64;
             }
@@ -652,9 +652,9 @@ impl HermesClone for Array<u64> {
 
             // Copy raw u64 data bytes.
             let src_data_ptr: *const u8 = (ctx.base_src as i64 + src_data_off as i64) as *const u8;
-            let mut bi: u64 = 0 as u64;
+            let mut bi: u64 = 0;
             while bi < n * 8 as u64 {
-                let dst_byte: *mut u8 = (ctx.zone_dst.holder.base as i64 + buf_off as i64 + bi as i64) as *mut u8;
+                let dst_byte: *mut u8 = (ctx.zone_dst.holder.base as i64 + buf_off + bi as i64) as *mut u8;
                 *dst_byte = *((src_data_ptr as i64 + bi as i64) as *const u8);
                 bi = bi + 1 as u64;
             }
@@ -698,7 +698,7 @@ pub unsafe fn document_compactify(src_zone: *const Zone<Mutable>,
     let src_base: *const u8 = src_holder.base as *const u8;
 
     // Determine destination capacity.
-    let cap: i64 = if capacity_hint > 0 as i64 {
+    let cap: i64 = if capacity_hint > 0 {
         capacity_hint
     } else {
         let u: i64 = src_holder.used;
@@ -791,10 +791,10 @@ pub unsafe fn document_clone(src_zone: *const Zone<Mutable>) -> Zone<Mutable> {
     let src_bytes: *const u8 = src_holder.base as *const u8;
     let dst_holder: *mut MemHolder = dst_zone.holder;
     let dst_bytes: *mut u8 = dst_holder.base;
-    let mut bi: i64 = 0 as i64;
+    let mut bi: i64 = 0;
     while bi < nbytes {
         *((dst_bytes as i64 + bi) as *mut u8) = *((src_bytes as i64 + bi) as *const u8);
-        bi = bi + 1 as i64;
+        bi = bi + 1;
     }
     dst_holder.used = nbytes;
 
@@ -820,34 +820,34 @@ pub unsafe fn hermes_clone_template(dst: *mut Zone<Mutable>, tmpl: *const u8, tm
     if tmpl == 0 as *const u8 || tmpl_size <= 0 as i64 { return; }
     if dst == 0 as *mut Zone<Mutable> { return; }
     // C3 bug 2: guard slots pointer when there are slots to process.
-    if n_slots > 0 as i64 && slots == 0 as *const u32 { return; }
+    if n_slots > 0 && slots == 0 as *const u32 { return; }
     // C3 bug 3: guard resolved pointer when there are values to look up.
-    if n_values > 0 as i64 && resolved == 0 as *const u32 { return; }
+    if n_values > 0 && resolved == 0 as *const u32 { return; }
 
     // Allocate space in the destination zone and memcpy the template.
     let dst_base: *mut u8 = zone_m_alloc_raw(dst, tmpl_size);
     if dst_base == 0 as *mut u8 { return; }
 
-    let mut bi: i64 = 0 as i64;
+    let mut bi: i64 = 0;
     while bi < tmpl_size {
         *((dst_base as i64 + bi) as *mut u8) = *((tmpl as i64 + bi) as *const u8);
-        bi = bi + 1 as i64;
+        bi = bi + 1;
     }
 
     // Patch each PARAM slot with the corresponding resolved AnyVal.
-    let mut si: i64 = 0 as i64;
+    let mut si: i64 = 0;
     while si < n_slots {
         let off: u32   = *((slots as i64 + si * 8 as i64) as *const u32);
-        let vidx: u32  = *((slots as i64 + si * 8 as i64 + 4 as i64) as *const u32)
+        let vidx: u32  = *((slots as i64 + si * 8 as i64 + 4) as *const u32)
                          & 0xFFFFFF as u32;  // mask to u24
         // Bug fix: use i64 arithmetic for the bounds check to avoid u32 overflow
         // when off is near u32::MAX (off + 4 would wrap around to a small value,
         // falsely passing the check).
-        if (vidx as i64) < n_values && (off as i64) + 4 as i64 <= tmpl_size {
-            let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4 as i64) as *const u32);
+        if (vidx as i64) < n_values && (off as i64) + 4 <= tmpl_size {
+            let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4) as *const u32);
             let slot_ptr: *mut u32 = (dst_base as i64 + off as i64) as *mut u32;
             *slot_ptr = av_raw;
         }
-        si = si + 1 as i64;
+        si = si + 1;
     }
 }

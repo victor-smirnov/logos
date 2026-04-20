@@ -81,11 +81,11 @@ impl Map<Varchar, AnyVal> {
         m.reserved    = 0 as u32;
         // Zero-initialize all entry slots (key_off = 0 → empty).
         let total: i64 = capacity as i64 * 8 as i64;
-        let mut i: i64 = 0 as i64;
+        let mut i: i64 = 0;
         while i < total {
             let p: *mut u8 = (entries_buf as i64 + i) as *mut u8;
             *p = 0 as u8;
-            i = i + 1 as i64;
+            i = i + 1;
         }
         return m;
     }
@@ -104,7 +104,7 @@ impl Map<Varchar, AnyVal> {
         let ent_base: i64 = base as i64 + self.entries_off.offset as i64;
         let mut slot: u64 = h & (cap - 1 as u64);
         let mut done: bool = false;
-        let mut probed: u64 = 0 as u64;
+        let mut probed: u64 = 0;
         while done == false && probed < cap {
             let ep: *mut MapEntry =
                 (ent_base + slot as i64 * 8 as i64) as *mut MapEntry;
@@ -124,7 +124,7 @@ impl Map<Varchar, AnyVal> {
                 } else {
                     slot = slot + 1 as u64;
                     if slot >= cap {
-                        slot = 0 as u64;
+                        slot = 0;
                     }
                     probed = probed + 1 as u64;
                 }
@@ -140,7 +140,7 @@ impl Map<Varchar, AnyVal> {
         let h: u64        = hermes_fnv1a(key_ptr, key_len);
         let ent_base: i64 = base as i64 + self.entries_off.offset as i64;
         let mut slot: u64 = h & (cap - 1 as u64);
-        let mut probed: u64 = 0 as u64;
+        let mut probed: u64 = 0;
         while probed < cap {
             let ep: *const MapEntry =
                 (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
@@ -154,7 +154,7 @@ impl Map<Varchar, AnyVal> {
             }
             slot = slot + 1 as u64;
             if slot >= cap {
-                slot = 0 as u64;
+                slot = 0;
             }
             probed = probed + 1 as u64;
         }
@@ -168,7 +168,7 @@ impl Map<Varchar, AnyVal> {
         let h: u64        = hermes_fnv1a(key_ptr, key_len);
         let ent_base: i64 = base as i64 + self.entries_off.offset as i64;
         let mut slot: u64 = h & (cap - 1 as u64);
-        let mut probed: u64 = 0 as u64;
+        let mut probed: u64 = 0;
         while probed < cap {
             let ep: *const MapEntry =
                 (ent_base + slot as i64 * 8 as i64) as *const MapEntry;
@@ -182,7 +182,7 @@ impl Map<Varchar, AnyVal> {
             }
             slot = slot + 1 as u64;
             if slot >= cap {
-                slot = 0 as u64;
+                slot = 0;
             }
             probed = probed + 1 as u64;
         }

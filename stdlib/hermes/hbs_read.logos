@@ -186,7 +186,7 @@ unsafe fn deser_register_object(ctx: *mut DeserCtx, id: u32, val: AnyVal) -> boo
     if idx >= ctx.objects_cap {
         let new_cap: u32 = if ctx.objects_cap == 0 as u32 { 64 as u32 } else { ctx.objects_cap * 2 as u32 };
         let nc: u32 = if new_cap <= idx + 1 as u32 { idx + 64 as u32 } else { new_cap };
-        let new_obj: *mut u32 = realloc(ctx.objects as *mut u8, nc as i64 * 4 as i64) as *mut u32;
+        let new_obj: *mut u32 = realloc(ctx.objects as *mut u8, nc as i64 * 4) as *mut u32;
         if new_obj == 0 as *mut u32 {
             ctx.error = HbsError::OOM;
             return false;
@@ -194,13 +194,13 @@ unsafe fn deser_register_object(ctx: *mut DeserCtx, id: u32, val: AnyVal) -> boo
         // Zero-initialize new entries
         let mut i: u32 = ctx.objects_cap;
         while i < nc {
-            *((new_obj as i64 + (i as i64) * 4 as i64) as *mut u32) = 0 as u32;
+            *((new_obj as i64 + (i as i64) * 4) as *mut u32) = 0 as u32;
             i = i + 1 as u32;
         }
         ctx.objects = new_obj;
         ctx.objects_cap = nc;
     }
-    *((ctx.objects as i64 + (idx as i64) * 4 as i64) as *mut u32) = val.raw;
+    *((ctx.objects as i64 + (idx as i64) * 4) as *mut u32) = val.raw;
     if idx >= ctx.objects_len { ctx.objects_len = idx + 1 as u32; }
     return true;
 }
@@ -211,7 +211,7 @@ unsafe fn deser_get_object(ctx: *mut DeserCtx, id: u32) -> AnyVal {
         return AnyVal::null_ptr();
     }
     let idx: u32 = id - 1 as u32;
-    let raw: u32 = *((ctx.objects as i64 + (idx as i64) * 4 as i64) as *const u32);
+    let raw: u32 = *((ctx.objects as i64 + (idx as i64) * 4) as *const u32);
     return AnyVal { raw: raw };
 }
 
@@ -312,8 +312,8 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
     if top.kind == FR_ARRAY {
         // Write val to arr[idx]
         let arr: *mut Array<AnyVal> = (base as i64 + top.zone_off as i64) as *mut Array<AnyVal>;
-        let buf_off: i64 = arr.data.offset as i64;
-        let ep: *mut AnyVal = (base as i64 + buf_off + top.idx as i64 * 4 as i64) as *mut AnyVal;
+        let buf_off: i64 = arr.data.offset;
+        let ep: *mut AnyVal = (base as i64 + buf_off + top.idx as i64 * 4) as *mut AnyVal;
         ep.raw = val.raw;
         arr.size = arr.size + 1 as u64;
         top.idx = top.idx + 1 as u32;
@@ -375,8 +375,8 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
 
     if top.kind == FR_MI32_VAL {
         let m: *mut MapI32AnyVal = (base as i64 + top.zone_off as i64) as *mut MapI32AnyVal;
-        let vals_ptr: *mut AnyVal = (base as i64 + m.vals.offset as i64) as *mut AnyVal;
-        let ep: *mut AnyVal = (vals_ptr as i64 + top.idx as i64 * 4 as i64) as *mut AnyVal;
+        let vals_ptr: *mut AnyVal = (base as i64 + m.vals.offset) as *mut AnyVal;
+        let ep: *mut AnyVal = (vals_ptr as i64 + top.idx as i64 * 4) as *mut AnyVal;
         ep.raw = val.raw;
         top.idx = top.idx + 1 as u32;
         if top.idx >= top.total { deser_pop_frame(ctx); }
@@ -401,16 +401,16 @@ unsafe fn tinymap_set_bit(base: *const u8, m: *mut Map<Bitmap, AnyVal>, key_bit:
     // Shift elements right if this key is new
     if (bitmap & kb) == 0 as u64 {
         // Shift existing elements right to make room at `pos`
-        let data_off: i64 = m.data.offset as i64;
+        let data_off: i64 = m.data.offset;
         let mut i: i32 = sz as i32 - 1 as i32;
         while i >= pos as i32 {
-            let src: *const AnyVal = (base as i64 + data_off + i as i64 * 4 as i64) as *const AnyVal;
-            let dst: *mut AnyVal = (base as i64 + data_off + (i + 1 as i32) as i64 * 4 as i64) as *mut AnyVal;
+            let src: *const AnyVal = (base as i64 + data_off + i as i64 * 4) as *const AnyVal;
+            let dst: *mut AnyVal = (base as i64 + data_off + (i + 1 as i32) as i64 * 4) as *mut AnyVal;
             dst.raw = src.raw;
             i = i - 1 as i32;
         }
         // Write value at pos
-        let ep: *mut AnyVal = (base as i64 + data_off + pos as i64 * 4 as i64) as *mut AnyVal;
+        let ep: *mut AnyVal = (base as i64 + data_off + pos as i64 * 4) as *mut AnyVal;
         ep.raw = val.raw;
         // Update header: set bitmap bit, increment size
         let new_bitmap: u64 = bitmap | kb;
@@ -419,8 +419,8 @@ unsafe fn tinymap_set_bit(base: *const u8, m: *mut Map<Bitmap, AnyVal>, key_bit:
         m.header = new_bitmap | (cap << 52 as u64) | (new_sz << 58 as u64);
     } else {
         // Update existing value
-        let data_off: i64 = m.data.offset as i64;
-        let ep: *mut AnyVal = (base as i64 + data_off + pos as i64 * 4 as i64) as *mut AnyVal;
+        let data_off: i64 = m.data.offset;
+        let ep: *mut AnyVal = (base as i64 + data_off + pos as i64 * 4) as *mut AnyVal;
         ep.raw = val.raw;
     }
 }
@@ -499,7 +499,7 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
         let nlimbs: u32 = decimal_limb_len(spec);
         let hdr_sz: i64 = sizeof::<Decimal>() as i64;
-        let total: i64 = hdr_sz + nlimbs as i64 * 4 as i64;
+        let total: i64 = hdr_sz + nlimbs as i64 * 4;
         let raw: *mut u8 = alloc_tagged_in_zone(ctx, total, hermes_tag_decimal());
         if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let d: *mut Decimal = raw as *mut Decimal;
@@ -509,7 +509,7 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         while li < nlimbs {
             let lv: u32 = deser_read_u32(ctx);
             if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
-            *((limbs_ptr as i64 + (li as i64) * 4 as i64) as *mut u32) = lv;
+            *((limbs_ptr as i64 + (li as i64) * 4) as *mut u32) = lv;
             li = li + 1 as u32;
         }
         let base: *mut u8 = ctx.zone.holder.base;
@@ -547,14 +547,14 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let hdr_off: u32 = (raw as i64 - ctx.zone.holder.base as i64) as u32;
         let buf_raw: *mut u8 = if count > 0 as u32 {
-            alloc_raw_in_zone(ctx, count as i64 * 4 as i64)
+            alloc_raw_in_zone(ctx, count as i64 * 4)
         } else {
             0 as *mut u8
         };
         if count > 0 as u32 && buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let base: *mut u8 = ctx.zone.holder.base;
-        let arr: *mut Array<AnyVal> = (base as i64 + hdr_off as i64) as *mut Array<AnyVal>;
-        arr.size = 0 as u64;
+        let arr: *mut Array<AnyVal> = (base as i64 + hdr_off) as *mut Array<AnyVal>;
+        arr.size = 0;
         arr.capacity = count as u64;
         arr.data.offset = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
         let off: u32 = hdr_off;
@@ -584,7 +584,7 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         let entries_raw: *mut u8 = alloc_raw_in_zone(ctx, cap_slots as i64 * 8 as i64);
         if entries_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let base: *mut u8 = ctx.zone.holder.base;
-        ObjectMap::init((base as i64 + hdr_off as i64) as *mut u8, base, entries_raw, cap_slots);
+        ObjectMap::init((base as i64 + hdr_off) as *mut u8, base, entries_raw, cap_slots);
         let off: u32 = hdr_off;
         if count > 0 as u32 {
             ctx.has_pending = true;
@@ -613,10 +613,10 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         let map_raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_tiny_map());
         if map_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let hdr_off: u32 = (map_raw as i64 - ctx.zone.holder.base as i64) as u32;
-        let arr_raw: *mut u8 = alloc_raw_in_zone(ctx, cap as i64 * 4 as i64);
+        let arr_raw: *mut u8 = alloc_raw_in_zone(ctx, cap as i64 * 4);
         if arr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let base: *mut u8 = ctx.zone.holder.base;
-        TinyObjectMap::init((base as i64 + hdr_off as i64) as *mut u8, arr_raw, base, cap);
+        TinyObjectMap::init((base as i64 + hdr_off) as *mut u8, arr_raw, base, cap);
         let off: u32 = hdr_off;
         if count > 0 as u32 {
             ctx.has_pending = true;
@@ -676,13 +676,13 @@ if lead == 0x60 as u8 {
         if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let hdr_off: u32 = (raw as i64 - ctx.zone.holder.base as i64) as u32;
         let buf_raw: *mut u8 = if count > 0 as u32 {
-            alloc_raw_in_zone(ctx, count as i64 * 4 as i64)
+            alloc_raw_in_zone(ctx, count as i64 * 4)
         } else {
             0 as *mut u8
         };
         if count > 0 as u32 && buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let base: *mut u8 = ctx.zone.holder.base;
-        let arr: *mut Array<i32> = (base as i64 + hdr_off as i64) as *mut Array<i32>;
+        let arr: *mut Array<i32> = (base as i64 + hdr_off) as *mut Array<i32>;
         arr.size = count as u64;
         arr.capacity = count as u64;
         arr.data.offset = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
@@ -691,7 +691,7 @@ if lead == 0x60 as u8 {
         while i < count {
             let v: u32 = deser_read_u32(ctx);
             if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
-            *((buf_raw as i64 + (i as i64) * 4 as i64) as *mut u32) = v;
+            *((buf_raw as i64 + (i as i64) * 4) as *mut u32) = v;
             i = i + 1 as u32;
         }
         let off: u32 = hdr_off;
@@ -713,7 +713,7 @@ if lead == 0x60 as u8 {
         };
         if count > 0 as u32 && buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let base: *mut u8 = ctx.zone.holder.base;
-        let arr: *mut Array<u64> = (base as i64 + hdr_off as i64) as *mut Array<u64>;
+        let arr: *mut Array<u64> = (base as i64 + hdr_off) as *mut Array<u64>;
         arr.size = count as u64;
         arr.capacity = count as u64;
         arr.data.offset = if count > 0 as u32 { (buf_raw as i64 - base as i64) as u32 } else { 0 as u32 };
@@ -737,13 +737,13 @@ if lead == 0x60 as u8 {
         if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let hdr_off: u32 = (raw as i64 - ctx.zone.holder.base as i64) as u32;
         let keys_raw: *mut u8 = if count > 0 as u32 {
-            alloc_raw_in_zone(ctx, count as i64 * 4 as i64)
+            alloc_raw_in_zone(ctx, count as i64 * 4)
         } else {
             0 as *mut u8
         };
         let keys_off: u32 = if count > 0 as u32 { (keys_raw as i64 - ctx.zone.holder.base as i64) as u32 } else { 0 as u32 };
         let vals_raw: *mut u8 = if count > 0 as u32 {
-            alloc_raw_in_zone(ctx, count as i64 * 4 as i64)
+            alloc_raw_in_zone(ctx, count as i64 * 4)
         } else {
             0 as *mut u8
         };
@@ -751,7 +751,7 @@ if lead == 0x60 as u8 {
             return AnyVal::null_ptr();
         }
         let base: *mut u8 = ctx.zone.holder.base;
-        let m: *mut MapI32AnyVal = (base as i64 + hdr_off as i64) as *mut MapI32AnyVal;
+        let m: *mut MapI32AnyVal = (base as i64 + hdr_off) as *mut MapI32AnyVal;
         m.size = count;
         m.capacity = count;
         m.keys.offset = keys_off;
@@ -762,7 +762,7 @@ if lead == 0x60 as u8 {
         while i < count {
             let v: u32 = deser_read_u32(ctx);
             if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
-            *((keys_ptr as i64 + (i as i64) * 4 as i64) as *mut u32) = v;
+            *((keys_ptr as i64 + (i as i64) * 4) as *mut u32) = v;
             i = i + 1 as u32;
         }
         let off: u32 = hdr_off;
@@ -825,7 +825,7 @@ pub unsafe fn hbs_read(data: *const u8, len: i64, zone: *mut Zone<Mutable>) -> b
 
     // Verify magic
     let h0: u8 = *((data as i64 + 0 as i64) as *const u8);
-    let h1: u8 = *((data as i64 + 1 as i64) as *const u8);
+    let h1: u8 = *((data as i64 + 1) as *const u8);
     let h2: u8 = *((data as i64 + 2 as i64) as *const u8);
     let h3: u8 = *((data as i64 + 3 as i64) as *const u8);
     if h0 != 72 as u8 || h1 != 66 as u8 || h2 != 83 as u8 || h3 != 49 as u8 {
@@ -842,7 +842,7 @@ pub unsafe fn hbs_read(data: *const u8, len: i64, zone: *mut Zone<Mutable>) -> b
     let init_obj_cap: u32 = 64 as u32;
     let init_frm_cap: u32 = 64 as u32;
 
-    let objects: *mut u32 = malloc(init_obj_cap as i64 * 4 as i64) as *mut u32;
+    let objects: *mut u32 = malloc(init_obj_cap as i64 * 4) as *mut u32;
     if objects == 0 as *mut u32 { return false; }
     let frames: *mut ReadFrame = malloc(init_frm_cap as i64 * sizeof::<ReadFrame>() as i64) as *mut ReadFrame;
     if frames == 0 as *mut ReadFrame {

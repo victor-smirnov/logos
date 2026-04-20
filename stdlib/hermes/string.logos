@@ -24,7 +24,7 @@ use std.mem;
 pub unsafe fn hermes_fnv1a(ptr: *const u8, len: u64) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325 as u64;
     let prime: u64 = 0x100000001b3 as u64;
-    let mut i: u64 = 0 as u64;
+    let mut i: u64 = 0;
     while i < len {
         let p: *const u8 = (ptr as i64 + i as i64) as *const u8;
         let b: u64 = (*p) as u64;
@@ -94,7 +94,7 @@ pub unsafe fn vlen_read(src: *const u8) -> u64 {
         return first as u64;
     }
     let n: u32 = first_u32 - 248 as u32;
-    let mut value: u64 = 0 as u64;
+    let mut value: u64 = 0;
     let mut i: u32 = 0 as u32;
     while i < n {
         let p: *const u8 = (src as i64 + 1 + i as i64) as *const u8;
@@ -144,7 +144,7 @@ pub genos Varchar {
         let my_len: u64 = self.len();
         if my_len != other_len { return false; }
         let my_b: *const u8 = self.bytes();
-        let mut i: u64 = 0 as u64;
+        let mut i: u64 = 0;
         while i < my_len {
             let pa: *const u8 = (my_b  as i64 + i as i64) as *const u8;
             let pb: *const u8 = (other as i64 + i as i64) as *const u8;
@@ -187,7 +187,7 @@ impl HermesString {
     pub unsafe fn init(raw: *mut u8, text: *const u8, len: u64) -> *mut HermesString {
         let written: u32 = vlen_write(raw, len);
         let body: *mut u8 = (raw as i64 + written as i64) as *mut u8;
-        let mut i: u64 = 0 as u64;
+        let mut i: u64 = 0;
         while i < len {
             let src_p: *const u8 = (text as i64 + i as i64) as *const u8;
             let dst_p: *mut u8   = (body as i64 + i as i64) as *mut u8;
@@ -239,12 +239,12 @@ impl Storage for HermesStringStorage {
     }
     fn storage_get(s: *const HermesStringStorage, idx: u64) -> StringView {
         unsafe {
-            let end_p: *const u32 = (s.ends as i64 + (idx as i64) * 4 as i64) as *const u32;
+            let end_p: *const u32 = (s.ends as i64 + (idx as i64) * 4) as *const u32;
             let end_off: u64 = *end_p as u64;
             let start_off: u64 = if idx == 0 as u64 {
                 0 as u64
             } else {
-                let prev: *const u32 = (s.ends as i64 + (idx as i64 - 1 as i64) * 4 as i64) as *const u32;
+                let prev: *const u32 = (s.ends as i64 + (idx as i64 - 1) * 4) as *const u32;
                 *prev as u64
             };
             return StringView {
@@ -266,8 +266,8 @@ impl OwningStorage for HermesStringStorage {
                 dealloc(s.ends as *mut u8);
                 s.ends = 0 as *mut u32;
             }
-            s.b_len = 0 as u64; s.b_cap = 0 as u64;
-            s.o_len = 0 as u64; s.o_cap = 0 as u64;
+            s.b_len = 0; s.b_cap = 0;
+            s.o_len = 0; s.o_cap = 0;
         }
     }
 }
@@ -293,8 +293,8 @@ impl DynamicStorage for HermesStringStorage {
                 dealloc(s.ends as *mut u8);
                 s.ends = 0 as *mut u32;
             }
-            s.b_len = 0 as u64; s.b_cap = 0 as u64;
-            s.o_len = 0 as u64; s.o_cap = 0 as u64;
+            s.b_len = 0; s.b_cap = 0;
+            s.o_len = 0; s.o_cap = 0;
         }
     }
     fn storage_push(s: *mut HermesStringStorage, v: StringView) {
@@ -326,7 +326,7 @@ impl DynamicStorage for HermesStringStorage {
                 s.o_cap = new_cap;
             }
             // Copy bytes.
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < v.len {
                 let dst: *mut u8 = (s.bytes as i64 + (s.b_len as i64) + (i as i64)) as *mut u8;
                 let src: *const u8 = (v.ptr as i64 + i as i64) as *const u8;
@@ -335,7 +335,7 @@ impl DynamicStorage for HermesStringStorage {
             }
             s.b_len = s.b_len + v.len;
             // Append end-offset.
-            let slot: *mut u32 = (s.ends as i64 + (s.o_len as i64) * 4 as i64) as *mut u32;
+            let slot: *mut u32 = (s.ends as i64 + (s.o_len as i64) * 4) as *mut u32;
             *slot = s.b_len as u32;
             s.o_len = s.o_len + 1 as u64;
         }

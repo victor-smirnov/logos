@@ -74,7 +74,7 @@ impl HermesEqual for HermesString {
             if la != lb { return false; }
             let pa: *const u8 = a.bytes();
             let pb: *const u8 = b.bytes();
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < la {
                 let ca: u8 = *((pa as i64 + i as i64) as *const u8);
                 let cb: u8 = *((pb as i64 + i as i64) as *const u8);
@@ -160,9 +160,9 @@ impl<T: HermesEqual> HermesEqual for Array<T> {
             let b: *const Array<T> = other as *const Array<T>;
             if a.size != b.size { return false; }
             let elem_sz: i64 = sizeof::<T>() as i64;
-            let base_a: i64 = ctx.base_self  as i64 + a.data.offset as i64;
-            let base_b: i64 = ctx.base_other as i64 + b.data.offset as i64;
-            let mut i: u64 = 0 as u64;
+            let base_a: i64 = ctx.base_self  as i64 + a.data.offset;
+            let base_b: i64 = ctx.base_other as i64 + b.data.offset;
+            let mut i: u64 = 0;
             while i < a.size {
                 let ea: *const T = (base_a + (i as i64) * elem_sz) as *const T;
                 let eb: *const T = (base_b + (i as i64) * elem_sz) as *const T;
@@ -186,8 +186,8 @@ impl<V: HermesEqual> HermesEqual for Map<Bitmap, V> {
             let bb: u64 = b.header & mask;
             if ba != bb { return false; }
             let elem_sz: i64 = sizeof::<V>() as i64;
-            let base_a: i64 = ctx.base_self  as i64 + a.data.offset as i64;
-            let base_b: i64 = ctx.base_other as i64 + b.data.offset as i64;
+            let base_a: i64 = ctx.base_self  as i64 + a.data.offset;
+            let base_b: i64 = ctx.base_other as i64 + b.data.offset;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
                 let key_bit: u64 = 1 as u64 << key as u64;
@@ -256,7 +256,7 @@ impl HermesEqual for TypedValue {
             let sb: *const HermesString =
                 (ctx.base_other as i64 + b.type_off.offset as i64) as *const HermesString;
             if sa.len() != sb.len() { return false; }
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < sa.len() {
                 let ca: u8 = *((sa.bytes() as i64 + i as i64) as *const u8);
                 let cb: u8 = *((sb.bytes() as i64 + i as i64) as *const u8);

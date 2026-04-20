@@ -28,8 +28,8 @@ use hermes.typetag;
 use std.string;
 
 pub unsafe fn view_cstr_len(s: *const u8) -> i64 {
-    let mut n: i64 = 0 as i64;
-    while *((s as i64 + n) as *const u8) != 0 as u8 { n = n + 1 as i64; }
+    let mut n: i64 = 0;
+    while *((s as i64 + n) as *const u8) != 0 as u8 { n = n + 1; }
     return n;
 }
 
@@ -337,7 +337,7 @@ pub trait HermesWrite: HermesRead {
             let oa_sz: i64 = 24 as i64;
             let oa_raw: *mut u8 = zone_m_alloc_tagged(zone, oa_sz, hermes_tag_array() as u64);
             if oa_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
-            let buf_raw: *mut u8 = zone_m_alloc_raw(zone, cap as i64 * 4 as i64);
+            let buf_raw: *mut u8 = zone_m_alloc_raw(zone, cap as i64 * 4);
             if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
             ObjectArray::init(oa_raw, buf_raw, base, cap);
@@ -433,11 +433,11 @@ pub trait HermesWrite: HermesRead {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
             let hdr_sz: i64 = sizeof::<Array<i32>>() as i64;
-            let buf_bytes: i64 = (cap as i64) * 4 as i64;
+            let buf_bytes: i64 = (cap as i64) * 4;
             // Alloc buf first, then CAPTURE its zone offset immediately — a
             // subsequent alloc may realloc the zone, stranding buf_raw.
             let mut buf_off: u32 = 0 as u32;
-            if buf_bytes > 0 as i64 {
+            if buf_bytes > 0 {
                 let buf_raw: *mut u8 = zone_m_alloc_raw(zone, buf_bytes);
                 if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
                 buf_off = (buf_raw as i64 - zone.holder.base as i64) as u32;
@@ -447,7 +447,7 @@ pub trait HermesWrite: HermesRead {
             if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
             let arr: *mut Array<i32> = hdr_raw as *mut Array<i32>;
-            arr.size     = 0 as u64;
+            arr.size     = 0;
             arr.capacity = cap;
             arr.data.offset     = buf_off;
             let off: u32 = (hdr_raw as i64 - base as i64) as u32;
@@ -475,7 +475,7 @@ pub trait HermesWrite: HermesRead {
             let hdr_sz: i64 = sizeof::<Array<u64>>() as i64;
             let buf_bytes: i64 = (cap as i64) * 8 as i64;
             let mut buf_off: u32 = 0 as u32;
-            if buf_bytes > 0 as i64 {
+            if buf_bytes > 0 {
                 let buf_raw: *mut u8 = zone_m_alloc_raw(zone, buf_bytes);
                 if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
                 buf_off = (buf_raw as i64 - zone.holder.base as i64) as u32;
@@ -485,7 +485,7 @@ pub trait HermesWrite: HermesRead {
             if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
             let arr: *mut Array<u64> = hdr_raw as *mut Array<u64>;
-            arr.size     = 0 as u64;
+            arr.size     = 0;
             arr.capacity = cap;
             arr.data.offset     = buf_off;
             let off: u32 = (hdr_raw as i64 - base as i64) as u32;
@@ -513,17 +513,17 @@ pub trait HermesWrite: HermesRead {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
             let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
-            let key_bytes: i64 = (cap as i64) * 4 as i64;
-            let val_bytes: i64 = (cap as i64) * 4 as i64;
+            let key_bytes: i64 = (cap as i64) * 4;
+            let val_bytes: i64 = (cap as i64) * 4;
             // Each alloc may realloc the zone; stash offsets immediately.
             let mut keys_off: u32 = 0 as u32;
-            if key_bytes > 0 as i64 {
+            if key_bytes > 0 {
                 let keys_raw: *mut u8 = zone_m_alloc_raw(zone, key_bytes);
                 if keys_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
                 keys_off = (keys_raw as i64 - zone.holder.base as i64) as u32;
             }
             let mut vals_off: u32 = 0 as u32;
-            if val_bytes > 0 as i64 {
+            if val_bytes > 0 {
                 let vals_raw: *mut u8 = zone_m_alloc_raw(zone, val_bytes);
                 if vals_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
                 vals_off = (vals_raw as i64 - zone.holder.base as i64) as u32;

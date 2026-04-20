@@ -280,7 +280,7 @@ pub unsafe fn hermes_pat_eq_str(av: *const AnyVal, base: *const u8,
     if hs.len() != n { return false; }
     let p: *const u8 = hs.bytes();
     let sp: *const u8 = s.as_ptr();
-    let mut i: u64 = 0 as u64;
+    let mut i: u64 = 0;
     while i < n {
         let a: *const u8 = (p as i64 + i as i64) as *const u8;
         let b: *const u8 = (sp as i64 + i as i64) as *const u8;

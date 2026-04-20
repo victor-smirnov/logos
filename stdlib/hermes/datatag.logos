@@ -103,7 +103,7 @@ pub unsafe fn read_type_code(obj: *const u8) -> u64 {
     if b == 0 as u8 || b > 230 as u8 { return 0 as u64; }
     // Multi-byte tag: n_code_bytes = b - 223 + 1.
     let n: i64 = (b as i64 - 223 + 1);
-    let mut code: u64 = 0 as u64;
+    let mut code: u64 = 0;
     let mut i: i64 = 0;
     loop {
         if i >= n {

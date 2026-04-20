@@ -49,9 +49,9 @@ use std.drop;
 
 // cstr_len — byte length of a null-terminated C string.
 unsafe fn cstr_len(s: *const u8) -> i64 {
-    let mut n: i64 = 0 as i64;
+    let mut n: i64 = 0;
     while *((s as i64 + n) as *const u8) != 0 as u8 {
-        n = n + 1 as i64;
+        n = n + 1;
     }
     return n;
 }
@@ -278,7 +278,7 @@ impl HermesCtr {
     // Returns a container with a null holder on OOM of the destination zone.
     pub fn export(&self, src_val: AnyVal, capacity_hint: i64) -> HermesCtr {
         unsafe {
-            let cap: i64 = if capacity_hint > 0 as i64 {
+            let cap: i64 = if capacity_hint > 0 {
                 capacity_hint
             } else {
                 let h: *mut MemHolder = self.zone.holder;
@@ -403,13 +403,13 @@ pub unsafe fn hermes_template_ctr_new(
         total_cap = tmpl_size + extra_cap;
     }
     let mut ctr: HermesCtr = HermesCtr { zone: zone_create(total_cap) };
-    if tmpl != 0 as *const u8 && tmpl_size > 0 as i64 {
+    if tmpl != 0 as *const u8 && tmpl_size > 0 {
         let dst: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, tmpl_size);
         if dst != 0 as *mut u8 {
-            let mut bi: i64 = 0 as i64;
+            let mut bi: i64 = 0;
             while bi < tmpl_size {
                 *((dst as i64 + bi) as *mut u8) = *((tmpl as i64 + bi) as *const u8);
-                bi = bi + 1 as i64;
+                bi = bi + 1;
             }
         }
     }
@@ -457,21 +457,21 @@ pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
     // len==0 is valid (empty typed array); guard only negative and overflow cases.
     if len < 0 as i64 { return HermesCtr::builder(8 as i64); }
     if len > 536870911 as i64 { return HermesCtr::builder(8 as i64); }
-    let byte_len: i64 = len * 4 as i64;
+    let byte_len: i64 = len * 4;
     let cap: i64 = 8 as i64 + byte_len + sizeof::<Array<i32>>() as i64 + 64 as i64;
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
     // Bug 7 fix: for len==0 skip data alloc (buf_off stays 0); still build header.
     let mut buf_off: u32 = 0 as u32;
     let mut ok: bool = true;
-    if byte_len > 0 as i64 {
+    if byte_len > 0 {
         let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
         if buf_raw == 0 as *mut u8 {
             ok = false;
         } else {
-            let mut bi: i64 = 0 as i64;
+            let mut bi: i64 = 0;
             while bi < byte_len {
                 *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
-                bi = bi + 1 as i64;
+                bi = bi + 1;
             }
             buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
         }
@@ -503,15 +503,15 @@ pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
     let mut buf_off: u32 = 0 as u32;
     let mut ok: bool = true;
-    if byte_len > 0 as i64 {
+    if byte_len > 0 {
         let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
         if buf_raw == 0 as *mut u8 {
             ok = false;
         } else {
-            let mut bi: i64 = 0 as i64;
+            let mut bi: i64 = 0;
             while bi < byte_len {
                 *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
-                bi = bi + 1 as i64;
+                bi = bi + 1;
             }
             buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
         }
@@ -549,8 +549,8 @@ pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal,
     if len <= 0 as i64 { return HermesCtr::builder(8 as i64); }
     // fix2: guard u32 overflow — MapI32AnyVal.size/capacity are u32.
     if len > 4294967295 as i64 { return HermesCtr::builder(8 as i64); }
-    let key_bytes: i64 = len * 4 as i64;
-    let val_bytes: i64 = len * 4 as i64;
+    let key_bytes: i64 = len * 4;
+    let val_bytes: i64 = len * 4;
     let cap: i64 = 8 as i64 + key_bytes + val_bytes + sizeof::<MapI32AnyVal>() as i64 + 64 as i64;
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
     let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
@@ -562,18 +562,18 @@ pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal,
         // Bug fix: copy key bytes BEFORE allocating vals_raw.
         // The second alloc may trigger zone realloc, invalidating keys_raw.
         // Write through the offset-based pointer instead to be safe after any grow.
-        let mut bk: i64 = 0 as i64;
+        let mut bk: i64 = 0;
         while bk < key_bytes {
             *((keys_raw as i64 + bk) as *mut u8) = *((keys as i64 + bk) as *const u8);
-            bk = bk + 1 as i64;
+            bk = bk + 1;
         }
         let vals_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, val_bytes);
         if vals_raw != 0 as *mut u8 {
             let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
-            let mut bi: i64 = 0 as i64;
+            let mut bi: i64 = 0;
             while bi < val_bytes {
                 *((vals_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
-                bi = bi + 1 as i64;
+                bi = bi + 1;
             }
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
                                        sizeof::<MapI32AnyVal>() as i64,
@@ -602,20 +602,20 @@ pub unsafe fn hermes_template_patch(
         slots: *const u32, n_slots: i64,
         resolved: *const u32, n_values: i64) {
     if n_slots <= 0 as i64 || slots == 0 as *const u32 { return; }
-    if n_values > 0 as i64 && resolved == 0 as *const u32 { return; }
+    if n_values > 0 && resolved == 0 as *const u32 { return; }
     let base: *mut u8 = ctr.zone.holder.base;
     let zone_used: i64 = ctr.zone.holder.used;
-    let mut si: i64 = 0 as i64;
+    let mut si: i64 = 0;
     while si < n_slots {
         let off: u32  = *((slots as i64 + si * 8 as i64) as *const u32);
-        let vidx: u32 = *((slots as i64 + si * 8 as i64 + 4 as i64) as *const u32)
+        let vidx: u32 = *((slots as i64 + si * 8 as i64 + 4) as *const u32)
                         & 0xFFFFFF as u32;
-        if (vidx as i64) < n_values && (off as i64) + 4 as i64 <= zone_used {
-            let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4 as i64) as *const u32);
+        if (vidx as i64) < n_values && (off as i64) + 4 <= zone_used {
+            let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4) as *const u32);
             let slot_ptr: *mut u32 = (base as i64 + off as i64) as *mut u32;
             *slot_ptr = av_raw;
         }
-        si = si + 1 as i64;
+        si = si + 1;
     }
 }
 

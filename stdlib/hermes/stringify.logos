@@ -82,10 +82,10 @@ unsafe fn write_indent(ctx: *mut StringifyCtx) {
     if ctx.opts.indent <= 0 as i64 { return; }
     ctx.out.push_u8(10 as u8);
     let spaces: i64 = ctx.opts.indent * ctx.depth;
-    let mut i: i64 = 0 as i64;
+    let mut i: i64 = 0;
     while i < spaces {
         ctx.out.push_u8(32 as u8);
-        i = i + 1 as i64;
+        i = i + 1;
     }
 }
 
@@ -104,7 +104,7 @@ unsafe fn write_quoted_hs(hs: *const HermesString, out: *mut String) {
     out.push_u8(34 as u8);   // '"'
     let len: u64   = hs.len();
     let bptr: *const u8 = hs.bytes();
-    let mut i: u64 = 0 as u64;
+    let mut i: u64 = 0;
     while i < len {
         let c: u8 = *((bptr as i64 + i as i64) as *const u8);
         if c == 34 as u8 {
@@ -169,11 +169,11 @@ impl HermesStringify for Array<i32> {
             ctx.out.push_u8(32 as u8);   // ' '
             ctx.out.push_u8(91 as u8);   // '['
 
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < arr.size {
                 if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
                 let ep: *const i32 =
-                    (ctx.base as i64 + arr.data.offset as i64 + (i as i64) * 4 as i64) as *const i32;
+                    (ctx.base as i64 + arr.data.offset + (i as i64) * 4) as *const i32;
                 ctx.out.push_i64(*ep as i64);
                 i = i + 1 as u64;
             }
@@ -194,11 +194,11 @@ impl HermesStringify for Array<u64> {
             ctx.out.push_u8(32 as u8);   // ' '
             ctx.out.push_u8(91 as u8);   // '['
 
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < arr.size {
                 if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
                 let ep: *const u64 =
-                    (ctx.base as i64 + arr.data.offset as i64 + (i as i64) * 8 as i64) as *const u64;
+                    (ctx.base as i64 + arr.data.offset + (i as i64) * 8 as i64) as *const u64;
                 ctx.out.push_u64(*ep);
                 i = i + 1 as u64;
             }
@@ -230,12 +230,12 @@ impl HermesStringify for MapI32AnyVal {
             while i < m.size {
                 if i > 0 as u32 { ctx.out.push_u8(44 as u8); }
                 let kp: *const i32 =
-                    (ctx.base as i64 + m.keys.offset as i64 + (i as i64) * 4 as i64) as *const i32;
+                    (ctx.base as i64 + m.keys.offset + (i as i64) * 4) as *const i32;
                 ctx.out.push_i64(*kp as i64);
                 ctx.out.push_u8(58 as u8);   // ':'
-                if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }
+                if ctx.opts.indent > 0 { ctx.out.push_u8(32 as u8); }
                 let vp: *const AnyVal =
-                    (ctx.base as i64 + m.vals.offset as i64 + (i as i64) * 4 as i64) as *const AnyVal;
+                    (ctx.base as i64 + m.vals.offset + (i as i64) * 4) as *const AnyVal;
                 let vv: AnyVal = AnyVal { raw: vp.raw };
                 stringify_anyval(vv, ctx);
                 i = i + 1 as u32;
@@ -254,7 +254,7 @@ impl HermesStringify for TypedValue {
             let n: u64 = hs.len();
 
             ctx.out.push_u8(64 as u8);   // '@'
-            let mut i: u64 = 0 as u64;
+            let mut i: u64 = 0;
             while i < n {
                 ctx.out.push_u8(*((b as i64 + i as i64) as *const u8));
                 i = i + 1 as u64;
@@ -268,7 +268,7 @@ impl HermesStringify for TypedValue {
                     let th: u64 = read_type_code(pobj);
                     if th == hermes_tag_array() as u64 {
                         let arr: *const ObjectArray = pobj as *const ObjectArray;
-                        let mut pi: u64 = 0 as u64;
+                        let mut pi: u64 = 0;
                         while pi < arr.size {
                             if pi > 0 as u64 { ctx.out.push_u8(44 as u8); }
                             let v: AnyVal = arr.get(ctx.base, pi);
@@ -361,15 +361,15 @@ impl<T: HermesStringify + ArrayElemTag> HermesStringify for Array<T> {
             ctx.out.push_u8(91 as u8);   // '['
             let sz: u64 = arr.size;
             let elem_sz: i64 = sizeof::<T>() as i64;
-            let base_int: i64 = ctx.base as i64 + arr.data.offset as i64;
-            let mut i: u64 = 0 as u64;
+            let base_int: i64 = ctx.base as i64 + arr.data.offset;
+            let mut i: u64 = 0;
             while i < sz {
                 if i > 0 as u64 { ctx.out.push_u8(44 as u8); }
-                ctx.depth = ctx.depth + 1 as i64;
+                ctx.depth = ctx.depth + 1;
                 write_indent(ctx);
                 let elem: *const T = (base_int + (i as i64) * elem_sz) as *const T;
                 elem.stringify(ctx);
-                ctx.depth = ctx.depth - 1 as i64;
+                ctx.depth = ctx.depth - 1;
                 i = i + 1 as u64;
             }
             if sz > 0 as u64 { write_indent(ctx); }
@@ -387,7 +387,7 @@ impl<V: HermesStringify> HermesStringify for Map<Bitmap, V> {
             ctx.out.push_u8(123 as u8);  // '{'
             let bitmap: u64 = map.header & 0x000FFFFFFFFFFFFF as u64;
             let elem_sz: i64 = sizeof::<V>() as i64;
-            let arr_base: i64 = ctx.base as i64 + map.data.offset as i64;
+            let arr_base: i64 = ctx.base as i64 + map.data.offset;
             let mut first: bool = true;
             let mut key: u8 = 0 as u8;
             while key < 52 as u8 {
@@ -395,19 +395,19 @@ impl<V: HermesStringify> HermesStringify for Map<Bitmap, V> {
                 if (bitmap & key_bit) != 0 as u64 {
                     if !first { ctx.out.push_u8(44 as u8); }
                     first = false;
-                    ctx.depth = ctx.depth + 1 as i64;
+                    ctx.depth = ctx.depth + 1;
                     write_indent(ctx);
                     ctx.out.push_u8(34 as u8);   // '"'
                     ctx.out.push_u8(107 as u8);  // 'k'
                     ctx.out.push_u64(key as u64);
                     ctx.out.push_u8(34 as u8);   // '"'
                     ctx.out.push_u8(58 as u8);   // ':'
-                    if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }
+                    if ctx.opts.indent > 0 { ctx.out.push_u8(32 as u8); }
                     let mask: u64 = key_bit - 1 as u64;
                     let pos: u32  = popcount_u64(bitmap & mask);
                     let elem: *const V = (arr_base + (pos as i64) * elem_sz) as *const V;
                     elem.stringify(ctx);
-                    ctx.depth = ctx.depth - 1 as i64;
+                    ctx.depth = ctx.depth - 1;
                 }
                 key = key + 1 as u8;
             }
@@ -434,16 +434,16 @@ impl HermesStringify for ObjectMap {
                 if ep.key_off.offset != 0 as u32 {
                     if !first { ctx.out.push_u8(44 as u8); }
                     first = false;
-                    ctx.depth = ctx.depth + 1 as i64;
+                    ctx.depth = ctx.depth + 1;
                     write_indent(ctx);
                     let hs: *const HermesString =
                         (ctx.base as i64 + ep.key_off.offset as i64) as *const HermesString;
                     write_quoted_hs(hs, ctx.out);
                     ctx.out.push_u8(58 as u8);   // ':'
-                    if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }
+                    if ctx.opts.indent > 0 { ctx.out.push_u8(32 as u8); }
                     let val: AnyVal = AnyVal { raw: ep.val };
                     stringify_anyval(val, ctx);
-                    ctx.depth = ctx.depth - 1 as i64;
+                    ctx.depth = ctx.depth - 1;
                 }
                 slot = slot + 1 as u32;
             }
