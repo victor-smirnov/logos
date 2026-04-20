@@ -230,6 +230,8 @@
     PAT_HERMES_MAP              = 186   // @{k: pat, ...} pattern; ITEMS = entries
     PAT_HERMES_ARR              = 187   // @[pat, ...] pattern; ITEMS = sub-patterns
     PAT_HERMES_MAP_ENTRY        = 188   // entry: KEY = string key, VALUE = sub-pattern
+    PAT_HERMES_TYPED_ARR        = 189   // @<T>[..] typed-array type check; TYPE
+    PAT_HERMES_TYPED_MAP        = 190   // @<K,V>{..} typed-map type check; TYPE, RET_TYPE?
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -956,6 +958,12 @@
         => { CODE: PAT_HERMES_INT, VALUE: $2 }
         / AT STRING
         => { CODE: PAT_HERMES_STR, VALUE: $2 }
+        / AT LT IDENT COMMA IDENT GT LBRACE DOTDOT RBRACE
+        => { CODE: PAT_HERMES_TYPED_MAP, TYPE: $3, RET_TYPE: $5 }
+        / AT LT IDENT GT LBRACE DOTDOT RBRACE
+        => { CODE: PAT_HERMES_TYPED_MAP, TYPE: $3 }
+        / AT LT IDENT GT LBRACKET DOTDOT RBRACKET
+        => { CODE: PAT_HERMES_TYPED_ARR, TYPE: $3 }
         / AT LBRACE pat_hermes_map_entries RBRACE
         => { CODE: PAT_HERMES_MAP, ITEMS: $3 }
         / AT LBRACE RBRACE

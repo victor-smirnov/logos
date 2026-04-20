@@ -1181,7 +1181,8 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
     // the guard using build_hermes_pat_guard.
     if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
         pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
-        pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR) {
+        pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR  ||
+        pc == la::PAT_HERMES_TYPED_ARR || pc == la::PAT_HERMES_TYPED_MAP) {
         if (!in_match_hermes_ctx_) {
             error("Hermes pattern (@null/@true/@false/@<int>/@\"str\"/@{...}/@[...]) "
                   "is only supported in `match` arms, not in if-let / "
@@ -1357,6 +1358,26 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
     };
+    // Emit `hermes_pat_has_type_code(&sv, base, tc)` bool expr.
+    auto emit_has_type_code = [&](const std::string& sv, uint64_t tc) -> lir::LExprPtr {
+        const char* helper = "hermes_pat_has_type_code";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 3) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use hermes.pat;`",
+                helper));
+            return make_expr(bool_t(), lir::ELitBool{false});
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(make_expr(u8_ptr_t_outer, lir::EVarRef{base_var}));
+        args.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)tc}));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+    };
     // Emit `hermes_pat_is_map(&sv, base)` bool expr.
     auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
         const char* helper = "hermes_pat_is_map";
@@ -1478,6 +1499,42 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             }
             return acc;
         }
+        if (pc == la::PAT_HERMES_TYPED_ARR) {
+            auto tname = std::string(str_of(p.get(la::TYPE.code)));
+            uint64_t tc = 0;
+            if (tname == "I32") tc = 104;
+            else if (tname == "U64") tc = 108;
+            else if (tname == "AnyVal") tc = 100;
+            else {
+                error(std::format(
+                    "typed array pattern @<{}>[..]: unsupported element type;"
+                    " supported: I32, U64, AnyVal", tname));
+                return make_expr(bool_t(), lir::ELitBool{false});
+            }
+            return emit_has_type_code(sv, tc);
+        }
+        if (pc == la::PAT_HERMES_TYPED_MAP) {
+            auto kname = std::string(str_of(p.get(la::TYPE.code)));
+            std::string vname;
+            if (p.has_key(la::RET_TYPE))
+                vname = std::string(str_of(p.get(la::RET_TYPE.code)));
+            if (!vname.empty() && vname != "AnyVal") {
+                error(std::format(
+                    "typed map pattern @<{},{}>{{..}}: unsupported value type;"
+                    " only AnyVal is supported", kname, vname));
+                return make_expr(bool_t(), lir::ELitBool{false});
+            }
+            uint64_t tc = 0;
+            if (kname == "Varchar") tc = 101;
+            else if (kname == "I32") tc = 105;
+            else {
+                error(std::format(
+                    "typed map pattern @<{}>{{..}}: unsupported key type;"
+                    " supported: Varchar, I32", kname));
+                return make_expr(bool_t(), lir::ELitBool{false});
+            }
+            return emit_has_type_code(sv, tc);
+        }
         // Unsupported in Hermes context.
         error("unsupported pattern inside Hermes @{...}/@[...] pattern");
         return make_expr(bool_t(), lir::ELitBool{false});
@@ -1496,7 +1553,9 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                              pc0 == la::PAT_HERMES_INT  ||
                              pc0 == la::PAT_HERMES_STR  ||
                              pc0 == la::PAT_HERMES_MAP  ||
-                             pc0 == la::PAT_HERMES_ARR;
+                             pc0 == la::PAT_HERMES_ARR  ||
+                             pc0 == la::PAT_HERMES_TYPED_ARR ||
+                             pc0 == la::PAT_HERMES_TYPED_MAP;
             if (!is_hermes) return nullptr;
             return build_rec(map_of(alts.get(0)), scrut_var);
         }
@@ -1505,7 +1564,8 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             int32_t pc = code_of(map_of(alts.get(i)));
             if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
                 pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
-                pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR) any_hermes = true;
+                pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR  ||
+        pc == la::PAT_HERMES_TYPED_ARR || pc == la::PAT_HERMES_TYPED_MAP) any_hermes = true;
             else any_non = true;
         }
         if (!any_hermes) return nullptr;
@@ -2835,7 +2895,8 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     auto is_hermes_pat_code = [](int32_t pc) {
         return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
                pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
-               pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR;
+               pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR  ||
+               pc == la::PAT_HERMES_TYPED_ARR || pc == la::PAT_HERMES_TYPED_MAP;
     };
     // A pattern tree "contains" a Hermes scalar if it IS one, or a PAT_OR
     // alt is one.  We only unwrap PAT_OR here — nested PAT_AT/PAT_REF wrapping
@@ -3120,7 +3181,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     auto is_hermes_pc = [](int32_t pc) {
         return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
                pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
-               pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR;
+               pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR  ||
+               pc == la::PAT_HERMES_TYPED_ARR || pc == la::PAT_HERMES_TYPED_MAP;
     };
     auto pat_has_hermes = [&](TinyMapView p) -> bool {
         if (is_hermes_pc(code_of(p))) return true;

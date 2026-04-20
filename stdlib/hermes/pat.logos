@@ -49,6 +49,15 @@ pub unsafe fn hermes_pat_array_len_eq(av: *const AnyVal, base: *const u8,
     return arr.size == n;
 }
 
+// True iff scrutinee points to a Hermes object whose type_code equals `tc`.
+pub unsafe fn hermes_pat_has_type_code(av: *const AnyVal, base: *const u8,
+                                       tc: u64) -> bool {
+    if av.is_null() { return false; }
+    if !av.is_ptr() { return false; }
+    let obj: *const u8 = (base as i64 + av.as_offset() as i64) as *const u8;
+    return read_type_code(obj) == tc;
+}
+
 pub unsafe fn hermes_pat_array_len_ge(av: *const AnyVal, base: *const u8,
                                       n: u64) -> bool {
     if av.is_null() { return false; }

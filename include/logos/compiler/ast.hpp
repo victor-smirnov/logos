@@ -252,6 +252,8 @@ inline constexpr Code PAT_HERMES_STR     {"PAT_HERMES_STR",      185};  // @"...
 inline constexpr Code PAT_HERMES_MAP     {"PAT_HERMES_MAP",      186};  // @{k: pat,...} pattern; ITEMS
 inline constexpr Code PAT_HERMES_ARR     {"PAT_HERMES_ARR",      187};  // @[pat,...] pattern; ITEMS
 inline constexpr Code PAT_HERMES_MAP_ENTRY {"PAT_HERMES_MAP_ENTRY", 188}; // KEY(8)=str key, VALUE(7)=sub-pattern
+inline constexpr Code PAT_HERMES_TYPED_ARR {"PAT_HERMES_TYPED_ARR", 189}; // @<T>[..]; TYPE
+inline constexpr Code PAT_HERMES_TYPED_MAP {"PAT_HERMES_TYPED_MAP", 190}; // @<K,V>{..}; TYPE, RET_TYPE?
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
