@@ -21,8 +21,8 @@ unsafe fn main() -> i32 {
     let base: *const u8 = c.base();
     let ai: *const ArrayI32 = (base as i64 + arr.as_offset() as i64) as *const ArrayI32;
     if ai.size != 5 as u64 { return 1; }
-    if ai.get(base, 0 as u64) != 10 { return 2; }
-    if ai.get(base, 4 as u64) != 50 { return 3; }
+    if *ai.get_ptr(base, 0 as u64) != 10 { return 2; }
+    if *ai.get_ptr(base, 4 as u64) != 50 { return 3; }
 
     // Past initial capacity: push grows the buffer 2× on demand.
     c.array_i32_push(arr, 60);
@@ -31,7 +31,7 @@ unsafe fn main() -> i32 {
     c.array_i32_push(arr, 90);  // 9th push: grow to cap=16
     let ai2: *const ArrayI32 = (c.base() as i64 + arr.as_offset() as i64) as *const ArrayI32;
     if ai2.size != 9 as u64 { return 4; }
-    if ai2.get(c.base(), 8 as u64) != 90 { return 44; }
+    if *ai2.get_ptr(c.base(), 8 as u64) != 90 { return 44; }
 
     // ArrayU64
     let mut c2: HermesCtr = HermesCtr::builder(128 as i64);
@@ -43,7 +43,7 @@ unsafe fn main() -> i32 {
     let base2: *const u8 = c2.base();
     let a64: *const ArrayU64 = (base2 as i64 + au.as_offset() as i64) as *const ArrayU64;
     if a64.size != 3 as u64 { return 5; }
-    if a64.get(base2, 2 as u64) != 3000 as u64 { return 6; }
+    if *a64.get_ptr(base2, 2 as u64) != 3000 as u64 { return 6; }
 
     // MapI32AnyVal
     let mut c3: HermesCtr = HermesCtr::builder(128 as i64);

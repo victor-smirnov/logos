@@ -826,7 +826,10 @@ impl HermesParser {
             self.ok = false;
             return AnyVal::null_ptr();
         }
-        let arr: *mut ArrayI32 = ArrayI32::init(arr_raw, buf_raw, self.base, cap);
+        let arr: *mut ArrayI32 = arr_raw as *mut ArrayI32;
+        arr.size     = 0 as u64;
+        arr.capacity = cap;
+        arr.data.offset = (buf_raw as i64 - self.base as i64) as u32;
 
         self.skip();
         if self.peek() == 93 as u8 {  // ']'

@@ -349,64 +349,6 @@ pub eidos Array<i32>;
 
 pub type ArrayI32 = Array<i32>;
 
-impl ArrayI32 {
-    pub unsafe fn init(arr_raw: *mut u8, buf_raw: *mut u8,
-                       base: *mut u8, capacity: u64) -> *mut ArrayI32 {
-        let base_int: i64 = base as i64;
-        let buf_off: u32  = (buf_raw as i64 - base_int) as u32;
-        let arr: *mut ArrayI32 = arr_raw as *mut ArrayI32;
-        arr.size     = 0 as u64;
-        arr.capacity = capacity;
-        arr.data.offset     = buf_off;
-        return arr;
-    }
-
-    // Append an i32 value.  Grows 2× when full.  Silent no-op on OOM.
-    // See Array<AnyVal>::push for self-invalidation caveat.
-    pub unsafe fn push(self: *mut ArrayI32, holder: *mut MemHolder, val: i32) {
-        let elem_sz: i64 = 4 as i64;
-        let arr_off: u32 = (self as i64 - holder.base as i64) as u32;
-        if self.size >= self.capacity {
-            let old_cap: u64 = self.capacity;
-            let new_cap: u64 = if old_cap == 0 as u64 { 8 as u64 }
-                               else { old_cap * 2 as u64 };
-            let new_bytes: i64 = (new_cap as i64) * elem_sz;
-            let new_buf: *mut u8 = memholder_alloc(holder, new_bytes);
-            if new_buf == 0 as *mut u8 { return; }
-            let base2: *mut u8 = holder.base;
-            let arr2: *mut ArrayI32 = (base2 as i64 + arr_off as i64) as *mut ArrayI32;
-            let old_size: u64 = arr2.size;
-            let old_data_off: u32 = arr2.data.offset;
-            let old_bytes: i64 = (old_size as i64) * elem_sz;
-            let mut i: i64 = 0 as i64;
-            while i < old_bytes {
-                *((new_buf as i64 + i) as *mut u8) =
-                    *((base2 as i64 + old_data_off as i64 + i) as *const u8);
-                i = i + 1 as i64;
-            }
-            arr2.data.offset     = (new_buf as i64 - base2 as i64) as u32;
-            arr2.capacity = new_cap;
-            let ep2: *mut i32 = (base2 as i64 + arr2.data.offset as i64
-                                 + (arr2.size as i64) * elem_sz) as *mut i32;
-            *ep2 = val;
-            arr2.size = arr2.size + 1 as u64;
-            return;
-        }
-        let base: *mut u8 = holder.base;
-        let ep: *mut i32 = (base as i64 + self.data.offset as i64
-                            + (self.size as i64) * elem_sz) as *mut i32;
-        *ep = val;
-        self.size = self.size + 1 as u64;
-    }
-
-    // Get element by index. Returns 0 if out of bounds.
-    pub unsafe fn get(self: *const ArrayI32, base: *const u8, idx: u64) -> i32 {
-        if idx >= self.size { return 0; }
-        let ep: *const i32 = (base as i64 + self.data.offset as i64 + (idx as i64) * 4 as i64) as *const i32;
-        return *ep;
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Pre-materialized typed primitive array: <U64>[...]
 //
@@ -417,64 +359,6 @@ impl ArrayI32 {
 pub eidos Array<u64>;
 
 pub type ArrayU64 = Array<u64>;
-
-impl ArrayU64 {
-    pub unsafe fn init(arr_raw: *mut u8, buf_raw: *mut u8,
-                       base: *mut u8, capacity: u64) -> *mut ArrayU64 {
-        let base_int: i64 = base as i64;
-        let buf_off: u32  = (buf_raw as i64 - base_int) as u32;
-        let arr: *mut ArrayU64 = arr_raw as *mut ArrayU64;
-        arr.size     = 0 as u64;
-        arr.capacity = capacity;
-        arr.data.offset     = buf_off;
-        return arr;
-    }
-
-    // Append a u64 value.  Grows 2× when full.  Silent no-op on OOM.
-    // See Array<AnyVal>::push for self-invalidation caveat.
-    pub unsafe fn push(self: *mut ArrayU64, holder: *mut MemHolder, val: u64) {
-        let elem_sz: i64 = 8 as i64;
-        let arr_off: u32 = (self as i64 - holder.base as i64) as u32;
-        if self.size >= self.capacity {
-            let old_cap: u64 = self.capacity;
-            let new_cap: u64 = if old_cap == 0 as u64 { 8 as u64 }
-                               else { old_cap * 2 as u64 };
-            let new_bytes: i64 = (new_cap as i64) * elem_sz;
-            let new_buf: *mut u8 = memholder_alloc(holder, new_bytes);
-            if new_buf == 0 as *mut u8 { return; }
-            let base2: *mut u8 = holder.base;
-            let arr2: *mut ArrayU64 = (base2 as i64 + arr_off as i64) as *mut ArrayU64;
-            let old_size: u64 = arr2.size;
-            let old_data_off: u32 = arr2.data.offset;
-            let old_bytes: i64 = (old_size as i64) * elem_sz;
-            let mut i: i64 = 0 as i64;
-            while i < old_bytes {
-                *((new_buf as i64 + i) as *mut u8) =
-                    *((base2 as i64 + old_data_off as i64 + i) as *const u8);
-                i = i + 1 as i64;
-            }
-            arr2.data.offset     = (new_buf as i64 - base2 as i64) as u32;
-            arr2.capacity = new_cap;
-            let ep2: *mut u64 = (base2 as i64 + arr2.data.offset as i64
-                                 + (arr2.size as i64) * elem_sz) as *mut u64;
-            *ep2 = val;
-            arr2.size = arr2.size + 1 as u64;
-            return;
-        }
-        let base: *mut u8 = holder.base;
-        let ep: *mut u64 = (base as i64 + self.data.offset as i64
-                            + (self.size as i64) * elem_sz) as *mut u64;
-        *ep = val;
-        self.size = self.size + 1 as u64;
-    }
-
-    // Get element by index. Returns 0 if out of bounds.
-    pub unsafe fn get(self: *const ArrayU64, base: *const u8, idx: u64) -> u64 {
-        if idx >= self.size { return 0 as u64; }
-        let ep: *const u64 = (base as i64 + self.data.offset as i64 + (idx as i64) * 8 as i64) as *const u64;
-        return *ep;
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Pre-materialized typed map: <I32,AnyVal>{...}
