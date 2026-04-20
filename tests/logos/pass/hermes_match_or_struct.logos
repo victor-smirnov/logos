@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// OR-pattern with structural Hermes alts (including typed-container alts).
+
+package hermes_match_or_struct;
+
+use hermes.anyval;
+use hermes.containers;
+use hermes.ctr;
+use hermes.pat;
+use hermes.view;
+
+unsafe fn kind(d: &HermesStatic) -> i32 {
+    match d {
+        @[..] | @{}         => 1,     // any array or any map
+        @<I32>[..] | @<U64>[..] => 2,  // any typed numeric array
+        _                   => 0,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: HermesStatic = @[1, 2, 3];
+    let b: HermesStatic = @{"k": 1};
+    let c: HermesStatic = @<I32>[1, 2];
+    let d: HermesStatic = @<U64>[10];
+    let e: HermesStatic = @42;
+    // 1 + 1 + 2 + 2 + 0 = 6
+    return kind(&a) + kind(&b) + kind(&c) + kind(&d) + kind(&e) + 100;
+}

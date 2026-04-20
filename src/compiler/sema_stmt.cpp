@@ -1587,17 +1587,12 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         lir::LExprPtr acc;
         for (uint64_t i = 0; i < alts.size(); ++i) {
-            int32_t pc = code_of(map_of(alts.get(i)));
-            if (pc != la::PAT_HERMES_NULL && pc != la::PAT_HERMES_BOOL &&
-                pc != la::PAT_HERMES_INT  && pc != la::PAT_HERMES_STR) {
-                error("or-pattern with @{...}/@[...] alts not supported");
-                return make_expr(bool_t(), lir::ELitBool{false});
-            }
-            auto leaf = build_leaf(map_of(alts.get(i)), scrut_var);
-            if (!leaf) continue;
-            if (!acc) { acc = std::move(leaf); continue; }
+            // build_rec handles all Hermes pattern kinds (scalar + structural).
+            auto alt_guard = build_rec(map_of(alts.get(i)), scrut_var);
+            if (!alt_guard) continue;
+            if (!acc) { acc = std::move(alt_guard); continue; }
             acc = make_expr(bool_t(),
-                lir::EBinOp{"||", std::move(acc), std::move(leaf)});
+                lir::EBinOp{"||", std::move(acc), std::move(alt_guard)});
         }
         return acc;
     }
