@@ -1518,6 +1518,65 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         return error_expr();
     }
 
+    // Raw-pointer built-in arithmetic methods:
+    //   p.byte_add(n) / p.byte_sub(n)  — offset n bytes, same pointer type
+    //   p.add(n)      / p.sub(n)       — offset n elements
+    //   p.byte_offset_from(q)          — i64 byte distance
+    //   p.offset_from(q)               — i64 element distance
+    if (recv->type->kind == LogosType::Kind::Ptr) {
+        auto parse_args = [&]() {
+            std::vector<lir::LExprPtr> args;
+            if (node.has_key(la::ARGS)) {
+                auto av = arr_of(node.get(la::ARGS.code));
+                for (uint64_t i = 0; i < av.size(); ++i)
+                    args.push_back(lower_expr(map_of(av.get(i))));
+            }
+            return args;
+        };
+        auto mk_arith = [&](lir::EPtrArith::Op op) -> lir::LExprPtr {
+            if (!inside_unsafe_)
+                error(std::format("pointer method '{}' requires unsafe context", method_name));
+            auto args = parse_args();
+            if (args.size() != 1) {
+                error(std::format("pointer method '{}' expects 1 argument, got {}",
+                      method_name, args.size()));
+                return error_expr();
+            }
+            auto* at = args[0]->type;
+            auto* i64ty = prim(LogosType::Kind::I64);
+            if (at->kind != LogosType::Kind::Error && !types_compatible(at, i64ty))
+                error(std::format("pointer method '{}': argument must be i64, got {}",
+                      method_name, type_str(at)));
+            widen_int_expr(args[0], i64ty);
+            auto* ret_type = recv->type;
+            return make_expr(ret_type,
+                lir::EPtrArith{op, std::move(recv), std::move(args[0])});
+        };
+        auto mk_diff = [&](bool by_byte) -> lir::LExprPtr {
+            if (!inside_unsafe_)
+                error(std::format("pointer method '{}' requires unsafe context", method_name));
+            auto args = parse_args();
+            if (args.size() != 1) {
+                error(std::format("pointer method '{}' expects 1 argument, got {}",
+                      method_name, args.size()));
+                return error_expr();
+            }
+            auto* at = args[0]->type;
+            if (at->kind != LogosType::Kind::Error && at->kind != LogosType::Kind::Ptr)
+                error(std::format("pointer method '{}': argument must be a pointer, got {}",
+                      method_name, type_str(at)));
+            return make_expr(prim(LogosType::Kind::I64),
+                lir::EPtrDiff{by_byte, std::move(recv), std::move(args[0])});
+        };
+        if (method_name == "byte_add")         return mk_arith(lir::EPtrArith::ByteAdd);
+        if (method_name == "byte_sub")         return mk_arith(lir::EPtrArith::ByteSub);
+        if (method_name == "add")              return mk_arith(lir::EPtrArith::Add);
+        if (method_name == "sub")              return mk_arith(lir::EPtrArith::Sub);
+        if (method_name == "byte_offset_from") return mk_diff(true);
+        if (method_name == "offset_from")      return mk_diff(false);
+        // fall through: other methods (if any) resolve via struct lookup below
+    }
+
     // &dyn Trait method call: look up trait method, emit EMethodCall with vtable dispatch.
     if (recv->type->kind == LogosType::Kind::TraitObject) {
         auto& tname = recv->type->trait_name;

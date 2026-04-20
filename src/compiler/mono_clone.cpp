@@ -595,6 +595,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             for (auto* ct : k.capture_types)
                 nl.capture_types.push_back(subst_type(ct, s));
             result->kind = std::move(nl);
+        } else if constexpr (std::is_same_v<K, lir::EPtrArith>) {
+            result->kind = lir::EPtrArith{k.op,
+                subst_expr(*k.ptr, s), subst_expr(*k.offset, s)};
+        } else if constexpr (std::is_same_v<K, lir::EPtrDiff>) {
+            result->kind = lir::EPtrDiff{k.by_byte,
+                subst_expr(*k.lhs, s), subst_expr(*k.rhs, s)};
         }
     }, e.kind);
 

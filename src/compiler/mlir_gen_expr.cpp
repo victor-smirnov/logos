@@ -1986,6 +1986,72 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESizeOf& e, const LogosType*) {
         loc_, builder_.getI64Type(), size_ptr);
 }
 
+mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrArith& e, const LogosType*) {
+    auto p = gen_expr(*e.ptr);
+    auto n = gen_expr(*e.offset);
+    if (!p || !n) return nullptr;
+    // Widen/narrow offset to i64 just in case.
+    if (auto it = mlir::dyn_cast<mlir::IntegerType>(n.getType()))
+        if (it.getWidth() != 64)
+            n = coerce_int(n, builder_.getI64Type(), e.offset->type);
+    // Negate for Sub variants.
+    if (e.op == EPtrArith::ByteSub || e.op == EPtrArith::Sub) {
+        auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        n = builder_.create<mlir::arith::SubIOp>(loc_, zero, n);
+    }
+    mlir::Type elem_ty = builder_.getI8Type();  // default: byte indexing
+    if (e.op == EPtrArith::Add || e.op == EPtrArith::Sub) {
+        // Element indexing uses the pointee type from the receiver.
+        const LogosType* pt = e.ptr->type;
+        if (pt && pt->pointee) {
+            // Struct/Datatype want their aggregate LLVM type, not ptr.
+            if (pt->pointee->kind == LogosType::Kind::Struct ||
+                pt->pointee->kind == LogosType::Kind::Datatype) {
+                auto cname = concrete_struct_name(pt->pointee);
+                auto sit = struct_types_.find(cname);
+                if (sit != struct_types_.end())
+                    elem_ty = sit->second.llvm_type;
+                else
+                    elem_ty = logos_to_mlir(pt->pointee);
+            } else {
+                elem_ty = logos_to_mlir(pt->pointee);
+            }
+        }
+    }
+    llvm::SmallVector<mlir::LLVM::GEPArg> idx{n};
+    return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_ty, p, idx);
+}
+
+mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrDiff& e, const LogosType*) {
+    auto a = gen_expr(*e.lhs);
+    auto b = gen_expr(*e.rhs);
+    if (!a || !b) return nullptr;
+    auto i64ty = builder_.getI64Type();
+    auto ai = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64ty, a);
+    auto bi = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64ty, b);
+    mlir::Value diff = builder_.create<mlir::arith::SubIOp>(loc_, ai, bi);
+    if (e.by_byte) return diff;
+    // Element distance: diff / sizeof(pointee).
+    const LogosType* pt = e.lhs->type;
+    if (!pt || !pt->pointee) return diff;
+    mlir::Type elem_mlir = nullptr;
+    if (pt->pointee->kind == LogosType::Kind::Struct ||
+        pt->pointee->kind == LogosType::Kind::Datatype) {
+        auto cname = concrete_struct_name(pt->pointee);
+        auto sit = struct_types_.find(cname);
+        if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
+    }
+    if (!elem_mlir) elem_mlir = logos_to_mlir(pt->pointee);
+    if (!elem_mlir) return diff;
+    // sizeof trick.
+    mlir::Value zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+    mlir::Value null_ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), zero);
+    llvm::SmallVector<mlir::LLVM::GEPArg> one{int32_t(1)};
+    auto size_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, null_ptr, one);
+    auto sz = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64ty, size_ptr);
+    return builder_.create<mlir::arith::DivSIOp>(loc_, diff, sz);
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(const ETypeCodeOf& e, const LogosType*) {
     // Should have been folded to ELitInt by mono.  Emit 0 as a defensive
     // fallback (not expected to be reached for well-formed programs).

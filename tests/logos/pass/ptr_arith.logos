@@ -1,0 +1,32 @@
+package ptr_arith;
+// Raw-pointer arithmetic: byte_add/sub, add/sub, byte_offset_from, offset_from.
+// Uses slice.as_ptr() (*const u8) + explicit casts, since &arr[i] currently
+// spills the element to a fresh alloca.
+
+fn main() -> i32 {
+    let arr: [i32; 4] = [10, 20, 30, 40];
+    let s: &[i32] = &arr;
+    unsafe {
+        let base_u8: *const u8 = s.as_ptr();
+        let p0: *const i32 = base_u8 as *const i32;
+
+        let p2: *const i32 = p0.add(2);
+        let v2: i32 = *p2;                               // 30
+
+        let p1: *const i32 = p2.sub(1);
+        let v1: i32 = *p1;                               // 20
+
+        let p2b_u8: *const u8 = base_u8.byte_add(8);
+        let p2b: *const i32 = p2b_u8 as *const i32;
+        let v2b: i32 = *p2b;                             // 30
+
+        let p0b: *const i32 = p2.byte_sub(8);
+        let v0: i32 = *p0b;                              // 10
+
+        let diff_el: i64 = p2.offset_from(p0);           // 2
+        let diff_by: i64 = p2.byte_offset_from(p0);      // 8
+
+        return v2 + v1 + v2b + v0 + (diff_el as i32) + (diff_by as i32);
+        // 30 + 20 + 30 + 10 + 2 + 8 = 100
+    }
+}

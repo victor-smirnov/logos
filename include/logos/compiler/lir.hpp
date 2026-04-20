@@ -372,6 +372,25 @@ struct ESizeOf {
     const LogosType* elem_type = nullptr;
 };
 
+// Raw-pointer arithmetic intrinsic methods:
+//   p.byte_add(n)         — byte_add: offset n bytes, result same pointer type
+//   p.byte_sub(n)         — byte_sub: offset -n bytes
+//   p.add(n) / p.sub(n)   — scale n by sizeof(pointee), then byte offset
+//   p.byte_offset_from(q) — (p - q) in bytes, result i64
+//   p.offset_from(q)      — (p - q) / sizeof(pointee), result i64
+struct EPtrArith {
+    enum Op { ByteAdd, ByteSub, Add, Sub };
+    Op       op;
+    LExprPtr ptr;
+    LExprPtr offset;
+};
+
+struct EPtrDiff {
+    bool     by_byte;   // true = byte distance, false = element distance
+    LExprPtr lhs;
+    LExprPtr rhs;
+};
+
 // type_code_of::<T>() — Hermes wire-format type_code of T.  Deferred to mono
 // so each instantiation of a generic function gets T's own type_code.
 struct ETypeCodeOf {
@@ -406,7 +425,7 @@ struct LExpr {
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen, ESlicePtr,
         EClosureBox, EClosureCall, EFnPtrCall, EFormatCall, EPackExpand,
         ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr,
-        EHermesLit
+        EHermesLit, EPtrArith, EPtrDiff
     > kind;
 };
 
