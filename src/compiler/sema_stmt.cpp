@@ -1180,9 +1180,10 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
     // PatWild unchanged; the caller validates scrutinee type & synthesizes
     // the guard using build_hermes_pat_guard.
     if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-        pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR) {
+        pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
+        pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR) {
         if (!in_match_hermes_ctx_) {
-            error("Hermes scalar pattern (@null/@true/@false/@<int>/@\"str\") "
+            error("Hermes pattern (@null/@true/@false/@<int>/@\"str\"/@{...}/@[...]) "
                   "is only supported in `match` arms, not in if-let / "
                   "while-let / let-bindings / nested pattern positions.");
         }
@@ -1204,17 +1205,31 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
 // PAT_OR unwraps transparently.
 lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         TinyMapView pnode, const std::string& scrut_var,
-        const LogosType* scrut_type, const std::string& base_var) {
-    // Single-leaf builder.
-    auto build_leaf = [&](TinyMapView p) -> lir::LExprPtr {
+        const LogosType* scrut_type, const std::string& base_var,
+        std::vector<lir::LStmt>& out_stmts,
+        std::vector<HermesPatBinding>& out_bindings) {
+    const LogosType* ptr_t_outer = make_ptr(false, scrut_type);
+    const LogosType* u8_ptr_t_outer = make_ptr(false, prim(LogosType::Kind::U8));
+    const LogosType* u64_t = prim(LogosType::Kind::U64);
+    auto mk_true = [&]() {
+        return make_expr(bool_t(), lir::ELitBool{true});
+    };
+    auto mk_and = [&](lir::LExprPtr a, lir::LExprPtr b) -> lir::LExprPtr {
+        if (!a) return std::move(b);
+        if (!b) return std::move(a);
+        return make_expr(bool_t(),
+            lir::EBinOp{"&&", std::move(a), std::move(b)});
+    };
+    // Build a scalar-leaf guard for pattern `p` against AnyVal local `sv`.
+    // Returns nullptr only when p is not a scalar Hermes leaf.
+    auto build_leaf = [&](TinyMapView p, const std::string& sv) -> lir::LExprPtr {
         int32_t pc = code_of(p);
         if (pc != la::PAT_HERMES_NULL && pc != la::PAT_HERMES_BOOL &&
             pc != la::PAT_HERMES_INT  && pc != la::PAT_HERMES_STR)
             return nullptr;
 
-        // Caller guarantees scrut_type is AnyVal (result of view.root()).
-        const LogosType* ptr_t = make_ptr(false, scrut_type);
-        const LogosType* u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
+        const LogosType* ptr_t = ptr_t_outer;
+        const LogosType* u8_ptr_t = u8_ptr_t_outer;
 
         const char* helper = nullptr;
         size_t want_arity = 1;
@@ -1263,9 +1278,8 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return make_expr(bool_t(), lir::ELitBool{false});
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t, lir::EAddrOf{scrut_var}));
+        args.push_back(make_expr(ptr_t, lir::EAddrOf{sv}));
         if (pc == la::PAT_HERMES_STR) {
-            // hermes_pat_eq_str(av, base, s, n)
             args.push_back(make_expr(u8_ptr_t, lir::EVarRef{base_var}));
         }
         for (auto& a : extra_args) args.push_back(std::move(a));
@@ -1273,29 +1287,209 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
     };
 
-    // Unwrap PAT_OR: build per-alt guards and OR them.
+    // Emit `let __hp_N: AnyVal = helper(&parent_av, base, ...);`
+    // Returns the new local's name.
+    auto emit_child_let = [&](const std::string& helper,
+                              const std::string& parent_av,
+                              std::vector<lir::LExprPtr> extra_args,
+                              size_t want_arity) -> std::string {
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == want_arity) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use hermes.pat;`",
+                helper));
+            return "";
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{parent_av}));
+        args.push_back(make_expr(u8_ptr_t_outer, lir::EVarRef{base_var}));
+        for (auto& a : extra_args) args.push_back(std::move(a));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        auto call = make_expr(scrut_type,
+            lir::ECall{sym, {}, std::move(args)});
+        std::string child = "__hp_" + std::to_string(tmp_var_count_++);
+        lir::SLet sl;
+        sl.name = child; sl.type = scrut_type; sl.is_mut = false;
+        sl.value = std::move(call);
+        out_stmts.push_back(make_stmt(node_line_, std::move(sl)));
+        return child;
+    };
+    // Emit `hermes_pat_array_len_eq(&sv, base, n)` as a bool expr.
+    auto emit_array_len_eq = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
+        const char* helper = "hermes_pat_array_len_eq";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 3) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use hermes.pat;`",
+                helper));
+            return make_expr(bool_t(), lir::ELitBool{false});
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(make_expr(u8_ptr_t_outer, lir::EVarRef{base_var}));
+        args.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)n}));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+    };
+    // Emit `hermes_pat_is_map(&sv, base)` bool expr.
+    auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
+        const char* helper = "hermes_pat_is_map";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 2) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use hermes.pat;`",
+                helper));
+            return make_expr(bool_t(), lir::ELitBool{false});
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(make_expr(u8_ptr_t_outer, lir::EVarRef{base_var}));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+    };
+    // Emit `hermes_pat_is_present(&sv)` bool expr.
+    auto emit_present = [&](const std::string& sv) -> lir::LExprPtr {
+        const char* helper = "hermes_pat_is_present";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 1) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`", helper));
+            return make_expr(bool_t(), lir::ELitBool{false});
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+    };
+    // Recursive: build a guard expr for pattern `p` against AnyVal local `sv`.
+    std::function<lir::LExprPtr(TinyMapView, const std::string&)> build_rec;
+    build_rec = [&](TinyMapView p, const std::string& sv) -> lir::LExprPtr {
+        int32_t pc = code_of(p);
+        if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
+            pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR)
+            return build_leaf(p, sv);
+        if (pc == la::PAT_WILD) {
+            auto nm = str_of(p.get(la::NAME.code));
+            std::string name(nm);
+            if (!name.empty() && name != "_") {
+                error("binding inside @{...}/@[...] pattern is not yet supported; "
+                      "use `_` for now");
+            }
+            return mk_true();
+        }
+        if (pc == la::PAT_HERMES_MAP) {
+            lir::LExprPtr acc = emit_is_map(sv);
+            if (p.has_key(la::ITEMS)) {
+                auto wrap = map_of(p.get(la::ITEMS.code));
+                auto items = arr_of(wrap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto ent = map_of(items.get(i));
+                    if (code_of(ent) != la::PAT_HERMES_MAP_ENTRY) continue;
+                    auto ksv = str_of(ent.get(la::KEY.code));
+                    std::vector<lir::LExprPtr> xargs;
+                    xargs.push_back(make_expr(
+                        make_slice_type(prim(LogosType::Kind::U8)),
+                        lir::ELitStr{std::string(ksv)}));
+                    std::string child = emit_child_let(
+                        "hermes_pat_map_slot", sv, std::move(xargs), 3);
+                    if (child.empty()) {
+                        return make_expr(bool_t(), lir::ELitBool{false});
+                    }
+                    auto presence = emit_present(child);
+                    lir::LExprPtr sub;
+                    if (!ent.has_key(la::VALUE)) {
+                        sub = mk_true();
+                    } else {
+                        sub = build_rec(map_of(ent.get(la::VALUE.code)), child);
+                    }
+                    acc = mk_and(std::move(acc),
+                                 mk_and(std::move(presence), std::move(sub)));
+                }
+            }
+            if (!acc) acc = mk_true();
+            return acc;
+        }
+        if (pc == la::PAT_HERMES_ARR) {
+            uint64_t n = 0;
+            hermes::TinyMapView arr_wrap;
+            if (p.has_key(la::ITEMS)) {
+                arr_wrap = map_of(p.get(la::ITEMS.code));
+                n = arr_of(arr_wrap.get(la::ITEMS.code)).size();
+            }
+            auto acc = emit_array_len_eq(sv, n);
+            if (p.has_key(la::ITEMS)) {
+                auto items = arr_of(arr_wrap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    std::vector<lir::LExprPtr> xargs;
+                    xargs.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)i}));
+                    std::string child = emit_child_let(
+                        "hermes_pat_array_slot", sv, std::move(xargs), 3);
+                    if (child.empty()) {
+                        return make_expr(bool_t(), lir::ELitBool{false});
+                    }
+                    auto sub = build_rec(map_of(items.get(i)), child);
+                    acc = mk_and(std::move(acc), std::move(sub));
+                }
+            }
+            return acc;
+        }
+        // Unsupported in Hermes context.
+        error("unsupported pattern inside Hermes @{...}/@[...] pattern");
+        return make_expr(bool_t(), lir::ELitBool{false});
+    };
+
+    // Unwrap PAT_OR: build per-alt guards and OR them (scalar alts only).
     if (code_of(pnode) == la::PAT_OR && pnode.has_key(la::ITEMS)) {
         auto alts = arr_of(pnode.get(la::ITEMS.code));
         if (alts.size() == 0) return nullptr;
-        // First, determine whether any alt is a Hermes pattern.  If all alts
-        // are non-Hermes, return nullptr (normal pattern path).  If mixed,
-        // emit diagnostic — we don't support mixing in or-patterns.
+        // Single-alt PAT_OR (the grammar always wraps pattern in PAT_OR):
+        // recurse into the sole alternative so MAP/ARR are handled.
+        if (alts.size() == 1) {
+            int32_t pc0 = code_of(map_of(alts.get(0)));
+            bool is_hermes = pc0 == la::PAT_HERMES_NULL ||
+                             pc0 == la::PAT_HERMES_BOOL ||
+                             pc0 == la::PAT_HERMES_INT  ||
+                             pc0 == la::PAT_HERMES_STR  ||
+                             pc0 == la::PAT_HERMES_MAP  ||
+                             pc0 == la::PAT_HERMES_ARR;
+            if (!is_hermes) return nullptr;
+            return build_rec(map_of(alts.get(0)), scrut_var);
+        }
         bool any_hermes = false, any_non = false;
         for (uint64_t i = 0; i < alts.size(); ++i) {
             int32_t pc = code_of(map_of(alts.get(i)));
             if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-                pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR) any_hermes = true;
+                pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
+                pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR) any_hermes = true;
             else any_non = true;
         }
         if (!any_hermes) return nullptr;
         if (any_non) {
-            error("or-pattern mixing Hermes scalar patterns with other "
+            error("or-pattern mixing Hermes patterns with other "
                   "patterns is not supported");
             return make_expr(bool_t(), lir::ELitBool{false});
         }
         lir::LExprPtr acc;
         for (uint64_t i = 0; i < alts.size(); ++i) {
-            auto leaf = build_leaf(map_of(alts.get(i)));
+            int32_t pc = code_of(map_of(alts.get(i)));
+            if (pc != la::PAT_HERMES_NULL && pc != la::PAT_HERMES_BOOL &&
+                pc != la::PAT_HERMES_INT  && pc != la::PAT_HERMES_STR) {
+                error("or-pattern with @{...}/@[...] alts not supported");
+                return make_expr(bool_t(), lir::ELitBool{false});
+            }
+            auto leaf = build_leaf(map_of(alts.get(i)), scrut_var);
             if (!leaf) continue;
             if (!acc) { acc = std::move(leaf); continue; }
             acc = make_expr(bool_t(),
@@ -1303,7 +1497,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         return acc;
     }
-    return build_leaf(pnode);
+    return build_rec(pnode, scrut_var);
 }
 
 void SemaChecker::bind_pattern(const lir::Pattern& pat,
@@ -2607,7 +2801,8 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     // synthesized guards can take `&__hmatch_av` without re-evaluating scrut.
     auto is_hermes_pat_code = [](int32_t pc) {
         return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-               pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR;
+               pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
+               pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR;
     };
     // A pattern tree "contains" a Hermes scalar if it IS one, or a PAT_OR
     // alt is one.  We only unwrap PAT_OR here — nested PAT_AT/PAT_REF wrapping
@@ -2693,11 +2888,22 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             auto arm = map_of(arms.get(i));
             if (code_of(arm) != la::MATCH_ARM) continue;
 
-            // Synthesize guard for Hermes scalar patterns.
+            // Synthesize guard for Hermes patterns (scalar + structural).
             lir::LExprPtr synth_guard;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
-                synth_guard = build_hermes_pat_guard(
-                    map_of(arm.get(la::LHS.code)), root_var, anyval_t, base_var);
+                std::vector<lir::LStmt> g_stmts;
+                std::vector<HermesPatBinding> g_binds;
+                auto raw = build_hermes_pat_guard(
+                    map_of(arm.get(la::LHS.code)), root_var, anyval_t, base_var,
+                    g_stmts, g_binds);
+                if (!g_stmts.empty() && raw) {
+                    auto blk = std::make_unique<lir::LBlock>();
+                    blk->stmts = std::move(g_stmts);
+                    synth_guard = make_expr(bool_t(),
+                        lir::EBlockExpr{std::move(blk), std::move(raw)});
+                } else {
+                    synth_guard = std::move(raw);
+                }
             }
 
             // Build pattern
@@ -2851,7 +3057,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     // Hermes scalar pattern hoisting (symmetric to lower_match).
     auto is_hermes_pc = [](int32_t pc) {
         return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-               pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR;
+               pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
+               pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR;
     };
     auto pat_has_hermes = [&](TinyMapView p) -> bool {
         if (is_hermes_pc(code_of(p))) return true;
@@ -2934,8 +3141,19 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
             lir::LExprPtr synth_guard;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
-                synth_guard = build_hermes_pat_guard(
-                    map_of(arm.get(la::LHS.code)), root_var, anyval_t, base_var);
+                std::vector<lir::LStmt> g_stmts;
+                std::vector<HermesPatBinding> g_binds;
+                auto raw = build_hermes_pat_guard(
+                    map_of(arm.get(la::LHS.code)), root_var, anyval_t,
+                    base_var, g_stmts, g_binds);
+                if (!g_stmts.empty() && raw) {
+                    auto blk = std::make_unique<lir::LBlock>();
+                    blk->stmts = std::move(g_stmts);
+                    synth_guard = make_expr(bool_t(),
+                        lir::EBlockExpr{std::move(blk), std::move(raw)});
+                } else {
+                    synth_guard = std::move(raw);
+                }
             }
 
             in_match_hermes_ctx_ = has_hermes_pat;

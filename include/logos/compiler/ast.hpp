@@ -249,6 +249,9 @@ inline constexpr Code PAT_HERMES_NULL    {"PAT_HERMES_NULL",     182};  // @null
 inline constexpr Code PAT_HERMES_BOOL    {"PAT_HERMES_BOOL",     183};  // @true / @false pattern (AnyVal bool); VALUE(7) = true/false
 inline constexpr Code PAT_HERMES_INT     {"PAT_HERMES_INT",      184};  // @<int> / @-<int> pattern (AnyVal i24); VALUE(7) = integer, IS_NEG(5)? = true
 inline constexpr Code PAT_HERMES_STR     {"PAT_HERMES_STR",      185};  // @"..." pattern (AnyVal Varchar); VALUE(7) = string literal
+inline constexpr Code PAT_HERMES_MAP     {"PAT_HERMES_MAP",      186};  // @{k: pat,...} pattern; ITEMS
+inline constexpr Code PAT_HERMES_ARR     {"PAT_HERMES_ARR",      187};  // @[pat,...] pattern; ITEMS
+inline constexpr Code PAT_HERMES_MAP_ENTRY {"PAT_HERMES_MAP_ENTRY", 188}; // KEY(8)=str key, VALUE(7)=sub-pattern
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)

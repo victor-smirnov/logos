@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: Apache-2.0
+// Test: Hermes map structural patterns @{...}.
+
+package hermes_match_map;
+
+use hermes.anyval;
+use hermes.ctr;
+use hermes.pat;
+use hermes.view;
+
+unsafe fn classify(d: &HermesStatic) -> i32 {
+    match d {
+        @{"kind": @"error", "code": @404} => 1,
+        @{"kind": @"error"}               => 2,
+        @{"kind": @"ok"}                  => 3,
+        @{}                               => 4,
+        _                                 => 0,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: HermesStatic = @{"kind": "error", "code": 404};
+    let b: HermesStatic = @{"kind": "error", "code": 500};
+    let c: HermesStatic = @{"kind": "ok"};
+    let d: HermesStatic = @{};
+    let e: HermesStatic = @42;
+    // 1 + 2 + 3 + 4 + 0 = 10
+    return classify(&a) + classify(&b) + classify(&c)
+         + classify(&d) + classify(&e);
+}

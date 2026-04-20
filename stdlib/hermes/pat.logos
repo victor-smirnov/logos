@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.match
+//
+// Runtime helpers for @{...} and @[...] match patterns.  These navigate
+// AnyVal scrutinees into ObjectMap / ObjectArray and return the AnyVal at
+// the requested position (null AnyVal on miss / wrong type).
+
+package hermes.pat;
+
+use hermes.anyval;
+use hermes.typetag;
+use hermes.objectmap;
+use hermes.containers;
+
+// True iff scrutinee is a map (ObjectMap or TinyObjectMap).
+pub unsafe fn hermes_pat_is_map(av: *const AnyVal, base: *const u8) -> bool {
+    if av.is_null() { return false; }
+    return av.is_map(base);
+}
+
+// Map slot lookup for @{"k": pat} patterns.
+pub unsafe fn hermes_pat_map_slot(av: *const AnyVal, base: *const u8,
+                                  key: str) -> AnyVal {
+    if av.is_null() { return AnyVal::null_ptr(); }
+    if !av.is_map(base) { return AnyVal::null_ptr(); }
+    let obj: *const u8 = (base as i64 + av.as_offset() as i64) as *const u8;
+    let tag: u64 = read_type_code(obj);
+    if tag == hermes_tag_tiny_map() as u64 { return AnyVal::null_ptr(); }
+    let omap: *const Map<Varchar, AnyVal> = obj as *const Map<Varchar, AnyVal>;
+    return omap.get(base, key.as_ptr(), key.len() as u64);
+}
+
+pub unsafe fn hermes_pat_array_slot(av: *const AnyVal, base: *const u8,
+                                    idx: u64) -> AnyVal {
+    if av.is_null() { return AnyVal::null_ptr(); }
+    if !av.is_array(base) { return AnyVal::null_ptr(); }
+    let arr: *const Array<AnyVal> =
+        (base as i64 + av.as_offset() as i64) as *const Array<AnyVal>;
+    return arr.get(base, idx);
+}
+
+pub unsafe fn hermes_pat_array_len_eq(av: *const AnyVal, base: *const u8,
+                                      n: u64) -> bool {
+    if av.is_null() { return false; }
+    if !av.is_array(base) { return false; }
+    let arr: *const Array<AnyVal> =
+        (base as i64 + av.as_offset() as i64) as *const Array<AnyVal>;
+    return arr.size == n;
+}

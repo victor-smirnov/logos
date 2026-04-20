@@ -227,6 +227,9 @@
     PAT_HERMES_BOOL             = 183   // @true / @false pattern; VALUE
     PAT_HERMES_INT              = 184   // @<int> or @-<int> pattern; VALUE, IS_NEG
     PAT_HERMES_STR              = 185   // @"..." pattern; VALUE = string literal
+    PAT_HERMES_MAP              = 186   // @{k: pat, ...} pattern; ITEMS = entries
+    PAT_HERMES_ARR              = 187   // @[pat, ...] pattern; ITEMS = sub-patterns
+    PAT_HERMES_MAP_ENTRY        = 188   // entry: KEY = string key, VALUE = sub-pattern
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -901,6 +904,16 @@
     pat_slice_elems <- pat_slice_elem (COMMA pat_slice_elem)* COMMA?
                     => { ITEMS: $... }
 
+    // Hermes map/array pattern entry lists.
+    pat_hermes_map_entry <- STRING COLON pat_single
+                         => { CODE: PAT_HERMES_MAP_ENTRY, KEY: $1, VALUE: $3 }
+
+    pat_hermes_map_entries <- pat_hermes_map_entry (COMMA pat_hermes_map_entry)* COMMA?
+                           => { ITEMS: $... }
+
+    pat_hermes_arr_elems <- pat_single (COMMA pat_single)* COMMA?
+                         => { ITEMS: $... }
+
     // ── pat_single: all pattern alternatives ─────────────────────────────
     pat_single
         // @ binding: must come before bare IDENT to capture "name @ sub"
@@ -938,6 +951,14 @@
         => { CODE: PAT_HERMES_INT, VALUE: $2 }
         / AT STRING
         => { CODE: PAT_HERMES_STR, VALUE: $2 }
+        / AT LBRACE pat_hermes_map_entries RBRACE
+        => { CODE: PAT_HERMES_MAP, ITEMS: $3 }
+        / AT LBRACE RBRACE
+        => { CODE: PAT_HERMES_MAP }
+        / AT LBRACKET pat_hermes_arr_elems RBRACKET
+        => { CODE: PAT_HERMES_ARR, ITEMS: $3 }
+        / AT LBRACKET RBRACKET
+        => { CODE: PAT_HERMES_ARR }
         / IDENT COLONCOLON IDENT LPAREN pat_binding_list? RPAREN
         => { CODE: PAT_VARIANT_DATA, NAME: $1, FIELD: $3, ARGS: $5 }
         / IDENT COLONCOLON IDENT

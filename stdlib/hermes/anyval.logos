@@ -265,6 +265,11 @@ pub unsafe fn hermes_pat_eq_i24(av: *const AnyVal, v: i32) -> bool {
     return av.as_i24() == v;
 }
 
+// Presence check — true when AnyVal is non-null (raw != 0).
+pub unsafe fn hermes_pat_is_present(av: *const AnyVal) -> bool {
+    return !av.is_null();
+}
+
 pub unsafe fn hermes_pat_eq_str(av: *const AnyVal, base: *const u8,
                                 s: str) -> bool {
     if av.is_null() { return false; }

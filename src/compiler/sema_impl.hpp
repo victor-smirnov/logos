@@ -699,10 +699,16 @@ private:
     // If pnode is a Hermes scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
     // bool-typed guard call that evaluates the pattern against `scrut_var`
     // (which must be an AnyVal).  Returns nullptr otherwise.
+    struct HermesPatBinding {
+        std::string name;        // user-visible binding name in arm body
+        std::string av_var;      // AnyVal local holding the value
+    };
     lir::LExprPtr build_hermes_pat_guard(hermes::TinyMapView pnode,
                                          const std::string& scrut_var,
                                          const LogosType* scrut_type,
-                                         const std::string& base_var);
+                                         const std::string& base_var,
+                                         std::vector<lir::LStmt>& out_stmts,
+                                         std::vector<HermesPatBinding>& out_bindings);
     // Returns the "inner" (ref-stripped) view type if `t` is HermesCtr,
     // HermesCtrView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
     const LogosType* hermes_view_inner(const LogosType* t) const {
@@ -874,7 +880,9 @@ inline int64_t parse_int_literal(std::string_view sv) noexcept {
         if (result > (uint64_t)INT64_MAX)      return INT64_MIN;  // saturate
         return -(int64_t)result;
     }
-    return (result > (uint64_t)INT64_MAX) ? INT64_MAX : (int64_t)result;
+    // Raw bit-cast: preserve full 64-bit pattern for u64 literals whose value
+    // exceeds INT64_MAX (e.g. FNV offset basis 0xcbf29ce484222325).
+    return (int64_t)result;
 }
 
 template <class Pred>
