@@ -3341,6 +3341,10 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
     const LogosType* iter_type = iter->type;
 
+    // Short-circuit on upstream error to avoid cascading diagnostics.
+    if (iter_type->kind == LogosType::Kind::Error)
+        return error_expr();
+
     const LogosType* elem_type = nullptr;
     int64_t arr_size = 0;
     bool is_slice = false;
@@ -3392,6 +3396,22 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         "hermes list comprehension element");
     if (!val_expr_body || val_expr_body->type->kind == LogosType::Kind::Error)
         return error_expr();
+
+    // Guard must be Bool; any other type (including Error) is rejected here to
+    // avoid cascading diagnostics and to prevent an MLIR verification crash
+    // from feeding a non-i1 value into cf.cond_br.
+    if (guard_body) {
+        auto gk = guard_body->type ? guard_body->type->kind
+                                   : LogosType::Kind::Error;
+        if (gk == LogosType::Kind::Error)
+            return error_expr();
+        if (gk != LogosType::Kind::Bool) {
+            error(std::format(
+                "hermes list comprehension: guard must be bool (got {})",
+                type_str(guard_body->type)));
+            return error_expr();
+        }
+    }
 
     // SLet: let mut __hlc_c = hermes_list_comp_new(128);
     std::string new_sym = new_fi->symbol_name.empty() ? "hermes_list_comp_new"
@@ -3457,6 +3477,10 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
     const LogosType* iter_type = iter->type;
 
+    // Short-circuit on upstream error to avoid cascading diagnostics.
+    if (iter_type->kind == LogosType::Kind::Error)
+        return error_expr();
+
     const LogosType* elem_type = nullptr;
     int64_t arr_size = 0;
     bool is_slice = false;
@@ -3503,8 +3527,11 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
     pop_scope();
 
-    // Require KEY to be str (&[u8] slice).
+    // Require KEY to be str (&[u8] slice).  Short-circuit on Error to avoid
+    // cascading diagnostics when the key subexpression already failed.
     const LogosType* kt = key_expr->type;
+    if (kt && kt->kind == LogosType::Kind::Error)
+        return error_expr();
     if (!(kt && kt->kind == LogosType::Kind::Slice && kt->elem
               && kt->elem->kind == LogosType::Kind::U8)) {
         error(std::format(
@@ -3519,6 +3546,21 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         "hermes map comprehension value");
     if (!val_expr || val_expr->type->kind == LogosType::Kind::Error)
         return error_expr();
+
+    // Guard must be Bool; reject anything else early to avoid MLIR crashes
+    // (cf.cond_br requires i1) and to silence cascades when the guard errored.
+    if (guard_body) {
+        auto gk = guard_body->type ? guard_body->type->kind
+                                   : LogosType::Kind::Error;
+        if (gk == LogosType::Kind::Error)
+            return error_expr();
+        if (gk != LogosType::Kind::Bool) {
+            error(std::format(
+                "hermes map comprehension: guard must be bool (got {})",
+                type_str(guard_body->type)));
+            return error_expr();
+        }
+    }
 
     std::string new_sym = new_fi->symbol_name.empty() ? "hermes_map_comp_new"
                                                       : new_fi->symbol_name;
@@ -3590,6 +3632,10 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
         std::string_view context) {
     if (!val || !val->type) return val;
     const LogosType* t = val->type;
+
+    // Pass Error through unchanged — caller short-circuits on Error without
+    // emitting an additional "cannot auto-coerce <error>" diagnostic.
+    if (t->kind == LogosType::Kind::Error) return val;
 
     // AnyVal passthrough (datatype or struct form).
     if ((t->kind == LogosType::Kind::Struct
