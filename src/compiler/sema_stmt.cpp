@@ -202,9 +202,31 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
             auto s = map_of(stmts.get(i));
             if (s.is_null()) continue;
             auto lowered = lower_stmt(s);
-            // Insert drops before return/break/continue
-            if (std::holds_alternative<lir::SReturn>(lowered.kind)) {
-                for (auto& d : collect_all_drops())
+            // Insert drops before return/break/continue.
+            // Return's value expression MUST be evaluated BEFORE the drops
+            // (it may borrow variables that the drops would release).
+            // Hoist the return value into a temporary, then drop, then return
+            // the temporary.
+            if (auto* sr = std::get_if<lir::SReturn>(&lowered.kind)) {
+                auto drops = collect_all_drops();
+                if (!drops.empty() && sr->value) {
+                    const LogosType* rt = sr->value->type;
+                    std::string tmp = "__ret_tmp_" +
+                        std::to_string(tmp_var_count_++);
+                    lir::SLet sl;
+                    sl.name = tmp; sl.type = rt; sl.is_mut = false;
+                    sl.value = std::move(sr->value);
+                    result.stmts.push_back(
+                        make_stmt(node_line_, std::move(sl)));
+                    for (auto& d : drops)
+                        result.stmts.push_back(std::move(d));
+                    lir::SReturn nsr;
+                    nsr.value = make_expr(rt, lir::EVarRef{tmp});
+                    result.stmts.push_back(
+                        make_stmt(node_line_, std::move(nsr)));
+                    continue;
+                }
+                for (auto& d : drops)
                     result.stmts.push_back(std::move(d));
             } else if (std::holds_alternative<lir::SBreak>(lowered.kind) ||
                        std::holds_alternative<lir::SContinue>(lowered.kind)) {
