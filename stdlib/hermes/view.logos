@@ -465,7 +465,7 @@ pub trait HermesWrite: HermesRead {
             if read_type_code(obj) != hermes_tag_array_i32() as u64 { return; }
             let ai: *mut Array<i32> =
                 (base as i64 + arr.as_offset() as i64) as *mut Array<i32>;
-            ai.push(zone.holder, &val);
+            ai.push(zone.holder, val);
         }
     }
 
@@ -503,7 +503,7 @@ pub trait HermesWrite: HermesRead {
             if read_type_code(obj) != hermes_tag_array_u64() as u64 { return; }
             let au: *mut Array<u64> =
                 (base as i64 + arr.as_offset() as i64) as *mut Array<u64>;
-            au.push(zone.holder, &val);
+            au.push(zone.holder, val);
         }
     }
 

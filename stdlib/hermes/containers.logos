@@ -211,7 +211,7 @@ impl<T> Array<T> {
     // Dynamic push with 2× growth via MemHolder.  On grow, `self` may be
     // invalidated by the realloc — callers must re-resolve through the
     // zone base afterwards if they kept a pointer.
-    pub unsafe fn push(self: *mut Array<T>, holder: *mut MemHolder, val_ptr: *const T) {
+    pub unsafe fn push(self: *mut Array<T>, holder: *mut MemHolder, val: T) {
         let elem_sz: i64 = sizeof::<T>() as i64;
         let arr_off: u32 = (self as i64 - holder.base as i64) as u32;
         if self.size >= self.capacity {
@@ -236,14 +236,14 @@ impl<T> Array<T> {
             arr2.capacity = new_cap;
             let ep2: *mut T = (base2 as i64 + arr2.data.offset as i64
                                + (arr2.size as i64) * elem_sz) as *mut T;
-            *ep2 = *val_ptr;
+            *ep2 = val;
             arr2.size = arr2.size + 1 as u64;
             return;
         }
         let base: *mut u8 = holder.base;
         let ep: *mut T = (base as i64 + self.data.offset as i64
                           + (self.size as i64) * elem_sz) as *mut T;
-        *ep = *val_ptr;
+        *ep = val;
         self.size = self.size + 1 as u64;
     }
 
@@ -282,50 +282,6 @@ impl Array<AnyVal> {
             i = i + 1 as u64;
         }
         return arr_ptr;
-    }
-
-    // Append a value.  Grows the element buffer 2× when full, allocating into
-    // the zone backed by `holder`.  On OOM the push is a silent no-op.
-    //
-    // WARNING: after this call the caller's `self` pointer may be stale —
-    // `memholder_alloc` can realloc the zone, moving `holder.base`.  Re-resolve
-    // via `holder.base + arr_off` if the caller retains a handle.
-    pub unsafe fn push(self: *mut Array<AnyVal>, holder: *mut MemHolder, val: AnyVal) {
-        let elem_sz: i64 = sizeof::<AnyVal>() as i64;
-        let arr_off: u32 = (self as i64 - holder.base as i64) as u32;
-        if self.size >= self.capacity {
-            let old_cap: u64 = self.capacity;
-            let new_cap: u64 = if old_cap == 0 as u64 { 8 as u64 }
-                               else { old_cap * 2 as u64 };
-            let new_bytes: i64 = (new_cap as i64) * elem_sz;
-            let new_buf: *mut u8 = memholder_alloc(holder, new_bytes);
-            if new_buf == 0 as *mut u8 { return; }
-            // Re-resolve self: holder.base may have moved during alloc.
-            let base2: *mut u8 = holder.base;
-            let arr2: *mut Array<AnyVal> =
-                (base2 as i64 + arr_off as i64) as *mut Array<AnyVal>;
-            let old_size: u64   = arr2.size;
-            let old_data_off: u32 = arr2.data.offset;
-            let old_bytes: i64  = (old_size as i64) * elem_sz;
-            let mut i: i64 = 0 as i64;
-            while i < old_bytes {
-                *((new_buf as i64 + i) as *mut u8) =
-                    *((base2 as i64 + old_data_off as i64 + i) as *const u8);
-                i = i + 1 as i64;
-            }
-            arr2.data.offset     = (new_buf as i64 - base2 as i64) as u32;
-            arr2.capacity = new_cap;
-            let ep2: *mut AnyVal = (base2 as i64 + arr2.data.offset as i64
-                                    + (arr2.size as i64) * elem_sz) as *mut AnyVal;
-            ep2.raw = val.raw;
-            arr2.size = arr2.size + 1 as u64;
-            return;
-        }
-        let base: *mut u8 = holder.base;
-        let ep: *mut AnyVal = (base as i64 + self.data.offset as i64
-                               + (self.size as i64) * elem_sz) as *mut AnyVal;
-        ep.raw = val.raw;
-        self.size = self.size + 1 as u64;
     }
 
     // Get element by index. Returns AnyVal::null_ptr() if out of bounds.
