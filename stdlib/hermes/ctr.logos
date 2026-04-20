@@ -582,8 +582,8 @@ pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal,
                 let m: *mut MapI32AnyVal = hdr_raw as *mut MapI32AnyVal;
                 m.size     = len as u32;
                 m.capacity = len as u32;
-                m.keys     = keys_off;
-                m.vals     = vals_off;
+                m.keys.offset = keys_off;
+                m.vals.offset = vals_off;
                 let map_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
                 let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
                 document_set_root(doc, AnyVal::from_offset(map_off));

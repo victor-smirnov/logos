@@ -272,12 +272,12 @@ impl HermesStringify for MapI32AnyVal {
             while i < m.size {
                 if i > 0 as u32 { ctx.out.push_u8(44 as u8); }
                 let kp: *const i32 =
-                    (ctx.base as i64 + m.keys as i64 + (i as i64) * 4 as i64) as *const i32;
+                    (ctx.base as i64 + m.keys.offset as i64 + (i as i64) * 4 as i64) as *const i32;
                 ctx.out.push_i64(*kp as i64);
                 ctx.out.push_u8(58 as u8);   // ':'
                 if ctx.opts.indent > 0 as i64 { ctx.out.push_u8(32 as u8); }
                 let vp: *const AnyVal =
-                    (ctx.base as i64 + m.vals as i64 + (i as i64) * 4 as i64) as *const AnyVal;
+                    (ctx.base as i64 + m.vals.offset as i64 + (i as i64) * 4 as i64) as *const AnyVal;
                 let vv: AnyVal = AnyVal { raw: vp.raw };
                 stringify_anyval(vv, ctx);
                 i = i + 1 as u32;

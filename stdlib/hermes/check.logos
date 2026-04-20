@@ -580,8 +580,8 @@ impl HermesCheck for MapI32AnyVal {
                 state.error = CheckError::BadSize;
                 return false;
             }
-            let keys_off: i64   = m.keys as i64;
-            let vals_off: i64   = m.vals as i64;
+            let keys_off: i64   = m.keys.offset as i64;
+            let vals_off: i64   = m.vals.offset as i64;
             let buf_bytes: i64  = (cap as i64) * 4 as i64;
             if buf_bytes > 0 as i64 {
                 if !check_bounds(state, keys_off, buf_bytes) { return false; }

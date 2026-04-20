@@ -619,7 +619,7 @@ impl HermesClone for MapI32AnyVal {
             } else { 0 as u32 };
 
             // Copy i32 keys (no zone references, plain raw bytes).
-            let src_keys: *const u8 = (ctx.base_src as i64 + m.keys as i64) as *const u8;
+            let src_keys: *const u8 = (ctx.base_src as i64 + m.keys.offset as i64) as *const u8;
             let mut bi: u32 = 0 as u32;
             while bi < sz * 4 as u32 {
                 let dst: *mut u8 = (ctx.zone_dst.holder.base as i64
@@ -638,11 +638,11 @@ impl HermesClone for MapI32AnyVal {
             let new_m: *mut MapI32AnyVal = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut MapI32AnyVal;
             new_m.size     = sz;
             new_m.capacity = cap;
-            new_m.keys     = keys_buf_off;
-            new_m.vals     = vals_buf_off;
+            new_m.keys.offset = keys_buf_off;
+            new_m.vals.offset = vals_buf_off;
 
             // Clone AnyVal values (may contain zone pointers).
-            let src_vals: *const AnyVal = (ctx.base_src as i64 + m.vals as i64) as *const AnyVal;
+            let src_vals: *const AnyVal = (ctx.base_src as i64 + m.vals.offset as i64) as *const AnyVal;
             let mut vi: u32 = 0 as u32;
             while vi < sz {
                 let src_v: AnyVal = AnyVal { raw: ((src_vals as i64 + (vi as i64) * 4 as i64) as *const AnyVal).raw };

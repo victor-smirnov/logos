@@ -535,8 +535,8 @@ pub trait HermesWrite: HermesRead {
             let m: *mut MapI32AnyVal = hdr_raw as *mut MapI32AnyVal;
             m.size     = 0 as u32;
             m.capacity = cap;
-            m.keys     = keys_off;
-            m.vals     = vals_off;
+            m.keys.offset = keys_off;
+            m.vals.offset = vals_off;
             let off: u32 = (hdr_raw as i64 - base as i64) as u32;
             return AnyVal::from_offset(off);
         }

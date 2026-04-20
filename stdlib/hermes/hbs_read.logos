@@ -405,7 +405,7 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
 
     if top.kind == FR_MI32_VAL {
         let m: *mut MapI32AnyVal = (base as i64 + top.zone_off as i64) as *mut MapI32AnyVal;
-        let vals_ptr: *mut AnyVal = (base as i64 + m.vals as i64) as *mut AnyVal;
+        let vals_ptr: *mut AnyVal = (base as i64 + m.vals.offset as i64) as *mut AnyVal;
         let ep: *mut AnyVal = (vals_ptr as i64 + top.idx as i64 * 4 as i64) as *mut AnyVal;
         ep.raw = val.raw;
         top.idx = top.idx + 1 as u32;
@@ -814,8 +814,8 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         let m: *mut MapI32AnyVal = (base as i64 + hdr_off as i64) as *mut MapI32AnyVal;
         m.size = count;
         m.capacity = count;
-        m.keys = keys_off;
-        m.vals = if count > 0 as u32 { (vals_raw as i64 - base as i64) as u32 } else { 0 as u32 };
+        m.keys.offset = keys_off;
+        m.vals.offset = if count > 0 as u32 { (vals_raw as i64 - base as i64) as u32 } else { 0 as u32 };
         // Read i32 keys inline (use fresh pointer from offset)
         let keys_ptr: *mut u32 = (base as i64 + keys_off as i64) as *mut u32;
         let mut i: u32 = 0 as u32;

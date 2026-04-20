@@ -551,8 +551,8 @@ pub genos MapI32AnyValTag {
 pub eidos MapI32AnyVal {
     pub size:     u32,
     pub capacity: u32,
-    pub keys:     u32,   // zone-relative offset to i32[]
-    pub vals:     u32,   // zone-relative offset to AnyVal[]
+    pub keys:     RelPtr<i32>,     // zone-relative offset to i32[]
+    pub vals:     RelPtr<AnyVal>,  // zone-relative offset to AnyVal[]
 }
 
 impl MapI32AnyValTag for MapI32AnyVal {
@@ -566,8 +566,8 @@ impl MapI32AnyVal {
         let m: *mut MapI32AnyVal = map_raw as *mut MapI32AnyVal;
         m.size     = 0 as u32;
         m.capacity = capacity;
-        m.keys     = (keys_raw as i64 - base_i) as u32;
-        m.vals     = (vals_raw as i64 - base_i) as u32;
+        m.keys.offset = (keys_raw as i64 - base_i) as u32;
+        m.vals.offset = (vals_raw as i64 - base_i) as u32;
         return m;
     }
 
@@ -575,9 +575,9 @@ impl MapI32AnyVal {
     pub unsafe fn set(self: *mut MapI32AnyVal, base: *mut u8, key: i32, val: AnyVal) {
         let mut i: u32 = 0 as u32;
         while i < self.size {
-            let kp: *const i32 = (base as i64 + self.keys as i64 + (i as i64) * 4 as i64) as *const i32;
+            let kp: *const i32 = (base as i64 + self.keys.offset as i64 + (i as i64) * 4 as i64) as *const i32;
             if *kp == key {
-                let vp: *mut AnyVal = (base as i64 + self.vals as i64 + (i as i64) * 4 as i64) as *mut AnyVal;
+                let vp: *mut AnyVal = (base as i64 + self.vals.offset as i64 + (i as i64) * 4 as i64) as *mut AnyVal;
                 vp.raw = val.raw;
                 return;
             }
@@ -585,8 +585,8 @@ impl MapI32AnyVal {
         }
         if self.size >= self.capacity { return; }
         let n: u32 = self.size;
-        let kdst: *mut i32 = (base as i64 + self.keys as i64 + (n as i64) * 4 as i64) as *mut i32;
-        let vdst: *mut AnyVal = (base as i64 + self.vals as i64 + (n as i64) * 4 as i64) as *mut AnyVal;
+        let kdst: *mut i32 = (base as i64 + self.keys.offset as i64 + (n as i64) * 4 as i64) as *mut i32;
+        let vdst: *mut AnyVal = (base as i64 + self.vals.offset as i64 + (n as i64) * 4 as i64) as *mut AnyVal;
         *kdst = key;
         vdst.raw = val.raw;
         self.size = self.size + 1 as u32;

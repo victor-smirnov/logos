@@ -24,12 +24,12 @@ unsafe fn main() -> i32 {
     let m1: *const MapI32AnyVal = o1 as *const MapI32AnyVal;
     if m1.size != 2 as u32 { return 4; }
 
-    let k0: i32 = *((b1 as i64 + m1.keys as i64 + 0 as i64 * 4 as i64) as *const i32);
-    let k1: i32 = *((b1 as i64 + m1.keys as i64 + 1 as i64 * 4 as i64) as *const i32);
+    let k0: i32 = *((b1 as i64 + m1.keys.offset as i64 + 0 as i64 * 4 as i64) as *const i32);
+    let k1: i32 = *((b1 as i64 + m1.keys.offset as i64 + 1 as i64 * 4 as i64) as *const i32);
     if k0 != 1 as i32 || k1 != 2 as i32 { return 5; }
 
-    let v0: *const AnyVal = (b1 as i64 + m1.vals as i64 + 0 as i64 * 4 as i64) as *const AnyVal;
-    let v1: *const AnyVal = (b1 as i64 + m1.vals as i64 + 1 as i64 * 4 as i64) as *const AnyVal;
+    let v0: *const AnyVal = (b1 as i64 + m1.vals.offset as i64 + 0 as i64 * 4 as i64) as *const AnyVal;
+    let v1: *const AnyVal = (b1 as i64 + m1.vals.offset as i64 + 1 as i64 * 4 as i64) as *const AnyVal;
     if d1.get_i64(AnyVal { raw: v0.raw }) != 10 as i64 { return 6; }
     if d1.get_i64(AnyVal { raw: v1.raw }) != 20 as i64 { return 7; }
 

@@ -511,7 +511,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         hbs_write_u32(buf, sz);
         if sz > 0 as u32 {
             // Write keys inline, push WK_MI32_IDX for values
-            let keys_ptr: *const i32 = (base as i64 + m.keys as i64) as *const i32;
+            let keys_ptr: *const i32 = (base as i64 + m.keys.offset as i64) as *const i32;
             let mut ki: u32 = 0 as u32;
             while ki < sz {
                 let kv: i32 = *((keys_ptr as i64 + (ki as i64) * 4 as i64) as *const i32);
@@ -687,7 +687,7 @@ unsafe fn process_wk_mi32_idx(ws: *mut HbsWriteState, obj_off: u32, idx: u32) {
             obj_off: obj_off, idx: next_idx,
         });
     }
-    let vals_ptr: *const AnyVal = (base as i64 + m.vals as i64) as *const AnyVal;
+    let vals_ptr: *const AnyVal = (base as i64 + m.vals.offset as i64) as *const AnyVal;
     let val: AnyVal = *((vals_ptr as i64 + (idx as i64) * 4 as i64) as *const AnyVal);
     push_wk_val(ws, val.raw);
 }
