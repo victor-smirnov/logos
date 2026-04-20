@@ -1190,16 +1190,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             pc != la::PAT_HERMES_INT)
             return nullptr;
 
-        bool is_any_val = scrut_type &&
-            (scrut_type->kind == LogosType::Kind::Struct ||
-             scrut_type->kind == LogosType::Kind::Datatype) &&
-            scrut_type->struct_name == "AnyVal";
-        if (!is_any_val) {
-            error(std::format("Hermes scalar pattern requires AnyVal scrutinee "
-                              "(got {})", type_str(scrut_type)));
-            return make_expr(bool_t(), lir::ELitBool{false});
-        }
-        // Use scrut_type directly (Kind::Datatype for eidos AnyVal).
+        // Caller guarantees scrut_type is AnyVal (result of view.root()).
         const LogosType* ptr_t = make_ptr(false, scrut_type);
 
         const char* helper = nullptr;
@@ -2609,19 +2600,41 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         }
     }
 
-    std::string hoist_var;
-    lir::LStmt hoist_let;
+    // For Hermes patterns we hoist two locals:
+    //   let __hmatch_view = <scrut>;            // the view (HermesCtr/View/Static or &)
+    //   let __hmatch_root: AnyVal = view.root(); // root AnyVal, used by guard helpers
+    std::string root_var;
+    lir::LStmt hoist_let_view;
+    lir::LStmt hoist_let_root;
     bool has_hoist_let = false;
+    const LogosType* anyval_t = nullptr;
     if (has_hermes_pat) {
-        hoist_var = "__hmatch_av_" + std::to_string(tmp_var_count_++);
-        lir::SLet sl;
-        sl.name = hoist_var;
-        sl.type = scrut_type;
-        sl.is_mut = false;
-        sl.value = std::move(scrut);
-        hoist_let = make_stmt(node_line_, std::move(sl));
+        if (!hermes_view_inner(scrut_type)) {
+            error(std::format(
+                "match with Hermes patterns requires a view scrutinee "
+                "(HermesCtr, HermesCtrView, or HermesStatic; use & to borrow); "
+                "got {}", type_str(scrut_type)));
+        }
+        std::string view_var = "__hmatch_view_" + std::to_string(tmp_var_count_++);
+        {
+            lir::SLet sl;
+            sl.name = view_var; sl.type = scrut_type; sl.is_mut = false;
+            sl.value = std::move(scrut);
+            hoist_let_view = make_stmt(node_line_, std::move(sl));
+        }
+        anyval_t = make_datatype_type("AnyVal");
+        root_var = "__hmatch_root_" + std::to_string(tmp_var_count_++);
+        {
+            auto view_ref = make_expr(scrut_type, lir::EVarRef{view_var});
+            auto root_call = make_expr(anyval_t,
+                lir::EMethodCall{std::move(view_ref), "root", "", {}, {}, -1});
+            lir::SLet sl;
+            sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
+            sl.value = std::move(root_call);
+            hoist_let_root = make_stmt(node_line_, std::move(sl));
+        }
         has_hoist_let = true;
-        scrut = make_expr(scrut_type, lir::EVarRef{hoist_var});
+        scrut = make_expr(scrut_type, lir::EVarRef{view_var});
     }
 
     lir::SMatch smatch;
@@ -2637,7 +2650,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             lir::LExprPtr synth_guard;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
                 synth_guard = build_hermes_pat_guard(
-                    map_of(arm.get(la::LHS.code)), hoist_var, scrut_type);
+                    map_of(arm.get(la::LHS.code)), root_var, anyval_t);
             }
 
             // Build pattern
@@ -2755,7 +2768,8 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
 
     if (has_hoist_let) {
         auto blk = std::make_unique<lir::LBlock>();
-        blk->stmts.push_back(std::move(hoist_let));
+        blk->stmts.push_back(std::move(hoist_let_view));
+        blk->stmts.push_back(std::move(hoist_let_root));
         blk->stmts.push_back(make_stmt(node_line_, std::move(smatch)));
         return make_stmt(node_line_, lir::SBlock{std::move(blk)});
     }
@@ -2812,19 +2826,39 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
         }
     }
-    std::string hoist_var;
-    lir::LStmt hoist_let;
+    // Symmetric to lower_match: hoist view + root AnyVal.
+    std::string root_var;
+    lir::LStmt hoist_let_view;
+    lir::LStmt hoist_let_root;
     bool has_hoist_let = false;
+    const LogosType* anyval_t = nullptr;
     if (has_hermes_pat) {
-        hoist_var = "__hmatche_av_" + std::to_string(tmp_var_count_++);
-        lir::SLet sl;
-        sl.name = hoist_var;
-        sl.type = scrut_type;
-        sl.is_mut = false;
-        sl.value = std::move(scrut);
-        hoist_let = make_stmt(node_line_, std::move(sl));
+        if (!hermes_view_inner(scrut_type)) {
+            error(std::format(
+                "match with Hermes patterns requires a view scrutinee "
+                "(HermesCtr, HermesCtrView, or HermesStatic; use & to borrow); "
+                "got {}", type_str(scrut_type)));
+        }
+        std::string view_var = "__hmatche_view_" + std::to_string(tmp_var_count_++);
+        {
+            lir::SLet sl;
+            sl.name = view_var; sl.type = scrut_type; sl.is_mut = false;
+            sl.value = std::move(scrut);
+            hoist_let_view = make_stmt(node_line_, std::move(sl));
+        }
+        anyval_t = make_datatype_type("AnyVal");
+        root_var = "__hmatche_root_" + std::to_string(tmp_var_count_++);
+        {
+            auto view_ref = make_expr(scrut_type, lir::EVarRef{view_var});
+            auto root_call = make_expr(anyval_t,
+                lir::EMethodCall{std::move(view_ref), "root", "", {}, {}, -1});
+            lir::SLet sl;
+            sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
+            sl.value = std::move(root_call);
+            hoist_let_root = make_stmt(node_line_, std::move(sl));
+        }
         has_hoist_let = true;
-        scrut = make_expr(scrut_type, lir::EVarRef{hoist_var});
+        scrut = make_expr(scrut_type, lir::EVarRef{view_var});
     }
 
     lir::EMatchExpr me;
@@ -2840,7 +2874,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             lir::LExprPtr synth_guard;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
                 synth_guard = build_hermes_pat_guard(
-                    map_of(arm.get(la::LHS.code)), hoist_var, scrut_type);
+                    map_of(arm.get(la::LHS.code)), root_var, anyval_t);
             }
 
             in_match_hermes_ctx_ = has_hermes_pat;
@@ -2961,7 +2995,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     auto me_expr = make_expr(result_type, std::move(me));
     if (has_hoist_let) {
         auto blk = std::make_unique<lir::LBlock>();
-        blk->stmts.push_back(std::move(hoist_let));
+        blk->stmts.push_back(std::move(hoist_let_view));
+        blk->stmts.push_back(std::move(hoist_let_root));
         return make_expr(result_type,
             lir::EBlockExpr{std::move(blk), std::move(me_expr)});
     }

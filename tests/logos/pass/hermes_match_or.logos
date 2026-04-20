@@ -4,9 +4,10 @@
 package hermes_match_or;
 
 use hermes.anyval;
+use hermes.view;
 
-unsafe fn check(av: AnyVal) -> i32 {
-    match av {
+unsafe fn check(d: HermesStatic) -> i32 {
+    match d {
         @null | @42 => 1,
         @true | @-7 => 2,
         _ => 0,
@@ -14,10 +15,6 @@ unsafe fn check(av: AnyVal) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: AnyVal = AnyVal::null_ptr();       // 1
-    let b: AnyVal = AnyVal::embed_i24(42);    // 1
-    let c: AnyVal = AnyVal::embed_bool(true); // 2
-    let d: AnyVal = AnyVal::embed_i24(-7);    // 2
-    let e: AnyVal = AnyVal::embed_i24(100);   // 0 (must not match @null or @42)
-    return check(a) + check(b) + check(c) + check(d) + check(e); // 6
+    // 1 + 1 + 2 + 2 + 0 = 6
+    return check(@null) + check(@42) + check(@true) + check(@-7) + check(@99);
 }

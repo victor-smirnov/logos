@@ -702,6 +702,23 @@ private:
     lir::LExprPtr build_hermes_pat_guard(hermes::TinyMapView pnode,
                                          const std::string& scrut_var,
                                          const LogosType* scrut_type);
+    // Returns the "inner" (ref-stripped) view type if `t` is HermesCtr,
+    // HermesCtrView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
+    const LogosType* hermes_view_inner(const LogosType* t) const {
+        if (!t) return nullptr;
+        const LogosType* inner = t;
+        if (t->kind == LogosType::Kind::Ref ||
+            t->kind == LogosType::Kind::MutRef)
+            inner = t->pointee;
+        if (!inner) return nullptr;
+        if ((inner->kind == LogosType::Kind::Struct ||
+             inner->kind == LogosType::Kind::Datatype) &&
+            (inner->struct_name == "HermesCtr" ||
+             inner->struct_name == "HermesCtrView" ||
+             inner->struct_name == "HermesStatic"))
+            return inner;
+        return nullptr;
+    }
     // True while lowering match arms where Hermes scalar patterns are
     // explicitly handled by the caller (desugared to guard). Outside this
     // context, PAT_HERMES_* in build_pattern is a diagnostic.

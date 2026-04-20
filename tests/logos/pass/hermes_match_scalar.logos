@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// Test: Hermes scalar match patterns — @null, @true, @false, @<int>, @-<int>.
+// Test: Hermes scalar match patterns — scrutinee is a HermesStatic view.
 
 package hermes_match_scalar;
 
 use hermes.anyval;
+use hermes.view;
 
-unsafe fn classify(av: AnyVal) -> i32 {
-    match av {
+unsafe fn classify(d: HermesStatic) -> i32 {
+    match d {
         @null  => { return 1; }
         @true  => { return 2; }
         @false => { return 3; }
@@ -17,13 +18,7 @@ unsafe fn classify(av: AnyVal) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: AnyVal = AnyVal::null_ptr();
-    let b: AnyVal = AnyVal::embed_bool(true);
-    let c: AnyVal = AnyVal::embed_bool(false);
-    let d: AnyVal = AnyVal::embed_i24(42);
-    let e: AnyVal = AnyVal::embed_i24(-7);
-    let f: AnyVal = AnyVal::embed_i24(99);
-
     // 1+2+3+4+5+0 = 15
-    return classify(a) + classify(b) + classify(c) + classify(d) + classify(e) + classify(f);
+    return classify(@null) + classify(@true) + classify(@false)
+         + classify(@42) + classify(@-7) + classify(@99);
 }
