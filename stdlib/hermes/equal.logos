@@ -65,7 +65,7 @@ pub unsafe fn anyval_equal(a: AnyVal, b: AnyVal, ctx: *mut EqualCtx) -> bool {
 impl HermesEqual for HermesString {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const HermesString = self as *const HermesString;
+            let a: *const HermesString = self;
             let b: *const HermesString = other as *const HermesString;
             let la: u64 = a.len();
             let lb: u64 = b.len();
@@ -103,7 +103,7 @@ impl HermesEqual for u64 {
 impl HermesEqual for I64 {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const I64 = self as *const I64;
+            let a: *const I64 = self;
             let b: *const I64 = other as *const I64;
             return a.value() == b.value();
         }
@@ -113,7 +113,7 @@ impl HermesEqual for I64 {
 impl HermesEqual for U64 {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const U64 = self as *const U64;
+            let a: *const U64 = self;
             let b: *const U64 = other as *const U64;
             return a.value() == b.value();
         }
@@ -123,7 +123,7 @@ impl HermesEqual for U64 {
 impl HermesEqual for Decimal {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const Decimal = self as *const Decimal;
+            let a: *const Decimal = self;
             let b: *const Decimal = other as *const Decimal;
             if a.spec_and_len != b.spec_and_len { return false; }
             let n: u32 = a.len();
@@ -143,7 +143,7 @@ impl HermesEqual for AnyVal {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
             let ob: *const AnyVal = other as *const AnyVal;
-            return anyval_equal(AnyVal { raw: (self as *const AnyVal).raw },
+            return anyval_equal(AnyVal { raw: (self).raw },
                                 AnyVal { raw: ob.raw }, ctx);
         }
     }
@@ -206,7 +206,7 @@ impl<V: HermesEqual> HermesEqual for Map<Bitmap, V> {
 impl HermesEqual for ObjectMap {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const ObjectMap = self as *const ObjectMap;
+            let a: *const ObjectMap = self;
             let b: *const ObjectMap = other as *const ObjectMap;
             if a.count != b.count { return false; }
             // For each occupied slot in `a`, find the matching key in `b` and
@@ -244,7 +244,7 @@ impl HermesEqual for ObjectMap {
 impl HermesEqual for TypedValue {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const TypedValue = self as *const TypedValue;
+            let a: *const TypedValue = self;
             let b: *const TypedValue = other as *const TypedValue;
 
             let sa: *const HermesString =

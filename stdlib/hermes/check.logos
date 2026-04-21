@@ -234,7 +234,7 @@ pub trait HermesCheck {
 impl HermesCheck for HermesString {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let obj: *const u8 = self as *const HermesString as *const u8;
+            let obj: *const u8 = self as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             if !check_bounds(state, off - 1, 2) { return false; }
             let vlen_sz: i64 = vlen_prefix_size(obj) as i64;
@@ -254,7 +254,7 @@ impl HermesCheck for HermesString {
 impl HermesCheck for I64 {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let obj: *const u8 = self as *const I64 as *const u8;
+            let obj: *const u8 = self as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let sz: i64 = sizeof::<I64>() as i64;
             if !check_bounds(state, off - 1, 1 + sz) { return false; }
@@ -270,7 +270,7 @@ impl HermesCheck for I64 {
 impl HermesCheck for U64 {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let obj: *const u8 = self as *const U64 as *const u8;
+            let obj: *const u8 = self as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let sz: i64 = sizeof::<U64>() as i64;
             if !check_bounds(state, off - 1, 1 + sz) { return false; }
@@ -286,7 +286,7 @@ impl HermesCheck for U64 {
 impl HermesCheck for Decimal {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let d: *const Decimal = self as *const Decimal;
+            let d: *const Decimal = self;
             let obj: *const u8 = d as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr: i64 = sizeof::<Decimal>() as i64;
@@ -394,7 +394,7 @@ impl<V> HermesCheck for Map<Bitmap, V> {
 impl HermesCheck for ObjectMap {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let m: *const ObjectMap = self as *const ObjectMap;
+            let m: *const ObjectMap = self;
             let obj: *const u8 = m as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr_sz: i64 = sizeof::<ObjectMap>() as i64;
@@ -447,7 +447,7 @@ impl HermesCheck for ObjectMap {
 impl HermesCheck for TypedValue {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let t: *const TypedValue = self as *const TypedValue;
+            let t: *const TypedValue = self;
             let obj: *const u8 = t as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let sz: i64 = sizeof::<TypedValue>() as i64;
@@ -510,7 +510,7 @@ impl HermesCheck for Array<i32> {
 impl HermesCheck for MapI32AnyVal {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let m: *const MapI32AnyVal = self as *const MapI32AnyVal;
+            let m: *const MapI32AnyVal = self;
             let obj: *const u8 = m as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
             let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;

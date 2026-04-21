@@ -72,7 +72,7 @@ pub unsafe fn anyval_hash(val: AnyVal, ctx: *mut HashCtx) -> u64 {
 impl HermesHash for HermesString {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let a: *const HermesString = self as *const HermesString;
+            let a: *const HermesString = self;
             // Bug fix: mix full u64 type_code, not just the low byte.
             // fnv_mix_byte would drop bits >7 and make tier-2 codes collide.
             let mut h: u64 = fnv_mix_u64(fnv_init(), 28);
@@ -109,7 +109,7 @@ impl HermesHash for u64 {
 impl HermesHash for I64 {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let a: *const I64 = self as *const I64;
+            let a: *const I64 = self;
             let h0: u64 = fnv_mix_u64(fnv_init(), 26);
             return fnv_mix_u64(h0, a.value() as u64);
         }
@@ -119,7 +119,7 @@ impl HermesHash for I64 {
 impl HermesHash for U64 {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let a: *const U64 = self as *const U64;
+            let a: *const U64 = self;
             let h0: u64 = fnv_mix_u64(fnv_init(), 27);
             return fnv_mix_u64(h0, a.value());
         }
@@ -129,7 +129,7 @@ impl HermesHash for U64 {
 impl HermesHash for Decimal {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let d: *const Decimal = self as *const Decimal;
+            let d: *const Decimal = self;
             let mut h: u64 = fnv_mix_u64(fnv_init(), 107);
             h = fnv_mix_u64(h, d.spec_and_len as u64);
             let n: u32 = d.len();
@@ -147,7 +147,7 @@ impl HermesHash for Decimal {
 
 impl HermesHash for AnyVal {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
-        unsafe { return anyval_hash(AnyVal { raw: (self as *const AnyVal).raw }, ctx); }
+        unsafe { return anyval_hash(AnyVal { raw: (self).raw }, ctx); }
     }
 }
 
@@ -209,7 +209,7 @@ impl<V: HermesHash> HermesHash for Map<Bitmap, V> {
 impl HermesHash for ObjectMap {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let a: *const ObjectMap = self as *const ObjectMap;
+            let a: *const ObjectMap = self;
             let base_h: u64 = fnv_mix_u64(fnv_init(), 101);
             let mut acc: u64 = 0;
             acc = acc ^ fnv_mix_u64(base_h, a.count as u64);
@@ -247,7 +247,7 @@ impl HermesHash for ObjectMap {
 impl HermesHash for TypedValue {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let tv: *const TypedValue = self as *const TypedValue;
+            let tv: *const TypedValue = self;
             let hs: *const HermesString =
                 ctx.base.byte_add(tv.type_off.offset as i64) as *const HermesString;
             let mut h: u64 = fnv_mix_u64(fnv_init(), 106);

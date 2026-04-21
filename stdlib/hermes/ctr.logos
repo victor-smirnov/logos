@@ -236,7 +236,7 @@ impl HermesCtr {
             // Bug 1 guard: self-import would alias src and dst zones.  A grow
             // of the dst backing buffer during anyval_clone would invalidate
             // the captured `base_src`, causing reads from freed memory.
-            let self_ptr: *const HermesCtr = self as *const HermesCtr;
+            let self_ptr: *const HermesCtr = self;
             if src == self_ptr { return AnyVal::null_ptr(); }
 
             let src_holder: *mut MemHolder = src.zone.holder;
