@@ -178,21 +178,11 @@ private:
 };
 
 // --- Free functions ---
-
-logos::expected<Hermes> compactify(const HermesView& src) noexcept {
-    LOGOS_ASSERT(src.has_root(), "HERMES-DOC-001",
-        "Cannot compactify a document without a root object");
-
-    LOGOS_TRY(auto dst, make_doc(HermesAccess::arena(src).total_used() * 2));
-    DeepCopyState state(HermesAccess::arena(dst), HermesAccess::base(src));
-
-    arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(HermesAccess::base(src))->root_offset;
-    const void* src_root = HermesAccess::base(src) + root_off.value();
-    LOGOS_TRY(auto* dst_root, state.copy_tagged_object(src_root));
-    HermesAccess::set_root(dst, dst_root);
-
-    return dst;
-}
+//
+// Note: the legacy DeepCopyState-based compactify() was removed; use
+// hermes::clone() from <logos/hermes/clone.hpp> instead (same semantics,
+// dispatch-based via TypeOps). DeepCopyState is kept to power
+// copy_object_into() below.
 
 logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_base,
                                          HermesView& dst) noexcept {

@@ -14,6 +14,7 @@
 
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/clone.hpp>
 #include <logos/hermes/text_parser.hpp>
 #include <logos/hermes/stringify.hpp>
 #include <logos/hermes/type_ops.hpp>
@@ -340,7 +341,7 @@ static void walkthrough_compactify() {
         HermesAccess::arena(doc).total_used(), HermesAccess::arena(doc).head().capacity);
 
     // Compactify: deep-copy into minimal arena.
-    auto compact = compactify(doc).get();
+    auto compact = clone(doc).get();
     std::println("  Compact arena:  {} bytes used", HermesAccess::arena(compact).total_used());
     // STOP: compare HermesAccess::arena(doc).total_used() vs HermesAccess::arena(compact).total_used()
 

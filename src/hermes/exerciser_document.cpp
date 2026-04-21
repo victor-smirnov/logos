@@ -5,6 +5,7 @@
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/clone.hpp>
 #include <logos/verification/assert.hpp>
 #include <logos/verification/trace.hpp>
 #include <logos/verification/sqlite_sink.hpp>
@@ -110,7 +111,7 @@ static void test_compactify_simple() {
     map.put(5, anyval_put<float>(HermesAccess::arena(doc), 2.5f).get()).get();
     map.put(10, AnyVal::from_value(int8_t(-1))).get();
 
-    auto compact = compactify(doc).get();
+    auto compact = clone(doc).get();
 
     LOGOS_ASSERT(compact.has_root(), "HERMES-DOC-003", "Compacted doc must have root");
 
@@ -140,7 +141,7 @@ static void test_compactify_array_with_values() {
         arr.push_back(AnyVal::from_value(int32_t(i * 100))).get();
     }
 
-    auto compact = compactify(doc).get();
+    auto compact = clone(doc).get();
 
     auto* carr = HermesAccess::root<ObjectArray>(compact);
     uint8_t* cb = HermesAccess::base(compact);
@@ -167,7 +168,7 @@ static void test_zero_copy_round_trip() {
     map.put(0, AnyVal::from_value(int32_t(42))).get();
     map.put(3, AnyVal::from_value(int32_t(99))).get();
 
-    auto compact = compactify(doc).get();
+    auto compact = clone(doc).get();
 
     // Serialize to bytes.
     auto* data = HermesAccess::base(compact);
@@ -202,7 +203,7 @@ static void test_zero_copy_array_round_trip() {
         arr.push_back(AnyVal::from_value(int32_t(i))).get();
     }
 
-    auto compact = compactify(doc).get();
+    auto compact = clone(doc).get();
     auto* data = HermesAccess::base(compact);
     size_t size = HermesAccess::arena(compact).total_used();
     auto loaded = from_bytes_copy(data, size).get();

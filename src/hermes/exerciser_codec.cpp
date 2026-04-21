@@ -5,6 +5,7 @@
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/clone.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/verification/assert.hpp>
 #include <logos/verification/trace.hpp>
@@ -37,7 +38,7 @@ static void test_deep_copy_tiny_map_with_pointers() {
     map.put(2, anyval_put<float>(HermesAccess::arena(doc), 2.5f).get()).get();
 
     // Compactify (deep copy).
-    auto compact = compactify(doc).get();
+    auto compact = clone(doc).get();
     uint8_t* cb = HermesAccess::base(compact);
     auto* cmap = HermesAccess::root<TinyObjectMap>(compact);
 
@@ -72,7 +73,7 @@ static void test_deep_copy_object_map() {
     map.put("text", AnyVal{}).get();
     map.get_slot("text")->set_pointer(s.ptr(), HermesAccess::base(doc));
 
-    auto compact = compactify(doc).get();
+    auto compact = clone(doc).get();
     uint8_t* cb = HermesAccess::base(compact);
     auto* cmap = HermesAccess::root<ObjectMap>(compact);
 

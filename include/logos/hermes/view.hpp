@@ -310,9 +310,6 @@ using Hermes = Own<HermesView>;
 // Create a new document with MultiChunk arena (base is always stable).
 [[nodiscard]] logos::expected<Hermes> make_doc_multi(size_t initial_capacity = 4096) noexcept;
 
-// Deep-copy a document into a new compacted single-chunk arena.
-logos::expected<Hermes> compactify(const HermesView& src) noexcept;
-
 // Deep-copy a single tagged object from src_base arena into dst document's arena.
 // Returns pointer into dst's arena. Useful for cross-arena pointer resolution.
 logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_base,
