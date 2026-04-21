@@ -383,9 +383,9 @@ static void test_object_map_stress() {
     }
 
     LOGOS_TRACE("hermes.map.stress", "status", "pass",
-        "size", map->size(), "buckets", map->bucket_count());
-    std::printf("  ObjectMap stress: OK (200 keys, %lu buckets)\n",
-        static_cast<unsigned long>(map->bucket_count()));
+        "size", map->size(), "capacity", map->capacity());
+    std::printf("  ObjectMap stress: OK (200 keys, %lu capacity)\n",
+        static_cast<unsigned long>(map->capacity()));
 }
 
 static void test_object_map_with_string_values() {

@@ -97,11 +97,11 @@ private:
             TypeTag tag(th, TagDescriptor::Data);
             write_type_tag(tag);
 
-            // Write the value bytes (extract from the tagged ptr).
+            // AnyVal stores a 24-bit payload in bits[31:8]; extract and write
+            // the low `sz` bytes of it.
             size_t sz = embedded_value_size(th);
-            // Copy the value bytes directly from the AnyVal's storage.
-            uint64_t raw = slot->raw();
-            write_bytes(&raw, sz);
+            uint32_t payload24 = (slot->raw() >> 8) & 0x00FFFFFFu;
+            write_bytes(&payload24, sz);
             return;
         }
 
@@ -193,9 +193,9 @@ private:
         switch (type_hash) {
             case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 1;
             case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
-            case type_hash::Time: return 4;
-            default: return 4;
+            case type_hash::Integer: case type_hash::UInteger:
+            case type_hash::Time: return 3;  // 24-bit payload
+            default: return 3;
         }
     }
 };
@@ -296,12 +296,15 @@ private:
         bool is_embed = (tc < 128) && is_embeddable_by_hash(tc);
 
         if (is_embed) {
-            // Read value bytes and construct embedded AnyVal.
+            // Read up to sz payload bytes, reconstruct 24-bit payload, and
+            // pack into a 4-byte AnyVal.
             size_t sz = embedded_value_size_for(tc);
-            uint64_t bits = 0;
-            read_bytes(&bits, sz);
-            auto* bytes = reinterpret_cast<uint8_t*>(&bits);
-            bytes[7] = static_cast<uint8_t>((tc << 1) | 1);
+            uint32_t payload24 = 0;
+            read_bytes(&payload24, sz);
+            payload24 &= 0x00FFFFFFu;
+            uint32_t bits = (payload24 << 8)
+                          | (static_cast<uint32_t>(tc) << 1)
+                          | 1u;
             *dst_slot = AnyVal::from_raw(bits);
         } else {
             // Non-embeddable: decode as arena object and store pointer.
@@ -406,7 +409,7 @@ private:
             case type_hash::TinyInt: case type_hash::UTinyInt:
             case type_hash::SmallInt: case type_hash::USmallInt:
             case type_hash::Integer: case type_hash::UInteger:
-            case type_hash::Real: case type_hash::Time:
+            case type_hash::Time:
             case type_hash::Boolean:
                 return true;
             default:
@@ -418,9 +421,9 @@ private:
         switch (tc) {
             case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 1;
             case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
-            case type_hash::Time: return 4;
-            default: return 4;
+            case type_hash::Integer: case type_hash::UInteger:
+            case type_hash::Time: return 3;
+            default: return 3;
         }
     }
 
