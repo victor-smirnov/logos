@@ -7,6 +7,8 @@
 //   4. (Where possible) verifies that the compacted zone is smaller or equal.
 package hermes_compactify;
 use hermes.ctr;
+use hermes.anyval;
+use hermes.decimal;
 use std.string;
 
 unsafe fn main() -> i32 {

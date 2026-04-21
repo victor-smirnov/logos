@@ -10,6 +10,7 @@ package hermes.pat;
 
 use hermes.anyval;
 use hermes.typetag;
+use hermes.string;
 use hermes.objectmap;
 use hermes.array;
 use hermes.map;

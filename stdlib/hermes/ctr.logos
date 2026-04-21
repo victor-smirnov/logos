@@ -26,6 +26,7 @@
 package hermes.ctr;
 
 use hermes.view;
+use hermes.string;
 use hermes.zone;
 use hermes.anyval;
 use hermes.datatag;

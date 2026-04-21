@@ -1,6 +1,7 @@
 // Structural integrity check tests for Hermes documents.
 package hermes_check;
 use hermes.ctr;
+use hermes.anyval;
 use std.string;
 
 unsafe fn main() -> i32 {

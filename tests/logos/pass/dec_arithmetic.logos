@@ -1,6 +1,7 @@
 // Comprehensive Decimal arithmetic tests
 package dec_arithmetic;
 use hermes.ctr;
+use hermes.anyval;
 use std.string;
 
 unsafe fn main() -> i32 {

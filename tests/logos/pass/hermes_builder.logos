@@ -5,6 +5,7 @@
 package hermes_builder;
 
 use hermes.ctr;
+use hermes.anyval;
 
 extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
 

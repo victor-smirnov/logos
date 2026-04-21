@@ -1,6 +1,7 @@
 // Decimal edge case tests
 package dec_edge_cases;
 use hermes.ctr;
+use hermes.anyval;
 use std.string;
 
 unsafe fn main() -> i32 {

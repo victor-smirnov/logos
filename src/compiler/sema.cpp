@@ -543,13 +543,33 @@ const LogosType* SemaChecker::lookup_type_by_name(std::string_view name) {
     if (name == "str")  return make_slice_type(u8_t());
     auto tvit = current_type_params_.find(std::string(name));
     if (tvit != current_type_params_.end()) return tvit->second;
-    auto ait = type_aliases_.find(std::string(name));
-    if (ait != type_aliases_.end() &&
-        ait->second.type_params.empty() && ait->second.lifetime_params.empty())
-        return ait->second.type;
-    if (structs_.count(std::string(name))) return make_struct_type(name);
-    if (datatypes_.count(std::string(name))) return make_datatype_type(name);
-    if (enums_.count(std::string(name)))   return make_enum_type(name);
+    // Type alias: check current package and imports too
+    {
+        auto ukey = std::string(name);
+        auto check_alias = [&](const std::string& key) -> const LogosType* {
+            auto it = type_aliases_.find(key);
+            if (it != type_aliases_.end() &&
+                it->second.type_params.empty() && it->second.lifetime_params.empty())
+                return it->second.type;
+            return nullptr;
+        };
+        if (auto* t = check_alias(ukey)) return t;
+        if (!cur_package_.empty()) if (auto* t = check_alias(sema_key(cur_package_, ukey))) return t;
+        for (auto& pkg : cur_imports_.wildcard_packages)
+            if (auto* t = check_alias(sema_key(pkg, ukey))) return t;
+    }
+    {
+        auto [spkg, ssi] = find_struct_by_name(name);
+        if (ssi) return make_struct_type(name, spkg);
+    }
+    {
+        auto [dpkg, dsi] = find_datatype_by_name(name);
+        if (dsi) return make_datatype_type(name, dpkg);
+    }
+    {
+        auto [epkg, esi] = find_enum_by_name(name);
+        if (esi) return make_enum_type(name, epkg);
+    }
     return nullptr;
 }
 
@@ -583,7 +603,12 @@ std::string SemaChecker::drop_fn_for(const LogosType* t) const {
 
 bool SemaChecker::has_droppable_fields(const LogosType* t) const {
     if (!t || t->kind != LogosType::Kind::Struct) return false;
-    auto sit = structs_.find(t->struct_name);
+    auto sit = structs_.end();
+    if (!t->pkg_name.empty()) {
+        auto qkey = sema_key(t->pkg_name, t->struct_name);
+        sit = structs_.find(qkey);
+    }
+    if (sit == structs_.end()) sit = structs_.find(t->struct_name);
     if (sit == structs_.end()) return false;
     for (auto& f : sit->second.fields) {
         if (!drop_fn_for(f.type).empty()) return true;
@@ -931,6 +956,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         LogosType nt;
         nt.kind = t->kind;
         nt.struct_name = t->struct_name;
+        nt.pkg_name = t->pkg_name;  // preserve package qualification after substitution
         nt.type_args = std::move(new_args);
         nt.lifetime_args = std::move(new_lt_args);
         return pool_.alloc(std::move(nt));
@@ -1540,9 +1566,12 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
                     return inner;  // Box<dyn T> ≡ &dyn T in our type system
             }
         }
-        bool is_struct = structs_.count(std::string(name)) > 0;
-        bool is_dtype  = datatypes_.count(std::string(name)) > 0;
-        bool is_enum   = enums_.count(std::string(name)) > 0;
+        auto [spkg, ssi] = find_struct_by_name(name);
+        auto [dpkg, dsi] = find_datatype_by_name(name);
+        auto [epkg, esi] = find_enum_by_name(name);
+        bool is_struct = ssi != nullptr;
+        bool is_dtype  = dsi != nullptr;
+        bool is_enum   = esi != nullptr;
         if (!is_struct && !is_dtype && !is_enum) {
             error(std::format("unknown generic type '{}'", name));
             return error_t();
@@ -1564,28 +1593,28 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             }
         }
         if (is_enum) {
-            auto eit = enums_.find(std::string(name));
-            if (eit != enums_.end()) check_type_bounds(std::string(name), eit->second.type_params, args);
+            if (esi) check_type_bounds(std::string(name), esi->type_params, args);
             LogosType t; t.kind = LogosType::Kind::Enum;
             t.enum_name = std::string(name);
+            if (!epkg.empty()) t.pkg_name = epkg;
             t.type_args = std::move(args);
             t.lifetime_args = std::move(lt_args);
             return pool_.alloc(std::move(t));
         }
         if (is_dtype) {
-            auto dit = datatypes_.find(std::string(name));
-            if (dit != datatypes_.end()) check_type_bounds(std::string(name), dit->second.type_params, args);
+            if (dsi) check_type_bounds(std::string(name), dsi->type_params, args);
             LogosType t; t.kind = LogosType::Kind::Datatype;
             t.struct_name = std::string(name);
+            if (!dpkg.empty()) t.pkg_name = dpkg;
             t.type_args = std::move(args);
             t.lifetime_args = std::move(lt_args);
             return pool_.alloc(std::move(t));
         }
-        auto sit = structs_.find(std::string(name));
-        if (sit != structs_.end()) check_type_bounds(std::string(name), sit->second.type_params, args);
+        if (ssi) check_type_bounds(std::string(name), ssi->type_params, args);
         {
             LogosType t; t.kind = LogosType::Kind::Struct;
             t.struct_name = std::string(name);
+            if (!spkg.empty()) t.pkg_name = spkg;
             t.type_args = std::move(args);
             t.lifetime_args = std::move(lt_args);
             return pool_.alloc(std::move(t));
@@ -1659,10 +1688,18 @@ const SemaChecker::SemaStructInfo* SemaChecker::find_best_sema_struct_spec(
     return best;
 }
 
-const LogosType* SemaChecker::field_type_of(std::string_view sname, std::string_view fname) {
+const LogosType* SemaChecker::field_type_of(std::string_view sname, std::string_view fname,
+                                             std::string_view pkg_hint) {
     SemaStructInfo* si = nullptr;
-    { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
-    if (!si) { auto it = datatypes_.find(std::string(sname)); if (it != datatypes_.end()) si = &it->second; }
+    // If we have a pkg_hint, try the fully-qualified key first (avoids import-scope dependence).
+    if (!pkg_hint.empty()) {
+        auto qkey = sema_key(std::string(pkg_hint), std::string(sname));
+        auto sit = structs_.find(qkey);
+        if (sit != structs_.end()) si = &sit->second;
+        if (!si) { auto dit = datatypes_.find(qkey); if (dit != datatypes_.end()) si = &dit->second; }
+    }
+    if (!si) { auto [pkg, ssi] = find_struct_by_name(sname); si = ssi; }
+    if (!si) { auto [pkg, dsi] = find_datatype_by_name(sname); si = dsi; }
     if (!si) return nullptr;
     for (auto& f : si->fields) {
         if (f.name == fname) return f.type;
@@ -1688,14 +1725,14 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
             return nullptr;  // field not in specialization
         }
     }
-    auto* raw = field_type_of(struct_t->struct_name, fname);
+    auto* raw = field_type_of(struct_t->struct_name, fname, struct_t->pkg_name);
     if (!raw || struct_t->type_args.empty()) return raw;
 
     // If it's a variadic expansion (name_N), we need to resolve it against the type arguments.
     if (fname.find('_') != std::string::npos) {
         SemaStructInfo* si2 = nullptr;
-        { auto it = structs_.find(struct_t->struct_name); if (it != structs_.end()) si2 = &it->second; }
-        if (!si2) { auto it = datatypes_.find(struct_t->struct_name); if (it != datatypes_.end()) si2 = &it->second; }
+        { auto [pkg, ssi] = find_struct_by_name(struct_t->struct_name); si2 = ssi; }
+        if (!si2) { auto [pkg, dsi] = find_datatype_by_name(struct_t->struct_name); si2 = dsi; }
         if (si2) {
             for (auto& f : si2->fields) {
                 if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_') {
@@ -1720,9 +1757,15 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
     }
 
     // Bug 5: look up structs_ OR datatypes_ for the substitution info.
+    // Try bare name first (same-package/unqualified), then pkg_name-qualified key.
     SemaStructInfo* si2 = nullptr;
     { auto it = structs_.find(struct_t->struct_name); if (it != structs_.end()) si2 = &it->second; }
     if (!si2) { auto it = datatypes_.find(struct_t->struct_name); if (it != datatypes_.end()) si2 = &it->second; }
+    if (!si2 && !struct_t->pkg_name.empty()) {
+        auto qkey = sema_key(struct_t->pkg_name, struct_t->struct_name);
+        { auto it = structs_.find(qkey); if (it != structs_.end()) si2 = &it->second; }
+        if (!si2) { auto it = datatypes_.find(qkey); if (it != datatypes_.end()) si2 = &it->second; }
+    }
     if (!si2) return raw;
     SemaSubst subst;
     auto& tps2 = si2->type_params;
@@ -1741,14 +1784,42 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
 // ── lower_program and lower_module_items ─────────────────────────────────────
 
 void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog) {
+    using namespace ast;
     for (size_t i = 0; i < asts.size(); ++i) {
         holder_ = asts[i].holder();
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
         auto root = asts[i].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
+        // Rebuild import scope (same logic as in collect()) so find_*_by_name
+        // works during lowering for cross-package type lookups.
+        cur_imports_ = {};
+        if (root.has_key(USES)) {
+            auto uses_av = root.get(USES.code);
+            if (!uses_av.is_null() && uses_av.is_pointer()) {
+                auto uses = arr_of(uses_av);
+                for (uint64_t ui = 0; ui < uses.size(); ++ui) {
+                    auto use_node = map_of(uses.get(ui));
+                    std::string dotted;
+                    if (use_node.has_key(NAME))
+                        dotted = std::string(str_of(use_node.get(NAME.code)));
+                    if (use_node.has_key(mod::PATH_PARTS)) {
+                        auto parts = arr_of(use_node.get(mod::PATH_PARTS.code));
+                        for (uint64_t pi = 0; pi < parts.size(); ++pi) {
+                            auto part = map_of(parts.get(pi));
+                            if (!part.has_key(NAME)) continue;
+                            if (!dotted.empty()) dotted += '.';
+                            dotted += std::string(str_of(part.get(NAME.code)));
+                        }
+                    }
+                    if (!dotted.empty())
+                        cur_imports_.wildcard_packages.push_back(std::move(dotted));
+                }
+            }
+        }
         lower_module_items(root, prog);
     }
     cur_package_ = {};
+    cur_imports_ = {};
 }
 
 void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
@@ -1875,12 +1946,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             // Also register under the template's package (see
                             // matching note in the genos-spec annotation path).
                             std::string tmpl_pkg;
-                            auto dit = datatypes_.find(sd.name);
-                            if (dit != datatypes_.end()) tmpl_pkg = dit->second.package;
-                            else {
-                                auto sit = structs_.find(sd.name);
-                                if (sit != structs_.end()) tmpl_pkg = sit->second.package;
-                            }
+                            { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) tmpl_pkg = dsi->package; }
+                            if (tmpl_pkg.empty()) { auto [pkg, ssi] = find_struct_by_name(sd.name); if (ssi) tmpl_pkg = ssi->package; }
                             if (!tmpl_pkg.empty() && tmpl_pkg != cur_package_) {
                                 explicit_type_codes_[tmpl_pkg + "::" + mangled] = sd.type_code;
                                 explicit_type_codes_[tmpl_pkg + "::" + canon]   = sd.type_code;
@@ -1894,9 +1961,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 auto sd = lower_struct_def(item);
                 sd.is_datatype   = true;
                 // Propagate is_data_plain only for datatypes (not regular structs).
-                auto dit = datatypes_.find(sd.name);
-                if (dit != datatypes_.end())
-                    sd.is_data_plain = dit->second.is_data_plain;
+                { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) sd.is_data_plain = dsi->is_data_plain; }
                 apply_annots_to_struct(sd);
                 // Compute type_hash for concrete (non-generic) datatypes only.
                 // Generic templates get their hash at instantiation time in mono_pass.
@@ -1959,11 +2024,23 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         std::vector<const LogosType*> resolved_args;
                         for (uint64_t i = 0; i < items2.size(); ++i)
                             resolved_args.push_back(resolve_type(map_of(items2.get(i))));
-                        const LogosType* like_eidos = datatypes_.count(tname)
-                            ? make_generic_datatype(tname, resolved_args)
-                            : (structs_.count(tname)
-                                 ? make_generic_struct(tname, resolved_args)
-                                 : nullptr);
+                        // Find the template's kind (datatype or struct) using package-aware lookup.
+                        const LogosType* like_eidos = nullptr;
+                        {
+                            auto [dpkg, dsi] = find_datatype_by_name(tname);
+                            if (dsi) like_eidos = make_generic_datatype(tname, resolved_args, {}, dpkg);
+                        }
+                        if (!like_eidos) {
+                            auto [spkg, ssi] = find_struct_by_name(tname);
+                            if (ssi) like_eidos = make_generic_struct(tname, resolved_args, {}, spkg);
+                        }
+                        // Legacy bare-name fallback for same-package structs
+                        if (!like_eidos) {
+                            if (datatypes_.count(tname))
+                                like_eidos = make_generic_datatype(tname, resolved_args);
+                            else if (structs_.count(tname))
+                                like_eidos = make_generic_struct(tname, resolved_args);
+                        }
                         if (like_eidos)
                             ia.mangled_name = concrete_struct_name(like_eidos);
                         for (auto& ann : pending_annots) {
@@ -1995,12 +2072,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             // under the template's package to keep the two sides in
                             // agreement.
                             std::string tmpl_pkg;
-                            auto dit = datatypes_.find(tname);
-                            if (dit != datatypes_.end()) tmpl_pkg = dit->second.package;
-                            else {
-                                auto sit = structs_.find(tname);
-                                if (sit != structs_.end()) tmpl_pkg = sit->second.package;
-                            }
+                            { auto [pkg, dsi] = find_datatype_by_name(tname); if (dsi) tmpl_pkg = dsi->package; }
+                            if (tmpl_pkg.empty()) { auto [pkg, ssi] = find_struct_by_name(tname); if (ssi) tmpl_pkg = ssi->package; }
                             if (!tmpl_pkg.empty() && tmpl_pkg != cur_package_) {
                                 // Canonical form: "pkg::Name<Args>".  ia.canonical_name
                                 // was built from cur_package_ at the top of this block

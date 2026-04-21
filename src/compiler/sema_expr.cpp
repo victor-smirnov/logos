@@ -270,7 +270,9 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             // C-style enum -> integer/bool is allowed (discriminant cast).
             bool src_is_cstyle_enum = false;
             if (inner->type->kind == LogosType::Kind::Enum) {
-                auto eit = enums_.find(inner->type->enum_name);
+                auto [epkg_cast, esi_cast] = find_enum_by_name(inner->type->enum_name);
+                auto eit = esi_cast ? enums_.find(sema_key(epkg_cast, inner->type->enum_name)) : enums_.end();
+                if (eit == enums_.end()) eit = enums_.find(inner->type->enum_name);
                 if (eit != enums_.end()) {
                     bool has_payload = false;
                     for (auto& vv : eit->second.variants)
@@ -339,7 +341,9 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         }
         // Find Ok and Err discriminants from the enum definition.
         int32_t ok_disc = 0, err_disc = 1;  // default: Ok first, Err second
-        auto eit = enums_.find("Result");
+        auto [epkg_res, esi_res] = find_enum_by_name("Result");
+        auto eit = esi_res ? enums_.find(sema_key(epkg_res, std::string("Result"))) : enums_.end();
+        if (eit == enums_.end()) eit = enums_.find("Result");
         if (eit != enums_.end()) {
             for (auto& v : eit->second.variants) {
                 if (v.name == "Ok")  ok_disc  = v.value;
@@ -1389,15 +1393,16 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         uint64_t code = 0;
         if (elem->kind == LogosType::Kind::Datatype && elem->type_args.empty()) {
             // Resolve package for this type (needed for both explicit and auto-hash paths).
-            auto dit = datatypes_.find(elem->struct_name);
+            // Prefer elem->pkg_name (set by resolve_type via find_datatype_by_name).
             std::string pkg;
-            if (dit != datatypes_.end()) {
-                pkg = dit->second.package;
+            if (!elem->pkg_name.empty()) {
+                pkg = elem->pkg_name;
             } else {
-                auto sit = structs_.find(elem->struct_name);
-                if (sit != structs_.end()) pkg = sit->second.package;
-                // If still not found, fall back to current package.  This handles
-                // types in the same file that haven't been registered yet.
+                SemaStructInfo* found = nullptr;
+                { auto [dp, dsi] = find_datatype_by_name(elem->struct_name); found = dsi; }
+                if (!found) { auto [sp, ssi] = find_struct_by_name(elem->struct_name); found = ssi; }
+                if (found) pkg = found->package;
+                // If still not found, fall back to current package.
                 else pkg = cur_package_;
             }
             // Build the fully-qualified name used as explicit_type_codes_ key (matches
@@ -1423,8 +1428,19 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 if (a && a->kind == LogosType::Kind::TypeVar) { has_tv = true; break; }
             if (has_tv)
                 return make_expr(prim(LogosType::Kind::U64), lir::ETypeCodeOf{elem});
-            auto dit = datatypes_.find(elem->struct_name);
-            std::string pkg = (dit != datatypes_.end()) ? dit->second.package : std::string(cur_package_);
+            // Resolve the package for this generic type.
+            // Prefer elem->pkg_name (set by resolve_type via find_datatype_by_name).
+            // Fall back to datatypes_ lookup (bare then qualified), then cur_package_.
+            std::string pkg;
+            if (!elem->pkg_name.empty()) {
+                pkg = elem->pkg_name;
+            } else {
+                SemaStructInfo* gsi = nullptr;
+                { auto [dp, dsi] = find_datatype_by_name(elem->struct_name); gsi = dsi; }
+                if (!gsi) { auto it = datatypes_.find(elem->struct_name); if (it != datatypes_.end()) gsi = &it->second; }
+                if (gsi) pkg = gsi->package;
+                else pkg = cur_package_;
+            }
             std::string canon = pkg + "::" + type_str(elem);
             auto eit = explicit_type_codes_.find(canon);
             if (eit != explicit_type_codes_.end()) {
@@ -1463,16 +1479,19 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         while (check && check->kind == LogosType::Kind::Array) check = check->elem;
         bool is_plain = true;
         if (check && check->kind == LogosType::Kind::Datatype && check->type_args.empty()) {
-            auto dit = datatypes_.find(check->struct_name);
-            if (dit != datatypes_.end()) {
-                is_plain = dit->second.is_data_plain;
-            } else {
-                // Bug 1 fix: cross-package datatypes that landed in structs_ also carry
-                // is_data_plain (same SemaStructInfo type).
-                auto sit = structs_.find(check->struct_name);
-                if (sit != structs_.end()) is_plain = sit->second.is_data_plain;
-                // If not found in either map, default to true (unknown type → conservative safe).
+            // Use import-aware helpers so same-package types (stored under qualified keys
+            // after M1) and cross-package types are both found.
+            SemaStructInfo* found_si = nullptr;
+            { auto [dp, dsi] = find_datatype_by_name(check->struct_name); found_si = dsi; }
+            if (!found_si) { auto [sp, ssi] = find_struct_by_name(check->struct_name); found_si = ssi; }
+            // Package-qualified fallback using pkg_name on the type itself.
+            if (!found_si && !check->pkg_name.empty()) {
+                auto qkey = sema_key(check->pkg_name, check->struct_name);
+                { auto it = datatypes_.find(qkey); if (it != datatypes_.end()) found_si = &it->second; }
+                if (!found_si) { auto it = structs_.find(qkey); if (it != structs_.end()) found_si = &it->second; }
             }
+            if (found_si) is_plain = found_si->is_data_plain;
+            // If not found in any map, default to true (unknown type → conservative safe).
         } else if (check && check->kind == LogosType::Kind::Datatype && !check->type_args.empty()) {
             // Generic Datatype: can't determine statically → conservative DataNode.
             is_plain = false;
@@ -1994,7 +2013,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // Build concrete name from enum base + type args + method
                 // e.g. "Option__i32__unwrap_or"
                 SemaSubst subst;
-                auto eit = enums_.find(base);
+                auto [epkg_genum, esi_genum] = find_enum_by_name(base);
+                auto eit = esi_genum ? enums_.find(sema_key(epkg_genum, base)) : enums_.end();
+                if (eit == enums_.end()) eit = enums_.find(base);
                 if (eit != enums_.end()) {
                     auto& tps = eit->second.type_params;
                     for (size_t i = 0; i < tps.size() && i < recv->type->type_args.size(); ++i)
@@ -2133,8 +2154,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype) &&
             !rst->type_args.empty()) {
             SemaStructInfo* si2 = nullptr;
-            { auto it = structs_.find(rst->struct_name); if (it != structs_.end()) si2 = &it->second; }
-            if (!si2) { auto it = datatypes_.find(rst->struct_name); if (it != datatypes_.end()) si2 = &it->second; }
+            { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
+            if (!si2) { auto [p, di] = find_datatype_by_name(rst->struct_name); si2 = di; }
             if (si2) {
                 auto& tps = si2->type_params;
                 for (size_t i = 0; i < tps.size() && i < rst->type_args.size(); ++i)
@@ -2370,8 +2391,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
         if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype) && !rst->type_args.empty()) {
             SemaStructInfo* si2 = nullptr;
-            { auto it = structs_.find(rst->struct_name); if (it != structs_.end()) si2 = &it->second; }
-            if (!si2) { auto it = datatypes_.find(rst->struct_name); if (it != datatypes_.end()) si2 = &it->second; }
+            { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
+            if (!si2) { auto [p, di] = find_datatype_by_name(rst->struct_name); si2 = di; }
             if (si2) {
                 auto& tps = si2->type_params;
                 for (size_t i = 0; i < tps.size() && i < rst->type_args.size(); ++i)
@@ -2482,8 +2503,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 rst = rst->pointee;
             if (rst && (rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype)) {
                 SemaStructInfo* si2 = nullptr;
-                if (auto it = structs_.find(rst->struct_name); it != structs_.end()) si2 = &it->second;
-                if (!si2) if (auto it = datatypes_.find(rst->struct_name); it != datatypes_.end()) si2 = &it->second;
+                { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
+                if (!si2) { auto [p, di] = find_datatype_by_name(rst->struct_name); si2 = di; }
                 if (si2) {
                     auto& tps = si2->type_params;
                     std::unordered_set<std::string> struct_names;
@@ -2576,12 +2597,9 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     {
         SemaStructInfo* sinfo_ptr = nullptr;
         {
-            auto sit = structs_.find(std::string(sname));
-            if (sit != structs_.end()) sinfo_ptr = &sit->second;
-            else {
-                auto dit = datatypes_.find(std::string(sname));
-                if (dit != datatypes_.end()) sinfo_ptr = &dit->second;
-            }
+            auto [spkg, ssi] = find_struct_by_name(sname);
+            if (ssi) sinfo_ptr = ssi;
+            else { auto [dpkg, dsi] = find_datatype_by_name(sname); sinfo_ptr = dsi; }
         }
         if (sinfo_ptr) {
             for (auto& f : sinfo_ptr->fields) {
@@ -2610,12 +2628,13 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     auto sname_sv = str_of(node.get(la::NAME.code));
     std::string sname_buf(sname_sv);  // mutable copy in case we resolve alias
-    // Find in structs_ or datatypes_
+    // Find in structs_ or datatypes_ (package-aware).
+    bool slit_is_datatype = false;
     auto find_struct_info = [&](const std::string& name) -> SemaStructInfo* {
-        auto sit = structs_.find(name);
-        if (sit != structs_.end()) return &sit->second;
-        auto dit = datatypes_.find(name);
-        if (dit != datatypes_.end()) return &dit->second;
+        auto [spkg, ssi] = find_struct_by_name(name);
+        if (ssi) { slit_is_datatype = false; return ssi; }
+        auto [dpkg, dsi] = find_datatype_by_name(name);
+        if (dsi) { slit_is_datatype = true; return dsi; }
         return nullptr;
     };
     auto* sinfo_ptr = find_struct_info(sname_buf);
@@ -2623,17 +2642,26 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // Try resolving via type alias: `type Alias = Struct` or `type Alias = Struct<T>`
         // Bug 3 fix: only apply non-generic aliases here; generic aliases need type args
         // at the call site and we can't infer them from just the struct literal name.
-        auto ait = type_aliases_.find(sname_buf);
-        if (ait != type_aliases_.end() &&
-            ait->second.type_params.empty() && ait->second.lifetime_params.empty()) {
-            auto* aliased = ait->second.type;
-            if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                            aliased->kind == LogosType::Kind::Datatype)) {
-                sinfo_ptr = find_struct_info(aliased->struct_name);
-                if (sinfo_ptr) {
-                    sname_buf = aliased->struct_name;
-                    hint_struct_type_ = aliased;
-                }
+        // Check current package and imported packages for the alias.
+        auto check_alias = [&](const std::string& key) -> const LogosType* {
+            auto ait = type_aliases_.find(key);
+            if (ait != type_aliases_.end() &&
+                ait->second.type_params.empty() && ait->second.lifetime_params.empty())
+                return ait->second.type;
+            return nullptr;
+        };
+        const LogosType* aliased = check_alias(sname_buf);
+        if (!aliased && !cur_package_.empty()) aliased = check_alias(sema_key(cur_package_, sname_buf));
+        if (!aliased) for (auto& pkg : cur_imports_.wildcard_packages) {
+            aliased = check_alias(sema_key(pkg, sname_buf));
+            if (aliased) break;
+        }
+        if (aliased && (aliased->kind == LogosType::Kind::Struct ||
+                        aliased->kind == LogosType::Kind::Datatype)) {
+            sinfo_ptr = find_struct_info(aliased->struct_name);
+            if (sinfo_ptr) {
+                sname_buf = aliased->struct_name;
+                hint_struct_type_ = aliased;
             }
         }
     }
@@ -2814,7 +2842,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         std::vector<std::string> lit_lt_args;
         if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname))
             lit_lt_args = hint_struct_type_->lifetime_args;
-        const LogosType* lit_type = datatypes_.count(std::string(sname))
+        const LogosType* lit_type = slit_is_datatype
             ? make_generic_datatype(std::string(sname), args, lit_lt_args)
             : make_generic_struct(std::string(sname), args, lit_lt_args);
 
@@ -3020,7 +3048,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname))
         ng_lt_args = hint_struct_type_->lifetime_args;
     LogosType ng_t;
-    ng_t.kind = datatypes_.count(std::string(sname))
+    ng_t.kind = slit_is_datatype
                 ? LogosType::Kind::Datatype : LogosType::Kind::Struct;
     ng_t.struct_name   = std::string(sname);
     ng_t.lifetime_args = std::move(ng_lt_args);
@@ -3250,9 +3278,12 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     }
 
     // Require Vec<T> available (via `use std.vec`).
-    if (structs_.find("Vec") == structs_.end()) {
-        error("list comprehension requires `use std.vec;`");
-        return error_expr();
+    {
+        auto [vpkg, vsi] = find_struct_by_name("Vec");
+        if (!vsi) {
+            error("list comprehension requires `use std.vec;`");
+            return error_expr();
+        }
     }
     auto* vec_new_fi = find_generic_func("vec_new");
     if (!vec_new_fi) {
@@ -3352,9 +3383,12 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
         return error_expr();
     }
 
-    if (structs_.find("HashMap") == structs_.end()) {
-        error("map comprehension requires `use std.hashmap;`");
-        return error_expr();
+    {
+        auto [hmpkg, hmsi] = find_struct_by_name("HashMap");
+        if (!hmsi) {
+            error("map comprehension requires `use std.hashmap;`");
+            return error_expr();
+        }
     }
     auto* hm_new_fi = find_generic_func("hashmap_new");
     if (!hm_new_fi) {
@@ -3459,9 +3493,12 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    if (structs_.find("Hermes") == structs_.end()) {
-        error("hermes list comprehension requires `use hermes.ctr;`");
-        return error_expr();
+    {
+        auto [hpkg, hsi] = find_struct_by_name("Hermes");
+        if (!hsi) {
+            error("hermes list comprehension requires `use hermes.ctr;`");
+            return error_expr();
+        }
     }
 
     auto new_cands  = find_func_candidates("hermes_list_comp_new");
@@ -3595,9 +3632,12 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         return error_expr();
     }
 
-    if (structs_.find("Hermes") == structs_.end()) {
-        error("hermes map comprehension requires `use hermes.ctr;`");
-        return error_expr();
+    {
+        auto [hpkg, hsi] = find_struct_by_name("Hermes");
+        if (!hsi) {
+            error("hermes map comprehension requires `use hermes.ctr;`");
+            return error_expr();
+        }
     }
 
     auto new_cands = find_func_candidates("hermes_map_comp_new");
@@ -3816,7 +3856,9 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     auto ename = str_of(node.get(la::NAME.code));
     auto vname = str_of(node.get(la::FIELD.code));
-    auto eit = enums_.find(std::string(ename));
+    auto [epkg_el, esi_el] = find_enum_by_name(ename);
+    auto eit = esi_el ? enums_.find(sema_key(epkg_el, std::string(ename))) : enums_.end();
+    if (eit == enums_.end()) eit = enums_.find(std::string(ename));
     if (eit == enums_.end()) {
         // Before reporting "unknown enum", check if this is an associated constant
         // access (e.g. Buffer::MAX) parsed as ENUM_LIT due to grammar ambiguity.
@@ -3843,14 +3885,16 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         error(std::format("enum '{}' has no variant '{}'", ename, vname));
         return error_expr();
     }
-    return make_expr(make_enum_type(ename),
+    return make_expr(make_enum_type(ename, epkg_el),
         lir::EEnumLit{std::string(ename), std::string(vname), disc});
 }
 
 lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     auto ename = str_of(node.get(la::NAME.code));
     auto vname = str_of(node.get(la::FIELD.code));
-    auto eit = enums_.find(std::string(ename));
+    auto [epkg_eld, esi_eld] = find_enum_by_name(ename);
+    auto eit = esi_eld ? enums_.find(sema_key(epkg_eld, std::string(ename))) : enums_.end();
+    if (eit == enums_.end()) eit = enums_.find(std::string(ename));
     if (eit == enums_.end()) {
         // Bug 5 fix: ENUM_LIT_DATA shares the same grammar path as ENUM_LIT.
         // Check for associated constant access before reporting "unknown enum".
@@ -4018,7 +4062,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
 
 lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         TinyMapView node, std::string_view ename, std::string_view vname) {
-    auto eit = enums_.find(std::string(ename));
+    auto [epkg_els, esi_els] = find_enum_by_name(ename);
+    auto eit = esi_els ? enums_.find(sema_key(epkg_els, std::string(ename))) : enums_.end();
+    if (eit == enums_.end()) eit = enums_.find(std::string(ename));
     if (eit == enums_.end()) return error_expr();
     const SemaVariantInfo* vinfo = nullptr;
     for (auto& v : eit->second.variants)
@@ -4169,10 +4215,15 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
 
     // If "class_name" is actually an enum, redirect to enum lit with data.
-    if (enums_.count(std::string(class_name))) {
-        // Reinterpret as ENUM_LIT_DATA: NAME=class_name, FIELD=method_name
-        // Build a fake node view... or just inline the logic.
-        return lower_enum_lit_data_from_static(node, class_name, method_name);
+    {
+        auto [epkg_sc, esi_sc] = find_enum_by_name(class_name);
+        bool is_enum = esi_sc != nullptr;
+        if (!is_enum) is_enum = enums_.count(std::string(class_name)) > 0;
+        if (is_enum) {
+            // Reinterpret as ENUM_LIT_DATA: NAME=class_name, FIELD=method_name
+            // Build a fake node view... or just inline the logic.
+            return lower_enum_lit_data_from_static(node, class_name, method_name);
+        }
     }
 
     // Resolve type aliases: `type ObjectArray = Array<AnyVal>;`

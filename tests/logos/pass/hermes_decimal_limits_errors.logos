@@ -8,6 +8,7 @@
 package hermes_decimal_limits_errors;
 
 use hermes.ctr;
+use hermes.anyval;
 
 unsafe fn main() -> i32 {
     // 1) precision above engine budget (1143) must be rejected by parser.

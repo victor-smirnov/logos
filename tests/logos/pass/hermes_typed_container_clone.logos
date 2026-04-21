@@ -10,6 +10,7 @@
 package hermes_typed_container_clone;
 
 use hermes.ctr;
+use hermes.anyval;
 use std.string;
 
 pub unsafe fn main() -> i32 {

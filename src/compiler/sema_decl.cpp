@@ -33,10 +33,12 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // of lowering if the surrounding impl context already determined it.
     if (!struct_ctx.empty() && !current_type_params_.count("Self")) {
         // Prefer datatype Self when a name exists in both tables.
-        if (datatypes_.count(std::string(struct_ctx)))
-            current_type_params_["Self"] = make_datatype_type(struct_ctx);
-        else if (structs_.count(std::string(struct_ctx)))
-            current_type_params_["Self"] = make_struct_type(struct_ctx);
+        auto [dpkg, dsi] = find_datatype_by_name(struct_ctx);
+        auto [spkg, ssi] = find_struct_by_name(struct_ctx);
+        if (dsi)
+            current_type_params_["Self"] = make_datatype_type(struct_ctx, dpkg);
+        else if (ssi)
+            current_type_params_["Self"] = make_struct_type(struct_ctx, spkg);
         else if (auto* prim_t = lookup_type_by_name(struct_ctx))
             current_type_params_["Self"] = prim_t;
     }
@@ -126,10 +128,12 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         // makes exact arity matching fail and leaves fi_ptr unresolved.
         if (!fi_ptr && !struct_ctx.empty()) {
             const LogosType* self_t = nullptr;
-            if (auto it = datatypes_.find(std::string(struct_ctx)); it != datatypes_.end())
-                self_t = make_datatype_type(struct_ctx);
-            else if (auto it = structs_.find(std::string(struct_ctx)); it != structs_.end())
-                self_t = make_struct_type(struct_ctx);
+            {
+                auto [dpkg_sc, dsi_sc] = find_datatype_by_name(struct_ctx);
+                auto [spkg_sc, ssi_sc] = find_struct_by_name(struct_ctx);
+                if (dsi_sc)      self_t = make_datatype_type(struct_ctx, dpkg_sc);
+                else if (ssi_sc) self_t = make_struct_type(struct_ctx, spkg_sc);
+            }
             if (self_t) {
                 for (auto* cand : find_func_candidates(mangled)) {
                     if (!cand || cand->type_params.size() != node_tparams.size()) continue;
@@ -180,8 +184,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         if (!t) return {};
         while (t->kind == LogosType::Kind::Array) t = t->elem;
         if (t->kind == LogosType::Kind::Datatype && t->type_args.empty()) {
-            auto dit = datatypes_.find(t->struct_name);
-            if (dit != datatypes_.end() && !dit->second.is_data_plain)
+            auto* dsi = get_datatype_si(t);
+            if (dsi && !dsi->is_data_plain)
                 return t->struct_name;
         }
         return {};
@@ -299,14 +303,23 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     lir::LStructDef sd;
     sd.name = sname;
     // Look up in structs_ or datatypes_ — never default-insert via operator[].
-    auto sit  = structs_.find(sname);
-    auto doit = datatypes_.find(sname);
+    // Use package-aware find helpers so cross-package lowering works.
+    auto [spkg_sd, ssi_sd] = find_struct_by_name(sname);
+    auto [dpkg_sd, dsi_sd] = find_datatype_by_name(sname);
     SemaStructInfo* sinfo = nullptr;
-    if      (sit  != structs_.end())   sinfo = &sit->second;
-    else if (doit != datatypes_.end()) sinfo = &doit->second;
+    if      (ssi_sd) sinfo = ssi_sd;
+    else if (dsi_sd) sinfo = dsi_sd;
     else {
-        error(std::format("internal: '{}' not found in collect phase", sname));
-        return sd;
+        // Fall back to qualified key (cur_package_ set by lower_module_items)
+        auto qkey = sema_key(cur_package_, sname);
+        auto sit2  = structs_.find(qkey);
+        auto doit2 = datatypes_.find(qkey);
+        if      (sit2  != structs_.end())   sinfo = &sit2->second;
+        else if (doit2 != datatypes_.end()) sinfo = &doit2->second;
+        else {
+            error(std::format("internal: '{}' not found in collect phase", sname));
+            return sd;
+        }
     }
     sd.type_params = sinfo->type_params;
     sd.lifetime_params = sinfo->lifetime_params;
@@ -330,7 +343,14 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
     auto ename = std::string(str_of(node.get(la::NAME.code)));
     lir::LEnumDef ed;
     ed.name = ename;
-    auto& einfo = enums_[ename];
+    auto [epkg_led, esi_led] = find_enum_by_name(ename);
+    auto eit_led = esi_led ? enums_.find(sema_key(epkg_led, ename)) : enums_.end();
+    if (eit_led == enums_.end()) eit_led = enums_.find(ename);
+    if (eit_led == enums_.end()) {
+        error(std::format("internal: enum '{}' not found in lower_enum_def", ename));
+        return ed;
+    }
+    auto& einfo = eit_led->second;
     ed.type_params = einfo.type_params;
     ed.backing_type = einfo.backing_type;
     for (auto& v : einfo.variants)
@@ -637,12 +657,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // target is a concrete generic instantiation, i.e. this path).
                 std::string pkg;
                 if (target_resolved) {
-                    auto dit = datatypes_.find(target_resolved->struct_name);
-                    if (dit != datatypes_.end()) pkg = dit->second.package;
-                    else {
-                        auto sit = structs_.find(target_resolved->struct_name);
-                        if (sit != structs_.end()) pkg = sit->second.package;
-                    }
+                    // Use get_*_si which handles pkg_name correctly
+                    if (auto* dsi_tr = get_datatype_si(target_resolved)) pkg = dsi_tr->package;
+                    else if (auto* ssi_tr = get_struct_si(target_resolved)) pkg = ssi_tr->package;
                     if (pkg.empty()) pkg = cur_package_;
                     ia.canonical_name = pkg + "::" + type_str(target_resolved);
                     explicit_type_codes_[ia.canonical_name] = td.type_code;
@@ -820,14 +837,27 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 if (m.has_default && !overridden.count(mangled)) {
                     // Push Self → target type; for generic impls include type params as TypeVars.
                     const LogosType* self_type = nullptr;
-                    if (structs_.count(target)) {
-                        if (!impl_tps.empty()) {
-                            std::vector<const LogosType*> tv_args;
-                            for (auto& tp : impl_tps)
-                                tv_args.push_back(make_typevar(tp.name));
-                            self_type = make_generic_struct(target, std::move(tv_args));
-                        } else {
-                            self_type = make_struct_type(target);
+                    {
+                        auto [spkg2, ssi2] = find_struct_by_name(target);
+                        auto [dpkg2, dsi2] = find_datatype_by_name(target);
+                        if (ssi2) {
+                            if (!impl_tps.empty()) {
+                                std::vector<const LogosType*> tv_args;
+                                for (auto& tp : impl_tps)
+                                    tv_args.push_back(make_typevar(tp.name));
+                                self_type = make_generic_struct(target, std::move(tv_args), {}, spkg2);
+                            } else {
+                                self_type = make_struct_type(target, spkg2);
+                            }
+                        } else if (dsi2) {
+                            if (!impl_tps.empty()) {
+                                std::vector<const LogosType*> tv_args;
+                                for (auto& tp : impl_tps)
+                                    tv_args.push_back(make_typevar(tp.name));
+                                self_type = make_generic_datatype(target, std::move(tv_args), {}, dpkg2);
+                            } else {
+                                self_type = make_datatype_type(target, dpkg2);
+                            }
                         }
                     }
                     if (self_type)
@@ -908,18 +938,18 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     std::string base = target;
                     if (auto p = base.find("$G"); p != std::string::npos)
                         base = base.substr(0, p);
-                    auto dit = datatypes_.find(base);
-                    if (dit != datatypes_.end()) {
-                        auto foreign_fqn = dit->second.package + "::" + target;
+                    auto [bpkg, bsi] = find_datatype_by_name(base);
+                    if (bsi) {
+                        auto foreign_fqn = bsi->package + "::" + target;
                         eit = explicit_type_codes_.find(foreign_fqn);
                     }
                 }
                 if (eit != explicit_type_codes_.end()) {
                     tcode = eit->second;
                 } else {
-                    auto dit = datatypes_.find(target);
-                    if (dit != datatypes_.end()) {
-                        std::string canon = dit->second.package + "::" + target;
+                    auto [tpkg2, tsi2] = find_datatype_by_name(target);
+                    if (tsi2) {
+                        std::string canon = tsi2->package + "::" + target;
                         auto hash = type_hash_23(canon);
                         uint64_t raw = type_hash_56bit(hash);
                         tcode = (raw < 128) ? (raw + 128) : raw;

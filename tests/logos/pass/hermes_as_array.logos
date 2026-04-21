@@ -2,6 +2,7 @@
 // C7-fix3/fix5: added content verification via stringify.
 package hermes_as_array;
 use hermes.ctr;
+use hermes.anyval;
 use std.string;
 
 unsafe fn main() -> i32 {

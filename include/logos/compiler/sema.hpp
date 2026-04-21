@@ -67,6 +67,7 @@ struct LogosType {
     // Struct / Enum
     std::string      struct_name;         // base struct name (owned; never mangled)
     std::string      enum_name;           // enum name (owned)
+    std::string      pkg_name;            // package owning this type ("std.vec", "hermes.ctr", etc.); empty for unpackaged
 
     // Generic struct instantiation: Pair<i32> → struct_name="Pair", type_args=[i32]
     // Empty for plain (non-generic) structs.

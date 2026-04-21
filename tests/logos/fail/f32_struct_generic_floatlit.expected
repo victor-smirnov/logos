@@ -1,1 +1,1 @@
-let 'x': type mismatch — expected f32, got f64
+let 'x': type mismatch — expected f32, got T

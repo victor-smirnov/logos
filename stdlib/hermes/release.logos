@@ -13,6 +13,7 @@
 package hermes.release;
 
 use hermes.string;
+use hermes.anyval;
 use hermes.typetag;
 use hermes.tag_system;
 use hermes.array;

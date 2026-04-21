@@ -18,6 +18,7 @@
 package hermes_showcase;
 
 use hermes.ctr;
+use hermes.anyval;
 use hermes.pat;
 use hermes.view;
 use hermes.map;

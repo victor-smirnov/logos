@@ -3,6 +3,7 @@ package variadic_format;
 
 use std.fmt;
 use std.io;
+use std.string;
 
 unsafe fn main() -> i32 {
     let s: String = format::<str, i32, bool>("{} says: x={}, ok={}", "logos", 42, true);

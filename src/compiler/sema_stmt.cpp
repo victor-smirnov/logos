@@ -783,7 +783,9 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         auto pename = std::string(str_of(pnode.get(la::NAME.code)));
         auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
         int32_t disc = 0;
-        auto eit = enums_.find(pename);
+        auto [epkg_pv, esi_pv] = find_enum_by_name(pename);
+        auto eit = esi_pv ? enums_.find(sema_key(epkg_pv, pename)) : enums_.end();
+        if (eit == enums_.end()) eit = enums_.find(pename);
         if (eit == enums_.end()) {
             error(std::format("pattern: unknown enum '{}'", pename));
         } else {
@@ -805,7 +807,9 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
         int32_t disc = 0;
         const SemaVariantInfo* vinfo = nullptr;
-        auto eit = enums_.find(pename);
+        auto [epkg_pvd, esi_pvd] = find_enum_by_name(pename);
+        auto eit = esi_pvd ? enums_.find(sema_key(epkg_pvd, pename)) : enums_.end();
+        if (eit == enums_.end()) eit = enums_.find(pename);
         if (eit == enums_.end()) {
             error(std::format("pattern: unknown enum '{}'", pename));
         } else {
@@ -1072,12 +1076,8 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         auto sname = std::string(str_of(pnode.get(la::NAME.code)));
         // Look up struct or datatype info.
         const SemaStructInfo* sinfo = nullptr;
-        auto sit = structs_.find(sname);
-        if (sit != structs_.end()) sinfo = &sit->second;
-        else {
-            auto dit = datatypes_.find(sname);
-            if (dit != datatypes_.end()) sinfo = &dit->second;
-        }
+        { auto [sp, si] = find_struct_by_name(sname); sinfo = si; }
+        if (!sinfo) { auto [dp, di] = find_datatype_by_name(sname); sinfo = di; }
         if (!sinfo)
             error(std::format("struct pattern: unknown struct '{}'", sname));
         if (scrut_type && scrut_type->kind != LogosType::Kind::Error &&
@@ -2027,8 +2027,14 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
                     ? iter_type->struct_name
                     : std::string(sname);
             SemaStructInfo* si = nullptr;
-            { auto it = structs_.find(lookup_name); if (it != structs_.end()) si = &it->second; }
-            if (!si) { auto it = datatypes_.find(lookup_name); if (it != datatypes_.end()) si = &it->second; }
+            { auto [sp, ssi] = find_struct_by_name(lookup_name); si = ssi; }
+            if (!si) { auto [dp, dsi] = find_datatype_by_name(lookup_name); si = dsi; }
+            // Also try package-qualified key if iter_type has pkg_name
+            if (!si && !iter_type->pkg_name.empty()) {
+                auto qkey = sema_key(iter_type->pkg_name, lookup_name);
+                { auto it = structs_.find(qkey); if (it != structs_.end()) si = &it->second; }
+                if (!si) { auto it = datatypes_.find(qkey); if (it != datatypes_.end()) si = &it->second; }
+            }
             if (si) {
                 SemaSubst subst;
                 auto& tps = si->type_params;
@@ -2045,7 +2051,9 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         // Find the payload variant (Some-like: first variant with payload)
         const SemaVariantInfo* some_variant = nullptr;
-        auto eit = enums_.find(next_ret->enum_name);
+        auto [epkg_forin, esi_forin] = find_enum_by_name(next_ret->enum_name);
+        auto eit = esi_forin ? enums_.find(sema_key(epkg_forin, next_ret->enum_name)) : enums_.end();
+        if (eit == enums_.end()) eit = enums_.find(next_ret->enum_name);
         if (eit == enums_.end()) {
             error(std::format("for-in: enum '{}' not found", next_ret->enum_name));
             return make_stmt(node_line_, lir::SBreak{});
@@ -3178,7 +3186,9 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             }
         }
         if (!has_wild && scrut_type->kind == LogosType::Kind::Enum) {
-            auto eit = enums_.find(scrut_type->enum_name);
+            auto [epkg_match, esi_match] = find_enum_by_name(scrut_type->enum_name);
+            auto eit = esi_match ? enums_.find(sema_key(epkg_match, scrut_type->enum_name)) : enums_.end();
+            if (eit == enums_.end()) eit = enums_.find(scrut_type->enum_name);
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
                 auto add_pat = [&](const lir::Pattern& p) {
@@ -3457,7 +3467,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
         }
         if (!has_wild && scrut_type->kind == LogosType::Kind::Enum) {
-            auto eit = enums_.find(scrut_type->enum_name);
+            auto [epkg_match2, esi_match2] = find_enum_by_name(scrut_type->enum_name);
+            auto eit = esi_match2 ? enums_.find(sema_key(epkg_match2, scrut_type->enum_name)) : enums_.end();
+            if (eit == enums_.end()) eit = enums_.find(scrut_type->enum_name);
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
                 auto add_pat2 = [&](const lir::Pattern& p) {

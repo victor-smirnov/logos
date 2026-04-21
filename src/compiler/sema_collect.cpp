@@ -20,10 +20,39 @@ using hermes::MemHolder;
 // Symbol-collection phase: populate SemaChecker symbol tables.
 
 void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
+    // Helper: build ImportScope (wildcard_packages) from a module's USES array.
+    auto build_import_scope = [&](TinyMapView root) -> ImportScope {
+        ImportScope scope;
+        if (!root.has_key(la::USES)) return scope;
+        auto uses_av = root.get(la::USES.code);
+        if (uses_av.is_null() || !uses_av.is_pointer()) return scope;
+        auto uses = arr_of(uses_av);
+        for (uint64_t i = 0; i < uses.size(); ++i) {
+            auto use_node = map_of(uses.get(i));
+            std::string dotted;
+            if (use_node.has_key(la::NAME)) {
+                dotted = std::string(str_of(use_node.get(la::NAME.code)));
+            }
+            if (use_node.has_key(la::mod::PATH_PARTS)) {
+                auto parts = arr_of(use_node.get(la::mod::PATH_PARTS.code));
+                for (uint64_t pi = 0; pi < parts.size(); ++pi) {
+                    auto part = map_of(parts.get(pi));
+                    if (!part.has_key(la::NAME)) continue;
+                    if (!dotted.empty()) dotted += '.';
+                    dotted += std::string(str_of(part.get(la::NAME.code)));
+                }
+            }
+            if (!dotted.empty())
+                scope.wildcard_packages.push_back(std::move(dotted));
+        }
+        return scope;
+    };
     // First pass: register names (so forward references work).
     for (auto& ast : asts) {
         holder_ = ast.holder();
         auto root = ast.root_object().as_tiny_map();
+        cur_package_ = read_package_name(root);
+        cur_imports_ = build_import_scope(root);
         if (!root.has_key(la::ITEMS)) continue;
         auto items = arr_of(root.get(la::ITEMS.code));
         for (uint64_t i = 0; i < items.size(); ++i) {
@@ -32,28 +61,33 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
             if (ic == la::STRUCT) {
                 if (is_specialization_struct(item)) continue;  // specs registered later
                 auto sname = std::string(str_of(item.get(la::NAME.code)));
-                if (structs_.count(sname)) error(std::format("duplicate struct '{}'", sname));
-                else structs_[sname] = {};
+                auto key = sema_key(cur_package_, sname);
+                if (structs_.count(key)) error(std::format("duplicate struct '{}'", sname));
+                else structs_[key] = {};
             } else if (ic == la::DATATYPE) {
                 // Explicit instantiation declarations have no NAME key — skip name registration.
                 if (!item.has_key(la::NAME.code)) continue;
                 if (is_specialization_struct(item)) continue;  // partial/full specs registered later
                 auto dname = std::string(str_of(item.get(la::NAME.code)));
-                if (datatypes_.count(dname)) error(std::format("duplicate datatype '{}'", dname));
-                else datatypes_[dname] = {};
+                auto key = sema_key(cur_package_, dname);
+                if (datatypes_.count(key)) error(std::format("duplicate datatype '{}'", dname));
+                else datatypes_[key] = {};
             } else if (ic == la::ENUM) {
                 auto ename = std::string(str_of(item.get(la::NAME.code)));
-                if (enums_.count(ename)) error(std::format("duplicate enum '{}'", ename));
-                else enums_[ename] = {};
+                auto key = sema_key(cur_package_, ename);
+                if (enums_.count(key)) error(std::format("duplicate enum '{}'", ename));
+                else enums_[key] = {};
             }
         }
     }
+
     // Intermediate pass: type aliases and consts (Phase 2). Wait, we execute this FIRST so aliases are known for fn signatures.
     for (size_t ai = 0; ai < asts.size(); ++ai) {
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
+        cur_imports_ = build_import_scope(root);
         collect_module(root, 2);
     }
     // Second pass: fill in fields, variants, function signatures (Phase 1).
@@ -62,6 +96,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
+        cur_imports_ = build_import_scope(root);
         collect_module(root, 1);
     }
     cur_package_ = {};
@@ -312,7 +347,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
         }
     }
     pop_type_params(info.type_params);
-    enums_[ename] = std::move(info);
+    enums_[sema_key(cur_package_, ename)] = std::move(info);
 }
 
 void SemaChecker::collect_type_alias(TinyMapView node) {
@@ -563,49 +598,57 @@ void SemaChecker::collect_impl(TinyMapView node) {
             std::string base_target = target;
             if (auto d = base_target.find('$'); d != std::string::npos)
                 base_target = base_target.substr(0, d);
-            if (structs_.count(base_target) || structs_.count(target)) {
-                std::string sname = structs_.count(target) ? target : base_target;
+            // Try struct first (target, then base_target)
+            auto [spkg_t, ssi_t] = find_struct_by_name(target);
+            auto [spkg_b, ssi_b] = find_struct_by_name(base_target);
+            SemaStructInfo* ssi_found = ssi_t ? ssi_t : ssi_b;
+            std::string sname = ssi_t ? target : (ssi_b ? base_target : "");
+            std::string spkg  = ssi_t ? spkg_t : spkg_b;
+            if (ssi_found) {
                 if (!impl_tps.empty()) {
                     std::vector<const LogosType*> tv_args;
                     for (auto& tp : impl_tps)
                         tv_args.push_back(make_typevar(tp.name));
                     // Bug 2: include struct's lifetime params so Self carries lifetime_args.
-                    std::vector<std::string> lt_args;
-                    if (auto sit = structs_.find(sname); sit != structs_.end())
-                        lt_args = sit->second.lifetime_params;
-                    self_type = make_generic_struct(sname, std::move(tv_args), std::move(lt_args));
+                    std::vector<std::string> lt_args = ssi_found->lifetime_params;
+                    self_type = make_generic_struct(sname, std::move(tv_args), std::move(lt_args), spkg);
                 } else {
-                    self_type = make_struct_type(target);
-                }
-            } else if (datatypes_.count(base_target) || datatypes_.count(target)) {
-                std::string dname = datatypes_.count(target) ? target : base_target;
-                // Bug 3: datatypes with lifetime params also need lifetime_args in Self.
-                if (!impl_tps.empty()) {
-                    std::vector<const LogosType*> tv_args;
-                    for (auto& tp : impl_tps)
-                        tv_args.push_back(make_typevar(tp.name));
-                    std::vector<std::string> lt_args;
-                    if (auto dit = datatypes_.find(dname); dit != datatypes_.end())
-                        lt_args = dit->second.lifetime_params;
-                    self_type = make_generic_datatype(dname, std::move(tv_args), std::move(lt_args));
-                } else {
-                    self_type = make_datatype_type(dname);
+                    self_type = make_struct_type(sname, spkg);
                 }
             } else {
-                // Blanket impl (impl<T: Bound> Trait for T): target IS a type
-                // parameter in impl_tps.  Self resolves to that TypeVar so
-                // method signatures with `&self`/`*const Self` see it, and
-                // the bound's trait methods become callable on self.
-                for (auto& tp : impl_tps) {
-                    if (tp.name == target) {
-                        self_type = make_typevar(target);
-                        break;
+                // Try datatype
+                auto [dpkg_t, dsi_t] = find_datatype_by_name(target);
+                auto [dpkg_b, dsi_b] = find_datatype_by_name(base_target);
+                SemaStructInfo* dsi_found = dsi_t ? dsi_t : dsi_b;
+                std::string dname = dsi_t ? target : (dsi_b ? base_target : "");
+                std::string dpkg  = dsi_t ? dpkg_t : dpkg_b;
+                if (dsi_found) {
+                    // Bug 3: datatypes with lifetime params also need lifetime_args in Self.
+                    if (!impl_tps.empty()) {
+                        std::vector<const LogosType*> tv_args;
+                        for (auto& tp : impl_tps)
+                            tv_args.push_back(make_typevar(tp.name));
+                        std::vector<std::string> lt_args = dsi_found->lifetime_params;
+                        self_type = make_generic_datatype(dname, std::move(tv_args), std::move(lt_args), dpkg);
+                    } else {
+                        self_type = make_datatype_type(dname, dpkg);
                     }
-                }
-                // Primitive target (e.g. impl Hash for i32): look up by name.
-                if (!self_type) {
-                    if (auto* prim_t = lookup_type_by_name(target))
-                        self_type = prim_t;
+                } else {
+                    // Blanket impl (impl<T: Bound> Trait for T): target IS a type
+                    // parameter in impl_tps.  Self resolves to that TypeVar so
+                    // method signatures with `&self`/`*const Self` see it, and
+                    // the bound's trait methods become callable on self.
+                    for (auto& tp : impl_tps) {
+                        if (tp.name == target) {
+                            self_type = make_typevar(target);
+                            break;
+                        }
+                    }
+                    // Primitive target (e.g. impl Hash for i32): look up by name.
+                    if (!self_type) {
+                        if (auto* prim_t = lookup_type_by_name(target))
+                            self_type = prim_t;
+                    }
                 }
             }
         }
@@ -848,17 +891,28 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     // This overload not explicitly provided; register the default.
                     // Build Self type; for generic impls include the type params as TypeVars.
                     const LogosType* self_type = nullptr;
-                    if (structs_.count(target)) {
-                        if (!impl_tps.empty()) {
-                            std::vector<const LogosType*> tv_args;
-                            for (auto& tp : impl_tps)
-                                tv_args.push_back(make_typevar(tp.name));
-                            self_type = make_generic_struct(target, std::move(tv_args));
-                        } else {
-                            self_type = make_struct_type(target);
+                    {
+                        auto [spkg_def, ssi_def] = find_struct_by_name(target);
+                        auto [dpkg_def, dsi_def] = find_datatype_by_name(target);
+                        if (ssi_def) {
+                            if (!impl_tps.empty()) {
+                                std::vector<const LogosType*> tv_args;
+                                for (auto& tp : impl_tps)
+                                    tv_args.push_back(make_typevar(tp.name));
+                                self_type = make_generic_struct(target, std::move(tv_args), {}, spkg_def);
+                            } else {
+                                self_type = make_struct_type(target, spkg_def);
+                            }
+                        } else if (dsi_def) {
+                            if (!impl_tps.empty()) {
+                                std::vector<const LogosType*> tv_args;
+                                for (auto& tp : impl_tps)
+                                    tv_args.push_back(make_typevar(tp.name));
+                                self_type = make_generic_datatype(target, std::move(tv_args), {}, dpkg_def);
+                            } else {
+                                self_type = make_datatype_type(target, dpkg_def);
+                            }
                         }
-                    } else if (datatypes_.count(target)) {
-                        self_type = make_datatype_type(target);
                     }
                     if (self_type)
                         current_type_params_["Self"] = self_type;
@@ -1017,6 +1071,10 @@ void SemaChecker::collect_datatype(TinyMapView node) {
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
     info.package = cur_package_;
+    if (node.has_key(la::IS_PUB)) {
+        AnyVal av = node.get(la::IS_PUB.code);
+        info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
     push_type_params(info.type_params);
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
@@ -1075,7 +1133,12 @@ void SemaChecker::collect_datatype(TinyMapView node) {
                 while (ft->kind == LogosType::Kind::Array) ft = ft->elem;
                 if (ft->kind == LogosType::Kind::Datatype) {
                     if (!ft->type_args.empty()) return true;  // generic → conservative
+                    // Try bare name, then current-package qualified, then pkg_name qualified.
                     auto ndit = datatypes_.find(ft->struct_name);
+                    if (ndit == datatypes_.end() && !cur_package_.empty())
+                        ndit = datatypes_.find(cur_package_ + "::" + ft->struct_name);
+                    if (ndit == datatypes_.end() && !ft->pkg_name.empty())
+                        ndit = datatypes_.find(ft->pkg_name + "::" + ft->struct_name);
                     if (ndit == datatypes_.end()) return true; // unknown → conservative
                     return !ndit->second.is_data_plain;
                 }
@@ -1086,8 +1149,9 @@ void SemaChecker::collect_datatype(TinyMapView node) {
             info.fields.push_back({fname, ftype, fpub, false});
         }
     }
-    datatypes_[dname] = std::move(info);
-    pop_type_params(datatypes_[dname].type_params);
+    auto dkey = sema_key(cur_package_, dname);
+    datatypes_[dkey] = std::move(info);
+    pop_type_params(datatypes_[dkey].type_params);
 }
 
 void SemaChecker::collect_struct(TinyMapView node) {
@@ -1099,6 +1163,10 @@ void SemaChecker::collect_struct(TinyMapView node) {
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
     info.package = cur_package_;
+    if (node.has_key(la::IS_PUB)) {
+        AnyVal av = node.get(la::IS_PUB.code);
+        info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
     push_type_params(info.type_params);
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
@@ -1117,7 +1185,8 @@ void SemaChecker::collect_struct(TinyMapView node) {
             info.fields.push_back({fname, ftype, fpub, fvar});
         }
     }
-    structs_[sname] = std::move(info);
+    auto skey = sema_key(cur_package_, sname);
+    structs_[skey] = std::move(info);
     // Methods must be collected with the struct's type params in scope.
     if (node.has_key(la::ITEMS)) {
         auto methods = arr_of(node.get(la::ITEMS.code));
@@ -1127,7 +1196,7 @@ void SemaChecker::collect_struct(TinyMapView node) {
             if (mc == la::FN || mc == la::STATIC_FN) collect_fn(method, sname);
         }
     }
-    pop_type_params(structs_[sname].type_params);
+    pop_type_params(structs_[skey].type_params);
 }
 
 const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
@@ -1153,9 +1222,18 @@ const LogosType* SemaChecker::try_resolve_as_known_type(std::string_view name) {
     // Non-generic aliases only: generic aliases are resolved at use sites in resolve_type.
     if (ait != type_aliases_.end() && ait->second.type_params.empty())
         return ait->second.type;
-    if (structs_.count(std::string(name))) return make_struct_type(name);
-    if (datatypes_.count(std::string(name))) return make_datatype_type(name);
-    if (enums_.count(std::string(name)))   return make_enum_type(name);
+    {
+        auto [spkg, ssi] = find_struct_by_name(name);
+        if (ssi) return make_struct_type(name, spkg);
+    }
+    {
+        auto [dpkg, dsi] = find_datatype_by_name(name);
+        if (dsi) return make_datatype_type(name, dpkg);
+    }
+    {
+        auto [epkg, esi] = find_enum_by_name(name);
+        if (esi) return make_enum_type(name, epkg);
+    }
     return nullptr;
 }
 
@@ -1165,10 +1243,23 @@ bool SemaChecker::is_known_type_name(std::string_view name) const {
         "i16","u16","i56","u56","i128","u128",nullptr
     };
     for (int i = 0; prims[i]; ++i) if (prims[i] == name) return true;
-    return structs_.count(std::string(name)) ||
-           datatypes_.count(std::string(name)) ||
-           enums_.count(std::string(name))   ||
-           type_aliases_.count(std::string(name));
+    if (current_type_params_.count(std::string(name))) return true;
+    // is_known_type_name is const — do direct map lookups with qualified key first.
+    auto ukey = std::string(name);
+    auto has_in = [&](const auto& map) -> bool {
+        if (map.count(ukey)) return true;
+        if (!cur_package_.empty() && map.count(sema_key(cur_package_, ukey))) return true;
+        for (auto& pkg : cur_imports_.wildcard_packages)
+            if (map.count(sema_key(pkg, ukey))) return true;
+        return false;
+    };
+    if (has_in(structs_) || has_in(datatypes_) || has_in(enums_)) return true;
+    // Type aliases: check unqualified, current package, and imports
+    if (type_aliases_.count(ukey)) return true;
+    if (!cur_package_.empty() && type_aliases_.count(sema_key(cur_package_, ukey))) return true;
+    for (auto& pkg : cur_imports_.wildcard_packages)
+        if (type_aliases_.count(sema_key(pkg, ukey))) return true;
+    return false;
 }
 
 // Walk a type AST node, registering any unresolved IDENT as a TypeVar in

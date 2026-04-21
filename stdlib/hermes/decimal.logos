@@ -19,6 +19,7 @@
 package hermes.decimal;
 
 use hermes.zone;
+use hermes.mem_holder;
 use hermes.tags;
 use hermes.anyval;
 use hermes.typetag;

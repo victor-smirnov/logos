@@ -2,6 +2,8 @@
 package hermes_decimal_methods;
 
 use hermes.ctr;
+use hermes.anyval;
+use std.string;
 
 unsafe fn main() -> i32 {
     let mut doc: Hermes = Hermes::builder(16384);

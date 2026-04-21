@@ -1,6 +1,7 @@
 // Document clone (raw byte-copy) tests
 package hermes_clone;
 use hermes.ctr;
+use hermes.anyval;
 use std.string;
 
 unsafe fn main() -> i32 {

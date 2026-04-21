@@ -11,6 +11,7 @@ use hermes.array;
 use hermes.map;
 use hermes.typed_value;
 use hermes.string;
+use std.string;
 
 unsafe fn cstr_eq_bytes(p: *const u8, n: u64, lit: *const u8) -> bool {
     let mut i: i64 = 0 as i64;

@@ -2,6 +2,7 @@
 // C7-fix2: added stringify verification of captured string values.
 package hermes_capture_str;
 use hermes.ctr;
+use hermes.anyval;
 use std.string;
 
 unsafe fn main() -> i32 {

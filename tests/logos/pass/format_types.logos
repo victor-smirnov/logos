@@ -2,6 +2,7 @@
 package format_types;
 
 use std.fmt;
+use std.string;
 use std.io;
 
 unsafe fn main() -> i32 {

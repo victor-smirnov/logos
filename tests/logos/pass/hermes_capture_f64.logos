@@ -2,6 +2,7 @@
 // C7-fix1: added is_ptr() checks — confirms root is a zone object (not inline/null).
 package hermes_capture_f64;
 use hermes.ctr;
+use hermes.anyval;
 
 unsafe fn main() -> i32 {
     // Capture an f64 into a map.

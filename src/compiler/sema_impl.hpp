@@ -103,34 +103,41 @@ private:
         t.arr_size_var = std::string(symbolic);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_struct_type(std::string_view name) {
+    const LogosType* make_struct_type(std::string_view name, std::string_view pkg = {}) {
         LogosType t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
+        if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_datatype_type(std::string_view name) {
+    const LogosType* make_datatype_type(std::string_view name, std::string_view pkg = {}) {
         LogosType t; t.kind = LogosType::Kind::Datatype; t.struct_name = std::string(name);
+        if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_generic_datatype(std::string_view name,
                                             std::vector<const LogosType*> args,
-                                            std::vector<std::string> lt_args = {}) {
+                                            std::vector<std::string> lt_args = {},
+                                            std::string_view pkg = {}) {
         LogosType t; t.kind = LogosType::Kind::Datatype;
         t.struct_name   = std::string(name);
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
+        if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_generic_struct(std::string_view name,
                                           std::vector<const LogosType*> args,
-                                          std::vector<std::string> lt_args = {}) {
+                                          std::vector<std::string> lt_args = {},
+                                          std::string_view pkg = {}) {
         LogosType t; t.kind = LogosType::Kind::Struct;
         t.struct_name   = std::string(name);
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
+        if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_enum_type(std::string_view name) {
+    const LogosType* make_enum_type(std::string_view name, std::string_view pkg = {}) {
         LogosType t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
+        if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_tuple_type(std::vector<const LogosType*> elems) {
@@ -210,6 +217,18 @@ private:
     std::string  file_;
     std::string  cur_package_;
     uint32_t     node_line_ = 0;
+
+    // Per-file import scope (wildcard: `use foo.bar;` makes all pub symbols of foo.bar visible)
+    struct ImportScope {
+        std::vector<std::string> wildcard_packages;
+    };
+    ImportScope cur_imports_;
+
+    // Qualified key: "pkg::name" or "name" if pkg empty
+    static std::string sema_key(const std::string& pkg, const std::string& name) {
+        return pkg.empty() ? name : pkg + "::" + name;
+    }
+
     uint32_t     tmp_var_count_ = 0;   // for generating unique internal names
 
     uint32_t get_line(hermes::TinyMapView node) noexcept {
@@ -276,7 +295,9 @@ private:
         if (vc == la::ENUM_LIT) {
             auto ename = std::string(str_of(vmap.get(la::NAME.code)));
             auto vname = std::string(str_of(vmap.get(la::FIELD.code)));
-            auto it = enums_.find(ename);
+            auto [epkg, esi] = find_enum_by_name(ename);
+            auto it = esi ? enums_.find(sema_key(epkg, ename)) : enums_.end();
+            if (it == enums_.end()) it = enums_.find(ename);
             if (it == enums_.end()) {
                 error(std::format("enum '{}' not found in annotation value", ename));
                 return 0;
@@ -504,6 +525,103 @@ private:
     };
     std::vector<BlanketImpl> blanket_impls_;
 
+    // ── Package-qualified symbol lookup helpers ───────────────────
+
+    // Look up struct/datatype/enum by LogosType (uses pkg_name if set, else unqualified fallback)
+    SemaStructInfo* get_struct_si(const LogosType* t) {
+        if (!t) return nullptr;
+        if (!t->pkg_name.empty()) {
+            auto it = structs_.find(sema_key(t->pkg_name, t->struct_name));
+            if (it != structs_.end()) return &it->second;
+            return nullptr;
+        }
+        auto it = structs_.find(t->struct_name);
+        return it != structs_.end() ? &it->second : nullptr;
+    }
+    SemaStructInfo* get_datatype_si(const LogosType* t) {
+        if (!t) return nullptr;
+        if (!t->pkg_name.empty()) {
+            auto it = datatypes_.find(sema_key(t->pkg_name, t->struct_name));
+            if (it != datatypes_.end()) return &it->second;
+            return nullptr;
+        }
+        auto it = datatypes_.find(t->struct_name);
+        return it != datatypes_.end() ? &it->second : nullptr;
+    }
+    SemaEnumInfo* get_enum_si(const LogosType* t) {
+        if (!t) return nullptr;
+        if (!t->pkg_name.empty()) {
+            auto it = enums_.find(sema_key(t->pkg_name, t->enum_name));
+            if (it != enums_.end()) return &it->second;
+            return nullptr;
+        }
+        auto it = enums_.find(t->enum_name);
+        return it != enums_.end() ? &it->second : nullptr;
+    }
+
+    // Find struct by user-written name (searches cur_package_ then imports then unqualified)
+    std::pair<std::string, SemaStructInfo*> find_struct_by_name(std::string_view name) {
+        if (!cur_package_.empty()) {
+            auto it = structs_.find(sema_key(cur_package_, std::string(name)));
+            if (it != structs_.end()) return {cur_package_, &it->second};
+        }
+        for (auto& pkg : cur_imports_.wildcard_packages) {
+            auto it = structs_.find(sema_key(pkg, std::string(name)));
+            if (it != structs_.end()) {
+                check_pub_access(it->second.is_pub, it->second.package, name);
+                return {pkg, &it->second};
+            }
+        }
+        auto it = structs_.find(std::string(name));
+        if (it != structs_.end()) return {"", &it->second};
+        return {"", nullptr};
+    }
+    std::pair<std::string, SemaStructInfo*> find_datatype_by_name(std::string_view name) {
+        if (!cur_package_.empty()) {
+            auto it = datatypes_.find(sema_key(cur_package_, std::string(name)));
+            if (it != datatypes_.end()) return {cur_package_, &it->second};
+        }
+        for (auto& pkg : cur_imports_.wildcard_packages) {
+            auto it = datatypes_.find(sema_key(pkg, std::string(name)));
+            if (it != datatypes_.end()) {
+                check_pub_access(it->second.is_pub, it->second.package, name);
+                return {pkg, &it->second};
+            }
+        }
+        auto it = datatypes_.find(std::string(name));
+        if (it != datatypes_.end()) return {"", &it->second};
+        return {"", nullptr};
+    }
+    std::pair<std::string, SemaEnumInfo*> find_enum_by_name(std::string_view name) {
+        if (!cur_package_.empty()) {
+            auto it = enums_.find(sema_key(cur_package_, std::string(name)));
+            if (it != enums_.end()) return {cur_package_, &it->second};
+        }
+        for (auto& pkg : cur_imports_.wildcard_packages) {
+            auto it = enums_.find(sema_key(pkg, std::string(name)));
+            if (it != enums_.end()) return {pkg, &it->second};
+        }
+        auto it = enums_.find(std::string(name));
+        if (it != enums_.end()) return {"", &it->second};
+        return {"", nullptr};
+    }
+    std::pair<std::string, SemaTraitInfo*> find_trait_by_name(std::string_view name) {
+        if (!cur_package_.empty()) {
+            auto it = traits_.find(sema_key(cur_package_, std::string(name)));
+            if (it != traits_.end()) return {cur_package_, &it->second};
+        }
+        for (auto& pkg : cur_imports_.wildcard_packages) {
+            auto it = traits_.find(sema_key(pkg, std::string(name)));
+            if (it != traits_.end()) return {pkg, &it->second};
+        }
+        auto it = traits_.find(std::string(name));
+        if (it != traits_.end()) return {"", &it->second};
+        return {"", nullptr};
+    }
+    bool has_struct(std::string_view name)   { return find_struct_by_name(name).second   != nullptr; }
+    bool has_datatype(std::string_view name) { return find_datatype_by_name(name).second != nullptr; }
+    bool has_enum(std::string_view name)     { return find_enum_by_name(name).second     != nullptr; }
+
     // ── Type parameter helpers ────────────────────────────────────
 
     std::vector<std::string> read_lifetime_params(hermes::TinyMapView node);
@@ -639,7 +757,8 @@ private:
         return t && is_integer_kind(t->kind);
     }
 
-    const LogosType* field_type_of(std::string_view sname, std::string_view fname);
+    const LogosType* field_type_of(std::string_view sname, std::string_view fname,
+                                    std::string_view pkg_hint = {});
     const LogosType* field_type_of_for_type(const LogosType* struct_t, std::string_view fname);
     const SemaStructInfo* find_best_sema_struct_spec(std::string_view base_name,
                                                      const std::vector<const LogosType*>& type_args);
