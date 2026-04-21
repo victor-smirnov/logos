@@ -4,7 +4,9 @@ package hermes_typed_array_materialize;
 
 use hermes.ctr;
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.typetag;
 use hermes.datatag;
 use hermes.registry;

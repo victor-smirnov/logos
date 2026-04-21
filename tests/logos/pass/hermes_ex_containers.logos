@@ -9,7 +9,9 @@ use hermes.zone;
 use hermes.anyval;
 use hermes.typetag;
 use hermes.datatag;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.objectmap;
 use hermes.string;
 

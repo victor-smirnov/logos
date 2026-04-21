@@ -5,7 +5,9 @@ package array_relptr_strings;
 
 use hermes.zone;
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.relptr;
 use hermes.relptr_traits;
 use hermes.string;

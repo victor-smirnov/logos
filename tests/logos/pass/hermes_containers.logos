@@ -3,7 +3,9 @@ package hermes_containers;
 
 use hermes.zone;
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.mem_holder;
 
 unsafe fn main() -> i32 {

@@ -6,7 +6,9 @@ package array_i32_polymorphic;
 
 use hermes.zone;
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.relptr;
 use hermes.stringify;
 use hermes.equal;

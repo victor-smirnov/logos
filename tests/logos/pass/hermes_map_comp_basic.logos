@@ -2,7 +2,9 @@ package hermes_map_comp_basic;
 
 use hermes.ctr;
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 
 fn main() -> i32 {
     let arr: [i32; 4] = [10, 20, 30, 40];

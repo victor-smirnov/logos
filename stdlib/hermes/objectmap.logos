@@ -15,7 +15,7 @@
 //   reserved    (u32) — zero, reserved for future use
 //
 // All methods that access entries take an explicit base: *mut u8 (the zone base).
-// This follows the same pattern as TinyObjectMap / ObjectArray in hermes.containers.
+// This follows the same pattern as TinyObjectMap / ObjectArray in hermes.map.
 //
 // Empty-slot sentinel: key_off == 0 (zone offset 0 = DocumentHeader, never a string).
 //
@@ -25,7 +25,9 @@
 package hermes.objectmap;
 
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.string;
 use hermes.relptr;
 
@@ -44,7 +46,7 @@ pub eidos MapEntry {
 
 // Concrete genos specialization carrying the Hermes wire-format type_code
 // for the open-addressing hash map (was `ObjectMap`, type_code=101).
-// The Map<K, V> trait itself lives in `hermes.containers`.
+// The Map<K, V> trait itself lives in `hermes.map`.
 #[type_code=101]
 pub genos Map<Varchar, AnyVal>;
 

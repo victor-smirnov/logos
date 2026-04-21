@@ -2,7 +2,9 @@ package hermes_list_comp_edge;
 
 use hermes.ctr;
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 
 fn main() -> i32 {
     // Edge 1: empty result via always-false guard.

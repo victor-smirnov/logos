@@ -5,7 +5,9 @@ package array_generic_push_grow;
 
 use hermes.zone;
 use hermes.mem_holder;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.relptr;
 
 impl<T> Array<T> {

@@ -4891,7 +4891,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     if (c == la::HERMES_TYPED_ARRAY.code) {
         // @<ElemType>[v,...] — typed dense array (e.g. @<I32>[1,2,3])
         // Known element types: I32 (ArrayI32, tc=104), U64 (ArrayU64, tc=108).
-        // The corresponding array struct must be in scope (use hermes.containers).
+        // The corresponding array struct must be in scope (use hermes.array).
         struct ElemInfo { std::string struct_name; uint64_t type_code; };
         static const std::map<std::string, ElemInfo> known = {
             {"I32", {"ArrayI32", 104}},
@@ -4908,7 +4908,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         if (!datatypes_.count(kit->second.struct_name) &&
             !type_aliases_.count(kit->second.struct_name)) {
             error(std::format(
-                "typed array @<{}>[...] requires '{}' in scope — add 'use hermes.containers;'",
+                "typed array @<{}>[...] requires '{}' in scope — add 'use hermes.array;'",
                 type_name, kit->second.struct_name));
             return nullptr;
         }
@@ -4969,7 +4969,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         std::string lir_key_type;
         if (key_type == "I32") {
             if (!struct_specs_sema_.count("Map$G2$i32$AnyVal")) {
-                error("typed map @<I32>{...} requires 'use hermes.containers;'");
+                error("typed map @<I32>{...} requires 'use hermes.map;'");
                 return nullptr;
             }
             lir_key_type = "I32";

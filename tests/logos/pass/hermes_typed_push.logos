@@ -5,7 +5,9 @@ package hermes_typed_push;
 use hermes.ctr;
 use hermes.view;
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 
 unsafe fn main() -> i32 {
     // Array<i32>: build cap=8, push 5 ints, read back via Array trait on header.

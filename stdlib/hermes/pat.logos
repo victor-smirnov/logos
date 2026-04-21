@@ -11,7 +11,9 @@ package hermes.pat;
 use hermes.anyval;
 use hermes.typetag;
 use hermes.objectmap;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 
 // True iff scrutinee is a map (ObjectMap or TinyObjectMap).
 pub unsafe fn hermes_pat_is_map(av: *const AnyVal, base: *const u8) -> bool {

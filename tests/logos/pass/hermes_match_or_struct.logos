@@ -4,7 +4,9 @@
 package hermes_match_or_struct;
 
 use hermes.anyval;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.ctr;
 use hermes.pat;
 use hermes.view;

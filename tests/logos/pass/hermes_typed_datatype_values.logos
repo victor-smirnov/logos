@@ -7,7 +7,9 @@ use hermes.ctr;
 use hermes.anyval;
 use hermes.typetag;
 use hermes.datatag;
-use hermes.containers;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
 use hermes.string;
 
 unsafe fn cstr_eq_bytes(p: *const u8, n: u64, lit: *const u8) -> bool {

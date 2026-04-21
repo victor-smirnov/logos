@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.typed_value
+//
+// TypedValue — wrapper for Hermes SDN datatype instantiation.
+//
+// Canonical textual form:
+//   @Type(params?) = <initializer>
+//
+// `init_raw` and `params_raw` store AnyVal raw bits (inline or pointer).
+// `params_raw` is null_ptr (raw=0) when no params are specified.
+
+package hermes.typed_value;
+
+use hermes.anyval;
+use hermes.relptr;
+use hermes.string;
+
+#[type_code=106]
+pub genos TypedValueTag {
+    unsafe fn type_name_off(self: *const Self) -> u32;
+}
+
+pub eidos TypedValue {
+    pub type_off:   RelPtr<HermesString>,  // type expression string
+    pub params_raw: u32,                   // AnyVal raw for params (usually Array<AnyVal> or null_ptr)
+    pub init_raw:   u32,                   // AnyVal raw for initializer
+}
+
+impl TypedValueTag for TypedValue {
+    unsafe fn type_name_off(self: *const TypedValue) -> u32 {
+        return self.type_off.offset;
+    }
+}
+
+impl TypedValue {
+    pub unsafe fn init(raw: *mut u8, type_off: u32, params: AnyVal, initv: AnyVal) -> *mut TypedValue {
+        let tv: *mut TypedValue = raw as *mut TypedValue;
+        tv.type_off.offset = type_off;
+        tv.params_raw = params.raw;
+        tv.init_raw = initv.raw;
+        return tv;
+    }
+}
