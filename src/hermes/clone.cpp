@@ -425,8 +425,20 @@ logos::expected<Hermes> clone(const HermesView& src,
     LOGOS_TRY(auto new_root_raw, anyval_clone(src_root_raw, &ctx));
 
     AnyVal new_root = AnyVal::from_raw(new_root_raw);
-    if (new_root.is_pointer() && !new_root.is_null()) {
+    if (new_root.is_pointer()) {
+        // Pointer root (including null/raw=0): write the offset into
+        // DocumentHeader.root_offset.
         HermesAccess::set_root_offset(dst, new_root.to_offset());
+    } else {
+        // Inline root (value-mode AnyVal, bit0=1): write the raw 4 bytes
+        // directly at offset 0. DocumentHeader overlaps the AnyVal; the
+        // bit0=1 flag disambiguates inline vs pointer on read.
+        // Mirrors stdlib document_set_root in stdlib/hermes/document.logos.
+        HermesAccess::set_root_offset(dst, arena_offset_t(new_root_raw));
+    }
+    // If PARAM root: record its slot (offset 0) in out_params.
+    if (out_params) {
+        clone_impl::maybe_record_param(&ctx, new_root_raw, 0);
     }
     return dst;
 }

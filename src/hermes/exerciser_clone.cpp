@@ -225,6 +225,47 @@ static void test_clone_map_i32_anyval() {
                 params[0].offset, params[0].value_index);
 }
 
+static void test_clone_inline_root_i32() {
+    std::printf("--- clone: inline i32 root (AnyVal value-mode) ---\n");
+    auto doc = make_doc().get();
+    // Inline i32 root: write AnyVal raw directly to DocumentHeader.
+    AnyVal v = AnyVal::from_value(int32_t(42));
+    HermesAccess::set_root_offset(doc, logos::hermes::arena_offset_t(v.raw()));
+
+    auto s = stringify(doc, false).get();
+    LOGOS_ASSERT(s == "42", "HERMES-CLONE-008",
+        "src inline-root i32 stringify expected '42', got '{}'", s);
+
+    auto cloned = clone(doc).get();
+    auto sc = stringify(cloned, false).get();
+    LOGOS_ASSERT(sc == "42", "HERMES-CLONE-008",
+        "cloned inline-root i32 stringify expected '42', got '{}'", sc);
+    std::printf("  inline i32 root: OK\n");
+}
+
+static void test_clone_inline_root_param() {
+    std::printf("--- clone: inline PARAM root ---\n");
+    auto doc = make_doc().get();
+    const uint32_t param_raw = (9u << 8) | 0xFFu;
+    HermesAccess::set_root_offset(doc, logos::hermes::arena_offset_t(param_raw));
+
+    std::vector<ParamSlot> params;
+    auto cloned = clone(doc, &params).get();
+
+    LOGOS_ASSERT(params.size() == 1, "HERMES-CLONE-009",
+        "Expected 1 PARAM slot for inline PARAM root, got {}", params.size());
+    LOGOS_ASSERT(params[0].offset == 0, "HERMES-CLONE-009",
+        "Inline PARAM root slot offset must be 0, got {}", params[0].offset);
+    LOGOS_ASSERT(params[0].value_index == 9, "HERMES-CLONE-009",
+        "Expected value_index=9, got {}", params[0].value_index);
+    uint8_t* cb = HermesAccess::base(cloned);
+    uint32_t read = *reinterpret_cast<const uint32_t*>(cb + 0);
+    LOGOS_ASSERT(read == param_raw, "HERMES-CLONE-009",
+        "Inline PARAM root raw mismatch: expected 0x{:x}, got 0x{:x}",
+        param_raw, read);
+    std::printf("  inline PARAM root: OK\n");
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     logos::init_sqlite_sink({.path = "test_traces.sqlite"});
@@ -238,6 +279,8 @@ int main() {
     test_clone_param_tracking();
     test_object_map_put_grow_stress();
     test_clone_map_i32_anyval();
+    test_clone_inline_root_i32();
+    test_clone_inline_root_param();
 
     std::printf("\nAll hermes::clone exerciser tests passed.\n");
     logos::shutdown_sqlite_sink();
