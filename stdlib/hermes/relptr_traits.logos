@@ -65,7 +65,7 @@ impl<T: HermesClone> CloneElem for RelPtr<T> {
         // Recompute dst after possible zone grow inside clone_to.
         let cur_base: *mut u8 = ctx.zone_dst.holder.base;
         let dst: *mut RelPtr<T> = cur_base.byte_add(dst_off as i64) as *mut RelPtr<T>;
-        dst.offset = new_raw.byte_offset_from(cur_base as *const u8) as u32;
+        dst.offset = new_raw.byte_offset_from(cur_base) as u32;
     }
 }
 

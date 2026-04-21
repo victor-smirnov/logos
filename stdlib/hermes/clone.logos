@@ -695,7 +695,7 @@ pub unsafe fn document_compactify(src_zone: *const Zone<Mutable>,
         return Zone { holder: 0 as *mut MemHolder };
     }
 
-    let src_base: *const u8 = src_holder.base as *const u8;
+    let src_base: *const u8 = src_holder.base;
 
     // Determine destination capacity.
     let cap: i64 = if capacity_hint > 0 {
@@ -788,7 +788,7 @@ pub unsafe fn document_clone(src_zone: *const Zone<Mutable>) -> Zone<Mutable> {
 
     // Raw copy of the entire live region; all offsets remain valid because
     // they are zone-relative (AnyVal stores u32 offsets, not absolute pointers).
-    let src_bytes: *const u8 = src_holder.base as *const u8;
+    let src_bytes: *const u8 = src_holder.base;
     let dst_holder: *mut MemHolder = dst_zone.holder;
     let dst_bytes: *mut u8 = dst_holder.base;
     let mut bi: i64 = 0;

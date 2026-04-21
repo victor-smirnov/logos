@@ -685,7 +685,7 @@ pub unsafe fn hbs_write(zone: *const Zone<Mutable>, buf: *mut String) {
     if holder == 0 as *mut MemHolder {
         return;
     }
-    let base: *const u8 = holder.base as *const u8;
+    let base: *const u8 = holder.base;
     if base == 0 as *const u8 { return; }
     let zone_used: i64 = holder.used;
 

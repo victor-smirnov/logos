@@ -82,7 +82,7 @@ pub struct HermesCtr {
 
 impl HermesRead for HermesCtr {
     pub fn base(self: &HermesCtr) -> *const u8 {
-        unsafe { return self.zone.holder.base as *const u8; }
+        unsafe { return self.zone.holder.base; }
     }
     pub fn size(self: &HermesCtr) -> u64 {
         unsafe { return self.zone.holder.used as u64; }
@@ -105,7 +105,7 @@ impl HermesCtr {
     pub fn as_view<'a>(self: &'a HermesCtr) -> HermesCtrView<'a> {
         unsafe {
             return HermesCtrView {
-                base: self.zone.holder.base as *const u8,
+                base: self.zone.holder.base,
                 size: self.zone.holder.used as u64,
             };
         }
@@ -255,7 +255,7 @@ impl HermesCtr {
             let mut clone_map: CloneMap = clone_map_create();
             if clone_map.keys == 0 as *mut u32 { return AnyVal::null_ptr(); }
             let mut ctx: CloneCtx = CloneCtx {
-                base_src: src_base as *const u8,
+                base_src: src_base,
                 zone_dst: &mut self.zone as *mut Zone<Mutable>,
                 map: &mut clone_map,
             };
@@ -307,7 +307,7 @@ impl HermesCtr {
                 let mut clone_map: CloneMap = clone_map_create();
                 if clone_map.keys != 0 as *mut u32 {
                     let mut ctx: CloneCtx = CloneCtx {
-                        base_src: src_base as *const u8,
+                        base_src: src_base,
                         zone_dst: &mut new_ctr.zone as *mut Zone<Mutable>,
                         map: &mut clone_map as *mut CloneMap,
                     };
@@ -423,7 +423,7 @@ pub unsafe fn hermes_ctr_alloc_f64(ctr: *mut HermesCtr, val: f64) -> u32 {
     let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, 8, 31);
     if raw == 0 as *mut u8 { return 0; }
     *(raw as *mut f64) = val;
-    let base: *const u8 = ctr.zone.holder.base as *const u8;
+    let base: *const u8 = ctr.zone.holder.base;
     return (raw as i64 - base as i64) as u32;
 }
 
@@ -437,7 +437,7 @@ pub unsafe fn hermes_ctr_alloc_str(ctr: *mut HermesCtr, ptr: *const u8, len: i64
     let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, total, hermes_tag_string() as u64);
     if raw == 0 as *mut u8 { return 0; }
     HermesString::init(raw, ptr, lu);
-    let base: *const u8 = ctr.zone.holder.base as *const u8;
+    let base: *const u8 = ctr.zone.holder.base;
     return (raw as i64 - base as i64) as u32;
 }
 

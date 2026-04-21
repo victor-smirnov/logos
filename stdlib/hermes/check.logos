@@ -625,7 +625,7 @@ pub unsafe fn document_check(zone: *const Zone<Mutable>) -> bool {
     if zone_sz == 0 { return true; }
     if zone_sz < 8  { return false; }
 
-    let base: *const u8 = holder.base as *const u8;
+    let base: *const u8 = holder.base;
     if base == 0 as *const u8 { return false; }
 
     let mut state: CheckState = check_state_create(base, zone_sz);

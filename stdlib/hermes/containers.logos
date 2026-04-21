@@ -209,7 +209,7 @@ impl<T> Array<T> {
     // zone base afterwards if they kept a pointer.
     pub unsafe fn push(self: *mut Array<T>, holder: *mut MemHolder, val: T) {
         let elem_sz: i64 = sizeof::<T>() as i64;
-        let arr_off: u32 = (self as *const u8).byte_offset_from(holder.base as *const u8) as u32;
+        let arr_off: u32 = (self as *const u8).byte_offset_from(holder.base) as u32;
         if self.size >= self.capacity {
             let old_cap: u64 = self.capacity;
             let new_cap: u64 = if old_cap == 0 { 8 }

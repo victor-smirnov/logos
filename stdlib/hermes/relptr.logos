@@ -15,7 +15,7 @@
 //
 // Usage:
 //   let rp: RelPtr<Node> = RelPtr { offset: some_u32 };
-//   let np: *const Node  = rp.resolve(zone.base as *const u8);
+//   let np: *const Node  = rp.resolve(zone.base);
 
 package hermes.relptr;
 

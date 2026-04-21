@@ -481,7 +481,7 @@ pub unsafe fn decimal_to_string_value(base: *const u8, v: AnyVal) -> String {
 
 unsafe fn decimal_binary_op(zone: *mut Zone<Mutable>, a: AnyVal, b: AnyVal, sub: bool) -> AnyVal {
     if zone == 0 as *mut Zone<Mutable> { return AnyVal::null_ptr(); }
-    let base: *const u8 = zone.holder.base as *const u8;
+    let base: *const u8 = zone.holder.base;
     let da: *const Decimal = decimal_ptr(base, a);
     let db: *const Decimal = decimal_ptr(base, b);
     if da == 0 as *const Decimal || db == 0 as *const Decimal { return AnyVal::null_ptr(); }

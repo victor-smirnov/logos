@@ -327,6 +327,11 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
     if (from->kind == LogosType::Kind::MutRef && to->kind == LogosType::Kind::MutRef &&
         from->pointee && to->pointee)
         return types_compatible(from->pointee, to->pointee);
+    // *mut T → *const T coercion (dropping write permission is always safe).
+    if (from->kind == LogosType::Kind::Ptr && to->kind == LogosType::Kind::Ptr &&
+        from->mut_ptr && !to->mut_ptr &&
+        from->pointee && to->pointee)
+        return types_compatible(from->pointee, to->pointee);
     // *const u8 (or any *T) → &tagged<TS> Trait coercion.
     // &tagged<TS> Trait is a thin pointer to a tagged object.  The caller passes
     // a raw *const u8 and the compiler reads the tag at dispatch time.
