@@ -1845,9 +1845,26 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             // (target = "Map$G2$i32$AnyVal") succeeds.
                             auto* inst_type = make_generic_struct(sd.name, sd.spec_patterns);
                             std::string mangled = concrete_struct_name(inst_type);
+                            std::string canon = type_str(inst_type);  // "Name<Args>"
                             auto fqn_mangled = cur_package_.empty()
                                 ? mangled : cur_package_ + "::" + mangled;
+                            auto fqn_canon = cur_package_.empty()
+                                ? canon : cur_package_ + "::" + canon;
                             explicit_type_codes_[fqn_mangled] = sd.type_code;
+                            explicit_type_codes_[fqn_canon]   = sd.type_code;
+                            // Also register under the template's package (see
+                            // matching note in the genos-spec annotation path).
+                            std::string tmpl_pkg;
+                            auto dit = datatypes_.find(sd.name);
+                            if (dit != datatypes_.end()) tmpl_pkg = dit->second.package;
+                            else {
+                                auto sit = structs_.find(sd.name);
+                                if (sit != structs_.end()) tmpl_pkg = sit->second.package;
+                            }
+                            if (!tmpl_pkg.empty() && tmpl_pkg != cur_package_) {
+                                explicit_type_codes_[tmpl_pkg + "::" + mangled] = sd.type_code;
+                                explicit_type_codes_[tmpl_pkg + "::" + canon]   = sd.type_code;
+                            }
                         }
                     }
                 }
@@ -1942,6 +1959,40 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             // mangled-target lookup.
                             if (!ia.mangled_name.empty())
                                 explicit_type_codes_[std::string(cur_package_) + "::" + ia.mangled_name] = ia.type_code;
+                            // Also register under the *template's* package, for both
+                            // the canonical-name and mangled keys.  Every lookup site
+                            // (dispatch-entry emission in sema_decl.cpp, type_code_of
+                            // in sema_expr.cpp, etc.) resolves the package via
+                            // `datatypes_[base].package` — the template's package.
+                            // When a genos specialisation is declared in a *different*
+                            // package from its template (e.g. `genos Map<Varchar,
+                            // AnyVal>` lives in hermes.objectmap while `datatype
+                            // Map<K,V>` lives in hermes.map), lookups keyed by the
+                            // template's package would otherwise miss this annotation
+                            // and fall back to the auto-hashed type_code, silently
+                            // producing a different code at the use site than the
+                            // one registered in the dispatch table.  Mirror both keys
+                            // under the template's package to keep the two sides in
+                            // agreement.
+                            std::string tmpl_pkg;
+                            auto dit = datatypes_.find(tname);
+                            if (dit != datatypes_.end()) tmpl_pkg = dit->second.package;
+                            else {
+                                auto sit = structs_.find(tname);
+                                if (sit != structs_.end()) tmpl_pkg = sit->second.package;
+                            }
+                            if (!tmpl_pkg.empty() && tmpl_pkg != cur_package_) {
+                                // Canonical form: "pkg::Name<Args>".  ia.canonical_name
+                                // was built from cur_package_ at the top of this block
+                                // (`canon = cur_package_ + "::" + tname + "<…>"`) so we
+                                // reconstruct the template-package form by substring.
+                                auto colon2 = ia.canonical_name.find("::");
+                                if (colon2 != std::string::npos) {
+                                    explicit_type_codes_[tmpl_pkg + ia.canonical_name.substr(colon2)] = ia.type_code;
+                                }
+                                if (!ia.mangled_name.empty())
+                                    explicit_type_codes_[tmpl_pkg + "::" + ia.mangled_name] = ia.type_code;
+                            }
                         }
                         prog.inst_annotations.push_back(std::move(ia));
                     }

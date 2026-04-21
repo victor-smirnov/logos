@@ -1,0 +1,79 @@
+// Regression test for the cross-package tag-dispatch collection-pass bug.
+//
+// Two sibling concrete impls of a #[tag_dispatch] trait for two
+// specialisations of the same generic type, where the generic template
+// and its two genos specialisations live in *different* packages:
+//
+//   hermes.map        datatype Map<K, V>; genos Map<Bitmap, AnyVal>   (tc 98)
+//   hermes.objectmap  genos Map<Varchar, AnyVal>                      (tc 101)
+//
+// Before the fix, the second sibling's fn never made it into the
+// dispatch table because the type_code for `Map<Varchar, AnyVal>` was
+// filed in `explicit_type_codes_` under `hermes.objectmap::…` while the
+// dispatch-entry lookup in sema_decl.cpp searched under `hermes.map::…`
+// (the template's package).  tcode stayed 0 and no entry was emitted.
+
+package tag_dispatch_sibling_concrete;
+
+use hermes.anyval;
+use hermes.map;
+use hermes.objectmap;
+use hermes.datatag;
+use hermes.tag_system;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+#[tag_dispatch(DataTypeTagSystem)]
+pub trait Sibling {
+    unsafe fn sib_value(self: *const Self) -> i32;
+}
+
+impl Sibling for TinyObjectMap {
+    pub unsafe fn sib_value(self: *const TinyObjectMap) -> i32 {
+        return 1000;
+    }
+}
+
+impl Sibling for ObjectMap {
+    pub unsafe fn sib_value(self: *const ObjectMap) -> i32 {
+        return 2000;
+    }
+}
+
+unsafe fn dispatch_sib(tagged_obj: &tagged<DataTypeTagSystem> Sibling) -> i32 {
+    return tagged_obj.sib_value();
+}
+
+unsafe fn main() -> i32 {
+    let buf: *mut u8 = malloc(256);
+    let mut zi: i64 = 0;
+    loop {
+        if zi >= 256 { break; }
+        *((buf as i64 + zi) as *mut u8) = 0;
+        zi = zi + 1;
+    }
+
+    let tc_a: u64 = type_code_of::<TinyObjectMap>();
+    let tc_b: u64 = type_code_of::<ObjectMap>();
+    // Sanity: both codes resolved to their annotated values (not the
+    // auto-hash fallback).  Before the fix tc_b came back as the hash.
+    if tc_a != 98  { free(buf); return 3; }
+    if tc_b != 101 { free(buf); return 4; }
+
+    // Sibling 1.
+    let p1: *mut u8 = (buf as i64 + 16) as *mut u8;
+    write_tag(p1, tc_a);
+    let v1: i32 = dispatch_sib(p1 as *const u8);
+    if v1 != 1000 { free(buf); return 1; }
+
+    // Sibling 2.  Before the fix, this dispatched through a null fn
+    // pointer (missing table entry) and crashed.
+    let p2: *mut u8 = (buf as i64 + 128) as *mut u8;
+    write_tag(p2, tc_b);
+    let v2: i32 = dispatch_sib(p2 as *const u8);
+    if v2 != 2000 { free(buf); return 2; }
+
+    free(buf);
+    return 0;
+}
