@@ -31,6 +31,9 @@ pkg_check_modules(SQLite3 REQUIRED IMPORTED_TARGET sqlite3)
 # Global includes
 include_directories(include)
 
+# Enable testing early so add_test() in subdirectories is effective.
+enable_testing()
+
 # Modules
 add_subdirectory(src/verification)
 add_subdirectory(src/core)
@@ -50,5 +53,4 @@ add_subdirectory(tools/logos-audit)
 add_subdirectory(examples)
 
 # Tests
-enable_testing()
 add_subdirectory(tests/logos)

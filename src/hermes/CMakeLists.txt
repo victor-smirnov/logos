@@ -48,10 +48,20 @@ target_link_libraries(hermes_exerciser_text PRIVATE logos_hermes)
 # Exerciser: hermes::clone() (step 1 — no PARAM tracking)
 add_executable(hermes_exerciser_clone exerciser_clone.cpp)
 target_link_libraries(hermes_exerciser_clone PRIVATE logos_hermes)
+add_test(NAME hermes_cpp_exerciser_clone COMMAND hermes_exerciser_clone
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(hermes_cpp_exerciser_clone PROPERTIES LABELS "hermes;cpp")
 
 # Exerciser: HermesPath + Template
 add_executable(hermes_exerciser_path exerciser_path.cpp)
 target_link_libraries(hermes_exerciser_path PRIVATE logos_hermes)
+
+# Exerciser: Decimal stringify + clone
+add_executable(hermes_exerciser_decimal exerciser_decimal.cpp)
+target_link_libraries(hermes_exerciser_decimal PRIVATE logos_hermes)
+add_test(NAME hermes_cpp_exerciser_decimal COMMAND hermes_exerciser_decimal
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(hermes_cpp_exerciser_decimal PROPERTIES LABELS "hermes;cpp;decimal")
 
 # Walkthrough: interactive API tour for debugging
 add_executable(hermes_walkthrough walkthrough.cpp)

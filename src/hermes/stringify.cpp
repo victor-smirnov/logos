@@ -431,8 +431,17 @@ logos::expected<std::string> stringify(const Hermes& doc, bool pretty) noexcept 
     ctx.out            = &out;
     ctx.recurse_anyval = do_recurse_anyval;
     ctx.recurse_tagged = do_recurse_tagged;
-    const uint8_t* root = static_cast<const uint8_t*>(HermesAccess::root<void>(doc));
-    LOGOS_TRY_VOID(do_recurse_tagged(root, &ctx));
+    // Root may be an inline AnyVal (value-mode: bit 0 = 1) stored directly in
+    // the root_offset field rather than a tagged-object offset.
+    arena_offset_t root_off = HermesAccess::root_offset(doc);
+    if (root_off.value() & 1u) {
+        // Value-mode root: treat raw bits as AnyVal.
+        AnyVal v = AnyVal::from_raw(root_off.value());
+        LOGOS_TRY_VOID(do_recurse_anyval(&v, &ctx));
+    } else {
+        const uint8_t* root = static_cast<const uint8_t*>(HermesAccess::root<void>(doc));
+        LOGOS_TRY_VOID(do_recurse_tagged(root, &ctx));
+    }
     return out;
 }
 

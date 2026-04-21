@@ -102,6 +102,7 @@ template int8_t* HermesView::root<int8_t>() const;
 template DatatypeData* HermesView::root<DatatypeData>() const;
 template TypedValueData* HermesView::root<TypedValueData>() const;
 template ParameterData* HermesView::root<ParameterData>() const;
+template DecimalData* HermesView::root<DecimalData>() const;
 
 Object HermesView::root_object() const noexcept {
     if (!has_root()) return Object{};

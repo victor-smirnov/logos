@@ -32,6 +32,10 @@ public:
         return v.offset_of(obj);
     }
 
+    static arena_offset_t root_offset(const HermesView& v) noexcept {
+        return reinterpret_cast<const DocumentHeader*>(v.base())->root_offset;
+    }
+
     static void set_root(HermesView& v, void* obj) noexcept { v.set_root(obj); }
     static void set_root_offset(HermesView& v, arena_offset_t off) noexcept { v.set_root_offset(off); }
     static void set_root_override(HermesView& v, arena_offset_t off) noexcept { v.set_root_override(off); }
