@@ -48,6 +48,7 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept;
 
 // Inline (defined below, after class, so visible in all TUs):
 inline bool is_integer_kind(LogosType::Kind k) noexcept;
+inline int64_t parse_int_literal(std::string_view sv) noexcept;
 
 // Aliases used throughout SemaChecker method implementations.
 // Placed here so all sema_*.cpp files get them automatically.
@@ -258,6 +259,36 @@ private:
     }
     void warn(std::string msg) {
         result_.diags.push_back({Diag::Level::Warning, ctx_, std::move(msg), file_, node_line_});
+    }
+
+    // Read the VALUE of an annotation as an integer.  Accepts two AST shapes:
+    //   #[name = 123]           → VALUE: { CODE: LIT_INT, VALUE: "123" }
+    //   #[name = Enum::Variant] → VALUE: { CODE: ENUM_LIT, NAME: "Enum", FIELD: "Variant" }
+    // Caller must have verified ann.has_key(la::VALUE).
+    uint64_t read_annotation_u64(hermes::TinyMapView ann) {
+        using namespace sema_detail;
+        auto vmap = map_of(ann.get(la::VALUE.code));
+        int32_t vc = code_of(vmap);
+        if (vc == la::LIT_INT) {
+            auto sv = str_of(vmap.get(la::VALUE.code));
+            return (uint64_t)parse_int_literal(sv);
+        }
+        if (vc == la::ENUM_LIT) {
+            auto ename = std::string(str_of(vmap.get(la::NAME.code)));
+            auto vname = std::string(str_of(vmap.get(la::FIELD.code)));
+            auto it = enums_.find(ename);
+            if (it == enums_.end()) {
+                error(std::format("enum '{}' not found in annotation value", ename));
+                return 0;
+            }
+            for (auto& var : it->second.variants) {
+                if (var.name == vname) return (uint64_t)(int64_t)var.value;
+            }
+            error(std::format("enum '{}' has no variant '{}'", ename, vname));
+            return 0;
+        }
+        error("annotation value must be an integer literal or enum variant");
+        return 0;
     }
 
     // ── Scope management ─────────────────────────────────────────

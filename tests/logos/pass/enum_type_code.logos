@@ -1,0 +1,22 @@
+// `#[type_code = Enum::Variant]` resolves the variant's discriminant at
+// attribute-application time, letting users keep a central registry of
+// type codes as an enum instead of scattered magic numbers.
+package enum_type_code;
+
+pub enum Codes {
+    FooCode = 200,
+    BarCode = 201,
+}
+
+pub eidos Foo<T> {
+    pub x: u32,
+}
+
+#[type_code = Codes::FooCode]
+pub eidos Foo<i32>;
+
+unsafe fn main() -> i32 {
+    let c: u64 = type_code_of::<Foo<i32>>();
+    if c != 200 as u64 { return 1; }
+    return 0;
+}

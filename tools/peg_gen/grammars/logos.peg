@@ -362,15 +362,21 @@
     item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // ── Annotations ──────────────────────────────────────────────
-    // #[name(arg1, arg2)]  — annotation with identifier arguments
-    // #[name = 123]        — annotation with integer value
-    // #[name]              — simple flag annotation
+    // #[name(arg1, arg2)]      — annotation with identifier arguments
+    // #[name = 123]            — annotation with integer value
+    // #[name = Enum::Variant]  — annotation with enum-variant value
+    // #[name]                  — simple flag annotation
     annotation <- HASH LBRACKET IDENT LPAREN annot_args RPAREN RBRACKET
                => { CODE: ANNOTATION, NAME: $3, ARGS: $5 }
-                / HASH LBRACKET IDENT ASSIGN INTEGER RBRACKET
+                / HASH LBRACKET IDENT ASSIGN annot_val RBRACKET
                => { CODE: ANNOTATION, NAME: $3, VALUE: $5 }
                 / HASH LBRACKET IDENT RBRACKET
                => { CODE: ANNOTATION, NAME: $3 }
+
+    annot_val <- IDENT COLONCOLON IDENT
+              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
+               / INTEGER
+              => { CODE: LIT_INT, VALUE: $1 }
 
     // annot_arg wraps IDENT in a sub-rule so that $... in annot_args correctly
     // collects each argument into rcap_0 (the $... spread only works for sub-rule

@@ -1745,8 +1745,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         for (auto& ann : pending_annots) {
             auto aname = std::string(str_of(ann.get(la::NAME.code)));
             if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                auto sv = str_of(ann.get(la::VALUE.code));
-                sd.type_code = (uint64_t)parse_int_literal(sv);
+                sd.type_code = read_annotation_u64(ann);
                 // Cache with fully-qualified key so type_code_of::<T>() works
                 // across packages.  Bare sd.name would collide if two packages
                 // define the same struct name with different type_codes.
@@ -1773,8 +1772,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             // the logical datatype family, and each `impl Trait for Eidos`
             // propagates the code to its target struct during lowering.
             else if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                auto sv = str_of(ann.get(la::VALUE.code));
-                td.type_code = (uint64_t)parse_int_literal(sv);
+                td.type_code = read_annotation_u64(ann);
             }
         }
     };
@@ -1818,8 +1816,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         for (auto& ann : pending_annots) {
                             auto aname = std::string(str_of(ann.get(la::NAME.code)));
                             if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                                auto sv = str_of(ann.get(la::VALUE.code));
-                                ia.type_code = (uint64_t)parse_int_literal(sv);
+                                ia.type_code = read_annotation_u64(ann);
                             }
                         }
                         // Register into explicit_type_codes_ so sema-time queries
@@ -1843,8 +1840,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     for (auto& ann : pending_annots) {
                         auto aname = std::string(str_of(ann.get(la::NAME.code)));
                         if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                            auto sv = str_of(ann.get(la::VALUE.code));
-                            sd.type_code = (uint64_t)parse_int_literal(sv);
+                            sd.type_code = read_annotation_u64(ann);
                             // Register mangled fqn so dispatch-entry lookup
                             // (target = "Map$G2$i32$AnyVal") succeeds.
                             auto* inst_type = make_generic_struct(sd.name, sd.spec_patterns);
@@ -1936,8 +1932,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         for (auto& ann : pending_annots) {
                             auto aname = std::string(str_of(ann.get(la::NAME.code)));
                             if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                                auto sv = str_of(ann.get(la::VALUE.code));
-                                ia.type_code = (uint64_t)parse_int_literal(sv);
+                                ia.type_code = read_annotation_u64(ann);
                             }
                         }
                         if (ia.type_code != 0) {

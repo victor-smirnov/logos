@@ -224,8 +224,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     for (auto& ann : pending_annots) {
                         auto aname = std::string(str_of(ann.get(la::NAME.code)));
                         if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                            auto sv = str_of(ann.get(la::VALUE.code));
-                            uint64_t tc = (uint64_t)parse_int_literal(sv);
+                            uint64_t tc = read_annotation_u64(ann);
                             auto fqn = cur_package_.empty()
                                        ? dname : cur_package_ + "::" + dname;
                             explicit_type_codes_[fqn] = tc;
