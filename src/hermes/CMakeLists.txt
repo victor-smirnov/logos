@@ -5,6 +5,7 @@ add_library(logos_hermes
     binary_codec.cpp
     text_parser.cpp
     stringify.cpp
+    clone.cpp
     type_ops.cpp
     path.cpp
     template.cpp
@@ -41,6 +42,10 @@ target_link_libraries(hermes_exerciser_codec PRIVATE logos_hermes)
 # Exerciser: text parser + stringify
 add_executable(hermes_exerciser_text exerciser_text.cpp)
 target_link_libraries(hermes_exerciser_text PRIVATE logos_hermes)
+
+# Exerciser: hermes::clone() (step 1 — no PARAM tracking)
+add_executable(hermes_exerciser_clone exerciser_clone.cpp)
+target_link_libraries(hermes_exerciser_clone PRIVATE logos_hermes)
 
 # Exerciser: HermesPath + Template
 add_executable(hermes_exerciser_path exerciser_path.cpp)

@@ -249,28 +249,56 @@ logos::expected<void> s_parameter(const uint8_t* o, StringifyCtx* c) noexcept {
     return {};
 }
 
+} // anonymous namespace
+
+// ============================================================================
+// Clone-handler forward decls (defined in clone.cpp).
+// ============================================================================
+namespace clone_impl {
+    logos::expected<uint32_t> c_tinyint   (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_utinyint  (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_smallint  (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_usmallint (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_integer   (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_uinteger  (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_bigint    (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_ubigint   (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_real      (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_double    (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_boolean   (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_varchar   (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_object_array(const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_tiny_map   (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_object_map (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_datatype   (const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_typed_value(const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_parameter  (const uint8_t*, CloneCtx*) noexcept;
+}
+
+namespace {
+
 // ============================================================================
 // TypeOps table entries for all core types
 // ============================================================================
 
-const TypeOps k_tinyint_ops    = { type_hash::TinyInt,    s_tinyint,    e_tinyint,    nullptr };
-const TypeOps k_utinyint_ops   = { type_hash::UTinyInt,   s_utinyint,   e_utinyint,   nullptr };
-const TypeOps k_smallint_ops   = { type_hash::SmallInt,   s_smallint,   e_smallint,   nullptr };
-const TypeOps k_usmallint_ops  = { type_hash::USmallInt,  s_usmallint,  e_usmallint,  nullptr };
-const TypeOps k_integer_ops    = { type_hash::Integer,    s_integer,    e_integer,    nullptr };
-const TypeOps k_uinteger_ops   = { type_hash::UInteger,   s_uinteger,   e_uinteger,   nullptr };
-const TypeOps k_bigint_ops     = { type_hash::BigInt,     s_bigint,     nullptr,      nullptr };
-const TypeOps k_ubigint_ops    = { type_hash::UBigInt,    s_ubigint,    nullptr,      nullptr };
-const TypeOps k_real_ops       = { type_hash::Real,       s_real,       nullptr,      nullptr };
-const TypeOps k_double_ops     = { type_hash::Double,     s_double,     nullptr,      nullptr };
-const TypeOps k_boolean_ops    = { type_hash::Boolean,    s_boolean,    e_boolean,    nullptr };
-const TypeOps k_varchar_ops    = { type_hash::Varchar,    s_varchar,    nullptr,      nullptr };
-const TypeOps k_obj_array_ops  = { type_hash::ObjectArray,s_object_array,nullptr,     nullptr };
-const TypeOps k_tiny_map_ops   = { type_hash::Hermes,     s_tiny_map,   nullptr,      nullptr };
-const TypeOps k_obj_map_ops    = { type_hash::ObjectMap,  s_object_map, nullptr,      nullptr };
-const TypeOps k_datatype_ops   = { type_hash::Datatype,   s_datatype,   nullptr,      nullptr };
-const TypeOps k_typed_val_ops  = { type_hash::TypedValue, s_typed_value,nullptr,      nullptr };
-const TypeOps k_parameter_ops  = { type_hash::Parameter,  s_parameter,  nullptr,      nullptr };
+const TypeOps k_tinyint_ops    = { type_hash::TinyInt,    s_tinyint,    e_tinyint,    nullptr, clone_impl::c_tinyint };
+const TypeOps k_utinyint_ops   = { type_hash::UTinyInt,   s_utinyint,   e_utinyint,   nullptr, clone_impl::c_utinyint };
+const TypeOps k_smallint_ops   = { type_hash::SmallInt,   s_smallint,   e_smallint,   nullptr, clone_impl::c_smallint };
+const TypeOps k_usmallint_ops  = { type_hash::USmallInt,  s_usmallint,  e_usmallint,  nullptr, clone_impl::c_usmallint };
+const TypeOps k_integer_ops    = { type_hash::Integer,    s_integer,    e_integer,    nullptr, clone_impl::c_integer };
+const TypeOps k_uinteger_ops   = { type_hash::UInteger,   s_uinteger,   e_uinteger,   nullptr, clone_impl::c_uinteger };
+const TypeOps k_bigint_ops     = { type_hash::BigInt,     s_bigint,     nullptr,      nullptr, clone_impl::c_bigint };
+const TypeOps k_ubigint_ops    = { type_hash::UBigInt,    s_ubigint,    nullptr,      nullptr, clone_impl::c_ubigint };
+const TypeOps k_real_ops       = { type_hash::Real,       s_real,       nullptr,      nullptr, clone_impl::c_real };
+const TypeOps k_double_ops     = { type_hash::Double,     s_double,     nullptr,      nullptr, clone_impl::c_double };
+const TypeOps k_boolean_ops    = { type_hash::Boolean,    s_boolean,    e_boolean,    nullptr, clone_impl::c_boolean };
+const TypeOps k_varchar_ops    = { type_hash::Varchar,    s_varchar,    nullptr,      nullptr, clone_impl::c_varchar };
+const TypeOps k_obj_array_ops  = { type_hash::ObjectArray,s_object_array,nullptr,     nullptr, clone_impl::c_object_array };
+const TypeOps k_tiny_map_ops   = { type_hash::Hermes,     s_tiny_map,   nullptr,      nullptr, clone_impl::c_tiny_map };
+const TypeOps k_obj_map_ops    = { type_hash::ObjectMap,  s_object_map, nullptr,      nullptr, clone_impl::c_object_map };
+const TypeOps k_datatype_ops   = { type_hash::Datatype,   s_datatype,   nullptr,      nullptr, clone_impl::c_datatype };
+const TypeOps k_typed_val_ops  = { type_hash::TypedValue, s_typed_value,nullptr,      nullptr, clone_impl::c_typed_value };
+const TypeOps k_parameter_ops  = { type_hash::Parameter,  s_parameter,  nullptr,      nullptr, clone_impl::c_parameter };
 
 } // anonymous namespace
 

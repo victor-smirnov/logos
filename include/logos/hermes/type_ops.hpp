@@ -21,6 +21,9 @@
 
 namespace logos::hermes {
 
+// Forward declaration — defined in clone.hpp.
+struct CloneCtx;
+
 // ---------------------------------------------------------------------------
 // StringifyCtx — context threaded through all stringify dispatch functions.
 // Extension types use recurse_anyval / recurse_tagged to stringify children.
@@ -54,6 +57,10 @@ struct TypeOps {
     // Compare two values in the arena.  Returns <0 / 0 / >0.
     // Null if comparison is not supported for this type.
     int (*compare)(const uint8_t* a, const uint8_t* b, uint8_t* base) noexcept;
+
+    // Clone a tagged object into ctx->dst arena; returns dst-arena offset.
+    // Null if this type doesn't support cloning.
+    logos::expected<uint32_t> (*clone_tagged)(const uint8_t* obj, CloneCtx* ctx) noexcept;
 };
 
 // ---------------------------------------------------------------------------
