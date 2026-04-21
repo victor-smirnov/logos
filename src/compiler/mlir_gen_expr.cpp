@@ -242,8 +242,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLit& e, const LogosType* type)
         builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
         return alloca;
     }
-    // C-style enum: just the discriminant
-    return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
+    // C-style enum: just the discriminant, sized per backing type.
+    return builder_.create<mlir::arith::ConstantIntOp>(
+        loc_, e.disc, enum_disc_bits(e.enum_name));
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLitData& e, const LogosType* type) {

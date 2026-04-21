@@ -60,7 +60,7 @@ struct TaggedEnumInfo {
     uint64_t                            payload_bytes = 0;
     // Per-variant payload LLVM types (for bitcasting the payload area)
     struct VariantPayload {
-        int32_t disc;
+        int64_t disc;
         std::vector<mlir::Type> field_types;  // empty = no payload
     };
     std::vector<VariantPayload> variants;
@@ -225,6 +225,22 @@ private:
 
     // ── Type conversion ──────────────────────────────────────────
     mlir::Type logos_to_mlir(const LogosType* t);
+
+    // MLIR type for a C-style enum's discriminant.  Uses the enum's
+    // explicit backing type if declared (`enum Foo : u64 {}`), else i32.
+    mlir::Type enum_disc_mlir(const std::string& enum_name) {
+        auto it = enum_types_.find(enum_name);
+        if (it != enum_types_.end() && it->second->backing_type) {
+            auto t = logos_to_mlir(it->second->backing_type);
+            if (t) return t;
+        }
+        return builder_.getI32Type();
+    }
+    unsigned enum_disc_bits(const std::string& enum_name) {
+        auto t = enum_disc_mlir(enum_name);
+        if (auto it = mlir::dyn_cast<mlir::IntegerType>(t)) return it.getWidth();
+        return 32;
+    }
 
     // ── Struct / enum / class registration ──────────────────────
     bool register_struct(const LStructDef& sd);

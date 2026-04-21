@@ -404,10 +404,15 @@
     // ── Enum definition ──────────────────────────────────────────
     // enum Color { Red, Green = 5, Blue }
     // enum Option<T> { Some(T), None }
-    pub_enum_def <- KW_PUB KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
+    // enum Tags : u64 { X = 0xdead }          — explicit backing integer type
+    pub_enum_def <- KW_PUB KW_ENUM IDENT type_param_list? COLON type_ref LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, ITEMS: $8 }
+                  / KW_PUB KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
                  => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $6 }
 
-    enum_def <- KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
+    enum_def <- KW_ENUM IDENT type_param_list? COLON type_ref LBRACE variant_list? RBRACE
+             => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, ITEMS: $7 }
+              / KW_ENUM IDENT type_param_list? LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME: $2, TYPE_PARAMS: $3, ITEMS: $5 }
 
     variant_list <- variant_def (COMMA variant_def)* COMMA?
@@ -420,6 +425,8 @@
                 => { CODE: VARIANT_DEF, NAME: $1, IS_VARIADIC: 1, ITEMS: $4 }
                  / IDENT LPAREN variant_payload_list RPAREN
                 => { CODE: VARIANT_DEF, NAME: $1, ITEMS: $3 }
+                 / IDENT ASSIGN MINUS INTEGER
+                => { CODE: VARIANT_DEF, NAME: $1, VALUE: $4, LO_NEG: true }
                  / IDENT ASSIGN INTEGER
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
                  / IDENT

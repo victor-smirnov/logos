@@ -241,7 +241,18 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                               target->kind == LogosType::Kind::F32  ||
                               target->kind == LogosType::Kind::Bool ||
                               target->kind == LogosType::Kind::Ptr;
-            if (src_agg && tgt_scalar)
+            // C-style enum -> integer/bool is allowed (discriminant cast).
+            bool src_is_cstyle_enum = false;
+            if (inner->type->kind == LogosType::Kind::Enum) {
+                auto eit = enums_.find(inner->type->enum_name);
+                if (eit != enums_.end()) {
+                    bool has_payload = false;
+                    for (auto& vv : eit->second.variants)
+                        if (!vv.payload_types.empty()) { has_payload = true; break; }
+                    src_is_cstyle_enum = !has_payload;
+                }
+            }
+            if (src_agg && tgt_scalar && !src_is_cstyle_enum)
                 error(std::format("cannot cast '{}' to '{}'",
                       type_str(inner->type), type_str(target)));
             // str (Slice<u8>) -> *mut u8 is unsound: str points to rodata.
@@ -3798,7 +3809,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         error(std::format("unknown enum '{}'", ename));
         return error_expr();
     }
-    int32_t disc = 0;
+    int64_t disc = 0;
     bool found = false;
     for (auto& v : eit->second.variants)
         if (v.name == vname) { disc = v.value; found = true; break; }

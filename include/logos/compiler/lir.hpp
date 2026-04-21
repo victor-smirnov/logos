@@ -41,7 +41,7 @@ using LBlockPtr = std::unique_ptr<LBlock>;
 
 // ── Patterns (for match arms) ─────────────────────────────────────────────
 
-struct PatVariant { std::string enum_name; std::string variant; int32_t disc; };
+struct PatVariant { std::string enum_name; std::string variant; int64_t disc; };
 struct PatInt     { int64_t value; };
 struct PatBool    { bool value; };
 struct PatWild    { std::string name; };   // _ or named wildcard (name may be "_")
@@ -50,7 +50,7 @@ struct PatWild    { std::string name; };   // _ or named wildcard (name may be "
 struct PatVariantData {
     std::string enum_name;
     std::string variant;
-    int32_t     disc;
+    int64_t     disc;
     std::vector<std::string>        bindings;      // bound variable names
     std::vector<const LogosType*>   binding_types;  // their types
 };
@@ -182,14 +182,14 @@ struct EVarRef    { std::string name; };
 struct EEnumLit   {
     std::string enum_name;
     std::string variant;
-    int32_t     disc;           // discriminant value (i32)
+    int64_t     disc;           // discriminant value (fits backing type, default i32)
 };
 
 // Enum variant with payload: Option::Some(42)
 struct EEnumLitData {
     std::string           enum_name;
     std::string           variant;
-    int32_t               disc;
+    int64_t               disc;
     std::vector<LExprPtr> payload;  // payload values
 };
 
@@ -650,7 +650,7 @@ struct LStructDef {
 
 struct LVariant {
     std::string name;
-    int32_t     disc;
+    int64_t     disc;
     std::vector<const LogosType*> payload_types;  // empty = no payload (C-style)
     bool        is_variadic = false;              // variadic pack payload (...T)
 };
@@ -659,6 +659,7 @@ struct LEnumDef {
     std::string              name;
     std::vector<TypeParam>   type_params;   // empty for non-generic enums
     std::vector<LVariant>    variants;
+    const LogosType*         backing_type = nullptr;  // null = default (i32)
     bool has_payload() const {
         for (auto& v : variants)
             if (!v.payload_types.empty()) return true;

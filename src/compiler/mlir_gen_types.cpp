@@ -39,9 +39,10 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
     case LogosType::Kind::IntLit:   return builder_.getI32Type();
     case LogosType::Kind::FloatLit: return builder_.getF64Type();
     case LogosType::Kind::Enum: {
-        // Tagged enums are passed by pointer; C-style enums are i32.
+        // Tagged enums are passed by pointer; C-style enums use their
+        // backing integer type (i32 by default, or `enum Foo : u64 {}`).
         if (resolve_tagged_enum(t->enum_name, t)) return ptr_type();
-        return builder_.getI32Type();
+        return enum_disc_mlir(t->enum_name);
     }
     case LogosType::Kind::Ptr:    return ptr_type();
     case LogosType::Kind::Ref:    return ptr_type();  // &T — same layout as *const T

@@ -250,7 +250,17 @@ void SemaChecker::collect_enum(TinyMapView node) {
     SemaEnumInfo info;
     info.type_params = read_type_params(node);
     push_type_params(info.type_params);
-    int32_t next_val = 0;
+    // Optional backing type: `enum Foo : u64 { ... }`.  Must be an integer kind.
+    if (node.has_key(la::TYPE)) {
+        const LogosType* bt = resolve_type(map_of(node.get(la::TYPE.code)));
+        if (bt && bt->kind != LogosType::Kind::Error) {
+            if (!is_integer_kind(bt->kind))
+                error(std::format("enum backing type must be an integer, got '{}'", type_str(bt)));
+            else
+                info.backing_type = bt;
+        }
+    }
+    int64_t next_val = 0;
     if (node.has_key(la::ITEMS)) {
         auto av = node.get(la::ITEMS.code);
         if (av.is_pointer()) {
@@ -260,11 +270,17 @@ void SemaChecker::collect_enum(TinyMapView node) {
                 for (uint64_t i = 0; i < variants.size(); ++i) {
                     auto v = map_of(variants.get(i));
                     auto vname = str_of(v.get(la::NAME.code));
-                    int32_t vval = next_val;
+                    int64_t vval = next_val;
                     if (v.has_key(la::VALUE)) {
                         auto sv = str_of(v.get(la::VALUE.code));
-                        vval = (int32_t)parse_int_literal(sv);
+                        vval = parse_int_literal(sv);
+                        if (v.has_key(la::LO_NEG)) vval = -vval;
                     }
+                    if (info.backing_type &&
+                        !intlit_fits(vval, info.backing_type->kind))
+                        error(std::format(
+                            "variant '{}::{}' = {} does not fit in backing type '{}'",
+                            ename, std::string(vname), vval, type_str(info.backing_type)));
                     // Read payload types for tagged union variants
                     std::vector<const LogosType*> payload;
                     bool is_var = false;

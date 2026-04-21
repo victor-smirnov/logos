@@ -332,6 +332,7 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
     ed.name = ename;
     auto& einfo = enums_[ename];
     ed.type_params = einfo.type_params;
+    ed.backing_type = einfo.backing_type;
     for (auto& v : einfo.variants)
         ed.variants.push_back({std::string(v.name), v.value, v.payload_types, v.is_variadic});
     return ed;

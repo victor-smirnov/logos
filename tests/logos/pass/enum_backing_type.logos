@@ -1,0 +1,26 @@
+// Explicit integer backing type for a C-style enum:
+//   enum Foo : u64 { ... }
+// Widens discriminants beyond the default i32 range and changes the MLIR
+// repr (ConstantIntOp width follows the backing type).
+package enum_backing_type;
+
+pub enum Tag64 : u64 {
+    Zero = 0,
+    Hash = 0x0123456789abcdef,
+    Max  = 0x7fffffffffffffff,
+}
+
+pub enum Small : i16 {
+    A = -100,
+    B =  200,
+}
+
+unsafe fn main() -> i32 {
+    let a: u64 = Tag64::Hash as u64;
+    if a != 0x0123456789abcdef as u64 { return 1; }
+    let b: u64 = Tag64::Max as u64;
+    if b != 0x7fffffffffffffff as u64 { return 2; }
+    let s: i16 = Small::A as i16;
+    if s != -100 as i16 { return 3; }
+    return 0;
+}

@@ -387,13 +387,14 @@ private:
                             std::string symbol_name;
                             std::string source_file; std::string package; };
     struct SemaVariantInfo{
-        std::string_view name; int32_t value;
+        std::string_view name; int64_t value;
         std::vector<const LogosType*> payload_types;  // empty = no payload
         bool is_variadic = false;                     // variadic pack payload (...T)
     };
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
         std::vector<TypeParam> type_params;  // for generic enums
+        const LogosType* backing_type = nullptr;  // null = default (i32)
     };
 
     // ── Trait info ───────────────────────────────────────────────
