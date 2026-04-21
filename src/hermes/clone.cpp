@@ -330,6 +330,22 @@ logos::expected<uint32_t> c_typed_value(const uint8_t* o, CloneCtx* c) noexcept 
 }
 
 // ---------------------------------------------------------------------------
+// Decimal: variable-length (header + nlimbs × u32). No RelativePtr fields.
+// ---------------------------------------------------------------------------
+
+logos::expected<uint32_t> c_decimal(const uint8_t* o, CloneCtx* c) noexcept {
+    auto* src = reinterpret_cast<const DecimalData*>(o);
+    uint32_t src_off = src_off_of(o, c->base_src);
+    size_t sz = src->byte_size();
+    TypeTag tag(type_hash::Decimal, TagDescriptor::Data);
+    LOGOS_TRY(auto* mem_void, c->dst->allocate(sz, alignof(uint32_t), tag));
+    std::memcpy(mem_void, o, sz);
+    uint32_t dst_off = dst_offset_of(mem_void, *c->dst);
+    remember(c, src_off, dst_off);
+    return dst_off;
+}
+
+// ---------------------------------------------------------------------------
 // Parameter
 // ---------------------------------------------------------------------------
 

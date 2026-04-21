@@ -242,6 +242,61 @@ logos::expected<void> s_typed_value(const uint8_t* o, StringifyCtx* c) noexcept 
     return {};
 }
 
+// Decimal stringify: mirrors decimal_write_number from stdlib/hermes/decimal.logos.
+// Reconstructs digit string from base-1e9 limbs, then inserts decimal point.
+logos::expected<void> s_decimal(const uint8_t* o, StringifyCtx* c) noexcept {
+    auto* d = reinterpret_cast<const DecimalData*>(o);
+    uint32_t nlimbs = d->nlimbs();
+    uint32_t scale  = d->scale();
+    bool     neg    = d->negative();
+    const uint32_t* limbs = d->limbs();
+
+    // Build digit string from most-significant limb downward.
+    std::string digits;
+    if (nlimbs == 0) {
+        // Zero value.
+        if (scale == 0) {
+            *c->out += '0';
+        } else {
+            *c->out += "0.";
+            for (uint32_t k = 0; k < scale; ++k) *c->out += '0';
+        }
+        return {};
+    }
+
+    // High limb (no leading-zero padding).
+    digits += std::to_string(static_cast<uint64_t>(limbs[nlimbs - 1]));
+    // Remaining limbs padded to 9 digits each.
+    for (int32_t i = static_cast<int32_t>(nlimbs) - 2; i >= 0; --i) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%09u", limbs[i]);
+        digits += buf;
+    }
+
+    int64_t dlen  = static_cast<int64_t>(digits.size());
+    int64_t s_i   = static_cast<int64_t>(scale);
+
+    if (neg) *c->out += '-';
+
+    if (scale == 0) {
+        *c->out += digits;
+        return {};
+    }
+
+    if (dlen <= s_i) {
+        *c->out += "0.";
+        for (int64_t z = 0; z < s_i - dlen; ++z) *c->out += '0';
+        *c->out += digits;
+        return {};
+    }
+
+    int64_t int_len = dlen - s_i;
+    *c->out += digits.substr(0, static_cast<size_t>(int_len));
+    *c->out += '.';
+    *c->out += digits.substr(static_cast<size_t>(int_len));
+    return {};
+}
+
 logos::expected<void> s_parameter(const uint8_t* o, StringifyCtx* c) noexcept {
     auto* p = reinterpret_cast<const ParameterData*>(o);
     *c->out += '?';
@@ -272,6 +327,7 @@ namespace clone_impl {
     logos::expected<uint32_t> c_object_map (const uint8_t*, CloneCtx*) noexcept;
     logos::expected<uint32_t> c_datatype   (const uint8_t*, CloneCtx*) noexcept;
     logos::expected<uint32_t> c_typed_value(const uint8_t*, CloneCtx*) noexcept;
+    logos::expected<uint32_t> c_decimal     (const uint8_t*, CloneCtx*) noexcept;
     logos::expected<uint32_t> c_parameter  (const uint8_t*, CloneCtx*) noexcept;
 }
 
@@ -298,6 +354,7 @@ const TypeOps k_tiny_map_ops   = { type_hash::TinyObjectMap,     s_tiny_map,   n
 const TypeOps k_obj_map_ops    = { type_hash::ObjectMap,  s_object_map, nullptr,      nullptr, clone_impl::c_object_map };
 const TypeOps k_datatype_ops   = { type_hash::Datatype,   s_datatype,   nullptr,      nullptr, clone_impl::c_datatype };
 const TypeOps k_typed_val_ops  = { type_hash::TypedValue, s_typed_value,nullptr,      nullptr, clone_impl::c_typed_value };
+const TypeOps k_decimal_ops    = { type_hash::Decimal,    s_decimal,    nullptr,      nullptr, clone_impl::c_decimal };
 const TypeOps k_parameter_ops  = { type_hash::Parameter,  s_parameter,  nullptr,      nullptr, clone_impl::c_parameter };
 
 } // anonymous namespace
@@ -328,6 +385,7 @@ HERMES_REGISTER_TYPE(k_tiny_map_ops);
 HERMES_REGISTER_TYPE(k_obj_map_ops);
 HERMES_REGISTER_TYPE(k_datatype_ops);
 HERMES_REGISTER_TYPE(k_typed_val_ops);
+HERMES_REGISTER_TYPE(k_decimal_ops);
 HERMES_REGISTER_TYPE(k_parameter_ops);
 
 // ============================================================================

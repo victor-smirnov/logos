@@ -77,6 +77,29 @@ struct TypedValueData {
 // datatype(4) + value(4) = 8
 static_assert(sizeof(TypedValueData) == 8);
 
+// DecimalData: variable-length fixed-precision decimal.
+// Header: u32 spec_and_len followed by nlimbs × u32 limbs (little-endian base 1e9).
+// spec_and_len layout:
+//   bits [0..11]  scale S       (0..4095)
+//   bits [12..23] precision P   (1..4095)
+//   bits [24..30] limbs_len     (0..127)
+//   bit  [31]     sign          (1 = negative)
+struct DecimalData {
+    uint32_t spec_and_len;
+
+    uint32_t precision() const noexcept { return (spec_and_len >> 12) & 0xFFF; }
+    uint32_t scale()     const noexcept { return spec_and_len & 0xFFF; }
+    uint32_t nlimbs()    const noexcept { return (spec_and_len >> 24) & 0x7F; }
+    bool     negative()  const noexcept { return (spec_and_len >> 31) & 1; }
+
+    const uint32_t* limbs() const noexcept {
+        return reinterpret_cast<const uint32_t*>(this + 1);
+    }
+
+    // Total byte size of this object (header + limbs).
+    size_t byte_size() const noexcept { return sizeof(uint32_t) * (1 + nlimbs()); }
+};
+
 // ParameterData: a query parameter placeholder (?name).
 struct ParameterData {
     RelativePtr<ArenaString> name;
