@@ -48,7 +48,7 @@ unsafe fn main() -> i32 {
     let oa: *const u8 = (base as i64 + va.as_offset() as i64) as *const u8;
     let ob: *const u8 = (base as i64 + vb.as_offset() as i64) as *const u8;
     let oc: *const u8 = (base as i64 + vc.as_offset() as i64) as *const u8;
-    if read_type_code(oa) != 106 as u64 || read_type_code(ob) != 107 as u64 || read_type_code(oc) != 106 as u64 {
+    if read_type_code(oa) != 4115 as u64 || read_type_code(ob) != 102 as u64 || read_type_code(oc) != 4115 as u64 {
         return 4;
     }
 

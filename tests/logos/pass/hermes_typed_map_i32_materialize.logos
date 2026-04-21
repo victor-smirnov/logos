@@ -21,7 +21,7 @@ unsafe fn main() -> i32 {
     if !r1.is_ptr() { return 2; }
     let b1: *const u8 = d1.base();
     let o1: *const u8 = (b1 as i64 + r1.as_offset() as i64) as *const u8;
-    if read_type_code(o1) != 105 as u64 { return 3; }
+    if read_type_code(o1) != 3101 as u64 { return 3; }
 
     let m1: *const Map<i32, AnyVal> = o1 as *const Map<i32, AnyVal>;
     if m1.size != 2 as u32 { return 4; }

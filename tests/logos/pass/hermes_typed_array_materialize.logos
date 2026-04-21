@@ -25,7 +25,7 @@ unsafe fn main() -> i32 {
 
     let base: *const u8 = doc.base();
     let obj: *const u8 = (base as i64 + root.as_offset() as i64) as *const u8;
-    if read_type_code(obj) != 104 as u64 { return 3; }  // Array<i32> type_code
+    if read_type_code(obj) != 2107 as u64 { return 3; }  // Array<i32> type_code
 
     let arr: *const Array<i32> = obj as *const Array<i32>;
     if arr.size != 3 as u64 { return 4; }
@@ -37,7 +37,7 @@ unsafe fn main() -> i32 {
     if *p2 != 30 as i32 { return 7; }
 
     // Dispatch table path: lookup stringify handler by type_code and call it.
-    let f: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(104 as u64);
+    let f: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(2107 as u64);
     let mut s1: String = String::new();
     let mut ctx: StringifyCtx = StringifyCtx {
         out: &mut s1 as *mut String,

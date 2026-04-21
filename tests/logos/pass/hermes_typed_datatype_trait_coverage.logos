@@ -23,21 +23,21 @@ unsafe fn main() -> i32 {
     let root: AnyVal = d.root();
     if !root.is_ptr() { return 2; }
     let obj: *const u8 = (d.base() as i64 + root.as_offset() as i64) as *const u8;
-    if read_type_code(obj) != 106 as u64 { return 3; }
+    if read_type_code(obj) != 4115 as u64 { return 3; }
 
-    let fs: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(106 as u64);
+    let fs: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(4115 as u64);
     if (fs as *const u8) == 0 as *const u8 { return 4; }
 
-    let fe: fn(*const u8, *const u8, *mut EqualCtx) -> bool = hermes_fn_equal(106 as u64);
+    let fe: fn(*const u8, *const u8, *mut EqualCtx) -> bool = hermes_fn_equal(4115 as u64);
     if (fe as *const u8) == 0 as *const u8 { return 5; }
 
-    let fh: fn(*const u8, *mut HashCtx) -> u64 = hermes_fn_hash(106 as u64);
+    let fh: fn(*const u8, *mut HashCtx) -> u64 = hermes_fn_hash(4115 as u64);
     if (fh as *const u8) == 0 as *const u8 { return 6; }
 
-    let fc: fn(*const u8, *mut CloneCtx) -> *mut u8 = hermes_fn_clone(106 as u64);
+    let fc: fn(*const u8, *mut CloneCtx) -> *mut u8 = hermes_fn_clone(4115 as u64);
     if (fc as *const u8) == 0 as *const u8 { return 7; }
 
-    let fr: fn(*const u8) -> () = hermes_fn_release(106 as u64);
+    let fr: fn(*const u8) -> () = hermes_fn_release(4115 as u64);
     if (fr as *const u8) == 0 as *const u8 { return 8; }
 
     let mut ectx: EqualCtx = EqualCtx {
