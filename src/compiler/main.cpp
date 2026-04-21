@@ -14,6 +14,7 @@
 #include <logos/compiler/mono.hpp>
 
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/type_ops.hpp>
 
 // MLIR
 #include <mlir/IR/MLIRContext.h>
@@ -54,6 +55,10 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [--emit-mlir] [--emit-llvm]\n");
         return 1;
     }
+
+    // Initialize Hermes TypeOps registry; the @-literal builder uses
+    // clone() which dispatches per-type via this registry.
+    logos::hermes::hermes_init();
 
     const char* input_path = argv[1];
     const char* output_path = "output.o";

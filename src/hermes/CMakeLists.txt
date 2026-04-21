@@ -7,6 +7,7 @@ add_library(logos_hermes
     stringify.cpp
     clone.cpp
     map.cpp
+    typed_array.cpp
     type_ops.cpp
     path.cpp
     template.cpp

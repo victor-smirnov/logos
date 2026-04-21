@@ -302,6 +302,12 @@ const TypeOps k_parameter_ops  = { type_hash::Parameter,  s_parameter,  nullptr,
 
 } // anonymous namespace
 
+// Link-time anchor: referenced from type_ops.cpp so that this TU (and its
+// HERMES_REGISTER_TYPE entries below) is pulled in when the Hermes library is
+// consumed as a static archive by a client that doesn't otherwise call any
+// stringify function (e.g. the logos compiler, which uses clone() only).
+void hermes_stringify_anchor() noexcept {}
+
 // ---------------------------------------------------------------------------
 // Linker-section registrations (one entry per core type)
 // ---------------------------------------------------------------------------
