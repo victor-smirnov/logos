@@ -247,6 +247,120 @@ impl HermesStringify for Map<i32, AnyVal> {
     }
 }
 
+impl HermesStringify for Map<u32, AnyVal> {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let m: *const Map<u32, AnyVal> = self;
+            ctx.out.push_u8(60);   // '<'
+            ctx.out.push_u8(85);   // 'U'
+            ctx.out.push_u8(51);   // '3'
+            ctx.out.push_u8(50);   // '2'
+            ctx.out.push_u8(44);   // ','
+            ctx.out.push_u8(65);   // 'A'
+            ctx.out.push_u8(110);  // 'n'
+            ctx.out.push_u8(121);  // 'y'
+            ctx.out.push_u8(86);   // 'V'
+            ctx.out.push_u8(97);   // 'a'
+            ctx.out.push_u8(108);  // 'l'
+            ctx.out.push_u8(62);   // '>'
+            ctx.out.push_u8(32);   // ' '
+            ctx.out.push_u8(123);  // '{'
+
+            let mut i: u32 = 0;
+            while i < m.size {
+                if i > 0 { ctx.out.push_u8(44); }
+                let keys: *const u32 = ctx.base.byte_add(m.keys.offset) as *const u32;
+                let kp: *const u32 = keys.add(i as i64);
+                ctx.out.push_u64(*kp as u64);
+                ctx.out.push_u8(58);   // ':'
+                if ctx.opts.indent > 0 { ctx.out.push_u8(32); }
+                let vals: *const AnyVal = ctx.base.byte_add(m.vals.offset) as *const AnyVal;
+                let vp: *const AnyVal = vals.add(i as i64);
+                let vv: AnyVal = AnyVal { raw: vp.raw };
+                stringify_anyval(vv, ctx);
+                i = i + 1;
+            }
+            ctx.out.push_u8(125);  // '}'
+        }
+    }
+}
+
+impl HermesStringify for Map<i64, AnyVal> {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let m: *const Map<i64, AnyVal> = self;
+            ctx.out.push_u8(60);   // '<'
+            ctx.out.push_u8(73);   // 'I'
+            ctx.out.push_u8(54);   // '6'
+            ctx.out.push_u8(52);   // '4'
+            ctx.out.push_u8(44);   // ','
+            ctx.out.push_u8(65);   // 'A'
+            ctx.out.push_u8(110);  // 'n'
+            ctx.out.push_u8(121);  // 'y'
+            ctx.out.push_u8(86);   // 'V'
+            ctx.out.push_u8(97);   // 'a'
+            ctx.out.push_u8(108);  // 'l'
+            ctx.out.push_u8(62);   // '>'
+            ctx.out.push_u8(32);   // ' '
+            ctx.out.push_u8(123);  // '{'
+
+            let mut i: u32 = 0;
+            while i < m.size {
+                if i > 0 { ctx.out.push_u8(44); }
+                let keys: *const i64 = ctx.base.byte_add(m.keys.offset) as *const i64;
+                let kp: *const i64 = keys.add(i as i64);
+                ctx.out.push_i64(*kp);
+                ctx.out.push_u8(58);   // ':'
+                if ctx.opts.indent > 0 { ctx.out.push_u8(32); }
+                let vals: *const AnyVal = ctx.base.byte_add(m.vals.offset) as *const AnyVal;
+                let vp: *const AnyVal = vals.add(i as i64);
+                let vv: AnyVal = AnyVal { raw: vp.raw };
+                stringify_anyval(vv, ctx);
+                i = i + 1;
+            }
+            ctx.out.push_u8(125);  // '}'
+        }
+    }
+}
+
+impl HermesStringify for Map<u64, AnyVal> {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let m: *const Map<u64, AnyVal> = self;
+            ctx.out.push_u8(60);   // '<'
+            ctx.out.push_u8(85);   // 'U'
+            ctx.out.push_u8(54);   // '6'
+            ctx.out.push_u8(52);   // '4'
+            ctx.out.push_u8(44);   // ','
+            ctx.out.push_u8(65);   // 'A'
+            ctx.out.push_u8(110);  // 'n'
+            ctx.out.push_u8(121);  // 'y'
+            ctx.out.push_u8(86);   // 'V'
+            ctx.out.push_u8(97);   // 'a'
+            ctx.out.push_u8(108);  // 'l'
+            ctx.out.push_u8(62);   // '>'
+            ctx.out.push_u8(32);   // ' '
+            ctx.out.push_u8(123);  // '{'
+
+            let mut i: u32 = 0;
+            while i < m.size {
+                if i > 0 { ctx.out.push_u8(44); }
+                let keys: *const u64 = ctx.base.byte_add(m.keys.offset) as *const u64;
+                let kp: *const u64 = keys.add(i as i64);
+                ctx.out.push_u64(*kp);
+                ctx.out.push_u8(58);   // ':'
+                if ctx.opts.indent > 0 { ctx.out.push_u8(32); }
+                let vals: *const AnyVal = ctx.base.byte_add(m.vals.offset) as *const AnyVal;
+                let vp: *const AnyVal = vals.add(i as i64);
+                let vv: AnyVal = AnyVal { raw: vp.raw };
+                stringify_anyval(vv, ctx);
+                i = i + 1;
+            }
+            ctx.out.push_u8(125);  // '}'
+        }
+    }
+}
+
 impl HermesStringify for TypedValue {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
