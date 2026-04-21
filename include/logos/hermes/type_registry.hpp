@@ -45,15 +45,22 @@ namespace type_hash {
     inline constexpr uint64_t Uid128        = 41;  // 16 bytes
     inline constexpr uint64_t Uid64         = 42;  // uint64_t
 
-    // Compound / container markers
-    inline constexpr uint64_t Hermes        = 98;  // document type
+    // Logos Document (at arena offset 0 — logical code; no in-memory tag).
+    inline constexpr uint64_t Document      = 3;
+
+    // Compound / container markers — byte-for-byte aligned with the Logos
+    // stdlib wire format (see stdlib/hermes/typetag.logos).
+    inline constexpr uint64_t Hermes        = 98;  // TinyObjectMap (document-style)
     inline constexpr uint64_t Object        = 99;  // universal tagged value
-    inline constexpr uint64_t ObjectArray   = 100; // heterogeneous array
+    inline constexpr uint64_t ObjectArray   = 100; // heterogeneous AnyVal array
     inline constexpr uint64_t ObjectMap     = 101; // string-keyed map
     inline constexpr uint64_t Datatype      = 102; // type declaration
-    inline constexpr uint64_t TypedValue    = 103; // value + type pair
-    inline constexpr uint64_t Parameter     = 104; // query parameter ?name
-    inline constexpr uint64_t TypedArrayBase = 105; // base for typed arrays
+    inline constexpr uint64_t ArrayI32      = 104; // dense typed i32 array
+    inline constexpr uint64_t MapI32AnyVal  = 105; // typed map with i32 keys, AnyVal values
+    inline constexpr uint64_t TypedValue    = 106; // value + type pair
+    inline constexpr uint64_t Decimal       = 107; // fixed-precision decimal (inline limbs)
+    inline constexpr uint64_t ArrayU64      = 108; // dense typed u64 array
+    inline constexpr uint64_t Parameter     = 127; // query parameter ?name / @-literal capture slot
 }
 
 // TypeTraits: compile-time properties of a Hermes data type.
