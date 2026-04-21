@@ -12,11 +12,11 @@ fn main() -> i32 {
     // Static keys (v1): one fixed key per iteration — but key must depend on x.
     // Use a conditional string by taking a substring of a constant based on x%2.
     // Simpler: all-same-key test — tests the put path, last-write-wins.
-    let doc: HermesCtr =
+    let doc: Hermes =
         @{"k": AnyVal::embed_i24(x) for x in arr};
 
     // Guarded: keep only even x.
-    let doc2: HermesCtr =
+    let doc2: Hermes =
         @{"k": AnyVal::embed_i24(x * 2) for x in arr if (x % 20) == 0};
 
     unsafe {

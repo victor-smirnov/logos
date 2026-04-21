@@ -4,13 +4,13 @@ package hermes_typed_datatype_params_trailing_comma_errors;
 use hermes.ctr;
 
 unsafe fn main() -> i32 {
-    let mut d1: HermesCtr = HermesCtr::new(1024);
+    let mut d1: Hermes = Hermes::new(1024);
     match d1.parse("@I64(1,)=42" as *const u8, 11 as i64) {
         Result::Ok(()) => { return 1; }
         Result::Err(_) => {}
     }
 
-    let mut d2: HermesCtr = HermesCtr::new(1024);
+    let mut d2: Hermes = Hermes::new(1024);
     match d2.parse("\"x\"@I64(1,)" as *const u8, 11 as i64) {
         Result::Ok(()) => { return 2; }
         Result::Err(_) => {}

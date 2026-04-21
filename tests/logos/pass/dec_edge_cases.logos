@@ -5,7 +5,7 @@ use std.string;
 
 unsafe fn main() -> i32 {
     // ── 1. 2-limb subtract with result limb[0]=0 ─────────────────────────────
-    let mut d1: HermesCtr = HermesCtr::builder(8192);
+    let mut d1: Hermes = Hermes::builder(8192);
     let a1: AnyVal = d1.decimal_from(10 as i32, 0 as i32, "2000000001");
     let b1: AnyVal = d1.decimal_from(10 as i32, 0 as i32, "1000000001");
     if a1.is_null() { return 1; }
@@ -16,21 +16,21 @@ unsafe fn main() -> i32 {
     if !s1.eq_str("1000000000") { return 4; }
 
     // ── 2. Zero with S=0 → "0" ────────────────────────────────────────────────
-    let mut d2: HermesCtr = HermesCtr::builder(4096);
+    let mut d2: Hermes = Hermes::builder(4096);
     let z0: AnyVal = d2.decimal_from(5 as i32, 0 as i32, "0");
     if z0.is_null() { return 5; }
     let sz0: String = d2.decimal_to_string(z0);
     if !sz0.eq_str("0") { return 6; }
 
     // ── 3. Zero with S=3 → "0.000" ───────────────────────────────────────────
-    let mut d3: HermesCtr = HermesCtr::builder(4096);
+    let mut d3: Hermes = Hermes::builder(4096);
     let z3: AnyVal = d3.decimal_from(5 as i32, 3 as i32, "0.000");
     if z3.is_null() { return 7; }
     let sz3: String = d3.decimal_to_string(z3);
     if !sz3.eq_str("0.000") { return 8; }
 
     // ── 4. decimal_len/limb of 1000000000 (2 limbs: [0,1]) ───────────────────
-    let mut d4: HermesCtr = HermesCtr::builder(4096);
+    let mut d4: Hermes = Hermes::builder(4096);
     let big: AnyVal = d4.decimal_from(10 as i32, 0 as i32, "1000000000");
     if big.is_null() { return 9; }
     if d4.decimal_len(big) != 2 as u32 { return 10; }
@@ -38,7 +38,7 @@ unsafe fn main() -> i32 {
     if d4.decimal_limb(big, 1 as u32) != 1 as u32 { return 12; }
 
     // ── 5. Add 1000000001 + 1000000001 = 2000000002 ──────────────────────────
-    let mut d5: HermesCtr = HermesCtr::builder(4096);
+    let mut d5: Hermes = Hermes::builder(4096);
     let c5: AnyVal = d5.decimal_from(10 as i32, 0 as i32, "1000000001");
     if c5.is_null() { return 13; }
     let sum5: AnyVal = d5.decimal_add(c5, c5);
@@ -47,7 +47,7 @@ unsafe fn main() -> i32 {
     if !ssum5.eq_str("2000000002") { return 15; }
 
     // ── 6. Negative 2-limb: -12345678.90 ─────────────────────────────────────
-    let mut d6: HermesCtr = HermesCtr::builder(4096);
+    let mut d6: Hermes = Hermes::builder(4096);
     let neg6: AnyVal = d6.decimal_from(10 as i32, 2 as i32, "-12345678.90");
     if neg6.is_null() { return 16; }
     if !d6.decimal_is_negative(neg6) { return 17; }
@@ -55,28 +55,28 @@ unsafe fn main() -> i32 {
     if !sneg6.eq_str("-12345678.90") { return 18; }
 
     // ── 7. S=P=3, value "0.123" → "0.123" ────────────────────────────────────
-    let mut d7: HermesCtr = HermesCtr::builder(4096);
+    let mut d7: Hermes = Hermes::builder(4096);
     let v7: AnyVal = d7.decimal_from(3 as i32, 3 as i32, "0.123");
     if v7.is_null() { return 19; }
     let s7: String = d7.decimal_to_string(v7);
     if !s7.eq_str("0.123") { return 20; }
 
     // ── 8. S=P boundary: "0.999" valid, "1.000" rejected (4 sig digits > P=3) ─
-    let mut d8: HermesCtr = HermesCtr::builder(4096);
+    let mut d8: Hermes = Hermes::builder(4096);
     let ok8: AnyVal = d8.decimal_from(3 as i32, 3 as i32, "0.999");
     if ok8.is_null() { return 21; }
     let bad8: AnyVal = d8.decimal_from(3 as i32, 3 as i32, "1.000");
     if !bad8.is_null() { return 22; }
 
     // ── 9. 12.000000001 with P=11, S=9 ───────────────────────────────────────
-    let mut d9: HermesCtr = HermesCtr::builder(4096);
+    let mut d9: Hermes = Hermes::builder(4096);
     let v9: AnyVal = d9.decimal_from(11 as i32, 9 as i32, "12.000000001");
     if v9.is_null() { return 23; }
     let s9: String = d9.decimal_to_string(v9);
     if !s9.eq_str("12.000000001") { return 24; }
 
     // ── 10. Subtraction: 1 - 1000000001 = -1000000000 ────────────────────────
-    let mut d10: HermesCtr = HermesCtr::builder(4096);
+    let mut d10: Hermes = Hermes::builder(4096);
     let x10: AnyVal = d10.decimal_from(10 as i32, 0 as i32, "1");
     let y10: AnyVal = d10.decimal_from(10 as i32, 0 as i32, "1000000001");
     if x10.is_null() { return 25; }

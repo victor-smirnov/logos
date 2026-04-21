@@ -1,6 +1,6 @@
 package hermes_string_view_interop;
 // Same StringView type is produced by two different storage formats:
-//   • HermesCtr (zone/AOS — HermesString with vlen prefix + bytes inline)
+//   • Hermes (zone/AOS — HermesString with vlen prefix + bytes inline)
 //   • Buffer<HermesString> (heap/SoA — packed bytes + end offsets)
 // Code that consumes StringView doesn't care which one it came from.
 
@@ -34,7 +34,7 @@ unsafe fn views_eq(a: StringView, b: StringView) -> bool {
 unsafe fn main() -> i32 {
     // Parse a document with three strings in an array.
     let text: str = r#"["hello", "", "world!"]"#;
-    let mut doc: HermesCtr = HermesCtr::new(8192);
+    let mut doc: Hermes = Hermes::new(8192);
     match doc.parse(text) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 99; }
@@ -43,7 +43,7 @@ unsafe fn main() -> i32 {
     let root: AnyVal = doc.root();
     if doc.array_len(root) != 3 as u64 { return 1; }
 
-    // Pull each string as a StringView from the HermesCtr (AOS).
+    // Pull each string as a StringView from the Hermes (AOS).
     let v0_ctr: StringView = doc.get_str_view(doc.array_get(root, 0 as u64));
     let v1_ctr: StringView = doc.get_str_view(doc.array_get(root, 1 as u64));
     let v2_ctr: StringView = doc.get_str_view(doc.array_get(root, 2 as u64));

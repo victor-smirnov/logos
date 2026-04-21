@@ -5,6 +5,6 @@ use hermes.anyval;
 
 fn main() -> i32 {
     let xs: [i32; 2] = [1, 2];
-    let d: HermesCtr = @{"k": AnyVal::embed_i24(x) for x in xs if x + 1};
+    let d: Hermes = @{"k": AnyVal::embed_i24(x) for x in xs if x + 1};
     return 0;
 }

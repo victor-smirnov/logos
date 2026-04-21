@@ -1210,7 +1210,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, const LogosType* ty
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
-    // ── Hermes typed container cast: &[T] as <I32>[] → HermesCtr. ──────────
+    // ── Hermes typed container cast: &[T] as <I32>[] → Hermes. ──────────
     if (!e.hermes_build_fn.empty()) {
         auto val = gen_expr(*e.operand);
         if (!val) return nullptr;
@@ -2661,7 +2661,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
     // C8e: static @-literals get an 8-byte little-endian size prefix in rodata
     // so that HermesStatic::size() can read *(ptr - 8) without a separate symbol.
     // Capture path still uses the raw blob (no prefix) because the blob is
-    // memcpy'd into a live HermesCtr at runtime.
+    // memcpy'd into a live Hermes at runtime.
     auto i8 = builder_.getIntegerType(8);
     if (!e.has_captures) {
         // Emit [u64 size_le][blob bytes...] as one rodata global.
@@ -2730,7 +2730,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
     builder_.restoreInsertionPoint(save_pt);
 
     // Check if any capture requires zone allocation (f64, string, *const u8).
-    // Zone-alloc captures need the HermesCtr to exist before coercion, so we
+    // Zone-alloc captures need the Hermes to exist before coercion, so we
     // use the hermes_template_ctr_new + hermes_ctr_alloc_* + hermes_template_patch path.
     auto is_zone_alloc_cap = [](const LogosType* t) -> bool {
         if (!t) return false;
@@ -2802,7 +2802,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
         mlir::Value extra_cap_v = builder_.create<mlir::arith::ConstantIntOp>(
             loc_, extra_cap_bytes, 64);
 
-        // Create the HermesCtr with template pre-loaded.
+        // Create the Hermes with template pre-loaded.
         auto new_call = builder_.create<mlir::func::CallOp>(
             loc_, new_fn,
             mlir::ValueRange{tmpl_ptr_v, tmpl_size_v, extra_cap_v});
@@ -2810,7 +2810,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
         mlir::Value ctr_val  = new_call.getResult(0);
         mlir::Type  ctr_type = new_fn.getFunctionType().getResult(0);
 
-        // Alloca HermesCtr so we can take its address for alloc helpers.
+        // Alloca Hermes so we can take its address for alloc helpers.
         mlir::Value ctr_alloca = builder_.create<mlir::LLVM::AllocaOp>(
             loc_, ptr_type(), ctr_type, i64_one());
         builder_.create<mlir::LLVM::StoreOp>(loc_, ctr_val, ctr_alloca);
@@ -2896,7 +2896,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
             loc_, patch_fn,
             mlir::ValueRange{ctr_alloca, slots_ptr_v, n_slots_v, resolved_ptr, n_values_v});
 
-        // Return the HermesCtr by value (load from alloca).
+        // Return the Hermes by value (load from alloca).
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ctr_type, ctr_alloca);
     }
 

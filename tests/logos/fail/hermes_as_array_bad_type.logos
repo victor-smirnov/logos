@@ -5,6 +5,6 @@ use hermes.ctr;
 unsafe fn main() -> i32 {
     let arr: [f64; 2] = [1.0, 2.0];
     let s: &[f64] = &arr;
-    let ctr: HermesCtr = s as <F64>[];
+    let ctr: Hermes = s as <F64>[];
     return 0;
 }

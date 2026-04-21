@@ -11,7 +11,7 @@ use hermes.typed_value;
 use std.string;
 
 unsafe fn main() -> i32 {
-    let mut d1: HermesCtr = HermesCtr::new(4096);
+    let mut d1: Hermes = Hermes::new(4096);
     match d1.parse("<I32,AnyVal>{1:10,2:20}" as *const u8, 23 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 1; }
@@ -39,7 +39,7 @@ unsafe fn main() -> i32 {
     if !s1.eq_str("<I32,AnyVal> {1:10,2:20}") { return 8; }
 
     // Short map form <K>{...} defaults V to AnyVal.
-    let mut d2: HermesCtr = HermesCtr::new(4096);
+    let mut d2: Hermes = Hermes::new(4096);
     match d2.parse("<I32>{7:8}" as *const u8, 10 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 9; }

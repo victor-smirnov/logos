@@ -447,7 +447,7 @@ std::string type_str(const LogosType* t) {
 
 // ── SemaChecker method definitions ───────────────────────────────────────────
 
-lir::LProgram SemaChecker::run(const std::vector<hermes::HermesCtr>& asts,
+lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
                                 const std::vector<std::string>& filenames) {
     filenames_ = &filenames;
     init_primitives();
@@ -1393,7 +1393,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
     // <ElemType>[] and <K,V>{} — Hermes typed container type-expressions.
     // Resolved to a special Struct type: struct_name="HermesArr"/"HermesMap",
     // type_args[0] = elem/key type, type_args[1] = val type (map only).
-    // The result type of an `as <T>[]` cast is always HermesCtr (owning zone).
+    // The result type of an `as <T>[]` cast is always Hermes (owning zone).
     if (tc == la::HERMES_ARR_TYPE) {
         auto elem_name = str_of(node.get(la::TYPE.code));
         // Resolve element type — must be a known Hermes scalar type name.
@@ -1723,7 +1723,7 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
 
 // ── lower_program and lower_module_items ─────────────────────────────────────
 
-void SemaChecker::lower_program(const std::vector<hermes::HermesCtr>& asts, lir::LProgram& prog) {
+void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog) {
     for (size_t i = 0; i < asts.size(); ++i) {
         holder_ = asts[i].holder();
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
@@ -1976,7 +1976,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-lir::LProgram sema_lower(const std::vector<logos::hermes::HermesCtr>& asts,
+lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames) {
     SemaChecker checker;
     return checker.run(asts, filenames);

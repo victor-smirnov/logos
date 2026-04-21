@@ -9,6 +9,6 @@ pub struct Point {
 
 unsafe fn main() -> i32 {
     let p: Point = Point { x: 1, y: 2 };
-    let doc: HermesCtr = @{"pt": $p};
+    let doc: Hermes = @{"pt": $p};
     return 0;
 }

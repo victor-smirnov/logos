@@ -46,23 +46,23 @@ static int32_t int_field(AnyVal v) {
 }
 
 // Get top-level section (root is ObjectMap, string-keyed).
-static AnyVal section(const logos::hermes::HermesCtr& doc, std::string_view key) {
+static AnyVal section(const logos::hermes::Hermes& doc, std::string_view key) {
     if (!doc.has_root()) return AnyVal{};
     return doc.root_object().as_map().get(key);
 }
 
 // Section helpers that return typed views.
-static TinyMapView meta_of(const logos::hermes::HermesCtr& doc) {
+static TinyMapView meta_of(const logos::hermes::Hermes& doc) {
     return TinyMapView(section(doc, "meta").to_offset(), doc.holder());
 }
 
-static ArrayView array_section(const logos::hermes::HermesCtr& doc, std::string_view key) {
+static ArrayView array_section(const logos::hermes::Hermes& doc, std::string_view key) {
     AnyVal v = section(doc, key);
     LOGOS_ASSERT(!v.is_null(), "PEGEN-TEST-NAV", "section '{}' missing", key);
     return ArrayView(v.to_offset(), doc.holder());
 }
 
-static TinyMapView tiny_elem(const logos::hermes::HermesCtr& doc, AnyVal v) {
+static TinyMapView tiny_elem(const logos::hermes::Hermes& doc, AnyVal v) {
     return TinyMapView(v.to_offset(), doc.holder());
 }
 

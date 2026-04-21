@@ -4,7 +4,7 @@ package hermes_decimal_methods;
 use hermes.ctr;
 
 unsafe fn main() -> i32 {
-    let mut doc: HermesCtr = HermesCtr::builder(16384);
+    let mut doc: Hermes = Hermes::builder(16384);
 
     let a: AnyVal = doc.decimal_from(10 as i32, 2 as i32, "123.45");
     if a.is_null() { return 1; }

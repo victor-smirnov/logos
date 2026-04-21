@@ -14,7 +14,7 @@ use std.string;
 
 unsafe fn main() -> i32 {
     // Supported typed primitive array.
-    let mut d1: HermesCtr = HermesCtr::new(4096);
+    let mut d1: Hermes = Hermes::new(4096);
     match d1.parse("<I32>[1,2,3]" as *const u8, 12 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 1; }
@@ -23,7 +23,7 @@ unsafe fn main() -> i32 {
     if !s1.eq_str("<I32> [1,2,3]") { return 2; }
 
     // Spaces around type are tolerated.
-    let mut d2: HermesCtr = HermesCtr::new(4096);
+    let mut d2: Hermes = Hermes::new(4096);
     match d2.parse("<  I32 > [4,5]" as *const u8, 14 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 3; }
@@ -32,14 +32,14 @@ unsafe fn main() -> i32 {
     if !s2.eq_str("<I32> [4,5]") { return 4; }
 
     // Unknown typed array (no pre-materialization) must fail.
-    let mut d3: HermesCtr = HermesCtr::new(4096);
+    let mut d3: Hermes = Hermes::new(4096);
     match d3.parse("<U64>[1]" as *const u8, 8 as i64) {
         Result::Ok(())  => { return 5; }
         Result::Err(_)  => {}
     }
 
     // Default typed map short form is materialized.
-    let mut d4: HermesCtr = HermesCtr::new(4096);
+    let mut d4: Hermes = Hermes::new(4096);
     match d4.parse("<Varchar>{\"x\":7}" as *const u8, 16 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 6; }
@@ -48,7 +48,7 @@ unsafe fn main() -> i32 {
     if !s4.eq_str("{\"x\":7}") { return 7; }
 
     // Default typed map full form is materialized.
-    let mut d5: HermesCtr = HermesCtr::new(4096);
+    let mut d5: Hermes = Hermes::new(4096);
     match d5.parse("<Varchar,AnyVal>{\"a\":1}" as *const u8, 23 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 8; }
@@ -57,7 +57,7 @@ unsafe fn main() -> i32 {
     if !s5.eq_str("{\"a\":1}") { return 9; }
 
     // Typed i32 map is materialized; keys must be numeric.
-    let mut d6: HermesCtr = HermesCtr::new(4096);
+    let mut d6: Hermes = Hermes::new(4096);
     match d6.parse("<I32,AnyVal>{1:2}" as *const u8, 17 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 10; }
@@ -66,7 +66,7 @@ unsafe fn main() -> i32 {
     if !s6.eq_str("<I32,AnyVal> {1:2}") { return 11; }
 
     // Empty typed header must fail.
-    let mut d7: HermesCtr = HermesCtr::new(4096);
+    let mut d7: Hermes = Hermes::new(4096);
     match d7.parse("<>[]"
                    as *const u8, 4 as i64) {
         Result::Ok(())  => { return 12; }
@@ -74,7 +74,7 @@ unsafe fn main() -> i32 {
     }
 
     // Invalid type syntax must fail.
-    let mut d8: HermesCtr = HermesCtr::new(4096);
+    let mut d8: Hermes = Hermes::new(4096);
     match d8.parse("<<I32>>[]"
                    as *const u8, 9 as i64) {
         Result::Ok(())  => { return 13; }
@@ -82,7 +82,7 @@ unsafe fn main() -> i32 {
     }
 
     // Wrong element kind for I32 dense array must fail.
-    let mut d9: HermesCtr = HermesCtr::new(4096);
+    let mut d9: Hermes = Hermes::new(4096);
     match d9.parse("<I32>[\"x\"]"
                    as *const u8, 10 as i64) {
         Result::Ok(())  => { return 14; }
@@ -90,7 +90,7 @@ unsafe fn main() -> i32 {
     }
 
     // String key must fail for <I32,AnyVal>.
-    let mut d10: HermesCtr = HermesCtr::new(4096);
+    let mut d10: Hermes = Hermes::new(4096);
     match d10.parse("<I32,AnyVal>{\"a\":1}" as *const u8, 19 as i64) {
         Result::Ok(())  => { return 15; }
         Result::Err(_)  => {}

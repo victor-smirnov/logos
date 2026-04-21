@@ -154,7 +154,7 @@ An exerciser is a program that uses a library component through its public API, 
 int main() {
     logos::TraceConfig::enable("hermes.*");
     
-    auto ctr = HermesCtr::make_new();
+    auto ctr = Hermes::make_new();
     
     // Scenario: build a complex document
     auto map = ctr.make_tiny_map();
@@ -168,7 +168,7 @@ int main() {
     
     // Serialize round-trip
     auto text = ctr.to_string();
-    auto parsed = HermesCtr::parse_document(text);
+    auto parsed = Hermes::parse_document(text);
     parsed.check();
     
     // Compactify round-trip
@@ -177,7 +177,7 @@ int main() {
     
     // Binary round-trip
     auto binary = compact.span();
-    auto from_binary = HermesCtr::from_span(binary);
+    auto from_binary = Hermes::from_span(binary);
     from_binary.check();
     
     // Semantic equality
@@ -198,7 +198,7 @@ Randomized variant:
 ```cpp
 void fuzz_tinymap(uint64_t seed, size_t iterations) {
     Rng rng(seed);
-    auto ctr = HermesCtr::make_new();
+    auto ctr = Hermes::make_new();
     auto map = ctr.make_tiny_map();
     ctr.set_root(map);
     
@@ -219,7 +219,7 @@ void fuzz_tinymap(uint64_t seed, size_t iterations) {
     
     // Round-trip
     auto text = ctr.to_string();
-    auto parsed = HermesCtr::parse_document(text);
+    auto parsed = Hermes::parse_document(text);
     parsed.check();
 }
 ```

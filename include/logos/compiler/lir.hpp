@@ -268,7 +268,7 @@ struct ECast {
     // target type is LExpr::type.
     // For Hermes typed container casts (e.g. &[i32] as <I32>[]):
     //   hermes_build_fn names the stdlib builder (e.g. "hermes_build_array_i32").
-    //   source type is Slice; result type is HermesCtr.
+    //   source type is Slice; result type is Hermes.
     std::string hermes_build_fn;  // empty = ordinary numeric/pointer cast
 };
 
@@ -776,7 +776,7 @@ namespace logos::compiler {
 // Run semantic analysis and produce L-IR from all parsed module ASTs.
 // The ASTs must remain alive for the duration of this call (string_views).
 // filenames[i] is the source path for asts[i] — used in diagnostics.
-lir::LProgram sema_lower(const std::vector<hermes::HermesCtr>& asts,
+lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames = {});
 
 } // namespace logos::compiler

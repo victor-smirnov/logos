@@ -5,7 +5,7 @@ use std.string;
 
 unsafe fn main() -> i32 {
     // ── 1. Import an array subtree into a fresh builder ──────────────────
-    let mut src: HermesCtr = HermesCtr::new(4096);
+    let mut src: Hermes = Hermes::new(4096);
     match src.parse("{\"x\": 10, \"arr\": [1, 2, 3], \"s\": \"hello\"}") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 1; }
@@ -15,25 +15,25 @@ unsafe fn main() -> i32 {
     if arr_val.is_null() { return 2; }
     if src.array_len(arr_val) != 3 as u64 { return 3; }
 
-    let mut dst: HermesCtr = HermesCtr::builder(4096);
+    let mut dst: Hermes = Hermes::builder(4096);
     let imported: AnyVal =
-        dst.import_from(&src as *const HermesCtr, arr_val);
+        dst.import_from(&src as *const Hermes, arr_val);
     if imported.is_null() { return 4; }
     dst.set_root(imported);
     if !dst.check() { return 5; }
     if dst.array_len(imported) != 3 as u64 { return 6; }
 
     // ── 2. export() mirrors import_from + set_root ───────────────────────
-    let exported: HermesCtr = src.export(arr_val);
+    let exported: Hermes = src.export(arr_val);
     if !exported.check() { return 7; }
     let exp_root: AnyVal = exported.root();
     if exp_root.is_null() { return 8; }
     if exported.array_len(exp_root) != 3 as u64 { return 9; }
 
     // ── 3. Importing the full doc root preserves the nested structure ────
-    let mut full_dst: HermesCtr = HermesCtr::builder(4096);
+    let mut full_dst: Hermes = Hermes::builder(4096);
     let full_imp: AnyVal =
-        full_dst.import_from(&src as *const HermesCtr, src_root);
+        full_dst.import_from(&src as *const Hermes, src_root);
     if full_imp.is_null() { return 10; }
     full_dst.set_root(full_imp);
     if !full_dst.check() { return 11; }
@@ -52,35 +52,35 @@ unsafe fn main() -> i32 {
     if buf_src.len() != buf_dst.len() { return 14; }
 
     // ── 4. Importing an inline scalar passes through unchanged ───────────
-    let mut src2: HermesCtr = HermesCtr::new(4096);
+    let mut src2: Hermes = Hermes::new(4096);
     match src2.parse("42") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 15; }
     }
     let inline_val: AnyVal = src2.root();
-    let mut dst2: HermesCtr = HermesCtr::builder(4096);
+    let mut dst2: Hermes = Hermes::builder(4096);
     let inl_imp: AnyVal =
-        dst2.import_from(&src2 as *const HermesCtr, inline_val);
+        dst2.import_from(&src2 as *const Hermes, inline_val);
     if inl_imp.raw != inline_val.raw { return 16; }
 
     // ── 5. Importing null_ptr returns null_ptr ───────────────────────────
     let null_imp: AnyVal =
-        dst2.import_from(&src2 as *const HermesCtr, AnyVal::null_ptr());
+        dst2.import_from(&src2 as *const Hermes, AnyVal::null_ptr());
     if !null_imp.is_null() { return 17; }
 
     // ── 6. import_from a null src_ptr returns null_ptr (safe no-op) ──────
     let safe_null: AnyVal =
-        dst2.import_from(0 as *const HermesCtr, inline_val);
+        dst2.import_from(0 as *const Hermes, inline_val);
     if !safe_null.is_null() { return 18; }
 
     // ── 7. export with explicit capacity_hint ────────────────────────────
-    let exp2: HermesCtr = src.export(arr_val, 1024 as i64);
+    let exp2: Hermes = src.export(arr_val, 1024 as i64);
     if !exp2.check() { return 19; }
     if exp2.array_len(exp2.root()) != 3 as u64 { return 20; }
 
     // ── 8. self-import is rejected (zone-alias would corrupt base_src) ───
     let self_imp: AnyVal =
-        src.import_from(&src as *const HermesCtr, arr_val);
+        src.import_from(&src as *const Hermes, arr_val);
     if !self_imp.is_null() { return 21; }
 
     return 0;

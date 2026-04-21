@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     }
 
     // Collect ASTs and source paths.
-    std::vector<logos::hermes::HermesCtr> asts;
+    std::vector<logos::hermes::Hermes> asts;
     std::vector<std::string> filenames;
     for (auto& m : modules) {
         filenames.push_back(m.path);

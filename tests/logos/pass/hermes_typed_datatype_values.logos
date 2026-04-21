@@ -23,7 +23,7 @@ unsafe fn cstr_eq_bytes(p: *const u8, n: u64, lit: *const u8) -> bool {
 }
 
 unsafe fn main() -> i32 {
-    let mut d: HermesCtr = HermesCtr::new(8192);
+    let mut d: Hermes = Hermes::new(8192);
     let txt: str =
         r#"{
             "a": @I64 = 42, 

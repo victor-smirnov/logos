@@ -107,7 +107,7 @@ private:
     logos::expected<void> send_message(MessageType type, CallID call_id,
                                        const EndpointID* endpoint = nullptr,
                                        ChannelCode ch_code        = 0,
-                                       const HermesCtr* payload   = nullptr) noexcept;
+                                       const Hermes* payload   = nullptr) noexcept;
 
     logos::expected<void> send_return(CallID call_id, Response response) noexcept;
 
@@ -115,14 +115,14 @@ private:
 
     logos::expected<void> handle_message(const MessageHeader& hdr,
                                          const uint8_t* buf,
-                                         HermesCtr payload) noexcept;
+                                         Hermes payload) noexcept;
 
-    logos::expected<void> handle_session_start(const MessageHeader& hdr, HermesCtr payload) noexcept;
+    logos::expected<void> handle_session_start(const MessageHeader& hdr, Hermes payload) noexcept;
     void handle_session_close() noexcept;
-    logos::expected<void> handle_call(const MessageHeader& hdr, const uint8_t* buf, HermesCtr payload) noexcept;
-    void handle_return(const MessageHeader& hdr, HermesCtr payload) noexcept;
-    void handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept;
-    void handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept;
+    logos::expected<void> handle_call(const MessageHeader& hdr, const uint8_t* buf, Hermes payload) noexcept;
+    void handle_return(const MessageHeader& hdr, Hermes payload) noexcept;
+    void handle_call_channel_msg(const MessageHeader& hdr, Hermes payload) noexcept;
+    void handle_ctx_channel_msg(const MessageHeader& hdr, Hermes payload) noexcept;
     void handle_call_close_output(const MessageHeader& hdr) noexcept;
     void handle_ctx_close_output(const MessageHeader& hdr) noexcept;
     void handle_cancel(const MessageHeader& hdr) noexcept;

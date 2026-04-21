@@ -29,7 +29,7 @@ namespace logos::peg_gen {
 struct ResolvedModule {
     std::string  path;           // absolute path to the .peg file
     std::string  alias;          // import alias (empty for the root module)
-    logos::hermes::HermesCtr grammar;  // parsed grammar document
+    logos::hermes::Hermes grammar;  // parsed grammar document
 };
 
 // Resolve all imports starting from root_path.

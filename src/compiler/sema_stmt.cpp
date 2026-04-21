@@ -2982,7 +2982,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     }
 
     // For Hermes patterns we hoist two locals:
-    //   let __hmatch_view = <scrut>;            // the view (HermesCtr/View/Static or &)
+    //   let __hmatch_view = <scrut>;            // the view (Hermes/View/Static or &)
     //   let __hmatch_root: AnyVal = view.root(); // root AnyVal, used by guard helpers
     std::string root_var;
     std::string base_var;
@@ -2995,7 +2995,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         if (!hermes_view_inner(scrut_type)) {
             error(std::format(
                 "match with Hermes patterns requires a view scrutinee "
-                "(HermesCtr, HermesCtrView, or HermesStatic; use & to borrow); "
+                "(Hermes, HermesView, or HermesStatic; use & to borrow); "
                 "got {}", type_str(scrut_type)));
         }
         std::string view_var = "__hmatch_view_" + std::to_string(tmp_var_count_++);
@@ -3275,7 +3275,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         if (!hermes_view_inner(scrut_type)) {
             error(std::format(
                 "match with Hermes patterns requires a view scrutinee "
-                "(HermesCtr, HermesCtrView, or HermesStatic; use & to borrow); "
+                "(Hermes, HermesView, or HermesStatic; use & to borrow); "
                 "got {}", type_str(scrut_type)));
         }
         std::string view_var = "__hmatche_view_" + std::to_string(tmp_var_count_++);

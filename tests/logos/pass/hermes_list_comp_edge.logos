@@ -9,17 +9,17 @@ use hermes.typed_value;
 fn main() -> i32 {
     // Edge 1: empty result via always-false guard.
     let arr: [i32; 3] = [1, 2, 3];
-    let empty_doc: HermesCtr =
+    let empty_doc: Hermes =
         @[AnyVal::embed_i24(x) for x in arr if x > 100];
 
     // Edge 2: guard that filters nothing (all pass).
     let v: [i32; 4] = [10, 20, 30, 40];
-    let slice_doc: HermesCtr =
+    let slice_doc: Hermes =
         @[AnyVal::embed_i24(x + 1) for x in v if x >= 0];
 
     // Edge 3: many elements (forces Array<AnyVal> grow 8 → 16 → 32).
     let big: [i32; 20] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
-    let big_doc: HermesCtr =
+    let big_doc: Hermes =
         @[AnyVal::embed_i24(x) for x in big];
 
     unsafe {

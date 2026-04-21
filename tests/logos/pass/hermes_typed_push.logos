@@ -11,7 +11,7 @@ use hermes.typed_value;
 
 unsafe fn main() -> i32 {
     // Array<i32>: build cap=8, push 5 ints, read back via Array trait on header.
-    let mut c: HermesCtr = HermesCtr::builder(128 as i64);
+    let mut c: Hermes = Hermes::builder(128 as i64);
     let arr: AnyVal = c.build_array_i32(8 as u64);
     c.set_root(arr);
     c.array_i32_push(arr, 10);
@@ -36,7 +36,7 @@ unsafe fn main() -> i32 {
     if *ai2.get_ptr(c.base(), 8 as u64) != 90 { return 44; }
 
     // Array<u64>
-    let mut c2: HermesCtr = HermesCtr::builder(128 as i64);
+    let mut c2: Hermes = Hermes::builder(128 as i64);
     let au: AnyVal = c2.build_array_u64(4 as u64);
     c2.set_root(au);
     c2.array_u64_push(au, 1000 as u64);
@@ -48,7 +48,7 @@ unsafe fn main() -> i32 {
     if *a64.get_ptr(base2, 2 as u64) != 3000 as u64 { return 6; }
 
     // Map<i32, AnyVal>
-    let mut c3: HermesCtr = HermesCtr::builder(128 as i64);
+    let mut c3: Hermes = Hermes::builder(128 as i64);
     let mp: AnyVal = c3.build_map_i32_anyval(4 as u32);
     c3.set_root(mp);
     c3.map_i32_anyval_set(mp, 1, AnyVal::embed_i24(100));

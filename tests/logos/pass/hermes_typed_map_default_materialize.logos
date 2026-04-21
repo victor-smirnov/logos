@@ -9,7 +9,7 @@ use hermes.datatag;
 
 unsafe fn main() -> i32 {
     // Short form <K>{...}
-    let mut d1: HermesCtr = HermesCtr::new(4096);
+    let mut d1: Hermes = Hermes::new(4096);
     match d1.parse("<Varchar>{\"a\":1,\"b\":2}" as *const u8, 22 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 1; }
@@ -23,7 +23,7 @@ unsafe fn main() -> i32 {
     if d1.get_i64(d1.map_get_cstr(r1, "b" as *const u8)) != 2 as i64 { return 5; }
 
     // Full form <K,V>{...}
-    let mut d2: HermesCtr = HermesCtr::new(4096);
+    let mut d2: Hermes = Hermes::new(4096);
     match d2.parse("<Varchar,AnyVal>{\"x\":7}" as *const u8, 23 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 6; }

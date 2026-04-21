@@ -52,11 +52,11 @@ namespace tpl_ast {
 
 class TemplateParser {
 public:
-    TemplateParser(std::string_view text, HermesCtr& doc)
+    TemplateParser(std::string_view text, Hermes& doc)
         : text_(text), pos_(0), doc_(doc) {}
 
     logos::expected<void*> parse() noexcept {
-        LOGOS_TRY(auto* stmts, HermesCtrAccess::raw_array(doc_));
+        LOGOS_TRY(auto* stmts, HermesAccess::raw_array(doc_));
         LOGOS_TRY_VOID(parse_block(stmts, ""));
         return stmts;
     }
@@ -64,7 +64,7 @@ public:
 private:
     std::string_view text_;
     size_t pos_;
-    HermesCtr& doc_;
+    Hermes& doc_;
     std::string_view elif_expr_; // Temporary storage for elif expression.
 
     bool at_end() const noexcept { return pos_ >= text_.size(); }
@@ -87,9 +87,9 @@ private:
             // Emit text node if any.
             if (pos_ > text_start) {
                 auto sv = text_.substr(text_start, pos_ - text_start);
-                LOGOS_TRY(auto* s, HermesCtrAccess::raw_string(doc_, sv));
-                LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)));
-                stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(s, HermesCtrAccess::base(doc_));
+                LOGOS_TRY(auto* s, HermesAccess::raw_string(doc_, sv));
+                LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesAccess::arena(doc_)));
+                stmts->slot(stmts->size() - 1, HermesAccess::base(doc_))->set_pointer(s, HermesAccess::base(doc_));
             }
 
             if (at_end()) break;
@@ -123,14 +123,14 @@ private:
         // Parse the expression as HermesPath AST (result unused here, just validates).
         LOGOS_TRY_VOID(parse_path(expr_text));
 
-        LOGOS_TRY(auto* expr_str, HermesCtrAccess::raw_string(doc_, expr_text));
-        LOGOS_TRY(auto* node, HermesCtrAccess::raw_tiny_map(doc_, 4));
-        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::VAR_STMT), HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
+        LOGOS_TRY(auto* expr_str, HermesAccess::raw_string(doc_, expr_text));
+        LOGOS_TRY(auto* node, HermesAccess::raw_tiny_map(doc_, 4));
+        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::VAR_STMT), HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesAccess::arena(doc_)));
+        node->slot(tpl_ast::EXPRESSION, HermesAccess::base(doc_))->set_pointer(expr_str, HermesAccess::base(doc_));
 
-        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)));
-        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
+        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesAccess::arena(doc_)));
+        stmts->slot(stmts->size() - 1, HermesAccess::base(doc_))->set_pointer(node, HermesAccess::base(doc_));
         return {};
     }
 
@@ -196,26 +196,26 @@ private:
         skip_to_close_tag();
 
         // Parse body.
-        LOGOS_TRY(auto* body, HermesCtrAccess::raw_array(doc_));
+        LOGOS_TRY(auto* body, HermesAccess::raw_array(doc_));
         LOGOS_TRY(std::string end_kw, parse_block(body, "endfor"));
         if (end_kw != "endfor") return std::unexpected(logos::err(ErrCode::template_error));
 
         // Allocate strings first, then build the node.
-        LOGOS_TRY(auto* var_str, HermesCtrAccess::raw_string(doc_, var_name));
-        LOGOS_TRY(auto* expr_str, HermesCtrAccess::raw_string(doc_, expr_text));
+        LOGOS_TRY(auto* var_str, HermesAccess::raw_string(doc_, var_name));
+        LOGOS_TRY(auto* expr_str, HermesAccess::raw_string(doc_, expr_text));
 
-        LOGOS_TRY(auto* node, HermesCtrAccess::raw_tiny_map(doc_, 8));
-        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::FOR_STMT), HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::VARIABLE, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_)));
+        LOGOS_TRY(auto* node, HermesAccess::raw_tiny_map(doc_, 8));
+        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::FOR_STMT), HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::VARIABLE, AnyVal{}, HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesAccess::arena(doc_)));
         // Now set pointers — all allocations are done, no more arena mutations.
-        node->slot(tpl_ast::VARIABLE, HermesCtrAccess::base(doc_))->set_pointer(var_str, HermesCtrAccess::base(doc_));
-        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
-        node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(body, HermesCtrAccess::base(doc_));
+        node->slot(tpl_ast::VARIABLE, HermesAccess::base(doc_))->set_pointer(var_str, HermesAccess::base(doc_));
+        node->slot(tpl_ast::EXPRESSION, HermesAccess::base(doc_))->set_pointer(expr_str, HermesAccess::base(doc_));
+        node->slot(tpl_ast::STATEMENTS, HermesAccess::base(doc_))->set_pointer(body, HermesAccess::base(doc_));
 
-        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)));
-        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
+        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesAccess::arena(doc_)));
+        stmts->slot(stmts->size() - 1, HermesAccess::base(doc_))->set_pointer(node, HermesAccess::base(doc_));
         return {};
     }
 
@@ -224,76 +224,76 @@ private:
         std::string_view expr_text = read_until_close_tag();
         skip_to_close_tag();
 
-        LOGOS_TRY(auto* body, HermesCtrAccess::raw_array(doc_));
+        LOGOS_TRY(auto* body, HermesAccess::raw_array(doc_));
         LOGOS_TRY(std::string end_kw, parse_block(body, "endif"));
 
-        LOGOS_TRY(auto* expr_str, HermesCtrAccess::raw_string(doc_, expr_text));
-        LOGOS_TRY(auto* node, HermesCtrAccess::raw_tiny_map(doc_, 8));
-        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
-        node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(body, HermesCtrAccess::base(doc_));
+        LOGOS_TRY(auto* expr_str, HermesAccess::raw_string(doc_, expr_text));
+        LOGOS_TRY(auto* node, HermesAccess::raw_tiny_map(doc_, 8));
+        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesAccess::arena(doc_)));
+        node->slot(tpl_ast::EXPRESSION, HermesAccess::base(doc_))->set_pointer(expr_str, HermesAccess::base(doc_));
+        node->slot(tpl_ast::STATEMENTS, HermesAccess::base(doc_))->set_pointer(body, HermesAccess::base(doc_));
 
         // Handle else/elif chain.
         if (end_kw == "else") {
-            LOGOS_TRY(auto* else_body, HermesCtrAccess::raw_array(doc_));
+            LOGOS_TRY(auto* else_body, HermesAccess::raw_array(doc_));
             LOGOS_TRY_VOID(parse_block(else_body, "endif"));
-            LOGOS_TRY(auto* else_node, HermesCtrAccess::raw_tiny_map(doc_, 4));
-            LOGOS_TRY_VOID(else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), HermesCtrAccess::arena(doc_)));
-            LOGOS_TRY_VOID(else_node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_)));
-            else_node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(else_body, HermesCtrAccess::base(doc_));
-            LOGOS_TRY_VOID(node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesCtrAccess::arena(doc_)));
-            node->slot(tpl_ast::ELSE_BRANCH, HermesCtrAccess::base(doc_))->set_pointer(else_node, HermesCtrAccess::base(doc_));
+            LOGOS_TRY(auto* else_node, HermesAccess::raw_tiny_map(doc_, 4));
+            LOGOS_TRY_VOID(else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), HermesAccess::arena(doc_)));
+            LOGOS_TRY_VOID(else_node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesAccess::arena(doc_)));
+            else_node->slot(tpl_ast::STATEMENTS, HermesAccess::base(doc_))->set_pointer(else_body, HermesAccess::base(doc_));
+            LOGOS_TRY_VOID(node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesAccess::arena(doc_)));
+            node->slot(tpl_ast::ELSE_BRANCH, HermesAccess::base(doc_))->set_pointer(else_node, HermesAccess::base(doc_));
         } else if (end_kw == "elif") {
             // Recursive: build a nested if from the elif.
-            LOGOS_TRY(auto* elif_stmts, HermesCtrAccess::raw_array(doc_));
+            LOGOS_TRY(auto* elif_stmts, HermesAccess::raw_array(doc_));
             LOGOS_TRY_VOID(parse_if_stmt_with_expr(elif_stmts, elif_expr_));
             if (elif_stmts->size() > 0) {
-                LOGOS_TRY_VOID(node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesCtrAccess::arena(doc_)));
-                node->slot(tpl_ast::ELSE_BRANCH, HermesCtrAccess::base(doc_))->set_pointer(
-                    elif_stmts->slot(0, HermesCtrAccess::base(doc_))->as_ptr<void>(HermesCtrAccess::base(doc_)), HermesCtrAccess::base(doc_));
+                LOGOS_TRY_VOID(node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesAccess::arena(doc_)));
+                node->slot(tpl_ast::ELSE_BRANCH, HermesAccess::base(doc_))->set_pointer(
+                    elif_stmts->slot(0, HermesAccess::base(doc_))->as_ptr<void>(HermesAccess::base(doc_)), HermesAccess::base(doc_));
             }
         }
 
-        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)));
-        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
+        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesAccess::arena(doc_)));
+        stmts->slot(stmts->size() - 1, HermesAccess::base(doc_))->set_pointer(node, HermesAccess::base(doc_));
         return {};
     }
 
     logos::expected<void> parse_if_stmt_with_expr(ObjectArray* stmts, std::string_view expr_text) noexcept {
-        LOGOS_TRY(auto* body, HermesCtrAccess::raw_array(doc_));
+        LOGOS_TRY(auto* body, HermesAccess::raw_array(doc_));
         LOGOS_TRY(std::string end_kw, parse_block(body, "endif"));
 
-        LOGOS_TRY(auto* expr_str, HermesCtrAccess::raw_string(doc_, expr_text));
-        LOGOS_TRY(auto* node, HermesCtrAccess::raw_tiny_map(doc_, 8));
-        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
-        node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(body, HermesCtrAccess::base(doc_));
+        LOGOS_TRY(auto* expr_str, HermesAccess::raw_string(doc_, expr_text));
+        LOGOS_TRY(auto* node, HermesAccess::raw_tiny_map(doc_, 8));
+        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::IF_STMT), HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesAccess::arena(doc_)));
+        node->slot(tpl_ast::EXPRESSION, HermesAccess::base(doc_))->set_pointer(expr_str, HermesAccess::base(doc_));
+        node->slot(tpl_ast::STATEMENTS, HermesAccess::base(doc_))->set_pointer(body, HermesAccess::base(doc_));
 
         if (end_kw == "else") {
-            LOGOS_TRY(auto* else_body, HermesCtrAccess::raw_array(doc_));
+            LOGOS_TRY(auto* else_body, HermesAccess::raw_array(doc_));
             LOGOS_TRY_VOID(parse_block(else_body, "endif"));
-            LOGOS_TRY(auto* else_node, HermesCtrAccess::raw_tiny_map(doc_, 4));
-            LOGOS_TRY_VOID(else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), HermesCtrAccess::arena(doc_)));
-            LOGOS_TRY_VOID(else_node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesCtrAccess::arena(doc_)));
-            else_node->slot(tpl_ast::STATEMENTS, HermesCtrAccess::base(doc_))->set_pointer(else_body, HermesCtrAccess::base(doc_));
-            LOGOS_TRY_VOID(node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesCtrAccess::arena(doc_)));
-            node->slot(tpl_ast::ELSE_BRANCH, HermesCtrAccess::base(doc_))->set_pointer(else_node, HermesCtrAccess::base(doc_));
+            LOGOS_TRY(auto* else_node, HermesAccess::raw_tiny_map(doc_, 4));
+            LOGOS_TRY_VOID(else_node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::ELSE_STMT), HermesAccess::arena(doc_)));
+            LOGOS_TRY_VOID(else_node->put(tpl_ast::STATEMENTS, AnyVal{}, HermesAccess::arena(doc_)));
+            else_node->slot(tpl_ast::STATEMENTS, HermesAccess::base(doc_))->set_pointer(else_body, HermesAccess::base(doc_));
+            LOGOS_TRY_VOID(node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesAccess::arena(doc_)));
+            node->slot(tpl_ast::ELSE_BRANCH, HermesAccess::base(doc_))->set_pointer(else_node, HermesAccess::base(doc_));
         } else if (end_kw == "elif") {
-            LOGOS_TRY(auto* elif_stmts, HermesCtrAccess::raw_array(doc_));
+            LOGOS_TRY(auto* elif_stmts, HermesAccess::raw_array(doc_));
             LOGOS_TRY_VOID(parse_if_stmt_with_expr(elif_stmts, elif_expr_));
             if (elif_stmts->size() > 0) {
-                LOGOS_TRY_VOID(node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesCtrAccess::arena(doc_)));
-                node->slot(tpl_ast::ELSE_BRANCH, HermesCtrAccess::base(doc_))->set_pointer(
-                    elif_stmts->slot(0, HermesCtrAccess::base(doc_))->as_ptr<void>(HermesCtrAccess::base(doc_)), HermesCtrAccess::base(doc_));
+                LOGOS_TRY_VOID(node->put(tpl_ast::ELSE_BRANCH, AnyVal{}, HermesAccess::arena(doc_)));
+                node->slot(tpl_ast::ELSE_BRANCH, HermesAccess::base(doc_))->set_pointer(
+                    elif_stmts->slot(0, HermesAccess::base(doc_))->as_ptr<void>(HermesAccess::base(doc_)), HermesAccess::base(doc_));
             }
         }
 
-        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)));
-        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
+        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesAccess::arena(doc_)));
+        stmts->slot(stmts->size() - 1, HermesAccess::base(doc_))->set_pointer(node, HermesAccess::base(doc_));
         return {};
     }
 
@@ -309,17 +309,17 @@ private:
         std::string_view expr_text = read_until_close_tag();
         skip_to_close_tag();
 
-        LOGOS_TRY(auto* var_str, HermesCtrAccess::raw_string(doc_, var_name));
-        LOGOS_TRY(auto* expr_str, HermesCtrAccess::raw_string(doc_, expr_text));
-        LOGOS_TRY(auto* node, HermesCtrAccess::raw_tiny_map(doc_, 4));
-        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::SET_STMT), HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::VARIABLE, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesCtrAccess::arena(doc_)));
-        node->slot(tpl_ast::VARIABLE, HermesCtrAccess::base(doc_))->set_pointer(var_str, HermesCtrAccess::base(doc_));
-        node->slot(tpl_ast::EXPRESSION, HermesCtrAccess::base(doc_))->set_pointer(expr_str, HermesCtrAccess::base(doc_));
+        LOGOS_TRY(auto* var_str, HermesAccess::raw_string(doc_, var_name));
+        LOGOS_TRY(auto* expr_str, HermesAccess::raw_string(doc_, expr_text));
+        LOGOS_TRY(auto* node, HermesAccess::raw_tiny_map(doc_, 4));
+        LOGOS_TRY_VOID(node->put(tpl_ast::CODE, AnyVal::from_value(tpl_ast::SET_STMT), HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::VARIABLE, AnyVal{}, HermesAccess::arena(doc_)));
+        LOGOS_TRY_VOID(node->put(tpl_ast::EXPRESSION, AnyVal{}, HermesAccess::arena(doc_)));
+        node->slot(tpl_ast::VARIABLE, HermesAccess::base(doc_))->set_pointer(var_str, HermesAccess::base(doc_));
+        node->slot(tpl_ast::EXPRESSION, HermesAccess::base(doc_))->set_pointer(expr_str, HermesAccess::base(doc_));
 
-        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)));
-        stmts->slot(stmts->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(node, HermesCtrAccess::base(doc_));
+        LOGOS_TRY_VOID(stmts->push_back(AnyVal{}, HermesAccess::arena(doc_)));
+        stmts->slot(stmts->size() - 1, HermesAccess::base(doc_))->set_pointer(node, HermesAccess::base(doc_));
         return {};
     }
 
@@ -368,7 +368,7 @@ private:
 
 class TemplateRenderer {
 public:
-    TemplateRenderer(const HermesCtr& data)
+    TemplateRenderer(const Hermes& data)
         : data_(data) {}
 
     logos::expected<std::string> render(const ObjectArray* stmts, uint8_t* tpl_base) noexcept {
@@ -378,10 +378,10 @@ public:
     }
 
 private:
-    const HermesCtr& data_;
+    const Hermes& data_;
     std::string out_;
     uint8_t* base_ = nullptr;  // Template AST arena base.
-    HermesCtr scratch_ = make_doc_multi(4096).value_or(HermesCtr{}); // Scratch arena; OOM → terminate via get() later.
+    Hermes scratch_ = make_doc_multi(4096).value_or(Hermes{}); // Scratch arena; OOM → terminate via get() later.
 
     // Variable scope stack.
     struct VarBinding {
@@ -410,24 +410,24 @@ private:
 
     // Evaluate a HermesPath expression against current context.
     // Build a fresh context doc with data + template variables.
-    logos::expected<HermesCtr> build_context() noexcept {
+    logos::expected<Hermes> build_context() noexcept {
         LOGOS_TRY(auto ctx_doc, make_doc_multi());
-        LOGOS_TRY(auto* ctx, HermesCtrAccess::raw_object_map(ctx_doc));
-        HermesCtrAccess::set_root(ctx_doc, ctx);
+        LOGOS_TRY(auto* ctx, HermesAccess::raw_object_map(ctx_doc));
+        HermesAccess::set_root(ctx_doc, ctx);
 
         // Copy data fields.
-        void* data_root = HermesCtrAccess::root<void>(data_);
+        void* data_root = HermesAccess::root<void>(data_);
         if (data_root) {
             auto* db = static_cast<const uint8_t*>(data_root);
             TypeTag tag = TypeTag::read_before(db);
             if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::ObjectMap) {
                 auto* data_map = static_cast<ObjectMap*>(data_root);
-                uint8_t* data_base = const_cast<uint8_t*>(HermesCtrAccess::base(data_));
+                uint8_t* data_base = const_cast<uint8_t*>(HermesAccess::base(data_));
                 logos::expected<void> status{};
                 data_map->for_each([&](ArenaString* key, AnyVal* val) noexcept {
                     if (!status) return;
                     if (val->is_value()) {
-                        auto res = ctx->put(key->view(), *val, HermesCtrAccess::arena(ctx_doc));
+                        auto res = ctx->put(key->view(), *val, HermesAccess::arena(ctx_doc));
                         if (!res) { status = std::unexpected(std::move(res.error())); return; }
                     } else if (val->is_pointer()) {
                         auto res = put_into_ctx(ctx, ctx_doc, key->view(), val->as_ptr<void>(data_base), data_base);
@@ -451,7 +451,7 @@ private:
         LOGOS_TRY(auto ctx_doc, build_context());
         LOGOS_TRY(auto result, eval_path(ctx_doc, expr_text));
         if (!result.has_root()) return static_cast<void*>(nullptr);
-        return HermesCtrAccess::root<void>(result);
+        return HermesAccess::root<void>(result);
     }
 
     logos::expected<std::string> eval_to_string(std::string_view expr_text) noexcept {
@@ -460,7 +460,7 @@ private:
         if (!res.has_root()) {
             return std::string{};
         }
-        return value_to_string(HermesCtrAccess::root<void>(res));
+        return value_to_string(HermesAccess::root<void>(res));
     }
 
     logos::expected<std::string> value_to_string(void* val) noexcept {
@@ -491,10 +491,10 @@ private:
 
     // Put an arena object into context map, copying if needed to avoid cross-arena pointers.
     // NOTE: ctx may be invalidated after this call (arena growth). Re-derive via offset.
-    logos::expected<void> put_into_ctx(ObjectMap* ctx, HermesCtr& ctx_doc, std::string_view key, void* val,
+    logos::expected<void> put_into_ctx(ObjectMap* ctx, Hermes& ctx_doc, std::string_view key, void* val,
                      uint8_t* val_base = nullptr) noexcept {
         if (!val) {
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal{}, HermesCtrAccess::arena(ctx_doc)));
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal{}, HermesAccess::arena(ctx_doc)));
             return {};
         }
         auto* b = static_cast<const uint8_t*>(val);
@@ -502,36 +502,36 @@ private:
         uint64_t tc = tag.type_code();
         // Embeddable scalars: store as embedded AnyVal (no pointer needed).
         if (tc == type_hash::Integer) {
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesCtrAccess::arena(ctx_doc)));
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
         } else if (tc == type_hash::UInteger) {
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const uint32_t*>(val), tc), HermesCtrAccess::arena(ctx_doc)));
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const uint32_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
         } else if (tc == type_hash::Boolean) {
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesCtrAccess::arena(ctx_doc)));
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
         } else if (tc == type_hash::Real) {
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), HermesCtrAccess::arena(ctx_doc)));
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
         } else if (tc == type_hash::SmallInt) {
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int16_t*>(val), tc), HermesCtrAccess::arena(ctx_doc)));
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int16_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
         } else if (tc == type_hash::TinyInt) {
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int8_t*>(val), tc), HermesCtrAccess::arena(ctx_doc)));
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int8_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
         } else if (tc == type_hash::Varchar) {
             auto* s = static_cast<const ArenaString*>(val);
-            LOGOS_TRY(auto* copy, ArenaString::create(HermesCtrAccess::arena(ctx_doc), s->view()));
-            uint8_t* cb = HermesCtrAccess::base(ctx_doc);
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal{}, HermesCtrAccess::arena(ctx_doc)));
+            LOGOS_TRY(auto* copy, ArenaString::create(HermesAccess::arena(ctx_doc), s->view()));
+            uint8_t* cb = HermesAccess::base(ctx_doc);
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal{}, HermesAccess::arena(ctx_doc)));
             ctx->get_slot(key, cb)->set_pointer(copy, cb);
             return {};
         } else {
             // Complex types (arrays, maps): deep-copy into ctx_doc so offsets are consistent.
-            uint8_t* vb = val_base ? val_base : const_cast<uint8_t*>(HermesCtrAccess::base(data_));
+            uint8_t* vb = val_base ? val_base : const_cast<uint8_t*>(HermesAccess::base(data_));
             LOGOS_TRY(void* copy, copy_object_into(val, vb, ctx_doc));
-            uint8_t* cb = HermesCtrAccess::base(ctx_doc);
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal{}, HermesCtrAccess::arena(ctx_doc)));
+            uint8_t* cb = HermesAccess::base(ctx_doc);
+            LOGOS_TRY_VOID(ctx->put(key, AnyVal{}, HermesAccess::arena(ctx_doc)));
             ctx->get_slot(key, cb)->set_pointer(copy, cb);
             return {};
         }
@@ -544,25 +544,25 @@ private:
         uint8_t th = slot->value_type_hash();
         switch (th) {
             case type_hash::Integer: {
-                return HermesCtrAccess::make_value<int32_t>(scratch_, slot->as_value<int32_t>());
+                return HermesAccess::make_value<int32_t>(scratch_, slot->as_value<int32_t>());
             }
             case type_hash::UInteger: {
-                return HermesCtrAccess::make_value<uint32_t>(scratch_, slot->as_value<uint32_t>());
+                return HermesAccess::make_value<uint32_t>(scratch_, slot->as_value<uint32_t>());
             }
             case type_hash::Boolean: {
                 TypeTag btag(type_hash::Boolean, TagDescriptor::Data);
-                LOGOS_TRY(void* mem, HermesCtrAccess::arena(scratch_).allocate(1, 2, btag));
+                LOGOS_TRY(void* mem, HermesAccess::arena(scratch_).allocate(1, 2, btag));
                 *static_cast<uint8_t*>(mem) = slot->as_value<uint8_t>();
                 return mem;
             }
             case type_hash::Real: {
-                return HermesCtrAccess::make_value<float>(scratch_, slot->as_value<float>());
+                return HermesAccess::make_value<float>(scratch_, slot->as_value<float>());
             }
             case type_hash::SmallInt: {
-                return HermesCtrAccess::make_value<int16_t>(scratch_, slot->as_value<int16_t>());
+                return HermesAccess::make_value<int16_t>(scratch_, slot->as_value<int16_t>());
             }
             case type_hash::TinyInt: {
-                return HermesCtrAccess::make_value<int8_t>(scratch_, slot->as_value<int8_t>());
+                return HermesAccess::make_value<int8_t>(scratch_, slot->as_value<int8_t>());
             }
             default: return static_cast<void*>(nullptr);
         }
@@ -629,10 +629,10 @@ private:
         LOGOS_TRY(auto iter_result, eval_path_for_iterate(expr_str->view()));
         if (!iter_result.has_root()) return {};
 
-        auto* arr = HermesCtrAccess::root<ObjectArray>(iter_result);
+        auto* arr = HermesAccess::root<ObjectArray>(iter_result);
         if (!arr) return {};
 
-        uint8_t* iter_base = HermesCtrAccess::base(iter_result);
+        uint8_t* iter_base = HermesAccess::base(iter_result);
         size_t stack_mark = var_stack_.size();
         for (uint64_t i = 0; i < arr->size(); ++i) {
             AnyVal* slot = const_cast<ObjectArray*>(arr)->slot(i, iter_base);
@@ -643,7 +643,7 @@ private:
             } else if (slot->is_value()) {
                 // Materialize embedded value into scratch arena.
                 LOGOS_TRY(elem, materialize_embedded(slot));
-                elem_base = HermesCtrAccess::base(scratch_);
+                elem_base = HermesAccess::base(scratch_);
             }
 
             pop_vars_to(stack_mark);
@@ -654,7 +654,7 @@ private:
         return {};
     }
 
-    logos::expected<HermesCtr> eval_path_for_iterate(std::string_view expr_text) noexcept {
+    logos::expected<Hermes> eval_path_for_iterate(std::string_view expr_text) noexcept {
         LOGOS_TRY(auto ctx_doc, build_context());
         return eval_path(ctx_doc, expr_text);
     }
@@ -694,24 +694,24 @@ private:
 // Public API
 // ============================================================================
 
-logos::expected<HermesCtr> parse_template(std::string_view tpl) noexcept {
+logos::expected<Hermes> parse_template(std::string_view tpl) noexcept {
     LOGOS_TRY(auto doc, make_doc());
     TemplateParser parser(tpl, doc);
     LOGOS_TRY(void* root, parser.parse());
-    HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
+    HermesAccess::set_root_offset(doc, HermesAccess::offset_of(doc, root));
     return doc;
 }
 
-logos::expected<std::string> render_template(const HermesCtr& tpl,
-                                              const HermesCtr& data) noexcept {
-    auto* stmts = HermesCtrAccess::root<ObjectArray>(tpl);
+logos::expected<std::string> render_template(const Hermes& tpl,
+                                              const Hermes& data) noexcept {
+    auto* stmts = HermesAccess::root<ObjectArray>(tpl);
     if (!stmts) return std::string{};
     TemplateRenderer renderer(data);
-    return renderer.render(stmts, const_cast<uint8_t*>(HermesCtrAccess::base(tpl)));
+    return renderer.render(stmts, const_cast<uint8_t*>(HermesAccess::base(tpl)));
 }
 
 logos::expected<std::string> render(std::string_view tpl_text,
-                                     const HermesCtr& data) noexcept {
+                                     const Hermes& data) noexcept {
     LOGOS_TRY(auto tpl, parse_template(tpl_text));
     return render_template(tpl, data);
 }

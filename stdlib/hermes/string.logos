@@ -202,7 +202,7 @@ impl HermesString {
 // View / Storage bridge — Datatype impl for HermesString.
 //
 // Processing format: `StringView` — ptr + len into an unspecified buffer.
-// The same view is produced by HermesCtr (AOS, points into a zone-allocated
+// The same view is produced by Hermes (AOS, points into a zone-allocated
 // HermesString's body) and by Buffer<HermesString> (SoA, points into the
 // packed bytes array).  Callers work with StringView uniformly.
 //

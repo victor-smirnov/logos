@@ -11,28 +11,28 @@ use hermes.ctr;
 
 unsafe fn main() -> i32 {
     // 1) precision above engine budget (1143) must be rejected by parser.
-    let mut d1: HermesCtr = HermesCtr::new(4096);
+    let mut d1: Hermes = Hermes::new(4096);
     match d1.parse("@Decimal(2000,2)=\"1\"") {
         Result::Ok(())  => { return 1; }
         Result::Err(_)  => {}
     }
 
     // 2) huge precision must be rejected by parser.
-    let mut d2: HermesCtr = HermesCtr::new(4096);
+    let mut d2: Hermes = Hermes::new(4096);
     match d2.parse("@Decimal(5000,2)=\"1\"") {
         Result::Ok(())  => { return 2; }
         Result::Err(_)  => {}
     }
 
     // 3) huge scale must be rejected by parser.
-    let mut d3: HermesCtr = HermesCtr::new(4096);
+    let mut d3: Hermes = Hermes::new(4096);
     match d3.parse("@Decimal(5000,5000)=\"1\"") {
         Result::Ok(())  => { return 3; }
         Result::Err(_)  => {}
     }
 
     // 4) API constructor must reject unsupported precision.
-    let mut b1: HermesCtr = HermesCtr::builder(4096);
+    let mut b1: Hermes = Hermes::builder(4096);
     let v_bad: AnyVal = b1.decimal_from(2000 as i32, 2 as i32, "1.00");
     if !v_bad.is_null() { return 4; }
 

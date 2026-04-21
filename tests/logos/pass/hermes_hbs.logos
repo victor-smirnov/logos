@@ -8,7 +8,7 @@ extern fn write(fd: i32, buf: *const u8, count: i64) -> i32;
 
 unsafe fn main() -> i32 {
     // ── 1. Parse a document ───────────────────────────────────────────────────
-    let mut src: HermesCtr = HermesCtr::new(4096);
+    let mut src: Hermes = Hermes::new(4096);
     match src.parse("[1,\"hello\",true,null,42]") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 1; }
@@ -22,7 +22,7 @@ unsafe fn main() -> i32 {
     if hbs.len() < 12 as i64 { return 2; }
 
     // ── 4. Deserialize into fresh container ───────────────────────────────────
-    let mut dst: HermesCtr = HermesCtr::builder(4096);
+    let mut dst: Hermes = Hermes::builder(4096);
     if !dst.deserialize(hbs.as_ptr(), hbs.len()) { return 3; }
 
     // ── 5. Stringify deserialized ─────────────────────────────────────────────

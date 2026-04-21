@@ -76,7 +76,7 @@ static void test_document_with_array_root() {
     // Add a string via pointer — use offset-based set.
     auto s = doc.make_string("test").get();
     arr.push_back(AnyVal{}).get();
-    arr.slot(3)->set_pointer(s.ptr(), arr.ptr()->slot(3, HermesCtrAccess::base(doc)) ? HermesCtrAccess::base(doc) : HermesCtrAccess::base(doc));
+    arr.slot(3)->set_pointer(s.ptr(), arr.ptr()->slot(3, HermesAccess::base(doc)) ? HermesAccess::base(doc) : HermesAccess::base(doc));
 
     // Simpler: use set_offset on the AnyVal.
     arr.slot(3)->set_offset(s.offset());
@@ -87,7 +87,7 @@ static void test_document_with_array_root() {
     // Check string via slot.
     AnyVal* str_slot = arr.slot(3);
     LOGOS_ASSERT(str_slot->is_pointer(), "HERMES-DOC-002", "");
-    LOGOS_ASSERT(*str_slot->as_ptr<ArenaString>(HermesCtrAccess::base(doc)) == "test", "HERMES-DOC-002", "");
+    LOGOS_ASSERT(*str_slot->as_ptr<ArenaString>(HermesAccess::base(doc)) == "test", "HERMES-DOC-002", "");
 
     LOGOS_TRACE("hermes.doc.array_root", "status", "pass");
     std::printf("  Document with array root: OK\n");
@@ -112,8 +112,8 @@ static void test_compactify_simple() {
 
     LOGOS_ASSERT(compact.has_root(), "HERMES-DOC-003", "Compacted doc must have root");
 
-    auto* cmap = HermesCtrAccess::root<TinyObjectMap>(compact);
-    uint8_t* cb = HermesCtrAccess::base(compact);
+    auto* cmap = HermesAccess::root<TinyObjectMap>(compact);
+    uint8_t* cb = HermesAccess::base(compact);
     LOGOS_ASSERT(cmap->size() == 3, "HERMES-DOC-003",
         "Compacted map must have 3 entries, got {}", cmap->size());
     LOGOS_ASSERT(cmap->get(0, cb).as_value<int32_t>() == 42, "HERMES-DOC-003", "");
@@ -121,10 +121,10 @@ static void test_compactify_simple() {
     LOGOS_ASSERT(cmap->get(10, cb).as_value<int8_t>() == -1, "HERMES-DOC-003", "");
 
     LOGOS_TRACE("hermes.doc.compactify", "status", "pass",
-        "original_used", HermesCtrAccess::arena(doc).total_used(),
-        "compact_used", HermesCtrAccess::arena(compact).total_used());
+        "original_used", HermesAccess::arena(doc).total_used(),
+        "compact_used", HermesAccess::arena(compact).total_used());
     std::printf("  Compactify (simple): OK (original %zu → compact %zu bytes)\n",
-        HermesCtrAccess::arena(doc).total_used(), HermesCtrAccess::arena(compact).total_used());
+        HermesAccess::arena(doc).total_used(), HermesAccess::arena(compact).total_used());
 }
 
 static void test_compactify_array_with_values() {
@@ -140,8 +140,8 @@ static void test_compactify_array_with_values() {
 
     auto compact = compactify(doc).get();
 
-    auto* carr = HermesCtrAccess::root<ObjectArray>(compact);
-    uint8_t* cb = HermesCtrAccess::base(compact);
+    auto* carr = HermesAccess::root<ObjectArray>(compact);
+    uint8_t* cb = HermesAccess::base(compact);
     LOGOS_ASSERT(carr->size() == 20, "HERMES-DOC-003", "");
     for (int i = 0; i < 20; ++i) {
         LOGOS_ASSERT(carr->get(i, cb).as_value<int32_t>() == i * 100, "HERMES-DOC-003",
@@ -168,8 +168,8 @@ static void test_zero_copy_round_trip() {
     auto compact = compactify(doc).get();
 
     // Serialize to bytes.
-    auto* data = HermesCtrAccess::base(compact);
-    size_t size = HermesCtrAccess::arena(compact).total_used();
+    auto* data = HermesAccess::base(compact);
+    size_t size = HermesAccess::arena(compact).total_used();
     LOGOS_ASSERT(data != nullptr, "HERMES-SERIAL-001", "");
     LOGOS_ASSERT(size > 0, "HERMES-SERIAL-001", "");
 
@@ -178,8 +178,8 @@ static void test_zero_copy_round_trip() {
 
     LOGOS_ASSERT(loaded.has_root(), "HERMES-SERIAL-001", "Loaded doc must have root");
 
-    auto* lmap = HermesCtrAccess::root<TinyObjectMap>(loaded);
-    uint8_t* lb = HermesCtrAccess::base(loaded);
+    auto* lmap = HermesAccess::root<TinyObjectMap>(loaded);
+    uint8_t* lb = HermesAccess::base(loaded);
     LOGOS_ASSERT(lmap->size() == 2, "HERMES-SERIAL-001",
         "Loaded map must have 2 entries, got {}", lmap->size());
     LOGOS_ASSERT(lmap->get(0, lb).as_value<int32_t>() == 42, "HERMES-SERIAL-001", "");
@@ -201,12 +201,12 @@ static void test_zero_copy_array_round_trip() {
     }
 
     auto compact = compactify(doc).get();
-    auto* data = HermesCtrAccess::base(compact);
-    size_t size = HermesCtrAccess::arena(compact).total_used();
+    auto* data = HermesAccess::base(compact);
+    size_t size = HermesAccess::arena(compact).total_used();
     auto loaded = from_bytes_copy(data, size).get();
 
-    auto* larr = HermesCtrAccess::root<ObjectArray>(loaded);
-    uint8_t* lb = HermesCtrAccess::base(loaded);
+    auto* larr = HermesAccess::root<ObjectArray>(loaded);
+    uint8_t* lb = HermesAccess::base(loaded);
     LOGOS_ASSERT(larr->size() == 10, "HERMES-SERIAL-001", "");
     for (int i = 0; i < 10; ++i) {
         LOGOS_ASSERT(larr->get(i, lb).as_value<int32_t>() == i, "HERMES-SERIAL-001", "");

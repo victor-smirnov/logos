@@ -19,7 +19,7 @@
 
 using namespace logos::hermes;
 
-static HermesCtr parse_doc(std::string_view text) {
+static Hermes parse_doc(std::string_view text) {
     return logos::hermes::parse(text).get();
 }
 
@@ -35,14 +35,14 @@ static void test_path_identifier() {
     {
         auto result = eval_path(data, "name").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-001", "");
-        auto* s = HermesCtrAccess::root<ArenaString>(result);
+        auto* s = HermesAccess::root<ArenaString>(result);
         LOGOS_ASSERT(*s == "Alice", "HERMES-PATH-001",
             "Expected 'Alice', got '{}'", s->view());
     }
     {
         auto result = eval_path(data, "age").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-001", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 30, "HERMES-PATH-001", "");
+        LOGOS_ASSERT(*HermesAccess::root<int32_t>(result) == 30, "HERMES-PATH-001", "");
     }
     {
         auto result = eval_path(data, "missing").get();
@@ -65,12 +65,12 @@ static void test_path_subexpression() {
     {
         auto result = eval_path(data, "user.name").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-002", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<ArenaString>(result) == "Bob", "HERMES-PATH-002", "");
+        LOGOS_ASSERT(*HermesAccess::root<ArenaString>(result) == "Bob", "HERMES-PATH-002", "");
     }
     {
         auto result = eval_path(data, "user.addr.city").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-002", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<ArenaString>(result) == "NY", "HERMES-PATH-002", "");
+        LOGOS_ASSERT(*HermesAccess::root<ArenaString>(result) == "NY", "HERMES-PATH-002", "");
     }
 
     LOGOS_TRACE("hermes.path.subexpr", "status", "pass");
@@ -89,12 +89,12 @@ static void test_path_array_index() {
     {
         auto result = eval_path(data, "items[0]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-003", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 10, "HERMES-PATH-003", "");
+        LOGOS_ASSERT(*HermesAccess::root<int32_t>(result) == 10, "HERMES-PATH-003", "");
     }
     {
         auto result = eval_path(data, "items[-1]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-003", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 30, "HERMES-PATH-003", "Negative index");
+        LOGOS_ASSERT(*HermesAccess::root<int32_t>(result) == 30, "HERMES-PATH-003", "Negative index");
     }
 
     LOGOS_TRACE("hermes.path.index", "status", "pass");
@@ -113,7 +113,7 @@ static void test_path_slice() {
     {
         auto result = eval_path(data, "items[1:3]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-004", "");
-        auto* arr = HermesCtrAccess::root<ObjectArray>(result);
+        auto* arr = HermesAccess::root<ObjectArray>(result);
         LOGOS_ASSERT(arr->size() == 2, "HERMES-PATH-004",
             "Slice [1:3] must have 2 elements, got {}", arr->size());
     }
@@ -134,7 +134,7 @@ static void test_path_wildcard_filter() {
     {
         auto result = eval_path(data, "items[*]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-005", "");
-        auto* arr = HermesCtrAccess::root<ObjectArray>(result);
+        auto* arr = HermesAccess::root<ObjectArray>(result);
         LOGOS_ASSERT(arr->size() == 5, "HERMES-PATH-005", "");
     }
 
@@ -154,12 +154,12 @@ static void test_path_comparator() {
     {
         auto result = eval_path(data, "x < y").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-006", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<uint8_t>(result) == 1, "HERMES-PATH-006", "10 < 20 must be true");
+        LOGOS_ASSERT(*HermesAccess::root<uint8_t>(result) == 1, "HERMES-PATH-006", "10 < 20 must be true");
     }
     {
         auto result = eval_path(data, "x == y").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-006", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<uint8_t>(result) == 0, "HERMES-PATH-006", "10 == 20 must be false");
+        LOGOS_ASSERT(*HermesAccess::root<uint8_t>(result) == 0, "HERMES-PATH-006", "10 == 20 must be false");
     }
 
     LOGOS_TRACE("hermes.path.comparator", "status", "pass");
@@ -178,17 +178,17 @@ static void test_path_functions() {
     {
         auto result = eval_path(data, "length(items)").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-007", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 3, "HERMES-PATH-007", "");
+        LOGOS_ASSERT(*HermesAccess::root<int32_t>(result) == 3, "HERMES-PATH-007", "");
     }
     {
         auto result = eval_path(data, "length(name)").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-007", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<int32_t>(result) == 5, "HERMES-PATH-007", "");
+        LOGOS_ASSERT(*HermesAccess::root<int32_t>(result) == 5, "HERMES-PATH-007", "");
     }
     {
         auto result = eval_path(data, "type(name)").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-007", "");
-        LOGOS_ASSERT(*HermesCtrAccess::root<ArenaString>(result) == "string", "HERMES-PATH-007", "");
+        LOGOS_ASSERT(*HermesAccess::root<ArenaString>(result) == "string", "HERMES-PATH-007", "");
     }
 
     LOGOS_TRACE("hermes.path.functions", "status", "pass");
@@ -207,15 +207,15 @@ static void test_path_functions() {
     {
         auto result = eval_path(data, "[a, c]").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-008", "");
-        auto* arr = HermesCtrAccess::root<ObjectArray>(result);
+        auto* arr = HermesAccess::root<ObjectArray>(result);
         LOGOS_ASSERT(arr->size() == 2, "HERMES-PATH-008", "");
     }
     {
         auto result = eval_path(data, "{x: a, y: b}").get();
         LOGOS_ASSERT(result.has_root(), "HERMES-PATH-008", "");
-        auto* map = HermesCtrAccess::root<ObjectMap>(result);
+        auto* map = HermesAccess::root<ObjectMap>(result);
         LOGOS_ASSERT(map->size() == 2, "HERMES-PATH-008", "");
-        LOGOS_ASSERT(map->get("x", HermesCtrAccess::base(result)).as_value<int32_t>() == 1, "HERMES-PATH-008", "");
+        LOGOS_ASSERT(map->get("x", HermesAccess::base(result)).as_value<int32_t>() == 1, "HERMES-PATH-008", "");
     }
 
     LOGOS_TRACE("hermes.path.multiselect", "status", "pass");

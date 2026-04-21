@@ -30,8 +30,8 @@
 //       explicit HermesParser(std::string_view source);
 //
 //       // One method per %export-ed rule.
-//       logos::hermes::HermesCtr parse_value();
-//       logos::hermes::HermesCtr parse_map();
+//       logos::hermes::Hermes parse_value();
+//       logos::hermes::Hermes parse_map();
 //
 //   private:
 //       // Generated rule methods (one per grammar rule).

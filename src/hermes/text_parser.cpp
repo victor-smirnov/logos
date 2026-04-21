@@ -49,7 +49,7 @@ static const std::unordered_set<std::string_view> KEYWORDS = {
 
 class Parser {
 public:
-    Parser(std::string_view text, HermesCtr& doc)
+    Parser(std::string_view text, Hermes& doc)
         : text_(text), pos_(0), doc_(doc) {}
 
     logos::expected<void*> parse_document() noexcept {
@@ -70,7 +70,7 @@ public:
 private:
     std::string_view text_;
     size_t pos_;
-    HermesCtr& doc_;
+    Hermes& doc_;
 
     // Type directory: maps names to DatatypeData* for #TypeRef resolution.
     struct TypeDirEntry {
@@ -263,13 +263,13 @@ private:
             ++pos_;
             skip();
             LOGOS_TRY(DatatypeData* dt, parse_type_declaration());
-            LOGOS_TRY(auto* arena_str, HermesCtrAccess::raw_string(doc_, str));
-            LOGOS_TRY(auto* tv, TypedValueData::create(HermesCtrAccess::arena(doc_), dt));
-            tv->value.set_pointer(arena_str, HermesCtrAccess::base(doc_));
+            LOGOS_TRY(auto* arena_str, HermesAccess::raw_string(doc_, str));
+            LOGOS_TRY(auto* tv, TypedValueData::create(HermesAccess::arena(doc_), dt));
+            tv->value.set_pointer(arena_str, HermesAccess::base(doc_));
             return tv;
         }
 
-        LOGOS_TRY(auto* s, HermesCtrAccess::raw_string(doc_, str));
+        LOGOS_TRY(auto* s, HermesAccess::raw_string(doc_, str));
         return s;
     }
 
@@ -431,12 +431,12 @@ private:
         if (try_consume_raw("d")) {
             double val;
             std::from_chars(num_text.data(), num_text.data() + num_text.size(), val);
-            return HermesCtrAccess::make_value<double>(doc_, val);
+            return HermesAccess::make_value<double>(doc_, val);
         }
         try_consume_raw("f");
         double dval;
         std::from_chars(num_text.data(), num_text.data() + num_text.size(), dval);
-        return HermesCtrAccess::make_value<float>(doc_, static_cast<float>(dval));
+        return HermesAccess::make_value<float>(doc_, static_cast<float>(dval));
     }
 
     logos::expected<void*> parse_integer_with_suffix(std::string_view digits, int base, bool negative) noexcept {
@@ -451,28 +451,28 @@ private:
         }
 
         if (try_consume("ull") || try_consume("ul") || try_consume("_u64"))
-            return HermesCtrAccess::make_value<uint64_t>(doc_, uval);
+            return HermesAccess::make_value<uint64_t>(doc_, uval);
         if (try_consume("ll") || try_consume("_s64"))
-            return HermesCtrAccess::make_value<int64_t>(doc_, negative ? -int64_t(uval) : int64_t(uval));
+            return HermesAccess::make_value<int64_t>(doc_, negative ? -int64_t(uval) : int64_t(uval));
         if (try_consume("_u32") || try_consume_raw("u"))
-            return HermesCtrAccess::make_value<uint32_t>(doc_, uint32_t(uval));
-        if (try_consume("_u16")) return HermesCtrAccess::make_value<uint16_t>(doc_, uint16_t(uval));
-        if (try_consume("_u8"))  return HermesCtrAccess::make_value<uint8_t>(doc_, uint8_t(uval));
-        if (try_consume("_s16")) return HermesCtrAccess::make_value<int16_t>(doc_, negative ? -int16_t(uval) : int16_t(uval));
-        if (try_consume("_s8"))  return HermesCtrAccess::make_value<int8_t>(doc_, negative ? -int8_t(uval) : int8_t(uval));
-        if (try_consume("_s32")) return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval));
+            return HermesAccess::make_value<uint32_t>(doc_, uint32_t(uval));
+        if (try_consume("_u16")) return HermesAccess::make_value<uint16_t>(doc_, uint16_t(uval));
+        if (try_consume("_u8"))  return HermesAccess::make_value<uint8_t>(doc_, uint8_t(uval));
+        if (try_consume("_s16")) return HermesAccess::make_value<int16_t>(doc_, negative ? -int16_t(uval) : int16_t(uval));
+        if (try_consume("_s8"))  return HermesAccess::make_value<int8_t>(doc_, negative ? -int8_t(uval) : int8_t(uval));
+        if (try_consume("_s32")) return HermesAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval));
 
-        if (!at_end() && peek() == 'f') { advance(); return HermesCtrAccess::make_value<float>(doc_, negative ? -float(uval) : float(uval)); }
-        if (!at_end() && peek() == 'd') { advance(); return HermesCtrAccess::make_value<double>(doc_, negative ? -double(uval) : double(uval)); }
+        if (!at_end() && peek() == 'f') { advance(); return HermesAccess::make_value<float>(doc_, negative ? -float(uval) : float(uval)); }
+        if (!at_end() && peek() == 'd') { advance(); return HermesAccess::make_value<double>(doc_, negative ? -double(uval) : double(uval)); }
 
-        return HermesCtrAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval));
+        return HermesAccess::make_value<int32_t>(doc_, negative ? -int32_t(uval) : int32_t(uval));
     }
 
     // --- Array ---
 
     logos::expected<void*> parse_array() noexcept {
         LOGOS_TRY_VOID(expect('['));
-        LOGOS_TRY(auto* arr, HermesCtrAccess::raw_array(doc_));
+        LOGOS_TRY(auto* arr, HermesAccess::raw_array(doc_));
         skip();
         if (peek() == ']') { ++pos_; return arr; }
         while (true) {
@@ -489,7 +489,7 @@ private:
 
     logos::expected<void*> parse_map() noexcept {
         LOGOS_TRY_VOID(expect('{'));
-        LOGOS_TRY(auto* map, HermesCtrAccess::raw_object_map(doc_));
+        LOGOS_TRY(auto* map, HermesAccess::raw_object_map(doc_));
         skip();
         if (peek() == '}') { ++pos_; return map; }
         while (true) {
@@ -521,7 +521,7 @@ private:
     logos::expected<DatatypeData*> parse_type_declaration() noexcept {
         skip();
         LOGOS_TRY(std::string name, parse_datatype_name());
-        LOGOS_TRY(auto* arena_name, HermesCtrAccess::raw_string(doc_, name));
+        LOGOS_TRY(auto* arena_name, HermesAccess::raw_string(doc_, name));
 
         ObjectArray* params = nullptr;
         ObjectArray* ctr_args = nullptr;
@@ -530,7 +530,7 @@ private:
         // Type parameters: <...>
         if (!at_end() && peek() == '<') {
             ++pos_;
-            LOGOS_TRY(params, HermesCtrAccess::raw_array(doc_));
+            LOGOS_TRY(params, HermesAccess::raw_array(doc_));
             skip();
             if (peek() != '>') {
                 while (true) {
@@ -548,7 +548,7 @@ private:
         // Constructor args: (...)
         if (!at_end() && peek() == '(') {
             ++pos_;
-            LOGOS_TRY(ctr_args, HermesCtrAccess::raw_array(doc_));
+            LOGOS_TRY(ctr_args, HermesAccess::raw_array(doc_));
             skip();
             if (peek() != ')') {
                 while (true) {
@@ -562,7 +562,7 @@ private:
             LOGOS_TRY_VOID(expect(')'));
         }
 
-        LOGOS_TRY(auto* dt, DatatypeData::create(HermesCtrAccess::arena(doc_), arena_name, params, ctr_args));
+        LOGOS_TRY(auto* dt, DatatypeData::create(HermesAccess::arena(doc_), arena_name, params, ctr_args));
 
         // Optional qualifiers: const, volatile, *, &
         skip();
@@ -747,7 +747,7 @@ private:
 
         // Bare identifier — treat as string.
         LOGOS_TRY(auto name, read_identifier());
-        return HermesCtrAccess::raw_string(doc_, name);
+        return HermesAccess::raw_string(doc_, name);
     }
 
     logos::expected<bool> looks_like_type_declaration() noexcept {
@@ -808,14 +808,14 @@ private:
         LOGOS_TRY_VOID(expect('='));
         LOGOS_TRY(void* val, parse_value());
 
-        LOGOS_TRY(auto* tv, TypedValueData::create(HermesCtrAccess::arena(doc_), dt));
+        LOGOS_TRY(auto* tv, TypedValueData::create(HermesAccess::arena(doc_), dt));
         // Set value in-place.
         auto* bytes = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(bytes);
         if (can_embed(tag.type_code())) {
             tv->value = make_embedded(val, tag.type_code());
         } else {
-            tv->value.set_pointer(val, HermesCtrAccess::base(doc_));
+            tv->value.set_pointer(val, HermesAccess::base(doc_));
         }
         return tv;
     }
@@ -829,7 +829,7 @@ private:
         // Collect type params into a DatatypeData.
         // For <T>[...] → Datatype name="Array", params=[T]
         // For <K,V>{...} → Datatype name="Map", params=[K,V]
-        LOGOS_TRY(auto* type_params, HermesCtrAccess::raw_array(doc_));
+        LOGOS_TRY(auto* type_params, HermesAccess::raw_array(doc_));
         while (true) {
             LOGOS_TRY(void* tp, parse_type_param());
             LOGOS_TRY_VOID(push_element(type_params, tp));
@@ -853,10 +853,10 @@ private:
         }
 
         // Wrap: @Array<T> = [...]  or  @Map<K,V> = {...}
-        LOGOS_TRY(auto* kind_name, HermesCtrAccess::raw_string(doc_, container_kind));
-        LOGOS_TRY(auto* dt, DatatypeData::create(HermesCtrAccess::arena(doc_), kind_name, type_params));
-        LOGOS_TRY(auto* tv, TypedValueData::create(HermesCtrAccess::arena(doc_), dt));
-        tv->value.set_pointer(container, HermesCtrAccess::base(doc_));
+        LOGOS_TRY(auto* kind_name, HermesAccess::raw_string(doc_, container_kind));
+        LOGOS_TRY(auto* dt, DatatypeData::create(HermesAccess::arena(doc_), kind_name, type_params));
+        LOGOS_TRY(auto* tv, TypedValueData::create(HermesAccess::arena(doc_), dt));
+        tv->value.set_pointer(container, HermesAccess::base(doc_));
         return tv;
     }
 
@@ -865,8 +865,8 @@ private:
     logos::expected<void*> parse_parameter() noexcept {
         LOGOS_TRY_VOID(expect('?'));
         LOGOS_TRY(auto name, read_identifier());
-        LOGOS_TRY(auto* arena_name, HermesCtrAccess::raw_string(doc_, name));
-        return ParameterData::create(HermesCtrAccess::arena(doc_), arena_name);
+        LOGOS_TRY(auto* arena_name, HermesAccess::raw_string(doc_, name));
+        return ParameterData::create(HermesAccess::arena(doc_), arena_name);
     }
 
     // --- Container element helpers ---
@@ -876,10 +876,10 @@ private:
         TypeTag tag = TypeTag::read_before(bytes);
         uint64_t tc = tag.type_code();
         if (can_embed(tc)) {
-            LOGOS_TRY_VOID(arr->push_back(make_embedded(elem, tc), HermesCtrAccess::arena(doc_)));
+            LOGOS_TRY_VOID(arr->push_back(make_embedded(elem, tc), HermesAccess::arena(doc_)));
         } else {
-            LOGOS_TRY_VOID(arr->push_back(AnyVal{}, HermesCtrAccess::arena(doc_)));
-            arr->slot(arr->size() - 1, HermesCtrAccess::base(doc_))->set_pointer(elem, HermesCtrAccess::base(doc_));
+            LOGOS_TRY_VOID(arr->push_back(AnyVal{}, HermesAccess::arena(doc_)));
+            arr->slot(arr->size() - 1, HermesAccess::base(doc_))->set_pointer(elem, HermesAccess::base(doc_));
         }
         return {};
     }
@@ -889,10 +889,10 @@ private:
         TypeTag tag = TypeTag::read_before(bytes);
         uint64_t tc = tag.type_code();
         if (can_embed(tc)) {
-            LOGOS_TRY_VOID(map->put(key, make_embedded(elem, tc), HermesCtrAccess::arena(doc_)));
+            LOGOS_TRY_VOID(map->put(key, make_embedded(elem, tc), HermesAccess::arena(doc_)));
         } else {
-            LOGOS_TRY_VOID(map->put(key, AnyVal{}, HermesCtrAccess::arena(doc_)));
-            map->get_slot(key, HermesCtrAccess::base(doc_))->set_pointer(elem, HermesCtrAccess::base(doc_));
+            LOGOS_TRY_VOID(map->put(key, AnyVal{}, HermesAccess::arena(doc_)));
+            map->get_slot(key, HermesAccess::base(doc_))->set_pointer(elem, HermesAccess::base(doc_));
         }
         return {};
     }
@@ -924,7 +924,7 @@ private:
 
     logos::expected<void*> make_boolean(uint8_t val) noexcept {
         TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
-        LOGOS_TRY(void* mem, HermesCtrAccess::arena(doc_).allocate(1, 2, tag));
+        LOGOS_TRY(void* mem, HermesAccess::arena(doc_).allocate(1, 2, tag));
         *static_cast<uint8_t*>(mem) = val;
         return mem;
     }
@@ -944,11 +944,11 @@ private:
 // Public API
 // ============================================================================
 
-logos::expected<HermesCtr> parse(std::string_view text) noexcept {
+logos::expected<Hermes> parse(std::string_view text) noexcept {
     LOGOS_TRY(auto doc, make_doc());
     Parser parser(text, doc);
     LOGOS_TRY(void* root, parser.parse_document());
-    HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
+    HermesAccess::set_root_offset(doc, HermesAccess::offset_of(doc, root));
     return doc;
 }
 

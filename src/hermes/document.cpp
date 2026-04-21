@@ -179,34 +179,34 @@ private:
 
 // --- Free functions ---
 
-logos::expected<HermesCtr> compactify(const HermesCtrView& src) noexcept {
+logos::expected<Hermes> compactify(const HermesView& src) noexcept {
     LOGOS_ASSERT(src.has_root(), "HERMES-DOC-001",
         "Cannot compactify a document without a root object");
 
-    LOGOS_TRY(auto dst, make_doc(HermesCtrAccess::arena(src).total_used() * 2));
-    DeepCopyState state(HermesCtrAccess::arena(dst), HermesCtrAccess::base(src));
+    LOGOS_TRY(auto dst, make_doc(HermesAccess::arena(src).total_used() * 2));
+    DeepCopyState state(HermesAccess::arena(dst), HermesAccess::base(src));
 
-    arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(HermesCtrAccess::base(src))->root_offset;
-    const void* src_root = HermesCtrAccess::base(src) + root_off.value();
+    arena_offset_t root_off = reinterpret_cast<const DocumentHeader*>(HermesAccess::base(src))->root_offset;
+    const void* src_root = HermesAccess::base(src) + root_off.value();
     LOGOS_TRY(auto* dst_root, state.copy_tagged_object(src_root));
-    HermesCtrAccess::set_root(dst, dst_root);
+    HermesAccess::set_root(dst, dst_root);
 
     return dst;
 }
 
 logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_base,
-                                         HermesCtrView& dst) noexcept {
+                                         HermesView& dst) noexcept {
     if (!src_obj) return nullptr;
-    DeepCopyState state(HermesCtrAccess::arena(dst), src_base);
+    DeepCopyState state(HermesAccess::arena(dst), src_base);
     return state.copy_tagged_object(src_obj);
 }
 
-logos::expected<HermesCtr> from_bytes_copy(const uint8_t* data, size_t size) noexcept {
+logos::expected<Hermes> from_bytes_copy(const uint8_t* data, size_t size) noexcept {
     LOGOS_TRY(auto doc, make_doc(size));
     // Copy data into the arena (after the DocumentHeader that make_doc already allocated).
     // Actually, the entire segment IS the data — header is at offset 0.
     // We need to replace the arena content with the provided bytes.
-    auto& arena = HermesCtrAccess::arena(doc);
+    auto& arena = HermesAccess::arena(doc);
     auto& chunk = arena.head();
     std::memcpy(chunk.data(), data, size);
     chunk.used = size;

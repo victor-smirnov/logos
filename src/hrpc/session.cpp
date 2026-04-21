@@ -115,7 +115,7 @@ void Session::run() noexcept {
             reinterpret_cast<const MessageHeader*>(buf.data());
 
         // Step 5: decode payload if present.
-        HermesCtr payload;
+        Hermes payload;
         size_t hdr_size     = hdr->header_size();
         size_t payload_size = hdr->payload_size();
         if (payload_size > 0 && hdr_size + payload_size <= static_cast<size_t>(msg_size)) {
@@ -232,7 +232,7 @@ logos::expected<void> Session::send_raw(const std::vector<uint8_t>& buf) noexcep
 logos::expected<void> Session::send_message(MessageType type, CallID call_id,
                                              const EndpointID* endpoint,
                                              ChannelCode ch_code,
-                                             const HermesCtr* payload) noexcept {
+                                             const Hermes* payload) noexcept {
     // Encode payload bytes.
     std::vector<uint8_t> payload_bytes;
     if (payload && !payload->is_null()) {
@@ -297,7 +297,7 @@ logos::expected<void> Session::send_channel_message(MessageType type, CallID cal
 
 logos::expected<void> Session::handle_message(const MessageHeader& hdr,
                                                const uint8_t* buf,
-                                               HermesCtr payload) noexcept {
+                                               Hermes payload) noexcept {
     switch (hdr.type()) {
         case MessageType::SessionStart:
             return handle_session_start(hdr, std::move(payload));
@@ -335,7 +335,7 @@ logos::expected<void> Session::handle_message(const MessageHeader& hdr,
 // ---------------------------------------------------------------------------
 
 logos::expected<void> Session::handle_session_start(const MessageHeader& /*hdr*/,
-                                                     HermesCtr /*payload*/) noexcept {
+                                                     Hermes /*payload*/) noexcept {
     if (side_ == SessionSide::Server) {
         // Acknowledge: send our own SESSION_START.
         LOGOS_TRY(auto meta, ConnectionMetadata::make(1024 * 1024));
@@ -368,7 +368,7 @@ void Session::handle_session_close() noexcept {
 
 logos::expected<void> Session::handle_call(const MessageHeader& hdr,
                                             const uint8_t* buf,
-                                            HermesCtr payload) noexcept {
+                                            Hermes payload) noexcept {
     // Extract endpoint ID from the optional field.
     EndpointID endpoint_id{};
     if (hdr.has_endpoint_id()) {
@@ -439,7 +439,7 @@ logos::expected<void> Session::handle_call(const MessageHeader& hdr,
 // handle_return() — client side: deliver response to waiting Call
 // ---------------------------------------------------------------------------
 
-void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) noexcept {
+void Session::handle_return(const MessageHeader& hdr, Hermes payload) noexcept {
     std::shared_ptr<PendingCall> pc;
     {
         std::lock_guard lock(pending_calls_mutex_);
@@ -460,7 +460,7 @@ void Session::handle_return(const MessageHeader& hdr, HermesCtr payload) noexcep
 // handle_call_channel_msg() — client pushed a message → feed context channel
 // ---------------------------------------------------------------------------
 
-void Session::handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept {
+void Session::handle_call_channel_msg(const MessageHeader& hdr, Hermes payload) noexcept {
     std::shared_ptr<ActiveContext> actx;
     {
         std::lock_guard lock(contexts_mutex_);
@@ -480,7 +480,7 @@ void Session::handle_call_channel_msg(const MessageHeader& hdr, HermesCtr payloa
 // handle_ctx_channel_msg() — context pushed a message → feed call channel
 // ---------------------------------------------------------------------------
 
-void Session::handle_ctx_channel_msg(const MessageHeader& hdr, HermesCtr payload) noexcept {
+void Session::handle_ctx_channel_msg(const MessageHeader& hdr, Hermes payload) noexcept {
     std::shared_ptr<PendingCall> pc;
     {
         std::lock_guard lock(pending_calls_mutex_);

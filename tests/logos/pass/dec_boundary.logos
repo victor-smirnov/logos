@@ -6,22 +6,22 @@ use std.string;
 
 unsafe fn main() -> i32 {
     // ── 1. S > P must be rejected ─────────────────────────────────────────────
-    let mut b1: HermesCtr = HermesCtr::builder(4096);
+    let mut b1: Hermes = Hermes::builder(4096);
     let v1: AnyVal = b1.decimal_from(2 as i32, 3 as i32, "0.001");
     if !v1.is_null() { return 1; }
 
     // ── 2. P=0 must be rejected ───────────────────────────────────────────────
-    let mut b2: HermesCtr = HermesCtr::builder(4096);
+    let mut b2: Hermes = Hermes::builder(4096);
     let v2: AnyVal = b2.decimal_from(0 as i32, 0 as i32, "0");
     if !v2.is_null() { return 2; }
 
     // ── 3. Negative P must be rejected ───────────────────────────────────────
-    let mut b3: HermesCtr = HermesCtr::builder(4096);
+    let mut b3: Hermes = Hermes::builder(4096);
     let v3: AnyVal = b3.decimal_from(-1 as i32, 0 as i32, "0");
     if !v3.is_null() { return 3; }
 
     // ── 4. add with same value but opposite signs → exactly 0.00 ────────────
-    let mut b4: HermesCtr = HermesCtr::builder(4096);
+    let mut b4: Hermes = Hermes::builder(4096);
     let pos4: AnyVal = b4.decimal_from(10 as i32, 2 as i32, "999.99");
     let neg4: AnyVal = b4.decimal_from(10 as i32, 2 as i32, "-999.99");
     if pos4.is_null() { return 4; }
@@ -34,7 +34,7 @@ unsafe fn main() -> i32 {
     if !s4.eq_str("0.00") { return 9; }
 
     // ── 5. sub(0, positive) = negative ───────────────────────────────────────
-    let mut b5: HermesCtr = HermesCtr::builder(4096);
+    let mut b5: Hermes = Hermes::builder(4096);
     let z5: AnyVal = b5.decimal_from(5 as i32, 2 as i32, "0.00");
     let p5: AnyVal = b5.decimal_from(5 as i32, 2 as i32, "1.50");
     if z5.is_null() { return 10; }
@@ -46,7 +46,7 @@ unsafe fn main() -> i32 {
     if !s5.eq_str("-1.50") { return 14; }
 
     // ── 6. sub(0, 0) = 0, not negative ───────────────────────────────────────
-    let mut b6: HermesCtr = HermesCtr::builder(4096);
+    let mut b6: Hermes = Hermes::builder(4096);
     let z6a: AnyVal = b6.decimal_from(5 as i32, 2 as i32, "0.00");
     let z6b: AnyVal = b6.decimal_from(5 as i32, 2 as i32, "0.00");
     if z6a.is_null() { return 15; }
@@ -58,7 +58,7 @@ unsafe fn main() -> i32 {
     if !s6.eq_str("0.00") { return 19; }
 
     // ── 7. add(negative, positive where |pos| > |neg|) should be positive ───
-    let mut b7: HermesCtr = HermesCtr::builder(4096);
+    let mut b7: Hermes = Hermes::builder(4096);
     let n7: AnyVal = b7.decimal_from(10 as i32, 2 as i32, "-1.00");
     let p7: AnyVal = b7.decimal_from(10 as i32, 2 as i32, "2.00");
     if n7.is_null() { return 20; }
@@ -70,7 +70,7 @@ unsafe fn main() -> i32 {
     if !s7.eq_str("1.00") { return 24; }
 
     // ── 8. add(negative, positive where |neg| > |pos|) should be negative ───
-    let mut b8: HermesCtr = HermesCtr::builder(4096);
+    let mut b8: Hermes = Hermes::builder(4096);
     let n8: AnyVal = b8.decimal_from(10 as i32, 2 as i32, "-3.00");
     let p8: AnyVal = b8.decimal_from(10 as i32, 2 as i32, "1.00");
     if n8.is_null() { return 25; }
@@ -82,7 +82,7 @@ unsafe fn main() -> i32 {
     if !s8.eq_str("-2.00") { return 29; }
 
     // ── 9. Decimal precision metadata preserved after arithmetic ──────────────
-    let mut b9: HermesCtr = HermesCtr::builder(4096);
+    let mut b9: Hermes = Hermes::builder(4096);
     let a9: AnyVal = b9.decimal_from(7 as i32, 3 as i32, "123.456");
     let b9v: AnyVal = b9.decimal_from(7 as i32, 3 as i32, "001.001");
     if a9.is_null() { return 30; }
@@ -95,7 +95,7 @@ unsafe fn main() -> i32 {
     if !s9.eq_str("124.457") { return 35; }
 
     // ── 10. add overflow: P=3 S=0, 999 + 1 = 1000 overflows ─────────────────
-    let mut b10: HermesCtr = HermesCtr::builder(4096);
+    let mut b10: Hermes = Hermes::builder(4096);
     let a10: AnyVal = b10.decimal_from(3 as i32, 0 as i32, "999");
     let b10v: AnyVal = b10.decimal_from(3 as i32, 0 as i32, "1");
     if a10.is_null() { return 36; }

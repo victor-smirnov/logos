@@ -19,7 +19,7 @@ using hermes::MemHolder;
 
 // Symbol-collection phase: populate SemaChecker symbol tables.
 
-void SemaChecker::collect(const std::vector<hermes::HermesCtr>& asts) {
+void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // First pass: register names (so forward references work).
     for (auto& ast : asts) {
         holder_ = ast.holder();

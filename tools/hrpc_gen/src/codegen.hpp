@@ -29,13 +29,13 @@ class CodeGen {
 public:
     // ast     — Hermes document returned by HrpcIdlParser::parse_file()
     // src_path — original .hrpc file path (for comment in generated files)
-    CodeGen(logos::hermes::HermesCtr ast, std::string_view src_path);
+    CodeGen(logos::hermes::Hermes ast, std::string_view src_path);
 
     void emit_header(std::ostream& out, std::string_view header_guard) const;
     void emit_source(std::ostream& out, std::string_view include_name) const;
 
 private:
-    logos::hermes::HermesCtr ast_;
+    logos::hermes::Hermes ast_;
     std::string              src_path_;
     std::string              package_;     // "echo" or "foo.bar"
     std::string              cpp_ns_;      // "echo" or "foo::bar"

@@ -5,10 +5,10 @@
 //
 //   HermesRead  — RO API; primitive: base(), size()
 //   HermesWrite — RW API; supertrait of HermesRead; primitive: zone_mut()
-//   HermesCtrView<'a> — non-owning fat view (base + size), impl HermesRead
+//   HermesView<'a> — non-owning fat view (base + size), impl HermesRead
 //   HermesStatic      — 'static rodata view; size stored at ptr-8, impl HermesRead
 //
-// HermesCtr impl is in ctr.logos.
+// Hermes impl is in ctr.logos.
 
 package hermes.view;
 
@@ -603,19 +603,19 @@ pub trait HermesWrite: HermesRead {
     }
 }
 
-// ── HermesCtrView<'a> ────────────────────────────────────────────────────────
+// ── HermesView<'a> ────────────────────────────────────────────────────────
 //
 // Non-owning fat view: pointer to zone data + byte size.
-// Borrows from any HermesCtr, HermesStatic, or raw zone for lifetime 'a.
+// Borrows from any Hermes, HermesStatic, or raw zone for lifetime 'a.
 
-pub struct HermesCtrView<'a> {
+pub struct HermesView<'a> {
     pub base: *const u8,
     pub size: u64,
 }
 
-impl<'a> HermesRead for HermesCtrView<'a> {
-    fn base(self: &HermesCtrView<'a>) -> *const u8 { return self.base; }
-    fn size(self: &HermesCtrView<'a>) -> u64 { return self.size; }
+impl<'a> HermesRead for HermesView<'a> {
+    fn base(self: &HermesView<'a>) -> *const u8 { return self.base; }
+    fn size(self: &HermesView<'a>) -> u64 { return self.size; }
 }
 
 // ── HermesStatic ─────────────────────────────────────────────────────────────
@@ -642,9 +642,9 @@ impl HermesRead for HermesStatic {
 }
 
 impl HermesStatic {
-    pub fn as_view<'a>(self: &'a HermesStatic) -> HermesCtrView<'a> {
+    pub fn as_view<'a>(self: &'a HermesStatic) -> HermesView<'a> {
         unsafe {
-            return HermesCtrView {
+            return HermesView {
                 base: self.ptr,
                 size: hermes_static_size(self.ptr),
             };

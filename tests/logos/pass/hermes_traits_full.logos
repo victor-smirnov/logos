@@ -17,8 +17,8 @@ use hermes.equal;
 use hermes.hashing;
 use hermes.clone;
 
-unsafe fn build_doc(text: str) -> HermesCtr {
-    let mut doc: HermesCtr = HermesCtr::new(8192);
+unsafe fn build_doc(text: str) -> Hermes {
+    let mut doc: Hermes = Hermes::new(8192);
     match doc.parse(text) {
         Result::Ok(())  => {}
         Result::Err(_)  => {}
@@ -31,9 +31,9 @@ unsafe fn main() -> i32 {
     let t2: str = "{a:1,b:\"hi\",c:[1,2,3]}";
     let t3: str = "{a:1,b:\"hi\",c:[1,2,4]}";
 
-    let mut d1: HermesCtr = build_doc(t1);
-    let mut d2: HermesCtr = build_doc(t2);
-    let mut d3: HermesCtr = build_doc(t3);
+    let mut d1: Hermes = build_doc(t1);
+    let mut d2: Hermes = build_doc(t2);
+    let mut d3: Hermes = build_doc(t3);
 
     let r1: AnyVal = d1.root();
     let r2: AnyVal = d2.root();
@@ -61,7 +61,7 @@ unsafe fn main() -> i32 {
     if h1 == h3 { return 4; }
 
     // ── clone: copy d1 into a fresh builder zone, compare via stringify output
-    let mut dst: HermesCtr = HermesCtr::builder(8192);
+    let mut dst: Hermes = Hermes::builder(8192);
     let mut c_ctx: CloneCtx = CloneCtx {
         base_src: b1,
         zone_dst: dst.zone_mut(),

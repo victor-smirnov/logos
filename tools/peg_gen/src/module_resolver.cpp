@@ -40,7 +40,7 @@ static std::string_view read_str(AnyVal val, MemHolder* h) {
 }
 
 static std::vector<ImportEntry>
-collect_imports(const logos::hermes::HermesCtrView& grammar) {
+collect_imports(const logos::hermes::HermesView& grammar) {
     std::vector<ImportEntry> result;
     if (!grammar.has_root()) return result;
 

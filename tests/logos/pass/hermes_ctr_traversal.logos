@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Test: HermesCtr traversal API — array_len, array_get, map_get_cstr,
+// Test: Hermes traversal API — array_len, array_get, map_get_cstr,
 // get_int, get_bool (Task 3).
 
 package hermes_ctr_traversal;
@@ -22,7 +22,7 @@ unsafe fn main() -> i32 {
     wb(ibuf, 0, 52 as u8);   // '4'
     wb(ibuf, 1, 50 as u8);   // '2'
 
-    let mut doc1: HermesCtr = HermesCtr::new(4096 as i64);
+    let mut doc1: Hermes = Hermes::new(4096 as i64);
     match doc1.parse(ibuf as *const u8, 2 as i64) {
         Result::Ok(()) => {}
         Result::Err(_) => { free(ibuf); return 1; }
@@ -37,7 +37,7 @@ unsafe fn main() -> i32 {
     wb(ibuf, 2, 117 as u8);  // 'u'
     wb(ibuf, 3, 101 as u8);  // 'e'
 
-    let mut doc2: HermesCtr = HermesCtr::new(4096 as i64);
+    let mut doc2: Hermes = Hermes::new(4096 as i64);
     match doc2.parse(ibuf as *const u8, 4 as i64) {
         Result::Ok(()) => {}
         Result::Err(_) => { free(ibuf); return 3; }
@@ -61,7 +61,7 @@ unsafe fn main() -> i32 {
     wb(ibuf,  8,  48 as u8);  // '0'
     wb(ibuf,  9,  93 as u8);  // ']'
 
-    let mut doc3: HermesCtr = HermesCtr::new(8192 as i64);
+    let mut doc3: Hermes = Hermes::new(8192 as i64);
     match doc3.parse(ibuf as *const u8, 10 as i64) {
         Result::Ok(()) => {}
         Result::Err(_) => { free(ibuf); return 6; }
@@ -93,7 +93,7 @@ unsafe fn main() -> i32 {
     wb(ibuf, 4,  53 as u8);  // '5'
     wb(ibuf, 5, 125 as u8);  // '}'
 
-    let mut doc4: HermesCtr = HermesCtr::new(8192 as i64);
+    let mut doc4: Hermes = Hermes::new(8192 as i64);
     match doc4.parse(ibuf as *const u8, 6 as i64) {
         Result::Ok(()) => {}
         Result::Err(_) => { free(ibuf); return 13; }

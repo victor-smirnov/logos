@@ -14,7 +14,7 @@ use hermes.release;
 use hermes.zone;
 
 unsafe fn main() -> i32 {
-    let mut d: HermesCtr = HermesCtr::new(4096);
+    let mut d: Hermes = Hermes::new(4096);
     match d.parse("@I64=42" as *const u8, 7 as i64) {
         Result::Ok(()) => {}
         Result::Err(_) => { return 1; }

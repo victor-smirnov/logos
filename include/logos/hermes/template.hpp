@@ -22,14 +22,14 @@ namespace logos::hermes {
 //   {% endfor %}           — end for
 //   {% set x = expr %}     — set variable
 //   {%- / -%} / {%+ / +%} — whitespace control
-[[nodiscard]] logos::expected<HermesCtr>    parse_template(std::string_view tpl) noexcept;
+[[nodiscard]] logos::expected<Hermes>    parse_template(std::string_view tpl) noexcept;
 
 // Render a parsed template against data. Returns the rendered string.
-[[nodiscard]] logos::expected<std::string>  render_template(const HermesCtr& tpl,
-                                                             const HermesCtr& data) noexcept;
+[[nodiscard]] logos::expected<std::string>  render_template(const Hermes& tpl,
+                                                             const Hermes& data) noexcept;
 
 // Convenience: parse + render in one step.
 [[nodiscard]] logos::expected<std::string>  render(std::string_view tpl,
-                                                    const HermesCtr& data) noexcept;
+                                                    const Hermes& data) noexcept;
 
 } // namespace logos::hermes

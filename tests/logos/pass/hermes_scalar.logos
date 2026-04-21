@@ -23,7 +23,7 @@ use std.string;
 unsafe fn main() -> i32 {
     // ── build a doc with a zone I64 (too big for inline Integer's 24 bits)
     //    and a zone U64 inside a top-level map.
-    let mut d1: HermesCtr = HermesCtr::builder(8192);
+    let mut d1: Hermes = Hermes::builder(8192);
     let big_i: i64 = 9000000000 as i64;         // 9e9, beyond i24 range
     let big_u: u64 = 18000000000 as u64;
 
@@ -52,7 +52,7 @@ unsafe fn main() -> i32 {
     if s1.is_empty() { return 6; }
 
     // ── build a second identical doc and verify equal + same hash.
-    let mut d2: HermesCtr = HermesCtr::builder(8192);
+    let mut d2: Hermes = Hermes::builder(8192);
     let iv2: AnyVal = d2.build_i64(big_i);
     let uv2: AnyVal = d2.build_u64(big_u);
     let mut m2: AnyVal = d2.build_map(4 as u32);
@@ -73,7 +73,7 @@ unsafe fn main() -> i32 {
     if anyval_hash(r1, &mut h1c) != anyval_hash(r2, &mut h2c) { return 8; }
 
     // ── build a third doc with a different I64 — must not equal d1.
-    let mut d3: HermesCtr = HermesCtr::builder(8192);
+    let mut d3: Hermes = Hermes::builder(8192);
     let iv3: AnyVal = d3.build_i64(big_i + 1 as i64);
     let uv3: AnyVal = d3.build_u64(big_u);
     let mut m3: AnyVal = d3.build_map(4 as u32);
@@ -86,7 +86,7 @@ unsafe fn main() -> i32 {
     if anyval_equal(r1, r3, &mut eq_ctx2) { return 9; }
 
     // ── clone d1 into a fresh zone, compare stringify output.
-    let mut dst: HermesCtr = HermesCtr::builder(8192);
+    let mut dst: Hermes = Hermes::builder(8192);
     let mut c_ctx: CloneCtx = CloneCtx {
         base_src: b1,
         zone_dst: dst.zone_mut(),

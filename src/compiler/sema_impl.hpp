@@ -62,7 +62,7 @@ namespace sema_detail {
 
 class SemaChecker {
 public:
-    lir::LProgram run(const std::vector<hermes::HermesCtr>& asts,
+    lir::LProgram run(const std::vector<hermes::Hermes>& asts,
                       const std::vector<std::string>& filenames);
 
 private:
@@ -547,7 +547,7 @@ private:
 
     // ── Collection phase ─────────────────────────────────────────
 
-    void collect(const std::vector<hermes::HermesCtr>& asts);
+    void collect(const std::vector<hermes::Hermes>& asts);
     void simplify_all_types();
     void check_supertrait_impls();
     std::string read_package_name(hermes::TinyMapView mod);
@@ -709,8 +709,8 @@ private:
                                          const std::string& base_var,
                                          std::vector<lir::LStmt>& out_stmts,
                                          std::vector<HermesPatBinding>& out_bindings);
-    // Returns the "inner" (ref-stripped) view type if `t` is HermesCtr,
-    // HermesCtrView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
+    // Returns the "inner" (ref-stripped) view type if `t` is Hermes,
+    // HermesView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
     const LogosType* hermes_view_inner(const LogosType* t) const {
         if (!t) return nullptr;
         const LogosType* inner = t;
@@ -720,8 +720,8 @@ private:
         if (!inner) return nullptr;
         if ((inner->kind == LogosType::Kind::Struct ||
              inner->kind == LogosType::Kind::Datatype) &&
-            (inner->struct_name == "HermesCtr" ||
-             inner->struct_name == "HermesCtrView" ||
+            (inner->struct_name == "Hermes" ||
+             inner->struct_name == "HermesView" ||
              inner->struct_name == "HermesStatic"))
             return inner;
         return nullptr;
@@ -765,7 +765,7 @@ private:
     lir::LTypeAlias lower_type_alias_def(hermes::TinyMapView node);
     lir::LTraitDef lower_trait_def(hermes::TinyMapView node);
     void lower_impl_block(hermes::TinyMapView node, lir::LProgram& prog);
-    void lower_program(const std::vector<hermes::HermesCtr>& asts, lir::LProgram& prog);
+    void lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog);
     void lower_module_items(hermes::TinyMapView mod, lir::LProgram& prog);
 };
 

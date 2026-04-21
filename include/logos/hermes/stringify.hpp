@@ -11,6 +11,6 @@
 namespace logos::hermes {
 
 // Convert a Hermes document to its text representation.
-[[nodiscard]] logos::expected<std::string> stringify(const HermesCtr& doc, bool pretty = false) noexcept;
+[[nodiscard]] logos::expected<std::string> stringify(const Hermes& doc, bool pretty = false) noexcept;
 
 } // namespace logos::hermes

@@ -1,5 +1,5 @@
 // Hermes list comprehension:
-//   @[expr for x in iter (if guard)?] → HermesCtr whose root is
+//   @[expr for x in iter (if guard)?] → Hermes whose root is
 //   an ObjectArray of AnyVals.
 package hermes_list_comp_basic;
 
@@ -13,11 +13,11 @@ fn main() -> i32 {
     let arr: [i32; 5] = [1, 2, 3, 4, 5];
 
     // Plain: square each element.
-    let mut doc: HermesCtr =
+    let mut doc: Hermes =
         @[AnyVal::embed_i24(x * x) for x in arr];
 
     // Guarded: even elements, times 10.
-    let mut evens: HermesCtr =
+    let mut evens: Hermes =
         @[AnyVal::embed_i24(x * 10) for x in arr if (x % 2) == 0];
 
     unsafe {

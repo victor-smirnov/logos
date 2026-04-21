@@ -5,21 +5,21 @@ use std.string;
 
 unsafe fn main() -> i32 {
     // ── 1. S == P (all fractional digits): parse + stringify ─────────────────
-    let mut b1: HermesCtr = HermesCtr::builder(4096);
+    let mut b1: Hermes = Hermes::builder(4096);
     let v1: AnyVal = b1.decimal_from(3 as i32, 3 as i32, "0.123");
     if v1.is_null() { return 1; }
     let s1: String = b1.decimal_to_string(v1);
     if !s1.eq_str("0.123") { return 2; }
 
     // ── 2. Max value for Decimal(3,2) is 9.99 ────────────────────────────────
-    let mut b2: HermesCtr = HermesCtr::builder(4096);
+    let mut b2: Hermes = Hermes::builder(4096);
     let ok2: AnyVal = b2.decimal_from(3 as i32, 2 as i32, "9.99");
     if ok2.is_null() { return 3; }
     let bad2: AnyVal = b2.decimal_from(3 as i32, 2 as i32, "10.00");
     if !bad2.is_null() { return 4; }  // 4 significant digits > P=3
 
     // ── 3. Multi-limb: 2-limb value roundtrip ────────────────────────────────
-    let mut b3: HermesCtr = HermesCtr::builder(4096);
+    let mut b3: Hermes = Hermes::builder(4096);
     // 1000000001 with P=10, S=0 needs 2 limbs: [1, 1]
     let v3: AnyVal = b3.decimal_from(10 as i32, 0 as i32, "1000000001");
     if v3.is_null() { return 5; }
@@ -30,7 +30,7 @@ unsafe fn main() -> i32 {
     if !s3.eq_str("1000000001") { return 9; }
 
     // ── 4. Add producing carry across limb boundary ───────────────────────────
-    let mut b4: HermesCtr = HermesCtr::builder(4096);
+    let mut b4: Hermes = Hermes::builder(4096);
     // 999999999 + 1 = 1000000000 (2 limbs: [0, 1])
     let a4: AnyVal = b4.decimal_from(10 as i32, 0 as i32, "999999999");
     let b4v: AnyVal = b4.decimal_from(10 as i32, 0 as i32, "1");
@@ -40,7 +40,7 @@ unsafe fn main() -> i32 {
     if !s4.eq_str("1000000000") { return 11; }
 
     // ── 5. Negative multi-limb ────────────────────────────────────────────────
-    let mut b5: HermesCtr = HermesCtr::builder(4096);
+    let mut b5: Hermes = Hermes::builder(4096);
     let x5: AnyVal = b5.decimal_from(10 as i32, 0 as i32, "1");
     let y5: AnyVal = b5.decimal_from(10 as i32, 0 as i32, "1000000001");
     let diff5: AnyVal = b5.decimal_sub(x5, y5);  // 1 - 1000000001 = -1000000000
@@ -50,7 +50,7 @@ unsafe fn main() -> i32 {
     if !s5.eq_str("-1000000000") { return 14; }
 
     // ── 6. Decimal with S=P and negative value ─────────────────────────────────
-    let mut b6: HermesCtr = HermesCtr::builder(4096);
+    let mut b6: Hermes = Hermes::builder(4096);
     let v6: AnyVal = b6.decimal_from(3 as i32, 3 as i32, "-0.005");
     if v6.is_null() { return 15; }
     if !b6.decimal_is_negative(v6) { return 16; }
@@ -58,7 +58,7 @@ unsafe fn main() -> i32 {
     if !s6.eq_str("-0.005") { return 17; }
 
     // ── 7. Precision == 1, S == 0 ──────────────────────────────────────────────
-    let mut b7: HermesCtr = HermesCtr::builder(4096);
+    let mut b7: Hermes = Hermes::builder(4096);
     let v7: AnyVal = b7.decimal_from(1 as i32, 0 as i32, "9");
     if v7.is_null() { return 18; }
     let s7: String = b7.decimal_to_string(v7);
@@ -67,7 +67,7 @@ unsafe fn main() -> i32 {
     if !bad7.is_null() { return 20; }  // 10 has 2 digits > P=1
 
     // ── 8. Add with zero result (subtraction a-a where a has 2 limbs) ─────────
-    let mut b8: HermesCtr = HermesCtr::builder(4096);
+    let mut b8: Hermes = Hermes::builder(4096);
     let v8: AnyVal = b8.decimal_from(10 as i32, 0 as i32, "1000000001");
     let z8: AnyVal = b8.decimal_sub(v8, v8);
     if z8.is_null() { return 21; }
@@ -76,14 +76,14 @@ unsafe fn main() -> i32 {
     if !s8.eq_str("0") { return 23; }
 
     // ── 9. String "1." with S=2: trailing dot, scale padding ─────────────────
-    let mut b9: HermesCtr = HermesCtr::builder(4096);
+    let mut b9: Hermes = Hermes::builder(4096);
     let v9: AnyVal = b9.decimal_from(5 as i32, 2 as i32, "1.");
     if v9.is_null() { return 24; }
     let s9: String = b9.decimal_to_string(v9);
     if !s9.eq_str("1.00") { return 25; }
 
     // ── 10. Decimal(10,9): integer part is 0 or 1 digit ──────────────────────
-    let mut b10: HermesCtr = HermesCtr::builder(4096);
+    let mut b10: Hermes = Hermes::builder(4096);
     let v10: AnyVal = b10.decimal_from(10 as i32, 9 as i32, "1.000000001");
     if v10.is_null() { return 26; }
     let s10: String = b10.decimal_to_string(v10);

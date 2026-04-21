@@ -2,19 +2,19 @@
 // Copyright 2026 Victor Smirnov
 // Logos Hermes stdlib — hermes.ctr
 //
-// HermesCtr — owning container for a Hermes document.
+// Hermes — owning container for a Hermes document.
 //
 // Encapsulates zone allocation and text parsing.
-// The user creates an HermesCtr, parses text into it, then traverses
+// The user creates an Hermes, parses text into it, then traverses
 // the result via root(), array_get(), map_get_cstr(), etc.
 // Stringification uses a temporary buffer passed as a parameter.
 // All unsafe zone/pointer work is internal.
 //
-// Drop: HermesCtr implements Drop and calls zone.release() to clean up
-// the reference-counted MemHolder. The zone's lifetime is tied to HermesCtr.
+// Drop: Hermes implements Drop and calls zone.release() to clean up
+// the reference-counted MemHolder. The zone's lifetime is tied to Hermes.
 //
 // Usage:
-//   let mut doc: HermesCtr = HermesCtr::new(8192);
+//   let mut doc: Hermes = Hermes::new(8192);
 //   match doc.parse(text, len) {
 //       Result::Ok(())  => {}
 //       Result::Err(_)  => { return 1; }
@@ -75,38 +75,38 @@ pub enum ParseError {
 }
 
 // ---------------------------------------------------------------------------
-// HermesCtr
+// Hermes
 // ---------------------------------------------------------------------------
 
-pub struct HermesCtr {
+pub struct Hermes {
     zone: Zone<Mutable>,
 }
 
-impl HermesRead for HermesCtr {
-    pub fn base(self: &HermesCtr) -> *const u8 {
+impl HermesRead for Hermes {
+    pub fn base(self: &Hermes) -> *const u8 {
         unsafe { return self.zone.holder.base; }
     }
-    pub fn size(self: &HermesCtr) -> u64 {
+    pub fn size(self: &Hermes) -> u64 {
         unsafe { return self.zone.holder.used as u64; }
     }
 }
 
-impl HermesWrite for HermesCtr {
-    pub fn zone_mut(self: &mut HermesCtr) -> *mut Zone<Mutable> {
+impl HermesWrite for Hermes {
+    pub fn zone_mut(self: &mut Hermes) -> *mut Zone<Mutable> {
         unsafe { return &mut self.zone as *mut Zone<Mutable>; }
     }
 }
 
-impl HasMemHolder for HermesCtr {
+impl HasMemHolder for Hermes {
     pub fn mem_holder(&self) -> *mut MemHolder {
         return self.zone.holder;
     }
 }
 
-impl HermesCtr {
-    pub fn as_view<'a>(self: &'a HermesCtr) -> HermesCtrView<'a> {
+impl Hermes {
+    pub fn as_view<'a>(self: &'a Hermes) -> HermesView<'a> {
         unsafe {
-            return HermesCtrView {
+            return HermesView {
                 base: self.zone.holder.base,
                 size: self.zone.holder.used as u64,
             };
@@ -114,8 +114,8 @@ impl HermesCtr {
     }
 }
 
-impl Drop for HermesCtr {
-    fn drop(self: HermesCtr) {
+impl Drop for Hermes {
+    fn drop(self: Hermes) {
         unsafe {
             let zone_ptr: *mut Zone<Mutable> =
                 (&self.zone as *const Zone<Mutable>) as *mut Zone<Mutable>;
@@ -124,12 +124,12 @@ impl Drop for HermesCtr {
     }
 }
 
-impl HermesCtr {
+impl Hermes {
     // Allocate a new container backed by a zone of `capacity` bytes.
     // Used when you will parse a document into the zone (parser creates DocumentHeader).
-    pub static fn new(capacity: i64) -> HermesCtr {
+    pub static fn new(capacity: i64) -> Hermes {
         unsafe {
-            return HermesCtr {
+            return Hermes {
                 zone: zone_create(capacity),
             };
         }
@@ -137,7 +137,7 @@ impl HermesCtr {
 
     // For building a document programmatically (without parsing).
     // Pre-allocates the DocumentHeader at zone offset 0.
-    pub static fn builder(capacity: i64) -> HermesCtr {
+    pub static fn builder(capacity: i64) -> Hermes {
         unsafe {
             let mut zone: Zone<Mutable> = zone_create(capacity);
             let hdr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 8);
@@ -146,7 +146,7 @@ impl HermesCtr {
             if hdr_raw != 0 as *mut u8 {
                 document_create(hdr_raw);
             }
-            return HermesCtr {
+            return Hermes {
                 zone: zone,
             };
         }
@@ -195,29 +195,29 @@ impl HermesCtr {
     }
 
     // Deep-copy all objects reachable from the document root into a fresh zone,
-    // discarding unreachable (garbage) objects.  Returns a new HermesCtr that
+    // discarding unreachable (garbage) objects.  Returns a new Hermes that
     // owns the compacted zone.
     //
     // capacity_hint: initial byte capacity for the destination zone.
     //   Pass 0 to auto-size from the source zone's current usage.
-    pub fn compactify(&self, capacity_hint: i64) -> HermesCtr {
+    pub fn compactify(&self, capacity_hint: i64) -> Hermes {
         unsafe {
             let new_zone: Zone<Mutable> =
                 document_compactify(&self.zone, capacity_hint);
-            return HermesCtr { zone: new_zone };
+            return Hermes { zone: new_zone };
         }
     }
 
     // Convenience overload: auto-size destination zone from source usage.
-    pub fn compactify(&self) -> HermesCtr {
+    pub fn compactify(&self) -> Hermes {
         return self.compactify(0);
     }
 
     // Raw byte-copy of the zone (O(used), preserves garbage).
     // Faster than compactify(); use when you want a quick snapshot.
-    pub fn clone(&self) -> HermesCtr {
+    pub fn clone(&self) -> Hermes {
         unsafe {
-            return HermesCtr { zone: document_clone(&self.zone) };
+            return Hermes { zone: document_clone(&self.zone) };
         }
     }
 
@@ -232,13 +232,13 @@ impl HermesCtr {
     //
     // Inline AnyVals (ints, bools, etc.) are passed through unchanged — they
     // carry no zone reference.
-    pub fn import_from(&mut self, src: *const HermesCtr, src_val: AnyVal) -> AnyVal {
-        if src == 0 as *const HermesCtr { return AnyVal::null_ptr(); }
+    pub fn import_from(&mut self, src: *const Hermes, src_val: AnyVal) -> AnyVal {
+        if src == 0 as *const Hermes { return AnyVal::null_ptr(); }
         unsafe {
             // Bug 1 guard: self-import would alias src and dst zones.  A grow
             // of the dst backing buffer during anyval_clone would invalidate
             // the captured `base_src`, causing reads from freed memory.
-            let self_ptr: *const HermesCtr = self;
+            let self_ptr: *const Hermes = self;
             if src == self_ptr { return AnyVal::null_ptr(); }
 
             let src_holder: *mut MemHolder = src.zone.holder;
@@ -278,7 +278,7 @@ impl HermesCtr {
     //   later can trim further).
     //
     // Returns a container with a null holder on OOM of the destination zone.
-    pub fn export(&self, src_val: AnyVal, capacity_hint: i64) -> HermesCtr {
+    pub fn export(&self, src_val: AnyVal, capacity_hint: i64) -> Hermes {
         unsafe {
             let cap: i64 = if capacity_hint > 0 {
                 capacity_hint
@@ -291,7 +291,7 @@ impl HermesCtr {
                     if u < 64 { 64 } else { u }
                 }
             };
-            let mut new_ctr: HermesCtr = HermesCtr::builder(cap);
+            let mut new_ctr: Hermes = Hermes::builder(cap);
             // Single-return structure: every branch falls through to `return
             // new_ctr`. This keeps the borrow checker happy about a Drop type
             // that would otherwise be "moved" by an early-return inside `if`.
@@ -327,7 +327,7 @@ impl HermesCtr {
     }
 
     // Convenience overload: auto-size destination zone.
-    pub fn export(&self, src_val: AnyVal) -> HermesCtr {
+    pub fn export(&self, src_val: AnyVal) -> Hermes {
         return self.export(src_val, 0);
     }
 
@@ -362,7 +362,7 @@ impl HermesCtr {
 
 }
 
-// Build a HermesCtr from a compile-time template blob with runtime capture substitution.
+// Build a Hermes from a compile-time template blob with runtime capture substitution.
 //
 // Called by compiler-generated code for @-literals that contain $-captures.
 //   tmpl       — pointer to template blob in rodata
@@ -373,12 +373,12 @@ impl HermesCtr {
 //   n_values   — number of unique capture values in resolved[]
 //
 // Allocates a fresh zone, memcpy's the template, and patches each PARAM slot.
-pub unsafe fn hermes_build_from_template(tmpl: *const u8, tmpl_size: i64, slots: *const u32, n_slots: i64, resolved: *const u32, n_values: i64) -> HermesCtr {
+pub unsafe fn hermes_build_from_template(tmpl: *const u8, tmpl_size: i64, slots: *const u32, n_slots: i64, resolved: *const u32, n_values: i64) -> Hermes {
     // Headroom: template bytes + 4096 for future string captures (C5).
     // C3 bug 5: clamp to avoid i64 overflow when tmpl_size is very large.
     let mut cap: i64 = tmpl_size;
     if tmpl_size < 9223372036854771711 { cap = tmpl_size + 4096; }
-    let mut ctr: HermesCtr = HermesCtr { zone: zone_create(cap) };
+    let mut ctr: Hermes = Hermes { zone: zone_create(cap) };
     hermes_clone_template(&mut ctr.zone, tmpl, tmpl_size, slots, n_slots, resolved, n_values);
     return ctr;
 }
@@ -391,20 +391,20 @@ pub unsafe fn hermes_build_from_template(tmpl: *const u8, tmpl_size: i64, slots:
 //   2. hermes_ctr_alloc_* — allocates dynamic captures, collects AnyVal.raw values
 //   3. hermes_template_patch  — patches PARAM slots with the resolved AnyVal.raw values
 //
-// All three use the same HermesCtr (passed by *mut pointer so they can mutate the zone).
+// All three use the same Hermes (passed by *mut pointer so they can mutate the zone).
 
-// Creates a HermesCtr with the template blob memcpy'd to the start of the zone.
+// Creates a Hermes with the template blob memcpy'd to the start of the zone.
 // extra_cap is reserved headroom for subsequent dynamic allocations.
 // PARAM placeholders are left in place; call hermes_ctr_alloc_* + hermes_template_patch
 // to resolve them.
 pub unsafe fn hermes_template_ctr_new(
-        tmpl: *const u8, tmpl_size: i64, extra_cap: i64) -> HermesCtr {
+        tmpl: *const u8, tmpl_size: i64, extra_cap: i64) -> Hermes {
     let mut total_cap: i64 = tmpl_size;
     // C5-fix5: use i64::MAX (9223372036854775807), not i64::MAX-4096.
     if tmpl_size < 9223372036854775807 - extra_cap {
         total_cap = tmpl_size + extra_cap;
     }
-    let mut ctr: HermesCtr = HermesCtr { zone: zone_create(total_cap) };
+    let mut ctr: Hermes = Hermes { zone: zone_create(total_cap) };
     if tmpl != 0 as *const u8 && tmpl_size > 0 {
         let dst: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, tmpl_size);
         if dst != 0 as *mut u8 {
@@ -421,7 +421,7 @@ pub unsafe fn hermes_template_ctr_new(
 // Allocates an F64 zone object (type_code=31, 8-byte body) in ctr's zone.
 // Returns AnyVal.raw (zone-relative byte offset, pointer mode, bit0=0).
 // Returns 0 (null AnyVal) on OOM.
-pub unsafe fn hermes_ctr_alloc_f64(ctr: *mut HermesCtr, val: f64) -> u32 {
+pub unsafe fn hermes_ctr_alloc_f64(ctr: *mut Hermes, val: f64) -> u32 {
     let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, 8, 31);
     if raw == 0 as *mut u8 { return 0; }
     *(raw as *mut f64) = val;
@@ -431,7 +431,7 @@ pub unsafe fn hermes_ctr_alloc_f64(ctr: *mut HermesCtr, val: f64) -> u32 {
 
 // Allocates a varchar string in ctr's zone from (ptr, len).
 // Returns AnyVal.raw (zone-relative offset). Returns 0 on null ptr, negative len, or OOM.
-pub unsafe fn hermes_ctr_alloc_str(ctr: *mut HermesCtr, ptr: *const u8, len: i64) -> u32 {
+pub unsafe fn hermes_ctr_alloc_str(ctr: *mut Hermes, ptr: *const u8, len: i64) -> u32 {
     if ptr == 0 as *const u8 || len < 0 { return 0; }
     let lu: u64 = len as u64;
     let prefix_sz: i64 = vlen_encode_size(lu) as i64;
@@ -444,24 +444,24 @@ pub unsafe fn hermes_ctr_alloc_str(ctr: *mut HermesCtr, ptr: *const u8, len: i64
 }
 
 // C-string (null-terminated) variant.
-pub unsafe fn hermes_ctr_alloc_cstr(ctr: *mut HermesCtr, ptr: *const u8) -> u32 {
+pub unsafe fn hermes_ctr_alloc_cstr(ctr: *mut Hermes, ptr: *const u8) -> u32 {
     if ptr == 0 as *const u8 { return 0; }
     return hermes_ctr_alloc_str(ctr, ptr, cstr_len(ptr));
 }
 
 // ── C6: Logos-slice → Hermes typed array builders ────────────────────────────
 
-// Builds an Array<i32> HermesCtr from a raw i32 slice (ptr + element count).
+// Builds an Array<i32> Hermes from a raw i32 slice (ptr + element count).
 // Layout: data buffer first (4 bytes/elem, raw), then tagged Array<i32> header.
 // The document root is set to the resulting Array<i32> AnyVal.
-pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
+pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> Hermes {
     // Bug 7/9 fix: negative len is invalid; very large len overflows len*4.
     // len==0 is valid (empty typed array); guard only negative and overflow cases.
-    if len < 0 { return HermesCtr::builder(8); }
-    if len > 536870911 { return HermesCtr::builder(8); }
+    if len < 0 { return Hermes::builder(8); }
+    if len > 536870911 { return Hermes::builder(8); }
     let byte_len: i64 = len * 4;
     let cap: i64 = 8 + byte_len + sizeof::<Array<i32>>() as i64 + 64;
-    let mut ctr: HermesCtr = HermesCtr::builder(cap);
+    let mut ctr: Hermes = Hermes::builder(cap);
     // Bug 7 fix: for len==0 skip data alloc (buf_off stays 0); still build header.
     let mut buf_off: u32 = 0;
     let mut ok: bool = true;
@@ -495,14 +495,14 @@ pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> HermesCtr {
     return ctr;
 }
 
-// Builds an Array<u64> HermesCtr from a raw u64 slice (ptr + element count).
-pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
+// Builds an Array<u64> Hermes from a raw u64 slice (ptr + element count).
+pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> Hermes {
     // Bug 8/10 fix: guard negative/overflow; len==0 → empty typed array (not null-root).
-    if len < 0 { return HermesCtr::builder(8); }
-    if len > 268435455 { return HermesCtr::builder(8); }
+    if len < 0 { return Hermes::builder(8); }
+    if len > 268435455 { return Hermes::builder(8); }
     let byte_len: i64 = len * 8;
     let cap: i64 = 8 + byte_len + sizeof::<Array<u64>>() as i64 + 64;
-    let mut ctr: HermesCtr = HermesCtr::builder(cap);
+    let mut ctr: Hermes = Hermes::builder(cap);
     let mut buf_off: u32 = 0;
     let mut ok: bool = true;
     if byte_len > 0 {
@@ -544,17 +544,17 @@ pub struct MapSliceI32 {
     pub vals: &[AnyVal],
 }
 
-// Builds a Map<i32, AnyVal> HermesCtr from parallel key and value arrays (len entries).
+// Builds a Map<i32, AnyVal> Hermes from parallel key and value arrays (len entries).
 // Layout: keys buffer (4 bytes/elem), vals buffer (4 bytes/elem), then tagged header.
 // The document root is set to the resulting Map<i32, AnyVal> AnyVal.
-pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal, len: i64) -> HermesCtr {
-    if len <= 0 { return HermesCtr::builder(8); }
+pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal, len: i64) -> Hermes {
+    if len <= 0 { return Hermes::builder(8); }
     // fix2: guard u32 overflow — Map<i32, AnyVal>.size/capacity are u32.
-    if len > 4294967295 { return HermesCtr::builder(8); }
+    if len > 4294967295 { return Hermes::builder(8); }
     let key_bytes: i64 = len * 4;
     let val_bytes: i64 = len * 4;
     let cap: i64 = 8 + key_bytes + val_bytes + sizeof::<Map<i32, AnyVal>>() as i64 + 64;
-    let mut ctr: HermesCtr = HermesCtr::builder(cap);
+    let mut ctr: Hermes = Hermes::builder(cap);
     let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
     if keys_raw != 0 as *mut u8 {
         // fix1: compute keys_off immediately after allocation — keys_raw is valid relative to
@@ -600,7 +600,7 @@ pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal,
 // (interleaved u32 pairs: blob_offset, value_idx).
 // The template starts at zone.holder.base (offset 0 in the zone).
 pub unsafe fn hermes_template_patch(
-        ctr: *mut HermesCtr,
+        ctr: *mut Hermes,
         slots: *const u32, n_slots: i64,
         resolved: *const u32, n_values: i64) {
     if n_slots <= 0 || slots == 0 as *const u32 { return; }
@@ -633,14 +633,14 @@ pub unsafe fn hermes_template_patch(
 // The element expression must already produce `AnyVal` (wrap scalars with
 // `AnyVal::embed_i24(...)` etc.).  Implicit coercion is a future extension.
 
-pub fn hermes_list_comp_new(cap: i64) -> HermesCtr {
-    let mut c: HermesCtr = HermesCtr::builder(cap);
+pub fn hermes_list_comp_new(cap: i64) -> Hermes {
+    let mut c: Hermes = Hermes::builder(cap);
     let arr: AnyVal = c.build_array(8);
     c.set_root(arr);
     return c;
 }
 
-pub fn hermes_list_comp_push(c: &mut HermesCtr, v: AnyVal) {
+pub fn hermes_list_comp_push(c: &mut Hermes, v: AnyVal) {
     let arr: AnyVal = c.root();
     c.array_push(arr, v);
 }
@@ -648,8 +648,8 @@ pub fn hermes_list_comp_push(c: &mut HermesCtr, v: AnyVal) {
 // Map comprehension: @{kexpr: vexpr for x in iter (if guard)?}
 // v1: string keys only; values must be AnyVal.
 
-pub fn hermes_map_comp_new(cap: i64, slot_hint: i64) -> HermesCtr {
-    let mut c: HermesCtr = HermesCtr::builder(cap);
+pub fn hermes_map_comp_new(cap: i64, slot_hint: i64) -> Hermes {
+    let mut c: Hermes = Hermes::builder(cap);
     // Round slot_hint up to next power of two (min 8).  ObjectMap::set relies
     // on cap being a power of two for `slot & (cap-1)` masking.
     let mut slots: u32 = 8;
@@ -661,7 +661,7 @@ pub fn hermes_map_comp_new(cap: i64, slot_hint: i64) -> HermesCtr {
     return c;
 }
 
-pub fn hermes_map_comp_put(c: &mut HermesCtr, k: str, v: AnyVal) {
+pub fn hermes_map_comp_put(c: &mut Hermes, k: str, v: AnyVal) {
     let m: AnyVal = c.root();
     c.map_set(m, k, v);
 }
@@ -679,6 +679,6 @@ pub fn hermes_coerce_u16(v: u16) -> AnyVal { return AnyVal::embed_u16(v); }
 pub fn hermes_coerce_u32(v: u32) -> AnyVal { return AnyVal::embed_u24(v); }
 pub fn hermes_coerce_u64(v: u64) -> AnyVal { return AnyVal::embed_u24(v as u32); }
 pub fn hermes_coerce_bool(v: bool) -> AnyVal { return AnyVal::embed_bool(v); }
-pub fn hermes_coerce_str(c: &mut HermesCtr, s: str) -> AnyVal {
+pub fn hermes_coerce_str(c: &mut Hermes, s: str) -> AnyVal {
     return c.build_str(s);
 }

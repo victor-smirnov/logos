@@ -5,45 +5,45 @@ use std.string;
 
 unsafe fn main() -> i32 {
     // ── 1. Scalar integer ─────────────────────────────────────────────────
-    let mut src1: HermesCtr = HermesCtr::new(4096);
+    let mut src1: Hermes = Hermes::new(4096);
     match src1.parse("42") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 1; }
     }
-    let dst1: HermesCtr = src1.clone();
+    let dst1: Hermes = src1.clone();
     let mut buf1: String = String::with_capacity(64);
     dst1.stringify(&mut buf1);
     if !buf1.eq_str("42") { return 2; }
 
     // ── 2. String root ────────────────────────────────────────────────────
-    let mut src2: HermesCtr = HermesCtr::new(4096);
+    let mut src2: Hermes = Hermes::new(4096);
     match src2.parse("\"world\"") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 3; }
     }
-    let dst2: HermesCtr = src2.clone();
+    let dst2: Hermes = src2.clone();
     let mut buf2: String = String::with_capacity(64);
     dst2.stringify(&mut buf2);
     if !buf2.eq_str("\"world\"") { return 4; }
 
     // ── 3. Array ──────────────────────────────────────────────────────────
-    let mut src3: HermesCtr = HermesCtr::new(4096);
+    let mut src3: Hermes = Hermes::new(4096);
     match src3.parse("[1,2,3]") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 5; }
     }
-    let dst3: HermesCtr = src3.clone();
+    let dst3: Hermes = src3.clone();
     let mut buf3: String = String::with_capacity(64);
     dst3.stringify(&mut buf3);
     if !buf3.eq_str("[1,2,3]") { return 6; }
 
     // ── 4. Map ────────────────────────────────────────────────────────────
-    let mut src4: HermesCtr = HermesCtr::new(4096);
+    let mut src4: Hermes = Hermes::new(4096);
     match src4.parse("{\"k\": true}") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 7; }
     }
-    let dst4: HermesCtr = src4.clone();
+    let dst4: Hermes = src4.clone();
     let mut buf4o: String = String::with_capacity(64);
     let mut buf4d: String = String::with_capacity(64);
     src4.stringify(&mut buf4o);
@@ -51,12 +51,12 @@ unsafe fn main() -> i32 {
     if !buf4d.eq_string(&buf4o) { return 8; }
 
     // ── 5. Clone is independent: mutating src doesn't affect dst ──────────
-    let mut src5: HermesCtr = HermesCtr::new(4096);
+    let mut src5: Hermes = Hermes::new(4096);
     match src5.parse("99") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 9; }
     }
-    let dst5: HermesCtr = src5.clone();
+    let dst5: Hermes = src5.clone();
     // Build a new value in src5 (exercises the zone)
     let _v: AnyVal = src5.build_str("mutation");
     let mut buf5: String = String::with_capacity(64);
@@ -64,12 +64,12 @@ unsafe fn main() -> i32 {
     if !buf5.eq_str("99") { return 10; }
 
     // ── 6. Nested document ────────────────────────────────────────────────
-    let mut src6: HermesCtr = HermesCtr::new(4096);
+    let mut src6: Hermes = Hermes::new(4096);
     match src6.parse("{\"a\": [1, 2], \"b\": {\"c\": true}}") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 11; }
     }
-    let dst6: HermesCtr = src6.clone();
+    let dst6: Hermes = src6.clone();
     let mut buf6o: String = String::with_capacity(128);
     let mut buf6d: String = String::with_capacity(128);
     src6.stringify(&mut buf6o);

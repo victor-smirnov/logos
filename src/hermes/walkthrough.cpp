@@ -27,7 +27,7 @@
 
 using namespace logos::hermes;
 
-static HermesCtr parse_doc(std::string_view text) {
+static Hermes parse_doc(std::string_view text) {
     return logos::hermes::parse(text).get();
 }
 
@@ -35,8 +35,8 @@ static HermesCtr parse_doc(std::string_view text) {
 // 1. Documents & Ownership Model
 // ============================================================================
 //
-// HermesCtr = Own<HermesCtrView>  — owning document handle (refcounted).
-// HermesCtrView                   — non-owning view (MemHolder* + root_override).
+// Hermes = Own<HermesView>  — owning document handle (refcounted).
+// HermesView                   — non-owning view (MemHolder* + root_override).
 // MemHolder                       — refcounted arena owner.
 //
 // Own<View> adds ref on construction, removes on destruction.
@@ -46,22 +46,22 @@ static void walkthrough_documents() {
     std::println("\n=== 1. Documents & Ownership ===");
 
     // Create a fresh document. Arena is allocated with 65536-byte capacity.
-    HermesCtr doc = make_doc().get();
+    Hermes doc = make_doc().get();
 
     // The document owns a MemHolder with a GrowableSingleChunk arena.
     // base() returns the start of the arena segment — all offsets are relative to this.
-    uint8_t* base = HermesCtrAccess::base(doc);
-    std::println("  HermesCtrAccess::base(doc)       = {}", static_cast<void*>(base));
+    uint8_t* base = HermesAccess::base(doc);
+    std::println("  HermesAccess::base(doc)       = {}", static_cast<void*>(base));
     std::println("  doc.has_root()   = {}", doc.has_root());
     // STOP: inspect doc, base, doc.holder()->use_count()
 
     // Copy semantics: Own<> adds a ref. Both share the same MemHolder.
-    HermesCtr doc2 = doc;
+    Hermes doc2 = doc;
     std::println("  After copy: use_count = {}", doc.holder()->use_count());
     // STOP: verify use_count == 2
 
     // Move semantics: transfers ownership, no refcount change.
-    HermesCtr doc3 = std::move(doc2);
+    Hermes doc3 = std::move(doc2);
     std::println("  After move: use_count = {}, doc2 null = {}",
         doc.holder()->use_count(), doc2.is_null());
     // STOP: doc2 should be null, use_count still 2
@@ -112,7 +112,7 @@ static void walkthrough_any_val() {
 // 3. Building Documents with the View API
 // ============================================================================
 //
-// HermesCtrView provides factory methods:
+// HermesView provides factory methods:
 //   make_tiny_map()   → TinyMap (Own<TinyMapView>)
 //   make_array()      → Array  (Own<ArrayView>)
 //   make_object_map() → Map    (Own<MapView>)
@@ -156,7 +156,7 @@ static void walkthrough_building() {
     arr.push_back(AnyVal{}).get();  // placeholder
     arr.slot(3)->set_offset(s.offset());
     AnyVal* str_slot = arr.slot(3);
-    auto str_view = str_slot->as_ptr<ArenaString>(HermesCtrAccess::base(doc))->view();
+    auto str_view = str_slot->as_ptr<ArenaString>(HermesAccess::base(doc))->view();
     std::println("  Array[3] is_pointer={}, points to '{}'",
         str_slot->is_pointer(), str_view);
     // STOP: compare str_slot->to_offset() with s.offset()
@@ -173,7 +173,7 @@ static void walkthrough_building() {
     auto greeting = doc.make_string("world").get();
     map.put("greeting", AnyVal{}).get();
     // Re-fetch base after allocations (arena may have grown).
-    uint8_t* b2 = HermesCtrAccess::base(doc);
+    uint8_t* b2 = HermesAccess::base(doc);
     map.get_slot("greeting")->set_pointer(greeting.ptr(), b2);
     auto gsv = map.get_slot("greeting")->as_ptr<ArenaString>(b2)->view();
     std::println("  Map['greeting'] = '{}'", gsv);
@@ -182,14 +182,14 @@ static void walkthrough_building() {
     doc.set_root(map);
     std::println("  doc.has_root()={}, root is ObjectMap at offset {}",
         doc.has_root(), map.offset());
-    // STOP: inspect DocumentHeader at HermesCtrAccess::base(doc), verify root_offset == map.offset()
+    // STOP: inspect DocumentHeader at HermesAccess::base(doc), verify root_offset == map.offset()
 }
 
 // ============================================================================
 // 4. Text Parser & Stringify Text Parser & Stringify
 // ============================================================================
 //
-// parse_doc("...") → HermesCtr with the parsed value as root.
+// parse_doc("...") → Hermes with the parsed value as root.
 // stringify(doc).get() → text representation.
 //
 // Supports: integers (42, -7, 0xFF, 0b1010, 100ll, 255_u8),
@@ -209,22 +209,22 @@ static void walkthrough_parser() {
     // Simple values.
     {
         auto doc = parse_doc("42");
-        std::println("  parse_doc('42') -> root = {}", *HermesCtrAccess::root<int32_t>(doc));
+        std::println("  parse_doc('42') -> root = {}", *HermesAccess::root<int32_t>(doc));
         std::println("  stringify   -> '{}'", stringify(doc).get());
     }
-    // STOP: inspect HermesCtrAccess::root<int32_t>(doc), the TypeTag before the int32_t
+    // STOP: inspect HermesAccess::root<int32_t>(doc), the TypeTag before the int32_t
 
     // String.
     {
         auto doc = parse_doc("\"hello\\nworld\"");
-        std::println("  parse string -> '{}'", HermesCtrAccess::root<ArenaString>(doc)->view());
+        std::println("  parse string -> '{}'", HermesAccess::root<ArenaString>(doc)->view());
     }
 
     // Array of mixed types.
     {
         auto doc = parse_doc("[1, 3.14, \"text\", true, null]");
-        uint8_t* base = HermesCtrAccess::base(doc);
-        auto* arr = HermesCtrAccess::root<ObjectArray>(doc);
+        uint8_t* base = HermesAccess::base(doc);
+        auto* arr = HermesAccess::root<ObjectArray>(doc);
         std::println("  parse array -> size={}", arr->size());
         std::println("    [0] int   = {}", arr->get(0, base).as_value<int32_t>());
         std::println("    [1] float = {}", arr->get(1, base).as_value<float>());
@@ -248,8 +248,8 @@ static void walkthrough_parser() {
     // Type declarations.
     {
         auto doc = parse_doc("Array<Integer>");
-        uint8_t* base = HermesCtrAccess::base(doc);
-        auto* dt = HermesCtrAccess::root<DatatypeData>(doc);
+        uint8_t* base = HermesAccess::base(doc);
+        auto* dt = HermesAccess::root<DatatypeData>(doc);
         std::println("  Type: name='{}', has_params={}",
             dt->name_view(base), dt->has_params());
         std::println("  stringify -> '{}'", stringify(doc).get());
@@ -258,8 +258,8 @@ static void walkthrough_parser() {
     // Typed value.
     {
         auto doc = parse_doc("@Integer = 42");
-        uint8_t* base = HermesCtrAccess::base(doc);
-        auto* tv = HermesCtrAccess::root<TypedValueData>(doc);
+        uint8_t* base = HermesAccess::base(doc);
+        auto* tv = HermesAccess::root<TypedValueData>(doc);
         std::println("  TypedValue: type='{}', value={}",
             tv->datatype.get(base)->name_view(base),
             tv->value.as_value<int32_t>());
@@ -269,7 +269,7 @@ static void walkthrough_parser() {
     {
         auto doc = parse_doc("?userId");
         std::println("  Parameter: name='{}'",
-            HermesCtrAccess::root<ParameterData>(doc)->name_view(HermesCtrAccess::base(doc)));
+            HermesAccess::root<ParameterData>(doc)->name_view(HermesAccess::base(doc)));
     }
 
     // Round-trip: parse -> stringify -> parse -> stringify.
@@ -295,7 +295,7 @@ static void walkthrough_binary() {
     std::println("\n=== 5. Binary Codec ===");
 
     auto doc = parse_doc("{name: \"Alice\", scores: [95, 87, 92]}");
-    std::println("  Arena size: {} bytes", HermesCtrAccess::arena(doc).total_used());
+    std::println("  Arena size: {} bytes", HermesAccess::arena(doc).total_used());
 
     // Encode.
     auto bytes = binary_encode(doc).get();
@@ -304,7 +304,7 @@ static void walkthrough_binary() {
 
     // Decode.
     auto decoded = binary_decode(bytes.data(), bytes.size()).get();
-    std::println("  Decoded:    arena={} bytes", HermesCtrAccess::arena(decoded).total_used());
+    std::println("  Decoded:    arena={} bytes", HermesAccess::arena(decoded).total_used());
     std::println("  stringify:  '{}'", stringify(decoded).get());
 
     // Double round-trip.
@@ -332,27 +332,27 @@ static void walkthrough_compactify() {
     map.put(0, AnyVal::from_value(int32_t(42))).get();
     auto s = doc.make_string("hello").get();
     map.put(1, AnyVal{}).get();
-    map.slot(1)->set_pointer(s.ptr(), HermesCtrAccess::base(doc));
+    map.slot(1)->set_pointer(s.ptr(), HermesAccess::base(doc));
 
     std::println("  Original arena: {} bytes used of {} capacity",
-        HermesCtrAccess::arena(doc).total_used(), HermesCtrAccess::arena(doc).head().capacity);
+        HermesAccess::arena(doc).total_used(), HermesAccess::arena(doc).head().capacity);
 
     // Compactify: deep-copy into minimal arena.
     auto compact = compactify(doc).get();
-    std::println("  Compact arena:  {} bytes used", HermesCtrAccess::arena(compact).total_used());
-    // STOP: compare HermesCtrAccess::arena(doc).total_used() vs HermesCtrAccess::arena(compact).total_used()
+    std::println("  Compact arena:  {} bytes used", HermesAccess::arena(compact).total_used());
+    // STOP: compare HermesAccess::arena(doc).total_used() vs HermesAccess::arena(compact).total_used()
 
     // Zero-copy round-trip: write arena bytes, then load back.
-    uint8_t* data = HermesCtrAccess::base(compact);
-    size_t size = HermesCtrAccess::arena(compact).total_used();
+    uint8_t* data = HermesAccess::base(compact);
+    size_t size = HermesAccess::arena(compact).total_used();
 
     auto loaded = from_bytes_copy(data, size).get();
-    uint8_t* lb = HermesCtrAccess::base(loaded);
-    auto* lmap = HermesCtrAccess::root<TinyObjectMap>(loaded);
+    uint8_t* lb = HermesAccess::base(loaded);
+    auto* lmap = HermesAccess::root<TinyObjectMap>(loaded);
     std::println("  Loaded: map[0]={}, map[1]='{}'",
         lmap->get(0, lb).as_value<int32_t>(),
         lmap->slot(1, lb)->as_ptr<ArenaString>(lb)->view());
-    // STOP: compare memory at HermesCtrAccess::base(compact) and HermesCtrAccess::base(loaded) — should be identical
+    // STOP: compare memory at HermesAccess::base(compact) and HermesAccess::base(loaded) — should be identical
 }
 
 // ============================================================================
@@ -382,20 +382,20 @@ static void walkthrough_path() {
     // Simple identifier.
     {
         auto r = eval_path(data, "user.name").get();
-        std::println("  user.name = '{}'", HermesCtrAccess::root<ArenaString>(r)->view());
+        std::println("  user.name = '{}'", HermesAccess::root<ArenaString>(r)->view());
     }
     // STOP: inspect r — it shares data's MemHolder with root_override
 
     // Array index.
     {
         auto r = eval_path(data, "items[0].name").get();
-        std::println("  items[0].name = '{}'", HermesCtrAccess::root<ArenaString>(r)->view());
+        std::println("  items[0].name = '{}'", HermesAccess::root<ArenaString>(r)->view());
     }
 
     // Negative index (last element).
     {
         auto r = eval_path(data, "items[-1].price").get();
-        std::println("  items[-1].price = {}", *HermesCtrAccess::root<int32_t>(r));
+        std::println("  items[-1].price = {}", *HermesAccess::root<int32_t>(r));
     }
 
     // NOTE: slice, wildcard, filter create NEW objects in result arena.
@@ -411,7 +411,7 @@ static void walkthrough_path() {
     {
         auto r = eval_path(data, "length(items)").get();
         if (r.has_root()) {
-            std::println("  length(items) = {}", *HermesCtrAccess::root<int32_t>(r));
+            std::println("  length(items) = {}", *HermesAccess::root<int32_t>(r));
         }
     }
 }
@@ -488,8 +488,8 @@ static void walkthrough_memory_layout() {
     doc.set_root(map);
     map.put(0, AnyVal::from_value(int32_t(7))).get();
 
-    uint8_t* base = HermesCtrAccess::base(doc);
-    size_t used = HermesCtrAccess::arena(doc).total_used();
+    uint8_t* base = HermesAccess::base(doc);
+    size_t used = HermesAccess::arena(doc).total_used();
 
     // Dump arena hex.
     std::print("  Arena dump ({} bytes):\n  ", used);

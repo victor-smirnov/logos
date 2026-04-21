@@ -4,6 +4,6 @@ use hermes.ctr;
 
 unsafe fn main() -> i32 {
     let x: i32 = 5;
-    let ctr: HermesCtr = x as <I32>[];
+    let ctr: Hermes = x as <I32>[];
     return 0;
 }

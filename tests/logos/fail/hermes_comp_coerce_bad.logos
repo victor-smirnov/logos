@@ -6,6 +6,6 @@ use hermes.anyval;
 fn main() -> i32 {
     let xs: [i64; 2] = [1 as i64, 2 as i64];
     // i64 is intentionally not auto-coerced to AnyVal (silent truncation).
-    let doc: HermesCtr = @[x for x in xs];
+    let doc: Hermes = @[x for x in xs];
     return 0;
 }

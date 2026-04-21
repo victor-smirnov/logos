@@ -28,9 +28,9 @@ namespace logos::hermes {
 // streaming over the wire — compact, self-describing, no pointer fixup needed.
 
 // Encode a document to binary. Returns the encoded bytes.
-[[nodiscard]] logos::expected<std::vector<uint8_t>> binary_encode(const HermesCtr& doc) noexcept;
+[[nodiscard]] logos::expected<std::vector<uint8_t>> binary_encode(const Hermes& doc) noexcept;
 
 // Decode binary data into a new document.
-logos::expected<HermesCtr> binary_decode(const uint8_t* data, size_t size) noexcept;
+logos::expected<Hermes> binary_decode(const uint8_t* data, size_t size) noexcept;
 
 } // namespace logos::hermes

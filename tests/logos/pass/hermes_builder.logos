@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Victor Smirnov
-// Test: HermesCtr builder API — programmatic document construction.
+// Test: Hermes builder API — programmatic document construction.
 
 package hermes_builder;
 
@@ -10,7 +10,7 @@ extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
 
 unsafe fn main() -> i32 {
     // Create a builder (pre-allocates DocumentHeader at offset 0).
-    let mut doc: HermesCtr = HermesCtr::builder(4096);
+    let mut doc: Hermes = Hermes::builder(4096);
 
     // Build a root map with 8 hash slots.
     let root_map: AnyVal = doc.build_map(8 as u32);

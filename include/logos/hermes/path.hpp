@@ -65,14 +65,14 @@ namespace path_ast {
 }
 
 // Parse a HermesPath expression into an AST (stored as Hermes objects in a document).
-[[nodiscard]] logos::expected<HermesCtr> parse_path(std::string_view expr) noexcept;
+[[nodiscard]] logos::expected<Hermes> parse_path(std::string_view expr) noexcept;
 
 // Evaluate a HermesPath expression against a data document.
-[[nodiscard]] logos::expected<HermesCtr> eval_path(const HermesCtr& data,
+[[nodiscard]] logos::expected<Hermes> eval_path(const Hermes& data,
                                                     std::string_view expr) noexcept;
 
 // Evaluate a pre-parsed AST against a data value.
-[[nodiscard]] logos::expected<HermesCtr> eval_path_ast(void* data_root,
+[[nodiscard]] logos::expected<Hermes> eval_path_ast(void* data_root,
                                                         void* ast_root,
                                                         Arena& data_arena) noexcept;
 

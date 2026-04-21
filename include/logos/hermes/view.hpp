@@ -210,15 +210,15 @@ using Parameter = Own<ParameterView>;
 using Object    = Own<ObjectView>;
 
 // ---------------------------------------------------------------------------
-// HermesCtrView: non-owning view of a document.
+// HermesView: non-owning view of a document.
 // ---------------------------------------------------------------------------
 
-class HermesCtrAccess;
+class HermesAccess;
 
-class HermesCtrView {
+class HermesView {
 public:
-    HermesCtrView() noexcept : holder_(nullptr), root_override_(NULL_OFFSET) {}
-    explicit HermesCtrView(MemHolder* holder) noexcept
+    HermesView() noexcept : holder_(nullptr), root_override_(NULL_OFFSET) {}
+    explicit HermesView(MemHolder* holder) noexcept
         : holder_(holder), root_override_(NULL_OFFSET) {}
 
     bool is_null() const noexcept { return !holder_; }
@@ -256,7 +256,7 @@ public:
     void   arena_rollback(size_t pos)  noexcept { arena().rollback(pos); }
 
 private:
-    friend class HermesCtrAccess;
+    friend class HermesAccess;
 
     // --- Segment base ---
     uint8_t* base() const noexcept { return holder_->base(); }
@@ -301,24 +301,24 @@ private:
     arena_offset_t root_override_;
 };
 
-// HermesCtr: owning document handle.
-using HermesCtr = Own<HermesCtrView>;
+// Hermes: owning document handle.
+using Hermes = Own<HermesView>;
 
 // Create a new document (GrowableSingleChunk — base is stable within size, moves on grow).
-[[nodiscard]] logos::expected<HermesCtr> make_doc(size_t capacity = 65536) noexcept;
+[[nodiscard]] logos::expected<Hermes> make_doc(size_t capacity = 65536) noexcept;
 
 // Create a new document with MultiChunk arena (base is always stable).
-[[nodiscard]] logos::expected<HermesCtr> make_doc_multi(size_t initial_capacity = 4096) noexcept;
+[[nodiscard]] logos::expected<Hermes> make_doc_multi(size_t initial_capacity = 4096) noexcept;
 
 // Deep-copy a document into a new compacted single-chunk arena.
-logos::expected<HermesCtr> compactify(const HermesCtrView& src) noexcept;
+logos::expected<Hermes> compactify(const HermesView& src) noexcept;
 
 // Deep-copy a single tagged object from src_base arena into dst document's arena.
 // Returns pointer into dst's arena. Useful for cross-arena pointer resolution.
 logos::expected<void*> copy_object_into(const void* src_obj, const uint8_t* src_base,
-                                         HermesCtrView& dst) noexcept;
+                                         HermesView& dst) noexcept;
 
 // Load a document from raw bytes (copies the data).
-[[nodiscard]] logos::expected<HermesCtr> from_bytes_copy(const uint8_t* data, size_t size) noexcept;
+[[nodiscard]] logos::expected<Hermes> from_bytes_copy(const uint8_t* data, size_t size) noexcept;
 
 } // namespace logos::hermes

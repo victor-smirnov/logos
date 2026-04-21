@@ -16,8 +16,8 @@ namespace ast = logos::peg_gen::ast;
 
 namespace logos::peg_gen {
 using logos::hermes::AnyVal;
-using logos::hermes::HermesCtr;
-using logos::hermes::HermesCtrView;
+using logos::hermes::Hermes;
+using logos::hermes::HermesView;
 using logos::hermes::ArrayView;
 using logos::hermes::MapView;
 using logos::hermes::TinyMapView;
@@ -247,7 +247,7 @@ public:
         : lex_(src, name)
         , doc_(logos::hermes::make_doc_multi(524288).get()) {}
 
-    HermesCtr parse() {
+    Hermes parse() {
         // Root is a string-keyed ObjectMap with named sections.
         auto root = doc_.make_object_map().get();
 
@@ -291,7 +291,7 @@ public:
 
 private:
     Lexer    lex_;
-    HermesCtr doc_;
+    Hermes doc_;
 
     // ── Error helpers ─────────────────────────────────────────────────────
 
@@ -731,7 +731,7 @@ private:
 // Public API
 // ═══════════════════════════════════════════════════════════════════════════
 
-std::optional<HermesCtr>
+std::optional<Hermes>
 parse_grammar_string(std::string_view source, std::string_view source_name) {
     try {
         PegParser p(source, source_name);
@@ -742,7 +742,7 @@ parse_grammar_string(std::string_view source, std::string_view source_name) {
     }
 }
 
-std::optional<HermesCtr> parse_grammar(const std::string& path) {
+std::optional<Hermes> parse_grammar(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f) {
         std::println(stderr, "peg_gen: cannot open '{}'", path);

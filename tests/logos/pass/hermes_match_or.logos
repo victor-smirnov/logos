@@ -7,13 +7,13 @@ use hermes.anyval;
 use hermes.ctr;
 use hermes.view;
 
-unsafe fn mk(v: AnyVal) -> HermesCtr {
-    let mut c: HermesCtr = HermesCtr::builder(128 as i64);
+unsafe fn mk(v: AnyVal) -> Hermes {
+    let mut c: Hermes = Hermes::builder(128 as i64);
     c.set_root(v);
     return c;
 }
 
-unsafe fn check(d: &HermesCtr) -> i32 {
+unsafe fn check(d: &Hermes) -> i32 {
     match d {
         @null | @42 => 1,
         @true | @-7 => 2,
@@ -22,10 +22,10 @@ unsafe fn check(d: &HermesCtr) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: HermesCtr = mk(AnyVal::null_ptr());        // 1
-    let b: HermesCtr = mk(AnyVal::embed_i24(42));     // 1
-    let c: HermesCtr = mk(AnyVal::embed_bool(true));  // 2
-    let d: HermesCtr = mk(AnyVal::embed_i24(-7));     // 2
-    let e: HermesCtr = mk(AnyVal::embed_i24(100));    // 0
+    let a: Hermes = mk(AnyVal::null_ptr());        // 1
+    let b: Hermes = mk(AnyVal::embed_i24(42));     // 1
+    let c: Hermes = mk(AnyVal::embed_bool(true));  // 2
+    let d: Hermes = mk(AnyVal::embed_i24(-7));     // 2
+    let e: Hermes = mk(AnyVal::embed_i24(100));    // 0
     return check(&a) + check(&b) + check(&c) + check(&d) + check(&e); // 6
 }

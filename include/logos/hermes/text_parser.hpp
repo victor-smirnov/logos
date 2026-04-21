@@ -10,8 +10,8 @@
 
 namespace logos::hermes {
 
-// Parse a Hermes text document into a HermesCtr.
+// Parse a Hermes text document into a Hermes.
 // Returns an error (ErrCode::parse_error) on parse failure with line:column info.
-[[nodiscard]] logos::expected<HermesCtr> parse(std::string_view text) noexcept;
+[[nodiscard]] logos::expected<Hermes> parse(std::string_view text) noexcept;
 
 } // namespace logos::hermes

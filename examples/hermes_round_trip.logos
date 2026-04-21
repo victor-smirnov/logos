@@ -10,7 +10,7 @@ use std.string;
 use std.io;
 
 fn main() -> i32 {
-    let mut doc: HermesCtr = HermesCtr::new(8192);
+    let mut doc: Hermes = Hermes::new(8192);
 
     let text: str = r#"
         {

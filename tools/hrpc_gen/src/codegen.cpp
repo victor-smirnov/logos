@@ -23,7 +23,7 @@ using namespace logos::hrpc::hrpc_idl_ast;
 // Construction & collection
 // ---------------------------------------------------------------------------
 
-CodeGen::CodeGen(HermesCtr ast, std::string_view src_path)
+CodeGen::CodeGen(Hermes ast, std::string_view src_path)
     : ast_(std::move(ast)), src_path_(src_path)
 {
     collect();
@@ -293,13 +293,13 @@ void CodeGen::emit_message_decl(std::ostream& out, TinyMapView node) const {
     std::string name = str_field(node, NAME.code);
 
     out << "struct " << name << " {\n";
-    out << "    logos::hermes::HermesCtr  doc;\n";
+    out << "    logos::hermes::Hermes  doc;\n";
     out << "    logos::hermes::TinyMapView map;\n\n";
 
     AnyVal items_av = node.get(uint8_t(ITEMS.code));
 
     out << "    static " << name << " make();\n";
-    out << "    static " << name << " from_doc(logos::hermes::HermesCtr doc);\n\n";
+    out << "    static " << name << " from_doc(logos::hermes::Hermes doc);\n\n";
 
     // Getters / setters for each field.
     if (!items_av.is_null()) {
@@ -451,7 +451,7 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
     out << "}\n\n";
 
     // from_doc()
-    out << name << " " << name << "::from_doc(logos::hermes::HermesCtr doc) {\n";
+    out << name << " " << name << "::from_doc(logos::hermes::Hermes doc) {\n";
     out << "    " << name << " m;\n";
     out << "    m.doc = std::move(doc);\n";
     out << "    m.map = m.doc.root_object().as_tiny_map();\n";

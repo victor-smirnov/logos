@@ -21,12 +21,12 @@ static logos::expected<AnyVal> resolve_for_arena(const ObjectView& value,
     if (value.holder() == dst_holder) return value.tagged();  // same arena — safe as-is
 
     // Cross-arena: deep-copy the object into the destination arena.
-    HermesCtrView dst(dst_holder);
+    HermesView dst(dst_holder);
     const void* src_obj = value.tagged().as_ptr<void>(value.holder()->base());
     LOGOS_TRY(auto* copy, copy_object_into(src_obj, value.holder()->base(), dst));
 
     AnyVal result;
-    result.set_pointer(copy, HermesCtrAccess::base(dst));  // re-fetched after possible arena growth
+    result.set_pointer(copy, HermesAccess::base(dst));  // re-fetched after possible arena growth
     return result;
 }
 
@@ -59,24 +59,24 @@ static DocumentHeader* get_header(MemHolder* holder) {
     return reinterpret_cast<DocumentHeader*>(holder->base());
 }
 
-// --- HermesCtrView ---
+// --- HermesView ---
 
-bool HermesCtrView::has_root() const noexcept {
+bool HermesView::has_root() const noexcept {
     if (!holder_) return false;
     if (root_override_ != NULL_OFFSET) return true;
     return get_header(holder_)->has_root();
 }
 
-void HermesCtrView::set_root(void* object) noexcept {
+void HermesView::set_root(void* object) noexcept {
     get_header(holder_)->root_offset = offset_of(object);
 }
 
-void HermesCtrView::set_root_offset(arena_offset_t offset) noexcept {
+void HermesView::set_root_offset(arena_offset_t offset) noexcept {
     get_header(holder_)->root_offset = offset;
 }
 
 template <typename T>
-T* HermesCtrView::root() const noexcept {
+T* HermesView::root() const noexcept {
     arena_offset_t off = (root_override_ != NULL_OFFSET)
         ? root_override_
         : get_header(holder_)->root_offset;
@@ -85,58 +85,58 @@ T* HermesCtrView::root() const noexcept {
 }
 
 // Explicit instantiations for common types.
-template void* HermesCtrView::root<void>() const;
-template TinyObjectMap* HermesCtrView::root<TinyObjectMap>() const;
-template ObjectArray* HermesCtrView::root<ObjectArray>() const;
-template ObjectMap* HermesCtrView::root<ObjectMap>() const;
-template ArenaString* HermesCtrView::root<ArenaString>() const;
-template int32_t* HermesCtrView::root<int32_t>() const;
-template uint8_t* HermesCtrView::root<uint8_t>() const;
-template float* HermesCtrView::root<float>() const;
-template double* HermesCtrView::root<double>() const;
-template int64_t* HermesCtrView::root<int64_t>() const;
-template uint32_t* HermesCtrView::root<uint32_t>() const;
-template uint16_t* HermesCtrView::root<uint16_t>() const;
-template int16_t* HermesCtrView::root<int16_t>() const;
-template int8_t* HermesCtrView::root<int8_t>() const;
-template DatatypeData* HermesCtrView::root<DatatypeData>() const;
-template TypedValueData* HermesCtrView::root<TypedValueData>() const;
-template ParameterData* HermesCtrView::root<ParameterData>() const;
+template void* HermesView::root<void>() const;
+template TinyObjectMap* HermesView::root<TinyObjectMap>() const;
+template ObjectArray* HermesView::root<ObjectArray>() const;
+template ObjectMap* HermesView::root<ObjectMap>() const;
+template ArenaString* HermesView::root<ArenaString>() const;
+template int32_t* HermesView::root<int32_t>() const;
+template uint8_t* HermesView::root<uint8_t>() const;
+template float* HermesView::root<float>() const;
+template double* HermesView::root<double>() const;
+template int64_t* HermesView::root<int64_t>() const;
+template uint32_t* HermesView::root<uint32_t>() const;
+template uint16_t* HermesView::root<uint16_t>() const;
+template int16_t* HermesView::root<int16_t>() const;
+template int8_t* HermesView::root<int8_t>() const;
+template DatatypeData* HermesView::root<DatatypeData>() const;
+template TypedValueData* HermesView::root<TypedValueData>() const;
+template ParameterData* HermesView::root<ParameterData>() const;
 
-Object HermesCtrView::root_object() const noexcept {
+Object HermesView::root_object() const noexcept {
     if (!has_root()) return Object{};
     auto off = get_header(holder_)->root_offset;
     AnyVal tp = AnyVal::from_offset(off);
     return Object(ObjectView(tp, holder_));
 }
 
-logos::expected<TinyMap> HermesCtrView::make_tiny_map(uint8_t capacity) noexcept {
+logos::expected<TinyMap> HermesView::make_tiny_map(uint8_t capacity) noexcept {
     LOGOS_TRY(auto* p, TinyObjectMap::create(holder_->arena(), capacity));
     return TinyMap(offset_of(p), holder_);
 }
 
-logos::expected<Array> HermesCtrView::make_array(uint64_t capacity) noexcept {
+logos::expected<Array> HermesView::make_array(uint64_t capacity) noexcept {
     LOGOS_TRY(auto* p, ObjectArray::create(holder_->arena(), capacity));
     return Array(offset_of(p), holder_);
 }
 
-logos::expected<Map> HermesCtrView::make_object_map(uint8_t log2_buckets) noexcept {
+logos::expected<Map> HermesView::make_object_map(uint8_t log2_buckets) noexcept {
     LOGOS_TRY(auto* p, ObjectMap::create(holder_->arena(), log2_buckets));
     return Map(offset_of(p), holder_);
 }
 
-logos::expected<String> HermesCtrView::make_string(std::string_view str) noexcept {
+logos::expected<String> HermesView::make_string(std::string_view str) noexcept {
     LOGOS_TRY(auto* p, ArenaString::create(holder_->arena(), str));
     return String(offset_of(p), holder_);
 }
 
 // --- make_doc ---
 
-static logos::expected<HermesCtr> make_doc_impl(MemHolder* holder) noexcept {
+static logos::expected<Hermes> make_doc_impl(MemHolder* holder) noexcept {
     LOGOS_TRY(auto* hdr_void, holder->arena().allocate_raw(sizeof(DocumentHeader), alignof(DocumentHeader)));
     auto* hdr = static_cast<DocumentHeader*>(hdr_void);
     hdr->root_offset = NULL_OFFSET;
-    return HermesCtr(HermesCtrView(holder));
+    return Hermes(HermesView(holder));
 }
 
 // MemHolder has a private destructor (heap-only), so we construct it with new
@@ -153,12 +153,12 @@ static logos::expected<MemHolder*> make_mem_holder(size_t capacity, ArenaMode mo
     return holder;
 }
 
-logos::expected<HermesCtr> make_doc(size_t capacity) noexcept {
+logos::expected<Hermes> make_doc(size_t capacity) noexcept {
     LOGOS_TRY(auto* holder, make_mem_holder(capacity, ArenaMode::GrowableSingleChunk));
     return make_doc_impl(holder);
 }
 
-logos::expected<HermesCtr> make_doc_multi(size_t initial_capacity) noexcept {
+logos::expected<Hermes> make_doc_multi(size_t initial_capacity) noexcept {
     LOGOS_TRY(auto* holder, make_mem_holder(initial_capacity, ArenaMode::MultiChunk));
     return make_doc_impl(holder);
 }

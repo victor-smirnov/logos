@@ -7,7 +7,7 @@ use std.string;
 unsafe fn main() -> i32 {
     // Capture a C-string pointer into a map.
     let s: str = "hello";
-    let doc: HermesCtr = @{"msg": $s};
+    let doc: Hermes = @{"msg": $s};
     let root: AnyVal = doc.root();
     if root.is_null() { return 1; }
     // Verify the map contains the expected string value.
@@ -16,7 +16,7 @@ unsafe fn main() -> i32 {
 
     // Capture C-string in an array.
     let key: str = "world";
-    let arr_doc: HermesCtr = @[$key, $s];
+    let arr_doc: Hermes = @[$key, $s];
     let arr_root: AnyVal = arr_doc.root();
     if arr_root.is_null() { return 3; }
     let t2: String = arr_doc.to_string();
@@ -25,7 +25,7 @@ unsafe fn main() -> i32 {
     // Mix: scalar + string capture in same literal.
     let id: i32 = 7;
     let label: str = "item";
-    let mix: HermesCtr = @{"id": $id, "label": $label};
+    let mix: Hermes = @{"id": $id, "label": $label};
     let mix_root: AnyVal = mix.root();
     if mix_root.is_null() { return 5; }
     let t3: String = mix.to_string();

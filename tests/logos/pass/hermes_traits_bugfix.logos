@@ -20,8 +20,8 @@ use hermes.equal;
 use hermes.hashing;
 use hermes.clone;
 
-unsafe fn build(text: str) -> HermesCtr {
-    let mut doc: HermesCtr = HermesCtr::new(8192);
+unsafe fn build(text: str) -> Hermes {
+    let mut doc: Hermes = Hermes::new(8192);
     match doc.parse(text) {
         Result::Ok(())  => {}
         Result::Err(_)  => {}
@@ -31,21 +31,21 @@ unsafe fn build(text: str) -> HermesCtr {
 
 unsafe fn main() -> i32 {
     // ── Bug: ObjectMap::equal false-positive on null values with disjoint keys.
-    let mut da: HermesCtr = build("{x:null}");
-    let mut db: HermesCtr = build("{y:null}");
+    let mut da: Hermes = build("{x:null}");
+    let mut db: Hermes = build("{y:null}");
     let mut ec: EqualCtx = EqualCtx { base_self: da.base(), base_other: db.base() };
     if anyval_equal(da.root(), db.root(), &mut ec) { return 10; }
 
     // ── Bug: HermesHash type_code mixed as u8 → collisions for codes >255.
-    let mut dc: HermesCtr = build("{a:1}");
-    let mut dd: HermesCtr = build("{a:1_s8}");
+    let mut dc: Hermes = build("{a:1}");
+    let mut dd: Hermes = build("{a:1_s8}");
     let mut hc: HashCtx = HashCtx { base: dc.base() };
     let mut hd: HashCtx = HashCtx { base: dd.base() };
     if anyval_hash(dc.root(), &mut hc) == anyval_hash(dd.root(), &mut hd) { return 11; }
 
     // ── Positive clone round-trip: d1 == clone(d1) structurally and stringified.
-    let mut src: HermesCtr = build("{a:1,b:\"ok\",c:[true,false]}");
-    let mut dst: HermesCtr = HermesCtr::builder(8192);
+    let mut src: Hermes = build("{a:1,b:\"ok\",c:[true,false]}");
+    let mut dst: Hermes = Hermes::builder(8192);
     let mut cc: CloneCtx = CloneCtx {
         base_src: src.base(),
         zone_dst: dst.zone_mut(),

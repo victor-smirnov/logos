@@ -5,28 +5,28 @@ use hermes.ctr;
 
 unsafe fn main() -> i32 {
     // String element is not i32-compatible.
-    let mut d1: HermesCtr = HermesCtr::new(4096);
+    let mut d1: Hermes = Hermes::new(4096);
     match d1.parse("<I32>[1,\"x\",3]" as *const u8, 14 as i64) {
         Result::Ok(()) => { return 1; }
         Result::Err(_) => {}
     }
 
     // Bool element is not i32-compatible.
-    let mut d2: HermesCtr = HermesCtr::new(4096);
+    let mut d2: Hermes = Hermes::new(4096);
     match d2.parse("<I32>[true]" as *const u8, 11 as i64) {
         Result::Ok(()) => { return 2; }
         Result::Err(_) => {}
     }
 
     // Float element is not i32-compatible.
-    let mut d3: HermesCtr = HermesCtr::new(4096);
+    let mut d3: Hermes = Hermes::new(4096);
     match d3.parse("<I32>[1.25]" as *const u8, 11 as i64) {
         Result::Ok(()) => { return 3; }
         Result::Err(_) => {}
     }
 
     // Null element is not i32-compatible.
-    let mut d4: HermesCtr = HermesCtr::new(4096);
+    let mut d4: Hermes = Hermes::new(4096);
     match d4.parse("<I32>[null]" as *const u8, 11 as i64) {
         Result::Ok(()) => { return 4; }
         Result::Err(_) => {}

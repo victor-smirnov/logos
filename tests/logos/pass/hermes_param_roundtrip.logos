@@ -13,7 +13,7 @@ unsafe fn main() -> i32 {
     if p42.param_index() != 42 as u32 { return 4; }
 
     // ── 2. $N parsed; root AnyVal is_param ───────────────────────────────
-    let mut ctr2: HermesCtr = HermesCtr::new(4096);
+    let mut ctr2: Hermes = Hermes::new(4096);
     match ctr2.parse("$0") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 5; }
@@ -23,7 +23,7 @@ unsafe fn main() -> i32 {
     if root2.param_index() != 0 as u32 { return 7; }
 
     // ── 3. $N in array ────────────────────────────────────────────────────
-    let mut ctr3: HermesCtr = HermesCtr::new(4096);
+    let mut ctr3: Hermes = Hermes::new(4096);
     match ctr3.parse("[$0, $1]") {
         Result::Ok(()) => {}
         Result::Err(_) => { return 8; }

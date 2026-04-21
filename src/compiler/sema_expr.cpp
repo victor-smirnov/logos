@@ -114,7 +114,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             ? resolve_type(map_of(expr.get(la::TYPE.code)))
             : error_t();
 
-        // ── Hermes typed container casts: &[T] as <I32>[] → HermesCtr. ──────
+        // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────
         if (target && target->kind == LogosType::Kind::Struct &&
             (target->struct_name == "HermesArr" || target->struct_name == "HermesMap")) {
             if (target->struct_name == "HermesArr") {
@@ -155,12 +155,12 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                                       "supported: i32/I32, u64/U64", type_str(elem_t)));
                     return error_expr();
                 }
-                // Result type: HermesCtr.
-                auto* ctr_t = lookup_type_by_name("HermesCtr");
+                // Result type: Hermes.
+                auto* ctr_t = lookup_type_by_name("Hermes");
                 if (!ctr_t) {
                     LogosType t{};
                     t.kind = LogosType::Kind::Struct;
-                    t.struct_name = "HermesCtr";
+                    t.struct_name = "Hermes";
                     ctr_t = pool_.alloc(std::move(t));
                 }
                 return make_expr(ctr_t,
@@ -203,11 +203,11 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                         key_str, val_str));
                     return error_expr();
                 }
-                auto* ctr_t = lookup_type_by_name("HermesCtr");
+                auto* ctr_t = lookup_type_by_name("Hermes");
                 if (!ctr_t) {
                     LogosType t{};
                     t.kind = LogosType::Kind::Struct;
-                    t.struct_name = "HermesCtr";
+                    t.struct_name = "Hermes";
                     ctr_t = pool_.alloc(std::move(t));
                 }
                 return make_expr(ctr_t,
@@ -3388,7 +3388,7 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
 }
 
 // Hermes list comprehension:  @[expr for x in iter_expr (if guard)?]
-// Desugars to a block that builds a HermesCtr whose root is an
+// Desugars to a block that builds a Hermes whose root is an
 // ObjectArray of AnyVals, iterating over iter_expr and optionally
 // filtering by guard.  Element expression must evaluate to AnyVal
 // (user coerces scalars explicitly via AnyVal::embed_i24 etc.).
@@ -3420,7 +3420,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    if (structs_.find("HermesCtr") == structs_.end()) {
+    if (structs_.find("Hermes") == structs_.end()) {
         error("hermes list comprehension requires `use hermes.ctr;`");
         return error_expr();
     }
@@ -3436,7 +3436,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    const LogosType* ctr_t = make_struct_type("HermesCtr");
+    const LogosType* ctr_t = make_struct_type("Hermes");
 
     std::string ctr_var = "__hlc_c_" + std::to_string(tmp_var_count_++);
 
@@ -3556,7 +3556,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         return error_expr();
     }
 
-    if (structs_.find("HermesCtr") == structs_.end()) {
+    if (structs_.find("Hermes") == structs_.end()) {
         error("hermes map comprehension requires `use hermes.ctr;`");
         return error_expr();
     }
@@ -3572,7 +3572,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         return error_expr();
     }
 
-    const LogosType* ctr_t = make_struct_type("HermesCtr");
+    const LogosType* ctr_t = make_struct_type("Hermes");
 
     std::string ctr_var = "__hmc_c_" + std::to_string(tmp_var_count_++);
 
@@ -5148,8 +5148,8 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
         lit.capture_types = std::move(ctx.types);
         lit.capture_param_count = ctx.next_slot;
     }
-    // Type: HermesStatic for static blobs; HermesCtr for captures (codegen handles both).
-    auto* result_type = lit.has_captures ? make_struct_type("HermesCtr") : make_struct_type("HermesStatic");
+    // Type: HermesStatic for static blobs; Hermes for captures (codegen handles both).
+    auto* result_type = lit.has_captures ? make_struct_type("Hermes") : make_struct_type("HermesStatic");
     return make_expr(result_type, std::move(lit));
 }
 

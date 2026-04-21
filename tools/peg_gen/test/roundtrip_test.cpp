@@ -14,7 +14,7 @@
 #include <string_view>
 
 using logos::hermes::HermesParser;
-using logos::hermes::HermesCtr;
+using logos::hermes::Hermes;
 using logos::hermes::TinyMapView;
 using logos::hermes::ArrayView;
 using logos::hermes::StringView;
@@ -25,7 +25,7 @@ namespace ha = logos::hermes::hermes_ast;
 // ── Navigation helpers ───────────────────────────────────────────────────────
 
 // Root node of a parsed document as TinyMapView.
-static TinyMapView root_node(HermesCtr& doc) {
+static TinyMapView root_node(Hermes& doc) {
     return doc.root_object().as_tiny_map();
 }
 

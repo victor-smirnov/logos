@@ -32,7 +32,7 @@
 // Cross-reactor ownership rules:
 // - Lambda captures must be by move only — no & captures of reactor-local state.
 // - After move, the source reactor must not access the moved object.
-// - Own<HermesCtr> may be moved across reactors (atomic refcount in MemHolder).
+// - Own<Hermes> may be moved across reactors (atomic refcount in MemHolder).
 // - Sealed arenas (Arena::seal()) may be shared read-only across reactors.
 // - POD types are always safe to send.
 // - The return value is moved back to the calling reactor.

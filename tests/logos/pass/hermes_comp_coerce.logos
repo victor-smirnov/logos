@@ -10,15 +10,15 @@ fn main() -> i32 {
     let xs: [i32; 4] = [1, 2, 3, 4];
 
     // List comprehension with raw i32 value (auto-coerced to AnyVal).
-    let la: HermesCtr = @[x * x for x in xs];
+    let la: Hermes = @[x * x for x in xs];
 
     // Bool value, auto-coerced.
-    let lb: HermesCtr = @[(x % 2) == 0 for x in xs];
+    let lb: Hermes = @[(x % 2) == 0 for x in xs];
 
     // Map with string values — auto-coerced to Varchar in the zone.
     let keys: [str; 3] = ["a", "b", "c"];
     let idx:  [i32; 3] = [0, 1, 2];
-    let md: HermesCtr = @{keys[x as i64]: "val" for x in idx};
+    let md: Hermes = @{keys[x as i64]: "val" for x in idx};
 
     unsafe {
         // la: [1, 4, 9, 16]

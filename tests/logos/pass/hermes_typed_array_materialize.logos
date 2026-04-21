@@ -14,7 +14,7 @@ use hermes.stringify;
 use std.string;
 
 unsafe fn main() -> i32 {
-    let mut doc: HermesCtr = HermesCtr::new(4096);
+    let mut doc: Hermes = Hermes::new(4096);
     match doc.parse("<I32>[10,20,30]" as *const u8, 15 as i64) {
         Result::Ok(())  => {}
         Result::Err(_)  => { return 1; }

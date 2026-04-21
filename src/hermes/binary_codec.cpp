@@ -17,14 +17,14 @@ namespace logos::hermes {
 
 class BinaryEncoder {
 public:
-    void encode_document(const HermesCtr& doc) noexcept {
+    void encode_document(const Hermes& doc) noexcept {
         LOGOS_ASSERT(doc.has_root(), "HERMES-BINARY-001",
             "Cannot encode a document without a root");
 
-        base_ = HermesCtrAccess::base(doc);
+        base_ = HermesAccess::base(doc);
 
         // Encode root object from its arena location.
-        const auto* root_bytes = static_cast<const uint8_t*>(HermesCtrAccess::root<void>(doc));
+        const auto* root_bytes = static_cast<const uint8_t*>(HermesAccess::root<void>(doc));
         encode_tagged_object(root_bytes);
     }
 
@@ -199,10 +199,10 @@ public:
     BinaryDecoder(const uint8_t* data, size_t size) noexcept
         : data_(data), size_(size), pos_(0) {}
 
-    logos::expected<HermesCtr> decode() noexcept {
+    logos::expected<Hermes> decode() noexcept {
         LOGOS_TRY(auto doc, make_doc());
-        LOGOS_TRY(auto* root, decode_tagged_object(HermesCtrAccess::arena(doc)));
-        HermesCtrAccess::set_root_offset(doc, HermesCtrAccess::offset_of(doc, root));
+        LOGOS_TRY(auto* root, decode_tagged_object(HermesAccess::arena(doc)));
+        HermesAccess::set_root_offset(doc, HermesAccess::offset_of(doc, root));
         return doc;
     }
 
@@ -437,13 +437,13 @@ private:
 // Public API
 // ============================================================================
 
-logos::expected<std::vector<uint8_t>> binary_encode(const HermesCtr& doc) noexcept {
+logos::expected<std::vector<uint8_t>> binary_encode(const Hermes& doc) noexcept {
     BinaryEncoder encoder;
     encoder.encode_document(doc);
     return std::move(encoder.output());
 }
 
-logos::expected<HermesCtr> binary_decode(const uint8_t* data, size_t size) noexcept {
+logos::expected<Hermes> binary_decode(const uint8_t* data, size_t size) noexcept {
     BinaryDecoder decoder(data, size);
     return decoder.decode();
 }

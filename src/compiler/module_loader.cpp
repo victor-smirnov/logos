@@ -44,7 +44,7 @@ static std::string read_file(const std::string& path) {
 
 // Extract use declarations from a parsed module AST.
 // Returns dotted package paths (e.g. "std.io").
-static std::vector<std::string> extract_uses(hermes::HermesCtrView ast) {
+static std::vector<std::string> extract_uses(hermes::HermesView ast) {
     std::vector<std::string> result;
     auto holder = ast.holder();
     auto root = ast.root_object().as_tiny_map();

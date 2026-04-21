@@ -105,7 +105,7 @@ struct GrammarInfo {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GrammarReader — navigates HermesCtr grammar document → GrammarInfo
+// GrammarReader — navigates Hermes grammar document → GrammarInfo
 // ═══════════════════════════════════════════════════════════════════════════
 
 static std::string read_str(AnyVal val, MemHolder* h) {
@@ -130,7 +130,7 @@ static std::string to_pascal(const std::string& snake) {
 
 class GrammarReader {
 public:
-    static GrammarInfo read(const logos::hermes::HermesCtrView& doc,
+    static GrammarInfo read(const logos::hermes::HermesView& doc,
                             const std::vector<ResolvedModule>&  all_modules) {
         GrammarInfo g;
         MemHolder* h = doc.holder();
@@ -620,7 +620,7 @@ private:
         if (!g_.exports.empty()) {
             w.line("// Entry points for exported rules.");
             for (const auto& e : g_.exports)
-                w.fmt("logos::hermes::HermesCtr parse_{}();", e);
+                w.fmt("logos::hermes::Hermes parse_{}();", e);
             w.line();
         }
 
@@ -677,7 +677,7 @@ private:
         }
 
         w.line();
-        w.line("logos::hermes::HermesCtr doc_;");
+        w.line("logos::hermes::Hermes doc_;");
         w.line("std::string_view         source_;");
         w.line("size_t                   pos_ = 0;");
         w.line("uint32_t                 line_ = 1;  // current source line (1-based)");
@@ -1207,13 +1207,13 @@ private:
         w.line("// ── Public entry points ───────────────────────────────────────────────────");
         w.line();
         for (const auto& e : g_.exports) {
-            w.fmt("logos::hermes::HermesCtr {}::parse_{}() {{", parser_class_, e);
+            w.fmt("logos::hermes::Hermes {}::parse_{}() {{", parser_class_, e);
             w.indent();
             w.line("doc_ = logos::hermes::make_doc(524288).get();");
             w.fmt("AnyVal root = rule_{}();", e);
             w.fmt("LOGOS_ASSERT(!root.is_null(), \"{}-PARSE-001\", \"parse_{}: expected {}\");",
                   to_upper(g_.name), e, e);
-            w.line("logos::hermes::HermesCtrAccess::set_root_offset(doc_, root.to_offset());");
+            w.line("logos::hermes::HermesAccess::set_root_offset(doc_, root.to_offset());");
             w.line("return std::move(doc_);");
             w.dedent();
             w.line("}");
@@ -1353,7 +1353,7 @@ private:
         w.line("have_la_  = saved_la;");
         w.line("la_       = saved_tok_;");
         w.line("line_     = saved_line_;");
-        w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
+        w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
         w.dedent();
         w.line("}");
         w.line();
@@ -1439,7 +1439,7 @@ private:
                 w.line("}");
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_; line_ = opt_line_;");
-                w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
+                w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
                 w.fmt("{}: ;", done_lbl);
                 w.dedent();
                 w.line("}");
@@ -1465,7 +1465,7 @@ private:
             w.line("}");
             w.fmt("{}: ;", fail_lbl);
             w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_; line_ = opt_line_;");
-            w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
+            w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
             w.fmt("{}: ;", done_lbl);
             w.dedent();
             w.line("}");
@@ -1506,7 +1506,7 @@ private:
                 }
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
-                w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
+                w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
                 w.line("break;");
                 w.dedent();
                 w.line("}");
@@ -1538,7 +1538,7 @@ private:
                 }
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
-                w.line("// arena_rollback suppressed — AST lives until HermesCtr destruction");
+                w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
                 w.line("break;");
                 w.dedent();
                 w.line("}");
@@ -1683,7 +1683,7 @@ private:
                      const std::vector<std::string>& captures,
                      const std::string& out_cap = "") {
         int slot_count = int(action.fields.size()) + 2; // +1 for CODE, +1 for SRC_LINE
-        w.fmt("auto* node = logos::hermes::HermesCtrAccess::raw_tiny_map(doc_, {}).get();", slot_count);
+        w.fmt("auto* node = logos::hermes::HermesAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
         for (const auto& field : action.fields) {
             const auto& expr = field.expr;
@@ -1709,7 +1709,7 @@ private:
                 // rule captures hold arena object offsets.
                 size_t idx = size_t(expr.index);
                 if (idx < captures.size() && !captures[idx].empty()) {
-                    w.fmt("node->put({}, {}, logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+                    w.fmt("node->put({}, {}, logos::hermes::HermesAccess::arena(doc_)).get();",
                           field_const, captures[idx]);
                 } else {
                     w.fmt("// {} : ${}  — capture index out of range", field.name, idx);
@@ -1720,7 +1720,7 @@ private:
             case int32_t(ast::FOLD_CAPTURE): {
                 // $0 — the fold accumulator: the result of the preceding sequence item.
                 if (!cur_fold_var_.empty()) {
-                    w.fmt("node->put({}, {}, logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+                    w.fmt("node->put({}, {}, logos::hermes::HermesAccess::arena(doc_)).get();",
                           field_const, cur_fold_var_);
                 } else {
                     w.fmt("// {} : $0  — no fold context (FOLD_CAPTURE outside fold REP)", field.name);
@@ -1732,26 +1732,26 @@ private:
                 // $... — use the rule-captures collector built during item matching.
                 // rcap_VAR was declared before the items and populated by every RULE_REF.
                 // TOKEN_REF captures are NOT included — they're structural punctuation.
-                w.fmt("node->put({}, {}.to_anyval(), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+                w.fmt("node->put({}, {}.to_anyval(), logos::hermes::HermesAccess::arena(doc_)).get();",
                       field_const, rcap_var_);
                 break;
             }
 
             case int32_t(ast::STR_LIT): {
                 // Symbolic name (e.g. MAP_NODE) → NamedCode value.
-                w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+                w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::hermes::HermesAccess::arena(doc_)).get();",
                       field_const, ast_ns_, expr.value);
                 break;
             }
 
             case int32_t(ast::INT_LIT): {
-                w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+                w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::hermes::HermesAccess::arena(doc_)).get();",
                       field_const, expr.int_val);
                 break;
             }
 
             case int32_t(ast::BOOL_LIT): {
-                w.fmt("node->put({}, AnyVal::from_value(uint8_t({})), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+                w.fmt("node->put({}, AnyVal::from_value(uint8_t({})), logos::hermes::HermesAccess::arena(doc_)).get();",
                       field_const, expr.int_val);
                 break;
             }
@@ -1762,12 +1762,12 @@ private:
             }
         }
         // Emit SRC_LINE (source line number of the first token — always present).
-        w.fmt("node->put({}::SRC_LINE, AnyVal::from_value(first_line_), logos::hermes::HermesCtrAccess::arena(doc_)).get();",
+        w.fmt("node->put({}::SRC_LINE, AnyVal::from_value(first_line_), logos::hermes::HermesAccess::arena(doc_)).get();",
               ast_ns_);
         w.line("{");
         w.indent();
         w.line("AnyVal result_;");
-        w.line("result_.set_pointer(node, logos::hermes::HermesCtrAccess::base(doc_));");
+        w.line("result_.set_pointer(node, logos::hermes::HermesAccess::base(doc_));");
         if (out_cap.empty())
             w.line("return result_;");
         else

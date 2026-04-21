@@ -95,7 +95,7 @@ See `hermes-abi.json` for the complete machine-readable type registry. Summary:
 | Double      | double          | 31       | 2 bytes  |
 | Boolean     | bool            | 37       | 2 bytes  |
 | Varchar     | U8StringView    | 28       | 2 bytes  |
-| Hermes      | HermesCtr       | 98       | 2 bytes  |
+| Hermes      | Hermes       | 98       | 2 bytes  |
 | Uid256      | UID256          | 40       | 2 bytes  |
 | Uid64       | uint64_t        | 42       | 2 bytes  |
 
