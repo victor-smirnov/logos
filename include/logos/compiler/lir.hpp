@@ -723,9 +723,16 @@ struct LTypeAlias {
 // Metadata bound to a generic instantiation via an explicit instantiation declaration.
 // E.g.: #[type_code=42] datatype Array<i32>;
 struct LInstAnnotation {
-    std::string canonical_name;  // fully-qualified canonical type string, e.g. "pkg::Array<i32>"
-    std::string mangled_name;    // concrete struct name after monomorphization, e.g. "Array$G1$i32"
-    uint64_t    type_code = 0;   // 0 = not specified
+    std::string       canonical_name;  // fully-qualified canonical type string, e.g. "pkg::Array<i32>"
+    std::string       mangled_name;    // concrete struct name after monomorphization, e.g. "Array$G1$i32"
+    uint64_t          type_code = 0;   // 0 = not specified
+    // Pointer to the concrete LogosType for this instantiation (owned by type_pool).
+    // Non-null when the annotation was created from a #[type_code=N] eidos Foo<T>;
+    // declaration that had a resolved target type available at sema time.
+    // Used by mono to demand struct instantiation even when no Logos code references
+    // Foo<T> directly (e.g. blob literals like @<I32>[...] produce type_code-tagged
+    // objects at C++ level without instantiating the Logos struct).
+    const LogosType*  struct_type = nullptr;
 };
 
 // One entry in a tag-based dispatch table.

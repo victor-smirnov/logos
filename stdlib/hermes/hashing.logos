@@ -95,7 +95,43 @@ impl HermesHash for HermesString {
 
 // ── Raw primitive scalars (used by Array<T> blanket when T is known) ──────
 
+impl HermesHash for i8 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
+    }
+}
+
+impl HermesHash for u8 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
+    }
+}
+
+impl HermesHash for i16 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
+    }
+}
+
+impl HermesHash for u16 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
+    }
+}
+
 impl HermesHash for i32 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
+    }
+}
+
+impl HermesHash for u32 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
+    }
+}
+
+impl HermesHash for i64 {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
     }
@@ -104,6 +140,18 @@ impl HermesHash for i32 {
 impl HermesHash for u64 {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe { return fnv_mix_u64(fnv_init(), *self); }
+    }
+}
+
+impl HermesHash for f32 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
+    }
+}
+
+impl HermesHash for f64 {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe { return fnv_mix_u64(fnv_init(), *self as u64); }
     }
 }
 

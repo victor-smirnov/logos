@@ -1824,6 +1824,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         // (`type_code_of::<Foo<i32>>()`) resolve to the annotated code.
                         if (ia.type_code != 0)
                             explicit_type_codes_[ia.canonical_name] = ia.type_code;
+                        // Store resolved type so mono can demand struct instantiation
+                        // even when no Logos code references this type directly.
+                        ia.struct_type = resolved;
                         prog.inst_annotations.push_back(std::move(ia));
                     }
                 }

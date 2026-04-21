@@ -88,15 +88,63 @@ impl HermesEqual for HermesString {
 
 // ── Raw primitive scalars (used by Array<T> blanket when T is known) ───────
 
+impl HermesEqual for i8 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const i8); }
+    }
+}
+
+impl HermesEqual for u8 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *other; }
+    }
+}
+
+impl HermesEqual for i16 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const i16); }
+    }
+}
+
+impl HermesEqual for u16 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const u16); }
+    }
+}
+
 impl HermesEqual for i32 {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe { return *self == *(other as *const i32); }
     }
 }
 
+impl HermesEqual for u32 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const u32); }
+    }
+}
+
+impl HermesEqual for i64 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const i64); }
+    }
+}
+
 impl HermesEqual for u64 {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe { return *self == *(other as *const u64); }
+    }
+}
+
+impl HermesEqual for f32 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const f32); }
+    }
+}
+
+impl HermesEqual for f64 {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe { return *self == *(other as *const f64); }
     }
 }
 

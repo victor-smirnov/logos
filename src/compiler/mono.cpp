@@ -153,6 +153,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     }
     depth_ = 0;
 
+    // Demand instantiation of generic structs declared via #[type_code=N] eidos Foo<T>;
+    // even when no Logos code directly references Foo<T> as a variable type.
+    // This ensures that blanket trait-impl methods (e.g. `impl<T> HermesStringify for
+    // Array<T>`) get cloned into those structs so tag-dispatch entries can be emitted
+    // for blob-literal types like @<I32>[...] (which are produced at C++ level without
+    // ever instantiating the Logos struct in user code).
+    for (auto& ia : out_.inst_annotations) {
+        if (ia.struct_type && !ia.mangled_name.empty() &&
+                ia.mangled_name.find("$G") != std::string::npos) {
+            record_needed_struct(ia.struct_type);
+        }
+    }
+
     // Instantiate all generic structs referenced by the output.
     instantiate_struct_templates();
 

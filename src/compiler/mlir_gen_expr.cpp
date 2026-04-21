@@ -2273,10 +2273,16 @@ static uint32_t build_typed_array_scalar(const lir::HVArray& arr,
 
 static uint32_t build_array(const lir::HVArray& arr,
                             logos::hermes::Hermes& doc) {
-    if (arr.elem_type == "I32")
-        return build_typed_array_scalar<int32_t>(arr, doc);
-    if (arr.elem_type == "U64")
-        return build_typed_array_scalar<uint64_t>(arr, doc);
+    if (arr.elem_type == "I8")  return build_typed_array_scalar<int8_t>(arr, doc);
+    if (arr.elem_type == "U8")  return build_typed_array_scalar<uint8_t>(arr, doc);
+    if (arr.elem_type == "I16") return build_typed_array_scalar<int16_t>(arr, doc);
+    if (arr.elem_type == "U16") return build_typed_array_scalar<uint16_t>(arr, doc);
+    if (arr.elem_type == "I32") return build_typed_array_scalar<int32_t>(arr, doc);
+    if (arr.elem_type == "U32") return build_typed_array_scalar<uint32_t>(arr, doc);
+    if (arr.elem_type == "I64") return build_typed_array_scalar<int64_t>(arr, doc);
+    if (arr.elem_type == "U64") return build_typed_array_scalar<uint64_t>(arr, doc);
+    if (arr.elem_type == "F32") return build_typed_array_scalar<float>(arr, doc);
+    if (arr.elem_type == "F64") return build_typed_array_scalar<double>(arr, doc);
     return build_object_array(arr, doc);
 }
 

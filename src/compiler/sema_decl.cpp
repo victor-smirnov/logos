@@ -631,6 +631,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 lir::LInstAnnotation ia;
                 ia.mangled_name = target;
                 ia.type_code    = td.type_code;
+                ia.struct_type  = target_resolved;  // for mono struct demand
                 // Derive canonical "pkg::BaseName<Args>" from the target type
                 // (use target_resolved captured earlier — always set when the
                 // target is a concrete generic instantiation, i.e. this path).

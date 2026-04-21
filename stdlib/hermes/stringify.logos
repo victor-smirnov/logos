@@ -159,55 +159,6 @@ impl HermesStringify for AnyVal {
     }
 }
 
-impl HermesStringify for Array<i32> {
-    pub fn stringify(&self, ctx: *mut StringifyCtx) {
-        unsafe {
-            let arr: *const Array<i32> = self as *const Array<i32>;
-            ctx.out.push_u8(60);   // '<'
-            ctx.out.push_u8(73);   // 'I'
-            ctx.out.push_u8(51);   // '3'
-            ctx.out.push_u8(50);   // '2'
-            ctx.out.push_u8(62);   // '>'
-            ctx.out.push_u8(32);   // ' '
-            ctx.out.push_u8(91);   // '['
-
-            let mut i: u64 = 0;
-            while i < arr.size {
-                if i > 0 { ctx.out.push_u8(44); }
-                let buf: *const i32 = ctx.base.byte_add(arr.data.offset) as *const i32;
-                let ep: *const i32 = buf.add(i as i64);
-                ctx.out.push_i64(*ep as i64);
-                i = i + 1;
-            }
-            ctx.out.push_u8(93);   // ']'
-        }
-    }
-}
-
-impl HermesStringify for Array<u64> {
-    pub fn stringify(&self, ctx: *mut StringifyCtx) {
-        unsafe {
-            let arr: *const Array<u64> = self as *const Array<u64>;
-            ctx.out.push_u8(60);   // '<'
-            ctx.out.push_u8(85);   // 'U'
-            ctx.out.push_u8(54);   // '6'
-            ctx.out.push_u8(52);   // '4'
-            ctx.out.push_u8(62);   // '>'
-            ctx.out.push_u8(32);   // ' '
-            ctx.out.push_u8(91);   // '['
-
-            let mut i: u64 = 0;
-            while i < arr.size {
-                if i > 0 { ctx.out.push_u8(44); }
-                let buf: *const u64 = ctx.base.byte_add(arr.data.offset) as *const u64;
-                let ep: *const u64 = buf.add(i as i64);
-                ctx.out.push_u64(*ep);
-                i = i + 1;
-            }
-            ctx.out.push_u8(93);   // ']'
-        }
-    }
-}
 
 // ── MapKeyStringify — bridge trait for Map<K, AnyVal> stringify ────────────
 //
@@ -398,6 +349,34 @@ impl ArrayElemTag for AnyVal {
     unsafe fn emit_tag(self: *const AnyVal, _out: *mut String) {}
 }
 
+impl ArrayElemTag for i8 {
+    unsafe fn emit_tag(self: *const i8, out: *mut String) {
+        out.push_u8(60); out.push_u8(73); out.push_u8(56); out.push_u8(62); out.push_u8(32);
+        // '<' 'I' '8' '>' ' '
+    }
+}
+
+impl ArrayElemTag for u8 {
+    unsafe fn emit_tag(self: *const u8, out: *mut String) {
+        out.push_u8(60); out.push_u8(85); out.push_u8(56); out.push_u8(62); out.push_u8(32);
+        // '<' 'U' '8' '>' ' '
+    }
+}
+
+impl ArrayElemTag for i16 {
+    unsafe fn emit_tag(self: *const i16, out: *mut String) {
+        out.push_u8(60); out.push_u8(73); out.push_u8(49); out.push_u8(54); out.push_u8(62); out.push_u8(32);
+        // '<' 'I' '1' '6' '>' ' '
+    }
+}
+
+impl ArrayElemTag for u16 {
+    unsafe fn emit_tag(self: *const u16, out: *mut String) {
+        out.push_u8(60); out.push_u8(85); out.push_u8(49); out.push_u8(54); out.push_u8(62); out.push_u8(32);
+        // '<' 'U' '1' '6' '>' ' '
+    }
+}
+
 impl ArrayElemTag for i32 {
     unsafe fn emit_tag(self: *const i32, out: *mut String) {
         out.push_u8(60);   // '<'
@@ -406,6 +385,20 @@ impl ArrayElemTag for i32 {
         out.push_u8(50);   // '2'
         out.push_u8(62);   // '>'
         out.push_u8(32);   // ' '
+    }
+}
+
+impl ArrayElemTag for u32 {
+    unsafe fn emit_tag(self: *const u32, out: *mut String) {
+        out.push_u8(60); out.push_u8(85); out.push_u8(51); out.push_u8(50); out.push_u8(62); out.push_u8(32);
+        // '<' 'U' '3' '2' '>' ' '
+    }
+}
+
+impl ArrayElemTag for i64 {
+    unsafe fn emit_tag(self: *const i64, out: *mut String) {
+        out.push_u8(60); out.push_u8(73); out.push_u8(54); out.push_u8(52); out.push_u8(62); out.push_u8(32);
+        // '<' 'I' '6' '4' '>' ' '
     }
 }
 
@@ -420,17 +413,79 @@ impl ArrayElemTag for u64 {
     }
 }
 
+impl ArrayElemTag for f32 {
+    unsafe fn emit_tag(self: *const f32, out: *mut String) {
+        out.push_u8(60); out.push_u8(70); out.push_u8(51); out.push_u8(50); out.push_u8(62); out.push_u8(32);
+        // '<' 'F' '3' '2' '>' ' '
+    }
+}
+
+impl ArrayElemTag for f64 {
+    unsafe fn emit_tag(self: *const f64, out: *mut String) {
+        out.push_u8(60); out.push_u8(70); out.push_u8(54); out.push_u8(52); out.push_u8(62); out.push_u8(32);
+        // '<' 'F' '6' '4' '>' ' '
+    }
+}
+
 // Primitive HermesStringify impls — used when T is statically known
 // (e.g. Array<i32> element formatting); no tag dispatch needed.
+impl HermesStringify for i8 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_i64(*self as i64); }
+    }
+}
+
+impl HermesStringify for u8 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_u64(*self as u64); }
+    }
+}
+
+impl HermesStringify for i16 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_i64(*self as i64); }
+    }
+}
+
+impl HermesStringify for u16 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_u64(*self as u64); }
+    }
+}
+
 impl HermesStringify for i32 {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe { ctx.out.push_i64(*self as i64); }
     }
 }
 
+impl HermesStringify for u32 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_u64(*self as u64); }
+    }
+}
+
+impl HermesStringify for i64 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_i64(*self); }
+    }
+}
+
 impl HermesStringify for u64 {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe { ctx.out.push_u64(*self); }
+    }
+}
+
+impl HermesStringify for f32 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_i64(*self as i64); }
+    }
+}
+
+impl HermesStringify for f64 {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe { ctx.out.push_i64(*self as i64); }
     }
 }
 

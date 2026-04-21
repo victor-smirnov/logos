@@ -39,5 +39,13 @@ impl HermesRelease for DocumentHeader  { pub fn release(&self) {} }
 impl HermesRelease for I64             { pub fn release(&self) {} }
 impl HermesRelease for U64             { pub fn release(&self) {} }
 impl HermesRelease for Decimal         { pub fn release(&self) {} }
+impl HermesRelease for i8              { pub fn release(&self) {} }
+impl HermesRelease for u8              { pub fn release(&self) {} }
+impl HermesRelease for i16             { pub fn release(&self) {} }
+impl HermesRelease for u16             { pub fn release(&self) {} }
 impl HermesRelease for i32             { pub fn release(&self) {} }
+impl HermesRelease for u32             { pub fn release(&self) {} }
+impl HermesRelease for i64             { pub fn release(&self) {} }
 impl HermesRelease for u64             { pub fn release(&self) {} }
+impl HermesRelease for f32             { pub fn release(&self) {} }
+impl HermesRelease for f64             { pub fn release(&self) {} }
