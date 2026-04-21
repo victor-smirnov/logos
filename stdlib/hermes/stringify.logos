@@ -207,10 +207,10 @@ impl HermesStringify for Array<u64> {
     }
 }
 
-impl HermesStringify for MapI32AnyVal {
+impl HermesStringify for Map<i32, AnyVal> {
     pub fn stringify(&self, ctx: *mut StringifyCtx) {
         unsafe {
-            let m: *const MapI32AnyVal = self;
+            let m: *const Map<i32, AnyVal> = self;
             ctx.out.push_u8(60);   // '<'
             ctx.out.push_u8(73);   // 'I'
             ctx.out.push_u8(51);   // '3'

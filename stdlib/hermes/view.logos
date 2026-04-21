@@ -507,12 +507,12 @@ pub trait HermesWrite: HermesRead {
         }
     }
 
-    // ── Typed map builder (MapI32AnyVal) ─────────────────────────────────────
+    // ── Typed map builder (Map<i32, AnyVal>) ─────────────────────────────────────
 
     fn build_map_i32_anyval(self: &mut Self, cap: u32) -> AnyVal {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
-            let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
+            let hdr_sz: i64 = sizeof::<Map<i32, AnyVal>>() as i64;
             let key_bytes: i64 = (cap as i64) * 4;
             let val_bytes: i64 = (cap as i64) * 4;
             // Each alloc may realloc the zone; stash offsets immediately.
@@ -532,7 +532,7 @@ pub trait HermesWrite: HermesRead {
                                        hermes_tag_map_i32_anyval() as u64);
             if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
-            let m: *mut MapI32AnyVal = hdr_raw as *mut MapI32AnyVal;
+            let m: *mut Map<i32, AnyVal> = hdr_raw as *mut Map<i32, AnyVal>;
             m.size     = 0;
             m.capacity = cap;
             m.keys.offset = keys_off;
@@ -550,8 +550,8 @@ pub trait HermesWrite: HermesRead {
             if map.is_null() { return; }
             let obj: *const u8 = (base as i64 + map.as_offset() as i64) as *const u8;
             if read_type_code(obj) != hermes_tag_map_i32_anyval() as u64 { return; }
-            let m: *mut MapI32AnyVal =
-                (base as i64 + map.as_offset() as i64) as *mut MapI32AnyVal;
+            let m: *mut Map<i32, AnyVal> =
+                (base as i64 + map.as_offset() as i64) as *mut Map<i32, AnyVal>;
             m.set(base, key, val);
         }
     }

@@ -21,7 +21,7 @@ unsafe fn main() -> i32 {
     let o1: *const u8 = (b1 as i64 + r1.as_offset() as i64) as *const u8;
     if read_type_code(o1) != 105 as u64 { return 3; }
 
-    let m1: *const MapI32AnyVal = o1 as *const MapI32AnyVal;
+    let m1: *const Map<i32, AnyVal> = o1 as *const Map<i32, AnyVal>;
     if m1.size != 2 as u32 { return 4; }
 
     let k0: i32 = *((b1 as i64 + m1.keys.offset as i64 + 0 as i64 * 4 as i64) as *const i32);

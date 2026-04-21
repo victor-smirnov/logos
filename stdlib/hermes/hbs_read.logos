@@ -374,7 +374,7 @@ unsafe fn deser_apply_value(ctx: *mut DeserCtx, val: AnyVal) -> bool {
     }
 
     if top.kind == FR_MI32_VAL {
-        let m: *mut MapI32AnyVal = (base as i64 + top.zone_off as i64) as *mut MapI32AnyVal;
+        let m: *mut Map<i32, AnyVal> = (base as i64 + top.zone_off as i64) as *mut Map<i32, AnyVal>;
         let vals_ptr: *mut AnyVal = (base as i64 + m.vals.offset) as *mut AnyVal;
         let ep: *mut AnyVal = (vals_ptr as i64 + top.idx as i64 * 4) as *mut AnyVal;
         ep.raw = val.raw;
@@ -643,7 +643,7 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         return AnyVal::from_offset(off);
     }
 
-if lead == 0x60 {
+    if lead == 0x60 {
         let v: u64 = deser_read_u64(ctx);
         if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
         let sz: i64 = sizeof::<I64>() as i64;
@@ -729,10 +729,10 @@ if lead == 0x60 {
     }
 
     if lead == 0x63 {
-        // MapI32AnyVal
+        // Map<i32, AnyVal>
         let count: u32 = deser_read_u32(ctx);
         if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
-        let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
+        let hdr_sz: i64 = sizeof::<Map<i32, AnyVal>>() as i64;
         let raw: *mut u8 = alloc_tagged_in_zone(ctx, hdr_sz, hermes_tag_map_i32_anyval());
         if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let hdr_off: u32 = (raw as i64 - ctx.zone.holder.base as i64) as u32;
@@ -751,7 +751,7 @@ if lead == 0x60 {
             return AnyVal::null_ptr();
         }
         let base: *mut u8 = ctx.zone.holder.base;
-        let m: *mut MapI32AnyVal = (base as i64 + hdr_off) as *mut MapI32AnyVal;
+        let m: *mut Map<i32, AnyVal> = (base as i64 + hdr_off) as *mut Map<i32, AnyVal>;
         m.size = count;
         m.capacity = count;
         m.keys.offset = keys_off;

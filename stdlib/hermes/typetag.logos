@@ -19,7 +19,7 @@
 //   100 = ObjectArray
 //   101 = ObjectMap  (Logos open-addressing version)
 //   104 = Array<i32> (<I32>[...], dense primitive array)
-//   105 = MapI32AnyVal (<I32>{...} / <I32,AnyVal>{...})
+//   105 = Map<i32, AnyVal> (<I32>{...} / <I32,AnyVal>{...})
 //   106 = TypedValue (@Type(...)=initializer)
 //   107 = Decimal (fixed-precision decimal with inline limb tail)
 //   3   = Document   (Logos extension — DocumentHeader at zone offset 0)

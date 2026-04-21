@@ -505,15 +505,15 @@ impl HermesCheck for Array<i32> {
     }
 }
 
-// ── MapI32AnyVal (105): 16-byte header + capacity*4 keys + capacity*4 vals
+// ── Map<i32, AnyVal> (105): 16-byte header + capacity*4 keys + capacity*4 vals
 
-impl HermesCheck for MapI32AnyVal {
+impl HermesCheck for Map<i32, AnyVal> {
     pub fn check_obj(&self, state: *mut CheckState) -> bool {
         unsafe {
-            let m: *const MapI32AnyVal = self;
+            let m: *const Map<i32, AnyVal> = self;
             let obj: *const u8 = m as *const u8;
             let off: i64 = (obj as i64) - (state.base as i64);
-            let hdr_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
+            let hdr_sz: i64 = sizeof::<Map<i32, AnyVal>>() as i64;
             if !check_bounds(state, off - 1, 1 + hdr_sz) { return false; }
             if !check_mark(state,  off - 1, 1 + hdr_sz) { return false; }
             check_mark_start(state, off - 1);

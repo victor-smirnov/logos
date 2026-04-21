@@ -45,7 +45,7 @@ const WK_VAL:      u8 = 0;   // write the AnyVal stored in obj_off (as raw)
 const WK_ARR_IDX:  u8 = 1;   // write arr element at idx
 const WK_MAP_SLOT: u8 = 2;   // write ObjectMap slot from idx..cap
 const WK_TMAP_IDX: u8 = 3;   // write TinyObjectMap entry idx
-const WK_MI32_IDX: u8 = 4;   // write MapI32AnyVal entry idx
+const WK_MI32_IDX: u8 = 4;   // write Map<i32, AnyVal> entry idx
 
 pub eidos WriteItem {
     pub kind:    u8,
@@ -489,7 +489,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
     }
 
     if tag == hermes_tag_map_i32_anyval() as u64 {  // 105
-        let m: *const MapI32AnyVal = obj as *const MapI32AnyVal;
+        let m: *const Map<i32, AnyVal> = obj as *const Map<i32, AnyVal>;
         let sz: u32 = m.size;
         hbs_write_u8(buf, 0x63);
         hbs_write_u32(buf, sz);
@@ -661,7 +661,7 @@ unsafe fn process_wk_tmap_idx(ws: *mut HbsWriteState, obj_off: u32, idx: u32) {
 
 unsafe fn process_wk_mi32_idx(ws: *mut HbsWriteState, obj_off: u32, idx: u32) {
     let base: *const u8 = ws.base;
-    let m: *const MapI32AnyVal = (base as i64 + obj_off) as *const MapI32AnyVal;
+    let m: *const Map<i32, AnyVal> = (base as i64 + obj_off) as *const Map<i32, AnyVal>;
     let sz: u32 = m.size;
     if idx >= sz { return; }
     let next_idx: u32 = idx + 1;

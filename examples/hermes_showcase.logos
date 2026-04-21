@@ -225,7 +225,7 @@ pub fn main() -> i32 {
     ];
     let ms: MapSliceI32 = MapSliceI32 { keys: &keys, vals: &vals };
     let map_ctr: HermesCtr = ms as <I32, AnyVal>{};
-    print_doc("MapI32AnyVal", &map_ctr);
+    print_doc("Map<i32, AnyVal>", &map_ctr);
 
     // ------------------------------------------------------------------ //
     // 7. HermesCtrView — non-owning borrow over an existing HermesCtr    //

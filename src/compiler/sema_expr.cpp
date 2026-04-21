@@ -4191,6 +4191,44 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             if (git != nullptr) fi_ptr = git;
             }
         }
+        // Turbofish + concrete partial-spec impl: `Map::<i32, AnyVal>::init`
+        // where `impl Map<i32, AnyVal> { fn init }` registers methods under
+        // the mangled concrete name (e.g. `Map$G2$i32$AnyVal__init`).  If the
+        // base lookup missed, build the concrete mangled name from turbofish
+        // args and retry.
+        if (!fi_ptr && node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                std::vector<const LogosType*> tf_args;
+                bool all_concrete = true;
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto* t = resolve_type(map_of(items.get(i)));
+                    if (!t || t->kind == LogosType::Kind::TypeVar) { all_concrete = false; break; }
+                    tf_args.push_back(t);
+                }
+                if (all_concrete && !tf_args.empty()) {
+                    bool is_datatype = datatypes_.count(resolved_class) > 0;
+                    const LogosType* concrete_t = is_datatype
+                        ? make_generic_datatype(resolved_class, tf_args)
+                        : make_generic_struct(resolved_class, tf_args);
+                    std::string concrete_mangled = concrete_struct_name(concrete_t) + "__" + std::string(method_name);
+                    auto fit2 = find_func_by_base_and_signature(concrete_mangled, arg_types, false);
+                    if (fit2) { fi_ptr = fit2; mangled = concrete_mangled; }
+                    else {
+                        auto cands2 = find_func_candidates(concrete_mangled);
+                        if (cands2.size() == 1) { fi_ptr = cands2[0]; mangled = concrete_mangled; }
+                        else {
+                            for (auto* cand : cands2) {
+                                if (!cand || !cand->type_params.empty()) continue;
+                                if (cand->param_types.size() != arg_exprs.size()) continue;
+                                fi_ptr = cand; mangled = concrete_mangled; break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     if (!fi_ptr) {
         // Check if this is an associated constant access: TypeName::CONST_NAME
@@ -4930,8 +4968,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         }
         std::string lir_key_type;
         if (key_type == "I32") {
-            if (!datatypes_.count("MapI32AnyVal") &&
-                !type_aliases_.count("MapI32AnyVal")) {
+            if (!struct_specs_sema_.count("Map$G2$i32$AnyVal")) {
                 error("typed map @<I32>{...} requires 'use hermes.containers;'");
                 return nullptr;
             }

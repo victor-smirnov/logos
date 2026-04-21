@@ -883,7 +883,7 @@ impl HermesParser {
         self.pos = self.pos + 1;
 
         let cap: u32 = 64;
-        let map_sz: i64 = sizeof::<MapI32AnyVal>() as i64;
+        let map_sz: i64 = sizeof::<Map<i32, AnyVal>>() as i64;
         let map_raw: *mut u8 = zone_m_alloc_tagged(self.zone, map_sz,
                                    hermes_tag_map_i32_anyval() as u64);
         let keys_raw: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4);
@@ -892,7 +892,7 @@ impl HermesParser {
             self.ok = false;
             return AnyVal::null_ptr();
         }
-        let m: *mut MapI32AnyVal = MapI32AnyVal::init(map_raw, keys_raw, vals_raw, self.base, cap);
+        let m: *mut Map<i32, AnyVal> = Map::<i32, AnyVal>::init(map_raw, keys_raw, vals_raw, self.base, cap);
 
         self.skip();
         if self.peek() == 125 {  // '}'

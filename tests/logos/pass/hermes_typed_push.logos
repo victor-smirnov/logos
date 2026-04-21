@@ -1,5 +1,5 @@
 // Incremental push for typed Hermes containers:
-// Array<i32>, Array<u64>, MapI32AnyVal.
+// Array<i32>, Array<u64>, Map<i32, AnyVal>.
 package hermes_typed_push;
 
 use hermes.ctr;
@@ -45,7 +45,7 @@ unsafe fn main() -> i32 {
     if a64.size != 3 as u64 { return 5; }
     if *a64.get_ptr(base2, 2 as u64) != 3000 as u64 { return 6; }
 
-    // MapI32AnyVal
+    // Map<i32, AnyVal>
     let mut c3: HermesCtr = HermesCtr::builder(128 as i64);
     let mp: AnyVal = c3.build_map_i32_anyval(4 as u32);
     c3.set_root(mp);
@@ -53,7 +53,7 @@ unsafe fn main() -> i32 {
     c3.map_i32_anyval_set(mp, 2, AnyVal::embed_i24(200));
     c3.map_i32_anyval_set(mp, 1, AnyVal::embed_i24(111));  // update existing
     let base3: *const u8 = c3.base();
-    let mpp: *const MapI32AnyVal = (base3 as i64 + mp.as_offset() as i64) as *const MapI32AnyVal;
+    let mpp: *const Map<i32, AnyVal> = (base3 as i64 + mp.as_offset() as i64) as *const Map<i32, AnyVal>;
     if mpp.size != 2 as u32 { return 7; }
 
     return 42;

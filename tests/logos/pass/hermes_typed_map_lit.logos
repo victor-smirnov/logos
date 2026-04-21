@@ -18,7 +18,7 @@ unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
 pub unsafe fn main() -> i32 {
     let mut rc: i32 = 0;
 
-    // 1. @<I32,AnyVal>{1: 10, 2: 20} → MapI32AnyVal (tc=105)
+    // 1. @<I32,AnyVal>{1: 10, 2: 20} → Map<i32, AnyVal> (tc=105)
     let lit1: HermesStatic = @<I32,AnyVal>{1: 10, 2: 20};
     rc = check(&lit1, "<I32,AnyVal> {1:10,2:20}", 1);
     if rc != 0 { return rc; }

@@ -1833,6 +1833,28 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 // Datatype specialization (e.g. `pub eidos Map<Bitmap, V> { ... }`).
                 auto sd = lower_spec_struct(item);
                 sd.is_datatype = true;
+                // Apply #[type_code=N] annotations on full (all-concrete) specs.
+                // Without this, `impl Trait for Map<i32, AnyVal>` has no way to
+                // find the annotated code during dispatch-entry emission.
+                bool all_concrete = !sd.spec_patterns.empty();
+                for (auto* p : sd.spec_patterns)
+                    if (!p || p->kind == LogosType::Kind::TypeVar) { all_concrete = false; break; }
+                if (all_concrete) {
+                    for (auto& ann : pending_annots) {
+                        auto aname = std::string(str_of(ann.get(la::NAME.code)));
+                        if (aname == "type_code" && ann.has_key(la::VALUE)) {
+                            auto sv = str_of(ann.get(la::VALUE.code));
+                            sd.type_code = (uint64_t)parse_int_literal(sv);
+                            // Register mangled fqn so dispatch-entry lookup
+                            // (target = "Map$G2$i32$AnyVal") succeeds.
+                            auto* inst_type = make_generic_struct(sd.name, sd.spec_patterns);
+                            std::string mangled = concrete_struct_name(inst_type);
+                            auto fqn_mangled = cur_package_.empty()
+                                ? mangled : cur_package_ + "::" + mangled;
+                            explicit_type_codes_[fqn_mangled] = sd.type_code;
+                        }
+                    }
+                }
                 prog.struct_specializations.push_back(std::move(sd));
             } else {
                 // Normal datatype definition.

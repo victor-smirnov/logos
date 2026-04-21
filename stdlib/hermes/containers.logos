@@ -311,42 +311,37 @@ pub eidos Array<u64>;
 pub type ArrayU64 = Array<u64>;
 
 // ---------------------------------------------------------------------------
-// Pre-materialized typed map: <I32,AnyVal>{...}
+// Pre-materialized typed map: Map<i32, AnyVal>
 //
 // Dense key/value arrays with linear lookup/update.
-// Keys are i32, values are AnyVal.
+// Partial specialisation of Map<K, V> for i32 keys and AnyVal values.
 // ---------------------------------------------------------------------------
 
 #[type_code=105]
-pub genos MapI32AnyValTag {
-    unsafe fn len(self: *const Self) -> u64;
-}
-
-pub eidos MapI32AnyVal {
+pub eidos Map<i32, AnyVal> {
     pub size:     u32,
     pub capacity: u32,
     pub keys:     RelPtr<i32>,     // zone-relative offset to i32[]
     pub vals:     RelPtr<AnyVal>,  // zone-relative offset to AnyVal[]
 }
 
-impl MapI32AnyValTag for MapI32AnyVal {
-    unsafe fn len(self: *const MapI32AnyVal) -> u64 { return self.size as u64; }
+impl Map<i32, AnyVal> for Map<i32, AnyVal> {
+    unsafe fn size(self: *const Map<i32, AnyVal>) -> u32 { return self.size; }
 }
 
-impl MapI32AnyVal {
+impl Map<i32, AnyVal> {
     pub unsafe fn init(map_raw: *mut u8, keys_raw: *mut u8, vals_raw: *mut u8,
-                       base: *mut u8, capacity: u32) -> *mut MapI32AnyVal {
-        let base_c: *const u8 = base as *const u8;
-        let m: *mut MapI32AnyVal = map_raw as *mut MapI32AnyVal;
+                       base: *mut u8, capacity: u32) -> *mut Map<i32, AnyVal> {
+        let m: *mut Map<i32, AnyVal> = map_raw as *mut Map<i32, AnyVal>;
         m.size     = 0;
         m.capacity = capacity;
-        m.keys.offset = (keys_raw as *const u8).byte_offset_from(base_c) as u32;
-        m.vals.offset = (vals_raw as *const u8).byte_offset_from(base_c) as u32;
+        m.keys.offset = (keys_raw as *const u8).byte_offset_from(base) as u32;
+        m.vals.offset = (vals_raw as *const u8).byte_offset_from(base) as u32;
         return m;
     }
 
     // Insert or update.
-    pub unsafe fn set(self: *mut MapI32AnyVal, base: *mut u8, key: i32, val: AnyVal) {
+    pub unsafe fn set(self: *mut Map<i32, AnyVal>, base: *mut u8, key: i32, val: AnyVal) {
         let keys: *mut i32    = base.byte_add(self.keys.offset) as *mut i32;
         let vals: *mut AnyVal = base.byte_add(self.vals.offset) as *mut AnyVal;
         let mut i: u32 = 0;

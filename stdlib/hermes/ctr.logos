@@ -533,7 +533,7 @@ pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> HermesCtr {
     return ctr;
 }
 
-// ── C6: Logos-struct → Hermes MapI32AnyVal builder ───────────────────────────
+// ── C6: Logos-struct → Hermes Map<i32, AnyVal> builder ───────────────────────────
 
 // Source type for `as <I32, AnyVal>{}` cast: parallel key and value slices.
 // Len is derived from keys.len at the cast site; both slices must be the same length.
@@ -542,16 +542,16 @@ pub struct MapSliceI32 {
     pub vals: &[AnyVal],
 }
 
-// Builds a MapI32AnyVal HermesCtr from parallel key and value arrays (len entries).
+// Builds a Map<i32, AnyVal> HermesCtr from parallel key and value arrays (len entries).
 // Layout: keys buffer (4 bytes/elem), vals buffer (4 bytes/elem), then tagged header.
-// The document root is set to the resulting MapI32AnyVal AnyVal.
+// The document root is set to the resulting Map<i32, AnyVal> AnyVal.
 pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal, len: i64) -> HermesCtr {
     if len <= 0 { return HermesCtr::builder(8); }
-    // fix2: guard u32 overflow — MapI32AnyVal.size/capacity are u32.
+    // fix2: guard u32 overflow — Map<i32, AnyVal>.size/capacity are u32.
     if len > 4294967295 { return HermesCtr::builder(8); }
     let key_bytes: i64 = len * 4;
     let val_bytes: i64 = len * 4;
-    let cap: i64 = 8 + key_bytes + val_bytes + sizeof::<MapI32AnyVal>() as i64 + 64;
+    let cap: i64 = 8 + key_bytes + val_bytes + sizeof::<Map<i32, AnyVal>>() as i64 + 64;
     let mut ctr: HermesCtr = HermesCtr::builder(cap);
     let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
     if keys_raw != 0 as *mut u8 {
@@ -576,10 +576,10 @@ pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal,
                 bi = bi + 1;
             }
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
-                                       sizeof::<MapI32AnyVal>() as i64,
+                                       sizeof::<Map<i32, AnyVal>>() as i64,
                                        hermes_tag_map_i32_anyval() as u64);
             if hdr_raw != 0 as *mut u8 {
-                let m: *mut MapI32AnyVal = hdr_raw as *mut MapI32AnyVal;
+                let m: *mut Map<i32, AnyVal> = hdr_raw as *mut Map<i32, AnyVal>;
                 m.size     = len as u32;
                 m.capacity = len as u32;
                 m.keys.offset = keys_off;
