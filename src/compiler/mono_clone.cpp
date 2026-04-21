@@ -944,7 +944,7 @@ const lir::LStructDef* Mono::find_best_struct_spec(
     if (sit == struct_specs_.end()) return nullptr;
 
     const lir::LStructDef* best       = nullptr;
-    int                    best_score = -1;
+    std::vector<int>       best_vec;
     bool                   ambiguous  = false;
 
     for (auto* spec : sit->second) {
@@ -957,12 +957,12 @@ const lir::LStructDef* Mono::find_best_struct_spec(
             }
         }
         if (!ok) continue;
-        int score = specificity_score(spec->spec_patterns);
-        if (score > best_score) {
-            best_score = score;
-            best = spec;
+        auto svec = specificity_vec(spec->spec_patterns);
+        if (!best || svec > best_vec) {
+            best_vec  = svec;
+            best      = spec;
             ambiguous = false;
-        } else if (score == best_score && best_score != -1) {
+        } else if (svec == best_vec) {
             ambiguous = true;
         }
     }

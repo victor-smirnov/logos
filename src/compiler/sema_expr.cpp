@@ -4994,7 +4994,13 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         };
         std::string lir_key_type;
         if (auto kit = known_keys.find(key_type); kit != known_keys.end()) {
-            if (!struct_specs_sema_.count(kit->second.mangled)) {
+            // Check if Map<K, AnyVal> is available in any form:
+            // - concrete `pub eidos Map<i32, AnyVal> { ... }` → Map$G2$i32$AnyVal
+            // - generic `pub eidos Map<K, AnyVal> { ... }` → Map$G2$K$AnyVal (K is TypeVar name)
+            // Either form satisfies the availability requirement.
+            bool map_available = struct_specs_sema_.count(kit->second.mangled) != 0
+                              || struct_specs_sema_.count("Map$G2$K$AnyVal") != 0;
+            if (!map_available) {
                 error(std::format(
                     "typed map @<{}>{{...}} requires 'use hermes.map;'",
                     key_type));

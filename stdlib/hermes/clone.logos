@@ -525,27 +525,61 @@ impl HermesClone for TypedValue {
     }
 }
 
-// ── Map<i32, AnyVal> (tc=105) ────────────────────────────────────────────────────
+// ── MapKeyClone — bridge trait for Map<K, AnyVal> cloning ────────────────
+//
+// K provides the tagged allocation function for the map header.
+// Key byte copying uses sizeof::<K>() at monomorphization time.
+pub trait MapKeyClone {
+    unsafe fn map_anyval_alloc_tagged(zone_dst: *mut Zone<Mutable>) -> *mut u8;
+}
 
-impl HermesClone for Map<i32, AnyVal> {
+impl MapKeyClone for i32 {
+    pub unsafe fn map_anyval_alloc_tagged(zone_dst: *mut Zone<Mutable>) -> *mut u8 {
+        return zone_m_alloc_tagged(zone_dst, sizeof::<Map<i32, AnyVal>>() as i64,
+                                   hermes_tag_map_i32_anyval());
+    }
+}
+impl MapKeyClone for u32 {
+    pub unsafe fn map_anyval_alloc_tagged(zone_dst: *mut Zone<Mutable>) -> *mut u8 {
+        return zone_m_alloc_tagged(zone_dst, sizeof::<Map<u32, AnyVal>>() as i64,
+                                   hermes_tag_map_u32_anyval());
+    }
+}
+impl MapKeyClone for i64 {
+    pub unsafe fn map_anyval_alloc_tagged(zone_dst: *mut Zone<Mutable>) -> *mut u8 {
+        return zone_m_alloc_tagged(zone_dst, sizeof::<Map<i64, AnyVal>>() as i64,
+                                   hermes_tag_map_i64_anyval());
+    }
+}
+impl MapKeyClone for u64 {
+    pub unsafe fn map_anyval_alloc_tagged(zone_dst: *mut Zone<Mutable>) -> *mut u8 {
+        return zone_m_alloc_tagged(zone_dst, sizeof::<Map<u64, AnyVal>>() as i64,
+                                   hermes_tag_map_u64_anyval());
+    }
+}
+
+// ── Map<K, AnyVal>: blanket clone ────────────────────────────────────────────
+// sizeof::<K>() gives key byte size at monomorphization; vals always 4 bytes.
+
+impl<K: MapKeyClone> HermesClone for Map<K, AnyVal> {
     pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
         unsafe {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
-            let m: *const Map<i32, AnyVal> = (ctx.base_src as i64 + src_off as i64) as *const Map<i32, AnyVal>;
+            let m: *const Map<K, AnyVal> = (ctx.base_src as i64 + src_off as i64) as *const Map<K, AnyVal>;
             let sz:  u32 = m.size;
             let cap: u32 = m.capacity;
+            let key_sz: i64 = sizeof::<K>() as i64;
 
-            // Alloc parallel key/value buffers. Compute each offset immediately
-            // after its allocation — a subsequent alloc may realloc the zone,
-            // making any earlier raw pointer stale.
+            // Alloc key buffer. Compute offset before next alloc (zone may realloc).
             let keys_raw: *mut u8 = if cap > 0 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4)
+                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * key_sz)
             } else { 0 as *mut u8 };
             if cap > 0 && keys_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let keys_buf_off: u32 = if cap > 0 {
                 (keys_raw as i64 - ctx.zone_dst.holder.base as i64) as u32
             } else { 0 };
 
+            // Alloc value buffer.
             let vals_raw: *mut u8 = if cap > 0 {
                 zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4)
             } else { 0 as *mut u8 };
@@ -554,24 +588,22 @@ impl HermesClone for Map<i32, AnyVal> {
                 (vals_raw as i64 - ctx.zone_dst.holder.base as i64) as u32
             } else { 0 };
 
-            // Copy i32 keys (no zone references, plain raw bytes).
+            // Copy keys (POD, no zone references).
             let src_keys: *const u8 = (ctx.base_src as i64 + m.keys.offset) as *const u8;
             let mut bi: u32 = 0;
-            while bi < sz * 4 {
+            while bi < sz * key_sz as u32 {
                 let dst: *mut u8 = (ctx.zone_dst.holder.base as i64
                                    + keys_buf_off as i64 + bi as i64) as *mut u8;
                 *dst = *((src_keys as i64 + bi as i64) as *const u8);
                 bi = bi + 1;
             }
 
-            let hdr_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
-                                       sizeof::<Map<i32, AnyVal>>() as i64,
-                                       hermes_tag_map_i32_anyval());
+            let hdr_raw: *mut u8 = K::map_anyval_alloc_tagged(ctx.zone_dst);
             if hdr_raw == 0 as *mut u8 { return 0 as *mut u8; }
             let dst_off: u32 = (hdr_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
             if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
 
-            let new_m: *mut Map<i32, AnyVal> = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut Map<i32, AnyVal>;
+            let new_m: *mut Map<K, AnyVal> = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut Map<K, AnyVal>;
             new_m.size     = sz;
             new_m.capacity = cap;
             new_m.keys.offset = keys_buf_off;
@@ -584,201 +616,6 @@ impl HermesClone for Map<i32, AnyVal> {
                 let src_v: AnyVal = AnyVal { raw: ((src_vals as i64 + (vi as i64) * 4) as *const AnyVal).raw };
                 let new_v: AnyVal = anyval_clone(src_v, ctx);
                 // Re-read after potential grow.
-                let vdst: *mut AnyVal = (ctx.zone_dst.holder.base as i64
-                                        + vals_buf_off as i64
-                                        + (vi as i64) * 4) as *mut AnyVal;
-                vdst.raw = new_v.raw;
-                vi = vi + 1;
-            }
-            return (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut u8;
-        }
-    }
-}
-
-// ── Map<u32, AnyVal> ─────────────────────────────────────────────────────────
-
-impl HermesClone for Map<u32, AnyVal> {
-    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
-        unsafe {
-            let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
-            let m: *const Map<u32, AnyVal> = (ctx.base_src as i64 + src_off as i64) as *const Map<u32, AnyVal>;
-            let sz:  u32 = m.size;
-            let cap: u32 = m.capacity;
-
-            let keys_raw: *mut u8 = if cap > 0 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4)
-            } else { 0 as *mut u8 };
-            if cap > 0 && keys_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let keys_buf_off: u32 = if cap > 0 {
-                (keys_raw as i64 - ctx.zone_dst.holder.base as i64) as u32
-            } else { 0 };
-
-            let vals_raw: *mut u8 = if cap > 0 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4)
-            } else { 0 as *mut u8 };
-            if cap > 0 && vals_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let vals_buf_off: u32 = if cap > 0 {
-                (vals_raw as i64 - ctx.zone_dst.holder.base as i64) as u32
-            } else { 0 };
-
-            // Copy u32 keys (no zone references, plain raw bytes).
-            let src_keys: *const u8 = (ctx.base_src as i64 + m.keys.offset) as *const u8;
-            let mut bi: u32 = 0;
-            while bi < sz * 4 {
-                let dst: *mut u8 = (ctx.zone_dst.holder.base as i64
-                                   + keys_buf_off as i64 + bi as i64) as *mut u8;
-                *dst = *((src_keys as i64 + bi as i64) as *const u8);
-                bi = bi + 1;
-            }
-
-            let hdr_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
-                                       sizeof::<Map<u32, AnyVal>>() as i64,
-                                       hermes_tag_map_u32_anyval());
-            if hdr_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let dst_off: u32 = (hdr_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
-            if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
-
-            let new_m: *mut Map<u32, AnyVal> = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut Map<u32, AnyVal>;
-            new_m.size     = sz;
-            new_m.capacity = cap;
-            new_m.keys.offset = keys_buf_off;
-            new_m.vals.offset = vals_buf_off;
-
-            let src_vals: *const AnyVal = (ctx.base_src as i64 + m.vals.offset) as *const AnyVal;
-            let mut vi: u32 = 0;
-            while vi < sz {
-                let src_v: AnyVal = AnyVal { raw: ((src_vals as i64 + (vi as i64) * 4) as *const AnyVal).raw };
-                let new_v: AnyVal = anyval_clone(src_v, ctx);
-                let vdst: *mut AnyVal = (ctx.zone_dst.holder.base as i64
-                                        + vals_buf_off as i64
-                                        + (vi as i64) * 4) as *mut AnyVal;
-                vdst.raw = new_v.raw;
-                vi = vi + 1;
-            }
-            return (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut u8;
-        }
-    }
-}
-
-// ── Map<i64, AnyVal> ─────────────────────────────────────────────────────────
-
-impl HermesClone for Map<i64, AnyVal> {
-    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
-        unsafe {
-            let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
-            let m: *const Map<i64, AnyVal> = (ctx.base_src as i64 + src_off as i64) as *const Map<i64, AnyVal>;
-            let sz:  u32 = m.size;
-            let cap: u32 = m.capacity;
-
-            let keys_raw: *mut u8 = if cap > 0 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 8)
-            } else { 0 as *mut u8 };
-            if cap > 0 && keys_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let keys_buf_off: u32 = if cap > 0 {
-                (keys_raw as i64 - ctx.zone_dst.holder.base as i64) as u32
-            } else { 0 };
-
-            let vals_raw: *mut u8 = if cap > 0 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4)
-            } else { 0 as *mut u8 };
-            if cap > 0 && vals_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let vals_buf_off: u32 = if cap > 0 {
-                (vals_raw as i64 - ctx.zone_dst.holder.base as i64) as u32
-            } else { 0 };
-
-            // Copy i64 keys (no zone references, plain raw bytes).
-            let src_keys: *const u8 = (ctx.base_src as i64 + m.keys.offset) as *const u8;
-            let mut bi: u32 = 0;
-            while bi < sz * 8 {
-                let dst: *mut u8 = (ctx.zone_dst.holder.base as i64
-                                   + keys_buf_off as i64 + bi as i64) as *mut u8;
-                *dst = *((src_keys as i64 + bi as i64) as *const u8);
-                bi = bi + 1;
-            }
-
-            let hdr_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
-                                       sizeof::<Map<i64, AnyVal>>() as i64,
-                                       hermes_tag_map_i64_anyval());
-            if hdr_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let dst_off: u32 = (hdr_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
-            if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
-
-            let new_m: *mut Map<i64, AnyVal> = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut Map<i64, AnyVal>;
-            new_m.size     = sz;
-            new_m.capacity = cap;
-            new_m.keys.offset = keys_buf_off;
-            new_m.vals.offset = vals_buf_off;
-
-            let src_vals: *const AnyVal = (ctx.base_src as i64 + m.vals.offset) as *const AnyVal;
-            let mut vi: u32 = 0;
-            while vi < sz {
-                let src_v: AnyVal = AnyVal { raw: ((src_vals as i64 + (vi as i64) * 4) as *const AnyVal).raw };
-                let new_v: AnyVal = anyval_clone(src_v, ctx);
-                let vdst: *mut AnyVal = (ctx.zone_dst.holder.base as i64
-                                        + vals_buf_off as i64
-                                        + (vi as i64) * 4) as *mut AnyVal;
-                vdst.raw = new_v.raw;
-                vi = vi + 1;
-            }
-            return (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut u8;
-        }
-    }
-}
-
-// ── Map<u64, AnyVal> ─────────────────────────────────────────────────────────
-
-impl HermesClone for Map<u64, AnyVal> {
-    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
-        unsafe {
-            let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
-            let m: *const Map<u64, AnyVal> = (ctx.base_src as i64 + src_off as i64) as *const Map<u64, AnyVal>;
-            let sz:  u32 = m.size;
-            let cap: u32 = m.capacity;
-
-            let keys_raw: *mut u8 = if cap > 0 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 8)
-            } else { 0 as *mut u8 };
-            if cap > 0 && keys_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let keys_buf_off: u32 = if cap > 0 {
-                (keys_raw as i64 - ctx.zone_dst.holder.base as i64) as u32
-            } else { 0 };
-
-            let vals_raw: *mut u8 = if cap > 0 {
-                zone_m_alloc_raw(ctx.zone_dst, cap as i64 * 4)
-            } else { 0 as *mut u8 };
-            if cap > 0 && vals_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let vals_buf_off: u32 = if cap > 0 {
-                (vals_raw as i64 - ctx.zone_dst.holder.base as i64) as u32
-            } else { 0 };
-
-            // Copy u64 keys (no zone references, plain raw bytes).
-            let src_keys: *const u8 = (ctx.base_src as i64 + m.keys.offset) as *const u8;
-            let mut bi: u32 = 0;
-            while bi < sz * 8 {
-                let dst: *mut u8 = (ctx.zone_dst.holder.base as i64
-                                   + keys_buf_off as i64 + bi as i64) as *mut u8;
-                *dst = *((src_keys as i64 + bi as i64) as *const u8);
-                bi = bi + 1;
-            }
-
-            let hdr_raw: *mut u8 = zone_m_alloc_tagged(ctx.zone_dst,
-                                       sizeof::<Map<u64, AnyVal>>() as i64,
-                                       hermes_tag_map_u64_anyval());
-            if hdr_raw == 0 as *mut u8 { return 0 as *mut u8; }
-            let dst_off: u32 = (hdr_raw as i64 - ctx.zone_dst.holder.base as i64) as u32;
-            if ctx.map != 0 as *mut CloneMap { clone_map_insert(ctx.map, src_off, dst_off); }
-
-            let new_m: *mut Map<u64, AnyVal> = (ctx.zone_dst.holder.base as i64 + dst_off as i64) as *mut Map<u64, AnyVal>;
-            new_m.size     = sz;
-            new_m.capacity = cap;
-            new_m.keys.offset = keys_buf_off;
-            new_m.vals.offset = vals_buf_off;
-
-            let src_vals: *const AnyVal = (ctx.base_src as i64 + m.vals.offset) as *const AnyVal;
-            let mut vi: u32 = 0;
-            while vi < sz {
-                let src_v: AnyVal = AnyVal { raw: ((src_vals as i64 + (vi as i64) * 4) as *const AnyVal).raw };
-                let new_v: AnyVal = anyval_clone(src_v, ctx);
                 let vdst: *mut AnyVal = (ctx.zone_dst.holder.base as i64
                                         + vals_buf_off as i64
                                         + (vi as i64) * 4) as *mut AnyVal;

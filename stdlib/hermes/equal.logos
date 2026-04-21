@@ -241,128 +241,38 @@ impl HermesEqual for ObjectMap {
     }
 }
 
-// ── Map<i32, AnyVal>: same key set + same value per key ───────────────────
-
-impl HermesEqual for Map<i32, AnyVal> {
-    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
-        unsafe {
-            let a: *const Map<i32, AnyVal> = self as *const Map<i32, AnyVal>;
-            let b: *const Map<i32, AnyVal> = other as *const Map<i32, AnyVal>;
-            if a.size != b.size { return false; }
-            let ka: *const i32 = ctx.base_self.byte_add(a.keys.offset) as *const i32;
-            let va: *const AnyVal = ctx.base_self.byte_add(a.vals.offset) as *const AnyVal;
-            let kb: *const i32 = ctx.base_other.byte_add(b.keys.offset) as *const i32;
-            let vb: *const AnyVal = ctx.base_other.byte_add(b.vals.offset) as *const AnyVal;
-            let mut i: u32 = 0;
-            while i < a.size {
-                let key: i32 = *ka.add(i as i64);
-                let av: AnyVal = AnyVal { raw: (va.add(i as i64)).raw };
-                let mut j: u32 = 0;
-                let mut found: bool = false;
-                while j < b.size {
-                    if *kb.add(j as i64) == key {
-                        let bv: AnyVal = AnyVal { raw: (vb.add(j as i64)).raw };
-                        if !anyval_equal(av, bv, ctx) { return false; }
-                        found = true;
-                        j = b.size;
-                    } else {
-                        j = j + 1;
-                    }
-                }
-                if !found { return false; }
-                i = i + 1;
-            }
-            return true;
-        }
-    }
+// ── MapKeyEq — bridge trait for Map<K, AnyVal> equality ───────────────────
+//
+// K must support byte-level equality comparison via a typed pointer.
+pub trait MapKeyEq {
+    unsafe fn key_eq(a: *const Self, b: *const Self) -> bool;
 }
 
-impl HermesEqual for Map<u32, AnyVal> {
-    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
-        unsafe {
-            let a: *const Map<u32, AnyVal> = self as *const Map<u32, AnyVal>;
-            let b: *const Map<u32, AnyVal> = other as *const Map<u32, AnyVal>;
-            if a.size != b.size { return false; }
-            let ka: *const u32 = ctx.base_self.byte_add(a.keys.offset) as *const u32;
-            let va: *const AnyVal = ctx.base_self.byte_add(a.vals.offset) as *const AnyVal;
-            let kb: *const u32 = ctx.base_other.byte_add(b.keys.offset) as *const u32;
-            let vb: *const AnyVal = ctx.base_other.byte_add(b.vals.offset) as *const AnyVal;
-            let mut i: u32 = 0;
-            while i < a.size {
-                let key: u32 = *ka.add(i as i64);
-                let av: AnyVal = AnyVal { raw: (va.add(i as i64)).raw };
-                let mut j: u32 = 0;
-                let mut found: bool = false;
-                while j < b.size {
-                    if *kb.add(j as i64) == key {
-                        let bv: AnyVal = AnyVal { raw: (vb.add(j as i64)).raw };
-                        if !anyval_equal(av, bv, ctx) { return false; }
-                        found = true;
-                        j = b.size;
-                    } else {
-                        j = j + 1;
-                    }
-                }
-                if !found { return false; }
-                i = i + 1;
-            }
-            return true;
-        }
-    }
-}
+impl MapKeyEq for i32 { pub unsafe fn key_eq(a: *const i32, b: *const i32) -> bool { return *a == *b; } }
+impl MapKeyEq for u32 { pub unsafe fn key_eq(a: *const u32, b: *const u32) -> bool { return *a == *b; } }
+impl MapKeyEq for i64 { pub unsafe fn key_eq(a: *const i64, b: *const i64) -> bool { return *a == *b; } }
+impl MapKeyEq for u64 { pub unsafe fn key_eq(a: *const u64, b: *const u64) -> bool { return *a == *b; } }
 
-impl HermesEqual for Map<i64, AnyVal> {
-    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
-        unsafe {
-            let a: *const Map<i64, AnyVal> = self as *const Map<i64, AnyVal>;
-            let b: *const Map<i64, AnyVal> = other as *const Map<i64, AnyVal>;
-            if a.size != b.size { return false; }
-            let ka: *const i64 = ctx.base_self.byte_add(a.keys.offset) as *const i64;
-            let va: *const AnyVal = ctx.base_self.byte_add(a.vals.offset) as *const AnyVal;
-            let kb: *const i64 = ctx.base_other.byte_add(b.keys.offset) as *const i64;
-            let vb: *const AnyVal = ctx.base_other.byte_add(b.vals.offset) as *const AnyVal;
-            let mut i: u32 = 0;
-            while i < a.size {
-                let key: i64 = *ka.add(i as i64);
-                let av: AnyVal = AnyVal { raw: (va.add(i as i64)).raw };
-                let mut j: u32 = 0;
-                let mut found: bool = false;
-                while j < b.size {
-                    if *kb.add(j as i64) == key {
-                        let bv: AnyVal = AnyVal { raw: (vb.add(j as i64)).raw };
-                        if !anyval_equal(av, bv, ctx) { return false; }
-                        found = true;
-                        j = b.size;
-                    } else {
-                        j = j + 1;
-                    }
-                }
-                if !found { return false; }
-                i = i + 1;
-            }
-            return true;
-        }
-    }
-}
+// ── Map<K, AnyVal>: same key set + same value per key ─────────────────────
 
-impl HermesEqual for Map<u64, AnyVal> {
+impl<K: MapKeyEq> HermesEqual for Map<K, AnyVal> {
     pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
         unsafe {
-            let a: *const Map<u64, AnyVal> = self as *const Map<u64, AnyVal>;
-            let b: *const Map<u64, AnyVal> = other as *const Map<u64, AnyVal>;
+            let a: *const Map<K, AnyVal> = self as *const Map<K, AnyVal>;
+            let b: *const Map<K, AnyVal> = other as *const Map<K, AnyVal>;
             if a.size != b.size { return false; }
-            let ka: *const u64 = ctx.base_self.byte_add(a.keys.offset) as *const u64;
+            let ka: *const K = ctx.base_self.byte_add(a.keys.offset) as *const K;
             let va: *const AnyVal = ctx.base_self.byte_add(a.vals.offset) as *const AnyVal;
-            let kb: *const u64 = ctx.base_other.byte_add(b.keys.offset) as *const u64;
+            let kb: *const K = ctx.base_other.byte_add(b.keys.offset) as *const K;
             let vb: *const AnyVal = ctx.base_other.byte_add(b.vals.offset) as *const AnyVal;
             let mut i: u32 = 0;
             while i < a.size {
-                let key: u64 = *ka.add(i as i64);
+                let kap: *const K = ka.add(i as i64);
                 let av: AnyVal = AnyVal { raw: (va.add(i as i64)).raw };
                 let mut j: u32 = 0;
                 let mut found: bool = false;
                 while j < b.size {
-                    if *kb.add(j as i64) == key {
+                    if K::key_eq(kap, kb.add(j as i64)) {
                         let bv: AnyVal = AnyVal { raw: (vb.add(j as i64)).raw };
                         if !anyval_equal(av, bv, ctx) { return false; }
                         found = true;

@@ -213,6 +213,16 @@ private:
         return s;
     }
 
+    // Per-position specificity vector for lexicographic comparison.
+    // Enables correct disambiguation of partial specs like Map<Bitmap,V> vs Map<K,AnyVal>
+    // when both score equally by summed specificity but differ positionally.
+    static std::vector<int> specificity_vec(const std::vector<const LogosType*>& patterns) noexcept {
+        std::vector<int> v;
+        v.reserve(patterns.size());
+        for (auto* p : patterns) v.push_back(type_specificity(p));
+        return v;
+    }
+
     // ── Spec selection (defined in mono_scan.cpp) ─────────────────────────
     const lir::LFunction*  find_best_spec(const std::string& base_name,
                                           const std::vector<const LogosType*>& type_args);

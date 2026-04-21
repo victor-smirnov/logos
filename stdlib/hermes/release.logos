@@ -32,10 +32,7 @@ impl HermesRelease for HermesString    { pub fn release(&self) {} }
 impl HermesRelease for AnyVal          { pub fn release(&self) {} }
 impl<T: HermesRelease> HermesRelease for Array<T> { pub fn release(&self) {} }
 impl<V: HermesRelease> HermesRelease for Map<Bitmap, V> { pub fn release(&self) {} }
-impl HermesRelease for Map<i32, AnyVal> { pub fn release(&self) {} }
-impl HermesRelease for Map<u32, AnyVal> { pub fn release(&self) {} }
-impl HermesRelease for Map<i64, AnyVal> { pub fn release(&self) {} }
-impl HermesRelease for Map<u64, AnyVal> { pub fn release(&self) {} }
+impl<K> HermesRelease for Map<K, AnyVal> { pub fn release(&self) {} }
 impl HermesRelease for ObjectMap       { pub fn release(&self) {} }
 impl HermesRelease for TypedValue      { pub fn release(&self) {} }
 impl HermesRelease for DocumentHeader  { pub fn release(&self) {} }

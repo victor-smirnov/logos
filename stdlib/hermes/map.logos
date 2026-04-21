@@ -150,56 +150,34 @@ impl Map<Bitmap, AnyVal> {
 }
 
 // ---------------------------------------------------------------------------
-// Map<i32, AnyVal> — dense key/value arrays with linear lookup/update.
-// Partial specialisation of Map<K, V> for i32 keys and AnyVal values.
+// Map<K, AnyVal> — dense key/value arrays with linear lookup/update.
+// Generic partial spec for any scalar key type K.
+// The four concrete type_code bindings below attach wire-format tags.
 // ---------------------------------------------------------------------------
 
-#[type_code = HermesTag::MapI32AnyVal]
-pub eidos Map<i32, AnyVal> {
+// Generic partial spec: fields shared by all Map<K, AnyVal> instantiations.
+pub eidos Map<K, AnyVal> {
     pub size:     u32,
     pub capacity: u32,
-    pub keys:     RelPtr<i32>,     // zone-relative offset to i32[]
+    pub keys:     RelPtr<K>,       // zone-relative offset to K[]
     pub vals:     RelPtr<AnyVal>,  // zone-relative offset to AnyVal[]
 }
 
-impl Map<i32, AnyVal> for Map<i32, AnyVal> {
-    unsafe fn size(self: *const Map<i32, AnyVal>) -> u32 { return self.size; }
-}
+// Concrete type_code bindings for the four supported key types.
+#[type_code = HermesTag::MapI32AnyVal]
+pub eidos Map<i32, AnyVal>;
 
 #[type_code = HermesTag::MapU32AnyVal]
-pub eidos Map<u32, AnyVal> {
-    pub size:     u32,
-    pub capacity: u32,
-    pub keys:     RelPtr<u32>,
-    pub vals:     RelPtr<AnyVal>,
-}
-
-impl Map<u32, AnyVal> for Map<u32, AnyVal> {
-    unsafe fn size(self: *const Map<u32, AnyVal>) -> u32 { return self.size; }
-}
+pub eidos Map<u32, AnyVal>;
 
 #[type_code = HermesTag::MapI64AnyVal]
-pub eidos Map<i64, AnyVal> {
-    pub size:     u32,
-    pub capacity: u32,
-    pub keys:     RelPtr<i64>,
-    pub vals:     RelPtr<AnyVal>,
-}
-
-impl Map<i64, AnyVal> for Map<i64, AnyVal> {
-    unsafe fn size(self: *const Map<i64, AnyVal>) -> u32 { return self.size; }
-}
+pub eidos Map<i64, AnyVal>;
 
 #[type_code = HermesTag::MapU64AnyVal]
-pub eidos Map<u64, AnyVal> {
-    pub size:     u32,
-    pub capacity: u32,
-    pub keys:     RelPtr<u64>,
-    pub vals:     RelPtr<AnyVal>,
-}
+pub eidos Map<u64, AnyVal>;
 
-impl Map<u64, AnyVal> for Map<u64, AnyVal> {
-    unsafe fn size(self: *const Map<u64, AnyVal>) -> u32 { return self.size; }
+impl<K> Map<K, AnyVal> for Map<K, AnyVal> {
+    unsafe fn size(self: *const Map<K, AnyVal>) -> u32 { return self.size; }
 }
 
 impl Map<i32, AnyVal> {

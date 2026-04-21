@@ -245,88 +245,48 @@ impl HermesHash for ObjectMap {
     }
 }
 
+// ── MapKeyHash — bridge trait for Map<K, AnyVal> hashing ──────────────────
+//
+// Each K provides the u64 HermesTag for Map<K, AnyVal>, used as the hash seed,
+// and key_as_u64 to convert the key to u64 for mixing.
+pub trait MapKeyHash {
+    unsafe fn map_anyval_hash_tag() -> u64;
+    unsafe fn key_as_u64(kp: *const Self) -> u64;
+}
+
+impl MapKeyHash for i32 {
+    pub unsafe fn map_anyval_hash_tag() -> u64 { return HermesTag::MapI32AnyVal as u64; }
+    pub unsafe fn key_as_u64(kp: *const i32) -> u64 { return *kp as u64; }
+}
+impl MapKeyHash for u32 {
+    pub unsafe fn map_anyval_hash_tag() -> u64 { return HermesTag::MapU32AnyVal as u64; }
+    pub unsafe fn key_as_u64(kp: *const u32) -> u64 { return *kp as u64; }
+}
+impl MapKeyHash for i64 {
+    pub unsafe fn map_anyval_hash_tag() -> u64 { return HermesTag::MapI64AnyVal as u64; }
+    pub unsafe fn key_as_u64(kp: *const i64) -> u64 { return *kp as u64; }
+}
+impl MapKeyHash for u64 {
+    pub unsafe fn map_anyval_hash_tag() -> u64 { return HermesTag::MapU64AnyVal as u64; }
+    pub unsafe fn key_as_u64(kp: *const u64) -> u64 { return *kp; }
+}
+
 // ── Map<K, AnyVal>: key-order-independent mix via XOR ─────────────────────
 
-impl HermesHash for Map<i32, AnyVal> {
+impl<K: MapKeyHash> HermesHash for Map<K, AnyVal> {
     pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
         unsafe {
-            let a: *const Map<i32, AnyVal> = self as *const Map<i32, AnyVal>;
-            let base_h: u64 = fnv_mix_u64(fnv_init(), HermesTag::MapI32AnyVal as u64);
+            let a: *const Map<K, AnyVal> = self as *const Map<K, AnyVal>;
+            let base_h: u64 = fnv_mix_u64(fnv_init(), K::map_anyval_hash_tag());
             let mut acc: u64 = 0;
             acc = acc ^ fnv_mix_u64(base_h, a.size as u64);
-            let ks: *const i32 = ctx.base.byte_add(a.keys.offset) as *const i32;
+            let ks: *const K = ctx.base.byte_add(a.keys.offset) as *const K;
             let vs: *const AnyVal = ctx.base.byte_add(a.vals.offset) as *const AnyVal;
             let mut i: u32 = 0;
             while i < a.size {
-                let k: i32 = *ks.add(i as i64);
+                let kp: *const K = ks.add(i as i64);
                 let v: AnyVal = AnyVal { raw: (vs.add(i as i64)).raw };
-                let per: u64 = fnv_mix_u64(fnv_mix_u64(base_h, k as u64), anyval_hash(v, ctx));
-                acc = acc ^ per;
-                i = i + 1;
-            }
-            return acc;
-        }
-    }
-}
-
-impl HermesHash for Map<u32, AnyVal> {
-    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
-        unsafe {
-            let a: *const Map<u32, AnyVal> = self as *const Map<u32, AnyVal>;
-            let base_h: u64 = fnv_mix_u64(fnv_init(), HermesTag::MapU32AnyVal as u64);
-            let mut acc: u64 = 0;
-            acc = acc ^ fnv_mix_u64(base_h, a.size as u64);
-            let ks: *const u32 = ctx.base.byte_add(a.keys.offset) as *const u32;
-            let vs: *const AnyVal = ctx.base.byte_add(a.vals.offset) as *const AnyVal;
-            let mut i: u32 = 0;
-            while i < a.size {
-                let k: u32 = *ks.add(i as i64);
-                let v: AnyVal = AnyVal { raw: (vs.add(i as i64)).raw };
-                let per: u64 = fnv_mix_u64(fnv_mix_u64(base_h, k as u64), anyval_hash(v, ctx));
-                acc = acc ^ per;
-                i = i + 1;
-            }
-            return acc;
-        }
-    }
-}
-
-impl HermesHash for Map<i64, AnyVal> {
-    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
-        unsafe {
-            let a: *const Map<i64, AnyVal> = self as *const Map<i64, AnyVal>;
-            let base_h: u64 = fnv_mix_u64(fnv_init(), HermesTag::MapI64AnyVal as u64);
-            let mut acc: u64 = 0;
-            acc = acc ^ fnv_mix_u64(base_h, a.size as u64);
-            let ks: *const i64 = ctx.base.byte_add(a.keys.offset) as *const i64;
-            let vs: *const AnyVal = ctx.base.byte_add(a.vals.offset) as *const AnyVal;
-            let mut i: u32 = 0;
-            while i < a.size {
-                let k: i64 = *ks.add(i as i64);
-                let v: AnyVal = AnyVal { raw: (vs.add(i as i64)).raw };
-                let per: u64 = fnv_mix_u64(fnv_mix_u64(base_h, k as u64), anyval_hash(v, ctx));
-                acc = acc ^ per;
-                i = i + 1;
-            }
-            return acc;
-        }
-    }
-}
-
-impl HermesHash for Map<u64, AnyVal> {
-    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
-        unsafe {
-            let a: *const Map<u64, AnyVal> = self as *const Map<u64, AnyVal>;
-            let base_h: u64 = fnv_mix_u64(fnv_init(), HermesTag::MapU64AnyVal as u64);
-            let mut acc: u64 = 0;
-            acc = acc ^ fnv_mix_u64(base_h, a.size as u64);
-            let ks: *const u64 = ctx.base.byte_add(a.keys.offset) as *const u64;
-            let vs: *const AnyVal = ctx.base.byte_add(a.vals.offset) as *const AnyVal;
-            let mut i: u32 = 0;
-            while i < a.size {
-                let k: u64 = *ks.add(i as i64);
-                let v: AnyVal = AnyVal { raw: (vs.add(i as i64)).raw };
-                let per: u64 = fnv_mix_u64(fnv_mix_u64(base_h, k as u64), anyval_hash(v, ctx));
+                let per: u64 = fnv_mix_u64(fnv_mix_u64(base_h, K::key_as_u64(kp)), anyval_hash(v, ctx));
                 acc = acc ^ per;
                 i = i + 1;
             }

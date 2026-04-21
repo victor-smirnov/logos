@@ -20,6 +20,7 @@ package hermes_showcase;
 use hermes.ctr;
 use hermes.pat;
 use hermes.view;
+use hermes.map;
 use std.string;
 use std.io;
 

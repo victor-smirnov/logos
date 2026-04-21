@@ -1624,20 +1624,21 @@ static int specificity_sema(const LogosType* t) {
 const SemaChecker::SemaStructInfo* SemaChecker::find_best_sema_struct_spec(
         std::string_view base_name,
         const std::vector<const LogosType*>& type_args) {
-    const SemaStructInfo* best       = nullptr;
-    int                   best_score = -1;
+    const SemaStructInfo* best      = nullptr;
+    std::vector<int>      best_vec;
     for (auto& [key, info] : struct_specs_sema_) {
         if (info.base_name != base_name) continue;
         if (info.spec_patterns.size() != type_args.size()) continue;
         std::unordered_map<std::string, const LogosType*> binds;
         bool ok = true;
-        int  score = 0;
+        std::vector<int> scores(type_args.size());
         for (size_t i = 0; i < type_args.size(); ++i) {
             if (!match_type_sema(type_args[i], info.spec_patterns[i], binds)) { ok = false; break; }
-            score += specificity_sema(info.spec_patterns[i]);
+            scores[i] = specificity_sema(info.spec_patterns[i]);
         }
         if (!ok) continue;
-        if (score > best_score) { best = &info; best_score = score; }
+        // Lexicographic comparison: prefer higher specificity at earlier positions.
+        if (!best || scores > best_vec) { best = &info; best_vec = scores; }
     }
     return best;
 }
