@@ -1257,8 +1257,8 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         return make_expr(bool_t(), lir::ELitBool{true});
     };
     auto mk_and = [&](lir::LExprPtr a, lir::LExprPtr b) -> lir::LExprPtr {
-        if (!a) return std::move(b);
-        if (!b) return std::move(a);
+        if (!a) return b;
+        if (!b) return a;
         return make_expr(bool_t(),
             lir::EBinOp{"&&", std::move(a), std::move(b)});
     };

@@ -269,7 +269,7 @@ struct ECast {
     // For Hermes typed container casts (e.g. &[i32] as <I32>[]):
     //   hermes_build_fn names the stdlib builder (e.g. "hermes_build_array_i32").
     //   source type is Slice; result type is Hermes.
-    std::string hermes_build_fn;  // empty = ordinary numeric/pointer cast
+    std::string hermes_build_fn = {};  // empty = ordinary numeric/pointer cast
 };
 
 // Class heap allocation: new ClassName { field: val, ... }

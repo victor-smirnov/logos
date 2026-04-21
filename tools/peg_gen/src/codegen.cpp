@@ -1269,9 +1269,9 @@ private:
         const std::string fn = memo ? rule.name + "_impl" : rule.name;
         w.fmt("AnyVal {}::rule_{}() {{", parser_class_, fn);
         w.indent();
-        w.line("size_t saved_pos;");
-        w.line("bool   saved_la;");
-        w.line("size_t saved_doc_;");
+        w.line("[[maybe_unused]] size_t saved_pos = 0;");
+        w.line("[[maybe_unused]] bool   saved_la  = false;");
+        w.line("[[maybe_unused]] size_t saved_doc_ = 0;");
         w.line();
 
         for (size_t i = 0; i < rule.alts.size(); ++i)
@@ -1292,8 +1292,8 @@ private:
         w.line("saved_pos  = pos_;");
         w.line("saved_la   = have_la_;");
         w.line("saved_doc_ = doc_.arena_checkpoint();");
-        w.line("Token    saved_tok_  = la_;");
-        w.line("uint32_t saved_line_ = line_;");
+        w.line("[[maybe_unused]] Token    saved_tok_  = la_;");
+        w.line("[[maybe_unused]] uint32_t saved_line_ = line_;");
         w.line();
         // Inner block: all captures and node pointers are scoped here.
         // The backtrack label below is OUTSIDE this block so gotos don't cross inits.
@@ -1425,8 +1425,8 @@ private:
                 cur_fold_var_ = fold_acc;
                 w.line("{");
                 w.indent();
-                w.line("size_t opt_pos_ = pos_; bool opt_la_ = have_la_; Token opt_tok_ = la_; uint32_t opt_line_ = line_;");
-                w.line("size_t opt_doc_ = doc_.arena_checkpoint();");
+                w.line("[[maybe_unused]] size_t opt_pos_ = pos_; [[maybe_unused]] bool opt_la_ = have_la_; [[maybe_unused]] Token opt_tok_ = la_; [[maybe_unused]] uint32_t opt_line_ = line_;");
+                w.line("[[maybe_unused]] size_t opt_doc_ = doc_.arena_checkpoint();");
                 w.line("{");
                 w.indent();
                 if (!item.sub_items.empty()) {
@@ -1451,8 +1451,8 @@ private:
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
             w.line("{");
             w.indent();
-            w.line("size_t opt_pos_ = pos_; bool opt_la_ = have_la_; Token opt_tok_ = la_; uint32_t opt_line_ = line_;");
-            w.line("size_t opt_doc_ = doc_.arena_checkpoint();");
+            w.line("[[maybe_unused]] size_t opt_pos_ = pos_; [[maybe_unused]] bool opt_la_ = have_la_; [[maybe_unused]] Token opt_tok_ = la_; [[maybe_unused]] uint32_t opt_line_ = line_;");
+            w.line("[[maybe_unused]] size_t opt_doc_ = doc_.arena_checkpoint();");
             w.line("{"); // inner scope for sub-item
             w.indent();
             if (!item.sub_items.empty()) {
@@ -1484,15 +1484,15 @@ private:
                 std::string fold_acc     = "fold_acc_" + id;
                 std::string matched_var  = "rep_matched_" + id;
                 w.fmt("AnyVal {} = {};", fold_acc, fold_init_cap_);
-                w.fmt("bool {} = false;", matched_var);
+                w.fmt("[[maybe_unused]] bool {} = false;", matched_var);
                 // Set cur_fold_var_ so that $0 inside GROUP alt actions resolves correctly.
                 cur_fold_var_ = fold_acc;
                 w.line("{");
                 w.indent();
                 w.line("while (true) {");
                 w.indent();
-                w.line("size_t rep_pos_ = pos_; bool rep_la_ = have_la_; Token rep_tok_ = la_; uint32_t rep_line_ = line_;");
-                w.line("size_t rep_doc_ = doc_.arena_checkpoint();");
+                w.line("[[maybe_unused]] size_t rep_pos_ = pos_; [[maybe_unused]] bool rep_la_ = have_la_; [[maybe_unused]] Token rep_tok_ = la_; [[maybe_unused]] uint32_t rep_line_ = line_;");
+                w.line("[[maybe_unused]] size_t rep_doc_ = doc_.arena_checkpoint();");
                 if (!item.sub_items.empty()) {
                     w.line("{");
                     w.indent();
@@ -1524,8 +1524,8 @@ private:
                 w.indent();
                 w.line("while (true) {");
                 w.indent();
-                w.line("size_t rep_pos_ = pos_; bool rep_la_ = have_la_; Token rep_tok_ = la_; uint32_t rep_line_ = line_;");
-                w.line("size_t rep_doc_ = doc_.arena_checkpoint();");
+                w.line("[[maybe_unused]] size_t rep_pos_ = pos_; [[maybe_unused]] bool rep_la_ = have_la_; [[maybe_unused]] Token rep_tok_ = la_; [[maybe_unused]] uint32_t rep_line_ = line_;");
+                w.line("[[maybe_unused]] size_t rep_doc_ = doc_.arena_checkpoint();");
                 if (!item.sub_items.empty()) {
                     w.line("{");
                     w.indent();
@@ -1561,7 +1561,7 @@ private:
             w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
             w.line("{");
             w.indent();
-            w.line("size_t grp_pos_; bool grp_la_; Token grp_tok_; size_t grp_doc_; uint32_t grp_line_;");
+            w.line("[[maybe_unused]] size_t grp_pos_ = 0; [[maybe_unused]] bool grp_la_ = false; [[maybe_unused]] Token grp_tok_; [[maybe_unused]] size_t grp_doc_ = 0; [[maybe_unused]] uint32_t grp_line_ = 0;");
             for (size_t gi = 0; gi < item.sub_alts.size(); ++gi) {
                 const auto& sa = item.sub_alts[gi];
                 std::string alt_fail = "grp_fail_" + grp_id + "_" + std::to_string(gi);

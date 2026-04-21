@@ -2006,17 +2006,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_mut, false))
                     fi_ptr = pfit;
             }
-            if (!fi_ptr)
-                if (auto pfit = find_generic_func(mangled_prim)) fi_ptr = pfit;
-            // `str` resolves to Slice<u8> (type_str → "&[u8]"), but impl methods
-            // are registered under "str__method".  Try the alias fallback.
-            else if (tname == "&[u8]") {
-                auto str_mangled = std::string("str__") + std::string(method_name);
-                if (auto pfit = find_func_by_base_and_signature(str_mangled, types, false))
+            if (!fi_ptr) {
+                if (auto pfit = find_generic_func(mangled_prim)) {
                     fi_ptr = pfit;
-                else if (auto pfit = find_generic_func(str_mangled))
-                    fi_ptr = pfit;
-                if (fi_ptr) mangled_prim = std::string("str__") + std::string(method_name);
+                }
+                // `str` resolves to Slice<u8> (type_str → "&[u8]"), but impl methods
+                // are registered under "str__method".  Try the alias fallback.
+                else if (tname == "&[u8]") {
+                    auto str_mangled = std::string("str__") + std::string(method_name);
+                    if (auto pfit = find_func_by_base_and_signature(str_mangled, types, false))
+                        fi_ptr = pfit;
+                    else if (auto pfit = find_generic_func(str_mangled))
+                        fi_ptr = pfit;
+                    if (fi_ptr) mangled_prim = std::string("str__") + std::string(method_name);
+                }
             }
         }
 
@@ -2684,7 +2687,6 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         const SemaStructInfo* spec_info = nullptr;
         if (!explicit_args.empty() && explicit_args.size() == sinfo.type_params.size())
             spec_info = find_best_sema_struct_spec(std::string(sname), explicit_args);
-        const SemaStructInfo& eff_sinfo = spec_info ? *spec_info : sinfo;
 
         for (auto& [fname, fval] : fields) {
             auto* raw_ft = [&]() -> const LogosType* {
@@ -4350,15 +4352,6 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 }
             }
             if (have_inferred || infer_type_args(fi, arg_exprs, inferred)) {
-                // Build substitution map for the inferred type params.
-                std::unordered_map<std::string, const LogosType*> subst;
-                size_t n_tp = fi.type_params.size();
-                for (size_t i = 0; i < n_tp && i < inferred.size(); ++i)
-                    subst[fi.type_params[i].name] = inferred[i];
-
-                // Substitute the return type.
-                const LogosType* ret = subst_type_sema(fi.ret_type, subst);
-
                 // If the host struct is generic (class_name has type params in structs_),
                 // keep the template symbol here and let mono rewrite it to the concrete
                 // instantiated struct method later.  That preserves the generic suffix
