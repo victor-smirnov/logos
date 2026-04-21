@@ -37,7 +37,8 @@ pub enum HermesTag {
     Array         = 100,  // Array<AnyVal> (generic, untyped elements)
     ObjectMap     = 101,  // Map<HermesString, AnyVal>
     Decimal       = 102,
-    
+    Parameter     = 127,  // query parameter ?name / @-literal capture slot
+
     ArrayU8       = 2101,
     ArrayU16      = 2102,
     ArrayU32      = 2103,
