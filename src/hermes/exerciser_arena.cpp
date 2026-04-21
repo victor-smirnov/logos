@@ -204,20 +204,25 @@ static void test_type_tag() {
     };
 
     TestCase cases[] = {
-        // 2-byte tags (core types, type_hash < 256)
-        {20, TagDescriptor::Data, 2},   // TinyInt
-        {26, TagDescriptor::Data, 2},   // BigInt
-        {28, TagDescriptor::Data, 2},   // Varchar
-        {31, TagDescriptor::Data, 2},   // Double
-        {37, TagDescriptor::Data, 2},   // Boolean
+        // Logos byte-direct encoding: type_code ≤ 222 → single byte in obj[-1].
+        {20, TagDescriptor::Data, 1},   // TinyInt
+        {26, TagDescriptor::Data, 1},   // BigInt
+        {28, TagDescriptor::Data, 1},   // Varchar
+        {31, TagDescriptor::Data, 1},   // Double
+        {37, TagDescriptor::Data, 1},   // Boolean
 
-        // Container tags with descriptors
-        {98, TagDescriptor::Map, 2},    // TinyObjectMap
-        {100, TagDescriptor::Array, 2}, // ObjectArray
-        {101, TagDescriptor::Map, 2},   // ObjectMap
+        // Container tags — descriptor is derived from type_code.
+        {98,  TagDescriptor::Map,   1}, // TinyObjectMap (Hermes)
+        {100, TagDescriptor::Array, 1}, // ObjectArray
+        {101, TagDescriptor::Map,   1}, // ObjectMap
 
-        // Minimal: type_hash=0
-        {0, TagDescriptor::Data, 1},
+        // type_code > 222 uses multi-byte encoding: header + LE code bytes.
+        {223,       TagDescriptor::Data, 2},   // smallest multi-byte
+        {0xFFFF,    TagDescriptor::Data, 3},   // 2 code bytes
+        {0x010000,  TagDescriptor::Data, 4},   // 3 code bytes
+
+        // Sentinel: type_code == 0 is "unset" — 0 bytes on the wire.
+        {0, TagDescriptor::Data, 0},
     };
 
     alignas(8) uint8_t buf[64] = {};

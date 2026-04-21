@@ -46,11 +46,21 @@ private:
     }
 
     void write_type_tag(TypeTag tag) noexcept {
-        // Write the tag as variable-length bytes.
-        size_t len = tag.byte_length();
-        uint64_t raw = tag.raw();
-        for (size_t i = 0; i < len; ++i) {
-            buf_.push_back(static_cast<uint8_t>(raw >> (i * 8)));
+        // Logos byte-direct encoding (stream order): header byte first, then
+        // little-endian code bytes for multi-byte tags.
+        uint64_t tc = tag.type_code();
+        if (tc == 0) return;
+        if (tc <= 222) {
+            buf_.push_back(static_cast<uint8_t>(tc));
+            return;
+        }
+        size_t n = 0;
+        uint64_t v = tc;
+        while (v > 0) { v >>= 8; ++n; }
+        if (n > 8) n = 8;
+        buf_.push_back(static_cast<uint8_t>(222 + n));
+        for (size_t i = 0; i < n; ++i) {
+            buf_.push_back(static_cast<uint8_t>(tc >> (i * 8)));
         }
     }
 
@@ -230,13 +240,21 @@ private:
     }
 
     TypeTag read_type_tag() noexcept {
-        uint8_t first = data_[pos_];
-        uint8_t code_len = first & 0x07;
+        LOGOS_ASSERT(pos_ < size_, "HERMES-BINARY-002",
+            "Unexpected end of binary data reading TypeTag header");
+        uint8_t first = data_[pos_++];
+        if (first == 0) return TypeTag{};
+        if (first <= 222) return TypeTag::from_raw(first);
+        LOGOS_ASSERT(first <= 230, "HERMES-BINARY-002",
+            "Invalid TypeTag header byte {} (> 230)", first);
+        size_t n = static_cast<size_t>(first - 222);
+        LOGOS_ASSERT(pos_ + n <= size_, "HERMES-BINARY-002",
+            "Unexpected end of binary data reading TypeTag code bytes");
         uint64_t val = 0;
-        for (size_t i = 0; i <= static_cast<size_t>(code_len); ++i) {
+        for (size_t i = 0; i < n; ++i) {
             val |= static_cast<uint64_t>(data_[pos_ + i]) << (i * 8);
         }
-        pos_ += code_len + 1;
+        pos_ += n;
         return TypeTag::from_raw(val);
     }
 
