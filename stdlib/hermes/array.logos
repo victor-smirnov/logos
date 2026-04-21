@@ -18,11 +18,12 @@
 package hermes.array;
 
 use hermes.anyval;
+use hermes.tags;
 use hermes.mem_holder;
 use hermes.relptr;
 
 // Canonical operation on any Array eidos: the current element count.
-#[type_code=100]
+#[type_code = HermesTag::Array]
 pub genos Array {
     unsafe fn len(self: *const Self) -> u64;
 }
@@ -148,7 +149,7 @@ impl Array<AnyVal> {
 // Dense contiguous i32 storage.
 // ---------------------------------------------------------------------------
 
-#[type_code=104]
+#[type_code = HermesTag::ArrayI32]
 pub eidos Array<i32>;
 
 pub type ArrayI32 = Array<i32>;
@@ -158,7 +159,7 @@ pub type ArrayI32 = Array<i32>;
 // Dense contiguous u64 storage.
 // ---------------------------------------------------------------------------
 
-#[type_code=108]
+#[type_code = HermesTag::ArrayU64]
 pub eidos Array<u64>;
 
 pub type ArrayU64 = Array<u64>;

@@ -13,10 +13,11 @@
 package hermes.typed_value;
 
 use hermes.anyval;
+use hermes.tags;
 use hermes.relptr;
 use hermes.string;
 
-#[type_code=106]
+#[type_code = HermesTag::TypedValue]
 pub genos TypedValueTag {
     unsafe fn type_name_off(self: *const Self) -> u32;
 }

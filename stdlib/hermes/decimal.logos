@@ -19,6 +19,7 @@
 package hermes.decimal;
 
 use hermes.zone;
+use hermes.tags;
 use hermes.anyval;
 use hermes.typetag;
 use hermes.datatag;
@@ -31,7 +32,7 @@ const DECIMAL_MAX_DIGITS: u32 = 1143;  // 127 limbs * 9 digits
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
-#[type_code=107]
+#[type_code = HermesTag::Decimal]
 pub eidos Decimal {
     pub spec_and_len: u32,
 }

@@ -17,6 +17,7 @@
 package hermes.map;
 
 use hermes.anyval;
+use hermes.tags;
 use hermes.relptr;
 
 // popcount_u64 etc. are compiler intrinsics (see sema_expr.cpp).
@@ -55,7 +56,7 @@ pub eidos Bitmap { }
 
 // Concrete genos specialisation carrying the Hermes wire-format type_code
 // for the small bitmap-indexed map.
-#[type_code=98]
+#[type_code = HermesTag::TinyObjectMap]
 pub genos Map<Bitmap, AnyVal>;
 
 // Partial spec: Bitmap-keyed map, any V.
@@ -153,7 +154,7 @@ impl Map<Bitmap, AnyVal> {
 // Partial specialisation of Map<K, V> for i32 keys and AnyVal values.
 // ---------------------------------------------------------------------------
 
-#[type_code=105]
+#[type_code = HermesTag::MapI32AnyVal]
 pub eidos Map<i32, AnyVal> {
     pub size:     u32,
     pub capacity: u32,

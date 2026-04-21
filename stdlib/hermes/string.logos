@@ -15,6 +15,7 @@
 package hermes.string;
 
 use logos.lang.datatypes;
+use hermes.tags;
 use std.mem;
 
 // ---------------------------------------------------------------------------
@@ -135,7 +136,7 @@ pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
 // the type namespace alongside the genos trait of the same name.
 pub eidos Varchar { }
 
-#[type_code=28]
+#[type_code = HermesTag::HermesString]
 pub genos Varchar {
     unsafe fn len(self: *const Self) -> u64;
     unsafe fn bytes(self: *const Self) -> *const u8;

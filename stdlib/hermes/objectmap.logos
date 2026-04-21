@@ -25,6 +25,7 @@
 package hermes.objectmap;
 
 use hermes.anyval;
+use hermes.tags;
 use hermes.array;
 use hermes.map;
 use hermes.typed_value;
@@ -47,7 +48,7 @@ pub eidos MapEntry {
 // Concrete genos specialization carrying the Hermes wire-format type_code
 // for the open-addressing hash map (was `ObjectMap`, type_code=101).
 // The Map<K, V> trait itself lives in `hermes.map`.
-#[type_code=101]
+#[type_code = HermesTag::ObjectMap]
 pub genos Map<Varchar, AnyVal>;
 
 // Full specialization (no partial over V — this layout is AnyVal-specific).

@@ -24,10 +24,11 @@
 package hermes.scalar;
 
 use logos.lang.datatypes;
+use hermes.tags;
 
 // ── TinyInt (i8) ─────────────────────────────────────────────────────────
 
-#[type_code=20]
+#[type_code = HermesTag::I8]
 pub genos TinyInt {
     unsafe fn value(self: *const Self) -> i8;
 }
@@ -48,7 +49,7 @@ impl I8 {
 
 // ── UTinyInt (u8) ────────────────────────────────────────────────────────
 
-#[type_code=21]
+#[type_code = HermesTag::U8]
 pub genos UTinyInt {
     unsafe fn value(self: *const Self) -> u8;
 }
@@ -69,7 +70,7 @@ impl U8 {
 
 // ── SmallInt (i16) ───────────────────────────────────────────────────────
 
-#[type_code=22]
+#[type_code = HermesTag::I16]
 pub genos SmallInt {
     unsafe fn value(self: *const Self) -> i16;
 }
@@ -90,7 +91,7 @@ impl I16 {
 
 // ── Integer (i24) ────────────────────────────────────────────────────────
 
-#[type_code=23]
+#[type_code = HermesTag::I24]
 pub genos Integer {
     unsafe fn value(self: *const Self) -> i24;
 }
@@ -111,7 +112,7 @@ impl I24 {
 
 // ── USmallInt (u16) ──────────────────────────────────────────────────────
 
-#[type_code=24]
+#[type_code = HermesTag::U16]
 pub genos USmallInt {
     unsafe fn value(self: *const Self) -> u16;
 }
@@ -132,7 +133,7 @@ impl U16 {
 
 // ── UInteger (u24) ───────────────────────────────────────────────────────
 
-#[type_code=25]
+#[type_code = HermesTag::U24]
 pub genos UInteger {
     unsafe fn value(self: *const Self) -> u24;
 }
@@ -153,7 +154,7 @@ impl U24 {
 
 // ── Int64 (i64) ──────────────────────────────────────────────────────────
 
-#[type_code=26]
+#[type_code = HermesTag::I64]
 pub genos Int64 {
     unsafe fn value(self: *const Self) -> i64;
 }
@@ -174,7 +175,7 @@ impl I64 {
 
 // ── UInt64 (u64) ─────────────────────────────────────────────────────────
 
-#[type_code=27]
+#[type_code = HermesTag::U64]
 pub genos UInt64 {
     unsafe fn value(self: *const Self) -> u64;
 }
@@ -195,7 +196,7 @@ impl U64 {
 
 // ── Real (f32) ───────────────────────────────────────────────────────────
 
-#[type_code=30]
+#[type_code = HermesTag::F32]
 pub genos Real {
     unsafe fn value(self: *const Self) -> f32;
 }
@@ -216,7 +217,7 @@ impl F32 {
 
 // ── Double (f64) ─────────────────────────────────────────────────────────
 
-#[type_code=31]
+#[type_code = HermesTag::F64]
 pub genos Double {
     unsafe fn value(self: *const Self) -> f64;
 }
@@ -237,7 +238,7 @@ impl F64 {
 
 // ── Boolean (bool) ───────────────────────────────────────────────────────
 
-#[type_code=37]
+#[type_code = HermesTag::Bool]
 pub genos Boolean {
     unsafe fn value(self: *const Self) -> bool;
 }
