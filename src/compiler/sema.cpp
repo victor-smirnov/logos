@@ -1398,18 +1398,31 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         auto elem_name = str_of(node.get(la::TYPE.code));
         // Resolve element type — must be a known Hermes scalar type name.
         static const std::unordered_map<std::string, const char*> arr_elem_map = {
-            {"I32", "ArrayI32"}, {"U64", "ArrayU64"},
+            {"I8",  "ArrayI8"},  {"U8",  "ArrayU8"},
+            {"I16", "ArrayI16"}, {"U16", "ArrayU16"},
+            {"U32", "ArrayU32"}, {"I32", "ArrayI32"},
+            {"I64", "ArrayI64"}, {"U64", "ArrayU64"},
+            {"F32", "ArrayF32"}, {"F64", "ArrayF64"},
         };
         auto it = arr_elem_map.find(std::string(elem_name));
         if (it == arr_elem_map.end()) {
             error(std::format("<{}>[] type: unsupported element type '{}'; "
-                              "supported: I32, U64", elem_name, elem_name));
+                              "supported: I8/U8/I16/U16/I32/U32/I64/U64/F32/F64",
+                              elem_name, elem_name));
             return error_t();
         }
         // Resolve the underlying logos primitive type for the element.
         const LogosType* elem_t = nullptr;
-        if (elem_name == "I32") elem_t = prim(LogosType::Kind::I32);
+        if      (elem_name == "I8")  elem_t = prim(LogosType::Kind::I8);
+        else if (elem_name == "U8")  elem_t = prim(LogosType::Kind::U8);
+        else if (elem_name == "I16") elem_t = prim(LogosType::Kind::I16);
+        else if (elem_name == "U16") elem_t = prim(LogosType::Kind::U16);
+        else if (elem_name == "U32") elem_t = prim(LogosType::Kind::U32);
+        else if (elem_name == "I32") elem_t = prim(LogosType::Kind::I32);
+        else if (elem_name == "I64") elem_t = prim(LogosType::Kind::I64);
         else if (elem_name == "U64") elem_t = prim(LogosType::Kind::U64);
+        else if (elem_name == "F32") elem_t = prim(LogosType::Kind::F32);
+        else if (elem_name == "F64") elem_t = prim(LogosType::Kind::F64);
         else elem_t = error_t();
         // Result type: struct LogosType with special name "HermesArr".
         LogosType t{};
@@ -1425,15 +1438,18 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         // C6-fix1: removed "Varchar" — it was advertised as supported but key_t
         // resolution only handled "I32", producing silent error_t() for Varchar.
         static const std::unordered_map<std::string, const char*> map_key_map = {
-            {"I32", "I32"},
+            {"I32", "I32"}, {"U32", "U32"}, {"I64", "I64"}, {"U64", "U64"},
         };
         if (map_key_map.find(std::string(key_name)) == map_key_map.end()) {
             error(std::format("<{},{}>" "{{}} type: unsupported key type '{}'; "
-                              "supported: I32", key_name, val_name, key_name));
+                              "supported: I32/U32/I64/U64", key_name, val_name, key_name));
             return error_t();
         }
         const LogosType* key_t = nullptr;
-        if (key_name == "I32") key_t = prim(LogosType::Kind::I32);
+        if      (key_name == "I32") key_t = prim(LogosType::Kind::I32);
+        else if (key_name == "U32") key_t = prim(LogosType::Kind::U32);
+        else if (key_name == "I64") key_t = prim(LogosType::Kind::I64);
+        else if (key_name == "U64") key_t = prim(LogosType::Kind::U64);
         else key_t = error_t();
         const LogosType* val_t = nullptr;
         if (val_name == "AnyVal") {

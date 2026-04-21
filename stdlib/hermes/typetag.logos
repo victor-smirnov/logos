@@ -47,12 +47,44 @@ pub unsafe fn hermes_tag_map() -> u64 {
     return 101;   // ObjectMap (Logos open-addressing version)
 }
 
+pub unsafe fn hermes_tag_array_i8() -> u64 {
+    return 2105;  // HermesTag::ArrayI8
+}
+
+pub unsafe fn hermes_tag_array_u8() -> u64 {
+    return 2101;  // HermesTag::ArrayU8
+}
+
+pub unsafe fn hermes_tag_array_i16() -> u64 {
+    return 2106;  // HermesTag::ArrayI16
+}
+
+pub unsafe fn hermes_tag_array_u16() -> u64 {
+    return 2102;  // HermesTag::ArrayU16
+}
+
+pub unsafe fn hermes_tag_array_u32() -> u64 {
+    return 2103;  // HermesTag::ArrayU32
+}
+
 pub unsafe fn hermes_tag_array_i32() -> u64 {
     return 2107;  // HermesTag::ArrayI32
 }
 
+pub unsafe fn hermes_tag_array_i64() -> u64 {
+    return 2108;  // HermesTag::ArrayI64
+}
+
 pub unsafe fn hermes_tag_array_u64() -> u64 {
     return 2104;  // HermesTag::ArrayU64
+}
+
+pub unsafe fn hermes_tag_array_f32() -> u64 {
+    return 2109;  // HermesTag::ArrayF32
+}
+
+pub unsafe fn hermes_tag_array_f64() -> u64 {
+    return 2110;  // HermesTag::ArrayF64
 }
 
 pub unsafe fn hermes_tag_map_i32_anyval() -> u64 {

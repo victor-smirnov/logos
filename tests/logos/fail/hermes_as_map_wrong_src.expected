@@ -1,1 +1,1 @@
-error [fn main]: 'as <I32,AnyVal>{}' requires a MapSliceI32 as source
+error [fn main]: 'as <i32,AnyVal>{}' requires a MapSliceI32 as source

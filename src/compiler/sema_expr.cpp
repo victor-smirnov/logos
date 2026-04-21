@@ -148,13 +148,20 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 }
                 // Pick the stdlib builder function name.
                 std::string build_fn;
-                if (elem_t->kind == LogosType::Kind::I32)
-                    build_fn = "hermes_build_array_i32";
-                else if (elem_t->kind == LogosType::Kind::U64)
-                    build_fn = "hermes_build_array_u64";
+                if      (elem_t->kind == LogosType::Kind::I8)  build_fn = "hermes_build_array_i8";
+                else if (elem_t->kind == LogosType::Kind::U8)  build_fn = "hermes_build_array_u8";
+                else if (elem_t->kind == LogosType::Kind::I16) build_fn = "hermes_build_array_i16";
+                else if (elem_t->kind == LogosType::Kind::U16) build_fn = "hermes_build_array_u16";
+                else if (elem_t->kind == LogosType::Kind::U32) build_fn = "hermes_build_array_u32";
+                else if (elem_t->kind == LogosType::Kind::I32) build_fn = "hermes_build_array_i32";
+                else if (elem_t->kind == LogosType::Kind::I64) build_fn = "hermes_build_array_i64";
+                else if (elem_t->kind == LogosType::Kind::U64) build_fn = "hermes_build_array_u64";
+                else if (elem_t->kind == LogosType::Kind::F32) build_fn = "hermes_build_array_f32";
+                else if (elem_t->kind == LogosType::Kind::F64) build_fn = "hermes_build_array_f64";
                 else {
                     error(std::format("'as <T>[]': unsupported element type '{}'; "
-                                      "supported: i32/I32, u64/U64", type_str(elem_t)));
+                                      "supported: i8/u8/i16/u16/i32/u32/i64/u64/f32/f64",
+                                      type_str(elem_t)));
                     return error_expr();
                 }
                 // Result type: Hermes.
@@ -184,24 +191,41 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     error("internal: <K,V>{} type missing key/val types");
                     return error_expr();
                 }
+                // Helper: check AnyVal val type.
+                bool val_is_anyval = val_t->kind == LogosType::Kind::Struct &&
+                                     val_t->struct_name == "AnyVal";
                 std::string map_fn;
-                if (key_t->kind == LogosType::Kind::I32 &&
-                    val_t->kind == LogosType::Kind::Struct &&
-                    val_t->struct_name == "AnyVal") {
-                    if (!src || src->kind != LogosType::Kind::Struct ||
-                        src->struct_name != "MapSliceI32") {
-                        error(std::format(
-                            "'as <I32,AnyVal>{{}}' requires a MapSliceI32 as source; got '{}'",
-                            src ? type_str(src) : "?"));
-                        return error_expr();
+                struct MapVariant { LogosType::Kind key_kind; const char* slice_name; const char* fn_name; };
+                static const MapVariant map_variants[] = {
+                    {LogosType::Kind::I32, "MapSliceI32", "hermes_build_map_i32_anyval"},
+                    {LogosType::Kind::U32, "MapSliceU32", "hermes_build_map_u32_anyval"},
+                    {LogosType::Kind::I64, "MapSliceI64", "hermes_build_map_i64_anyval"},
+                    {LogosType::Kind::U64, "MapSliceU64", "hermes_build_map_u64_anyval"},
+                };
+                bool found_map = false;
+                if (val_is_anyval) {
+                    for (auto& mv : map_variants) {
+                        if (key_t->kind == mv.key_kind) {
+                            if (!src || src->kind != LogosType::Kind::Struct ||
+                                src->struct_name != mv.slice_name) {
+                                error(std::format(
+                                    "'as <{},AnyVal>{{}}' requires a {} as source; got '{}'",
+                                    type_str(key_t), mv.slice_name,
+                                    src ? type_str(src) : "?"));
+                                return error_expr();
+                            }
+                            map_fn = mv.fn_name;
+                            found_map = true;
+                            break;
+                        }
                     }
-                    map_fn = "hermes_build_map_i32_anyval";
-                } else {
+                }
+                if (!found_map) {
                     // fix4: guard against calling type_str on error types — check kind first.
                     auto key_str = (key_t->kind != LogosType::Kind::Error) ? type_str(key_t) : "?";
                     auto val_str = (val_t->kind != LogosType::Kind::Error) ? type_str(val_t) : "?";
                     error(std::format(
-                        "'as <{},{}>{{}}': unsupported combination; supported: <I32,AnyVal>",
+                        "'as <{},{}>{{}}': unsupported combination; supported: <I32/U32/I64/U64,AnyVal>",
                         key_str, val_str));
                     return error_expr();
                 }

@@ -1,1 +1,1 @@
-error [fn main]: <F64>[] type: unsupported element type 'F64'
+error [fn main]: <Bool>[] type: unsupported element type 'Bool'
