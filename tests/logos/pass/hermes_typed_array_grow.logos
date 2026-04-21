@@ -1,0 +1,62 @@
+package hermes_typed_array_grow;
+// Phase 4: exercise Array<i32> push() across multiple grows.  The cast path
+// s as <I32>[] preallocates exact capacity so never exercises grow —
+// this test drives grow via the generic impl<T>::push codepath directly.
+
+use hermes.zone;
+use hermes.anyval;
+use hermes.array;
+use hermes.map;
+use hermes.typed_value;
+use hermes.mem_holder;
+
+unsafe fn main() -> i32 {
+    let mut zone: Zone<Mutable> = zone_create(4096);
+
+    let arr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, sizeof::<Array<i32>>() as i64);
+    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 16 as i64);  // cap 4 → grow x4+
+    let base0:   *mut u8 = zone.holder.base;
+    let arr: *mut Array<i32> =
+        Array::<i32>::init(arr_raw, buf_raw, base0, 4 as u64);
+
+    if arr.size     != 0 as u64 { return 1; }
+    if arr.capacity != 4 as u64 { return 2; }
+
+    let arr_off: u32 = (arr as i64 - base0 as i64) as u32;
+
+    let mut i: i32 = 0;
+    while i < 40 {
+        let holder: *mut MemHolder = zone.holder;
+        let a: *mut Array<i32> =
+            (holder.base as i64 + arr_off as i64) as *mut Array<i32>;
+        let v: i32 = i * 3;
+        a.push(holder, v);
+        i = i + 1;
+    }
+
+    let holder_final: *mut MemHolder = zone.holder;
+    let a: *mut Array<i32> =
+        (holder_final.base as i64 + arr_off as i64) as *mut Array<i32>;
+    if a.size     < 40 as u64 { return 3; }
+    if a.capacity < 40 as u64 { return 4; }
+
+    let base_final: *const u8 = holder_final.base as *const u8;
+    let mut j: i32 = 0;
+    while j < 40 {
+        let p: *const i32 = a.get_ptr(base_final, j as u64);
+        if p == 0 as *const i32 { return 100 + j; }
+        if *p != j * 3          { return 200 + j; }
+        j = j + 1;
+    }
+
+    // Byte-layout parity with C++ TypedArray<int32_t>: size@0, cap@8, relptr@16.
+    let hdr: *const u8 = a as *const u8;
+    let sz_p:  *const u64 = (hdr as i64 + 0 as i64)  as *const u64;
+    let cap_p: *const u64 = (hdr as i64 + 8 as i64)  as *const u64;
+    let off_p: *const u32 = (hdr as i64 + 16 as i64) as *const u32;
+    if *sz_p  != a.size        { return 5; }
+    if *cap_p != a.capacity    { return 6; }
+    if *off_p != a.data.offset { return 7; }
+
+    return 0;
+}
