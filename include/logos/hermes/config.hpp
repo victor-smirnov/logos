@@ -42,7 +42,12 @@ private:
 static_assert(sizeof(arena_offset_t) == sizeof(uint32_t));
 
 // Sentinel value for null offsets.
-inline constexpr arena_offset_t NULL_OFFSET{~uint32_t(0)};
+//
+// Offset 0 is always occupied by the DocumentHeader in every Hermes segment,
+// and no user allocation ever lives there, so 0 is safe as the null sentinel.
+// This matches the Logos stdlib convention (see stdlib/hermes/document.logos)
+// and lets a zero-initialized `arena_offset_t` default to "null".
+inline constexpr arena_offset_t NULL_OFFSET{0};
 
 // DocumentHeader: untagged structure at offset 0 of every arena segment.
 struct DocumentHeader {
