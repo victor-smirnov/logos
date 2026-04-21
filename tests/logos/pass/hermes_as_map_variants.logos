@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// hermes_as_map_variants.logos — MapSlice{U32,I64,U64} → as <K,AnyVal>{} cast.
+//
+// Tests the 3 new map key types: u32, i64, u64.
+// (i32 is covered by hermes_as_map.)
+
+package hermes_as_map_variants;
+
+use hermes.ctr;
+use std.string;
+
+pub unsafe fn main() -> i32 {
+    // 1. u32 keys → Map<u32, AnyVal>
+    let keys1: [u32; 3] = [10, 20, 30];
+    let vals1: [AnyVal; 3] = [
+        AnyVal::embed_i24(1),
+        AnyVal::embed_i24(2),
+        AnyVal::embed_i24(3),
+    ];
+    let ms1: MapSliceU32 = MapSliceU32 {
+        keys: &keys1,
+        vals: &vals1,
+    };
+    let ctr1: Hermes = ms1 as <U32, AnyVal>{};
+    if ctr1.root().is_null() { return 1; }
+    if !ctr1.root().is_ptr() { return 2; }
+    let t1: String = ctr1.to_string();
+    if !t1.eq_str("<U32,AnyVal> {10:1,20:2,30:3}") { return 3; }
+
+    // 2. i64 keys → Map<i64, AnyVal>
+    let keys2: [i64; 3] = [-1, 0, 1];
+    let vals2: [AnyVal; 3] = [
+        AnyVal::embed_i24(100),
+        AnyVal::embed_i24(200),
+        AnyVal::embed_i24(300),
+    ];
+    let ms2: MapSliceI64 = MapSliceI64 {
+        keys: &keys2,
+        vals: &vals2,
+    };
+    let ctr2: Hermes = ms2 as <I64, AnyVal>{};
+    if ctr2.root().is_null() { return 4; }
+    if !ctr2.root().is_ptr() { return 5; }
+    let t2: String = ctr2.to_string();
+    if !t2.eq_str("<I64,AnyVal> {-1:100,0:200,1:300}") { return 6; }
+
+    // 3. u64 keys → Map<u64, AnyVal>
+    let keys3: [u64; 3] = [100, 200, 300];
+    let vals3: [AnyVal; 3] = [
+        AnyVal::embed_i24(10),
+        AnyVal::embed_i24(20),
+        AnyVal::embed_i24(30),
+    ];
+    let ms3: MapSliceU64 = MapSliceU64 {
+        keys: &keys3,
+        vals: &vals3,
+    };
+    let ctr3: Hermes = ms3 as <U64, AnyVal>{};
+    if ctr3.root().is_null() { return 7; }
+    if !ctr3.root().is_ptr() { return 8; }
+    let t3: String = ctr3.to_string();
+    if !t3.eq_str("<U64,AnyVal> {100:10,200:20,300:30}") { return 9; }
+
+    return 0;
+}
