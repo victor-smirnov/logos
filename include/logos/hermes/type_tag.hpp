@@ -65,24 +65,33 @@ public:
     }
 
     // Descriptor derived from type_code — no longer carried on the wire.
+    // Values mirror type_hash::* in type_registry.hpp (duplicated here to
+    // avoid a circular include; type_registry.hpp includes this file).
     constexpr TagDescriptor descriptor() const noexcept {
-        // Container codes in the current (Logos-aligned) wire format:
-        //   98  Hermes           (TinyObjectMap)
-        //   100 ObjectArray
-        //   101 ObjectMap
-        //   104 ArrayI32
-        //   105 MapI32AnyVal
-        //   108 ArrayU64
-        // Everything else is Data (scalars, strings, decimals, TypedValue…).
         switch (type_code_) {
-            case 98:
-            case 101:
-            case 105:
+            // Maps
+            case 98:   // Hermes / TinyObjectMap
+            case 101:  // ObjectMap
+            case 3101: // MapI32AnyVal
+            case 3102: // MapU32AnyVal
+            case 3103: // MapI64AnyVal
+            case 3104: // MapU64AnyVal
                 return TagDescriptor::Map;
-            case 100:
-            case 104:
-            case 108:
+            // Arrays
+            case 100:  // ObjectArray
+            case 2101: // ArrayU8
+            case 2102: // ArrayU16
+            case 2103: // ArrayU32
+            case 2104: // ArrayU64
+            case 2105: // ArrayI8
+            case 2106: // ArrayI16
+            case 2107: // ArrayI32
+            case 2108: // ArrayI64
+            case 2109: // ArrayF32
+            case 2110: // ArrayF64
                 return TagDescriptor::Array;
+            // Everything else (scalars, strings, Decimal=102, Datatype=1001,
+            // TypedValue=4115, …) is Data.
             default:
                 return TagDescriptor::Data;
         }

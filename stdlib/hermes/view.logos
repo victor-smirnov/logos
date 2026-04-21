@@ -175,7 +175,7 @@ pub trait HermesRead {
             if !val.is_map(base) { return AnyVal::null_ptr(); }
             let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
             let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == hermes_tag_tiny_map() as u64 { return AnyVal::null_ptr(); }
+            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
             let omap: *const ObjectMap = obj as *const ObjectMap;
             let klen: i64 = view_cstr_len(key);
             return omap.get(base, key, klen as u64);
@@ -189,7 +189,7 @@ pub trait HermesRead {
             if !val.is_map(base) { return AnyVal::null_ptr(); }
             let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
             let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == hermes_tag_tiny_map() as u64 { return AnyVal::null_ptr(); }
+            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
             let omap: *const ObjectMap = obj as *const ObjectMap;
             let klen: i64 = view_cstr_len(key);
             return omap.get(base, key, klen as u64);
@@ -202,7 +202,7 @@ pub trait HermesRead {
             if !val.is_map(base) { return AnyVal::null_ptr(); }
             let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
             let tag_hash: u64 = read_type_code(obj);
-            if tag_hash == hermes_tag_tiny_map() as u64 { return AnyVal::null_ptr(); }
+            if tag_hash == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
             let omap: *const ObjectMap = obj as *const ObjectMap;
             return omap.get(base, key.as_ptr(), key.len() as u64);
         }
@@ -255,7 +255,7 @@ pub trait HermesWrite: HermesRead {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
             let sz: i64 = sizeof::<I64>() as i64;
-            let raw: *mut u8 = zone_m_alloc_tagged(zone, sz, hermes_tag_i64() as u64);
+            let raw: *mut u8 = zone_m_alloc_tagged(zone, sz, hermes_tag_i64());
             if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             I64::init(raw, v);
             let base: *mut u8 = zone.holder.base;
@@ -268,7 +268,7 @@ pub trait HermesWrite: HermesRead {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
             let sz: i64 = sizeof::<U64>() as i64;
-            let raw: *mut u8 = zone_m_alloc_tagged(zone, sz, hermes_tag_u64() as u64);
+            let raw: *mut u8 = zone_m_alloc_tagged(zone, sz, hermes_tag_u64());
             if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             U64::init(raw, v);
             let base: *mut u8 = zone.holder.base;
@@ -284,7 +284,7 @@ pub trait HermesWrite: HermesRead {
             let lu: u64 = slen as u64;
             let prefix_sz: i64 = vlen_encode_size(lu) as i64;
             let total: i64 = prefix_sz + slen;
-            let raw: *mut u8 = zone_m_alloc_tagged(zone, total, hermes_tag_string() as u64);
+            let raw: *mut u8 = zone_m_alloc_tagged(zone, total, hermes_tag_string());
             if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             HermesString::init(raw, s, lu);
             let base: *mut u8 = zone.holder.base;
@@ -309,7 +309,7 @@ pub trait HermesWrite: HermesRead {
             let lu: u64 = slen as u64;
             let prefix_sz: i64 = vlen_encode_size(lu) as i64;
             let total: i64 = prefix_sz + slen;
-            let raw: *mut u8 = zone_m_alloc_tagged(zone, total, hermes_tag_string() as u64);
+            let raw: *mut u8 = zone_m_alloc_tagged(zone, total, hermes_tag_string());
             if raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             HermesString::init(raw, s, lu);
             let base: *mut u8 = zone.holder.base;
@@ -322,7 +322,7 @@ pub trait HermesWrite: HermesRead {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
             let map_sz: i64 = 16;
-            let map_raw: *mut u8 = zone_m_alloc_tagged(zone, map_sz, hermes_tag_map() as u64);
+            let map_raw: *mut u8 = zone_m_alloc_tagged(zone, map_sz, hermes_tag_map());
             if map_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let entries_raw: *mut u8 = zone_m_alloc_raw(zone, cap_slots as i64 * 8);
             if entries_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
@@ -337,7 +337,7 @@ pub trait HermesWrite: HermesRead {
         unsafe {
             let zone: *mut Zone<Mutable> = self.zone_mut();
             let oa_sz: i64 = 24;
-            let oa_raw: *mut u8 = zone_m_alloc_tagged(zone, oa_sz, hermes_tag_array() as u64);
+            let oa_raw: *mut u8 = zone_m_alloc_tagged(zone, oa_sz, hermes_tag_array());
             if oa_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let buf_raw: *mut u8 = zone_m_alloc_raw(zone, cap as i64 * 4);
             if buf_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
@@ -363,7 +363,7 @@ pub trait HermesWrite: HermesRead {
                 let prefix_sz: i64 = vlen_encode_size(lu) as i64;
                 let total: i64 = prefix_sz + klen;
                 let zone2: *mut Zone<Mutable> = self.zone_mut();
-                let raw: *mut u8 = zone_m_alloc_tagged(zone2, total, hermes_tag_string() as u64);
+                let raw: *mut u8 = zone_m_alloc_tagged(zone2, total, hermes_tag_string());
                 if raw == 0 as *mut u8 { return; }
                 HermesString::init(raw, key, lu);
                 let base2: *mut u8 = zone2.holder.base;
@@ -401,7 +401,7 @@ pub trait HermesWrite: HermesRead {
                 let prefix_sz: i64 = vlen_encode_size(lu) as i64;
                 let total: i64 = prefix_sz + klen;
                 let zone2: *mut Zone<Mutable> = self.zone_mut();
-                let raw: *mut u8 = zone_m_alloc_tagged(zone2, total, hermes_tag_string() as u64);
+                let raw: *mut u8 = zone_m_alloc_tagged(zone2, total, hermes_tag_string());
                 if raw == 0 as *mut u8 { return; }
                 HermesString::init(raw, key, lu);
                 let base2: *mut u8 = zone2.holder.base;
@@ -445,7 +445,7 @@ pub trait HermesWrite: HermesRead {
                 buf_off = (buf_raw as i64 - zone.holder.base as i64) as u32;
             }
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(zone, hdr_sz,
-                                       hermes_tag_array_i32() as u64);
+                                       hermes_tag_array_i32());
             if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
             let arr: *mut Array<i32> = hdr_raw as *mut Array<i32>;
@@ -464,7 +464,7 @@ pub trait HermesWrite: HermesRead {
             if !arr.is_ptr() { return; }
             if arr.is_null() { return; }
             let obj: *const u8 = (base as i64 + arr.as_offset() as i64) as *const u8;
-            if read_type_code(obj) != hermes_tag_array_i32() as u64 { return; }
+            if read_type_code(obj) != hermes_tag_array_i32() { return; }
             let ai: *mut Array<i32> =
                 (base as i64 + arr.as_offset() as i64) as *mut Array<i32>;
             ai.push(zone.holder, val);
@@ -483,7 +483,7 @@ pub trait HermesWrite: HermesRead {
                 buf_off = (buf_raw as i64 - zone.holder.base as i64) as u32;
             }
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(zone, hdr_sz,
-                                       hermes_tag_array_u64() as u64);
+                                       hermes_tag_array_u64());
             if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
             let arr: *mut Array<u64> = hdr_raw as *mut Array<u64>;
@@ -502,7 +502,7 @@ pub trait HermesWrite: HermesRead {
             if !arr.is_ptr() { return; }
             if arr.is_null() { return; }
             let obj: *const u8 = (base as i64 + arr.as_offset() as i64) as *const u8;
-            if read_type_code(obj) != hermes_tag_array_u64() as u64 { return; }
+            if read_type_code(obj) != hermes_tag_array_u64() { return; }
             let au: *mut Array<u64> =
                 (base as i64 + arr.as_offset() as i64) as *mut Array<u64>;
             au.push(zone.holder, val);
@@ -531,7 +531,7 @@ pub trait HermesWrite: HermesRead {
                 vals_off = (vals_raw as i64 - zone.holder.base as i64) as u32;
             }
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(zone, hdr_sz,
-                                       hermes_tag_map_i32_anyval() as u64);
+                                       hermes_tag_map_i32_anyval());
             if hdr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
             let base: *mut u8 = zone.holder.base;
             let m: *mut Map<i32, AnyVal> = hdr_raw as *mut Map<i32, AnyVal>;
@@ -551,7 +551,7 @@ pub trait HermesWrite: HermesRead {
             if !map.is_ptr() { return; }
             if map.is_null() { return; }
             let obj: *const u8 = (base as i64 + map.as_offset() as i64) as *const u8;
-            if read_type_code(obj) != hermes_tag_map_i32_anyval() as u64 { return; }
+            if read_type_code(obj) != hermes_tag_map_i32_anyval() { return; }
             let m: *mut Map<i32, AnyVal> =
                 (base as i64 + map.as_offset() as i64) as *mut Map<i32, AnyVal>;
             m.set(base, key, val);

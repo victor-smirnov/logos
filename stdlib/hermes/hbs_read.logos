@@ -272,7 +272,7 @@ unsafe fn alloc_string_in_zone(ctx: *mut DeserCtx, str_ptr: *const u8, str_len: 
     let prefix_sz: i64 = vlen_encode_size(len64) as i64;
     let total: i64 = prefix_sz + str_len as i64;
     let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone, total,
-        hermes_tag_string() as u64);
+        hermes_tag_string());
     if raw == 0 as *mut u8 {
         ctx.error = HbsError::OOM;
         return AnyVal::null_ptr();
@@ -283,8 +283,8 @@ unsafe fn alloc_string_in_zone(ctx: *mut DeserCtx, str_ptr: *const u8, str_len: 
     return AnyVal::from_offset(off);
 }
 
-unsafe fn alloc_tagged_in_zone(ctx: *mut DeserCtx, size: i64, tag: u8) -> *mut u8 {
-    let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone, size, tag as u64);
+unsafe fn alloc_tagged_in_zone(ctx: *mut DeserCtx, size: i64, tag: u64) -> *mut u8 {
+    let raw: *mut u8 = zone_m_alloc_tagged(ctx.zone, size, tag);
     if raw == 0 as *mut u8 {
         ctx.error = HbsError::OOM;
     }

@@ -124,25 +124,25 @@ unsafe fn main() -> i32 {
     if read_type_code(obj20 as *const u8) != 20 as u64         { return 36; }
 
     // type_code=28 (Varchar) → byte[-1]=28
-    let obj28: *mut u8 = zone_m_alloc_tagged(&mut tz, 8 as i64, hermes_tag_string() as u64);
+    let obj28: *mut u8 = zone_m_alloc_tagged(&mut tz, 8 as i64, hermes_tag_string());
     let b28_tc: u8 = *((obj28 as i64 - 1 as i64) as *const u8);
     if b28_tc != 28 as u8                                       { return 37; }
     if read_type_code(obj28 as *const u8) != 28 as u64         { return 38; }
 
     // type_code=98 (TinyObjectMap) → byte[-1]=98
-    let obj98: *mut u8 = zone_m_alloc_tagged(&mut tz, 16 as i64, hermes_tag_tiny_map() as u64);
+    let obj98: *mut u8 = zone_m_alloc_tagged(&mut tz, 16 as i64, hermes_tag_tiny_map());
     let b98_tc: u8 = *((obj98 as i64 - 1 as i64) as *const u8);
     if b98_tc != 98 as u8                                       { return 39; }
     if read_type_code(obj98 as *const u8) != 98 as u64         { return 40; }
 
     // type_code=100 (ObjectArray) → byte[-1]=100
-    let obj100: *mut u8 = zone_m_alloc_tagged(&mut tz, 24 as i64, hermes_tag_array() as u64);
+    let obj100: *mut u8 = zone_m_alloc_tagged(&mut tz, 24 as i64, hermes_tag_array());
     let b100_tc: u8 = *((obj100 as i64 - 1 as i64) as *const u8);
     if b100_tc != 100 as u8                                     { return 41; }
     if read_type_code(obj100 as *const u8) != 100 as u64       { return 42; }
 
     // type_code=101 (ObjectMap) → byte[-1]=101
-    let obj101: *mut u8 = zone_m_alloc_tagged(&mut tz, 16 as i64, hermes_tag_map() as u64);
+    let obj101: *mut u8 = zone_m_alloc_tagged(&mut tz, 16 as i64, hermes_tag_map());
     let b101_tc: u8 = *((obj101 as i64 - 1 as i64) as *const u8);
     if b101_tc != 101 as u8                                     { return 43; }
     if read_type_code(obj101 as *const u8) != 101 as u64       { return 44; }

@@ -24,7 +24,7 @@ unsafe fn main() -> i32 {
 
     // ── TinyObjectMap basic ──────────────────────────────────────────────────
     let tm_sz: i64 = sizeof::<TinyObjectMap>() as i64;
-    let tm_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map() as u64);
+    let tm_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map());
     let tm_arr: *mut u8 = zone_m_alloc_raw(&mut zone, 208 as i64);   // 52 AnyVal slots × 4 bytes
     let tmap: *mut TinyObjectMap = TinyObjectMap::init(tm_raw, tm_arr, base, 52 as u32);
 
@@ -71,7 +71,7 @@ unsafe fn main() -> i32 {
     if read_type_code(tm_raw as *const u8) != 98 as u64         { return 16; }
 
     // ── TinyObjectMap update ─────────────────────────────────────────────────
-    let tu_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map() as u64);
+    let tu_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map());
     let tu_arr: *mut u8 = zone_m_alloc_raw(&mut zone, 32 as i64);   // 8 * 4 bytes
     let tmap2: *mut TinyObjectMap = TinyObjectMap::init(tu_raw, tu_arr, base, 8 as u32);
 
@@ -86,7 +86,7 @@ unsafe fn main() -> i32 {
     if tmap2.get(base as *const u8, 3 as u8).as_i24() != 20    { return 20; }
 
     // ── TinyObjectMap stress: all 52 keys ────────────────────────────────────
-    let ts_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map() as u64);
+    let ts_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, tm_sz, hermes_tag_tiny_map());
     let ts_arr: *mut u8 = zone_m_alloc_raw(&mut zone, 208 as i64);   // 52 * 4 bytes
     let tmap3: *mut TinyObjectMap = TinyObjectMap::init(ts_raw, ts_arr, base, 52 as u32);
 
@@ -116,7 +116,7 @@ unsafe fn main() -> i32 {
 
     // ── ObjectArray ──────────────────────────────────────────────────────────
     let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
-    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, oa_sz, hermes_tag_array() as u64);
+    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, oa_sz, hermes_tag_array());
     let oa_buf: *mut u8 = zone_m_alloc_raw(&mut zone, 32 as i64);   // 8 AnyVal slots × 4 bytes
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 8 as u64);
 
@@ -152,7 +152,7 @@ unsafe fn main() -> i32 {
 
     // ── ObjectMap basic ──────────────────────────────────────────────────────
     let om_sz: i64 = sizeof::<ObjectMap>() as i64;
-    let om_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, om_sz, hermes_tag_map() as u64);
+    let om_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, om_sz, hermes_tag_map());
     let om_ent: *mut u8 = zone_m_alloc_raw(&mut zone, 128 as i64);   // 16 × 8-byte MapEntry
     let omap: *mut ObjectMap = ObjectMap::init(om_raw, base, om_ent, 16 as u32);
 
@@ -215,7 +215,7 @@ unsafe fn main() -> i32 {
     if read_type_code(om_raw as *const u8) != 101 as u64        { return 50; }
 
     // ── ObjectMap update ─────────────────────────────────────────────────────
-    let om2_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, om_sz, hermes_tag_map() as u64);
+    let om2_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, om_sz, hermes_tag_map());
     let om2_ent: *mut u8 = zone_m_alloc_raw(&mut zone, 128 as i64);   // 16 × 8-byte MapEntry
     let omap2: *mut ObjectMap = ObjectMap::init(om2_raw, base, om2_ent, 16 as u32);
 

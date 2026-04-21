@@ -268,7 +268,7 @@ impl HermesStringify for TypedValue {
                 if params.is_ptr() {
                     let pobj: *const u8 = ctx.base.byte_add(params.as_offset() as i64);
                     let th: u64 = read_type_code(pobj);
-                    if th == hermes_tag_array() as u64 {
+                    if th == hermes_tag_array() {
                         let arr: *const ObjectArray = pobj as *const ObjectArray;
                         let mut pi: u64 = 0;
                         while pi < arr.size {

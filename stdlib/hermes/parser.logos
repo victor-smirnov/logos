@@ -429,7 +429,7 @@ impl HermesParser {
         let n: i64 = e - s;
         let pfx: i64 = vlen_encode_size(n as u64) as i64;
         let raw: *mut u8 = zone_m_alloc_tagged(self.zone, pfx + n,
-                               hermes_tag_string() as u64);
+                               hermes_tag_string());
         if raw == 0 as *mut u8 { return 0; }
         vlen_write(raw, n as u64);
         let body: *mut u8 = (raw as i64 + pfx) as *mut u8;
@@ -462,7 +462,7 @@ impl HermesParser {
         let cap: u64 = 32;
         let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
         let oa_raw: *mut u8 = zone_m_alloc_tagged(self.zone, oa_sz,
-                                  hermes_tag_array() as u64);
+                                  hermes_tag_array());
         let oa_buf: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4);
         if oa_raw == 0 as *mut u8 || oa_buf == 0 as *mut u8 {
             self.ok = false;
@@ -504,7 +504,7 @@ impl HermesParser {
     pub unsafe fn make_typed_value(&mut self, type_off: u32, params: AnyVal, initv: AnyVal) -> AnyVal {
         let tv_sz: i64 = sizeof::<TypedValue>() as i64;
         let tv_raw: *mut u8 = zone_m_alloc_tagged(self.zone, tv_sz,
-                                  hermes_tag_typed_value() as u64);
+                                  hermes_tag_typed_value());
         if tv_raw == 0 as *mut u8 {
             self.ok = false;
             return AnyVal::null_ptr();
@@ -550,7 +550,7 @@ impl HermesParser {
             return false;
         }
         let pobj: *const u8 = (self.base as i64 + params.as_offset() as i64) as *const u8;
-        if read_type_code(pobj) != hermes_tag_array() as u64 {
+        if read_type_code(pobj) != hermes_tag_array() {
             self.ok = false;
             return false;
         }
@@ -757,10 +757,10 @@ impl HermesParser {
             }
             let obj: *const u8 = (self.base as i64 + v.as_offset() as i64) as *const u8;
             let th: u64 = read_type_code(obj);
-            if th == hermes_tag_i64() as u64 {
+            if th == hermes_tag_i64() {
                 let p: *const I64 = obj as *const I64;
                 n = p.v;
-            } else if th == hermes_tag_u64() as u64 {
+            } else if th == hermes_tag_u64() {
                 let p: *const U64 = obj as *const U64;
                 if p.v > 2147483647 {
                     self.ok = false;
@@ -789,7 +789,7 @@ impl HermesParser {
     pub unsafe fn alloc_i64_anyval(&mut self, v: i64) -> AnyVal {
         let sz: i64 = sizeof::<I64>() as i64;
         let raw: *mut u8 = zone_m_alloc_tagged(self.zone, sz,
-                               hermes_tag_i64() as u64);
+                               hermes_tag_i64());
         if raw == 0 as *mut u8 {
             self.ok = false;
             return AnyVal::null_ptr();
@@ -802,7 +802,7 @@ impl HermesParser {
     pub unsafe fn alloc_u64_anyval(&mut self, v: u64) -> AnyVal {
         let sz: i64 = sizeof::<U64>() as i64;
         let raw: *mut u8 = zone_m_alloc_tagged(self.zone, sz,
-                               hermes_tag_u64() as u64);
+                               hermes_tag_u64());
         if raw == 0 as *mut u8 {
             self.ok = false;
             return AnyVal::null_ptr();
@@ -822,7 +822,7 @@ impl HermesParser {
         let cap: u64 = 64;
         let arr_sz: i64 = sizeof::<Array<i32>>() as i64;
         let arr_raw: *mut u8 = zone_m_alloc_tagged(self.zone, arr_sz,
-                                  hermes_tag_array_i32() as u64);
+                                  hermes_tag_array_i32());
         let buf_raw: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4);
         if arr_raw == 0 as *mut u8 || buf_raw == 0 as *mut u8 {
             self.ok = false;
@@ -887,7 +887,7 @@ impl HermesParser {
         let cap: u32 = 64;
         let map_sz: i64 = sizeof::<Map<i32, AnyVal>>() as i64;
         let map_raw: *mut u8 = zone_m_alloc_tagged(self.zone, map_sz,
-                                   hermes_tag_map_i32_anyval() as u64);
+                                   hermes_tag_map_i32_anyval());
         let keys_raw: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4);
         let vals_raw: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4);
         if map_raw == 0 as *mut u8 || keys_raw == 0 as *mut u8 || vals_raw == 0 as *mut u8 {
@@ -1341,7 +1341,7 @@ impl HermesParser {
         let prefix_sz: i64 = vlen_encode_size(slen as u64) as i64;
         let total:     i64 = prefix_sz + slen;
         let raw: *mut u8 = zone_m_alloc_tagged(self.zone, total,
-                               hermes_tag_string() as u64);
+                               hermes_tag_string());
         if raw == 0 as *mut u8 { self.ok = false; return AnyVal::null_ptr(); }
 
         vlen_write(raw, slen as u64);
@@ -1371,7 +1371,7 @@ impl HermesParser {
         let cap: u64 = 64;
         let oa_sz:  i64 = sizeof::<ObjectArray>() as i64;
         let oa_raw: *mut u8 = zone_m_alloc_tagged(self.zone, oa_sz,
-                                  hermes_tag_array() as u64);
+                                  hermes_tag_array());
         let oa_buf: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 4);
         if oa_raw == 0 as *mut u8 || oa_buf == 0 as *mut u8 {
             self.ok = false;
@@ -1428,7 +1428,7 @@ impl HermesParser {
         let cap: u32 = 64;
         let om_sz:  i64 = sizeof::<ObjectMap>() as i64;
         let om_raw: *mut u8 = zone_m_alloc_tagged(self.zone, om_sz,
-                                  hermes_tag_map() as u64);
+                                  hermes_tag_map());
         // 64 × 8-byte MapEntry
         let om_ent: *mut u8 = zone_m_alloc_raw(self.zone, cap as i64 * 8);
         if om_raw == 0 as *mut u8 || om_ent == 0 as *mut u8 {
@@ -1473,7 +1473,7 @@ impl HermesParser {
                     (self.text.as_ptr() as i64 + id_start) as *const u8;
                 let pfx: i64 = vlen_encode_size(id_len as u64) as i64;
                 let raw: *mut u8 = zone_m_alloc_tagged(self.zone, pfx + id_len,
-                                       hermes_tag_string() as u64);
+                                       hermes_tag_string());
                 if raw == 0 as *mut u8 {
                     self.ok = false;
                     return AnyVal::null_ptr();

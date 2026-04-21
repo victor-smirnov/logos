@@ -52,7 +52,7 @@ unsafe fn main() -> i32 {
 
     // Allocate a HermesString tagged object (type_code=28).
     // Content: 1-byte vlen=1 + 'X'.
-    let hs_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 2 as i64, hermes_tag_string() as u64);
+    let hs_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 2 as i64, hermes_tag_string());
     *((hs_raw as i64 + 0 as i64) as *mut u8) = 1 as u8;   // vlen
     *((hs_raw as i64 + 1 as i64) as *mut u8) = 88 as u8;  // 'X'
     let hs_off: u32 = (hs_raw as i64 - base as i64) as u32;
@@ -64,7 +64,7 @@ unsafe fn main() -> i32 {
 
     // Allocate an ObjectArray tagged object (type_code=100).
     // Minimal: just a 24-byte header (no element buffer needed for the type check).
-    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 24 as i64, hermes_tag_array() as u64);
+    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 24 as i64, hermes_tag_array());
     // zero-init: size=0, capacity=0, data=0
     let mut k: i64 = 0 as i64;
     while k < 24 as i64 {
@@ -79,7 +79,7 @@ unsafe fn main() -> i32 {
     if  oa_val.is_map(base)    { return 19; }
 
     // Allocate a TinyObjectMap tagged object (type_code=98).
-    let tm_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 16 as i64, hermes_tag_tiny_map() as u64);
+    let tm_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 16 as i64, hermes_tag_tiny_map());
     let mut m: i64 = 0 as i64;
     while m < 16 as i64 {
         *((tm_raw as i64 + m) as *mut u8) = 0 as u8;

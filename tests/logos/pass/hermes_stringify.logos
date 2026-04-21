@@ -75,7 +75,7 @@ unsafe fn main() -> i32 {
 
     // 9. HermesString "hi" → `"hi"`
     let hs_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, 3,
-                              hermes_tag_string() as u64);
+                              hermes_tag_string());
     let hs_p0: *mut u8 = (hs_raw as i64 + 0 as i64) as *mut u8;
     let hs_p1: *mut u8 = (hs_raw as i64 + 1 as i64) as *mut u8;
     let hs_p2: *mut u8 = (hs_raw as i64 + 2 as i64) as *mut u8;
@@ -90,7 +90,7 @@ unsafe fn main() -> i32 {
     // 10. ObjectArray [i32(1), i32(2)] → "[1,2]"
     let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone,
                               sizeof::<ObjectArray>() as i64,
-                              hermes_tag_array() as u64);
+                              hermes_tag_array());
     let oa_buf: *mut u8 = zone_m_alloc_raw(&mut zone, 64);
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 8 as u64);
     arr.push(zone.holder, AnyVal::embed_i24(1));
@@ -102,7 +102,7 @@ unsafe fn main() -> i32 {
     // 11. TinyObjectMap {k0: i32(7)} → `{"k0":7}`
     let tm_raw: *mut u8 = zone_m_alloc_tagged(&mut zone,
                               sizeof::<TinyObjectMap>() as i64,
-                              hermes_tag_tiny_map() as u64);
+                              hermes_tag_tiny_map());
     let tm_arr: *mut u8 = zone_m_alloc_raw(&mut zone, 80);
     let tmap: *mut TinyObjectMap = TinyObjectMap::init(tm_raw, tm_arr, base, 10 as u32);
     tmap.set(base, 0 as u8, AnyVal::embed_i24(7));

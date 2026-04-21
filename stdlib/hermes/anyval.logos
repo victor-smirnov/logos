@@ -206,7 +206,7 @@ impl AnyVal {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
         let obj: *const u8 = base.byte_add(self.raw as i64);
-        return read_type_code(obj) == hermes_tag_string() as u64;
+        return read_type_code(obj) == hermes_tag_string();
     }
 
     // True if this AnyVal points to an ObjectArray (type_code=100).
@@ -214,7 +214,7 @@ impl AnyVal {
         if !self.is_ptr() { return false; }
         if self.is_null() { return false; }
         let obj: *const u8 = base.byte_add(self.raw as i64);
-        return read_type_code(obj) == hermes_tag_array() as u64;
+        return read_type_code(obj) == hermes_tag_array();
     }
 
     // True if this AnyVal points to a map object (type_code=101 ObjectMap or 98 TinyObjectMap).
@@ -223,7 +223,7 @@ impl AnyVal {
         if self.is_null() { return false; }
         let obj: *const u8 = base.byte_add(self.raw as i64);
         let tc: u64 = read_type_code(obj);
-        return tc == hermes_tag_map() as u64 || tc == hermes_tag_tiny_map() as u64;
+        return tc == hermes_tag_map() || tc == hermes_tag_tiny_map();
     }
 
     // --- Safe value extraction ---

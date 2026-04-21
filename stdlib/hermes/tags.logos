@@ -36,9 +36,25 @@ pub enum HermesTag {
     TinyObjectMap = 98,   // Map<Bitmap, AnyVal>
     Array         = 100,  // Array<AnyVal> (generic, untyped elements)
     ObjectMap     = 101,  // Map<HermesString, AnyVal>
-    ArrayI32      = 104,
-    MapI32AnyVal  = 105,
-    TypedValue    = 106,
-    Decimal       = 107,
-    ArrayU64      = 108,
+    Decimal       = 102,
+    
+    ArrayU8       = 2101,
+    ArrayU16      = 2102,
+    ArrayU32      = 2103,
+    ArrayU64      = 2104,
+    ArrayI8       = 2105,
+    ArrayI16      = 2106,
+    ArrayI32      = 2107,
+    ArrayI64      = 2108,
+    ArrayF32      = 2109,
+    ArrayF64      = 2110,
+
+    MapI32AnyVal  = 3101,
+    MapU32AnyVal  = 3102,
+    MapI64AnyVal  = 3103,
+    MapU64AnyVal  = 3104,
+
+    Datatype      = 1001,
+
+    TypedValue    = 4115,
 }

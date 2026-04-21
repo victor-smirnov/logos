@@ -28,7 +28,7 @@ pub unsafe fn hermes_pat_map_slot(av: *const AnyVal, base: *const u8,
     if !av.is_map(base) { return AnyVal::null_ptr(); }
     let obj: *const u8 = base.byte_add(av.as_offset() as i64);
     let tag: u64 = read_type_code(obj);
-    if tag == hermes_tag_tiny_map() as u64 { return AnyVal::null_ptr(); }
+    if tag == hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
     let omap: *const Map<Varchar, AnyVal> = obj as *const Map<Varchar, AnyVal>;
     return omap.get(base, key.as_ptr(), key.len() as u64);
 }

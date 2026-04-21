@@ -28,7 +28,7 @@ unsafe fn main() -> i32 {
     // Build an ObjectArray with 20 i32 values so the stringified output
     // exceeds the String's initial small capacity.
     let oa_sz: i64 = sizeof::<ObjectArray>() as i64;
-    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, oa_sz, hermes_tag_array() as u64);
+    let oa_raw: *mut u8 = zone_m_alloc_tagged(&mut zone, oa_sz, hermes_tag_array());
     let oa_buf: *mut u8 = zone_m_alloc_raw(&mut zone, 20 as i64 * 4 as i64);
     let arr: *mut ObjectArray = ObjectArray::init(oa_raw, oa_buf, base, 20 as u64);
 

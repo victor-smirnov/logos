@@ -7,11 +7,11 @@ use hermes.datatag;
 
 unsafe fn main() -> i32 {
     // --- Canonical type_code constants ---
-    if hermes_tag_string()   != 28 as u8  { return 1; }
-    if hermes_tag_tiny_map() != 98 as u8  { return 2; }
-    if hermes_tag_array()    != 100 as u8 { return 3; }
-    if hermes_tag_map()      != 101 as u8 { return 4; }
-    if hermes_tag_document() != 3 as u8   { return 5; }
+    if hermes_tag_string()   != 28 as u64  { return 1; }
+    if hermes_tag_tiny_map() != 98 as u64  { return 2; }
+    if hermes_tag_array()    != 100 as u64 { return 3; }
+    if hermes_tag_map()      != 101 as u64 { return 4; }
+    if hermes_tag_document() != 3 as u64   { return 5; }
 
     // --- tag_size: single-byte for codes 1-222 ---
     if tag_size(28 as u64)  != 1 as i64 { return 6; }
@@ -25,25 +25,25 @@ unsafe fn main() -> i32 {
     let mut zone: Zone<Mutable> = zone_create(4096);
     let _hdr: *mut u8 = zone_m_alloc_raw(&mut zone, 8 as i64);  // DocumentHeader at offset 0
 
-    let obj_vc: *mut u8 = zone_m_alloc_tagged(&mut zone, 8 as i64, hermes_tag_string() as u64);
+    let obj_vc: *mut u8 = zone_m_alloc_tagged(&mut zone, 8 as i64, hermes_tag_string());
     if obj_vc == 0 as *mut u8 { return 11; }
     let got_tc1: u64 = read_type_code(obj_vc as *const u8);
     if got_tc1 != 28 as u64 { return 12; }
 
     // --- zone_m_alloc_tagged: ObjectArray (type_code=100) ---
-    let obj_oa: *mut u8 = zone_m_alloc_tagged(&mut zone, 24 as i64, hermes_tag_array() as u64);
+    let obj_oa: *mut u8 = zone_m_alloc_tagged(&mut zone, 24 as i64, hermes_tag_array());
     if obj_oa == 0 as *mut u8 { return 13; }
     let got_tc2: u64 = read_type_code(obj_oa as *const u8);
     if got_tc2 != 100 as u64 { return 14; }
 
     // --- zone_m_alloc_tagged: ObjectMap (type_code=101) ---
-    let obj_om: *mut u8 = zone_m_alloc_tagged(&mut zone, 16 as i64, hermes_tag_map() as u64);
+    let obj_om: *mut u8 = zone_m_alloc_tagged(&mut zone, 16 as i64, hermes_tag_map());
     if obj_om == 0 as *mut u8 { return 15; }
     let got_tc3: u64 = read_type_code(obj_om as *const u8);
     if got_tc3 != 101 as u64 { return 16; }
 
     // --- zone_m_alloc_tagged: TinyObjectMap (type_code=98) ---
-    let obj_tm: *mut u8 = zone_m_alloc_tagged(&mut zone, 16 as i64, hermes_tag_tiny_map() as u64);
+    let obj_tm: *mut u8 = zone_m_alloc_tagged(&mut zone, 16 as i64, hermes_tag_tiny_map());
     if obj_tm == 0 as *mut u8 { return 17; }
     let got_tc4: u64 = read_type_code(obj_tm as *const u8);
     if got_tc4 != 98 as u64 { return 18; }

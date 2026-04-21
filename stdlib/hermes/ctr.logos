@@ -436,7 +436,7 @@ pub unsafe fn hermes_ctr_alloc_str(ctr: *mut Hermes, ptr: *const u8, len: i64) -
     let lu: u64 = len as u64;
     let prefix_sz: i64 = vlen_encode_size(lu) as i64;
     let total: i64 = prefix_sz + len;
-    let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, total, hermes_tag_string() as u64);
+    let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, total, hermes_tag_string());
     if raw == 0 as *mut u8 { return 0; }
     HermesString::init(raw, ptr, lu);
     let base: *const u8 = ctr.zone.holder.base;
@@ -481,7 +481,7 @@ pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> Hermes {
     if ok {
         let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
                                    sizeof::<Array<i32>>() as i64,
-                                   hermes_tag_array_i32() as u64);
+                                   hermes_tag_array_i32());
         if hdr_raw != 0 as *mut u8 {
             let arr: *mut Array<i32> = hdr_raw as *mut Array<i32>;
             arr.size     = len as u64;
@@ -521,7 +521,7 @@ pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> Hermes {
     if ok {
         let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
                                    sizeof::<Array<u64>>() as i64,
-                                   hermes_tag_array_u64() as u64);
+                                   hermes_tag_array_u64());
         if hdr_raw != 0 as *mut u8 {
             let arr: *mut Array<u64> = hdr_raw as *mut Array<u64>;
             arr.size     = len as u64;
@@ -579,7 +579,7 @@ pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal,
             }
             let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
                                        sizeof::<Map<i32, AnyVal>>() as i64,
-                                       hermes_tag_map_i32_anyval() as u64);
+                                       hermes_tag_map_i32_anyval());
             if hdr_raw != 0 as *mut u8 {
                 let m: *mut Map<i32, AnyVal> = hdr_raw as *mut Map<i32, AnyVal>;
                 m.size     = len as u32;

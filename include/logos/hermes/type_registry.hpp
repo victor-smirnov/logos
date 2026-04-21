@@ -54,13 +54,30 @@ namespace type_hash {
     inline constexpr uint64_t Object        = 99;  // universal tagged value
     inline constexpr uint64_t ObjectArray   = 100; // heterogeneous AnyVal array
     inline constexpr uint64_t ObjectMap     = 101; // string-keyed map
-    inline constexpr uint64_t Datatype      = 102; // type declaration
-    inline constexpr uint64_t ArrayI32      = 104; // dense typed i32 array
-    inline constexpr uint64_t MapI32AnyVal  = 105; // typed map with i32 keys, AnyVal values
-    inline constexpr uint64_t TypedValue    = 106; // value + type pair
-    inline constexpr uint64_t Decimal       = 107; // fixed-precision decimal (inline limbs)
-    inline constexpr uint64_t ArrayU64      = 108; // dense typed u64 array
+    inline constexpr uint64_t Decimal       = 102; // fixed-precision decimal (inline limbs)
     inline constexpr uint64_t Parameter     = 127; // query parameter ?name / @-literal capture slot
+    inline constexpr uint64_t Datatype      = 1001; // type declaration (multi-byte wire tag)
+
+    // Typed Array<T> variants (2100-range, multi-byte wire tags).
+    inline constexpr uint64_t ArrayU8       = 2101;
+    inline constexpr uint64_t ArrayU16      = 2102;
+    inline constexpr uint64_t ArrayU32      = 2103;
+    inline constexpr uint64_t ArrayU64      = 2104;
+    inline constexpr uint64_t ArrayI8       = 2105;
+    inline constexpr uint64_t ArrayI16      = 2106;
+    inline constexpr uint64_t ArrayI32      = 2107;
+    inline constexpr uint64_t ArrayI64      = 2108;
+    inline constexpr uint64_t ArrayF32      = 2109;
+    inline constexpr uint64_t ArrayF64      = 2110;
+
+    // Typed Map<K, AnyVal> variants (3100-range).
+    inline constexpr uint64_t MapI32AnyVal  = 3101;
+    inline constexpr uint64_t MapU32AnyVal  = 3102;
+    inline constexpr uint64_t MapI64AnyVal  = 3103;
+    inline constexpr uint64_t MapU64AnyVal  = 3104;
+
+    // TypedValue (4100-range, wraps unregistered types).
+    inline constexpr uint64_t TypedValue    = 4115;
 }
 
 // TypeTraits: compile-time properties of a Hermes data type.
