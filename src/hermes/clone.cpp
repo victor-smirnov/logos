@@ -95,17 +95,17 @@ clone_fixed(const uint8_t* obj, CloneCtx* ctx, uint64_t type_code) noexcept {
 // register handlers for completeness.
 // ---------------------------------------------------------------------------
 
-logos::expected<uint32_t> c_tinyint   (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<1, 2>(o, c, type_hash::TinyInt); }
-logos::expected<uint32_t> c_utinyint  (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<1, 2>(o, c, type_hash::UTinyInt); }
-logos::expected<uint32_t> c_smallint  (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<2, 2>(o, c, type_hash::SmallInt); }
-logos::expected<uint32_t> c_usmallint (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<2, 2>(o, c, type_hash::USmallInt); }
-logos::expected<uint32_t> c_integer   (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<4, 4>(o, c, type_hash::Integer); }
-logos::expected<uint32_t> c_uinteger  (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<4, 4>(o, c, type_hash::UInteger); }
-logos::expected<uint32_t> c_bigint    (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<8, 8>(o, c, type_hash::BigInt); }
-logos::expected<uint32_t> c_ubigint   (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<8, 8>(o, c, type_hash::UBigInt); }
-logos::expected<uint32_t> c_real      (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<4, 4>(o, c, type_hash::Real); }
-logos::expected<uint32_t> c_double    (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<8, 8>(o, c, type_hash::Double); }
-logos::expected<uint32_t> c_boolean   (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<1, 2>(o, c, type_hash::Boolean); }
+logos::expected<uint32_t> c_tinyint   (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<1, 2>(o, c, type_hash::I8); }
+logos::expected<uint32_t> c_utinyint  (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<1, 2>(o, c, type_hash::U8); }
+logos::expected<uint32_t> c_smallint  (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<2, 2>(o, c, type_hash::I16); }
+logos::expected<uint32_t> c_usmallint (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<2, 2>(o, c, type_hash::U16); }
+logos::expected<uint32_t> c_integer   (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<4, 4>(o, c, type_hash::I24); }
+logos::expected<uint32_t> c_uinteger  (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<4, 4>(o, c, type_hash::U24); }
+logos::expected<uint32_t> c_bigint    (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<8, 8>(o, c, type_hash::I64); }
+logos::expected<uint32_t> c_ubigint   (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<8, 8>(o, c, type_hash::U64); }
+logos::expected<uint32_t> c_real      (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<4, 4>(o, c, type_hash::F32); }
+logos::expected<uint32_t> c_double    (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<8, 8>(o, c, type_hash::F64); }
+logos::expected<uint32_t> c_boolean   (const uint8_t* o, CloneCtx* c) noexcept { return clone_fixed<1, 2>(o, c, type_hash::Bool); }
 
 // ---------------------------------------------------------------------------
 // Varchar: vlen header + bytes, raw memcpy.
@@ -115,7 +115,7 @@ logos::expected<uint32_t> c_varchar(const uint8_t* o, CloneCtx* c) noexcept {
     uint32_t src_off = src_off_of(o, c->base_src);
     VarIntResult vr = varint_decode(o);
     size_t total = vr.bytes_read + vr.value;
-    TypeTag tag(type_hash::Varchar, TagDescriptor::Data);
+    TypeTag tag(type_hash::HermesString, TagDescriptor::Data);
     LOGOS_TRY(auto* mem_void, c->dst->allocate(total, 2, tag));
     std::memcpy(mem_void, o, total);
     uint32_t dst_off = dst_offset_of(mem_void, *c->dst);

@@ -29,13 +29,13 @@ public:
 
         void* dst_obj = nullptr;
 
-        if (type_code == type_hash::Varchar) {
+        if (type_code == type_hash::HermesString) {
             LOGOS_TRY(dst_obj, copy_string(src_obj));
         } else if (type_code == type_hash::Varbinary) {
             LOGOS_TRY(dst_obj, copy_varbinary(src_obj));
-        } else if (tag.descriptor() == TagDescriptor::Map && type_code == type_hash::Hermes) {
+        } else if (tag.descriptor() == TagDescriptor::Map && type_code == type_hash::TinyObjectMap) {
             LOGOS_TRY(dst_obj, copy_tiny_map(src_obj));
-        } else if (tag.descriptor() == TagDescriptor::Array && type_code == type_hash::ObjectArray) {
+        } else if (tag.descriptor() == TagDescriptor::Array && type_code == type_hash::Array) {
             LOGOS_TRY(dst_obj, copy_object_array(src_obj));
         } else if (tag.descriptor() == TagDescriptor::Map && type_code == type_hash::ObjectMap) {
             LOGOS_TRY(dst_obj, copy_object_map(src_obj));
@@ -152,11 +152,11 @@ private:
 
     static size_t fixed_type_size(uint64_t tc) {
         switch (tc) {
-            case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 1;
-            case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
+            case type_hash::I8: case type_hash::U8: case type_hash::Bool: return 1;
+            case type_hash::I16: case type_hash::U16: return 2;
+            case type_hash::I24: case type_hash::U24: case type_hash::F32:
             case type_hash::Time: return 4;
-            case type_hash::BigInt: case type_hash::UBigInt: case type_hash::Double:
+            case type_hash::I64: case type_hash::U64: case type_hash::F64:
             case type_hash::Timestamp: case type_hash::TimestampWithTZ:
             case type_hash::Date: case type_hash::TimeWithTZ:
             case type_hash::Uid64: return 8;
@@ -168,9 +168,9 @@ private:
 
     static size_t fixed_type_alignment(uint64_t tc) {
         switch (tc) {
-            case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 2;
-            case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
+            case type_hash::I8: case type_hash::U8: case type_hash::Bool: return 2;
+            case type_hash::I16: case type_hash::U16: return 2;
+            case type_hash::I24: case type_hash::U24: case type_hash::F32:
             case type_hash::Time: return 4;
             default: return 8;
         }

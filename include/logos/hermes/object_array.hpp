@@ -62,7 +62,7 @@ public:
     }
 
     [[nodiscard]] static logos::expected<ObjectArray*> create(Arena& arena, uint64_t initial_capacity = 4) noexcept {
-        TypeTag tag(type_hash::ObjectArray, TagDescriptor::Array);
+        TypeTag tag(type_hash::Array, TagDescriptor::Array);
         LOGOS_TRY(auto* mem, arena.allocate(sizeof(ObjectArray), alignof(ObjectArray), tag));
         auto* arr = new (mem) ObjectArray();
         // Save offset after allocation so we can recompute if grow() reallocs the buffer.

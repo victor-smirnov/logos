@@ -105,15 +105,15 @@ static void test_arena_put_get() {
     {
         int32_t* p = arena_put<int32_t>(arena, 0).get();
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(p));
-        LOGOS_ASSERT(tag.type_code() == type_hash::Integer, "HERMES-TYPES-002",
+        LOGOS_ASSERT(tag.type_code() == type_hash::I24, "HERMES-TYPES-002",
             "TypeTag for int32_t must have type_code={}, got {}",
-            type_hash::Integer, tag.type_code());
+            type_hash::I24, tag.type_code());
 
         double* d = arena_put<double>(arena, 0.0).get();
         TypeTag dtag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(d));
-        LOGOS_ASSERT(dtag.type_code() == type_hash::Double, "HERMES-TYPES-002",
+        LOGOS_ASSERT(dtag.type_code() == type_hash::F64, "HERMES-TYPES-002",
             "TypeTag for double must have type_code={}, got {}",
-            type_hash::Double, dtag.type_code());
+            type_hash::F64, dtag.type_code());
     }
 
     LOGOS_TRACE("hermes.types.arena_put", "status", "pass");
@@ -132,8 +132,8 @@ static void test_tagged_ptr_with_traits() {
         int8_t val = -42;
         AnyVal p = AnyVal::from_value(val, TypeTraits<int8_t>::hash);
         LOGOS_ASSERT(p.is_value(), "HERMES-TYPES-003", "");
-        LOGOS_ASSERT(p.value_type_hash() == type_hash::TinyInt, "HERMES-TYPES-003",
-            "Embedded int8_t must have type_hash={}", type_hash::TinyInt);
+        LOGOS_ASSERT(p.value_type_hash() == type_hash::I8, "HERMES-TYPES-003",
+            "Embedded int8_t must have type_hash={}", type_hash::I8);
         LOGOS_ASSERT(p.as_value<int8_t>() == -42, "HERMES-TYPES-003",
             "Embedded int8_t value mismatch");
     }
@@ -141,7 +141,7 @@ static void test_tagged_ptr_with_traits() {
     {
         int32_t val = 999999;
         AnyVal p = AnyVal::from_value(val, TypeTraits<int32_t>::hash);
-        LOGOS_ASSERT(p.value_type_hash() == type_hash::Integer, "HERMES-TYPES-003", "");
+        LOGOS_ASSERT(p.value_type_hash() == type_hash::I24, "HERMES-TYPES-003", "");
         LOGOS_ASSERT(p.as_value<int32_t>() == 999999, "HERMES-TYPES-003", "");
     }
 
@@ -183,9 +183,9 @@ static void test_arena_string() {
 
         // TypeTag check
         TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(s));
-        LOGOS_ASSERT(tag.type_code() == type_hash::Varchar, "HERMES-STRING-002",
+        LOGOS_ASSERT(tag.type_code() == type_hash::HermesString, "HERMES-STRING-002",
             "ArenaString TypeTag must be Varchar ({}), got {}",
-            type_hash::Varchar, tag.type_code());
+            type_hash::HermesString, tag.type_code());
     }
 
     // Empty string

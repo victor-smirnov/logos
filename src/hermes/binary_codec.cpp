@@ -68,13 +68,13 @@ private:
         TypeTag tag = TypeTag::read_before(obj_addr);
         uint64_t tc = tag.type_code();
 
-        if (tc == type_hash::Varchar) {
+        if (tc == type_hash::HermesString) {
             encode_string(obj_addr, tag);
         } else if (tc == type_hash::Varbinary) {
             encode_string(obj_addr, tag); // Same layout as Varchar.
-        } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::Hermes) {
+        } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::TinyObjectMap) {
             encode_tiny_map(obj_addr, tag);
-        } else if (tag.descriptor() == TagDescriptor::Array && tc == type_hash::ObjectArray) {
+        } else if (tag.descriptor() == TagDescriptor::Array && tc == type_hash::Array) {
             encode_object_array(obj_addr, tag);
         } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::ObjectMap) {
             encode_object_map(obj_addr, tag);
@@ -175,11 +175,11 @@ private:
 
     static size_t fixed_size_for(uint64_t tc) {
         switch (tc) {
-            case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 1;
-            case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
+            case type_hash::I8: case type_hash::U8: case type_hash::Bool: return 1;
+            case type_hash::I16: case type_hash::U16: return 2;
+            case type_hash::I24: case type_hash::U24: case type_hash::F32:
             case type_hash::Time: return 4;
-            case type_hash::BigInt: case type_hash::UBigInt: case type_hash::Double:
+            case type_hash::I64: case type_hash::U64: case type_hash::F64:
             case type_hash::Timestamp: case type_hash::TimestampWithTZ:
             case type_hash::Date: case type_hash::TimeWithTZ:
             case type_hash::Uid64: return 8;
@@ -191,9 +191,9 @@ private:
 
     static size_t embedded_value_size(uint8_t type_hash) {
         switch (type_hash) {
-            case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 1;
-            case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger:
+            case type_hash::I8: case type_hash::U8: case type_hash::Bool: return 1;
+            case type_hash::I16: case type_hash::U16: return 2;
+            case type_hash::I24: case type_hash::U24:
             case type_hash::Time: return 3;  // 24-bit payload
             default: return 3;
         }
@@ -262,13 +262,13 @@ private:
         TypeTag tag = read_type_tag();
         uint64_t tc = tag.type_code();
 
-        if (tc == type_hash::Varchar) {
+        if (tc == type_hash::HermesString) {
             return decode_string(arena, tag);
         } else if (tc == type_hash::Varbinary) {
             return decode_string(arena, tag);
-        } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::Hermes) {
+        } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::TinyObjectMap) {
             return decode_tiny_map(arena);
-        } else if (tag.descriptor() == TagDescriptor::Array && tc == type_hash::ObjectArray) {
+        } else if (tag.descriptor() == TagDescriptor::Array && tc == type_hash::Array) {
             return decode_object_array(arena);
         } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::ObjectMap) {
             return decode_object_map(arena);
@@ -318,11 +318,11 @@ private:
     logos::expected<void*> decode_object_from_tag(Arena& arena, TypeTag tag) noexcept {
         uint64_t tc = tag.type_code();
 
-        if (tc == type_hash::Varchar || tc == type_hash::Varbinary) {
+        if (tc == type_hash::HermesString || tc == type_hash::Varbinary) {
             return decode_string(arena, tag);
-        } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::Hermes) {
+        } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::TinyObjectMap) {
             return decode_tiny_map(arena);
-        } else if (tag.descriptor() == TagDescriptor::Array && tc == type_hash::ObjectArray) {
+        } else if (tag.descriptor() == TagDescriptor::Array && tc == type_hash::Array) {
             return decode_object_array(arena);
         } else if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::ObjectMap) {
             return decode_object_map(arena);
@@ -406,11 +406,11 @@ private:
 
     static bool is_embeddable_by_hash(uint64_t tc) noexcept{
         switch (tc) {
-            case type_hash::TinyInt: case type_hash::UTinyInt:
-            case type_hash::SmallInt: case type_hash::USmallInt:
-            case type_hash::Integer: case type_hash::UInteger:
+            case type_hash::I8: case type_hash::U8:
+            case type_hash::I16: case type_hash::U16:
+            case type_hash::I24: case type_hash::U24:
             case type_hash::Time:
-            case type_hash::Boolean:
+            case type_hash::Bool:
                 return true;
             default:
                 return false;
@@ -419,9 +419,9 @@ private:
 
     static size_t embedded_value_size_for(uint64_t tc) {
         switch (tc) {
-            case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 1;
-            case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger:
+            case type_hash::I8: case type_hash::U8: case type_hash::Bool: return 1;
+            case type_hash::I16: case type_hash::U16: return 2;
+            case type_hash::I24: case type_hash::U24:
             case type_hash::Time: return 3;
             default: return 3;
         }
@@ -429,11 +429,11 @@ private:
 
     static size_t fixed_size_for(uint64_t tc) {
         switch (tc) {
-            case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 1;
-            case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
+            case type_hash::I8: case type_hash::U8: case type_hash::Bool: return 1;
+            case type_hash::I16: case type_hash::U16: return 2;
+            case type_hash::I24: case type_hash::U24: case type_hash::F32:
             case type_hash::Time: return 4;
-            case type_hash::BigInt: case type_hash::UBigInt: case type_hash::Double:
+            case type_hash::I64: case type_hash::U64: case type_hash::F64:
             case type_hash::Timestamp: case type_hash::TimestampWithTZ:
             case type_hash::Date: case type_hash::TimeWithTZ:
             case type_hash::Uid64: return 8;
@@ -445,9 +445,9 @@ private:
 
     static size_t fixed_align_for(uint64_t tc) {
         switch (tc) {
-            case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean: return 2;
-            case type_hash::SmallInt: case type_hash::USmallInt: return 2;
-            case type_hash::Integer: case type_hash::UInteger: case type_hash::Real:
+            case type_hash::I8: case type_hash::U8: case type_hash::Bool: return 2;
+            case type_hash::I16: case type_hash::U16: return 2;
+            case type_hash::I24: case type_hash::U24: case type_hash::F32:
             case type_hash::Time: return 4;
             default: return 8;
         }

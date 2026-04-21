@@ -1557,7 +1557,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                 {"U64",    th::ArrayU64},
                 {"F32",    th::ArrayF32},
                 {"F64",    th::ArrayF64},
-                {"AnyVal", th::ObjectArray},
+                {"AnyVal", th::Array},
             };
             auto it = arr_tcs.find(tname);
             if (it == arr_tcs.end()) {

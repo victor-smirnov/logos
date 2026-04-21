@@ -90,7 +90,7 @@ static void walkthrough_any_val() {
         v.is_value(), v.is_pointer(), v.is_null());
     std::println("  as_value<int32_t>() = {}", v.as_value<int32_t>());
     std::println("  value_type_hash()   = {} (Integer={})",
-        v.value_type_hash(), type_hash::Integer);
+        v.value_type_hash(), type_hash::I24);
     // STOP: inspect v.raw() — the 8-byte representation
 
     // Float is not embeddable (needs 32 bits, payload is only 24); goes pointer-mode.

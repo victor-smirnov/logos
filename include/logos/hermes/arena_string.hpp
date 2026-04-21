@@ -68,7 +68,7 @@ public:
         size_t vlen_size = varint_encode(str.size(), vlen_buf);
         size_t total = vlen_size + str.size();
 
-        TypeTag tag(type_hash::Varchar, TagDescriptor::Data);
+        TypeTag tag(type_hash::HermesString, TagDescriptor::Data);
         // Alignment 1 is fine for strings, but arena requires >= 2 for tag placement.
         LOGOS_TRY(auto* mem_void, arena.allocate(total, 2, tag));
         auto* dest = static_cast<uint8_t*>(mem_void);

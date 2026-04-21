@@ -13,22 +13,22 @@ namespace logos::hermes {
 // These are the canonical identifiers for all core Hermes types.
 namespace type_hash {
     // Integer types
-    inline constexpr uint64_t TinyInt       = 20;  // int8_t
-    inline constexpr uint64_t UTinyInt      = 21;  // uint8_t
-    inline constexpr uint64_t SmallInt      = 22;  // int16_t
-    inline constexpr uint64_t Integer       = 23;  // int32_t
-    inline constexpr uint64_t USmallInt     = 24;  // uint16_t
-    inline constexpr uint64_t UInteger      = 25;  // uint32_t
-    inline constexpr uint64_t BigInt        = 26;  // int64_t
-    inline constexpr uint64_t UBigInt       = 27;  // uint64_t
+    inline constexpr uint64_t I8            = 20;  // int8_t
+    inline constexpr uint64_t U8            = 21;  // uint8_t
+    inline constexpr uint64_t I16           = 22;  // int16_t
+    inline constexpr uint64_t I24           = 23;  // int32_t
+    inline constexpr uint64_t U16           = 24;  // uint16_t
+    inline constexpr uint64_t U24           = 25;  // uint32_t
+    inline constexpr uint64_t I64           = 26;  // int64_t
+    inline constexpr uint64_t U64           = 27;  // uint64_t
 
     // Variable-length
-    inline constexpr uint64_t Varchar       = 28;  // UTF-8 string
+    inline constexpr uint64_t HermesString  = 28;  // UTF-8 string
     inline constexpr uint64_t Varbinary     = 29;  // raw bytes
 
     // Floating point
-    inline constexpr uint64_t Real          = 30;  // float (IEEE 754 binary32)
-    inline constexpr uint64_t Double        = 31;  // double (IEEE 754 binary64)
+    inline constexpr uint64_t F32           = 30;  // float (IEEE 754 binary32)
+    inline constexpr uint64_t F64           = 31;  // double (IEEE 754 binary64)
 
     // Temporal
     inline constexpr uint64_t Timestamp     = 32;  // int64_t, microseconds since epoch
@@ -38,7 +38,7 @@ namespace type_hash {
     inline constexpr uint64_t TimeWithTZ    = 36;  // int64_t
 
     // Boolean
-    inline constexpr uint64_t Boolean       = 37;  // uint8_t: 0=false, 1=true
+    inline constexpr uint64_t Bool          = 37;  // uint8_t: 0=false, 1=true
 
     // UIDs
     inline constexpr uint64_t Uid256        = 40;  // 32 bytes, SHA-256
@@ -50,9 +50,9 @@ namespace type_hash {
 
     // Compound / container markers — byte-for-byte aligned with the Logos
     // stdlib wire format (see stdlib/hermes/typetag.logos).
-    inline constexpr uint64_t Hermes        = 98;  // TinyObjectMap (document-style)
+    inline constexpr uint64_t TinyObjectMap = 98;  // TinyObjectMap (document-style)
     inline constexpr uint64_t Object        = 99;  // universal tagged value
-    inline constexpr uint64_t ObjectArray   = 100; // heterogeneous AnyVal array
+    inline constexpr uint64_t Array         = 100; // heterogeneous AnyVal array
     inline constexpr uint64_t ObjectMap     = 101; // string-keyed map
     inline constexpr uint64_t Decimal       = 102; // fixed-precision decimal (inline limbs)
     inline constexpr uint64_t Parameter     = 127; // query parameter ?name / @-literal capture slot
@@ -107,16 +107,16 @@ struct TypeTraits {
 //                          type as eligible for embedding, but callers
 //                          (or Logos codegen) must range-check at runtime.
 // i64/u64/f32/f64 live in the arena and AnyVal holds an offset to them.
-HERMES_FIXED_TYPE_TRAITS(int8_t,   type_hash::TinyInt,   true);
-HERMES_FIXED_TYPE_TRAITS(uint8_t,  type_hash::UTinyInt,  true);
-HERMES_FIXED_TYPE_TRAITS(int16_t,  type_hash::SmallInt,  true);
-HERMES_FIXED_TYPE_TRAITS(uint16_t, type_hash::USmallInt, true);
-HERMES_FIXED_TYPE_TRAITS(int32_t,  type_hash::Integer,   true);
-HERMES_FIXED_TYPE_TRAITS(uint32_t, type_hash::UInteger,  true);
-HERMES_FIXED_TYPE_TRAITS(int64_t,  type_hash::BigInt,    false);
-HERMES_FIXED_TYPE_TRAITS(uint64_t, type_hash::UBigInt,   false);
-HERMES_FIXED_TYPE_TRAITS(float,    type_hash::Real,      false);  // not embeddable in 4-byte AnyVal
-HERMES_FIXED_TYPE_TRAITS(double,   type_hash::Double,    false);
+HERMES_FIXED_TYPE_TRAITS(int8_t,   type_hash::I8,    true);
+HERMES_FIXED_TYPE_TRAITS(uint8_t,  type_hash::U8,    true);
+HERMES_FIXED_TYPE_TRAITS(int16_t,  type_hash::I16,   true);
+HERMES_FIXED_TYPE_TRAITS(uint16_t, type_hash::U16,   true);
+HERMES_FIXED_TYPE_TRAITS(int32_t,  type_hash::I24,   true);
+HERMES_FIXED_TYPE_TRAITS(uint32_t, type_hash::U24,   true);
+HERMES_FIXED_TYPE_TRAITS(int64_t,  type_hash::I64,   false);
+HERMES_FIXED_TYPE_TRAITS(uint64_t, type_hash::U64,   false);
+HERMES_FIXED_TYPE_TRAITS(float,    type_hash::F32,   false);  // not embeddable in 4-byte AnyVal
+HERMES_FIXED_TYPE_TRAITS(double,   type_hash::F64,   false);
 
 #undef HERMES_FIXED_TYPE_TRAITS
 

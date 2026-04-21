@@ -110,7 +110,7 @@ public:
 
     [[nodiscard]] static logos::expected<TinyObjectMap*> create(
             Arena& arena, uint8_t initial_capacity = 4) noexcept {
-        TypeTag tag(type_hash::Hermes, TagDescriptor::Map);
+        TypeTag tag(type_hash::TinyObjectMap, TagDescriptor::Map);
         auto mem_exp = arena.allocate(sizeof(TinyObjectMap), alignof(TinyObjectMap), tag);
         if (!mem_exp) return std::unexpected(std::move(mem_exp.error()));
 

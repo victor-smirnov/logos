@@ -470,20 +470,20 @@ private:
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         switch (tag.type_code()) {
-            case type_hash::Varchar: return std::string(static_cast<const ArenaString*>(val)->view());
-            case type_hash::Integer: return std::to_string(*static_cast<const int32_t*>(val));
-            case type_hash::BigInt:  return std::to_string(*static_cast<const int64_t*>(val));
-            case type_hash::Real: {
+            case type_hash::HermesString: return std::string(static_cast<const ArenaString*>(val)->view());
+            case type_hash::I24: return std::to_string(*static_cast<const int32_t*>(val));
+            case type_hash::I64:  return std::to_string(*static_cast<const int64_t*>(val));
+            case type_hash::F32: {
                 char buf[32];
                 int n = std::snprintf(buf, sizeof(buf), "%g", *static_cast<const float*>(val));
                 return std::string(buf, n);
             }
-            case type_hash::Double: {
+            case type_hash::F64: {
                 char buf[32];
                 int n = std::snprintf(buf, sizeof(buf), "%g", *static_cast<const double*>(val));
                 return std::string(buf, n);
             }
-            case type_hash::Boolean:
+            case type_hash::Bool:
                 return *static_cast<const uint8_t*>(val) ? std::string("true") : std::string("false");
             default: return std::string{};
         }
@@ -501,28 +501,28 @@ private:
         TypeTag tag = TypeTag::read_before(b);
         uint64_t tc = tag.type_code();
         // Embeddable scalars: store as embedded AnyVal (no pointer needed).
-        if (tc == type_hash::Integer) {
+        if (tc == type_hash::I24) {
             LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
-        } else if (tc == type_hash::UInteger) {
+        } else if (tc == type_hash::U24) {
             LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const uint32_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
-        } else if (tc == type_hash::Boolean) {
+        } else if (tc == type_hash::Bool) {
             LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
-        } else if (tc == type_hash::Real) {
+        } else if (tc == type_hash::F32) {
             LOGOS_TRY(AnyVal av,
                 anyval_put<float>(HermesAccess::arena(ctx_doc),
                     *static_cast<const float*>(val)));
             LOGOS_TRY_VOID(ctx->put(key, av, HermesAccess::arena(ctx_doc)));
             return {};
-        } else if (tc == type_hash::SmallInt) {
+        } else if (tc == type_hash::I16) {
             LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int16_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
-        } else if (tc == type_hash::TinyInt) {
+        } else if (tc == type_hash::I8) {
             LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int8_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
-        } else if (tc == type_hash::Varchar) {
+        } else if (tc == type_hash::HermesString) {
             auto* s = static_cast<const ArenaString*>(val);
             LOGOS_TRY(auto* copy, ArenaString::create(HermesAccess::arena(ctx_doc), s->view()));
             uint8_t* cb = HermesAccess::base(ctx_doc);
@@ -546,14 +546,14 @@ private:
         if (!slot || slot->is_null()) return static_cast<void*>(nullptr);
         uint8_t th = slot->value_type_hash();
         switch (th) {
-            case type_hash::Integer: {
+            case type_hash::I24: {
                 return HermesAccess::make_value<int32_t>(scratch_, slot->as_value<int32_t>());
             }
-            case type_hash::UInteger: {
+            case type_hash::U24: {
                 return HermesAccess::make_value<uint32_t>(scratch_, slot->as_value<uint32_t>());
             }
-            case type_hash::Boolean: {
-                TypeTag btag(type_hash::Boolean, TagDescriptor::Data);
+            case type_hash::Bool: {
+                TypeTag btag(type_hash::Bool, TagDescriptor::Data);
                 LOGOS_TRY(void* mem, HermesAccess::arena(scratch_).allocate(1, 2, btag));
                 *static_cast<uint8_t*>(mem) = slot->as_value<uint8_t>();
                 return mem;
@@ -561,10 +561,10 @@ private:
             // Real (float) is never embedded under the 4-byte AnyVal layout,
             // so it cannot appear here — materialize_embedded only sees
             // value-mode slots.
-            case type_hash::SmallInt: {
+            case type_hash::I16: {
                 return HermesAccess::make_value<int16_t>(scratch_, slot->as_value<int16_t>());
             }
-            case type_hash::TinyInt: {
+            case type_hash::I8: {
                 return HermesAccess::make_value<int8_t>(scratch_, slot->as_value<int8_t>());
             }
             default: return static_cast<void*>(nullptr);
@@ -576,9 +576,9 @@ private:
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         uint64_t tc = tag.type_code();
-        if (tc == type_hash::Boolean) return *static_cast<const uint8_t*>(val) != 0;
-        if (tc == type_hash::Integer) return *static_cast<const int32_t*>(val) != 0;
-        if (tc == type_hash::Varchar) return static_cast<const ArenaString*>(val)->length() > 0;
+        if (tc == type_hash::Bool) return *static_cast<const uint8_t*>(val) != 0;
+        if (tc == type_hash::I24) return *static_cast<const int32_t*>(val) != 0;
+        if (tc == type_hash::HermesString) return static_cast<const ArenaString*>(val)->length() > 0;
         if (tag.descriptor() == TagDescriptor::Array) return static_cast<const ObjectArray*>(val)->size() > 0;
         return true;
     }
@@ -595,10 +595,10 @@ private:
             auto* eb = static_cast<const uint8_t*>(elem);
             TypeTag tag = TypeTag::read_before(eb);
 
-            if (tag.type_code() == type_hash::Varchar) {
+            if (tag.type_code() == type_hash::HermesString) {
                 // Text node.
                 out_ += static_cast<const ArenaString*>(elem)->view();
-            } else if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::Hermes) {
+            } else if (tag.descriptor() == TagDescriptor::Map && tag.type_code() == type_hash::TinyObjectMap) {
                 // Statement node (TinyObjectMap).
                 auto* node = static_cast<TinyObjectMap*>(elem);
                 int32_t code = node->get(tpl_ast::CODE, base_).as_value<int32_t>();

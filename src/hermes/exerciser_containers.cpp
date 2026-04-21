@@ -146,8 +146,8 @@ static void test_tiny_map_stress() {
 
     // TypeTag check.
     TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(map));
-    LOGOS_ASSERT(tag.type_code() == type_hash::Hermes, "INV-TINYMAP-001",
-        "TinyObjectMap type_code must be {}", type_hash::Hermes);
+    LOGOS_ASSERT(tag.type_code() == type_hash::TinyObjectMap, "INV-TINYMAP-001",
+        "TinyObjectMap type_code must be {}", type_hash::TinyObjectMap);
     LOGOS_ASSERT(tag.descriptor() == TagDescriptor::Map, "INV-TINYMAP-001",
         "TinyObjectMap descriptor must be Map");
 
@@ -188,7 +188,7 @@ static void test_object_array_basic() {
 
     // TypeTag check.
     TypeTag tag = TypeTag::read_before(reinterpret_cast<const uint8_t*>(arr));
-    LOGOS_ASSERT(tag.type_code() == type_hash::ObjectArray, "HERMES-ARRAY-002", "");
+    LOGOS_ASSERT(tag.type_code() == type_hash::Array, "HERMES-ARRAY-002", "");
     LOGOS_ASSERT(tag.descriptor() == TagDescriptor::Array, "HERMES-ARRAY-002", "");
 
     LOGOS_TRACE("hermes.array.basic", "status", "pass");

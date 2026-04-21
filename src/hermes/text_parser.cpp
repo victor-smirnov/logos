@@ -901,9 +901,9 @@ private:
         // 4-byte AnyVal value-mode only carries 24 bits. Float/Time (32-bit)
         // no longer embed; they live in the arena as pointer-mode slots.
         switch (tc) {
-            case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean:
-            case type_hash::SmallInt: case type_hash::USmallInt:
-            case type_hash::Integer: case type_hash::UInteger:
+            case type_hash::I8: case type_hash::U8: case type_hash::Bool:
+            case type_hash::I16: case type_hash::U16:
+            case type_hash::I24: case type_hash::U24:
                 return true;
             default: return false;
         }
@@ -911,19 +911,19 @@ private:
 
     AnyVal make_embedded(const void* obj, uint64_t tc) noexcept {
         switch (tc) {
-            case type_hash::TinyInt:  return AnyVal::from_value(*static_cast<const int8_t*>(obj), tc);
-            case type_hash::UTinyInt: case type_hash::Boolean:
+            case type_hash::I8:  return AnyVal::from_value(*static_cast<const int8_t*>(obj), tc);
+            case type_hash::U8: case type_hash::Bool:
                 return AnyVal::from_value(*static_cast<const uint8_t*>(obj), tc);
-            case type_hash::SmallInt: return AnyVal::from_value(*static_cast<const int16_t*>(obj), tc);
-            case type_hash::USmallInt:return AnyVal::from_value(*static_cast<const uint16_t*>(obj), tc);
-            case type_hash::Integer:  return AnyVal::from_value(*static_cast<const int32_t*>(obj), tc);
-            case type_hash::UInteger: return AnyVal::from_value(*static_cast<const uint32_t*>(obj), tc);
+            case type_hash::I16: return AnyVal::from_value(*static_cast<const int16_t*>(obj), tc);
+            case type_hash::U16:return AnyVal::from_value(*static_cast<const uint16_t*>(obj), tc);
+            case type_hash::I24:  return AnyVal::from_value(*static_cast<const int32_t*>(obj), tc);
+            case type_hash::U24: return AnyVal::from_value(*static_cast<const uint32_t*>(obj), tc);
             default: return AnyVal{};
         }
     }
 
     logos::expected<void*> make_boolean(uint8_t val) noexcept {
-        TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
+        TypeTag tag(type_hash::Bool, TagDescriptor::Data);
         LOGOS_TRY(void* mem, HermesAccess::arena(doc_).allocate(1, 2, tag));
         *static_cast<uint8_t*>(mem) = val;
         return mem;

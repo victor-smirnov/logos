@@ -659,10 +659,10 @@ private:
         auto* bytes = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(bytes);
         uint64_t tc = tag.type_code();
-        if (tc == type_hash::Boolean) return *static_cast<const uint8_t*>(val) != 0;
-        if (tc == type_hash::Integer) return *static_cast<const int32_t*>(val) != 0;
-        if (tc == type_hash::Varchar) return static_cast<const ArenaString*>(val)->length() > 0;
-        if (tag.descriptor() == TagDescriptor::Array && tc == type_hash::ObjectArray)
+        if (tc == type_hash::Bool) return *static_cast<const uint8_t*>(val) != 0;
+        if (tc == type_hash::I24) return *static_cast<const int32_t*>(val) != 0;
+        if (tc == type_hash::HermesString) return static_cast<const ArenaString*>(val)->length() > 0;
+        if (tag.descriptor() == TagDescriptor::Array && tc == type_hash::Array)
             return static_cast<const ObjectArray*>(val)->size() > 0;
         if (tag.descriptor() == TagDescriptor::Map && tc == type_hash::ObjectMap)
             return static_cast<const ObjectMap*>(val)->size() > 0;
@@ -674,10 +674,10 @@ private:
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         switch (tag.type_code()) {
-            case type_hash::Integer: return *static_cast<const int32_t*>(val);
-            case type_hash::BigInt:  return static_cast<double>(*static_cast<const int64_t*>(val));
-            case type_hash::Real:    return *static_cast<const float*>(val);
-            case type_hash::Double:  return *static_cast<const double*>(val);
+            case type_hash::I24: return *static_cast<const int32_t*>(val);
+            case type_hash::I64:  return static_cast<double>(*static_cast<const int64_t*>(val));
+            case type_hash::F32:    return *static_cast<const float*>(val);
+            case type_hash::F64:  return *static_cast<const double*>(val);
             default: return std::nan("");
         }
     }
@@ -686,7 +686,7 @@ private:
         if (!val) return "";
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
-        if (tag.type_code() == type_hash::Varchar)
+        if (tag.type_code() == type_hash::HermesString)
             return static_cast<const ArenaString*>(val)->view();
         return "";
     }
@@ -745,26 +745,26 @@ private:
         // Embedded value — allocate in result arena.
         uint8_t th = slot->value_type_hash();
         switch (th) {
-            case type_hash::Integer: {
+            case type_hash::I24: {
                 LOGOS_TRY(auto* v, HermesAccess::make_value<int32_t>(result_, slot->as_value<int32_t>()));
                 return v;
             }
-            case type_hash::UInteger: {
+            case type_hash::U24: {
                 LOGOS_TRY(auto* v, HermesAccess::make_value<uint32_t>(result_, slot->as_value<uint32_t>()));
                 return v;
             }
-            case type_hash::Boolean: {
-                TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
+            case type_hash::Bool: {
+                TypeTag tag(type_hash::Bool, TagDescriptor::Data);
                 LOGOS_TRY(void* mem, HermesAccess::arena(result_).allocate(1, 2, tag));
                 *static_cast<uint8_t*>(mem) = slot->as_value<uint8_t>();
                 return mem;
             }
             // Real (float) is never embedded under the 4-byte AnyVal layout.
-            case type_hash::SmallInt: {
+            case type_hash::I16: {
                 LOGOS_TRY(auto* v, HermesAccess::make_value<int16_t>(result_, slot->as_value<int16_t>()));
                 return v;
             }
-            case type_hash::TinyInt: {
+            case type_hash::I8: {
                 LOGOS_TRY(auto* v, HermesAccess::make_value<int8_t>(result_, slot->as_value<int8_t>()));
                 return v;
             }
@@ -793,7 +793,7 @@ private:
         if (!data) return nullptr;
         auto* bytes = static_cast<const uint8_t*>(data);
         TypeTag tag = TypeTag::read_before(bytes);
-        if (tag.descriptor() != TagDescriptor::Array || tag.type_code() != type_hash::ObjectArray)
+        if (tag.descriptor() != TagDescriptor::Array || tag.type_code() != type_hash::Array)
             return nullptr;
         auto* arr = static_cast<ObjectArray*>(data);
         int32_t idx = node->get(VALUE, ast_base_).as_value<int32_t>();
@@ -814,7 +814,7 @@ private:
             if (!elem) continue;
             auto* eb = static_cast<const uint8_t*>(elem);
             TypeTag et = TypeTag::read_before(eb);
-            if (et.descriptor() == TagDescriptor::Array && et.type_code() == type_hash::ObjectArray) {
+            if (et.descriptor() == TagDescriptor::Array && et.type_code() == type_hash::Array) {
                 auto* inner = static_cast<ObjectArray*>(elem);
                 for (uint64_t j = 0; j < inner->size(); ++j) {
                     LOGOS_TRY(void* ie, resolve_slot(inner->slot(j, data_base_), data_base_));
@@ -908,7 +908,7 @@ private:
         LOGOS_TRY(void* rv, eval(data, get_child(node, RIGHT)));
         int32_t cmp = node->get(COMPARATOR, ast_base_).as_value<int32_t>();
         bool result_val = compare(lv, rv, cmp);
-        TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
+        TypeTag tag(type_hash::Bool, TagDescriptor::Data);
         LOGOS_TRY(void* mem, HermesAccess::arena(result_).allocate(1, 2, tag));
         *static_cast<uint8_t*>(mem) = result_val ? 1 : 0;
         return mem;
@@ -917,7 +917,7 @@ private:
     logos::expected<void*> eval_not(void* data, TinyObjectMap* node) noexcept {
         LOGOS_TRY(void* val, eval(data, get_child(node, RIGHT)));
         bool result_val = !is_truthy(val);
-        TypeTag tag(type_hash::Boolean, TagDescriptor::Data);
+        TypeTag tag(type_hash::Bool, TagDescriptor::Data);
         LOGOS_TRY(void* mem, HermesAccess::arena(result_).allocate(1, 2, tag));
         *static_cast<uint8_t*>(mem) = result_val ? 1 : 0;
         return mem;
@@ -1007,7 +1007,7 @@ private:
         }
         auto* b = static_cast<const uint8_t*>(arg);
         TypeTag tag = TypeTag::read_before(b);
-        if (tag.type_code() == type_hash::Varchar) {
+        if (tag.type_code() == type_hash::HermesString) {
             LOGOS_TRY(auto* v, HermesAccess::make_value<int32_t>(result_, static_cast<int32_t>(static_cast<const ArenaString*>(arg)->length())));
             return v;
         }
@@ -1038,16 +1038,16 @@ private:
         auto* b = static_cast<const uint8_t*>(arg);
         TypeTag tag = TypeTag::read_before(b);
         switch (tag.type_code()) {
-            case type_hash::Varchar: {
+            case type_hash::HermesString: {
                 LOGOS_TRY(auto* s, HermesAccess::raw_string(result_, "string"));
                 return s;
             }
-            case type_hash::Integer: case type_hash::BigInt:
-            case type_hash::Real: case type_hash::Double: {
+            case type_hash::I24: case type_hash::I64:
+            case type_hash::F32: case type_hash::F64: {
                 LOGOS_TRY(auto* s, HermesAccess::raw_string(result_, "number"));
                 return s;
             }
-            case type_hash::Boolean: {
+            case type_hash::Bool: {
                 LOGOS_TRY(auto* s, HermesAccess::raw_string(result_, "boolean"));
                 return s;
             }
@@ -1215,7 +1215,7 @@ private:
         if (subject) {
             auto* b = static_cast<const uint8_t*>(subject);
             TypeTag tag = TypeTag::read_before(b);
-            if (tag.type_code() == type_hash::Varchar && search) {
+            if (tag.type_code() == type_hash::HermesString && search) {
                 auto sv = static_cast<const ArenaString*>(subject)->view();
                 auto needle = to_string(search);
                 found = sv.find(needle) != std::string_view::npos;
@@ -1230,7 +1230,7 @@ private:
                 }
             }
         }
-        TypeTag btag(type_hash::Boolean, TagDescriptor::Data);
+        TypeTag btag(type_hash::Bool, TagDescriptor::Data);
         LOGOS_TRY(void* mem, HermesAccess::arena(result_).allocate(1, 2, btag));
         *static_cast<uint8_t*>(mem) = found ? 1 : 0;
         return mem;
@@ -1248,16 +1248,16 @@ private:
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         uint64_t tc = tag.type_code();
-        if (tc == type_hash::Integer) {
+        if (tc == type_hash::I24) {
             LOGOS_TRY_VOID(arr->push_back(AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesAccess::arena(result_)));
-        } else if (tc == type_hash::Boolean) {
+        } else if (tc == type_hash::Bool) {
             LOGOS_TRY_VOID(arr->push_back(AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesAccess::arena(result_)));
-        } else if (tc == type_hash::Real) {
+        } else if (tc == type_hash::F32) {
             LOGOS_TRY(AnyVal av,
                 anyval_put<float>(HermesAccess::arena(result_),
                     *static_cast<const float*>(val)));
             LOGOS_TRY_VOID(arr->push_back(av, HermesAccess::arena(result_)));
-        } else if (tc == type_hash::Varchar) {
+        } else if (tc == type_hash::HermesString) {
             auto* s = static_cast<const ArenaString*>(val);
             LOGOS_TRY(auto* copy, HermesAccess::raw_string(result_, s->view()));
             LOGOS_TRY_VOID(arr->push_back(AnyVal{}, HermesAccess::arena(result_)));
@@ -1279,16 +1279,16 @@ private:
         auto* b = static_cast<const uint8_t*>(val);
         TypeTag tag = TypeTag::read_before(b);
         uint64_t tc = tag.type_code();
-        if (tc == type_hash::Integer) {
+        if (tc == type_hash::I24) {
             LOGOS_TRY_VOID(map->put(key, AnyVal::from_value(*static_cast<const int32_t*>(val), tc), HermesAccess::arena(result_)));
-        } else if (tc == type_hash::Boolean) {
+        } else if (tc == type_hash::Bool) {
             LOGOS_TRY_VOID(map->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesAccess::arena(result_)));
-        } else if (tc == type_hash::Real) {
+        } else if (tc == type_hash::F32) {
             LOGOS_TRY(AnyVal av,
                 anyval_put<float>(HermesAccess::arena(result_),
                     *static_cast<const float*>(val)));
             LOGOS_TRY_VOID(map->put(key, av, HermesAccess::arena(result_)));
-        } else if (tc == type_hash::Varchar) {
+        } else if (tc == type_hash::HermesString) {
             auto* s = static_cast<const ArenaString*>(val);
             LOGOS_TRY(auto* copy, HermesAccess::raw_string(result_, s->view()));
             LOGOS_TRY_VOID(map->put(key, AnyVal{}, HermesAccess::arena(result_)));
