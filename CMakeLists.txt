@@ -43,12 +43,12 @@ add_subdirectory(src/hermes)
 # mlir_gen_expr.cpp (ZoneBuilder) for context.
 # add_subdirectory(src/reactor)
 # add_subdirectory(src/hrpc)
-# add_subdirectory(src/compiler)
-# add_subdirectory(tools/peg_gen)
+add_subdirectory(src/compiler)
+add_subdirectory(tools/peg_gen)
 # add_subdirectory(tools/hrpc_gen)
 # add_subdirectory(tools/logos-audit)
 # add_subdirectory(examples)
 
 # Tests
-# enable_testing()
-# add_subdirectory(tests/logos)
+enable_testing()
+add_subdirectory(tests/logos)
