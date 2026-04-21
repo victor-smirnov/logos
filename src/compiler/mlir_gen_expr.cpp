@@ -2203,6 +2203,9 @@ using logos::hermes::ArenaMode;
 using logos::hermes::ArenaString;
 using logos::hermes::HermesAccess;
 using logos::hermes::MapI32AnyVal;
+using logos::hermes::MapU32AnyVal;
+using logos::hermes::MapI64AnyVal;
+using logos::hermes::MapU64AnyVal;
 using logos::hermes::ObjectArray;
 using logos::hermes::ObjectMap;
 using logos::hermes::TypedArray;
@@ -2310,21 +2313,22 @@ static uint32_t build_object_map(const lir::HVMap& map,
     return AnyVal::from_offset(arena_offset_t(m_off)).raw();
 }
 
-static uint32_t build_map_i32_anyval(const lir::HVMap& map,
-                                     logos::hermes::Hermes& doc) {
+template <typename Map, typename K>
+static uint32_t build_typed_map_anyval(const lir::HVMap& map,
+                                       logos::hermes::Hermes& doc) {
     // TypedMap::put silently drops on overflow — pre-size to entry count
     // (minimum 1, since create(arena, 0) skips buffer allocation).
     uint32_t count = static_cast<uint32_t>(map.entries.size());
     uint32_t cap = count == 0 ? 1 : count;
-    auto* m = MapI32AnyVal::create(HermesAccess::arena(doc), cap).get();
+    auto* m = Map::create(HermesAccess::arena(doc), cap).get();
     uint32_t m_off = static_cast<uint32_t>(
         reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
     for (auto& e : map.entries) {
-        int32_t key = 0;
+        K key = 0;
         if (auto* iv = std::get_if<int64_t>(&e.key))
-            key = static_cast<int32_t>(*iv);
+            key = static_cast<K>(*iv);
         uint32_t val_raw = build_hermes_val(*e.val, doc);
-        auto* cur = reinterpret_cast<MapI32AnyVal*>(
+        auto* cur = reinterpret_cast<Map*>(
             HermesAccess::base(doc) + m_off);
         cur->put(key, AnyVal::from_raw(val_raw), HermesAccess::base(doc));
     }
@@ -2333,7 +2337,10 @@ static uint32_t build_map_i32_anyval(const lir::HVMap& map,
 
 static uint32_t build_map(const lir::HVMap& map,
                           logos::hermes::Hermes& doc) {
-    if (map.key_type == "I32") return build_map_i32_anyval(map, doc);
+    if (map.key_type == "I32") return build_typed_map_anyval<MapI32AnyVal, int32_t>(map, doc);
+    if (map.key_type == "U32") return build_typed_map_anyval<MapU32AnyVal, uint32_t>(map, doc);
+    if (map.key_type == "I64") return build_typed_map_anyval<MapI64AnyVal, int64_t>(map, doc);
+    if (map.key_type == "U64") return build_typed_map_anyval<MapU64AnyVal, uint64_t>(map, doc);
     return build_object_map(map, doc);
 }
 
