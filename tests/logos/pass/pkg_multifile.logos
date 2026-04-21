@@ -1,0 +1,14 @@
+package pkg_multifile;
+
+use mylib;
+
+// Uses symbols from both mylib.logos and mylib_extra.logos — the two
+// files that compose the `mylib` package. The multi-file resolver must
+// load both so that make_product and use_internal are visible.
+
+fn main() -> i32 {
+    let a: i32 = make_point(3, 4);     // mylib.logos         → 7
+    let b: i32 = make_product(3, 4);   // mylib_extra.logos   → 12
+    let c: i32 = use_internal(5);      // mylib_extra.logos calling mylib.logos' private helper → 11
+    return a + b + c;                  // 30
+}

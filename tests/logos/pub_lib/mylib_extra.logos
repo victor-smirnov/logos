@@ -1,0 +1,15 @@
+package mylib;
+
+// Second file sharing the same `package mylib` declaration as mylib.logos.
+// Exercises the multi-file package resolver: symbols here must be visible
+// to clients that `use mylib;` without any additional import.
+
+pub fn make_product(x: i32, y: i32) -> i32 {
+    return x * y;
+}
+
+pub fn use_internal(x: i32) -> i32 {
+    // References a private helper defined in mylib.logos — proves that
+    // intra-package visibility works across files.
+    return internal_helper(x) + 1;
+}
