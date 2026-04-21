@@ -4,6 +4,8 @@
 
 #include "sema_impl.hpp"
 
+#include <logos/hermes/type_registry.hpp>
+
 #include <algorithm>
 #include <cstdio>
 #include <format>
@@ -4894,17 +4896,26 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
 
     if (c == la::HERMES_TYPED_ARRAY.code) {
         // @<ElemType>[v,...] — typed dense array (e.g. @<I32>[1,2,3])
-        // Known element types: I32 (ArrayI32, tc=104), U64 (ArrayU64, tc=108).
-        // The corresponding array struct must be in scope (use hermes.array).
+        // The corresponding Array<T> struct must be in scope (use hermes.array).
         struct ElemInfo { std::string struct_name; uint64_t type_code; };
         static const std::map<std::string, ElemInfo> known = {
-            {"I32", {"ArrayI32", 104}},
-            {"U64", {"ArrayU64", 108}},
+            {"I8",  {"ArrayI8",  logos::hermes::type_hash::ArrayI8}},
+            {"U8",  {"ArrayU8",  logos::hermes::type_hash::ArrayU8}},
+            {"I16", {"ArrayI16", logos::hermes::type_hash::ArrayI16}},
+            {"U16", {"ArrayU16", logos::hermes::type_hash::ArrayU16}},
+            {"I32", {"ArrayI32", logos::hermes::type_hash::ArrayI32}},
+            {"U32", {"ArrayU32", logos::hermes::type_hash::ArrayU32}},
+            {"I64", {"ArrayI64", logos::hermes::type_hash::ArrayI64}},
+            {"U64", {"ArrayU64", logos::hermes::type_hash::ArrayU64}},
+            {"F32", {"ArrayF32", logos::hermes::type_hash::ArrayF32}},
+            {"F64", {"ArrayF64", logos::hermes::type_hash::ArrayF64}},
         };
         auto type_name = std::string(str_of(node.get(la::TYPE.code)));
         auto kit = known.find(type_name);
         if (kit == known.end()) {
-            error(std::format("unknown typed array element type '{}'; supported: I32, U64", type_name));
+            error(std::format(
+                "unknown typed array element type '{}'; supported: "
+                "I8, U8, I16, U16, I32, U32, I64, U64, F32, F64", type_name));
             return nullptr;
         }
         // Accept either the original eidos name or a type-alias pointing
@@ -4953,8 +4964,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
 
     if (c == la::HERMES_TYPED_MAP.code) {
         // @<K,V>{...} or @<K>{...} — typed map literal.
-        // Supported: I32 / I32+AnyVal → MapI32AnyVal (tc=105)
-        //            Varchar / Varchar+AnyVal → ObjectMap (tc=101, same as untyped)
+        // Supported keys: I32/U32/I64/U64 → Map*AnyVal typed maps;
+        //                 Varchar        → ObjectMap (same as untyped).
         // TYPE (slot 3) holds key type; RET_TYPE (slot 6) holds optional val type.
         auto key_type_sv = str_of(node.get(la::TYPE.code));
         std::string key_type(key_type_sv);
@@ -4970,18 +4981,32 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 key_type, val_type_s, val_type_s));
             return nullptr;
         }
+        struct KeyInfo { const char* mangled; const char* lir; uint64_t type_code; };
+        static const std::map<std::string, KeyInfo> known_keys = {
+            {"I32", {"Map$G2$i32$AnyVal", "I32",
+                     logos::hermes::type_hash::MapI32AnyVal}},
+            {"U32", {"Map$G2$u32$AnyVal", "U32",
+                     logos::hermes::type_hash::MapU32AnyVal}},
+            {"I64", {"Map$G2$i64$AnyVal", "I64",
+                     logos::hermes::type_hash::MapI64AnyVal}},
+            {"U64", {"Map$G2$u64$AnyVal", "U64",
+                     logos::hermes::type_hash::MapU64AnyVal}},
+        };
         std::string lir_key_type;
-        if (key_type == "I32") {
-            if (!struct_specs_sema_.count("Map$G2$i32$AnyVal")) {
-                error("typed map @<I32>{...} requires 'use hermes.map;'");
+        if (auto kit = known_keys.find(key_type); kit != known_keys.end()) {
+            if (!struct_specs_sema_.count(kit->second.mangled)) {
+                error(std::format(
+                    "typed map @<{}>{{...}} requires 'use hermes.map;'",
+                    key_type));
                 return nullptr;
             }
-            lir_key_type = "I32";
+            lir_key_type = kit->second.lir;
         } else if (key_type == "Varchar") {
             lir_key_type = "";  // same as untyped ObjectMap
         } else {
             error(std::format(
-                "@<{}> — unsupported key type '{}'; supported: I32, Varchar",
+                "@<{}> — unsupported key type '{}'; "
+                "supported: I32, U32, I64, U64, Varchar",
                 key_type, key_type));
             return nullptr;
         }
@@ -5015,10 +5040,10 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                             ks += raw_inner[ki];
                         }
                     }
-                    if (lir_key_type == "I32") {
+                    if (!lir_key_type.empty()) {
                         error(std::format(
-                            "@<I32> map entry [{}] has string key '{}'; I32 maps require integer keys",
-                            i, ks));
+                            "@<{}> map entry [{}] has string key '{}'; integer maps require integer keys",
+                            lir_key_type, i, ks));
                         return nullptr;
                     }
                     e.key = std::move(ks);
@@ -5029,6 +5054,17 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                         (kv < -2147483648LL || kv > 2147483647LL)) {
                         error(std::format(
                             "@<I32> map key [{}] value {} is out of i32 range", i, kv));
+                        return nullptr;
+                    }
+                    if (lir_key_type == "U32" &&
+                        (kv < 0 || kv > 4294967295LL)) {
+                        error(std::format(
+                            "@<U32> map key [{}] value {} is out of u32 range", i, kv));
+                        return nullptr;
+                    }
+                    if (lir_key_type == "U64" && kv < 0) {
+                        error(std::format(
+                            "@<U64> map key [{}] value {} is negative", i, kv));
                         return nullptr;
                     }
                     e.key = kv;

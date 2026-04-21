@@ -4,10 +4,13 @@
 
 #include "sema_impl.hpp"
 
+#include <logos/hermes/type_registry.hpp>
+
 #include <algorithm>
 #include <cstdio>
 #include <format>
 #include <functional>
+#include <map>
 
 namespace logos::compiler {
 
@@ -1541,20 +1544,33 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return acc;
         }
         if (pc == la::PAT_HERMES_TYPED_ARR) {
+            namespace th = logos::hermes::type_hash;
             auto tname = std::string(str_of(p.get(la::TYPE.code)));
-            uint64_t tc = 0;
-            if (tname == "I32") tc = 104;
-            else if (tname == "U64") tc = 108;
-            else if (tname == "AnyVal") tc = 100;
-            else {
+            static const std::map<std::string, uint64_t> arr_tcs = {
+                {"I8",     th::ArrayI8},
+                {"U8",     th::ArrayU8},
+                {"I16",    th::ArrayI16},
+                {"U16",    th::ArrayU16},
+                {"I32",    th::ArrayI32},
+                {"U32",    th::ArrayU32},
+                {"I64",    th::ArrayI64},
+                {"U64",    th::ArrayU64},
+                {"F32",    th::ArrayF32},
+                {"F64",    th::ArrayF64},
+                {"AnyVal", th::ObjectArray},
+            };
+            auto it = arr_tcs.find(tname);
+            if (it == arr_tcs.end()) {
                 error(std::format(
                     "typed array pattern @<{}>[..]: unsupported element type;"
-                    " supported: I32, U64, AnyVal", tname));
+                    " supported: I8, U8, I16, U16, I32, U32, I64, U64,"
+                    " F32, F64, AnyVal", tname));
                 return make_expr(bool_t(), lir::ELitBool{false});
             }
-            return emit_has_type_code(sv, tc);
+            return emit_has_type_code(sv, it->second);
         }
         if (pc == la::PAT_HERMES_TYPED_MAP) {
+            namespace th = logos::hermes::type_hash;
             auto kname = std::string(str_of(p.get(la::TYPE.code)));
             std::string vname;
             if (p.has_key(la::RET_TYPE))
@@ -1565,16 +1581,21 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     " only AnyVal is supported", kname, vname));
                 return make_expr(bool_t(), lir::ELitBool{false});
             }
-            uint64_t tc = 0;
-            if (kname == "Varchar") tc = 101;
-            else if (kname == "I32") tc = 105;
-            else {
+            static const std::map<std::string, uint64_t> map_tcs = {
+                {"Varchar", th::ObjectMap},
+                {"I32",     th::MapI32AnyVal},
+                {"U32",     th::MapU32AnyVal},
+                {"I64",     th::MapI64AnyVal},
+                {"U64",     th::MapU64AnyVal},
+            };
+            auto it = map_tcs.find(kname);
+            if (it == map_tcs.end()) {
                 error(std::format(
                     "typed map pattern @<{}>{{..}}: unsupported key type;"
-                    " supported: Varchar, I32", kname));
+                    " supported: Varchar, I32, U32, I64, U64", kname));
                 return make_expr(bool_t(), lir::ELitBool{false});
             }
-            return emit_has_type_code(sv, tc);
+            return emit_has_type_code(sv, it->second);
         }
         // Unsupported in Hermes context.
         error("unsupported pattern inside Hermes @{...}/@[...] pattern");
