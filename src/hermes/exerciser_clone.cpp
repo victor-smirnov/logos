@@ -13,6 +13,7 @@
 #include <logos/verification/sqlite_sink.hpp>
 
 #include <cstdio>
+#include <vector>
 
 using namespace logos::hermes;
 
@@ -104,6 +105,31 @@ static void test_clone_packed_size() {
     std::printf("  packed size: OK\n");
 }
 
+static void test_clone_param_tracking() {
+    std::printf("--- clone: PARAM (tc=127) slot tracking ---\n");
+    auto doc = make_doc().get();
+    auto m = doc.make_object_map().get();
+    doc.set_root(m);
+
+    // PARAM AnyVal: raw = (index << 8) | 0xFF. index=5 → raw = 0x5FF.
+    const uint32_t param_raw = (5u << 8) | 0xFFu;
+    m.put("p", AnyVal::from_raw(param_raw)).get();
+
+    std::vector<ParamSlot> params;
+    auto cloned = clone(doc, &params).get();
+
+    LOGOS_ASSERT(params.size() == 1, "HERMES-CLONE-006",
+        "Expected 1 PARAM slot, got {}", params.size());
+    LOGOS_ASSERT(params[0].value_index == 5, "HERMES-CLONE-006",
+        "Expected value_index=5, got {}", params[0].value_index);
+    uint8_t* base = HermesAccess::base(cloned);
+    uint32_t read = *reinterpret_cast<const uint32_t*>(base + params[0].offset);
+    LOGOS_ASSERT(read == param_raw, "HERMES-CLONE-006",
+        "Expected slot raw=0x{:x}, got 0x{:x}", param_raw, read);
+    std::printf("  PARAM tracking: OK (offset=%u, value_index=%u)\n",
+                params[0].offset, params[0].value_index);
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     logos::init_sqlite_sink({.path = "test_traces.sqlite"});
@@ -114,6 +140,7 @@ int main() {
     test_clone_object_map_basic();
     test_clone_nested_array();
     test_clone_packed_size();
+    test_clone_param_tracking();
 
     std::printf("\nAll hermes::clone exerciser tests passed.\n");
     logos::shutdown_sqlite_sink();

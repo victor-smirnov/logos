@@ -51,6 +51,27 @@ static inline uint32_t src_off_of(const void* obj, const uint8_t* base_src) noex
         static_cast<const uint8_t*>(obj) - base_src);
 }
 
+// PARAM recognition: AnyVal inline value with type_code == 127.
+// Raw layout: bit0=1 (inline), bits[7:1]=tc, bits[31:8]=payload.
+// So tc==127 inline ⇔ (raw & 0xFF) == 0xFF.
+static inline bool is_param(uint32_t raw) noexcept {
+    return (raw & 0xFFu) == 0xFFu;
+}
+
+static inline uint32_t param_value_index(uint32_t raw) noexcept {
+    return raw >> 8;
+}
+
+// Record a PARAM at a freshly-written dst slot, if ctx tracks them and the
+// value is indeed a PARAM. `dst_slot_off` is the byte offset of the AnyVal
+// slot inside the dst arena.
+static inline void
+maybe_record_param(CloneCtx* c, uint32_t raw, uint32_t dst_slot_off) noexcept {
+    if (c->out_params && is_param(raw)) {
+        c->out_params->push_back(ParamSlot{dst_slot_off, param_value_index(raw)});
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Fixed-size "data" clone: just alloc+memcpy, same tag.
 // ---------------------------------------------------------------------------
@@ -135,6 +156,8 @@ logos::expected<uint32_t> c_object_array(const uint8_t* o, CloneCtx* c) noexcept
         auto* dst_arr_now = reinterpret_cast<ObjectArray*>(dst_ptr(dst_off, *c->dst));
         AnyVal* dst_slot = dst_arr_now->slot(i, c->dst->head().data());
         *dst_slot = AnyVal::from_raw(new_raw);
+        uint32_t dst_slot_off = dst_offset_of(dst_slot, *c->dst);
+        maybe_record_param(c, new_raw, dst_slot_off);
     }
     return dst_off;
 }
@@ -165,6 +188,8 @@ logos::expected<uint32_t> c_tiny_map(const uint8_t* o, CloneCtx* c) noexcept {
         auto* cur = reinterpret_cast<TinyObjectMap*>(dst_ptr(dst_off, *c->dst));
         AnyVal* dst_slot = cur->slot(key, c->dst->head().data());
         *dst_slot = AnyVal::from_raw(new_raw);
+        uint32_t dst_slot_off = dst_offset_of(dst_slot, *c->dst);
+        maybe_record_param(c, new_raw, dst_slot_off);
     }
     return dst_off;
 }
@@ -198,7 +223,11 @@ logos::expected<uint32_t> c_object_map(const uint8_t* o, CloneCtx* c) noexcept {
 
         auto* cur2 = reinterpret_cast<ObjectMap*>(dst_ptr(dst_off, *c->dst));
         AnyVal* dst_slot = cur2->get_slot(kv, c->dst->head().data());
-        if (dst_slot) *dst_slot = AnyVal::from_raw(*nr);
+        if (dst_slot) {
+            *dst_slot = AnyVal::from_raw(*nr);
+            uint32_t dst_slot_off = dst_offset_of(dst_slot, *c->dst);
+            maybe_record_param(c, *nr, dst_slot_off);
+        }
     }, const_cast<uint8_t*>(c->base_src));
 
     if (!status) return std::unexpected(std::move(status.error()));
@@ -295,6 +324,8 @@ logos::expected<uint32_t> c_typed_value(const uint8_t* o, CloneCtx* c) noexcept 
     auto* dst_tv = reinterpret_cast<TypedValueData*>(dst_base + dst_off);
     dst_tv->datatype.set(reinterpret_cast<DatatypeData*>(dst_base + dt_off), dst_base);
     dst_tv->value = AnyVal::from_raw(new_val_raw);
+    uint32_t dst_slot_off = dst_offset_of(&dst_tv->value, *c->dst);
+    maybe_record_param(c, new_val_raw, dst_slot_off);
     return dst_off;
 }
 
@@ -340,11 +371,10 @@ logos::expected<uint32_t> anyval_clone(uint32_t src_raw, CloneCtx* ctx) noexcept
     if (v.is_null()) return uint32_t{0};
 
     if (v.is_value()) {
-        // TODO(step 2): If value_type_hash()==127 (PARAM) and ctx->out_params
-        // is non-null, push the dst-arena offset of THIS slot. That offset is
-        // known only at the parent write site, so the tracking hook belongs
-        // inside each container's element-write loop — anyval_clone itself
-        // returns the raw unchanged here.
+        // PARAM (tc=127) tracking: the dst-arena offset of the slot is known
+        // only at the parent write site, so each container records the slot
+        // offset via maybe_record_param() after writing the raw. Here we just
+        // pass the raw through — inline values are self-describing.
         return src_raw;
     }
 
