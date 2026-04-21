@@ -5,6 +5,7 @@
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/object_array.hpp>
 #include <logos/hermes/object_map.hpp>
+#include <logos/hermes/typed_array.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/verification/assert.hpp>
@@ -418,6 +419,57 @@ static void test_object_map_with_string_values() {
 // Main
 // ============================================================================
 
+// ============================================================================
+// TypedArray tests
+// ============================================================================
+
+static void test_typed_array_i32() {
+    std::printf("--- TypedArray<i32> basic ---\n");
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
+
+    auto* arr = TypedArray<int32_t>::create(arena, 2).get();
+    LOGOS_ASSERT(arr->size() == 0, "INV-TARR-001", "fresh size 0");
+    LOGOS_ASSERT(arr->capacity() == 2, "INV-TARR-001", "initial cap 2");
+
+    ptrdiff_t arr_off = reinterpret_cast<uint8_t*>(arr) - arena.head().data();
+    for (int32_t i = 0; i < 10; ++i) {
+        (void)arr->push_back(i * 7, arena).get();
+        arr = reinterpret_cast<TypedArray<int32_t>*>(arena.head().data() + arr_off);
+    }
+
+    uint8_t* base = arena.head().data();
+    LOGOS_ASSERT(arr->size() == 10, "INV-TARR-002", "size after 10 pushes");
+    for (int32_t i = 0; i < 10; ++i) {
+        LOGOS_ASSERT(arr->get(i, base) == i * 7, "INV-TARR-003",
+            "element {} mismatch", i);
+    }
+    std::printf("  TypedArray<i32> basic: OK (cap %lu)\n", arr->capacity());
+}
+
+static void test_typed_array_layout() {
+    std::printf("--- TypedArray layout parity ---\n");
+    static_assert(sizeof(TypedArray<int32_t>) == 24, "Array<i32> header=24");
+    static_assert(sizeof(TypedArray<uint64_t>) == 24, "Array<u64> header=24");
+
+    auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
+    auto* arr = TypedArray<int32_t>::create(arena, 4).get();
+    (void)arr->push_back(0x11223344, arena).get();
+    (void)arr->push_back(int32_t(-1),  arena).get();
+
+    uint8_t* base = arena.head().data();
+    uint8_t* hdr  = reinterpret_cast<uint8_t*>(arr);
+    uint64_t sz   = *reinterpret_cast<uint64_t*>(hdr + 0);
+    uint64_t cap  = *reinterpret_cast<uint64_t*>(hdr + 8);
+    uint32_t doff = *reinterpret_cast<uint32_t*>(hdr + 16);
+    LOGOS_ASSERT(sz  == 2, "INV-TARR-LAY", "size @0 must be 2");
+    LOGOS_ASSERT(cap == 4, "INV-TARR-LAY", "cap @8 must be 4");
+    LOGOS_ASSERT(doff != 0, "INV-TARR-LAY", "data RelPtr @16 nonzero");
+    int32_t* els = reinterpret_cast<int32_t*>(base + doff);
+    LOGOS_ASSERT(els[0] == 0x11223344, "INV-TARR-LAY", "el0");
+    LOGOS_ASSERT(els[1] == -1,         "INV-TARR-LAY", "el1");
+    std::printf("  TypedArray layout parity: OK\n");
+}
+
 int main() {
     logos::init_sqlite_sink({.path = "test_traces.sqlite"});
 
@@ -438,6 +490,9 @@ int main() {
     test_object_map_remove();
     test_object_map_stress();
     test_object_map_with_string_values();
+
+    test_typed_array_i32();
+    test_typed_array_layout();
 
     std::printf("\n=== All Layer 2 tests passed ===\n");
 
