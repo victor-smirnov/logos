@@ -1,0 +1,11 @@
+package pub_reexport;
+
+use mybridge;
+
+// make_point and Point come from mylib, re-exported by mybridge.
+// The client only imports mybridge — no direct `use mylib;` needed.
+
+fn main() -> i32 {
+    let p: Point = Point { x: 3, y: 4 };
+    return make_point(p.x, p.y);   // 3 + 4 = 7
+}

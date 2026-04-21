@@ -42,8 +42,18 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                     dotted += std::string(str_of(part.get(la::NAME.code)));
                 }
             }
-            if (!dotted.empty())
-                scope.wildcard_packages.push_back(std::move(dotted));
+            if (dotted.empty()) continue;
+            scope.wildcard_packages.push_back(dotted);
+            // `pub use pkg;` — register as re-export from current package
+            bool is_pub = use_node.has_key(la::IS_PUB) &&
+                          !use_node.get(la::IS_PUB.code).is_null() &&
+                          use_node.get(la::IS_PUB.code).is_value() &&
+                          use_node.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+            if (is_pub && !cur_package_.empty()) {
+                auto& vec = pkg_reexports_[cur_package_];
+                if (std::find(vec.begin(), vec.end(), dotted) == vec.end())
+                    vec.push_back(dotted);
+            }
         }
         return scope;
     };

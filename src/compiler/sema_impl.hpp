@@ -460,6 +460,10 @@ private:
     // collect_fn/lower_fn include the impl-level type params in the function.
     std::vector<TypeParam> impl_type_params_;
 
+    // Re-export graph: pkg_reexports_["a.b"] = ["x.y", "z"] means `pub use x.y; pub use z;`
+    // is declared in package a.b. Used by find_* helpers for transitive import resolution.
+    std::unordered_map<std::string, std::vector<std::string>> pkg_reexports_;
+
     std::unordered_map<std::string, SemaStructInfo>   structs_;
     std::unordered_map<std::string, SemaStructInfo>   datatypes_;  // Hermes datatypes
     // Explicit type_code from #[type_code=N] annotations; populated in lower_module_items.
@@ -559,13 +563,41 @@ private:
         return it != enums_.end() ? &it->second : nullptr;
     }
 
-    // Find struct by user-written name (searches cur_package_ then imports then unqualified)
+    // Collect all packages reachable from `pkg` via pub use re-exports (transitive, cycle-safe).
+    void collect_reexports(const std::string& pkg,
+                           std::unordered_set<std::string>& visited,
+                           std::vector<std::string>& out) const {
+        auto it = pkg_reexports_.find(pkg);
+        if (it == pkg_reexports_.end()) return;
+        for (auto& reexp : it->second) {
+            if (visited.insert(reexp).second) {
+                out.push_back(reexp);
+                collect_reexports(reexp, visited, out);
+            }
+        }
+    }
+
+    // Build the full set of packages to search when resolving a name in context of cur_imports_.
+    // Includes directly imported packages AND their transitive pub-use re-exports.
+    std::vector<std::string> effective_import_pkgs() const {
+        std::vector<std::string> result;
+        std::unordered_set<std::string> visited;
+        for (auto& pkg : cur_imports_.wildcard_packages) {
+            if (visited.insert(pkg).second) {
+                result.push_back(pkg);
+                collect_reexports(pkg, visited, result);
+            }
+        }
+        return result;
+    }
+
+    // Find struct by user-written name (searches cur_package_ then imports+reexports then unqualified)
     std::pair<std::string, SemaStructInfo*> find_struct_by_name(std::string_view name) {
         if (!cur_package_.empty()) {
             auto it = structs_.find(sema_key(cur_package_, std::string(name)));
             if (it != structs_.end()) return {cur_package_, &it->second};
         }
-        for (auto& pkg : cur_imports_.wildcard_packages) {
+        for (auto& pkg : effective_import_pkgs()) {
             auto it = structs_.find(sema_key(pkg, std::string(name)));
             if (it != structs_.end()) {
                 check_pub_access(it->second.is_pub, it->second.package, name);
@@ -581,7 +613,7 @@ private:
             auto it = datatypes_.find(sema_key(cur_package_, std::string(name)));
             if (it != datatypes_.end()) return {cur_package_, &it->second};
         }
-        for (auto& pkg : cur_imports_.wildcard_packages) {
+        for (auto& pkg : effective_import_pkgs()) {
             auto it = datatypes_.find(sema_key(pkg, std::string(name)));
             if (it != datatypes_.end()) {
                 check_pub_access(it->second.is_pub, it->second.package, name);
@@ -597,7 +629,7 @@ private:
             auto it = enums_.find(sema_key(cur_package_, std::string(name)));
             if (it != enums_.end()) return {cur_package_, &it->second};
         }
-        for (auto& pkg : cur_imports_.wildcard_packages) {
+        for (auto& pkg : effective_import_pkgs()) {
             auto it = enums_.find(sema_key(pkg, std::string(name)));
             if (it != enums_.end()) return {pkg, &it->second};
         }
@@ -610,7 +642,7 @@ private:
             auto it = traits_.find(sema_key(cur_package_, std::string(name)));
             if (it != traits_.end()) return {cur_package_, &it->second};
         }
-        for (auto& pkg : cur_imports_.wildcard_packages) {
+        for (auto& pkg : effective_import_pkgs()) {
             auto it = traits_.find(sema_key(pkg, std::string(name)));
             if (it != traits_.end()) return {pkg, &it->second};
         }

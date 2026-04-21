@@ -350,8 +350,13 @@
     // Package paths: `a`, `a.b`, `a.b.c`, … arbitrary depth.
     // `NAME` is the first component; `PATH_PARTS` is an array of sub-nodes
     // for components 2..N (empty when there's only one component).
-    module :group mod: <- KW_PACKAGE IDENT path_dot_ident* SEMI use_decl* item*
+    module :group mod: <- KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
            => { CODE: MODULE, NAME: $2, PATH_PARTS: $3, USES: $5, ITEMS: $... }
+
+    any_use_decl <- pub_use_decl / use_decl
+
+    pub_use_decl :group mod: <- KW_PUB KW_USE IDENT path_dot_ident* SEMI
+                 => { CODE: USE, IS_PUB: 1, NAME: $3, PATH_PARTS: $4 }
 
     use_decl :group mod: <- KW_USE IDENT path_dot_ident* SEMI
              => { CODE: USE, NAME: $2, PATH_PARTS: $3 }

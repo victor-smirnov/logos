@@ -1,0 +1,4 @@
+package mybridge;
+
+// Re-export entire mylib public surface so clients only need `use mybridge;`.
+pub use mylib;

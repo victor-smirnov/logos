@@ -535,8 +535,9 @@ private:
             TK pk = lex_.peek().kind;
             // Stop at alternative separator, action, or end of section.
             if (pk == TK::Slash || pk == TK::FatArrow || pk == TK::RBrace) break;
-            // Stop if this ident is the start of the next rule (ident followed by <-).
-            if (pk == TK::Ident && lex_.peek(1).kind == TK::Arrow) break;
+            // Stop if this ident is the start of the next rule (ident followed by <- or :group tag).
+            if (pk == TK::Ident && (lex_.peek(1).kind == TK::Arrow ||
+                                    lex_.peek(1).kind == TK::Colon)) break;
 
             auto item = parse_item();
             if (!item) break;
