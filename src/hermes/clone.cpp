@@ -403,11 +403,13 @@ logos::expected<uint32_t> anyval_clone(uint32_t src_raw, CloneCtx* ctx) noexcept
 
 logos::expected<Hermes> clone(const HermesView& src,
                               std::vector<ParamSlot>* out_params) noexcept {
-    // Size hint: at least 2× src live bytes, matches compactify() heuristic.
-    // Growing mid-clone is supported (all offsets are stable), but an oversized
-    // initial chunk avoids repeated memcpy and keeps the DAG-cache cheap.
-    size_t cap = HermesAccess::arena(src).total_used() * 2;
-    if (cap < 4096) cap = 4096;
+    // Size hint: src_used is a tight lower bound (packed output). Growing
+    // mid-clone is supported — all per-type handlers recompute `this` from
+    // (base + self_off) after every child allocation, and all containers
+    // (ObjectArray / ObjectMap / TinyObjectMap) use self-offset recompute
+    // across their grow/rehash/push paths.
+    size_t src_used = HermesAccess::arena(src).total_used();
+    size_t cap = src_used < 64 ? 64 : src_used;
 
     LOGOS_TRY(auto dst, make_doc(cap));
 

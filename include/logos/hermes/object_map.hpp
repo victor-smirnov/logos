@@ -78,18 +78,27 @@ public:
     // --- Mutation ---
 
     [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal value, Arena& arena) noexcept {
+        // Any arena allocation below may move the backing chunk (for
+        // GrowableSingleChunk), so capture our offset up front and re-resolve
+        // `this` from (base + self_off) before any mutation of member fields.
+        ptrdiff_t self_off = reinterpret_cast<uint8_t*>(this) - arena.head().data();
+
         if (capacity_ == 0) {
             LOGOS_TRY_VOID(init_entries(arena, 8));
         }
-        // Load factor 0.75.
-        if ((count_ + 1) * 4 >= capacity_ * 3) {
-            LOGOS_TRY_VOID(rehash(arena, capacity_ * 2));
+        {
+            auto* self = reinterpret_cast<ObjectMap*>(arena.head().data() + self_off);
+            // Load factor 0.75.
+            if ((self->count_ + 1) * 4 >= self->capacity_ * 3) {
+                LOGOS_TRY_VOID(self->rehash(arena, self->capacity_ * 2));
+            }
         }
 
         uint8_t* base = arena.head().data();
+        auto* self = reinterpret_cast<ObjectMap*>(base + self_off);
 
         // Check if key exists; if so, update in place and return.
-        if (MapEntry* existing = const_cast<MapEntry*>(find_entry(key, base))) {
+        if (MapEntry* existing = const_cast<MapEntry*>(self->find_entry(key, base))) {
             existing->val = value.raw();
             return {};
         }
@@ -98,19 +107,20 @@ public:
         // since allocation may move the arena buffer.
         LOGOS_TRY(auto* arena_key, ArenaString::create(arena, key));
         base = arena.head().data();
+        self = reinterpret_cast<ObjectMap*>(base + self_off);
 
-        MapEntry* ents = entries(base);
+        MapEntry* ents = self->entries(base);
         uint64_t h = fnv1a_hash(key);
-        uint64_t slot = h & (capacity_ - 1);
-        for (uint32_t probed = 0; probed < capacity_; ++probed) {
+        uint64_t slot = h & (self->capacity_ - 1);
+        for (uint32_t probed = 0; probed < self->capacity_; ++probed) {
             if (ents[slot].key_off.is_null()) {
                 ents[slot].key_off.set(arena_key, base);
                 ents[slot].val = value.raw();
-                ++count_;
+                ++self->count_;
                 return {};
             }
             ++slot;
-            if (slot >= capacity_) slot = 0;
+            if (slot >= self->capacity_) slot = 0;
         }
         // Table full after rehash guard — shouldn't happen.
         return {};
@@ -198,30 +208,33 @@ private:
     }
 
     logos::expected<void> init_entries(Arena& arena, uint32_t cap) noexcept {
+        ptrdiff_t self_off = reinterpret_cast<uint8_t*>(this) - arena.head().data();
         size_t alloc = static_cast<size_t>(cap) * sizeof(MapEntry);
         LOGOS_TRY(auto* mem_void, arena.allocate_raw(alloc, alignof(MapEntry)));
         auto* mem = static_cast<MapEntry*>(mem_void);
         std::memset(mem, 0, alloc);
         uint8_t* base = arena.head().data();
-        entries_off_.set(mem, base);
-        capacity_ = cap;
-        count_    = 0;
+        auto* self = reinterpret_cast<ObjectMap*>(base + self_off);
+        self->entries_off_.set(mem, base);
+        self->capacity_ = cap;
+        self->count_    = 0;
         return {};
     }
 
     logos::expected<void> rehash(Arena& arena, uint32_t new_cap) noexcept {
-        // Snapshot old table by copying offsets/values before we overwrite fields.
+        // Snapshot before any allocation that may move the arena.
+        ptrdiff_t self_off = reinterpret_cast<uint8_t*>(this) - arena.head().data();
         uint32_t old_cap = capacity_;
-        uint8_t* base = arena.head().data();
         RelativePtr<MapEntry> old_entries_off = entries_off_;
 
         LOGOS_TRY_VOID(init_entries(arena, new_cap));
-        base = arena.head().data();
+        uint8_t* base = arena.head().data();
+        auto* self = reinterpret_cast<ObjectMap*>(base + self_off);
 
         if (old_cap == 0) return {};
 
         MapEntry* old_ents = old_entries_off.get(base);
-        MapEntry* new_ents = entries(base);
+        MapEntry* new_ents = self->entries(base);
 
         for (uint32_t i = 0; i < old_cap; ++i) {
             if (old_ents[i].key_off.is_null()) continue;
@@ -233,7 +246,7 @@ private:
                 if (slot >= new_cap) slot = 0;
             }
             new_ents[slot] = old_ents[i];
-            ++count_;
+            ++self->count_;
         }
         return {};
     }

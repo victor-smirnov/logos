@@ -130,6 +130,34 @@ static void test_clone_param_tracking() {
                 params[0].offset, params[0].value_index);
 }
 
+static void test_object_map_put_grow_stress() {
+    std::printf("--- ObjectMap::put grow stress (tiny initial arena) ---\n");
+    // Start with a small arena so put() triggers several grows; this would
+    // previously lose entries because ++count_ wrote through a stale `this`.
+    auto doc = make_doc(64).get();
+    auto m = doc.make_object_map().get();
+    doc.set_root(m);
+
+    constexpr int N = 256;
+    char buf[32];
+    for (int i = 0; i < N; ++i) {
+        std::snprintf(buf, sizeof(buf), "k%04d", i);
+        m.put(buf, AnyVal::from_value(int32_t(i))).get();
+    }
+
+    auto* map = HermesAccess::root<ObjectMap>(doc);
+    uint8_t* base = HermesAccess::base(doc);
+    LOGOS_ASSERT(map->size() == static_cast<uint64_t>(N),
+        "HERMES-CLONE-007", "Expected {} entries, got {}", N, map->size());
+    for (int i = 0; i < N; ++i) {
+        std::snprintf(buf, sizeof(buf), "k%04d", i);
+        int32_t v = map->get(buf, base).as_value<int32_t>();
+        LOGOS_ASSERT(v == i, "HERMES-CLONE-007",
+            "Entry '{}' lost or corrupt (got {})", buf, v);
+    }
+    std::printf("  ObjectMap grow stress: OK (%d entries intact)\n", N);
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     logos::init_sqlite_sink({.path = "test_traces.sqlite"});
@@ -141,6 +169,7 @@ int main() {
     test_clone_nested_array();
     test_clone_packed_size();
     test_clone_param_tracking();
+    test_object_map_put_grow_stress();
 
     std::printf("\nAll hermes::clone exerciser tests passed.\n");
     logos::shutdown_sqlite_sink();
