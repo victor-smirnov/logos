@@ -82,9 +82,16 @@ static bool         g_initialized = false;
 // ---------------------------------------------------------------------------
 // hermes_init()
 // ---------------------------------------------------------------------------
+// Link-time anchors — force archive members carrying HERMES_REGISTER_TYPE
+// entries to be pulled in even when nothing else references them.
+void hermes_map_i32_anyval_anchor() noexcept;
+
 void hermes_init() noexcept {
     if (g_initialized) return;
     g_initialized = true;
+
+    // Touch anchors so their translation units are linked in.
+    hermes_map_i32_anyval_anchor();
 
     for (const TypeOps* p = __start_hermes_typeops;
          p != __stop_hermes_typeops; ++p)

@@ -9,6 +9,8 @@
 #include <logos/hermes/type_ops.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/stringify.hpp>
+#include <logos/hermes/map.hpp>
+#include <logos/hermes/arena_string.hpp>
 #include <logos/verification/assert.hpp>
 #include <logos/verification/sqlite_sink.hpp>
 
@@ -158,6 +160,71 @@ static void test_object_map_put_grow_stress() {
     std::printf("  ObjectMap grow stress: OK (%d entries intact)\n", N);
 }
 
+static void test_clone_map_i32_anyval() {
+    std::printf("--- clone: Map<i32,AnyVal> 3 entries (scalar, PARAM, ptr) ---\n");
+    auto doc = make_doc().get();
+    auto* m = MapI32AnyVal::create(HermesAccess::arena(doc), 8).get();
+    // Make the map reachable as the document root.
+    uint32_t m_off = static_cast<uint32_t>(
+        reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
+    HermesAccess::set_root_offset(doc, logos::hermes::arena_offset_t(m_off));
+
+    // 1) Inline scalar i32 value.
+    m = reinterpret_cast<MapI32AnyVal*>(HermesAccess::base(doc) + m_off);
+    bool ok = m->put(int32_t(1), AnyVal::from_value(int32_t(42)),
+                     HermesAccess::base(doc));
+    LOGOS_ASSERT(ok, "HERMES-MAP-001", "put #1 failed");
+
+    // 2) PARAM marker (tc=127) value.
+    const uint32_t param_raw = (7u << 8) | 0xFFu;
+    m = reinterpret_cast<MapI32AnyVal*>(HermesAccess::base(doc) + m_off);
+    ok = m->put(int32_t(2), AnyVal::from_raw(param_raw),
+                HermesAccess::base(doc));
+    LOGOS_ASSERT(ok, "HERMES-MAP-001", "put #2 failed");
+
+    // 3) Pointer value to an ArenaString.
+    auto* s = ArenaString::create(HermesAccess::arena(doc), "hello").get();
+    uint32_t s_off = static_cast<uint32_t>(
+        reinterpret_cast<uint8_t*>(s) - HermesAccess::base(doc));
+    m = reinterpret_cast<MapI32AnyVal*>(HermesAccess::base(doc) + m_off);
+    ok = m->put(int32_t(3),
+                AnyVal::from_offset(logos::hermes::arena_offset_t(s_off)),
+                HermesAccess::base(doc));
+    LOGOS_ASSERT(ok, "HERMES-MAP-001", "put #3 failed");
+
+    // Sanity: stringify.
+    auto ss = stringify(doc, false).get();
+    std::printf("  src stringify: %s\n", ss.c_str());
+    LOGOS_ASSERT(ss.find("<I32,AnyVal>") != std::string::npos,
+        "HERMES-MAP-002", "Expected '<I32,AnyVal>' tag in stringify, got: {}", ss);
+    LOGOS_ASSERT(ss.find("1:42") != std::string::npos,
+        "HERMES-MAP-002", "Expected '1:42' entry, got: {}", ss);
+    LOGOS_ASSERT(ss.find("3:\"hello\"") != std::string::npos,
+        "HERMES-MAP-002", "Expected '3:\"hello\"' entry, got: {}", ss);
+
+    // Clone with PARAM tracking.
+    std::vector<ParamSlot> params;
+    auto cloned = clone(doc, &params).get();
+
+    // Equal stringification round-trip.
+    auto sc = stringify(cloned, false).get();
+    std::printf("  dst stringify: %s\n", sc.c_str());
+    LOGOS_ASSERT(ss == sc, "HERMES-MAP-003",
+        "Clone stringify mismatch:\n  src: {}\n  dst: {}", ss, sc);
+
+    // PARAM slot bookkeeping.
+    LOGOS_ASSERT(params.size() == 1, "HERMES-MAP-004",
+        "Expected 1 PARAM slot, got {}", params.size());
+    LOGOS_ASSERT(params[0].value_index == 7, "HERMES-MAP-004",
+        "Expected value_index=7, got {}", params[0].value_index);
+    uint8_t* cb = HermesAccess::base(cloned);
+    uint32_t read = *reinterpret_cast<const uint32_t*>(cb + params[0].offset);
+    LOGOS_ASSERT(read == param_raw, "HERMES-MAP-004",
+        "PARAM slot raw mismatch: expected 0x{:x}, got 0x{:x}", param_raw, read);
+    std::printf("  Map<i32,AnyVal> clone: OK (PARAM offset=%u, value_index=%u)\n",
+                params[0].offset, params[0].value_index);
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     logos::init_sqlite_sink({.path = "test_traces.sqlite"});
@@ -170,6 +237,7 @@ int main() {
     test_clone_packed_size();
     test_clone_param_tracking();
     test_object_map_put_grow_stress();
+    test_clone_map_i32_anyval();
 
     std::printf("\nAll hermes::clone exerciser tests passed.\n");
     logos::shutdown_sqlite_sink();

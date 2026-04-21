@@ -6,6 +6,7 @@ add_library(logos_hermes
     text_parser.cpp
     stringify.cpp
     clone.cpp
+    map.cpp
     type_ops.cpp
     path.cpp
     template.cpp
