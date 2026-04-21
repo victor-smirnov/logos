@@ -121,8 +121,12 @@ public:
     }
 
     static constexpr uint64_t type_code_for() noexcept {
-        if constexpr (std::is_same_v<K, int32_t> && std::is_same_v<V, AnyVal>)
-            return 105; // Map<i32, AnyVal>
+        if constexpr (std::is_same_v<V, AnyVal>) {
+            if constexpr (std::is_same_v<K, int32_t>)  return type_hash::MapI32AnyVal;
+            if constexpr (std::is_same_v<K, uint32_t>) return type_hash::MapU32AnyVal;
+            if constexpr (std::is_same_v<K, int64_t>)  return type_hash::MapI64AnyVal;
+            if constexpr (std::is_same_v<K, uint64_t>) return type_hash::MapU64AnyVal;
+        }
         return 0;
     }
 
@@ -133,8 +137,14 @@ private:
     RelativePtr<V> vals_;
 };
 
-static_assert(sizeof(TypedMap<int32_t, AnyVal>) == 16);
+static_assert(sizeof(TypedMap<int32_t,  AnyVal>) == 16);
+static_assert(sizeof(TypedMap<uint32_t, AnyVal>) == 16);
+static_assert(sizeof(TypedMap<int64_t,  AnyVal>) == 16);
+static_assert(sizeof(TypedMap<uint64_t, AnyVal>) == 16);
 
-using MapI32AnyVal = TypedMap<int32_t, AnyVal>;
+using MapI32AnyVal = TypedMap<int32_t,  AnyVal>;
+using MapU32AnyVal = TypedMap<uint32_t, AnyVal>;
+using MapI64AnyVal = TypedMap<int64_t,  AnyVal>;
+using MapU64AnyVal = TypedMap<uint64_t, AnyVal>;
 
 } // namespace logos::hermes

@@ -34,7 +34,9 @@ s_typed_array(const uint8_t* o, StringifyCtx* c) noexcept {
     for (uint64_t i = 0; i < n; ++i) {
         if (i > 0) *c->out += ',';
         T v = const_cast<TypedArray<T>*>(a)->get(i, const_cast<uint8_t*>(c->base));
-        if constexpr (std::is_signed_v<T>) {
+        if constexpr (std::is_floating_point_v<T>) {
+            *c->out += std::to_string(static_cast<double>(v));
+        } else if constexpr (std::is_signed_v<T>) {
             *c->out += std::to_string(static_cast<int64_t>(v));
         } else {
             *c->out += std::to_string(static_cast<uint64_t>(v));
@@ -59,8 +61,7 @@ c_typed_array(const uint8_t* o, CloneCtx* c) noexcept {
         ->slot(0, const_cast<uint8_t*>(c->base_src));
 
     // Allocate dst header.
-    constexpr uint64_t tc = std::is_same_v<T, int32_t>
-        ? type_hash::ArrayI32 : type_hash::ArrayU64;
+    constexpr uint64_t tc = TypedArray<T>::type_code_for();
     TypeTag tag(tc, TagDescriptor::Array);
     LOGOS_TRY(auto* hdr_void,
         c->dst->allocate(sizeof(TypedArray<T>), alignof(TypedArray<T>), tag));
@@ -97,26 +98,40 @@ c_typed_array(const uint8_t* o, CloneCtx* c) noexcept {
     return dst_off;
 }
 
-const TypeOps k_array_i32_ops = {
-    type_hash::ArrayI32,
-    s_typed_array<int32_t>,
-    nullptr,
-    nullptr,
-    c_typed_array<int32_t>,
-};
+#define LOGOS_ARRAY_OPS(Name, T) \
+    const TypeOps k_array_##Name##_ops = { \
+        type_hash::Array##Name, \
+        s_typed_array<T>, \
+        nullptr, \
+        nullptr, \
+        c_typed_array<T>, \
+    }
 
-const TypeOps k_array_u64_ops = {
-    type_hash::ArrayU64,
-    s_typed_array<uint64_t>,
-    nullptr,
-    nullptr,
-    c_typed_array<uint64_t>,
-};
+LOGOS_ARRAY_OPS(I8,  int8_t);
+LOGOS_ARRAY_OPS(U8,  uint8_t);
+LOGOS_ARRAY_OPS(I16, int16_t);
+LOGOS_ARRAY_OPS(U16, uint16_t);
+LOGOS_ARRAY_OPS(I32, int32_t);
+LOGOS_ARRAY_OPS(U32, uint32_t);
+LOGOS_ARRAY_OPS(I64, int64_t);
+LOGOS_ARRAY_OPS(U64, uint64_t);
+LOGOS_ARRAY_OPS(F32, float);
+LOGOS_ARRAY_OPS(F64, double);
+
+#undef LOGOS_ARRAY_OPS
 
 } // namespace
 
-HERMES_REGISTER_TYPE(k_array_i32_ops);
-HERMES_REGISTER_TYPE(k_array_u64_ops);
+HERMES_REGISTER_TYPE(k_array_I8_ops);
+HERMES_REGISTER_TYPE(k_array_U8_ops);
+HERMES_REGISTER_TYPE(k_array_I16_ops);
+HERMES_REGISTER_TYPE(k_array_U16_ops);
+HERMES_REGISTER_TYPE(k_array_I32_ops);
+HERMES_REGISTER_TYPE(k_array_U32_ops);
+HERMES_REGISTER_TYPE(k_array_I64_ops);
+HERMES_REGISTER_TYPE(k_array_U64_ops);
+HERMES_REGISTER_TYPE(k_array_F32_ops);
+HERMES_REGISTER_TYPE(k_array_F64_ops);
 
 // Link-time anchor (referenced from type_ops.cpp).
 void hermes_typed_array_anchor() noexcept {}

@@ -65,6 +65,21 @@ public:
         if (index < size_) elements(base)[index] = value;
     }
 
+    // Concrete Logos type_code binding per T (Array<T> wire-format code).
+    static constexpr uint64_t type_code_for() noexcept {
+        if constexpr (std::is_same_v<T, int8_t>)   return type_hash::ArrayI8;
+        if constexpr (std::is_same_v<T, uint8_t>)  return type_hash::ArrayU8;
+        if constexpr (std::is_same_v<T, int16_t>)  return type_hash::ArrayI16;
+        if constexpr (std::is_same_v<T, uint16_t>) return type_hash::ArrayU16;
+        if constexpr (std::is_same_v<T, int32_t>)  return type_hash::ArrayI32;
+        if constexpr (std::is_same_v<T, uint32_t>) return type_hash::ArrayU32;
+        if constexpr (std::is_same_v<T, int64_t>)  return type_hash::ArrayI64;
+        if constexpr (std::is_same_v<T, uint64_t>) return type_hash::ArrayU64;
+        if constexpr (std::is_same_v<T, float>)    return type_hash::ArrayF32;
+        if constexpr (std::is_same_v<T, double>)   return type_hash::ArrayF64;
+        return 0; // unregistered; caller must supply extrinsic type_code.
+    }
+
     [[nodiscard]] static logos::expected<TypedArray*> create(
             Arena& arena, uint64_t initial_capacity = 4) noexcept {
         TypeTag tag(type_code_for(), TagDescriptor::Array);
@@ -83,13 +98,6 @@ private:
     RelativePtr<T> data_;
 
     T* elements(uint8_t* base) const noexcept { return data_.get(base); }
-
-    // Concrete Logos type_code binding per T (Array<T> wire-format code).
-    static constexpr uint64_t type_code_for() noexcept {
-        if constexpr (std::is_same_v<T, int32_t>)  return 104; // Array<i32>
-        if constexpr (std::is_same_v<T, uint64_t>) return 108; // Array<u64>
-        return 0; // unregistered; caller must supply extrinsic type_code.
-    }
 
     logos::expected<void> grow(Arena& arena, uint64_t new_cap) noexcept {
         uint8_t* base_before = arena.head().data();
@@ -110,10 +118,26 @@ private:
     }
 };
 
-static_assert(sizeof(TypedArray<int32_t>) == 24);
+static_assert(sizeof(TypedArray<int8_t>)   == 24);
+static_assert(sizeof(TypedArray<uint8_t>)  == 24);
+static_assert(sizeof(TypedArray<int16_t>)  == 24);
+static_assert(sizeof(TypedArray<uint16_t>) == 24);
+static_assert(sizeof(TypedArray<int32_t>)  == 24);
+static_assert(sizeof(TypedArray<uint32_t>) == 24);
+static_assert(sizeof(TypedArray<int64_t>)  == 24);
 static_assert(sizeof(TypedArray<uint64_t>) == 24);
+static_assert(sizeof(TypedArray<float>)    == 24);
+static_assert(sizeof(TypedArray<double>)   == 24);
 
+using ArrayI8  = TypedArray<int8_t>;
+using ArrayU8  = TypedArray<uint8_t>;
+using ArrayI16 = TypedArray<int16_t>;
+using ArrayU16 = TypedArray<uint16_t>;
 using ArrayI32 = TypedArray<int32_t>;
+using ArrayU32 = TypedArray<uint32_t>;
+using ArrayI64 = TypedArray<int64_t>;
 using ArrayU64 = TypedArray<uint64_t>;
+using ArrayF32 = TypedArray<float>;
+using ArrayF64 = TypedArray<double>;
 
 } // namespace logos::hermes

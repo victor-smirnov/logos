@@ -28,17 +28,30 @@ namespace {
 // used by the Logos reference in stdlib/hermes/stringify.logos.
 // ---------------------------------------------------------------------------
 
-logos::expected<void> s_map_i32_anyval(const uint8_t* o, StringifyCtx* c) noexcept {
-    auto* m = reinterpret_cast<const MapI32AnyVal*>(o);
-    *c->out += "<I32,AnyVal> {";
+template <typename K>
+const char* s_map_prefix() noexcept {
+    if constexpr (std::is_same_v<K, int32_t>)  return "<I32,AnyVal> {";
+    if constexpr (std::is_same_v<K, uint32_t>) return "<U32,AnyVal> {";
+    if constexpr (std::is_same_v<K, int64_t>)  return "<I64,AnyVal> {";
+    if constexpr (std::is_same_v<K, uint64_t>) return "<U64,AnyVal> {";
+    return "<?,AnyVal> {";
+}
+
+template <typename K>
+logos::expected<void> s_map_k_anyval(const uint8_t* o, StringifyCtx* c) noexcept {
+    using MapT = TypedMap<K, AnyVal>;
+    auto* m = reinterpret_cast<const MapT*>(o);
+    *c->out += s_map_prefix<K>();
     uint32_t n = m->size();
-    const int32_t* keys_ptr =
-        const_cast<MapI32AnyVal*>(m)->keys(c->base);
-    const AnyVal*  vals_ptr =
-        const_cast<MapI32AnyVal*>(m)->vals(c->base);
+    const K*      keys_ptr = const_cast<MapT*>(m)->keys(c->base);
+    const AnyVal* vals_ptr = const_cast<MapT*>(m)->vals(c->base);
     for (uint32_t i = 0; i < n; ++i) {
         if (i > 0) *c->out += ',';
-        *c->out += std::to_string(static_cast<int64_t>(keys_ptr[i]));
+        if constexpr (std::is_signed_v<K>) {
+            *c->out += std::to_string(static_cast<int64_t>(keys_ptr[i]));
+        } else {
+            *c->out += std::to_string(static_cast<uint64_t>(keys_ptr[i]));
+        }
         *c->out += ':';
         if (c->pretty) *c->out += ' ';
         AnyVal v = vals_ptr[i];
@@ -70,16 +83,18 @@ static inline uint32_t param_value_index(uint32_t raw) noexcept {
     return raw >> 8;
 }
 
-logos::expected<uint32_t> c_map_i32_anyval(const uint8_t* o, CloneCtx* c) noexcept {
-    auto* src = reinterpret_cast<const MapI32AnyVal*>(o);
+template <typename K>
+logos::expected<uint32_t> c_map_k_anyval(const uint8_t* o, CloneCtx* c) noexcept {
+    using MapT = TypedMap<K, AnyVal>;
+    auto* src = reinterpret_cast<const MapT*>(o);
     uint32_t src_off = src_off_of(o, c->base_src);
     uint32_t n = src->size();
 
     // Snapshot source key/val buffer offsets before any dst allocation.
-    const int32_t* src_keys =
-        const_cast<MapI32AnyVal*>(src)->keys(const_cast<uint8_t*>(c->base_src));
+    const K* src_keys =
+        const_cast<MapT*>(src)->keys(const_cast<uint8_t*>(c->base_src));
     const AnyVal*  src_vals =
-        const_cast<MapI32AnyVal*>(src)->vals(const_cast<uint8_t*>(c->base_src));
+        const_cast<MapT*>(src)->vals(const_cast<uint8_t*>(c->base_src));
 
     // Copy keys into a small temporary vector so subsequent dst allocations
     // that may trigger arena growth on the *source* side (they don't — dst is
@@ -88,10 +103,10 @@ logos::expected<uint32_t> c_map_i32_anyval(const uint8_t* o, CloneCtx* c) noexce
     // recompute buffers from offsets after each allocation.
 
     // Allocate header in dst.
-    TypeTag tag(type_hash::MapI32AnyVal, TagDescriptor::Map);
+    TypeTag tag(MapT::type_code_for(), TagDescriptor::Map);
     LOGOS_TRY(auto* hdr_void,
-        c->dst->allocate(sizeof(MapI32AnyVal), alignof(MapI32AnyVal), tag));
-    auto* hdr_init = new (hdr_void) MapI32AnyVal();
+        c->dst->allocate(sizeof(MapT), alignof(MapT), tag));
+    auto* hdr_init = new (hdr_void) MapT();
     (void)hdr_init;
     uint32_t dst_off = dst_offset_of(hdr_void, *c->dst);
     c->map.emplace(src_off, dst_off);
@@ -103,7 +118,7 @@ logos::expected<uint32_t> c_map_i32_anyval(const uint8_t* o, CloneCtx* c) noexce
 
     // Allocate keys buffer.
     LOGOS_TRY(auto* keys_void,
-        c->dst->allocate_raw(n * sizeof(int32_t), alignof(int32_t)));
+        c->dst->allocate_raw(n * sizeof(K), alignof(K)));
     uint32_t keys_off = static_cast<uint32_t>(
         static_cast<uint8_t*>(keys_void) - c->dst->head().data());
 
@@ -115,13 +130,10 @@ logos::expected<uint32_t> c_map_i32_anyval(const uint8_t* o, CloneCtx* c) noexce
         static_cast<uint8_t*>(vals_void) - c->dst->head().data());
 
     // Write header fields using fresh base (previous allocations settled).
+    // struct layout is { u32 size; u32 capacity; u32 keys_off; u32 vals_off }.
     {
         uint8_t* base = c->dst->head().data();
-        auto* hdr = reinterpret_cast<MapI32AnyVal*>(base + dst_off);
-        // size_/capacity_/keys_/vals_ are private; we exposed create() but not
-        // direct field writes. Use placement write via reinterpret layout:
-        // struct layout is { u32 size; u32 capacity; u32 keys_off; u32 vals_off }.
-        auto* raw = reinterpret_cast<uint32_t*>(hdr);
+        auto* raw = reinterpret_cast<uint32_t*>(base + dst_off);
         raw[0] = n;          // size
         raw[1] = n;          // capacity
         raw[2] = keys_off;   // keys.offset
@@ -131,7 +143,7 @@ logos::expected<uint32_t> c_map_i32_anyval(const uint8_t* o, CloneCtx* c) noexce
     // Copy keys raw (trivially copyable).
     {
         uint8_t* base = c->dst->head().data();
-        std::memcpy(base + keys_off, src_keys, n * sizeof(int32_t));
+        std::memcpy(base + keys_off, src_keys, n * sizeof(K));
     }
 
     // Clone each value via anyval_clone; write into dst vals buffer; record
@@ -152,17 +164,28 @@ logos::expected<uint32_t> c_map_i32_anyval(const uint8_t* o, CloneCtx* c) noexce
     return dst_off;
 }
 
-const TypeOps k_map_i32_anyval_ops = {
-    type_hash::MapI32AnyVal,
-    s_map_i32_anyval,
-    nullptr,
-    nullptr,
-    c_map_i32_anyval,
-};
+#define LOGOS_MAP_OPS(Name, K) \
+    const TypeOps k_map_##Name##_ops = { \
+        type_hash::Map##Name, \
+        s_map_k_anyval<K>, \
+        nullptr, \
+        nullptr, \
+        c_map_k_anyval<K>, \
+    }
+
+LOGOS_MAP_OPS(I32AnyVal, int32_t);
+LOGOS_MAP_OPS(U32AnyVal, uint32_t);
+LOGOS_MAP_OPS(I64AnyVal, int64_t);
+LOGOS_MAP_OPS(U64AnyVal, uint64_t);
+
+#undef LOGOS_MAP_OPS
 
 } // namespace
 
-HERMES_REGISTER_TYPE(k_map_i32_anyval_ops);
+HERMES_REGISTER_TYPE(k_map_I32AnyVal_ops);
+HERMES_REGISTER_TYPE(k_map_U32AnyVal_ops);
+HERMES_REGISTER_TYPE(k_map_I64AnyVal_ops);
+HERMES_REGISTER_TYPE(k_map_U64AnyVal_ops);
 
 // Link-time anchor: referenced from type_ops.cpp so the static archive
 // member is always pulled in (otherwise HERMES_REGISTER_TYPE's linker-
