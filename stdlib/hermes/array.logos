@@ -163,3 +163,43 @@ pub type ArrayI32 = Array<i32>;
 pub eidos Array<u64>;
 
 pub type ArrayU64 = Array<u64>;
+
+#[type_code = HermesTag::ArrayI8]
+pub eidos Array<i8>;
+
+pub type ArrayI8 = Array<i8>;
+
+#[type_code = HermesTag::ArrayU8]
+pub eidos Array<u8>;
+
+pub type ArrayU8 = Array<u8>;
+
+#[type_code = HermesTag::ArrayI16]
+pub eidos Array<i16>;
+
+pub type ArrayI16 = Array<i16>;
+
+#[type_code = HermesTag::ArrayU16]
+pub eidos Array<u16>;
+
+pub type ArrayU16 = Array<u16>;
+
+#[type_code = HermesTag::ArrayU32]
+pub eidos Array<u32>;
+
+pub type ArrayU32 = Array<u32>;
+
+#[type_code = HermesTag::ArrayI64]
+pub eidos Array<i64>;
+
+pub type ArrayI64 = Array<i64>;
+
+#[type_code = HermesTag::ArrayF32]
+pub eidos Array<f32>;
+
+pub type ArrayF32 = Array<f32>;
+
+#[type_code = HermesTag::ArrayF64]
+pub eidos Array<f64>;
+
+pub type ArrayF64 = Array<f64>;

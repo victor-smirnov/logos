@@ -166,6 +166,42 @@ impl Map<i32, AnyVal> for Map<i32, AnyVal> {
     unsafe fn size(self: *const Map<i32, AnyVal>) -> u32 { return self.size; }
 }
 
+#[type_code = HermesTag::MapU32AnyVal]
+pub eidos Map<u32, AnyVal> {
+    pub size:     u32,
+    pub capacity: u32,
+    pub keys:     RelPtr<u32>,
+    pub vals:     RelPtr<AnyVal>,
+}
+
+impl Map<u32, AnyVal> for Map<u32, AnyVal> {
+    unsafe fn size(self: *const Map<u32, AnyVal>) -> u32 { return self.size; }
+}
+
+#[type_code = HermesTag::MapI64AnyVal]
+pub eidos Map<i64, AnyVal> {
+    pub size:     u32,
+    pub capacity: u32,
+    pub keys:     RelPtr<i64>,
+    pub vals:     RelPtr<AnyVal>,
+}
+
+impl Map<i64, AnyVal> for Map<i64, AnyVal> {
+    unsafe fn size(self: *const Map<i64, AnyVal>) -> u32 { return self.size; }
+}
+
+#[type_code = HermesTag::MapU64AnyVal]
+pub eidos Map<u64, AnyVal> {
+    pub size:     u32,
+    pub capacity: u32,
+    pub keys:     RelPtr<u64>,
+    pub vals:     RelPtr<AnyVal>,
+}
+
+impl Map<u64, AnyVal> for Map<u64, AnyVal> {
+    unsafe fn size(self: *const Map<u64, AnyVal>) -> u32 { return self.size; }
+}
+
 impl Map<i32, AnyVal> {
     pub unsafe fn init(map_raw: *mut u8, keys_raw: *mut u8, vals_raw: *mut u8,
                        base: *mut u8, capacity: u32) -> *mut Map<i32, AnyVal> {
