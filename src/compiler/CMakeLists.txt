@@ -52,7 +52,9 @@ add_executable(logosc
     mlir_gen_stmt.cpp
     mlir_gen_expr.cpp
     mlir_gen_dyn.cpp
+    emit_module.cpp
     module_loader.cpp
+    module_manifest.cpp
     mono.cpp
     mono_subst.cpp
     mono_clone.cpp

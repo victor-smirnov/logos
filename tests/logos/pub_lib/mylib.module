@@ -1,0 +1,3 @@
+module mylib
+version 0.1
+root tests/logos/pub_lib/

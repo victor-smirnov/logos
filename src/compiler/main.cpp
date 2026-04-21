@@ -6,7 +6,9 @@
 //
 // Pipeline: .logos file → PEG parser → Hermes AST → MLIR → LLVM IR → .o file.
 
+#include "emit_module.hpp"
 #include "mlir_gen.hpp"
+#include "module_manifest.hpp"
 #include <chrono>
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
@@ -60,18 +62,36 @@ int main(int argc, char** argv) {
     // clone() which dispatches per-type via this registry.
     logos::hermes::hermes_init();
 
-    const char* input_path = argv[1];
+    const char* input_path = nullptr;
     const char* output_path = "output.o";
     bool emit_mlir = false;
     bool emit_llvm = false;
+    const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::vector<std::string> search_paths;
 
-    for (int i = 2; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-o" && i + 1 < argc) { output_path = argv[++i]; }
         else if (arg == "-I" && i + 1 < argc) { search_paths.push_back(argv[++i]); }
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
+        else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
+        else if (arg[0] != '-' && !input_path) { input_path = argv[i]; }
+    }
+
+    // ── emit-module mode ────────────────────────────────────────────
+    if (emit_module_manifest) {
+        std::string err;
+        auto manifest = logos::compiler::parse_module_manifest(emit_module_manifest, err);
+        if (!manifest) {
+            std::fprintf(stderr, "logosc: %s\n", err.c_str());
+            return 1;
+        }
+        logos::compiler::EmitModuleOptions mopts;
+        mopts.extra_search_paths = search_paths;
+        mopts.emit_mlir = emit_mlir;
+        mopts.emit_llvm = emit_llvm;
+        return logos::compiler::emit_module(*manifest, output_path, mopts) ? 0 : 1;
     }
 
     const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
