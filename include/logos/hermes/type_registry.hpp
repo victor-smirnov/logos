@@ -83,16 +83,23 @@ struct TypeTraits {
         static constexpr TagDescriptor descriptor = TagDescriptor::Data; \
     }
 
+// Embeddable in the 4-byte AnyVal value-mode layout (24-bit payload slot):
+//   i8/u8/i16/u16/bool   — always fit
+//   i32/u32              — only when the runtime value fits in 24 bits;
+//                          the `embeddable` flag is `true` here to mark the
+//                          type as eligible for embedding, but callers
+//                          (or Logos codegen) must range-check at runtime.
+// i64/u64/f32/f64 live in the arena and AnyVal holds an offset to them.
 HERMES_FIXED_TYPE_TRAITS(int8_t,   type_hash::TinyInt,   true);
 HERMES_FIXED_TYPE_TRAITS(uint8_t,  type_hash::UTinyInt,  true);
 HERMES_FIXED_TYPE_TRAITS(int16_t,  type_hash::SmallInt,  true);
 HERMES_FIXED_TYPE_TRAITS(uint16_t, type_hash::USmallInt, true);
 HERMES_FIXED_TYPE_TRAITS(int32_t,  type_hash::Integer,   true);
 HERMES_FIXED_TYPE_TRAITS(uint32_t, type_hash::UInteger,  true);
-HERMES_FIXED_TYPE_TRAITS(int64_t,  type_hash::BigInt,    false);  // 8 bytes, can't embed
+HERMES_FIXED_TYPE_TRAITS(int64_t,  type_hash::BigInt,    false);
 HERMES_FIXED_TYPE_TRAITS(uint64_t, type_hash::UBigInt,   false);
-HERMES_FIXED_TYPE_TRAITS(float,    type_hash::Real,      true);
-HERMES_FIXED_TYPE_TRAITS(double,   type_hash::Double,    false);  // 8 bytes, can't embed
+HERMES_FIXED_TYPE_TRAITS(float,    type_hash::Real,      false);  // not embeddable in 4-byte AnyVal
+HERMES_FIXED_TYPE_TRAITS(double,   type_hash::Double,    false);
 
 #undef HERMES_FIXED_TYPE_TRAITS
 

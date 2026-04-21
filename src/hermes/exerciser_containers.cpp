@@ -171,14 +171,16 @@ static void test_object_array_basic() {
     // Push elements.
     arr->push_back(AnyVal::from_value(int32_t(10)), arena).get();
     arr->push_back(AnyVal::from_value(int32_t(20)), arena).get();
-    arr->push_back(AnyVal::from_value(float(3.14f)), arena).get();
+    arr->push_back(anyval_put<float>(arena, 3.14f).get(), arena).get();
+    // Refresh base: anyval_put / push_back may have grown the arena.
+    base = arena.head().data();
 
     LOGOS_ASSERT(arr->size() == 3, "HERMES-ARRAY-001",
         "Array size must be 3, got {}", arr->size());
 
     LOGOS_ASSERT(arr->get(0, base).as_value<int32_t>() == 10, "HERMES-ARRAY-001", "");
     LOGOS_ASSERT(arr->get(1, base).as_value<int32_t>() == 20, "HERMES-ARRAY-001", "");
-    LOGOS_ASSERT(arr->get(2, base).as_value<float>() == 3.14f, "HERMES-ARRAY-001", "");
+    LOGOS_ASSERT(*arr->get(2, base).as_ptr<float>(base) == 3.14f, "HERMES-ARRAY-001", "");
 
     // Out of bounds returns null.
     LOGOS_ASSERT(arr->get(100, base).is_null(), "HERMES-ARRAY-001", "");

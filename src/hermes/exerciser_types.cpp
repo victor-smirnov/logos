@@ -36,16 +36,18 @@ static void test_type_registry() {
     static_assert(TypeTraits<float>::hash == 30);
     static_assert(TypeTraits<double>::hash == 31);
 
-    // Embeddability: types <= 7 bytes with hash < 128
+    // Embeddability under the 4-byte AnyVal layout: integer types up to 24
+    // bits' worth (i32/u32 fit when their runtime value fits), bool, i16/u16,
+    // i8/u8. f32/f64/i64/u64 live in the arena as pointer-mode slots.
     static_assert(is_embeddable<int8_t>());
     static_assert(is_embeddable<uint8_t>());
     static_assert(is_embeddable<int16_t>());
     static_assert(is_embeddable<int32_t>());
     static_assert(is_embeddable<uint32_t>());
-    static_assert(is_embeddable<float>());
-    static_assert(!is_embeddable<int64_t>());   // 8 bytes
+    static_assert(!is_embeddable<float>());
+    static_assert(!is_embeddable<int64_t>());
     static_assert(!is_embeddable<uint64_t>());
-    static_assert(!is_embeddable<double>());     // 8 bytes
+    static_assert(!is_embeddable<double>());
 
     // TypeTag generation
     constexpr TypeTag int_tag = type_tag_for<int32_t>();
@@ -143,15 +145,18 @@ static void test_tagged_ptr_with_traits() {
         LOGOS_ASSERT(p.as_value<int32_t>() == 999999, "HERMES-TYPES-003", "");
     }
 
+    // f32/f64/i64/u64 are not embeddable; they live in the arena and AnyVal
+    // holds a segment-relative offset to them (anyval_put<T>).
     {
-        float val = -1.5f;
-        AnyVal p = AnyVal::from_value(val, TypeTraits<float>::hash);
-        LOGOS_ASSERT(p.value_type_hash() == type_hash::Real, "HERMES-TYPES-003", "");
-        LOGOS_ASSERT(p.as_value<float>() == -1.5f, "HERMES-TYPES-003", "");
+        auto arena = Arena::make(ArenaMode::MultiChunk, 4096).get();
+        AnyVal p = anyval_put<float>(arena, -1.5f).get();
+        LOGOS_ASSERT(p.is_pointer(), "HERMES-TYPES-003",
+            "anyval_put<float> must produce a pointer-mode AnyVal");
+        const uint8_t* base = arena.head().data();
+        LOGOS_ASSERT(*p.as_ptr<float>(base) == -1.5f, "HERMES-TYPES-003", "");
     }
 
-    // Non-embeddable types must go through arena, not embedding.
-    // Just verify the trait is correct at compile time.
+    static_assert(!TypeTraits<float>::embeddable);
     static_assert(!TypeTraits<int64_t>::embeddable);
     static_assert(!TypeTraits<double>::embeddable);
 

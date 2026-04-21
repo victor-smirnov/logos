@@ -3,6 +3,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/access.hpp>
+#include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/verification/assert.hpp>
 #include <logos/verification/trace.hpp>
@@ -32,10 +33,11 @@ static void test_document_create() {
 
     // Add data through the View.
     map.put(0, AnyVal::from_value(int32_t(42))).get();
-    map.put(1, AnyVal::from_value(float(3.14f))).get();
+    map.put(1, anyval_put<float>(HermesAccess::arena(doc), 3.14f).get()).get();
 
+    const uint8_t* base = HermesAccess::base(doc);
     LOGOS_ASSERT(map.get(0).as_value<int32_t>() == 42, "HERMES-DOC-001", "");
-    LOGOS_ASSERT(map.get(1).as_value<float>() == 3.14f, "HERMES-DOC-001", "");
+    LOGOS_ASSERT(*map.get(1).as_ptr<float>(base) == 3.14f, "HERMES-DOC-001", "");
 
     LOGOS_TRACE("hermes.doc.create", "status", "pass");
     std::printf("  Document create: OK\n");
@@ -105,7 +107,7 @@ static void test_compactify_simple() {
     doc.set_root(map);
 
     map.put(0, AnyVal::from_value(int32_t(42))).get();
-    map.put(5, AnyVal::from_value(float(2.5f))).get();
+    map.put(5, anyval_put<float>(HermesAccess::arena(doc), 2.5f).get()).get();
     map.put(10, AnyVal::from_value(int8_t(-1))).get();
 
     auto compact = compactify(doc).get();
@@ -117,7 +119,7 @@ static void test_compactify_simple() {
     LOGOS_ASSERT(cmap->size() == 3, "HERMES-DOC-003",
         "Compacted map must have 3 entries, got {}", cmap->size());
     LOGOS_ASSERT(cmap->get(0, cb).as_value<int32_t>() == 42, "HERMES-DOC-003", "");
-    LOGOS_ASSERT(cmap->get(5, cb).as_value<float>() == 2.5f, "HERMES-DOC-003", "");
+    LOGOS_ASSERT(*cmap->get(5, cb).as_ptr<float>(cb) == 2.5f, "HERMES-DOC-003", "");
     LOGOS_ASSERT(cmap->get(10, cb).as_value<int8_t>() == -1, "HERMES-DOC-003", "");
 
     LOGOS_TRACE("hermes.doc.compactify", "status", "pass",

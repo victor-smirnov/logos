@@ -511,7 +511,10 @@ private:
             LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesAccess::arena(ctx_doc)));
             return {};
         } else if (tc == type_hash::Real) {
-            LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), HermesAccess::arena(ctx_doc)));
+            LOGOS_TRY(AnyVal av,
+                anyval_put<float>(HermesAccess::arena(ctx_doc),
+                    *static_cast<const float*>(val)));
+            LOGOS_TRY_VOID(ctx->put(key, av, HermesAccess::arena(ctx_doc)));
             return {};
         } else if (tc == type_hash::SmallInt) {
             LOGOS_TRY_VOID(ctx->put(key, AnyVal::from_value(*static_cast<const int16_t*>(val), tc), HermesAccess::arena(ctx_doc)));
@@ -555,9 +558,9 @@ private:
                 *static_cast<uint8_t*>(mem) = slot->as_value<uint8_t>();
                 return mem;
             }
-            case type_hash::Real: {
-                return HermesAccess::make_value<float>(scratch_, slot->as_value<float>());
-            }
+            // Real (float) is never embedded under the 4-byte AnyVal layout,
+            // so it cannot appear here — materialize_embedded only sees
+            // value-mode slots.
             case type_hash::SmallInt: {
                 return HermesAccess::make_value<int16_t>(scratch_, slot->as_value<int16_t>());
             }

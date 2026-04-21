@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <cmath>
 
 using namespace logos::hermes;
 
@@ -131,23 +130,13 @@ static void test_tagged_ptr_value_mode() {
             "Embedded int32_t round-trip failed: wrote {}, got {}", val, p.as_value<int32_t>());
     }
 
-    // Embed uint32_t (UInteger, type_hash=25)
+    // Embed uint32_t (UInteger, type_hash=25) — must fit in 24 bits.
     {
-        uint32_t val = 0xDEADBEEF;
+        uint32_t val = 0x00BEEF42;
         AnyVal p = AnyVal::from_value(val, 25);
         LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003", "");
         LOGOS_ASSERT(p.as_value<uint32_t>() == val, "HERMES-TAGPTR-002",
             "Embedded uint32_t round-trip failed");
-    }
-
-    // Embed float (Real, type_hash=30)
-    {
-        float val = 3.14f;
-        AnyVal p = AnyVal::from_value(val, 30);
-        LOGOS_ASSERT(p.is_value(), "HERMES-TAGPTR-003", "");
-        float extracted = p.as_value<float>();
-        LOGOS_ASSERT(std::abs(extracted - val) < 1e-6f, "HERMES-TAGPTR-002",
-            "Embedded float round-trip failed: wrote {}, got {}", val, extracted);
     }
 
     // Embed bool (Boolean, type_hash=37)

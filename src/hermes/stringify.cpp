@@ -123,7 +123,9 @@ logos::expected<void> e_smallint (const AnyVal* s, StringifyCtx* c) noexcept { f
 logos::expected<void> e_usmallint(const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint16_t>(),"_u16", *c->out); return {}; }
 logos::expected<void> e_integer  (const AnyVal* s, StringifyCtx* c) noexcept { fmt_int(s->as_value<int32_t>(),  nullptr,*c->out); return {}; }
 logos::expected<void> e_uinteger (const AnyVal* s, StringifyCtx* c) noexcept { fmt_uint(s->as_value<uint32_t>(),"u",    *c->out); return {}; }
-logos::expected<void> e_real     (const AnyVal* s, StringifyCtx* c) noexcept { fmt_float(s->as_value<float>(),   *c->out); return {}; }
+// e_real — deleted: float (Real, hash=30) is not embeddable in the 4-byte
+// AnyVal layout; it always lives in the arena as a pointer-mode slot and is
+// stringified via s_real.
 
 logos::expected<void> e_boolean(const AnyVal* s, StringifyCtx* c) noexcept {
     *c->out += s->as_value<uint8_t>() ? "true" : "false";
@@ -259,7 +261,7 @@ const TypeOps k_integer_ops    = { type_hash::Integer,    s_integer,    e_intege
 const TypeOps k_uinteger_ops   = { type_hash::UInteger,   s_uinteger,   e_uinteger,   nullptr };
 const TypeOps k_bigint_ops     = { type_hash::BigInt,     s_bigint,     nullptr,      nullptr };
 const TypeOps k_ubigint_ops    = { type_hash::UBigInt,    s_ubigint,    nullptr,      nullptr };
-const TypeOps k_real_ops       = { type_hash::Real,       s_real,       e_real,       nullptr };
+const TypeOps k_real_ops       = { type_hash::Real,       s_real,       nullptr,      nullptr };
 const TypeOps k_double_ops     = { type_hash::Double,     s_double,     nullptr,      nullptr };
 const TypeOps k_boolean_ops    = { type_hash::Boolean,    s_boolean,    e_boolean,    nullptr };
 const TypeOps k_varchar_ops    = { type_hash::Varchar,    s_varchar,    nullptr,      nullptr };

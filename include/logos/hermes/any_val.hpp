@@ -13,135 +13,160 @@
 
 namespace logos::hermes {
 
-// AnyVal: an 8-byte polymorphic slot that holds either a segment-relative
-// offset to an arena object, or a small value embedded inline (up to 7 bytes).
+// AnyVal: a 4-byte polymorphic slot that holds either a segment-relative
+// offset to an arena object, or a small value embedded inline (up to 24 bits).
 //
-// Layout (little-endian uint64_t):
+// Layout (little-endian uint32_t):
 //
-// Pointer mode (discriminant bit = 0):
-//   bits [0:31]  = arena_offset_t offset (segment-relative)
-//   bits [32:62] = reserved (zero)
-//   bit  63      = 0 (discriminant)
-//   Null: all bits zero (offset 0 is DocumentHeader, but AnyVal never points there).
-//   Actually null is bits_ == 0 which means offset=0; we use NULL_OFFSET for real null.
+// Pointer mode (discriminant bit 0 = 0):
+//   bits [31:0] = arena_offset_t offset (segment-relative)
+//   Required: offsets must be even so bit 0 stays 0; this is guaranteed
+//   because every arena allocation aligns to ≥2 bytes.
+//   Null: raw == 0 (offset 0 is DocumentHeader, never a data object).
 //
-// Value mode (discriminant bit = 1):
-//   bytes [0..6] = value data (up to 7 bytes, zero-padded)
-//   byte  [7]    = (type_hash << 1) | 1
+// Value mode (discriminant bit 0 = 1):
+//   bits [0]    = 1 (discriminant)
+//   bits [7:1]  = type_hash (7 bits, 0–127)
+//   bits [31:8] = 24-bit value payload
 //
-// With segment-relative offsets, AnyVal can be freely copied between
-// memory locations without relocation — the offset is from the segment
-// base, not from the AnyVal's own address.
+// Embeddable Hermes types (Logos-aligned):
+//   TinyInt   i8   hash=20
+//   UTinyInt  u8   hash=21
+//   SmallInt  i16  hash=22
+//   Integer   i32  hash=23  (only values fitting in 24 bits — else zone ptr)
+//   USmallInt u16  hash=24
+//   UInteger  u32  hash=25  (only values fitting in 24 bits — else zone ptr)
+//   Boolean   u8   hash=37
+//
+// NOT embeddable: i64 / u64 / f32 / f64 / timestamps / strings / decimals.
+// These always live in the arena and AnyVal holds an offset to them.
+//
+// Byte-for-byte compatible with stdlib/hermes/anyval.logos.
 class AnyVal {
 public:
     AnyVal() noexcept : bits_(0) {}
 
     // --- Discriminant ---
 
-    bool is_null() const noexcept { return bits_ == 0; }
-    bool is_pointer() const noexcept { return !is_null() && (last_byte() & 1) == 0; }
-    bool is_value() const noexcept { return (last_byte() & 1) == 1; }
+    bool is_null()    const noexcept { return bits_ == 0; }
+    bool is_pointer() const noexcept { return !is_null() && (bits_ & 1u) == 0u; }
+    bool is_value()   const noexcept { return (bits_ & 1u) == 1u; }
 
     // --- Pointer mode (segment-relative offset) ---
 
-    // Create a AnyVal in pointer mode from a segment-relative offset.
     static AnyVal from_offset(arena_offset_t offset) noexcept {
         AnyVal p;
-        p.bits_ = static_cast<uint64_t>(offset.value());
+        p.bits_ = offset.value();
         return p;
     }
 
-    // Recover the segment-relative offset.
     arena_offset_t to_offset() const noexcept {
-        return arena_offset_t{static_cast<arena_offset_t::value_type>(bits_)};
+        return arena_offset_t{bits_};
     }
 
-    // Dereference: requires segment base address.
     template <typename T>
     T* as_ptr(uint8_t* base) const noexcept {
-        return reinterpret_cast<T*>(base + to_offset().value());
+        return reinterpret_cast<T*>(base + bits_);
     }
 
     template <typename T>
     const T* as_ptr(const uint8_t* base) const noexcept {
-        return reinterpret_cast<const T*>(base + to_offset().value());
+        return reinterpret_cast<const T*>(base + bits_);
     }
 
-    // Set this AnyVal to point at target (pointer mode), given segment base.
     void set_pointer(const void* target, const uint8_t* base) noexcept {
-        auto offset = arena_offset_t{static_cast<arena_offset_t::value_type>(
-            static_cast<const uint8_t*>(target) - base)};
-        *this = from_offset(offset);
+        auto off = static_cast<uint32_t>(
+            static_cast<const uint8_t*>(target) - base);
+        bits_ = off;
     }
 
-    // Set from a known offset.
     void set_offset(arena_offset_t offset) noexcept {
-        *this = from_offset(offset);
+        bits_ = offset.value();
     }
 
     // --- Value mode ---
 
-    // Embed a small value with a type hash tag.
+    // Embed a small value with a type hash tag. Value must fit in 24 bits.
     template <typename T>
     static AnyVal from_value(T value, uint8_t type_hash) noexcept {
         static_assert(std::is_trivially_copyable_v<T>);
-        static_assert(sizeof(T) <= 7);
+        static_assert(sizeof(T) <= 3 || std::is_integral_v<T>,
+            "from_value: value must fit in 24 bits (integer or sizeof ≤ 3)");
 
+        uint32_t payload = 0;
+        if constexpr (sizeof(T) <= 3) {
+            std::memcpy(&payload, &value, sizeof(T));
+            // Sign-extend narrow signed types into the 24-bit slot so the
+            // encoded payload's upper bits mirror Logos' embed_i8/i16 layout.
+            if constexpr (std::is_signed_v<T>) {
+                if constexpr (sizeof(T) == 1) {
+                    if (static_cast<int8_t>(payload) < 0) payload |= 0xFFFFFF00u;
+                } else if constexpr (sizeof(T) == 2) {
+                    if (static_cast<int16_t>(static_cast<uint16_t>(payload)) < 0)
+                        payload |= 0xFFFF0000u;
+                }
+            }
+        } else {
+            // 4-byte integer — must fit in 24 bits (signed range -(2^23) .. 2^23-1,
+            // unsigned 0 .. 2^24-1).
+            std::memcpy(&payload, &value, 4);
+        }
+        payload &= 0x00FFFFFFu;
         AnyVal p;
-        p.bits_ = 0;
-        std::memcpy(&p.bits_, &value, sizeof(T));
-        auto* bytes = reinterpret_cast<uint8_t*>(&p.bits_);
-        bytes[7] = static_cast<uint8_t>((type_hash << 1) | 1);
+        p.bits_ = (payload << 8) | (static_cast<uint32_t>(type_hash) << 1) | 1u;
         return p;
     }
 
-    // Convenience: deduce type_hash from TypeTraits — no need to spell it out.
-    //   AnyVal::from_value(int32_t(7))   instead of
-    //   AnyVal::from_value(int32_t(7), type_hash::Integer)
+    // Convenience: deduce type_hash from TypeTraits.
     template <typename T>
-        requires requires { requires TypeTraits<T>::embeddable; } && (sizeof(T) <= 7)
+        requires requires { requires TypeTraits<T>::embeddable; }
     static AnyVal from_value(T value) noexcept {
         return from_value(value, static_cast<uint8_t>(TypeTraits<T>::hash));
     }
 
-    // NamedCode<T> overload: template deduction doesn't apply implicit conversions,
-    // so NamedCode<int32_t> wouldn't match T above without this.
+    // NamedCode<T> overload.
     template <typename T>
-        requires requires { requires TypeTraits<T>::embeddable; } && (sizeof(T) <= 7)
+        requires requires { requires TypeTraits<T>::embeddable; }
     static AnyVal from_value(NamedCode<T> value) noexcept {
         return from_value(value.code, static_cast<uint8_t>(TypeTraits<T>::hash));
     }
 
-    // Extract the embedded value.
+    // Extract the embedded value (sign-extends for signed integer T).
     template <typename T>
     T as_value() const noexcept {
         static_assert(std::is_trivially_copyable_v<T>);
-        static_assert(sizeof(T) <= 7);
+        static_assert(sizeof(T) <= 4);
 
+        uint32_t payload = (bits_ >> 8) & 0x00FFFFFFu;
+        if constexpr (std::is_signed_v<T> && std::is_integral_v<T>) {
+            // Sign-extend from 24 bits.
+            if (payload & 0x00800000u) payload |= 0xFF000000u;
+        }
         T result{};
-        std::memcpy(&result, &bits_, sizeof(T));
+        if constexpr (sizeof(T) <= 3) {
+            std::memcpy(&result, &payload, sizeof(T));
+        } else {
+            std::memcpy(&result, &payload, 4);
+        }
         return result;
     }
 
     // Extract the 7-bit type hash from the tag byte.
     uint8_t value_type_hash() const noexcept {
-        return last_byte() >> 1;
+        return static_cast<uint8_t>((bits_ >> 1) & 0x7Fu);
     }
 
     // --- Raw access ---
 
-    uint64_t raw() const noexcept { return bits_; }
-    static AnyVal from_raw(uint64_t bits) noexcept { AnyVal p; p.bits_ = bits; return p; }
+    uint32_t raw() const noexcept { return bits_; }
+    static AnyVal from_raw(uint32_t bits) noexcept {
+        AnyVal p; p.bits_ = bits; return p;
+    }
 
 private:
-    uint64_t bits_;
-
-    uint8_t last_byte() const noexcept {
-        auto* bytes = reinterpret_cast<const uint8_t*>(&bits_);
-        return bytes[7];
-    }
+    uint32_t bits_;
 };
 
-static_assert(sizeof(AnyVal) == 8);
+static_assert(sizeof(AnyVal) == 4);
 
 } // namespace logos::hermes

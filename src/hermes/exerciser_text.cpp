@@ -180,8 +180,8 @@ static void test_parse_array() {
         auto* arr = HermesAccess::root<ObjectArray>(doc);
         LOGOS_ASSERT(arr->size() == 3, "HERMES-PARSE-005", "");
         LOGOS_ASSERT(arr->get(0, base).as_value<int32_t>() == 1, "HERMES-PARSE-005", "");
-        // Float embedded.
-        LOGOS_ASSERT(std::abs(arr->get(1, base).as_value<float>() - 3.14f) < 0.01f, "HERMES-PARSE-005", "");
+        // Float pointer-mode.
+        LOGOS_ASSERT(std::abs(*arr->get(1, base).as_ptr<float>(base) - 3.14f) < 0.01f, "HERMES-PARSE-005", "");
         // String is pointer-mode.
         AnyVal* slot2 = arr->slot(2, base);
         LOGOS_ASSERT(slot2->is_pointer(), "HERMES-PARSE-005", "");
@@ -245,8 +245,8 @@ static void test_parse_nested() {
     AnyVal active_val = root->get("active", base);
     LOGOS_ASSERT(active_val.as_value<uint8_t>() == 1, "HERMES-PARSE-007", "");
 
-    // rating = 4.5f (embedded float)
-    LOGOS_ASSERT(std::abs(root->get("rating", base).as_value<float>() - 4.5f) < 0.01f, "HERMES-PARSE-007", "");
+    // rating = 4.5f (pointer-mode float)
+    LOGOS_ASSERT(std::abs(*root->get("rating", base).as_ptr<float>(base) - 4.5f) < 0.01f, "HERMES-PARSE-007", "");
 
     // items = [1,2,3] (pointer to array)
     AnyVal* items_slot = root->get_slot("items", base);

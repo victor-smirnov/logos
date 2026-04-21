@@ -9,6 +9,7 @@
 #include <type_traits>
 
 #include <logos/hermes/arena.hpp>
+#include <logos/hermes/any_val.hpp>
 #include <logos/hermes/type_registry.hpp>
 #include <logos/core/expected.hpp>
 
@@ -27,6 +28,20 @@ template <typename T>
     LOGOS_TRY(void* mem, arena.allocate(sizeof(T), alignof(T) < 2 ? 2 : alignof(T), tag));
     std::memcpy(mem, &value, sizeof(T));
     return static_cast<T*>(mem);
+}
+
+// Allocate `value` in the arena and return a pointer-mode AnyVal that points
+// to it. The canonical helper for non-embeddable scalars (f32/f64/i64/u64,
+// etc.) under the 4-byte AnyVal layout: value mode carries only 24 bits so
+// anything larger (or just `float`, per the wire spec) must live in the
+// arena with AnyVal holding a segment-relative offset.
+template <typename T>
+    requires (TypeTraits<T>::fixed_size && std::is_trivially_copyable_v<T>)
+[[nodiscard]] logos::expected<AnyVal> anyval_put(Arena& arena, T value) noexcept {
+    LOGOS_TRY(T* p, arena_put<T>(arena, value));
+    const uint8_t* base = arena.head().data();
+    auto off = static_cast<uint32_t>(reinterpret_cast<const uint8_t*>(p) - base);
+    return AnyVal::from_offset(arena_offset_t{off});
 }
 
 // Read back a fixed-size value from an arena pointer.

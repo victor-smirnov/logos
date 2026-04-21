@@ -3,6 +3,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
 #include <logos/hermes/access.hpp>
+#include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/verification/assert.hpp>
@@ -32,8 +33,8 @@ static void test_deep_copy_tiny_map_with_pointers() {
     map.put(1, AnyVal{}).get();
     map.slot(1)->set_pointer(s.ptr(), HermesAccess::base(doc));
 
-    // Key 2 = embedded float
-    map.put(2, AnyVal::from_value(float(2.5f))).get();
+    // Key 2 = pointer-mode float (floats no longer embed in the 4-byte AnyVal)
+    map.put(2, anyval_put<float>(HermesAccess::arena(doc), 2.5f).get()).get();
 
     // Compactify (deep copy).
     auto compact = compactify(doc).get();
@@ -42,7 +43,7 @@ static void test_deep_copy_tiny_map_with_pointers() {
 
     LOGOS_ASSERT(cmap->size() == 3, "HERMES-DEEPCOPY-001", "");
     LOGOS_ASSERT(cmap->get(0, cb).as_value<int32_t>() == 42, "HERMES-DEEPCOPY-001", "");
-    LOGOS_ASSERT(cmap->get(2, cb).as_value<float>() == 2.5f, "HERMES-DEEPCOPY-001", "");
+    LOGOS_ASSERT(*cmap->get(2, cb).as_ptr<float>(cb) == 2.5f, "HERMES-DEEPCOPY-001", "");
 
     // Check the pointer-mode value.
     AnyVal* slot1 = cmap->slot(1, cb);
@@ -101,7 +102,7 @@ static void test_binary_tiny_map() {
     doc.set_root(map);
 
     map.put(0, AnyVal::from_value(int32_t(42))).get();
-    map.put(5, AnyVal::from_value(float(3.14f))).get();
+    map.put(5, anyval_put<float>(HermesAccess::arena(doc), 3.14f).get()).get();
     map.put(10, AnyVal::from_value(int8_t(-1))).get();
 
     auto bytes = binary_encode(doc).get();
@@ -114,7 +115,7 @@ static void test_binary_tiny_map() {
     LOGOS_ASSERT(dmap->size() == 3, "HERMES-BINARY-003",
         "Decoded map must have 3 entries, got {}", dmap->size());
     LOGOS_ASSERT(dmap->get(0, db).as_value<int32_t>() == 42, "HERMES-BINARY-003", "");
-    LOGOS_ASSERT(dmap->get(5, db).as_value<float>() == 3.14f, "HERMES-BINARY-003", "");
+    LOGOS_ASSERT(*dmap->get(5, db).as_ptr<float>(db) == 3.14f, "HERMES-BINARY-003", "");
     LOGOS_ASSERT(dmap->get(10, db).as_value<int8_t>() == -1, "HERMES-BINARY-003", "");
 
     LOGOS_TRACE("hermes.binary.tinymap", "status", "pass", "bytes", bytes.size());
@@ -242,7 +243,7 @@ static void test_binary_double_round_trip() {
     doc.set_root(map);
 
     map.put(0, AnyVal::from_value(int32_t(42))).get();
-    map.put(1, AnyVal::from_value(float(3.14f))).get();
+    map.put(1, anyval_put<float>(HermesAccess::arena(doc), 3.14f).get()).get();
 
     // Encode → decode → encode → compare.
     auto bytes1 = binary_encode(doc).get();

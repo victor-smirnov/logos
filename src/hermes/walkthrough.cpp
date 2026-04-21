@@ -21,6 +21,7 @@
 #include <logos/hermes/path.hpp>
 #include <logos/hermes/template.hpp>
 #include <logos/hermes/compound_types.hpp>
+#include <logos/hermes/arena_value.hpp>
 
 #include <print>
 #include <string>
@@ -71,11 +72,12 @@ static void walkthrough_documents() {
 // 2. AnyVal — The Universal Value Slot
 // ============================================================================
 //
-// 8 bytes. Two modes:
-//   Pointer mode: stores arena_offset_t (segment-relative), discriminant byte[7] == 0
-//   Value mode:   up to 7 bytes of inline data + type_hash in byte[7] (odd, != 0)
+// 4 bytes. Two modes:
+//   Pointer mode: bit[0]==0, upper 31 bits = arena offset (aligned, offset 0 reserved).
+//   Value mode:   bit[0]==1, bits[7:1]=type_hash (1..127), bits[31:8]=24-bit payload.
 //
-// Embedded types: int8..int32, uint8..uint32, float, bool — fit in 7 bytes.
+// Embedded types: int8..int32, uint8..uint32, bool — fit in 24 bits.
+// Non-embedded (requires pointer mode + arena alloc): int64/uint64/float/f64, strings, arrays, maps.
 // Pointer types:  strings, arrays, maps — stored in arena, AnyVal holds offset.
 
 static void walkthrough_any_val() {
@@ -90,9 +92,8 @@ static void walkthrough_any_val() {
         v.value_type_hash(), type_hash::Integer);
     // STOP: inspect v.raw() — the 8-byte representation
 
-    // Value mode: embed a float.
-    AnyVal vf = AnyVal::from_value(3.14f);
-    std::println("  float value = {}", vf.as_value<float>());
+    // Float is not embeddable (needs 32 bits, payload is only 24); goes pointer-mode.
+    // See walkthrough_building for an example with arena allocation.
 
     // Value mode: embed a bool.
     AnyVal vb = AnyVal::from_value(uint8_t(1));
@@ -139,10 +140,11 @@ static void walkthrough_building() {
     auto arr = doc.make_array().get();
     arr.push_back(AnyVal::from_value(int32_t(10))).get();
     arr.push_back(AnyVal::from_value(int32_t(20))).get();
-    arr.push_back(AnyVal::from_value(float(3.14f))).get();
+    arr.push_back(anyval_put<float>(HermesAccess::arena(doc), 3.14f).get()).get();
     std::println("  Array: size={}", arr.size());
     std::println("  Array[0]={}, Array[2]={}",
-        arr.get(0).as_value<int32_t>(), arr.get(2).as_value<float>());
+        arr.get(0).as_value<int32_t>(),
+        *arr.get(2).as_ptr<float>(HermesAccess::base(doc)));
     // STOP: inspect arr.ptr(), arr.ptr()->capacity()
 
     // --- String: arena-allocated UTF-8 ---
@@ -227,7 +229,7 @@ static void walkthrough_parser() {
         auto* arr = HermesAccess::root<ObjectArray>(doc);
         std::println("  parse array -> size={}", arr->size());
         std::println("    [0] int   = {}", arr->get(0, base).as_value<int32_t>());
-        std::println("    [1] float = {}", arr->get(1, base).as_value<float>());
+        std::println("    [1] float = {}", *arr->get(1, base).as_ptr<float>(base));
         std::println("    [2] str   = '{}'",
             arr->slot(2, base)->as_ptr<ArenaString>(base)->view());
         std::println("    [3] bool  = {}", arr->get(3, base).as_value<uint8_t>());

@@ -898,11 +898,12 @@ private:
     }
 
     bool can_embed(uint64_t tc) noexcept {
+        // 4-byte AnyVal value-mode only carries 24 bits. Float/Time (32-bit)
+        // no longer embed; they live in the arena as pointer-mode slots.
         switch (tc) {
             case type_hash::TinyInt: case type_hash::UTinyInt: case type_hash::Boolean:
             case type_hash::SmallInt: case type_hash::USmallInt:
             case type_hash::Integer: case type_hash::UInteger:
-            case type_hash::Real: case type_hash::Time:
                 return true;
             default: return false;
         }
@@ -917,7 +918,6 @@ private:
             case type_hash::USmallInt:return AnyVal::from_value(*static_cast<const uint16_t*>(obj), tc);
             case type_hash::Integer:  return AnyVal::from_value(*static_cast<const int32_t*>(obj), tc);
             case type_hash::UInteger: return AnyVal::from_value(*static_cast<const uint32_t*>(obj), tc);
-            case type_hash::Real:     return AnyVal::from_value(*static_cast<const float*>(obj), tc);
             default: return AnyVal{};
         }
     }

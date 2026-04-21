@@ -759,10 +759,7 @@ private:
                 *static_cast<uint8_t*>(mem) = slot->as_value<uint8_t>();
                 return mem;
             }
-            case type_hash::Real: {
-                LOGOS_TRY(auto* v, HermesAccess::make_value<float>(result_, slot->as_value<float>()));
-                return v;
-            }
+            // Real (float) is never embedded under the 4-byte AnyVal layout.
             case type_hash::SmallInt: {
                 LOGOS_TRY(auto* v, HermesAccess::make_value<int16_t>(result_, slot->as_value<int16_t>()));
                 return v;
@@ -1256,7 +1253,10 @@ private:
         } else if (tc == type_hash::Boolean) {
             LOGOS_TRY_VOID(arr->push_back(AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesAccess::arena(result_)));
         } else if (tc == type_hash::Real) {
-            LOGOS_TRY_VOID(arr->push_back(AnyVal::from_value(*static_cast<const float*>(val), tc), HermesAccess::arena(result_)));
+            LOGOS_TRY(AnyVal av,
+                anyval_put<float>(HermesAccess::arena(result_),
+                    *static_cast<const float*>(val)));
+            LOGOS_TRY_VOID(arr->push_back(av, HermesAccess::arena(result_)));
         } else if (tc == type_hash::Varchar) {
             auto* s = static_cast<const ArenaString*>(val);
             LOGOS_TRY(auto* copy, HermesAccess::raw_string(result_, s->view()));
@@ -1284,7 +1284,10 @@ private:
         } else if (tc == type_hash::Boolean) {
             LOGOS_TRY_VOID(map->put(key, AnyVal::from_value(*static_cast<const uint8_t*>(val), tc), HermesAccess::arena(result_)));
         } else if (tc == type_hash::Real) {
-            LOGOS_TRY_VOID(map->put(key, AnyVal::from_value(*static_cast<const float*>(val), tc), HermesAccess::arena(result_)));
+            LOGOS_TRY(AnyVal av,
+                anyval_put<float>(HermesAccess::arena(result_),
+                    *static_cast<const float*>(val)));
+            LOGOS_TRY_VOID(map->put(key, av, HermesAccess::arena(result_)));
         } else if (tc == type_hash::Varchar) {
             auto* s = static_cast<const ArenaString*>(val);
             LOGOS_TRY(auto* copy, HermesAccess::raw_string(result_, s->view()));

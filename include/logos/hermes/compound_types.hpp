@@ -61,7 +61,7 @@ static_assert(sizeof(DatatypeData) == 16);
 // TypedValue: a value paired with its type declaration.
 struct TypedValueData {
     RelativePtr<DatatypeData> datatype;
-    AnyVal value;  // 8 bytes (embedded or segment-relative pointer)
+    AnyVal value;  // 4 bytes (embedded 24-bit value or segment-relative pointer)
 
     [[nodiscard]] static logos::expected<TypedValueData*> create(Arena& arena, DatatypeData* dt) noexcept {
         TypeTag tag(type_hash::TypedValue, TagDescriptor::Data);
@@ -74,8 +74,8 @@ struct TypedValueData {
     }
 };
 
-// datatype(4) + padding(4) + value(8) = 16
-static_assert(sizeof(TypedValueData) == 16);
+// datatype(4) + value(4) = 8
+static_assert(sizeof(TypedValueData) == 8);
 
 // ParameterData: a query parameter placeholder (?name).
 struct ParameterData {
