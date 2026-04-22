@@ -1,0 +1,82 @@
+// pass — Mutex<T> and RwLock<T> single-threaded correctness test.
+// Full cross-thread stress testing is in fiber_thread_* tests.
+package test;
+
+use std.sync;
+use std.option;
+
+fn main() -> i32 {
+    unsafe {
+        // ── Mutex<i32> ───────────────────────────────────────────────────────
+        let mut m: Mutex<i32> = mutex_new::<i32>(0);
+
+        // lock / write / unlock
+        let p: *mut i32 = m.lock();
+        *p = 42;
+        m.unlock();
+
+        // lock again to verify value persisted
+        let p2: *mut i32 = m.lock();
+        if *p2 != 42 { mutex_destroy::<i32>(&mut m); return 1; }
+        *p2 = 100;
+        m.unlock();
+
+        // try_lock when not held should succeed
+        match m.try_lock() {
+            Option::None    => { mutex_destroy::<i32>(&mut m); return 2; }
+            Option::Some(p3) => {
+                if *p3 != 100 { mutex_destroy::<i32>(&mut m); return 3; }
+                m.unlock();
+            }
+        }
+
+        mutex_destroy::<i32>(&mut m);
+
+        // ── Mutex<i64> — verify T can be a larger type ────────────────────
+        let mut m64: Mutex<i64> = mutex_new::<i64>(0 as i64);
+        let p64: *mut i64 = m64.lock();
+        *p64 = 1234567890 as i64;
+        m64.unlock();
+        let p64b: *mut i64 = m64.lock();
+        if *p64b != 1234567890 as i64 { mutex_destroy::<i64>(&mut m64); return 4; }
+        m64.unlock();
+        mutex_destroy::<i64>(&mut m64);
+
+        // ── RwLock<i32> ──────────────────────────────────────────────────────
+        let mut rw: RwLock<i32> = rwlock_new::<i32>(0);
+
+        // write lock
+        let pw: *mut i32 = rw.write_lock();
+        *pw = 77;
+        rw.unlock();
+
+        // read lock
+        let pr: *const i32 = rw.read_lock();
+        if *pr != 77 { rwlock_destroy::<i32>(&mut rw); return 5; }
+        rw.unlock();
+
+        // try_read_lock
+        match rw.try_read_lock() {
+            Option::None    => { rwlock_destroy::<i32>(&mut rw); return 6; }
+            Option::Some(pr2) => {
+                if *pr2 != 77 { rwlock_destroy::<i32>(&mut rw); return 7; }
+                rw.unlock();
+            }
+        }
+
+        // try_write_lock
+        match rw.try_write_lock() {
+            Option::None    => { rwlock_destroy::<i32>(&mut rw); return 8; }
+            Option::Some(pw2) => {
+                *pw2 = 99;
+                rw.unlock();
+            }
+        }
+        let prfinal: *const i32 = rw.read_lock();
+        if *prfinal != 99 { rw.unlock(); rwlock_destroy::<i32>(&mut rw); return 9; }
+        rw.unlock();
+
+        rwlock_destroy::<i32>(&mut rw);
+    }
+    return 42;
+}

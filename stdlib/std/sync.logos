@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.sync
+//
+// Cross-thread synchronisation primitives backed by POSIX:
+//   Mutex<T: Send>            — exclusive lock wrapping pthread_mutex_t
+//   RwLock<T: Send + Sync>    — reader/writer lock wrapping pthread_rwlock_t
+//
+// Usage pattern (no RAII drop in Logos yet):
+//
+//   let mut m: Mutex<i32> = mutex_new::<i32>(0);
+//   let ptr: *mut i32 = m.lock();
+//   *ptr = *ptr + 1;
+//   m.unlock();
+//   mutex_destroy::<i32>(&mut m);
+//
+// pthread_mutex_t is 40 bytes on Linux x86-64 (alignment 8).
+// pthread_rwlock_t is 56 bytes on Linux x86-64 (alignment 8).
+// Both are stored as a heap-allocated byte block inside the struct.
+
+package std.sync;
+
+use std.mem;
+use std.marker;
+use std.option;
+
+// ── POSIX externals ──────────────────────────────────────────────────────────
+
+extern fn pthread_mutex_init(mutex: *mut u8, attr: *const u8) -> i32;
+extern fn pthread_mutex_lock(mutex: *mut u8) -> i32;
+extern fn pthread_mutex_trylock(mutex: *mut u8) -> i32;
+extern fn pthread_mutex_unlock(mutex: *mut u8) -> i32;
+extern fn pthread_mutex_destroy(mutex: *mut u8) -> i32;
+
+extern fn pthread_rwlock_init(rwlock: *mut u8, attr: *const u8) -> i32;
+extern fn pthread_rwlock_rdlock(rwlock: *mut u8) -> i32;
+extern fn pthread_rwlock_tryrdlock(rwlock: *mut u8) -> i32;
+extern fn pthread_rwlock_wrlock(rwlock: *mut u8) -> i32;
+extern fn pthread_rwlock_trywrlock(rwlock: *mut u8) -> i32;
+extern fn pthread_rwlock_unlock(rwlock: *mut u8) -> i32;
+extern fn pthread_rwlock_destroy(rwlock: *mut u8) -> i32;
+
+// ── Mutex<T: Send> ────────────────────────────────────────────────────────────
+//
+// 'raw' points to a 40-byte heap block holding the pthread_mutex_t.
+// 'data' holds the protected value inline in the struct.
+
+pub struct Mutex<T> {
+    data: T,
+    raw:  *mut u8,
+}
+
+pub fn mutex_new<T: Send>(data: T) -> Mutex<T> {
+    let raw: *mut u8 = alloc(40 as i64);
+    unsafe {
+        let null_attr: *const u8 = 0 as *const u8;
+        pthread_mutex_init(raw, null_attr);
+    }
+    return Mutex { data: data, raw: raw };
+}
+
+impl<T: Send> Mutex<T> {
+    // Acquire the lock; returns a mutable pointer to the protected data.
+    pub unsafe fn lock(self: *mut Mutex<T>) -> *mut T {
+        pthread_mutex_lock(self.raw);
+        return &mut self.data as *mut T;
+    }
+
+    // Try to acquire without blocking.  Returns Some(*mut T) on success, None on contention.
+    pub unsafe fn try_lock(self: *mut Mutex<T>) -> Option<*mut T> {
+        let rc: i32 = pthread_mutex_trylock(self.raw);
+        if rc == 0 {
+            return Option::Some(&mut self.data as *mut T);
+        }
+        return Option::None;
+    }
+
+    // Release the lock.
+    pub unsafe fn unlock(self: *mut Mutex<T>) {
+        pthread_mutex_unlock(self.raw);
+    }
+}
+
+// Destroy the pthread_mutex_t and free the raw block.
+pub unsafe fn mutex_destroy<T: Send>(m: *mut Mutex<T>) {
+    pthread_mutex_destroy(m.raw);
+    dealloc(m.raw);
+    m.raw = 0 as *mut u8;
+}
+
+// ── RwLock<T: Send + Sync> ────────────────────────────────────────────────────
+//
+// 'raw' points to a 56-byte heap block holding the pthread_rwlock_t.
+// Multiple readers may hold the lock simultaneously; writers are exclusive.
+
+pub struct RwLock<T> {
+    data: T,
+    raw:  *mut u8,
+}
+
+pub fn rwlock_new<T: Send + Sync>(data: T) -> RwLock<T> {
+    let raw: *mut u8 = alloc(56 as i64);
+    unsafe {
+        let null_attr: *const u8 = 0 as *const u8;
+        pthread_rwlock_init(raw, null_attr);
+    }
+    return RwLock { data: data, raw: raw };
+}
+
+impl<T: Send + Sync> RwLock<T> {
+    // Acquire a shared (reader) lock; returns a const pointer to the data.
+    pub unsafe fn read_lock(self: *mut RwLock<T>) -> *const T {
+        pthread_rwlock_rdlock(self.raw);
+        return &self.data as *const T;
+    }
+
+    // Try to acquire a reader lock without blocking.
+    pub unsafe fn try_read_lock(self: *mut RwLock<T>) -> Option<*const T> {
+        let rc: i32 = pthread_rwlock_tryrdlock(self.raw);
+        if rc == 0 {
+            return Option::Some(&self.data as *const T);
+        }
+        return Option::None;
+    }
+
+    // Acquire an exclusive (writer) lock; returns a mutable pointer to the data.
+    pub unsafe fn write_lock(self: *mut RwLock<T>) -> *mut T {
+        pthread_rwlock_wrlock(self.raw);
+        return &mut self.data as *mut T;
+    }
+
+    // Try to acquire a writer lock without blocking.
+    pub unsafe fn try_write_lock(self: *mut RwLock<T>) -> Option<*mut T> {
+        let rc: i32 = pthread_rwlock_trywrlock(self.raw);
+        if rc == 0 {
+            return Option::Some(&mut self.data as *mut T);
+        }
+        return Option::None;
+    }
+
+    // Release any held lock (reader or writer).
+    pub unsafe fn unlock(self: *mut RwLock<T>) {
+        pthread_rwlock_unlock(self.raw);
+    }
+}
+
+pub unsafe fn rwlock_destroy<T: Send + Sync>(rw: *mut RwLock<T>) {
+    pthread_rwlock_destroy(rw.raw);
+    dealloc(rw.raw);
+    rw.raw = 0 as *mut u8;
+}

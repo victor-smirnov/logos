@@ -1,0 +1,177 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.atomic
+//
+// Atomic types backed by x86-64 assembly primitives in stdlib/rt/fiber_ctx.S.
+// Memory ordering: x86 TSO (Total Store Order) guarantees that plain
+// loads/stores are already acquire-loads / release-stores.  LOCK-prefixed
+// read-modify-write operations are sequentially consistent.
+//
+// API mirrors Rust's std::sync::atomic but uses free functions (no RAII).
+//
+// Types:
+//   AtomicI32, AtomicU32, AtomicI64, AtomicU64, AtomicBool, AtomicPtr<T>
+
+package std.atomic;
+
+use std.option;
+
+// ── Assembly primitives ────────────────────────────────────────────────────────
+extern fn logos_atomic_load32(ptr: *const i32) -> i32;
+extern fn logos_atomic_store32(ptr: *mut i32, val: i32);
+extern fn logos_atomic_fetch_add32(ptr: *mut i32, val: i32) -> i32;
+extern fn logos_atomic_cas32(ptr: *mut i32, expected: i32, desired: i32) -> bool;
+
+extern fn logos_atomic_load64(ptr: *const i64) -> i64;
+extern fn logos_atomic_store64(ptr: *mut i64, val: i64);
+extern fn logos_atomic_fetch_add64(ptr: *mut i64, val: i64) -> i64;
+extern fn logos_atomic_cas64(ptr: *mut i64, expected: i64, desired: i64) -> bool;
+
+// ── AtomicI32 ─────────────────────────────────────────────────────────────────
+
+pub struct AtomicI32 { val: i32 }
+
+pub fn atomic_i32_new(v: i32) -> AtomicI32 { return AtomicI32 { val: v }; }
+
+impl AtomicI32 {
+    pub fn load(&self) -> i32 {
+        unsafe { return logos_atomic_load32(&self.val as *const i32); }
+    }
+    pub fn store(self: *mut AtomicI32, v: i32) {
+        unsafe { logos_atomic_store32(&mut self.val as *mut i32, v); }
+    }
+    // Returns old value.
+    pub fn fetch_add(self: *mut AtomicI32, delta: i32) -> i32 {
+        unsafe { return logos_atomic_fetch_add32(&mut self.val as *mut i32, delta); }
+    }
+    pub fn fetch_sub(self: *mut AtomicI32, delta: i32) -> i32 {
+        unsafe { return logos_atomic_fetch_add32(&mut self.val as *mut i32, 0 - delta); }
+    }
+    // Returns true if exchange happened.
+    pub fn compare_exchange(self: *mut AtomicI32, expected: i32, desired: i32) -> bool {
+        unsafe { return logos_atomic_cas32(&mut self.val as *mut i32, expected, desired); }
+    }
+}
+
+// ── AtomicU32 — same layout, different sign convention ──────────────────────
+
+pub struct AtomicU32 { val: i32 }  // stored as i32 bits
+
+pub fn atomic_u32_new(v: u32) -> AtomicU32 { return AtomicU32 { val: v as i32 }; }
+
+impl AtomicU32 {
+    pub fn load(&self) -> u32 {
+        unsafe { return logos_atomic_load32(&self.val as *const i32) as u32; }
+    }
+    pub fn store(self: *mut AtomicU32, v: u32) {
+        unsafe { logos_atomic_store32(&mut self.val as *mut i32, v as i32); }
+    }
+    pub fn fetch_add(self: *mut AtomicU32, delta: u32) -> u32 {
+        unsafe { return logos_atomic_fetch_add32(&mut self.val as *mut i32, delta as i32) as u32; }
+    }
+    pub fn fetch_sub(self: *mut AtomicU32, delta: u32) -> u32 {
+        unsafe { return logos_atomic_fetch_add32(&mut self.val as *mut i32, (0 as u32 - delta) as i32) as u32; }
+    }
+    pub fn compare_exchange(self: *mut AtomicU32, expected: u32, desired: u32) -> bool {
+        unsafe { return logos_atomic_cas32(&mut self.val as *mut i32, expected as i32, desired as i32); }
+    }
+}
+
+// ── AtomicI64 ─────────────────────────────────────────────────────────────────
+
+pub struct AtomicI64 { val: i64 }
+
+pub fn atomic_i64_new(v: i64) -> AtomicI64 { return AtomicI64 { val: v }; }
+
+impl AtomicI64 {
+    pub fn load(&self) -> i64 {
+        unsafe { return logos_atomic_load64(&self.val as *const i64); }
+    }
+    pub fn store(self: *mut AtomicI64, v: i64) {
+        unsafe { logos_atomic_store64(&mut self.val as *mut i64, v); }
+    }
+    pub fn fetch_add(self: *mut AtomicI64, delta: i64) -> i64 {
+        unsafe { return logos_atomic_fetch_add64(&mut self.val as *mut i64, delta); }
+    }
+    pub fn fetch_sub(self: *mut AtomicI64, delta: i64) -> i64 {
+        unsafe { return logos_atomic_fetch_add64(&mut self.val as *mut i64, 0 as i64 - delta); }
+    }
+    pub fn compare_exchange(self: *mut AtomicI64, expected: i64, desired: i64) -> bool {
+        unsafe { return logos_atomic_cas64(&mut self.val as *mut i64, expected, desired); }
+    }
+}
+
+// ── AtomicU64 ─────────────────────────────────────────────────────────────────
+
+pub struct AtomicU64 { val: i64 }  // stored as i64 bits
+
+pub fn atomic_u64_new(v: u64) -> AtomicU64 { return AtomicU64 { val: v as i64 }; }
+
+impl AtomicU64 {
+    pub fn load(&self) -> u64 {
+        unsafe { return logos_atomic_load64(&self.val as *const i64) as u64; }
+    }
+    pub fn store(self: *mut AtomicU64, v: u64) {
+        unsafe { logos_atomic_store64(&mut self.val as *mut i64, v as i64); }
+    }
+    pub fn fetch_add(self: *mut AtomicU64, delta: u64) -> u64 {
+        unsafe { return logos_atomic_fetch_add64(&mut self.val as *mut i64, delta as i64) as u64; }
+    }
+    pub fn fetch_sub(self: *mut AtomicU64, delta: u64) -> u64 {
+        unsafe { return logos_atomic_fetch_add64(&mut self.val as *mut i64, (0 as u64 - delta) as i64) as u64; }
+    }
+    pub fn compare_exchange(self: *mut AtomicU64, expected: u64, desired: u64) -> bool {
+        unsafe { return logos_atomic_cas64(&mut self.val as *mut i64, expected as i64, desired as i64); }
+    }
+}
+
+// ── AtomicBool — backed by i32 (0 = false, 1 = true) ─────────────────────────
+
+pub struct AtomicBool { val: i32 }
+
+pub fn atomic_bool_new(v: bool) -> AtomicBool {
+    if v { return AtomicBool { val: 1 }; }
+    return AtomicBool { val: 0 };
+}
+
+impl AtomicBool {
+    pub fn load(&self) -> bool {
+        unsafe { return logos_atomic_load32(&self.val as *const i32) != 0; }
+    }
+    pub fn store(self: *mut AtomicBool, v: bool) {
+        let raw: i32 = if v { 1 } else { 0 };
+        unsafe { logos_atomic_store32(&mut self.val as *mut i32, raw); }
+    }
+    // Stores true, returns previous value.
+    pub fn swap_true(self: *mut AtomicBool) -> bool {
+        unsafe { return logos_atomic_fetch_add32(&mut self.val as *mut i32, 0) != 0; }
+    }
+    pub fn compare_exchange(self: *mut AtomicBool, expected: bool, desired: bool) -> bool {
+        let e: i32 = if expected { 1 } else { 0 };
+        let d: i32 = if desired  { 1 } else { 0 };
+        unsafe { return logos_atomic_cas32(&mut self.val as *mut i32, e, d); }
+    }
+}
+
+// ── AtomicPtr<T> — pointer stored as i64 bits ─────────────────────────────────
+
+pub struct AtomicPtr<T> { val: i64 }
+
+pub fn atomic_ptr_new<T>(p: *mut T) -> AtomicPtr<T> {
+    return AtomicPtr { val: p as i64 };
+}
+
+pub fn atomic_ptr_null<T>() -> AtomicPtr<T> {
+    return AtomicPtr { val: 0 as i64 };
+}
+
+impl<T> AtomicPtr<T> {
+    pub fn load(&self) -> *mut T {
+        unsafe { return logos_atomic_load64(&self.val as *const i64) as *mut T; }
+    }
+    pub fn store(self: *mut AtomicPtr<T>, p: *mut T) {
+        unsafe { logos_atomic_store64(&mut self.val as *mut i64, p as i64); }
+    }
+    pub fn compare_exchange(self: *mut AtomicPtr<T>, expected: *mut T, desired: *mut T) -> bool {
+        unsafe { return logos_atomic_cas64(&mut self.val as *mut i64, expected as i64, desired as i64); }
+    }
+}

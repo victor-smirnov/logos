@@ -1,0 +1,82 @@
+// pass — AtomicI32/I64/Bool/Ptr single-threaded correctness test.
+package test;
+
+use std.atomic;
+use std.option;
+
+fn main() -> i32 {
+    unsafe {
+        // ── AtomicI32 ────────────────────────────────────────────────────────
+        let mut a32: AtomicI32 = atomic_i32_new(0);
+        if a32.load() != 0 { return 1; }
+
+        a32.store(42);
+        if a32.load() != 42 { return 2; }
+
+        let old: i32 = a32.fetch_add(8);
+        if old != 42  { return 3; }
+        if a32.load() != 50 { return 4; }
+
+        let old2: i32 = a32.fetch_sub(10);
+        if old2 != 50 { return 5; }
+        if a32.load() != 40 { return 6; }
+
+        // CAS success
+        if !a32.compare_exchange(40, 99) { return 7; }
+        if a32.load() != 99 { return 8; }
+
+        // CAS failure (wrong expected)
+        if a32.compare_exchange(0, 0) { return 9; }
+        if a32.load() != 99 { return 10; }
+
+        // ── AtomicI64 ────────────────────────────────────────────────────────
+        let mut a64: AtomicI64 = atomic_i64_new(1000 as i64);
+        if a64.load() != 1000 as i64 { return 11; }
+
+        let old64: i64 = a64.fetch_add(500 as i64);
+        if old64 != 1000 as i64 { return 12; }
+        if a64.load() != 1500 as i64 { return 13; }
+
+        if !a64.compare_exchange(1500 as i64, 1 as i64) { return 14; }
+        if a64.load() != 1 as i64 { return 15; }
+
+        // ── AtomicBool ───────────────────────────────────────────────────────
+        let mut ab: AtomicBool = atomic_bool_new(false);
+        if ab.load() { return 16; }
+
+        ab.store(true);
+        if !ab.load() { return 17; }
+
+        if !ab.compare_exchange(true, false) { return 18; }
+        if ab.load() { return 19; }
+
+        if ab.compare_exchange(true, true) { return 20; }  // false, wrong expected
+
+        // ── AtomicU32 ────────────────────────────────────────────────────────
+        let mut au32: AtomicU32 = atomic_u32_new(0 as u32);
+        au32.store(100 as u32);
+        if au32.load() != 100 as u32 { return 21; }
+        let old_u32: u32 = au32.fetch_add(5 as u32);
+        if old_u32 != 100 as u32 { return 22; }
+        if au32.load() != 105 as u32 { return 23; }
+
+        // ── AtomicU64 ────────────────────────────────────────────────────────
+        let mut au64: AtomicU64 = atomic_u64_new(0 as u64);
+        au64.store(999 as u64);
+        if au64.load() != 999 as u64 { return 24; }
+        au64.fetch_add(1 as u64);
+        if au64.load() != 1000 as u64 { return 25; }
+
+        // ── AtomicPtr<i32> ───────────────────────────────────────────────────
+        let mut x: i32 = 7;
+        let mut ap: AtomicPtr<i32> = atomic_ptr_new::<i32>(&mut x as *mut i32);
+        let loaded: *mut i32 = ap.load();
+        if *loaded != 7 { return 26; }
+        *loaded = 8;
+        if x != 8 { return 27; }
+
+        ap.store(0 as *mut i32);
+        if ap.load() != 0 as *mut i32 { return 28; }
+    }
+    return 42;
+}
