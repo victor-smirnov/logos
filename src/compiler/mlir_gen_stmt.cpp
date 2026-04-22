@@ -1123,15 +1123,35 @@ void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
     auto mid_gep = gep_field(outer_ptr, oit->second, s.mid_field);
     if (!mid_gep) return;
 
-    // Determine mid struct type name by looking at the field's LLVM type.
+    // Determine mid struct type name.
+    // First try: look up the LIR field type from all_struct_defs_ and call
+    // concrete_struct_name on its pointee.  This handles the common case where
+    // the mid field is a *mut S pointer (opaque ptr in LLVM — LLVM type alone
+    // can't tell us which struct it points to).
     std::string mid_type_name;
-    mlir::Type mid_llvm_type;
-    for (auto& f : oit->second.fields) {
-        if (f.name == s.mid_field) { mid_llvm_type = f.type; break; }
+    auto odi = all_struct_defs_.find(outer_type_name);
+    if (odi != all_struct_defs_.end()) {
+        for (auto& f : odi->second->fields) {
+            if (f.name == s.mid_field && f.type) {
+                const LogosType* ft = f.type;
+                // field is *mut S → descend into pointee
+                if (ft->kind == LogosType::Kind::Ptr && ft->pointee)
+                    ft = ft->pointee;
+                mid_type_name = concrete_struct_name(ft);
+                break;
+            }
+        }
     }
-    if (mid_llvm_type) {
-        for (auto& [sn, si] : struct_types_) {
-            if (si.llvm_type == mid_llvm_type) { mid_type_name = sn; break; }
+    // Fallback: match by LLVM aggregate type (covers non-pointer embedded structs).
+    if (mid_type_name.empty()) {
+        mlir::Type mid_llvm_type;
+        for (auto& f : oit->second.fields) {
+            if (f.name == s.mid_field) { mid_llvm_type = f.type; break; }
+        }
+        if (mid_llvm_type) {
+            for (auto& [sn, si] : struct_types_) {
+                if (si.llvm_type == mid_llvm_type) { mid_type_name = sn; break; }
+            }
         }
     }
     if (mid_type_name.empty()) {
@@ -1141,13 +1161,26 @@ void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
     }
 
     // Step 3: GEP into final field using mid_gep as base pointer.
+    // If the mid field is a pointer type (e.g. inner: *mut Inner<T>), mid_gep
+    // is a pointer TO that pointer slot.  Load once to obtain *mut Inner<T>
+    // before performing the final GEP.
+    mlir::Value mid_base = mid_gep;
+    if (odi != all_struct_defs_.end()) {
+        for (auto& f : odi->second->fields) {
+            if (f.name == s.mid_field && f.type &&
+                f.type->kind == LogosType::Kind::Ptr) {
+                mid_base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), mid_gep);
+                break;
+            }
+        }
+    }
     auto mit = struct_types_.find(mid_type_name);
     if (mit == struct_types_.end()) {
         std::fprintf(stderr, "mlir_gen: chain-field-write: unknown mid type '%s'\n",
                      mid_type_name.c_str());
         return;
     }
-    auto field_gep = gep_field(mid_gep, mit->second, s.field);
+    auto field_gep = gep_field(mid_base, mit->second, s.field);
     if (!field_gep) return;
 
     // Step 4: generate value and store.

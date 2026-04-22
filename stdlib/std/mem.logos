@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.mem
 //
-// Memory allocation via C FFI.
+// Memory allocation and low-level memory utilities.
 
 package std.mem;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 extern fn realloc(ptr: *mut u8, size: i64) -> *mut u8;
+extern fn memcpy(dst: *mut u8, src: *const u8, n: i64) -> *mut u8;
+extern fn memmove(dst: *mut u8, src: *const u8, n: i64) -> *mut u8;
+extern fn memset(ptr: *mut u8, val: i32, n: i64) -> *mut u8;
+extern fn memcmp(a: *const u8, b: *const u8, n: i64) -> i32;
 
 pub fn alloc(size: i64) -> *mut u8 {
     unsafe { return malloc(size); }
@@ -19,4 +23,43 @@ pub fn dealloc(ptr: *mut u8) {
 
 pub fn realloc_buf(ptr: *mut u8, size: i64) -> *mut u8 {
     unsafe { return realloc(ptr, size); }
+}
+
+// Copy n bytes from src to dst (regions must not overlap; use move_bytes if they may).
+pub unsafe fn copy_bytes(dst: *mut u8, src: *const u8, n: i64) {
+    memcpy(dst, src, n);
+}
+
+// Copy n bytes from src to dst (safe for overlapping regions).
+pub unsafe fn move_bytes(dst: *mut u8, src: *const u8, n: i64) {
+    memmove(dst, src, n);
+}
+
+// Fill n bytes starting at ptr with val (low 8 bits used).
+pub unsafe fn fill_bytes(ptr: *mut u8, val: i32, n: i64) {
+    memset(ptr, val, n);
+}
+
+// Zero n bytes starting at ptr.
+pub unsafe fn zero_bytes(ptr: *mut u8, n: i64) {
+    memset(ptr, 0, n);
+}
+
+// Compare n bytes; returns negative / 0 / positive.
+pub unsafe fn compare_bytes(a: *const u8, b: *const u8, n: i64) -> i32 {
+    return memcmp(a, b, n);
+}
+
+// Swap the values at two non-overlapping pointers of the same type.
+pub unsafe fn swap<T>(a: *mut T, b: *mut T) {
+    let tmp: T = a[0];
+    a[0] = b[0];
+    b[0] = tmp;
+}
+
+// Replace the value at ptr with new_val; return the old value.
+pub unsafe fn replace<T>(ptr: *mut T, new_val: T) -> T {
+    let old: T = ptr[0];
+    ptr[0] = new_val;
+    return old;
 }

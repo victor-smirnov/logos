@@ -1,0 +1,87 @@
+// Reproducer: nested *mut chain — struct Holder<T> { inner: *mut Inner<T> }
+// Tests the exact pattern that failed in original Rc<T>:
+//   self.inner.count = self.inner.count + 1;
+// where self: *mut Holder<T>, inner: *mut Inner<T>, count: i32.
+package test;
+
+use std.mem;
+
+struct Inner<T> {
+    val:   T,
+    count: i32,
+}
+
+struct Holder<T> {
+    inner: *mut Inner<T>,
+}
+
+fn make_holder<T>(v: T) -> Holder<T> {
+    unsafe {
+        let ip: *mut Inner<T> = alloc(sizeof::<Inner<T>>()) as *mut Inner<T>;
+        ip.val   = v;
+        ip.count = 1;
+        return Holder { inner: ip };
+    }
+}
+
+fn clone_holder<T>(h: *mut Holder<T>) -> Holder<T> {
+    unsafe {
+        // This is the exact Rc clone pattern.
+        h.inner.count = h.inner.count + 1;
+        return Holder { inner: h.inner };
+    }
+}
+
+fn main() -> i32 {
+    unsafe {
+        // ── T = i32 ──────────────────────────────────────────────────────────
+        let mut h1: Holder<i32> = make_holder::<i32>(10);
+        let ph1: *mut Holder<i32> = &mut h1;
+
+        if ph1.inner.count != 1 { return 1; }
+        if ph1.inner.val   != 10 { return 2; }
+
+        // clone — increments count through nested pointer chain
+        let mut h2: Holder<i32> = clone_holder::<i32>(ph1);
+        let ph2: *mut Holder<i32> = &mut h2;
+
+        if ph1.inner.count != 2 { return 3; }   // ← this is the Rc bug check
+        if ph2.inner.count != 2 { return 4; }
+        if ph2.inner.val   != 10 { return 5; }
+
+        // modify val
+        ph1.inner.val = 77;
+        if ph2.inner.val != 77 { return 6; }   // shared memory
+
+        // second clone
+        let mut h3: Holder<i32> = clone_holder::<i32>(ph2);
+        let ph3: *mut Holder<i32> = &mut h3;
+        if ph1.inner.count != 3 { return 7; }
+
+        // "drop" h3: decrement
+        ph3.inner.count = ph3.inner.count - 1;
+        if ph1.inner.count != 2 { return 8; }
+
+        // free after last drop
+        ph2.inner.count = ph2.inner.count - 1;
+        ph1.inner.count = ph1.inner.count - 1;
+        if ph1.inner.count != 0 { return 9; }
+        dealloc(ph1.inner as *mut u8);
+
+        // ── T = i64 ──────────────────────────────────────────────────────────
+        let mut g1: Holder<i64> = make_holder::<i64>(100 as i64);
+        let pg1: *mut Holder<i64> = &mut g1;
+
+        let mut g2: Holder<i64> = clone_holder::<i64>(pg1);
+        let pg2: *mut Holder<i64> = &mut g2;
+
+        if pg1.inner.count != 2 { return 10; }
+        if pg2.inner.count != 2 { return 11; }
+        if pg1.inner.val != 100 as i64 { return 12; }
+
+        pg2.inner.count = pg2.inner.count - 1;
+        pg1.inner.count = pg1.inner.count - 1;
+        dealloc(pg1.inner as *mut u8);
+    }
+    return 42;
+}

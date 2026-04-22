@@ -1,0 +1,57 @@
+// Tests Default, Clone, Copy traits and mem utilities.
+package test;
+
+use std.default;
+use std.clone;
+use std.mem;
+
+fn main() -> i32 {
+    // Default
+    let a: i32 = i32::default();
+    if a != 0 { return 1; }
+
+    let b: bool = bool::default();
+    if b { return 2; }
+
+    let c: f64 = f64::default();
+    if c != 0.0 { return 3; }
+
+    let d: u64 = u64::default();
+    if d != 0 as u64 { return 4; }
+
+    // Clone (primitive copy)
+    let x: i32 = 42;
+    let y: i32 = i32::clone(x);
+    if y != 42 { return 5; }
+
+    let p: f64 = 3.14;
+    let q: f64 = f64::clone(p);
+    if q != 3.14 { return 6; }
+
+    // mem::swap
+    unsafe {
+        let mut v1: i32 = 10;
+        let mut v2: i32 = 20;
+        swap::<i32>(&mut v1, &mut v2);
+        if v1 != 20 { return 7; }
+        if v2 != 10 { return 8; }
+    }
+
+    // mem::replace
+    unsafe {
+        let mut val: i32 = 99;
+        let old: i32 = replace::<i32>(&mut val, 77);
+        if old != 99 { return 9; }
+        if val != 77 { return 10; }
+    }
+
+    // mem::copy_bytes / zero_bytes
+    unsafe {
+        let mut buf: i32 = 0x12345678;
+        let ptr: *mut u8 = &mut buf as *mut u8;
+        zero_bytes(ptr, 4 as i64);
+        if buf != 0 { return 11; }
+    }
+
+    return 42;
+}
