@@ -17,6 +17,8 @@
 #pragma once
 
 #include <logos/compiler/sema.hpp>   // LogosType, TypePool, SemaResult
+#include <unordered_set>
+#include <string>
 
 #include <array>
 #include <cstdint>
@@ -774,6 +776,11 @@ struct LProgram {
     std::vector<LImplBlock>      impls;
     std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
     std::vector<LDispatchEntry>  dispatch_entries; // tag-dispatch table entries
+
+    // Symbol names present in binary archives on the search path.
+    // mlir_gen skips functions whose mangled name is in this set (they're
+    // already compiled and will be found by the linker in the .a).
+    std::unordered_set<std::string> binary_symbols;
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }

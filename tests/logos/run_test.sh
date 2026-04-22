@@ -77,11 +77,20 @@ done < "$EXPECTED"
 
 BIN="$TMPD/test"
 # Collect .a archives from -L flags in EXTRA so stdlib symbols resolve.
+# Handles both -L/path and -L /path (separate arg) forms.
 LINK_ARCHIVES=()
+_take_next=0
 for arg in "${EXTRA[@]}"; do
-    case "$arg" in
-        -L*) dir="${arg#-L}"; for a in "$dir"/*.a; do [ -f "$a" ] && LINK_ARCHIVES+=("$a"); done ;;
-    esac
+    if [ "$_take_next" = 1 ]; then
+        for a in "$arg"/*.a; do [ -f "$a" ] && LINK_ARCHIVES+=("$a"); done
+        _take_next=0
+    elif [ "$arg" = "-L" ]; then
+        _take_next=1
+    else
+        case "$arg" in
+            -L?*) dir="${arg#-L}"; for a in "$dir"/*.a; do [ -f "$a" ] && LINK_ARCHIVES+=("$a"); done ;;
+        esac
+    fi
 done
 if ! cc "$OBJ" "${LINK_ARCHIVES[@]}" -o "$BIN" 2>/dev/null; then
     echo "FAIL: cc link failed"

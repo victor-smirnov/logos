@@ -127,16 +127,38 @@ int main(int argc, char** argv) {
     std::vector<logos::hermes::Hermes> asts;
     std::vector<std::string> filenames;
     std::vector<bool> from_binary;
+    std::unordered_set<std::string> binary_archives_seen;
+    std::unordered_set<std::string> binary_symbols;
     for (auto& m : modules) {
         filenames.push_back(m.path);
         from_binary.push_back(m.from_binary_module);
         asts.push_back(std::move(m.ast));
     }
+    // Collect symbol tables from binary archives on the search path.
+    // Shell glob + nm: avoids pulling in <filesystem> next to LLVM headers.
+    for (const auto& dir : search_paths) {
+        std::string cmd = "nm --defined-only -j " + dir + "/*.a 2>/dev/null";
+        FILE* pipe = ::popen(cmd.c_str(), "r");
+        if (!pipe) continue;
+        char line[512];
+        while (std::fgets(line, sizeof(line), pipe)) {
+            std::string_view sv(line);
+            while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
+                sv.remove_suffix(1);
+            if (!sv.empty() && sv.front() != '/') // skip archive member headers like "/path/foo.o:"
+                binary_symbols.emplace(sv);
+        }
+        ::pclose(pipe);
+    }
+    if (trace)
+        std::fprintf(stderr, "[trace] binary_symbols: %zu from %zu archive(s)\n",
+                     binary_symbols.size(), binary_archives_seen.size());
 
     // ── Step 2b: Semantic analysis + L-IR lowering ──────────────
     auto prog = logos::compiler::sema_lower(asts, filenames, from_binary);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
+    prog.binary_symbols = std::move(binary_symbols);
     report("sema+lower");
 
     // ── Step 2c: Monomorphization ────────────────────────────────
@@ -209,6 +231,7 @@ int main(int argc, char** argv) {
     // ── Step 6: LLVM IR → object file ───────────────────────────
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
+    report("llvm_init");
 
     std::string error;
     auto* target = llvm::TargetRegistry::lookupTarget(
@@ -224,6 +247,7 @@ int main(int argc, char** argv) {
             llvm::TargetOptions{}, llvm::Reloc::PIC_));
 
     llvm_module->setDataLayout(target_machine->createDataLayout());
+    report("target_machine");
 
     std::error_code ec;
     llvm::raw_fd_ostream out(output_path, ec, llvm::sys::fs::OF_None);
@@ -242,7 +266,20 @@ int main(int argc, char** argv) {
 
     pass.run(*llvm_module);
     out.flush();
+    report("codegen+write");
 
     std::fprintf(stderr, "logosc: wrote %s\n", output_path);
+
+    // Measure destructor/dealloc time for large objects.
+    {
+        auto t0 = std::chrono::steady_clock::now();
+        llvm_module.reset();
+        mlir_module = {};
+        if (trace) {
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            std::fprintf(stderr, "[trace   %4lldms] destroy\n", (long long)ms);
+        }
+    }
     return 0;
 }

@@ -226,7 +226,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         }
     }
 
-    out_.diags = std::move(in_.diags);
+    out_.diags          = std::move(in_.diags);
+    out_.binary_symbols = std::move(in_.binary_symbols);
     return std::move(out_);
 }
 

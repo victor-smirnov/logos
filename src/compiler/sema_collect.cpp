@@ -95,6 +95,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     for (size_t ai = 0; ai < asts.size(); ++ai) {
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
+        cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
@@ -104,6 +105,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     for (size_t ai = 0; ai < asts.size(); ++ai) {
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
+        cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);

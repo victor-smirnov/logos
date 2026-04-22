@@ -14,6 +14,9 @@
 // mlir_gen_stmt.cpp, mlir_gen_expr.cpp, mlir_gen_dyn.cpp.
 
 #include "mlir_gen_impl.hpp"
+#include <set>
+#include <string>
+#include <vector>
 
 namespace logos::compiler {
 
@@ -51,16 +54,43 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 
     // Pass 1: forward-declare all functions (structs, free fns).
     // Skip non-generic functions from binary modules — the linker finds them in the .a.
-    auto is_binary_skip = [](const lir::LFunction& fn) {
-        return fn.from_binary_module && fn.type_params.empty() && !fn.is_extern;
+    // Skip functions already compiled into a binary archive — the linker will
+    // find them there.  We check prog.binary_symbols (populated from nm output)
+    // rather than the from_binary_module flag, because generic instantiations
+    // from binary-module templates are NOT in the archive and must be compiled.
+    auto is_binary_skip = [&prog](const lir::LFunction& fn) -> bool {
+        if (fn.is_extern || prog.binary_symbols.empty()) return false;
+        return prog.binary_symbols.count(fn.name) > 0;
     };
 
+    if (std::getenv("LOGOS_TRACE_PHASES")) {
+        size_t total = 0, skipped = 0;
+        for (auto& sd : prog.structs) for (auto& m : sd.methods) { ++total; if (is_binary_skip(m)) ++skipped; }
+        for (auto& fn : prog.functions) { ++total; if (is_binary_skip(fn)) ++skipped; }
+        std::fprintf(stderr, "mlir_gen: %zu functions total, %zu binary-skip\n", total, skipped);
+    }
+
+    // Always forward-declare every function so call sites can resolve the
+    // signature.  Binary-skip only suppresses body emission — the linker
+    // provides the implementation from the archive.
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            if (!is_binary_skip(m)) forward_declare(mod, m);
+            forward_declare(mod, m);
 
     for (auto& fn : prog.functions)
-        if (!is_binary_skip(fn)) forward_declare(mod, fn);
+        forward_declare(mod, fn);
+
+    // Binary-skip functions are declarations only (no body); MLIR requires
+    // declarations to have private visibility.
+    for (auto& sd : prog.structs)
+        for (auto& m : sd.methods)
+            if (is_binary_skip(m))
+                if (auto f = mod.lookupSymbol<mlir::func::FuncOp>(m.name))
+                    f.setPrivate();
+    for (auto& fn : prog.functions)
+        if (is_binary_skip(fn))
+            if (auto f = mod.lookupSymbol<mlir::func::FuncOp>(fn.name))
+                f.setPrivate();
 
     // Pass 1b: emit vtable globals for trait impls (&dyn Trait support).
     emit_trait_vtables(mod, prog);
@@ -82,17 +112,38 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         if (!gen_function_body(func, fn)) return nullptr;
     }
 
-    // Pass 3: inject dispatch table init call at the start of main().
-    // @__logos_tag_dispatch_init() is emitted by emit_tag_dispatch_tables;
-    // we call it from main because global_ctors requires llvm.func (only
-    // available after ConvertFuncToLLVM, which runs after codegen).
+    // Pass 3: inject dispatch table init calls at the start of main().
+    // Each tag system has __logos_tag_dispatch_init__<TagSystem>.  Binary tag
+    // systems have this function in the archive; non-binary systems have it in
+    // the MLIR module (emitted by emit_tag_dispatch_tables).  We forward-declare
+    // and call all of them so the linker resolves the binary ones from the .a.
     if (!prog.dispatch_entries.empty()) {
-        auto init_fn = mod.lookupSymbol<mlir::func::FuncOp>("__logos_tag_dispatch_init");
         auto main_fn = mod.lookupSymbol<mlir::func::FuncOp>("main");
-        if (init_fn && main_fn && !main_fn.empty()) {
+        if (main_fn && !main_fn.empty()) {
             mlir::OpBuilder::InsertionGuard guard(builder_);
+            // Collect unique tag systems in stable order.
+            std::set<std::string> seen_systems;
+            std::vector<std::string> init_fns;
+            for (auto& de : prog.dispatch_entries) {
+                if (de.tag_system.empty()) continue;
+                if (!seen_systems.insert(de.tag_system).second) continue;
+                init_fns.push_back("__logos_tag_dispatch_init__" + de.tag_system);
+            }
+            // Forward-declare any init fn not yet in the module (binary archive provides it).
+            auto void_fn_type = mlir::FunctionType::get(builder_.getContext(), {}, {});
+            for (auto& fn_name : init_fns) {
+                if (!mod.lookupSymbol<mlir::func::FuncOp>(fn_name)) {
+                    builder_.setInsertionPointToEnd(mod.getBody());
+                    auto decl = builder_.create<mlir::func::FuncOp>(loc_, fn_name, void_fn_type);
+                    decl.setPrivate();
+                }
+            }
+            // Inject calls at the start of main.
             builder_.setInsertionPointToStart(&main_fn.front());
-            builder_.create<mlir::func::CallOp>(loc_, init_fn, mlir::ValueRange{});
+            for (auto& fn_name : init_fns) {
+                auto init_fn = mod.lookupSymbol<mlir::func::FuncOp>(fn_name);
+                builder_.create<mlir::func::CallOp>(loc_, init_fn, mlir::ValueRange{});
+            }
         }
     }
 

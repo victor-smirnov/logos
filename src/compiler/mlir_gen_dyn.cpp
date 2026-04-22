@@ -218,9 +218,79 @@ static std::string collision_sym_name(const std::string& ts,
 void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog) {
     if (prog.dispatch_entries.empty()) return;
 
+    // Compute which tag systems are fully covered by the binary archive.
+    // For those systems we emit only external declarations (so gen_tagged_dispatch
+    // can reference the tables) but no initialiser/body — the archive provides them.
+    std::set<std::string> binary_tag_systems;
+    if (!prog.binary_symbols.empty()) {
+        std::map<std::string, bool> sys_all_binary;
+        for (auto& de : prog.dispatch_entries) {
+            if (de.tag_system.empty() || de.type_code == 0) continue;
+            auto it = sys_all_binary.find(de.tag_system);
+            if (it == sys_all_binary.end())
+                sys_all_binary[de.tag_system] = true;
+            if (!prog.binary_symbols.count(de.fn_symbol))
+                sys_all_binary[de.tag_system] = false;
+        }
+        for (auto& [sys, all_bin] : sys_all_binary)
+            if (all_bin) binary_tag_systems.insert(sys);
+    }
+
     auto ptr_t = ptr_type();
     constexpr int kTier1Size = 256;
     auto arr_type_t1 = mlir::LLVM::LLVMArrayType::get(ptr_t, kTier1Size);
+
+    // For binary tag systems emit External declarations so gen_tagged_dispatch
+    // can emit AddressOf / call — the linker resolves them to the archive.
+    if (!binary_tag_systems.empty()) {
+        auto i64_t = builder_.getI64Type();
+        std::set<std::string> decl_emitted;
+        for (auto& de : prog.dispatch_entries) {
+            if (!binary_tag_systems.count(de.tag_system)) continue;
+            if (de.type_code == 0) continue;
+            auto base = de.tag_system + "__" + de.trait_name + "__" + de.method_name;
+            if (de.type_code < static_cast<uint64_t>(kTier1Size)) {
+                auto tname = "__logos_tag_dispatch__" + base;
+                if (decl_emitted.insert(tname).second && !mod.lookupSymbol(tname)) {
+                    builder_.setInsertionPointToEnd(mod.getBody());
+                    builder_.create<mlir::LLVM::GlobalOp>(
+                        loc_, arr_type_t1, false, mlir::LLVM::Linkage::External,
+                        tname, mlir::Attribute{}, 0);
+                }
+            } else {
+                auto t2key = "__logos_tier2__" + base;
+                // forward-declare _codes, _fns as external (size unknown here, use i8 array of 0)
+                for (auto& suffix : {std::string("_codes"), std::string("_fns")}) {
+                    auto gname = t2key + suffix;
+                    if (decl_emitted.insert(gname).second && !mod.lookupSymbol(gname)) {
+                        builder_.setInsertionPointToEnd(mod.getBody());
+                        auto arr0 = mlir::LLVM::LLVMArrayType::get(i64_t, 0);
+                        builder_.create<mlir::LLVM::GlobalOp>(
+                            loc_, arr0, false, mlir::LLVM::Linkage::External,
+                            gname, mlir::Attribute{}, 0);
+                    }
+                }
+                // forward-declare _lookup function
+                auto lkp_name = t2key + "_lookup";
+                if (decl_emitted.insert(lkp_name).second && !mod.lookupSymbol(lkp_name)) {
+                    builder_.setInsertionPointToEnd(mod.getBody());
+                    auto fn_type = builder_.getFunctionType(
+                        {builder_.getI64Type()}, {ptr_t});
+                    auto decl = builder_.create<mlir::func::FuncOp>(loc_, lkp_name, fn_type);
+                    decl.setPrivate();
+                }
+            }
+        }
+    }
+
+    // If every tag system is binary, declarations are enough — no definitions.
+    if (!binary_tag_systems.empty()) {
+        bool all_binary = true;
+        for (auto& de : prog.dispatch_entries)
+            if (!de.tag_system.empty() && !binary_tag_systems.count(de.tag_system))
+                { all_binary = false; break; }
+        if (all_binary) return;
+    }
     auto i64_t = builder_.getI64Type();
 
     struct Entry { uint64_t type_code; std::string fn_symbol; };
@@ -230,6 +300,8 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     std::map<std::string, std::vector<Entry>> tier2_valid_entries;
 
     for (auto& de : prog.dispatch_entries) {
+        // Skip dispatch entries from fully-binary tag systems.
+        if (binary_tag_systems.count(de.tag_system)) continue;
         // type_code == 0 is unset (no impl registered yet); skip.
         // Codes 1-127 are valid for inline AnyVal slots; 128-255 for tier-1 zone types.
         if (de.type_code == 0) continue;
@@ -256,6 +328,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         std::set<std::string> emitted;
         for (auto& de : prog.dispatch_entries) {
             if (de.type_code == 0) continue;
+            if (binary_tag_systems.count(de.tag_system)) continue;
             auto sym = collision_sym_name(de.tag_system, de.trait_name, de.type_code);
             if (!emitted.insert(sym).second) continue;    // already emitted this triple
             // Type-check the existing symbol: only skip if it is already the
@@ -278,12 +351,16 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     }
 
     // ── Pass B: emit zero-initialized [223 x ptr] globals for tier-1 ─────
+    // Use Weak linkage when the table already exists in a binary archive so the
+    // linker deduplicates rather than flagging a duplicate-definition error.
     for (auto& [table_name, _entries] : tier1_tables) {
         if (mod.lookupSymbol(table_name)) continue;
+        bool in_binary = prog.binary_symbols.count(table_name) > 0;
+        auto linkage = in_binary ? mlir::LLVM::Linkage::Weak
+                                 : mlir::LLVM::Linkage::External;
         builder_.setInsertionPointToEnd(mod.getBody());
         auto glob = builder_.create<mlir::LLVM::GlobalOp>(
-            loc_, arr_type_t1, false,
-            mlir::LLVM::Linkage::External, table_name, mlir::Attribute{}, 0);
+            loc_, arr_type_t1, false, linkage, table_name, mlir::Attribute{}, 0);
         auto& ir = glob.getInitializerRegion();
         builder_.setInsertionPointToStart(builder_.createBlock(&ir));
         builder_.create<mlir::LLVM::ReturnOp>(
@@ -309,13 +386,17 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         tier2_valid_entries[t2key] = valid_entries;
         int64_t n = static_cast<int64_t>(valid_entries.size());
 
+        bool t2_in_binary = prog.binary_symbols.count(t2key + "_codes") > 0;
+        auto t2_linkage = t2_in_binary ? mlir::LLVM::Linkage::Weak
+                                       : mlir::LLVM::Linkage::External;
+
         auto codes_arr_type = mlir::LLVM::LLVMArrayType::get(i64_t, n);
         auto codes_name = t2key + "_codes";
         if (!mod.lookupSymbol(codes_name)) {
             builder_.setInsertionPointToEnd(mod.getBody());
             auto g = builder_.create<mlir::LLVM::GlobalOp>(
                 loc_, codes_arr_type, false,
-                mlir::LLVM::Linkage::External, codes_name, mlir::Attribute{}, 0);
+                t2_linkage, codes_name, mlir::Attribute{}, 0);
             auto& ir = g.getInitializerRegion();
             builder_.setInsertionPointToStart(builder_.createBlock(&ir));
             builder_.create<mlir::LLVM::ReturnOp>(
@@ -329,7 +410,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
             builder_.setInsertionPointToEnd(mod.getBody());
             auto g = builder_.create<mlir::LLVM::GlobalOp>(
                 loc_, fns_arr_type, false,
-                mlir::LLVM::Linkage::External, fns_name, mlir::Attribute{}, 0);
+                t2_linkage, fns_name, mlir::Attribute{}, 0);
             auto& ir = g.getInitializerRegion();
             builder_.setInsertionPointToStart(builder_.createBlock(&ir));
             builder_.create<mlir::LLVM::ReturnOp>(
@@ -345,9 +426,31 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         }
     }
 
-    // ── Pass D: emit __logos_tag_dispatch_init (fills tier-1 + tier-2) ───
-    auto ctor_name = std::string("__logos_tag_dispatch_init");
-    if (!mod.lookupSymbol<mlir::func::FuncOp>(ctor_name)) {
+    // ── Pass D: emit per-tag-system __logos_tag_dispatch_init__<TagSystem> ──
+    // One init function per non-binary tag system avoids symbol clashes when
+    // the stdlib archive already provides its own init function.
+    // Collect tag systems that have tables to initialize.
+    std::set<std::string> active_systems;
+    for (auto& [tname, _] : tier1_tables) {
+        // table_name is "__logos_tag_dispatch__<sys>__<trait>__<method>"
+        // extract sys: strip prefix, then take up to second "__"
+        std::string_view sv(tname);
+        sv.remove_prefix(sizeof("__logos_tag_dispatch__") - 1);
+        auto p = sv.find("__");
+        if (p != std::string_view::npos)
+            active_systems.insert(std::string(sv.substr(0, p)));
+    }
+    for (auto& [tname, _] : tier2_valid_entries) {
+        std::string_view sv(tname);
+        sv.remove_prefix(sizeof("__logos_tier2__") - 1);
+        auto p = sv.find("__");
+        if (p != std::string_view::npos)
+            active_systems.insert(std::string(sv.substr(0, p)));
+    }
+
+    for (const auto& sys : active_systems) {
+        auto ctor_name = "__logos_tag_dispatch_init__" + sys;
+        if (mod.lookupSymbol<mlir::func::FuncOp>(ctor_name)) continue;
         auto ctor_type = mlir::FunctionType::get(builder_.getContext(), {}, {});
         builder_.setInsertionPointToEnd(mod.getBody());
         auto ctor_fn = builder_.create<mlir::func::FuncOp>(loc_, ctor_name, ctor_type);
@@ -356,8 +459,12 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         auto* ctor_block = ctor_fn.addEntryBlock();
         builder_.setInsertionPointToStart(ctor_block);
 
-        // Fill tier-1 [223 x ptr] tables.
+        // Fill tier-1 tables for this tag system.
         for (auto& [table_name, entries] : tier1_tables) {
+            std::string_view sv(table_name);
+            sv.remove_prefix(sizeof("__logos_tag_dispatch__") - 1);
+            auto p = sv.find("__");
+            if (p == std::string_view::npos || sv.substr(0, p) != sys) continue;
             auto table_addr = builder_.create<mlir::LLVM::AddressOfOp>(
                 loc_, ptr_t, table_name);
             for (auto& e : entries) {
@@ -378,9 +485,12 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
             }
         }
 
-        // Fill tier-2 codes and fns arrays (in sorted order).
-        // Bug fix: use tier2_valid_entries instead of tier2_tables to match Pass C counts.
+        // Fill tier-2 for this tag system.
         for (auto& [t2key, entries] : tier2_valid_entries) {
+            std::string_view sv(t2key);
+            sv.remove_prefix(sizeof("__logos_tier2__") - 1);
+            auto p = sv.find("__");
+            if (p == std::string_view::npos || sv.substr(0, p) != sys) continue;
             int64_t n = static_cast<int64_t>(entries.size());
             auto codes_arr_type = mlir::LLVM::LLVMArrayType::get(i64_t, n);
             auto fns_arr_type   = mlir::LLVM::LLVMArrayType::get(ptr_t, n);
@@ -388,24 +498,18 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
                 loc_, ptr_t, t2key + "_codes");
             auto fns_addr = builder_.create<mlir::LLVM::AddressOfOp>(
                 loc_, ptr_t, t2key + "_fns");
-
             for (int64_t i = 0; i < n; ++i) {
-                // Bug fix: look up callee BEFORE writing codes_array[i].
-                // If callee is absent both slots stay zero-init (consistent).
                 auto callee = mod.lookupSymbol<mlir::func::FuncOp>(entries[i].fn_symbol);
                 if (!callee) continue;
-
                 mlir::Value idx = builder_.create<mlir::arith::ConstantIntOp>(loc_, i, 64);
                 llvm::SmallVector<mlir::LLVM::GEPArg> gi;
                 gi.push_back(int32_t(0));
                 gi.push_back(idx);
-
                 mlir::Value code_val = builder_.create<mlir::arith::ConstantIntOp>(
                     loc_, static_cast<int64_t>(entries[i].type_code), 64);
                 auto code_slot = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_t, codes_arr_type, codes_addr, gi);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, code_val, code_slot);
-
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
                     loc_, callee.getFunctionType(), entries[i].fn_symbol);
                 auto fn_ptr = builder_.create<mlir::UnrealizedConversionCastOp>(

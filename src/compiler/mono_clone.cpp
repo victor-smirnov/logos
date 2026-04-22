@@ -805,9 +805,13 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
                          const PackMap& packs) {
     cur_packs_ = packs;  // make available to subst_expr
     lir::LFunction nf;
-    nf.name      = fn.name;
-    nf.is_extern = fn.is_extern;
-    nf.is_vararg = fn.is_vararg;
+    nf.name               = fn.name;
+    nf.is_extern          = fn.is_extern;
+    nf.is_vararg          = fn.is_vararg;
+    // Never propagate from_binary_module to cloned functions: clone_fn is
+    // called by mono to create instantiations, which are new functions not
+    // present in the binary archive. The archive contains only the pre-compiled
+    // non-generic originals (identified via LProgram::binary_symbols in mlir_gen).
     nf.ret_type  = subst_type(fn.ret_type, s);
     for (auto& p : fn.params) {
         if (p.is_variadic) {
