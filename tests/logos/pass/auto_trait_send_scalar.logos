@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Auto trait test: scalar types (i32, bool, f64) automatically satisfy Send.
+// fn accept<T: Send>(x: T) compiles for all these types → exit 42.
+
+package auto_trait_send_scalar;
+
+use std;
+
+fn accept<T: Send>(x: T) -> i32 {
+    return 1;
+}
+
+unsafe fn main() -> i32 {
+    let a: i32 = accept::<i32>(10);
+    let b: i32 = accept::<bool>(true);
+    let c: i32 = accept::<f64>(3.14);
+    return (a + b + c) * 14;
+}

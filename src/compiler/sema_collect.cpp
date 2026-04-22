@@ -214,6 +214,26 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         }
 
         for (auto& bound : tp.bounds) {
+            // Auto trait: synthesize satisfaction from field types.
+            auto trit = traits_.find(bound.trait_name);
+            if (trit != traits_.end() && trit->second.is_auto) {
+                std::unordered_set<std::string> visited;
+                last_offender_ = {};
+                if (is_auto_trait_satisfied(concrete, bound.trait_name, visited)) continue;
+                if (!last_offender_.field_name.empty()) {
+                    error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
+                                      "(field '{}' of type '{}' is not {})",
+                          target_name, concrete_str, bound.trait_name,
+                          last_offender_.field_name,
+                          last_offender_.field_ty ? type_str(last_offender_.field_ty) : "?",
+                          bound.trait_name));
+                } else {
+                    error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
+                                      "(raw pointer type cannot be sent across threads)",
+                          target_name, concrete_str, bound.trait_name));
+                }
+                continue;
+            }
             auto key1 = bound.trait_name + "::" + concrete_str;
             auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
             if (impls_.count(key1) || (!key2.empty() && impls_.count(key2))) continue;
@@ -436,6 +456,19 @@ void SemaChecker::collect_trait(TinyMapView node) {
     SemaTraitInfo info;
     info.name = tname;
     info.is_genos = (code_of(node) == la::GENOS_DEF);
+    // Read auto marker
+    if (node.has_key(la::IS_AUTO)) {
+        AnyVal av = node.get(la::IS_AUTO);
+        info.is_auto = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
+    // Validate: auto traits must have an empty body
+    if (info.is_auto && node.has_key(la::ITEMS)) {
+        auto items = arr_of(node.get(la::ITEMS.code));
+        if (items.size() > 0) {
+            error(std::format("auto trait '{}' must have an empty body", tname));
+            return;
+        }
+    }
     // Read unsafe marker
     if (node.has_key(la::IS_UNSAFE)) {
         AnyVal av = node.get(la::IS_UNSAFE);
@@ -1008,7 +1041,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             if (tit->second.is_unsafe && !impl_is_unsafe)
                 error(std::format("impl {} for {}: implementing unsafe trait requires `unsafe impl`",
                       trait_name, target));
-            if (!tit->second.is_unsafe && impl_is_unsafe)
+            if (!tit->second.is_unsafe && impl_is_unsafe && !tit->second.is_auto)
                 error(std::format("impl {} for {}: `unsafe impl` for a safe trait",
                       trait_name, target));
         }

@@ -48,7 +48,7 @@
     INCLUSIVE   = 26
     TYPE_PARAMS = 27
     PARENT      = 28
-    IS_ABSTRACT = 29
+    IS_AUTO     = 29
     IS_VARARG   = 30
     ITER        = 31
     IS_VARIADIC = 32
@@ -248,6 +248,7 @@
     KW_PACKAGE  = "package"
     KW_EIDOS = "eidos"
     KW_GENOS    = "genos"
+    KW_AUTO     = "auto"
     KW_META     = "meta"
     KW_STATIC   = "static"
     KW_RETURN   = "return"
@@ -491,7 +492,15 @@
               / KW_GENOS IDENT LBRACE trait_method* meta_block? RBRACE
               => { CODE: GENOS_DEF, NAME: $2, ITEMS: $..., META: $5 }
 
-    pub_trait_def <- KW_PUB KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+    pub_trait_def <- KW_PUB KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
+                  / KW_PUB KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
+                  / KW_PUB KW_AUTO trait_kw IDENT super_list LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
+                  / KW_PUB KW_AUTO trait_kw IDENT LBRACE trait_method* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, ITEMS: $... }
+                  / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
                   / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
@@ -508,7 +517,15 @@
                   / KW_PUB trait_kw IDENT LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, ITEMS: $... }
 
-    trait_def <- KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+    trait_def <- KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
+              / KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
+              / KW_AUTO trait_kw IDENT super_list LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
+              / KW_AUTO trait_kw IDENT LBRACE trait_method* RBRACE
+              => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, ITEMS: $... }
+              / KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
               / KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
               => { CODE: TRAIT_DEF, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }

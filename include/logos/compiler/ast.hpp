@@ -55,6 +55,7 @@ inline constexpr Key TYPE_PARAMS{"TYPE_PARAMS", 27}; // generic type parameter l
 inline constexpr Key PARENT     {"PARENT",      28}; // parent class name (string)
 inline constexpr Key IS_VARARG  {"IS_VARARG",   30}; // vararg flag for extern fn (bool)
 inline constexpr Key ITER       {"ITER",        31}; // iterable expr for for-each
+inline constexpr Key IS_AUTO    {"IS_AUTO",     29}; // auto trait marker (1 = auto)
 
 // ── Node codes ───────────────────────────────────────────────────────────
 

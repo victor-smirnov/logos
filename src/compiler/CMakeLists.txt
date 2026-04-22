@@ -62,6 +62,7 @@ add_executable(logosc
     reflection_emit.cpp
     sema.cpp
     sema_collect.cpp
+    sema_auto_trait.cpp
     sema_expr.cpp
     sema_stmt.cpp
     sema_decl.cpp

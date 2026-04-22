@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// Auto trait fail: struct with a *mut i32 field cannot satisfy T: Send
+// because raw pointers are hardcoded !Send.
+
+package auto_trait_send_raw_ptr;
+
+use std;
+
+struct NotSend {
+    ptr: *mut i32,
+}
+
+fn transfer<T: Send>(val: T) -> i32 {
+    return 42;
+}
+
+unsafe fn main() -> i32 {
+    let ns: NotSend = NotSend { ptr: 0 as *mut i32 };
+    return transfer::<NotSend>(ns);
+}

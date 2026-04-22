@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos stdlib — std/marker: concurrency safety marker traits.
+//
+// Send — a type is safe to transfer across thread boundaries.
+// Sync — a type is safe to share by reference across threads (&T is Send iff T: Sync).
+//
+// Both traits are auto traits: the compiler synthesizes implementations from
+// field types.  Raw pointers (*mut T / *const T) are hardcoded !Send / !Sync.
+// To opt in for a type with raw-pointer fields, write:
+//   unsafe impl Send for MyType {}
+
+package std;
+
+pub auto trait Send {}
+pub auto trait Sync {}

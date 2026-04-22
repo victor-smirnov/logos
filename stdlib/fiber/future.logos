@@ -22,14 +22,14 @@ extern fn logos_thread_get() -> *mut u8;
 
 // ── FutureSlot<T> ─────────────────────────────────────────────────────────
 
-pub struct FutureSlot<T> {
+pub struct FutureSlot<T: Send> {
     value_ptr:  *mut T,   // null until complete; heap-allocated, freed by get()
     waiter:     i64,      // *mut Fiber of the suspended consumer, or 0
     waiter_thr: i64,      // *mut Thread of consumer as i64 (0 = same-thread)
 }
 
 // Allocate a new slot (both producer and consumer share this pointer).
-pub fn future_slot_new<T>() -> *mut FutureSlot<T> {
+pub fn future_slot_new<T: Send>() -> *mut FutureSlot<T> {
     let raw: *mut u8 = alloc(sizeof::<FutureSlot<T>>());
     let slot: *mut FutureSlot<T> = raw as *mut FutureSlot<T>;
     unsafe {
@@ -41,7 +41,7 @@ pub fn future_slot_new<T>() -> *mut FutureSlot<T> {
 }
 
 // Producer side: store val and wake the waiting consumer (if any).
-pub fn future_complete<T>(slot: *mut FutureSlot<T>, val: T) {
+pub fn future_complete<T: Send>(slot: *mut FutureSlot<T>, val: T) {
     let vp: *mut T = alloc(sizeof::<T>()) as *mut T;
     unsafe { *vp = val; }
     unsafe { slot.value_ptr = vp; }
@@ -64,7 +64,7 @@ pub fn future_complete<T>(slot: *mut FutureSlot<T>, val: T) {
 // Consumer side: return value immediately if ready; otherwise suspend until
 // the producer calls future_complete.
 // The caller is responsible for freeing the slot after get() returns.
-pub fn future_get<T>(slot: *mut FutureSlot<T>) -> T {
+pub fn future_get<T: Send>(slot: *mut FutureSlot<T>) -> T {
     // Fast path: value already available.
     let vp0: i64 = unsafe { slot.value_ptr } as i64;
     if vp0 != 0 {

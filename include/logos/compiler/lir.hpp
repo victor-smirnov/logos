@@ -730,6 +730,7 @@ struct LTraitDef {
     uint64_t                       type_code = 0;       // #[type_code=N] — genos identity;
                                                         // propagates to each eidos via `impl Trait for Eidos`
     bool                           is_genos  = false;   // declared with `genos` keyword (not `trait`)
+    bool                           is_auto   = false;   // declared with `auto trait` (compiler-synthesized impls)
     std::shared_ptr<HermesVal>     meta_val;             // meta @{...} block; null if absent
 };
 

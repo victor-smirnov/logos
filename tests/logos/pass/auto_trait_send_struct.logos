@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+// Auto trait test: a plain struct (no raw-pointer fields) automatically
+// satisfies Send because all its fields are scalars.
+
+package auto_trait_send_struct;
+
+use std;
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn transfer<T: Send>(val: T) -> i32 {
+    return 1;
+}
+
+unsafe fn main() -> i32 {
+    let p: Point = Point { x: 21, y: 21 };
+    let ok: i32 = transfer::<Point>(p);
+    return ok * 42;
+}

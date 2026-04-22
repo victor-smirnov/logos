@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+// Auto trait test: a struct with a raw-pointer field opts in to Send via
+// `unsafe impl Send for MyBuf {}`.  Without the impl, T: Send would reject it.
+
+package auto_trait_unsafe_impl;
+
+use std;
+
+struct MyBuf {
+    ptr: *mut i32,
+    len: i32,
+}
+
+unsafe impl Send for MyBuf {}
+
+fn transfer<T: Send>(val: T) -> i32 {
+    return 42;
+}
+
+unsafe fn main() -> i32 {
+    let buf: MyBuf = MyBuf { ptr: 0 as *mut i32, len: 0 };
+    return transfer::<MyBuf>(buf);
+}

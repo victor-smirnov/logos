@@ -457,6 +457,7 @@ private:
         std::vector<TraitBound> supertraits;  // e.g. [{Display,[]}, {Into,[i32]}] for trait Foo: Display + Into<i32>
         bool is_unsafe = false;               // declared as `unsafe trait`
         bool is_genos  = false;               // declared with `genos` keyword
+        bool is_auto   = false;               // declared with `auto trait`
     };
     struct SemaImplInfo {
         std::string trait_name;
@@ -767,6 +768,20 @@ private:
     lir::LStructDef lower_spec_struct(hermes::TinyMapView node);
     lir::LFunction lower_spec_fn(hermes::TinyMapView node);
     void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
+
+    // ── Auto trait satisfaction ───────────────────────────────────
+
+    // Recursively checks whether type T satisfies auto trait `trait_name`
+    // (e.g. "Send" or "Sync"). Returns true if satisfied.
+    bool is_auto_trait_satisfied(const LogosType* T, std::string_view trait_name,
+                                  std::unordered_set<std::string>& visited);
+
+    // Set by is_auto_trait_satisfied when it finds a non-satisfying field.
+    struct AutoTraitOffender {
+        std::string      field_name;
+        const LogosType* field_ty = nullptr;
+    };
+    AutoTraitOffender last_offender_;
 
     // ── Loop depth / return type ─────────────────────────────────
 

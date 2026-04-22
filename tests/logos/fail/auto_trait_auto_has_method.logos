@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// Auto trait fail: auto traits must have an empty body.
+// Declaring a method inside one is a compile error.
+
+package auto_trait_auto_has_method;
+
+auto trait Bad {
+    fn do_thing() -> i32;
+}
+
+unsafe fn main() -> i32 {
+    return 0;
+}
