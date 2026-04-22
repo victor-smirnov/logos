@@ -9,73 +9,33 @@ fn main() -> i32 {
         let mut ring: IoRing = io_ring_new(8);
         if !ring.is_valid() { return 1; }
 
-        // Build null-terminated path "/tmp/logos_io_ring_test.txt" on the heap
-        // so we have a stable pointer into contiguous memory.
-        let path_buf: *mut u8 = alloc(32 as i64);
-        path_buf[0]  = 47;   // '/'
-        path_buf[1]  = 116;  // 't'
-        path_buf[2]  = 109;  // 'm'
-        path_buf[3]  = 112;  // 'p'
-        path_buf[4]  = 47;   // '/'
-        path_buf[5]  = 108;  // 'l'
-        path_buf[6]  = 111;  // 'o'
-        path_buf[7]  = 103;  // 'g'
-        path_buf[8]  = 111;  // 'o'
-        path_buf[9]  = 115;  // 's'
-        path_buf[10] = 95;   // '_'
-        path_buf[11] = 105;  // 'i'
-        path_buf[12] = 111;  // 'o'
-        path_buf[13] = 95;   // '_'
-        path_buf[14] = 114;  // 'r'
-        path_buf[15] = 105;  // 'i'
-        path_buf[16] = 110;  // 'n'
-        path_buf[17] = 103;  // 'g'
-        path_buf[18] = 95;   // '_'
-        path_buf[19] = 116;  // 't'
-        path_buf[20] = 101;  // 'e'
-        path_buf[21] = 115;  // 's'
-        path_buf[22] = 116;  // 't'
-        path_buf[23] = 46;   // '.'
-        path_buf[24] = 116;  // 't'
-        path_buf[25] = 120;  // 'x'
-        path_buf[26] = 116;  // 't'
-        path_buf[27] = 0;    // null terminator
+        // Path: "/tmp/logos_io_ring_test.txt\0" (28 bytes + padding)
+        let mut path: [u8; 31] = [
+            47, 116, 109, 112, 47,           // /tmp/
+            108, 111, 103, 111, 115, 95,     // logos_
+            105, 111, 95, 114, 105, 110,     // io_rin
+            103, 95, 116, 101, 115, 116,     // g_test
+            46, 116, 120, 116, 0,            // .txt\0
+            0, 0, 0                          // padding
+        ];
 
-        // Open (create + truncate) — O_RDWR|O_CREAT|O_TRUNC = 2|64|512 = 578, mode 0o666 = 438
-        let fd: i32 = io_ring_openat(&mut ring, AT_FDCWD(), path_buf, 578, 438);
-        dealloc(path_buf);
+        // Open (create + truncate) — O_RDWR|O_CREAT|O_TRUNC = 578, mode 0o666 = 438
+        let fd: i32 = io_ring_openat(&mut ring, AT_FDCWD(), &path[0], 578, 438);
         if fd < 0 { io_ring_free(&mut ring); return 2; }
 
-        // Write "Hello\n" (6 bytes) from a heap buffer
-        let wbuf: *mut u8 = alloc(8 as i64);
-        wbuf[0] = 72;   // 'H'
-        wbuf[1] = 101;  // 'e'
-        wbuf[2] = 108;  // 'l'
-        wbuf[3] = 108;  // 'l'
-        wbuf[4] = 111;  // 'o'
-        wbuf[5] = 10;   // '\n'
-        let nw: i32 = io_ring_write(&mut ring, fd, wbuf, 6, 0 as i64);
-        dealloc(wbuf);
+        // Write "Hello\n" (6 bytes)
+        let mut wbuf: [u8; 8] = [72, 101, 108, 108, 111, 10, 0, 0];
+        let nw: i32 = io_ring_write(&mut ring, fd, &wbuf[0], 6, 0 as i64);
         if nw != 6 { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 3; }
 
         // Read back from offset 0
-        let rbuf: *mut u8 = alloc(8 as i64);
-        rbuf[0] = 0; rbuf[1] = 0; rbuf[2] = 0;
-        rbuf[3] = 0; rbuf[4] = 0; rbuf[5] = 0;
-        let nr: i32 = io_ring_read(&mut ring, fd, rbuf, 6, 0 as i64);
-        if nr != 6 {
-            dealloc(rbuf);
-            io_ring_close(&mut ring, fd);
-            io_ring_free(&mut ring);
-            return 4;
-        }
+        let mut rbuf: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+        let nr: i32 = io_ring_read(&mut ring, fd, &mut rbuf[0], 6, 0 as i64);
+        if nr != 6 { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 4; }
 
         // Verify: 'H'=72, 'o'=111
-        let b0: u8 = rbuf[0];
-        let b4: u8 = rbuf[4];
-        dealloc(rbuf);
-        if b0 != 72  { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 5; }
-        if b4 != 111 { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 6; }
+        if rbuf[0] != 72  { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 5; }
+        if rbuf[4] != 111 { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 6; }
 
         let rc: i32 = io_ring_close(&mut ring, fd);
         if rc < 0 { io_ring_free(&mut ring); return 7; }
