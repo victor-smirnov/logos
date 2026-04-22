@@ -6,6 +6,8 @@
 // Chan<T> — bounded buffered channel; sender or receiver suspends when full/empty.
 //
 // All primitives are single-thread only (no cross-thread use).
+// Chan<T> supports at most one concurrent suspended sender AND one concurrent
+// suspended receiver.  Violating this invariant causes deadlock.
 
 package fiber;
 
@@ -33,7 +35,10 @@ pub fn latch_free(l: *mut Latch) {
 
 // Called by workers; wakes waiter when count reaches 0.
 pub fn latch_count_down(l: *mut Latch) {
-    let c: i64 = unsafe { l.count } - 1;
+    // Bug 4 fix: guard against underflow — extra count_down calls are no-ops.
+    let cur_count: i64 = unsafe { l.count };
+    if cur_count <= 0 { return; }
+    let c: i64 = cur_count - 1;
     unsafe { l.count = c; }
     if c == 0 {
         let waiter: i64 = unsafe { l.waiter };
@@ -94,6 +99,9 @@ pub fn chan_new<T>(cap: i64) -> *mut Chan<T> {
 }
 
 pub fn chan_free<T>(ch: *mut Chan<T>) {
+    // Bug 3 fix: free any heap-allocated pending send value.
+    let sv: i64 = unsafe { ch.send_val };
+    if sv != 0 { dealloc(sv as *mut u8); }
     let buf: *mut u8 = unsafe { ch.buf };
     dealloc(buf);
     dealloc(ch as *mut u8);
@@ -101,26 +109,30 @@ pub fn chan_free<T>(ch: *mut Chan<T>) {
 
 // Write one item into the ring (caller guarantees len < cap).
 fn chan_ring_write<T>(ch: *mut Chan<T>, val: T) {
-    let sz:   i64    = unsafe { ch.elem_size };
-    let tail: i64    = unsafe { ch.tail };
-    let cap:  i64    = unsafe { ch.cap };
+    let sz:   i64     = unsafe { ch.elem_size };
+    let tail: i64     = unsafe { ch.tail };
+    let cap:  i64     = unsafe { ch.cap };
     let buf:  *mut u8 = unsafe { ch.buf };
-    let slot: *mut T = (buf as i64 + tail * sz) as *mut T;
+    let slot: *mut T  = (buf as i64 + tail * sz) as *mut T;
     unsafe { *slot = val; }
     unsafe { ch.tail = (tail + 1) % cap; }
-    unsafe { ch.len  = unsafe { ch.len } + 1; }
+    // Bug 1 fix: read len into local before incrementing (no nested unsafe).
+    let old_len: i64 = unsafe { ch.len };
+    unsafe { ch.len = old_len + 1; }
 }
 
 // Read one item from the ring (caller guarantees len > 0).
 fn chan_ring_read<T>(ch: *mut Chan<T>) -> T {
-    let sz:   i64     = unsafe { ch.elem_size };
-    let head: i64     = unsafe { ch.head };
-    let cap:  i64     = unsafe { ch.cap };
+    let sz:   i64       = unsafe { ch.elem_size };
+    let head: i64       = unsafe { ch.head };
+    let cap:  i64       = unsafe { ch.cap };
     let buf:  *const u8 = unsafe { ch.buf } as *const u8;
     let slot: *const T  = (buf as i64 + head * sz) as *const T;
-    let val: T = unsafe { *slot };
+    let val: T          = unsafe { *slot };
     unsafe { ch.head = (head + 1) % cap; }
-    unsafe { ch.len  = unsafe { ch.len } - 1; }
+    // Bug 2 fix: read len into local before decrementing (no nested unsafe).
+    let old_len: i64 = unsafe { ch.len };
+    unsafe { ch.len = old_len - 1; }
     return val;
 }
 
@@ -140,6 +152,11 @@ pub fn chan_send<T>(ch: *mut Chan<T>, val: T) {
         }
         return;
     }
+
+    // Bug 5 fix: enforce single-suspended-sender invariant.
+    // A second concurrent sender would silently overwrite the first, causing deadlock.
+    let existing_sf: i64 = unsafe { ch.send_fiber };
+    if existing_sf != 0 { return; }  // caller error: multiple concurrent senders
 
     // Channel full — heap-copy val and suspend.
     let vp: *mut T = alloc(sizeof::<T>()) as *mut T;
@@ -177,6 +194,14 @@ pub fn chan_recv<T>(ch: *mut Chan<T>) -> T {
             sched_enqueue(s, sf);
         }
         return val;
+    }
+
+    // Bug 5 fix: enforce single-suspended-receiver invariant.
+    let existing_rf: i64 = unsafe { ch.recv_fiber };
+    if existing_rf != 0 {
+        // Caller error: multiple concurrent receivers — return zero value.
+        let zero: T = unsafe { *(0 as *const T) };
+        return zero;
     }
 
     // Channel empty — suspend until a sender arrives.
