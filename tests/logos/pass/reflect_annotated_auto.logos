@@ -1,0 +1,41 @@
+// Verify that annotated datatypes are automatically available via reflect::<T>()
+// even without an explicit reflect::<T>() call elsewhere in the program.
+package reflect_annotated_auto;
+
+use std.reflect;
+use hermes.string;
+
+#[annotation]
+eidos Deprecated {
+    msg: str,
+    since: str,
+}
+
+// MyData is annotated but we never call reflect::<MyData>() explicitly before main.
+// reflection_emit should still emit its TypeInfo because it has annotations.
+#[Deprecated(msg="legacy", since="1.0")]
+eidos MyData {
+    value: i32,
+}
+
+unsafe fn main() -> i32 {
+    let info: TypeInfo = TypeInfo::<MyData>::make();
+
+    // Must be a datatype (kind == 2)
+    if !info.is_datatype() { return 1; }
+
+    // Must have exactly 1 annotation
+    if info.annotation_count() != 1 { return 2; }
+
+    // The annotation type name must be non-empty
+    let anns: AnnotationsView = info.annotations();
+    let a0: AnnotationInfo = anns.get(0);
+    let tname: StringView = a0.type_name();
+    if tname.len == 0 { return 3; }
+
+    // "msg" field must be "legacy"
+    let msg: StringView = a0.get_str("msg");
+    if msg.len == 0 { return 4; }
+
+    return 42;
+}
