@@ -1569,6 +1569,156 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{is_plain ? 1LL : 0LL});
     }
 
+    // has_annotation::<T, A>() -> bool  (compile-time const-fold)
+    // Returns true if datatype T has a user annotation of type A attached.
+    if (callee == "has_annotation") {
+        auto ts = collect_type_args();
+        if (ts.size() != 2 || !ts[0] || !ts[1]) {
+            error("has_annotation::<T, A>() requires exactly two type arguments");
+            return error_expr();
+        }
+        const LogosType* T = ts[0];
+        const LogosType* A = ts[1];
+        // Look up A's annotation type name
+        if (A->kind != LogosType::Kind::Datatype) {
+            error("has_annotation: second type argument must be an annotation datatype");
+            return error_expr();
+        }
+        std::string a_fqn;
+        {
+            auto [apkg, asi] = find_datatype_by_name(A->struct_name);
+            if (!asi || !asi->is_annotation_type) {
+                error(std::format("has_annotation: '{}' is not an annotation type", A->struct_name));
+                return error_expr();
+            }
+            a_fqn = apkg.empty() ? A->struct_name : apkg + "::" + A->struct_name;
+        }
+        bool found = false;
+        if (T->kind == LogosType::Kind::Datatype && cur_prog_) {
+            for (auto& sd : cur_prog_->structs) {
+                if (sd.name == T->struct_name || (!T->pkg_name.empty() && sd.name == T->struct_name)) {
+                    for (auto& inst : sd.annotations)
+                        if (inst.ann_fqn == a_fqn || inst.ann_name == A->struct_name)
+                            { found = true; break; }
+                    break;
+                }
+            }
+        }
+        return bool_lit(found);
+    }
+
+    // get_annotation::<T, A>() -> Option<A>  (compile-time const-fold)
+    // Returns Option<A>::Some(A{...}) if T has annotation A, else Option<A>::None.
+    if (callee == "get_annotation") {
+        auto ts = collect_type_args();
+        if (ts.size() != 2 || !ts[0] || !ts[1]) {
+            error("get_annotation::<T, A>() requires exactly two type arguments");
+            return error_expr();
+        }
+        const LogosType* T = ts[0];
+        const LogosType* A = ts[1];
+        if (A->kind != LogosType::Kind::Datatype) {
+            error("get_annotation: second type argument must be an annotation datatype");
+            return error_expr();
+        }
+        std::string a_fqn, a_pkg;
+        SemaStructInfo* a_info = nullptr;
+        {
+            auto [apkg, asi] = find_datatype_by_name(A->struct_name);
+            if (!asi || !asi->is_annotation_type) {
+                error(std::format("get_annotation: '{}' is not an annotation type", A->struct_name));
+                return error_expr();
+            }
+            a_fqn = apkg.empty() ? A->struct_name : apkg + "::" + A->struct_name;
+            a_pkg = std::string(apkg);
+            a_info = asi;
+        }
+        // Find Option enum — must be imported
+        auto [opt_pkg, opt_esi] = find_enum_by_name("Option");
+        if (!opt_esi) {
+            error("get_annotation: 'Option' enum not in scope (add 'use std;')");
+            return error_expr();
+        }
+        // Find Some/None disc values
+        int64_t some_disc = -1, none_disc = -1;
+        for (auto& v : opt_esi->variants) {
+            if (v.name == "Some") some_disc = v.value;
+            else if (v.name == "None") none_disc = v.value;
+        }
+        // Build Option<A> type
+        LogosType opt_type; opt_type.kind = LogosType::Kind::Enum;
+        opt_type.enum_name = "Option";
+        if (!opt_pkg.empty()) opt_type.pkg_name = opt_pkg;
+        opt_type.type_args = {A};
+        const LogosType* result_type = pool_.alloc(std::move(opt_type));
+        // Build Datatype<A> type for the struct literal
+        const LogosType* a_type = A;  // already a Datatype type
+        // Find the annotation instance on T
+        const lir::LAnnotationInstance* found_inst = nullptr;
+        if (T->kind == LogosType::Kind::Datatype && cur_prog_) {
+            for (auto& sd : cur_prog_->structs) {
+                if (sd.name == T->struct_name) {
+                    for (auto& inst : sd.annotations)
+                        if (inst.ann_fqn == a_fqn || inst.ann_name == A->struct_name)
+                            { found_inst = &inst; break; }
+                    break;
+                }
+            }
+        }
+        if (!found_inst) {
+            // Return Option::None
+            return make_expr(result_type,
+                lir::EEnumLit{"Option", "None", none_disc});
+        }
+        // Materialize the annotation as A{field: value, ...}
+        // Helper: convert LAnnotationValue to LExprPtr
+        std::function<lir::LExprPtr(const lir::LAnnotationValue&, const LogosType*)> annot_val_to_expr;
+        annot_val_to_expr = [&](const lir::LAnnotationValue& av, const LogosType* expected) -> lir::LExprPtr {
+            using K = lir::LAnnotationValue::Kind;
+            switch (av.kind) {
+            case K::Int:   return make_expr(expected ? expected : prim(LogosType::Kind::I64), lir::ELitInt{av.i});
+            case K::Float: return make_expr(expected ? expected : prim(LogosType::Kind::F64), lir::ELitFloat{av.f});
+            case K::Bool:  return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{av.i});
+            case K::Str:   return make_expr(make_slice_type(u8_t()), lir::ELitStr{av.s});
+            case K::Enum:  {
+                // Emit as enum literal: av.enum_name::av.enum_variant
+                auto [epkg2, esi2] = find_enum_by_name(av.enum_name);
+                int64_t disc2 = 0;
+                if (esi2) for (auto& v : esi2->variants)
+                    if (v.name == av.enum_variant) { disc2 = v.value; break; }
+                auto* etype = make_enum_type(av.enum_name, epkg2);
+                return make_expr(etype, lir::EEnumLit{av.enum_name, av.enum_variant, disc2});
+            }
+            case K::Array: {
+                std::vector<lir::LExprPtr> elems;
+                const LogosType* elem_t = (expected && expected->kind == LogosType::Kind::Array)
+                                          ? expected->elem : nullptr;
+                for (auto& item : av.arr) elems.push_back(annot_val_to_expr(item, elem_t));
+                LogosType at; at.kind = LogosType::Kind::Array;
+                at.elem = elem_t ? elem_t : (elems.empty() ? prim(LogosType::Kind::I64) : elems[0]->type);
+                at.arr_size = (int64_t)elems.size();
+                return make_expr(pool_.alloc(std::move(at)), lir::EArrLit{std::move(elems)});
+            }
+            }
+            return error_expr();
+        };
+        // Build field list for the struct literal
+        std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+        for (auto& [fname, fval] : found_inst->kv) {
+            // Find expected type from annotation type's fields
+            const LogosType* ftype = nullptr;
+            if (a_info) for (auto& f : a_info->fields)
+                if (f.name == fname) { ftype = f.type; break; }
+            fields.emplace_back(fname, annot_val_to_expr(fval, ftype));
+        }
+        auto struct_expr = make_expr(a_type, lir::EStructLit{A->struct_name, std::move(fields)});
+        // Wrap in Option<A>::Some(struct_expr)
+        std::vector<lir::LExprPtr> payload;
+        payload.push_back(std::move(struct_expr));
+        return make_expr(result_type,
+            lir::EEnumLitData{"Option", "Some", some_disc, std::move(payload)});
+    }
+
     size_t n_args = 0;
     if (node.has_key(la::ARGS)) {
         AnyVal args_av = node.get(la::ARGS.code);

@@ -1,0 +1,59 @@
+package annotation_has_get;
+use std.option;
+
+#[annotation]
+eidos Deprecated {
+    msg: str,
+    since: str,
+}
+
+#[annotation]
+eidos Priority {
+    level: i32,
+}
+
+#[Deprecated(msg="use v2", since="0.3")]
+eidos OldApi {
+    x: i32,
+}
+
+#[Priority(level=5)]
+eidos Urgent {
+    y: i32,
+}
+
+// No annotations — plain datatype
+eidos Plain {
+    z: i32,
+}
+
+fn main() -> i32 {
+    // has_annotation checks
+    let has_dep_old: bool = has_annotation::<OldApi, Deprecated>();
+    let has_pri_old: bool = has_annotation::<OldApi, Priority>();
+    let has_dep_pln: bool = has_annotation::<Plain, Deprecated>();
+    let has_pri_urg: bool = has_annotation::<Urgent, Priority>();
+
+    if !has_dep_old { return 1; }
+    if has_pri_old  { return 2; }
+    if has_dep_pln  { return 3; }
+    if !has_pri_urg { return 4; }
+
+    // get_annotation — Some path
+    let opt: Option<Deprecated> = get_annotation::<OldApi, Deprecated>();
+    match opt {
+        Option::Some(d) => {
+            // msg and since are str slices; just verify it compiled and ran
+        }
+        Option::None => { return 5; }
+    }
+
+    // get_annotation — None path
+    let opt2: Option<Priority> = get_annotation::<OldApi, Priority>();
+    match opt2 {
+        Option::Some(p) => { return 6; }
+        Option::None => {}
+    }
+
+    return 42;
+}

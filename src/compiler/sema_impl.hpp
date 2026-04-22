@@ -218,6 +218,7 @@ private:
     const std::vector<bool>*        from_binary_  = nullptr;
     std::string  file_;
     std::string  cur_package_;
+    lir::LProgram* cur_prog_ = nullptr;  // set during lower_module_items, used by lower_generic_call
     bool         cur_from_binary_ = false;   // current file is from a binary module
     uint32_t     node_line_ = 0;
 

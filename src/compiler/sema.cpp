@@ -1974,6 +1974,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
 
+    cur_prog_ = &prog;
+
     // Annotations accumulate until the next non-annotation item, then are consumed.
     std::vector<TinyMapView> pending_annots;
 
