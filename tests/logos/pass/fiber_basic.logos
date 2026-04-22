@@ -1,0 +1,39 @@
+// Fiber runtime step-1 smoke test.
+// Spawns 3 fibers.  Each increments a shared counter stored on main's stack.
+// After sched_run() all 3 must have executed → counter == 3 → exit 42.
+
+package fiber_basic;
+
+use fiber;
+
+// Fiber body: arg is a *mut i32 counter cast to i64.
+fn inc_counter(arg: i64) {
+    let p: *mut i32 = arg as *mut i32;
+    unsafe {
+        let v: i32 = *p;
+        *p = v + 1;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+
+    // Register scheduler before spawning so spawn() can enqueue fibers.
+    sched_set_current(s);
+
+    let counter: i32 = 0;
+    let cptr: i64 = &counter as *const i32 as i64;
+
+    spawn(inc_counter, cptr);
+    spawn(inc_counter, cptr);
+    spawn(inc_counter, cptr);
+
+    sched_run(s);
+    sched_free(s);
+
+    // counter should be 3; return 42 on success
+    if counter == 3 {
+        return 42;
+    }
+    return counter;  // fail: return actual count for debugging
+}

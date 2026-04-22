@@ -52,5 +52,8 @@ add_subdirectory(tools/hrpc_gen)
 add_subdirectory(tools/logos-audit)
 add_subdirectory(examples)
 
+# Logos stdlib native runtime (fiber context switch, etc.)
+add_subdirectory(stdlib/rt)
+
 # Tests
 add_subdirectory(tests/logos)

@@ -1,0 +1,258 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos stdlib — fiber runtime (step 1: single-thread cooperative scheduler).
+//
+// Native dependency: stdlib/rt/fiber_ctx.S (compiled into liblogos_rt.a).
+// All scheduler logic lives here in pure Logos.
+
+package fiber;
+
+use std.mem;
+
+// ── Native symbols from fiber_ctx.S ────────────────────────────────────────
+
+// Save current register state into *from, restore from *to, return into 'to'.
+extern fn logos_fiber_switch(from: *mut FiberCtx, to: *const FiberCtx);
+
+// Returns the address of the logos_fiber_entry trampoline as a raw integer.
+extern fn logos_get_fiber_entry_addr() -> i64;
+
+// Per-thread scheduler pointer (stored in fiber_ctx.S .data section).
+extern fn logos_sched_get() -> *mut u8;
+extern fn logos_sched_set(ptr: *mut u8);
+
+// ── OS primitives ──────────────────────────────────────────────────────────
+
+extern fn mmap(addr: *mut u8, len: i64, prot: i32, flags: i32,
+               fd: i32, offset: i64) -> *mut u8;
+extern fn mprotect(addr: *mut u8, len: i64, prot: i32) -> i32;
+extern fn munmap(addr: *mut u8, len: i64) -> i32;
+
+// ── Constants ─────────────────────────────────────────────────────────────
+
+const STACK_SIZE:    i64 = 262144;  // 256 KiB usable stack per fiber
+const GUARD_SIZE:    i64 = 4096;    // 4 KiB guard page (catches overflow)
+
+const PROT_NONE:     i32 = 0;
+const PROT_READ:     i32 = 1;
+const PROT_WRITE:    i32 = 2;
+const MAP_PRIVATE:   i32 = 2;
+const MAP_ANONYMOUS: i32 = 32;     // Linux MAP_ANONYMOUS = 0x20
+
+// ── FiberCtx ───────────────────────────────────────────────────────────────
+//
+// Maps 1:1 to the register save area in fiber_ctx.S.
+// Field order and sizes MUST NOT change without updating the asm offsets.
+
+pub struct FiberCtx {
+    rbp: i64,
+    rbx: i64,
+    r12: i64,   // entry fn ptr for new fibers
+    r13: i64,   // entry arg for new fibers
+    r14: i64,
+    r15: i64,
+    rsp: i64,   // saved stack pointer (return addr on top)
+}
+
+// ── Fiber ─────────────────────────────────────────────────────────────────
+
+pub struct Fiber {
+    ctx:        FiberCtx,
+    stack_base: *mut u8,
+    stack_size: i64,
+}
+
+// ── Scheduler ─────────────────────────────────────────────────────────────
+//
+// Simple circular-buffer FIFO run queue.
+// Fields are flat (no nested struct pointer arithmetic needed).
+
+pub struct Scheduler {
+    // Circular buffer of *mut Fiber stored as i64.
+    ready_buf:  *mut i64,
+    ready_head: i64,
+    ready_tail: i64,
+    ready_cap:  i64,
+
+    current:      i64,   // *mut Fiber of the running fiber, or 0
+    pending_free: i64,   // *mut Fiber to free after the next scheduler switch
+
+    sched_ctx: FiberCtx,
+}
+
+// ── Internal queue helpers ─────────────────────────────────────────────────
+
+fn sched_enqueue(s: *mut Scheduler, fptr: i64) {
+    unsafe {
+        let slot: *mut i64 = (s.ready_buf as i64 + s.ready_tail * 8) as *mut i64;
+        *slot = fptr;
+        s.ready_tail = (s.ready_tail + 1) % s.ready_cap;
+    }
+}
+
+fn sched_dequeue(s: *mut Scheduler) -> i64 {
+    unsafe {
+        let slot: *const i64 = (s.ready_buf as i64 + s.ready_head * 8) as *const i64;
+        let val: i64 = *slot;
+        s.ready_head = (s.ready_head + 1) % s.ready_cap;
+        return val;
+    }
+}
+
+fn sched_empty(s: *const Scheduler) -> bool {
+    unsafe { return s.ready_head == s.ready_tail; }
+}
+
+// ── Public API ─────────────────────────────────────────────────────────────
+
+// Allocate and initialise a new scheduler.  The caller owns it and must
+// call sched_free() when done.
+pub fn sched_new() -> *mut Scheduler {
+    let raw: *mut u8 = alloc(sizeof::<Scheduler>());
+    let s: *mut Scheduler = raw as *mut Scheduler;
+    let buf: *mut u8 = alloc(256 * 8);
+    unsafe {
+        s.ready_buf  = buf as *mut i64;
+        s.ready_head = 0;
+        s.ready_tail = 0;
+        s.ready_cap  = 256;
+        s.current      = 0;
+        s.pending_free = 0;
+        s.sched_ctx.rbp = 0;
+        s.sched_ctx.rbx = 0;
+        s.sched_ctx.r12 = 0;
+        s.sched_ctx.r13 = 0;
+        s.sched_ctx.r14 = 0;
+        s.sched_ctx.r15 = 0;
+        s.sched_ctx.rsp = 0;
+    }
+    return s;
+}
+
+// Register this scheduler as the current one for this thread.
+// Must be called before spawn() or yield_fiber().
+pub fn sched_set_current(s: *mut Scheduler) {
+    unsafe { logos_sched_set(s as *mut u8); }
+}
+
+// Free scheduler and its queue buffer (does NOT free pending fibers).
+pub fn sched_free(s: *mut Scheduler) {
+    unsafe {
+        dealloc(s.ready_buf as *mut u8);
+        dealloc(s as *mut u8);
+    }
+}
+
+// Spawn a fiber that will call f(arg) on a fresh stack.
+// The scheduler must have been set via logos_sched_set (sched_run does this).
+pub fn spawn(f: fn(i64) -> (), arg: i64) {
+    let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+
+    // Allocate fiber struct.
+    let fiber: *mut Fiber = alloc(sizeof::<Fiber>()) as *mut Fiber;
+
+    // Allocate stack: guard page at bottom, usable region above.
+    let total: i64 = STACK_SIZE + GUARD_SIZE;
+    let prot_rw: i32 = PROT_READ | PROT_WRITE;
+    let map_flags: i32 = MAP_PRIVATE | MAP_ANONYMOUS;
+    let anon_fd: i32 = 0 - 1;   // -1
+    let base: *mut u8 = unsafe { mmap(0 as *mut u8, total, prot_rw, map_flags, anon_fd, 0) };
+    let _: i32 = unsafe { mprotect(base, GUARD_SIZE, PROT_NONE) };
+
+    // Compute stack top, aligned down to 16 bytes.
+    let top_addr: i64 = (base as i64) + total;
+    let top_aligned: i64 = top_addr & !15;
+
+    // Place the trampoline address as the fake return address on the stack.
+    // logos_fiber_switch restores rsp = top_aligned - 8 and then `ret`
+    // which pops this address and jumps to logos_fiber_entry.
+    let entry_addr: i64 = unsafe { logos_get_fiber_entry_addr() };
+    let ret_slot: *mut i64 = (top_aligned - 8) as *mut i64;
+    unsafe { *ret_slot = entry_addr; }
+
+    // Initialise FiberCtx.
+    let fp: *const u8 = f as *const u8;
+    unsafe {
+        fiber.ctx.rbp = 0;
+        fiber.ctx.rbx = 0;
+        fiber.ctx.r12 = fp as i64;   // entry fn
+        fiber.ctx.r13 = arg;          // entry arg
+        fiber.ctx.r14 = 0;
+        fiber.ctx.r15 = 0;
+        fiber.ctx.rsp = top_aligned - 8;
+        fiber.stack_base = base;
+        fiber.stack_size = total;
+    }
+
+    sched_enqueue(s, fiber as i64);
+}
+
+// Voluntarily yield: push the current fiber back onto the ready queue and
+// switch to the scheduler.  Returns when the scheduler picks us again.
+pub fn yield_fiber() {
+    let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    let cur: i64 = unsafe { s.current };
+    sched_enqueue(s, cur);
+    unsafe { s.current = 0; }
+    let fiber: *mut Fiber = cur as *mut Fiber;
+    let from: *mut FiberCtx = unsafe { &mut fiber.ctx as *mut FiberCtx };
+    let to: *const FiberCtx = unsafe { &s.sched_ctx as *const FiberCtx };
+    unsafe { logos_fiber_switch(from, to); }
+    // Execution resumes here when the scheduler switches back to this fiber.
+}
+
+// Called by the logos_fiber_entry trampoline (fiber_ctx.S) after the fiber
+// function returns.  Notifies the scheduler to free this fiber and switches
+// back to the scheduler context.
+pub fn logos_fiber_done() {
+    let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    let cur: i64 = unsafe { s.current };
+    unsafe {
+        s.current      = 0;
+        s.pending_free = cur;  // scheduler frees after switch
+    }
+    let fiber: *mut Fiber = cur as *mut Fiber;
+    let from: *mut FiberCtx = unsafe { &mut fiber.ctx as *mut FiberCtx };
+    let to: *const FiberCtx = unsafe { &s.sched_ctx as *const FiberCtx };
+    unsafe { logos_fiber_switch(from, to); }
+    // Never reached.
+}
+
+// Run the scheduler until the ready queue is empty.
+// Sets the global scheduler pointer so spawn() and yield_fiber() work.
+pub fn sched_run(s: *mut Scheduler) {
+    unsafe { logos_sched_set(s as *mut u8); }
+
+    while !sched_empty(s) {
+        // Free any fiber that finished in the previous iteration.
+        let pf: i64 = unsafe { s.pending_free };
+        if pf != 0 {
+            let dead: *mut Fiber = pf as *mut Fiber;
+            unsafe {
+                munmap(dead.stack_base, dead.stack_size);
+                dealloc(dead as *mut u8);
+                s.pending_free = 0;
+            }
+        }
+
+        // Dequeue next ready fiber and switch to it.
+        let fptr: i64 = sched_dequeue(s);
+        unsafe { s.current = fptr; }
+        let fiber: *mut Fiber = fptr as *mut Fiber;
+        let from: *mut FiberCtx = unsafe { &mut s.sched_ctx as *mut FiberCtx };
+        let to: *const FiberCtx = unsafe { &fiber.ctx as *const FiberCtx };
+        unsafe { logos_fiber_switch(from, to); }
+        // Returns here when the fiber yields or finishes.
+    }
+
+    // Free the last fiber if it finished without yielding.
+    let pf: i64 = unsafe { s.pending_free };
+    if pf != 0 {
+        let dead: *mut Fiber = pf as *mut Fiber;
+        unsafe {
+            munmap(dead.stack_base, dead.stack_size);
+            dealloc(dead as *mut u8);
+            s.pending_free = 0;
+        }
+    }
+}
