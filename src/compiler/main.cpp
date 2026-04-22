@@ -47,6 +47,9 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
+// LLVM new pass manager (optimization pipeline)
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/Analysis/TargetLibraryInfo.h>
 
 #include <cstdio>
 #include <string>
@@ -54,7 +57,7 @@
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [--emit-mlir] [--emit-llvm]\n");
+        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm]\n");
         return 1;
     }
 
@@ -68,6 +71,7 @@ int main(int argc, char** argv) {
     bool emit_llvm = false;
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::vector<std::string> search_paths;
+    int opt_level = 0;
 
     // Seed search paths from LOGOS_MODULE_PATH (colon-separated).
     if (const char* module_path_env = std::getenv("LOGOS_MODULE_PATH")) {
@@ -88,6 +92,10 @@ int main(int argc, char** argv) {
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
+        else if (arg == "-O0") { opt_level = 0; }
+        else if (arg == "-O1") { opt_level = 1; }
+        else if (arg == "-O2") { opt_level = 2; }
+        else if (arg == "-O3") { opt_level = 3; }
         else if (arg[0] != '-' && !input_path) { input_path = argv[i]; }
     }
 
@@ -241,13 +249,52 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Map opt_level → LLVM enums.
+    auto llvm_opt = [&]() -> llvm::CodeGenOptLevel {
+        switch (opt_level) {
+            case 1: return llvm::CodeGenOptLevel::Less;
+            case 2: return llvm::CodeGenOptLevel::Default;
+            case 3: return llvm::CodeGenOptLevel::Aggressive;
+            default: return llvm::CodeGenOptLevel::None;
+        }
+    }();
+    auto pb_opt = [&]() -> llvm::OptimizationLevel {
+        switch (opt_level) {
+            case 1: return llvm::OptimizationLevel::O1;
+            case 2: return llvm::OptimizationLevel::O2;
+            case 3: return llvm::OptimizationLevel::O3;
+            default: return llvm::OptimizationLevel::O0;
+        }
+    }();
+
     auto target_machine = std::unique_ptr<llvm::TargetMachine>(
         target->createTargetMachine(
             llvm_module->getTargetTriple(), "generic", "",
-            llvm::TargetOptions{}, llvm::Reloc::PIC_));
+            llvm::TargetOptions{}, llvm::Reloc::PIC_,
+            std::nullopt, llvm_opt));
 
     llvm_module->setDataLayout(target_machine->createDataLayout());
     report("target_machine");
+
+    // ── Step 6b: run LLVM optimization pipeline (O1/O2/O3 only) ────────────
+    if (opt_level > 0) {
+        llvm::LoopAnalysisManager     lam;
+        llvm::FunctionAnalysisManager fam;
+        llvm::CGSCCAnalysisManager    cgam;
+        llvm::ModuleAnalysisManager   mam;
+
+        llvm::PassBuilder pb(target_machine.get());
+        // Register all standard analyses.
+        pb.registerModuleAnalyses(mam);
+        pb.registerCGSCCAnalyses(cgam);
+        pb.registerFunctionAnalyses(fam);
+        pb.registerLoopAnalyses(lam);
+        pb.crossRegisterProxies(lam, fam, cgam, mam);
+
+        auto mpm = pb.buildPerModuleDefaultPipeline(pb_opt);
+        mpm.run(*llvm_module, mam);
+        report("opt");
+    }
 
     std::error_code ec;
     llvm::raw_fd_ostream out(output_path, ec, llvm::sys::fs::OF_None);
