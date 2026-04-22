@@ -2,28 +2,28 @@ package annotation_has_get;
 use std.option;
 
 #[annotation]
-eidos Deprecated {
+#[zoned] struct Deprecated {
     msg: str,
     since: str,
 }
 
 #[annotation]
-eidos Priority {
+#[zoned] struct Priority {
     level: i32,
 }
 
 #[Deprecated(msg="use v2", since="0.3")]
-eidos OldApi {
+#[zoned] struct OldApi {
     x: i32,
 }
 
 #[Priority(level=5)]
-eidos Urgent {
+#[zoned] struct Urgent {
     y: i32,
 }
 
 // No annotations — plain datatype
-eidos Plain {
+#[zoned] struct Plain {
     z: i32,
 }
 

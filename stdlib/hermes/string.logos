@@ -118,7 +118,7 @@ pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// Varchar — logical genos ("variable-length string"), zone-eidos HermesString.
+// Varchar — logical genos ("variable-length string"), zone-#[zoned] struct HermesString.
 //
 // HermesString is a typed anchor for a zone allocation that starts with a
 // vlen length prefix followed immediately by UTF-8 bytes.  The 'first' field
@@ -131,10 +131,10 @@ pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
 // can be written against any `V: Varchar` and call `v.len() / v.bytes() /
 // v.hash() / v.equals_bytes(...)` uniformly.  Default bodies for
 // equals_bytes and hash are expressed in terms of len/bytes so every new
-// eidos only supplies the storage-specific primitives.
-// Key-type marker for `Map<Varchar, V>` — a zero-size eidos that lives in
+// #[zoned] struct only supplies the storage-specific primitives.
+// Key-type marker for `Map<Varchar, V>` — a zero-size #[zoned] struct that lives in
 // the type namespace alongside the genos trait of the same name.
-pub eidos Varchar { }
+#[zoned] pub struct Varchar { }
 
 #[type_code = HermesTag::HermesString]
 pub genos Varchar {
@@ -160,7 +160,7 @@ pub genos Varchar {
     }
 }
 
-pub eidos HermesString {
+#[zoned] pub struct HermesString {
     pub first: u8,   // first byte of vlen length encoding
 }
 

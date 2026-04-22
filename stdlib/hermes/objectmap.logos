@@ -36,7 +36,7 @@ use hermes.relptr;
 // MapEntry — one slot in the hash table (8 bytes)
 // ---------------------------------------------------------------------------
 
-pub eidos MapEntry {
+#[zoned] pub struct MapEntry {
     pub key_off: RelPtr<HermesString>,  // zone-relative byte offset to HermesString (0 = empty slot)
     pub val:     u32,                    // AnyVal.raw
 }
@@ -52,7 +52,7 @@ pub eidos MapEntry {
 pub genos Map<Varchar, AnyVal>;
 
 // Full specialization (no partial over V — this layout is AnyVal-specific).
-pub eidos Map<Varchar, AnyVal> {
+#[zoned] pub struct Map<Varchar, AnyVal> {
     pub entries_off: RelPtr<MapEntry>,  // zone-relative offset to the MapEntry array
     pub capacity:    u32,  // number of slots (power of 2)
     pub count:       u32,  // number of occupied slots

@@ -289,7 +289,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     auto datanode_name = [&](const LogosType* t) -> std::string {
         if (!t) return {};
         while (t->kind == LogosType::Kind::Array) t = t->elem;
-        if (t->kind == LogosType::Kind::Datatype && t->type_args.empty()) {
+        if (t->kind == LogosType::Kind::ZonedStruct && t->type_args.empty()) {
             auto* dsi = get_datatype_si(t);
             if (dsi && !dsi->is_data_plain)
                 return t->struct_name;
@@ -700,7 +700,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         if (a && a->kind == LogosType::Kind::TypeVar) { concrete = false; break; }
                     if (concrete) {
                         if (resolved->kind == LogosType::Kind::Struct ||
-                            resolved->kind == LogosType::Kind::Datatype) {
+                            resolved->kind == LogosType::Kind::ZonedStruct) {
                             target = concrete_struct_name(resolved);
                             target_resolved = resolved;
                         }
@@ -715,7 +715,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
                 auto* aliased = ait->second.type;
                 if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                                aliased->kind == LogosType::Kind::Datatype)) {
+                                aliased->kind == LogosType::Kind::ZonedStruct)) {
                     if (!aliased->type_args.empty()) {
                         target = concrete_struct_name(aliased);
                         target_resolved = aliased;
@@ -1028,7 +1028,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // annotation hasn't been applied yet (or it's an unannotated
                 // type), so breaking early would prevent finding a later entry
                 // with the correct code (e.g. from a different imported file).
-                if (sd.is_datatype && sd.name == target && sd.type_code != 0) {
+                if (sd.is_zoned && sd.name == target && sd.type_code != 0) {
                     tcode = sd.type_code; break;
                 }
             }

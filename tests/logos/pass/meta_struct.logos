@@ -3,7 +3,7 @@ package meta_struct;
 use hermes.view;
 use hermes.anyval;
 
-eidos MyPoint {
+#[zoned] struct MyPoint {
     x: i32,
     y: i32,
     meta @{ "deprecated": true, "since": "0.1", "priority": 42 }

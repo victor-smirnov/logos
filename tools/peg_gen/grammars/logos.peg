@@ -245,7 +245,7 @@
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
     KW_PACKAGE  = "package"
-    KW_DATATYPE = "eidos"
+    KW_EIDOS = "eidos"
     KW_GENOS    = "genos"
     KW_META     = "meta"
     KW_STATIC   = "static"
@@ -372,7 +372,7 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // ── Annotations ──────────────────────────────────────────────
     // #[name(arg1, arg2)]      — annotation with identifier arguments
@@ -630,19 +630,19 @@
                   => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
 
     // ── Datatype definition (Hermes — C POD layout, no heap types) ──
-    pub_datatype_def <- KW_PUB KW_DATATYPE IDENT type_param_list? LBRACE field_def* meta_block? RBRACE
+    pub_datatype_def <- KW_PUB KW_EIDOS IDENT type_param_list? LBRACE field_def* meta_block? RBRACE
                      => { CODE: DATATYPE, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, META: $7 }
 
-    datatype_def <- KW_DATATYPE IDENT type_param_list? LBRACE field_def* meta_block? RBRACE
+    datatype_def <- KW_EIDOS IDENT type_param_list? LBRACE field_def* meta_block? RBRACE
                  => { CODE: DATATYPE, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, META: $6 }
 
     // ── Explicit instantiation declarations (no body) ────────────
     // Binds metadata annotations to a generic instantiation.
     // E.g.: #[type_code=42] datatype Array<i32>;
-    pub_datatype_inst <- KW_PUB KW_DATATYPE type_ref SEMI
+    pub_datatype_inst <- KW_PUB KW_EIDOS type_ref SEMI
                       => { CODE: DATATYPE, IS_PUB: 1, TYPE: $3 }
 
-    datatype_inst <- KW_DATATYPE type_ref SEMI
+    datatype_inst <- KW_EIDOS type_ref SEMI
                   => { CODE: DATATYPE, TYPE: $2 }
 
     // Explicit genos specialization decl: `#[type_code=N] pub genos Array<i32>;`.
@@ -655,6 +655,13 @@
                => { CODE: TRAIT_DEF, TYPE: $2 }
 
     // ── Struct definition ────────────────────────────────────────
+    // Explicit struct instantiation declaration (binds annotations to generic instantiation).
+    pub_struct_inst <- KW_PUB KW_STRUCT type_ref SEMI
+                    => { CODE: STRUCT, IS_PUB: 1, TYPE: $3 }
+
+    struct_inst <- KW_STRUCT type_ref SEMI
+                => { CODE: STRUCT, TYPE: $2 }
+
     pub_struct_def <- KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7, META: $8 }
 

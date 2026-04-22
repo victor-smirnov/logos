@@ -12,20 +12,20 @@ package data_plain_check;
 use hermes.relptr;
 
 // Only primitive fields → DataPlain.
-eidos Point {
+#[zoned] struct Point {
     x: i32,
     y: i32,
 }
 
 // Embeds a concrete DataPlain type (Point) → DataPlain after Bug 2 fix.
-eidos Segment {
+#[zoned] struct Segment {
     a: Point,
     b: Point,
     length: f64,
 }
 
 // Contains RelPtr<Node> (generic Datatype field) → DataNode (conservative rule).
-eidos Node {
+#[zoned] struct Node {
     value: i32,
     next:  RelPtr<Node>,
 }

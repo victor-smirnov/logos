@@ -1382,7 +1382,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return bool_lit(types_equal(*ts[0], *ts[1]));
     }
     if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
-        callee == "is_struct" || callee == "is_datatype" || callee == "is_enum" ||
+        callee == "is_struct" || callee == "is_zoned" || callee == "is_enum" ||
         callee == "is_tuple" || callee == "is_slice" || callee == "is_array" ||
         callee == "is_integer" || callee == "is_signed" || callee == "is_unsigned" ||
         callee == "is_float" || callee == "is_bool" || callee == "is_primitive") {
@@ -1398,7 +1398,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         else if (callee == "is_ref")       r = (t->kind == K::Ref);
         else if (callee == "is_mut_ref")   r = (t->kind == K::MutRef);
         else if (callee == "is_struct")    r = (t->kind == K::Struct);
-        else if (callee == "is_datatype")  r = (t->kind == K::Datatype);
+        else if (callee == "is_zoned")  r = (t->kind == K::ZonedStruct);
         else if (callee == "is_enum")      r = (t->kind == K::Enum);
         else if (callee == "is_tuple")     r = (t->kind == K::Tuple);
         else if (callee == "is_slice")     r = (t->kind == K::Slice);
@@ -1461,7 +1461,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             return error_expr();
         }
         uint64_t code = 0;
-        if (elem->kind == LogosType::Kind::Datatype && elem->type_args.empty()) {
+        if (elem->kind == LogosType::Kind::ZonedStruct && elem->type_args.empty()) {
             // Resolve package for this type (needed for both explicit and auto-hash paths).
             // Prefer elem->pkg_name (set by resolve_type via find_datatype_by_name).
             std::string pkg;
@@ -1489,7 +1489,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 uint64_t raw = type_hash_56bit(hash);
                 code = (raw < 128) ? (raw + 128) : raw;
             }
-        } else if (elem->kind == LogosType::Kind::Datatype && !elem->type_args.empty()) {
+        } else if (elem->kind == LogosType::Kind::ZonedStruct && !elem->type_args.empty()) {
             // If any type_arg is a TypeVar, defer resolution to mono so every
             // instantiation of the surrounding generic function gets its own
             // concrete type_code.  Otherwise (fully concrete), compute now.
@@ -1548,7 +1548,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         const LogosType* check = elem;
         while (check && check->kind == LogosType::Kind::Array) check = check->elem;
         bool is_plain = true;
-        if (check && check->kind == LogosType::Kind::Datatype && check->type_args.empty()) {
+        if (check && check->kind == LogosType::Kind::ZonedStruct && check->type_args.empty()) {
             // Use import-aware helpers so same-package types (stored under qualified keys
             // after M1) and cross-package types are both found.
             SemaStructInfo* found_si = nullptr;
@@ -1562,7 +1562,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             }
             if (found_si) is_plain = found_si->is_data_plain;
             // If not found in any map, default to true (unknown type → conservative safe).
-        } else if (check && check->kind == LogosType::Kind::Datatype && !check->type_args.empty()) {
+        } else if (check && check->kind == LogosType::Kind::ZonedStruct && !check->type_args.empty()) {
             // Generic Datatype: can't determine statically → conservative DataNode.
             is_plain = false;
         }
@@ -1584,7 +1584,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             auto* hs_type = make_struct_type("HermesStatic");
             return make_expr(hs_type, lir::EReflectOf{T});
         }
-        if (T->kind != LogosType::Kind::Datatype || !T->type_args.empty()) {
+        if (T->kind != LogosType::Kind::ZonedStruct || !T->type_args.empty()) {
             error("reflect::<T>() requires a concrete (non-generic) datatype argument");
             return error_expr();
         }
@@ -1608,7 +1608,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         const LogosType* T = ts[0];
         const LogosType* A = ts[1];
         // Look up A's annotation type name
-        if (A->kind != LogosType::Kind::Datatype) {
+        if (A->kind != LogosType::Kind::ZonedStruct) {
             error("has_annotation: second type argument must be an annotation datatype");
             return error_expr();
         }
@@ -1622,7 +1622,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             a_fqn = apkg.empty() ? A->struct_name : apkg + "::" + A->struct_name;
         }
         bool found = false;
-        if (T->kind == LogosType::Kind::Datatype && cur_prog_) {
+        if (T->kind == LogosType::Kind::ZonedStruct && cur_prog_) {
             for (auto& sd : cur_prog_->structs) {
                 if (sd.name == T->struct_name || (!T->pkg_name.empty() && sd.name == T->struct_name)) {
                     for (auto& inst : sd.annotations)
@@ -1645,7 +1645,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
         const LogosType* T = ts[0];
         const LogosType* A = ts[1];
-        if (A->kind != LogosType::Kind::Datatype) {
+        if (A->kind != LogosType::Kind::ZonedStruct) {
             error("get_annotation: second type argument must be an annotation datatype");
             return error_expr();
         }
@@ -1683,7 +1683,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         const LogosType* a_type = A;  // already a Datatype type
         // Find the annotation instance on T
         const lir::LAnnotationInstance* found_inst = nullptr;
-        if (T->kind == LogosType::Kind::Datatype && cur_prog_) {
+        if (T->kind == LogosType::Kind::ZonedStruct && cur_prog_) {
             for (auto& sd : cur_prog_->structs) {
                 if (sd.name == T->struct_name) {
                     for (auto& inst : sd.annotations)
@@ -2399,7 +2399,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         } else if (rst && is_ref_like(rst->kind) && rst->pointee) {
             rst = rst->pointee;
         }
-        if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype) &&
+        if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::ZonedStruct) &&
             !rst->type_args.empty()) {
             SemaStructInfo* si2 = nullptr;
             { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
@@ -2637,7 +2637,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         } else if (rst && is_ref_like(rst->kind) && rst->pointee) {
             rst = rst->pointee;
         }
-        if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype) && !rst->type_args.empty()) {
+        if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::ZonedStruct) && !rst->type_args.empty()) {
             SemaStructInfo* si2 = nullptr;
             { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
             if (!si2) { auto [p, di] = find_datatype_by_name(rst->struct_name); si2 = di; }
@@ -2749,7 +2749,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             const LogosType* rst = recv->type;
             if (rst && (rst->kind == LogosType::Kind::Ptr || is_ref_like(rst->kind)) && rst->pointee)
                 rst = rst->pointee;
-            if (rst && (rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::Datatype)) {
+            if (rst && (rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::ZonedStruct)) {
                 SemaStructInfo* si2 = nullptr;
                 { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
                 if (!si2) { auto [p, di] = find_datatype_by_name(rst->struct_name); si2 = di; }
@@ -2813,7 +2813,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         recv_base_t->struct_name == "DataRef" &&
         recv_base_t->type_args.size() == 1) {
         const LogosType* T = recv_base_t->type_args[0];
-        if (T && T->kind == LogosType::Kind::Datatype) {
+        if (T && T->kind == LogosType::Kind::ZonedStruct) {
             auto* ft = field_type_of_for_type(T, field_name);
             if (ft) {
                 if (!inside_unsafe_)
@@ -2877,12 +2877,12 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     auto sname_sv = str_of(node.get(la::NAME.code));
     std::string sname_buf(sname_sv);  // mutable copy in case we resolve alias
     // Find in structs_ or datatypes_ (package-aware).
-    bool slit_is_datatype = false;
+    bool slit_is_zoned = false;
     auto find_struct_info = [&](const std::string& name) -> SemaStructInfo* {
         auto [spkg, ssi] = find_struct_by_name(name);
-        if (ssi) { slit_is_datatype = false; return ssi; }
+        if (ssi) { slit_is_zoned = false; return ssi; }
         auto [dpkg, dsi] = find_datatype_by_name(name);
-        if (dsi) { slit_is_datatype = true; return dsi; }
+        if (dsi) { slit_is_zoned = true; return dsi; }
         return nullptr;
     };
     auto* sinfo_ptr = find_struct_info(sname_buf);
@@ -2905,7 +2905,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             if (aliased) break;
         }
         if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                        aliased->kind == LogosType::Kind::Datatype)) {
+                        aliased->kind == LogosType::Kind::ZonedStruct)) {
             sinfo_ptr = find_struct_info(aliased->struct_name);
             if (sinfo_ptr) {
                 sname_buf = aliased->struct_name;
@@ -3090,7 +3090,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         std::vector<std::string> lit_lt_args;
         if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname))
             lit_lt_args = hint_struct_type_->lifetime_args;
-        const LogosType* lit_type = slit_is_datatype
+        const LogosType* lit_type = slit_is_zoned
             ? make_generic_datatype(std::string(sname), args, lit_lt_args)
             : make_generic_struct(std::string(sname), args, lit_lt_args);
 
@@ -3296,8 +3296,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname))
         ng_lt_args = hint_struct_type_->lifetime_args;
     LogosType ng_t;
-    ng_t.kind = slit_is_datatype
-                ? LogosType::Kind::Datatype : LogosType::Kind::Struct;
+    ng_t.kind = slit_is_zoned
+                ? LogosType::Kind::ZonedStruct : LogosType::Kind::Struct;
     ng_t.struct_name   = std::string(sname);
     ng_t.lifetime_args = std::move(ng_lt_args);
     const LogosType* lit_result_type = pool_.alloc(std::move(ng_t));
@@ -4025,7 +4025,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
 
     // AnyVal passthrough (datatype or struct form).
     if ((t->kind == LogosType::Kind::Struct
-         || t->kind == LogosType::Kind::Datatype)
+         || t->kind == LogosType::Kind::ZonedStruct)
         && t->struct_name == "AnyVal") {
         return val;
     }
@@ -4482,7 +4482,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
             auto* aliased = ait->second.type;
             if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                            aliased->kind == LogosType::Kind::Datatype)) {
+                            aliased->kind == LogosType::Kind::ZonedStruct)) {
                 resolved_class = aliased->type_args.empty()
                     ? aliased->struct_name
                     : concrete_struct_name(aliased);
@@ -4546,8 +4546,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     tf_args.push_back(t);
                 }
                 if (all_concrete && !tf_args.empty()) {
-                    bool is_datatype = datatypes_.count(resolved_class) > 0;
-                    const LogosType* concrete_t = is_datatype
+                    bool is_zoned = datatypes_.count(resolved_class) > 0;
+                    const LogosType* concrete_t = is_zoned
                         ? make_generic_datatype(resolved_class, tf_args)
                         : make_generic_struct(resolved_class, tf_args);
                     std::string concrete_mangled = concrete_struct_name(concrete_t) + "__" + std::string(method_name);

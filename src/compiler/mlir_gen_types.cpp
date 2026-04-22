@@ -53,7 +53,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
         return mlir::LLVM::LLVMArrayType::get(elem, t->arr_size);
     }
     case LogosType::Kind::Struct:
-    case LogosType::Kind::Datatype: {
+    case LogosType::Kind::ZonedStruct: {
         // Check type alias first.
         auto cname = concrete_struct_name(t);
         auto ait = type_aliases_.find(cname);
@@ -128,7 +128,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
         std::string fsname;
         // Datatype fields are embedded by value (not by pointer).
         // Regular Struct fields with a registered llvm_type are also inline.
-        if (f.type->kind == LogosType::Kind::Datatype ||
+        if (f.type->kind == LogosType::Kind::ZonedStruct ||
             f.type->kind == LogosType::Kind::Struct) {
             auto cname = concrete_struct_name(f.type);
             auto sit = struct_types_.find(cname);
@@ -153,7 +153,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                     f.type->kind == LogosType::Kind::MutRef) &&
                    f.type->pointee &&
                    (f.type->pointee->kind == LogosType::Kind::Struct ||
-                    f.type->pointee->kind == LogosType::Kind::Datatype)) {
+                    f.type->pointee->kind == LogosType::Kind::ZonedStruct)) {
             // *Struct / &Struct / &mut Struct field — pointer to struct.
             // Set fsname so gen_recv_struct can chain field access through it.
             ft = ptr_type();
@@ -232,7 +232,7 @@ const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
     if (type && type->kind == LogosType::Kind::Enum && !type->type_args.empty()) {
         auto mangle_arg = [](const LogosType* a) -> std::string {
             if (!a) return "null";
-            if (a->kind == LogosType::Kind::Struct || a->kind == LogosType::Kind::Datatype)
+            if (a->kind == LogosType::Kind::Struct || a->kind == LogosType::Kind::ZonedStruct)
                 return concrete_struct_name(a);
             return type_str(a);
         };

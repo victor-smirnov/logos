@@ -1,7 +1,7 @@
 package datatype_impl;
-// Phase 5: impl blocks on eidos types — methods with explicit pointer self.
+// Phase 5: impl blocks on #[zoned] struct types — methods with explicit pointer self.
 
-eidos Point {
+#[zoned] struct Point {
     x: i32,
     y: i32,
 }

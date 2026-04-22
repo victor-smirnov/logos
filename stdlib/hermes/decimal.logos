@@ -3,7 +3,7 @@
 // Logos Hermes stdlib — hermes.decimal
 //
 // Decimal(P,S) storage:
-//   eidos Decimal { spec_and_len: u32, limbs[]: inline u32 tail }
+//   #[zoned] struct Decimal { spec_and_len: u32, limbs[]: inline u32 tail }
 //
 // Packed spec_and_len (u32):
 //   bits [0..11]   scale S      (0..4095)
@@ -34,7 +34,7 @@ extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
 #[type_code = HermesTag::Decimal]
-pub eidos Decimal {
+#[zoned] pub struct Decimal {
     pub spec_and_len: u32,
 }
 

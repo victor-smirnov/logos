@@ -5,10 +5,10 @@
 // Primitive scalar genera and their zone-allocated eide.  Each genus is
 // identified by its Hermes type_code (see openspec/specs/hermes-wire-format.md
 // §"Core Type Codes" for the canonical registry).  Generic code can work
-// against the genos trait directly; concrete zone code deals with the eidos
+// against the genos trait directly; concrete zone code deals with the #[zoned] struct
 // struct.
 //
-// Genus / eidos pairs in this module:
+// Genus / #[zoned] struct pairs in this module:
 //   TinyInt   / I8       (type_code=20, i8)
 //   UTinyInt  / U8       (type_code=21, u8)
 //   SmallInt  / I16      (type_code=22, i16)
@@ -33,7 +33,7 @@ pub genos TinyInt {
     unsafe fn value(self: *const Self) -> i8;
 }
 
-pub eidos I8 { pub v: i8, }
+#[zoned] pub struct I8 { pub v: i8, }
 
 impl TinyInt for I8 {
     unsafe fn value(self: *const I8) -> i8 { return self.v; }
@@ -54,7 +54,7 @@ pub genos UTinyInt {
     unsafe fn value(self: *const Self) -> u8;
 }
 
-pub eidos U8 { pub v: u8, }
+#[zoned] pub struct U8 { pub v: u8, }
 
 impl UTinyInt for U8 {
     unsafe fn value(self: *const U8) -> u8 { return self.v; }
@@ -75,7 +75,7 @@ pub genos SmallInt {
     unsafe fn value(self: *const Self) -> i16;
 }
 
-pub eidos I16 { pub v: i16, }
+#[zoned] pub struct I16 { pub v: i16, }
 
 impl SmallInt for I16 {
     unsafe fn value(self: *const I16) -> i16 { return self.v; }
@@ -96,7 +96,7 @@ pub genos Integer {
     unsafe fn value(self: *const Self) -> i24;
 }
 
-pub eidos I24 { pub v: i24, }
+#[zoned] pub struct I24 { pub v: i24, }
 
 impl Integer for I24 {
     unsafe fn value(self: *const I24) -> i24 { return self.v; }
@@ -117,7 +117,7 @@ pub genos USmallInt {
     unsafe fn value(self: *const Self) -> u16;
 }
 
-pub eidos U16 { pub v: u16, }
+#[zoned] pub struct U16 { pub v: u16, }
 
 impl USmallInt for U16 {
     unsafe fn value(self: *const U16) -> u16 { return self.v; }
@@ -138,7 +138,7 @@ pub genos UInteger {
     unsafe fn value(self: *const Self) -> u24;
 }
 
-pub eidos U24 { pub v: u24, }
+#[zoned] pub struct U24 { pub v: u24, }
 
 impl UInteger for U24 {
     unsafe fn value(self: *const U24) -> u24 { return self.v; }
@@ -159,7 +159,7 @@ pub genos Int64 {
     unsafe fn value(self: *const Self) -> i64;
 }
 
-pub eidos I64 { pub v: i64, }
+#[zoned] pub struct I64 { pub v: i64, }
 
 impl Int64 for I64 {
     unsafe fn value(self: *const I64) -> i64 { return self.v; }
@@ -180,7 +180,7 @@ pub genos UInt64 {
     unsafe fn value(self: *const Self) -> u64;
 }
 
-pub eidos U64 { pub v: u64, }
+#[zoned] pub struct U64 { pub v: u64, }
 
 impl UInt64 for U64 {
     unsafe fn value(self: *const U64) -> u64 { return self.v; }
@@ -201,7 +201,7 @@ pub genos Real {
     unsafe fn value(self: *const Self) -> f32;
 }
 
-pub eidos F32 { pub v: f32, }
+#[zoned] pub struct F32 { pub v: f32, }
 
 impl Real for F32 {
     unsafe fn value(self: *const F32) -> f32 { return self.v; }
@@ -222,7 +222,7 @@ pub genos Double {
     unsafe fn value(self: *const Self) -> f64;
 }
 
-pub eidos F64 { pub v: f64, }
+#[zoned] pub struct F64 { pub v: f64, }
 
 impl Double for F64 {
     unsafe fn value(self: *const F64) -> f64 { return self.v; }
@@ -243,7 +243,7 @@ pub genos Boolean {
     unsafe fn value(self: *const Self) -> bool;
 }
 
-pub eidos Bool { pub v: bool, }
+#[zoned] pub struct Bool { pub v: bool, }
 
 impl Boolean for Bool {
     unsafe fn value(self: *const Bool) -> bool { return self.v; }

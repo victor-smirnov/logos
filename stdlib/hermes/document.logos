@@ -24,13 +24,13 @@ use hermes.tags;
 
 // ---------------------------------------------------------------------------
 // Document — logical genos for Hermes documents; DocumentHeader is the zone
-// eidos (4 bytes carrying the root AnyVal).
+// #[zoned] struct (4 bytes carrying the root AnyVal).
 // ---------------------------------------------------------------------------
 
 #[type_code = HermesTag::Document]
 pub genos Document {}
 
-pub eidos DocumentHeader {
+#[zoned] pub struct DocumentHeader {
     pub root: AnyVal,
 }
 

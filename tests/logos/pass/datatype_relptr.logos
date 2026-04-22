@@ -5,7 +5,7 @@ package datatype_relptr;
 use hermes.zone;
 use hermes.relptr;
 
-eidos Node {
+#[zoned] struct Node {
     value: i32,
     next:  RelPtr<Node>,   // 4-byte relative pointer to next node (0 = null)
 }

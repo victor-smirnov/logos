@@ -110,7 +110,7 @@ private:
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_datatype_type(std::string_view name, std::string_view pkg = {}) {
-        LogosType t; t.kind = LogosType::Kind::Datatype; t.struct_name = std::string(name);
+        LogosType t; t.kind = LogosType::Kind::ZonedStruct; t.struct_name = std::string(name);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
@@ -118,7 +118,7 @@ private:
                                             std::vector<const LogosType*> args,
                                             std::vector<std::string> lt_args = {},
                                             std::string_view pkg = {}) {
-        LogosType t; t.kind = LogosType::Kind::Datatype;
+        LogosType t; t.kind = LogosType::Kind::ZonedStruct;
         t.struct_name   = std::string(name);
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
@@ -400,7 +400,7 @@ private:
                             std::vector<std::string> lifetime_params;
                             bool is_pub = false; std::string source_file;
                             std::string package;
-                            bool is_data_plain = true;  // false if any field is Kind::Datatype
+                            bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
                             bool is_annotation_type = false;  // #[annotation] datatype (see LStructDef::is_annotation_type)
                             // Partial-spec support: when this is a specialization,
                             // base_name is the generic template (e.g. "Map") and
@@ -912,7 +912,7 @@ private:
             inner = t->pointee;
         if (!inner) return nullptr;
         if ((inner->kind == LogosType::Kind::Struct ||
-             inner->kind == LogosType::Kind::Datatype) &&
+             inner->kind == LogosType::Kind::ZonedStruct) &&
             (inner->struct_name == "Hermes" ||
              inner->struct_name == "HermesView" ||
              inner->struct_name == "HermesStatic"))

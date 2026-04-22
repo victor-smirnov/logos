@@ -4,13 +4,13 @@ use hermes.view;
 use hermes.anyval;
 
 #[annotation]
-eidos Deprecated {
+#[zoned] struct Deprecated {
     msg: str,
     since: str,
 }
 
 #[Deprecated(msg="old", since="0.1")]
-eidos MyPoint {
+#[zoned] struct MyPoint {
     x: i32,
     y: i32,
 }

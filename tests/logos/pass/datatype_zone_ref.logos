@@ -4,7 +4,7 @@ package datatype_zone_ref;
 
 use hermes.zone;
 
-eidos Point {
+#[zoned] struct Point {
     x: i32,
     y: i32,
 }

@@ -49,7 +49,7 @@ const WK_MAP_SLOT: u8 = 2;   // write ObjectMap slot from idx..cap
 const WK_TMAP_IDX: u8 = 3;   // write TinyObjectMap entry idx
 const WK_MI32_IDX: u8 = 4;   // write Map<i32, AnyVal> entry idx
 
-pub eidos WriteItem {
+#[zoned] pub struct WriteItem {
     pub kind:    u8,
     pub _pad0:   u8,
     pub _pad1:   u8,

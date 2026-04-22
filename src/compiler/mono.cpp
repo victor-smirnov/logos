@@ -109,7 +109,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 for (auto& sd : out_.structs)
                     if (sd.name == concrete) {
                         LogosType st;
-                        st.kind = sd.is_datatype ? LogosType::Kind::Datatype
+                        st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
                                                  : LogosType::Kind::Struct;
                         st.struct_name = concrete;
                         concrete_t = out_.type_pool.alloc(std::move(st));

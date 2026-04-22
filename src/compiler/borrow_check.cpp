@@ -512,7 +512,7 @@ class BorrowChecker {
                     prov_[s.name] = prov_of(s.value);
                 else if (s.type && !s.type->lifetime_args.empty() &&
                          (s.type->kind == LogosType::Kind::Struct ||
-                          s.type->kind == LogosType::Kind::Datatype))
+                          s.type->kind == LogosType::Kind::ZonedStruct))
                     prov_[s.name] = prov_of(s.value);  // struct<'z> borrows through lifetime
 
             // ── Assignment ───────────────────────────────────────────────

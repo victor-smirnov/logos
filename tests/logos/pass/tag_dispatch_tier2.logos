@@ -19,12 +19,12 @@ trait Checksum {
 }
 
 // No explicit type_code — auto-hash assigns a 56-bit code >= 223.
-eidos Widget {
+#[zoned] struct Widget {
     a: i32,
     b: i32,
 }
 
-eidos Gadget {
+#[zoned] struct Gadget {
     x: i32,
     y: i32,
     z: i32,

@@ -11,7 +11,7 @@ use hermes.typetag;
 use hermes.datatag;
 use hermes.string;
 
-eidos Slot { pub val: i32 }
+#[zoned] struct Slot { pub val: i32 }
 
 unsafe fn main() -> i32 {
     let mut zone: HermesZone = HermesZone::create(8192);

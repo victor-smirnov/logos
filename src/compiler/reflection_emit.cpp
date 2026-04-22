@@ -130,7 +130,7 @@ static std::string type_name_of(const LogosType* t) {
     case K::F32:  return "f32";  case K::F64:  return "f64";
     case K::Bool: return "bool";
     case K::Struct:   return t->struct_name;
-    case K::Datatype: return t->struct_name;
+    case K::ZonedStruct: return t->struct_name;
     case K::Enum:     return t->enum_name;
     default: return "?";
     }
@@ -189,7 +189,7 @@ static std::vector<uint8_t> build_type_info_blob(const lir::LStructDef& sd) {
     map_put(doc, root, "name",          hval_str(doc, sd.name));
     map_put(doc, root, "pkg",           hval_str(doc, sd.pkg));
     map_put(doc, root, "type_code",     hval_u64(doc, sd.type_code));
-    map_put(doc, root, "kind",          hval_i64(doc, sd.is_datatype ? 2 : 1));
+    map_put(doc, root, "kind",          hval_i64(doc, sd.is_zoned ? 2 : 1));
     map_put(doc, root, "is_data_plain", hval_bool(doc, sd.is_data_plain));
 
     // Fields array
@@ -245,7 +245,7 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
     for (auto& fqn : prog.reflect_requests)
         to_emit.insert(fqn);
     for (auto& sd : prog.structs) {
-        if (sd.is_datatype && !sd.annotations.empty()) {
+        if (sd.is_zoned && !sd.annotations.empty()) {
             std::string fqn = sd.pkg.empty() ? sd.name : sd.pkg + "::" + sd.name;
             to_emit.insert(fqn);
         }
@@ -255,7 +255,7 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
     std::unordered_set<std::string> emitted;
 
     for (auto& sd : prog.structs) {
-        if (!sd.is_datatype) continue;
+        if (!sd.is_zoned) continue;
         if (sd.type_hash == std::array<uint8_t, 23>{}) continue; // generic template
         std::string fqn = sd.pkg.empty() ? sd.name : sd.pkg + "::" + sd.name;
         if (to_emit.find(fqn) == to_emit.end()) continue;

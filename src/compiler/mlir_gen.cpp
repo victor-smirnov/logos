@@ -225,7 +225,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                 if (recv.type && recv.type->kind == LogosType::Kind::Ptr &&
                     recv.type->pointee &&
                     (recv.type->pointee->kind == LogosType::Kind::Struct ||
-                     recv.type->pointee->kind == LogosType::Kind::Datatype)) {
+                     recv.type->pointee->kind == LogosType::Kind::ZonedStruct)) {
                     return {sc->second, concrete_struct_name(recv.type->pointee)};
                 }
                 // If the receiver type is unavailable, still treat it as a
@@ -247,7 +247,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                      t->kind == LogosType::Kind::Ref ||
                      t->kind == LogosType::Kind::MutRef) && t->pointee &&
                     (t->pointee->kind == LogosType::Kind::Struct ||
-                     t->pointee->kind == LogosType::Kind::Datatype)) {
+                     t->pointee->kind == LogosType::Kind::ZonedStruct)) {
                     return {sc->second, concrete_struct_name(t->pointee)};
                 }
             }
@@ -282,7 +282,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                         return {sc->second, "AnyVal"};
                 }
                 if (inner->kind == LogosType::Kind::Struct ||
-                    inner->kind == LogosType::Kind::Datatype) {
+                    inner->kind == LogosType::Kind::ZonedStruct) {
                     auto sc = scope_.find(name);
                     if (sc != scope_.end()) {
                         // Local let-bound pointer variables are stored in an alloca(slot).
@@ -347,7 +347,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
              t->kind == LogosType::Kind::Ref ||
              t->kind == LogosType::Kind::MutRef) && t->pointee) t = t->pointee;
         if (t->kind == LogosType::Kind::Struct ||
-            t->kind == LogosType::Kind::Datatype)
+            t->kind == LogosType::Kind::ZonedStruct)
             return {ptr, concrete_struct_name(t)};
     }
     std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct/class access\n");

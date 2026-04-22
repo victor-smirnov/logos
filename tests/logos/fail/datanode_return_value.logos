@@ -1,10 +1,10 @@
 package datanode_return_value;
-// Sema fail: returning a DataNode eidos by bare value from a function.
+// Sema fail: returning a DataNode #[zoned] struct by bare value from a function.
 // FakePtr<T> is a generic Datatype field → Node.is_data_plain = false.
 
-pub eidos FakePtr<T> { offset: u32 }
+#[zoned] pub struct FakePtr<T> { offset: u32 }
 
-eidos Node {
+#[zoned] struct Node {
     value: i32,
     next:  FakePtr<Node>,
 }

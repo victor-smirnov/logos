@@ -156,13 +156,13 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 std::string cname;
                 auto* rt = new_recv->type;
                 if (rt->kind == LogosType::Kind::Struct ||
-                    rt->kind == LogosType::Kind::Datatype)
+                    rt->kind == LogosType::Kind::ZonedStruct)
                     cname = concrete_struct_name(rt);
                 else if ((rt->kind == LogosType::Kind::Ptr ||
                           rt->kind == LogosType::Kind::Ref ||
                           rt->kind == LogosType::Kind::MutRef) && rt->pointee) {
                     if (rt->pointee->kind == LogosType::Kind::Struct ||
-                        rt->pointee->kind == LogosType::Kind::Datatype)
+                        rt->pointee->kind == LogosType::Kind::ZonedStruct)
                         cname = concrete_struct_name(rt->pointee);
                     else {
                         // Primitive pointee: auto-deref for method dispatch
@@ -245,7 +245,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
 
                     if (rt &&
                         (rt->kind == LogosType::Kind::Struct ||
-                         rt->kind == LogosType::Kind::Datatype ||
+                         rt->kind == LogosType::Kind::ZonedStruct ||
                          rt->kind == LogosType::Kind::Enum)) {
                         std::vector<const LogosType*> combined_args = rt->type_args;
                         for (auto* mta : nm.type_args) combined_args.push_back(mta);
@@ -375,7 +375,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             lir::EStructLit ns;
             // Update name to the concrete mangled struct name if generic.
             if (result->type && (result->type->kind == LogosType::Kind::Struct ||
-                                  result->type->kind == LogosType::Kind::Datatype) &&
+                                  result->type->kind == LogosType::Kind::ZonedStruct) &&
                 !result->type->type_args.empty())
                 ns.name = concrete_struct_name(result->type);
             else
@@ -530,7 +530,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 // then hash of canonical name.
                 uint64_t code = 0;
                 if (resolved->kind == LogosType::Kind::Struct ||
-                    resolved->kind == LogosType::Kind::Datatype) {
+                    resolved->kind == LogosType::Kind::ZonedStruct) {
                     std::string mangled = resolved->type_args.empty()
                         ? resolved->struct_name : concrete_struct_name(resolved);
                     for (auto& sd : out_.structs)
@@ -605,7 +605,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             auto* resolved = subst_type(k.type, s);
             result->kind = lir::EReflectOf{resolved};
             // If the type is now fully concrete, register for TypeInfo emission.
-            if (resolved && resolved->kind == LogosType::Kind::Datatype &&
+            if (resolved && resolved->kind == LogosType::Kind::ZonedStruct &&
                 resolved->type_args.empty()) {
                 std::string pkg = resolved->pkg_name;
                 std::string fqn = pkg.empty() ? resolved->struct_name
@@ -858,7 +858,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
                                   const std::string& new_name) {
     lir::LStructDef nd;
     nd.name = new_name;
-    nd.is_datatype = tmpl.is_datatype;
+    nd.is_zoned = tmpl.is_zoned;
     nd.meta_val    = tmpl.meta_val;
     // type_params cleared: result is monomorphic
     for (auto& f : tmpl.fields) {
@@ -891,7 +891,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             if (!concrete) continue;
             std::string cname;
             if (concrete->kind == LogosType::Kind::Struct ||
-                concrete->kind == LogosType::Kind::Datatype)
+                concrete->kind == LogosType::Kind::ZonedStruct)
                 cname = concrete_struct_name(concrete);
             else if (concrete->kind == LogosType::Kind::Enum)
                 cname = concrete->enum_name;

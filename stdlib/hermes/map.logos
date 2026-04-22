@@ -26,7 +26,7 @@ use hermes.relptr;
 // Map<K, V> — generic base
 // ---------------------------------------------------------------------------
 
-// Canonical operation on any Map eidos: the current entry count.
+// Canonical operation on any Map #[zoned] struct: the current entry count.
 // Template genos; no type_code (that lives on concrete specialisations).
 pub genos Map<K, V> {
     unsafe fn size(self: *const Self) -> u32;
@@ -34,7 +34,7 @@ pub genos Map<K, V> {
 
 // Abstract Map<K, V> base — never instantiated directly; exists only so
 // partial specialisations can attach fields/impls.
-pub eidos Map<K, V> { }
+#[zoned] pub struct Map<K, V> { }
 
 // ---------------------------------------------------------------------------
 // Map<Bitmap, V> — bitmap-indexed, max 52 u8 keys (was TinyObjectMap)
@@ -52,7 +52,7 @@ pub eidos Map<K, V> { }
 // ---------------------------------------------------------------------------
 
 // Key marker for the compact bitmap-indexed map (max 52 u8 keys, 16 B header).
-pub eidos Bitmap { }
+#[zoned] pub struct Bitmap { }
 
 // Concrete genos specialisation carrying the Hermes wire-format type_code
 // for the small bitmap-indexed map.
@@ -60,7 +60,7 @@ pub eidos Bitmap { }
 pub genos Map<Bitmap, AnyVal>;
 
 // Partial spec: Bitmap-keyed map, any V.
-pub eidos Map<Bitmap, V> {
+#[zoned] pub struct Map<Bitmap, V> {
     pub header: u64,
     pub data:   RelPtr<V>,
 }
@@ -156,7 +156,7 @@ impl Map<Bitmap, AnyVal> {
 // ---------------------------------------------------------------------------
 
 // Generic partial spec: fields shared by all Map<K, AnyVal> instantiations.
-pub eidos Map<K, AnyVal> {
+#[zoned] pub struct Map<K, AnyVal> {
     pub size:     u32,
     pub capacity: u32,
     pub keys:     RelPtr<K>,       // zone-relative offset to K[]
@@ -165,16 +165,16 @@ pub eidos Map<K, AnyVal> {
 
 // Concrete type_code bindings for the four supported key types.
 #[type_code = HermesTag::MapI32AnyVal]
-pub eidos Map<i32, AnyVal>;
+#[zoned] pub struct Map<i32, AnyVal>;
 
 #[type_code = HermesTag::MapU32AnyVal]
-pub eidos Map<u32, AnyVal>;
+#[zoned] pub struct Map<u32, AnyVal>;
 
 #[type_code = HermesTag::MapI64AnyVal]
-pub eidos Map<i64, AnyVal>;
+#[zoned] pub struct Map<i64, AnyVal>;
 
 #[type_code = HermesTag::MapU64AnyVal]
-pub eidos Map<u64, AnyVal>;
+#[zoned] pub struct Map<u64, AnyVal>;
 
 impl<K> Map<K, AnyVal> for Map<K, AnyVal> {
     unsafe fn size(self: *const Map<K, AnyVal>) -> u32 { return self.size; }

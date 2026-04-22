@@ -5,7 +5,7 @@ package hermes_zone_seal;
 
 use hermes.zone;
 
-eidos Pair {
+#[zoned] struct Pair {
     a: i32,
     b: i32,
 }

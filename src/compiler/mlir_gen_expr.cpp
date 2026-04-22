@@ -619,7 +619,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
     if (auto* ir = std::get_if<EIndexRead>(&e.inner->kind)) {
         auto* t = e.inner->type;
         if (t && (t->kind == LogosType::Kind::Struct ||
-                  t->kind == LogosType::Kind::Datatype)) {
+                  t->kind == LogosType::Kind::ZonedStruct)) {
             mlir::Value base_ptr;
             mlir::Type  elem_type;
             if (auto* vr = std::get_if<EVarRef>(&ir->receiver->kind)) {
@@ -654,7 +654,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
                                 loc_, ptr_type(), field_ptr);
                             if (ir->receiver->type->pointee &&
                                 (ir->receiver->type->pointee->kind == LogosType::Kind::Struct ||
-                                 ir->receiver->type->pointee->kind == LogosType::Kind::Datatype)) {
+                                 ir->receiver->type->pointee->kind == LogosType::Kind::ZonedStruct)) {
                                 auto cname = concrete_struct_name(ir->receiver->type->pointee);
                                 auto sit2  = struct_types_.find(cname);
                                 if (sit2 != struct_types_.end())
@@ -694,7 +694,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
     auto* t = e.inner->type;
     if (t && (t->kind == LogosType::Kind::Tuple ||
               t->kind == LogosType::Kind::Struct ||
-              t->kind == LogosType::Kind::Datatype ||
+              t->kind == LogosType::Kind::ZonedStruct ||
               t->kind == LogosType::Kind::Array))
         return val;  // already a pointer to the value on the stack
     // Scalar: spill to a fresh stack slot.
@@ -716,7 +716,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EDeref& e, const LogosType* type) {
     // the load branch, producing a bogus double-load through pass-by-ptr
     // parameters: `*const V3` was treated as `ptr-to-ptr-to-V3`.)
     if (type && (type->kind == LogosType::Kind::Struct ||
-                 type->kind == LogosType::Kind::Datatype))
+                 type->kind == LogosType::Kind::ZonedStruct))
         return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
@@ -1051,7 +1051,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
                    e.receiver->type->kind == LogosType::Kind::Ptr &&
                    e.receiver->type->pointee &&
                    (e.receiver->type->pointee->kind == LogosType::Kind::Struct ||
-                    e.receiver->type->pointee->kind == LogosType::Kind::Datatype)) {
+                    e.receiver->type->pointee->kind == LogosType::Kind::ZonedStruct)) {
             // Non-mut `let pp: *mut Struct = …`: scope_ holds the pointer directly.
             // Use the struct's LLVM type as element so [i] strides by struct size,
             // not the default i32.
@@ -1119,7 +1119,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
                     // Use struct LLVM type for stride when pointee is a struct/datatype.
                     if (e.receiver->type->pointee &&
                         (e.receiver->type->pointee->kind == LogosType::Kind::Struct ||
-                         e.receiver->type->pointee->kind == LogosType::Kind::Datatype)) {
+                         e.receiver->type->pointee->kind == LogosType::Kind::ZonedStruct)) {
                         auto cname = concrete_struct_name(e.receiver->type->pointee);
                         auto sit   = struct_types_.find(cname);
                         if (sit != struct_types_.end())
@@ -1979,7 +1979,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESizeOf& e, const LogosType*) {
     // but sizeof needs the actual aggregate type, not the pointer.
     mlir::Type elem_mlir = nullptr;
     if (e.elem_type && (e.elem_type->kind == LogosType::Kind::Struct ||
-                        e.elem_type->kind == LogosType::Kind::Datatype)) {
+                        e.elem_type->kind == LogosType::Kind::ZonedStruct)) {
         auto cname = concrete_struct_name(e.elem_type);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end())
@@ -2018,7 +2018,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrArith& e, const LogosType*) {
         if (pt && pt->pointee) {
             // Struct/Datatype want their aggregate LLVM type, not ptr.
             if (pt->pointee->kind == LogosType::Kind::Struct ||
-                pt->pointee->kind == LogosType::Kind::Datatype) {
+                pt->pointee->kind == LogosType::Kind::ZonedStruct) {
                 auto cname = concrete_struct_name(pt->pointee);
                 auto sit = struct_types_.find(cname);
                 if (sit != struct_types_.end())
@@ -2048,7 +2048,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrDiff& e, const LogosType*) {
     if (!pt || !pt->pointee) return diff;
     mlir::Type elem_mlir = nullptr;
     if (pt->pointee->kind == LogosType::Kind::Struct ||
-        pt->pointee->kind == LogosType::Kind::Datatype) {
+        pt->pointee->kind == LogosType::Kind::ZonedStruct) {
         auto cname = concrete_struct_name(pt->pointee);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;

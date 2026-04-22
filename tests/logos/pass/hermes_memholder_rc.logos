@@ -6,7 +6,7 @@ package hermes_memholder_rc;
 use hermes.zone;
 use hermes.mem_holder;
 
-eidos Counter {
+#[zoned] struct Counter {
     value: i32,
 }
 

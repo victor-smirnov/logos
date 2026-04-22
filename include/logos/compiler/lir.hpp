@@ -669,7 +669,7 @@ struct LStructDef {
     std::vector<LField>      fields;
     std::vector<LFunction>   methods;
     bool                     is_pub        = false;
-    bool                     is_datatype   = false;  // Hermes datatype (C POD layout)
+    bool                     is_zoned   = false;  // Hermes datatype (C POD layout)
     uint64_t                 type_code     = 0;      // explicit #[type_code=N]; 0 = auto-assign
     bool                     is_data_plain = true;   // no relative-ptr fields → value-copyable
     bool                     from_binary_module = false;  // loaded from binary archive

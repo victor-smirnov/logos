@@ -87,7 +87,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
             auto rt = tuple_llvm_type(fn.ret_type);
             if (rt) ret_types.push_back(rt);
         } else if (fn.ret_type->kind == LogosType::Kind::Struct ||
-                   fn.ret_type->kind == LogosType::Kind::Datatype) {
+                   fn.ret_type->kind == LogosType::Kind::ZonedStruct) {
             auto cname = concrete_struct_name(fn.ret_type);
             auto sit = struct_types_.find(cname);
             if (sit != struct_types_.end())
@@ -185,11 +185,11 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
         if (p.type) {
             std::string sname;
             if (p.type->kind == LogosType::Kind::Struct ||
-                p.type->kind == LogosType::Kind::Datatype)
+                p.type->kind == LogosType::Kind::ZonedStruct)
                 sname = concrete_struct_name(p.type);
             else if (is_ptr_kind(p.type->kind) && p.type->pointee &&
                      (p.type->pointee->kind == LogosType::Kind::Struct ||
-                      p.type->pointee->kind == LogosType::Kind::Datatype))
+                      p.type->pointee->kind == LogosType::Kind::ZonedStruct))
                 sname = concrete_struct_name(p.type->pointee);
             if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
 

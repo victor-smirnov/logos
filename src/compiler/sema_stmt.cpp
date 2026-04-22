@@ -390,7 +390,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         hint_enum_type_ = ann;
     auto* saved_struct_hint = hint_struct_type_;
     if (ann && (ann->kind == LogosType::Kind::Struct ||
-                ann->kind == LogosType::Kind::Datatype) && !ann->type_args.empty())
+                ann->kind == LogosType::Kind::ZonedStruct) && !ann->type_args.empty())
         hint_struct_type_ = ann;
 
     lir::LExprPtr rhs;
@@ -688,7 +688,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 hint_enum_type_ = ret_type_;
             auto* saved_struct_hint = hint_struct_type_;
             if (ret_type_ && (ret_type_->kind == LogosType::Kind::Struct ||
-                              ret_type_->kind == LogosType::Kind::Datatype) &&
+                              ret_type_->kind == LogosType::Kind::ZonedStruct) &&
                 !ret_type_->type_args.empty())
                 hint_struct_type_ = ret_type_;
             val = lower_expr(map_of(vav));
@@ -1998,7 +1998,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             // Try base name (generic impl).
             std::string base_name;
             if (iter_type->kind == LogosType::Kind::Struct ||
-                iter_type->kind == LogosType::Kind::Datatype)
+                iter_type->kind == LogosType::Kind::ZonedStruct)
                 base_name = iter_type->struct_name;
             else if (is_ref_like(iter_type->kind) && iter_type->pointee)
                 base_name = iter_type->pointee->struct_name;
@@ -2023,7 +2023,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         if (!iter_type->type_args.empty()) {
             std::string lookup_name =
                 (iter_type->kind == LogosType::Kind::Struct ||
-                 iter_type->kind == LogosType::Kind::Datatype)
+                 iter_type->kind == LogosType::Kind::ZonedStruct)
                     ? iter_type->struct_name
                     : std::string(sname);
             SemaStructInfo* si = nullptr;
@@ -2172,7 +2172,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
             recv_type->struct_name == "DataRef" &&
             recv_type->type_args.size() == 1) {
             const LogosType* T = recv_type->type_args[0];
-            if (T && T->kind == LogosType::Kind::Datatype) {
+            if (T && T->kind == LogosType::Kind::ZonedStruct) {
                 auto* ft = field_type_of_for_type(T, field_name);
                 if (ft) {
                     if (!inside_unsafe_)
@@ -2261,7 +2261,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
 
     auto* saved_struct_hint = hint_struct_type_;
     if (ft && (ft->kind == LogosType::Kind::Struct ||
-               ft->kind == LogosType::Kind::Datatype) && !ft->type_args.empty())
+               ft->kind == LogosType::Kind::ZonedStruct) && !ft->type_args.empty())
         hint_struct_type_ = ft;
     lir::LExprPtr val = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
@@ -2591,7 +2591,7 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
     const LogosType* ft = nullptr;
     if (pointee) {
         if (pointee->kind == LogosType::Kind::Struct ||
-            pointee->kind == LogosType::Kind::Datatype) {
+            pointee->kind == LogosType::Kind::ZonedStruct) {
             type_name = concrete_struct_name(pointee);
             ft = field_type_of_for_type(pointee, field_name);
         } else {
@@ -2604,7 +2604,7 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
                           type_name, field_name));
     }
     // Pub check for struct/datatype fields.
-    if (pointee && (pointee->kind == LogosType::Kind::Struct || pointee->kind == LogosType::Kind::Datatype) && ft) {
+    if (pointee && (pointee->kind == LogosType::Kind::Struct || pointee->kind == LogosType::Kind::ZonedStruct) && ft) {
         SemaStructInfo* si = nullptr;
         { auto it = structs_.find(std::string(pointee->struct_name)); if (it != structs_.end()) si = &it->second; }
         if (!si) { auto it = datatypes_.find(std::string(pointee->struct_name)); if (it != datatypes_.end()) si = &it->second; }

@@ -19,13 +19,13 @@ trait Checksum {
 }
 
 #[type_code=128]
-eidos Point {
+#[zoned] struct Point {
     x: i32,
     y: i32,
 }
 
 #[type_code=129]
-eidos Color {
+#[zoned] struct Color {
     r: u8,
     g: u8,
     b: u8,

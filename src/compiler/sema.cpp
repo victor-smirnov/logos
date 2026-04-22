@@ -50,7 +50,7 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
                a.elem && b.elem &&
                types_equal(*a.elem, *b.elem);
     case LogosType::Kind::Struct:
-    case LogosType::Kind::Datatype:
+    case LogosType::Kind::ZonedStruct:
         if (a.struct_name != b.struct_name) return false;
         if (a.type_args.size() != b.type_args.size()) return false;
         for (size_t i = 0; i < a.type_args.size(); ++i)
@@ -87,7 +87,7 @@ static std::string mangle_type_for_name(const LogosType* t);
 
 std::string concrete_struct_name(const LogosType* t) {
     if (!t || (t->kind != LogosType::Kind::Struct &&
-               t->kind != LogosType::Kind::Datatype)) return {};
+               t->kind != LogosType::Kind::ZonedStruct)) return {};
     if (t->type_args.empty()) return t->struct_name;
     std::string r = t->struct_name + "$G" + std::to_string(t->type_args.size());
     for (auto* a : t->type_args) { r += "$"; r += mangle_type_for_name(a); }
@@ -106,7 +106,7 @@ static std::string mangle_type_for_name(const LogosType* t) {
     case LogosType::Kind::Array:
         return "arr" + std::to_string(t->arr_size) + "_" + mangle_type_for_name(t->elem);
     case LogosType::Kind::Struct:
-    case LogosType::Kind::Datatype:
+    case LogosType::Kind::ZonedStruct:
         return concrete_struct_name(t);
     case LogosType::Kind::Tuple: {
         std::string r = "tup$" + std::to_string(t->tuple_elems.size());
@@ -382,7 +382,7 @@ std::string type_str(const LogosType* t) {
     case LogosType::Kind::Array:
         return std::format("[{}; {}]", type_str(t->elem), t->arr_size);
     case LogosType::Kind::Struct:
-    case LogosType::Kind::Datatype:
+    case LogosType::Kind::ZonedStruct:
         if (t->type_args.empty() && t->lifetime_args.empty()) return t->struct_name;
         { std::string r = t->struct_name + "<";
           bool first = true;
@@ -660,10 +660,10 @@ std::string_view SemaChecker::struct_name_of(std::string_view var_name) {
     auto* t = lookup(var_name);
     if (!t) return {};
     if (t->kind == LogosType::Kind::Struct ||
-        t->kind == LogosType::Kind::Datatype) return t->struct_name;
+        t->kind == LogosType::Kind::ZonedStruct) return t->struct_name;
     if (is_ref_like(t->kind) && t->pointee &&
         (t->pointee->kind == LogosType::Kind::Struct ||
-         t->pointee->kind == LogosType::Kind::Datatype))
+         t->pointee->kind == LogosType::Kind::ZonedStruct))
         return t->pointee->struct_name;
     return {};
 }
@@ -671,7 +671,7 @@ std::string_view SemaChecker::struct_name_of(std::string_view var_name) {
 
 std::string_view SemaChecker::struct_name_from_type(const LogosType* t) {
     if (!t) return {};
-    if (t->kind == LogosType::Kind::Struct || t->kind == LogosType::Kind::Datatype) {
+    if (t->kind == LogosType::Kind::Struct || t->kind == LogosType::Kind::ZonedStruct) {
         // For generic instantiations, the method is registered under the mangled name.
         if (!t->type_args.empty()) {
             // Store in a thread-local to return a stable string_view.
@@ -683,7 +683,7 @@ std::string_view SemaChecker::struct_name_from_type(const LogosType* t) {
     }
     if (is_ref_like(t->kind) && t->pointee &&
         (t->pointee->kind == LogosType::Kind::Struct ||
-         t->pointee->kind == LogosType::Kind::Datatype)) {
+         t->pointee->kind == LogosType::Kind::ZonedStruct)) {
         if (!t->pointee->type_args.empty()) {
             thread_local std::string buf2;
             buf2 = concrete_struct_name(t->pointee);
@@ -938,7 +938,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         return make_ref(t->kind == LogosType::Kind::MutRef, inner, lt);
     }
     case LogosType::Kind::Struct:
-    case LogosType::Kind::Datatype: {
+    case LogosType::Kind::ZonedStruct: {
         if (t->type_args.empty() && t->lifetime_args.empty()) return t;
         std::vector<const LogosType*> new_args;
         bool changed = false;
@@ -1371,7 +1371,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             std::string cname = type_str(base_type);
             std::string base_name;
             if (base_type->kind == LogosType::Kind::Struct ||
-                base_type->kind == LogosType::Kind::Datatype)
+                base_type->kind == LogosType::Kind::ZonedStruct)
                 base_name = base_type->struct_name;
 
             for (auto& [tname, tinfo] : traits_) {
@@ -1615,7 +1615,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         }
         if (is_dtype) {
             if (dsi) check_type_bounds(std::string(name), dsi->type_params, args);
-            LogosType t; t.kind = LogosType::Kind::Datatype;
+            LogosType t; t.kind = LogosType::Kind::ZonedStruct;
             t.struct_name = std::string(name);
             if (!dpkg.empty()) t.pkg_name = dpkg;
             t.type_args = std::move(args);
@@ -1662,7 +1662,7 @@ static bool match_type_sema(const LogosType* concrete, const LogosType* pattern,
         return pattern->arr_size == concrete->arr_size &&
                match_type_sema(concrete->elem, pattern->elem, bindings);
     case LogosType::Kind::Struct:
-    case LogosType::Kind::Datatype:
+    case LogosType::Kind::ZonedStruct:
         return pattern->struct_name == concrete->struct_name;
     default:
         return types_equal(*concrete, *pattern);
@@ -1724,7 +1724,7 @@ const LogosType* SemaChecker::field_type_of(std::string_view sname, std::string_
 const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
                                              std::string_view fname) {
     if (!struct_t || (struct_t->kind != LogosType::Kind::Struct &&
-                      struct_t->kind != LogosType::Kind::Datatype)) return nullptr;
+                      struct_t->kind != LogosType::Kind::ZonedStruct)) return nullptr;
     // Check for a concrete specialization first (including partial specs
     // via pattern matching).
     if (!struct_t->type_args.empty()) {
@@ -2035,10 +2035,69 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             continue;
         }
         if      (c == la::STRUCT) {
-            // Annotations are not applied to structs — only to datatypes.
-            if (is_specialization_struct(item))
-                prog.struct_specializations.push_back(lower_spec_struct(item));
-            else {
+            // Explicit struct instantiation: `#[type_code=N] struct Pair<i32>;`
+            // Has TYPE key, no NAME key — delegate to same logic as DATATYPE inst.
+            if (!item.has_key(la::NAME.code)) {
+                if (!item.has_key(la::TYPE.code)) {
+                    error("struct instantiation declaration missing type expression");
+                } else {
+                    auto type_node = map_of(item.get(la::TYPE.code));
+                    const LogosType* resolved = resolve_type(type_node);
+                    if (resolved && resolved->kind != LogosType::Kind::Error) {
+                        lir::LInstAnnotation ia;
+                        ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);
+                        if ((resolved->kind == LogosType::Kind::Struct ||
+                             resolved->kind == LogosType::Kind::ZonedStruct) &&
+                            !resolved->type_args.empty()) {
+                            ia.mangled_name = concrete_struct_name(resolved);
+                        } else if (resolved->kind == LogosType::Kind::Struct ||
+                                   resolved->kind == LogosType::Kind::ZonedStruct) {
+                            ia.mangled_name = resolved->struct_name;
+                        }
+                        for (auto& ann : pending_annots) {
+                            auto aname = std::string(str_of(ann.get(la::NAME.code)));
+                            if (aname == "type_code" && ann.has_key(la::VALUE)) {
+                                ia.type_code = read_annotation_u64(ann);
+                            }
+                        }
+                        if (ia.type_code != 0)
+                            explicit_type_codes_[ia.canonical_name] = ia.type_code;
+                        ia.struct_type = resolved;
+                        prog.inst_annotations.push_back(std::move(ia));
+                    }
+                }
+                pending_annots.clear();
+                continue;
+            }
+            // Check if #[zoned] annotation is present → treat as zoned struct.
+            bool has_zoned = false;
+            for (auto& ann : pending_annots) {
+                auto aname = std::string(str_of(ann.get(la::NAME.code)));
+                if (aname == "zoned") { has_zoned = true; break; }
+            }
+            if (is_specialization_struct(item)) {
+                auto sd = lower_spec_struct(item);
+                if (has_zoned) {
+                    sd.is_zoned = true;
+                    apply_annots_to_struct(sd);
+                }
+                prog.struct_specializations.push_back(std::move(sd));
+            } else if (has_zoned) {
+                auto sd = lower_struct_def(item);
+                sd.is_zoned = true;
+                sd.pkg = std::string(cur_package_);
+                { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) sd.is_data_plain = dsi->is_data_plain; }
+                apply_annots_to_struct(sd);
+                if (sd.type_params.empty()) {
+                    std::string canon = std::string(cur_package_) + "::" + sd.name;
+                    sd.type_hash = type_hash_23(canon);
+                    if (sd.type_code == 0) {
+                        uint64_t raw = type_hash_56bit(sd.type_hash);
+                        sd.type_code = (raw < 128) ? (raw + 128) : raw;
+                    }
+                }
+                prog.structs.push_back(std::move(sd));
+            } else {
                 auto sd = lower_struct_def(item);
                 sd.pkg = std::string(cur_package_);
                 prog.structs.push_back(std::move(sd));
@@ -2059,11 +2118,11 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);
                         // Mangled name for matching against monomorphized struct defs.
                         if ((resolved->kind == LogosType::Kind::Struct ||
-                             resolved->kind == LogosType::Kind::Datatype) &&
+                             resolved->kind == LogosType::Kind::ZonedStruct) &&
                             !resolved->type_args.empty()) {
                             ia.mangled_name = concrete_struct_name(resolved);
                         } else if (resolved->kind == LogosType::Kind::Struct ||
-                                   resolved->kind == LogosType::Kind::Datatype) {
+                                   resolved->kind == LogosType::Kind::ZonedStruct) {
                             ia.mangled_name = resolved->struct_name;
                         }
                         for (auto& ann : pending_annots) {
@@ -2085,7 +2144,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             } else if (is_specialization_struct(item)) {
                 // Datatype specialization (e.g. `pub eidos Map<Bitmap, V> { ... }`).
                 auto sd = lower_spec_struct(item);
-                sd.is_datatype = true;
+                sd.is_zoned = true;
                 // Apply #[type_code=N] annotations on full (all-concrete) specs.
                 // Without this, `impl Trait for Map<i32, AnyVal>` has no way to
                 // find the annotated code during dispatch-entry emission.
@@ -2124,7 +2183,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             } else {
                 // Normal datatype definition.
                 auto sd = lower_struct_def(item);
-                sd.is_datatype = true;
+                sd.is_zoned = true;
                 sd.pkg = std::string(cur_package_);
                 // Propagate is_data_plain only for datatypes (not regular structs).
                 { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) sd.is_data_plain = dsi->is_data_plain; }

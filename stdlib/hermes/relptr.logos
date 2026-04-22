@@ -9,7 +9,7 @@
 // relocatable: the zone can be moved in memory (e.g. grown via realloc)
 // without invalidating any stored references.
 //
-// RelPtr<T> is a eidos (POD, 4 bytes) that wraps a u32 offset.
+// RelPtr<T> is a #[zoned] struct (POD, 4 bytes) that wraps a u32 offset.
 // To dereference it you supply the zone base pointer, which comes from the
 // DataRef/DataOwn fat pointer that you hold outside the zone.
 //
@@ -21,7 +21,7 @@ package hermes.relptr;
 
 // Thin relative pointer — just 4 bytes stored in zone.
 // T must itself be a Datatype (Rule 9).
-pub eidos RelPtr<T> {
+#[zoned] pub struct RelPtr<T> {
     pub offset: u32,
 }
 

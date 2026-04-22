@@ -33,7 +33,7 @@ struct LogosType {
         MutRef,                   // &mut T — exclusive mutable reference (borrow-checked)
         Array,                    // [T; N]
         Struct,                   // user-defined struct
-        Datatype,                 // Hermes datatype (C POD layout, no heap types)
+        ZonedStruct,                 // Hermes datatype (C POD layout, no heap types)
         Enum,                     // discriminant enum (stored as i32)
         Tuple,                    // (T1, T2, ...) — anonymous product type
         Slice,                    // &[T] — fat pointer (ptr, len)

@@ -64,7 +64,7 @@ const FR_TINYMAP:     u8 = 2;
 const FR_TYPED_VALUE: u8 = 5;
 const FR_MI32_VAL:    u8 = 6;
 
-pub eidos ReadFrame {
+#[zoned] pub struct ReadFrame {
     pub kind:     u8,
     pub _pad0:    u8,
     pub _pad1:    u8,

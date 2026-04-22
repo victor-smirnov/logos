@@ -122,7 +122,7 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
     const LogosType* pointee_t = (s.ptr->type && s.ptr->type->pointee)
                                   ? s.ptr->type->pointee : nullptr;
     if (pointee_t && (pointee_t->kind == LogosType::Kind::Struct ||
-                      pointee_t->kind == LogosType::Kind::Datatype) &&
+                      pointee_t->kind == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
         auto cname = concrete_struct_name(pointee_t);
         auto sit = struct_types_.find(cname);
@@ -289,7 +289,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // If the value is a by-value aggregate (e.g. returned from a function),
     // store it into a fresh alloca so the rest of the pipeline sees a pointer.
     if (s.type && (s.type->kind == LogosType::Kind::Struct ||
-                    s.type->kind == LogosType::Kind::Datatype)) {
+                    s.type->kind == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         if (val.getType() != ptr_type()) {
@@ -314,7 +314,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     if (s.type && (s.type->kind == LogosType::Kind::Ref ||
                    s.type->kind == LogosType::Kind::MutRef) &&
         s.type->pointee && (s.type->pointee->kind == LogosType::Kind::Struct ||
-                            s.type->pointee->kind == LogosType::Kind::Datatype)) {
+                            s.type->pointee->kind == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         scope_[s.name] = val;
@@ -354,7 +354,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // directly without an extra alloca(ptr) wrapper.
     if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee &&
         (s.type->pointee->kind == LogosType::Kind::Struct ||
-         s.type->pointee->kind == LogosType::Kind::Datatype)) {
+         s.type->pointee->kind == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         if (s.is_mut) {
@@ -418,7 +418,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee) {
         const LogosType* pointee = s.type->pointee;
         if (pointee->kind == LogosType::Kind::Struct ||
-            pointee->kind == LogosType::Kind::Datatype) {
+            pointee->kind == LogosType::Kind::ZonedStruct) {
             // logos_to_mlir(Struct/Datatype) == ptr_type(), which can't be matched
             // to a struct LLVM type in gen_field_write. Store the actual aggregate type
             // so the fallback path resolves the correct struct name.

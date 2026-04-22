@@ -36,7 +36,7 @@ use hermes.typetag;
 use hermes.string;
 
 // AnyVal layout: single 4-byte raw field.
-pub eidos AnyVal {
+#[zoned] pub struct AnyVal {
     pub raw: u32,
 }
 

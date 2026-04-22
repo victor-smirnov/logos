@@ -8,12 +8,12 @@ pub enum Codes {
     BarCode = 201,
 }
 
-pub eidos Foo<T> {
+#[zoned] pub struct Foo<T> {
     pub x: u32,
 }
 
 #[type_code = Codes::FooCode]
-pub eidos Foo<i32>;
+#[zoned] pub struct Foo<i32>;
 
 unsafe fn main() -> i32 {
     let c: u64 = type_code_of::<Foo<i32>>();

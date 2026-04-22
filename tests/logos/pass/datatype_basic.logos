@@ -1,6 +1,6 @@
 package datatype_basic;
 
-eidos Point {
+#[zoned] struct Point {
     x: f64,
     y: f64,
 }

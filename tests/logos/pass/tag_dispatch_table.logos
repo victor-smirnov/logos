@@ -17,12 +17,12 @@ trait Checksum {
     fn checksum(self: &Self) -> i32;
 }
 
-eidos Point {
+#[zoned] struct Point {
     x: i32,
     y: i32,
 }
 
-eidos Color {
+#[zoned] struct Color {
     r: u8,
     g: u8,
     b: u8,

@@ -1,15 +1,15 @@
-// Partial specialization of a generic eidos: `pub eidos Map<Bitmap, V>`
+// Partial specialization of a generic #[zoned] struct: `#[zoned] pub struct Map<Bitmap, V>`
 // partially specializes `Map<K, V>` on K=Bitmap.  Fields and impls from
 // the partial spec override the template for any concrete V.
 package partial_spec_eidos;
 
-pub eidos Map<K, V> {
+#[zoned] pub struct Map<K, V> {
     pub x: u64,
 }
 
-pub eidos Bitmap { pub dummy: u32 }
+#[zoned] pub struct Bitmap { pub dummy: u32 }
 
-pub eidos Map<Bitmap, V> {
+#[zoned] pub struct Map<Bitmap, V> {
     pub header: u64,
     pub data:   u32,
 }

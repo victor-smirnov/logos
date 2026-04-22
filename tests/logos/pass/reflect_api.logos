@@ -4,13 +4,13 @@ use std.reflect;
 use hermes.string;
 
 #[annotation]
-eidos Deprecated {
+#[zoned] struct Deprecated {
     msg: str,
     since: str,
 }
 
 #[Deprecated(msg="use v2", since="0.3")]
-eidos MyPoint {
+#[zoned] struct MyPoint {
     x: i32,
     y: i32,
 }

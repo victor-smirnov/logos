@@ -3,7 +3,7 @@ package meta_trait;
 use hermes.view;
 use hermes.anyval;
 
-eidos TaggedPoint {
+#[zoned] struct TaggedPoint {
     x: i32,
     y: i32,
     meta @{ "label": "geometry", "version": 1 }

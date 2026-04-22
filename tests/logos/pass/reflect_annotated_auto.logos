@@ -6,7 +6,7 @@ use std.reflect;
 use hermes.string;
 
 #[annotation]
-eidos Deprecated {
+#[zoned] struct Deprecated {
     msg: str,
     since: str,
 }
@@ -14,7 +14,7 @@ eidos Deprecated {
 // MyData is annotated but we never call reflect::<MyData>() explicitly before main.
 // reflection_emit should still emit its TypeInfo because it has annotations.
 #[Deprecated(msg="legacy", since="1.0")]
-eidos MyData {
+#[zoned] struct MyData {
     value: i32,
 }
 

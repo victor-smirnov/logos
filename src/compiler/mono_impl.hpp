@@ -80,7 +80,7 @@ private:
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(const LogosType* t) {
         if (!t || (t->kind != LogosType::Kind::Struct &&
-                   t->kind != LogosType::Kind::Datatype) || t->type_args.empty()) return;
+                   t->kind != LogosType::Kind::ZonedStruct) || t->type_args.empty()) return;
         for (auto* a : t->type_args)
             if (a->kind == LogosType::Kind::TypeVar) return;
         auto cname = concrete_struct_name(t);
@@ -253,7 +253,7 @@ private:
         case LogosType::Kind::MutRef:   collect_type_for_structs(t->pointee); break;
         case LogosType::Kind::Array: collect_type_for_structs(t->elem);    break;
         case LogosType::Kind::Struct:
-        case LogosType::Kind::Datatype:
+        case LogosType::Kind::ZonedStruct:
             record_needed_struct(t);
             for (auto* a : t->type_args) collect_type_for_structs(a);
             break;

@@ -22,7 +22,7 @@ pub genos TypedValueTag {
     unsafe fn type_name_off(self: *const Self) -> u32;
 }
 
-pub eidos TypedValue {
+#[zoned] pub struct TypedValue {
     pub type_off:   RelPtr<HermesString>,  // type expression string
     pub params_raw: u32,                   // AnyVal raw for params (usually Array<AnyVal> or null_ptr)
     pub init_raw:   u32,                   // AnyVal raw for initializer

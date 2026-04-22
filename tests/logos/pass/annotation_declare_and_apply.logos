@@ -4,43 +4,43 @@ package annotation_declare_and_apply;
 // this test only verifies the compiler accepts the forms.
 
 #[annotation]
-eidos Deprecated {
+#[zoned] struct Deprecated {
     msg: str,
     since: str,
 }
 
 #[annotation]
-eidos Flags {
+#[zoned] struct Flags {
     mask: i64,
     enabled: bool,
 }
 
 #[annotation]
-eidos Empty {
+#[zoned] struct Empty {
 }
 
 // Named args
 #[Deprecated(msg="use v2", since="0.3")]
-eidos OldApi {
+#[zoned] struct OldApi {
     x: i32,
 }
 
 // Positional args
 #[Flags(7, true)]
-eidos Feature {
+#[zoned] struct Feature {
     y: i32,
 }
 
 // No-arg annotation
 #[Empty]
-eidos Marker {
+#[zoned] struct Marker {
     z: i32,
 }
 
 // Multiple annotations
 #[Deprecated(msg="gone", since="0.2")]
 #[Flags(mask=15, enabled=false)]
-eidos Combo {
+#[zoned] struct Combo {
     w: i32,
 }
 

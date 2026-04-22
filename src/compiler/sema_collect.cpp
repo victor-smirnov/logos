@@ -65,16 +65,29 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         cur_imports_ = build_import_scope(root);
         if (!root.has_key(la::ITEMS)) continue;
         auto items = arr_of(root.get(la::ITEMS.code));
+        std::vector<TinyMapView> pass0_pending;
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             int32_t ic = code_of(item);
+            if (ic == la::ANNOTATION) {
+                pass0_pending.push_back(item);
+                continue;
+            }
+            bool is_zoned_struct = false;
             if (ic == la::STRUCT) {
+                for (auto& ann : pass0_pending) {
+                    if (str_of(ann.get(la::NAME.code)) == "zoned") { is_zoned_struct = true; break; }
+                }
+            }
+            pass0_pending.clear();
+            if (ic == la::STRUCT && !is_zoned_struct) {
+                if (!item.has_key(la::NAME.code)) continue;  // struct_inst — skip name registration
                 if (is_specialization_struct(item)) continue;  // specs registered later
                 auto sname = std::string(str_of(item.get(la::NAME.code)));
                 auto key = sema_key(cur_package_, sname);
                 if (structs_.count(key)) error(std::format("duplicate struct '{}'", sname));
                 else structs_[key] = {};
-            } else if (ic == la::DATATYPE) {
+            } else if ((ic == la::STRUCT && is_zoned_struct) || ic == la::DATATYPE) {
                 // Explicit instantiation declarations have no NAME key — skip name registration.
                 if (!item.has_key(la::NAME.code)) continue;
                 if (is_specialization_struct(item)) continue;  // partial/full specs registered later
@@ -222,7 +235,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // struct exists; the impl's own type-param bounds are validated
             // at monomorphization time by recursive check_type_bounds.
             if ((concrete->kind == LogosType::Kind::Struct ||
-                 concrete->kind == LogosType::Kind::Datatype) &&
+                 concrete->kind == LogosType::Kind::ZonedStruct) &&
                 !concrete->struct_name.empty()) {
                 auto key3 = bound.trait_name + "::" + concrete->struct_name;
                 if (impls_.count(key3)) continue;
@@ -253,8 +266,18 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
         }
         if (phase == 1) {
             if      (c == la::STRUCT) {
-                if (is_specialization_struct(item)) collect_struct_spec(item);
-                else                                collect_struct(item);
+                bool is_zoned = false;
+                for (auto& ann : pending_annots)
+                    if (str_of(ann.get(la::NAME.code)) == "zoned") { is_zoned = true; break; }
+                if (!item.has_key(la::NAME.code)) { /* struct_inst — skip collect */ }
+                else if (is_specialization_struct(item)) collect_struct_spec(item);
+                else if (is_zoned) {
+                    bool pending_is_annot_type = false;
+                    for (auto& ann : pending_annots) {
+                        if (str_of(ann.get(la::NAME.code)) == "annotation") { pending_is_annot_type = true; break; }
+                    }
+                    collect_datatype(item, pending_is_annot_type);
+                } else                              collect_struct(item);
             } else if (c == la::DATATYPE) {
                 // Skip explicit instantiation declarations (no FIELDS key, no NAME key).
                 // These only bind annotations to existing generic instantiations.
@@ -580,7 +603,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (a && a->kind == LogosType::Kind::TypeVar) { concrete = false; break; }
                     if (concrete) {
                         if (resolved->kind == LogosType::Kind::Struct ||
-                            resolved->kind == LogosType::Kind::Datatype)
+                            resolved->kind == LogosType::Kind::ZonedStruct)
                             target = concrete_struct_name(resolved);
                         target_resolved = resolved;
                     }
@@ -595,7 +618,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 ait->second.type_params.empty() && ait->second.lifetime_params.empty()) {
                 auto* aliased = ait->second.type;
                 if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                                aliased->kind == LogosType::Kind::Datatype)) {
+                                aliased->kind == LogosType::Kind::ZonedStruct)) {
                     if (!aliased->type_args.empty()) {
                         target = concrete_struct_name(aliased);
                         target_resolved = aliased;
@@ -1131,7 +1154,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                         return true;
                     case LogosType::Kind::Array:
                         return self(t->elem, self);
-                    case LogosType::Kind::Datatype:
+                    case LogosType::Kind::ZonedStruct:
                         return true;  // datatypes in datatypes OK
                     case LogosType::Kind::TypeVar:
                         return true;  // resolved later by mono
@@ -1159,7 +1182,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                 if (!ft) return false;
                 // Strip Array wrapper (Bug 3 fix)
                 while (ft->kind == LogosType::Kind::Array) ft = ft->elem;
-                if (ft->kind == LogosType::Kind::Datatype) {
+                if (ft->kind == LogosType::Kind::ZonedStruct) {
                     if (!ft->type_args.empty()) return true;  // generic → conservative
                     // Try bare name, then current-package qualified, then pkg_name qualified.
                     auto ndit = datatypes_.find(ft->struct_name);

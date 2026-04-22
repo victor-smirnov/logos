@@ -1,9 +1,9 @@
 package datatype_zone_basic;
-// Phase 2: allocate a eidos in a HermesZone, write and read fields.
+// Phase 2: allocate a #[zoned] struct in a HermesZone, write and read fields.
 
 use hermes.zone;
 
-eidos Point {
+#[zoned] struct Point {
     x: i32,
     y: i32,
 }

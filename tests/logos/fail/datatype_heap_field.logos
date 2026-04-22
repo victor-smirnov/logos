@@ -2,7 +2,7 @@ package datatype_heap_field;
 
 struct Wrapper { data: i32 }
 
-eidos Bad {
+#[zoned] struct Bad {
     x: Wrapper,
 }
 
