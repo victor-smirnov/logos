@@ -601,6 +601,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::EPtrDiff>) {
             result->kind = lir::EPtrDiff{k.by_byte,
                 subst_expr(*k.lhs, s), subst_expr(*k.rhs, s)};
+        } else if constexpr (std::is_same_v<K, lir::EReflectOf>) {
+            result->kind = lir::EReflectOf{subst_type(k.type, s)};
         }
     }, e.kind);
 

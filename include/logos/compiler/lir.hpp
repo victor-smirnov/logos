@@ -416,6 +416,9 @@ struct EBlockExpr {
 };
 
 
+// reflect::<T>() — returns HermesStatic view of T's TypeInfo rodata global.
+struct EReflectOf { const LogosType* type; };
+
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
@@ -427,7 +430,7 @@ struct LExpr {
         ETupleLit, ETupleIndex, ESliceLit, ESliceIndex, ESliceLen, ESlicePtr,
         EClosureBox, EClosureCall, EFnPtrCall, EFormatCall, EPackExpand,
         ETry, EMatchExpr, ESizeOf, ETypeCodeOf, EBlockExpr,
-        EHermesLit, EPtrArith, EPtrDiff
+        EHermesLit, EPtrArith, EPtrDiff, EReflectOf
     > kind;
 };
 
@@ -660,6 +663,7 @@ struct LAnnotationInstance {
 
 struct LStructDef {
     std::string              name;
+    std::string              pkg;            // package that declares this struct/datatype
     std::vector<TypeParam>   type_params;    // empty for non-generic structs
     std::vector<std::string> lifetime_params; // e.g. ["'a", "'z"]; erased at codegen
     std::vector<LField>      fields;
@@ -787,6 +791,13 @@ struct LDispatchEntry {
     uint64_t    type_code = 0;    // the datatype's type_code
 };
 
+// TypeInfo rodata global for reflect::<T>() intrinsic.
+// symbol = "__logos_reflect__<type_hash_hex>", blob = packed Hermes doc (with 8-byte size prefix).
+struct LReflectGlobal {
+    std::string           symbol;
+    std::vector<uint8_t>  blob;   // [u64 size_le][hermes_doc bytes...]
+};
+
 struct LProgram {
     SemaResult             diags;
 
@@ -803,6 +814,12 @@ struct LProgram {
     std::vector<LImplBlock>      impls;
     std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
     std::vector<LDispatchEntry>  dispatch_entries; // tag-dispatch table entries
+
+    // Populated by sema when reflect::<T>() is lowered; consumed by reflection_emit pass.
+    std::unordered_set<std::string> reflect_requests; // fqn of types to reflect
+
+    // Populated by reflection_emit pass; consumed by mlir_gen.
+    std::vector<LReflectGlobal> reflection_globals;
 
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
@@ -829,5 +846,9 @@ namespace logos::compiler {
 lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames = {},
                           const std::vector<bool>& from_binary = {});
+
+// Build TypeInfo rodata blobs for types in reflect_requests and annotated datatypes.
+// Populates prog.reflection_globals with LReflectGlobal entries.
+lir::LProgram reflection_emit(lir::LProgram prog);
 
 } // namespace logos::compiler

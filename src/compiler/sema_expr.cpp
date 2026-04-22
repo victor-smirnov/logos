@@ -1569,6 +1569,29 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{is_plain ? 1LL : 0LL});
     }
 
+    // reflect::<T>() -> HermesStatic — compile-time request for TypeInfo rodata.
+    // Adds T to reflect_requests so reflection_emit pass builds the TypeInfo global.
+    // Returns EReflectOf{T}; mlir_gen lowers it to AddressOf(__logos_reflect__<hash>) + offset 8.
+    if (callee == "reflect") {
+        auto ts = collect_type_args();
+        if (ts.size() != 1 || !ts[0]) {
+            error("reflect::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        const LogosType* T = ts[0];
+        if (T->kind != LogosType::Kind::Datatype || !T->type_args.empty()) {
+            error("reflect::<T>() requires a concrete (non-generic) datatype argument");
+            return error_expr();
+        }
+        if (cur_prog_) {
+            std::string pkg = T->pkg_name.empty() ? std::string(cur_package_) : T->pkg_name;
+            std::string fqn = pkg.empty() ? T->struct_name : pkg + "::" + T->struct_name;
+            cur_prog_->reflect_requests.insert(fqn);
+        }
+        auto* hs_type = make_struct_type("HermesStatic");
+        return make_expr(hs_type, lir::EReflectOf{T});
+    }
+
     // has_annotation::<T, A>() -> bool  (compile-time const-fold)
     // Returns true if datatype T has a user annotation of type A attached.
     if (callee == "has_annotation") {

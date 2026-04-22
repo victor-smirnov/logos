@@ -6,6 +6,7 @@
 
 #include "mlir_gen_impl.hpp"
 
+#include <logos/compiler/sha256.hpp>
 #include <logos/hermes/access.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/arena_value.hpp>
@@ -2474,6 +2475,50 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, const LogosType* t)
             break;
     }
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+}
+
+mlir::Value MLIRGenImpl::gen_expr_kind(const EReflectOf& e, const LogosType*) {
+    auto i8 = builder_.getIntegerType(8);
+
+    // Compute symbol name deterministically from fqn (same formula as reflection_emit).
+    std::string fqn;
+    if (e.type) {
+        std::string pkg = e.type->pkg_name.empty() ? "" : e.type->pkg_name;
+        fqn = pkg.empty() ? e.type->struct_name : pkg + "::" + e.type->struct_name;
+    }
+    auto hash = logos::compiler::type_hash_23(fqn);
+    static const char hexc[] = "0123456789abcdef";
+    std::string sym_name = "__logos_reflect__";
+    for (auto b : hash) { sym_name += hexc[b >> 4]; sym_name += hexc[b & 0xF]; }
+
+    auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    // Forward-declare the global as external if not already in the module.
+    // reflection_emit emitted the real WeakODR global earlier in the same module.
+    if (!parent_mod.lookupSymbol(sym_name)) {
+        auto save_pt = builder_.saveInsertionPoint();
+        builder_.setInsertionPointToStart(parent_mod.getBody());
+        auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, 1);
+        builder_.create<mlir::LLVM::GlobalOp>(
+            loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::External,
+            sym_name, mlir::Attribute{});
+        builder_.restoreInsertionPoint(save_pt);
+    }
+
+    // ptr = address_of(global) + 8  (past size prefix, pointing to Hermes payload)
+    auto global_ptr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), sym_name);
+    mlir::Value offset8 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
+    auto blob_ptr = builder_.create<mlir::LLVM::GEPOp>(
+        loc_, ptr_type(), i8, global_ptr, mlir::ValueRange{offset8});
+
+    // Return HermesStatic { ptr: blob_ptr } as an alloca.
+    auto sit = struct_types_.find("HermesStatic");
+    if (sit == struct_types_.end()) return blob_ptr;
+    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+        loc_, ptr_type(), sit->second.llvm_type, i64_one());
+    auto gep = gep_field(alloca, sit->second, "ptr");
+    if (!gep) return blob_ptr;
+    builder_.create<mlir::LLVM::StoreOp>(loc_, blob_ptr, gep);
+    return alloca;
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret_type) {

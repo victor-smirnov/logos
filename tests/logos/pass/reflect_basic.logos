@@ -1,0 +1,48 @@
+package reflect_basic;
+
+use hermes.view;
+use hermes.anyval;
+
+#[annotation]
+eidos Deprecated {
+    msg: str,
+    since: str,
+}
+
+#[Deprecated(msg="old", since="0.1")]
+eidos MyPoint {
+    x: i32,
+    y: i32,
+}
+
+unsafe fn main() -> i32 {
+    // reflect::<T>() returns HermesStatic
+    let info: HermesStatic = reflect::<MyPoint>();
+
+    // Read root and verify it's a valid pointer (non-null map).
+    let root: AnyVal = info.root();
+    if root.is_null() { return 1; }
+    if !root.is_ptr() { return 2; }
+
+    // Read "name" key — must be non-null.
+    let name_av: AnyVal = info.map_get(root, "name");
+    if name_av.is_null() { return 3; }
+
+    // Read "type_code" — must be non-null.
+    let tc_av: AnyVal = info.map_get(root, "type_code");
+    if tc_av.is_null() { return 4; }
+
+    // Read "kind" — must equal 2 (datatype).
+    let kind_av: AnyVal = info.map_get(root, "kind");
+    if kind_av.is_null() { return 5; }
+    let kind_val: i64 = info.get_int(kind_av);
+    if kind_val != 2 { return 6; }
+
+    // Annotations array must be present and non-empty (MyPoint has one annotation).
+    let ann_av: AnyVal = info.map_get(root, "annotations");
+    if ann_av.is_null() { return 7; }
+    let ann_len: u64 = info.array_len(ann_av);
+    if ann_len != 1 { return 8; }
+
+    return 42;
+}

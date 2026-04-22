@@ -26,14 +26,16 @@ namespace logos::compiler {
 lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     in_ = std::move(in);
 
-    out_.consts            = std::move(in_.consts);
-    out_.type_aliases      = std::move(in_.type_aliases);
-    out_.traits            = std::move(in_.traits);
-    out_.impls             = std::move(in_.impls);
-    out_.dispatch_entries  = std::move(in_.dispatch_entries);
-    out_.inst_annotations  = std::move(in_.inst_annotations);
+    out_.consts              = std::move(in_.consts);
+    out_.type_aliases        = std::move(in_.type_aliases);
+    out_.traits              = std::move(in_.traits);
+    out_.impls               = std::move(in_.impls);
+    out_.dispatch_entries    = std::move(in_.dispatch_entries);
+    out_.inst_annotations    = std::move(in_.inst_annotations);
+    out_.reflection_globals  = std::move(in_.reflection_globals);
+    out_.reflect_requests    = std::move(in_.reflect_requests);
     // Move type_pool — will be extended with new types during mono
-    out_.type_pool         = std::move(in_.type_pool);
+    out_.type_pool           = std::move(in_.type_pool);
 
     // Index associated type impls for subst_type resolution.
     // Also split blanket impls into a separate table for fallback lookup.

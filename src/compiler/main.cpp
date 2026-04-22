@@ -169,6 +169,10 @@ int main(int argc, char** argv) {
     prog.binary_symbols = std::move(binary_symbols);
     report("sema+lower");
 
+    // ── Step 2b+: Reflection TypeInfo emission (pre-mono, concrete types only)
+    prog = logos::compiler::reflection_emit(std::move(prog));
+    report("reflection_emit");
+
     // ── Step 2c: Monomorphization ────────────────────────────────
     prog = logos::compiler::mono_pass(std::move(prog));
     prog.print_diags(stderr);

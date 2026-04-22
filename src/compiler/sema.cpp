@@ -2038,8 +2038,11 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             // Annotations are not applied to structs — only to datatypes.
             if (is_specialization_struct(item))
                 prog.struct_specializations.push_back(lower_spec_struct(item));
-            else
-                prog.structs.push_back(lower_struct_def(item));
+            else {
+                auto sd = lower_struct_def(item);
+                sd.pkg = std::string(cur_package_);
+                prog.structs.push_back(std::move(sd));
+            }
         }
         else if (c == la::DATATYPE) {
             if (!item.has_key(la::NAME.code)) {
@@ -2121,7 +2124,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             } else {
                 // Normal datatype definition.
                 auto sd = lower_struct_def(item);
-                sd.is_datatype   = true;
+                sd.is_datatype = true;
+                sd.pkg = std::string(cur_package_);
                 // Propagate is_data_plain only for datatypes (not regular structs).
                 { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) sd.is_data_plain = dsi->is_data_plain; }
                 apply_annots_to_struct(sd);

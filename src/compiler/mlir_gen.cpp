@@ -98,6 +98,23 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // Pass 1c: emit tag-based dispatch tables (one [223 x ptr] per TagSystem×Trait×method).
     emit_tag_dispatch_tables(mod, prog);
 
+    // Pass 1d: emit TypeInfo rodata globals for reflect::<T>() and annotated types.
+    {
+        auto i8 = builder_.getIntegerType(8);
+        builder_.setInsertionPointToEnd(mod.getBody());
+        for (auto& rg : prog.reflection_globals) {
+            // Avoid duplicate emission (e.g. stdlib pre-compiled + current TU).
+            if (mod.lookupSymbol(rg.symbol)) continue;
+            auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, rg.blob.size());
+            auto blob_attr = builder_.getStringAttr(
+                llvm::StringRef(reinterpret_cast<const char*>(rg.blob.data()), rg.blob.size()));
+            // WeakODR: multiple TUs can emit the same symbol; linker keeps one.
+            builder_.create<mlir::LLVM::GlobalOp>(
+                loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::WeakODR,
+                rg.symbol, blob_attr);
+        }
+    }
+
     // Pass 2: fill function bodies (structs, free fns).
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
