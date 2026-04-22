@@ -192,6 +192,12 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         inside_unsafe_ = was;
         return make_stmt(node_line_, lir::SBlock{std::make_unique<lir::LBlock>(std::move(inner))});
     }
+    if (c == la::BLOCK_STMT) {
+        auto inner = stmt.has_key(la::BODY)
+            ? lower_block(map_of(stmt.get(la::BODY.code)))
+            : lir::LBlock{};
+        return make_stmt(node_line_, lir::SBlock{std::make_unique<lir::LBlock>(std::move(inner))});
+    }
     // Unknown stmt — emit dummy expr stmt
     return make_stmt(node_line_, lir::SExprStmt{error_expr()});
 }

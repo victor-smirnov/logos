@@ -239,6 +239,7 @@
     ANNOT_ARR                   = 194   // annotation array literal: ITEMS=literals
     META_BLOCK                  = 195   // meta @{...} block; VALUE=hermes_lit node
     GENOS_DEF                   = 196   // genos declaration (trait with is_genos=true)
+    BLOCK_STMT                  = 197   // bare scoping block { stmts... }; BODY = block
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -906,6 +907,8 @@
           / compound_assign_stmt
           / assign_stmt
           / unsafe_block
+          / block
+            => { CODE: BLOCK_STMT, BODY: $1 }
           / expr SEMI
             => { CODE: EXPR_STMT, VALUE: $1 }
           / expr

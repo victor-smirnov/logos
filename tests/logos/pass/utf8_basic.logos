@@ -1,0 +1,136 @@
+// Tests UTF-8 encode/decode, Chars iterator, is_valid, char_count, push_char.
+package test;
+
+use std.utf8;
+use std.string;
+use std.option;
+
+fn check_encode_decode() -> i32 {
+    if encode_len(0x41 as u32)    != 1 { return 1; }
+    if encode_len(0xE9 as u32)    != 2 { return 2; }
+    if encode_len(0x4E2D as u32)  != 3 { return 3; }
+    if encode_len(0x1F600 as u32) != 4 { return 4; }
+
+    unsafe {
+        let mut buf: [u8; 4] = [0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        let bptr: *mut u8 = &mut buf[0];
+
+        let n1: i64 = encode(0x41 as u32, bptr);
+        if n1 != 1 { return 5; }
+        if decode(bptr as *const u8) != 0x41 as u32 { return 6; }
+
+        let n2: i64 = encode(0xE9 as u32, bptr);
+        if n2 != 2 { return 7; }
+        if decode(bptr as *const u8) != 0xE9 as u32 { return 8; }
+
+        let n3: i64 = encode(0x4E2D as u32, bptr);
+        if n3 != 3 { return 9; }
+        if decode(bptr as *const u8) != 0x4E2D as u32 { return 10; }
+
+        let n4: i64 = encode(0x1F600 as u32, bptr);
+        if n4 != 4 { return 11; }
+        if decode(bptr as *const u8) != 0x1F600 as u32 { return 12; }
+    }
+    return 0;
+}
+
+fn check_valid() -> i32 {
+    unsafe {
+        let ascii: str = "hello";
+        if !is_valid(ascii.as_ptr(), ascii.len()) { return 13; }
+
+        let empty: str = "";
+        if !is_valid(empty.as_ptr(), empty.len()) { return 14; }
+
+        // Produce valid UTF-8 via encode(), then validate the result.
+        let mut buf: [u8; 4] = [0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        let bp: *mut u8 = &mut buf[0];
+        let n3: i64 = encode(0x4E2D as u32, bp);  // '中' → 3 bytes
+        if !is_valid(bp as *const u8, n3) { return 15; }
+
+        // stray continuation byte → invalid
+        buf[0] = 0x80 as u8;
+        if is_valid(bp as *const u8, 1) { return 16; }
+    }
+    return 0;
+}
+
+fn check_char_count() -> i32 {
+    unsafe {
+        let ascii: str = "hello";
+        if char_count(ascii.as_ptr(), ascii.len()) != 5 { return 17; }
+
+        // encode two 'é' (U+00E9, 2 bytes each) → 4 bytes total, 2 chars
+        let mut buf: [u8; 4] = [0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        let bp: *mut u8 = &mut buf[0];
+        let n1: i64 = encode(0xE9 as u32, bp);
+        let p2: *mut u8 = (bp as i64 + n1) as *mut u8;
+        let n2: i64 = encode(0xE9 as u32, p2);
+        if char_count(bp as *const u8, n1 + n2) != 2 { return 18; }
+    }
+    return 0;
+}
+
+fn check_chars_iter() -> i32 {
+    let mut it: Chars = str_chars("ABC");
+    let c0: Option<u32> = it.next();
+    match c0 {
+        Option::Some(v) => { if v != 65 as u32 { return 19; } }
+        Option::None    => { return 20; }
+    }
+    let c1: Option<u32> = it.next();
+    match c1 {
+        Option::Some(v) => { if v != 66 as u32 { return 21; } }
+        Option::None    => { return 22; }
+    }
+    let c2: Option<u32> = it.next();
+    match c2 {
+        Option::Some(v) => { if v != 67 as u32 { return 23; } }
+        Option::None    => { return 24; }
+    }
+    let c3: Option<u32> = it.next();
+    match c3 {
+        Option::Some(_) => { return 25; }
+        Option::None    => {}
+    }
+    return 0;
+}
+
+fn check_push_char() -> i32 {
+    let mut s: String = String::new();
+    s.push_char(72 as u32);   // 'H'
+    s.push_char(105 as u32);  // 'i'
+    if s.len() != 2 { return 26; }
+
+    let mut s2: String = String::new();
+    s2.push_char(0xE9 as u32);   // 'é' — 2 bytes
+    if s2.len() != 2 { return 27; }
+
+    let mut it: Chars = str_chars("Hi");
+    let mut rebuilt: String = String::new();
+    let a: Option<u32> = it.next();
+    match a { Option::Some(v) => { rebuilt.push_char(v); } Option::None => { return 28; } }
+    let b: Option<u32> = it.next();
+    match b { Option::Some(v) => { rebuilt.push_char(v); } Option::None => { return 29; } }
+    if rebuilt.len() != 2 { return 30; }
+    return 0;
+}
+
+fn main() -> i32 {
+    let r1: i32 = check_encode_decode();
+    if r1 != 0 { return r1; }
+
+    let r2: i32 = check_valid();
+    if r2 != 0 { return r2; }
+
+    let r3: i32 = check_char_count();
+    if r3 != 0 { return r3; }
+
+    let r4: i32 = check_chars_iter();
+    if r4 != 0 { return r4; }
+
+    let r5: i32 = check_push_char();
+    if r5 != 0 { return r5; }
+
+    return 42;
+}

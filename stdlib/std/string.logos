@@ -448,3 +448,52 @@ pub fn to_string<T: Display>(val: T) -> String {
     val.fmt(&mut s);
     return s;
 }
+
+// ── UTF-8 helpers on String ────────────────────────────────────────────────
+
+// Encode a Unicode codepoint as UTF-8 and append to the String.
+// Invalid codepoints append U+FFFD.
+impl String {
+    pub fn push_char(&mut self, cp: u32) {
+        self.grow(4);
+        unsafe {
+            let p: *mut u8 = (self.data as i64 + self.nbytes) as *mut u8;
+            let n: i64 = std_utf8_encode(cp, p);
+            self.nbytes = self.nbytes + n;
+            self.data[self.nbytes] = 0 as u8;
+        }
+    }
+}
+
+// Encode one codepoint into buf, return bytes written.  Wrapper so string.logos
+// does not need to import std.utf8 (which would create a cycle via str_chars).
+unsafe fn std_utf8_encode(cp: u32, buf: *mut u8) -> i64 {
+    if cp < 0x80 as u32 {
+        buf[0] = cp as u8;
+        return 1;
+    }
+    if cp < 0x800 as u32 {
+        buf[0] = (0xC0 | (cp >> 6))  as u8;
+        buf[1] = (0x80 | (cp & 0x3F)) as u8;
+        return 2;
+    }
+    if cp < 0x10000 as u32 {
+        if cp >= 0xD800 as u32 && cp <= 0xDFFF as u32 {
+            buf[0] = 0xEF as u8; buf[1] = 0xBF as u8; buf[2] = 0xBD as u8;
+            return 3;
+        }
+        buf[0] = (0xE0 | (cp >> 12))         as u8;
+        buf[1] = (0x80 | ((cp >> 6) & 0x3F)) as u8;
+        buf[2] = (0x80 | (cp & 0x3F))         as u8;
+        return 3;
+    }
+    if cp <= 0x10FFFF as u32 {
+        buf[0] = (0xF0 | (cp >> 18))          as u8;
+        buf[1] = (0x80 | ((cp >> 12) & 0x3F)) as u8;
+        buf[2] = (0x80 | ((cp >> 6)  & 0x3F)) as u8;
+        buf[3] = (0x80 | (cp & 0x3F))          as u8;
+        return 4;
+    }
+    buf[0] = 0xEF as u8; buf[1] = 0xBF as u8; buf[2] = 0xBD as u8;
+    return 3;
+}
