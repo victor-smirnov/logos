@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.set
+//
+// HashSet<K: Hash + Eq> — unordered set backed by HashMap<K, u8>.
+// The u8 dummy value wastes 1 byte per slot; this is acceptable for now.
+
+package std.set;
+
+use std.hashmap;
+use std.hash;
+use std.cmp;
+use std.iter;
+use std.option;
+
+pub struct HashSet<K> {
+    inner: HashMap<K, u8>,
+}
+
+pub fn hashset_new<K: Hash + Eq>() -> HashSet<K> {
+    return HashSet { inner: hashmap_new::<K, u8>() };
+}
+
+pub fn hashset_with_capacity<K: Hash + Eq>(cap_hint: i64) -> HashSet<K> {
+    return HashSet { inner: hashmap_with_capacity::<K, u8>(cap_hint) };
+}
+
+impl<K: Hash + Eq> HashSet<K> {
+    pub fn len(&self) -> i64 { return self.inner.len(); }
+
+    pub fn is_empty(&self) -> bool { return self.inner.is_empty(); }
+
+    // Insert key; returns true if the key was newly added, false if it already existed.
+    pub unsafe fn insert(self: *mut HashSet<K>, key: K) -> bool {
+        let already: bool = self.inner.contains_key(&key);
+        self.inner.insert(key, 0 as u8);
+        return !already;
+    }
+
+    pub unsafe fn contains(self: *mut HashSet<K>, key: &K) -> bool {
+        return self.inner.contains_key(key);
+    }
+
+    // Remove key; returns true if it was present.
+    pub unsafe fn remove(self: *mut HashSet<K>, key: &K) -> bool {
+        return self.inner.remove(key);
+    }
+
+    pub unsafe fn clear(self: *mut HashSet<K>) {
+        self.inner.clear();
+    }
+
+    // Iterator over set elements (yields K values).
+    pub unsafe fn iter(self: *const HashSet<K>) -> HashSetIter<K> {
+        return HashSetIter { inner: self.inner.keys() };
+    }
+}
+
+// ── HashSetIter<K> ────────────────────────────────────────────────────────────
+
+pub struct HashSetIter<K> {
+    inner: HashMapKeys<K, u8>,
+}
+
+impl<K: Hash + Eq> Iterator<K> for HashSetIter<K> {
+    fn next(self: &mut HashSetIter<K>) -> Option<K> {
+        return self.inner.next();
+    }
+}
+
+pub unsafe fn hashset_free<K: Hash + Eq>(s: *mut HashSet<K>) {
+    hashmap_free::<K, u8>(&mut s.inner);
+}

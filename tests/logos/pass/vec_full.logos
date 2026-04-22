@@ -1,0 +1,69 @@
+// pass — comprehensive Vec<T> test (pop, set, remove, iter, contains).
+package test;
+
+use std.vec;
+use std.option;
+use std.iter;
+use std.cmp;
+
+fn main() -> i32 {
+    unsafe {
+        // ── push / get / length ─────────────────────────────────────────────
+        let mut v: Vec<i32> = vec_new::<i32>();
+        v.push(10);
+        v.push(20);
+        v.push(30);
+        if v.length() != 3 as i64 { return 1; }
+        if v.get(0) != 10 { return 2; }
+        if v.get(1) != 20 { return 3; }
+        if v.get(2) != 30 { return 4; }
+
+        // ── set ─────────────────────────────────────────────────────────────
+        v.set(1 as i64, 99);
+        if v.get(1) != 99 { return 5; }
+        v.set(1 as i64, 20);   // restore
+
+        // ── is_empty ────────────────────────────────────────────────────────
+        if v.is_empty() { return 6; }
+
+        // ── pop ─────────────────────────────────────────────────────────────
+        match v.pop() {
+            Option::Some(x) => { if x != 30 { return 7; } }
+            Option::None    => { return 8; }
+        }
+        if v.length() != 2 as i64 { return 9; }
+        match v.pop() { Option::Some(x) => { if x != 20 { return 10; } } Option::None => { return 11; } }
+        match v.pop() { Option::Some(x) => { if x != 10 { return 12; } } Option::None => { return 13; } }
+        if !v.is_empty() { return 14; }
+        match v.pop() {
+            Option::None    => { }
+            Option::Some(_) => { return 15; }
+        }
+
+        // ── remove ──────────────────────────────────────────────────────────
+        v.push(1);
+        v.push(2);
+        v.push(3);
+        v.push(4);
+        v.push(5);
+        let mid: i32 = v.remove(2 as i64);   // remove 3
+        if mid != 3 { return 16; }
+        if v.length() != 4 as i64 { return 17; }
+        if v.get(0) != 1 { return 18; }
+        if v.get(1) != 2 { return 19; }
+        if v.get(2) != 4 { return 20; }
+        if v.get(3) != 5 { return 21; }
+
+        // ── iter (use iter_sum_i32) ─────────────────────────────────────────
+        let it = v.iter();
+        let s: i32 = iter_sum_i32(it);
+        if s != 12 { return 22; }   // 1+2+4+5
+
+        // ── vec_contains ───────────────────────────────────────────────────
+        if !vec_contains::<i32>(&v as *const Vec<i32>, &4) { return 23; }
+        if vec_contains::<i32>(&v as *const Vec<i32>, &3) { return 24; }  // was removed
+
+        vec_free::<i32>(&mut v);
+    }
+    return 42;
+}

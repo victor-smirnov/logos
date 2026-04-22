@@ -1,0 +1,71 @@
+// pass — VecDeque<T> smoke test.
+package test;
+
+use std.deque;
+use std.option;
+
+fn main() -> i32 {
+    unsafe {
+        let mut d: VecDeque<i32> = vecdeque_new::<i32>();
+        if !d.is_empty() { return 1; }
+
+        // ── FIFO via push_back / pop_front ─────────────────────────────────
+        d.push_back(1);
+        d.push_back(2);
+        d.push_back(3);
+        if d.len() != 3 as i64 { return 2; }
+
+        match d.pop_front() { Option::Some(v) => { if v != 1 { return 3; } } Option::None => { return 4; } }
+        match d.pop_front() { Option::Some(v) => { if v != 2 { return 5; } } Option::None => { return 6; } }
+        match d.pop_front() { Option::Some(v) => { if v != 3 { return 7; } } Option::None => { return 8; } }
+        if !d.is_empty() { return 9; }
+        match d.pop_front() { Option::None => { } Option::Some(_) => { return 10; } }
+
+        // ── pop_back ────────────────────────────────────────────────────────
+        d.push_back(10);
+        d.push_back(20);
+        d.push_back(30);
+        match d.pop_back() { Option::Some(v) => { if v != 30 { return 11; } } Option::None => { return 12; } }
+        match d.pop_back() { Option::Some(v) => { if v != 20 { return 13; } } Option::None => { return 14; } }
+
+        // ── push_front ─────────────────────────────────────────────────────
+        d.push_front(5);   // [5, 10]
+        if d.len() != 2 as i64 { return 15; }
+        if d.get(0 as i64) != 5  { return 16; }
+        if d.get(1 as i64) != 10 { return 17; }
+
+        match d.pop_front() { Option::Some(v) => { if v != 5  { return 18; } } Option::None => { return 19; } }
+        match d.pop_front() { Option::Some(v) => { if v != 10 { return 20; } } Option::None => { return 21; } }
+        if !d.is_empty() { return 22; }
+
+        // ── ring wrap-around + resize (force growth from cap=8) ────────────
+        let mut i: i32 = 0;
+        while i < 12 {
+            d.push_back(i);
+            i = i + 1;
+        }
+        if d.len() != 12 as i64 { return 23; }
+        // consume 2 from front so head wraps inside old buffer, then push more to force grow
+        match d.pop_front() { Option::Some(v) => { if v != 0 { return 24; } } Option::None => { return 25; } }
+        match d.pop_front() { Option::Some(v) => { if v != 1 { return 26; } } Option::None => { return 27; } }
+        let mut k: i32 = 12;
+        while k < 20 {
+            d.push_back(k);
+            k = k + 1;
+        }
+        if d.get(0 as i64) != 2 { return 28; }
+
+        // drain and verify sum: 2..19 = (2+19)*18/2 = 189
+        let mut sum: i32 = 0;
+        loop {
+            match d.pop_front() {
+                Option::None    => { break; }
+                Option::Some(v) => { sum = sum + v; }
+            }
+        }
+        if sum != 189 { return 29; }
+
+        vecdeque_free::<i32>(&mut d);
+    }
+    return 42;
+}

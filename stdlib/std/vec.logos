@@ -7,6 +7,8 @@
 package std.vec;
 
 use std.mem;
+use std.option;
+use std.iter;
 
 pub struct Vec<T> {
     ptr: *mut T,
@@ -38,9 +40,73 @@ impl<T> Vec<T> {
         return self.ptr[i];
     }
 
-    pub unsafe fn length(self: *mut Vec<T>) -> i64 {
+    pub unsafe fn set(self: *mut Vec<T>, i: i64, val: T) {
+        self.ptr[i] = val;
+    }
+
+    pub fn length(&self) -> i64 {
         return self.len;
     }
+
+    pub fn is_empty(&self) -> bool {
+        return self.len == 0 as i64;
+    }
+
+    // Remove and return the last element, or None if empty.
+    pub unsafe fn pop(self: *mut Vec<T>) -> Option<T> {
+        if self.len == 0 as i64 { return Option::None; }
+        self.len = self.len - 1 as i64;
+        let val: T = self.ptr[self.len];
+        return Option::Some(val);
+    }
+
+    // Remove element at index i, shifting subsequent elements left.
+    // Panics (undefined behaviour) if i >= len.
+    pub unsafe fn remove(self: *mut Vec<T>, i: i64) -> T {
+        let val: T = self.ptr[i];
+        let mut j: i64 = i + 1 as i64;
+        while j < self.len {
+            self.ptr[j - 1 as i64] = self.ptr[j];
+            j = j + 1 as i64;
+        }
+        self.len = self.len - 1 as i64;
+        return val;
+    }
+
+    // Return a read-only iterator over elements.
+    pub unsafe fn iter(self: *const Vec<T>) -> VecIter<T> {
+        return VecIter { data: self.ptr as *const T, len: self.len, idx: 0 as i64 };
+    }
+}
+
+// ── VecIter<T> ────────────────────────────────────────────────────────────────
+
+pub struct VecIter<T> {
+    data: *const T,
+    len:  i64,
+    idx:  i64,
+}
+
+impl<T> Iterator<T> for VecIter<T> {
+    fn next(self: &mut VecIter<T>) -> Option<T> {
+        unsafe {
+            if self.idx >= self.len { return Option::None; }
+            let val: T = self.data[self.idx];
+            self.idx = self.idx + 1 as i64;
+            return Option::Some(val);
+        }
+    }
+}
+
+// Linear-search contains; requires T: Eq (free function to avoid bound on main impl).
+pub unsafe fn vec_contains<T: Eq>(v: *const Vec<T>, val: &T) -> bool {
+    let mut i: i64 = 0;
+    while i < v.len {
+        let item: T = v.ptr[i];
+        if (&item).eq(val) { return true; }
+        i = i + 1 as i64;
+    }
+    return false;
 }
 
 pub unsafe fn vec_free<T>(v: *mut Vec<T>) {

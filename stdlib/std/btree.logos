@@ -1,0 +1,179 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.btree
+//
+// BTreeMap<K: Ord, V> — ordered map backed by a sorted parallel-array.
+//
+// Complexity:
+//   get / contains_key : O(log n) — binary search
+//   insert / remove    : O(n)     — element shift
+//
+// This is a sorted-vector map, not a proper B-tree, but it has the correct
+// API and is simple enough to verify by inspection. A real B-tree can be
+// swapped in later without changing callers.
+
+package std.btree;
+
+use std.mem;
+use std.ord;
+use std.iter;
+use std.option;
+
+pub struct BTreeMap<K, V> {
+    keys: *mut K,
+    vals: *mut V,
+    len:  i64,
+    cap:  i64,
+}
+
+pub fn btreemap_new<K: Ord, V>() -> BTreeMap<K, V> {
+    let init_cap: i64 = 8;
+    let kraw: *mut u8 = alloc(init_cap * sizeof::<K>());
+    let vraw: *mut u8 = alloc(init_cap * sizeof::<V>());
+    return BTreeMap {
+        keys: kraw as *mut K,
+        vals: vraw as *mut V,
+        len:  0 as i64,
+        cap:  init_cap,
+    };
+}
+
+impl<K: Ord, V> BTreeMap<K, V> {
+    pub fn len(&self) -> i64 { return self.len; }
+
+    pub fn is_empty(&self) -> bool { return self.len == 0 as i64; }
+
+    // Return index of the first element with key >= target (lower bound).
+    unsafe fn lower_bound(self: *const BTreeMap<K, V>, key: &K) -> i64 {
+        let mut lo: i64 = 0;
+        let mut hi: i64 = self.len;
+        while lo < hi {
+            let mid: i64 = lo + (hi - lo) / 2 as i64;
+            let mk: K = self.keys[mid];
+            match (&mk).cmp(key) {
+                Ordering::Less => { lo = mid + 1 as i64; }
+                _              => { hi = mid; }
+            }
+        }
+        return lo;
+    }
+
+    pub unsafe fn contains_key(self: *const BTreeMap<K, V>, key: &K) -> bool {
+        let pos: i64 = self.lower_bound(key);
+        if pos >= self.len { return false; }
+        let mk: K = self.keys[pos];
+        match (&mk).cmp(key) {
+            Ordering::Equal => { return true; }
+            _               => { return false; }
+        }
+    }
+
+    pub unsafe fn get(self: *const BTreeMap<K, V>, key: &K) -> *const V {
+        let pos: i64 = self.lower_bound(key);
+        if pos >= self.len { return 0 as *const V; }
+        let mk: K = self.keys[pos];
+        match (&mk).cmp(key) {
+            Ordering::Equal => { return &self.vals[pos] as *const V; }
+            _               => { return 0 as *const V; }
+        }
+    }
+
+    pub unsafe fn get_mut(self: *mut BTreeMap<K, V>, key: &K) -> *mut V {
+        let pos: i64 = self.lower_bound(key);
+        if pos >= self.len { return 0 as *mut V; }
+        let mk: K = self.keys[pos];
+        match (&mk).cmp(key) {
+            Ordering::Equal => { return &mut self.vals[pos]; }
+            _               => { return 0 as *mut V; }
+        }
+    }
+
+    pub unsafe fn insert(self: *mut BTreeMap<K, V>, key: K, val: V) {
+        let pos: i64 = self.lower_bound(&key);
+        // If key already present, update value in place.
+        if pos < self.len {
+            let mk: K = self.keys[pos];
+            match (&mk).cmp(&key) {
+                Ordering::Equal => {
+                    self.vals[pos] = val;
+                    return;
+                }
+                _ => { }
+            }
+        }
+        // Grow if needed.
+        if self.len == self.cap {
+            self.cap = self.cap * 2 as i64;
+            let new_kraw: *mut u8 = realloc_buf(self.keys as *mut u8, self.cap * sizeof::<K>());
+            let new_vraw: *mut u8 = realloc_buf(self.vals as *mut u8, self.cap * sizeof::<V>());
+            self.keys = new_kraw as *mut K;
+            self.vals = new_vraw as *mut V;
+        }
+        // Shift elements at [pos..len) right by one to make room.
+        let mut j: i64 = self.len;
+        while j > pos {
+            self.keys[j] = self.keys[j - 1 as i64];
+            self.vals[j] = self.vals[j - 1 as i64];
+            j = j - 1 as i64;
+        }
+        self.keys[pos] = key;
+        self.vals[pos] = val;
+        self.len = self.len + 1 as i64;
+    }
+
+    pub unsafe fn remove(self: *mut BTreeMap<K, V>, key: &K) -> bool {
+        let pos: i64 = self.lower_bound(key);
+        if pos >= self.len { return false; }
+        let mk: K = self.keys[pos];
+        match (&mk).cmp(key) {
+            Ordering::Equal => { }
+            _               => { return false; }
+        }
+        let mut j: i64 = pos + 1 as i64;
+        while j < self.len {
+            self.keys[j - 1 as i64] = self.keys[j];
+            self.vals[j - 1 as i64] = self.vals[j];
+            j = j + 1 as i64;
+        }
+        self.len = self.len - 1 as i64;
+        return true;
+    }
+
+    pub unsafe fn clear(self: *mut BTreeMap<K, V>) {
+        self.len = 0 as i64;
+    }
+
+    pub unsafe fn iter(self: *const BTreeMap<K, V>) -> BTreeMapIter<K, V> {
+        return BTreeMapIter {
+            keys: self.keys as *const K,
+            vals: self.vals as *const V,
+            len:  self.len,
+            idx:  0 as i64,
+        };
+    }
+}
+
+// ── Iterator ─────────────────────────────────────────────────────────────────
+
+pub struct BTreeMapIter<K, V> {
+    keys: *const K,
+    vals: *const V,
+    len:  i64,
+    idx:  i64,
+}
+
+impl<K: Ord, V> Iterator<ZipPair<K, V>> for BTreeMapIter<K, V> {
+    fn next(self: &mut BTreeMapIter<K, V>) -> Option<ZipPair<K, V>> {
+        if self.idx >= self.len { return Option::None; }
+        unsafe {
+            let k: K = self.keys[self.idx];
+            let v: V = self.vals[self.idx];
+            self.idx = self.idx + 1 as i64;
+            return Option::Some(ZipPair { first: k, second: v });
+        }
+    }
+}
+
+pub unsafe fn btreemap_free<K: Ord, V>(m: *mut BTreeMap<K, V>) {
+    dealloc(m.keys as *mut u8);
+    dealloc(m.vals as *mut u8);
+}

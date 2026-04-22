@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.ord
+//
+// Ordering enum + Ord trait (total order).
+// Required by BTreeMap and other sorted containers.
+// Float types are intentionally omitted (no total order due to NaN).
+
+package std.ord;
+
+pub enum Ordering {
+    Less,
+    Equal,
+    Greater,
+}
+
+pub trait Ord {
+    fn cmp(&self, other: &Self) -> Ordering;
+}
+
+impl Ord for i8  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for i16 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for i32 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for i64 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for u8  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for u16 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for u32 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for u64 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for usize { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for bool {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // false < true
+        if !*self && *other { return Ordering::Less; }
+        if *self && !*other { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}

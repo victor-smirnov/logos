@@ -1,0 +1,69 @@
+// pass — HashSet<K> smoke test.
+package test;
+
+use std.set;
+use std.hash;
+use std.cmp;
+use std.iter;
+use std.option;
+
+fn main() -> i32 {
+    unsafe {
+        let mut s: HashSet<i32> = hashset_new::<i32>();
+        if !s.is_empty() { return 1; }
+
+        // insert returns true for new keys, false for duplicates
+        if !s.insert(10) { return 2; }
+        if !s.insert(20) { return 3; }
+        if !s.insert(30) { return 4; }
+        if s.insert(20) { return 5; }   // already present
+        if s.len() != 3 as i64 { return 6; }
+
+        // contains
+        if !s.contains(&10) { return 7; }
+        if !s.contains(&20) { return 8; }
+        if !s.contains(&30) { return 9; }
+        if s.contains(&99) { return 10; }
+
+        // remove
+        if !s.remove(&20) { return 11; }
+        if s.remove(&20) { return 12; }   // already gone
+        if s.len() != 2 as i64 { return 13; }
+        if s.contains(&20) { return 14; }
+
+        // insert through former slot
+        if !s.insert(20) { return 15; }
+        if s.len() != 3 as i64 { return 16; }
+
+        // clear
+        s.clear();
+        if !s.is_empty() { return 17; }
+
+        // force resize — insert 20 elements
+        let mut i: i32 = 0;
+        while i < 20 {
+            s.insert(i);
+            i = i + 1;
+        }
+        if s.len() != 20 as i64 { return 18; }
+        let mut j: i32 = 0;
+        while j < 20 {
+            if !s.contains(&j) { return 19; }
+            j = j + 1;
+        }
+
+        // iterate and sum
+        let mut it: HashSetIter<i32> = s.iter();
+        let mut total: i32 = 0;
+        loop {
+            match it.next() {
+                Option::None    => { break; }
+                Option::Some(k) => { total = total + k; }
+            }
+        }
+        if total != 190 { return 20; }   // 0+1+...+19 = 190
+
+        hashset_free::<i32>(&mut s);
+    }
+    return 42;
+}

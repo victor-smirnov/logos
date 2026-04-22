@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.deque
+//
+// VecDeque<T> — double-ended queue backed by a ring buffer.
+// Capacity is always a power of two so masking replaces modulo.
+//
+// Layout:
+//   buf[head]                   = front element
+//   buf[(head + len - 1) & mask] = back element
+//
+// Invariant: 0 <= len <= cap; head < cap (always masked).
+
+package std.deque;
+
+use std.mem;
+use std.option;
+
+pub struct VecDeque<T> {
+    buf:  *mut T,
+    head: i64,
+    len:  i64,
+    cap:  i64,   // always a power of two
+}
+
+pub fn vecdeque_new<T>() -> VecDeque<T> {
+    let init_cap: i64 = 8;
+    let raw: *mut u8 = alloc(init_cap * sizeof::<T>());
+    return VecDeque {
+        buf:  raw as *mut T,
+        head: 0 as i64,
+        len:  0 as i64,
+        cap:  init_cap,
+    };
+}
+
+impl<T> VecDeque<T> {
+    pub fn len(&self) -> i64 { return self.len; }
+
+    pub fn is_empty(&self) -> bool { return self.len == 0 as i64; }
+
+    // Get element at logical index i (0 = front).
+    pub unsafe fn get(self: *const VecDeque<T>, i: i64) -> T {
+        let mask: i64 = self.cap - 1 as i64;
+        return self.buf[(self.head + i) & mask];
+    }
+
+    pub unsafe fn push_back(self: *mut VecDeque<T>, val: T) {
+        if self.len == self.cap { self.grow(); }
+        let mask: i64 = self.cap - 1 as i64;
+        let idx: i64 = (self.head + self.len) & mask;
+        self.buf[idx] = val;
+        self.len = self.len + 1 as i64;
+    }
+
+    pub unsafe fn push_front(self: *mut VecDeque<T>, val: T) {
+        if self.len == self.cap { self.grow(); }
+        let mask: i64 = self.cap - 1 as i64;
+        self.head = (self.head - 1 as i64 + self.cap) & mask;
+        self.buf[self.head] = val;
+        self.len = self.len + 1 as i64;
+    }
+
+    pub unsafe fn pop_front(self: *mut VecDeque<T>) -> Option<T> {
+        if self.len == 0 as i64 { return Option::None; }
+        let mask: i64 = self.cap - 1 as i64;
+        let val: T = self.buf[self.head];
+        self.head = (self.head + 1 as i64) & mask;
+        self.len = self.len - 1 as i64;
+        return Option::Some(val);
+    }
+
+    pub unsafe fn pop_back(self: *mut VecDeque<T>) -> Option<T> {
+        if self.len == 0 as i64 { return Option::None; }
+        let mask: i64 = self.cap - 1 as i64;
+        let back_idx: i64 = (self.head + self.len - 1 as i64) & mask;
+        let val: T = self.buf[back_idx];
+        self.len = self.len - 1 as i64;
+        return Option::Some(val);
+    }
+
+    // Linearise the ring into a fresh 2× buffer.
+    unsafe fn grow(self: *mut VecDeque<T>) {
+        let new_cap: i64 = self.cap * 2 as i64;
+        let new_raw: *mut u8 = alloc(new_cap * sizeof::<T>());
+        let new_buf: *mut T = new_raw as *mut T;
+        let mask: i64 = self.cap - 1 as i64;
+        let mut i: i64 = 0;
+        while i < self.len {
+            new_buf[i] = self.buf[(self.head + i) & mask];
+            i = i + 1 as i64;
+        }
+        dealloc(self.buf as *mut u8);
+        self.buf  = new_buf;
+        self.head = 0 as i64;
+        self.cap  = new_cap;
+    }
+}
+
+pub unsafe fn vecdeque_free<T>(d: *mut VecDeque<T>) {
+    dealloc(d.buf as *mut u8);
+}

@@ -1,0 +1,85 @@
+// pass — BTreeMap<K: Ord, V> smoke test.
+package test;
+
+use std.btree;
+use std.ord;
+use std.iter;
+use std.option;
+
+fn main() -> i32 {
+    unsafe {
+        let mut m: BTreeMap<i32, i32> = btreemap_new::<i32, i32>();
+        if !m.is_empty() { return 1; }
+
+        // ── insert (out of order) ───────────────────────────────────────────
+        m.insert(30, 300);
+        m.insert(10, 100);
+        m.insert(50, 500);
+        m.insert(20, 200);
+        m.insert(40, 400);
+        if m.len() != 5 as i64 { return 2; }
+
+        // ── get ────────────────────────────────────────────────────────────
+        let p10: *const i32 = m.get(&10);
+        if p10 == 0 as *const i32 { return 3; }
+        if *p10 != 100 { return 4; }
+
+        let p50: *const i32 = m.get(&50);
+        if p50 == 0 as *const i32 { return 5; }
+        if *p50 != 500 { return 6; }
+
+        let pmiss: *const i32 = m.get(&99);
+        if pmiss != 0 as *const i32 { return 7; }
+
+        // ── contains_key ───────────────────────────────────────────────────
+        if !m.contains_key(&20) { return 8; }
+        if m.contains_key(&99) { return 9; }
+
+        // ── update existing key ─────────────────────────────────────────────
+        m.insert(10, 999);
+        let p10b: *const i32 = m.get(&10);
+        if p10b == 0 as *const i32 { return 10; }
+        if *p10b != 999 { return 11; }
+        if m.len() != 5 as i64 { return 12; }
+
+        // ── remove ─────────────────────────────────────────────────────────
+        if !m.remove(&30) { return 13; }
+        if m.remove(&30) { return 14; }
+        if m.len() != 4 as i64 { return 15; }
+        if m.contains_key(&30) { return 16; }
+
+        // ── iteration in sorted key order ───────────────────────────────────
+        let mut it = m.iter();
+        // expected order: 10, 20, 40, 50
+        match it.next() { Option::Some(p) => { if p.first != 10 { return 17; } } Option::None => { return 18; } }
+        match it.next() { Option::Some(p) => { if p.first != 20 { return 19; } } Option::None => { return 20; } }
+        match it.next() { Option::Some(p) => { if p.first != 40 { return 21; } } Option::None => { return 22; } }
+        match it.next() { Option::Some(p) => { if p.first != 50 { return 23; } } Option::None => { return 24; } }
+        match it.next() { Option::None => { } Option::Some(_) => { return 25; } }
+
+        // ── resize: insert 30 elements in reverse order ─────────────────────
+        m.clear();
+        let mut i: i32 = 29;
+        while i >= 0 {
+            m.insert(i, i * 10);
+            i = i - 1;
+        }
+        if m.len() != 30 as i64 { return 26; }
+        // verify sorted order via iteration
+        let mut prev: i32 = -1;
+        let mut it2 = m.iter();
+        loop {
+            match it2.next() {
+                Option::None    => { break; }
+                Option::Some(p) => {
+                    if p.first <= prev { return 27; }
+                    if p.second != p.first * 10 { return 28; }
+                    prev = p.first;
+                }
+            }
+        }
+
+        btreemap_free::<i32, i32>(&mut m);
+    }
+    return 42;
+}
