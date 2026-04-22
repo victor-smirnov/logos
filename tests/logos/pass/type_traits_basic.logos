@@ -1,0 +1,31 @@
+package type_traits_basic;
+
+struct S { x: i32 }
+
+fn main() -> i32 {
+    let mut score: i32 = 0;
+
+    // is_same
+    if is_same::<i32, i32>()      { score = score + 1; }
+    if !is_same::<i32, i64>()     { score = score + 1; }
+    if is_same::<*const u8, *const u8>() { score = score + 1; }
+
+    // typeof + is_same
+    let a: i32 = 7;
+    if is_same::<typeof(a), i32>() { score = score + 1; }
+
+    // kind predicates
+    if is_ptr::<*const u8>()      { score = score + 1; }
+    if !is_ptr::<i32>()           { score = score + 1; }
+    if is_struct::<S>()           { score = score + 1; }
+    if is_integer::<i64>()        { score = score + 1; }
+    if is_integer::<u32>()        { score = score + 1; }
+    if is_signed::<i32>()         { score = score + 1; }
+    if is_unsigned::<u64>()       { score = score + 1; }
+    if !is_signed::<u8>()         { score = score + 1; }
+    if is_bool::<bool>()          { score = score + 1; }
+    if is_primitive::<f64>()      { score = score + 1; }
+    if !is_primitive::<S>()       { score = score + 1; }
+
+    return score;
+}

@@ -1357,6 +1357,76 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
 lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
     auto callee = str_of(node.get(la::CALLEE.code));
 
+    // ── Type-trait intrinsics (C++26 type_traits style, compile-time folded) ──
+    // Helper: collect resolved type args.
+    auto collect_type_args = [&]() -> std::vector<const LogosType*> {
+        std::vector<const LogosType*> out;
+        if (!node.has_key(la::TYPE_PARAMS)) return out;
+        auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+        if (!tplist.has_key(la::ITEMS)) return out;
+        auto items = arr_of(tplist.get(la::ITEMS.code));
+        for (size_t i = 0; i < items.size(); ++i)
+            out.push_back(resolve_type(map_of(items.get(i))));
+        return out;
+    };
+    auto bool_lit = [&](bool v) {
+        return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{v ? 1LL : 0LL});
+    };
+
+    if (callee == "is_same") {
+        auto ts = collect_type_args();
+        if (ts.size() != 2 || !ts[0] || !ts[1]) {
+            error("is_same::<T1,T2>() requires exactly two type arguments");
+            return error_expr();
+        }
+        return bool_lit(types_equal(*ts[0], *ts[1]));
+    }
+    if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
+        callee == "is_struct" || callee == "is_datatype" || callee == "is_enum" ||
+        callee == "is_tuple" || callee == "is_slice" || callee == "is_array" ||
+        callee == "is_integer" || callee == "is_signed" || callee == "is_unsigned" ||
+        callee == "is_float" || callee == "is_bool" || callee == "is_primitive") {
+        auto ts = collect_type_args();
+        if (ts.size() != 1 || !ts[0]) {
+            error(std::string(callee) + "::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        const LogosType* t = ts[0];
+        using K = LogosType::Kind;
+        bool r = false;
+        if      (callee == "is_ptr")       r = (t->kind == K::Ptr);
+        else if (callee == "is_ref")       r = (t->kind == K::Ref);
+        else if (callee == "is_mut_ref")   r = (t->kind == K::MutRef);
+        else if (callee == "is_struct")    r = (t->kind == K::Struct);
+        else if (callee == "is_datatype")  r = (t->kind == K::Datatype);
+        else if (callee == "is_enum")      r = (t->kind == K::Enum);
+        else if (callee == "is_tuple")     r = (t->kind == K::Tuple);
+        else if (callee == "is_slice")     r = (t->kind == K::Slice);
+        else if (callee == "is_array")     r = (t->kind == K::Array);
+        else if (callee == "is_bool")      r = (t->kind == K::Bool);
+        else if (callee == "is_float")     r = (t->kind == K::F32 || t->kind == K::F64);
+        else if (callee == "is_signed")    r = (t->kind == K::I8 || t->kind == K::I16 || t->kind == K::I24 ||
+                                                t->kind == K::I32 || t->kind == K::I56 || t->kind == K::I64 ||
+                                                t->kind == K::I128);
+        else if (callee == "is_unsigned")  r = (t->kind == K::U8 || t->kind == K::U16 || t->kind == K::U24 ||
+                                                t->kind == K::U32 || t->kind == K::U56 || t->kind == K::U64 ||
+                                                t->kind == K::U128);
+        else if (callee == "is_integer")   r = (t->kind == K::I8 || t->kind == K::I16 || t->kind == K::I24 ||
+                                                t->kind == K::I32 || t->kind == K::I56 || t->kind == K::I64 ||
+                                                t->kind == K::I128 ||
+                                                t->kind == K::U8 || t->kind == K::U16 || t->kind == K::U24 ||
+                                                t->kind == K::U32 || t->kind == K::U56 || t->kind == K::U64 ||
+                                                t->kind == K::U128);
+        else if (callee == "is_primitive") r = (t->kind == K::Bool || t->kind == K::F32 || t->kind == K::F64 ||
+                                                t->kind == K::I8 || t->kind == K::I16 || t->kind == K::I24 ||
+                                                t->kind == K::I32 || t->kind == K::I56 || t->kind == K::I64 ||
+                                                t->kind == K::I128 ||
+                                                t->kind == K::U8 || t->kind == K::U16 || t->kind == K::U24 ||
+                                                t->kind == K::U32 || t->kind == K::U56 || t->kind == K::U64 ||
+                                                t->kind == K::U128);
+        return bool_lit(r);
+    }
+
     // sizeof::<T>() — compiler builtin, returns i64 byte size of T.
     if (callee == "sizeof") {
         const LogosType* elem = nullptr;
