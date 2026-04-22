@@ -124,7 +124,8 @@ set(LOGOS_INTEGRATION_TESTS
     auto_trait_send_scalar auto_trait_send_struct auto_trait_unsafe_impl auto_trait_generic_propagation
     vec_full hashset_basic vecdeque_basic btreemap_basic
     atomic_basic mutex_basic
-    box_basic rc_basic arc_basic)
+    box_basic rc_basic arc_basic
+    io_uring_basic)
 
 function(logos_determine_suite MODE BASE OUT_VAR)
     if (BASE IN_LIST LOGOS_SMOKE_TESTS)
@@ -166,7 +167,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
     chain_field_write
     meta_traits_basic
     utf8_basic
-    time_basic)
+    time_basic
+    io_uring_basic)
 
     if (BASE IN_LIST LOCAL_STDLIB_USERS)
         set(_extra -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})

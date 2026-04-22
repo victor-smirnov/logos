@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.io_uring
+//
+// Thin wrapper over liburing (via thread_uring.c C shims).
+//
+// Design: "submit-and-wait" mode — every io_ring_* function submits one SQE
+// and blocks until the kernel posts the corresponding CQE.  This gives
+// correct, synchronous-looking semantics without a separate event loop.
+// The fiber scheduler layer (fiber/thread.logos) builds the async reactor
+// on top of the same ring using the raw prep/peek/seen helpers.
+//
+// Usage:
+//   let mut ring: IoRing = io_ring_new(32);
+//   let fd: i32 = io_ring_openat(&mut ring, -100, path, O_RDONLY, 0);
+//   let n:  i32 = io_ring_read(&mut ring, fd, buf, len, 0);
+//   io_ring_close(&mut ring, fd);
+//   io_ring_free(&mut ring);
+
+package std.io_uring;
+
+use std.mem;
+
+// ── C shims ───────────────────────────────────────────────────────────────
+
+extern fn logos_io_uring_sizeof()                                       -> i32;
+extern fn logos_io_uring_init(entries: i32, ring: *mut u8)             -> i32;
+extern fn logos_io_uring_exit(ring: *mut u8);
+extern fn logos_io_uring_get_sqe(ring: *mut u8)                        -> *mut u8;
+extern fn logos_io_uring_prep_read(sqe: *mut u8, fd: i32, buf: *mut u8,
+                                    nbytes: i32, offset: i64);
+extern fn logos_io_uring_prep_write(sqe: *mut u8, fd: i32, buf: *const u8,
+                                     nbytes: i32, offset: i64);
+extern fn logos_io_uring_prep_openat(sqe: *mut u8, dirfd: i32,
+                                      path: *const u8, flags: i32, mode: i32);
+extern fn logos_io_uring_prep_close(sqe: *mut u8, fd: i32);
+extern fn logos_io_uring_submit_and_wait(ring: *mut u8, wait_nr: i32)  -> i32;
+extern fn logos_io_uring_wait_cqe2(ring: *mut u8, cqe_out: *mut *mut u8) -> i32;
+extern fn logos_io_uring_cqe_result(cqe: *mut u8)                      -> i32;
+extern fn logos_io_uring_cqe_advance(ring: *mut u8, cqe: *mut u8);
+
+// ── IoRing ────────────────────────────────────────────────────────────────
+
+// Opaque wrapper around liburing's `struct io_uring`.
+// The ring bytes are heap-allocated; call io_ring_free when done.
+pub struct IoRing {
+    ring: *mut u8,   // heap alloc of logos_io_uring_sizeof() bytes
+}
+
+// Initialise an io_uring with `entries` SQ/CQ slots.
+// Returns an IoRing on success; ring.ring will be null on failure.
+pub unsafe fn io_ring_new(entries: i32) -> IoRing {
+    let sz:   i32    = logos_io_uring_sizeof();
+    let ring: *mut u8 = alloc(sz as i64);
+    zero_bytes(ring, sz as i64);
+    let rc: i32 = logos_io_uring_init(entries, ring);
+    if rc < 0 {
+        dealloc(ring);
+        return IoRing { ring: 0 as *mut u8 };
+    }
+    return IoRing { ring: ring };
+}
+
+// Tear down the ring and free the backing allocation.
+pub unsafe fn io_ring_free(r: *mut IoRing) {
+    if r.ring == 0 as *mut u8 { return; }
+    logos_io_uring_exit(r.ring);
+    dealloc(r.ring);
+    r.ring = 0 as *mut u8;
+}
+
+impl IoRing {
+    pub fn is_valid(self: IoRing) -> bool {
+        return self.ring != 0 as *mut u8;
+    }
+}
+
+// ── Submit-and-wait helpers ───────────────────────────────────────────────
+
+// Submit the next SQE and block until the CQE arrives.
+// Returns the CQE result (≥0 = success, <0 = -errno).
+unsafe fn submit_and_collect(ring: *mut u8) -> i32 {
+    let _submitted: i32 = logos_io_uring_submit_and_wait(ring, 1);
+    // Wait for the completion.
+    let mut cqe_slot: *mut u8 = 0 as *mut u8;
+    let cqe_ptr: *mut *mut u8 = &mut cqe_slot;
+    let rc: i32 = logos_io_uring_wait_cqe2(ring, cqe_ptr);
+    if rc < 0 { return rc; }
+    let res: i32 = logos_io_uring_cqe_result(cqe_slot);
+    logos_io_uring_cqe_advance(ring, cqe_slot);
+    return res;
+}
+
+// ── File operations ───────────────────────────────────────────────────────
+
+// Read up to `len` bytes from `fd` into `buf` at file offset `offset`.
+// Returns bytes read (≥0) or negative errno.
+// Pass offset=-1 to use the file's current position (IORING_OP_READ uses 0xffffffff... for that).
+pub unsafe fn io_ring_read(r: *mut IoRing, fd: i32,
+                            buf: *mut u8, len: i32, offset: i64) -> i32 {
+    let sqe: *mut u8 = logos_io_uring_get_sqe(r.ring);
+    if sqe == 0 as *mut u8 { return 0 - 11; }  // -EAGAIN
+    logos_io_uring_prep_read(sqe, fd, buf, len, offset);
+    return submit_and_collect(r.ring);
+}
+
+// Write up to `len` bytes from `buf` to `fd` at file offset `offset`.
+// Returns bytes written (≥0) or negative errno.
+pub unsafe fn io_ring_write(r: *mut IoRing, fd: i32,
+                             buf: *const u8, len: i32, offset: i64) -> i32 {
+    let sqe: *mut u8 = logos_io_uring_get_sqe(r.ring);
+    if sqe == 0 as *mut u8 { return 0 - 11; }
+    logos_io_uring_prep_write(sqe, fd, buf, len, offset);
+    return submit_and_collect(r.ring);
+}
+
+// Open a file relative to `dirfd` (-100 = AT_FDCWD = relative to cwd).
+// Returns the new fd (≥0) or negative errno.
+//
+// Common flags (O_* from fcntl.h on Linux x86-64):
+//   O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2
+//   O_CREAT  = 64, O_TRUNC = 512, O_APPEND = 1024
+pub unsafe fn io_ring_openat(r: *mut IoRing, dirfd: i32,
+                              path: *const u8, flags: i32, mode: i32) -> i32 {
+    let sqe: *mut u8 = logos_io_uring_get_sqe(r.ring);
+    if sqe == 0 as *mut u8 { return 0 - 11; }
+    logos_io_uring_prep_openat(sqe, dirfd, path, flags, mode);
+    return submit_and_collect(r.ring);
+}
+
+// Close a file descriptor.
+// Returns 0 on success or negative errno.
+pub unsafe fn io_ring_close(r: *mut IoRing, fd: i32) -> i32 {
+    let sqe: *mut u8 = logos_io_uring_get_sqe(r.ring);
+    if sqe == 0 as *mut u8 { return 0 - 11; }
+    logos_io_uring_prep_close(sqe, fd);
+    return submit_and_collect(r.ring);
+}
+
+// ── Convenience constants (O_* flags, Linux x86-64) ──────────────────────
+// Note: `pub const` is not yet supported; expose as zero-overhead fns.
+
+pub fn O_RDONLY()  -> i32 { return 0; }
+pub fn O_WRONLY()  -> i32 { return 1; }
+pub fn O_RDWR()    -> i32 { return 2; }
+pub fn O_CREAT()   -> i32 { return 64; }
+pub fn O_TRUNC()   -> i32 { return 512; }
+pub fn O_APPEND()  -> i32 { return 1024; }
+pub fn O_NONBLOCK() -> i32 { return 2048; }
+pub fn AT_FDCWD()  -> i32 { return 0 - 100; }
