@@ -264,9 +264,18 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                         collect_struct_spec(item);
                         continue;
                     }
-                    collect_datatype(item);
+                    // Pre-scan pending annotations to pass the #[annotation] flag
+                    // into collect_datatype before field-type validation runs.
+                    bool pending_is_annot_type = false;
+                    for (auto& ann : pending_annots) {
+                        auto aname = str_of(ann.get(la::NAME.code));
+                        if (aname == "annotation") { pending_is_annot_type = true; break; }
+                    }
+                    collect_datatype(item, pending_is_annot_type);
                     // Apply any pending #[type_code=N] to explicit_type_codes_
-                    // so collect_impl (same pass) can find it.
+                    // so collect_impl (same pass) can find it.  Also flag
+                    // #[annotation] on the SemaStructInfo so downstream passes
+                    // can recognise user-annotation types.
                     auto dname = std::string(str_of(item.get(la::NAME.code)));
                     for (auto& ann : pending_annots) {
                         auto aname = std::string(str_of(ann.get(la::NAME.code)));
@@ -275,6 +284,11 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                             auto fqn = cur_package_.empty()
                                        ? dname : cur_package_ + "::" + dname;
                             explicit_type_codes_[fqn] = tc;
+                        } else if (aname == "annotation") {
+                            auto qkey = sema_key(cur_package_, dname);
+                            auto it = datatypes_.find(qkey);
+                            if (it != datatypes_.end())
+                                it->second.is_annotation_type = true;
                         }
                     }
                 }
@@ -1076,13 +1090,14 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
 }
 
 
-void SemaChecker::collect_datatype(TinyMapView node) {
+void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
     auto dname = std::string(str_of(node.get(la::NAME.code)));
     ctx_ = std::format("datatype {}", dname);
     SemaStructInfo info;
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
     info.package = cur_package_;
+    info.is_annotation_type = is_annotation_type;
     if (node.has_key(la::IS_PUB)) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
@@ -1097,8 +1112,9 @@ void SemaChecker::collect_datatype(TinyMapView node) {
             bool fpub = fnode.has_key(la::IS_PUB) &&
                         fnode.get(la::IS_PUB.code).is_value() &&
                         fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
-            // Rule 9: datatype fields must be POD-compatible (no heap types)
-            if (ftype && ftype->kind != LogosType::Kind::Error) {
+            // Rule 9: datatype fields must be POD-compatible (no heap types).
+            // Exception: annotation types are compile-time only and may hold str fields.
+            if (!is_annotation_type && ftype && ftype->kind != LogosType::Kind::Error) {
                 auto is_datatype_safe = [](const LogosType* t, auto& self) -> bool {
                     if (!t) return false;
                     switch (t->kind) {

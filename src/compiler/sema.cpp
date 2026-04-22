@@ -1835,6 +1835,141 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     cur_imports_ = {};
 }
 
+// Parse one annotation literal AST node into an LAnnotationValue.
+// Handles LIT_INT, LIT_FLOAT, LIT_BOOL, LIT_STR, ENUM_LIT, ANNOT_ARR.
+lir::LAnnotationValue SemaChecker::parse_annot_literal(TinyMapView v) {
+    using Kind = lir::LAnnotationValue::Kind;
+    lir::LAnnotationValue out;
+    int32_t c = code_of(v);
+    if (c == la::LIT_INT) {
+        out.kind = Kind::Int;
+        auto sv = str_of(v.get(la::VALUE.code));
+        out.i = parse_int_literal(sv);
+    } else if (c == la::LIT_FLOAT) {
+        out.kind = Kind::Float;
+        std::string s(str_of(v.get(la::VALUE.code)));
+        s.erase(std::remove(s.begin(), s.end(), '_'), s.end());
+        // strip optional f32/f64 suffix
+        if (s.size() > 3 && (s.ends_with("f32") || s.ends_with("f64")))
+            s.resize(s.size() - 3);
+        out.f = std::stod(s);
+    } else if (c == la::LIT_BOOL) {
+        out.kind = Kind::Bool;
+        AnyVal av = v.get(la::VALUE.code);
+        bool b = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        out.i = b ? 1 : 0;
+    } else if (c == la::LIT_STR) {
+        out.kind = Kind::Str;
+        auto raw = str_of(v.get(la::VALUE.code));
+        // Strip surrounding quotes (raw form may lack them for r"..." — handle both).
+        std::string inner;
+        if (!raw.empty() && (raw.front() == '"')) {
+            inner.assign(raw.substr(1, raw.size() - 2));
+            // Unescape common escapes (same set used elsewhere in the compiler).
+            std::string dec;
+            dec.reserve(inner.size());
+            for (size_t i = 0; i < inner.size(); ++i) {
+                if (inner[i] == '\\' && i + 1 < inner.size()) {
+                    switch (inner[++i]) {
+                    case 'n':  dec += '\n'; break;
+                    case 't':  dec += '\t'; break;
+                    case 'r':  dec += '\r'; break;
+                    case '\\': dec += '\\'; break;
+                    case '"':  dec += '"';  break;
+                    case '0':  dec += '\0'; break;
+                    default:   dec += '\\'; dec += inner[i]; break;
+                    }
+                } else {
+                    dec += inner[i];
+                }
+            }
+            out.s = std::move(dec);
+        } else if (!raw.empty() && raw.starts_with("r\"")) {
+            // r"..." raw string: strip r" ... "
+            out.s.assign(raw.substr(2, raw.size() - 3));
+        } else {
+            out.s = std::string(raw);
+        }
+    } else if (c == la::ENUM_LIT) {
+        out.kind = Kind::Enum;
+        out.enum_name = std::string(str_of(v.get(la::NAME.code)));
+        out.enum_variant = std::string(str_of(v.get(la::FIELD.code)));
+    } else if (c == la::ANNOT_ARR) {
+        out.kind = Kind::Array;
+        if (v.has_key(la::ITEMS)) {
+            auto items = arr_of(v.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i)
+                out.arr.push_back(parse_annot_literal(map_of(items.get(i))));
+        }
+    }
+    return out;
+}
+
+// Given an annotation AST node whose NAME resolves to a `#[annotation]` datatype,
+// build an LAnnotationInstance.  Positional arguments are matched to fields in
+// declaration order; named arguments (ANNOT_KV) match by field name.  Missing
+// fields are left unset.  Unknown field names / type mismatches emit an error
+// but do not abort.
+std::optional<lir::LAnnotationInstance>
+SemaChecker::build_annotation_instance(TinyMapView ann,
+                                       std::string_view ann_name,
+                                       std::string_view ann_pkg,
+                                       const SemaStructInfo& ann_info) {
+    lir::LAnnotationInstance inst;
+    inst.ann_name = std::string(ann_name);
+    inst.ann_pkg  = std::string(ann_pkg);
+    inst.ann_fqn  = ann_pkg.empty() ? std::string(ann_name)
+                                    : std::string(ann_pkg) + "::" + std::string(ann_name);
+
+    // Case 1: #[A] — no args.
+    if (!ann.has_key(la::ARGS) && !ann.has_key(la::VALUE)) return inst;
+
+    // Case 2: #[A = lit] — single positional, maps to first field.
+    if (ann.has_key(la::VALUE)) {
+        auto v = map_of(ann.get(la::VALUE.code));
+        if (ann_info.fields.empty()) {
+            error(std::format("annotation '{}' takes no arguments", ann_name));
+            return inst;
+        }
+        inst.kv.emplace_back(std::string(ann_info.fields[0].name), parse_annot_literal(v));
+        return inst;
+    }
+
+    // Case 3: #[A(args...)] — iterate arg list.
+    auto args_map = map_of(ann.get(la::ARGS.code));
+    if (!args_map.has_key(la::ITEMS)) return inst;
+    auto items = arr_of(args_map.get(la::ITEMS.code));
+    size_t pos_idx = 0;
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto arg = map_of(items.get(i));
+        int32_t ac = code_of(arg);
+        if (ac == la::ANNOT_KV) {
+            auto key = std::string(str_of(arg.get(la::NAME.code)));
+            // Validate the field exists on the annotation datatype.
+            bool found = false;
+            for (auto& f : ann_info.fields) if (f.name == key) { found = true; break; }
+            if (!found) {
+                error(std::format("annotation '{}' has no field '{}'", ann_name, key));
+                continue;
+            }
+            auto val = map_of(arg.get(la::VALUE.code));
+            inst.kv.emplace_back(std::move(key), parse_annot_literal(val));
+        } else if (ac == la::ANNOT_POS) {
+            if (pos_idx >= ann_info.fields.size()) {
+                error(std::format("annotation '{}' takes at most {} positional args",
+                                  ann_name, ann_info.fields.size()));
+                break;
+            }
+            auto val = map_of(arg.get(la::VALUE.code));
+            inst.kv.emplace_back(std::string(ann_info.fields[pos_idx].name),
+                                 parse_annot_literal(val));
+            ++pos_idx;
+        }
+        // Legacy {NAME: $1} bare-ident form has no CODE key — ignore for user annotations.
+    }
+    return inst;
+}
+
 void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
@@ -1853,6 +1988,18 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 auto fqn = cur_package_.empty() ? sd.name
                                                  : cur_package_ + "::" + sd.name;
                 explicit_type_codes_[fqn] = sd.type_code;
+            } else if (aname == "annotation") {
+                // Marker: this datatype is itself a user-annotation declaration.
+                sd.is_annotation_type = true;
+            } else {
+                // User annotation: NAME must resolve to a registered `#[annotation]` datatype.
+                auto [pkg, info] = find_datatype_by_name(aname);
+                if (info && info->is_annotation_type) {
+                    if (auto inst = build_annotation_instance(ann, aname, pkg, *info))
+                        sd.annotations.push_back(std::move(*inst));
+                }
+                // Unknown annotations silently ignored (future compiler-internal
+                // keys, or forward-declared not-yet-seen).
             }
         }
     };

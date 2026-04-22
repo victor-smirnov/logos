@@ -233,6 +233,9 @@
     PAT_HERMES_TYPED_ARR        = 189   // @<T>[..] typed-array type check; TYPE
     PAT_HERMES_TYPED_MAP        = 190   // @<K,V>{..} typed-map type check; TYPE, RET_TYPE?
     TYPEOF_TYPE                 = 191   // typeof(expr) type-position — compile-time type of expr; VALUE = expr AST
+    ANNOT_KV                    = 192   // annotation named arg: NAME=key, VALUE=literal
+    ANNOT_POS                   = 193   // annotation positional arg: VALUE=literal
+    ANNOT_ARR                   = 194   // annotation array literal: ITEMS=literals
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -385,10 +388,31 @@
                / INTEGER
               => { CODE: LIT_INT, VALUE: $1 }
 
-    // annot_arg wraps IDENT in a sub-rule so that $... in annot_args correctly
-    // collects each argument into rcap_0 (the $... spread only works for sub-rule
-    // results, not bare terminal captures).
-    annot_arg  <- IDENT => { NAME: $1 }
+    // Annotation argument forms:
+    //   key = lit          → { CODE: ANNOT_KV, NAME: key, VALUE: lit }
+    //   lit                → { CODE: ANNOT_POS, VALUE: lit }
+    //   IDENT              → { NAME: ident }   (legacy bare-identifier form; kept for
+    //                        #[tag_dispatch(sys_name)]; new code should use literals)
+    annot_arg  <- IDENT ASSIGN annot_lit
+               => { CODE: ANNOT_KV, NAME: $1, VALUE: $3 }
+                / annot_lit
+               => { CODE: ANNOT_POS, VALUE: $1 }
+                / IDENT
+               => { NAME: $1 }
+
+    // Literal values that may appear inside an annotation argument list.
+    // Ordering: multi-token forms (enum) first; KW_TRUE/KW_FALSE before IDENT
+    // so they don't get swallowed by the bare-ident fallback inside annot_arg.
+    annot_lit  <- IDENT COLONCOLON IDENT
+               => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
+                / RAW_STRING => { CODE: LIT_STR, VALUE: $1 }
+                / STRING     => { CODE: LIT_STR, VALUE: $1 }
+                / FLOAT      => { CODE: LIT_FLOAT, VALUE: $1 }
+                / INTEGER    => { CODE: LIT_INT, VALUE: $1 }
+                / KW_TRUE    => { CODE: LIT_BOOL, VALUE: true }
+                / KW_FALSE   => { CODE: LIT_BOOL, VALUE: false }
+                / LBRACKET (annot_lit (COMMA annot_lit)* COMMA?)? RBRACKET
+               => { CODE: ANNOT_ARR, ITEMS: $... }
 
     annot_args <- annot_arg (COMMA annot_arg)* COMMA?
                => { ITEMS: $... }

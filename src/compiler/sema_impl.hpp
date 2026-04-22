@@ -395,6 +395,7 @@ private:
                             bool is_pub = false; std::string source_file;
                             std::string package;
                             bool is_data_plain = true;  // false if any field is Kind::Datatype
+                            bool is_annotation_type = false;  // #[annotation] datatype (see LStructDef::is_annotation_type)
                             // Partial-spec support: when this is a specialization,
                             // base_name is the generic template (e.g. "Map") and
                             // spec_patterns holds one entry per type-param slot
@@ -749,7 +750,7 @@ private:
     void collect_impl(hermes::TinyMapView node);
     void collect_struct_spec(hermes::TinyMapView node);
     void collect_struct(hermes::TinyMapView node);
-    void collect_datatype(hermes::TinyMapView node);
+    void collect_datatype(hermes::TinyMapView node, bool is_annotation_type = false);
     const LogosType* try_resolve_as_known_type(std::string_view name);
     bool is_known_type_name(std::string_view name) const;
     void extract_typevars_from_type_node(hermes::TinyMapView node,
@@ -953,6 +954,12 @@ private:
     void lower_impl_block(hermes::TinyMapView node, lir::LProgram& prog);
     void lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog);
     void lower_module_items(hermes::TinyMapView mod, lir::LProgram& prog);
+    lir::LAnnotationValue parse_annot_literal(hermes::TinyMapView v);
+    std::optional<lir::LAnnotationInstance>
+        build_annotation_instance(hermes::TinyMapView ann,
+                                  std::string_view ann_name,
+                                  std::string_view ann_pkg,
+                                  const SemaStructInfo& ann_info);
 };
 
 // ── File-scope helpers used across sema_*.cpp TUs ─────────────────────────

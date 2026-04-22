@@ -1,0 +1,47 @@
+package annotation_declare_and_apply;
+// R1: user annotations parse, validate, and attach to datatypes.
+// R2+ intrinsics (has_annotation/get_annotation/reflect) exercise the metadata;
+// this test only verifies the compiler accepts the forms.
+
+#[annotation]
+eidos Deprecated {
+    msg: str,
+    since: str,
+}
+
+#[annotation]
+eidos Flags {
+    mask: i64,
+    enabled: bool,
+}
+
+#[annotation]
+eidos Empty {
+}
+
+// Named args
+#[Deprecated(msg="use v2", since="0.3")]
+eidos OldApi {
+    x: i32,
+}
+
+// Positional args
+#[Flags(7, true)]
+eidos Feature {
+    y: i32,
+}
+
+// No-arg annotation
+#[Empty]
+eidos Marker {
+    z: i32,
+}
+
+// Multiple annotations
+#[Deprecated(msg="gone", since="0.2")]
+#[Flags(mask=15, enabled=false)]
+eidos Combo {
+    w: i32,
+}
+
+fn main() -> i32 { return 42; }

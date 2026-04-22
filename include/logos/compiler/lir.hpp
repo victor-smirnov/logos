@@ -635,6 +635,29 @@ struct LField {
     bool             is_variadic = false;
 };
 
+// User annotation (Java-like). Values are literal-only (variant a of the plan):
+// string, int, float, bool, enum variant, or homogeneous-literal array.
+struct LAnnotationValue {
+    enum class Kind { Int, Float, Bool, Str, Enum, Array };
+    Kind                          kind = Kind::Int;
+    int64_t                       i = 0;                 // Int, Bool (0/1)
+    double                        f = 0.0;               // Float
+    std::string                   s;                     // Str, Enum.enum_name, Enum.variant concat
+    std::string                   enum_name;             // Enum
+    std::string                   enum_variant;          // Enum
+    std::vector<LAnnotationValue> arr;                   // Array
+};
+
+struct LAnnotationInstance {
+    std::string                                  ann_name;     // annotation datatype name (e.g. "Deprecated")
+    std::string                                  ann_pkg;      // package that declared it
+    // Resolved fully-qualified name (pkg::Name); used for equality in has_annotation.
+    std::string                                  ann_fqn;
+    // Ordered list of (field_name, value) pairs as specified at the use site.
+    // Positional args get resolved to field names during sema.
+    std::vector<std::pair<std::string, LAnnotationValue>> kv;
+};
+
 struct LStructDef {
     std::string              name;
     std::vector<TypeParam>   type_params;    // empty for non-generic structs
@@ -649,6 +672,10 @@ struct LStructDef {
     // SHA-256 of canonical type string, truncated to 23 bytes; all-zero = not yet computed
     // (zero for generic templates — hashed at instantiation time in mono_pass).
     std::array<uint8_t, 23>  type_hash     = {};
+
+    // User-annotation metadata.
+    bool                             is_annotation_type = false;  // true → this datatype is itself a `#[annotation]` marker type
+    std::vector<LAnnotationInstance> annotations;                  // user-annotations attached to this type
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
