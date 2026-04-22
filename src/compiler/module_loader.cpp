@@ -8,6 +8,7 @@
 #include <cstdlib>
 
 #include <logos/compiler/ast.hpp>
+#include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/object_array.hpp>
@@ -23,6 +24,7 @@
 #include <unordered_set>
 #include <cstdio>
 #include <cctype>
+#include <cstring>
 
 namespace logos::compiler {
 
@@ -142,7 +144,213 @@ static std::string scan_package_decl(const std::string& path) {
     return {};
 }
 
+// ---------------------------------------------------------------------------
+// Binary module loader (M5)
+// ---------------------------------------------------------------------------
+//
+// AR format: "!<arch>\n" + 60-byte member headers + data.
+// .hermes0 format: "HERMAST0" magic + uint32 version + uint32 num_files +
+//   per-file: uint32 path_len + path + uint64 ast_len + ast bytes.
+// ---------------------------------------------------------------------------
+
+static uint32_t read_le_u32(const uint8_t* p) {
+    return static_cast<uint32_t>(p[0])
+         | (static_cast<uint32_t>(p[1]) << 8)
+         | (static_cast<uint32_t>(p[2]) << 16)
+         | (static_cast<uint32_t>(p[3]) << 24);
+}
+
+static uint64_t read_le_u64(const uint8_t* p) {
+    uint64_t lo = read_le_u32(p);
+    uint64_t hi = read_le_u32(p + 4);
+    return lo | (hi << 32);
+}
+
+// Read member data from an AR archive by member name suffix.
+// Returns the raw bytes of the first matching member, or empty on failure.
+static std::vector<uint8_t> ar_read_member(const std::string& archive_path,
+                                            const std::string& member_suffix) {
+    // Read entire archive into memory to avoid seekg issues with large files.
+    std::ifstream f(archive_path, std::ios::binary | std::ios::ate);
+    if (!f) return {};
+    auto file_size = static_cast<size_t>(f.tellg());
+    f.seekg(0);
+    std::vector<uint8_t> raw(file_size);
+    if (!f.read(reinterpret_cast<char*>(raw.data()), file_size)) return {};
+
+    const uint8_t* p = raw.data();
+    const uint8_t* end = p + file_size;
+
+    // Check AR magic.
+    if (file_size < 8 || std::memcmp(p, "!<arch>\n", 8) != 0) return {};
+    p += 8;
+
+    while (p + 60 <= end) {
+        // 60-byte AR member header.
+        const uint8_t* hdr = p;
+
+        // Name field is 16 bytes, right-padded with spaces.
+        std::string name(reinterpret_cast<const char*>(hdr), 16);
+        while (!name.empty() && (name.back() == ' ' || name.back() == '/'))
+            name.pop_back();
+
+        // Size field is 10 bytes (decimal ASCII).
+        char size_str[11] = {};
+        std::memcpy(size_str, hdr + 48, 10);
+        long long member_size = std::atoll(size_str);
+        if (member_size < 0 || p + 60 + member_size > end) break;
+
+        // Check end-of-header magic "`\n".
+        if (hdr[58] != '`' || hdr[59] != '\n') break;
+
+        const uint8_t* data_start = hdr + 60;
+
+        // Does this member's name end with the requested suffix?
+        bool match = name.size() >= member_suffix.size() &&
+                     name.compare(name.size() - member_suffix.size(),
+                                  member_suffix.size(), member_suffix) == 0;
+
+        if (match) {
+            return std::vector<uint8_t>(data_start, data_start + member_size);
+        }
+
+        // Advance to next member (size padded to even boundary).
+        p = data_start + member_size + (member_size & 1);
+    }
+    return {};
+}
+
+// Parse a .hermes0 blob and return decoded ParsedModules.
+static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
+                                                const std::string& archive_path) {
+    const uint8_t* p = data.data();
+    const uint8_t* end = p + data.size();
+
+    if (data.size() < 16) {
+        std::fprintf(stderr, "module_loader: %s: .hermes0 too small\n", archive_path.c_str());
+        return {};
+    }
+    if (std::memcmp(p, "HERMAST0", 8) != 0) {
+        std::fprintf(stderr, "module_loader: %s: bad .hermes0 magic\n", archive_path.c_str());
+        return {};
+    }
+    uint32_t version   = read_le_u32(p + 8);
+    uint32_t num_files = read_le_u32(p + 12);
+    if (version != 2) {
+        std::fprintf(stderr, "module_loader: %s: unsupported .hermes0 version %u (want 2)\n",
+                     archive_path.c_str(), version);
+        return {};
+    }
+    p += 16;
+
+    std::vector<ParsedModule> result;
+    for (uint32_t i = 0; i < num_files; ++i) {
+        if (p + 4 > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated\n"); return {}; }
+        uint32_t path_len = read_le_u32(p); p += 4;
+        if (p + path_len > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated path\n"); return {}; }
+        std::string path(reinterpret_cast<const char*>(p), path_len); p += path_len;
+
+        if (p + 4 > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated pkg\n"); return {}; }
+        uint32_t pkg_len = read_le_u32(p); p += 4;
+        if (p + pkg_len > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated pkg data\n"); return {}; }
+        std::string pkg(reinterpret_cast<const char*>(p), pkg_len); p += pkg_len;
+
+        if (p + 8 > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated size\n"); return {}; }
+        uint64_t ast_len = read_le_u64(p); p += 8;
+        if (p + ast_len > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated ast\n"); return {}; }
+
+        auto decoded = hermes::binary_decode(p, static_cast<size_t>(ast_len));
+        p += ast_len;
+
+        if (!decoded) {
+            std::fprintf(stderr, "module_loader: binary_decode failed for %s in %s\n",
+                         path.c_str(), archive_path.c_str());
+            return {};
+        }
+        result.push_back({path, pkg, std::move(*decoded)});
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// Binary package index: package_name → archive_path
+// ---------------------------------------------------------------------------
+//
+// We scan each lib*.a for a .hermes0 member, peek at the stored file paths,
+// extract their `package` declarations (via cheap text scan of the stored paths),
+// and build a map from every package provided by the archive to its path.
+//
+// This is done once at startup; the cost is O(#archives × #files_per_archive).
+// For a typical stdlib with 50 files it's negligible.
+// ---------------------------------------------------------------------------
+
+// Scan a v2 .hermes0 blob to extract the list of package names it contains.
+// Version 2 stores pkg_len+pkg explicitly — no AST decode needed.
+static std::vector<std::string>
+hermes0_packages(const std::vector<uint8_t>& data) {
+    const uint8_t* p = data.data();
+    const uint8_t* end = p + data.size();
+    if (data.size() < 16 || std::memcmp(p, "HERMAST0", 8) != 0) return {};
+    uint32_t version   = read_le_u32(p + 8);
+    uint32_t num_files = read_le_u32(p + 12);
+    if (version != 2) return {};  // only v2 has explicit pkg names
+    p += 16;
+
+    std::vector<std::string> pkgs;
+    std::unordered_set<std::string> seen;
+    for (uint32_t i = 0; i < num_files; ++i) {
+        if (p + 4 > end) break;
+        uint32_t path_len = read_le_u32(p); p += 4;
+        if (p + path_len > end) break;
+        p += path_len;  // skip path
+
+        if (p + 4 > end) break;
+        uint32_t pkg_len = read_le_u32(p); p += 4;
+        if (p + pkg_len > end) break;
+        std::string pkg(reinterpret_cast<const char*>(p), pkg_len); p += pkg_len;
+
+        if (p + 8 > end) break;
+        uint64_t ast_len = read_le_u64(p); p += 8;
+        // Guard against corrupted ast_len that would overflow pointer arithmetic.
+        if (ast_len > static_cast<uint64_t>(end - p)) break;
+        p += ast_len;  // skip AST bytes
+
+        if (!pkg.empty() && seen.insert(pkg).second)
+            pkgs.push_back(pkg);
+    }
+    return pkgs;
+}
+
+// Scan search paths for lib*.a files. Returns map: package_name → archive_path.
+// Each archive may provide multiple packages (e.g. libstdlib.a provides std.*, hermes.*, etc.)
+static std::unordered_map<std::string, std::string>
+build_binary_index(const std::vector<std::string>& search_paths) {
+    std::unordered_map<std::string, std::string> idx;
+    for (const auto& dir : search_paths) {
+        std::error_code ec;
+        if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) continue;
+        for (auto it = fs::directory_iterator(dir, ec); !ec && it != fs::end(it); it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            auto p = it->path();
+            if (p.extension() != ".a") continue;
+            auto stem = p.stem().string();
+            if (stem.size() < 4 || stem.substr(0, 3) != "lib") continue;
+            auto archive = fs::weakly_canonical(p, ec).string();
+            // Read .hermes0 to discover which packages this archive provides.
+            auto member = ar_read_member(archive, ".hermes0");
+            if (member.empty()) continue;
+            auto pkgs = hermes0_packages(member);
+            for (auto& pkg : pkgs) {
+                if (!idx.count(pkg)) idx[pkg] = archive;
+            }
+        }
+    }
+    return idx;
+}
+
+// ---------------------------------------------------------------------------
 // Package → list of .logos file paths (canonical).
+// ---------------------------------------------------------------------------
 using PackageIndex = std::unordered_map<std::string, std::vector<std::string>>;
 
 // Walk all search paths recursively, collecting every .logos file and
@@ -185,16 +393,21 @@ std::vector<ParsedModule> load_modules(
     const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
 
     PackageIndex index = build_package_index(search_paths);
+    auto binary_index  = build_binary_index(search_paths);
+
     if (trace) {
         size_t total_files = 0;
         for (auto& [_, v] : index) total_files += v.size();
-        std::fprintf(stderr, "module_loader: indexed %zu package(s), %zu file(s)\n",
-                     index.size(), total_files);
+        std::fprintf(stderr, "module_loader: indexed %zu text pkg(s), %zu file(s); %zu binary module(s)\n",
+                     index.size(), total_files, binary_index.size());
     }
 
     std::vector<ParsedModule> modules;
     std::unordered_set<std::string> visited_packages;
     std::unordered_set<std::string> visited_files;
+
+    // Cache: binary module name → decoded ParsedModules (loaded lazily once per archive).
+    std::unordered_map<std::string, std::vector<ParsedModule>> binary_cache;
 
     // Parse one .logos file. On success returns the AST and its use-list;
     // on failure logs to stderr and returns empty.
@@ -245,6 +458,77 @@ std::vector<ParsedModule> load_modules(
     std::function<void(const std::string&)> visit_package;
     std::function<void(const std::string&, const std::string&)> visit_file;
 
+    // Load all packages provided by a binary archive,
+    // emitting them into `modules` and marking them visited.
+    // cache_key is the archive path (stable across different packages in the same archive).
+    auto visit_binary_module = [&](const std::string& cache_key,
+                                   const std::string& archive_path) {
+        // Load and cache the archive's decoded modules if not yet done.
+        auto cit = binary_cache.find(cache_key);
+        if (cit == binary_cache.end()) {
+            if (trace)
+                std::fprintf(stderr, "module_loader: loading binary module from %s\n",
+                             archive_path.c_str());
+            auto member = ar_read_member(archive_path, ".hermes0");
+            if (member.empty()) {
+                std::fprintf(stderr, "module_loader: no .hermes0 in %s\n", archive_path.c_str());
+                binary_cache[cache_key] = {};
+                return;
+            }
+            auto decoded = parse_hermes0(member, archive_path);
+            if (trace)
+                std::fprintf(stderr, "module_loader: decoded %zu file(s) from %s\n",
+                             decoded.size(), archive_path.c_str());
+            cit = binary_cache.emplace(cache_key, std::move(decoded)).first;
+        }
+
+        // Emit all files from this binary module that haven't been seen yet.
+        for (auto& pm : cit->second) {
+            if (!visited_files.insert(pm.path).second) continue;
+            // Mark the package as visited so text loader doesn't try to re-load it.
+            auto uses = extract_uses(pm.ast);
+            // Determine the package name from the AST path (it was stored by emit_module).
+            auto pkg = scan_package_decl(pm.path);
+            if (!pkg.empty()) visited_packages.insert(pkg);
+            // Recurse into uses (these may be in other binary or text modules).
+            for (const auto& u : uses) visit_package(u);
+            modules.push_back({pm.path, pm.package, pm.ast, /*from_binary_module=*/true});
+        }
+    };
+
+    // Visit every file belonging to a package, post-order on dependencies.
+    visit_package = [&](const std::string& pkg) {
+        if (!visited_packages.insert(pkg).second) return;
+
+        // Check text index first (source build takes priority).
+        auto it = index.find(pkg);
+        if (it != index.end()) {
+            struct Pending { std::string path; hermes::Hermes ast; };
+            std::vector<Pending> pending;
+            std::vector<std::string> pkg_uses;
+            for (const auto& file : it->second) {
+                if (!visited_files.insert(file).second) continue;
+                auto [ast, uses] = parse_one(file);
+                if (ast.is_null()) continue;
+                for (auto& u : uses) pkg_uses.push_back(std::move(u));
+                pending.push_back({file, std::move(ast)});
+            }
+            for (const auto& u : pkg_uses) visit_package(u);
+            for (auto& p : pending) modules.push_back({std::move(p.path), pkg, std::move(p.ast)});
+            return;
+        }
+
+        // Check binary index: does any archive provide this package?
+        auto bit = binary_index.find(pkg);
+        if (bit != binary_index.end()) {
+            // Use the archive path as a stable key for the binary cache.
+            visit_binary_module(bit->second, bit->second);
+            return;
+        }
+
+        std::fprintf(stderr, "module_loader: cannot find package '%s'\n", pkg.c_str());
+    };
+
     // Visit a single file (used for the root entry point, which is addressed
     // by path rather than by package name).
     visit_file = [&](const std::string& canonical, const std::string& declared_pkg) {
@@ -254,9 +538,6 @@ std::vector<ParsedModule> load_modules(
         // If the root file declares a package, load all of its sibling files
         // through the package mechanism before recursing into use-deps.
         if (!declared_pkg.empty() && index.count(declared_pkg)) {
-            // Mark this package as in-progress so sibling parse below doesn't
-            // recurse back into us. But siblings (other than this file) still
-            // need to be parsed.
             if (visited_packages.insert(declared_pkg).second) {
                 for (const auto& sib : index.at(declared_pkg)) {
                     if (sib == canonical) continue;
@@ -264,44 +545,16 @@ std::vector<ParsedModule> load_modules(
                     auto [sast, suses] = parse_one(sib);
                     if (sast.is_null()) continue;
                     for (const auto& u : suses) visit_package(u);
-                    modules.push_back({sib, std::move(sast)});
+                    modules.push_back({sib, declared_pkg, std::move(sast)});
                 }
             }
         }
         // Recurse into this file's own uses (post-order).
         for (const auto& u : uses) visit_package(u);
-        modules.push_back({canonical, std::move(ast)});
+        modules.push_back({canonical, declared_pkg, std::move(ast)});
     };
 
-    // Visit every file belonging to a package, post-order on dependencies.
-    visit_package = [&](const std::string& pkg) {
-        if (!visited_packages.insert(pkg).second) return;
-        auto it = index.find(pkg);
-        if (it == index.end()) {
-            std::fprintf(stderr, "module_loader: cannot find package '%s'\n", pkg.c_str());
-            return;
-        }
-        // Parse all files of this package first so we can collect all their
-        // uses before recursing (ensures even a single-file package behaves
-        // identically to the legacy path).
-        struct Pending { std::string path; hermes::Hermes ast; };
-        std::vector<Pending> pending;
-        std::vector<std::string> pkg_uses;
-        for (const auto& file : it->second) {
-            if (!visited_files.insert(file).second) continue;
-            auto [ast, uses] = parse_one(file);
-            if (ast.is_null()) continue;
-            for (auto& u : uses) pkg_uses.push_back(std::move(u));
-            pending.push_back({file, std::move(ast)});
-        }
-        // Recurse into dependencies (post-order).
-        for (const auto& u : pkg_uses) visit_package(u);
-        // Emit this package's files.
-        for (auto& p : pending) modules.push_back({std::move(p.path), std::move(p.ast)});
-    };
-
-    // Kick off traversal at the root file. We need its package name to know
-    // whether to pull in siblings — do a cheap scan first.
+    // Kick off traversal at the root file.
     auto root_canonical = fs::weakly_canonical(root_path).string();
     auto root_pkg = scan_package_decl(root_canonical);
     visit_file(root_canonical, root_pkg);

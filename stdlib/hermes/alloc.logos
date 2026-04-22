@@ -5,5 +5,5 @@
 
 package hermes.alloc;
 
-pub extern fn malloc(size: i64) -> *mut u8;
-pub extern fn free(ptr: *mut u8);
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);

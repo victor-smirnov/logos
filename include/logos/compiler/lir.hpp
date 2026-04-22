@@ -613,6 +613,11 @@ struct LFunction {
     bool                          is_specialization = false;
     std::vector<const LogosType*> spec_patterns;
 
+    // Set when this function was loaded from a binary module (.hermes0 in .a).
+    // Non-generic functions with this flag are forward-declared only; the linker
+    // resolves them from the archive's .o member.
+    bool from_binary_module = false;
+
     // Impl-level type params (with their bounds) that were stripped from
     // type_params when this method was attached to a generic struct template.
     // Preserved so mono can check whether the impl bound is satisfied for the
@@ -638,6 +643,7 @@ struct LStructDef {
     bool                     is_datatype   = false;  // Hermes datatype (C POD layout)
     uint64_t                 type_code     = 0;      // explicit #[type_code=N]; 0 = auto-assign
     bool                     is_data_plain = true;   // no relative-ptr fields → value-copyable
+    bool                     from_binary_module = false;  // loaded from binary archive
     // SHA-256 of canonical type string, truncated to 23 bytes; all-zero = not yet computed
     // (zero for generic templates — hashed at instantiation time in mono_pass).
     std::array<uint8_t, 23>  type_hash     = {};
@@ -784,7 +790,10 @@ namespace logos::compiler {
 // Run semantic analysis and produce L-IR from all parsed module ASTs.
 // The ASTs must remain alive for the duration of this call (string_views).
 // filenames[i] is the source path for asts[i] — used in diagnostics.
+// from_binary: parallel to asts/filenames; true means the file came from a
+// binary module archive and its non-generic symbols should not be re-emitted.
 lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
-                          const std::vector<std::string>& filenames = {});
+                          const std::vector<std::string>& filenames = {},
+                          const std::vector<bool>& from_binary = {});
 
 } // namespace logos::compiler

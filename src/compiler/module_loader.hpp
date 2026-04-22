@@ -17,8 +17,10 @@ namespace logos::compiler {
 
 // Parsed module: source path + Hermes AST.
 struct ParsedModule {
-    std::string path;
+    std::string    path;
+    std::string    package;               // dotted package name (e.g. "std.io"); may be empty
     hermes::Hermes ast;
+    bool           from_binary_module = false;  // loaded from a .hermes0 in a .a archive
 };
 
 // Load a .logos file and all its transitive dependencies.

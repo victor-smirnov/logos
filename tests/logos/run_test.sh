@@ -76,7 +76,14 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
 done < "$EXPECTED"
 
 BIN="$TMPD/test"
-if ! cc "$OBJ" -o "$BIN" 2>/dev/null; then
+# Collect .a archives from -L flags in EXTRA so stdlib symbols resolve.
+LINK_ARCHIVES=()
+for arg in "${EXTRA[@]}"; do
+    case "$arg" in
+        -L*) dir="${arg#-L}"; for a in "$dir"/*.a; do [ -f "$a" ] && LINK_ARCHIVES+=("$a"); done ;;
+    esac
+done
+if ! cc "$OBJ" "${LINK_ARCHIVES[@]}" -o "$BIN" 2>/dev/null; then
     echo "FAIL: cc link failed"
     exit 1
 fi

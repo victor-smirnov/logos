@@ -352,33 +352,43 @@ private:
     logos::expected<void*> decode_tiny_map(Arena& arena) noexcept {
         uint64_t count = read_varint();
         LOGOS_TRY(auto* map, TinyObjectMap::create(arena, static_cast<uint8_t>(count)));
+        // Track map by offset from head so we can recompute after any arena realloc.
+        ptrdiff_t map_off = reinterpret_cast<uint8_t*>(map) - arena.head().data();
 
         for (uint64_t i = 0; i < count; ++i) {
             uint8_t key = read_byte();
-            LOGOS_TRY_VOID(map->put(key, AnyVal{}, arena));
+            // Decode value into a stack slot to avoid dangling pointer if arena reallocs.
+            AnyVal val{};
+            LOGOS_TRY_VOID(decode_tagged_ptr(arena, &val));
+            // Recompute map after potential arena growth.
             uint8_t* base = arena.head().data();
-            AnyVal* s = map->slot(key, base);
-            LOGOS_TRY_VOID(decode_tagged_ptr(arena, s));
+            auto* m = reinterpret_cast<TinyObjectMap*>(base + map_off);
+            LOGOS_TRY_VOID(m->put(key, val, arena));
         }
-        return map;
+        return reinterpret_cast<TinyObjectMap*>(arena.head().data() + map_off);
     }
 
     logos::expected<void*> decode_object_array(Arena& arena) noexcept {
         uint64_t count = read_varint();
         LOGOS_TRY(auto* arr, ObjectArray::create(arena, count));
+        ptrdiff_t arr_off = reinterpret_cast<uint8_t*>(arr) - arena.head().data();
 
         for (uint64_t i = 0; i < count; ++i) {
-            LOGOS_TRY_VOID(arr->push_back(AnyVal{}, arena));
+            // Decode value into a stack slot first.
+            AnyVal val{};
+            LOGOS_TRY_VOID(decode_tagged_ptr(arena, &val));
+            // Recompute arr after potential arena growth.
             uint8_t* base = arena.head().data();
-            AnyVal* s = arr->slot(i, base);
-            LOGOS_TRY_VOID(decode_tagged_ptr(arena, s));
+            auto* a = reinterpret_cast<ObjectArray*>(base + arr_off);
+            LOGOS_TRY_VOID(a->push_back(val, arena));
         }
-        return arr;
+        return reinterpret_cast<ObjectArray*>(arena.head().data() + arr_off);
     }
 
     logos::expected<void*> decode_object_map(Arena& arena) noexcept {
         uint64_t count = read_varint();
         LOGOS_TRY(auto* map, ObjectMap::create(arena));
+        ptrdiff_t map_off = reinterpret_cast<uint8_t*>(map) - arena.head().data();
 
         for (uint64_t i = 0; i < count; ++i) {
             // Read key string (no TypeTag prefix — always Varchar by convention).
@@ -386,13 +396,15 @@ private:
             std::string_view key(reinterpret_cast<const char*>(data_ + pos_), key_len);
             pos_ += key_len;
 
-            // Put placeholder, then decode value into slot.
-            LOGOS_TRY_VOID(map->put(key, AnyVal{}, arena));
+            // Decode value into a stack slot first.
+            AnyVal val{};
+            LOGOS_TRY_VOID(decode_tagged_ptr(arena, &val));
+            // Recompute map after potential arena growth, then put.
             uint8_t* base = arena.head().data();
-            AnyVal* s = map->get_slot(key, base);
-            LOGOS_TRY_VOID(decode_tagged_ptr(arena, s));
+            auto* m = reinterpret_cast<ObjectMap*>(base + map_off);
+            LOGOS_TRY_VOID(m->put(key, val, arena));
         }
-        return map;
+        return reinterpret_cast<ObjectMap*>(arena.head().data() + map_off);
     }
 
     logos::expected<void*> decode_fixed(Arena& arena, TypeTag tag) noexcept {

@@ -69,6 +69,18 @@ int main(int argc, char** argv) {
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::vector<std::string> search_paths;
 
+    // Seed search paths from LOGOS_MODULE_PATH (colon-separated).
+    if (const char* module_path_env = std::getenv("LOGOS_MODULE_PATH")) {
+        std::string env_val(module_path_env);
+        size_t start = 0;
+        while (start < env_val.size()) {
+            auto colon = env_val.find(':', start);
+            if (colon == std::string::npos) colon = env_val.size();
+            if (colon > start) search_paths.push_back(env_val.substr(start, colon - start));
+            start = colon + 1;
+        }
+    }
+
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-o" && i + 1 < argc) { output_path = argv[++i]; }
@@ -114,13 +126,15 @@ int main(int argc, char** argv) {
     // Collect ASTs and source paths.
     std::vector<logos::hermes::Hermes> asts;
     std::vector<std::string> filenames;
+    std::vector<bool> from_binary;
     for (auto& m : modules) {
         filenames.push_back(m.path);
+        from_binary.push_back(m.from_binary_module);
         asts.push_back(std::move(m.ast));
     }
 
     // ── Step 2b: Semantic analysis + L-IR lowering ──────────────
-    auto prog = logos::compiler::sema_lower(asts, filenames);
+    auto prog = logos::compiler::sema_lower(asts, filenames, from_binary);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
     report("sema+lower");

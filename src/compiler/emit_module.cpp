@@ -63,14 +63,16 @@ namespace logos::compiler {
 namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
-// .hermes0 format
+// .hermes0 format (version 2)
 //
 //   magic[8]      "HERMAST0"
-//   version       uint32_t  = 1
+//   version       uint32_t  = 2
 //   num_files     uint32_t
 //   for each file:
 //     path_len    uint32_t
 //     path        char[path_len]
+//     pkg_len     uint32_t
+//     pkg         char[pkg_len]   — dotted package name (e.g. "std.io")
 //     ast_len     uint64_t
 //     ast         uint8_t[ast_len]  (binary_codec output)
 // ---------------------------------------------------------------------------
@@ -91,7 +93,7 @@ static bool write_hermes0(const std::string& path,
     }
     // header
     f.write("HERMAST0", 8);
-    write_u32(f, 1);  // version
+    write_u32(f, 2);  // version 2: adds pkg_len+pkg per file
     write_u32(f, static_cast<uint32_t>(modules.size()));
 
     for (auto& mod : modules) {
@@ -104,6 +106,9 @@ static bool write_hermes0(const std::string& path,
         uint32_t path_len = static_cast<uint32_t>(mod.path.size());
         write_u32(f, path_len);
         f.write(mod.path.data(), path_len);
+        uint32_t pkg_len = static_cast<uint32_t>(mod.package.size());
+        write_u32(f, pkg_len);
+        f.write(mod.package.data(), pkg_len);
         uint64_t ast_len = enc->size();
         write_u64(f, ast_len);
         f.write(reinterpret_cast<const char*>(enc->data()), ast_len);
@@ -137,8 +142,8 @@ static std::vector<std::string> collect_logos_files(const std::string& root) {
 static bool compile_to_object(const std::vector<hermes::Hermes>& asts,
                                const std::vector<std::string>& filenames,
                                const std::string& obj_path) {
-    // Sema
-    auto prog = sema_lower(asts, filenames);
+    // Sema — all files in the module are being compiled from source (not binary)
+    auto prog = sema_lower(asts, filenames, {});
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
@@ -294,7 +299,7 @@ bool emit_module(const ModuleManifest& manifest,
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
         filenames.push_back(m.path);
-        modules_for_h0.push_back({m.path, m.ast});  // Hermes is copy-on-write safe
+        modules_for_h0.push_back({m.path, m.package, m.ast});  // Hermes is copy-on-write safe
         asts.push_back(std::move(m.ast));
     }
 

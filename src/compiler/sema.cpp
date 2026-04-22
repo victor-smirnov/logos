@@ -448,8 +448,10 @@ std::string type_str(const LogosType* t) {
 // ── SemaChecker method definitions ───────────────────────────────────────────
 
 lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
-                                const std::vector<std::string>& filenames) {
+                                const std::vector<std::string>& filenames,
+                                const std::vector<bool>& from_binary) {
     filenames_ = &filenames;
+    from_binary_ = from_binary.empty() ? nullptr : &from_binary;
     init_primitives();
     collect(asts);
 
@@ -1788,6 +1790,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     for (size_t i = 0; i < asts.size(); ++i) {
         holder_ = asts[i].holder();
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
+        cur_from_binary_ = (from_binary_ && i < from_binary_->size()) ? (*from_binary_)[i] : false;
         auto root = asts[i].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         // Rebuild import scope (same logic as in collect()) so find_*_by_name
@@ -2116,9 +2119,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
-                          const std::vector<std::string>& filenames) {
+                          const std::vector<std::string>& filenames,
+                          const std::vector<bool>& from_binary) {
     SemaChecker checker;
-    return checker.run(asts, filenames);
+    return checker.run(asts, filenames, from_binary);
 }
 
 } // namespace logos::compiler

@@ -8,7 +8,5 @@ package std.panic;
 extern fn abort();
 
 pub fn panic(msg: str) {
-    // Call abort to halt execution.
-    // In a real implementation, we would print the message first.
-    abort();
+    unsafe { abort(); }
 }

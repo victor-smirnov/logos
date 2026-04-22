@@ -64,7 +64,8 @@ namespace sema_detail {
 class SemaChecker {
 public:
     lir::LProgram run(const std::vector<hermes::Hermes>& asts,
-                      const std::vector<std::string>& filenames);
+                      const std::vector<std::string>& filenames,
+                      const std::vector<bool>& from_binary = {});
 
 private:
     // ── Type pool and primitives ─────────────────────────────────
@@ -213,9 +214,11 @@ private:
 
     // ── File / line tracking ─────────────────────────────────────
 
-    const std::vector<std::string>* filenames_ = nullptr;
+    const std::vector<std::string>* filenames_    = nullptr;
+    const std::vector<bool>*        from_binary_  = nullptr;
     std::string  file_;
     std::string  cur_package_;
+    bool         cur_from_binary_ = false;   // current file is from a binary module
     uint32_t     node_line_ = 0;
 
     // Per-file import scope (wildcard: `use foo.bar;` makes all pub symbols of foo.bar visible)

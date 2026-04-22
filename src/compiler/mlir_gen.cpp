@@ -50,12 +50,17 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     ensure_malloc_free(mod);
 
     // Pass 1: forward-declare all functions (structs, free fns).
+    // Skip non-generic functions from binary modules — the linker finds them in the .a.
+    auto is_binary_skip = [](const lir::LFunction& fn) {
+        return fn.from_binary_module && fn.type_params.empty() && !fn.is_extern;
+    };
+
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            forward_declare(mod, m);
+            if (!is_binary_skip(m)) forward_declare(mod, m);
 
     for (auto& fn : prog.functions)
-        forward_declare(mod, fn);
+        if (!is_binary_skip(fn)) forward_declare(mod, fn);
 
     // Pass 1b: emit vtable globals for trait impls (&dyn Trait support).
     emit_trait_vtables(mod, prog);
@@ -66,12 +71,13 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // Pass 2: fill function bodies (structs, free fns).
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
+            if (is_binary_skip(m)) continue;
             auto func = mod.lookupSymbol<mlir::func::FuncOp>(m.name);
             if (!gen_function_body(func, m)) return nullptr;
         }
     }
     for (auto& fn : prog.functions) {
-        if (fn.is_extern) continue;
+        if (fn.is_extern || is_binary_skip(fn)) continue;
         auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn.name);
         if (!gen_function_body(func, fn)) return nullptr;
     }

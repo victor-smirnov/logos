@@ -44,7 +44,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     }
 
     lir::LFunction fn;
-    fn.name      = mangled;
+    fn.name               = mangled;
+    fn.from_binary_module = cur_from_binary_;
     int32_t node_code = code_of(node);
     fn.is_extern = (node_code == la::EXTERN_FN);
 
@@ -301,7 +302,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
 lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     auto sname = std::string(str_of(node.get(la::NAME.code)));
     lir::LStructDef sd;
-    sd.name = sname;
+    sd.name               = sname;
+    sd.from_binary_module = cur_from_binary_;
     // Look up in structs_ or datatypes_ — never default-insert via operator[].
     // Use package-aware find helpers so cross-package lowering works.
     auto [spkg_sd, ssi_sd] = find_struct_by_name(sname);
