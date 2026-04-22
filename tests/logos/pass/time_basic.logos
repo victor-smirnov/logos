@@ -1,0 +1,75 @@
+// Tests std.time: Duration, Instant, SystemTime.
+package test;
+
+use std.time;
+
+fn check_duration() -> i32 {
+    let d0: Duration = duration_from_nanos(0 as i64);
+    if !d0.is_zero() { return 1; }
+
+    let d1: Duration = duration_from_nanos(500 as i64);
+    if d1.as_nanos() != 500 as i64 { return 2; }
+
+    let d2: Duration = duration_from_millis(1 as i64);
+    if d2.as_nanos() != 1000000 as i64 { return 3; }
+    if d2.as_micros() != 1000 as i64   { return 4; }
+    if d2.as_millis() != 1 as i64      { return 5; }
+
+    let d3: Duration = duration_from_secs(2 as i64);
+    if d3.as_secs()  != 2 as i64          { return 6; }
+    if d3.as_millis() != 2000 as i64      { return 7; }
+    if d3.as_nanos()  != 2000000000 as i64 { return 8; }
+
+    let d4: Duration = duration_from_nanos(1500000000 as i64);  // 1.5 s
+    if d4.as_secs() != 1 as i64             { return 9; }
+    if d4.subsec_nanos() != 500000000 as i64 { return 10; }
+
+    let neg: Duration = duration_from_nanos(0 as i64 - 1 as i64);
+    if !neg.is_negative() { return 11; }
+    return 0;
+}
+
+fn check_instant() -> i32 {
+    unsafe {
+        let t0: Instant = instant_now();
+        let t1: Instant = instant_now();
+
+        // t1 >= t0 on a monotonic clock
+        let diff: Duration = t1.since(t0);
+        if diff.is_negative() { return 12; }
+
+        // nanos should be a plausible positive number (> 0)
+        let ns: i64 = t0.nanos_since_epoch();
+        if ns <= 0 as i64 { return 13; }
+    }
+    return 0;
+}
+
+fn check_system_time() -> i32 {
+    unsafe {
+        let st: SystemTime = system_time_now();
+
+        // Unix epoch seconds: year 2025 ≈ 1_700_000_000+
+        let secs: i64 = st.unix_secs();
+        if secs < 1700000000 as i64 { return 14; }
+
+        let t0: SystemTime = system_time_now();
+        let t1: SystemTime = system_time_now();
+        let diff: Duration = t1.since(t0);
+        if diff.is_negative() { return 15; }
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    let r1: i32 = check_duration();
+    if r1 != 0 { return r1; }
+
+    let r2: i32 = check_instant();
+    if r2 != 0 { return r2; }
+
+    let r3: i32 = check_system_time();
+    if r3 != 0 { return r3; }
+
+    return 42;
+}

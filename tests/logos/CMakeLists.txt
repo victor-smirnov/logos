@@ -165,7 +165,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
     box_basic rc_basic arc_basic
     chain_field_write
     meta_traits_basic
-    utf8_basic)
+    utf8_basic
+    time_basic)
 
     if (BASE IN_LIST LOCAL_STDLIB_USERS)
         set(_extra -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})
