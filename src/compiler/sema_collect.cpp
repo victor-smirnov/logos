@@ -318,7 +318,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             }
             else if (c == la::ENUM)                       collect_enum(item);
             else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
-            else if (c == la::TRAIT_DEF)                  collect_trait(item);
+            else if (c == la::TRAIT_DEF || c == la::GENOS_DEF) collect_trait(item);
             else if (c == la::IMPL_BLOCK)                 collect_impl(item);
         } else {
             if      (c == la::TYPE_ALIAS)                 collect_type_alias(item);
@@ -435,6 +435,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
     current_trait_name_ = tname;
     SemaTraitInfo info;
     info.name = tname;
+    info.is_genos = (code_of(node) == la::GENOS_DEF);
     // Read unsafe marker
     if (node.has_key(la::IS_UNSAFE)) {
         AnyVal av = node.get(la::IS_UNSAFE);

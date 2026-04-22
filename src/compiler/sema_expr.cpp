@@ -1573,6 +1573,31 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
     // Adds T to reflect_requests so reflection_emit pass builds the TypeInfo global.
     // Returns EReflectOf{T}; mlir_gen lowers it to AddressOf(__logos_reflect__<hash>) + offset 8.
     if (callee == "reflect") {
+        // Check if the single type arg is a genos name (before resolve_type, which rejects traits).
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1) {
+                    auto tnode = map_of(items.get(0));
+                    if (tnode.has_key(la::NAME)) {
+                        std::string tname(str_of(tnode.get(la::NAME.code)));
+                        auto tit = traits_.find(tname);
+                        if (tit != traits_.end() && tit->second.is_genos) {
+                            if (cur_prog_) {
+                                std::string pkg = std::string(cur_package_);
+                                std::string fqn = pkg.empty() ? tname : pkg + "::" + tname;
+                                cur_prog_->reflect_requests.insert(fqn);
+                            }
+                            auto* hs_type = make_struct_type("HermesStatic");
+                            // Synthesize a ZonedStruct type for EReflectOf codegen.
+                            const LogosType* gtp = make_datatype_type(tname, cur_package_);
+                            return make_expr(hs_type, lir::EReflectOf{gtp});
+                        }
+                    }
+                }
+            }
+        }
         auto ts = collect_type_args();
         if (ts.size() != 1 || !ts[0]) {
             error("reflect::<T>() requires exactly one type argument");

@@ -233,7 +233,29 @@ static std::string reflect_symbol(const std::array<uint8_t, 23>& hash) {
     return sym;
 }
 
-} // namespace
+static std::vector<uint8_t> build_genos_info_blob(const lir::LTraitDef& td) {
+    auto doc = make_doc(65536).get();
+    uint32_t root = begin_map(doc, 3);
+    map_put(doc, root, "name", hval_str(doc, td.name));
+    map_put(doc, root, "pkg",  hval_str(doc, td.pkg));
+    map_put(doc, root, "kind", hval_i64(doc, 3));
+    if (td.type_code != 0)
+        map_put(doc, root, "type_code", hval_u64(doc, td.type_code));
+    if (td.meta_val)
+        map_put(doc, root, "meta", hermes_val_to_doc(doc, *td.meta_val));
+    HermesAccess::set_root_offset(doc, arena_offset_t(root));
+    auto packed = clone(doc).get();
+    auto& arena = HermesAccess::arena(packed);
+    const uint8_t* data = arena.head().data();
+    size_t used = arena.total_used();
+    std::vector<uint8_t> blob(8 + used);
+    for (int k = 0; k < 8; ++k)
+        blob[k] = static_cast<uint8_t>((used >> (k * 8)) & 0xFF);
+    std::copy(data, data + used, blob.begin() + 8);
+    return blob;
+}
+
+} // anonymous namespace
 
 // ── Public entry point ────────────────────────────────────────────────────
 
@@ -266,6 +288,22 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
         auto blob = build_type_info_blob(sd);
         prog.reflection_globals.push_back({std::move(sym), std::move(blob)});
     }
+
+    // Emit TypeInfo for genos traits that have meta @{}, explicit type_code, or reflect request.
+    for (auto& td : prog.traits) {
+        if (!td.is_genos) continue;
+        std::string fqn = td.pkg.empty() ? td.name : td.pkg + "::" + td.name;
+        bool requested = to_emit.count(fqn) > 0;
+        if (!td.meta_val && td.type_code == 0 && !requested) continue;
+        if (!td.type_params.empty()) continue; // generic template, skip
+        // Compute type_hash from fqn (same algorithm as for structs).
+        auto hash = type_hash_23(fqn);
+        auto sym = reflect_symbol(hash);
+        if (!emitted.insert(sym).second) continue;
+        auto blob = build_genos_info_blob(td);
+        prog.reflection_globals.push_back({std::move(sym), std::move(blob)});
+    }
+
     return prog;
 }
 

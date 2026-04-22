@@ -238,6 +238,7 @@
     ANNOT_POS                   = 193   // annotation positional arg: VALUE=literal
     ANNOT_ARR                   = 194   // annotation array literal: ITEMS=literals
     META_BLOCK                  = 195   // meta @{...} block; VALUE=hermes_lit node
+    GENOS_DEF                   = 196   // genos declaration (trait with is_genos=true)
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -372,7 +373,7 @@
     path_dot_ident <- DOT IDENT
                    => { NAME: $2 }
 
-    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_struct_def / struct_def / pub_genos_def / genos_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // ── Annotations ──────────────────────────────────────────────
     // #[name(arg1, arg2)]      — annotation with identifier arguments
@@ -478,6 +479,18 @@
     // registration) will be added on top in a later pass.
     trait_kw <- KW_TRAIT / KW_GENOS
 
+    // genos declarations: same as trait_def but CODE=GENOS_DEF and is_genos=true.
+    // Listed before pub_trait_def/trait_def so PEG first-match routes genos here.
+    pub_genos_def <- KW_PUB KW_GENOS IDENT type_param_list LBRACE trait_method* meta_block? RBRACE
+                  => { CODE: GENOS_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $..., META: $7 }
+                  / KW_PUB KW_GENOS IDENT LBRACE trait_method* meta_block? RBRACE
+                  => { CODE: GENOS_DEF, IS_PUB: 1, NAME: $3, ITEMS: $..., META: $6 }
+
+    genos_def <- KW_GENOS IDENT type_param_list LBRACE trait_method* meta_block? RBRACE
+              => { CODE: GENOS_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $..., META: $6 }
+              / KW_GENOS IDENT LBRACE trait_method* meta_block? RBRACE
+              => { CODE: GENOS_DEF, NAME: $2, ITEMS: $..., META: $5 }
+
     pub_trait_def <- KW_PUB KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
                   / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method* RBRACE
@@ -550,7 +563,6 @@
                  => { CODE: ASSOC_TYPE_DEF, NAME: $2, ITEMS: $... }
                   / KW_CONST IDENT COLON type_ref SEMI
                  => { CODE: ASSOC_CONST_DEF, NAME: $2, TYPE: $4 }
-                  / meta_block
 
     // ── Impl block ──────────────────────────────────────────────
     // impl Trait for Type { fn method(...) { ... } }

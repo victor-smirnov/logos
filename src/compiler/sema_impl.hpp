@@ -456,6 +456,7 @@ private:
         std::vector<SemaAssocConstInfo>  assoc_consts;
         std::vector<TraitBound> supertraits;  // e.g. [{Display,[]}, {Into,[i32]}] for trait Foo: Display + Into<i32>
         bool is_unsafe = false;               // declared as `unsafe trait`
+        bool is_genos  = false;               // declared with `genos` keyword
     };
     struct SemaImplInfo {
         std::string trait_name;

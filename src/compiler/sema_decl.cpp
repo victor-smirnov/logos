@@ -663,6 +663,12 @@ lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
             td.methods.push_back(std::move(sig));
         }
     }
+    td.pkg = std::string(cur_package_);
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tps = read_type_params(node);
+        for (auto& tp : tps)
+            td.type_params.push_back(tp.name);
+    }
     td.meta_val = extract_meta_val(node);
     return td;
 }

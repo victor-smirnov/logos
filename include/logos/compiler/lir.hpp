@@ -722,8 +722,10 @@ struct LAssocTypeDef {
 
 struct LTraitDef {
     std::string                    name;
+    std::string                    pkg;                 // package that declares this trait/genos
     std::vector<LAssocTypeDef>     assoc_types;        // associated type declarations
     std::vector<LTraitMethodSig>   methods;
+    std::vector<std::string>       type_params;         // empty for non-generic traits
     std::string                    tag_dispatch_system; // #[tag_dispatch(system_name)]; empty = none
     uint64_t                       type_code = 0;       // #[type_code=N] — genos identity;
                                                         // propagates to each eidos via `impl Trait for Eidos`
