@@ -618,8 +618,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
     // struct value that subsequent struct-access ops mis-interpret as a ptr.
     if (auto* ir = std::get_if<EIndexRead>(&e.inner->kind)) {
         auto* t = e.inner->type;
-        if (t && (t->kind == LogosType::Kind::Struct ||
-                  t->kind == LogosType::Kind::ZonedStruct)) {
+        if (t) {
             mlir::Value base_ptr;
             mlir::Type  elem_type;
             if (auto* vr = std::get_if<EVarRef>(&ir->receiver->kind)) {
@@ -639,6 +638,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
                             base_ptr  = sc->second;
                             elem_type = sit->second.llvm_type;
                         }
+                    }
+                } else if (ir->receiver->type &&
+                           ir->receiver->type->kind == LogosType::Kind::Array) {
+                    // Stack-allocated array: get_subscript_ptr returns the alloca
+                    // directly (no load needed since the alloca IS the array base).
+                    auto sp = get_subscript_ptr(vr->name);
+                    if (sp) {
+                        base_ptr  = sp;
+                        elem_type = logos_to_mlir(t);
                     }
                 }
             } else if (auto* fr = std::get_if<EFieldRead>(&ir->receiver->kind)) {
