@@ -1126,6 +1126,16 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
 const LogosType* SemaChecker::resolve_type(TinyMapView node) {
     int32_t tc = code_of(node);
 
+    if (tc == la::TYPEOF_TYPE) {
+        // typeof(expr) — lower the inner expression purely for type inference.
+        // Expression is not evaluated at runtime; only its sema-computed type
+        // is returned.  The LExpr we build is discarded after this call.
+        auto expr_node = map_of(node.get(la::VALUE.code));
+        auto lex = lower_expr(expr_node);
+        if (!lex || !lex->type) return error_t();
+        return lex->type;
+    }
+
     if (tc == la::PTR_TYPE) {
         bool mut = false;
         AnyVal mv = node.get(la::MUTPTR.code);

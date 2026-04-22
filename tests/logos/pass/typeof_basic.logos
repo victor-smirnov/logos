@@ -1,0 +1,17 @@
+package typeof_basic;
+
+fn identity<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let a: i32 = 10;
+    // typeof(a) → i32
+    let b: typeof(a) = 32;
+
+    // typeof in generic arg position
+    let c: typeof(a) = identity::<typeof(a)>(a);
+
+    // typeof of an expression (not evaluated)
+    let d: typeof(a + b) = a + b + c;
+
+    return d;
+}
