@@ -1,0 +1,325 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos stdlib — fiber/thread: per-thread reactor + thread pool + SPSC submit.
+//
+// Architecture: Seastar-style per-thread reactor.
+// Each thread owns a cooperative Scheduler (fiber/fiber.logos).
+// Cross-thread tasks arrive via a bounded SPSC ring; the worker sleeps
+// via poll(2) on an eventfd when idle.
+//
+// MVP: single producer per inbox assumed.  x86 TSO + extern-fn boundaries
+// act as compiler barriers.
+
+package fiber;
+
+use std.mem;
+
+// ── Extras from fiber_ctx.S ───────────────────────────────────────────────
+
+extern fn logos_thread_get() -> *mut u8;
+extern fn logos_thread_set(ptr: *mut u8);
+extern fn logos_sched_set(ptr: *mut u8);
+
+// ── OS primitives ─────────────────────────────────────────────────────────
+
+extern fn pthread_create(tid: *mut i64, attr: *const u8,
+                         start: *const u8, arg: *mut u8) -> i32;
+extern fn pthread_join(tid: i64, retval: *mut *mut u8) -> i32;
+
+extern fn eventfd(initval: i32, flags: i32) -> i32;
+extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
+extern fn read(fd: i32, buf: *mut u8, count: i64) -> i64;
+extern fn close(fd: i32) -> i32;
+
+// poll(2): struct pollfd is 8 bytes: fd(i32) + events(i16) + revents(i16).
+// We model it as *mut u8 pointing to an 8-byte stack-allocated block.
+extern fn poll(fds: *mut u8, nfds: i64, timeout: i32) -> i32;
+
+// ── Constants ─────────────────────────────────────────────────────────────
+
+const SPSC_CAP: i64 = 256;  // (fn, arg) slots per inbox ring
+const POLLIN:   i16 = 1;    // poll event mask
+
+// ── SpscRing ──────────────────────────────────────────────────────────────
+
+pub struct SpscRing {
+    buf:  *mut i64,
+    head: i64,
+    tail: i64,
+    cap:  i64,
+}
+
+fn spsc_ring_new(cap: i64) -> *mut SpscRing {
+    let r: *mut SpscRing = alloc(sizeof::<SpscRing>()) as *mut SpscRing;
+    let buf: *mut u8 = alloc(cap * 16);
+    unsafe {
+        r.buf  = buf as *mut i64;
+        r.head = 0;
+        r.tail = 0;
+        r.cap  = cap;
+    }
+    return r;
+}
+
+fn spsc_ring_free(r: *mut SpscRing) {
+    let buf: *mut u8 = unsafe { r.buf } as *mut u8;
+    dealloc(buf);
+    dealloc(r as *mut u8);
+}
+
+fn spsc_empty(r: *const SpscRing) -> bool {
+    unsafe { return r.head == r.tail; }
+}
+
+fn spsc_push(r: *mut SpscRing, fn_ptr: i64, arg: i64) -> bool {
+    let tail: i64 = unsafe { r.tail };
+    let cap:  i64 = unsafe { r.cap  };
+    let next: i64 = (tail + 1) % cap;
+    let head: i64 = unsafe { r.head };
+    if next == head { return false; }
+    let buf: *mut i64 = unsafe { r.buf };
+    let slot:  *mut i64 = (buf as i64 + tail * 16    ) as *mut i64;
+    let slot2: *mut i64 = (buf as i64 + tail * 16 + 8) as *mut i64;
+    unsafe { *slot = fn_ptr; *slot2 = arg; }
+    unsafe { r.tail = next; }
+    return true;
+}
+
+fn spsc_pop(r: *mut SpscRing, out_fn: *mut i64, out_arg: *mut i64) -> bool {
+    let head: i64 = unsafe { r.head };
+    let tail: i64 = unsafe { r.tail };
+    if head == tail { return false; }
+    let buf: *const i64 = unsafe { r.buf } as *const i64;
+    let slot:  *const i64 = (buf as i64 + head * 16    ) as *const i64;
+    let slot2: *const i64 = (buf as i64 + head * 16 + 8) as *const i64;
+    unsafe { *out_fn = *slot; *out_arg = *slot2; }
+    let cap: i64 = unsafe { r.cap };
+    unsafe { r.head = (head + 1) % cap; }
+    return true;
+}
+
+// ── pollfd helper ─────────────────────────────────────────────────────────
+//
+// struct pollfd { int fd; short events; short revents; }  (8 bytes total)
+// Laid out as two consecutive i32 words: [fd_and_pad, events_and_revents].
+// We write the struct into an i64 local and pass a pointer to poll(2).
+
+fn wait_eventfd(notify_fd: i32) {
+    // Build a pollfd on the stack: fd=notify_fd, events=POLLIN, revents=0.
+    let mut pfd_lo: i32 = notify_fd;             // bytes 0-3: fd
+    let mut pfd_hi: i32 = POLLIN as i32;         // bytes 4-5: events=1; bytes 6-7: revents=0
+    let lo_ptr: *mut i32 = &mut pfd_lo as *mut i32;
+    let hi_ptr: *mut i32 = &mut pfd_hi as *mut i32;
+    // poll wants a single contiguous 8-byte struct — use alloc for simplicity.
+    let pfd: *mut u8 = alloc(8);
+    unsafe {
+        let p0: *mut i32 = pfd as *mut i32;
+        let p1: *mut i32 = (pfd as i64 + 4) as *mut i32;
+        *p0 = notify_fd;
+        *p1 = POLLIN as i32;
+    }
+    let _: i32 = unsafe { poll(pfd, 1, 0 - 1) };  // timeout=-1: block forever
+    dealloc(pfd);
+
+    // Drain the eventfd counter so it doesn't fire again immediately.
+    let mut ev: i64 = 0;
+    let ev_ptr: *mut i64 = &mut ev as *mut i64;
+    let _: i64 = unsafe { read(notify_fd, ev_ptr as *mut u8, 8) };
+}
+
+// ── Thread ────────────────────────────────────────────────────────────────
+
+pub struct Thread {
+    idx:        i32,
+    pthread_id: i64,
+    sched:      *mut Scheduler,
+    notify_fd:  i32,
+    sleeping:   i64,
+    pool:       *mut ThreadPool,
+    inbox:      *mut SpscRing,
+}
+
+// ── ThreadPool ────────────────────────────────────────────────────────────
+
+pub struct ThreadPool {
+    threads:  *mut i64,
+    count:    i32,
+    shutdown: i64,
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────
+
+fn drain_inbox(t: *mut Thread) -> bool {
+    let inbox: *mut SpscRing = unsafe { t.inbox };
+    let mut fn_ptr: i64 = 0;
+    let mut arg:    i64 = 0;
+    let mut got:    bool = false;
+    while spsc_pop(inbox, &mut fn_ptr as *mut i64, &mut arg as *mut i64) {
+        let f: fn(i64) -> () = fn_ptr as fn(i64) -> ();
+        spawn(f, arg);
+        got = true;
+    }
+    return got;
+}
+
+fn thread_reactor(t: *mut Thread) {
+    let pool:  *mut ThreadPool = unsafe { t.pool };
+    let s:     *mut Scheduler  = unsafe { t.sched };
+    let nfd:   i32             = unsafe { t.notify_fd };
+
+    let mut done: bool = false;
+    while !done {
+        drain_inbox(t);
+        sched_run(s);
+        drain_inbox(t);
+
+        let shutdown:    i64  = unsafe { pool.shutdown };
+        let inbox:       *mut SpscRing = unsafe { t.inbox };
+        let inbox_empty: bool = spsc_empty(inbox as *const SpscRing);
+
+        if shutdown != 0 && sched_empty(s) && inbox_empty {
+            done = true;
+        } else if sched_empty(s) && inbox_empty {
+            // Sleep until the producer signals via eventfd.
+            unsafe { t.sleeping = 1; }
+            // Final drain to close the race between producer writing SPSC
+            // and us setting sleeping=1.
+            drain_inbox(t);
+            let inbox2:    *mut SpscRing = unsafe { t.inbox };
+            let shutdown2: i64 = unsafe { pool.shutdown };
+            if !sched_empty(s) || !spsc_empty(inbox2 as *const SpscRing) {
+                unsafe { t.sleeping = 0; }
+            } else if shutdown2 != 0 {
+                unsafe { t.sleeping = 0; }
+                done = true;
+            } else {
+                wait_eventfd(nfd);
+                unsafe { t.sleeping = 0; }
+            }
+        }
+    }
+
+    let _: i32 = unsafe { close(nfd) };
+}
+
+fn thread_entry(arg: *mut u8) -> *mut u8 {
+    let t: *mut Thread = arg as *mut Thread;
+    unsafe {
+        logos_sched_set(t.sched as *mut u8);
+        logos_thread_set(t as *mut u8);
+    }
+    thread_reactor(t);
+    return 0 as *mut u8;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────
+
+pub fn thread_pool_new(n: i32) -> *mut ThreadPool {
+    let pool: *mut ThreadPool = alloc(sizeof::<ThreadPool>()) as *mut ThreadPool;
+    let buf:  *mut u8         = alloc(n as i64 * 8);
+    unsafe {
+        pool.count    = n;
+        pool.shutdown = 0;
+        pool.threads  = buf as *mut i64;
+    }
+
+    let mut i: i32 = 0;
+    while i < n {
+        let t:    *mut Thread   = alloc(sizeof::<Thread>()) as *mut Thread;
+        let ring: *mut SpscRing = spsc_ring_new(SPSC_CAP);
+        unsafe {
+            t.idx        = i;
+            t.pthread_id = 0;
+            t.sched      = sched_new();
+            t.notify_fd  = eventfd(0, 0);
+            t.sleeping   = 0;
+            t.pool       = pool;
+            t.inbox      = ring;
+        }
+        let threads_buf: *mut i64 = unsafe { pool.threads };
+        let slot: *mut i64 = (threads_buf as i64 + i as i64 * 8) as *mut i64;
+        unsafe { *slot = t as i64; }
+        i = i + 1;
+    }
+    return pool;
+}
+
+pub fn thread_pool_start(pool: *mut ThreadPool) {
+    let n:           i32      = unsafe { pool.count };
+    let threads_buf: *mut i64 = unsafe { pool.threads };
+    let mut i: i32 = 0;
+    while i < n {
+        let slot: *mut i64 = (threads_buf as i64 + i as i64 * 8) as *mut i64;
+        let t: *mut Thread = unsafe { *slot } as *mut Thread;
+        let fp:      *const u8 = thread_entry as *const u8;
+        let tid_ptr: *mut i64  = unsafe { &mut t.pthread_id as *mut i64 };
+        let _: i32 = unsafe { pthread_create(tid_ptr, 0 as *const u8, fp, t as *mut u8) };
+        i = i + 1;
+    }
+}
+
+pub fn thread_submit(pool: *mut ThreadPool, target_idx: i32,
+                     f: fn(i64) -> (), arg: i64) {
+    let threads_buf: *mut i64 = unsafe { pool.threads };
+    let slot: *const i64 = (threads_buf as i64 + target_idx as i64 * 8) as *const i64;
+    let t: *mut Thread = unsafe { *slot } as *mut Thread;
+    let fn_ptr: i64 = f as *const u8 as i64;
+    let inbox: *mut SpscRing = unsafe { t.inbox };
+    while !spsc_push(inbox, fn_ptr, arg) { }
+
+    // Wake the thread if it is sleeping in poll().
+    let sleeping: i64 = unsafe { t.sleeping };
+    if sleeping != 0 {
+        let nfd: i32 = unsafe { t.notify_fd };
+        let one: i64 = 1;
+        let _: i64 = unsafe { write(nfd, &one as *const i64 as *const u8, 8) };
+    }
+}
+
+pub fn thread_pool_signal_done(pool: *mut ThreadPool) {
+    unsafe { pool.shutdown = 1; }
+    let n:           i32      = unsafe { pool.count };
+    let threads_buf: *mut i64 = unsafe { pool.threads };
+    let mut i: i32 = 0;
+    while i < n {
+        let slot: *const i64 = (threads_buf as i64 + i as i64 * 8) as *const i64;
+        let t: *mut Thread = unsafe { *slot } as *mut Thread;
+        let nfd: i32 = unsafe { t.notify_fd };
+        let one: i64 = 1;
+        let _: i64 = unsafe { write(nfd, &one as *const i64 as *const u8, 8) };
+        i = i + 1;
+    }
+}
+
+pub fn thread_pool_join(pool: *mut ThreadPool) {
+    let n:           i32      = unsafe { pool.count };
+    let threads_buf: *mut i64 = unsafe { pool.threads };
+    let mut i: i32 = 0;
+    while i < n {
+        let slot: *const i64 = (threads_buf as i64 + i as i64 * 8) as *const i64;
+        let t: *mut Thread = unsafe { *slot } as *mut Thread;
+        let tid: i64 = unsafe { t.pthread_id };
+        let _: i32 = unsafe { pthread_join(tid, 0 as *mut *mut u8) };
+        i = i + 1;
+    }
+}
+
+pub fn thread_pool_free(pool: *mut ThreadPool) {
+    let n:           i32      = unsafe { pool.count };
+    let threads_buf: *mut i64 = unsafe { pool.threads };
+    let mut i: i32 = 0;
+    while i < n {
+        let slot: *const i64 = (threads_buf as i64 + i as i64 * 8) as *const i64;
+        let t: *mut Thread = unsafe { *slot } as *mut Thread;
+        let inbox: *mut SpscRing  = unsafe { t.inbox };
+        let s:     *mut Scheduler = unsafe { t.sched };
+        let nfd:   i32            = unsafe { t.notify_fd };
+        spsc_ring_free(inbox);
+        sched_free(s);
+        let _: i32 = unsafe { close(nfd) };
+        dealloc(t as *mut u8);
+        i = i + 1;
+    }
+    dealloc(threads_buf as *mut u8);
+    dealloc(pool as *mut u8);
+}

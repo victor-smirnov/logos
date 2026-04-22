@@ -1,0 +1,27 @@
+// Thread pool smoke test (single worker thread).
+//
+// main creates a 1-thread pool, submits do_increment to thread 0,
+// signals done, joins, then verifies counter == 1 → exit 42.
+
+package fiber_thread_basic;
+
+use fiber;
+
+fn do_increment(arg: i64) {
+    let ptr: *mut i32 = arg as *mut i32;
+    unsafe { *ptr = *ptr + 1; }
+}
+
+unsafe fn main() -> i32 {
+    let pool: *mut ThreadPool = thread_pool_new(1);
+    thread_pool_start(pool);
+
+    let mut counter: i32 = 0;
+    thread_submit(pool, 0, do_increment, &counter as *const i32 as i64);
+    thread_pool_signal_done(pool);
+    thread_pool_join(pool);
+    thread_pool_free(pool);
+
+    if counter == 1 { return 42; }
+    return counter;
+}

@@ -3,7 +3,7 @@
 // Logos stdlib — fiber context switch (x86-64 System V ABI).
 //
 // This file is the ONLY native dependency of the Logos fiber runtime.
-// Everything else (scheduler, spawn, yield) is written in Logos itself.
+// Everything else (scheduler, spawn, yield, thread pool) is written in Logos.
 //
 // FiberCtx layout (must match struct FiberCtx in stdlib/fiber/fiber.logos):
 //   offset  0 : rbp
@@ -80,29 +80,78 @@ logos_get_fiber_entry_addr:
     .size   logos_get_fiber_entry_addr, .-logos_get_fiber_entry_addr
 
 // ---------------------------------------------------------------------------
-// Per-thread scheduler pointer (one global for now; thread-local later).
+// Per-thread scheduler and thread pointers — thread-local storage.
+//
+// Using initial-exec TLS model: two-instruction access via %fs,
+// works for static libs loaded at program startup (our use case).
 //
 // logos_sched_get() -> *mut u8
 // logos_sched_set(ptr: *mut u8)
+// logos_thread_get() -> *mut u8
+// logos_thread_set(ptr: *mut u8)
 // ---------------------------------------------------------------------------
-    .data
+    .section .tbss,"awT",@nobits
     .align  8
-    .globl  _logos_sched_g
-_logos_sched_g:
-    .quad   0
+    .globl  _logos_sched_tls
+_logos_sched_tls:
+    .zero   8
+
+    .globl  _logos_thread_tls
+_logos_thread_tls:
+    .zero   8
 
     .text
 
     .globl  logos_sched_get
     .type   logos_sched_get, @function
 logos_sched_get:
-    movq    _logos_sched_g(%rip), %rax
+    movq    _logos_sched_tls@gottpoff(%rip), %rax
+    movq    %fs:(%rax), %rax
     ret
     .size   logos_sched_get, .-logos_sched_get
 
     .globl  logos_sched_set
     .type   logos_sched_set, @function
 logos_sched_set:
-    movq    %rdi, _logos_sched_g(%rip)
+    movq    _logos_sched_tls@gottpoff(%rip), %rax
+    movq    %rdi, %fs:(%rax)
     ret
     .size   logos_sched_set, .-logos_sched_set
+
+    .globl  logos_thread_get
+    .type   logos_thread_get, @function
+logos_thread_get:
+    movq    _logos_thread_tls@gottpoff(%rip), %rax
+    movq    %fs:(%rax), %rax
+    ret
+    .size   logos_thread_get, .-logos_thread_get
+
+    .globl  logos_thread_set
+    .type   logos_thread_set, @function
+logos_thread_set:
+    movq    _logos_thread_tls@gottpoff(%rip), %rax
+    movq    %rdi, %fs:(%rax)
+    ret
+    .size   logos_thread_set, .-logos_thread_set
+
+// ---------------------------------------------------------------------------
+// Atomic load/store for i64 — SPSC correctness on x86 TSO.
+// Plain mov is already acquire-load / release-store on x86; the extern
+// function boundary prevents LLVM from reordering across the call.
+//
+// logos_atomic_load64(ptr: *const i64) -> i64
+// logos_atomic_store64(ptr: *mut i64, val: i64)
+// ---------------------------------------------------------------------------
+    .globl  logos_atomic_load64
+    .type   logos_atomic_load64, @function
+logos_atomic_load64:
+    movq    (%rdi), %rax
+    ret
+    .size   logos_atomic_load64, .-logos_atomic_load64
+
+    .globl  logos_atomic_store64
+    .type   logos_atomic_store64, @function
+logos_atomic_store64:
+    movq    %rsi, (%rdi)
+    ret
+    .size   logos_atomic_store64, .-logos_atomic_store64
