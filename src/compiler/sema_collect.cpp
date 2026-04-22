@@ -228,9 +228,11 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                           last_offender_.field_ty ? type_str(last_offender_.field_ty) : "?",
                           bound.trait_name));
                 } else {
+                    // Bug 5 fix: say "not inherently Send/Sync" rather than always
+                    // blaming raw pointers — Closures, TraitObjects, etc. also reach here.
                     error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
-                                      "(raw pointer type cannot be sent across threads)",
-                          target_name, concrete_str, bound.trait_name));
+                                      "(type is not inherently {})",
+                          target_name, concrete_str, bound.trait_name, bound.trait_name));
                 }
                 continue;
             }
@@ -466,6 +468,10 @@ void SemaChecker::collect_trait(TinyMapView node) {
         auto items = arr_of(node.get(la::ITEMS.code));
         if (items.size() > 0) {
             error(std::format("auto trait '{}' must have an empty body", tname));
+            // Bug 1 fix: clean up Self and trait name before early return to
+            // avoid polluting scope for subsequent trait collections.
+            current_type_params_.erase("Self");
+            current_trait_name_.clear();
             return;
         }
     }

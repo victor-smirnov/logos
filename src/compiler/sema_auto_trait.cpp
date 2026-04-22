@@ -90,10 +90,24 @@ bool SemaChecker::is_auto_trait_satisfied(
             si = get_datatype_si(T);
             if (!si) return true; // unknown struct — be lenient
         }
+        // Bug 3 fix: build substitution map from generic type args so that
+        // TypeVar fields in generic struct instantiations (e.g. Vec<i32>
+        // has field `data: TypeVar("T")`) are replaced with concrete types.
+        std::unordered_map<std::string, const LogosType*> subst;
+        if (!T->type_args.empty() && !si->type_params.empty()) {
+            size_t n = std::min(T->type_args.size(), si->type_params.size());
+            for (size_t j = 0; j < n; ++j)
+                subst[si->type_params[j].name] = T->type_args[j];
+        }
         for (auto& f : si->fields) {
-            if (!is_auto_trait_satisfied(f.type, trait_name, visited)) {
+            const LogosType* ftype = f.type;
+            if (ftype && ftype->kind == Kind::TypeVar && !subst.empty()) {
+                auto sit = subst.find(ftype->type_var_name);
+                if (sit != subst.end()) ftype = sit->second;
+            }
+            if (!is_auto_trait_satisfied(ftype, trait_name, visited)) {
                 if (last_offender_.field_name.empty())
-                    last_offender_ = {std::string(f.name), f.type};
+                    last_offender_ = {std::string(f.name), ftype};
                 return false;
             }
         }
@@ -121,9 +135,10 @@ bool SemaChecker::is_auto_trait_satisfied(
     case Kind::Array:
         return T->elem ? is_auto_trait_satisfied(T->elem, trait_name, visited) : true;
 
-    // ── Slice &[T]: element must satisfy (slice is Send iff T: Send) ────────
+    // ── Slice &[T]: like &T, both Send and Sync require the element to be Sync ─
+    // Bug 2 fix: &[T] is a shared reference; must check T: Sync, not T: trait_name.
     case Kind::Slice:
-        return T->elem ? is_auto_trait_satisfied(T->elem, trait_name, visited) : true;
+        return T->elem ? is_auto_trait_satisfied(T->elem, "Sync", visited) : true;
 
     // ── Tuple: every element must satisfy ───────────────────────────────────
     case Kind::Tuple:

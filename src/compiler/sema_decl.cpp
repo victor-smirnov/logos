@@ -664,10 +664,10 @@ lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
         }
     }
     td.pkg = std::string(cur_package_);
-    if (tit != traits_.end()) {
-        td.is_auto  = tit->second.is_auto;
-        td.is_genos = tit->second.is_genos;
-    }
+    // Bug 4 fix: only set is_auto here; is_genos is dead code since the caller
+    // at sema.cpp:2338 overwrites it for GENOS_DEF, and TRAIT_DEF is always false.
+    if (tit != traits_.end())
+        td.is_auto = tit->second.is_auto;
     if (node.has_key(la::TYPE_PARAMS)) {
         auto tps = read_type_params(node);
         for (auto& tp : tps)
