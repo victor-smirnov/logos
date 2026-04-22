@@ -1,0 +1,62 @@
+// Cross-thread Future smoke test.
+//
+// 2-thread pool: consumer fiber runs on thread 1, producer on thread 0.
+// consumer: creates FutureSlot, submits producer to thread 0, calls future_get → suspends.
+// producer: calls future_complete(slot, 42) → wakes consumer on thread 1 via SPSC sentinel.
+// consumer resumes: gets 42, writes to result, calls thread_pool_signal_done, returns.
+// main: joins pool, verifies result == 42 → exit 42.
+
+package fiber_thread_future;
+
+use fiber;
+
+struct CArg {
+    result_ptr: *mut i32,
+    pool:       *mut ThreadPool,
+}
+
+fn producer(arg: i64) {
+    let slot: *mut FutureSlot<i32> = arg as *mut FutureSlot<i32>;
+    future_complete::<i32>(slot, 42);
+}
+
+fn consumer(arg: i64) {
+    let ca: *const CArg = arg as *const CArg;
+    let result_ptr: *mut i32    = unsafe { ca.result_ptr };
+    let pool:       *mut ThreadPool = unsafe { ca.pool };
+
+    let slot: *mut FutureSlot<i32> = future_slot_new::<i32>();
+
+    // Submit producer to thread 0 (different from our thread 1).
+    thread_submit(pool, 0, producer, slot as i64);
+
+    // Suspend until producer delivers the value.
+    let val: i32 = future_get::<i32>(slot);
+
+    unsafe { *result_ptr = val; }
+    unsafe { dealloc(slot as *mut u8); }
+
+    // Signal all threads to shut down once queues drain.
+    thread_pool_signal_done(pool);
+}
+
+unsafe fn main() -> i32 {
+    let pool: *mut ThreadPool = thread_pool_new(2);
+    thread_pool_start(pool);
+
+    let mut result: i32 = 0;
+    let mut ca: CArg = CArg {
+        result_ptr: &mut result as *mut i32,
+        pool:       pool,
+    };
+
+    // Submit consumer to thread 1.
+    thread_submit(pool, 1, consumer, &ca as *const CArg as i64);
+
+    // Block until both threads exit (consumer calls signal_done internally).
+    thread_pool_join(pool);
+    thread_pool_free(pool);
+
+    if result == 42 { return 42; }
+    return result;
+}

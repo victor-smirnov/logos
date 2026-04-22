@@ -151,15 +151,36 @@ pub struct ThreadPool {
 
 fn drain_inbox(t: *mut Thread) -> bool {
     let inbox: *mut SpscRing = unsafe { t.inbox };
+    let s:     *mut Scheduler = unsafe { t.sched };
     let mut fn_ptr: i64 = 0;
     let mut arg:    i64 = 0;
     let mut got:    bool = false;
     while spsc_pop(inbox, &mut fn_ptr as *mut i64, &mut arg as *mut i64) {
-        let f: fn(i64) -> () = fn_ptr as fn(i64) -> ();
-        spawn(f, arg);
+        if fn_ptr == 0 {
+            // Sentinel: re-enqueue a suspended fiber that was woken cross-thread.
+            sched_enqueue(s, arg);
+        } else {
+            let f: fn(i64) -> () = fn_ptr as fn(i64) -> ();
+            spawn(f, arg);
+        }
         got = true;
     }
     return got;
+}
+
+// Push a fiber pointer into the target thread's inbox so that thread will
+// re-enqueue and resume the fiber.  fn_ptr=0 is the sentinel for "resume".
+// Called from future_complete (future.logos, same package) for cross-thread wakeup.
+fn cross_thread_enqueue(target_thr: i64, fiber_ptr: i64) {
+    let t: *mut Thread = target_thr as *mut Thread;
+    let inbox: *mut SpscRing = unsafe { t.inbox };
+    while !spsc_push(inbox, 0, fiber_ptr) { }
+    let sleeping: i64 = unsafe { t.sleeping };
+    if sleeping != 0 {
+        let nfd: i32 = unsafe { t.notify_fd };
+        let one: i64 = 1;
+        let _: i64 = unsafe { write(nfd, &one as *const i64 as *const u8, 8) };
+    }
 }
 
 fn thread_reactor(t: *mut Thread) {
