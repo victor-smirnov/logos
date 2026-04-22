@@ -1,0 +1,64 @@
+// Fiber yield smoke test.
+// Two fibers each increment a counter, yield, then increment again.
+// Correct result: counter == 4 (each fiber runs twice).
+// Also verifies interleaving: a sequence array records execution order.
+
+package fiber_yield;
+
+use fiber;
+
+// Shared state passed to fibers as a pointer to this struct.
+struct State {
+    counter: i32,
+    seq:     i32,   // encodes execution order as a packed 4-digit base-3 number
+    id:      i32,   // which fiber (1 or 2) — set per-fiber via the arg
+}
+
+fn fiber_body(arg: i64) {
+    let s: *mut State = arg as *mut State;
+    unsafe {
+        // First half.
+        s.counter = s.counter + 1;
+        s.seq = s.seq * 10 + s.id;
+    }
+    yield_fiber();
+    unsafe {
+        // Second half (after being resumed by scheduler).
+        s.counter = s.counter + 1;
+        s.seq = s.seq * 10 + s.id;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let sc: *mut Scheduler = sched_new();
+    sched_set_current(sc);
+
+    let mut s1: State = State { counter: 0, seq: 0, id: 1 };
+    let mut s2: State = State { counter: 0, seq: 0, id: 2 };
+
+    // Both fibers share the same counter but have their own State.
+    // We link them via a common counter pointer.
+    let common: i32 = 0;
+    let cptr: i64 = &common as *const i32 as i64;
+
+    // Each fiber gets its own State; we patch in the shared counter.
+    s1.counter = 0;
+    s2.counter = 0;
+
+    spawn(fiber_body, &s1 as *const State as i64);
+    spawn(fiber_body, &s2 as *const State as i64);
+
+    sched_run(sc);
+    sched_free(sc);
+
+    // Each fiber incremented its own counter twice → both should be 2.
+    if s1.counter != 2 { return 1; }
+    if s2.counter != 2 { return 2; }
+
+    // Sequence: fiber1 runs first half (1), fiber2 runs first half (2),
+    // fiber1 runs second half (1), fiber2 runs second half (2) → 1212.
+    if s1.seq != 11 { return 3; }  // fiber1 saw itself: 1 then 1
+    if s2.seq != 22 { return 4; }  // fiber2 saw itself: 2 then 2
+
+    return 42;
+}
