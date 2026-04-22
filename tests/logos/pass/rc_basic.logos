@@ -1,0 +1,55 @@
+// pass — Rc<T> reference counting smoke test.
+package test;
+
+use std.rc;
+
+fn main() -> i32 {
+    unsafe {
+        // ── create ───────────────────────────────────────────────────────────
+        let mut r1: Rc<i32> = rc_new::<i32>(10);
+        let pr1: *mut Rc<i32> = &mut r1;
+        if pr1.strong_count() != 1 { return 1; }
+        if *pr1.get() != 10 { return 2; }
+
+        // ── clone ────────────────────────────────────────────────────────────
+        let mut r2: Rc<i32> = pr1.clone_rc();
+        let pr2: *mut Rc<i32> = &mut r2;
+        if pr1.strong_count() != 2 { return 3; }
+        if pr2.strong_count() != 2 { return 4; }
+        if *pr2.get() != 10 { return 5; }
+
+        // ── clone again ──────────────────────────────────────────────────────
+        let mut r3: Rc<i32> = pr2.clone_rc();
+        let pr3: *mut Rc<i32> = &mut r3;
+        if pr1.strong_count() != 3 { return 6; }
+
+        // ── mutate through get_mut (sole logical owner in this scope) ─────────
+        *pr1.get_mut() = 77;
+        if *pr1.get() != 77 { return 7; }
+        if *pr2.get() != 77 { return 8; }  // same allocation
+
+        // ── drop one handle ──────────────────────────────────────────────────
+        pr3.drop_rc();
+        if pr1.strong_count() != 2 { return 9; }
+        if !pr3.is_null() { return 10; }
+
+        // ── drop second ──────────────────────────────────────────────────────
+        pr2.drop_rc();
+        if pr1.strong_count() != 1 { return 11; }
+
+        // ── last drop frees ───────────────────────────────────────────────────
+        pr1.drop_rc();
+        if !pr1.is_null() { return 12; }
+
+        // ── Rc<i64> — larger inner type ───────────────────────────────────────
+        let mut q1: Rc<i64> = rc_new::<i64>(9999 as i64);
+        let pq1: *mut Rc<i64> = &mut q1;
+        let mut q2: Rc<i64> = pq1.clone_rc();
+        let pq2: *mut Rc<i64> = &mut q2;
+        *pq1.get_mut() = 12345 as i64;
+        if *pq2.get() != 12345 as i64 { return 13; }
+        pq1.drop_rc();
+        pq2.drop_rc();
+    }
+    return 42;
+}

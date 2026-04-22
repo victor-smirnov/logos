@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.box
+//
+// Box<T> — sole-ownership heap allocation.
+// Unlike raw *mut T, Box<T> makes the ownership intent explicit.
+// Without RAII, the caller must call box_free() when done.
+
+package std.box;
+
+use std.mem;
+
+pub struct Box<T> {
+    ptr: *mut T,
+}
+
+pub fn box_new<T>(val: T) -> Box<T> {
+    let p: *mut T = alloc(sizeof::<T>()) as *mut T;
+    unsafe { p[0] = val; }
+    return Box { ptr: p };
+}
+
+impl<T> Box<T> {
+    // Immutable access to the boxed value.
+    pub unsafe fn get(self: *mut Box<T>) -> *const T {
+        return self.ptr as *const T;
+    }
+
+    // Mutable access to the boxed value.
+    pub unsafe fn get_mut(self: *mut Box<T>) -> *mut T {
+        return self.ptr;
+    }
+}
+
+// Consume the box and free the heap allocation.
+pub unsafe fn box_free<T>(b: *mut Box<T>) {
+    dealloc(b.ptr as *mut u8);
+    b.ptr = 0 as *mut T;
+}

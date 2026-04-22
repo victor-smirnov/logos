@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.arc
+//
+// Arc<T: Send + Sync> — atomically reference-counted smart pointer.
+// Safe to clone and share across threads; T must be Send + Sync.
+//
+// The strong counter is an AtomicI32 using LOCK XADD / LOCK CMPXCHG.
+// When the last handle drops (fetch_sub returns 1), the inner block is freed.
+//
+// No weak references in this version.
+//
+// Usage:
+//   let a1: Arc<i32> = arc_new::<i32>(0);
+//   let a2: Arc<i32> = a1.clone_arc();
+//   // share a2 with another thread via FutureSlot / channel ...
+//   let v: *const i32 = a1.get();
+//   a1.drop_arc();   // does NOT free (a2 still alive)
+//   a2.drop_arc();   // frees inner block
+
+package std.arc;
+
+use std.mem;
+use std.atomic;
+use std.marker;
+
+// ── Internal heap block ───────────────────────────────────────────────────────
+
+struct ArcInner<T> {
+    val:    T,
+    strong: AtomicI32,
+}
+
+// ── Arc<T: Send + Sync> ───────────────────────────────────────────────────────
+
+pub struct Arc<T> {
+    inner: *mut ArcInner<T>,
+}
+
+pub fn arc_new<T: Send + Sync>(val: T) -> Arc<T> {
+    let inner: *mut ArcInner<T> = alloc(sizeof::<ArcInner<T>>()) as *mut ArcInner<T>;
+    unsafe {
+        inner.val    = val;
+        inner.strong = atomic_i32_new(1);
+    }
+    return Arc { inner: inner };
+}
+
+impl<T: Send + Sync> Arc<T> {
+    // Immutable access to the contained value.
+    pub unsafe fn get(self: *mut Arc<T>) -> *const T {
+        return &self.inner.val as *const T;
+    }
+
+    pub unsafe fn strong_count(self: *mut Arc<T>) -> i32 {
+        return (&self.inner.strong).load();
+    }
+
+    pub unsafe fn is_null(self: *mut Arc<T>) -> bool {
+        return self.inner == 0 as *mut ArcInner<T>;
+    }
+
+    // Atomically increment the strong count; return a second handle.
+    pub unsafe fn clone_arc(self: *mut Arc<T>) -> Arc<T> {
+        (&mut self.inner.strong).fetch_add(1);
+        return Arc { inner: self.inner };
+    }
+
+    // Atomically decrement; free the inner block when the count reaches zero.
+    pub unsafe fn drop_arc(self: *mut Arc<T>) {
+        // fetch_sub returns the OLD value; old == 1 means we went 1 → 0.
+        let prev: i32 = (&mut self.inner.strong).fetch_sub(1);
+        if prev == 1 {
+            dealloc(self.inner as *mut u8);
+        }
+        self.inner = 0 as *mut ArcInner<T>;
+    }
+}

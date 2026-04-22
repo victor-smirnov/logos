@@ -1,0 +1,27 @@
+// pass — Box<T> smoke test.
+package test;
+
+use std.box;
+
+fn main() -> i32 {
+    unsafe {
+        // ── i32 ──────────────────────────────────────────────────────────────
+        let mut b: Box<i32> = box_new::<i32>(42);
+        let p: *const i32 = b.get();
+        if *p != 42 { return 1; }
+
+        let pm: *mut i32 = b.get_mut();
+        *pm = 99;
+        if *b.get() != 99 { return 2; }
+
+        box_free::<i32>(&mut b);
+
+        // ── i64 — larger type ────────────────────────────────────────────────
+        let mut b64: Box<i64> = box_new::<i64>(1234567890 as i64);
+        if *b64.get() != 1234567890 as i64 { return 3; }
+        *b64.get_mut() = 0 as i64;
+        if *b64.get() != 0 as i64 { return 4; }
+        box_free::<i64>(&mut b64);
+    }
+    return 42;
+}

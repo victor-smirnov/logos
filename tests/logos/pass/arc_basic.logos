@@ -1,0 +1,50 @@
+// pass — Arc<T: Send + Sync> atomic reference counting smoke test.
+package test;
+
+use std.arc;
+
+fn main() -> i32 {
+    unsafe {
+        // ── create ───────────────────────────────────────────────────────────
+        let mut a1: Arc<i32> = arc_new::<i32>(100);
+        let pa1: *mut Arc<i32> = &mut a1;
+        if pa1.strong_count() != 1 { return 1; }
+        if *pa1.get() != 100 { return 2; }
+
+        // ── clone ────────────────────────────────────────────────────────────
+        let mut a2: Arc<i32> = pa1.clone_arc();
+        let pa2: *mut Arc<i32> = &mut a2;
+        if pa1.strong_count() != 2 { return 3; }
+        if pa2.strong_count() != 2 { return 4; }
+        if *pa2.get() != 100 { return 5; }
+
+        let mut a3: Arc<i32> = pa2.clone_arc();
+        let pa3: *mut Arc<i32> = &mut a3;
+        if pa1.strong_count() != 3 { return 6; }
+
+        // ── drop one ─────────────────────────────────────────────────────────
+        pa3.drop_arc();
+        if pa1.strong_count() != 2 { return 7; }
+        if !pa3.is_null() { return 8; }
+
+        // ── drop second ──────────────────────────────────────────────────────
+        pa2.drop_arc();
+        if pa1.strong_count() != 1 { return 9; }
+
+        // ── last drop frees ───────────────────────────────────────────────────
+        pa1.drop_arc();
+        if !pa1.is_null() { return 10; }
+
+        // ── Arc<i64> — larger T ──────────────────────────────────────────────
+        let mut b1: Arc<i64> = arc_new::<i64>(999 as i64);
+        let pb1: *mut Arc<i64> = &mut b1;
+        let mut b2: Arc<i64> = pb1.clone_arc();
+        let pb2: *mut Arc<i64> = &mut b2;
+        if pb1.strong_count() != 2 { return 11; }
+        pb1.drop_arc();
+        if pb2.strong_count() != 1 { return 12; }
+        if *pb2.get() != 999 as i64 { return 13; }
+        pb2.drop_arc();
+    }
+    return 42;
+}
