@@ -1579,6 +1579,11 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             return error_expr();
         }
         const LogosType* T = ts[0];
+        if (T->kind == LogosType::Kind::TypeVar) {
+            // Inside a generic function — defer; mono will resolve and register.
+            auto* hs_type = make_struct_type("HermesStatic");
+            return make_expr(hs_type, lir::EReflectOf{T});
+        }
         if (T->kind != LogosType::Kind::Datatype || !T->type_args.empty()) {
             error("reflect::<T>() requires a concrete (non-generic) datatype argument");
             return error_expr();

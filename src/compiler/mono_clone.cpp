@@ -602,7 +602,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = lir::EPtrDiff{k.by_byte,
                 subst_expr(*k.lhs, s), subst_expr(*k.rhs, s)};
         } else if constexpr (std::is_same_v<K, lir::EReflectOf>) {
-            result->kind = lir::EReflectOf{subst_type(k.type, s)};
+            auto* resolved = subst_type(k.type, s);
+            result->kind = lir::EReflectOf{resolved};
+            // If the type is now fully concrete, register for TypeInfo emission.
+            if (resolved && resolved->kind == LogosType::Kind::Datatype &&
+                resolved->type_args.empty()) {
+                std::string pkg = resolved->pkg_name;
+                std::string fqn = pkg.empty() ? resolved->struct_name
+                                              : pkg + "::" + resolved->struct_name;
+                out_.reflect_requests.insert(fqn);
+            }
         }
     }, e.kind);
 

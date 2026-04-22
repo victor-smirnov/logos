@@ -1,0 +1,55 @@
+package reflect_api;
+
+use std.reflect;
+use hermes.string;
+
+#[annotation]
+eidos Deprecated {
+    msg: str,
+    since: str,
+}
+
+#[Deprecated(msg="use v2", since="0.3")]
+eidos MyPoint {
+    x: i32,
+    y: i32,
+}
+
+unsafe fn main() -> i32 {
+    let info: TypeInfo = TypeInfo::<MyPoint>::make();
+
+    // kind == 2 (datatype)
+    if info.kind() != 2 { return 1; }
+    if !info.is_datatype() { return 2; }
+
+    // type_code must be non-zero
+    let tc: u64 = info.type_code();
+    if tc == 0 { return 3; }
+
+    // field_count == 2 (x, y)
+    let fc: u64 = info.field_count();
+    if fc != 2 { return 4; }
+
+    // annotation_count == 1
+    let ac: u64 = info.annotation_count();
+    if ac != 1 { return 5; }
+
+    // Check first field name
+    let fields: FieldsView = info.fields();
+    let f0: FieldInfo = fields.get(0);
+    let fname: StringView = f0.name();
+    // StringView.len must be > 0
+    if fname.len == 0 { return 6; }
+
+    // Check annotation type name contains "Deprecated"
+    let anns: AnnotationsView = info.annotations();
+    let a0: AnnotationInfo = anns.get(0);
+    let atype: StringView = a0.type_name();
+    if atype.len == 0 { return 7; }
+
+    // Check annotation string field "msg"
+    let msg: StringView = a0.get_str("msg");
+    if msg.len == 0 { return 8; }
+
+    return 42;
+}

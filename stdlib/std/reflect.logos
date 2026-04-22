@@ -1,0 +1,226 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// Typed wrappers over the HermesStatic TypeInfo blobs emitted by reflect::<T>().
+//
+// Usage:
+//   use std.reflect;
+//   let info: TypeInfo = TypeInfo::of::<MyPoint>();
+//   let name: StringView = info.name();
+//   let fields: FieldsView = info.fields();
+//   let i: u64 = 0;
+//   while i < fields.len() {
+//       let f: FieldInfo = fields.get(i);
+//       ...
+//       i = i + 1;
+//   }
+
+package std.reflect;
+
+use hermes.view;
+use hermes.anyval;
+use hermes.string;
+use std.string;
+
+// ── TypeInfo ─────────────────────────────────────────────────────────────────
+
+pub struct TypeInfo {
+    inner: HermesStatic,
+}
+
+impl TypeInfo {
+    pub fn make<T>() -> TypeInfo {
+        return TypeInfo { inner: reflect::<T>() };
+    }
+
+    pub fn name(self: &TypeInfo) -> StringView {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "name");
+            return self.inner.get_str_view(av);
+        }
+    }
+
+    pub fn pkg(self: &TypeInfo) -> StringView {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "pkg");
+            return self.inner.get_str_view(av);
+        }
+    }
+
+    pub fn type_code(self: &TypeInfo) -> u64 {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "type_code");
+            return self.inner.get_u64(av);
+        }
+    }
+
+    pub fn kind(self: &TypeInfo) -> i64 {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "kind");
+            return self.inner.get_int(av);
+        }
+    }
+
+    pub fn is_datatype(self: &TypeInfo) -> bool {
+        return self.kind() == 2;
+    }
+
+    pub fn is_data_plain(self: &TypeInfo) -> bool {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "is_data_plain");
+            return self.inner.get_bool(av);
+        }
+    }
+
+    pub fn fields(self: &TypeInfo) -> FieldsView {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "fields");
+            return FieldsView { info: self.inner, arr_bits: av.raw };
+        }
+    }
+
+    pub fn annotations(self: &TypeInfo) -> AnnotationsView {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "annotations");
+            return AnnotationsView { info: self.inner, arr_bits: av.raw };
+        }
+    }
+
+    pub fn field_count(self: &TypeInfo) -> u64 {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "fields");
+            return self.inner.array_len(av);
+        }
+    }
+
+    pub fn annotation_count(self: &TypeInfo) -> u64 {
+        unsafe {
+            let root: AnyVal = self.inner.root();
+            let av: AnyVal = self.inner.map_get(root, "annotations");
+            return self.inner.array_len(av);
+        }
+    }
+}
+
+// ── FieldsView ────────────────────────────────────────────────────────────────
+//
+// AnyVal cannot be stored as a struct field due to ABI flattening mismatch;
+// store the raw u32 bits and reconstruct on use.
+
+pub struct FieldsView {
+    info:     HermesStatic,
+    arr_bits: u32,
+}
+
+impl FieldsView {
+    pub fn len(self: &FieldsView) -> u64 {
+        unsafe {
+            let arr: AnyVal = AnyVal { raw: self.arr_bits };
+            return self.info.array_len(arr);
+        }
+    }
+
+    pub fn get(self: &FieldsView, idx: u64) -> FieldInfo {
+        unsafe {
+            let arr: AnyVal = AnyVal { raw: self.arr_bits };
+            let elem: AnyVal = self.info.array_get(arr, idx);
+            return FieldInfo { info: self.info, map_bits: elem.raw };
+        }
+    }
+}
+
+// ── FieldInfo ─────────────────────────────────────────────────────────────────
+
+pub struct FieldInfo {
+    info:     HermesStatic,
+    map_bits: u32,
+}
+
+impl FieldInfo {
+    pub fn name(self: &FieldInfo) -> StringView {
+        unsafe {
+            let map: AnyVal = AnyVal { raw: self.map_bits };
+            let av: AnyVal = self.info.map_get(map, "name");
+            return self.info.get_str_view(av);
+        }
+    }
+
+    pub fn type_name(self: &FieldInfo) -> StringView {
+        unsafe {
+            let map: AnyVal = AnyVal { raw: self.map_bits };
+            let av: AnyVal = self.info.map_get(map, "type_name");
+            return self.info.get_str_view(av);
+        }
+    }
+}
+
+// ── AnnotationsView ───────────────────────────────────────────────────────────
+
+pub struct AnnotationsView {
+    info:     HermesStatic,
+    arr_bits: u32,
+}
+
+impl AnnotationsView {
+    pub fn len(self: &AnnotationsView) -> u64 {
+        unsafe {
+            let arr: AnyVal = AnyVal { raw: self.arr_bits };
+            return self.info.array_len(arr);
+        }
+    }
+
+    pub fn get(self: &AnnotationsView, idx: u64) -> AnnotationInfo {
+        unsafe {
+            let arr: AnyVal = AnyVal { raw: self.arr_bits };
+            let elem: AnyVal = self.info.array_get(arr, idx);
+            return AnnotationInfo { info: self.info, map_bits: elem.raw };
+        }
+    }
+}
+
+// ── AnnotationInfo ────────────────────────────────────────────────────────────
+
+pub struct AnnotationInfo {
+    info:     HermesStatic,
+    map_bits: u32,
+}
+
+impl AnnotationInfo {
+    // Fully-qualified annotation type name (e.g. "reflect_basic::Deprecated").
+    pub fn type_name(self: &AnnotationInfo) -> StringView {
+        unsafe {
+            let map: AnyVal = AnyVal { raw: self.map_bits };
+            let av: AnyVal = self.info.map_get(map, "type");
+            return self.info.get_str_view(av);
+        }
+    }
+
+    // Read a string field from the annotation by key. Returns empty view if absent.
+    pub fn get_str(self: &AnnotationInfo, key: str) -> StringView {
+        unsafe {
+            let map: AnyVal = AnyVal { raw: self.map_bits };
+            let av: AnyVal = self.info.map_get(map, key);
+            if av.is_null() {
+                return StringView { ptr: 0 as *const u8, len: 0 };
+            }
+            return self.info.get_str_view(av);
+        }
+    }
+
+    // Read an integer field from the annotation by key. Returns 0 if absent.
+    pub fn get_int(self: &AnnotationInfo, key: str) -> i64 {
+        unsafe {
+            let map: AnyVal = AnyVal { raw: self.map_bits };
+            let av: AnyVal = self.info.map_get(map, key);
+            return self.info.get_int(av);
+        }
+    }
+}
