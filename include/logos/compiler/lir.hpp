@@ -680,6 +680,7 @@ struct LStructDef {
     // User-annotation metadata.
     bool                             is_annotation_type = false;  // true → this datatype is itself a `#[annotation]` marker type
     std::vector<LAnnotationInstance> annotations;                  // user-annotations attached to this type
+    std::shared_ptr<HermesVal>       meta_val;                     // meta @{...} block; null if absent
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
@@ -726,6 +727,8 @@ struct LTraitDef {
     std::string                    tag_dispatch_system; // #[tag_dispatch(system_name)]; empty = none
     uint64_t                       type_code = 0;       // #[type_code=N] — genos identity;
                                                         // propagates to each eidos via `impl Trait for Eidos`
+    bool                           is_genos  = false;   // declared with `genos` keyword (not `trait`)
+    std::shared_ptr<HermesVal>     meta_val;             // meta @{...} block; null if absent
 };
 
 struct LImplBlock {

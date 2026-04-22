@@ -258,8 +258,10 @@ inline constexpr Code TYPEOF_TYPE          {"TYPEOF_TYPE",         191}; // type
 inline constexpr Code ANNOT_KV             {"ANNOT_KV",            192}; // named annotation arg: #[A(key=lit)]; NAME(1)=key, VALUE(7)=literal node
 inline constexpr Code ANNOT_POS            {"ANNOT_POS",           193}; // positional annotation arg: #[A(lit)]; VALUE(7)=literal node
 inline constexpr Code ANNOT_ARR            {"ANNOT_ARR",           194}; // annotation array literal [lit,...]; ITEMS(2)=sub-literal nodes
+inline constexpr Code META_BLOCK           {"META_BLOCK",          195}; // meta @{...} block; VALUE(7)=hermes_lit node
 
 // Index field key for tuple_field_write_stmt (integer field index)
+inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)
 inline constexpr Key  INDEX           {"INDEX",              43};   // integer index (tuple field write)
 
 // Visibility

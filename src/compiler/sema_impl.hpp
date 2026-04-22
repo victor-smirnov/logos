@@ -243,6 +243,11 @@ private:
         return av.as_value<uint32_t>();
     }
 
+    // ── meta @{} helpers ─────────────────────────────────────────
+
+    lir::HermesValPtr               eval_static_hermes_lit(hermes::TinyMapView node);
+    std::shared_ptr<lir::HermesVal> extract_meta_val(hermes::TinyMapView node);
+
     // ── Hermes helpers ───────────────────────────────────────────
 
     hermes::MemHolder* holder_ = nullptr;

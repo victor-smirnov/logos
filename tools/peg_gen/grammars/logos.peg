@@ -71,6 +71,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in HERMES_ENTRY
+    META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
     // the same 0..51 space as global fields; peg_gen resolves action field
@@ -236,6 +237,7 @@
     ANNOT_KV                    = 192   // annotation named arg: NAME=key, VALUE=literal
     ANNOT_POS                   = 193   // annotation positional arg: VALUE=literal
     ANNOT_ARR                   = 194   // annotation array literal: ITEMS=literals
+    META_BLOCK                  = 195   // meta @{...} block; VALUE=hermes_lit node
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -245,6 +247,7 @@
     KW_PACKAGE  = "package"
     KW_DATATYPE = "eidos"
     KW_GENOS    = "genos"
+    KW_META     = "meta"
     KW_STATIC   = "static"
     KW_RETURN   = "return"
     KW_EXTERN   = "extern"
@@ -547,6 +550,7 @@
                  => { CODE: ASSOC_TYPE_DEF, NAME: $2, ITEMS: $... }
                   / KW_CONST IDENT COLON type_ref SEMI
                  => { CODE: ASSOC_CONST_DEF, NAME: $2, TYPE: $4 }
+                  / meta_block
 
     // ── Impl block ──────────────────────────────────────────────
     // impl Trait for Type { fn method(...) { ... } }
@@ -626,11 +630,11 @@
                   => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
 
     // ── Datatype definition (Hermes — C POD layout, no heap types) ──
-    pub_datatype_def <- KW_PUB KW_DATATYPE IDENT type_param_list? LBRACE field_def* RBRACE
-                     => { CODE: DATATYPE, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
+    pub_datatype_def <- KW_PUB KW_DATATYPE IDENT type_param_list? LBRACE field_def* meta_block? RBRACE
+                     => { CODE: DATATYPE, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, META: $7 }
 
-    datatype_def <- KW_DATATYPE IDENT type_param_list? LBRACE field_def* RBRACE
-                 => { CODE: DATATYPE, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5 }
+    datatype_def <- KW_DATATYPE IDENT type_param_list? LBRACE field_def* meta_block? RBRACE
+                 => { CODE: DATATYPE, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, META: $6 }
 
     // ── Explicit instantiation declarations (no body) ────────────
     // Binds metadata annotations to a generic instantiation.
@@ -651,11 +655,16 @@
                => { CODE: TRAIT_DEF, TYPE: $2 }
 
     // ── Struct definition ────────────────────────────────────────
-    pub_struct_def <- KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
-                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7 }
+    pub_struct_def <- KW_PUB KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6, ITEMS: $7, META: $8 }
 
-    struct_def <- KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* RBRACE
-               => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6 }
+    struct_def <- KW_STRUCT IDENT type_param_list? LBRACE field_def* method_def* meta_block? RBRACE
+               => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5, ITEMS: $6, META: $7 }
+
+    // meta @{...} block: attaches a static Hermes literal as metadata to any type declaration.
+    // Contributes to TypeInfo under the "meta" key. Static literals only (no $ident captures).
+    meta_block <- KW_META hermes_lit
+               => { CODE: META_BLOCK, VALUE: $2 }
 
     field_def <- KW_PUB IDENT COLON type_ref COMMA?
               => { CODE: FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }

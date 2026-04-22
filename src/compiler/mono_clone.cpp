@@ -859,6 +859,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     lir::LStructDef nd;
     nd.name = new_name;
     nd.is_datatype = tmpl.is_datatype;
+    nd.meta_val    = tmpl.meta_val;
     // type_params cleared: result is monomorphic
     for (auto& f : tmpl.fields) {
         if (f.is_variadic) {

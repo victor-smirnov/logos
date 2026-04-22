@@ -145,6 +145,39 @@ static AnyVal build_field_map(Hermes& doc, const lir::LField& f) {
     return as_ptr(m);
 }
 
+// ── Serialize a HermesVal tree into a Hermes document ────────────────────
+
+static AnyVal hermes_val_to_doc(Hermes& doc, const lir::HermesVal& v);
+
+static AnyVal hermes_val_to_doc(Hermes& doc, const lir::HermesVal& v) {
+    return std::visit([&](auto&& alt) -> AnyVal {
+        using T = std::decay_t<decltype(alt)>;
+        if constexpr (std::is_same_v<T, lir::HVNull>)  return AnyVal{};
+        if constexpr (std::is_same_v<T, lir::HVBool>)  return hval_bool(doc, alt.value);
+        if constexpr (std::is_same_v<T, lir::HVInt>)   return hval_i64(doc, alt.value);
+        if constexpr (std::is_same_v<T, lir::HVFloat>)
+            return anyval_put<double>(HermesAccess::arena(doc), alt.value).get();
+        if constexpr (std::is_same_v<T, lir::HVStr>)   return hval_str(doc, alt.value);
+        if constexpr (std::is_same_v<T, lir::HVMap>) {
+            uint32_t m = begin_map(doc);
+            for (auto& e : alt.entries) {
+                std::string_view k = std::holds_alternative<std::string>(e.key)
+                    ? std::string_view(std::get<std::string>(e.key)) : "";
+                map_put(doc, m, k, hermes_val_to_doc(doc, *e.val));
+            }
+            return as_ptr(m);
+        }
+        if constexpr (std::is_same_v<T, lir::HVArray>) {
+            uint32_t a = begin_array(doc);
+            for (auto& elem : alt.elements)
+                array_push(doc, a, hermes_val_to_doc(doc, *elem));
+            return as_ptr(a);
+        }
+        if constexpr (std::is_same_v<T, lir::HVCapture>) return AnyVal{};
+        return AnyVal{};
+    }, v.kind);
+}
+
 // ── Build TypeInfo blob for one struct ───────────────────────────────────
 
 static std::vector<uint8_t> build_type_info_blob(const lir::LStructDef& sd) {
@@ -170,6 +203,10 @@ static std::vector<uint8_t> build_type_info_blob(const lir::LStructDef& sd) {
     for (auto& inst : sd.annotations)
         array_push(doc, annots_arr, build_annotation_map(doc, inst));
     map_put(doc, root, "annotations", as_ptr(annots_arr));
+
+    // meta @{} block — contributed as-is under "meta" key
+    if (sd.meta_val)
+        map_put(doc, root, "meta", hermes_val_to_doc(doc, *sd.meta_val));
 
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
 

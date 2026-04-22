@@ -1,0 +1,30 @@
+package meta_trait;
+
+use hermes.view;
+use hermes.anyval;
+
+eidos TaggedPoint {
+    x: i32,
+    y: i32,
+    meta @{ "label": "geometry", "version": 1 }
+}
+
+unsafe fn main() -> i32 {
+    let info: HermesStatic = reflect::<TaggedPoint>();
+    let root: AnyVal = info.root();
+    if root.is_null() { return 1; }
+
+    let meta_av: AnyVal = info.map_get(root, "meta");
+    if meta_av.is_null() { return 2; }
+    if !meta_av.is_ptr() { return 3; }
+
+    let label_av: AnyVal = info.map_get(meta_av, "label");
+    if label_av.is_null() { return 4; }
+
+    let ver_av: AnyVal = info.map_get(meta_av, "version");
+    if ver_av.is_null() { return 5; }
+    let ver: i64 = info.get_int(ver_av);
+    if ver != 1 { return 6; }
+
+    return 42;
+}
