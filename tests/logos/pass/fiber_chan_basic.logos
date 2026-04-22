@@ -1,0 +1,46 @@
+// Chan<T> smoke test.
+//
+// Consumer fiber spawned first: calls chan_recv on empty channel → suspends.
+// Producer fiber spawned second: calls chan_send(42) → wakes consumer.
+// Consumer sets result = 42 → exit 42.
+
+package fiber_chan_basic;
+
+use fiber;
+
+struct Args {
+    ch:     *mut Chan<i32>,
+    result: i32,
+}
+
+fn run_consumer(arg: i64) {
+    let a: *mut Args = arg as *mut Args;
+    let ch: *mut Chan<i32> = unsafe { a.ch };
+    let val: i32 = chan_recv::<i32>(ch);
+    unsafe { a.result = val; }
+}
+
+fn run_producer(arg: i64) {
+    let ch: *mut Chan<i32> = arg as *mut Chan<i32>;
+    chan_send::<i32>(ch, 42);
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+
+    let ch: *mut Chan<i32> = chan_new::<i32>(4);
+    let mut a: Args = Args { ch: ch, result: 0 };
+
+    // Consumer first (will suspend on empty channel).
+    spawn(run_consumer, &a as *const Args as i64);
+    // Producer second (will write and wake consumer).
+    spawn(run_producer, ch as i64);
+
+    sched_run(s);
+    sched_free(s);
+    chan_free::<i32>(ch);
+
+    if a.result == 42 { return 42; }
+    return a.result;
+}

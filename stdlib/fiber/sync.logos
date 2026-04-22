@@ -1,0 +1,193 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos stdlib — fiber/sync: intra-thread sync primitives.
+//
+// Latch  — count-down latch; one waiter suspends until count reaches 0.
+// Chan<T> — bounded buffered channel; sender or receiver suspends when full/empty.
+//
+// All primitives are single-thread only (no cross-thread use).
+
+package fiber;
+
+use std.mem;
+
+extern fn logos_fiber_switch(from: *mut FiberCtx, to: *const FiberCtx);
+extern fn logos_sched_get() -> *mut u8;
+
+// ── Latch ─────────────────────────────────────────────────────────────────
+
+pub struct Latch {
+    count:  i64,   // decrements toward 0; waiter woken when 0
+    waiter: i64,   // *mut Fiber or 0
+}
+
+pub fn latch_new(count: i64) -> *mut Latch {
+    let l: *mut Latch = alloc(sizeof::<Latch>()) as *mut Latch;
+    unsafe { l.count = count; l.waiter = 0; }
+    return l;
+}
+
+pub fn latch_free(l: *mut Latch) {
+    dealloc(l as *mut u8);
+}
+
+// Called by workers; wakes waiter when count reaches 0.
+pub fn latch_count_down(l: *mut Latch) {
+    let c: i64 = unsafe { l.count } - 1;
+    unsafe { l.count = c; }
+    if c == 0 {
+        let waiter: i64 = unsafe { l.waiter };
+        if waiter != 0 {
+            unsafe { l.waiter = 0; }
+            let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+            sched_enqueue(s, waiter);
+        }
+    }
+}
+
+// Called by the single waiter; suspends if count > 0.
+pub fn latch_wait(l: *mut Latch) {
+    let c: i64 = unsafe { l.count };
+    if c == 0 { return; }
+    let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    let cur: i64 = unsafe { s.current };
+    unsafe { l.waiter = cur; s.current = 0; }
+    let fiber: *mut Fiber    = cur as *mut Fiber;
+    let from:  *mut FiberCtx = fiber as *mut FiberCtx;
+    let to: *const FiberCtx  = unsafe { &s.sched_ctx as *const FiberCtx };
+    unsafe { logos_fiber_switch(from, to); }
+}
+
+// ── Chan<T> ───────────────────────────────────────────────────────────────
+//
+// Ring buffer of sizeof::<T>()-byte slots.
+// send_val holds a heap *mut T when a sender is suspended.
+
+pub struct Chan<T> {
+    buf:        *mut u8,  // ring buffer: cap * sizeof::<T>() bytes
+    head:       i64,      // read index
+    tail:       i64,      // write index
+    cap:        i64,      // max items
+    len:        i64,      // current item count
+    elem_size:  i64,      // sizeof::<T>()
+    send_fiber: i64,      // *mut Fiber of suspended sender, or 0
+    send_val:   i64,      // *mut T on heap (pending send value), or 0
+    recv_fiber: i64,      // *mut Fiber of suspended receiver, or 0
+}
+
+pub fn chan_new<T>(cap: i64) -> *mut Chan<T> {
+    let sz: i64 = sizeof::<T>();
+    let ch: *mut Chan<T> = alloc(sizeof::<Chan<T>>()) as *mut Chan<T>;
+    let buf: *mut u8 = alloc(cap * sz);
+    unsafe {
+        ch.buf        = buf;
+        ch.head       = 0;
+        ch.tail       = 0;
+        ch.cap        = cap;
+        ch.len        = 0;
+        ch.elem_size  = sz;
+        ch.send_fiber = 0;
+        ch.send_val   = 0;
+        ch.recv_fiber = 0;
+    }
+    return ch;
+}
+
+pub fn chan_free<T>(ch: *mut Chan<T>) {
+    let buf: *mut u8 = unsafe { ch.buf };
+    dealloc(buf);
+    dealloc(ch as *mut u8);
+}
+
+// Write one item into the ring (caller guarantees len < cap).
+fn chan_ring_write<T>(ch: *mut Chan<T>, val: T) {
+    let sz:   i64    = unsafe { ch.elem_size };
+    let tail: i64    = unsafe { ch.tail };
+    let cap:  i64    = unsafe { ch.cap };
+    let buf:  *mut u8 = unsafe { ch.buf };
+    let slot: *mut T = (buf as i64 + tail * sz) as *mut T;
+    unsafe { *slot = val; }
+    unsafe { ch.tail = (tail + 1) % cap; }
+    unsafe { ch.len  = unsafe { ch.len } + 1; }
+}
+
+// Read one item from the ring (caller guarantees len > 0).
+fn chan_ring_read<T>(ch: *mut Chan<T>) -> T {
+    let sz:   i64     = unsafe { ch.elem_size };
+    let head: i64     = unsafe { ch.head };
+    let cap:  i64     = unsafe { ch.cap };
+    let buf:  *const u8 = unsafe { ch.buf } as *const u8;
+    let slot: *const T  = (buf as i64 + head * sz) as *const T;
+    let val: T = unsafe { *slot };
+    unsafe { ch.head = (head + 1) % cap; }
+    unsafe { ch.len  = unsafe { ch.len } - 1; }
+    return val;
+}
+
+// Send val into the channel; suspends if full.
+pub fn chan_send<T>(ch: *mut Chan<T>, val: T) {
+    let cap: i64 = unsafe { ch.cap };
+    let len: i64 = unsafe { ch.len };
+
+    if len < cap {
+        // There is space — write and optionally wake a waiting receiver.
+        chan_ring_write::<T>(ch, val);
+        let recv_fiber: i64 = unsafe { ch.recv_fiber };
+        if recv_fiber != 0 {
+            unsafe { ch.recv_fiber = 0; }
+            let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+            sched_enqueue(s, recv_fiber);
+        }
+        return;
+    }
+
+    // Channel full — heap-copy val and suspend.
+    let vp: *mut T = alloc(sizeof::<T>()) as *mut T;
+    unsafe { *vp = val; }
+    let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    let cur: i64 = unsafe { s.current };
+    unsafe {
+        ch.send_fiber = cur;
+        ch.send_val   = vp as i64;
+        s.current     = 0;
+    }
+    let fiber: *mut Fiber    = cur as *mut Fiber;
+    let from:  *mut FiberCtx = fiber as *mut FiberCtx;
+    let to: *const FiberCtx  = unsafe { &s.sched_ctx as *const FiberCtx };
+    unsafe { logos_fiber_switch(from, to); }
+}
+
+// Receive a value from the channel; suspends if empty.
+pub fn chan_recv<T>(ch: *mut Chan<T>) -> T {
+    let len: i64 = unsafe { ch.len };
+
+    if len > 0 {
+        let val: T = chan_ring_read::<T>(ch);
+        // If a sender was suspended waiting for space, unblock it now.
+        let sf: i64 = unsafe { ch.send_fiber };
+        if sf != 0 {
+            let sv: i64 = unsafe { ch.send_val };
+            unsafe { ch.send_fiber = 0; ch.send_val = 0; }
+            // Write the pending value into the ring.
+            let vp: *mut T = sv as *mut T;
+            let pval: T = unsafe { *vp };
+            dealloc(vp as *mut u8);
+            chan_ring_write::<T>(ch, pval);
+            let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+            sched_enqueue(s, sf);
+        }
+        return val;
+    }
+
+    // Channel empty — suspend until a sender arrives.
+    let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    let cur: i64 = unsafe { s.current };
+    unsafe { ch.recv_fiber = cur; s.current = 0; }
+    let fiber: *mut Fiber    = cur as *mut Fiber;
+    let from:  *mut FiberCtx = fiber as *mut FiberCtx;
+    let to: *const FiberCtx  = unsafe { &s.sched_ctx as *const FiberCtx };
+    unsafe { logos_fiber_switch(from, to); }
+
+    // Resumed by a sender that wrote into the ring.
+    return chan_ring_read::<T>(ch);
+}

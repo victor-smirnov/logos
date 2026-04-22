@@ -1,0 +1,48 @@
+// Latch smoke test.
+//
+// 3 worker fibers each add 14 to a shared counter and call latch_count_down.
+// A waiter fiber calls latch_wait (suspends until count reaches 0).
+// After latch fires: waiter sets synced = 1.
+// main verifies counter == 42 && synced == 1 → exit 42.
+
+package fiber_latch_basic;
+
+use fiber;
+
+struct Ctx {
+    latch:   *mut Latch,
+    counter: i32,
+    synced:  i32,
+}
+
+fn worker(arg: i64) {
+    let ctx: *mut Ctx = arg as *mut Ctx;
+    unsafe { ctx.counter = ctx.counter + 14; }
+    latch_count_down(unsafe { ctx.latch });
+}
+
+fn waiter(arg: i64) {
+    let ctx: *mut Ctx = arg as *mut Ctx;
+    latch_wait(unsafe { ctx.latch });
+    unsafe { ctx.synced = 1; }
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+
+    let l: *mut Latch = latch_new(3);
+    let mut ctx: Ctx = Ctx { latch: l, counter: 0, synced: 0 };
+
+    spawn(waiter, &ctx as *const Ctx as i64);
+    spawn(worker, &ctx as *const Ctx as i64);
+    spawn(worker, &ctx as *const Ctx as i64);
+    spawn(worker, &ctx as *const Ctx as i64);
+
+    sched_run(s);
+    sched_free(s);
+    latch_free(l);
+
+    if ctx.counter == 42 && ctx.synced == 1 { return 42; }
+    return ctx.counter;
+}
