@@ -1,0 +1,38 @@
+// Future<T> smoke test (single thread).
+//
+// consumer fiber: creates slot, spawns producer, calls future_get → suspends.
+// producer fiber: calls future_complete(slot, 42) → wakes consumer.
+// consumer fiber: resumes, writes 42 to shared result.
+// main verifies result == 42 → exit 42.
+
+package fiber_future;
+
+use fiber;
+
+fn producer(arg: i64) {
+    let slot: *mut FutureSlot<i32> = arg as *mut FutureSlot<i32>;
+    future_complete::<i32>(slot, 42);
+}
+
+fn consumer(arg: i64) {
+    let result_ptr: *mut i32 = arg as *mut i32;
+    let slot: *mut FutureSlot<i32> = future_slot_new::<i32>();
+    spawn(producer, slot as i64);
+    let val: i32 = future_get::<i32>(slot);
+    unsafe { *result_ptr = val; }
+    unsafe { dealloc(slot as *mut u8); }
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+
+    let result: i32 = 0;
+    spawn(consumer, &result as *const i32 as i64);
+
+    sched_run(s);
+    sched_free(s);
+
+    if result == 42 { return 42; }
+    return result;
+}

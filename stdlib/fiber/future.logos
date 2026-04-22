@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos stdlib — fiber/future: one-shot intra-thread future.
+//
+// FutureSlot<T> is heap-allocated shared state between producer and consumer.
+// Producer calls future_complete(slot, val) to deliver the value.
+// Consumer calls future_get(slot) to await it (suspends if not yet ready).
+
+package fiber;
+
+use std.mem;
+
+// Externs needed from fiber_ctx.S (also declared in fiber.logos; safe to repeat).
+extern fn logos_fiber_switch(from: *mut FiberCtx, to: *const FiberCtx);
+extern fn logos_sched_get() -> *mut u8;
+
+// ── FutureSlot<T> ─────────────────────────────────────────────────────────
+
+pub struct FutureSlot<T> {
+    value_ptr: *mut T,   // null until complete; heap-allocated, freed by get()
+    waiter:    i64,      // *mut Fiber of the suspended consumer, or 0
+}
+
+// Allocate a new slot (both producer and consumer share this pointer).
+pub fn future_slot_new<T>() -> *mut FutureSlot<T> {
+    let raw: *mut u8 = alloc(sizeof::<FutureSlot<T>>());
+    let slot: *mut FutureSlot<T> = raw as *mut FutureSlot<T>;
+    unsafe {
+        slot.value_ptr = 0 as *mut T;
+        slot.waiter    = 0;
+    }
+    return slot;
+}
+
+// Producer side: store val and wake the waiting consumer (if any).
+pub fn future_complete<T>(slot: *mut FutureSlot<T>, val: T) {
+    // Heap-allocate the value so the consumer can read it after resuming.
+    let vp: *mut T = alloc(sizeof::<T>()) as *mut T;
+    unsafe { *vp = val; }
+    unsafe { slot.value_ptr = vp; }
+
+    // If a consumer is already suspended, push it back onto the run queue.
+    let waiter: i64 = unsafe { slot.waiter };
+    if waiter != 0 {
+        let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+        sched_enqueue(s, waiter);
+        unsafe { slot.waiter = 0; }
+    }
+}
+
+// Consumer side: return value immediately if ready; otherwise suspend until
+// the producer calls future_complete.
+// The caller is responsible for freeing the slot after get() returns.
+pub fn future_get<T>(slot: *mut FutureSlot<T>) -> T {
+    // Fast path: value already available.
+    let vp0: i64 = unsafe { slot.value_ptr } as i64;
+    if vp0 != 0 {
+        let vp: *mut T = vp0 as *mut T;
+        let val: T = unsafe { *vp };
+        dealloc(vp as *mut u8);
+        return val;
+    }
+
+    // Slow path: suspend current fiber.
+    let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    let cur: i64 = unsafe { s.current };
+    unsafe {
+        slot.waiter = cur;
+        s.current   = 0;
+    }
+    let fiber: *mut Fiber  = cur as *mut Fiber;
+    let from:  *mut FiberCtx   = fiber as *mut FiberCtx;
+    let to:    *const FiberCtx = unsafe { &s.sched_ctx as *const FiberCtx };
+    unsafe { logos_fiber_switch(from, to); }
+
+    // Resumed by future_complete — value is now ready.
+    let vp: *mut T = unsafe { slot.value_ptr };
+    let val: T = unsafe { *vp };
+    dealloc(vp as *mut u8);
+    return val;
+}
