@@ -3182,7 +3182,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (ft && ft->kind != LogosType::Kind::Error &&
                     fval->type->kind != LogosType::Kind::Error &&
                     !ft_has_typevar &&
-                    !types_compatible(fval->type, ft)) {
+                    !types_compatible(fval->type, ft) &&
+                    !try_coerce_closure_to_fnptr(fval, ft)) {
                     error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                           sname, fname, type_str(ft), type_str(fval->type)));
                 }
@@ -3240,7 +3241,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             auto* ft = field_type_of(std::string(sname), fname);
             if (ft && ft->kind != LogosType::Kind::Error &&
                 fval->type->kind != LogosType::Kind::Error &&
-                !types_compatible(fval->type, ft)) {
+                !types_compatible(fval->type, ft) &&
+                !try_coerce_closure_to_fnptr(fval, ft)) {
                 error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                       sname, fname, type_str(ft), type_str(fval->type)));
             }

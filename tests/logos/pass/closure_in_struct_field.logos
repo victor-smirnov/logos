@@ -1,0 +1,24 @@
+// Non-capturing closure literal coerces to fn(...) -> T in struct fields and
+// let bindings, so handlers can be stored inline.
+
+package test;
+
+struct Handler {
+    f: fn(i32) -> i32,
+    g: fn(i32, i32) -> i32,
+}
+
+fn main() -> i32 {
+    let h: Handler = Handler {
+        f: |x: i32| -> i32 { return x + 40; },
+        g: |a: i32, b: i32| -> i32 { return a * b; },
+    };
+
+    let mul: fn(i32) -> i32 = |x: i32| -> i32 { return x * 2; };
+
+    let f_alias: fn(i32) -> i32 = h.f;
+    let g_alias: fn(i32, i32) -> i32 = h.g;
+
+    // f_alias(2)=42, g_alias(3,4)=12, mul(6)=12 → 42 + 12 - 12 = 42
+    return f_alias(2) + g_alias(3, 4) - mul(6);
+}

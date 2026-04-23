@@ -423,8 +423,13 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             ann->kind != LogosType::Kind::Error &&
             rhs_type->kind != LogosType::Kind::Error &&
             !types_compatible(rhs_type, ann)) {
-            error(std::format("let '{}': type mismatch — expected {}, got {}",
-                  name, type_str(ann), type_str(rhs_type)));
+            // Non-capturing closure literal → fn(...) -> T coercion.
+            if (try_coerce_closure_to_fnptr(rhs, ann)) {
+                rhs_type = rhs->type;
+            } else {
+                error(std::format("let '{}': type mismatch — expected {}, got {}",
+                      name, type_str(ann), type_str(rhs_type)));
+            }
         }
         // Implicit safe integer widening: u32 → i64, i32 → i64, u8 → u32, ...
         if (ann && is_integer_kind(ann->kind) && is_integer_kind(rhs_type->kind) &&
