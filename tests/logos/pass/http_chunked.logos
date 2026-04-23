@@ -1,0 +1,90 @@
+// Phase G: chunked transfer-encoding codec — round-trip + parser integration.
+package test;
+
+use std.http;
+use std.string;
+use std.vec;
+use std.option;
+
+fn main() -> i32 {
+    // ── Direct codec round-trip ──────────────────────────────────────────
+    let payload: str = "Hello, chunked world! This is a slightly longer body.";
+    let mut enc: Vec<u8> = vec_new::<u8>();
+    chunked_encode(payload.as_ptr(), payload.len(), &mut enc);
+
+    // First byte of hex length: "5"... actually 0x35='5', not "5". len=53=0x35.
+    unsafe {
+        let ep: *mut Vec<u8> = &enc as *const Vec<u8> as *mut Vec<u8>;
+        if ep.length() < 10 as i64 { return 1; }
+        // Terminator: "...\r\n0\r\n\r\n" (last 5 bytes)
+        let n: i64 = ep.length();
+        if ep.get(n - 5) != 48 as u8 { return 2; }   // '0'
+        if ep.get(n - 4) != 13 as u8 { return 3; }
+        if ep.get(n - 3) != 10 as u8 { return 4; }
+        if ep.get(n - 2) != 13 as u8 { return 5; }
+        if ep.get(n - 1) != 10 as u8 { return 6; }
+    }
+
+    let mut dec: Vec<u8> = vec_new::<u8>();
+    let enc_ptr: *const u8 = unsafe {
+        let ep: *mut Vec<u8> = &enc as *const Vec<u8> as *mut Vec<u8>;
+        ep.at_const(0 as i64) as *const u8
+    };
+    let enc_len: i64 = unsafe {
+        let ep: *mut Vec<u8> = &enc as *const Vec<u8> as *mut Vec<u8>;
+        ep.length()
+    };
+    let consumed: i64 = chunked_decode(enc_ptr, enc_len, &mut dec);
+    if consumed != enc_len { return 10; }
+
+    unsafe {
+        let dp: *mut Vec<u8> = &dec as *const Vec<u8> as *mut Vec<u8>;
+        if dp.length() != payload.len() { return 11; }
+        let pp: *const u8 = payload.as_ptr();
+        let pl: i64 = payload.len();
+        let mut i: i64 = 0;
+        while i < pl {
+            if dp.get(i) != pp[i] { return 12; }
+            i = i + 1;
+        }
+    }
+
+    // ── Multi-chunk decode (hand-crafted) ────────────────────────────────
+    let multi: str = "5\r\nHello\r\n7\r\n, world\r\n0\r\n\r\n";
+    let mut dec2: Vec<u8> = vec_new::<u8>();
+    let c2: i64 = chunked_decode(multi.as_ptr(), multi.len(), &mut dec2);
+    if c2 != multi.len() { return 20; }
+    unsafe {
+        let dp: *mut Vec<u8> = &dec2 as *const Vec<u8> as *mut Vec<u8>;
+        if dp.length() != 12 as i64 { return 21; }
+        let expected: str = "Hello, world";
+        let mut i: i64 = 0;
+        while i < 12 as i64 {
+            if dp.get(i) != expected.as_ptr()[i] { return 22; }
+            i = i + 1;
+        }
+    }
+
+    // ── Malformed: missing terminator ────────────────────────────────────
+    let bad: str = "5\r\nHello\r\n";    // no 0-length chunk
+    let mut bad_out: Vec<u8> = vec_new::<u8>();
+    let br: i64 = chunked_decode(bad.as_ptr(), bad.len(), &mut bad_out);
+    if br >= 0 { return 30; }
+
+    // ── Parser integration: chunked request body ─────────────────────────
+    let req_text: str =
+        "POST /u HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n";
+    match parse_request_buf(req_text.as_ptr(), req_text.len()) {
+        Option::Some(req) => {
+            unsafe {
+                let bp: *mut Vec<u8> = &req.body as *const Vec<u8> as *mut Vec<u8>;
+                if bp.length() != 5 as i64 { return 40; }
+                if bp.get(0) != 72 as u8  { return 41; }   // 'H'
+                if bp.get(4) != 111 as u8 { return 42; }   // 'o'
+            }
+        }
+        Option::None => { return 43; }
+    }
+
+    return 42;
+}
