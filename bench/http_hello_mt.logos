@@ -1,0 +1,106 @@
+// Multi-threaded Phase-3 benchmark server using SO_REUSEPORT.
+//
+// Each worker has its own Scheduler, Reactor, TcpListener and accept
+// loop — the kernel load-balances incoming connections across the N
+// listeners bound to the same port. Nothing crosses thread boundaries
+// after startup, so there's no SPSC handoff and no fd re-registration
+// cost per connection.
+package bench_hello_mt;
+
+use std.io.http;
+use std.io.net;
+use std.lang.text;
+use std.collections.vec;
+use std.lang.option;
+use std.lang.result;
+use std.sys.fiber;
+use std.mem;
+
+const PORT:      u16 = 18080 as u16;
+const N_WORKERS: i32 = 4 as i32;
+const STACK_POOL_PER_WORKER: i64 = 64 as i64;
+
+fn handler(req: &Request) -> Response {
+    let mut resp: Response = Response::new(200 as i32);
+    (&mut resp.headers).append("Content-Length", "6");
+    (&mut resp.headers).append("Content-Type", "text/plain");
+    (&mut resp.headers).append("Connection", "close");
+    unsafe {
+        let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
+        bp.push(104 as u8);  // h
+        bp.push(101 as u8);  // e
+        bp.push(108 as u8);  // l
+        bp.push(108 as u8);  // l
+        bp.push(111 as u8);  // o
+        bp.push(10  as u8);  // \n
+    }
+    return resp;
+}
+
+// One fiber per accepted connection.  Owns the TcpStream, runs the
+// HTTP service, then retires (stack goes back to the per-worker pool).
+fn conn_fiber(arg: i64) {
+    let t: *mut ConnTask = arg as *mut ConnTask;
+    let fd: i32 = unsafe { t.fd };
+    let svc_raw: i64 = unsafe { t.svc };
+    dealloc(t as *mut u8);
+    let stream: TcpStream = tcp_stream_from_fd(fd);
+    let svc: &mut FnService = unsafe { &mut *(svc_raw as *mut FnService) };
+    let _: i64 = serve_connection::<FnService>(stream, svc);
+}
+
+// Per-worker accept loop.  Binds its own listener with SO_REUSEPORT,
+// then forever accepts and spawns a conn_fiber for each connection.
+// The kernel spreads incoming SYNs across all workers' listeners —
+// no cross-thread handoff, no fd re-registration in another reactor.
+fn worker_accept_fiber(arg: i64) {
+    let svc_raw: i64 = arg;
+
+    let mut listener: TcpListener =
+        tcp_listen_reuseport(inaddr_any(), PORT, 128 as i32);
+    if !(&listener).is_valid() { return; }
+
+    loop {
+        let stream: TcpStream = (&listener).async_accept();
+        if !(&stream).is_valid() { break; }
+        let task: *mut ConnTask =
+            alloc(sizeof::<ConnTask>()) as *mut ConnTask;
+        unsafe {
+            task.fd  = (&stream).raw_fd();
+            task.pad = 0 as i32;
+            task.svc = svc_raw;
+        }
+        let fp: fn(i64) -> () = conn_fiber;
+        spawn(fp, task as i64);
+    }
+    listener.close();
+}
+
+unsafe fn main() -> i32 {
+    // Main thread owns only the thread pool — no reactor/scheduler of
+    // its own.  Each worker stands up its own (Scheduler, Reactor,
+    // Listener) inside worker_accept_fiber.
+    let pool: *mut ThreadPool = thread_pool_new(N_WORKERS);
+    thread_pool_set_stack_pool_cap(pool, STACK_POOL_PER_WORKER);
+    thread_pool_start(pool);
+
+    let mut svc: FnService = fn_service(handler);
+    let svc_raw: i64 = &mut svc as *mut FnService as i64;
+
+    // Seed each worker with an accept-loop fiber.  thread_submit pushes
+    // (fn, arg) into the worker's SPSC inbox; when the worker drains
+    // it, it calls spawn(fn, arg) on its local scheduler.  After this
+    // the workers run entirely independently — no further cross-thread
+    // traffic.
+    let fp: fn(i64) -> () = worker_accept_fiber;
+    let mut i: i32 = 0 as i32;
+    while i < N_WORKERS {
+        thread_submit(pool, i, fp, svc_raw);
+        i = i + 1 as i32;
+    }
+
+    // Block forever; the bench driver SIGKILLs the process when done.
+    thread_pool_join(pool);
+    thread_pool_free(pool);
+    return 0;
+}

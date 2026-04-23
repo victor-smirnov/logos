@@ -321,6 +321,23 @@ pub fn thread_pool_new(n: i32) -> *mut ThreadPool {
     return pool;
 }
 
+// Configure the per-fiber stack pool on every worker's scheduler.
+// Must be called BEFORE thread_pool_start — once a worker thread is
+// running, its scheduler is accessed concurrently and touching these
+// fields from the outside is a data race.
+pub fn thread_pool_set_stack_pool_cap(pool: *mut ThreadPool, cap: i64) {
+    let n:           i32      = unsafe { pool.count };
+    let threads_buf: *mut i64 = unsafe { pool.threads };
+    let mut i: i32 = 0;
+    while i < n {
+        let slot: *const i64 = (threads_buf as i64 + i as i64 * 8) as *const i64;
+        let t:    *mut Thread = unsafe { *slot } as *mut Thread;
+        let s:    *mut Scheduler = unsafe { t.sched };
+        sched_set_stack_pool_cap(s, cap);
+        i = i + 1;
+    }
+}
+
 pub fn thread_pool_start(pool: *mut ThreadPool) {
     let n:           i32      = unsafe { pool.count };
     let threads_buf: *mut i64 = unsafe { pool.threads };

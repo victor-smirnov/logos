@@ -91,6 +91,32 @@ pub fn tcp_listen(ip: u32, port: u16, backlog: i32) -> TcpListener {
     }
 }
 
+// Same as tcp_listen but additionally sets SO_REUSEPORT so multiple
+// sockets bound to the same (addr, port) can be used concurrently —
+// the kernel load-balances accept() across them. Intended for
+// per-worker listeners in multi-threaded servers (one listener per
+// thread eliminates the cross-thread fd handoff cost).
+pub fn tcp_listen_reuseport(ip: u32, port: u16, backlog: i32) -> TcpListener {
+    unsafe {
+        let fd: i32 = socket(AF_INET(), SOCK_STREAM(), 0);
+        if fd < 0 { return TcpListener { fd: 0 - 1 }; }
+
+        // SO_REUSEADDR = 2, SO_REUSEPORT = 15, SOL_SOCKET = 1
+        let one: i32 = 1;
+        setsockopt(fd, 1, 2,  &one as *const u8, 4);
+        setsockopt(fd, 1, 15, &one as *const u8, 4);
+
+        let addr: SockAddr4 = sockaddr4(ip, port);
+        let rc: i32 = bind(fd, &addr as *const u8, 16);
+        if rc < 0 { close(fd); return TcpListener { fd: 0 - 1 }; }
+
+        let rc2: i32 = listen(fd, backlog);
+        if rc2 < 0 { close(fd); return TcpListener { fd: 0 - 1 }; }
+
+        return TcpListener { fd: fd };
+    }
+}
+
 impl TcpListener {
     pub fn is_valid(self: &TcpListener) -> bool { return self.fd >= 0; }
 

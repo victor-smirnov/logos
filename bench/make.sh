@@ -18,12 +18,16 @@ if [ ! -x "$LOGOSC" ]; then
 fi
 
 OPT=${OPT:-O3}
-"$LOGOSC" "$ROOT/bench/http_hello.logos" \
-    "-$OPT" \
-    -o "$OUT/http_hello.o" \
-    -I "$STDLIB" -L "$STDLIB"
+build_one () {
+    local src=$1 name=$2
+    "$LOGOSC" "$ROOT/bench/$src" \
+        "-$OPT" \
+        -o "$OUT/$name.o" \
+        -I "$STDLIB" -L "$STDLIB"
+    cc "-$OPT" "$OUT/$name.o" "$STDLIB"/*.a -lpthread -lm \
+        -o "$OUT/$name"
+    echo "built: $OUT/$name"
+}
 
-cc "-$OPT" "$OUT/http_hello.o" "$STDLIB"/*.a -lpthread -lm \
-    -o "$OUT/http_hello"
-
-echo "built: $OUT/http_hello"
+build_one http_hello.logos    http_hello
+build_one http_hello_mt.logos http_hello_mt
