@@ -123,3 +123,39 @@ void logos_io_uring_cqe_advance(struct io_uring *ring, struct io_uring_cqe *cqe)
 {
     io_uring_cqe_seen(ring, cqe);
 }
+
+// ── Socket ops for the fiber reactor (accept/recv/send/connect) ───────────
+
+void logos_io_uring_prep_accept(struct io_uring_sqe *sqe, int fd,
+                                 void *addr, void *addrlen, int flags)
+{
+    io_uring_prep_accept(sqe, fd, (struct sockaddr *)addr,
+                         (socklen_t *)addrlen, flags);
+}
+
+void logos_io_uring_prep_recv(struct io_uring_sqe *sqe, int fd,
+                               void *buf, unsigned nbytes, int flags)
+{
+    io_uring_prep_recv(sqe, fd, buf, nbytes, flags);
+}
+
+void logos_io_uring_prep_send(struct io_uring_sqe *sqe, int fd,
+                               const void *buf, unsigned nbytes, int flags)
+{
+    io_uring_prep_send(sqe, fd, buf, nbytes, flags);
+}
+
+void logos_io_uring_prep_connect(struct io_uring_sqe *sqe, int fd,
+                                  const void *addr, int addrlen)
+{
+    io_uring_prep_connect(sqe, fd, (const struct sockaddr *)addr,
+                          (socklen_t)addrlen);
+}
+
+// Retrieve the 64-bit user_data that was attached to a CQE via
+// logos_uring_sqe_set_data64.  The reactor stores the waiting fiber
+// pointer there, so it can re-enqueue the fiber when the CQE arrives.
+uint64_t logos_io_uring_cqe_user_data(struct io_uring_cqe *cqe)
+{
+    return io_uring_cqe_get_data64(cqe);
+}
