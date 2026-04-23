@@ -121,3 +121,227 @@ pub fn url_decode_str(src: str, out: &mut String) -> i64 {
 pub fn url_decode_form_str(src: str, out: &mut String) -> i64 {
     unsafe { return url_decode(src.as_ptr(), src.len(), out, true); }
 }
+
+// ── URL parsing ─────────────────────────────────────────────────────────────
+//
+// Format: scheme "://" host [":" port] [path] ["?" query] ["#" fragment]
+// Fragment is parsed off and discarded (v1 has no use for it).
+// `port` is -1 when unspecified — callers pick a scheme default.
+// `path` is either empty (absent) or starts with '/'.
+//
+// NOTE: the API returns `Url` directly rather than `Option<Url>` — the
+// enum-payload drop for non-trivial types crashes at runtime in the
+// current compiler (see memory: feat_enum_payload_drop_bug).  On parse
+// failure the returned Url has an empty `scheme` — callers check
+// `u.scheme.len() > 0` (or use `url_parse_ok`).
+
+pub struct Url {
+    pub scheme: String,
+    pub host:   String,
+    pub port:   i32,
+    pub path:   String,
+    pub query:  String,
+}
+
+// Find byte `b` in [ptr, ptr+len) starting at `from`.  Returns -1 if absent.
+fn find_byte(ptr: *const u8, len: i64, b: u8, from: i64) -> i64 {
+    unsafe {
+        let mut i: i64 = from;
+        while i < len {
+            if ptr[i] == b { return i; }
+            i = i + 1 as i64;
+        }
+    }
+    return 0 - 1 as i64;
+}
+
+// Match the 3-byte literal "://" at position `i` inside [ptr, ptr+len).
+fn matches_scheme_sep(ptr: *const u8, len: i64, i: i64) -> bool {
+    if (i + 3 as i64) > len { return false; }
+    unsafe {
+        if ptr[i]             != 58 as u8 { return false; }   // ':'
+        if ptr[i + 1 as i64]  != 47 as u8 { return false; }   // '/'
+        if ptr[i + 2 as i64]  != 47 as u8 { return false; }   // '/'
+    }
+    return true;
+}
+
+// scheme      = ALPHA *( ALPHA / DIGIT / '+' / '-' / '.' )   [RFC 3986 §3.1]
+fn is_scheme_head(c: u8) -> bool {
+    let ci: i32 = c as i32;
+    if ci >= 65 && ci <= 90  { return true; }
+    if ci >= 97 && ci <= 122 { return true; }
+    return false;
+}
+
+fn is_scheme_tail(c: u8) -> bool {
+    if is_scheme_head(c) { return true; }
+    let ci: i32 = c as i32;
+    if ci >= 48 && ci <= 57 { return true; }
+    if ci == 43 { return true; }   // '+'
+    if ci == 45 { return true; }   // '-'
+    if ci == 46 { return true; }   // '.'
+    return false;
+}
+
+fn push_range(dst: &mut String, ptr: *const u8, lo: i64, hi: i64) {
+    if hi > lo {
+        unsafe {
+            let base: i64 = ptr as i64;
+            dst.push_bytes((base + lo) as *const u8, hi - lo);
+        }
+    }
+}
+
+fn parse_port_digits(ptr: *const u8, lo: i64, hi: i64) -> i32 {
+    if hi <= lo { return 0 - 1; }
+    let mut n: i32 = 0;
+    let mut i: i64 = lo;
+    unsafe {
+        while i < hi {
+            let c: u8 = ptr[i];
+            let ci: i32 = c as i32;
+            if ci < 48 || ci > 57 { return 0 - 1; }
+            n = n * 10 + (ci - 48);
+            if n > 65535 { return 0 - 1; }
+            i = i + 1 as i64;
+        }
+    }
+    return n;
+}
+
+fn url_empty() -> Url {
+    return Url {
+        scheme: String::new(),
+        host:   String::new(),
+        port:   0 - 1,
+        path:   String::new(),
+        query:  String::new(),
+    };
+}
+
+pub fn url_parse_ok(u: &Url) -> bool {
+    return u.scheme.len() > 0 as i64;
+}
+
+pub fn url_parse(s: str) -> Url {
+    let ptr: *const u8 = unsafe { s.as_ptr() };
+    let len: i64       = unsafe { s.len() };
+    if len <= 0 as i64 { return url_empty(); }
+
+    // scheme — must start with ALPHA, end at "://"
+    if !is_scheme_head(unsafe { ptr[0 as i64] }) { return url_empty(); }
+    let mut i: i64 = 1 as i64;
+    while i < len {
+        let c: u8 = unsafe { ptr[i] };
+        if c == 58 as u8 { break; }                // ':'
+        if !is_scheme_tail(c) { return url_empty(); }
+        i = i + 1 as i64;
+    }
+    if !matches_scheme_sep(ptr, len, i) { return url_empty(); }
+    let scheme_end: i64 = i;
+    let host_start: i64 = i + 3 as i64;
+
+    // authority end = first '/' '?' '#' after host_start, or len
+    let mut auth_end: i64 = len;
+    let mut j: i64 = host_start;
+    while j < len {
+        let c: u8 = unsafe { ptr[j] };
+        if c == 47 as u8 || c == 63 as u8 || c == 35 as u8 {
+            auth_end = j;
+            break;
+        }
+        j = j + 1 as i64;
+    }
+    if auth_end == host_start { return url_empty(); }
+
+    // Split authority on ':' for port.  Reject empty host.
+    let colon: i64 = find_byte(ptr, auth_end, 58 as u8, host_start);
+    let mut host_end: i64 = auth_end;
+    let mut port: i32     = 0 - 1;
+    if colon >= 0 as i64 {
+        host_end = colon;
+        port = parse_port_digits(ptr, colon + 1 as i64, auth_end);
+        if port < 0 { return url_empty(); }
+    }
+    if host_end == host_start { return url_empty(); }
+
+    // path — from auth_end up to '?' or '#' or len
+    let mut path_end: i64 = len;
+    let mut k: i64 = auth_end;
+    while k < len {
+        let c: u8 = unsafe { ptr[k] };
+        if c == 63 as u8 || c == 35 as u8 { path_end = k; break; }
+        k = k + 1 as i64;
+    }
+    let path_start: i64 = auth_end;
+
+    // query — between '?' and '#' (or len); fragment is discarded
+    let mut query_start: i64 = path_end;
+    let mut query_end:   i64 = path_end;
+    if path_end < len && unsafe { ptr[path_end] } == 63 as u8 {
+        query_start = path_end + 1 as i64;
+        query_end   = len;
+        let hash: i64 = find_byte(ptr, len, 35 as u8, query_start);
+        if hash >= 0 as i64 { query_end = hash; }
+    }
+
+    let mut scheme: String = String::new();
+    let mut host:   String = String::new();
+    let mut path:   String = String::new();
+    let mut query:  String = String::new();
+    push_range(&mut scheme, ptr, 0 as i64,    scheme_end);
+    push_range(&mut host,   ptr, host_start,  host_end);
+    push_range(&mut path,   ptr, path_start,  path_end);
+    push_range(&mut query,  ptr, query_start, query_end);
+    return Url {
+        scheme: scheme,
+        host:   host,
+        port:   port,
+        path:   path,
+        query:  query,
+    };
+}
+
+// Default port for well-known schemes.  Returns -1 if unknown.
+pub fn url_default_port_s(scheme: &String) -> i32 {
+    let p: *const u8 = scheme.as_ptr();
+    let n: i64       = scheme.len();
+    if n == 4 as i64 {
+        if unsafe { p[0 as i64] } == 104 as u8     // 'h'
+           && unsafe { p[1 as i64] } == 116 as u8
+           && unsafe { p[2 as i64] } == 116 as u8
+           && unsafe { p[3 as i64] } == 112 as u8  // 'p'
+        { return 80; }
+    }
+    if n == 5 as i64 {
+        if unsafe { p[0 as i64] } == 104 as u8
+           && unsafe { p[1 as i64] } == 116 as u8
+           && unsafe { p[2 as i64] } == 116 as u8
+           && unsafe { p[3 as i64] } == 112 as u8
+           && unsafe { p[4 as i64] } == 115 as u8  // 's'
+        { return 443; }
+    }
+    return 0 - 1;
+}
+
+// Serialize `u` into `out` (appended).  Path is emitted verbatim — caller
+// is responsible for leading '/'.  Port is omitted when == -1 or equal to
+// the scheme's default.
+pub fn url_format(u: &Url, out: &mut String) {
+    out.push_bytes(u.scheme.as_ptr(), u.scheme.len());
+    out.push_str("://");
+    out.push_bytes(u.host.as_ptr(), u.host.len());
+    let default_port: i32 = url_default_port_s(&u.scheme);
+    if u.port >= 0 && u.port != default_port {
+        out.push_u8(58 as u8);                     // ':'
+        out.push_i64(u.port as i64);
+    }
+    if u.path.len() > 0 as i64 {
+        out.push_bytes(u.path.as_ptr(), u.path.len());
+    }
+    if u.query.len() > 0 as i64 {
+        out.push_u8(63 as u8);                     // '?'
+        out.push_bytes(u.query.as_ptr(), u.query.len());
+    }
+}

@@ -1,0 +1,59 @@
+// Tests std.url url_parse / url_format.
+package test;
+
+use std.url;
+use std.string;
+
+fn main() -> i32 {
+    // http://example.com/ — no port, root path, no query
+    let u1: Url = url_parse("http://example.com/");
+    if !url_parse_ok(&u1)            { return 100; }
+    if !u1.scheme.eq_str("http")     { return 1; }
+    if !u1.host.eq_str("example.com"){ return 2; }
+    if u1.port != 0 - 1              { return 3; }
+    if !u1.path.eq_str("/")          { return 4; }
+    if u1.query.len() != 0 as i64    { return 5; }
+
+    // http://host:8080/foo/bar?a=1&b=2#frag — fragment dropped
+    let u2: Url = url_parse("http://host:8080/foo/bar?a=1&b=2#frag");
+    if !url_parse_ok(&u2)            { return 101; }
+    if !u2.scheme.eq_str("http")     { return 10; }
+    if !u2.host.eq_str("host")       { return 11; }
+    if u2.port != 8080               { return 12; }
+    if !u2.path.eq_str("/foo/bar")   { return 13; }
+    if !u2.query.eq_str("a=1&b=2")   { return 14; }
+
+    // https://a.b/ — default port logic
+    let u3: Url = url_parse("https://a.b/");
+    if !url_parse_ok(&u3)                    { return 102; }
+    if !u3.scheme.eq_str("https")            { return 20; }
+    if url_default_port_s(&u3.scheme) != 443 { return 21; }
+
+    // Empty host → failure
+    let bad1: Url = url_parse("http://:80/");
+    if url_parse_ok(&bad1) { return 30; }
+
+    // Missing scheme → failure
+    let bad2: Url = url_parse("://x/");
+    if url_parse_ok(&bad2) { return 31; }
+
+    // Bad port → failure
+    let bad3: Url = url_parse("http://h:99999/");
+    if url_parse_ok(&bad3) { return 32; }
+
+    // Round-trip via url_format
+    let u4: Url = url_parse("http://example.com:8080/a?x=1");
+    if !url_parse_ok(&u4) { return 103; }
+    let mut out4: String = String::new();
+    url_format(&u4, &mut out4);
+    if !out4.eq_str("http://example.com:8080/a?x=1") { return 40; }
+
+    // Default port omitted on format
+    let u5: Url = url_parse("http://h:80/");
+    if !url_parse_ok(&u5) { return 104; }
+    let mut out5: String = String::new();
+    url_format(&u5, &mut out5);
+    if !out5.eq_str("http://h/") { return 41; }
+
+    return 42;
+}
