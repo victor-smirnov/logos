@@ -84,6 +84,7 @@ pub fn reactor_current() -> *mut Reactor {
 
 // Number of fibers currently parked waiting for CQEs.
 pub fn reactor_has_parked(r: *const Reactor) -> bool {
+    if r == 0 as *const Reactor { return false; }
     return unsafe { r.parked_count } > 0 as i64;
 }
 
@@ -100,10 +101,17 @@ pub unsafe fn reactor_get_sqe(r: *mut Reactor) -> *mut u8 {
 // returned to the caller.
 pub unsafe fn reactor_submit_and_park(r: *mut Reactor, sqe: *mut u8) -> i32 {
     let fptr: i64 = current_fiber();
+    // user_data=0 is reserved for the notify-fd multishot poll; if we are
+    // not running inside a fiber we must not park (nothing would wake us).
+    if fptr == 0 as i64 { return 0 - 22; }
     logos_uring_sqe_set_data64(sqe, fptr);
     r.parked_count = r.parked_count + 1 as i64;
     // wait_nr=0 → submit without blocking.
-    let _: i32 = logos_io_uring_submit_and_wait(r.ring, 0);
+    let rc: i32 = logos_io_uring_submit_and_wait(r.ring, 0);
+    if rc < 0 {
+        r.parked_count = r.parked_count - 1 as i64;
+        return rc;
+    }
     park_fiber();
     // When we resume, reactor_poll() has stored our CQE result in FLS[0].
     return fls_get(fls_key_cqe_result()) as i32;
@@ -119,7 +127,10 @@ pub unsafe fn reactor_poll(r: *mut Reactor, blocking: bool) -> i32 {
     let mut cqe: *mut u8 = 0 as *mut u8;
     let cqe_pp: *mut *mut u8 = &mut cqe;
 
-    if blocking && r.parked_count > 0 as i64 {
+    if blocking {
+        // Unconditionally block until a CQE arrives.  A notify-fd multishot
+        // poll (user_data=0) may wake us without any fiber being parked, so
+        // gating on parked_count would busy-loop in the idle path.
         let rc: i32 = logos_io_uring_wait_cqe2(r.ring, cqe_pp);
         if rc < 0 { return rc; }
         reactor_dispatch_cqe(r, cqe);
@@ -158,7 +169,7 @@ unsafe fn reactor_dispatch_cqe(r: *mut Reactor, cqe: *mut u8) {
         let fiber: *mut Fiber = ud as *mut Fiber;
         // FLS slot 0 lives at fiber.fls[0] (first i64).
         let slot: *mut i64 = fiber.fls;
-        *slot = res as i64;
+        if slot != 0 as *mut i64 { *slot = res as i64; }
         unpark_fiber(ud);
         r.parked_count = r.parked_count - 1 as i64;
     }

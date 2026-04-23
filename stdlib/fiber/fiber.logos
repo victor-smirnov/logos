@@ -289,6 +289,7 @@ pub fn sched_run(s: *mut Scheduler) {
 
 pub fn fls_get(key: i64) -> i64 {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    if s == 0 as *mut Scheduler { return 0 as i64; }
     let cur: i64 = unsafe { s.current };
     if cur == 0 as i64 { return 0 as i64; }
     let fiber: *mut Fiber = cur as *mut Fiber;
@@ -300,6 +301,7 @@ pub fn fls_get(key: i64) -> i64 {
 
 pub fn fls_set(key: i64, val: i64) {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    if s == 0 as *mut Scheduler { return; }
     let cur: i64 = unsafe { s.current };
     if cur == 0 as i64 { return; }
     let fiber: *mut Fiber = cur as *mut Fiber;
@@ -317,7 +319,9 @@ pub fn fls_set(key: i64, val: i64) {
 // Returns when the fiber is resumed.
 pub fn park_fiber() {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    if s == 0 as *mut Scheduler { return; }
     let cur: i64 = unsafe { s.current };
+    if cur == 0 as i64 { return; }
     unsafe { s.current = 0; }
     let fiber: *mut Fiber = cur as *mut Fiber;
     let from: *mut FiberCtx = unsafe { &mut fiber.ctx as *mut FiberCtx };
@@ -331,6 +335,7 @@ pub fn park_fiber() {
 // it knows which fiber to re-enqueue.
 pub fn current_fiber() -> i64 {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    if s == 0 as *mut Scheduler { return 0 as i64; }
     return unsafe { s.current };
 }
 
@@ -338,5 +343,6 @@ pub fn current_fiber() -> i64 {
 // Called by the reactor when a CQE for a parked fiber arrives.
 pub fn unpark_fiber(fiber_ptr: i64) {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
+    if s == 0 as *mut Scheduler { return; }
     sched_enqueue(s, fiber_ptr);
 }

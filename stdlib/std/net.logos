@@ -231,10 +231,16 @@ impl TcpStream {
     pub fn async_recv(self: &TcpStream, buf: *mut u8, len: i64) -> i64 {
         let r: *mut Reactor = reactor_current();
         if r == 0 as *mut Reactor { return 0 - 1 as i64; }
+        // Clamp length to i32 max so the i32 nbytes arg to prep_recv does
+        // not silently truncate a large request.
+        let mut n: i64 = len;
+        if n < 0 as i64 { n = 0 as i64; }
+        let i32_max: i64 = 2147483647;
+        if n > i32_max { n = i32_max; }
         unsafe {
             let sqe: *mut u8 = reactor_get_sqe(r);
             if sqe == 0 as *mut u8 { return 0 - 1 as i64; }
-            logos_io_uring_prep_recv(sqe, self.fd, buf, len as i32, 0);
+            logos_io_uring_prep_recv(sqe, self.fd, buf, n as i32, 0);
             let res: i32 = reactor_submit_and_park(r, sqe);
             return res as i64;
         }
@@ -244,10 +250,14 @@ impl TcpStream {
     pub fn async_send(self: &TcpStream, buf: *const u8, len: i64) -> i64 {
         let r: *mut Reactor = reactor_current();
         if r == 0 as *mut Reactor { return 0 - 1 as i64; }
+        let mut n: i64 = len;
+        if n < 0 as i64 { n = 0 as i64; }
+        let i32_max: i64 = 2147483647;
+        if n > i32_max { n = i32_max; }
         unsafe {
             let sqe: *mut u8 = reactor_get_sqe(r);
             if sqe == 0 as *mut u8 { return 0 - 1 as i64; }
-            logos_io_uring_prep_send(sqe, self.fd, buf, len as i32, 0);
+            logos_io_uring_prep_send(sqe, self.fd, buf, n as i32, 0);
             let res: i32 = reactor_submit_and_park(r, sqe);
             return res as i64;
         }
