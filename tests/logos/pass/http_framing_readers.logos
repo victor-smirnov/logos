@@ -1,0 +1,107 @@
+// Round-trip: ChunkedWriter → pipe → ChunkedReader.  Also exercises
+// ContentLengthReader capping a larger underlying source.
+package test;
+
+use std.io.http;
+use std.io.buffered;
+use std.io.pipe;
+use std.io.read;
+use std.io.write;
+use std.lang.text;
+
+fn main() -> i32 {
+    // ── Test 1: ChunkedWriter round-trip ────────────────────────────────────
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 1; }
+
+        // Chunked writer over a BufWriter over the pipe write-end.
+        let bw: BufWriter<FdWriter> =
+            buf_writer_wrap::<FdWriter>(fd_writer(p.write_fd), 64 as i64);
+        let mut cw: ChunkedWriter<BufWriter<FdWriter>> =
+            chunked_writer_wrap::<BufWriter<FdWriter>>(bw);
+
+        let a: str = "Alpha";
+        let b: str = "Bravo";
+        let c: str = "Charlie!";
+        if cw.write(a.as_ptr(), a.len()) < 0 as i64 { return 2; }
+        if cw.write(b.as_ptr(), b.len()) < 0 as i64 { return 3; }
+        if cw.write(c.as_ptr(), c.len()) < 0 as i64 { return 4; }
+        if cw.finish() < 0 as i64 { return 5; }
+        p.close_write();
+
+        // Decode the stream.
+        let br: BufReader<FdReader> =
+            buf_reader_wrap::<FdReader>(fd_reader(p.read_fd), 8 as i64);
+        let mut cr: ChunkedReader<BufReader<FdReader>> =
+            chunked_reader_wrap::<BufReader<FdReader>>(br);
+
+        let mut out: [u8; 64] = [0 as u8; 64];
+        let mut total: i64 = 0 as i64;
+        while total < 64 as i64 {
+            let dst: *mut u8 = (&mut out[0] as *mut u8 as i64 + total) as *mut u8;
+            let n: i64 = cr.read(dst, 64 as i64 - total);
+            if n == 0 as i64 { break; }
+            if n < 0 as i64 { return 6; }
+            total = total + n;
+        }
+        // Expect "AlphaBravoCharlie!" (5 + 5 + 8 = 18 bytes).
+        if total != 18 as i64 { return 7; }
+        let expected: str = "AlphaBravoCharlie!";
+        let ep: *const u8 = expected.as_ptr();
+        let mut i: i64 = 0 as i64;
+        while i < 18 as i64 {
+            if out[i] != ep[i] { return 8; }
+            i = i + 1;
+        }
+        p.close();
+    }
+
+    // ── Test 2: ContentLengthReader caps underlying source ──────────────────
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 10; }
+
+        // Push "Hello, there!" (13 bytes) then close write end.
+        let mut w: BufWriter<FdWriter> =
+            buf_writer_wrap::<FdWriter>(fd_writer(p.write_fd), 32 as i64);
+        let payload: str = "Hello, there!";
+        w.write_str(payload);
+        w.flush();
+        w.close();
+        p.close_write();
+
+        // ContentLengthReader capped at 5 → "Hello".
+        let br: BufReader<FdReader> =
+            buf_reader_wrap::<FdReader>(fd_reader(p.read_fd), 8 as i64);
+        let mut clr: ContentLengthReader<BufReader<FdReader>> =
+            content_length_reader_wrap::<BufReader<FdReader>>(br, 5 as i64);
+
+        let mut out: [u8; 16] = [0 as u8; 16];
+        let mut total: i64 = 0 as i64;
+        while total < 16 as i64 {
+            let dst: *mut u8 = (&mut out[0] as *mut u8 as i64 + total) as *mut u8;
+            let n: i64 = clr.read(dst, 16 as i64 - total);
+            if n == 0 as i64 { break; }
+            if n < 0 as i64 { return 11; }
+            total = total + n;
+        }
+        if total != 5 as i64 { return 12; }
+
+        let want: str = "Hello";
+        let wp: *const u8 = want.as_ptr();
+        let mut i: i64 = 0 as i64;
+        while i < 5 as i64 {
+            if out[i] != wp[i] { return 13; }
+            i = i + 1;
+        }
+
+        // Further reads return 0 (EOF at the cap).
+        let zero: i64 = clr.read(&mut out[0] as *mut u8, 1 as i64);
+        if zero != 0 as i64 { return 14; }
+
+        p.close();
+    }
+
+    return 42;
+}
