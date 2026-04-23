@@ -1,0 +1,95 @@
+// Tests std.json: escape/unescape, validator, writer.
+package test;
+
+use std.json;
+use std.string;
+
+fn main() -> i32 {
+    // Escape quotes + backslash + control chars.
+    unsafe {
+        let mut out: String = String::new();
+        json_escape_str("a\"b\\c\nd", &mut out);
+        if !out.eq_str("\"a\\\"b\\\\c\\nd\"") { return 1; }
+    }
+
+    // Unescape round-trips the above.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = json_unescape_string("\"a\\\"b\\\\c\\nd\"".as_ptr(), 12 as i64, &mut out);
+        if n != 12 as i64 { return 2; }
+        if !out.eq_str("a\"b\\c\nd") { return 3; }
+    }
+
+    // Unescape \uXXXX (BMP).
+    unsafe {
+        let mut out: String = String::new();
+        let src: str = "\"\\u00e9\"";
+        let n: i64 = json_unescape_string(src.as_ptr(), src.len(), &mut out);
+        if n != src.len() { return 4; }
+        // U+00E9 → UTF-8 0xC3 0xA9
+        if out.len() != 2 as i64 { return 5; }
+        if out.as_ptr()[0 as i64] != 0xC3 as u8 { return 6; }
+        if out.as_ptr()[1 as i64] != 0xA9 as u8 { return 7; }
+    }
+
+    // Validate a well-formed document.
+    unsafe {
+        let doc: str = "  { \"a\": [1, -2.5e3, null, true, \"x\\n\"], \"b\": {} } ";
+        let n: i64 = json_validate_str(doc);
+        if n <= 0 as i64 { return 8; }
+    }
+
+    // Reject trailing comma.
+    unsafe {
+        let n: i64 = json_validate_str("[1,]");
+        if n >= 0 as i64 { return 9; }
+    }
+    // Reject bare identifier.
+    unsafe {
+        let n: i64 = json_validate_str("foo");
+        if n >= 0 as i64 { return 10; }
+    }
+    // Reject unterminated string.
+    unsafe {
+        let n: i64 = json_validate_str("\"abc");
+        if n >= 0 as i64 { return 11; }
+    }
+
+    // Writer: {"n": null, "b": true, "xs": [1, 2, 3], "s": "hi"}
+    unsafe {
+        let mut w: JsonWriter = JsonWriter::new();
+        w.begin_object();
+        w.write_key("n"); w.write_null();
+        w.write_key("b"); w.write_bool(true);
+        w.write_key("xs"); w.begin_array();
+            w.write_i64(1 as i64);
+            w.write_i64(2 as i64);
+            w.write_i64(3 as i64);
+        w.end_array();
+        w.write_key("s"); w.write_str("hi");
+        w.end_object();
+
+        let mut buf: String = String::new();
+        w.append_into(&mut buf);
+        if !buf.eq_str("{\"n\":null,\"b\":true,\"xs\":[1,2,3],\"s\":\"hi\"}") { return 12; }
+
+        // Validator agrees.
+        let n: i64 = json_validate(buf.as_ptr(), buf.len());
+        if n != buf.len() { return 13; }
+    }
+
+    // Writer: nested arrays.
+    unsafe {
+        let mut w: JsonWriter = JsonWriter::new();
+        w.begin_array();
+            w.begin_array(); w.write_i64(1 as i64); w.end_array();
+            w.begin_array(); w.end_array();
+            w.write_str("x");
+        w.end_array();
+        let mut buf: String = String::new();
+        w.append_into(&mut buf);
+        if !buf.eq_str("[[1],[],\"x\"]") { return 14; }
+    }
+
+    return 42;
+}
