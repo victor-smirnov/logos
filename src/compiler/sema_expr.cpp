@@ -323,31 +323,43 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             lir::EAddrOfTemp{std::move(inner), true});
     }
     case la::TRY_EXPR: {
-        // expr? — extract Ok(v) or early-return Err(e).
-        // Requires: inner : Result<T, E>, current fn return type : Result<?, E>.
+        // expr? — two flavours:
+        //   Result<T, E>  →  extract Ok(v), early-return Err(e) in a fn : Result<?, E>
+        //   Option<T>     →  extract Some(v), early-return None in a fn : Option<?>
         auto inner = expr.has_key(la::VALUE)
             ? lower_expr(map_of(expr.get(la::VALUE.code)))
             : error_expr();
         auto* inner_t = inner->type;
-        if (inner_t->kind != LogosType::Kind::Enum || inner_t->enum_name != "Result"
-            || inner_t->type_args.size() < 2) {
-            error("'?' operator requires a Result<T, E> expression");
+        bool is_result = inner_t->kind == LogosType::Kind::Enum
+                         && inner_t->enum_name == "Result"
+                         && inner_t->type_args.size() >= 2;
+        bool is_option = inner_t->kind == LogosType::Kind::Enum
+                         && inner_t->enum_name == "Option"
+                         && inner_t->type_args.size() >= 1;
+        if (!is_result && !is_option) {
+            error("'?' operator requires a Result<T, E> or Option<T> expression");
             return error_expr();
         }
         if (!ret_type_ || ret_type_->kind != LogosType::Kind::Enum
-            || ret_type_->enum_name != "Result") {
-            error("'?' operator used in function that does not return Result<T, E>");
+            || ret_type_->enum_name != inner_t->enum_name) {
+            if (is_option)
+                error("'?' on Option used in function that does not return Option<T>");
+            else
+                error("'?' operator used in function that does not return Result<T, E>");
             return error_expr();
         }
-        // Find Ok and Err discriminants from the enum definition.
-        int32_t ok_disc = 0, err_disc = 1;  // default: Ok first, Err second
-        auto [epkg_res, esi_res] = find_enum_by_name("Result");
-        auto eit = esi_res ? enums_.find(sema_key(epkg_res, std::string("Result"))) : enums_.end();
-        if (eit == enums_.end()) eit = enums_.find("Result");
+        // Find the "ok-like" and "err-like" discriminants from the enum def.
+        // Result: Ok/Err.  Option: Some/None.
+        int32_t ok_disc = 0, err_disc = 1;
+        const char* ok_name  = is_option ? "Some" : "Ok";
+        const char* err_name = is_option ? "None" : "Err";
+        auto [epkg_res, esi_res] = find_enum_by_name(inner_t->enum_name);
+        auto eit = esi_res ? enums_.find(sema_key(epkg_res, inner_t->enum_name)) : enums_.end();
+        if (eit == enums_.end()) eit = enums_.find(inner_t->enum_name);
         if (eit != enums_.end()) {
             for (auto& v : eit->second.variants) {
-                if (v.name == "Ok")  ok_disc  = v.value;
-                if (v.name == "Err") err_disc = v.value;
+                if (v.name == ok_name)  ok_disc  = v.value;
+                if (v.name == err_name) err_disc = v.value;
             }
         }
         auto* ok_type = inner_t->type_args[0];  // T

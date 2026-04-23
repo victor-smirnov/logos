@@ -1,0 +1,35 @@
+// '?' operator on Option<T>: extracts Some(v), early-returns None.
+// Mirrors the existing ? on Result<T, E>.
+
+package test;
+
+use std.lang.option;
+
+fn first_digit(s: str) -> Option<i32> {
+    let b: *const u8 = s.as_ptr();
+    let n: i64 = s.len() as i64;
+    if n <= 0 as i64 { return Option::None; }
+    unsafe {
+        let c: i32 = b[0] as i32;
+        if c < 48 || c > 57 { return Option::None; }
+        return Option::Some(c - 48);
+    }
+}
+
+fn sum_two(a: str, b: str) -> Option<i32> {
+    let x: i32 = first_digit(a)?;
+    let y: i32 = first_digit(b)?;
+    return Option::Some(x + y);
+}
+
+fn main() -> i32 {
+    match sum_two("3foo", "5bar") {
+        Option::Some(v) => { if v != 8 { return 1; } }
+        Option::None    => { return 2; }
+    }
+    // second arg fails at first_digit — sum_two must short-circuit to None.
+    match sum_two("zzz", "5bar") {
+        Option::Some(v) => { return 3 + v; }
+        Option::None    => { return 42; }
+    }
+}
