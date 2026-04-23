@@ -4,7 +4,7 @@
 
 package fiber_basic;
 
-use fiber;
+use std.sys.fiber;
 
 // Fiber body: arg is a *mut i32 counter cast to i64.
 fn inc_counter(arg: i64) {

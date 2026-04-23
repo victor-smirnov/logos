@@ -1,7 +1,7 @@
 // Tests fiber-local and thread-local storage.
 package fls_tls_basic;
 
-use fiber;
+use std.sys.fiber;
 use std.io.net.tls;
 
 fn fiber_a(_arg: i64) {

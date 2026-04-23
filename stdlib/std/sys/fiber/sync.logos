@@ -9,7 +9,7 @@
 // Chan<T> supports at most one concurrent suspended sender AND one concurrent
 // suspended receiver.  Violating this invariant causes deadlock.
 
-package fiber;
+package std.sys.fiber;
 
 use std.mem;
 

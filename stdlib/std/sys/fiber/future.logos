@@ -11,7 +11,7 @@
 //   0 means same-thread (or main/non-pool context).
 //   future_complete calls cross_thread_enqueue when waiter_thr != 0.
 
-package fiber;
+package std.sys.fiber;
 
 use std.mem;
 

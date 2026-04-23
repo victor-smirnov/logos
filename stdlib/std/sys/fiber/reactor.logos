@@ -17,7 +17,7 @@
 // The reactor pointer is stored in a per-thread asm TLS slot so that
 // async_* wrappers can find it without threading it through every call.
 
-package fiber;
+package std.sys.fiber;
 
 use std.mem;
 

@@ -17,7 +17,7 @@ use std.hermes.document;
 use std.hermes.ctr;
 use std.hermes.stringify;
 use std.hermes.parser;
-use logos.lang.datatypes;
+use std.lang.datatypes;
 
 unsafe fn views_eq(a: StringView, b: StringView) -> bool {
     if a.len != b.len { return false; }

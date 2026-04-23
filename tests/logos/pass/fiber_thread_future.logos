@@ -8,7 +8,7 @@
 
 package fiber_thread_future;
 
-use fiber;
+use std.sys.fiber;
 
 struct CArg {
     result_ptr: *mut i32,

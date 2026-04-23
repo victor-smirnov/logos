@@ -7,7 +7,7 @@
 // *storage* format (how it lives in a typed homogeneous container like
 // `Buffer<DT>`).
 
-package logos.lang.datatypes;
+package std.lang.datatypes;
 
 use std.lang.drop;
 use std.mem;

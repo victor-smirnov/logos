@@ -6,7 +6,7 @@
 
 package std.io.net;
 
-use fiber;
+use std.sys.fiber;
 
 extern fn socket(domain: i32, typ: i32, protocol: i32) -> i32;
 extern fn bind(fd: i32, addr: *const u8, addrlen: i32) -> i32;
