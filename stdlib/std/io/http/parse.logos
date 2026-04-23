@@ -6,13 +6,13 @@
 // buffer holds a full message before parsing (partial != malformed, but we
 // do not distinguish).
 
-package std.http;
+package std.io.http;
 
 use std.string;
 use std.vec;
 use std.option;
 use std.result;
-use std.url;
+use std.io.net.url;
 
 // ── Byte-level scanners ──────────────────────────────────────────────────────
 

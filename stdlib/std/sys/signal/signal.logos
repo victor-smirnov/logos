@@ -8,7 +8,7 @@
 // inside (see signal-safety(7)).  std.io write is fine; String/Vec ops
 // are not.
 
-package std.signal;
+package std.sys.signal;
 
 // ---- signal numbers (Linux) ------------------------------------------------
 

@@ -4,7 +4,7 @@
 // Unix pipe: create a connected read/write fd pair.
 // Uses synchronous read(2)/write(2) — same style as std.io.
 
-package std.pipe;
+package std.io.pipe;
 
 extern fn pipe2(fds: *mut i32, flags: i32) -> i32;
 extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;

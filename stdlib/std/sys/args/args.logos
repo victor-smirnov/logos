@@ -9,9 +9,9 @@
 // Users needing richer behaviour (default values, required options, nested
 // subcommands) can layer on top; this module aims for the 80% case.
 
-package std.args;
+package std.sys.args;
 
-use std.env;
+use std.sys.env;
 use std.string;
 use std.option;
 

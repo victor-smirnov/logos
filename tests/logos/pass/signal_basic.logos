@@ -2,7 +2,7 @@
 // (Handler-invocation round-trip needs mutable globals, which Logos lacks.)
 package test;
 
-use std.signal;
+use std.sys.signal;
 
 fn on_usr1(signum: i32) {
     // no-op

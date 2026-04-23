@@ -1,7 +1,7 @@
 // Tests std.url: percent-encode/decode, form-urlencoded variant.
 package test;
 
-use std.url;
+use std.io.net.url;
 use std.string;
 
 fn main() -> i32 {

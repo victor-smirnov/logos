@@ -2,7 +2,7 @@
 package fls_tls_basic;
 
 use fiber;
-use std.tls;
+use std.io.net.tls;
 
 fn fiber_a(_arg: i64) {
     // Write FLS slot 1 from fiber A.

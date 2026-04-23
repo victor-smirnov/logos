@@ -1,7 +1,7 @@
 // Tests std.env: args_count, arg, var.
 package test;
 
-use std.env;
+use std.sys.env;
 use std.option;
 use std.mem;
 

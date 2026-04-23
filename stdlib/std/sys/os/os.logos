@@ -4,7 +4,7 @@
 // Miscellaneous OS-level queries: pid, uid, hostname, arch/os identification,
 // exit.
 
-package std.os;
+package std.sys.os;
 
 use std.string;
 

@@ -6,13 +6,13 @@
 // we contain the raw-pointer dance in a single helper and otherwise keep
 // signatures safe.
 
-package std.http;
+package std.io.http;
 
 use std.string;
 use std.vec;
 use std.option;
 use std.result;
-use std.url;
+use std.io.net.url;
 
 // ── Internal helpers (package-private) ───────────────────────────────────────
 

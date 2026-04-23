@@ -4,7 +4,7 @@
 // TCP/UDP sockets via synchronous syscalls (same style as std.io).
 // IPv4 only for now. SockAddr4 matches struct sockaddr_in layout.
 
-package std.net;
+package std.io.net;
 
 use fiber;
 

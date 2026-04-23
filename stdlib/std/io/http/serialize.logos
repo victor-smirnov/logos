@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Logos standard library — std.http: serializers for Request / Response.
 
-package std.http;
+package std.io.http;
 
 use std.vec;
 

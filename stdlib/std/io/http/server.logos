@@ -5,12 +5,12 @@
 // `count` connections serially and closes each after a single request.
 // v1 — no keep-alive, no per-connection spawn.
 
-package std.http;
+package std.io.http;
 
 use std.vec;
 use std.option;
 use std.result;
-use std.net;
+use std.io.net;
 
 // Drain a full HTTP/1.1 request message from `s` into `buf`.  Reads until
 // headers are complete AND the entire Content-Length body (or chunked

@@ -4,14 +4,14 @@
 // Requires a Reactor to be installed as current for this thread; see
 // std.net / stdlib/fiber/reactor.logos.  Not suitable for blocking code.
 
-package std.http;
+package std.io.http;
 
 use std.string;
 use std.vec;
 use std.option;
 use std.result;
-use std.url;
-use std.net;
+use std.io.net.url;
+use std.io.net;
 
 // Parse a dotted-quad IPv4 string into host-order u32.
 fn parse_ipv4(s: str) -> Option<u32> {

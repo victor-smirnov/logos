@@ -1,7 +1,7 @@
 // Tests std.path: basename, dirname, extension, stem, join, is_absolute.
 package test;
 
-use std.path;
+use std.io.fs.path;
 use std.string;
 
 fn main() -> i32 {

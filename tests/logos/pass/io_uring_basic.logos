@@ -1,7 +1,7 @@
 // Tests std.io_uring: open, write, read, close via io_uring.
 package test;
 
-use std.io_uring;
+use std.io.linux.uring;
 use std.mem;
 use std.result;
 

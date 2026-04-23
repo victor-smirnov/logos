@@ -9,7 +9,7 @@
 //
 // Both take a raw fd; they do not own it (caller closes it).
 
-package std.bufio;
+package std.io.buffered;
 
 use std.mem;
 use std.string;

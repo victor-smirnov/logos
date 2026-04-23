@@ -16,7 +16,7 @@
 //   ring.close(fd)?;
 //   // ring is dropped implicitly when it goes out of scope.
 
-package std.io_uring;
+package std.io.linux.uring;
 
 use std.mem;
 use std.result;

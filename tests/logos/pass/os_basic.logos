@@ -1,7 +1,7 @@
 // Tests std.os: pid, uid, hostname, arch/os constants.
 package test;
 
-use std.os;
+use std.sys.os;
 use std.string;
 
 fn main() -> i32 {

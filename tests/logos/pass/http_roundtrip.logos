@@ -4,8 +4,8 @@
 
 package test;
 
-use std.http;
-use std.net;
+use std.io.http;
+use std.io.net;
 use std.string;
 use std.vec;
 use std.option;

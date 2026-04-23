@@ -1,9 +1,9 @@
 // Phase F: parse + serialize round-trip on in-memory byte buffers.
 package test;
 
-use std.http;
+use std.io.http;
 use std.string;
-use std.url;
+use std.io.net.url;
 use std.option;
 use std.result;
 use std.vec;

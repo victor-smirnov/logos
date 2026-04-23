@@ -4,9 +4,9 @@
 // High-level file I/O built on std.io_uring.
 // Errors returned as Result<T, i32> where i32 is -errno.
 
-package std.fs;
+package std.io.fs;
 
-use std.io_uring;
+use std.io.linux.uring;
 use std.mem;
 use std.string;
 use std.result;

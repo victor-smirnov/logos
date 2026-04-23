@@ -2,7 +2,7 @@
 // Logos standard library — std.http: chunked transfer-encoding codec
 // (RFC 7230 §4.1).
 
-package std.http;
+package std.io.http;
 
 use std.vec;
 

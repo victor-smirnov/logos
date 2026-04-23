@@ -3,7 +3,7 @@
 //
 // Pure path manipulation (no syscalls). Paths are UTF-8 str/String.
 
-package std.path;
+package std.io.fs.path;
 
 use std.string;
 

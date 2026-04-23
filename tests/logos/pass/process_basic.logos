@@ -1,7 +1,7 @@
 // Tests std.process: spawn "true" and wait, check exit status.
 package test;
 
-use std.process;
+use std.sys.process;
 
 fn main() -> i32 {
     unsafe {

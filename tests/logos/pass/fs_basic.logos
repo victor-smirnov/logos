@@ -1,7 +1,7 @@
 // Tests std.fs: create, write_string, read_to_string, open, File methods.
 package test;
 
-use std.fs;
+use std.io.fs;
 use std.string;
 use std.result;
 use std.mem;

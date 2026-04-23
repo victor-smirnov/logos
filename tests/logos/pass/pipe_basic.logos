@@ -1,7 +1,7 @@
 // Tests std.pipe: create pipe, write bytes, read them back.
 package test;
 
-use std.pipe;
+use std.io.pipe;
 
 fn main() -> i32 {
     let mut p: Pipe = pipe_new();

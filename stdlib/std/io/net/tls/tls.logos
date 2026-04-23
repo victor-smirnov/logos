@@ -11,7 +11,7 @@
 // thread pools that spin threads up and down, prefer to shut the pool
 // down at process end rather than rely on per-thread cleanup.
 
-package std.tls;
+package std.io.net.tls;
 
 use std.mem;
 
