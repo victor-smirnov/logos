@@ -241,17 +241,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, const LogosType* type) 
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLit& e, const LogosType* type) {
-    // Tagged enum without payload (e.g. Option::None): alloca + store disc
+    // Tagged enum without payload (e.g. Option::None, HttpError::Io):
+    // heap-allocate so the pointer can safely escape — including being stored
+    // into another enum's payload slot as a pointer (EEnumLitData path).
     auto* te = resolve_tagged_enum(e.enum_name, type);
     if (te) {
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), te->llvm_type, i64_one());
+        mlir::Value size = sizeof_struct(te->llvm_type);
+        auto heap = call_malloc(size);
+        if (!heap) return nullptr;
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(0)};
         auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), te->llvm_type, alloca, idx);
+            loc_, ptr_type(), te->llvm_type, heap, idx);
         auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
         builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
-        return alloca;
+        return heap;
     }
     // C-style enum: just the discriminant, sized per backing type.
     return builder_.create<mlir::arith::ConstantIntOp>(

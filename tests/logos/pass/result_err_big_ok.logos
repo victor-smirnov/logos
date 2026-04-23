@@ -1,0 +1,36 @@
+// Regression: an enum variant holding another enum used to yield garbage
+// when sizeof(big variant) >> sizeof(small variant), because inner
+// no-payload tagged enum literals stack-allocated and the stack pointer
+// was stored into the outer enum's payload, becoming dangling after return.
+package test;
+
+struct Big {
+    a: i64, b: i64, c: i64, d: i64,
+    e: i64, f: i64, g: i64, h: i64,
+}
+
+enum Inner { A, B, C, D }
+
+enum Outer {
+    Full(Big),
+    Tag(Inner),
+}
+
+fn make_tag() -> Outer {
+    return Outer::Tag(Inner::C);
+}
+
+fn main() -> i32 {
+    let o: Outer = make_tag();
+    match o {
+        Outer::Full(_) => { return 99; }
+        Outer::Tag(e) => {
+            match e {
+                Inner::A => { return 10; }
+                Inner::B => { return 11; }
+                Inner::C => { return 0; }
+                Inner::D => { return 13; }
+            }
+        }
+    }
+}
