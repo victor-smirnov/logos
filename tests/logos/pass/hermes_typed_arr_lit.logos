@@ -14,7 +14,7 @@ use hermes.stringify;
 use hermes.array;
 use hermes.map;
 use hermes.typed_value;
-use std.string;
+use std.lang.text;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
     let s: String = hs.to_string();

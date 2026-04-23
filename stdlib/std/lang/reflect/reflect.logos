@@ -15,12 +15,12 @@
 //       i = i + 1;
 //   }
 
-package std.reflect;
+package std.lang.reflect;
 
 use hermes.view;
 use hermes.anyval;
 use hermes.string;
-use std.string;
+use std.lang.text;
 
 // ── TypeInfo ─────────────────────────────────────────────────────────────────
 

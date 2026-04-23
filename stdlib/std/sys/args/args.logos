@@ -12,8 +12,8 @@
 package std.sys.args;
 
 use std.sys.env;
-use std.string;
-use std.option;
+use std.lang.text;
+use std.lang.option;
 
 // ── Raw argv helpers ─────────────────────────────────────────────────────
 // We scan argv[1..] (argv[0] is the program path and ignored).

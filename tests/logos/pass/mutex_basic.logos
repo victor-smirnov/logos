@@ -3,7 +3,7 @@
 package test;
 
 use std.sync;
-use std.option;
+use std.lang.option;
 
 fn main() -> i32 {
     unsafe {

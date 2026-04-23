@@ -11,7 +11,7 @@ package hermes_typed_container_clone;
 
 use hermes.ctr;
 use hermes.anyval;
-use std.string;
+use std.lang.text;
 
 pub unsafe fn main() -> i32 {
     // ── 1. Clone Array<i32> ──────────────────────────────────────────────────

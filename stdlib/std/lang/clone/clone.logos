@@ -4,7 +4,7 @@
 // Clone — explicit deep copy.
 // Copy  — marker trait for types that can be bitwise-copied implicitly.
 
-package std.clone;
+package std.lang.clone;
 
 pub trait Clone {
     fn clone(self: Self) -> Self;

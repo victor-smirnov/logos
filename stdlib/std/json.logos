@@ -12,7 +12,7 @@
 
 package std.json;
 
-use std.string;
+use std.lang.text;
 
 // ── String escape ─────────────────────────────────────────────────────────
 // Append a JSON string literal (including the surrounding double quotes) that

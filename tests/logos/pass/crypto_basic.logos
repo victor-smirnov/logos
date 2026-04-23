@@ -2,7 +2,7 @@
 package test;
 
 use std.crypto;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // SHA-256 of "" → e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

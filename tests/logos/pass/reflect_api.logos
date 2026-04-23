@@ -1,6 +1,6 @@
 package reflect_api;
 
-use std.reflect;
+use std.lang.reflect;
 use hermes.string;
 
 #[annotation]

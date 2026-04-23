@@ -19,9 +19,9 @@
 // backreferences, \b / \B, Unicode classes.  Input is treated as
 // bytes; multi-byte UTF-8 sequences are matched byte-at-a-time.
 
-package std.regex;
+package std.lang.text.regex;
 
-use std.string;
+use std.lang.text;
 
 pub struct Regex {
     pat: *const u8,

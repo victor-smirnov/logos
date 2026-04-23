@@ -10,7 +10,7 @@ use hermes.registry;
 use hermes.stringify;
 use hermes.equal;
 use hermes.hashing;
-use std.string;
+use std.lang.text;
 
 unsafe fn main() -> i32 {
     let mut d1: Hermes = Hermes::new(1024);

@@ -7,7 +7,7 @@ package hermes_traits_bugfix;
 use hermes.zone;
 use hermes.anyval;
 use hermes.string;
-use std.string;
+use std.lang.text;
 use hermes.typetag;
 use hermes.tag_system;
 use hermes.array;

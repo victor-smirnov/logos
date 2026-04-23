@@ -2,7 +2,7 @@
 package test;
 
 use std.io.fs.path;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // is_absolute

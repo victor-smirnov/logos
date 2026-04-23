@@ -12,7 +12,7 @@
 package std.io.buffered;
 
 use std.mem;
-use std.string;
+use std.lang.text;
 
 extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;

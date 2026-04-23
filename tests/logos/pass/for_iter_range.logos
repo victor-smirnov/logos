@@ -1,9 +1,9 @@
 // Verify `for x in iter { body }` works for Iterator trait types.
 package for_iter_range;
 
-use std.option;
-use std.iter;
-use std.range;
+use std.lang.option;
+use std.lang.iter;
+use std.lang.range;
 
 unsafe fn main() -> i32 {
     // Sum of 0..10 = 45

@@ -20,8 +20,8 @@
 package std.sync;
 
 use std.mem;
-use std.marker;
-use std.option;
+use std.lang.marker;
+use std.lang.option;
 
 // ── POSIX externals ──────────────────────────────────────────────────────────
 

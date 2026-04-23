@@ -23,7 +23,7 @@ use hermes.typed_value;
 use hermes.objectmap;
 use hermes.document;
 use hermes.parser;
-use std.string;
+use std.lang.text;
 
 fn append_str(buf: &mut String, s: str) {
     buf.push_str(s);

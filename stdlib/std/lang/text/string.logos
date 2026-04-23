@@ -16,10 +16,10 @@
 //   s.push_str("world");
 //   write(1, s.as_ptr(), s.len());
 
-package std.string;
+package std.lang.text;
 
 use std.mem;
-use std.drop;
+use std.lang.drop;
 
 // ── Low-level primitives (used by std.fmt and String internals) ────────────
 

@@ -2,10 +2,10 @@
 package test;
 
 use std.io.http;
-use std.string;
+use std.lang.text;
 use std.vec;
-use std.option;
-use std.result;
+use std.lang.option;
+use std.lang.result;
 
 fn main() -> i32 {
     // ── Direct codec round-trip ──────────────────────────────────────────

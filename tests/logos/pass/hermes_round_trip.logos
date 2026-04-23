@@ -24,7 +24,7 @@ use hermes.objectmap;
 use hermes.document;
 use hermes.parser;
 use hermes.stringify;
-use std.string;
+use std.lang.text;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

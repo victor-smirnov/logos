@@ -5,10 +5,10 @@
 // `for i in 0..10` uses the compiler's built-in FOR node (no struct needed).
 // These types are for when you need a *value* range to pass to adapters.
 
-package std.range;
+package std.lang.range;
 
-use std.option;
-use std.iter;
+use std.lang.option;
+use std.lang.iter;
 
 // ── RangeI32 — exclusive range [start, end) over i32 ─────────────────────────
 

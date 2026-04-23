@@ -4,9 +4,9 @@
 // Iterator trait + adapters + terminal operations.
 // Adapters take fn-pointer transformers; non-capturing closures coerce automatically.
 
-package std.iter;
+package std.lang.iter;
 
-use std.option;
+use std.lang.option;
 
 // ── Core trait ───────────────────────────────────────────────────────────────
 

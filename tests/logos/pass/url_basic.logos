@@ -2,7 +2,7 @@
 package test;
 
 use std.io.net.url;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // Unreserved pass through.

@@ -2,7 +2,7 @@
 package test;
 
 use std.json;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // Escape quotes + backslash + control chars.

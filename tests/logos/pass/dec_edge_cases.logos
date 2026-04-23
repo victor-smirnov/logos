@@ -2,7 +2,7 @@
 package dec_edge_cases;
 use hermes.ctr;
 use hermes.anyval;
-use std.string;
+use std.lang.text;
 
 unsafe fn main() -> i32 {
     // ── 1. 2-limb subtract with result limb[0]=0 ─────────────────────────────

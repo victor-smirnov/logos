@@ -3,7 +3,7 @@
 //
 // Option<T> — optional value type (Some(T) or None).
 
-package std.option;
+package std.lang.option;
 
 enum Option<T> {
     Some(T),

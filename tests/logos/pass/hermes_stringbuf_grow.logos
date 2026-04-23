@@ -16,7 +16,7 @@ use hermes.typed_value;
 use hermes.objectmap;
 use hermes.document;
 use hermes.stringify;
-use std.string;
+use std.lang.text;
 
 unsafe fn main() -> i32 {
     // Set up a zone with a DocumentHeader.

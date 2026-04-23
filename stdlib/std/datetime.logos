@@ -7,7 +7,7 @@
 
 package std.datetime;
 
-use std.string;
+use std.lang.text;
 
 pub struct CivilTime {
     pub year:   i64,   // proleptic Gregorian; may be negative

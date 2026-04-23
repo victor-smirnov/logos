@@ -2,7 +2,7 @@
 // We only test the non-panicking path here (assert with true condition).
 package test;
 
-use std.panic;
+use std.lang.panic;
 
 fn main() -> i32 {
     assert(1 == 1, "1==1 should hold");

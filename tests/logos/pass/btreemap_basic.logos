@@ -2,9 +2,9 @@
 package test;
 
 use std.btree;
-use std.ord;
-use std.iter;
-use std.option;
+use std.lang.ord;
+use std.lang.iter;
+use std.lang.option;
 
 fn main() -> i32 {
     unsafe {

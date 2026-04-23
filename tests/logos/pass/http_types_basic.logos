@@ -2,9 +2,9 @@
 package test;
 
 use std.io.http;
-use std.string;
+use std.lang.text;
 use std.io.net.url;
-use std.option;
+use std.lang.option;
 
 fn main() -> i32 {
     // Method constructors + eq_str

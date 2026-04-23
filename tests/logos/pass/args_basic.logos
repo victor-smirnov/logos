@@ -3,7 +3,7 @@
 package test;
 
 use std.sys.args;
-use std.option;
+use std.lang.option;
 
 fn main() -> i32 {
     // No flags, no options, no positionals.

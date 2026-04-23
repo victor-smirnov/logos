@@ -5,7 +5,7 @@
 // Required by BTreeMap and other sorted containers.
 // Float types are intentionally omitted (no total order due to NaN).
 
-package std.ord;
+package std.lang.ord;
 
 pub enum Ordering {
     Less,

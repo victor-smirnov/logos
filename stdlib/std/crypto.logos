@@ -10,7 +10,7 @@
 
 package std.crypto;
 
-use std.string;
+use std.lang.text;
 
 // ── SHA-256 ───────────────────────────────────────────────────────────────
 

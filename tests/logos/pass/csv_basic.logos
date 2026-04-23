@@ -2,7 +2,7 @@
 package test;
 
 use std.csv;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // Simple unquoted parsing: "a,b,c\n"

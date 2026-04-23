@@ -4,7 +4,7 @@
 // Result<T, E> — value-or-error type (Ok(T) or Err(E)).
 // Use ? operator to propagate Err early from functions returning Result<_, E>.
 
-package std.result;
+package std.lang.result;
 
 enum Result<T, E> {
     Ok(T),

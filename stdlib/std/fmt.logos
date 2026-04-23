@@ -12,7 +12,7 @@
 
 package std.fmt;
 
-use std.string;
+use std.lang.text;
 
 // ── Format engine (variadic) ──────────────────────────────────────────────
 

@@ -2,7 +2,7 @@
 package test;
 
 use std.datetime;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // 0 secs = 1970-01-01 00:00:00 UTC, Thursday (wday = 4)

@@ -8,8 +8,8 @@
 package std.io.http;
 
 use std.vec;
-use std.option;
-use std.result;
+use std.lang.option;
+use std.lang.result;
 use std.io.net;
 
 // Drain a full HTTP/1.1 request message from `s` into `buf`.  Reads until

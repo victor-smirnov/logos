@@ -1,8 +1,8 @@
 // Tests Default, Clone, Copy traits and mem utilities.
 package test;
 
-use std.default;
-use std.clone;
+use std.lang.default;
+use std.lang.clone;
 use std.mem;
 
 fn main() -> i32 {

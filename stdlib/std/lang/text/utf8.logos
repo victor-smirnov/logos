@@ -9,10 +9,10 @@
 // All functions taking (*const u8, len) operate on a byte slice — they do NOT
 // require a null terminator.
 
-package std.utf8;
+package std.lang.text;
 
-use std.iter;
-use std.option;
+use std.lang.iter;
+use std.lang.option;
 
 // ── Encoding / decoding ───────────────────────────────────────────────────
 

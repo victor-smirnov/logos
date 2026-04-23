@@ -7,8 +7,8 @@
 package std.vec;
 
 use std.mem;
-use std.option;
-use std.iter;
+use std.lang.option;
+use std.lang.iter;
 
 pub struct Vec<T> {
     ptr: *mut T,

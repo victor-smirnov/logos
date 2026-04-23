@@ -11,10 +11,10 @@
 package std.hashmap;
 
 use std.mem;
-use std.hash;
-use std.cmp;
-use std.option;
-use std.iter;
+use std.lang.hash;
+use std.lang.cmp;
+use std.lang.option;
+use std.lang.iter;
 
 const SLOT_EMPTY:     u8 = 0 as u8;
 const SLOT_OCCUPIED:  u8 = 1 as u8;

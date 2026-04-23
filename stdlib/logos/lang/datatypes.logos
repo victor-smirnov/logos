@@ -9,7 +9,7 @@
 
 package logos.lang.datatypes;
 
-use std.drop;
+use std.lang.drop;
 use std.mem;
 
 // ---------------------------------------------------------------------------

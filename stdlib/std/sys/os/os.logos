@@ -6,7 +6,7 @@
 
 package std.sys.os;
 
-use std.string;
+use std.lang.text;
 
 extern fn getpid()  -> i32;
 extern fn getppid() -> i32;

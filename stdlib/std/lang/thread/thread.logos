@@ -4,7 +4,7 @@
 // Thin wrapper over pthread: spawn, join, detach, yield, self.
 // Higher-level concurrency lives in fiber/ (green threads) and std.sync.
 
-package std.thread;
+package std.lang.thread;
 
 // pthread_t is 8 bytes on Linux x86-64; represented as i64.
 extern fn pthread_create(tid: *mut i64, attr: *const u8,

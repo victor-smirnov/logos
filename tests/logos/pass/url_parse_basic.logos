@@ -2,8 +2,8 @@
 package test;
 
 use std.io.net.url;
-use std.string;
-use std.option;
+use std.lang.text;
+use std.lang.option;
 
 fn main() -> i32 {
     // http://example.com/

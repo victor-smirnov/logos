@@ -2,7 +2,7 @@
 package test;
 
 use std.sys.os;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // pid is positive.

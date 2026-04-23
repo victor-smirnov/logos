@@ -31,7 +31,7 @@ use hermes.document;
 use hermes.scalar;
 use hermes.decimal;
 use hermes.mem_holder;
-use std.string;
+use std.lang.text;
 
 extern fn calloc(count: i64, size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

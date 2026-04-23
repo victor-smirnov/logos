@@ -2,7 +2,7 @@
 // even without an explicit reflect::<T>() call elsewhere in the program.
 package reflect_annotated_auto;
 
-use std.reflect;
+use std.lang.reflect;
 use hermes.string;
 
 #[annotation]

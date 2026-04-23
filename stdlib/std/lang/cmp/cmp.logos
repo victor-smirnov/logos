@@ -5,7 +5,7 @@
 // because NaN != NaN breaks total equality; use a separate PartialEq
 // later if needed. For HashMap<K, V> K must be Eq + Hash.
 
-package std.cmp;
+package std.lang.cmp;
 
 pub trait Eq {
     fn eq(&self, other: &Self) -> bool;

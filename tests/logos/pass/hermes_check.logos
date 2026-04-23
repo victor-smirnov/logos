@@ -2,7 +2,7 @@
 package hermes_check;
 use hermes.ctr;
 use hermes.anyval;
-use std.string;
+use std.lang.text;
 
 unsafe fn main() -> i32 {
     // ── 1. Empty builder (null root) ─────────────────────────────────────

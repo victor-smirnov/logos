@@ -8,7 +8,7 @@
 
 package std.log;
 
-use std.string;
+use std.lang.text;
 
 extern fn getenv(name: *const u8) -> *const u8;
 

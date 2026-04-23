@@ -29,7 +29,7 @@
 package hermes.zone;
 
 use hermes.mem_holder;
-use std.drop;
+use std.lang.drop;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

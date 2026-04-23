@@ -6,7 +6,7 @@
 package hermes_example;
 
 use hermes.ctr;
-use std.string;
+use std.lang.text;
 use std.io;
 
 fn main() -> i32 {

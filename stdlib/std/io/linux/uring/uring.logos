@@ -19,8 +19,8 @@
 package std.io.linux.uring;
 
 use std.mem;
-use std.result;
-use std.drop;
+use std.lang.result;
+use std.lang.drop;
 
 // ── C shims ───────────────────────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ use hermes.anyval;
 use hermes.pat;
 use hermes.view;
 use hermes.map;
-use std.string;
+use std.lang.text;
 use std.io;
 
 fn section(title: str) {

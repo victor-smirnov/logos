@@ -14,9 +14,9 @@
 package std.btree;
 
 use std.mem;
-use std.ord;
-use std.iter;
-use std.option;
+use std.lang.ord;
+use std.lang.iter;
+use std.lang.option;
 
 pub struct BTreeMap<K, V> {
     keys: *mut K,

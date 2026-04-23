@@ -11,7 +11,7 @@ use hermes.typetag;
 use hermes.datatag;
 use hermes.registry;
 use hermes.stringify;
-use std.string;
+use std.lang.text;
 
 unsafe fn main() -> i32 {
     let mut doc: Hermes = Hermes::new(4096);

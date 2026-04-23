@@ -5,7 +5,7 @@
 
 package std.io.fs.path;
 
-use std.string;
+use std.lang.text;
 
 // ---- predicates -------------------------------------------------------------
 

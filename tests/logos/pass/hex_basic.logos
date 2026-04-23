@@ -2,7 +2,7 @@
 package test;
 
 use std.hex;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // Encode: [0xde, 0xad, 0xbe, 0xef] → "deadbeef".

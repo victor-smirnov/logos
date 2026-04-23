@@ -1,9 +1,9 @@
 // Tests for all Iterator adapter types in std.iter.
 package iter_adapters;
 
-use std.option;
-use std.iter;
-use std.range;
+use std.lang.option;
+use std.lang.iter;
+use std.lang.range;
 
 unsafe fn main() -> i32 {
     // ── TakeIter ──────────────────────────────────────────────────────────────

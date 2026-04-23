@@ -3,7 +3,7 @@
 //
 // panic() — unrecoverable error: aborts execution (does not return).
 
-package std.panic;
+package std.lang.panic;
 
 extern fn abort();
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;

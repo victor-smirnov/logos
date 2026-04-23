@@ -14,7 +14,7 @@ use hermes.string;
 use hermes.typetag;
 use hermes.stringify;
 use hermes.clone;
-use std.string;
+use std.lang.text;
 
 unsafe fn alloc_hstr(zone: *mut Zone<Mutable>, bytes: *const u8, n: u64) -> u32 {
     let base: *mut u8 = zone.holder.base;

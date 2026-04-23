@@ -24,7 +24,7 @@ use hermes.tags;
 use hermes.anyval;
 use hermes.typetag;
 use hermes.datatag;
-use std.string;
+use std.lang.text;
 
 const DEC_BASE: u64 = 1000000000;
 const DECIMAL_MAX_LIMBS: u32 = 127;

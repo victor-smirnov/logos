@@ -2,7 +2,7 @@
 package hermes_typed_materialization_errors;
 
 use hermes.ctr;
-use std.string;
+use std.lang.text;
 
 unsafe fn main() -> i32 {
     // Unknown typed array materialization.

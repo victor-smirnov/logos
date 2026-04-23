@@ -3,7 +3,7 @@
 
 package std.io;
 
-use std.string;
+use std.lang.text;
 
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 

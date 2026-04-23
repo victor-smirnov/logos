@@ -2022,7 +2022,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFormatCall& e, const LogosType*) {
     auto impl_fn = mod.lookupSymbol<mlir::func::FuncOp>("__format_impl");
     if (!impl_fn) {
         std::fprintf(stderr,
-            "mlir_gen: format() requires 'use std.string;' to be imported\n");
+            "mlir_gen: format() requires 'use std.lang.text;' to be imported\n");
         return nullptr;
     }
     auto n_i32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, n, 32);

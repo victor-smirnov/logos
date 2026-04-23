@@ -8,8 +8,8 @@ package std.io.fs;
 
 use std.io.linux.uring;
 use std.mem;
-use std.string;
-use std.result;
+use std.lang.text;
+use std.lang.result;
 
 // ── File ──────────────────────────────────────────────────────────────────
 

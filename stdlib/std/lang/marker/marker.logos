@@ -10,7 +10,7 @@
 // To opt in for a type with raw-pointer fields, write:
 //   unsafe impl Send for MyType {}
 
-package std.marker;
+package std.lang.marker;
 
 pub auto trait Send {}
 pub auto trait Sync {}

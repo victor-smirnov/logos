@@ -2,9 +2,9 @@
 package test;
 
 use std.vec;
-use std.option;
-use std.iter;
-use std.cmp;
+use std.lang.option;
+use std.lang.iter;
+use std.lang.cmp;
 
 fn main() -> i32 {
     unsafe {

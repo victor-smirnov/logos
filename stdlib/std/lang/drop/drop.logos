@@ -4,7 +4,7 @@
 // Drop — called automatically when a value goes out of scope.
 // Implement for types that need cleanup (e.g., heap-allocated resources).
 
-package std.drop;
+package std.lang.drop;
 
 pub trait Drop {
     fn drop(self: Self);

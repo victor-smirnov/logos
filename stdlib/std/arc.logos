@@ -21,7 +21,7 @@ package std.arc;
 
 use std.mem;
 use std.atomic;
-use std.marker;
+use std.lang.marker;
 
 // ── Internal heap block ───────────────────────────────────────────────────────
 

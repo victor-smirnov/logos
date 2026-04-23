@@ -10,7 +10,7 @@ use hermes.parser;
 use hermes.document;
 use hermes.ctr;
 use hermes.stringify;
-use std.string;
+use std.lang.text;
 
 unsafe fn main() -> i32 {
     // Supported typed primitive array.

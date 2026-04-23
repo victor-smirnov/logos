@@ -13,7 +13,7 @@
 
 package std.atomic;
 
-use std.option;
+use std.lang.option;
 
 // ── Assembly primitives ────────────────────────────────────────────────────────
 extern fn logos_atomic_load32(ptr: *const i32) -> i32;

@@ -2,7 +2,7 @@
 package test;
 
 use std.base64;
-use std.string;
+use std.lang.text;
 
 fn main() -> i32 {
     // "Man" → "TWFu" (no pad)

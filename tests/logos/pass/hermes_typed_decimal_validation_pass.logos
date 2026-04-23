@@ -2,7 +2,7 @@
 package hermes_typed_decimal_validation_pass;
 
 use hermes.ctr;
-use std.string;
+use std.lang.text;
 
 unsafe fn main() -> i32 {
     let mut d1: Hermes = Hermes::new(2048);

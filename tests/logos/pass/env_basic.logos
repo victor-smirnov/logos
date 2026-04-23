@@ -2,7 +2,7 @@
 package test;
 
 use std.sys.env;
-use std.option;
+use std.lang.option;
 use std.mem;
 
 fn main() -> i32 {

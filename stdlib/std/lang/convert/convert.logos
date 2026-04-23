@@ -4,7 +4,7 @@
 // From<T> — construct Self from T.
 // Into<T> — convert Self into T.
 
-package std.convert;
+package std.lang.convert;
 
 trait From<T> {
     fn from(val: T) -> Self;

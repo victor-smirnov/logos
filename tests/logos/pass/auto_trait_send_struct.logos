@@ -4,7 +4,7 @@
 
 package auto_trait_send_struct;
 
-use std.marker;
+use std.lang.marker;
 
 struct Point {
     x: i32,

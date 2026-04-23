@@ -2,10 +2,10 @@
 package test;
 
 use std.set;
-use std.hash;
-use std.cmp;
-use std.iter;
-use std.option;
+use std.lang.hash;
+use std.lang.cmp;
+use std.lang.iter;
+use std.lang.option;
 
 fn main() -> i32 {
     unsafe {

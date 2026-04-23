@@ -2,10 +2,10 @@
 package test;
 
 use std.io.http;
-use std.string;
+use std.lang.text;
 use std.io.net.url;
-use std.option;
-use std.result;
+use std.lang.option;
+use std.lang.result;
 use std.vec;
 
 fn main() -> i32 {

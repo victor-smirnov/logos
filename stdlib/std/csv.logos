@@ -13,7 +13,7 @@
 
 package std.csv;
 
-use std.string;
+use std.lang.text;
 
 pub struct CsvReader {
     src: *const u8,
