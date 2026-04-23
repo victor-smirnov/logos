@@ -8,7 +8,7 @@
 // Slot state (parallel u8 array):
 //   0 = empty, 1 = occupied, 2 = tombstone (deleted).
 
-package std.hashmap;
+package std.collections.hashmap;
 
 use std.mem;
 use std.lang.hash;

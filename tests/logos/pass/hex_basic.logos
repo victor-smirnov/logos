@@ -1,7 +1,7 @@
 // Tests std.hex: encode, decode, round-trip.
 package test;
 
-use std.hex;
+use std.encoding.hex;
 use std.lang.text;
 
 fn main() -> i32 {

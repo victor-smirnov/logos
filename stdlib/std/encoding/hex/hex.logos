@@ -3,7 +3,7 @@
 //
 // Hex encode/decode.  Lowercase on encode; both cases accepted on decode.
 
-package std.hex;
+package std.encoding.hex;
 
 use std.lang.text;
 

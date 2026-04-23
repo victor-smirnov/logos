@@ -7,7 +7,7 @@
 
 package std.io.http;
 
-use std.vec;
+use std.collections.vec;
 use std.lang.option;
 use std.lang.result;
 use std.io.net;

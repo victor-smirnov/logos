@@ -2,5 +2,8 @@
     "claudeCode.allowDangerouslySkipPermissions": false,
     "files.associations": {
         "*.logos": "rust"
-    }
+    },
+    "cmake.configureOnOpen": false,
+    "cmake.automaticReconfigure": false,
+    "cmake.configureOnEdit": false
 }

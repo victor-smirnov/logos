@@ -1,6 +1,6 @@
 package list_comp_basic;
 
-use std.vec;
+use std.collections.vec;
 
 fn main() -> i32 {
     let arr: [i32; 5] = [1, 2, 3, 4, 5];

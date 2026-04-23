@@ -1,7 +1,7 @@
 // Tests std.json: escape/unescape, validator, writer.
 package test;
 
-use std.json;
+use std.encoding.json;
 use std.lang.text;
 
 fn main() -> i32 {

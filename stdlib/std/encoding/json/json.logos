@@ -10,7 +10,7 @@
 // This module does NOT build an AST — parsing is left to callers who can
 // traverse with `json_validate` as a skip primitive.
 
-package std.json;
+package std.encoding.json;
 
 use std.lang.text;
 

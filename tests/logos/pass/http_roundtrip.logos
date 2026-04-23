@@ -7,7 +7,7 @@ package test;
 use std.io.http;
 use std.io.net;
 use std.lang.text;
-use std.vec;
+use std.collections.vec;
 use std.lang.option;
 use std.lang.result;
 use fiber;

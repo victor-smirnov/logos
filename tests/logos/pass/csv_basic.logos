@@ -1,7 +1,7 @@
 // Tests std.csv: reader and writer round-trip.
 package test;
 
-use std.csv;
+use std.encoding.csv;
 use std.lang.text;
 
 fn main() -> i32 {

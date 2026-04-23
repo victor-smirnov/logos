@@ -4,7 +4,7 @@
 // RFC 4648 base64.  Standard alphabet; pads with '=' to a multiple of 4.
 // Decoder ignores nothing — malformed input is rejected (returns -1).
 
-package std.base64;
+package std.encoding.base64;
 
 use std.lang.text;
 

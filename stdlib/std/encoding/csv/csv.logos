@@ -11,7 +11,7 @@
 // Writer: field-at-a-time helpers that quote when necessary (field contains
 //   comma, quote, CR, or LF) and double embedded quotes.
 
-package std.csv;
+package std.encoding.csv;
 
 use std.lang.text;
 

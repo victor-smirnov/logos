@@ -10,7 +10,7 @@
 //
 // Invariant: 0 <= len <= cap; head < cap (always masked).
 
-package std.deque;
+package std.collections.deque;
 
 use std.mem;
 use std.lang.option;

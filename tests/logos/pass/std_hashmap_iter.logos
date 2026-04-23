@@ -1,6 +1,6 @@
 package test;
 
-use std.hashmap;
+use std.collections.hashmap;
 use std.lang.iter;
 use std.lang.option;
 

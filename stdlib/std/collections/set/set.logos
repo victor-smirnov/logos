@@ -4,9 +4,9 @@
 // HashSet<K: Hash + Eq> — unordered set backed by HashMap<K, u8>.
 // The u8 dummy value wastes 1 byte per slot; this is acceptable for now.
 
-package std.set;
+package std.collections.set;
 
-use std.hashmap;
+use std.collections.hashmap;
 use std.lang.hash;
 use std.lang.cmp;
 use std.lang.iter;

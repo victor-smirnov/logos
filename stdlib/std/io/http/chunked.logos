@@ -4,7 +4,7 @@
 
 package std.io.http;
 
-use std.vec;
+use std.collections.vec;
 
 fn hex_digit_value(b: u8) -> i32 {
     if b >= 48 as u8 && b <= 57 as u8  { return (b as i32) - 48; }
