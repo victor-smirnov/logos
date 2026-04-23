@@ -10,7 +10,11 @@ package std.io.http;
 use std.collections.vec;
 use std.lang.option;
 use std.lang.result;
+use std.lang.text;
 use std.io.net;
+use std.io.read;
+use std.io.write;
+use std.io.buffered;
 
 // Drain a full HTTP/1.1 request message from `s` into `buf`.  Reads until
 // headers are complete AND the entire Content-Length body (or chunked
@@ -75,6 +79,82 @@ pub fn read_request_message(s: &TcpStream, buf: &mut Vec<u8>) -> Result<i64, Htt
         }
     }
     return Result::Ok(vec_len_u8(buf));
+}
+
+// ── serve_connection — per-connection loop with keep-alive ─────────────────
+// Parse one HTTP/1.1 request from `stream`, dispatch it to `svc`, serialize
+// and write the response, then loop.  Keep-alive is on by default (per
+// RFC 7230 §6.3 for HTTP/1.1); the connection closes when:
+//   • the peer sent `Connection: close` on the request,
+//   • the handler set `Connection: close` on the response,
+//   • the request used `Transfer-Encoding: chunked` (not yet supported for
+//     framed request bodies — dropped for now, P1.12 adds it),
+//   • a framing / I/O error occurs.
+// The TcpStream is always closed before return.
+pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
+    let mut br: BufReader<TcpStream> = buf_reader_wrap::<TcpStream>(stream, 4096 as i64);
+    let mut keep: bool = true;
+    while keep {
+        let mut req: Request = match parse_request_stream::<TcpStream>(&mut br) {
+            Result::Ok(v)  => v,
+            Result::Err(_) => { keep = false; break; }
+        };
+
+        // Drain the request body so the buffered reader is positioned on the
+        // first byte of the next request.
+        let bl: i64 = body_length(&req.headers);
+        if bl > 0 as i64 {
+            let mut tmp: [u8; 2048] = [0 as u8; 2048];
+            let mut taken: i64 = 0 as i64;
+            while taken < bl && keep {
+                let mut want: i64 = 2048 as i64;
+                if bl - taken < want { want = bl - taken; }
+                let dst: *mut u8 = &mut tmp[0 as i64] as *mut u8;
+                let n: i64 = br.read(dst, want);
+                if n <= 0 as i64 { keep = false; }
+                else {
+                    let mut i: i64 = 0 as i64;
+                    unsafe {
+                        while i < n {
+                            vec_push_u8(&mut req.body, dst[i]);
+                            i = i + 1;
+                        }
+                    }
+                    taken = taken + n;
+                }
+            }
+        } else if bl == 0 - 2 as i64 {
+            // chunked request body — not yet handled; close after this turn.
+            keep = false;
+        } else if bl == 0 - 3 as i64 {
+            // malformed Content-Length — reject and close.
+            keep = false;
+        }
+        if !keep { break; }
+
+        // Request-level keep-alive signal.
+        match (&req.headers).get("connection") {
+            Option::Some(v) => { if (&v).eq_str("close") { keep = false; } }
+            Option::None    => { }
+        }
+
+        let resp: Response = svc.call(&req);
+
+        // Handler may also request close.
+        match (&resp.headers).get("connection") {
+            Option::Some(v) => { if (&v).eq_str("close") { keep = false; } }
+            Option::None    => { }
+        }
+
+        let inner: &mut TcpStream = buf_reader_inner_mut::<TcpStream>(&mut br);
+        let rs: i64 = serialize_response_stream::<TcpStream>(&resp, inner);
+        if rs < 0 as i64 { keep = false; }
+    }
+
+    let s: &mut TcpStream = buf_reader_inner_mut::<TcpStream>(&mut br);
+    s.close();
+    br.close();
+    return 0 as i64;
 }
 
 // Bind, accept `count` connections serially, invoke `handler` for each,

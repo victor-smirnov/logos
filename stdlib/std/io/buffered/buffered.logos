@@ -247,6 +247,17 @@ impl<R: Read> BufReader<R> {
     }
 }
 
+// Borrow the inner reader/writer.  Useful when the caller needs to feed
+// bytes back to the underlying sink (e.g. HTTP server reads requests via
+// BufReader<TcpStream> and writes responses directly to the same stream).
+pub fn buf_reader_inner_mut<R>(br: &mut BufReader<R>) -> &mut R {
+    return &mut br.reader;
+}
+
+pub fn buf_writer_inner_mut<W>(bw: &mut BufWriter<W>) -> &mut W {
+    return &mut bw.writer;
+}
+
 // BufReader<R> itself implements Read — useful for chaining
 // (e.g. ChunkedReader<BufReader<TcpStream>>).
 impl<R: Read> Read for BufReader<R> {
