@@ -5,6 +5,8 @@
 
 package std.mem;
 
+use std.lang.default;
+
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 extern fn realloc(ptr: *mut u8, size: i64) -> *mut u8;
@@ -61,5 +63,14 @@ pub unsafe fn swap<T>(a: *mut T, b: *mut T) {
 pub unsafe fn replace<T>(ptr: *mut T, new_val: T) -> T {
     let old: T = ptr[0];
     ptr[0] = new_val;
+    return old;
+}
+
+// Replace the value at ptr with T::default() and return the old value.
+// Useful for moving ownership out of a container field without borrowck
+// complaining about a partial move.
+pub unsafe fn take<T: Default>(ptr: *mut T) -> T {
+    let old: T = ptr[0];
+    ptr[0] = T::default();
     return old;
 }

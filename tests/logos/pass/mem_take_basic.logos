@@ -1,0 +1,23 @@
+// std.mem.take: replaces the value at ptr with T::default() and
+// returns the old value.  Generic bound T: Default.
+
+package test;
+
+use std.mem;
+
+fn main() -> i32 {
+    let mut x: i32 = 42;
+    unsafe {
+        let old: i32 = take::<i32>(&mut x);
+        if old != 42 { return 1; }
+        if x != 0    { return 2; }
+    }
+
+    let mut y: i64 = 7 as i64;
+    unsafe {
+        let old2: i64 = take::<i64>(&mut y);
+        if old2 != 7 as i64 { return 3; }
+        if y != 0 as i64    { return 4; }
+    }
+    return 42;
+}
