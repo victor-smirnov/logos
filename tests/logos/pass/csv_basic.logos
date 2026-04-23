@@ -1,0 +1,91 @@
+// Tests std.csv: reader and writer round-trip.
+package test;
+
+use std.csv;
+use std.string;
+
+fn main() -> i32 {
+    // Simple unquoted parsing: "a,b,c\n"
+    unsafe {
+        let mut r: CsvReader = CsvReader::new("a,b,c\n");
+        let mut f: String = String::new();
+        let mut end: bool = false;
+
+        if !r.read_field(&mut f, &mut end) { return 1; }
+        if !f.eq_str("a") { return 2; }
+        if end { return 3; }
+
+        f.clear();
+        if !r.read_field(&mut f, &mut end) { return 4; }
+        if !f.eq_str("b") { return 5; }
+        if end { return 6; }
+
+        f.clear();
+        if !r.read_field(&mut f, &mut end) { return 7; }
+        if !f.eq_str("c") { return 8; }
+        if !end { return 9; }
+
+        if !r.eof() { return 10; }
+    }
+
+    // Quoted fields with embedded comma, quotes, and newline.
+    //   "hi",","",line\n"three
+    // Row 1: hi | , | ",line\n
+    //                              (quoted field spans a newline)
+    // Row 2: three
+    unsafe {
+        let src: str = "\"hi\",\",\",\"line\nend\"\nthree";
+        let mut r: CsvReader = CsvReader::new(src);
+        let mut f: String = String::new();
+        let mut end: bool = false;
+
+        if !r.read_field(&mut f, &mut end) { return 11; }
+        if !f.eq_str("hi") { return 12; }
+
+        f.clear();
+        if !r.read_field(&mut f, &mut end) { return 13; }
+        if !f.eq_str(",") { return 14; }
+
+        f.clear();
+        if !r.read_field(&mut f, &mut end) { return 15; }
+        if !f.eq_str("line\nend") { return 16; }
+        if !end { return 17; }
+
+        f.clear();
+        if !r.read_field(&mut f, &mut end) { return 18; }
+        if !f.eq_str("three") { return 19; }
+        if !end { return 20; }
+    }
+
+    // Doubled-quote inside quoted field: "a""b" → a"b
+    unsafe {
+        let mut r: CsvReader = CsvReader::new("\"a\"\"b\"");
+        let mut f: String = String::new();
+        let mut end: bool = false;
+        if !r.read_field(&mut f, &mut end) { return 21; }
+        if !f.eq_str("a\"b") { return 22; }
+    }
+
+    // Unterminated quoted field → false.
+    unsafe {
+        let mut r: CsvReader = CsvReader::new("\"abc");
+        let mut f: String = String::new();
+        let mut end: bool = false;
+        if r.read_field(&mut f, &mut end) { return 23; }
+    }
+
+    // Writer: unquoted pass-through, quoted when needed.
+    unsafe {
+        let mut out: String = String::new();
+        write_field_str("plain", &mut out);
+        write_sep(&mut out);
+        write_field_str("has,comma", &mut out);
+        write_sep(&mut out);
+        write_field_str("has\"quote", &mut out);
+        write_newline(&mut out);
+        // Expected: plain,"has,comma","has""quote"\r\n
+        if !out.eq_str("plain,\"has,comma\",\"has\"\"quote\"\r\n") { return 24; }
+    }
+
+    return 42;
+}
