@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.http: serializers for Request / Response.
+
+package std.http;
+
+use std.vec;
+
+fn write_str_bytes(s: str, out: &mut Vec<u8>) {
+    let p: *const u8 = s.as_ptr();
+    let n: i64 = s.len();
+    let mut i: i64 = 0;
+    unsafe {
+        while i < n { vec_push_u8(out, p[i]); i = i + 1; }
+    }
+}
+
+pub fn write_i64_decimal(v: i64, out: &mut Vec<u8>) {
+    if v == 0 { vec_push_u8(out, 48 as u8); return; }
+    let mut buf: [u8; 24] = [0 as u8; 24];
+    let mut n: i64 = v;
+    let mut k: i64 = 0;
+    while n > 0 {
+        buf[k] = ((n % 10) + 48) as u8;
+        n = n / 10;
+        k = k + 1;
+    }
+    while k > 0 {
+        k = k - 1;
+        vec_push_u8(out, buf[k]);
+    }
+}
+
+fn write_headers(h: &Headers, out: &mut Vec<u8>) {
+    unsafe {
+        let ep: *mut Vec<Header> = &h.entries as *const Vec<Header> as *mut Vec<Header>;
+        let total: i64 = ep.length();
+        let mut i: i64 = 0;
+        while i < total {
+            let e: Header = ep.get(i);
+            let np: *const u8 = (&h.buf).as_ptr().byte_add(e.name_off as i64);
+            let vp: *const u8 = (&h.buf).as_ptr().byte_add(e.value_off as i64);
+            let mut k: i64 = 0;
+            while k < e.name_len as i64  { vec_push_u8(out, np[k]); k = k + 1; }
+            vec_push_u8(out, 58 as u8); vec_push_u8(out, 32 as u8);    // ": "
+            k = 0;
+            while k < e.value_len as i64 { vec_push_u8(out, vp[k]); k = k + 1; }
+            vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);    // CRLF
+            i = i + 1;
+        }
+        vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);        // terminator
+    }
+}
+
+// "METHOD /path?query HTTP/1.1\r\n<headers>\r\n<body>"
+pub fn serialize_request(req: &Request, out: &mut Vec<u8>) {
+    write_str_bytes(s2str(&req.method.name), out);
+    vec_push_u8(out, 32 as u8);                              // SP
+    if (&req.url.path).len() == 0 {
+        vec_push_u8(out, 47 as u8);                          // '/'
+    } else {
+        write_str_bytes(s2str(&req.url.path), out);
+    }
+    if (&req.url.query).len() > 0 {
+        vec_push_u8(out, 63 as u8);                          // '?'
+        write_str_bytes(s2str(&req.url.query), out);
+    }
+    vec_push_u8(out, 32 as u8);
+    write_str_bytes("HTTP/1.1", out);
+    vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);
+    write_headers(&req.headers, out);
+    // body
+    let bl: i64 = vec_len_u8(&req.body);
+    let mut i: i64 = 0;
+    while i < bl {
+        vec_push_u8(out, vec_get_u8(&req.body, i));
+        i = i + 1;
+    }
+}
+
+pub fn serialize_response(resp: &Response, out: &mut Vec<u8>) {
+    write_str_bytes("HTTP/1.1 ", out);
+    write_i64_decimal(resp.status as i64, out);
+    vec_push_u8(out, 32 as u8);
+    write_str_bytes(s2str(&resp.reason), out);
+    vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);
+    write_headers(&resp.headers, out);
+    let bl: i64 = vec_len_u8(&resp.body);
+    let mut i: i64 = 0;
+    while i < bl {
+        vec_push_u8(out, vec_get_u8(&resp.body, i));
+        i = i + 1;
+    }
+}

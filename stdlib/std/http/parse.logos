@@ -1,0 +1,263 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.http: HTTP/1.1 buffer parsers.
+//
+// Iterative — one cursor walks [src, src+len).  Errors surface as
+// Result::Err(HttpError::Parse); callers using streaming I/O must ensure the
+// buffer holds a full message before parsing (partial != malformed, but we
+// do not distinguish).
+
+package std.http;
+
+use std.string;
+use std.vec;
+use std.option;
+use std.result;
+use std.url;
+
+// ── Byte-level scanners ──────────────────────────────────────────────────────
+
+// Scan for CRLF starting at `from`.  Returns index of CR, or -1 if absent.
+pub fn find_crlf(src: *const u8, len: i64, from: i64) -> i64 {
+    let mut i: i64 = from;
+    unsafe {
+        while (i + 1) < len {
+            if src[i] == 13 as u8 && src[i + 1] == 10 as u8 { return i; }
+            i = i + 1;
+        }
+    }
+    return 0 - 1;
+}
+
+// Parse an ASCII decimal integer from [src+from, src+end).  -1 on invalid.
+fn parse_decimal(src: *const u8, from: i64, end: i64) -> i64 {
+    if from >= end { return 0 - 1; }
+    let mut n: i64 = 0;
+    let mut i: i64 = from;
+    unsafe {
+        while i < end {
+            let c: i32 = src[i] as i32;
+            if c < 48 || c > 57 { return 0 - 1; }
+            n = n * 10 + (c - 48) as i64;
+            i = i + 1;
+        }
+    }
+    return n;
+}
+
+fn trim_ows_left(src: *const u8, from: i64, end: i64) -> i64 {
+    let mut i: i64 = from;
+    unsafe {
+        while i < end {
+            let c: u8 = src[i];
+            if c != 32 as u8 && c != 9 as u8 { return i; }
+            i = i + 1;
+        }
+    }
+    return end;
+}
+
+fn trim_ows_right(src: *const u8, from: i64, end: i64) -> i64 {
+    let mut j: i64 = end;
+    unsafe {
+        while j > from {
+            let c: u8 = src[j - 1];
+            if c != 32 as u8 && c != 9 as u8 { return j; }
+            j = j - 1;
+        }
+    }
+    return from;
+}
+
+fn copy_body(src: *const u8, from: i64, end: i64, dst: &mut Vec<u8>) {
+    let mut i: i64 = from;
+    unsafe {
+        while i < end {
+            vec_push_u8(dst, src[i]);
+            i = i + 1;
+        }
+    }
+}
+
+// ── Header block parser ──────────────────────────────────────────────────────
+
+// Parse headers from [pos, len) into `h`.  Returns the position just past the
+// empty CRLF terminator, or -1 on malformed input.
+pub fn parse_headers(src: *const u8, len: i64, pos: i64, h: &mut Headers) -> i64 {
+    let mut p: i64 = pos;
+    unsafe {
+        while true {
+            let eol: i64 = find_crlf(src, len, p);
+            if eol < 0 { return 0 - 1; }
+            if eol == p { return p + 2; }                // empty line = end
+            // find ':' within [p, eol)
+            let mut colon: i64 = 0 - 1;
+            let mut i: i64 = p;
+            while i < eol {
+                if src[i] == 58 as u8 { colon = i; i = eol; } else { i = i + 1; }
+            }
+            if colon < 0 { return 0 - 1; }
+            let name_start: i64 = p;
+            let name_end:   i64 = colon;
+            let v0: i64 = trim_ows_left(src, colon + 1, eol);
+            let v1: i64 = trim_ows_right(src, v0, eol);
+            let name:  String = String::from_bytes(
+                src.byte_add(name_start), name_end - name_start);
+            let value: String = String::from_bytes(
+                src.byte_add(v0), v1 - v0);
+            h.append(s2str(&name), s2str(&value));
+            p = eol + 2;
+        }
+    }
+    return 0 - 1;
+}
+
+// Body framing decision:
+//   >= 0: Content-Length bytes
+//   -1:   no framing (caller decides; response → read to EOF, request → empty)
+//   -2:   chunked
+//   -3:   malformed Content-Length
+pub fn body_length(h: &Headers) -> i64 {
+    match h.get("transfer-encoding") {
+        Option::Some(te) => {
+            if (&te).eq_str("chunked") { return 0 - 2; }
+        }
+        Option::None => {}
+    }
+    match h.get("content-length") {
+        Option::Some(cl) => {
+            let p: *const u8 = (&cl).as_ptr();
+            let n: i64 = (&cl).len();
+            let v: i64 = parse_decimal(p, 0, n);
+            if v < 0 { return 0 - 3; }
+            return v;
+        }
+        Option::None => {}
+    }
+    return 0 - 1;
+}
+
+// ── Request / Response message parsers ──────────────────────────────────────
+
+pub fn parse_request_buf(src: *const u8, len: i64) -> Result<Request, HttpError> {
+    let line_end: i64 = find_crlf(src, len, 0);
+    if line_end < 0 { return Result::Err(HttpError::Parse); }
+
+    // Request-line: METHOD SP TARGET SP HTTP/VERSION
+    let mut sp1: i64 = 0 - 1;
+    let mut sp2: i64 = 0 - 1;
+    let mut i: i64 = 0;
+    unsafe {
+        while i < line_end {
+            if src[i] == 32 as u8 {
+                if sp1 < 0 { sp1 = i; } else if sp2 < 0 { sp2 = i; }
+            }
+            i = i + 1;
+        }
+    }
+    if sp1 < 0 || sp2 < 0 { return Result::Err(HttpError::Parse); }
+
+    let method_str: String = unsafe { String::from_bytes(src, sp1) };
+    let target:     String = unsafe {
+        String::from_bytes(src.byte_add(sp1 + 1), sp2 - sp1 - 1)
+    };
+
+    let method: Method = method_parse(s2str(&method_str));
+    // url_parse accepts absolute-form; origin-form "/path?q" stays verbatim.
+    let url: Url = match url_parse(s2str(&target)) {
+        Option::Some(u) => u,
+        Option::None    => {
+            let tp: *const u8 = (&target).as_ptr();
+            let tn: i64 = (&target).len();
+            let mut qpos: i64 = 0 - 1;
+            let mut k: i64 = 0;
+            unsafe {
+                while k < tn {
+                    if tp[k] == 63 as u8 { qpos = k; k = tn; } else { k = k + 1; }
+                }
+            }
+            let path_end: i64 = if qpos < 0 { tn } else { qpos };
+            let path_s:  String = unsafe { String::from_bytes(tp, path_end) };
+            let mut query_s: String = String::new();
+            if qpos >= 0 {
+                query_s = unsafe {
+                    String::from_bytes(tp.byte_add(qpos + 1), tn - qpos - 1)
+                };
+            }
+            Url {
+                scheme: String::new(),
+                host:   String::new(),
+                port:   0,
+                path:   path_s,
+                query:  query_s,
+            }
+        }
+    };
+
+    let mut req: Request = Request::new(method, url);
+    let hdr_end: i64 = parse_headers(src, len, line_end + 2, &mut req.headers);
+    if hdr_end < 0 { return Result::Err(HttpError::Parse); }
+
+    let blen: i64 = body_length(&req.headers);
+    if blen == 0 - 3 { return Result::Err(HttpError::Parse); }
+    if blen == 0 - 2 {
+        let tail_ptr: *const u8 = (src as i64 + hdr_end) as *const u8;
+        let consumed: i64 = chunked_decode(tail_ptr, len - hdr_end, &mut req.body);
+        if consumed < 0 { return Result::Err(HttpError::Parse); }
+    } else if blen > 0 {
+        if hdr_end + blen > len { return Result::Err(HttpError::Parse); }
+        copy_body(src, hdr_end, hdr_end + blen, &mut req.body);
+    }
+    return Result::Ok(req);
+}
+
+pub fn parse_response_buf(src: *const u8, len: i64) -> Result<Response, HttpError> {
+    let line_end: i64 = find_crlf(src, len, 0);
+    if line_end < 0 { return Result::Err(HttpError::Parse); }
+
+    // Status-line: HTTP/1.1 SP STATUS SP REASON
+    let mut sp1: i64 = 0 - 1;
+    let mut sp2: i64 = 0 - 1;
+    let mut i: i64 = 0;
+    unsafe {
+        while i < line_end {
+            if src[i] == 32 as u8 {
+                if sp1 < 0 { sp1 = i; } else if sp2 < 0 { sp2 = i; }
+            }
+            i = i + 1;
+        }
+    }
+    if sp1 < 0 { return Result::Err(HttpError::Parse); }
+    let status_end: i64 = if sp2 < 0 { line_end } else { sp2 };
+    let status: i64 = parse_decimal(src, sp1 + 1, status_end);
+    if status < 0 { return Result::Err(HttpError::Parse); }
+
+    let reason_start: i64 = if sp2 < 0 { line_end } else { sp2 + 1 };
+    let reason: String = unsafe {
+        String::from_bytes(src.byte_add(reason_start),
+                           line_end - reason_start)
+    };
+
+    let mut resp: Response = Response::new(status as i32);
+    resp.reason.clear();
+    resp.reason.push_str(s2str(&reason));
+
+    let hdr_end: i64 = parse_headers(src, len, line_end + 2, &mut resp.headers);
+    if hdr_end < 0 { return Result::Err(HttpError::Parse); }
+
+    let blen: i64 = body_length(&resp.headers);
+    if blen == 0 - 3 { return Result::Err(HttpError::Parse); }
+    if blen == 0 - 2 {
+        let tail_ptr: *const u8 = (src as i64 + hdr_end) as *const u8;
+        let consumed: i64 = chunked_decode(tail_ptr, len - hdr_end, &mut resp.body);
+        if consumed < 0 { return Result::Err(HttpError::Parse); }
+    } else if blen > 0 {
+        if hdr_end + blen > len { return Result::Err(HttpError::Parse); }
+        copy_body(src, hdr_end, hdr_end + blen, &mut resp.body);
+    } else if blen == 0 - 1 {
+        // No framing: read to end of buffer.
+        if hdr_end < len {
+            copy_body(src, hdr_end, len, &mut resp.body);
+        }
+    }
+    return Result::Ok(resp);
+}

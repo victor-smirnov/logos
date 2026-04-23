@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.http: client API (fiber-based).
+//
+// Requires a Reactor to be installed as current for this thread; see
+// std.net / stdlib/fiber/reactor.logos.  Not suitable for blocking code.
+
+package std.http;
+
+use std.string;
+use std.vec;
+use std.option;
+use std.result;
+use std.url;
+use std.net;
+
+// Parse a dotted-quad IPv4 string into host-order u32.
+fn parse_ipv4(s: str) -> Option<u32> {
+    let p: *const u8 = s.as_ptr();
+    let n: i64 = s.len();
+    let mut octets: [u32; 4] = [0 as u32; 4];
+    let mut oi: i32 = 0;
+    let mut have_digit: bool = false;
+    let mut cur: u32 = 0 as u32;
+    let mut i: i64 = 0;
+    unsafe {
+        while i < n {
+            let b: u8 = p[i];
+            if b >= 48 as u8 && b <= 57 as u8 {
+                cur = cur * 10 as u32 + ((b as u32) - 48 as u32);
+                if cur > 255 as u32 { return Option::None; }
+                have_digit = true;
+            } else if b == 46 as u8 {                    // '.'
+                if !have_digit || oi >= 3 { return Option::None; }
+                octets[oi as i64] = cur;
+                oi = oi + 1;
+                cur = 0 as u32;
+                have_digit = false;
+            } else {
+                return Option::None;
+            }
+            i = i + 1;
+        }
+    }
+    if !have_digit || oi != 3 { return Option::None; }
+    octets[3] = cur;
+    let ip: u32 = ip4(octets[0 as i64], octets[1 as i64],
+                      octets[2 as i64], octets[3 as i64]);
+    return Option::Some(ip);
+}
+
+// Send `req` to host_ip:port over a fresh TCP connection; read response until
+// peer closes or a complete message is buffered.  `host_ip` must be numeric
+// IPv4 — DNS is not implemented.
+pub fn http_send(host_ip: u32, port: u16, req: &Request) -> Result<Response, HttpError> {
+    let mut buf: Vec<u8> = vec_new::<u8>();
+    serialize_request(req, &mut buf);
+
+    let mut s: TcpStream = async_tcp_connect(host_ip, port);
+    if !(&s).is_valid() { return Result::Err(HttpError::Connect); }
+
+    let blen: i64 = vec_len_u8(&buf);
+    let mut off: i64 = 0;
+    while off < blen {
+        let p: *const u8 = vec_at_const_u8(&buf, off);
+        let nw: i64 = (&s).async_send(p, blen - off);
+        if nw <= 0 { s.close(); return Result::Err(HttpError::Io); }
+        off = off + nw;
+    }
+
+    let mut rx: Vec<u8> = vec_new::<u8>();
+    let mut chunk: [u8; 4096] = [0 as u8; 4096];
+    loop {
+        let n: i64 = (&s).async_recv(&mut chunk[0 as i64], 4096 as i64);
+        if n < 0 { s.close(); return Result::Err(HttpError::Io); }
+        if n == 0 { break; }
+        let mut k: i64 = 0;
+        while k < n { vec_push_u8(&mut rx, chunk[k]); k = k + 1; }
+    }
+    s.close();
+
+    let rx_ptr: *const u8 = vec_at_const_u8(&rx, 0 as i64);
+    let rx_len: i64 = vec_len_u8(&rx);
+    return parse_response_buf(rx_ptr, rx_len);
+}
+
+// GET `path` from host_ip:port.  Builds a minimal Request with Host header.
+pub fn http_get_at(host_ip: u32, port: u16, host_hdr: str, path: str) -> Result<Response, HttpError> {
+    let mut path_s: String = String::new();
+    path_s.push_str(path);
+    let u: Url = Url {
+        scheme: String::new(),
+        host:   String::new(),
+        port:   port as i32,
+        path:   path_s,
+        query:  String::new(),
+    };
+    let mut req: Request = Request::new(Method::get(), u);
+    (&mut req.headers).append("Host", host_hdr);
+    return http_send(host_ip, port, &req);
+}
+
+// Parse `url_str` as absolute-form ("http://host[:port]/path[?query]") and
+// issue a GET.  Numeric-host only.
+pub fn http_get(url_str: str) -> Result<Response, HttpError> {
+    let u: Url = match url_parse(url_str) {
+        Option::Some(x) => x,
+        Option::None    => { return Result::Err(HttpError::BadUrl); }
+    };
+    if !(&u.scheme).eq_str("http") { return Result::Err(HttpError::BadUrl); }
+    let ip: u32 = match parse_ipv4(s2str(&u.host)) {
+        Option::Some(v) => v,
+        Option::None    => { return Result::Err(HttpError::BadUrl); }
+    };
+    let port: u16 = if u.port == 0 { 80 as u16 } else { u.port as u16 };
+    let mut req: Request = Request::new(Method::get(), u);
+    let mut host_hdr: String = String::new();
+    host_hdr.push_str(s2str(&req.url.host));
+    if req.url.port != 0 && req.url.port != 80 {
+        host_hdr.push_str(":");
+        let mut tmp: Vec<u8> = vec_new::<u8>();
+        write_i64_decimal(req.url.port as i64, &mut tmp);
+        let np: i64 = vec_len_u8(&tmp);
+        let mut k: i64 = 0;
+        while k < np {
+            let b: u8 = vec_get_u8(&tmp, k);
+            let one: [u8; 1] = [b];
+            host_hdr.push_bytes(&one[0 as i64] as *const u8, 1 as i64);
+            k = k + 1;
+        }
+    }
+    (&mut req.headers).append("Host", s2str(&host_hdr));
+    return http_send(ip, port, &req);
+}

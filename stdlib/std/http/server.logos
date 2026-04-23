@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.http: server API (fiber-based).
+//
+// Requires a Reactor installed on the current thread.  `serve_n` accepts
+// `count` connections serially and closes each after a single request.
+// v1 — no keep-alive, no per-connection spawn.
+
+package std.http;
+
+use std.vec;
+use std.option;
+use std.result;
+use std.net;
+
+// Drain a full HTTP/1.1 request message from `s` into `buf`.  Reads until
+// headers are complete AND the entire Content-Length body (or chunked
+// terminator) has arrived, or the peer closes.  Returns Ok(bytes_in_buf) or
+// Err on IO / framing failure.
+pub fn read_request_message(s: &TcpStream, buf: &mut Vec<u8>) -> Result<i64, HttpError> {
+    let mut chunk: [u8; 2048] = [0 as u8; 2048];
+    let mut hdr_end: i64 = 0 - 1;
+    let mut want:    i64 = 0 - 1;                              // -1 = unknown yet
+    loop {
+        let n: i64 = s.async_recv(&mut chunk[0 as i64], 2048 as i64);
+        if n < 0 { return Result::Err(HttpError::Io); }
+        if n == 0 { break; }
+        let mut k: i64 = 0;
+        while k < n { vec_push_u8(buf, chunk[k]); k = k + 1; }
+
+        if hdr_end < 0 {
+            let total: i64 = vec_len_u8(buf);
+            let mut i: i64 = 0;
+            while i + 3 < total {
+                if vec_get_u8(buf, i)     == 13 as u8 && vec_get_u8(buf, i + 1) == 10 as u8 &&
+                   vec_get_u8(buf, i + 2) == 13 as u8 && vec_get_u8(buf, i + 3) == 10 as u8 {
+                    hdr_end = i + 4; i = total;
+                } else {
+                    i = i + 1;
+                }
+            }
+        }
+        if hdr_end >= 0 && want < 0 {
+            // Re-parse headers block alone to compute body framing.
+            let base: *const u8 = vec_at_const_u8(buf, 0 as i64);
+            let total: i64 = vec_len_u8(buf);
+            let mut h: Headers = Headers::new();
+            let first_eol: i64 = find_crlf(base, total, 0);
+            if first_eol < 0 { return Result::Err(HttpError::Parse); }
+            let he: i64 = parse_headers(base, total, first_eol + 2, &mut h);
+            if he < 0 { return Result::Err(HttpError::Parse); }
+            let bl: i64 = body_length(&h);
+            if bl == 0 - 3 { return Result::Err(HttpError::Parse); }
+            if bl == 0 - 2       { want = 0 - 2; }            // chunked
+            else if bl < 0       { want = hdr_end; }
+            else                 { want = hdr_end + bl; }
+        }
+        let cur: i64 = vec_len_u8(buf);
+        if want >= 0 && cur >= want { break; }
+        if want == 0 - 2 {
+            // chunked — look for "0\r\n\r\n"
+            if cur >= hdr_end + 5 {
+                let mut i: i64 = hdr_end;
+                let mut done: bool = false;
+                while i + 4 < cur && !done {
+                    if vec_get_u8(buf, i)     == 48 as u8 &&
+                       vec_get_u8(buf, i + 1) == 13 as u8 && vec_get_u8(buf, i + 2) == 10 as u8 &&
+                       vec_get_u8(buf, i + 3) == 13 as u8 && vec_get_u8(buf, i + 4) == 10 as u8 {
+                        done = true;
+                    } else {
+                        i = i + 1;
+                    }
+                }
+                if done { return Result::Ok(vec_len_u8(buf)); }
+            }
+        }
+    }
+    return Result::Ok(vec_len_u8(buf));
+}
+
+// Bind, accept `count` connections serially, invoke `handler` for each,
+// serialize the response, write it back, close.  Returns Ok(()) once `count`
+// connections have been served, or Err on fatal bind/accept failure.
+pub fn serve_n(port: u16, count: i64, handler: fn(&Request) -> Response) -> Result<(), HttpError> {
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 16 as i32);
+    if !(&listener).is_valid() { return Result::Err(HttpError::Connect); }
+
+    let mut served: i64 = 0;
+    while served < count {
+        let mut s: TcpStream = (&listener).async_accept();
+        if !(&s).is_valid() {
+            listener.close();
+            return Result::Err(HttpError::Connect);
+        }
+        let mut rx: Vec<u8> = vec_new::<u8>();
+        let read_ok: bool = match read_request_message(&s, &mut rx) {
+            Result::Ok(_)  => { true }
+            Result::Err(_) => { false }
+        };
+        if read_ok {
+            let rx_ptr: *const u8 = vec_at_const_u8(&rx, 0 as i64);
+            let rx_len: i64 = vec_len_u8(&rx);
+            match parse_request_buf(rx_ptr, rx_len) {
+                Result::Ok(req) => {
+                    let resp: Response = handler(&req);
+                    let mut tx: Vec<u8> = vec_new::<u8>();
+                    serialize_response(&resp, &mut tx);
+                    let tlen: i64 = vec_len_u8(&tx);
+                    let mut off: i64 = 0;
+                    while off < tlen {
+                        let p: *const u8 = vec_at_const_u8(&tx, off);
+                        let nw: i64 = (&s).async_send(p, tlen - off);
+                        if nw <= 0 { off = tlen; }
+                        else        { off = off + nw; }
+                    }
+                }
+                Result::Err(_) => { }
+            }
+        }
+        s.close();
+        served = served + 1;
+    }
+    listener.close();
+    return Result::Ok(());
+}

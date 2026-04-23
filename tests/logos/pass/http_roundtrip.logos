@@ -9,6 +9,7 @@ use std.net;
 use std.string;
 use std.vec;
 use std.option;
+use std.result;
 use fiber;
 
 const TEST_PORT: u16 = 48271 as u16;
@@ -26,14 +27,14 @@ fn handler(req: &Request) -> Response {
 }
 
 fn server_fiber(arg: i64) {
-    let _: i32 = serve_n(TEST_PORT, 1 as i64, handler);
+    let _: Result<(), HttpError> = serve_n(TEST_PORT, 1 as i64, handler);
 }
 
 fn client_fiber(arg: i64) {
     let rp: *mut i32 = arg as *mut i32;
     let ip: u32 = ip4(127 as u32, 0 as u32, 0 as u32, 1 as u32);
     match http_get_at(ip, TEST_PORT, "localhost", "/") {
-        Option::Some(resp) => {
+        Result::Ok(resp) => {
             if resp.status != 200 as i32 { unsafe { *rp = 10; } return; }
             let expected: str = "hello";
             unsafe {
@@ -47,7 +48,7 @@ fn client_fiber(arg: i64) {
                 *rp = 42;
             }
         }
-        Option::None => { unsafe { *rp = 20; } }
+        Result::Err(_) => { unsafe { *rp = 20; } }
     }
 }
 

@@ -5,6 +5,7 @@ use std.http;
 use std.string;
 use std.vec;
 use std.option;
+use std.result;
 
 fn main() -> i32 {
     // ── Direct codec round-trip ──────────────────────────────────────────
@@ -75,7 +76,7 @@ fn main() -> i32 {
     let req_text: str =
         "POST /u HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n";
     match parse_request_buf(req_text.as_ptr(), req_text.len()) {
-        Option::Some(req) => {
+        Result::Ok(req) => {
             unsafe {
                 let bp: *mut Vec<u8> = &req.body as *const Vec<u8> as *mut Vec<u8>;
                 if bp.length() != 5 as i64 { return 40; }
@@ -83,7 +84,7 @@ fn main() -> i32 {
                 if bp.get(4) != 111 as u8 { return 42; }   // 'o'
             }
         }
-        Option::None => { return 43; }
+        Result::Err(_) => { return 43; }
     }
 
     return 42;

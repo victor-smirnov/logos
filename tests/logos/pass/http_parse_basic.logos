@@ -5,6 +5,7 @@ use std.http;
 use std.string;
 use std.url;
 use std.option;
+use std.result;
 use std.vec;
 
 fn main() -> i32 {
@@ -13,7 +14,7 @@ fn main() -> i32 {
         "POST /submit?x=1 HTTP/1.1\r\nHost: example.com\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nhello";
 
     match parse_request_buf(req_text.as_ptr(), req_text.len()) {
-        Option::Some(req) => {
+        Result::Ok(req) => {
             if req.method.code != 1            { return 1; }
             if !(&req.url.path).eq_str("/submit") { return 2; }
             if !(&req.url.query).eq_str("x=1")    { return 3; }
@@ -31,7 +32,7 @@ fn main() -> i32 {
                 if bp.get(4) != 111 as u8  { return 9; }
             }
         }
-        Option::None => { return 100; }
+        Result::Err(_) => { return 100; }
     }
 
     // ── Response parsing ─────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ fn main() -> i32 {
         "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\nok";
 
     match parse_response_buf(resp_text.as_ptr(), resp_text.len()) {
-        Option::Some(resp) => {
+        Result::Ok(resp) => {
             if resp.status != 200               { return 10; }
             if !(&resp.reason).eq_str("OK")     { return 11; }
             if (&resp.headers).len() != 2 as i64 { return 12; }
@@ -50,7 +51,7 @@ fn main() -> i32 {
                 if bp.get(1) != 107 as u8  { return 15; }
             }
         }
-        Option::None => { return 101; }
+        Result::Err(_) => { return 101; }
     }
 
     // ── Serialize then re-parse request ──────────────────────────────────────
@@ -72,26 +73,26 @@ fn main() -> i32 {
         if bp.get(1) != 69 as u8 { return 22; }
         if bp.get(2) != 84 as u8 { return 23; }
         match parse_request_buf(bp.at_const(0 as i64) as *const u8, blen) {
-            Option::Some(req2) => {
+            Result::Ok(req2) => {
                 if req2.method.code != 0           { return 24; }
                 if !(&req2.url.path).eq_str("/path") { return 25; }
                 if (&req2.headers).len() != 2 as i64 { return 26; }
             }
-            Option::None => { return 27; }
+            Result::Err(_) => { return 27; }
         }
     }
 
     // ── Malformed inputs ─────────────────────────────────────────────────────
     let bad1: str = "GET /\r\n\r\n";
     match parse_request_buf(bad1.as_ptr(), bad1.len()) {
-        Option::Some(_) => { return 30; }
-        Option::None    => {}
+        Result::Ok(_)  => { return 30; }
+        Result::Err(_) => {}
     }
 
     let bad2: str = "HTTP/1.1 OK\r\n\r\n";
     match parse_response_buf(bad2.as_ptr(), bad2.len()) {
-        Option::Some(_) => { return 31; }
-        Option::None    => {}
+        Result::Ok(_)  => { return 31; }
+        Result::Err(_) => {}
     }
 
     return 42;

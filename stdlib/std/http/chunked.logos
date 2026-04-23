@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.http: chunked transfer-encoding codec
+// (RFC 7230 §4.1).
+
+package std.http;
+
+use std.vec;
+
+fn hex_digit_value(b: u8) -> i32 {
+    if b >= 48 as u8 && b <= 57 as u8  { return (b as i32) - 48; }
+    if b >= 97 as u8 && b <= 102 as u8 { return (b as i32) - 97 + 10; }
+    if b >= 65 as u8 && b <= 70 as u8  { return (b as i32) - 65 + 10; }
+    return 0 - 1;
+}
+
+fn write_hex_len(n: i64, out: &mut Vec<u8>) {
+    if n == 0 { vec_push_u8(out, 48 as u8); return; }
+    let mut buf: [u8; 32] = [0 as u8; 32];
+    let mut v: i64 = n;
+    let mut k: i64 = 0;
+    while v > 0 {
+        let d: i64 = v & 15 as i64;
+        if d < 10 { buf[k] = (d + 48) as u8; }
+        else      { buf[k] = (d - 10 + 97) as u8; }    // lowercase a-f
+        v = v >> 1 >> 1 >> 1 >> 1;                     // v / 16
+        k = k + 1;
+    }
+    while k > 0 { k = k - 1; vec_push_u8(out, buf[k]); }
+}
+
+// Append one chunk (hex-length + CRLF + data + CRLF) to `out`.
+pub fn chunked_write_chunk(data: *const u8, n: i64, out: &mut Vec<u8>) {
+    write_hex_len(n, out);
+    vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);
+    let mut i: i64 = 0;
+    while i < n {
+        unsafe { vec_push_u8(out, data[i]); }
+        i = i + 1;
+    }
+    vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);
+}
+
+// Append the terminator ("0\r\n\r\n") to `out`.
+pub fn chunked_finalize(out: &mut Vec<u8>) {
+    vec_push_u8(out, 48 as u8);                        // "0"
+    vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);
+    vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8); // trailer CRLF
+}
+
+// Encode a body as a single chunk followed by the zero-length terminator.
+// Suitable for "encode my whole body"; callers wanting streaming call
+// chunked_write_chunk repeatedly then chunked_finalize.
+pub fn chunked_encode(data: *const u8, n: i64, out: &mut Vec<u8>) {
+    if n > 0 { chunked_write_chunk(data, n, out); }
+    chunked_finalize(out);
+}
+
+// Decode chunked bytes [src, src+len) into `out`.
+// Returns total input bytes consumed on success (through final trailer CRLF),
+// or -1 on malformed input.  Trailer headers are parsed and skipped.
+pub fn chunked_decode(src: *const u8, len: i64, out: &mut Vec<u8>) -> i64 {
+    let mut pos: i64 = 0;
+    unsafe {
+        while true {
+            let mut size: i64 = 0;
+            let mut seen_digit: bool = false;
+            while pos < len {
+                let b: u8 = src[pos];
+                if b == 13 as u8 || b == 59 as u8 { break; }   // CR or ';'
+                let d: i32 = hex_digit_value(b);
+                if d < 0 { return 0 - 1; }
+                size = (size << 1 << 1 << 1 << 1) + (d as i64);
+                seen_digit = true;
+                pos = pos + 1;
+            }
+            if !seen_digit { return 0 - 1; }
+            // Skip chunk-ext up to CRLF.
+            while pos < len && src[pos] != 13 as u8 { pos = pos + 1; }
+            if pos + 1 >= len || src[pos] != 13 as u8 || src[pos + 1] != 10 as u8 {
+                return 0 - 1;
+            }
+            pos = pos + 2;
+            if size == 0 {
+                // Skip optional trailer headers until an empty line.
+                while true {
+                    // inlined find_crlf
+                    let mut le: i64 = 0 - 1;
+                    let mut j: i64 = pos;
+                    while (j + 1) < len {
+                        if src[j] == 13 as u8 && src[j + 1] == 10 as u8 {
+                            le = j; j = len;
+                        } else {
+                            j = j + 1;
+                        }
+                    }
+                    if le < 0 { return 0 - 1; }
+                    if le == pos { pos = le + 2; return pos; }
+                    pos = le + 2;
+                }
+            }
+            if pos + size + 2 > len { return 0 - 1; }
+            let mut i: i64 = 0;
+            while i < size {
+                vec_push_u8(out, src[pos + i]);
+                i = i + 1;
+            }
+            pos = pos + size;
+            if src[pos] != 13 as u8 || src[pos + 1] != 10 as u8 { return 0 - 1; }
+            pos = pos + 2;
+        }
+    }
+    return pos;
+}
