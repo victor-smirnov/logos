@@ -1,0 +1,30 @@
+// Tests std.process: spawn "true" and wait, check exit status.
+package test;
+
+use std.process;
+
+fn main() -> i32 {
+    unsafe {
+        // argv = ["true", null] -- string literals are null-terminated in memory.
+        let arg0: *const u8 = "true".as_ptr();
+        let argv: [*const u8; 2] = [arg0, 0 as *const u8];
+        let mut child: Child = spawn_simple(&argv[0]);
+        if child.pid() < 0 { return 1; }
+        let st: ExitStatus = child.wait();
+        if !st.exited()  { return 2; }
+        if st.code() != 0 { return 3; }
+    }
+
+    // spawn "false" -- exits with code 1
+    unsafe {
+        let arg0: *const u8 = "false".as_ptr();
+        let argv: [*const u8; 2] = [arg0, 0 as *const u8];
+        let mut child: Child = spawn_simple(&argv[0]);
+        if child.pid() < 0 { return 4; }
+        let st: ExitStatus = child.wait();
+        if !st.exited()   { return 5; }
+        if st.code() != 1 { return 6; }
+    }
+
+    return 42;
+}

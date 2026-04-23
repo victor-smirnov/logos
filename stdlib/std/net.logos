@@ -1,0 +1,189 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.net
+//
+// TCP/UDP sockets via synchronous syscalls (same style as std.io).
+// IPv4 only for now. SockAddr4 matches struct sockaddr_in layout.
+
+package std.net;
+
+extern fn socket(domain: i32, typ: i32, protocol: i32) -> i32;
+extern fn bind(fd: i32, addr: *const u8, addrlen: i32) -> i32;
+extern fn listen(fd: i32, backlog: i32) -> i32;
+extern fn accept(fd: i32, addr: *mut u8, addrlen: *mut i32) -> i32;
+extern fn connect(fd: i32, addr: *const u8, addrlen: i32) -> i32;
+extern fn recv(fd: i32, buf: *mut u8, len: i64, flags: i32) -> i64;
+extern fn send(fd: i32, buf: *const u8, len: i64, flags: i32) -> i64;
+extern fn close(fd: i32) -> i32;
+extern fn setsockopt(fd: i32, level: i32, optname: i32, optval: *const u8, optlen: i32) -> i32;
+extern fn htons(hostshort: u16) -> u16;
+extern fn htonl(hostlong: u32) -> u32;
+extern fn recvfrom(fd: i32, buf: *mut u8, len: i64, flags: i32,
+                   addr: *mut u8, addrlen: *mut i32) -> i64;
+extern fn sendto(fd: i32, buf: *const u8, len: i64, flags: i32,
+                 addr: *const u8, addrlen: i32) -> i64;
+
+// AF_INET=2, SOCK_STREAM=1, SOCK_DGRAM=2
+pub fn AF_INET()     -> i32 { return 2; }
+pub fn SOCK_STREAM() -> i32 { return 1; }
+pub fn SOCK_DGRAM()  -> i32 { return 2; }
+
+// ---- SockAddr4 (sockaddr_in, 16 bytes) --------------------------------------
+// Layout: sin_family(u16) sin_port(u16) sin_addr(u32) sin_zero([u8;8])
+
+pub struct SockAddr4 {
+    family: u16,
+    port:   u16,
+    addr:   u32,
+    zero0:  u32,
+    zero1:  u32,
+}
+
+pub fn sockaddr4(ip: u32, port: u16) -> SockAddr4 {
+    unsafe {
+        return SockAddr4 {
+            family: 2 as u16,          // AF_INET
+            port:   htons(port),
+            addr:   htonl(ip),
+            zero0:  0 as u32,
+            zero1:  0 as u32,
+        };
+    }
+}
+
+// INADDR_ANY = 0.0.0.0
+pub fn inaddr_any() -> u32 { return 0 as u32; }
+
+// Build ip from 4 octets: ip4(127,0,0,1)
+pub fn ip4(a: u32, b: u32, c: u32, d: u32) -> u32 {
+    return (a << 24 as u32) | (b << 16 as u32) | (c << 8 as u32) | d;
+}
+
+// ---- TcpListener ------------------------------------------------------------
+
+pub struct TcpListener {
+    fd: i32,
+}
+
+// Bind and listen on addr:port. Returns TcpListener with fd=-1 on error.
+pub fn tcp_listen(ip: u32, port: u16, backlog: i32) -> TcpListener {
+    unsafe {
+        let fd: i32 = socket(AF_INET(), SOCK_STREAM(), 0);
+        if fd < 0 { return TcpListener { fd: 0 - 1 }; }
+
+        // SO_REUSEADDR = 2, SOL_SOCKET = 1
+        let one: i32 = 1;
+        setsockopt(fd, 1, 2, &one as *const u8, 4);
+
+        let addr: SockAddr4 = sockaddr4(ip, port);
+        let rc: i32 = bind(fd, &addr as *const u8, 16);
+        if rc < 0 { close(fd); return TcpListener { fd: 0 - 1 }; }
+
+        let rc2: i32 = listen(fd, backlog);
+        if rc2 < 0 { close(fd); return TcpListener { fd: 0 - 1 }; }
+
+        return TcpListener { fd: fd };
+    }
+}
+
+impl TcpListener {
+    pub fn is_valid(self: &TcpListener) -> bool { return self.fd >= 0; }
+
+    // Block until a client connects. Returns TcpStream with fd=-1 on error.
+    pub fn accept(self: &TcpListener) -> TcpStream {
+        unsafe {
+            let mut addr: SockAddr4 = SockAddr4 { family: 0 as u16, port: 0 as u16,
+                                                   addr: 0 as u32, zero0: 0 as u32, zero1: 0 as u32 };
+            let mut addrlen: i32 = 16;
+            let cfd: i32 = accept(self.fd, &mut addr as *mut u8, &mut addrlen);
+            return TcpStream { fd: cfd };
+        }
+    }
+
+    pub fn close(self: &mut TcpListener) {
+        unsafe {
+            if self.fd >= 0 { close(self.fd); self.fd = 0 - 1; }
+        }
+    }
+}
+
+// ---- TcpStream --------------------------------------------------------------
+
+pub struct TcpStream {
+    fd: i32,
+}
+
+// Connect to ip:port. Returns TcpStream with fd=-1 on error.
+pub fn tcp_connect(ip: u32, port: u16) -> TcpStream {
+    unsafe {
+        let fd: i32 = socket(AF_INET(), SOCK_STREAM(), 0);
+        if fd < 0 { return TcpStream { fd: 0 - 1 }; }
+
+        let addr: SockAddr4 = sockaddr4(ip, port);
+        let rc: i32 = connect(fd, &addr as *const u8, 16);
+        if rc < 0 { close(fd); return TcpStream { fd: 0 - 1 }; }
+
+        return TcpStream { fd: fd };
+    }
+}
+
+impl TcpStream {
+    pub fn is_valid(self: &TcpStream) -> bool { return self.fd >= 0; }
+
+    pub fn recv(self: &TcpStream, buf: *mut u8, len: i64) -> i64 {
+        unsafe { return recv(self.fd, buf, len, 0); }
+    }
+
+    pub fn send(self: &TcpStream, buf: *const u8, len: i64) -> i64 {
+        unsafe { return send(self.fd, buf, len, 0); }
+    }
+
+    pub fn close(self: &mut TcpStream) {
+        unsafe {
+            if self.fd >= 0 { close(self.fd); self.fd = 0 - 1; }
+        }
+    }
+}
+
+// ---- UdpSocket --------------------------------------------------------------
+
+pub struct UdpSocket {
+    fd: i32,
+}
+
+pub fn udp_bind(ip: u32, port: u16) -> UdpSocket {
+    unsafe {
+        let fd: i32 = socket(AF_INET(), SOCK_DGRAM(), 0);
+        if fd < 0 { return UdpSocket { fd: 0 - 1 }; }
+
+        let addr: SockAddr4 = sockaddr4(ip, port);
+        let rc: i32 = bind(fd, &addr as *const u8, 16);
+        if rc < 0 { close(fd); return UdpSocket { fd: 0 - 1 }; }
+
+        return UdpSocket { fd: fd };
+    }
+}
+
+impl UdpSocket {
+    pub fn is_valid(self: &UdpSocket) -> bool { return self.fd >= 0; }
+
+    pub fn recv_from(self: &UdpSocket, buf: *mut u8, len: i64,
+                     from: &mut SockAddr4) -> i64 {
+        unsafe {
+            let mut addrlen: i32 = 16;
+            return recvfrom(self.fd, buf, len, 0, from as *mut u8, &mut addrlen);
+        }
+    }
+
+    pub fn send_to(self: &UdpSocket, buf: *const u8, len: i64,
+                   to: &SockAddr4) -> i64 {
+        unsafe {
+            return sendto(self.fd, buf, len, 0, to as *const u8, 16);
+        }
+    }
+
+    pub fn close(self: &mut UdpSocket) {
+        unsafe {
+            if self.fd >= 0 { close(self.fd); self.fd = 0 - 1; }
+        }
+    }
+}

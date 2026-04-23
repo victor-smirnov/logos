@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.path
+//
+// Pure path manipulation (no syscalls). Paths are UTF-8 str/String.
+
+package std.path;
+
+use std.string;
+
+// ---- predicates -------------------------------------------------------------
+
+pub fn is_absolute(p: str) -> bool {
+    if p.len() == 0 as i64 { return false; }
+    unsafe { return (p[0 as i64] as i32) == 47; }  // '/'
+}
+
+pub fn is_relative(p: str) -> bool {
+    return !is_absolute(p);
+}
+
+// ---- component extraction ---------------------------------------------------
+
+// Returns the last path component as a new String.
+// "a/b/c" -> "c",  "/foo" -> "foo",  "foo" -> "foo",  "/" -> ""
+pub fn basename(p: str) -> String {
+    let n: i64 = p.len();
+    if n == 0 as i64 { return String::new(); }
+    unsafe {
+        // Strip trailing slashes
+        let mut end: i64 = n - 1 as i64;
+        while end > 0 as i64 && (p[end] as i32) == 47 {
+            end = end - 1 as i64;
+        }
+        // Find last '/' before end
+        let mut start: i64 = end;
+        while start > 0 as i64 && (p[start - 1 as i64] as i32) != 47 {
+            start = start - 1 as i64;
+        }
+        let len: i64 = end - start + 1 as i64;
+        let ptr: *const u8 = (p.as_ptr() as i64 + start) as *const u8;
+        let mut s: String = String::new();
+        s.push_bytes(ptr, len);
+        return s;
+    }
+}
+
+// Returns the directory portion as a new String.
+// "a/b/c" -> "a/b",  "/foo/bar" -> "/foo",  "foo" -> ".",  "/" -> "/"
+pub fn dirname(p: str) -> String {
+    let n: i64 = p.len();
+    let mut s: String = String::new();
+    if n == 0 as i64 {
+        s.push_str(".");
+    } else {
+        unsafe {
+            // Strip trailing slashes (but keep at least one char)
+            let mut end: i64 = n - 1 as i64;
+            while end > 0 as i64 && (p[end] as i32) == 47 {
+                end = end - 1 as i64;
+            }
+            // Find last '/'
+            let mut i: i64 = end;
+            while i >= 0 as i64 && (p[i] as i32) != 47 {
+                i = i - 1 as i64;
+            }
+            if i < 0 as i64 {
+                s.push_str(".");
+            } else if i == 0 as i64 {
+                s.push_str("/");
+            } else {
+                // Strip trailing slashes from dirname portion
+                let mut dend: i64 = i - 1 as i64;
+                while dend > 0 as i64 && (p[dend] as i32) == 47 {
+                    dend = dend - 1 as i64;
+                }
+                s.push_bytes(p.as_ptr(), dend + 1 as i64);
+            }
+        }
+    }
+    return s;
+}
+
+// Returns the file extension including the dot, or "" if none.
+// "foo.txt" -> ".txt",  "archive.tar.gz" -> ".gz",  "Makefile" -> ""
+pub fn extension(p: str) -> String {
+    let n: i64 = p.len();
+    let mut s: String = String::new();
+    if n > 0 as i64 {
+        unsafe {
+            let mut i: i64 = n - 1 as i64;
+            let mut found: i64 = 0 - 1 as i64;
+            let mut hit_slash: bool = false;
+            while i > 0 as i64 && !hit_slash && found < 0 as i64 {
+                let c: i32 = p[i] as i32;
+                if c == 47 { hit_slash = true; }
+                else if c == 46 { found = i; }
+                else { i = i - 1 as i64; }
+            }
+            if !hit_slash && found >= 0 as i64 {
+                let ptr: *const u8 = (p.as_ptr() as i64 + found) as *const u8;
+                s.push_bytes(ptr, n - found);
+            }
+        }
+    }
+    return s;
+}
+
+// Returns the filename without its extension.
+// "foo.txt" -> "foo",  "archive.tar.gz" -> "archive.tar",  "Makefile" -> "Makefile"
+pub fn stem(p: str) -> String {
+    let mut b: String = basename(p);
+    let n: i64 = b.len();
+    unsafe {
+        let mut i: i64 = n - 1 as i64;
+        while i > 0 as i64 {
+            if (b.as_ptr()[i] as i32) == 46 {  // '.'
+                let mut out: String = String::new();
+                out.push_bytes(b.as_ptr(), i);
+                return out;
+            }
+            i = i - 1 as i64;
+        }
+    }
+    return b;
+}
+
+// ---- joining ----------------------------------------------------------------
+
+// Join two path components with a single '/'.
+// join("a/b", "c") -> "a/b/c",  join("a/b/", "c") -> "a/b/c"
+// If b is absolute it overrides a (POSIX semantics).
+pub fn join(a: str, b: str) -> String {
+    if is_absolute(b) {
+        let mut s: String = String::new();
+        s.push_str(b);
+        return s;
+    }
+    let mut s: String = String::new();
+    s.push_str(a);
+    let n: i64 = a.len();
+    unsafe {
+        if n > 0 as i64 && (a[n - 1 as i64] as i32) != 47 {
+            s.push_u8(47 as u8);  // '/'
+        }
+    }
+    s.push_str(b);
+    return s;
+}
+
+// Append a component to an existing String path in place.
+pub fn join_into(base: &mut String, component: str) {
+    if is_absolute(component) {
+        base.clear();
+        base.push_str(component);
+        return;
+    }
+    let n: i64 = base.len();
+    unsafe {
+        if n > 0 as i64 && (base.as_ptr()[n - 1 as i64] as i32) != 47 {
+            base.push_u8(47 as u8);
+        }
+    }
+    base.push_str(component);
+}

@@ -14,8 +14,8 @@ extern fn close(fd: i32) -> i32;
 // ── Pipe ──────────────────────────────────────────────────────────────────
 
 pub struct Pipe {
-    read_fd:  i32,
-    write_fd: i32,
+    pub read_fd:  i32,
+    pub write_fd: i32,
 }
 
 // Create a pipe. Returns Pipe with both ends open, or Pipe{-1,-1} on error.

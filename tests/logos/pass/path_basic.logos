@@ -1,0 +1,46 @@
+// Tests std.path: basename, dirname, extension, stem, join, is_absolute.
+package test;
+
+use std.path;
+use std.string;
+
+fn main() -> i32 {
+    // is_absolute
+    if !is_absolute("/foo/bar") { return 1; }
+    if is_absolute("foo/bar")   { return 2; }
+
+    // basename
+    let b1: String = basename("/foo/bar/baz.txt");
+    if !b1.eq_str("baz.txt") { return 3; }
+    let b2: String = basename("simple");
+    if !b2.eq_str("simple") { return 4; }
+
+    // dirname
+    let d1: String = dirname("/foo/bar/baz.txt");
+    if !d1.eq_str("/foo/bar") { return 5; }
+    let d2: String = dirname("foo/bar");
+    if !d2.eq_str("foo") { return 6; }
+    let d3: String = dirname("single");
+    if !d3.eq_str(".") { return 7; }
+
+    // extension
+    let e1: String = extension("file.txt");
+    if !e1.eq_str(".txt") { return 8; }
+    let e2: String = extension("Makefile");
+    if !e2.eq_str("") { return 9; }
+
+    // stem
+    let s1: String = stem("file.txt");
+    if !s1.eq_str("file") { return 10; }
+
+    // join
+    let j1: String = join("a/b", "c");
+    if !j1.eq_str("a/b/c") { return 11; }
+    let j2: String = join("a/b/", "c");
+    if !j2.eq_str("a/b/c") { return 12; }
+    // absolute override
+    let j3: String = join("a/b", "/abs");
+    if !j3.eq_str("/abs") { return 13; }
+
+    return 42;
+}

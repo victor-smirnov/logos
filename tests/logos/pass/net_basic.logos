@@ -1,0 +1,38 @@
+// Tests std.net: UDP loopback send/recv (both sockets in same process).
+package test;
+
+use std.net;
+
+fn main() -> i32 {
+    unsafe {
+        let lo: u32 = ip4(127, 0, 0, 1);
+
+        // Bind receiver on port 19877, sender on 19878.
+        let mut rx: UdpSocket = udp_bind(lo, 19877 as u16);
+        if !rx.is_valid() { return 1; }
+
+        let mut tx: UdpSocket = udp_bind(lo, 19878 as u16);
+        if !tx.is_valid() { rx.close(); return 2; }
+
+        // Send 3 bytes from tx to rx.
+        let payload: [u8; 3] = [11 as u8, 22 as u8, 33 as u8];
+        let dst: SockAddr4 = sockaddr4(lo, 19877 as u16);
+        let ns: i64 = tx.send_to(&payload[0] as *const u8, 3, &dst);
+        if ns != 3 as i64 { tx.close(); rx.close(); return 3; }
+
+        // Receive on rx.
+        let mut buf: [u8; 8] = [0 as u8, 0 as u8, 0 as u8, 0 as u8,
+                                 0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        let mut from: SockAddr4 = sockaddr4(0 as u32, 0 as u16);
+        let nr: i64 = rx.recv_from(&mut buf[0] as *mut u8, 8, &mut from);
+        if nr != 3 as i64 { tx.close(); rx.close(); return 4; }
+
+        if buf[0] != 11 as u8 { tx.close(); rx.close(); return 5; }
+        if buf[1] != 22 as u8 { tx.close(); rx.close(); return 6; }
+        if buf[2] != 33 as u8 { tx.close(); rx.close(); return 7; }
+
+        tx.close();
+        rx.close();
+    }
+    return 42;
+}
