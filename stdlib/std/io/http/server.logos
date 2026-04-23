@@ -15,6 +15,8 @@ use std.io.net;
 use std.io.read;
 use std.io.write;
 use std.io.buffered;
+use std.sys.fiber;
+use std.mem;
 
 // Drain a full HTTP/1.1 request message from `s` into `buf`.  Reads until
 // headers are complete AND the entire Content-Length body (or chunked
@@ -299,4 +301,111 @@ pub fn serve_n(port: u16, count: i64, handler: fn(&Request) -> Response) -> Resu
     }
     listener.close();
     return Result::Ok(());
+}
+
+// ── serve_mt — multi-worker (Phase 2) ───────────────────────────────────────
+// ConnTask packs a connection fd + type-erased service pointer for handoff
+// across an SPSC inbox.  Heap-allocated by the acceptor, freed by the worker
+// fiber after it is consumed.
+pub struct ConnTask {
+    pub fd:  i32,
+    pub pad: i32,
+    pub svc: i64,
+}
+
+// Worker-side fiber entry: reconstruct a TcpStream from the handed-off fd,
+// cast the service pointer back to its concrete type, run serve_connection.
+// Monomorphized per S at the call site inside serve_mt.
+// NOTE: taking a fn pointer to a generic function does not yet monomorphize
+// via turbofish (linker gets `undefined <name>__g__i64`).  Until that is
+// fixed, serve_mt_bounded specializes on FnService — the only Service impl
+// callable today.  When trait-object dispatch lands, restore the generic
+// serve_mt_conn_fiber<S: Service> form.
+fn serve_mt_conn_fnservice(arg: i64) {
+    let t: *mut ConnTask = arg as *mut ConnTask;
+    let fd: i32 = unsafe { t.fd };
+    let svc_raw: i64 = unsafe { t.svc };
+    dealloc(t as *mut u8);
+    let stream: TcpStream = tcp_stream_from_fd(fd);
+    let svc: &mut FnService = unsafe { &mut *(svc_raw as *mut FnService) };
+    let _: i64 = serve_connection::<FnService>(stream, svc);
+}
+
+// Multi-worker server: bind on the calling thread's reactor, accept in a
+// loop, hand each connection round-robin to one of `n_workers` worker
+// threads.  Stops when *stop_flag != 0 or accept fails.  The caller supplies
+// a reactor+scheduler on the calling thread (same as serve_until).
+//
+// Safety: `svc` is shared by raw pointer across all worker threads.  For
+// stateless services (FnService, etc.) this is trivially safe.  Stateful
+// services must provide their own Sync via atomics or locks.
+pub fn serve_mt(port: u16, n_workers: i32, svc: &mut FnService,
+                 stop_flag: *mut i64) -> Result<(), HttpError> {
+    if n_workers < 1 as i32 { return Result::Err(HttpError::Connect); }
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 128 as i32);
+    if !(&listener).is_valid() { return Result::Err(HttpError::Connect); }
+
+    let pool: *mut ThreadPool = thread_pool_new(n_workers);
+    thread_pool_start(pool);
+
+    let svc_raw: i64 = svc as *mut FnService as i64;
+    let mut rr: i32 = 0 as i32;
+    unsafe {
+        while stop_flag[0 as i64] == 0 as i64 {
+            let stream: TcpStream = (&listener).async_accept();
+            if !(&stream).is_valid() { break; }
+            let task: *mut ConnTask =
+                alloc(sizeof::<ConnTask>()) as *mut ConnTask;
+            task.fd  = (&stream).raw_fd();
+            task.pad = 0 as i32;
+            task.svc = svc_raw;
+            let fp: fn(i64) -> () = serve_mt_conn_fnservice;
+            thread_submit(pool, rr, fp, task as i64);
+            rr = rr + 1 as i32;
+            if rr >= n_workers { rr = 0 as i32; }
+        }
+    }
+    listener.close();
+    thread_pool_signal_done(pool);
+    thread_pool_join(pool);
+    thread_pool_free(pool);
+    return Result::Ok(());
+}
+
+// Bounded multi-worker variant: accept exactly `count` connections, hand
+// them round-robin to `n_workers` workers, then signal shutdown and RETURN
+// the pool to the caller.  Caller must thread_pool_join + thread_pool_free
+// AFTER its reactor has drained — doing that inside the fiber would block
+// the OS thread and deadlock client fibers sharing its scheduler.
+pub fn serve_mt_bounded(port: u16, n_workers: i32, count: i64,
+                         svc: &mut FnService) -> *mut ThreadPool {
+    if n_workers < 1 as i32 { return 0 as *mut ThreadPool; }
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 128 as i32);
+    if !(&listener).is_valid() { return 0 as *mut ThreadPool; }
+
+    let pool: *mut ThreadPool = thread_pool_new(n_workers);
+    thread_pool_start(pool);
+
+    let svc_raw: i64 = svc as *mut FnService as i64;
+    let mut rr: i32 = 0 as i32;
+    let mut served: i64 = 0 as i64;
+    while served < count {
+        let stream: TcpStream = (&listener).async_accept();
+        if !(&stream).is_valid() { break; }
+        let task: *mut ConnTask =
+            alloc(sizeof::<ConnTask>()) as *mut ConnTask;
+        unsafe {
+            task.fd  = (&stream).raw_fd();
+            task.pad = 0 as i32;
+            task.svc = svc_raw;
+        }
+        let fp: fn(i64) -> () = serve_mt_conn_fnservice;
+        thread_submit(pool, rr, fp, task as i64);
+        rr = rr + 1 as i32;
+        if rr >= n_workers { rr = 0 as i32; }
+        served = served + 1 as i64;
+    }
+    listener.close();
+    thread_pool_signal_done(pool);
+    return pool;
 }

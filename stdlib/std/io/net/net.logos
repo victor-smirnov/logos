@@ -118,6 +118,13 @@ pub struct TcpStream {
     fd: i32,
 }
 
+// Build a TcpStream from a raw fd (e.g. received via serve_mt handoff).
+// Caller is responsible for the fd being a valid connected socket; the
+// stream assumes ownership and closes the fd on drop / close().
+pub fn tcp_stream_from_fd(fd: i32) -> TcpStream {
+    return TcpStream { fd: fd };
+}
+
 // Connect to ip:port. Returns TcpStream with fd=-1 on error.
 pub fn tcp_connect(ip: u32, port: u16) -> TcpStream {
     unsafe {
@@ -134,6 +141,9 @@ pub fn tcp_connect(ip: u32, port: u16) -> TcpStream {
 
 impl TcpStream {
     pub fn is_valid(self: &TcpStream) -> bool { return self.fd >= 0; }
+
+    // Expose the underlying fd for cross-thread handoff (serve_mt).
+    pub fn raw_fd(self: &TcpStream) -> i32 { return self.fd; }
 
     pub fn close(self: &mut TcpStream) {
         unsafe {
