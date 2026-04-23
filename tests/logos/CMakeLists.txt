@@ -128,7 +128,7 @@ set(LOGOS_INTEGRATION_TESTS
     io_uring_basic
     fs_basic env_basic io_print_basic panic_basic pipe_basic io_read_write_trait io_writev_basic
     path_basic process_basic net_basic
-    math_basic random_basic thread_basic bufio_basic
+    math_basic random_basic thread_basic bufio_basic bufio_generic_reader
     signal_basic os_basic
     hex_basic base64_basic url_basic url_parse_basic http_types_basic http_parse_basic http_chunked http_roundtrip json_basic log_basic args_basic crypto_basic testing_basic csv_basic datetime_basic regex_basic)
 
@@ -176,7 +176,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     io_uring_basic
     fs_basic env_basic io_print_basic panic_basic pipe_basic io_read_write_trait io_writev_basic
     path_basic process_basic net_basic
-    math_basic random_basic thread_basic bufio_basic
+    math_basic random_basic thread_basic bufio_basic bufio_generic_reader
     signal_basic os_basic
     hex_basic base64_basic url_basic url_parse_basic http_types_basic http_parse_basic http_chunked http_roundtrip json_basic log_basic args_basic crypto_basic testing_basic csv_basic datetime_basic regex_basic)
 

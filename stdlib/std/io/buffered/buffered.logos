@@ -1,50 +1,77 @@
 // SPDX-License-Identifier: Apache-2.0
-// Logos standard library -- std.bufio
+// Logos standard library -- std.io.buffered
 //
-// Buffered I/O over raw fds.  Reduces syscall count for small reads/writes.
+// Buffered I/O generic over Read/Write traits.  Reduces syscall count for
+// small reads/writes; adapts any Read/Write impl (TcpStream, Pipe, a
+// ChunkedReader, a Bytes cursor, ...).
 //
-// BufWriter: accumulates writes in a heap buffer; flushes on demand, on
-// close, or when the buffer fills.
-// BufReader: reads chunks from fd; hands out bytes/lines from the buffer.
-//
-// Both take a raw fd; they do not own it (caller closes it).
+// For raw fds, use FdReader/FdWriter adapters or the convenience
+// constructors buf_reader_new(fd, cap) / buf_writer_new(fd, cap) that wrap
+// a fd in an FdReader/FdWriter for you.
 
 package std.io.buffered;
 
 use std.mem;
 use std.lang.text;
+use std.io.read;
+use std.io.write;
 
 extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
-// ---- BufWriter -------------------------------------------------------------
+// ---- Fd adapters -----------------------------------------------------------
 
-pub struct BufWriter {
-    fd:  i32,
-    buf: *mut u8,
-    pos: i64,
-    cap: i64,
+pub struct FdReader { pub fd: i32 }
+pub struct FdWriter { pub fd: i32 }
+
+pub fn fd_reader(fd: i32) -> FdReader { return FdReader { fd: fd }; }
+pub fn fd_writer(fd: i32) -> FdWriter { return FdWriter { fd: fd }; }
+
+impl Read for FdReader {
+    fn read(self: &mut FdReader, buf: *mut u8, len: i64) -> i64 {
+        unsafe { return read(self.fd, buf, len); }
+    }
 }
 
-pub fn buf_writer_new(fd: i32, cap: i64) -> BufWriter {
+impl Write for FdWriter {
+    fn write(self: &mut FdWriter, buf: *const u8, len: i64) -> i64 {
+        unsafe { return write(self.fd, buf, len); }
+    }
+    fn flush(self: &mut FdWriter) -> i64 { return 0; }
+}
+
+// ---- BufWriter -------------------------------------------------------------
+
+pub struct BufWriter<W> {
+    writer: W,
+    buf:    *mut u8,
+    pos:    i64,
+    cap:    i64,
+}
+
+// Wrap any Write sink.
+pub fn buf_writer_wrap<W: Write>(w: W, cap: i64) -> BufWriter<W> {
     let buf: *mut u8 = alloc(cap);
-    return BufWriter { fd: fd, buf: buf, pos: 0 as i64, cap: cap };
+    return BufWriter { writer: w, buf: buf, pos: 0 as i64, cap: cap };
+}
+
+// Convenience: buffer over a raw fd.
+pub fn buf_writer_new(fd: i32, cap: i64) -> BufWriter<FdWriter> {
+    return buf_writer_wrap::<FdWriter>(fd_writer(fd), cap);
 }
 
 // 8 KiB default — matches the typical page/disk sector balance.
-pub fn buf_writer_default(fd: i32) -> BufWriter {
+pub fn buf_writer_default(fd: i32) -> BufWriter<FdWriter> {
     return buf_writer_new(fd, 8192 as i64);
 }
 
-impl BufWriter {
-    pub fn fd(self: &BufWriter) -> i32 { return self.fd; }
-
-    // Flush any buffered bytes to the underlying fd.
+impl<W: Write> BufWriter<W> {
+    // Flush any buffered bytes to the underlying writer.
     // Returns bytes flushed (== pos on success), or <0 on error.
-    pub fn flush(self: &mut BufWriter) -> i64 {
+    pub fn flush(self: &mut BufWriter<W>) -> i64 {
         unsafe {
             if self.pos == 0 as i64 { return 0 as i64; }
-            let n: i64 = write(self.fd, self.buf, self.pos);
+            let n: i64 = self.writer.write(self.buf, self.pos);
             if n < 0 as i64 { return n; }
             self.pos = 0 as i64;
             return n;
@@ -53,21 +80,18 @@ impl BufWriter {
 
     // Write `len` bytes.  Flushes first if the chunk won't fit; for chunks
     // larger than cap, writes directly (bypassing the buffer).
-    pub fn write_bytes(self: &mut BufWriter, src: *const u8, len: i64) -> i64 {
+    pub fn write_bytes(self: &mut BufWriter<W>, src: *const u8, len: i64) -> i64 {
         unsafe {
             if len <= 0 as i64 { return 0 as i64; }
-            // Large writes: flush and write through.
             if len >= self.cap {
                 let fr: i64 = self.flush();
                 if fr < 0 as i64 { return fr; }
-                return write(self.fd, src, len);
+                return self.writer.write(src, len);
             }
-            // Won't fit in remaining space: flush first.
             if self.pos + len > self.cap {
                 let fr: i64 = self.flush();
                 if fr < 0 as i64 { return fr; }
             }
-            // Copy into buffer.
             let dst: *mut u8 = (self.buf as i64 + self.pos) as *mut u8;
             mem_copy(dst, 0 as i64, src, len);
             self.pos = self.pos + len;
@@ -75,11 +99,11 @@ impl BufWriter {
         }
     }
 
-    pub fn write_str(self: &mut BufWriter, s: str) -> i64 {
+    pub fn write_str(self: &mut BufWriter<W>, s: str) -> i64 {
         unsafe { return self.write_bytes(s.as_ptr(), s.len()); }
     }
 
-    pub fn write_byte(self: &mut BufWriter, b: u8) -> i64 {
+    pub fn write_byte(self: &mut BufWriter<W>, b: u8) -> i64 {
         unsafe {
             if self.pos >= self.cap {
                 let fr: i64 = self.flush();
@@ -92,8 +116,9 @@ impl BufWriter {
         }
     }
 
-    // Flush then free the buffer.  fd is NOT closed — caller owns it.
-    pub fn close(self: &mut BufWriter) -> i64 {
+    // Flush then free the buffer.  The wrapped writer is NOT closed —
+    // caller owns it.
+    pub fn close(self: &mut BufWriter<W>) -> i64 {
         let r: i64 = self.flush();
         unsafe {
             if self.buf as i64 != 0 as i64 {
@@ -107,39 +132,42 @@ impl BufWriter {
 
 // ---- BufReader -------------------------------------------------------------
 
-pub struct BufReader {
-    fd:    i32,
-    buf:   *mut u8,
-    start: i64,  // next unread byte
-    end:   i64,  // one past last valid byte
-    cap:   i64,
+pub struct BufReader<R> {
+    reader: R,
+    buf:    *mut u8,
+    start:  i64,  // next unread byte
+    end:    i64,  // one past last valid byte
+    cap:    i64,
 }
 
-pub fn buf_reader_new(fd: i32, cap: i64) -> BufReader {
+pub fn buf_reader_wrap<R: Read>(r: R, cap: i64) -> BufReader<R> {
     let buf: *mut u8 = alloc(cap);
-    return BufReader { fd: fd, buf: buf, start: 0 as i64, end: 0 as i64, cap: cap };
+    return BufReader { reader: r, buf: buf, start: 0 as i64, end: 0 as i64, cap: cap };
 }
 
-pub fn buf_reader_default(fd: i32) -> BufReader {
+pub fn buf_reader_new(fd: i32, cap: i64) -> BufReader<FdReader> {
+    return buf_reader_wrap::<FdReader>(fd_reader(fd), cap);
+}
+
+pub fn buf_reader_default(fd: i32) -> BufReader<FdReader> {
     return buf_reader_new(fd, 8192 as i64);
 }
 
-impl BufReader {
-    pub fn fd(self: &BufReader) -> i32 { return self.fd; }
-
-    // Internal: refill the buffer from fd.  Returns bytes read (0 on EOF, <0 on error).
-    fn refill(self: &mut BufReader) -> i64 {
+impl<R: Read> BufReader<R> {
+    // Internal: refill the buffer from the underlying reader.
+    // Returns bytes read (0 on EOF, <0 on error).
+    fn refill(self: &mut BufReader<R>) -> i64 {
         unsafe {
             self.start = 0 as i64;
             self.end   = 0 as i64;
-            let n: i64 = read(self.fd, self.buf, self.cap);
+            let n: i64 = self.reader.read(self.buf, self.cap);
             if n > 0 as i64 { self.end = n; }
             return n;
         }
     }
 
     // Read one byte.  Returns byte value as i32 in [0,255], or -1 on EOF/error.
-    pub fn read_byte(self: &mut BufReader) -> i32 {
+    pub fn read_byte(self: &mut BufReader<R>) -> i32 {
         unsafe {
             if self.start >= self.end {
                 let n: i64 = self.refill();
@@ -153,13 +181,13 @@ impl BufReader {
     }
 
     // Fill `dst[0..len]` with bytes; returns bytes read, 0 on EOF, <0 on error.
-    pub fn read_bytes(self: &mut BufReader, dst: *mut u8, len: i64) -> i64 {
+    pub fn read_bytes(self: &mut BufReader<R>, dst: *mut u8, len: i64) -> i64 {
         unsafe {
             let mut have: i64 = self.end - self.start;
             if have == 0 as i64 {
                 // Large requests bypass the buffer.
                 if len >= self.cap {
-                    return read(self.fd, dst, len);
+                    return self.reader.read(dst, len);
                 }
                 let n: i64 = self.refill();
                 if n <= 0 as i64 { return n; }
@@ -176,7 +204,7 @@ impl BufReader {
 
     // Read until '\n' (inclusive).  Appends bytes to `out`.
     // Returns bytes appended (0 on EOF at start, <0 on error).
-    pub fn read_line(self: &mut BufReader, out: &mut String) -> i64 {
+    pub fn read_line(self: &mut BufReader<R>, out: &mut String) -> i64 {
         unsafe {
             let mut total: i64 = 0 as i64;
             let mut done: bool = false;
@@ -187,7 +215,6 @@ impl BufReader {
                     if n == 0 as i64 { done = true; }
                 }
                 if !done {
-                    // Scan for '\n' in the available slice.
                     let mut i: i64 = self.start;
                     let mut found: i64 = 0 - 1 as i64;
                     while i < self.end && found < 0 as i64 {
@@ -209,12 +236,20 @@ impl BufReader {
         }
     }
 
-    pub fn close(self: &mut BufReader) {
+    pub fn close(self: &mut BufReader<R>) {
         unsafe {
             if self.buf as i64 != 0 as i64 {
                 dealloc(self.buf);
                 self.buf = 0 as *mut u8;
             }
         }
+    }
+}
+
+// BufReader<R> itself implements Read — useful for chaining
+// (e.g. ChunkedReader<BufReader<TcpStream>>).
+impl<R: Read> Read for BufReader<R> {
+    fn read(self: &mut BufReader<R>, buf: *mut u8, len: i64) -> i64 {
+        return self.read_bytes(buf, len);
     }
 }

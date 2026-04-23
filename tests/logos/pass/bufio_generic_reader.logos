@@ -1,0 +1,51 @@
+// Exercises the generic entry points buf_reader_wrap::<R>/buf_writer_wrap::<W>
+// directly, and verifies BufReader<R>::read (trait impl) chains via
+// BufReader-over-BufReader.
+package test;
+
+use std.io.buffered;
+use std.io.pipe;
+use std.lang.text;
+
+fn main() -> i32 {
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 1; }
+
+        // Explicit wrap over an FdWriter.
+        let mut w: BufWriter<FdWriter> =
+            buf_writer_wrap::<FdWriter>(fd_writer(p.write_fd), 4 as i64);
+        w.write_str("hello, world!");
+        if w.flush() < 0 as i64 { return 2; }
+        w.close();
+        p.close_write();
+
+        // Inner BufReader wraps the fd.
+        let inner: BufReader<FdReader> =
+            buf_reader_wrap::<FdReader>(fd_reader(p.read_fd), 5 as i64);
+
+        // Outer BufReader wraps the inner one (exercises BufReader<R>: Read).
+        let mut outer: BufReader<BufReader<FdReader>> =
+            buf_reader_wrap::<BufReader<FdReader>>(inner, 3 as i64);
+
+        let mut got: [u8; 13] = [0 as u8, 0 as u8, 0 as u8, 0 as u8,
+                                 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+                                 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        let mut count: i64 = 0 as i64;
+        while count < 13 as i64 {
+            let b: i32 = outer.read_byte();
+            if b < 0 { return 3; }
+            got[count] = b as u8;
+            count = count + 1 as i64;
+        }
+        let eof: i32 = outer.read_byte();
+        if eof >= 0 { return 4; }
+
+        if got[0]  != 104 as u8 { return 5; }  // 'h'
+        if got[12] != 33  as u8 { return 6; }  // '!'
+
+        outer.close();
+        p.close();
+    }
+    return 42;
+}

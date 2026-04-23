@@ -11,7 +11,7 @@ fn main() -> i32 {
         if !p.is_valid() { return 1; }
 
         // Writer side: emit "hello\nworld\n" in small chunks.
-        let mut w: BufWriter = buf_writer_default(p.write_fd);
+        let mut w: BufWriter<FdWriter> = buf_writer_default(p.write_fd);
         w.write_str("hel");
         w.write_str("lo\n");
         w.write_str("world\n");
@@ -23,7 +23,7 @@ fn main() -> i32 {
         p.close_write();
 
         // Reader side.
-        let mut r: BufReader = buf_reader_default(p.read_fd);
+        let mut r: BufReader<FdReader> = buf_reader_default(p.read_fd);
 
         let mut line1: String = String::new();
         let n1: i64 = r.read_line(&mut line1);
@@ -49,7 +49,7 @@ fn main() -> i32 {
         let mut p: Pipe = pipe_new();
         if !p.is_valid() { return 8; }
 
-        let mut w: BufWriter = buf_writer_new(p.write_fd, 4 as i64);
+        let mut w: BufWriter<FdWriter> = buf_writer_new(p.write_fd, 4 as i64);
         // 7 bytes, cap=4 → at least one mid-stream flush.
         w.write_byte(65 as u8);  // A
         w.write_byte(66 as u8);  // B
@@ -62,7 +62,7 @@ fn main() -> i32 {
         w.close();
         p.close_write();
 
-        let mut r: BufReader = buf_reader_new(p.read_fd, 3 as i64);
+        let mut r: BufReader<FdReader> = buf_reader_new(p.read_fd, 3 as i64);
         let mut got: [u8; 7] = [0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8];
         let mut count: i64 = 0 as i64;
         while count < 7 as i64 {
