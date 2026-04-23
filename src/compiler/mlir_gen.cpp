@@ -374,8 +374,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
         return nullptr;
     }
     auto& info  = sit->second;
-    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                      loc_, ptr_type(), info.llvm_type, i64_one());
+    auto alloca = create_entry_alloca(info.llvm_type);
     for (auto& [fname, fval] : e.fields) {
         // Find field metadata.
         const FieldInfo* fi = nullptr;
@@ -445,8 +444,7 @@ mlir::Type MLIRGenImpl::subscript_elem_type(const std::string& name) {
 mlir::Value MLIRGenImpl::gen_arr_lit(const EArrLit& e, mlir::Type elem_type) {
     uint64_t n = e.elems.size();
     auto arr_type = mlir::LLVM::LLVMArrayType::get(elem_type, n);
-    auto alloca   = builder_.create<mlir::LLVM::AllocaOp>(
-                        loc_, ptr_type(), arr_type, i64_one());
+    auto alloca   = create_entry_alloca(arr_type);
     bool elem_is_array = elem_type && mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type);
     for (uint64_t i = 0; i < n; ++i) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(i)};

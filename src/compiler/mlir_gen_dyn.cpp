@@ -703,8 +703,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, const std::string& 
                                         const std::string& src_type_name) {
     auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
         builder_.getContext(), {ptr_type(), ptr_type()});
-    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), dyn_struct, i64_one());
+    auto alloca = create_entry_alloca(dyn_struct);
     // Store data pointer at field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
     auto dp = builder_.create<mlir::LLVM::GEPOp>(
@@ -796,8 +795,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
         fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_t, slot_ptr);
     } else {
         // ── Conditional: tier-1 if type_code < 223, else tier-2 lookup ───
-        auto fn_ptr_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_t, ptr_t, i64_one());
+        auto fn_ptr_alloca = create_entry_alloca(ptr_t);
 
         auto boundary = builder_.create<mlir::arith::ConstantIntOp>(
             loc_, static_cast<int64_t>(kTier1Size), 64);
@@ -999,6 +997,8 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
         auto saved_local_ptrs = var_local_ptrs_;
         auto saved_dyn_trait  = var_dyn_trait_;
         auto saved_loop_stack = loop_stack_;
+        auto saved_entry_block = cur_entry_block_;
+        cur_entry_block_ = entry;
         scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
         var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
         var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
@@ -1026,6 +1026,7 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
         var_local_ptrs_     = saved_local_ptrs;
         var_dyn_trait_      = saved_dyn_trait;
         loop_stack_         = saved_loop_stack;
+        cur_entry_block_    = saved_entry_block;
         builder_.restoreInsertionPoint(save_pt);
         // Return the function address (this IS the fn ptr value)
         return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), e.closure_id);
@@ -1105,6 +1106,8 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
     auto saved_local_ptrs  = var_local_ptrs_;
     auto saved_dyn_trait   = var_dyn_trait_;
     auto saved_loop_stack  = loop_stack_;
+    auto saved_entry_block = cur_entry_block_;
+    cur_entry_block_ = entry;
     scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
     var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
     var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
@@ -1148,8 +1151,7 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
                 var_dyn_trait_[e.captures[i]] = ct->trait_name;
         } else {
             // Scalar capture: store in alloca for let-variable semantics.
-            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_type(), cap_fields[i], i64_one());
+            auto alloca = create_entry_alloca(cap_fields[i]);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
             scope_[e.captures[i]] = alloca;
             let_vars_.insert(e.captures[i]);
@@ -1184,11 +1186,11 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
     var_local_ptrs_     = saved_local_ptrs;
     var_dyn_trait_      = saved_dyn_trait;
     loop_stack_         = saved_loop_stack;
+    cur_entry_block_    = saved_entry_block;
     builder_.restoreInsertionPoint(save_pt);
 
     // At the creation site: alloca capture struct, store captures
-    auto env_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), cap_struct, i64_one());
+    auto env_alloca = create_entry_alloca(cap_struct);
     for (size_t i = 0; i < e.captures.size(); ++i) {
         auto it = scope_.find(e.captures[i]);
         if (it == scope_.end()) continue;
@@ -1209,8 +1211,7 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
 
     // Build closure value: { fn_ptr, env_ptr }
     auto ctype = closure_llvm_type();
-    auto closure_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), ctype, i64_one());
+    auto closure_alloca = create_entry_alloca(ctype);
     // Store fn_ptr
     auto fn_addr = builder_.create<mlir::LLVM::AddressOfOp>(
         loc_, ptr_type(), e.closure_id);

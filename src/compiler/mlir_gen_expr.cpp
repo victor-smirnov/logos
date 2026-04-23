@@ -151,7 +151,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitStr& e, const LogosType*) {
 
     // Build fat pointer {ptr, len} on the stack and return pointer to it.
     auto stype  = slice_llvm_type();
-    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), stype, i64_one());
+    auto alloca = create_entry_alloca(stype);
     llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
     auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
     builder_.create<mlir::LLVM::StoreOp>(loc_, raw_ptr, pp);
@@ -194,8 +194,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, const LogosType* type) 
                 // Build closure fat pointer: { fn_ptr, env_ptr=null }
                 auto closure_struct_t = mlir::LLVM::LLVMStructType::getLiteral(
                     builder_.getContext(), {ptr_type(), ptr_type()});
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), closure_struct_t, i64_one());
+                auto alloca = create_entry_alloca(closure_struct_t);
                 // Store the function address as fn_ptr.
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
                     loc_, fn_sym.getFunctionType(), e.name);
@@ -334,8 +333,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, const LogosType*) {
     // || : if LHS is true,  result is true  (skip RHS)
     if (e.op == "&&" || e.op == "||") {
         auto i1 = builder_.getI1Type();
-        auto result_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), i1, i64_one());
+        auto result_alloca = create_entry_alloca(i1);
 
         auto* region      = builder_.getBlock()->getParent();
         auto* rhs_block   = new mlir::Block();
@@ -600,8 +598,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOf& e, const LogosType*) {
     // scalar-typed param requires materializing an on-stack copy so callers
     // can receive a real pointer.
     if (it->second && it->second.getType() != ptr_type()) {
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), it->second.getType(), i64_one());
+        auto alloca = create_entry_alloca(it->second.getType());
         builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
         return alloca;
     }
@@ -724,8 +721,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
     // Scalar: spill to a fresh stack slot.
     auto llvm_type = logos_to_mlir(t);
     if (!llvm_type) llvm_type = builder_.getI32Type();
-    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), llvm_type, i64_one());
+    auto alloca = create_entry_alloca(llvm_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
     return alloca;
 }
@@ -762,7 +758,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
             auto ptr_v = gen_expr(*e.args[0]); if (!ptr_v) return nullptr;
             auto len_v = gen_expr(*e.args[1]); if (!len_v) return nullptr;
             auto stype  = slice_llvm_type();
-            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), stype, i64_one());
+            auto alloca = create_entry_alloca(stype);
             llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
             auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
             builder_.create<mlir::LLVM::StoreOp>(loc_, ptr_v, pp);
@@ -964,8 +960,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
     auto [ptr, tname] = gen_recv_struct(*e.receiver);
     if (!ptr || tname.empty()) return nullptr;
     if (tname == "AnyVal" && ptr.getType() != ptr_type()) {
-        auto slot = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), builder_.getI32Type(), i64_one());
+        auto slot = create_entry_alloca(builder_.getI32Type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
         ptr = slot;
     }
@@ -1212,7 +1207,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleLit& e, const LogosType* type
     auto stype = tuple_llvm_type(type);
     if (!stype) return nullptr;
     // Allocate tuple on stack, store each element via GEP.
-    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), stype, i64_one());
+    auto alloca = create_entry_alloca(stype);
     for (uint32_t i = 0; i < e.elems.size(); ++i) {
         auto val = gen_expr(*e.elems[i]);
         if (!val) return nullptr;
@@ -1463,8 +1458,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIfExpr& e, const LogosType* type) 
     if (!result_type) return nullptr;
 
     // Allocate result slot in the current (entry-reachable) block.
-    auto result_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), result_type, i64_one());
+    auto result_alloca = create_entry_alloca(result_type);
 
     auto* region      = builder_.getBlock()->getParent();
     auto* then_block  = new mlir::Block();
@@ -1499,8 +1493,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
     if (!result_type) return nullptr;
 
     // Allocate result slot before the match (entry-block reachable).
-    auto result_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), result_type, i64_one());
+    auto result_alloca = create_entry_alloca(result_type);
 
     auto* region      = builder_.getBlock()->getParent();
     auto* merge_block = new mlir::Block();
@@ -1522,8 +1515,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
             // GEP requires a pointer operand.  If the scrutinee is a by-value
             // struct (e.g. a direct function call result), spill it to an alloca.
             if (scrut.getType() != ptr_type()) {
-                auto tmp = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), te_info->llvm_type, i64_one());
+                auto tmp = create_entry_alloca(te_info->llvm_type);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
                 scrut = tmp;
             }
@@ -1591,8 +1583,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
                                 bound_val = builder_.create<mlir::LLVM::LoadOp>(
                                     loc_, vp->field_types[bi], fp);
                             }
-                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                                loc_, ptr_type(), vp->field_types[bi], i64_one());
+                            auto alloca = create_entry_alloca(vp->field_types[bi]);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
                             scope_[pvd->bindings[bi]] = alloca;
                             let_vars_.insert(pvd->bindings[bi]);
@@ -1605,8 +1596,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
         } else if (auto* pw = std::get_if<PatWild>(&arm.pat)) {
             if (pw->name != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), sv.getType(), i64_one());
+                auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
                 scope_[pw->name] = alloca;
                 let_vars_.insert(pw->name);
@@ -1878,7 +1868,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLit& e, const LogosType*) {
     auto len  = gen_expr(*e.len);
     if (!base || !len) return nullptr;
     auto stype = slice_llvm_type();
-    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), stype, i64_one());
+    auto alloca = create_entry_alloca(stype);
     // Store ptr at field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
     auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
@@ -1980,11 +1970,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFormatCall& e, const LogosType*) {
     auto i64_type = builder_.getI64Type();
 
     // Allocate [n x i32] tags and [n x i64] data arrays on stack.
-    mlir::Value n_alloc = builder_.create<mlir::arith::ConstantIntOp>(loc_, n > 0 ? n : 1, 64);
-    auto tags_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), i32_type, n_alloc);
-    auto data_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), i64_type, n_alloc);
+    int64_t n_cnt = n > 0 ? n : 1;
+    auto tags_alloca = create_entry_alloca(i32_type, n_cnt);
+    auto data_alloca = create_entry_alloca(i64_type, n_cnt);
 
     for (int i = 0; i < n; ++i) {
         int tag = format_type_tag(e.arg_types[i]);
@@ -2180,7 +2168,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, const LogosType* type) {
 
     auto ok_mlir = logos_to_mlir(type);
     if (!ok_mlir) return nullptr;
-    auto result_alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), ok_mlir, i64_one());
+    auto result_alloca = create_entry_alloca(ok_mlir);
 
     auto* region      = builder_.getBlock()->getParent();
     auto* ok_block    = new mlir::Block();
@@ -2231,8 +2219,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, const LogosType* type) {
         auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), te->llvm_type, inner_ptr, pi);
 
-        auto ret_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), te->llvm_type, i64_one());
+        auto ret_alloca = create_entry_alloca(te->llvm_type);
         // Store err discriminant
         llvm::SmallVector<mlir::LLVM::GEPArg> di2{int32_t(0), int32_t(0)};
         auto rdp = builder_.create<mlir::LLVM::GEPOp>(
@@ -2599,8 +2586,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EReflectOf& e, const LogosType*) {
     // Return HermesStatic { ptr: blob_ptr } as an alloca.
     auto sit = struct_types_.find("HermesStatic");
     if (sit == struct_types_.end()) return blob_ptr;
-    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), sit->second.llvm_type, i64_one());
+    auto alloca = create_entry_alloca(sit->second.llvm_type);
     auto gep = gep_field(alloca, sit->second, "ptr");
     if (!gep) return blob_ptr;
     builder_.create<mlir::LLVM::StoreOp>(loc_, blob_ptr, gep);
@@ -2650,8 +2636,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
             // Fallback: HermesStatic not yet registered (shouldn't happen in normal builds).
             return blob_ptr;
         }
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), sit->second.llvm_type, i64_one());
+        auto alloca = create_entry_alloca(sit->second.llvm_type);
         auto gep = gep_field(alloca, sit->second, "ptr");
         if (!gep) return blob_ptr;
         builder_.create<mlir::LLVM::StoreOp>(loc_, blob_ptr, gep);
@@ -2724,8 +2709,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
     auto u32_mlir = builder_.getIntegerType(32);
     if (n_values > 0) {
         auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
-        resolved_ptr = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), arr_t, i64_one());
+        resolved_ptr = create_entry_alloca(arr_t);
     } else {
         mlir::Value zero64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
         resolved_ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), zero64);
@@ -2769,8 +2753,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
         mlir::Type  ctr_type = new_fn.getFunctionType().getResult(0);
 
         // Alloca Hermes so we can take its address for alloc helpers.
-        mlir::Value ctr_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), ctr_type, i64_one());
+        mlir::Value ctr_alloca = create_entry_alloca(ctr_type);
         builder_.create<mlir::LLVM::StoreOp>(loc_, ctr_val, ctr_alloca);
 
         // For each unique capture: gen_expr, coerce, store in resolved[i].

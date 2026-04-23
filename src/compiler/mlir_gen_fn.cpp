@@ -151,6 +151,7 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
 bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn) {
     auto* entry = func.addEntryBlock();
     builder_.setInsertionPointToStart(entry);
+    cur_entry_block_ = entry;
 
     scope_.clear();
     let_vars_.clear();

@@ -117,6 +117,11 @@ private:
     mlir::Type                                    cur_ret_type_;
     const LogosType*                              cur_fn_ret_logos_type_ = nullptr;
     bool                                          in_llvm_func_ = false;
+    // Entry block of the function currently being emitted.  All LLVM::AllocaOp
+    // instructions must be inserted here (at the top) so LLVM treats them as
+    // *static* allocas — otherwise an alloca inside a loop body grows the
+    // stack frame on every iteration and eventually overflows.
+    mlir::Block*                                  cur_entry_block_ = nullptr;
 
     struct LoopBlocks {
         mlir::Block*  cont;
@@ -149,12 +154,32 @@ private:
         return mlir::LLVM::LLVMPointerType::get(builder_.getContext());
     }
 
+    // Create an LLVM::AllocaOp in the current function's entry block so it
+    // is recognised as a static alloca (reused across loop iterations /
+    // function calls, never growing the stack dynamically).  Returns the
+    // alloca pointer.  The builder's insertion point is restored before
+    // returning so the caller can continue emitting at its original site.
+    mlir::Value create_entry_alloca(mlir::Type elem_type, int64_t count = 1) {
+        if (!cur_entry_block_) {
+            // Fallback for callers outside a tracked function body (should
+            // not happen in practice; preserve old behaviour just in case).
+            auto cnt = builder_.create<mlir::arith::ConstantIntOp>(loc_, count, 64);
+            return builder_.create<mlir::LLVM::AllocaOp>(
+                loc_, ptr_type(), elem_type, cnt);
+        }
+        mlir::OpBuilder::InsertionGuard guard(builder_);
+        builder_.setInsertionPointToStart(cur_entry_block_);
+        auto cnt = builder_.create<mlir::arith::ConstantIntOp>(loc_, count, 64);
+        return builder_.create<mlir::LLVM::AllocaOp>(
+            loc_, ptr_type(), elem_type, cnt);
+    }
+
     // Spill an aggregate value (struct/enum returned by value) to an alloca.
     // Used when passing such a value to a function that expects a pointer.
     mlir::Value spill_to_alloca(mlir::Value v) {
         auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(v.getType());
         if (!st) return v;
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), st, i64_one());
+        auto alloca = create_entry_alloca(st);
         builder_.create<mlir::LLVM::StoreOp>(loc_, v, alloca);
         return alloca;
     }

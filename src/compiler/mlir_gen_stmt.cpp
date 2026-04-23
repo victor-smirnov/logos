@@ -149,8 +149,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         val = coerce_numeric(val, builder_.getI32Type());
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), builder_.getI32Type(), i64_one());
+        auto alloca = create_entry_alloca(builder_.getI32Type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
@@ -201,8 +200,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         auto stype = tuple_llvm_type(s.type);
         if (stype && val.getType() != ptr_type()) {
             // By-value struct (e.g. from function call) — store into alloca.
-            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_type(), stype, i64_one());
+            auto alloca = create_entry_alloca(stype);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
             val = alloca;
         }
@@ -227,8 +225,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         // Store as a let-bound scalar (alloca holding a ptr).
-        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), ptr_type(), i64_one());
+        auto alloca = create_entry_alloca(ptr_type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
         scope_[s.name]          = alloca;
         let_vars_.insert(s.name);
@@ -254,8 +251,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             if (!val) return;
             // If gen_expr returned a non-pointer value, create the tagged enum alloca.
             if (val.getType() != ptr_type()) {
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), te->llvm_type, i64_one());
+                auto alloca = create_entry_alloca(te->llvm_type);
                 if (val.getType() == te->llvm_type) {
                     // Aggregate returned by value from a function — store whole struct.
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
@@ -270,8 +266,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             }
             if (s.is_mut) {
                 // Mutable: wrap in pointer slot so assignments can rebind.
-                auto ptr_slot = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), ptr_type(), i64_one());
+                auto ptr_slot = create_entry_alloca(ptr_type());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, ptr_slot);
                 scope_[s.name] = ptr_slot;
                 var_tagged_enum_ptr_.insert(s.name);
@@ -297,8 +292,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             auto sname = concrete_struct_name(s.type);
             auto sit = struct_types_.find(sname);
             if (sit != struct_types_.end()) {
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), sit->second.llvm_type, i64_one());
+                auto alloca = create_entry_alloca(sit->second.llvm_type);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
                 val = alloca;
             }
@@ -367,8 +361,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             // Mutable raw-pointer locals must live in a rebinding slot.
             // Keeping a bare ptr in scope_ makes later `x = ...` assignments
             // store through the pointee address instead of rebinding x itself.
-            auto slot = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_type(), ptr_type(), i64_one());
+            auto slot = create_entry_alloca(ptr_type());
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
             scope_[s.name] = slot;
             var_elem_types_[s.name] = ptr_type();
@@ -391,8 +384,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     auto var_type = logos_to_mlir(s.type);
     mlir::Value alloca;
     if (var_type) {
-        alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), var_type, i64_one());
+        alloca = create_entry_alloca(var_type);
     }
 
     auto val = gen_expr(*s.value);
@@ -533,8 +525,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
                 auto pad = mlir::LLVM::LLVMArrayType::get(builder_.getIntegerType(8), 4);
                 auto wrap = mlir::LLVM::LLVMStructType::getLiteral(
                     builder_.getContext(), {i32t, pad});
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), wrap, i64_one());
+                auto alloca = create_entry_alloca(wrap);
                 llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
                 auto dp = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), wrap, alloca, di);
@@ -547,8 +538,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, val);
             } else {
                 // val is a scalar (i32 discriminant) — wrap in a struct alloca and load.
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), cur_ret_type_, i64_one());
+                auto alloca = create_entry_alloca(cur_ret_type_);
                 auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), cur_ret_type_, alloca,
                     llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
@@ -652,8 +642,7 @@ void MLIRGenImpl::gen_for(const SFor& s) {
         if (lo_int.getWidth() > mlir::cast<mlir::IntegerType>(loop_type).getWidth())
             loop_type = lo.getType();
 
-    auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                        loc_, ptr_type(), loop_type, i64_one());
+    auto i_alloca = create_entry_alloca(loop_type);
     bool lo_unsigned = s.lo->type &&
         (s.lo->type->kind == LogosType::Kind::U8  ||
          s.lo->type->kind == LogosType::Kind::U16 ||
@@ -756,10 +745,7 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
     if (!s.break_slot.empty() && s.result_type) {
         mlir::Type slot_ty = logos_to_mlir(s.result_type);
         if (slot_ty) {
-            auto ptr_ty = mlir::LLVM::LLVMPointerType::get(builder_.getContext());
-            break_slot  = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_ty, slot_ty, builder_.create<mlir::LLVM::ConstantOp>(
-                    loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(1)));
+            break_slot  = create_entry_alloca(slot_ty);
             scope_[s.break_slot]          = break_slot;
             let_vars_.insert(s.break_slot);
             var_elem_types_[s.break_slot] = slot_ty;
@@ -838,8 +824,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
         auto len_val = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
 
         // i64 index
-        auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), builder_.getI64Type(), i64_one());
+        auto i_alloca = create_entry_alloca(builder_.getI64Type());
         auto zero64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0LL, 64);
         builder_.create<mlir::LLVM::StoreOp>(loc_, zero64, i_alloca);
 
@@ -869,8 +854,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
         auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), elem_mlir, data_ptr, arr_idx);
 
-        auto elem_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), elem_mlir, i64_one());
+        auto elem_alloca = create_entry_alloca(elem_mlir);
         auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);
         builder_.create<mlir::LLVM::StoreOp>(loc_, elem_val, elem_alloca);
         scope_[s.var]          = elem_alloca;
@@ -905,8 +889,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
 
     // ── Array path (static size) ──────────────────────────────────
     // Alloca for the index
-    auto i_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-        loc_, ptr_type(), builder_.getI32Type(), i64_one());
+    auto i_alloca = create_entry_alloca(builder_.getI32Type());
     auto zero32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
     builder_.create<mlir::LLVM::StoreOp>(loc_, zero32, i_alloca);
 
@@ -947,8 +930,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
         var_struct_[s.var] = concrete_struct_name(s.elem_type);
     } else {
         // Scalar: alloca + store so the body can read (and mutate) via scope_.
-        auto elem_alloca = builder_.create<mlir::LLVM::AllocaOp>(
-            loc_, ptr_type(), elem_mlir, i64_one());
+        auto elem_alloca = create_entry_alloca(elem_mlir);
         auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);
         builder_.create<mlir::LLVM::StoreOp>(loc_, elem_val, elem_alloca);
         scope_[s.var]          = elem_alloca;
@@ -1441,8 +1423,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             // If scrut is an aggregate (returned by value from a function),
             // spill it to an alloca so GEP works below.
             if (scrut.getType() != ptr_type()) {
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), te_info->llvm_type, i64_one());
+                auto alloca = create_entry_alloca(te_info->llvm_type);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, alloca);
                 scrut = alloca;
             }
@@ -1574,7 +1555,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                 auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, fi);
                 auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), elem_mlir, i64_one());
+                auto alloca = create_entry_alloca(elem_mlir);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
                 scope_[pt->bindings[bi]] = alloca;
                 let_vars_.insert(pt->bindings[bi]);
@@ -1629,8 +1610,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                                 bound_val = builder_.create<mlir::LLVM::LoadOp>(
                                     loc_, vp->field_types[bi], fp);
                             }
-                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                                loc_, ptr_type(), vp->field_types[bi], i64_one());
+                            auto alloca = create_entry_alloca(vp->field_types[bi]);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
                             scope_[pvd->bindings[bi]] = alloca;
                             let_vars_.insert(pvd->bindings[bi]);
@@ -1659,8 +1639,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                         if (sf.name == pfb.field_name) { fmlir = sf.type; break; }
                     if (!fmlir) return;
                     auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
-                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                        loc_, ptr_type(), fmlir, i64_one());
+                    auto alloca = create_entry_alloca(fmlir);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
                     scope_[bind_name] = alloca;
                     let_vars_.insert(bind_name);
@@ -1677,8 +1656,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                     if (!prb->name.empty() && prb->name != "_") {
                         auto fp = gep_field(sptr, sinfo, pfb.field_name);
                         if (fp) {
-                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                                loc_, ptr_type(), ptr_type(), i64_one());
+                            auto alloca = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
                             scope_[prb->name] = alloca;
                             let_vars_.insert(prb->name);
@@ -1705,8 +1683,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                         if (auto* pw = std::get_if<lir::PatWild>(&p)) {
                             if (pw->name == "_") return;
                             auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
-                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                                loc_, ptr_type(), elem_mlir, i64_one());
+                            auto alloca = create_entry_alloca(elem_mlir);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
                             scope_[pw->name] = alloca;
                             let_vars_.insert(pw->name);
@@ -1714,8 +1691,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                         } else if (auto* prb = std::get_if<lir::PatRefBind>(&p)) {
                             // C4: ref x in slice pattern — bind name to pointer-to-element.
                             if (prb->name == "_") return;
-                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                                loc_, ptr_type(), ptr_type(), i64_one());
+                            auto alloca = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
                             scope_[prb->name] = alloca;
                             let_vars_.insert(prb->name);
@@ -1735,8 +1711,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         if (auto* pa = std::get_if<PatAt>(&arm.pat)) {
             mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
             if (!pa->name.empty() && pa->name != "_") {
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), sv.getType(), i64_one());
+                auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
                 scope_[pa->name] = alloca;
                 let_vars_.insert(pa->name);
@@ -1761,14 +1736,12 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                     sv_ptr = scrut_ptr;
                 } else {
                     // Spill: alloca for the scrutinee value.
-                    auto tmp = builder_.create<mlir::LLVM::AllocaOp>(
-                        loc_, ptr_type(), scrut.getType(), i64_one());
+                    auto tmp = create_entry_alloca(scrut.getType());
                     builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
                     sv_ptr = tmp;
                 }
                 // n: &T → alloca(ptr) holding the address of the scrutinee.
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), ptr_type(), i64_one());
+                auto alloca = create_entry_alloca(ptr_type());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv_ptr, alloca);
                 scope_[prb->name] = alloca;
                 let_vars_.insert(prb->name);
@@ -1801,8 +1774,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         if (auto* pw = std::get_if<PatWild>(&arm.pat)) {
             if (pw->name != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), sv.getType(), i64_one());
+                auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
                 scope_[pw->name] = alloca;
                 let_vars_.insert(pw->name);
@@ -2107,8 +2079,7 @@ void MLIRGenImpl::gen_stmt_kind(const lir::SLetElse& s) {
     // ── Handle PatWild: always matches, just bind name ────────────────────
     if (auto* pw = std::get_if<PatWild>(&s.pat)) {
         if (pw->name != "_") {
-            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                loc_, ptr_type(), scrut_val.getType(), i64_one());
+            auto alloca = create_entry_alloca(scrut_val.getType());
             builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
             scope_[pw->name]          = alloca;
             let_vars_.insert(pw->name);
@@ -2139,8 +2110,7 @@ void MLIRGenImpl::gen_stmt_kind(const lir::SLetElse& s) {
         if (te_info) {
             // Spill to alloca if it's a value (not already a pointer)
             if (scrut_val.getType() != ptr_type()) {
-                auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                    loc_, ptr_type(), te_info->llvm_type, i64_one());
+                auto alloca = create_entry_alloca(te_info->llvm_type);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
                 scrut_ptr = alloca;
             } else {
@@ -2206,7 +2176,7 @@ void MLIRGenImpl::gen_stmt_kind(const lir::SLetElse& s) {
                     llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                     auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, scrut_val, fi);
                     auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
-                    auto alloca = builder_.create<mlir::LLVM::AllocaOp>(loc_, ptr_type(), elem_mlir, i64_one());
+                    auto alloca = create_entry_alloca(elem_mlir);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
                     scope_[pt->bindings[bi]]          = alloca;
                     let_vars_.insert(pt->bindings[bi]);
@@ -2233,8 +2203,7 @@ void MLIRGenImpl::gen_stmt_kind(const lir::SLetElse& s) {
                             loc_, ptr_type(), pay_struct, pay_ptr, fi);
                         auto val = builder_.create<mlir::LLVM::LoadOp>(
                             loc_, vp->field_types[bi], fp);
-                        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                            loc_, ptr_type(), vp->field_types[bi], i64_one());
+                        auto alloca = create_entry_alloca(vp->field_types[bi]);
                         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
                         scope_[pvd->bindings[bi]]          = alloca;
                         let_vars_.insert(pvd->bindings[bi]);
