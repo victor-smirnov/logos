@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.io.write
+//
+// Abstraction for byte-oriented output sinks.
+//
+// Return-value convention (shared with Read):
+//   n >  0  : number of bytes written
+//   n == 0  : sink refused further bytes (treat as error)
+//   n <  0  : -errno
+
+package std.io.write;
+
+pub trait Write {
+    fn write(self: &mut Self, buf: *const u8, len: i64) -> i64;
+    fn flush(self: &mut Self) -> i64;
+}
+
+// Write all `len` bytes from `buf`, looping over partial writes.
+// Returns 0 on success, negative errno on error.
+pub fn write_all<W: Write>(w: &mut W, buf: *const u8, len: i64) -> i64 {
+    let mut total: i64 = 0;
+    while total < len {
+        let n: i64 = w.write(unsafe { buf.byte_add(total) }, len - total);
+        if n <= 0 { return n; }
+        total = total + n;
+    }
+    return 0;
+}

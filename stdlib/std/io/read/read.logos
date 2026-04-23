@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.io.read
+//
+// Abstraction for byte-oriented input sources.
+//
+// Return-value convention (shared with Write):
+//   n >  0  : number of bytes read
+//   n == 0  : end of stream
+//   n <  0  : -errno
+
+package std.io.read;
+
+pub trait Read {
+    fn read(self: &mut Self, buf: *mut u8, len: i64) -> i64;
+}
+
+// Read exactly `len` bytes into `buf`, looping over partial reads.
+// Returns 0 on success, -1 on early EOF, negative errno on error.
+pub fn read_exact<R: Read>(r: &mut R, buf: *mut u8, len: i64) -> i64 {
+    let mut total: i64 = 0;
+    while total < len {
+        let n: i64 = r.read(unsafe { buf.byte_add(total) }, len - total);
+        if n == 0 { return -1 as i64; }
+        if n < 0  { return n; }
+        total = total + n;
+    }
+    return 0;
+}

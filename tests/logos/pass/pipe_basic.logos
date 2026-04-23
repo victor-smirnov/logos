@@ -2,6 +2,8 @@
 package test;
 
 use std.io.pipe;
+use std.io.read;
+use std.io.write;
 
 fn main() -> i32 {
     let mut p: Pipe = pipe_new();

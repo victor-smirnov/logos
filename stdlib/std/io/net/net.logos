@@ -7,6 +7,8 @@
 package std.io.net;
 
 use std.sys.fiber;
+use std.io.read;
+use std.io.write;
 
 extern fn socket(domain: i32, typ: i32, protocol: i32) -> i32;
 extern fn bind(fd: i32, addr: *const u8, addrlen: i32) -> i32;
@@ -131,19 +133,24 @@ pub fn tcp_connect(ip: u32, port: u16) -> TcpStream {
 impl TcpStream {
     pub fn is_valid(self: &TcpStream) -> bool { return self.fd >= 0; }
 
-    pub fn recv(self: &TcpStream, buf: *mut u8, len: i64) -> i64 {
-        unsafe { return recv(self.fd, buf, len, 0); }
-    }
-
-    pub fn send(self: &TcpStream, buf: *const u8, len: i64) -> i64 {
-        unsafe { return send(self.fd, buf, len, 0); }
-    }
-
     pub fn close(self: &mut TcpStream) {
         unsafe {
             if self.fd >= 0 { close(self.fd); self.fd = 0 - 1; }
         }
     }
+}
+
+impl Read for TcpStream {
+    fn read(self: &mut TcpStream, buf: *mut u8, len: i64) -> i64 {
+        unsafe { return recv(self.fd, buf, len, 0); }
+    }
+}
+
+impl Write for TcpStream {
+    fn write(self: &mut TcpStream, buf: *const u8, len: i64) -> i64 {
+        unsafe { return send(self.fd, buf, len, 0); }
+    }
+    fn flush(self: &mut TcpStream) -> i64 { return 0; }
 }
 
 // ---- UdpSocket --------------------------------------------------------------
