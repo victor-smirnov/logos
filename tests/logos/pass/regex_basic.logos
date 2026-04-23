@@ -1,0 +1,95 @@
+// Tests std.regex: matching and search.
+package test;
+
+use std.regex;
+
+fn main() -> i32 {
+    // Literal match.
+    let r1: Regex = compile("hello");
+    if !is_match(&r1, "hello world") { return 1; }
+    if !is_match(&r1, "say hello!") { return 2; }
+    if is_match(&r1, "goodbye") { return 3; }
+
+    // '.' matches any byte except newline.
+    let r2: Regex = compile("h.llo");
+    if !is_match(&r2, "hallo") { return 4; }
+    if !is_match(&r2, "hxllo") { return 5; }
+    if is_match(&r2, "h\nllo") { return 6; }
+
+    // '*' greedy.
+    let r3: Regex = compile("ab*c");
+    if !is_match(&r3, "ac") { return 7; }
+    if !is_match(&r3, "abc") { return 8; }
+    if !is_match(&r3, "abbbbc") { return 9; }
+    if is_match(&r3, "axc") { return 10; }
+
+    // '+' requires one.
+    let r4: Regex = compile("ab+c");
+    if is_match(&r4, "ac") { return 11; }
+    if !is_match(&r4, "abc") { return 12; }
+    if !is_match(&r4, "abbbc") { return 13; }
+
+    // '?' optional.
+    let r5: Regex = compile("colou?r");
+    if !is_match(&r5, "color") { return 14; }
+    if !is_match(&r5, "colour") { return 15; }
+
+    // Anchors.
+    let r6: Regex = compile("^foo");
+    if !is_match(&r6, "foobar") { return 16; }
+    if is_match(&r6, "xfoo") { return 17; }
+
+    let r7: Regex = compile("bar$");
+    if !is_match(&r7, "foobar") { return 18; }
+    if is_match(&r7, "barx") { return 19; }
+
+    let r8: Regex = compile("^abc$");
+    if !is_match(&r8, "abc") { return 20; }
+    if is_match(&r8, "abcd") { return 21; }
+
+    // Character class.
+    let r9: Regex = compile("[aeiou]+");
+    if !is_match(&r9, "hello") { return 22; }
+    if is_match(&r9, "rhythm") { return 23; }
+
+    // Negated class.
+    let r10: Regex = compile("[^0-9]+");
+    if !is_match(&r10, "abc") { return 24; }
+    if is_match(&r10, "1234") { return 25; }
+
+    // Range.
+    let r11: Regex = compile("^[a-z]+$");
+    if !is_match(&r11, "hello") { return 26; }
+    if is_match(&r11, "Hello") { return 27; }
+
+    // Escapes: \d \w \s
+    let r12: Regex = compile("^\\d+$");
+    if !is_match(&r12, "12345") { return 28; }
+    if is_match(&r12, "12a45") { return 29; }
+
+    let r13: Regex = compile("\\s+");
+    if !is_match(&r13, "a b") { return 30; }
+    if is_match(&r13, "abc") { return 31; }
+
+    let r14: Regex = compile("^\\w+$");
+    if !is_match(&r14, "abc_123") { return 32; }
+    if is_match(&r14, "abc-123") { return 33; }
+
+    // Escape a metachar.
+    let r15: Regex = compile("a\\.b");
+    if !is_match(&r15, "a.b") { return 34; }
+    if is_match(&r15, "aXb") { return 35; }
+
+    // find() returns start index.
+    let r16: Regex = compile("world");
+    if find(&r16, "hello world") != 6 as i64 { return 36; }
+    if find(&r16, "nope") != 0 as i64 - 1 as i64 { return 37; }
+
+    // Combined: simple IP fragment.
+    let r17: Regex = compile("^[0-9]+\\.[0-9]+$");
+    if !is_match(&r17, "192.168") { return 38; }
+    if is_match(&r17, "192..168") { return 39; }
+    if is_match(&r17, "abc.def") { return 40; }
+
+    return 42;
+}

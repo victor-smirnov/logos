@@ -1,0 +1,257 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.regex
+//
+// Minimal regex engine, backtracking.  Supported syntax:
+//
+//   .          any byte except '\n'
+//   ^ $        anchors (start / end of input)
+//   * + ?      greedy quantifiers (on the preceding atom)
+//   [abc]      positive character class
+//   [^abc]     negated character class
+//   [a-z]      range inside a class
+//   \d \D      digit / non-digit       ([0-9])
+//   \w \W      word char / non-word    ([A-Za-z0-9_])
+//   \s \S      whitespace / non-whitespace  (space, tab, CR, LF)
+//   \n \t \r   literal escape
+//   \. \\ \[   escape a metachar
+//
+// NOT supported: grouping, alternation, capture, lazy quantifiers,
+// backreferences, \b / \B, Unicode classes.  Input is treated as
+// bytes; multi-byte UTF-8 sequences are matched byte-at-a-time.
+
+package std.regex;
+
+use std.string;
+
+pub struct Regex {
+    pat: *const u8,
+    plen: i64,
+}
+
+pub fn compile(p: str) -> Regex {
+    unsafe { return Regex { pat: p.as_ptr(), plen: p.len() }; }
+}
+
+// ── Atom helpers ──────────────────────────────────────────────────────────
+
+// Return the length (in pattern bytes) of the atom starting at `pi`.
+// Must not be called on '*', '+', '?', '^', '$' — those are not atoms.
+unsafe fn atom_length(pat: *const u8, plen: i64, pi: i64) -> i64 {
+    if pi >= plen { return 0 as i64; }
+    let b: u8 = pat[pi];
+    if b == 92 as u8 {                                    // '\'
+        return 2 as i64;
+    }
+    if b == 91 as u8 {                                    // '['
+        let mut j: i64 = pi + 1 as i64;
+        if j < plen && pat[j] == 94 as u8 { j = j + 1 as i64; }    // optional '^'
+        if j < plen && pat[j] == 93 as u8 { j = j + 1 as i64; }    // literal ']' as first char
+        while j < plen && pat[j] != 93 as u8 {
+            if pat[j] == 92 as u8 && j + 1 as i64 < plen {
+                j = j + 2 as i64;
+            } else {
+                j = j + 1 as i64;
+            }
+        }
+        if j < plen { j = j + 1 as i64; }                 // consume ']'
+        return j - pi;
+    }
+    return 1 as i64;                                      // plain byte or '.'
+}
+
+fn is_digit_byte(b: u8) -> bool {
+    return b >= 48 as u8 && b <= 57 as u8;
+}
+
+fn is_word_byte(b: u8) -> bool {
+    if b >= 48 as u8 && b <= 57 as u8 { return true; }
+    if b >= 65 as u8 && b <= 90 as u8 { return true; }
+    if b >= 97 as u8 && b <= 122 as u8 { return true; }
+    return b == 95 as u8;                                 // '_'
+}
+
+fn is_space_byte(b: u8) -> bool {
+    if b == 32 as u8 { return true; }                     // ' '
+    if b == 9 as u8  { return true; }                     // '\t'
+    if b == 10 as u8 { return true; }                     // '\n'
+    if b == 13 as u8 { return true; }                     // '\r'
+    return false;
+}
+
+// Does escape \X at position (pi+1) match byte b?
+unsafe fn escape_matches(c: u8, b: u8) -> bool {
+    if c == 100 as u8 { return is_digit_byte(b); }        // 'd'
+    if c == 68 as u8  { return !is_digit_byte(b); }       // 'D'
+    if c == 119 as u8 { return is_word_byte(b); }         // 'w'
+    if c == 87 as u8  { return !is_word_byte(b); }        // 'W'
+    if c == 115 as u8 { return is_space_byte(b); }        // 's'
+    if c == 83 as u8  { return !is_space_byte(b); }       // 'S'
+    if c == 110 as u8 { return b == 10 as u8; }           // 'n'
+    if c == 116 as u8 { return b == 9 as u8; }            // 't'
+    if c == 114 as u8 { return b == 13 as u8; }           // 'r'
+    // any other \X matches the literal X (covers \. \\ \[ \] etc.)
+    return b == c;
+}
+
+// Does the atom at pi (length alen) match byte b?
+unsafe fn atom_matches(pat: *const u8, pi: i64, alen: i64, b: u8) -> bool {
+    let first: u8 = pat[pi];
+    if first == 46 as u8 {                                // '.'
+        return b != 10 as u8;
+    }
+    if first == 92 as u8 {                                // '\X'
+        return escape_matches(pat[pi + 1 as i64], b);
+    }
+    if first == 91 as u8 {                                // '[...]'
+        let mut j: i64 = pi + 1 as i64;
+        let end: i64 = pi + alen - 1 as i64;              // position of ']'
+        let mut negate: bool = false;
+        if j < end && pat[j] == 94 as u8 {                // '^'
+            negate = true;
+            j = j + 1 as i64;
+        }
+        let mut hit: bool = false;
+        while j < end {
+            let mut lo: u8 = pat[j];
+            let mut lo_len: i64 = 1 as i64;
+            if lo == 92 as u8 && j + 1 as i64 < end {
+                // Escape inside class: handles \d \w \s etc.
+                let esc: u8 = pat[j + 1 as i64];
+                if escape_matches(esc, b) { hit = true; }
+                // But still advance past the escape as one element.
+                lo = esc;
+                lo_len = 2 as i64;
+                if j + lo_len < end && pat[j + lo_len] == 45 as u8
+                    && j + lo_len + 1 as i64 < end {
+                    // Range after an escape: \X-Y
+                    let hi_pos: i64 = j + lo_len + 1 as i64;
+                    let mut hi: u8 = pat[hi_pos];
+                    let mut hi_len: i64 = 1 as i64;
+                    if hi == 92 as u8 && hi_pos + 1 as i64 < end {
+                        hi = pat[hi_pos + 1 as i64];
+                        hi_len = 2 as i64;
+                    }
+                    if b >= lo && b <= hi { hit = true; }
+                    j = hi_pos + hi_len;
+                } else {
+                    j = j + lo_len;
+                }
+            } else {
+                if j + 1 as i64 < end && pat[j + 1 as i64] == 45 as u8
+                    && j + 2 as i64 < end {
+                    // Range: L-H
+                    let hi_pos: i64 = j + 2 as i64;
+                    let mut hi: u8 = pat[hi_pos];
+                    let mut hi_len: i64 = 1 as i64;
+                    if hi == 92 as u8 && hi_pos + 1 as i64 < end {
+                        hi = pat[hi_pos + 1 as i64];
+                        hi_len = 2 as i64;
+                    }
+                    if b >= lo && b <= hi { hit = true; }
+                    j = hi_pos + hi_len;
+                } else {
+                    if b == lo { hit = true; }
+                    j = j + 1 as i64;
+                }
+            }
+        }
+        if negate { return !hit; }
+        return hit;
+    }
+    return first == b;
+}
+
+// ── Matcher ───────────────────────────────────────────────────────────────
+
+unsafe fn match_here(pat: *const u8, plen: i64, pi: i64,
+                     text: *const u8, tlen: i64, ti: i64) -> bool {
+    if pi >= plen { return true; }
+
+    // End-anchor: '$' only matches at end of input.
+    if pat[pi] == 36 as u8 && pi + 1 as i64 == plen {
+        return ti == tlen;
+    }
+
+    let alen: i64 = atom_length(pat, plen, pi);
+    let next_pi: i64 = pi + alen;
+
+    if next_pi < plen {
+        let q: u8 = pat[next_pi];
+        if q == 42 as u8 {                                // '*'
+            return match_star(pat, plen, pi, alen, text, tlen, ti);
+        }
+        if q == 43 as u8 {                                // '+'
+            if ti < tlen && atom_matches(pat, pi, alen, text[ti]) {
+                return match_star(pat, plen, pi, alen, text, tlen, ti + 1 as i64);
+            }
+            return false;
+        }
+        if q == 63 as u8 {                                // '?'
+            if ti < tlen && atom_matches(pat, pi, alen, text[ti]) {
+                if match_here(pat, plen, next_pi + 1 as i64, text, tlen, ti + 1 as i64) {
+                    return true;
+                }
+            }
+            return match_here(pat, plen, next_pi + 1 as i64, text, tlen, ti);
+        }
+    }
+
+    if ti < tlen && atom_matches(pat, pi, alen, text[ti]) {
+        return match_here(pat, plen, next_pi, text, tlen, ti + 1 as i64);
+    }
+    return false;
+}
+
+// Greedy star: consume as many atoms as possible, then back off.
+unsafe fn match_star(pat: *const u8, plen: i64, atom_pi: i64, alen: i64,
+                     text: *const u8, tlen: i64, ti0: i64) -> bool {
+    let next_pi: i64 = atom_pi + alen + 1 as i64;         // skip atom + quantifier
+    let mut i: i64 = ti0;
+    while i < tlen && atom_matches(pat, atom_pi, alen, text[i]) {
+        i = i + 1 as i64;
+    }
+    // Try to match the rest at each back-off point (i down to ti0).
+    while true {
+        if match_here(pat, plen, next_pi, text, tlen, i) { return true; }
+        if i <= ti0 { return false; }
+        i = i - 1 as i64;
+    }
+    return false;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────
+
+// True if `re` matches anywhere in `s`.  '^' anchors to start; '$' to end.
+pub fn is_match(re: &Regex, s: str) -> bool {
+    unsafe {
+        let slen: i64 = s.len();
+        let sp:   *const u8 = s.as_ptr();
+        if re.plen > 0 as i64 && re.pat[0] == 94 as u8 {  // '^'
+            return match_here(re.pat, re.plen, 1 as i64, sp, slen, 0 as i64);
+        }
+        let mut start: i64 = 0 as i64;
+        while start <= slen {
+            if match_here(re.pat, re.plen, 0 as i64, sp, slen, start) { return true; }
+            start = start + 1 as i64;
+        }
+        return false;
+    }
+}
+
+// Return the start index of the first match, or -1 if none.
+pub fn find(re: &Regex, s: str) -> i64 {
+    unsafe {
+        let slen: i64 = s.len();
+        let sp:   *const u8 = s.as_ptr();
+        if re.plen > 0 as i64 && re.pat[0] == 94 as u8 {
+            if match_here(re.pat, re.plen, 1 as i64, sp, slen, 0 as i64) { return 0 as i64; }
+            return 0 as i64 - 1 as i64;
+        }
+        let mut start: i64 = 0 as i64;
+        while start <= slen {
+            if match_here(re.pat, re.plen, 0 as i64, sp, slen, start) { return start; }
+            start = start + 1 as i64;
+        }
+        return 0 as i64 - 1 as i64;
+    }
+}
