@@ -12,6 +12,7 @@ use std.string;
 use std.vec;
 use std.option;
 use std.url;
+use std.net;
 
 // ── Method ───────────────────────────────────────────────────────────────────
 // Represented as a small integer code plus its literal token. Unknown /
@@ -788,4 +789,264 @@ pub fn serialize_response(resp: &Response, out: &mut Vec<u8>) {
         let mut i: i64 = 0;
         while i < bl { op.push(bp.get(i)); i = i + 1; }
     }
+}
+
+// ── Client (blocking) ────────────────────────────────────────────────────────
+
+// Parse a dotted-quad IPv4 string. Returns Some(ip) or None on failure.
+fn parse_ipv4(s: str) -> Option<u32> {
+    let p: *const u8 = s.as_ptr();
+    let n: i64 = s.len();
+    let mut octets: [u32; 4] = [0 as u32; 4];
+    let mut oi: i32 = 0;
+    let mut have_digit: bool = false;
+    let mut cur: u32 = 0 as u32;
+    let mut i: i64 = 0;
+    unsafe {
+        while i < n {
+            let b: u8 = p[i];
+            if b >= 48 as u8 && b <= 57 as u8 {
+                cur = cur * 10 as u32 + ((b as u32) - 48 as u32);
+                if cur > 255 as u32 { return Option::None; }
+                have_digit = true;
+            } else if b == 46 as u8 {                    // '.'
+                if !have_digit || oi >= 3 { return Option::None; }
+                octets[oi as i64] = cur;
+                oi = oi + 1;
+                cur = 0 as u32;
+                have_digit = false;
+            } else {
+                return Option::None;
+            }
+            i = i + 1;
+        }
+    }
+    if !have_digit || oi != 3 { return Option::None; }
+    octets[3] = cur;
+    let ip: u32 = ip4(octets[0 as i64], octets[1 as i64],
+                      octets[2 as i64], octets[3 as i64]);
+    return Option::Some(ip);
+}
+
+// Send `req` to host:port over a fresh TCP connection. `host_ip` must be a
+// numeric IPv4; DNS resolution is not implemented. Returns the parsed
+// response or None on any transport / parse error.
+pub fn http_send(host_ip: u32, port: u16, req: &Request) -> Option<Response> {
+    let mut buf: Vec<u8> = vec_new::<u8>();
+    serialize_request(req, &mut buf);
+
+    let mut s: TcpStream = tcp_connect(host_ip, port);
+    if !(&s).is_valid() { return Option::None; }
+
+    unsafe {
+        let bp: *mut Vec<u8> = &buf as *const Vec<u8> as *mut Vec<u8>;
+        let blen: i64 = bp.length();
+        let mut off: i64 = 0;
+        while off < blen {
+            let nw: i64 = (&s).send(bp.at_const(off) as *const u8, blen - off);
+            if nw <= 0 { s.close(); return Option::None; }
+            off = off + nw;
+        }
+    }
+
+    // Read response until peer closes or a complete message is buffered.
+    let mut rx: Vec<u8> = vec_new::<u8>();
+    let mut chunk: [u8; 4096] = [0 as u8; 4096];
+    loop {
+        let n: i64 = (&s).recv(&mut chunk[0 as i64], 4096 as i64);
+        if n < 0 { s.close(); return Option::None; }
+        if n == 0 { break; }
+        let mut k: i64 = 0;
+        unsafe {
+            let rp: *mut Vec<u8> = &rx as *const Vec<u8> as *mut Vec<u8>;
+            while k < n { rp.push(chunk[k]); k = k + 1; }
+        }
+    }
+    s.close();
+
+    unsafe {
+        let rp: *mut Vec<u8> = &rx as *const Vec<u8> as *mut Vec<u8>;
+        return parse_response_buf(rp.at_const(0 as i64) as *const u8, rp.length());
+    }
+}
+
+// Convenience: GET path from host_ip:port. Builds a minimal Request with
+// Host header set (required for HTTP/1.1) and invokes http_send.
+pub fn http_get_at(host_ip: u32, port: u16, host_hdr: str, path: str) -> Option<Response> {
+    let mut path_s: String = String::new();
+    path_s.push_str(path);
+    let u: Url = Url {
+        scheme: String::new(),
+        host:   String::new(),
+        port:   port as i32,
+        path:   path_s,
+        query:  String::new(),
+    };
+    let mut req: Request = Request::new(Method::get(), u);
+    (&mut req.headers).append("Host", host_hdr);
+    return http_send(host_ip, port, &req);
+}
+
+// Parse `url_str` as absolute-form ("http://host[:port]/path[?query]") and
+// issue a GET. Numeric-host only.
+pub fn http_get(url_str: str) -> Option<Response> {
+    let u: Url = match url_parse(url_str) {
+        Option::Some(x) => x,
+        Option::None    => { return Option::None; }
+    };
+    if !(&u.scheme).eq_str("http") { return Option::None; }
+    let ip: u32 = match parse_ipv4(s2str(&u.host)) {
+        Option::Some(v) => v,
+        Option::None    => { return Option::None; }
+    };
+    let port: u16 = if u.port == 0 { 80 as u16 } else { u.port as u16 };
+    let mut req: Request = Request::new(Method::get(), u);
+    // Host header: "host" or "host:port" when non-default.
+    let mut host_hdr: String = String::new();
+    host_hdr.push_str(s2str(&req.url.host));
+    if req.url.port != 0 && req.url.port != 80 {
+        host_hdr.push_str(":");
+        // decimal port
+        let mut tmp: Vec<u8> = vec_new::<u8>();
+        unsafe {
+            let tp: *mut Vec<u8> = &tmp as *const Vec<u8> as *mut Vec<u8>;
+            write_i64_decimal(req.url.port as i64, tp);
+            let np: i64 = tp.length();
+            let mut k: i64 = 0;
+            while k < np {
+                let b: u8 = tp.get(k);
+                let one: [u8; 1] = [b];
+                host_hdr.push_bytes(&one[0 as i64] as *const u8, 1 as i64);
+                k = k + 1;
+            }
+        }
+    }
+    (&mut req.headers).append("Host", s2str(&host_hdr));
+    return http_send(ip, port, &req);
+}
+
+// ── Server (blocking, single connection at a time) ───────────────────────────
+
+// Read a complete HTTP/1.1 request from `s` into `buf`. Returns the total
+// bytes read (header+body) or -1 on IO / parse failure. Reads until either
+// headers are complete AND the entire Content-Length body (or chunked
+// terminator) has arrived, or the peer closes.
+pub unsafe fn read_request_message(s: &TcpStream, buf: *mut Vec<u8>) -> i64 {
+    let mut chunk: [u8; 2048] = [0 as u8; 2048];
+    let mut hdr_end: i64 = 0 - 1;
+    let mut want: i64 = 0 - 1;                           // -1 = unknown yet
+    loop {
+        let n: i64 = s.recv(&mut chunk[0 as i64], 2048 as i64);
+        if n < 0 { return 0 - 1; }
+        if n == 0 { break; }
+        let mut k: i64 = 0;
+        while k < n { buf.push(chunk[k]); k = k + 1; }
+
+        if hdr_end < 0 {
+            // Scan for CRLF CRLF in buf.
+            let total: i64 = buf.length();
+            let mut i: i64 = 0;
+            while i + 3 < total {
+                if buf.get(i) == 13 as u8 && buf.get(i + 1) == 10 as u8 &&
+                   buf.get(i + 2) == 13 as u8 && buf.get(i + 3) == 10 as u8 {
+                    hdr_end = i + 4;
+                    i = total;
+                } else {
+                    i = i + 1;
+                }
+            }
+        }
+        if hdr_end >= 0 && want < 0 {
+            // Peek at the request to figure out Content-Length / chunked.
+            let avail: i64 = buf.length();
+            let mut probe: Vec<u8> = vec_new::<u8>();
+            let mut j: i64 = 0;
+            while j < hdr_end { probe.push(buf.get(j)); j = j + 1; }
+            probe.push(13 as u8); probe.push(10 as u8);  // dummy body-free close
+            // Cheaper: parse in place via parse_request_buf once we have
+            // everything. For framing, compute body_length directly.
+            // Re-use body_length by parsing just the headers section:
+            // Build a Headers from the raw bytes.
+            let mut h: Headers = Headers::new();
+            let he: i64 = parse_headers(buf.at_const(0 as i64) as *const u8,
+                                        buf.length(),
+                                        find_crlf(buf.at_const(0 as i64) as *const u8,
+                                                  buf.length(), 0) + 2,
+                                        &mut h);
+            if he < 0 { return 0 - 1; }
+            let bl: i64 = body_length(&h);
+            if bl == 0 - 3 { return 0 - 1; }             // malformed CL
+            if bl == 0 - 2 {
+                // chunked: need to scan body for "0\r\n\r\n"
+                want = 0 - 2;
+            } else if bl < 0 {
+                // no framing; request body empty
+                want = hdr_end;
+            } else {
+                want = hdr_end + bl;
+            }
+        }
+        if want >= 0 && buf.length() >= want { break; }
+        if want == 0 - 2 {
+            // chunked — look for terminator
+            let total: i64 = buf.length();
+            if total >= hdr_end + 5 {
+                let mut i: i64 = hdr_end;
+                while i + 4 < total {
+                    if buf.get(i) == 48 as u8 &&
+                       buf.get(i + 1) == 13 as u8 && buf.get(i + 2) == 10 as u8 &&
+                       buf.get(i + 3) == 13 as u8 && buf.get(i + 4) == 10 as u8 {
+                        return buf.length();
+                    }
+                    i = i + 1;
+                }
+            }
+        }
+    }
+    return buf.length();
+}
+
+// Minimal blocking server: bind, accept N connections serially, invoke
+// `handler` for each, serialize the returned Response, write it back, close.
+// Returns once N connections have been handled. Use count=1 for tests.
+pub fn serve_n(port: u16, count: i64, handler: fn(&Request) -> Response) -> i32 {
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 16 as i32);
+    if !(&listener).is_valid() { return 0 - 1; }
+
+    let mut served: i64 = 0;
+    while served < count {
+        let mut s: TcpStream = (&listener).accept();
+        if !(&s).is_valid() {
+            listener.close();
+            return 0 - 2;
+        }
+        let mut rx: Vec<u8> = vec_new::<u8>();
+        unsafe {
+            let rp: *mut Vec<u8> = &rx as *const Vec<u8> as *mut Vec<u8>;
+            let n: i64 = read_request_message(&s, rp);
+            if n < 0 { s.close(); served = served + 1; continue; }
+
+            match parse_request_buf(rp.at_const(0 as i64) as *const u8, rp.length()) {
+                Option::Some(req) => {
+                    let resp: Response = handler(&req);
+                    let mut tx: Vec<u8> = vec_new::<u8>();
+                    serialize_response(&resp, &mut tx);
+                    let tp: *mut Vec<u8> = &tx as *const Vec<u8> as *mut Vec<u8>;
+                    let tlen: i64 = tp.length();
+                    let mut off: i64 = 0;
+                    while off < tlen {
+                        let nw: i64 = (&s).send(tp.at_const(off) as *const u8,
+                                                 tlen - off);
+                        if nw <= 0 { off = tlen; }
+                        else        { off = off + nw; }
+                    }
+                }
+                Option::None => {}
+            }
+        }
+        s.close();
+        served = served + 1;
+    }
+    listener.close();
+    return 0;
 }
