@@ -1,0 +1,83 @@
+// Tests std.base64: encode, decode, padding, round-trip.
+package test;
+
+use std.base64;
+use std.string;
+
+fn main() -> i32 {
+    // "Man" → "TWFu" (no pad)
+    unsafe {
+        let mut out: String = String::new();
+        base64_encode_str("Man", &mut out);
+        if !out.eq_str("TWFu") { return 1; }
+    }
+    // "Ma"  → "TWE=" (1 pad)
+    unsafe {
+        let mut out: String = String::new();
+        base64_encode_str("Ma", &mut out);
+        if !out.eq_str("TWE=") { return 2; }
+    }
+    // "M"   → "TQ==" (2 pad)
+    unsafe {
+        let mut out: String = String::new();
+        base64_encode_str("M", &mut out);
+        if !out.eq_str("TQ==") { return 3; }
+    }
+
+    // Decode each of the above.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = base64_decode_str("TWFu", &mut out);
+        if n != 3 as i64 { return 4; }
+        if !out.eq_str("Man") { return 5; }
+    }
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = base64_decode_str("TWE=", &mut out);
+        if n != 2 as i64 { return 6; }
+        if !out.eq_str("Ma") { return 7; }
+    }
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = base64_decode_str("TQ==", &mut out);
+        if n != 1 as i64 { return 8; }
+        if !out.eq_str("M") { return 9; }
+    }
+
+    // Reject non-multiple-of-4 length.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = base64_decode_str("abc", &mut out);
+        if n != 0 - 1 as i64 { return 10; }
+    }
+
+    // Reject invalid chars.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = base64_decode_str("!!!!", &mut out);
+        if n != 0 - 1 as i64 { return 11; }
+    }
+
+    // Round-trip a longer string with every ASCII printable byte.
+    unsafe {
+        let mut src: String = String::new();
+        let mut i: i32 = 32;
+        while i < 127 {
+            src.push_u8(i as u8);
+            i = i + 1;
+        }
+        let mut enc: String = String::new();
+        base64_encode(src.as_ptr(), src.len(), &mut enc);
+
+        let mut back: String = String::new();
+        let n: i64 = base64_decode(enc.as_ptr(), enc.len(), &mut back);
+        if n != src.len() { return 12; }
+        let mut j: i64 = 0 as i64;
+        while j < src.len() {
+            if back.as_ptr()[j] != src.as_ptr()[j] { return 13; }
+            j = j + 1 as i64;
+        }
+    }
+
+    return 42;
+}

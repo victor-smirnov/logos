@@ -1,0 +1,72 @@
+// Tests std.hex: encode, decode, round-trip.
+package test;
+
+use std.hex;
+use std.string;
+
+fn main() -> i32 {
+    // Encode: [0xde, 0xad, 0xbe, 0xef] → "deadbeef".
+    unsafe {
+        let src: [u8; 4] = [222 as u8, 173 as u8, 190 as u8, 239 as u8];
+        let mut out: String = String::new();
+        hex_encode(&src[0] as *const u8, 4 as i64, &mut out);
+        if !out.eq_str("deadbeef") { return 1; }
+    }
+
+    // Decode: "deadbeef" → bytes.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = hex_decode_str("deadbeef", &mut out);
+        if n != 4 as i64 { return 2; }
+        if out.as_ptr()[0 as i64] != 222 as u8 { return 3; }
+        if out.as_ptr()[1 as i64] != 173 as u8 { return 4; }
+        if out.as_ptr()[2 as i64] != 190 as u8 { return 5; }
+        if out.as_ptr()[3 as i64] != 239 as u8 { return 6; }
+    }
+
+    // Accept uppercase.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = hex_decode_str("DEADBEEF", &mut out);
+        if n != 4 as i64 { return 7; }
+        if out.as_ptr()[0 as i64] != 222 as u8 { return 8; }
+    }
+
+    // Reject odd length.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = hex_decode_str("abc", &mut out);
+        if n != 0 - 1 as i64 { return 9; }
+    }
+
+    // Reject invalid chars.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = hex_decode_str("zz", &mut out);
+        if n != 0 - 1 as i64 { return 10; }
+    }
+
+    // Round-trip 32 bytes of varying content.
+    unsafe {
+        let mut src: [u8; 32] = [0 as u8; 32];
+        let mut i: i64 = 0 as i64;
+        while i < 32 as i64 {
+            src[i] = ((i as i32) * 7 + 13) as u8;
+            i = i + 1 as i64;
+        }
+        let mut hex_buf: String = String::new();
+        hex_encode(&src[0] as *const u8, 32 as i64, &mut hex_buf);
+        if hex_buf.len() != 64 as i64 { return 11; }
+
+        let mut back: String = String::new();
+        let n: i64 = hex_decode(hex_buf.as_ptr(), hex_buf.len(), &mut back);
+        if n != 32 as i64 { return 12; }
+        let mut j: i64 = 0 as i64;
+        while j < 32 as i64 {
+            if back.as_ptr()[j] != src[j] { return 13; }
+            j = j + 1 as i64;
+        }
+    }
+
+    return 42;
+}

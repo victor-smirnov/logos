@@ -1,0 +1,139 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.base64
+//
+// RFC 4648 base64.  Standard alphabet; pads with '=' to a multiple of 4.
+// Decoder ignores nothing — malformed input is rejected (returns -1).
+
+package std.base64;
+
+use std.string;
+
+// Encode `len` bytes from `src` as base64.  Appends to `out`.
+pub fn base64_encode(src: *const u8, len: i64, out: &mut String) {
+    unsafe {
+        let mut i: i64 = 0 as i64;
+        // Process full 3-byte groups → 4 output chars.
+        while (i + 3 as i64) <= len {
+            let b0: u32 = src[i]           as u32;
+            let b1: u32 = src[i + 1 as i64] as u32;
+            let b2: u32 = src[i + 2 as i64] as u32;
+            let v: u32 = (b0 << 16 as u32) | (b1 << 8 as u32) | b2;
+            out.push_u8(sextet_to_char(((v >> 18 as u32) & 63 as u32) as u8));
+            out.push_u8(sextet_to_char(((v >> 12 as u32) & 63 as u32) as u8));
+            out.push_u8(sextet_to_char(((v >>  6 as u32) & 63 as u32) as u8));
+            out.push_u8(sextet_to_char(( v         & 63 as u32) as u8));
+            i = i + 3 as i64;
+        }
+        // Tail: 1 or 2 remaining bytes.
+        let rem: i64 = len - i;
+        if rem == 1 as i64 {
+            let b0: u32 = src[i] as u32;
+            let v: u32 = b0 << 16 as u32;
+            out.push_u8(sextet_to_char(((v >> 18 as u32) & 63 as u32) as u8));
+            out.push_u8(sextet_to_char(((v >> 12 as u32) & 63 as u32) as u8));
+            out.push_u8(61 as u8);
+            out.push_u8(61 as u8);
+        } else if rem == 2 as i64 {
+            let b0: u32 = src[i]           as u32;
+            let b1: u32 = src[i + 1 as i64] as u32;
+            let v: u32 = (b0 << 16 as u32) | (b1 << 8 as u32);
+            out.push_u8(sextet_to_char(((v >> 18 as u32) & 63 as u32) as u8));
+            out.push_u8(sextet_to_char(((v >> 12 as u32) & 63 as u32) as u8));
+            out.push_u8(sextet_to_char(((v >>  6 as u32) & 63 as u32) as u8));
+            out.push_u8(61 as u8);
+        }
+    }
+}
+
+pub fn base64_encode_str(src: str, out: &mut String) {
+    unsafe { base64_encode(src.as_ptr(), src.len(), out); }
+}
+
+// Decode base64 from `src`; length must be a multiple of 4.
+// Appends decoded bytes to `out`.  Returns bytes written or -1 on malformed input.
+pub fn base64_decode(src: *const u8, len: i64, out: &mut String) -> i64 {
+    unsafe {
+        if (len & 3 as i64) != 0 as i64 { return 0 - 1 as i64; }
+        if len == 0 as i64 { return 0 as i64; }
+
+        // Determine pad length (0, 1, or 2 trailing '=').
+        let mut pad: i32 = 0;
+        if src[len - 1 as i64] == 61 as u8 { pad = pad + 1; }
+        if src[len - 2 as i64] == 61 as u8 { pad = pad + 1; }
+        if pad > 2 { return 0 - 1 as i64; }
+
+        let mut i: i64 = 0 as i64;
+        let mut produced: i64 = 0 as i64;
+        let body: i64 = len - 4 as i64;
+        // Full 4→3 groups.
+        while i < body {
+            let d0: i32 = char_to_sextet(src[i]);
+            let d1: i32 = char_to_sextet(src[i + 1 as i64]);
+            let d2: i32 = char_to_sextet(src[i + 2 as i64]);
+            let d3: i32 = char_to_sextet(src[i + 3 as i64]);
+            if d0 < 0 { return 0 - 1 as i64; }
+            if d1 < 0 { return 0 - 1 as i64; }
+            if d2 < 0 { return 0 - 1 as i64; }
+            if d3 < 0 { return 0 - 1 as i64; }
+            let v: i32 = (d0 << 18) | (d1 << 12) | (d2 << 6) | d3;
+            out.push_u8(((v >> 16) & 255) as u8);
+            out.push_u8(((v >>  8) & 255) as u8);
+            out.push_u8(( v        & 255) as u8);
+            produced = produced + 3 as i64;
+            i = i + 4 as i64;
+        }
+        // Last group with pad handling.
+        let d0: i32 = char_to_sextet(src[i]);
+        let d1: i32 = char_to_sextet(src[i + 1 as i64]);
+        if d0 < 0 { return 0 - 1 as i64; }
+        if d1 < 0 { return 0 - 1 as i64; }
+        let mut d2: i32 = 0;
+        let mut d3: i32 = 0;
+        if pad < 2 {
+            d2 = char_to_sextet(src[i + 2 as i64]);
+            if d2 < 0 { return 0 - 1 as i64; }
+        }
+        if pad < 1 {
+            d3 = char_to_sextet(src[i + 3 as i64]);
+            if d3 < 0 { return 0 - 1 as i64; }
+        }
+        let v: i32 = (d0 << 18) | (d1 << 12) | (d2 << 6) | d3;
+        out.push_u8(((v >> 16) & 255) as u8);
+        produced = produced + 1 as i64;
+        if pad < 2 {
+            out.push_u8(((v >> 8) & 255) as u8);
+            produced = produced + 1 as i64;
+        }
+        if pad < 1 {
+            out.push_u8((v & 255) as u8);
+            produced = produced + 1 as i64;
+        }
+        return produced;
+    }
+}
+
+pub fn base64_decode_str(src: str, out: &mut String) -> i64 {
+    unsafe { return base64_decode(src.as_ptr(), src.len(), out); }
+}
+
+// ---- helpers ---------------------------------------------------------------
+// Alphabet: A-Z (0-25), a-z (26-51), 0-9 (52-61), '+' (62), '/' (63).
+
+fn sextet_to_char(v: u8) -> u8 {
+    let vi: i32 = v as i32;
+    if vi < 26 { return (vi + 65) as u8; }       // A-Z
+    if vi < 52 { return (vi - 26 + 97) as u8; }  // a-z
+    if vi < 62 { return (vi - 52 + 48) as u8; }  // 0-9
+    if vi == 62 { return 43 as u8; }             // '+'
+    return 47 as u8;                              // '/'
+}
+
+fn char_to_sextet(c: u8) -> i32 {
+    let ci: i32 = c as i32;
+    if ci >= 65 && ci <= 90  { return ci - 65; }        // A-Z
+    if ci >= 97 && ci <= 122 { return ci - 97 + 26; }   // a-z
+    if ci >= 48 && ci <= 57  { return ci - 48 + 52; }   // 0-9
+    if ci == 43 { return 62; }                           // '+'
+    if ci == 47 { return 63; }                           // '/'
+    return 0 - 1;
+}

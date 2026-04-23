@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.hex
+//
+// Hex encode/decode.  Lowercase on encode; both cases accepted on decode.
+
+package std.hex;
+
+use std.string;
+
+// Encode `len` bytes from `src` as lowercase hex.  Appends 2*len chars to `out`.
+pub fn hex_encode(src: *const u8, len: i64, out: &mut String) {
+    unsafe {
+        let mut i: i64 = 0 as i64;
+        while i < len {
+            let b: u8 = src[i];
+            let hi: u8 = (b >> 4 as u8) & 15 as u8;
+            let lo: u8 = b & 15 as u8;
+            let ch_hi: u8 = nibble_to_char(hi);
+            let ch_lo: u8 = nibble_to_char(lo);
+            out.push_u8(ch_hi);
+            out.push_u8(ch_lo);
+            i = i + 1 as i64;
+        }
+    }
+}
+
+pub fn hex_encode_str(src: str, out: &mut String) {
+    unsafe { hex_encode(src.as_ptr(), src.len(), out); }
+}
+
+// Decode hex string `src` (length must be even).  Appends decoded bytes to `out`.
+// Returns number of bytes appended, or -1 on malformed input.
+pub fn hex_decode(src: *const u8, len: i64, out: &mut String) -> i64 {
+    unsafe {
+        if (len & 1 as i64) != 0 as i64 { return 0 - 1 as i64; }
+        let mut i: i64 = 0 as i64;
+        let mut produced: i64 = 0 as i64;
+        while i < len {
+            let hi: i32 = char_to_nibble(src[i]);
+            let lo: i32 = char_to_nibble(src[i + 1 as i64]);
+            if hi < 0 { return 0 - 1 as i64; }
+            if lo < 0 { return 0 - 1 as i64; }
+            let byte: u8 = ((hi << 4) | lo) as u8;
+            out.push_u8(byte);
+            produced = produced + 1 as i64;
+            i = i + 2 as i64;
+        }
+        return produced;
+    }
+}
+
+pub fn hex_decode_str(src: str, out: &mut String) -> i64 {
+    unsafe { return hex_decode(src.as_ptr(), src.len(), out); }
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+fn nibble_to_char(n: u8) -> u8 {
+    if (n as i32) < 10 { return (n as i32 + 48) as u8; }         // '0'..'9'
+    return (n as i32 - 10 + 97) as u8;                             // 'a'..'f'
+}
+
+fn char_to_nibble(c: u8) -> i32 {
+    let ci: i32 = c as i32;
+    if ci >= 48 && ci <= 57  { return ci - 48; }        // '0'..'9'
+    if ci >= 97 && ci <= 102 { return ci - 97 + 10; }   // 'a'..'f'
+    if ci >= 65 && ci <= 70  { return ci - 65 + 10; }   // 'A'..'F'
+    return 0 - 1;
+}
