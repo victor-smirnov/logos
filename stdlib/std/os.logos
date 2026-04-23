@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.os
+//
+// Miscellaneous OS-level queries: pid, uid, hostname, arch/os identification,
+// exit.
+
+package std.os;
+
+use std.string;
+
+extern fn getpid()  -> i32;
+extern fn getppid() -> i32;
+extern fn getuid()  -> i32;
+extern fn geteuid() -> i32;
+extern fn getgid()  -> i32;
+extern fn gethostname(name: *mut u8, len: i64) -> i32;
+extern fn exit(status: i32);
+
+// ---- identity --------------------------------------------------------------
+
+pub fn pid()  -> i32 { unsafe { return getpid();  } }
+pub fn ppid() -> i32 { unsafe { return getppid(); } }
+pub fn uid()  -> i32 { unsafe { return getuid();  } }
+pub fn euid() -> i32 { unsafe { return geteuid(); } }
+pub fn gid()  -> i32 { unsafe { return getgid();  } }
+
+// ---- hostname --------------------------------------------------------------
+
+pub fn hostname() -> String {
+    unsafe {
+        let mut buf: [u8; 256] = [0 as u8; 256];
+        let rc: i32 = gethostname(&mut buf[0], 256 as i64);
+        let mut s: String = String::new();
+        if rc == 0 {
+            // Find NUL terminator and push up to it.
+            let mut n: i64 = 0 as i64;
+            while n < 256 as i64 && buf[n] != 0 as u8 {
+                n = n + 1 as i64;
+            }
+            s.push_bytes(&buf[0] as *const u8, n);
+        }
+        return s;
+    }
+}
+
+// ---- build-time constants --------------------------------------------------
+
+// These reflect the target the compiler built for.  For now Logos only
+// supports x86-64 Linux; the constants are hard-coded until cross-compile
+// lands.
+
+pub fn arch() -> String {
+    let mut s: String = String::new();
+    s.push_str("x86_64");
+    return s;
+}
+
+pub fn os() -> String {
+    let mut s: String = String::new();
+    s.push_str("linux");
+    return s;
+}
+
+pub fn family() -> String {
+    let mut s: String = String::new();
+    s.push_str("unix");
+    return s;
+}
+
+// ---- exit ------------------------------------------------------------------
+
+pub fn exit_process(code: i32) {
+    unsafe { exit(code); }
+}

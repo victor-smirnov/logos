@@ -1,0 +1,128 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.signal
+//
+// Signal delivery and masking.  Install a handler (simple fn pointer),
+// send signals with kill(2), and block/unblock via sigprocmask.
+//
+// A signal handler runs asynchronously — only async-signal-safe code
+// inside (see signal-safety(7)).  std.io write is fine; String/Vec ops
+// are not.
+
+package std.signal;
+
+// ---- signal numbers (Linux) ------------------------------------------------
+
+pub fn SIGHUP()  -> i32 { return 1; }
+pub fn SIGINT()  -> i32 { return 2; }
+pub fn SIGQUIT() -> i32 { return 3; }
+pub fn SIGILL()  -> i32 { return 4; }
+pub fn SIGABRT() -> i32 { return 6; }
+pub fn SIGFPE()  -> i32 { return 8; }
+pub fn SIGKILL() -> i32 { return 9; }  // uncatchable
+pub fn SIGSEGV() -> i32 { return 11; }
+pub fn SIGPIPE() -> i32 { return 13; }
+pub fn SIGALRM() -> i32 { return 14; }
+pub fn SIGTERM() -> i32 { return 15; }
+pub fn SIGUSR1() -> i32 { return 10; }
+pub fn SIGUSR2() -> i32 { return 12; }
+pub fn SIGCHLD() -> i32 { return 17; }
+pub fn SIGCONT() -> i32 { return 18; }
+pub fn SIGSTOP() -> i32 { return 19; }  // uncatchable
+
+// sigprocmask "how" values.
+pub fn SIG_BLOCK()   -> i32 { return 0; }
+pub fn SIG_UNBLOCK() -> i32 { return 1; }
+pub fn SIG_SETMASK() -> i32 { return 2; }
+
+// Handler sentinels.  Cast via (N as *const u8) on the wire.
+pub fn SIG_DFL() -> i64 { return 0 as i64; }
+pub fn SIG_IGN() -> i64 { return 1 as i64; }
+
+// ---- externs ---------------------------------------------------------------
+
+extern fn signal(signum: i32, handler: *const u8) -> *const u8;
+extern fn kill(pid: i32, signum: i32) -> i32;
+extern fn raise(signum: i32) -> i32;
+
+// Linux sigset_t is 128 bytes (kernel uses 8, glibc pads to 128 on x86-64).
+extern fn sigemptyset(set: *mut u8) -> i32;
+extern fn sigfillset(set: *mut u8) -> i32;
+extern fn sigaddset(set: *mut u8, signum: i32) -> i32;
+extern fn sigdelset(set: *mut u8, signum: i32) -> i32;
+extern fn sigprocmask(how: i32, set: *const u8, oldset: *mut u8) -> i32;
+
+extern fn alarm(seconds: u32) -> u32;
+
+// ---- handler installation --------------------------------------------------
+
+// Install a signal handler.  `handler` must be a function pointer with
+// signature fn(i32)  (cast via `as *const u8`).  Use SIG_DFL()/SIG_IGN() for
+// the default / ignore handlers.
+// Returns the previous handler pointer.
+pub fn install(signum: i32, handler: *const u8) -> *const u8 {
+    unsafe { return signal(signum, handler); }
+}
+
+pub fn reset_default(signum: i32) {
+    unsafe { signal(signum, SIG_DFL() as *const u8); }
+}
+
+pub fn ignore(signum: i32) {
+    unsafe { signal(signum, SIG_IGN() as *const u8); }
+}
+
+// ---- send signals ----------------------------------------------------------
+
+pub fn send_signal(pid: i32, signum: i32) -> i32 {
+    unsafe { return kill(pid, signum); }
+}
+
+pub fn raise_self(signum: i32) -> i32 {
+    unsafe { return raise(signum); }
+}
+
+// ---- signal mask -----------------------------------------------------------
+
+// Block `signum` in the current thread.  Returns 0 on success.
+pub fn block(signum: i32) -> i32 {
+    unsafe {
+        // sigset_t is 128 bytes on glibc/Linux x86-64.
+        let mut set: [u8; 128] = [0 as u8; 128];
+        sigemptyset(&mut set[0]);
+        sigaddset(&mut set[0], signum);
+        return sigprocmask(SIG_BLOCK(), &set[0] as *const u8, 0 as *mut u8);
+    }
+}
+
+pub fn unblock(signum: i32) -> i32 {
+    unsafe {
+        let mut set: [u8; 128] = [
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8,
+            0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        sigemptyset(&mut set[0]);
+        sigaddset(&mut set[0], signum);
+        return sigprocmask(SIG_UNBLOCK(), &set[0] as *const u8, 0 as *mut u8);
+    }
+}
+
+// ---- alarm -----------------------------------------------------------------
+
+// Schedule a SIGALRM after `seconds` seconds.  Returns seconds remaining on
+// any previously scheduled alarm, or 0 if none.  seconds=0 cancels.
+pub fn schedule_alarm(seconds: u32) -> u32 {
+    unsafe { return alarm(seconds); }
+}

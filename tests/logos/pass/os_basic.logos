@@ -1,0 +1,27 @@
+// Tests std.os: pid, uid, hostname, arch/os constants.
+package test;
+
+use std.os;
+use std.string;
+
+fn main() -> i32 {
+    // pid is positive.
+    if pid() <= 0 { return 1; }
+
+    // uid >= 0 (always true for i32, but the syscall must not fail).
+    if uid() < 0 { return 2; }
+
+    // hostname is non-empty on any Linux machine.
+    let h: String = hostname();
+    if h.len() == 0 as i64 { return 3; }
+
+    // constant strings.
+    let a: String = arch();
+    if !a.eq_str("x86_64") { return 4; }
+    let o: String = os();
+    if !o.eq_str("linux")  { return 5; }
+    let f: String = family();
+    if !f.eq_str("unix")   { return 6; }
+
+    return 42;
+}

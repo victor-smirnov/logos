@@ -1,0 +1,33 @@
+// Tests std.signal: install/ignore, raise, block/unblock, alarm cancel.
+// (Handler-invocation round-trip needs mutable globals, which Logos lacks.)
+package test;
+
+use std.signal;
+
+fn on_usr1(signum: i32) {
+    // no-op
+}
+
+fn main() -> i32 {
+    // Install handler for SIGUSR1 -- previous handler is SIG_DFL (null).
+    let fp: *const u8 = on_usr1 as *const u8;
+    let prev: *const u8 = install(SIGUSR1(), fp);
+    if (prev as i64) != 0 as i64 { return 1; }
+
+    // Raise with the handler installed -- returns 0 and handler runs.
+    if raise_self(SIGUSR1()) != 0 { return 2; }
+
+    // Ignore SIGUSR1 and raise again -- returns 0 and does nothing.
+    ignore(SIGUSR1());
+    if raise_self(SIGUSR1()) != 0 { return 3; }
+
+    // Block/unblock smoke test.
+    if block(SIGUSR2()) != 0   { return 4; }
+    if unblock(SIGUSR2()) != 0 { return 5; }
+
+    // schedule_alarm(0) cancels any pending alarm; there is none, so result=0.
+    let remaining: u32 = schedule_alarm(0 as u32);
+    if remaining != 0 as u32 { return 6; }
+
+    return 42;
+}
