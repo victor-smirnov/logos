@@ -5,7 +5,7 @@
 //   - getrandom(2): cryptographic-quality bytes from the OS
 //   - Rng: fast pseudo-random with splitmix64 (deterministic, seedable)
 
-package std.random;
+package std.math.random;
 
 // glibc exposes getrandom(3) via <sys/random.h> — the symbol is always
 // available on recent glibc. Flags=0 means blocking on /dev/urandom.

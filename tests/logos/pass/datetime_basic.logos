@@ -1,7 +1,7 @@
 // Tests std.datetime: unix ↔ civil round-trip and formatting.
 package test;
 
-use std.datetime;
+use std.time.datetime;
 use std.lang.text;
 
 fn main() -> i32 {

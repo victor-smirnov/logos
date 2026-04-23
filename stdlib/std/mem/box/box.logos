@@ -5,7 +5,7 @@
 // Unlike raw *mut T, Box<T> makes the ownership intent explicit.
 // Without RAII, the caller must call box_free() when done.
 
-package std.box;
+package std.mem.box;
 
 use std.mem;
 

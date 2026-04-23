@@ -11,7 +11,7 @@
 // Types:
 //   AtomicI32, AtomicU32, AtomicI64, AtomicU64, AtomicBool, AtomicPtr<T>
 
-package std.atomic;
+package std.sync.atomic;
 
 use std.lang.option;
 

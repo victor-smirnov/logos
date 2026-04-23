@@ -17,10 +17,10 @@
 //   a1.drop_arc();   // does NOT free (a2 still alive)
 //   a2.drop_arc();   // frees inner block
 
-package std.arc;
+package std.mem.arc;
 
 use std.mem;
-use std.atomic;
+use std.sync.atomic;
 use std.lang.marker;
 
 // ── Internal heap block ───────────────────────────────────────────────────────

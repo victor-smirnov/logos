@@ -11,7 +11,7 @@
 // The two-pointer layout sidesteps generic-struct field-offset issues with
 // chain writes (`inner.field = ...` through a generic *mut pointer).
 
-package std.rc;
+package std.mem.rc;
 
 use std.mem;
 
