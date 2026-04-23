@@ -5,7 +5,7 @@
 
 package auto_trait_generic_propagation;
 
-use std;
+use std.marker;
 
 fn inner<T: Send>(x: T) -> i32 {
     return 21;

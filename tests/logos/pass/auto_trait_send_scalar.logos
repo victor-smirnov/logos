@@ -4,7 +4,7 @@
 
 package auto_trait_send_scalar;
 
-use std;
+use std.marker;
 
 fn accept<T: Send>(x: T) -> i32 {
     return 1;

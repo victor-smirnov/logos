@@ -4,7 +4,7 @@
 
 package auto_trait_send_raw_ptr;
 
-use std;
+use std.marker;
 
 struct NotSend {
     ptr: *mut i32,
