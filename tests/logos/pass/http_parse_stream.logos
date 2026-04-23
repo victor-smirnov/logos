@@ -1,0 +1,120 @@
+// Streaming Request/Response head parsers over BufReader<R>.
+// Writes a canned HTTP/1.1 request + response through a pipe, reads them
+// back through parse_request_stream / parse_response_stream, then verifies
+// the body reader wired up via body_length is correct.
+package test;
+
+use std.io.http;
+use std.io.buffered;
+use std.io.pipe;
+use std.io.read;
+use std.io.write;
+use std.io.net.url;
+use std.collections.vec;
+use std.lang.option;
+use std.lang.result;
+use std.lang.text;
+
+fn check_request() -> i32 {
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 1; }
+
+        let msg: str =
+            "POST /api/items?x=1 HTTP/1.1\r\nHost: example.com\r\nContent-Length: 5\r\n\r\nhello";
+        let mut fw: FdWriter = fd_writer(p.write_fd);
+        let n: i64 = write_all::<FdWriter>(&mut fw, msg.as_ptr(), msg.len());
+        if n != 0 as i64 { return 2; }
+        p.close_write();
+
+        let mut br: BufReader<FdReader> =
+            buf_reader_wrap::<FdReader>(fd_reader(p.read_fd), 64 as i64);
+
+        let req: Request = match parse_request_stream::<FdReader>(&mut br) {
+            Result::Ok(r)  => r,
+            Result::Err(_) => { return 3; }
+        };
+
+        if !(&req.method).eq_str("POST") { return 4; }
+        if !(&req.url.path).eq_str("/api/items") { return 5; }
+        if !(&req.url.query).eq_str("x=1") { return 6; }
+
+        let host: String = match (&req.headers).get("host") {
+            Option::Some(v) => v,
+            Option::None    => { return 7; }
+        };
+        if !(&host).eq_str("example.com") { return 8; }
+
+        // Body framing: Content-Length 5.
+        let blen: i64 = body_length(&req.headers);
+        if blen != 5 as i64 { return 9; }
+
+        // Read body through ContentLengthReader over the SAME BufReader.
+        let mut clr: ContentLengthReader<BufReader<FdReader>> =
+            content_length_reader_wrap::<BufReader<FdReader>>(br, blen);
+        let mut body_buf: [u8; 8] = [0 as u8; 8];
+        let mut total: i64 = 0 as i64;
+        while total < 5 as i64 {
+            let dst: *mut u8 = (&mut body_buf[0] as *mut u8 as i64 + total) as *mut u8;
+            let got: i64 = clr.read(dst, 8 as i64 - total);
+            if got == 0 as i64 { break; }
+            if got < 0 as i64 { return 10; }
+            total = total + got;
+        }
+        if total != 5 as i64 { return 11; }
+        let want: str = "hello";
+        let wp: *const u8 = want.as_ptr();
+        let mut i: i64 = 0 as i64;
+        while i < 5 as i64 {
+            if body_buf[i] != wp[i] { return 12; }
+            i = i + 1;
+        }
+
+        p.close();
+    }
+    return 0;
+}
+
+fn check_response() -> i32 {
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 20; }
+
+        let msg: str =
+            "HTTP/1.1 404 Not Found\r\nServer: t\r\nContent-Length: 3\r\n\r\nno!";
+        let mut fw: FdWriter = fd_writer(p.write_fd);
+        let n: i64 = write_all::<FdWriter>(&mut fw, msg.as_ptr(), msg.len());
+        if n != 0 as i64 { return 21; }
+        p.close_write();
+
+        let mut br: BufReader<FdReader> =
+            buf_reader_wrap::<FdReader>(fd_reader(p.read_fd), 32 as i64);
+
+        let resp: Response = match parse_response_stream::<FdReader>(&mut br) {
+            Result::Ok(r)  => r,
+            Result::Err(_) => { return 22; }
+        };
+
+        if resp.status != 404 { return 23; }
+        if !(&resp.reason).eq_str("Not Found") { return 24; }
+
+        let srv: String = match (&resp.headers).get("Server") {
+            Option::Some(v) => v,
+            Option::None    => { return 25; }
+        };
+        if !(&srv).eq_str("t") { return 26; }
+
+        if body_length(&resp.headers) != 3 as i64 { return 27; }
+
+        p.close();
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    let r1: i32 = check_request();
+    if r1 != 0 { return r1; }
+    let r2: i32 = check_response();
+    if r2 != 0 { return r2; }
+    return 42;
+}
