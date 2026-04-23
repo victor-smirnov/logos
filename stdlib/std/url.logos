@@ -10,6 +10,7 @@
 package std.url;
 
 use std.string;
+use std.option;
 
 // unreserved: A-Z a-z 0-9 '-' '.' '_' '~'
 fn is_unreserved(c: u8) -> bool {
@@ -128,12 +129,6 @@ pub fn url_decode_form_str(src: str, out: &mut String) -> i64 {
 // Fragment is parsed off and discarded (v1 has no use for it).
 // `port` is -1 when unspecified — callers pick a scheme default.
 // `path` is either empty (absent) or starts with '/'.
-//
-// NOTE: the API returns `Url` directly rather than `Option<Url>` — the
-// enum-payload drop for non-trivial types crashes at runtime in the
-// current compiler (see memory: feat_enum_payload_drop_bug).  On parse
-// failure the returned Url has an empty `scheme` — callers check
-// `u.scheme.len() > 0` (or use `url_parse_ok`).
 
 pub struct Url {
     pub scheme: String,
@@ -210,35 +205,21 @@ fn parse_port_digits(ptr: *const u8, lo: i64, hi: i64) -> i32 {
     return n;
 }
 
-fn url_empty() -> Url {
-    return Url {
-        scheme: String::new(),
-        host:   String::new(),
-        port:   0 - 1,
-        path:   String::new(),
-        query:  String::new(),
-    };
-}
-
-pub fn url_parse_ok(u: &Url) -> bool {
-    return u.scheme.len() > 0 as i64;
-}
-
-pub fn url_parse(s: str) -> Url {
+pub fn url_parse(s: str) -> Option<Url> {
     let ptr: *const u8 = unsafe { s.as_ptr() };
     let len: i64       = unsafe { s.len() };
-    if len <= 0 as i64 { return url_empty(); }
+    if len <= 0 as i64 { return Option::None; }
 
     // scheme — must start with ALPHA, end at "://"
-    if !is_scheme_head(unsafe { ptr[0 as i64] }) { return url_empty(); }
+    if !is_scheme_head(unsafe { ptr[0 as i64] }) { return Option::None; }
     let mut i: i64 = 1 as i64;
     while i < len {
         let c: u8 = unsafe { ptr[i] };
         if c == 58 as u8 { break; }                // ':'
-        if !is_scheme_tail(c) { return url_empty(); }
+        if !is_scheme_tail(c) { return Option::None; }
         i = i + 1 as i64;
     }
-    if !matches_scheme_sep(ptr, len, i) { return url_empty(); }
+    if !matches_scheme_sep(ptr, len, i) { return Option::None; }
     let scheme_end: i64 = i;
     let host_start: i64 = i + 3 as i64;
 
@@ -253,7 +234,7 @@ pub fn url_parse(s: str) -> Url {
         }
         j = j + 1 as i64;
     }
-    if auth_end == host_start { return url_empty(); }
+    if auth_end == host_start { return Option::None; }
 
     // Split authority on ':' for port.  Reject empty host.
     let colon: i64 = find_byte(ptr, auth_end, 58 as u8, host_start);
@@ -262,9 +243,9 @@ pub fn url_parse(s: str) -> Url {
     if colon >= 0 as i64 {
         host_end = colon;
         port = parse_port_digits(ptr, colon + 1 as i64, auth_end);
-        if port < 0 { return url_empty(); }
+        if port < 0 { return Option::None; }
     }
-    if host_end == host_start { return url_empty(); }
+    if host_end == host_start { return Option::None; }
 
     // path — from auth_end up to '?' or '#' or len
     let mut path_end: i64 = len;
@@ -294,13 +275,13 @@ pub fn url_parse(s: str) -> Url {
     push_range(&mut host,   ptr, host_start,  host_end);
     push_range(&mut path,   ptr, path_start,  path_end);
     push_range(&mut query,  ptr, query_start, query_end);
-    return Url {
+    return Option::Some(Url {
         scheme: scheme,
         host:   host,
         port:   port,
         path:   path,
         query:  query,
-    };
+    });
 }
 
 // Default port for well-known schemes.  Returns -1 if unknown.

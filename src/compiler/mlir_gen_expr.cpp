@@ -1558,20 +1558,37 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
                              lt->kind == LogosType::Kind::Tuple ||
                              lt->kind == LogosType::Kind::Slice ||
                              lt->kind == LogosType::Kind::Closure);
-                        mlir::Value bound_val;
-                        if (is_inline_struct) {
-                            bound_val = fp;
+                        if (is_inline_struct &&
+                            (lt->kind == LogosType::Kind::Struct ||
+                             lt->kind == LogosType::Kind::ZonedStruct)) {
+                            // Bind the payload bytes directly: scope_[name]=fp
+                            // points at the inline struct, matching the normal
+                            // struct-var convention (scope_ holds a pointer
+                            // *to* the struct bytes, not a pointer-to-pointer).
+                            // Without this, SDrop would call T__drop(alloca)
+                            // where alloca is an 8-byte slot holding fp, so
+                            // T__drop would read garbage stack as field[1..]
+                            // and free an out-of-range pointer.
+                            scope_[pvd->bindings[bi]] = fp;
+                            let_vars_.insert(pvd->bindings[bi]);
+                            var_struct_[pvd->bindings[bi]] = concrete_struct_name(lt);
+                            added.push_back(pvd->bindings[bi]);
                         } else {
-                            bound_val = builder_.create<mlir::LLVM::LoadOp>(
-                                loc_, vp->field_types[bi], fp);
+                            mlir::Value bound_val;
+                            if (is_inline_struct) {
+                                bound_val = fp;
+                            } else {
+                                bound_val = builder_.create<mlir::LLVM::LoadOp>(
+                                    loc_, vp->field_types[bi], fp);
+                            }
+                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                                loc_, ptr_type(), vp->field_types[bi], i64_one());
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
+                            scope_[pvd->bindings[bi]] = alloca;
+                            let_vars_.insert(pvd->bindings[bi]);
+                            var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
+                            added.push_back(pvd->bindings[bi]);
                         }
-                        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                            loc_, ptr_type(), vp->field_types[bi], i64_one());
-                        builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
-                        scope_[pvd->bindings[bi]] = alloca;
-                        let_vars_.insert(pvd->bindings[bi]);
-                        var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
-                        added.push_back(pvd->bindings[bi]);
                     }
                 }
             }

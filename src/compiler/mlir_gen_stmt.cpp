@@ -1537,19 +1537,31 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                              lt->kind == LogosType::Kind::Tuple ||
                              lt->kind == LogosType::Kind::Slice ||
                              lt->kind == LogosType::Kind::Closure);
-                        mlir::Value bound_val;
-                        if (is_inline_struct) {
-                            bound_val = fp;
+                        if (is_inline_struct &&
+                            (lt->kind == LogosType::Kind::Struct ||
+                             lt->kind == LogosType::Kind::ZonedStruct)) {
+                            // See mlir_gen_expr.cpp (EMatch) — bind `fp`
+                            // directly as the struct pointer so SDrop of
+                            // this binding calls T__drop on the inline
+                            // struct bytes instead of on a ptr-holding slot.
+                            scope_[pvd->bindings[bi]] = fp;
+                            let_vars_.insert(pvd->bindings[bi]);
+                            var_struct_[pvd->bindings[bi]] = concrete_struct_name(lt);
                         } else {
-                            bound_val = builder_.create<mlir::LLVM::LoadOp>(
-                                loc_, vp->field_types[bi], fp);
+                            mlir::Value bound_val;
+                            if (is_inline_struct) {
+                                bound_val = fp;
+                            } else {
+                                bound_val = builder_.create<mlir::LLVM::LoadOp>(
+                                    loc_, vp->field_types[bi], fp);
+                            }
+                            auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
+                                loc_, ptr_type(), vp->field_types[bi], i64_one());
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
+                            scope_[pvd->bindings[bi]] = alloca;
+                            let_vars_.insert(pvd->bindings[bi]);
+                            var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
                         }
-                        auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
-                            loc_, ptr_type(), vp->field_types[bi], i64_one());
-                        builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
-                        scope_[pvd->bindings[bi]] = alloca;
-                        let_vars_.insert(pvd->bindings[bi]);
-                        var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
                     }
                 }
             }
