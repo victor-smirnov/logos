@@ -6,7 +6,19 @@
 package std.panic;
 
 extern fn abort();
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
 pub fn panic(msg: str) {
-    unsafe { abort(); }
+    unsafe {
+        let prefix: str = "panic: ";
+        write(2, prefix.as_ptr(), 7);
+        write(2, msg.as_ptr(), msg.len());
+        let nl: str = "\n";
+        write(2, nl.as_ptr(), 1);
+        abort();
+    }
+}
+
+pub fn assert(cond: bool, msg: str) {
+    if !cond { panic(msg); }
 }

@@ -181,6 +181,83 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
 // Layout: { i32 disc, [max_payload_bytes x i8] }
 // ---------------------------------------------------------------------------
 
+// Compute ABI byte size from LogosType — avoids MLIR opaque struct problem.
+// Used to size enum payload slots correctly before MLIR struct bodies are set.
+uint64_t MLIRGenImpl::logos_abi_byte_size(const LogosType* t,
+                                           std::unordered_set<std::string>& seen) {
+    if (!t) return 8;
+    switch (t->kind) {
+    case LogosType::Kind::Void:    return 0;
+    case LogosType::Kind::Bool:    return 1;
+    case LogosType::Kind::U8:
+    case LogosType::Kind::I8:      return 1;
+    case LogosType::Kind::I16:
+    case LogosType::Kind::U16:     return 2;
+    case LogosType::Kind::I24:
+    case LogosType::Kind::U24:     return 3;
+    case LogosType::Kind::I32:
+    case LogosType::Kind::U32:
+    case LogosType::Kind::F32:
+    case LogosType::Kind::IntLit:  return 4;
+    case LogosType::Kind::I56:
+    case LogosType::Kind::U56:     return 7;
+    case LogosType::Kind::I64:
+    case LogosType::Kind::U64:
+    case LogosType::Kind::F64:
+    case LogosType::Kind::FloatLit:
+    case LogosType::Kind::Ptr:
+    case LogosType::Kind::Ref:
+    case LogosType::Kind::MutRef:
+    case LogosType::Kind::FnPtr:
+    case LogosType::Kind::TaggedPtr:
+    case LogosType::Kind::Slice:       return 8;
+    case LogosType::Kind::I128:
+    case LogosType::Kind::U128:        return 16;
+    case LogosType::Kind::Array:
+        if (!t->elem) return 0;
+        return t->arr_size * logos_abi_byte_size(t->elem, seen);
+    case LogosType::Kind::Closure:
+    case LogosType::Kind::TraitObject: return 16;  // two pointers
+    case LogosType::Kind::Tuple: {
+        uint64_t offset = 0, max_align = 1;
+        for (auto* e : t->tuple_elems) {
+            uint64_t esz = logos_abi_byte_size(e, seen);
+            uint64_t align = std::min(esz, (uint64_t)8);
+            if (align > 1) offset = (offset + align - 1) & ~(align - 1);
+            offset += esz;
+            if (align > max_align) max_align = align;
+        }
+        return (offset + max_align - 1) & ~(max_align - 1);
+    }
+    case LogosType::Kind::Struct:
+    case LogosType::Kind::ZonedStruct: {
+        auto cname = concrete_struct_name(t);
+        if (seen.count(cname)) return 8;  // cycle guard
+        auto it = all_struct_defs_.find(cname);
+        if (it == all_struct_defs_.end()) return 8;  // unknown — assume ptr size
+        seen.insert(cname);
+        const LStructDef* sd = it->second;
+        uint64_t offset = 0, max_align = 1;
+        for (auto& f : sd->fields) {
+            uint64_t esz = logos_abi_byte_size(f.type, seen);
+            uint64_t align = std::min(esz, (uint64_t)8);
+            if (align > 1) offset = (offset + align - 1) & ~(align - 1);
+            offset += esz;
+            if (align > max_align) max_align = align;
+        }
+        seen.erase(cname);
+        return (offset + max_align - 1) & ~(max_align - 1);
+    }
+    case LogosType::Kind::Enum: {
+        auto it = tagged_enums_.find(t->enum_name);
+        if (it != tagged_enums_.end())
+            return 4 + it->second.payload_bytes;  // disc + payload
+        return 8;
+    }
+    default: return 8;
+    }
+}
+
 void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     if (tagged_enums_.count(ed.name)) return;
     TaggedEnumInfo info;
@@ -195,13 +272,9 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
             auto ft = logos_to_mlir(pt);
             if (!ft) ft = builder_.getI32Type();
             vp.field_types.push_back(ft);
-            // Estimate size: i32=4, i64=8, ptr=8, bool=1, etc.
-            if (ft.isInteger(1)) variant_bytes += 1;
-            else if (ft.isInteger(8)) variant_bytes += 1;
-            else if (ft.isInteger(32)) variant_bytes += 4;
-            else if (ft.isInteger(64)) variant_bytes += 8;
-            else if (ft == ptr_type()) variant_bytes += 8;
-            else variant_bytes += 8; // default
+            vp.logos_types.push_back(pt);
+            std::unordered_set<std::string> seen;
+            variant_bytes += logos_abi_byte_size(pt, seen);
         }
         if (variant_bytes > max_bytes) max_bytes = variant_bytes;
         info.variants.push_back(std::move(vp));

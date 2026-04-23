@@ -1527,11 +1527,26 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                         auto fp = builder_.create<mlir::LLVM::GEPOp>(
                             loc_, ptr_type(), pay_struct, pay_ptr, fi);
-                        auto val = builder_.create<mlir::LLVM::LoadOp>(
-                            loc_, vp->field_types[bi], fp);
+                        // For inline structs, fp already points to the struct bytes —
+                        // use it directly (no load), matching the memcpy write side.
+                        const LogosType* lt = bi < vp->logos_types.size()
+                                              ? vp->logos_types[bi] : nullptr;
+                        bool is_inline_struct = lt &&
+                            (lt->kind == LogosType::Kind::Struct ||
+                             lt->kind == LogosType::Kind::ZonedStruct ||
+                             lt->kind == LogosType::Kind::Tuple ||
+                             lt->kind == LogosType::Kind::Slice ||
+                             lt->kind == LogosType::Kind::Closure);
+                        mlir::Value bound_val;
+                        if (is_inline_struct) {
+                            bound_val = fp;
+                        } else {
+                            bound_val = builder_.create<mlir::LLVM::LoadOp>(
+                                loc_, vp->field_types[bi], fp);
+                        }
                         auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
                             loc_, ptr_type(), vp->field_types[bi], i64_one());
-                        builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
                         scope_[pvd->bindings[bi]] = alloca;
                         let_vars_.insert(pvd->bindings[bi]);
                         var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];

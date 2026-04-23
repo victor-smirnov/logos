@@ -60,6 +60,11 @@ pub unsafe fn io_ring_new(entries: i32) -> IoRing {
     return IoRing { ring: ring };
 }
 
+// Return an invalid (null) IoRing — useful as a placeholder when init fails.
+pub fn io_ring_invalid() -> IoRing {
+    return IoRing { ring: 0 as *mut u8 };
+}
+
 // Tear down the ring and free the backing allocation.
 pub unsafe fn io_ring_free(r: *mut IoRing) {
     if r.ring == 0 as *mut u8 { return; }

@@ -1,0 +1,22 @@
+// Tests std.io: print, println, eprint, eprintln.
+package test;
+
+use std.io;
+use std.string;
+
+fn main() -> i32 {
+    // stdout
+    print("hello");
+    println(" world");
+
+    // eprintln goes to stderr — not captured by the test runner's stdout check.
+    eprintln("(stderr line)");
+
+    // print_string
+    let mut s: String = String::new();
+    s.push_str("done");
+    print_string(&s);
+    print("\n");
+
+    return 42;
+}

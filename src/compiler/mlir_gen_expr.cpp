@@ -294,11 +294,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLitData& e, const LogosType* t
             for (size_t i = 0; i < e.payload.size() && i < vp->field_types.size(); ++i) {
                 auto val = gen_expr(*e.payload[i]);
                 if (!val) return nullptr;
-                val = coerce_int(val, vp->field_types[i]);
                 llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(i)};
                 auto fp = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), pay_struct, pay_ptr, fi);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, val, fp);
+                // For inline structs, val is a *Struct pointer; copy bytes into payload.
+                const LogosType* lt = i < vp->logos_types.size() ? vp->logos_types[i] : nullptr;
+                bool is_inline = lt && (lt->kind == LogosType::Kind::Struct ||
+                                        lt->kind == LogosType::Kind::ZonedStruct ||
+                                        lt->kind == LogosType::Kind::Tuple ||
+                                        lt->kind == LogosType::Kind::Slice ||
+                                        lt->kind == LogosType::Kind::Closure);
+                if (is_inline) {
+                    std::unordered_set<std::string> seen;
+                    uint64_t sz = logos_abi_byte_size(lt, seen);
+                    auto sz_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)sz, 64);
+                    builder_.create<mlir::LLVM::MemcpyOp>(loc_, fp, val, sz_val, false);
+                } else {
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(val, vp->field_types[i]), fp);
+                }
             }
         }
     }
@@ -1496,6 +1509,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
     if (e.scrut->type && e.scrut->type->kind == LogosType::Kind::Enum) {
         te_info = resolve_tagged_enum(e.scrut->type->enum_name, e.scrut->type);
         if (te_info) {
+            // GEP requires a pointer operand.  If the scrutinee is a by-value
+            // struct (e.g. a direct function call result), spill it to an alloca.
+            if (scrut.getType() != ptr_type()) {
+                auto tmp = builder_.create<mlir::LLVM::AllocaOp>(
+                    loc_, ptr_type(), te_info->llvm_type, i64_one());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
+                scrut = tmp;
+            }
             scrut_ptr = scrut;
             llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
             auto dp = builder_.create<mlir::LLVM::GEPOp>(
@@ -1526,11 +1547,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                         auto fp = builder_.create<mlir::LLVM::GEPOp>(
                             loc_, ptr_type(), pay_struct, pay_ptr, fi);
-                        auto val = builder_.create<mlir::LLVM::LoadOp>(
-                            loc_, vp->field_types[bi], fp);
+                        // For inline structs (logos_to_mlir returns ptr but struct is stored
+                        // inline in the payload), fp already points to the struct bytes —
+                        // use fp directly as the variable (no extra load).
+                        const LogosType* lt = bi < vp->logos_types.size()
+                                              ? vp->logos_types[bi] : nullptr;
+                        bool is_inline_struct = lt &&
+                            (lt->kind == LogosType::Kind::Struct ||
+                             lt->kind == LogosType::Kind::ZonedStruct ||
+                             lt->kind == LogosType::Kind::Tuple ||
+                             lt->kind == LogosType::Kind::Slice ||
+                             lt->kind == LogosType::Kind::Closure);
+                        mlir::Value bound_val;
+                        if (is_inline_struct) {
+                            bound_val = fp;
+                        } else {
+                            bound_val = builder_.create<mlir::LLVM::LoadOp>(
+                                loc_, vp->field_types[bi], fp);
+                        }
                         auto alloca = builder_.create<mlir::LLVM::AllocaOp>(
                             loc_, ptr_type(), vp->field_types[bi], i64_one());
-                        builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
                         scope_[pvd->bindings[bi]] = alloca;
                         let_vars_.insert(pvd->bindings[bi]);
                         var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
@@ -1640,11 +1677,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
                 builder_.setInsertionPointToStart(body_block);
                 auto val = gen_expr(*arm.value);
                 for (auto& n : guard_added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
-                if (val) {
-                    val = coerce_numeric(val, result_type);
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
+                if (!is_terminated(builder_.getBlock())) {
+                    if (val) {
+                        val = coerce_numeric(val, result_type);
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
+                    }
+                    builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
                 }
-                builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
             }
         } else {
             mlir::OpBuilder::InsertionGuard ig(builder_);
@@ -1652,11 +1691,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
             auto added = extract_arm_payload(arm);
             auto val = gen_expr(*arm.value);
             for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
-            if (val) {
-                val = coerce_numeric(val, result_type);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
+            if (!is_terminated(builder_.getBlock())) {
+                if (val) {
+                    val = coerce_numeric(val, result_type);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
+                }
+                builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
             }
-            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
         }
 
         bool is_wild = std::holds_alternative<PatWild>(arm.pat);
@@ -2137,7 +2178,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, const LogosType* type) {
             auto ps  = mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), ok_vp->field_types);
             llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
             auto fp  = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ps, pay_ptr, fi);
-            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, ok_vp->field_types[0], fp);
+            const LogosType* lt = ok_vp->logos_types.empty() ? nullptr : ok_vp->logos_types[0];
+            bool is_inline = lt && (lt->kind == LogosType::Kind::Struct ||
+                                    lt->kind == LogosType::Kind::ZonedStruct ||
+                                    lt->kind == LogosType::Kind::Tuple ||
+                                    lt->kind == LogosType::Kind::Slice ||
+                                    lt->kind == LogosType::Kind::Closure);
+            mlir::Value val;
+            if (is_inline)
+                val = fp;
+            else
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, ok_vp->field_types[0], fp);
             builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(val, ok_mlir), result_alloca);
         }
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);

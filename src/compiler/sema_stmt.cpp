@@ -765,11 +765,38 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                                                 error(std::format("return: tuple element {}: sub-element {}: value {} does not fit in {}",
                                                       i, ii, *v, type_str(ret_type_->tuple_elems[i]->tuple_elems[ii])));
                         }
-            // Move semantics: returning a move-type variable by value — mark it moved
-            // so collect_all_drops() won't generate a drop for it (avoids double-free).
-            if (val && is_move_type(val->type))
-                if (auto* vr = std::get_if<lir::EVarRef>(&val->kind))
-                    mark_moved(vr->name);
+            // Move semantics: recursively mark any move-type variable that
+            // appears in the return expression as moved, so collect_all_drops()
+            // won't also drop them (avoids double-free).
+            std::function<void(const lir::LExpr*)> mark_moved_in_expr;
+            mark_moved_in_expr = [&](const lir::LExpr* e) {
+                if (!e) return;
+                if (auto* vr = std::get_if<lir::EVarRef>(&e->kind)) {
+                    if (is_move_type(e->type)) mark_moved(vr->name);
+                    return;
+                }
+                if (auto* ev = std::get_if<lir::EEnumLitData>(&e->kind)) {
+                    for (auto& a : ev->payload) mark_moved_in_expr(a.get());
+                    return;
+                }
+                if (auto* ec = std::get_if<lir::ECall>(&e->kind)) {
+                    for (auto& a : ec->args) mark_moved_in_expr(a.get());
+                    return;
+                }
+                if (auto* es = std::get_if<lir::EStructLit>(&e->kind)) {
+                    for (auto& f : es->fields) mark_moved_in_expr(f.second.get());
+                    return;
+                }
+                if (auto* et = std::get_if<lir::ETupleLit>(&e->kind)) {
+                    for (auto& a : et->elems) mark_moved_in_expr(a.get());
+                    return;
+                }
+                if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind)) {
+                    if (blk->result) mark_moved_in_expr(blk->result.get());
+                    return;
+                }
+            };
+            mark_moved_in_expr(val.get());
             return make_stmt(node_line_, lir::SReturn{std::move(val)});
         }
     }
@@ -3256,22 +3283,6 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         scrut_type = scrut->type;
     } else { scrut = error_expr(); }
 
-    // Check that all arms use EXPR (expression body).
-    // Note: ITEMS includes the scrutinee as first element; skip non-MATCH_ARM.
-    bool all_expr = true;
-    if (node.has_key(la::ITEMS)) {
-        auto arms = arr_of(node.get(la::ITEMS.code));
-        for (uint64_t i = 0; i < arms.size(); ++i) {
-            auto arm = map_of(arms.get(i));
-            if (code_of(arm) != la::MATCH_ARM) continue;
-            if (!arm.has_key(la::EXPR)) { all_expr = false; break; }
-        }
-    }
-    if (!all_expr) {
-        error("match as expression requires all arms to have expression bodies (pattern => expr,)");
-        return error_expr();
-    }
-
     // Hermes scalar pattern hoisting (symmetric to lower_match).
     auto is_hermes_pc = [](int32_t pc) {
         return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
@@ -3414,7 +3425,66 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 }
             }
 
-            lir::LExprPtr val = lower_expr(map_of(arm.get(la::EXPR.code)));
+            // Lower the arm value: either an EXPR arm (pattern => expr,) or a
+            // BODY block arm (pattern => { stmts }).  Block arms that always
+            // diverge (every path returns) contribute error_t so they are
+            // skipped during type unification; non-diverging block arms use
+            // their last expression as the value.
+            lir::LExprPtr val;
+            if (arm.has_key(la::EXPR)) {
+                val = lower_expr(map_of(arm.get(la::EXPR.code)));
+            } else if (arm.has_key(la::BODY)) {
+                auto body_node = map_of(arm.get(la::BODY.code));
+                bool diverges = (code_of(body_node) == la::BLOCK)
+                                ? block_always_returns(body_node)
+                                : stmt_always_returns(body_node);
+                if (diverges) {
+                    // Block always returns — lower it as a block of stmts;
+                    // the tail expression is unreachable so we use error_expr()
+                    // (skipped by type unification).
+                    lir::LBlock blk;
+                    if (code_of(body_node) == la::BLOCK)
+                        blk = lower_block(body_node);
+                    else
+                        blk.stmts.push_back(lower_stmt(body_node));
+                    auto blk_ptr = std::make_unique<lir::LBlock>(std::move(blk));
+                    val = make_expr(error_t(),
+                        lir::EBlockExpr{std::move(blk_ptr), error_expr()});
+                } else if (code_of(body_node) == la::BLOCK &&
+                           body_node.has_key(la::ITEMS)) {
+                    // Non-diverging block: last item must be an expression.
+                    auto stmts = arr_of(body_node.get(la::ITEMS.code));
+                    auto blk = std::make_unique<lir::LBlock>();
+                    lir::LExprPtr last_expr;
+                    for (uint64_t si = 0; si < stmts.size(); ++si) {
+                        auto s = map_of(stmts.get(si));
+                        if (si == stmts.size() - 1) {
+                            int32_t sc = code_of(s);
+                            if (sc == la::EXPR_STMT && s.has_key(la::VALUE))
+                                last_expr = lower_expr(map_of(s.get(la::VALUE.code)));
+                            else if (sc != la::EXPR_STMT && sc != la::LET &&
+                                     sc != la::LET_DESTRUCT && sc != la::RETURN)
+                                last_expr = lower_expr(s);
+                            else
+                                blk->stmts.push_back(lower_stmt(s));
+                        } else {
+                            blk->stmts.push_back(lower_stmt(s));
+                        }
+                    }
+                    if (!last_expr) {
+                        error("match expression: block arm must end with an expression or always return");
+                        last_expr = error_expr();
+                    }
+                    const LogosType* vt = last_expr->type;
+                    val = make_expr(vt, lir::EBlockExpr{std::move(blk), std::move(last_expr)});
+                } else {
+                    error("match expression: block arm must end with an expression or always return");
+                    val = error_expr();
+                }
+            } else {
+                error("match expression: arm has no body");
+                val = error_expr();
+            }
             // Wrap arm value with Hermes @-pattern prologue so bindings are
             // live during evaluation.
             if (!body_prologue.empty() || !body_binds.empty()) {

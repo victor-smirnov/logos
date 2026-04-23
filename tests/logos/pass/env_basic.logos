@@ -1,0 +1,38 @@
+// Tests std.env: args_count, arg, var.
+package test;
+
+use std.env;
+use std.option;
+use std.mem;
+
+fn main() -> i32 {
+    // argc >= 0 always; in sandboxed envs may be 0 if /proc is restricted
+    let argc: i32 = args_count();
+    if argc < 0 { return 1; }
+
+    // arg(negative) → ""
+    let neg: str = arg(0 - 1);
+    if neg.len() != 0 { return 2; }
+
+    // arg(argc) is out of range → ""
+    let oob: str = arg(argc);
+    if oob.len() != 0 { return 3; }
+
+    // getenv for a name that's definitely not set
+    unsafe {
+        let mut absent: [u8; 32] = [
+            76, 79, 71, 79, 83, 95, 78, 79, 95, 83, 85, 67, 72, 95, 86, 65, 82, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ];
+        let v: Option<str> = var(&absent[0]);
+        match v {
+            Option::Some(_) => { return 4; }  // should not be set
+            Option::None    => { }
+        }
+
+        // var_is_set for same absent name
+        if var_is_set(&absent[0]) { return 5; }
+    }
+
+    return 42;
+}

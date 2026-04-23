@@ -61,7 +61,8 @@ struct TaggedEnumInfo {
     // Per-variant payload LLVM types (for bitcasting the payload area)
     struct VariantPayload {
         int64_t disc;
-        std::vector<mlir::Type> field_types;  // empty = no payload
+        std::vector<mlir::Type>        field_types;   // empty = no payload
+        std::vector<const LogosType*>  logos_types;   // parallel: original LogosType per field
     };
     std::vector<VariantPayload> variants;
 };
@@ -245,6 +246,8 @@ private:
     // ── Struct / enum / class registration ──────────────────────
     bool register_struct(const LStructDef& sd);
     void register_tagged_enum(const LEnumDef& ed);
+    uint64_t logos_abi_byte_size(const LogosType* t,
+                                  std::unordered_set<std::string>& seen);
 
     // Resolve a tagged enum name from the expression type (handles generic enums).
     const TaggedEnumInfo* resolve_tagged_enum(const std::string& name, const LogosType* type);

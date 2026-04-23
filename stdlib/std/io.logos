@@ -7,6 +7,10 @@ use std.string;
 
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
+pub fn print(s: str) {
+    unsafe { write(1, s.as_ptr(), s.len()); }
+}
+
 pub fn println(s: str) {
     unsafe {
         write(1, s.as_ptr(), s.len());
@@ -15,10 +19,38 @@ pub fn println(s: str) {
     }
 }
 
+pub fn eprint(s: str) {
+    unsafe { write(2, s.as_ptr(), s.len()); }
+}
+
+pub fn eprintln(s: str) {
+    unsafe {
+        write(2, s.as_ptr(), s.len());
+        let nl: str = "\n";
+        write(2, nl.as_ptr(), 1);
+    }
+}
+
+pub fn print_string(s: &String) {
+    unsafe { write(1, s.as_ptr(), s.len()); }
+}
+
 pub fn println_string(s: &String) {
     unsafe {
         write(1, s.as_ptr(), s.len());
         let nl: str = "\n";
         write(1, nl.as_ptr(), 1);
+    }
+}
+
+pub fn eprint_string(s: &String) {
+    unsafe { write(2, s.as_ptr(), s.len()); }
+}
+
+pub fn eprintln_string(s: &String) {
+    unsafe {
+        write(2, s.as_ptr(), s.len());
+        let nl: str = "\n";
+        write(2, nl.as_ptr(), 1);
     }
 }

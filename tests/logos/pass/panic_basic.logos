@@ -1,0 +1,12 @@
+// Tests std.panic: assert passes, panic prints to stderr then aborts.
+// We only test the non-panicking path here (assert with true condition).
+package test;
+
+use std.panic;
+
+fn main() -> i32 {
+    assert(1 == 1, "1==1 should hold");
+    assert(42 > 0, "42 > 0");
+    // panic("should not reach") would abort
+    return 42;
+}

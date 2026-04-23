@@ -29,17 +29,18 @@ using namespace lir;
 mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     auto mod = mlir::ModuleOp::create(loc_);
 
-    // Pass 0: register enum types first so tagged enum fields in structs/classes
-    // get the correct pointer layout during aggregate registration.
+    // Pass 0: build struct lookup table so register_tagged_enum can compute
+    // payload sizes from LogosType field trees (logos_abi_byte_size).
+    for (auto& sd : prog.structs)
+        all_struct_defs_[sd.name] = &sd;
+
+    // Pass 0.5: register enum types (needs all_struct_defs_ populated above).
     for (auto& ed : prog.enums) {
         enum_types_[ed.name] = &ed;
         if (ed.has_payload()) register_tagged_enum(ed);
     }
 
-    // Pass 0.5: register struct LLVM types.
-    // Build lookup table first so register_struct can recursively resolve dependencies.
-    for (auto& sd : prog.structs)
-        all_struct_defs_[sd.name] = &sd;
+    // Register struct LLVM types (all_struct_defs_ already built above).
     for (auto& sd : prog.structs)
         if (!register_struct(sd)) return nullptr;
 

@@ -1,0 +1,52 @@
+// Tests std.fs: create, write_string, read_to_string, open, File methods.
+package test;
+
+use std.fs;
+use std.string;
+use std.result;
+use std.mem;
+
+fn main() -> i32 {
+    unsafe {
+        // Build null-terminated path on heap
+        let path: *mut u8 = alloc(32 as i64);
+        // /tmp/logos_fs_test.txt\0
+        path[0]=47;  path[1]=116; path[2]=109;  path[3]=112; path[4]=47;
+        path[5]=108; path[6]=111; path[7]=103;  path[8]=111; path[9]=115;
+        path[10]=95; path[11]=102; path[12]=115; path[13]=95; path[14]=116;
+        path[15]=101; path[16]=115; path[17]=116; path[18]=46; path[19]=116;
+        path[20]=120; path[21]=116; path[22]=0;
+
+        // Write a known string via write_string
+        let mut content: String = String::new();
+        content.push_str("Hello from fs!");
+
+        let wr: Result<i32, i32> = write_string(path, &content);
+        let ok1: bool = match wr { Result::Ok(_) => true, Result::Err(_) => false };
+        if !ok1 { dealloc(path); return 1; }
+
+        // Read it back — consume Result in one match
+        let read: String = match read_to_string(path) {
+            Result::Ok(s)  => s,
+            Result::Err(_) => { dealloc(path); return 2; }
+        };
+        if read.len() != content.len() { dealloc(path); return 3; }
+        if read.as_ptr()[0] != 72 { dealloc(path); return 4; }  // 'H'
+
+        // open() + read_at via File methods
+        let mut f: File = match open(path) {
+            Result::Ok(v)  => v,
+            Result::Err(_) => { dealloc(path); return 5; }
+        };
+
+        let rbuf: *mut u8 = alloc(32 as i64);
+        let n: i32 = f.read_at(rbuf, 14, 0 as i64);
+        if n != 14 { dealloc(rbuf); f.close(); dealloc(path); return 6; }
+        if rbuf[0] != 72 { dealloc(rbuf); f.close(); dealloc(path); return 7; }  // 'H'
+        dealloc(rbuf);
+        f.close();
+
+        dealloc(path);
+        return 42;
+    }
+}
