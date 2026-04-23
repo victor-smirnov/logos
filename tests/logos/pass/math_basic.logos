@@ -1,0 +1,50 @@
+// Tests std.math: trigonometry, logs, roots, rounding, integer helpers.
+package test;
+
+use std.math;
+
+fn abs_diff_ok(a: f64, b: f64) -> bool {
+    let d: f64 = a - b;
+    if d < 0.0 { return (0.0 - d) < 0.000001; }
+    return d < 0.000001;
+}
+
+fn main() -> i32 {
+    // sqrt(4) == 2
+    if !abs_diff_ok(sqrt_f64(4.0), 2.0) { return 1; }
+
+    // sin(0) == 0
+    if !abs_diff_ok(sin_f64(0.0), 0.0) { return 2; }
+    // cos(0) == 1
+    if !abs_diff_ok(cos_f64(0.0), 1.0) { return 3; }
+    // sin(PI/2) == 1
+    if !abs_diff_ok(sin_f64(PI() / 2.0), 1.0) { return 4; }
+
+    // exp(0) == 1
+    if !abs_diff_ok(exp_f64(0.0), 1.0) { return 5; }
+    // ln(e) == 1
+    if !abs_diff_ok(ln_f64(E()), 1.0) { return 6; }
+    // log2(1024) == 10
+    if !abs_diff_ok(log2_f64(1024.0), 10.0) { return 7; }
+
+    // pow(2, 10) == 1024
+    if !abs_diff_ok(pow_f64(2.0, 10.0), 1024.0) { return 8; }
+
+    // floor/ceil/round
+    if !abs_diff_ok(floor_f64(3.7), 3.0) { return 9; }
+    if !abs_diff_ok(ceil_f64(3.2),  4.0) { return 10; }
+    if !abs_diff_ok(round_f64(3.5), 4.0) { return 11; }
+
+    // fabs
+    if !abs_diff_ok(abs_f64(0.0 - 2.5), 2.5) { return 12; }
+
+    // integer helpers
+    if abs_i64(0 as i64 - 7 as i64) != 7 as i64 { return 13; }
+    if min_i32(3, 5) != 3 { return 14; }
+    if max_i32(3, 5) != 5 { return 15; }
+
+    // hypot(3,4) == 5
+    if !abs_diff_ok(hypot_f64(3.0, 4.0), 5.0) { return 16; }
+
+    return 42;
+}

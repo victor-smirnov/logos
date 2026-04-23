@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.thread
+//
+// Thin wrapper over pthread: spawn, join, detach, yield, self.
+// Higher-level concurrency lives in fiber/ (green threads) and std.sync.
+
+package std.thread;
+
+// pthread_t is 8 bytes on Linux x86-64; represented as i64.
+extern fn pthread_create(tid: *mut i64, attr: *const u8,
+                         start: *const u8, arg: *mut u8) -> i32;
+extern fn pthread_join(tid: i64, retval: *mut *mut u8) -> i32;
+extern fn pthread_detach(tid: i64) -> i32;
+extern fn pthread_self() -> i64;
+extern fn sched_yield() -> i32;
+
+// ---- JoinHandle ------------------------------------------------------------
+
+pub struct JoinHandle {
+    tid: i64,
+    joined: bool,
+}
+
+impl JoinHandle {
+    pub fn id(self: &JoinHandle) -> i64 { return self.tid; }
+
+    // Wait for the thread to finish. Returns the raw exit pointer from the
+    // thread function (whatever it returned cast to *mut u8).
+    pub fn join(self: &mut JoinHandle) -> *mut u8 {
+        unsafe {
+            if self.joined { return 0 as *mut u8; }
+            let mut retval: *mut u8 = 0 as *mut u8;
+            pthread_join(self.tid, &mut retval);
+            self.joined = true;
+            return retval;
+        }
+    }
+
+    // Detach: thread runs to completion independently; cannot be joined.
+    pub fn detach(self: &mut JoinHandle) {
+        unsafe {
+            if self.joined { return; }
+            pthread_detach(self.tid);
+            self.joined = true;
+        }
+    }
+}
+
+// ---- spawn -----------------------------------------------------------------
+
+// Spawn a new OS thread.
+// `start` must be a function pointer with signature fn(*mut u8) -> *mut u8
+// (cast from a concrete Logos fn using `as *const u8`).
+// `arg` is passed through unchanged.
+// Returns JoinHandle with tid=-1 on failure.
+pub fn thread_spawn(start: *const u8, arg: *mut u8) -> JoinHandle {
+    unsafe {
+        let mut tid: i64 = 0;
+        let rc: i32 = pthread_create(&mut tid, 0 as *const u8, start, arg);
+        if rc != 0 {
+            return JoinHandle { tid: 0 - 1 as i64, joined: true };
+        }
+        return JoinHandle { tid: tid, joined: false };
+    }
+}
+
+// ---- thread-local ops ------------------------------------------------------
+
+// Current thread's pthread ID (opaque; comparable with ==).
+pub fn current_id() -> i64 {
+    unsafe { return pthread_self(); }
+}
+
+// Hint to the scheduler that the current thread can yield to others.
+pub fn yield_now() {
+    unsafe { sched_yield(); }
+}

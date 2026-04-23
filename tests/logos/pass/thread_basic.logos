@@ -1,0 +1,53 @@
+// Tests std.thread: spawn a worker, pass arg, join, verify side effect.
+package test;
+
+use std.thread;
+use std.atomic;
+
+// Shared state: a single AtomicI64 counter.
+fn worker(arg: *mut u8) -> *mut u8 {
+    unsafe {
+        let counter: *mut AtomicI64 = arg as *mut AtomicI64;
+        let mut i: i32 = 0;
+        while i < 1000 {
+            counter.fetch_add(1 as i64);
+            i = i + 1;
+        }
+    }
+    return 0 as *mut u8;
+}
+
+fn main() -> i32 {
+    unsafe {
+        let mut counter: AtomicI64 = atomic_i64_new(0 as i64);
+
+        // Spawn 4 workers, each incrementing counter 1000 times.
+        let fp: *const u8 = worker as *const u8;
+        let arg: *mut u8 = &mut counter as *mut u8;
+
+        let mut h1: JoinHandle = thread_spawn(fp, arg);
+        let mut h2: JoinHandle = thread_spawn(fp, arg);
+        let mut h3: JoinHandle = thread_spawn(fp, arg);
+        let mut h4: JoinHandle = thread_spawn(fp, arg);
+
+        if h1.id() < 0 as i64 { return 1; }
+        if h2.id() < 0 as i64 { return 2; }
+        if h3.id() < 0 as i64 { return 3; }
+        if h4.id() < 0 as i64 { return 4; }
+
+        h1.join();
+        h2.join();
+        h3.join();
+        h4.join();
+
+        let total: i64 = counter.load();
+        if total != 4000 as i64 { return 5; }
+    }
+
+    // yield_now + current_id smoke check.
+    yield_now();
+    let tid: i64 = current_id();
+    if tid == 0 as i64 { return 6; }
+
+    return 42;
+}

@@ -1,0 +1,86 @@
+// Tests std.bufio: BufWriter + BufReader over a pipe.
+package test;
+
+use std.bufio;
+use std.pipe;
+use std.string;
+
+fn main() -> i32 {
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 1; }
+
+        // Writer side: emit "hello\nworld\n" in small chunks.
+        let mut w: BufWriter = buf_writer_default(p.write_fd);
+        w.write_str("hel");
+        w.write_str("lo\n");
+        w.write_str("world\n");
+        let fr: i64 = w.flush();
+        if fr < 0 as i64 { return 2; }
+        w.close();
+
+        // Close write end so reader sees EOF after the data.
+        p.close_write();
+
+        // Reader side.
+        let mut r: BufReader = buf_reader_default(p.read_fd);
+
+        let mut line1: String = String::new();
+        let n1: i64 = r.read_line(&mut line1);
+        if n1 != 6 as i64 { return 3; }        // "hello\n"
+        if !line1.eq_str("hello\n") { return 4; }
+
+        let mut line2: String = String::new();
+        let n2: i64 = r.read_line(&mut line2);
+        if n2 != 6 as i64 { return 5; }        // "world\n"
+        if !line2.eq_str("world\n") { return 6; }
+
+        // EOF.
+        let mut line3: String = String::new();
+        let n3: i64 = r.read_line(&mut line3);
+        if n3 != 0 as i64 { return 7; }
+
+        r.close();
+        p.close();
+    }
+
+    // Byte-level roundtrip through a second pipe.
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 8; }
+
+        let mut w: BufWriter = buf_writer_new(p.write_fd, 4 as i64);
+        // 7 bytes, cap=4 → at least one mid-stream flush.
+        w.write_byte(65 as u8);  // A
+        w.write_byte(66 as u8);  // B
+        w.write_byte(67 as u8);  // C
+        w.write_byte(68 as u8);  // D
+        w.write_byte(69 as u8);  // E
+        w.write_byte(70 as u8);  // F
+        w.write_byte(71 as u8);  // G
+        w.flush();
+        w.close();
+        p.close_write();
+
+        let mut r: BufReader = buf_reader_new(p.read_fd, 3 as i64);
+        let mut got: [u8; 7] = [0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        let mut count: i64 = 0 as i64;
+        while count < 7 as i64 {
+            let b: i32 = r.read_byte();
+            if b < 0 { return 9; }
+            got[count] = b as u8;
+            count = count + 1 as i64;
+        }
+        // EOF check.
+        let eof: i32 = r.read_byte();
+        if eof >= 0 { return 10; }
+
+        if got[0] != 65 as u8 { return 11; }
+        if got[6] != 71 as u8 { return 12; }
+
+        r.close();
+        p.close();
+    }
+
+    return 42;
+}

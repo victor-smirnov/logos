@@ -1,0 +1,65 @@
+// Tests std.random: deterministic PRNG + OS entropy.
+package test;
+
+use std.random;
+
+fn main() -> i32 {
+    // Deterministic: same seed → same sequence.
+    let mut r1: Rng = rng_new(42 as u64);
+    let mut r2: Rng = rng_new(42 as u64);
+    unsafe {
+        let mut i: i32 = 0;
+        while i < 10 {
+            if r1.next_u64() != r2.next_u64() { return 1; }
+            i = i + 1;
+        }
+    }
+
+    // Different seeds → different sequences (very high probability).
+    let mut a: Rng = rng_new(1 as u64);
+    let mut b: Rng = rng_new(2 as u64);
+    unsafe {
+        if a.next_u64() == b.next_u64() { return 2; }
+    }
+
+    // next_range_i64: values in [10, 20).
+    let mut r3: Rng = rng_new(123 as u64);
+    unsafe {
+        let mut i: i32 = 0;
+        while i < 100 {
+            let v: i64 = r3.next_range_i64(10 as i64, 20 as i64);
+            if v < 10 as i64 { return 3; }
+            if v >= 20 as i64 { return 4; }
+            i = i + 1;
+        }
+    }
+
+    // next_f64: values in [0.0, 1.0).
+    let mut r4: Rng = rng_new(777 as u64);
+    unsafe {
+        let mut i: i32 = 0;
+        while i < 100 {
+            let f: f64 = r4.next_f64();
+            if f < 0.0  { return 5; }
+            if f >= 1.0 { return 6; }
+            i = i + 1;
+        }
+    }
+
+    // OS random: fill an 8-byte buffer, ensure it's not all zero (2^-64 chance).
+    unsafe {
+        let mut buf: [u8; 8] = [0 as u8, 0 as u8, 0 as u8, 0 as u8,
+                                 0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        let n: i64 = os_random(&mut buf[0], 8 as i64);
+        if n != 8 as i64 { return 7; }
+        let mut any_nonzero: bool = false;
+        let mut i: i64 = 0 as i64;
+        while i < 8 as i64 {
+            if buf[i] != 0 as u8 { any_nonzero = true; }
+            i = i + 1 as i64;
+        }
+        if !any_nonzero { return 8; }
+    }
+
+    return 42;
+}

@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.random
+//
+// Two sources:
+//   - getrandom(2): cryptographic-quality bytes from the OS
+//   - Rng: fast pseudo-random with splitmix64 (deterministic, seedable)
+
+package std.random;
+
+// glibc exposes getrandom(3) via <sys/random.h> — the symbol is always
+// available on recent glibc. Flags=0 means blocking on /dev/urandom.
+extern fn getrandom(buf: *mut u8, buflen: i64, flags: u32) -> i64;
+
+// ---- OS randomness ---------------------------------------------------------
+
+// Fill buf with `len` cryptographic-quality random bytes.
+// Returns bytes written (== len on success) or -1 on error.
+pub fn os_random(buf: *mut u8, len: i64) -> i64 {
+    unsafe { return getrandom(buf, len, 0 as u32); }
+}
+
+// Convenience: get a random u64 from OS entropy.
+pub fn os_u64() -> u64 {
+    unsafe {
+        let mut bytes: [u8; 8] = [0 as u8, 0 as u8, 0 as u8, 0 as u8,
+                                   0 as u8, 0 as u8, 0 as u8, 0 as u8];
+        getrandom(&mut bytes[0], 8 as i64, 0 as u32);
+        let p: *const u64 = &bytes[0] as *const u64;
+        return p[0 as i64];
+    }
+}
+
+// ---- Rng (splitmix64 PRNG, seedable, deterministic) ------------------------
+//
+// splitmix64 is the mixer used to seed xorshift/xoshiro — small, fast, passes
+// standard statistical batteries for non-cryptographic use.
+
+pub struct Rng {
+    state: u64,
+}
+
+pub fn rng_new(seed: u64) -> Rng {
+    return Rng { state: seed };
+}
+
+// Seed from OS entropy.
+pub fn rng_from_os() -> Rng {
+    return Rng { state: os_u64() };
+}
+
+impl Rng {
+    // Raw splitmix64 step.
+    pub fn next_u64(self: &mut Rng) -> u64 {
+        unsafe {
+            self.state = self.state + 11400714819323198485 as u64;
+            let mut z: u64 = self.state;
+            z = (z ^ (z >> 30 as u64)) * (13787848793156543929 as u64);
+            z = (z ^ (z >> 27 as u64)) * (10723151780598845931 as u64);
+            return z ^ (z >> 31 as u64);
+        }
+    }
+
+    pub fn next_u32(self: &mut Rng) -> u32 {
+        unsafe { return self.next_u64() as u32; }
+    }
+
+    // Uniform integer in [lo, hi).  Caller must ensure hi > lo.
+    pub fn next_range_i64(self: &mut Rng, lo: i64, hi: i64) -> i64 {
+        unsafe {
+            let span: u64 = (hi - lo) as u64;
+            let r: u64 = self.next_u64() % span;
+            return lo + (r as i64);
+        }
+    }
+
+    // Uniform f64 in [0.0, 1.0).
+    pub fn next_f64(self: &mut Rng) -> f64 {
+        unsafe {
+            // Use top 53 bits (mantissa width) divided by 2^53.
+            let r: u64 = self.next_u64() >> 11 as u64;
+            return (r as f64) / 9007199254740992.0;
+        }
+    }
+
+    pub fn next_bool(self: &mut Rng) -> bool {
+        unsafe { return (self.next_u64() & 1 as u64) == 1 as u64; }
+    }
+}
