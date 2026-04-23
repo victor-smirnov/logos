@@ -1,0 +1,29 @@
+// Tests std.log: level constants, threshold default, emit without crash.
+package test;
+
+use std.log;
+
+fn main() -> i32 {
+    if TRACE() != 0 { return 1; }
+    if DEBUG() != 1 { return 2; }
+    if INFO()  != 2 { return 3; }
+    if WARN()  != 3 { return 4; }
+    if ERROR() != 4 { return 5; }
+
+    // Without LOGOS_LOG set, default threshold is INFO (2).
+    if threshold() != INFO() { return 6; }
+
+    // Emit at each level — must not crash.  TRACE/DEBUG are below threshold
+    // and suppressed; INFO/WARN/ERROR print to stderr.
+    trace("trace visible only with LOGOS_LOG=TRACE");
+    debug("debug visible with LOGOS_LOG=DEBUG or lower");
+    info("info message");
+    warn("warn message");
+    error("error message");
+
+    // Structured kv variants.
+    log_kv_i64(INFO(), "counter", "n", 42 as i64);
+    log_kv_str(WARN(), "request", "path", "/api/x");
+
+    return 42;
+}

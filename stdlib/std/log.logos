@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.log
+//
+// Level-based line logging to stderr.  The minimum level is read from the
+// LOGOS_LOG env variable on each emit call — values TRACE/DEBUG/INFO/WARN/
+// ERROR/OFF (case-insensitive) are accepted; anything else defaults to INFO.
+// Messages at a lower level than the threshold are silently dropped.
+
+package std.log;
+
+use std.string;
+
+extern fn getenv(name: *const u8) -> *const u8;
+
+// ── Level constants ──────────────────────────────────────────────────────
+pub fn TRACE() -> i32 { return 0; }
+pub fn DEBUG() -> i32 { return 1; }
+pub fn INFO()  -> i32 { return 2; }
+pub fn WARN()  -> i32 { return 3; }
+pub fn ERROR() -> i32 { return 4; }
+pub fn OFF()   -> i32 { return 100; }
+
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+unsafe fn write_all(buf: *const u8, n: i64) {
+    let mut off: i64 = 0 as i64;
+    while off < n {
+        let w: i64 = write(2 as i32, (buf as i64 + off) as *const u8, n - off);
+        if w <= 0 as i64 { return; }
+        off = off + w;
+    }
+}
+
+unsafe fn cstr_eq_ci(p: *const u8, expected: str) -> bool {
+    let mut i: i64 = 0 as i64;
+    let n: i64 = expected.len();
+    let exp: *const u8 = expected.as_ptr();
+    while i < n {
+        let a: u8 = p[i];
+        if a == 0 as u8 { return false; }
+        let au: i32 = a as i32;
+        let bu: i32 = exp[i] as i32;
+        let an: i32 = if au >= 97 && au <= 122 { au - 32 } else { au };
+        let bn: i32 = if bu >= 97 && bu <= 122 { bu - 32 } else { bu };
+        if an != bn { return false; }
+        i = i + 1 as i64;
+    }
+    return p[i] == 0 as u8;
+}
+
+pub fn threshold() -> i32 {
+    unsafe {
+        let v: *const u8 = getenv("LOGOS_LOG".as_ptr());
+        if v == 0 as *const u8 { return INFO(); }
+        if cstr_eq_ci(v, "TRACE") { return TRACE(); }
+        if cstr_eq_ci(v, "DEBUG") { return DEBUG(); }
+        if cstr_eq_ci(v, "INFO")  { return INFO(); }
+        if cstr_eq_ci(v, "WARN")  { return WARN(); }
+        if cstr_eq_ci(v, "ERROR") { return ERROR(); }
+        if cstr_eq_ci(v, "OFF")   { return OFF(); }
+        return INFO();
+    }
+}
+
+fn level_prefix(level: i32, out: &mut String) {
+    if      level == TRACE() { out.push_str("TRACE "); }
+    else if level == DEBUG() { out.push_str("DEBUG "); }
+    else if level == INFO()  { out.push_str("INFO  "); }
+    else if level == WARN()  { out.push_str("WARN  "); }
+    else if level == ERROR() { out.push_str("ERROR "); }
+    else                     { out.push_str("LOG   "); }
+}
+
+// ── Emit API ─────────────────────────────────────────────────────────────
+
+pub fn emit(level: i32, msg: str) {
+    if level < threshold() { return; }
+    let mut buf: String = String::new();
+    level_prefix(level, &mut buf);
+    buf.push_str(msg);
+    buf.push_u8(10 as u8);
+    unsafe { write_all(buf.as_ptr(), buf.len()); }
+}
+
+pub fn log_kv_i64(level: i32, msg: str, key: str, value: i64) {
+    if level < threshold() { return; }
+    let mut buf: String = String::new();
+    level_prefix(level, &mut buf);
+    buf.push_str(msg);
+    buf.push_u8(32 as u8);
+    buf.push_str(key);
+    buf.push_u8(61 as u8);
+    buf.push_i64(value);
+    buf.push_u8(10 as u8);
+    unsafe { write_all(buf.as_ptr(), buf.len()); }
+}
+
+pub fn log_kv_str(level: i32, msg: str, key: str, value: str) {
+    if level < threshold() { return; }
+    let mut buf: String = String::new();
+    level_prefix(level, &mut buf);
+    buf.push_str(msg);
+    buf.push_u8(32 as u8);
+    buf.push_str(key);
+    buf.push_u8(61 as u8);
+    buf.push_u8(34 as u8);
+    buf.push_str(value);
+    buf.push_u8(34 as u8);
+    buf.push_u8(10 as u8);
+    unsafe { write_all(buf.as_ptr(), buf.len()); }
+}
+
+pub fn trace(msg: str) { emit(TRACE(), msg); }
+pub fn debug(msg: str) { emit(DEBUG(), msg); }
+pub fn info(msg: str)  { emit(INFO(),  msg); }
+pub fn warn(msg: str)  { emit(WARN(),  msg); }
+pub fn error(msg: str) { emit(ERROR(), msg); }
