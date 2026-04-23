@@ -20,6 +20,12 @@ extern fn logos_thread_get() -> *mut u8;
 extern fn logos_thread_set(ptr: *mut u8);
 extern fn logos_sched_set(ptr: *mut u8);
 
+// io_uring shims for the multishot notify-fd poll.
+extern fn logos_io_uring_get_sqe(ring: *mut u8) -> *mut u8;
+extern fn logos_io_uring_prep_poll_multishot(sqe: *mut u8, fd: i32, mask: i32);
+extern fn logos_uring_sqe_set_data64(sqe: *mut u8, data: i64);
+extern fn logos_io_uring_submit_and_wait(ring: *mut u8, wait_nr: i32) -> i32;
+
 // ── OS primitives ─────────────────────────────────────────────────────────
 
 extern fn pthread_create(tid: *mut i64, attr: *const u8,
@@ -37,8 +43,10 @@ extern fn poll(fds: *mut u8, nfds: i64, timeout: i32) -> i32;
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const SPSC_CAP: i64 = 256;  // (fn, arg) slots per inbox ring
-const POLLIN:   i16 = 1;    // poll event mask
+const SPSC_CAP:      i64 = 256;  // (fn, arg) slots per inbox ring
+const POLLIN:        i16 = 1;    // poll event mask
+const EFD_NONBLOCK:  i32 = 2048; // O_NONBLOCK for eventfd(2)
+const REACTOR_URING_ENTRIES: i32 = 256;
 
 // ── SpscRing ──────────────────────────────────────────────────────────────
 
@@ -137,6 +145,7 @@ pub struct Thread {
     sleeping:   i64,
     pool:       *mut ThreadPool,
     inbox:      *mut SpscRing,
+    reactor:    *mut Reactor,
 }
 
 // ── ThreadPool ────────────────────────────────────────────────────────────
@@ -183,25 +192,45 @@ fn cross_thread_enqueue(target_thr: i64, fiber_ptr: i64) {
     }
 }
 
+// Drain any pending reads from a non-blocking eventfd so the multishot
+// poll doesn't keep firing on stale readability.
+fn drain_eventfd_nb(nfd: i32) {
+    loop {
+        let mut ev: i64 = 0;
+        let ev_ptr: *mut i64 = &mut ev as *mut i64;
+        let n: i64 = unsafe { read(nfd, ev_ptr as *mut u8, 8) };
+        if n <= 0 as i64 { break; }
+    }
+}
+
 fn thread_reactor(t: *mut Thread) {
     let pool:  *mut ThreadPool = unsafe { t.pool };
     let s:     *mut Scheduler  = unsafe { t.sched };
     let nfd:   i32             = unsafe { t.notify_fd };
+    let r:     *mut Reactor    = unsafe { t.reactor };
 
     let mut done: bool = false;
     while !done {
         drain_inbox(t);
         sched_run(s);
         drain_inbox(t);
+        // Non-blocking CQE drain in case fibers parked during sched_run.
+        if r != 0 as *mut Reactor {
+            let _: i32 = unsafe { reactor_poll(r, false) };
+            drain_eventfd_nb(nfd);
+        }
 
         let shutdown:    i64  = unsafe { pool.shutdown };
         let inbox:       *mut SpscRing = unsafe { t.inbox };
         let inbox_empty: bool = spsc_empty(inbox as *const SpscRing);
+        let parked:      bool = r != 0 as *mut Reactor
+                                && reactor_has_parked(r as *const Reactor);
 
-        if shutdown != 0 && sched_empty(s) && inbox_empty {
+        if shutdown != 0 && sched_empty(s) && inbox_empty && !parked {
             done = true;
         } else if sched_empty(s) && inbox_empty {
-            // Sleep until the producer signals via eventfd.
+            // Sleep until a CQE arrives — either real fiber I/O, or the
+            // notify_fd multishot poll fires from a cross-thread submit.
             unsafe { t.sleeping = 1; }
             // Final drain to close the race between producer writing SPSC
             // and us setting sleeping=1.
@@ -210,11 +239,19 @@ fn thread_reactor(t: *mut Thread) {
             let shutdown2: i64 = unsafe { pool.shutdown };
             if !sched_empty(s) || !spsc_empty(inbox2 as *const SpscRing) {
                 unsafe { t.sleeping = 0; }
-            } else if shutdown2 != 0 {
+            } else if shutdown2 != 0 && !parked {
                 unsafe { t.sleeping = 0; }
                 done = true;
             } else {
-                wait_eventfd(nfd);
+                // Blocking wait: always prefer the io_uring path since
+                // the multishot poll on notify_fd is armed; it wakes on
+                // both fiber I/O CQEs and cross-thread eventfd writes.
+                if r != 0 as *mut Reactor {
+                    let _: i32 = unsafe { reactor_poll(r, true) };
+                    drain_eventfd_nb(nfd);
+                } else {
+                    wait_eventfd(nfd);
+                }
                 unsafe { t.sleeping = 0; }
             }
         }
@@ -225,9 +262,26 @@ fn thread_reactor(t: *mut Thread) {
 
 fn thread_entry(arg: *mut u8) -> *mut u8 {
     let t: *mut Thread = arg as *mut Thread;
+    let r:   *mut Reactor = unsafe { t.reactor };
+    let nfd: i32          = unsafe { t.notify_fd };
     unsafe {
         logos_sched_set(t.sched as *mut u8);
         logos_thread_set(t as *mut u8);
+    }
+    reactor_set_current(r);
+    // Arm multishot POLL_ADD on notify_fd with user_data=0 so CQEs land
+    // in the same ring.  reactor_dispatch_cqe ignores ud=0, and the
+    // idle loop calls drain_eventfd_nb after every wake.
+    if r != 0 as *mut Reactor {
+        let sqe: *mut u8 = unsafe { reactor_get_sqe(r) };
+        if sqe != 0 as *mut u8 {
+            unsafe {
+                logos_io_uring_prep_poll_multishot(sqe, nfd, POLLIN as i32);
+                logos_uring_sqe_set_data64(sqe, 0 as i64);
+                let _: i32 = logos_io_uring_submit_and_wait(
+                    (r.ring) as *mut u8, 0);
+            }
+        }
     }
     thread_reactor(t);
     return 0 as *mut u8;
@@ -248,14 +302,16 @@ pub fn thread_pool_new(n: i32) -> *mut ThreadPool {
     while i < n {
         let t:    *mut Thread   = alloc(sizeof::<Thread>()) as *mut Thread;
         let ring: *mut SpscRing = spsc_ring_new(SPSC_CAP);
+        let rct: *mut Reactor = unsafe { reactor_new(REACTOR_URING_ENTRIES) };
         unsafe {
             t.idx        = i;
             t.pthread_id = 0;
             t.sched      = sched_new();
-            t.notify_fd  = eventfd(0, 0);
+            t.notify_fd  = eventfd(0, EFD_NONBLOCK);
             t.sleeping   = 0;
             t.pool       = pool;
             t.inbox      = ring;
+            t.reactor    = rct;
         }
         let threads_buf: *mut i64 = unsafe { pool.threads };
         let slot: *mut i64 = (threads_buf as i64 + i as i64 * 8) as *mut i64;
@@ -335,9 +391,11 @@ pub fn thread_pool_free(pool: *mut ThreadPool) {
         let inbox: *mut SpscRing  = unsafe { t.inbox };
         let s:     *mut Scheduler = unsafe { t.sched };
         let nfd:   i32            = unsafe { t.notify_fd };
+        let rct:   *mut Reactor   = unsafe { t.reactor };
         spsc_ring_free(inbox);
         sched_free(s);
         let _: i32 = unsafe { close(nfd) };
+        if rct != 0 as *mut Reactor { unsafe { reactor_free(rct); } }
         dealloc(t as *mut u8);
         i = i + 1;
     }

@@ -166,3 +166,12 @@ void logos_io_uring_prep_nop(struct io_uring_sqe *sqe)
 {
     io_uring_prep_nop(sqe);
 }
+
+// Prepare a multishot poll SQE.  Each level-triggered readability event
+// generates a CQE (kernel keeps the poll armed).  Used by the thread
+// reactor to watch its cross-thread notify eventfd while also blocking
+// on real fiber I/O CQEs in the same ring.
+void logos_io_uring_prep_poll_multishot(struct io_uring_sqe *sqe, int fd, int mask)
+{
+    io_uring_prep_poll_multishot(sqe, fd, (unsigned)mask);
+}
