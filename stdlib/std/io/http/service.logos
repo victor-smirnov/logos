@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.http: Service trait.
+//
+// A Service turns a Request into a Response.  Any handler — a stateful
+// struct, a router, a fn-pointer wrapper — implements `Service` and can be
+// plugged into the connection loop.
+//
+// FnService is the adapter for plain `fn(&Request) -> Response` handlers,
+// so existing code that already uses fn-pointers (see server.logos) keeps
+// working without change.
+
+package std.io.http;
+
+pub trait Service {
+    fn call(self: &mut Self, req: &Request) -> Response;
+}
+
+// ── FnService — adapter for `fn(&Request) -> Response` ──────────────────────
+
+pub struct FnService {
+    f: fn(&Request) -> Response,
+}
+
+pub fn fn_service(f: fn(&Request) -> Response) -> FnService {
+    return FnService { f: f };
+}
+
+impl Service for FnService {
+    fn call(self: &mut FnService, req: &Request) -> Response {
+        let g: fn(&Request) -> Response = self.f;
+        return g(req);
+    }
+}

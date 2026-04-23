@@ -1,0 +1,49 @@
+// Service trait + FnService adapter: build a request, dispatch through
+// Service::call, verify the response.
+package test;
+
+use std.io.http;
+use std.io.net.url;
+use std.collections.vec;
+use std.lang.text;
+
+fn handler(req: &Request) -> Response {
+    let mut resp: Response = Response::new(200);
+    (&mut resp.headers).append("Content-Type", "text/plain");
+    // Body = "OK!" (fixed 3 bytes) to keep this test independent of
+    // cross-fn-ptr field access.
+    vec_push_u8(&mut resp.body, 79 as u8);   // O
+    vec_push_u8(&mut resp.body, 75 as u8);   // K
+    vec_push_u8(&mut resp.body, 33 as u8);   // !
+    return resp;
+}
+
+fn main() -> i32 {
+    let mut svc: FnService = fn_service(handler);
+
+    // Construct a minimal request by hand.
+    let mut path_s: String = String::new();
+    path_s.push_str("/hello");
+    let u: Url = Url {
+        scheme: String::new(),
+        host:   String::new(),
+        port:   0 as i32,
+        path:   path_s,
+        query:  String::new(),
+    };
+    let mut req: Request = Request::new(Method::get(), u);
+
+    // Sanity: direct call should give body="GET" (length 3).
+    let resp_direct: Response = handler(&req);
+    if vec_len_u8(&resp_direct.body) != 3 as i64 { return 20; }
+
+    let resp: Response = svc.call(&req);
+
+    if resp.status != 200 { return 1; }
+    let blen: i64 = vec_len_u8(&resp.body);
+    if blen != 3 as i64 { return (20 + blen) as i32; }  // "GET" — surface blen
+    if vec_get_u8(&resp.body, 0) != 79 as u8 { return 3; }  // O
+    if vec_get_u8(&resp.body, 1) != 75 as u8 { return 4; }  // K
+    if vec_get_u8(&resp.body, 2) != 33 as u8 { return 5; }  // !
+    return 42;
+}
