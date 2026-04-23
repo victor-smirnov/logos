@@ -81,6 +81,16 @@ pub fn read_request_message(s: &TcpStream, buf: &mut Vec<u8>) -> Result<i64, Htt
     return Result::Ok(vec_len_u8(buf));
 }
 
+// Emit a minimal error response (status + empty body + Connection: close)
+// to `sink`.  Used by serve_connection to answer malformed requests before
+// closing the connection, per RFC 7230 §3.1.1.
+fn send_error_response(sink: &mut AsyncTcpStream, status: i32) -> i64 {
+    let mut resp: Response = Response::new(status);
+    (&mut resp.headers).append("Content-Length", "0");
+    (&mut resp.headers).append("Connection", "close");
+    return serialize_response_stream::<AsyncTcpStream>(&resp, sink);
+}
+
 // ── serve_connection — per-connection loop with keep-alive ─────────────────
 // Parse one HTTP/1.1 request from `stream`, dispatch it to `svc`, serialize
 // and write the response, then loop.  Keep-alive is on by default (per
@@ -99,7 +109,21 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
     while keep {
         let mut req: Request = match parse_request_stream::<AsyncTcpStream>(&mut br) {
             Result::Ok(v)  => v,
-            Result::Err(_) => { keep = false; break; }
+            Result::Err(e) => {
+                // Reply 4xx before closing.  Distinguish a clean client
+                // hangup (EOF before any bytes) — avoid writing back in
+                // that case; we'd just get EPIPE.
+                match e {
+                    HttpError::Io => { }                    // EOF / peer gone
+                    _             => {
+                        let sink: &mut AsyncTcpStream =
+                            buf_reader_inner_mut::<AsyncTcpStream>(&mut br);
+                        let _: i64 = send_error_response(sink, 400 as i32);
+                    }
+                }
+                keep = false;
+                break;
+            }
         };
 
         // RFC 7231 §5.1.1: if the client signalled Expect: 100-continue we
@@ -148,7 +172,10 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
             // chunked request body — not yet handled; close after this turn.
             keep = false;
         } else if bl == 0 - 3 as i64 {
-            // malformed Content-Length — reject and close.
+            // Malformed Content-Length — reply 400 before closing.
+            let sink: &mut AsyncTcpStream =
+                buf_reader_inner_mut::<AsyncTcpStream>(&mut br);
+            let _: i64 = send_error_response(sink, 400 as i32);
             keep = false;
         }
         if !keep { break; }
