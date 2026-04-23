@@ -106,6 +106,11 @@ _logos_thread_tls:
 _logos_user_tls:
     .zero   8
 
+    // Per-thread fiber reactor pointer (stdlib/fiber/reactor.logos).
+    .globl  _logos_reactor_tls
+_logos_reactor_tls:
+    .zero   8
+
     .text
 
     .globl  logos_sched_get
@@ -156,6 +161,23 @@ logos_user_tls_set:
     movq    %rdi, %fs:(%rax)
     ret
     .size   logos_user_tls_set, .-logos_user_tls_set
+
+    // Getters/setters for the per-thread fiber reactor pointer.
+    .globl  logos_reactor_get
+    .type   logos_reactor_get, @function
+logos_reactor_get:
+    movq    _logos_reactor_tls@gottpoff(%rip), %rax
+    movq    %fs:(%rax), %rax
+    ret
+    .size   logos_reactor_get, .-logos_reactor_get
+
+    .globl  logos_reactor_set
+    .type   logos_reactor_set, @function
+logos_reactor_set:
+    movq    _logos_reactor_tls@gottpoff(%rip), %rax
+    movq    %rdi, %fs:(%rax)
+    ret
+    .size   logos_reactor_set, .-logos_reactor_set
 
 // ---------------------------------------------------------------------------
 // Atomic load/store for i64 — SPSC correctness on x86 TSO.

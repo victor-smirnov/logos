@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos stdlib — fiber reactor (async I/O on top of io_uring).
+//
+// Each worker thread owns one Reactor.  A fiber that needs to do I/O:
+//   1. Obtains an SQE from the reactor's ring via reactor_get_sqe().
+//   2. Prepares the SQE using any logos_io_uring_prep_* function.
+//   3. Calls reactor_submit_and_park(r, sqe) which:
+//        - attaches current fiber pointer as the SQE's user_data,
+//        - submits the ring,
+//        - parks the current fiber (does not re-enqueue).
+//      When the kernel posts the CQE and the scheduler's idle loop
+//      calls reactor_poll(), the parked fiber is re-enqueued with
+//      the CQE result stashed in FLS slot 0; reactor_submit_and_park
+//      then returns that result to the fiber.
+//
+// The reactor pointer is stored in a per-thread asm TLS slot so that
+// async_* wrappers can find it without threading it through every call.
+
+package fiber;
+
+use std.mem;
+
+// ── io_uring C shims (also declared in std.io_uring; re-extern here to
+//    avoid a package-level dependency on std.io_uring just for types) ─────
+
+extern fn logos_io_uring_sizeof()                                      -> i32;
+extern fn logos_io_uring_init(entries: i32, ring: *mut u8)            -> i32;
+extern fn logos_io_uring_exit(ring: *mut u8);
+extern fn logos_io_uring_get_sqe(ring: *mut u8)                       -> *mut u8;
+extern fn logos_io_uring_submit_and_wait(ring: *mut u8, wait_nr: i32) -> i32;
+extern fn logos_io_uring_wait_cqe2(ring: *mut u8, cqe_out: *mut *mut u8) -> i32;
+extern fn logos_io_uring_peek_cqe2(ring: *mut u8, cqe_out: *mut *mut u8) -> i32;
+extern fn logos_io_uring_cqe_result(cqe: *mut u8)                     -> i32;
+extern fn logos_io_uring_cqe_advance(ring: *mut u8, cqe: *mut u8);
+extern fn logos_io_uring_cqe_user_data(cqe: *mut u8)                  -> i64;
+extern fn logos_uring_sqe_set_data64(sqe: *mut u8, data: i64);
+
+// Per-thread reactor pointer (asm TLS slot in fiber_ctx.S).
+extern fn logos_reactor_get() -> *mut u8;
+extern fn logos_reactor_set(ptr: *mut u8);
+
+// ── Reactor ───────────────────────────────────────────────────────────────
+
+pub struct Reactor {
+    ring:         *mut u8,   // io_uring struct (size = logos_io_uring_sizeof())
+    parked_count: i64,       // number of fibers awaiting CQEs
+}
+
+// Allocate and initialise a new reactor with `entries` SQ/CQ slots.
+// Returns 0 on failure.
+pub unsafe fn reactor_new(entries: i32) -> *mut Reactor {
+    let sz: i32 = logos_io_uring_sizeof();
+    let ring: *mut u8 = alloc(sz as i64);
+    zero_bytes(ring, sz as i64);
+    let rc: i32 = logos_io_uring_init(entries, ring);
+    if rc < 0 {
+        dealloc(ring);
+        return 0 as *mut Reactor;
+    }
+    let r: *mut Reactor = alloc(sizeof::<Reactor>()) as *mut Reactor;
+    r.ring = ring;
+    r.parked_count = 0;
+    return r;
+}
+
+// Tear down the reactor and free its allocations.
+pub unsafe fn reactor_free(r: *mut Reactor) {
+    if r == 0 as *mut Reactor { return; }
+    logos_io_uring_exit(r.ring);
+    dealloc(r.ring);
+    dealloc(r as *mut u8);
+}
+
+// Install `r` as the reactor for the current thread (asm TLS slot).
+pub fn reactor_set_current(r: *mut Reactor) {
+    unsafe { logos_reactor_set(r as *mut u8); }
+}
+
+// Fetch the current thread's reactor (0 if none installed).
+pub fn reactor_current() -> *mut Reactor {
+    return unsafe { logos_reactor_get() } as *mut Reactor;
+}
+
+// Number of fibers currently parked waiting for CQEs.
+pub fn reactor_has_parked(r: *const Reactor) -> bool {
+    return unsafe { r.parked_count } > 0 as i64;
+}
+
+// Obtain a free SQE from the reactor's ring.  Returns 0 if the ring is full.
+// Caller must fill the SQE using a logos_io_uring_prep_* function before
+// calling reactor_submit_and_park.
+pub unsafe fn reactor_get_sqe(r: *mut Reactor) -> *mut u8 {
+    return logos_io_uring_get_sqe(r.ring);
+}
+
+// Attach the current fiber pointer to `sqe` as user_data, submit the ring,
+// and park the current fiber until a CQE for this operation arrives.
+// On resume the CQE result (stashed in FLS slot 0 by reactor_poll) is
+// returned to the caller.
+pub unsafe fn reactor_submit_and_park(r: *mut Reactor, sqe: *mut u8) -> i32 {
+    let fptr: i64 = current_fiber();
+    logos_uring_sqe_set_data64(sqe, fptr);
+    r.parked_count = r.parked_count + 1 as i64;
+    // wait_nr=0 → submit without blocking.
+    let _: i32 = logos_io_uring_submit_and_wait(r.ring, 0);
+    park_fiber();
+    // When we resume, reactor_poll() has stored our CQE result in FLS[0].
+    return fls_get(fls_key_cqe_result()) as i32;
+}
+
+// Drain completions from the ring.  For each CQE, look up the fiber via
+// user_data, stash the result in the fiber's FLS[0], and re-enqueue it.
+// If `blocking` is true AND at least one fiber is parked, blocks on the
+// first CQE; after that it drains any remaining completions non-blocking.
+// Returns the number of CQEs processed.
+pub unsafe fn reactor_poll(r: *mut Reactor, blocking: bool) -> i32 {
+    let mut count: i32 = 0;
+    let mut cqe: *mut u8 = 0 as *mut u8;
+    let cqe_pp: *mut *mut u8 = &mut cqe;
+
+    if blocking && r.parked_count > 0 as i64 {
+        let rc: i32 = logos_io_uring_wait_cqe2(r.ring, cqe_pp);
+        if rc < 0 { return rc; }
+        reactor_dispatch_cqe(r, cqe);
+        logos_io_uring_cqe_advance(r.ring, cqe);
+        count = count + 1;
+    }
+
+    // Non-blocking drain of any remaining CQEs.
+    loop {
+        let rc: i32 = logos_io_uring_peek_cqe2(r.ring, cqe_pp);
+        if rc < 0 { break; }
+        reactor_dispatch_cqe(r, cqe);
+        logos_io_uring_cqe_advance(r.ring, cqe);
+        count = count + 1;
+    }
+    return count;
+}
+
+// Hand a single CQE to its waiting fiber: write the result into the
+// fiber's FLS[0] and enqueue it back onto the scheduler's run queue.
+unsafe fn reactor_dispatch_cqe(r: *mut Reactor, cqe: *mut u8) {
+    let ud: i64 = logos_io_uring_cqe_user_data(cqe);
+    let res: i32 = logos_io_uring_cqe_result(cqe);
+    if ud != 0 as i64 {
+        let fiber: *mut Fiber = ud as *mut Fiber;
+        // FLS slot 0 lives at fiber.fls[0] (first i64).
+        let slot: *mut i64 = fiber.fls;
+        *slot = res as i64;
+        unpark_fiber(ud);
+        r.parked_count = r.parked_count - 1 as i64;
+    }
+}
