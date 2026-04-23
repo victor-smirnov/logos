@@ -1,0 +1,63 @@
+// Tests fiber-local and thread-local storage.
+package fls_tls_basic;
+
+use fiber;
+use std.tls;
+
+fn fiber_a(_arg: i64) {
+    // Write FLS slot 1 from fiber A.
+    fls_set(1 as i64, 100 as i64);
+    yield_fiber();
+    // After yield, slot 1 must still be 100 — FLS is per-fiber.
+    let v: i64 = fls_get(1 as i64);
+    if v != 100 as i64 {
+        tls_set(7 as i64, 0 - 1 as i64);   // error signal
+    } else {
+        tls_set(7 as i64, tls_get(7 as i64) + 1 as i64);
+    }
+}
+
+fn fiber_b(_arg: i64) {
+    // Fiber B should see 0 in slot 1 (clean per-fiber start).
+    let v: i64 = fls_get(1 as i64);
+    if v != 0 as i64 {
+        tls_set(7 as i64, 0 - 1 as i64);
+    } else {
+        tls_set(7 as i64, tls_get(7 as i64) + 1 as i64);
+    }
+    fls_set(1 as i64, 200 as i64);
+    yield_fiber();
+    // Fiber B's slot 1 remains 200.
+    let v2: i64 = fls_get(1 as i64);
+    if v2 != 200 as i64 {
+        tls_set(7 as i64, 0 - 1 as i64);
+    } else {
+        tls_set(7 as i64, tls_get(7 as i64) + 1 as i64);
+    }
+}
+
+fn main() -> i32 {
+    // TLS roundtrip, pre-fiber.
+    tls_set(0 as i64, 42 as i64);
+    if tls_get(0 as i64) != 42 as i64 { return 1; }
+    tls_set(0 as i64, 99 as i64);
+    if tls_get(0 as i64) != 99 as i64 { return 2; }
+
+    // Counter slot for fiber test.
+    tls_set(7 as i64, 0 as i64);
+
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+    spawn(fiber_a, 0 as i64);
+    spawn(fiber_b, 0 as i64);
+    sched_run(s);
+    sched_free(s);
+
+    // Expect 3 successful checks in fibers (one in A after resume, two in B).
+    if tls_get(7 as i64) != 3 as i64 { return 3; }
+
+    // TLS survived across fiber run.
+    if tls_get(0 as i64) != 99 as i64 { return 4; }
+
+    return 42;
+}

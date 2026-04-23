@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.tls
+//
+// Thread-local storage: per-OS-thread i64 slot array.  Analogous to
+// std.fiber's FLS but scoped to the thread, so it persists across
+// fiber switches and applies even to code running outside a fiber.
+//
+// Keys are small integers picked by user code by convention
+// (0..TLS_SLOTS-1).  Lazy-allocated on first access per thread; the
+// backing array is not freed — fine for long-running processes.  For
+// thread pools that spin threads up and down, prefer to shut the pool
+// down at process end rather than rely on per-thread cleanup.
+
+package std.tls;
+
+use std.mem;
+
+extern fn logos_user_tls_get() -> *mut i64;
+extern fn logos_user_tls_set(p: *mut i64);
+
+const TLS_SLOTS: i64 = 8;
+
+pub fn tls_slots() -> i64 { return TLS_SLOTS; }
+
+unsafe fn ensure_init() -> *mut i64 {
+    let existing: *mut i64 = logos_user_tls_get();
+    if existing != 0 as *mut i64 { return existing; }
+    let buf: *mut u8 = alloc(TLS_SLOTS * 8 as i64);
+    let mut k: i64 = 0 as i64;
+    while k < TLS_SLOTS {
+        let slot: *mut i64 = (buf as i64 + k * 8 as i64) as *mut i64;
+        *slot = 0;
+        k = k + 1 as i64;
+    }
+    let p: *mut i64 = buf as *mut i64;
+    logos_user_tls_set(p);
+    return p;
+}
+
+// Read TLS slot `key`.  Returns 0 if never set on this thread.
+pub fn tls_get(key: i64) -> i64 {
+    unsafe {
+        let p: *mut i64 = ensure_init();
+        let slot: *const i64 = (p as i64 + key * 8 as i64) as *const i64;
+        return *slot;
+    }
+}
+
+// Write TLS slot `key`.
+pub fn tls_set(key: i64, val: i64) {
+    unsafe {
+        let p: *mut i64 = ensure_init();
+        let slot: *mut i64 = (p as i64 + key * 8 as i64) as *mut i64;
+        *slot = val;
+    }
+}

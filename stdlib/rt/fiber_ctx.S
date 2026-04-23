@@ -100,6 +100,12 @@ _logos_sched_tls:
 _logos_thread_tls:
     .zero   8
 
+    // User-facing thread-local slot array pointer (std.tls).
+    // Lazily allocated by std.tls on first tls_get/tls_set.
+    .globl  _logos_user_tls
+_logos_user_tls:
+    .zero   8
+
     .text
 
     .globl  logos_sched_get
@@ -133,6 +139,23 @@ logos_thread_set:
     movq    %rdi, %fs:(%rax)
     ret
     .size   logos_thread_set, .-logos_thread_set
+
+    // Getters/setters for std.tls user slot array pointer.
+    .globl  logos_user_tls_get
+    .type   logos_user_tls_get, @function
+logos_user_tls_get:
+    movq    _logos_user_tls@gottpoff(%rip), %rax
+    movq    %fs:(%rax), %rax
+    ret
+    .size   logos_user_tls_get, .-logos_user_tls_get
+
+    .globl  logos_user_tls_set
+    .type   logos_user_tls_set, @function
+logos_user_tls_set:
+    movq    _logos_user_tls@gottpoff(%rip), %rax
+    movq    %rdi, %fs:(%rax)
+    ret
+    .size   logos_user_tls_set, .-logos_user_tls_set
 
 // ---------------------------------------------------------------------------
 // Atomic load/store for i64 — SPSC correctness on x86 TSO.
