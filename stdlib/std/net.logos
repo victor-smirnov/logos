@@ -6,6 +6,8 @@
 
 package std.net;
 
+use fiber;
+
 extern fn socket(domain: i32, typ: i32, protocol: i32) -> i32;
 extern fn bind(fd: i32, addr: *const u8, addrlen: i32) -> i32;
 extern fn listen(fd: i32, backlog: i32) -> i32;
@@ -185,5 +187,87 @@ impl UdpSocket {
         unsafe {
             if self.fd >= 0 { close(self.fd); self.fd = 0 - 1; }
         }
+    }
+}
+
+// ---- Async (fiber reactor) --------------------------------------------------
+//
+// The following API suspends the calling fiber until an io_uring CQE for
+// the issued op arrives.  Requires a Reactor to be set as current for this
+// thread (thread_pool_start does this; for single-thread tests call
+// reactor_set_current manually).  The synchronous APIs above remain
+// available for non-fiber code.
+
+extern fn logos_io_uring_prep_accept(sqe: *mut u8, fd: i32,
+                                      addr: *mut u8, addrlen: *mut u8,
+                                      flags: i32);
+extern fn logos_io_uring_prep_recv(sqe: *mut u8, fd: i32,
+                                    buf: *mut u8, nbytes: i32, flags: i32);
+extern fn logos_io_uring_prep_send(sqe: *mut u8, fd: i32,
+                                    buf: *const u8, nbytes: i32, flags: i32);
+extern fn logos_io_uring_prep_connect(sqe: *mut u8, fd: i32,
+                                       addr: *const u8, addrlen: i32);
+
+impl TcpListener {
+    // Await an incoming connection via io_uring.  Returns TcpStream with
+    // fd<0 on error (negative errno in fd).
+    pub fn async_accept(self: &TcpListener) -> TcpStream {
+        let r: *mut Reactor = reactor_current();
+        if r == 0 as *mut Reactor { return TcpStream { fd: 0 - 1 }; }
+        unsafe {
+            let sqe: *mut u8 = reactor_get_sqe(r);
+            if sqe == 0 as *mut u8 { return TcpStream { fd: 0 - 1 }; }
+            logos_io_uring_prep_accept(sqe, self.fd,
+                0 as *mut u8, 0 as *mut u8, 0);
+            let res: i32 = reactor_submit_and_park(r, sqe);
+            return TcpStream { fd: res };
+        }
+    }
+}
+
+impl TcpStream {
+    // Await up to `len` bytes from the socket; returns bytes read (>=0) or
+    // negative errno.  Suspends the current fiber until the CQE arrives.
+    pub fn async_recv(self: &TcpStream, buf: *mut u8, len: i64) -> i64 {
+        let r: *mut Reactor = reactor_current();
+        if r == 0 as *mut Reactor { return 0 - 1 as i64; }
+        unsafe {
+            let sqe: *mut u8 = reactor_get_sqe(r);
+            if sqe == 0 as *mut u8 { return 0 - 1 as i64; }
+            logos_io_uring_prep_recv(sqe, self.fd, buf, len as i32, 0);
+            let res: i32 = reactor_submit_and_park(r, sqe);
+            return res as i64;
+        }
+    }
+
+    // Await send of `len` bytes; returns bytes written (>=0) or neg errno.
+    pub fn async_send(self: &TcpStream, buf: *const u8, len: i64) -> i64 {
+        let r: *mut Reactor = reactor_current();
+        if r == 0 as *mut Reactor { return 0 - 1 as i64; }
+        unsafe {
+            let sqe: *mut u8 = reactor_get_sqe(r);
+            if sqe == 0 as *mut u8 { return 0 - 1 as i64; }
+            logos_io_uring_prep_send(sqe, self.fd, buf, len as i32, 0);
+            let res: i32 = reactor_submit_and_park(r, sqe);
+            return res as i64;
+        }
+    }
+}
+
+// Connect a fresh TCP socket to ip:port, asynchronously.  Returns TcpStream
+// with fd<0 on error (negative errno).
+pub fn async_tcp_connect(ip: u32, port: u16) -> TcpStream {
+    let r: *mut Reactor = reactor_current();
+    if r == 0 as *mut Reactor { return TcpStream { fd: 0 - 1 }; }
+    unsafe {
+        let fd: i32 = socket(AF_INET(), SOCK_STREAM(), 0);
+        if fd < 0 { return TcpStream { fd: 0 - 1 }; }
+        let addr: SockAddr4 = sockaddr4(ip, port);
+        let sqe: *mut u8 = reactor_get_sqe(r);
+        if sqe == 0 as *mut u8 { close(fd); return TcpStream { fd: 0 - 1 }; }
+        logos_io_uring_prep_connect(sqe, fd, &addr as *const u8, 16);
+        let res: i32 = reactor_submit_and_park(r, sqe);
+        if res < 0 { close(fd); return TcpStream { fd: res }; }
+        return TcpStream { fd: fd };
     }
 }
