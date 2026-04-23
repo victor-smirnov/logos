@@ -50,6 +50,7 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <unordered_set>
@@ -236,10 +237,18 @@ bool emit_module(const ModuleManifest& manifest,
                  const std::string& output_path,
                  const EmitModuleOptions& opts)
 {
+    // Progress output is noisy on every build; gate it behind LOGOS_EMIT_VERBOSE=1.
+    bool verbose = false;
+    if (const char* v = std::getenv("LOGOS_EMIT_VERBOSE")) {
+        verbose = (v[0] != '\0' && v[0] != '0');
+    }
+
     // Resolve root relative to cwd.
     auto root = fs::weakly_canonical(manifest.root).string();
-    std::fprintf(stderr, "emit_module: building module '%s' from %s\n",
-                 manifest.name.c_str(), root.c_str());
+    if (verbose) {
+        std::fprintf(stderr, "emit_module: building module '%s' from %s\n",
+                     manifest.name.c_str(), root.c_str());
+    }
 
     // Build search paths: module root + extra paths from -I flags.
     std::vector<std::string> search_paths = {root};
@@ -252,7 +261,9 @@ bool emit_module(const ModuleManifest& manifest,
                      root.c_str());
         return false;
     }
-    std::fprintf(stderr, "emit_module: found %zu source file(s)\n", all_files.size());
+    if (verbose) {
+        std::fprintf(stderr, "emit_module: found %zu source file(s)\n", all_files.size());
+    }
 
     // Parse all files.  Use load_modules on the first file with the root as
     // search path — this follows use-deps transitively, so all needed files
@@ -282,7 +293,9 @@ bool emit_module(const ModuleManifest& manifest,
         std::fprintf(stderr, "emit_module: failed to load any modules\n");
         return false;
     }
-    std::fprintf(stderr, "emit_module: loaded %zu module(s) total\n", modules.size());
+    if (verbose) {
+        std::fprintf(stderr, "emit_module: loaded %zu module(s) total\n", modules.size());
+    }
 
     // Prepare temp dir for intermediate files.
     auto tmp_dir = fs::temp_directory_path() / ("logos_emit_" + manifest.name);
@@ -304,14 +317,18 @@ bool emit_module(const ModuleManifest& manifest,
     }
 
     // Compile to object file.
-    std::fprintf(stderr, "emit_module: compiling → %s\n", obj_path.c_str());
+    if (verbose) {
+        std::fprintf(stderr, "emit_module: compiling → %s\n", obj_path.c_str());
+    }
     if (!compile_to_object(asts, filenames, obj_path)) {
         std::fprintf(stderr, "emit_module: compilation failed\n");
         return false;
     }
 
     // Write .hermes0.
-    std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
+    if (verbose) {
+        std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
+    }
     if (!write_hermes0(h0_path, modules_for_h0)) {
         std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
         return false;
@@ -323,14 +340,18 @@ bool emit_module(const ModuleManifest& manifest,
         cmd << "ar rcs " << output_path
             << " " << obj_path
             << " " << h0_path;
-        std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
+        if (verbose) {
+            std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
+        }
         if (std::system(cmd.str().c_str()) != 0) {
             std::fprintf(stderr, "emit_module: ar failed\n");
             return false;
         }
     }
 
-    std::fprintf(stderr, "emit_module: wrote %s\n", output_path.c_str());
+    if (verbose) {
+        std::fprintf(stderr, "emit_module: wrote %s\n", output_path.c_str());
+    }
     return true;
 }
 
