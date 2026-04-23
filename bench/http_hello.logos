@@ -46,6 +46,10 @@ fn server_fiber(arg: i64) {
 
 unsafe fn main() -> i32 {
     let s: *mut Scheduler = sched_new();
+    // Enable the fiber stack pool: we churn through one fiber per HTTP
+    // connection, so caching retired stacks avoids the mmap/munmap round-
+    // trip on every request.  64 slots covers c=50 with headroom.
+    sched_set_stack_pool_cap(s, 64 as i64);
     sched_set_current(s);
     let r: *mut Reactor = reactor_new(256);
     if r == 0 as *mut Reactor { return 1; }

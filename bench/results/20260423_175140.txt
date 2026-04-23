@@ -1,0 +1,29 @@
+=== Logos HTTP bench — 20260423_175140 ===
+server:      /home/victor/devel/logos/bench/bin/http_hello
+url:         http://127.0.0.1:18080/
+build:       -O3, serve_until single-thread
+
+--- serial (n=10000 c=1) ---
+Complete requests:      10000
+Failed requests:        0
+Requests per second:    45170.99 [#/sec] (mean)
+Time per request:       0.022 [ms] (mean)
+Time per request:       0.022 [ms] (mean, across all concurrent requests)
+Transfer rate:          3925.99 [Kbytes/sec] received
+
+--- moderate concurrency (n=10000 c=10) ---
+Complete requests:      10000
+Failed requests:        0
+Requests per second:    64686.40 [#/sec] (mean)
+Time per request:       0.155 [ms] (mean)
+Time per request:       0.015 [ms] (mean, across all concurrent requests)
+Transfer rate:          5622.16 [Kbytes/sec] received
+
+--- higher concurrency (n=10000 c=50) ---
+Complete requests:      10000
+Failed requests:        0
+Requests per second:    63558.24 [#/sec] (mean)
+Time per request:       0.787 [ms] (mean)
+Time per request:       0.016 [ms] (mean, across all concurrent requests)
+Transfer rate:          5524.11 [Kbytes/sec] received
+
