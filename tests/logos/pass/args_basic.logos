@@ -1,0 +1,31 @@
+// Tests std.args: with the test binary launched without args,
+// all scans should return the "nothing found" answer.
+package test;
+
+use std.args;
+use std.option;
+
+fn main() -> i32 {
+    // No flags, no options, no positionals.
+    if has_flag("verbose", "v") { return 1; }
+    if has_flag("help", "h") { return 2; }
+
+    match get_option("out", "o") {
+        Option::Some(v) => { return 3; }
+        Option::None => {}
+    }
+    match get_option("level", "") {
+        Option::Some(v) => { return 4; }
+        Option::None => {}
+    }
+
+    if positional_count() != 0 { return 5; }
+    let p: str = positional(0);
+    if p.len() != 0 as i64 { return 6; }
+
+    // program_name should be non-empty (the test harness invokes the binary
+    // by path via /proc/self/cmdline capture).
+    if program_name().len() == 0 as i64 { return 7; }
+
+    return 42;
+}
