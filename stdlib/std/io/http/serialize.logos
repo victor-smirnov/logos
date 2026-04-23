@@ -4,6 +4,7 @@
 package std.io.http;
 
 use std.collections.vec;
+use std.io.write;
 
 fn write_str_bytes(s: str, out: &mut Vec<u8>) {
     let p: *const u8 = s.as_ptr();
@@ -90,4 +91,69 @@ pub fn serialize_response(resp: &Response, out: &mut Vec<u8>) {
         vec_push_u8(out, vec_get_u8(&resp.body, i));
         i = i + 1;
     }
+}
+
+// ── Streaming serializers over Write<W> ─────────────────────────────────────
+// Encode into a Vec<u8> then flush once.  Simpler and much cheaper than
+// tens of one-byte writes, and the entire message is typically small
+// (<< 8 KiB) so buffering the full thing is fine.  For larger bodies the
+// caller can call this then write the body bytes separately through the
+// same writer.
+
+pub fn serialize_request_stream<W: Write>(req: &Request, w: &mut W) -> i64 {
+    let mut buf: Vec<u8> = vec_new::<u8>();
+    serialize_request(req, &mut buf);
+    let n: i64 = vec_len_u8(&buf);
+    if n == 0 as i64 { return 0 as i64; }
+    let p: *const u8 = vec_at_const_u8(&buf, 0 as i64);
+    return write_all::<W>(w, p, n);
+}
+
+pub fn serialize_response_stream<W: Write>(resp: &Response, w: &mut W) -> i64 {
+    let mut buf: Vec<u8> = vec_new::<u8>();
+    serialize_response(resp, &mut buf);
+    let n: i64 = vec_len_u8(&buf);
+    if n == 0 as i64 { return 0 as i64; }
+    let p: *const u8 = vec_at_const_u8(&buf, 0 as i64);
+    return write_all::<W>(w, p, n);
+}
+
+// Serialize just the head (status-line + headers + terminator CRLF) to `w`.
+// Use this when the body is large or framed by a different encoder
+// (ChunkedWriter, an already-open file, ...) — caller writes body after.
+pub fn serialize_response_head_stream<W: Write>(resp: &Response, w: &mut W) -> i64 {
+    let mut buf: Vec<u8> = vec_new::<u8>();
+    write_str_bytes("HTTP/1.1 ", &mut buf);
+    write_i64_decimal(resp.status as i64, &mut buf);
+    vec_push_u8(&mut buf, 32 as u8);
+    write_str_bytes(s2str(&resp.reason), &mut buf);
+    vec_push_u8(&mut buf, 13 as u8); vec_push_u8(&mut buf, 10 as u8);
+    write_headers(&resp.headers, &mut buf);
+    let n: i64 = vec_len_u8(&buf);
+    if n == 0 as i64 { return 0 as i64; }
+    let p: *const u8 = vec_at_const_u8(&buf, 0 as i64);
+    return write_all::<W>(w, p, n);
+}
+
+pub fn serialize_request_head_stream<W: Write>(req: &Request, w: &mut W) -> i64 {
+    let mut buf: Vec<u8> = vec_new::<u8>();
+    write_str_bytes(s2str(&req.method.name), &mut buf);
+    vec_push_u8(&mut buf, 32 as u8);
+    if (&req.url.path).len() == 0 {
+        vec_push_u8(&mut buf, 47 as u8);
+    } else {
+        write_str_bytes(s2str(&req.url.path), &mut buf);
+    }
+    if (&req.url.query).len() > 0 {
+        vec_push_u8(&mut buf, 63 as u8);
+        write_str_bytes(s2str(&req.url.query), &mut buf);
+    }
+    vec_push_u8(&mut buf, 32 as u8);
+    write_str_bytes("HTTP/1.1", &mut buf);
+    vec_push_u8(&mut buf, 13 as u8); vec_push_u8(&mut buf, 10 as u8);
+    write_headers(&req.headers, &mut buf);
+    let n: i64 = vec_len_u8(&buf);
+    if n == 0 as i64 { return 0 as i64; }
+    let p: *const u8 = vec_at_const_u8(&buf, 0 as i64);
+    return write_all::<W>(w, p, n);
 }

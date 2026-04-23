@@ -1,0 +1,77 @@
+// serialize_response_stream + parse_response_stream round-trip.
+// Build a Response, serialize through a pipe writer, parse back, verify.
+package test;
+
+use std.io.http;
+use std.io.buffered;
+use std.io.pipe;
+use std.io.read;
+use std.io.write;
+use std.io.net.url;
+use std.collections.vec;
+use std.lang.option;
+use std.lang.result;
+use std.lang.text;
+
+fn main() -> i32 {
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 1; }
+
+        // Build a 201 response.
+        let mut resp: Response = Response::new(201);
+        (&mut resp.headers).append("Content-Type", "text/plain");
+        (&mut resp.headers).append("Content-Length", "5");
+        let body: str = "hello";
+        let mut k: i64 = 0 as i64;
+        while k < 5 as i64 {
+            vec_push_u8(&mut resp.body, body.as_ptr()[k]);
+            k = k + 1;
+        }
+
+        // Serialize into the pipe.
+        let mut fw: FdWriter = fd_writer(p.write_fd);
+        let rs: i64 = serialize_response_stream::<FdWriter>(&resp, &mut fw);
+        if rs != 0 as i64 { return 2; }
+        p.close_write();
+
+        // Parse back.
+        let mut br: BufReader<FdReader> =
+            buf_reader_wrap::<FdReader>(fd_reader(p.read_fd), 64 as i64);
+        let parsed: Response = match parse_response_stream::<FdReader>(&mut br) {
+            Result::Ok(v)  => v,
+            Result::Err(_) => { return 3; }
+        };
+        if parsed.status != 201 { return 4; }
+        if !(&parsed.reason).eq_str("Created") { return 5; }
+
+        let ct: String = match (&parsed.headers).get("content-type") {
+            Option::Some(v) => v,
+            Option::None    => { return 6; }
+        };
+        if !(&ct).eq_str("text/plain") { return 7; }
+
+        if body_length(&parsed.headers) != 5 as i64 { return 8; }
+
+        let mut clr: ContentLengthReader<BufReader<FdReader>> =
+            content_length_reader_wrap::<BufReader<FdReader>>(br, 5 as i64);
+        let mut out: [u8; 8] = [0 as u8; 8];
+        let mut tot: i64 = 0 as i64;
+        while tot < 5 as i64 {
+            let dst: *mut u8 = (&mut out[0] as *mut u8 as i64 + tot) as *mut u8;
+            let got: i64 = clr.read(dst, 8 as i64 - tot);
+            if got == 0 as i64 { break; }
+            if got < 0 as i64 { return 9; }
+            tot = tot + got;
+        }
+        if tot != 5 as i64 { return 10; }
+        let mut i: i64 = 0 as i64;
+        while i < 5 as i64 {
+            if out[i] != body.as_ptr()[i] { return 11; }
+            i = i + 1;
+        }
+
+        p.close();
+    }
+    return 42;
+}
