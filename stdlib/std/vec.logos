@@ -40,6 +40,16 @@ impl<T> Vec<T> {
         return self.ptr[i];
     }
 
+    // Pointer to the i-th element (no copy). Caller must ensure the Vec
+    // outlives the pointer and no resizing push happens meanwhile.
+    pub unsafe fn at(self: *mut Vec<T>, i: i64) -> *mut T {
+        return &mut self.ptr[i];
+    }
+
+    pub unsafe fn at_const(self: *const Vec<T>, i: i64) -> *const T {
+        return &self.ptr[i];
+    }
+
     pub unsafe fn set(self: *mut Vec<T>, i: i64, val: T) {
         self.ptr[i] = val;
     }

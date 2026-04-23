@@ -1261,6 +1261,28 @@ void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, base_ptr, indices);
+
+    // Struct/datatype element assignment is a byte-level copy: gen_expr of a
+    // struct-typed r-value returns a pointer to the struct bytes, not the
+    // struct by value. Emit llvm.memcpy of sizeof(struct) bytes. Mirrors the
+    // path in gen_stmt_kind(SDerefWrite).
+    const LogosType* val_t = s.value ? s.value->type : nullptr;
+    if (val_t && (val_t->kind == LogosType::Kind::Struct ||
+                  val_t->kind == LogosType::Kind::ZonedStruct) &&
+        val.getType() == ptr_type()) {
+        auto cname = concrete_struct_name(val_t);
+        auto sit = struct_types_.find(cname);
+        if (sit != struct_types_.end()) {
+            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(),
+                builder_.getI64IntegerAttr(bytes));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, sz, /*isVolatile=*/false);
+            return;
+        }
+    }
+
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
 }
 
@@ -1335,10 +1357,41 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
     } else {
         // Pointer field: load the stored pointer, then GEP to element.
         auto field_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_gep);
+        // For struct-typed values, val_type is ptr (structs are passed by ref);
+        // GEP stride must use the concrete struct LLVM type, not ptr_type (8B).
+        mlir::Type gep_elem = val_type;
+        const LogosType* vt = s.value ? s.value->type : nullptr;
+        if (vt && (vt->kind == LogosType::Kind::Struct ||
+                   vt->kind == LogosType::Kind::ZonedStruct)) {
+            auto cname = concrete_struct_name(vt);
+            auto sit2 = struct_types_.find(cname);
+            if (sit2 != struct_types_.end()) gep_elem = sit2->second.llvm_type;
+        }
         llvm::SmallVector<mlir::LLVM::GEPArg> ptr_idx{extend_idx(builder_.getIntegerType(32))};
         base_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), val_type, field_ptr, ptr_idx);
+            loc_, ptr_type(), gep_elem, field_ptr, ptr_idx);
     }
+
+    // Struct/datatype element assignment is a byte-level copy: gen_expr of a
+    // struct-typed r-value returns a pointer to the struct bytes. Emit
+    // llvm.memcpy instead of StoreOp (mirrors gen_index_write / SDerefWrite).
+    const LogosType* val_t = s.value ? s.value->type : nullptr;
+    if (val_t && (val_t->kind == LogosType::Kind::Struct ||
+                  val_t->kind == LogosType::Kind::ZonedStruct) &&
+        val.getType() == ptr_type()) {
+        auto cname = concrete_struct_name(val_t);
+        auto sit = struct_types_.find(cname);
+        if (sit != struct_types_.end()) {
+            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(),
+                builder_.getI64IntegerAttr(bytes));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, base_ptr, val, sz, /*isVolatile=*/false);
+            return;
+        }
+    }
+
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, base_ptr);
 }
 
