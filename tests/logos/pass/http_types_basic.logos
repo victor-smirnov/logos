@@ -1,0 +1,62 @@
+// Smoke test for std.http type definitions (Phase E).
+package test;
+
+use std.http;
+use std.string;
+use std.url;
+use std.option;
+
+fn main() -> i32 {
+    // Method constructors + eq_str
+    let m: Method = Method::get();
+    if m.code != 0                { return 1; }
+    if !m.eq_str("GET")           { return 2; }
+
+    let p: Method = Method::post();
+    if p.code != 1                { return 3; }
+    if !p.eq_str("POST")          { return 4; }
+
+    // method_parse for known + unknown tokens
+    let m1: Method = method_parse("DELETE");
+    if m1.code != 3               { return 5; }
+    let m2: Method = method_parse("FROB");
+    if m2.code != 7               { return 6; }
+    if !m2.eq_str("FROB")         { return 7; }
+
+    // Headers: append / set / contains / remove
+    let mut h: Headers = Headers::new();
+    if h.len() != 0 as i64        { return 10; }
+    h.append("Host", "example.com");
+    h.append("X-Trace", "abc");
+    if h.len() != 2 as i64        { return 11; }
+    if !h.contains("host")        { return 12; }  // case-insensitive
+    if h.contains("Missing")      { return 13; }
+
+    h.set("host", "new.host");                    // replaces first
+    if h.len() != 2 as i64        { return 14; }
+
+    let nrm: i64 = h.remove("X-TRACE");
+    if nrm != 1 as i64            { return 15; }
+    if h.len() != 1 as i64        { return 16; }
+
+    // Request construction
+    match url_parse("http://example.com/a") {
+        Option::Some(u) => {
+            let req: Request = Request::new(Method::get(), u);
+            if req.method.code != 0        { return 20; }
+            if !(&req.url.host).eq_str("example.com") { return 21; }
+            if (&req.headers).len() != 0 as i64 { return 22; }
+        }
+        Option::None => { return 23; }
+    }
+
+    // Response construction
+    let resp: Response = Response::new(404);
+    if resp.status != 404         { return 30; }
+    if !(&resp.reason).eq_str("Not Found") { return 31; }
+
+    let resp2: Response = Response::new(200);
+    if !(&resp2.reason).eq_str("OK") { return 32; }
+
+    return 42;
+}

@@ -1,0 +1,329 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.http
+//
+// HTTP/1.1 types for client and server. Phase E: types only.
+// Parsers, codecs, client/server implementations arrive in later phases.
+//
+// No TLS. No HPACK. No connection pooling. Buffered bodies.
+
+package std.http;
+
+use std.string;
+use std.vec;
+use std.option;
+use std.url;
+
+// ── Method ───────────────────────────────────────────────────────────────────
+// Represented as a small integer code plus its literal token. Unknown /
+// extension methods share code == 7 (METHOD_OTHER) and preserve the token
+// verbatim in `name`.
+
+pub struct Method {
+    pub code: i32,
+    pub name: String,
+}
+
+fn method_with(code: i32, s: str) -> Method {
+    let mut n: String = String::new();
+    n.push_str(s);
+    return Method { code: code, name: n };
+}
+
+impl Method {
+    pub static fn get()     -> Method { return method_with(0, "GET");     }
+    pub static fn post()    -> Method { return method_with(1, "POST");    }
+    pub static fn put()     -> Method { return method_with(2, "PUT");     }
+    pub static fn delete()  -> Method { return method_with(3, "DELETE");  }
+    pub static fn head()    -> Method { return method_with(4, "HEAD");    }
+    pub static fn options() -> Method { return method_with(5, "OPTIONS"); }
+    pub static fn patch()   -> Method { return method_with(6, "PATCH");   }
+
+    pub fn eq_str(&self, s: str) -> bool {
+        return self.name.eq_str(s);
+    }
+}
+
+// Compare two byte ranges exactly (ASCII, case-sensitive).
+fn bytes_eq(a: *const u8, an: i64, b: *const u8, bn: i64) -> bool {
+    if an != bn { return false; }
+    let mut i: i64 = 0;
+    while i < an {
+        unsafe {
+            if a[i] != b[i] { return false; }
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// Parse a method token (ASCII, case-sensitive per RFC 7230). Unknown tokens
+// return code == 7 (METHOD_OTHER) with the original name preserved.
+pub fn method_parse(s: str) -> Method {
+    let p: *const u8 = s.as_ptr();
+    let n: i64 = s.len();
+    if bytes_eq(p, n, "GET"    .as_ptr(), 3) { return Method::get();     }
+    if bytes_eq(p, n, "PUT"    .as_ptr(), 3) { return Method::put();     }
+    if bytes_eq(p, n, "POST"   .as_ptr(), 4) { return Method::post();    }
+    if bytes_eq(p, n, "HEAD"   .as_ptr(), 4) { return Method::head();    }
+    if bytes_eq(p, n, "PATCH"  .as_ptr(), 5) { return Method::patch();   }
+    if bytes_eq(p, n, "DELETE" .as_ptr(), 6) { return Method::delete();  }
+    if bytes_eq(p, n, "OPTIONS".as_ptr(), 7) { return Method::options(); }
+    let mut name: String = String::new();
+    name.push_str(s);
+    return Method { code: 7, name: name };
+}
+
+// ── Headers ──────────────────────────────────────────────────────────────────
+// Ordered list of (name, value) pairs. Duplicates are allowed (e.g.
+// Set-Cookie). Lookup is case-insensitive per RFC 7230 §3.2.
+//
+// Layout: one `buf` blob holds every name+value back-to-back, each NUL-
+// terminated. `entries` is a parallel array of (name_off, name_len,
+// value_off, value_len) quadruples, each field i32. This sidesteps the
+// current Vec-of-struct-with-Drop limitation (struct fields with __drop
+// aren't cleaned up when a Vec slot is overwritten/dropped).
+
+pub struct Header {
+    pub name_off:  i32,
+    pub name_len:  i32,
+    pub value_off: i32,
+    pub value_len: i32,
+}
+
+pub struct Headers {
+    pub buf:     String,
+    pub entries: Vec<Header>,
+}
+
+// ASCII-only case-insensitive compare of two byte ranges; returns true on match.
+fn ascii_ieq(a: *const u8, an: i64, b: *const u8, bn: i64) -> bool {
+    if an != bn { return false; }
+    let mut i: i64 = 0;
+    while i < an {
+        unsafe {
+            let mut ca: i32 = a[i] as i32;
+            let mut cb: i32 = b[i] as i32;
+            if ca >= 65 && ca <= 90 { ca = ca + 32; }
+            if cb >= 65 && cb <= 90 { cb = cb + 32; }
+            if ca != cb { return false; }
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+impl Headers {
+    pub static fn new() -> Headers {
+        return Headers {
+            buf:     String::new(),
+            entries: vec_new::<Header>(),
+        };
+    }
+
+    pub fn len(&self) -> i64 {
+        return (&self.entries).length();
+    }
+
+    // Pointer to the first byte of the `i`-th header's name (in `buf`).
+    unsafe fn name_ptr(&self, h: Header) -> *const u8 {
+        return ((&self.buf).as_ptr() as i64 + h.name_off as i64) as *const u8;
+    }
+
+    unsafe fn value_ptr(&self, h: Header) -> *const u8 {
+        return ((&self.buf).as_ptr() as i64 + h.value_off as i64) as *const u8;
+    }
+
+    // Append a (name, value) pair unconditionally (preserves duplicates).
+    pub fn append(&mut self, name: str, value: str) {
+        let name_off: i32 = (&self.buf).len() as i32;
+        let name_len: i32 = name.len() as i32;
+        self.buf.push_str(name);
+        self.buf.push_u8(0 as u8);
+        let value_off: i32 = (&self.buf).len() as i32;
+        let value_len: i32 = value.len() as i32;
+        self.buf.push_str(value);
+        self.buf.push_u8(0 as u8);
+        let h: Header = Header {
+            name_off:  name_off,
+            name_len:  name_len,
+            value_off: value_off,
+            value_len: value_len,
+        };
+        unsafe {
+            let p: *mut Vec<Header> = &mut self.entries;
+            p.push(h);
+        }
+    }
+
+    // True if a header with the given name exists (case-insensitive).
+    pub fn contains(&self, name: str) -> bool {
+        let nptr: *const u8 = name.as_ptr();
+        let nlen: i64 = name.len();
+        let total: i64 = (&self.entries).length();
+        let mut i: i64 = 0;
+        unsafe {
+            let ep: *mut Vec<Header> = &self.entries as *const Vec<Header> as *mut Vec<Header>;
+            while i < total {
+                let h: Header = ep.get(i);
+                if ascii_ieq(self.name_ptr(h), h.name_len as i64, nptr, nlen) {
+                    return true;
+                }
+                i = i + 1;
+            }
+        }
+        return false;
+    }
+
+    // Return the first value for `name` (case-insensitive), or Option::None.
+    pub fn get(&self, name: str) -> Option<String> {
+        let nptr: *const u8 = name.as_ptr();
+        let nlen: i64 = name.len();
+        let total: i64 = (&self.entries).length();
+        let mut i: i64 = 0;
+        unsafe {
+            let ep: *mut Vec<Header> = &self.entries as *const Vec<Header> as *mut Vec<Header>;
+            while i < total {
+                let h: Header = ep.get(i);
+                if ascii_ieq(self.name_ptr(h), h.name_len as i64, nptr, nlen) {
+                    let s: String = String::from_bytes(
+                        self.value_ptr(h), h.value_len as i64);
+                    return Option::Some(s);
+                }
+                i = i + 1;
+            }
+        }
+        return Option::None;
+    }
+
+    // Replace the value of the first matching header (case-insensitive), or
+    // append if none exists. Storage note: we can't shrink/expand entries
+    // already in `buf`; the simplest, correct approach is to append fresh
+    // name+value bytes and retarget the existing Header record.
+    pub fn set(&mut self, name: str, value: str) {
+        let nptr: *const u8 = name.as_ptr();
+        let nlen: i64 = name.len();
+        let total: i64 = (&self.entries).length();
+        let mut i: i64 = 0;
+        unsafe {
+            let ep: *mut Vec<Header> = &mut self.entries;
+            while i < total {
+                let h: Header = ep.get(i);
+                if ascii_ieq(self.name_ptr(h), h.name_len as i64, nptr, nlen) {
+                    let buf_ref: &mut String = &mut self.buf;
+                    let name_off: i32 = buf_ref.len() as i32;
+                    buf_ref.push_str(name);
+                    buf_ref.push_u8(0 as u8);
+                    let value_off: i32 = buf_ref.len() as i32;
+                    buf_ref.push_str(value);
+                    buf_ref.push_u8(0 as u8);
+                    ep.set(i, Header {
+                        name_off:  name_off,
+                        name_len:  name.len() as i32,
+                        value_off: value_off,
+                        value_len: value.len() as i32,
+                    });
+                    return;
+                }
+                i = i + 1;
+            }
+        }
+        self.append(name, value);
+    }
+
+    // Remove all headers matching `name` (case-insensitive). Returns the
+    // number of entries removed. Their backing bytes in `buf` are leaked
+    // until the whole Headers is dropped — this is fine for typical
+    // request/response lifetimes.
+    pub fn remove(&mut self, name: str) -> i64 {
+        let nptr: *const u8 = name.as_ptr();
+        let nlen: i64 = name.len();
+        let mut removed: i64 = 0;
+        let mut i: i64 = 0;
+        unsafe {
+            let ep: *mut Vec<Header> = &mut self.entries;
+            while i < ep.length() {
+                let h: Header = ep.get(i);
+                if ascii_ieq(self.name_ptr(h), h.name_len as i64, nptr, nlen) {
+                    ep.remove(i);
+                    removed = removed + 1;
+                } else {
+                    i = i + 1;
+                }
+            }
+        }
+        return removed;
+    }
+}
+
+// ── Request / Response ───────────────────────────────────────────────────────
+
+pub struct Request {
+    pub method:  Method,
+    pub url:     Url,
+    pub headers: Headers,
+    pub body:    Vec<u8>,
+}
+
+pub struct Response {
+    pub status:  i32,
+    pub reason:  String,
+    pub headers: Headers,
+    pub body:    Vec<u8>,
+}
+
+impl Request {
+    pub static fn new(method: Method, u: Url) -> Request {
+        return Request {
+            method:  method,
+            url:     u,
+            headers: Headers::new(),
+            body:    vec_new::<u8>(),
+        };
+    }
+}
+
+impl Response {
+    pub static fn new(status: i32) -> Response {
+        let mut r: String = String::new();
+        r.push_str(http_reason_phrase(status));
+        return Response {
+            status:  status,
+            reason:  r,
+            headers: Headers::new(),
+            body:    vec_new::<u8>(),
+        };
+    }
+}
+
+// ── HttpError ────────────────────────────────────────────────────────────────
+
+pub enum HttpError {
+    Connect,
+    Io,
+    Parse,
+    BadStatus(i32),
+    BadUrl,
+}
+
+// Minimal reason-phrase table. Unknown codes → empty.
+pub fn http_reason_phrase(status: i32) -> str {
+    if status == 200 { return "OK"; }
+    if status == 201 { return "Created"; }
+    if status == 204 { return "No Content"; }
+    if status == 301 { return "Moved Permanently"; }
+    if status == 302 { return "Found"; }
+    if status == 304 { return "Not Modified"; }
+    if status == 400 { return "Bad Request"; }
+    if status == 401 { return "Unauthorized"; }
+    if status == 403 { return "Forbidden"; }
+    if status == 404 { return "Not Found"; }
+    if status == 405 { return "Method Not Allowed"; }
+    if status == 408 { return "Request Timeout"; }
+    if status == 411 { return "Length Required"; }
+    if status == 413 { return "Payload Too Large"; }
+    if status == 500 { return "Internal Server Error"; }
+    if status == 501 { return "Not Implemented"; }
+    if status == 502 { return "Bad Gateway"; }
+    if status == 503 { return "Service Unavailable"; }
+    return "";
+}
