@@ -1,0 +1,79 @@
+// Tests std.datetime: unix ↔ civil round-trip and formatting.
+package test;
+
+use std.datetime;
+use std.string;
+
+fn main() -> i32 {
+    // 0 secs = 1970-01-01 00:00:00 UTC, Thursday (wday = 4)
+    let ct0: CivilTime = from_unix_secs(0 as i64);
+    if ct0.year != 1970 as i64 { return 1; }
+    if ct0.month != 1 { return 2; }
+    if ct0.day != 1 { return 3; }
+    if ct0.hour != 0 || ct0.minute != 0 || ct0.second != 0 { return 4; }
+    if ct0.wday != 4 { return 5; }
+
+    // 2000-01-01 00:00:00 UTC = 946684800, Saturday (wday = 6)
+    let ct1: CivilTime = from_unix_secs(946684800 as i64);
+    if ct1.year != 2000 as i64 { return 10; }
+    if ct1.month != 1 { return 11; }
+    if ct1.day != 1 { return 12; }
+    if ct1.wday != 6 { return 13; }
+
+    // 2024-02-29 (leap day) → 1709164800
+    let ct2: CivilTime = from_unix_secs(1709164800 as i64);
+    if ct2.year != 2024 as i64 { return 20; }
+    if ct2.month != 2 { return 21; }
+    if ct2.day != 29 { return 22; }
+
+    // Round-trip: construct civil and convert back.
+    let ct3: CivilTime = CivilTime {
+        year: 2026 as i64, month: 4, day: 22,
+        hour: 15, minute: 30, second: 45,
+        wday: 0,
+    };
+    let s: i64 = to_unix_secs(&ct3);
+    let ct4: CivilTime = from_unix_secs(s);
+    if ct4.year != 2026 as i64 { return 30; }
+    if ct4.month != 4 { return 31; }
+    if ct4.day != 22 { return 32; }
+    if ct4.hour != 15 || ct4.minute != 30 || ct4.second != 45 { return 33; }
+
+    // Negative second (before epoch): 1969-12-31 23:59:59
+    let ct5: CivilTime = from_unix_secs(0 as i64 - 1 as i64);
+    if ct5.year != 1969 as i64 { return 40; }
+    if ct5.month != 12 { return 41; }
+    if ct5.day != 31 { return 42; }
+    if ct5.hour != 23 || ct5.minute != 59 || ct5.second != 59 { return 43; }
+
+    // is_leap
+    if !is_leap(2000 as i64) { return 50; }
+    if !is_leap(2024 as i64) { return 51; }
+    if is_leap(1900 as i64) { return 52; }
+    if is_leap(2023 as i64) { return 53; }
+
+    // days_in_month
+    if days_in_month(2024 as i64, 2) != 29 { return 60; }
+    if days_in_month(2023 as i64, 2) != 28 { return 61; }
+    if days_in_month(2024 as i64, 4) != 30 { return 62; }
+    if days_in_month(2024 as i64, 12) != 31 { return 63; }
+
+    // ISO-8601 format
+    unsafe {
+        let mut out: String = String::new();
+        format_iso8601(&ct3, &mut out);
+        if !out.eq_str("2026-04-22T15:30:45Z") { return 70; }
+    }
+
+    // Weekday / month names — compare via String.
+    unsafe {
+        let mut w: String = String::new();
+        w.push_str(weekday_name(4));
+        if !w.eq_str("Thursday") { return 80; }
+        let mut mo: String = String::new();
+        mo.push_str(month_name(2));
+        if !mo.eq_str("February") { return 81; }
+    }
+
+    return 42;
+}

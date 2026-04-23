@@ -1,0 +1,200 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.datetime
+//
+// UTC calendar dates from Unix seconds.  Uses Howard Hinnant's
+// proleptic-Gregorian algorithms (public domain), valid for all
+// years representable in i64 seconds.
+
+package std.datetime;
+
+use std.string;
+
+pub struct CivilTime {
+    pub year:   i64,   // proleptic Gregorian; may be negative
+    pub month:  i32,   // 1..=12
+    pub day:    i32,   // 1..=31
+    pub hour:   i32,   // 0..=23
+    pub minute: i32,   // 0..=59
+    pub second: i32,   // 0..=59 (no leap seconds)
+    pub wday:   i32,   // 0 = Sunday, 6 = Saturday
+}
+
+// Days since 1970-01-01 from (y, m, d).  m in 1..=12, d in 1..=31.
+fn days_from_civil(y: i64, m: i32, d: i32) -> i64 {
+    let mut yy: i64 = y;
+    if m <= 2 { yy = yy - 1 as i64; }
+    let era: i64 = if yy >= 0 as i64 { yy / 400 as i64 } else { (yy - 399 as i64) / 400 as i64 };
+    let yoe: i64 = yy - era * 400 as i64;                  // 0..=399
+    let mp:  i64 = if m > 2 { (m - 3) as i64 } else { (m + 9) as i64 };
+    let doy: i64 = (153 as i64 * mp + 2 as i64) / 5 as i64 + (d - 1) as i64;
+    let doe: i64 = yoe * 365 as i64 + yoe / 4 as i64 - yoe / 100 as i64 + doy;
+    return era * 146097 as i64 + doe - 719468 as i64;
+}
+
+// (year, month, day) from days since 1970-01-01.
+fn civil_from_days(z_in: i64) -> CivilTime {
+    let z: i64 = z_in + 719468 as i64;
+    let era: i64 = if z >= 0 as i64 { z / 146097 as i64 } else { (z - 146096 as i64) / 146097 as i64 };
+    let doe: i64 = z - era * 146097 as i64;                // 0..=146096
+    let yoe: i64 = (doe - doe / 1460 as i64 + doe / 36524 as i64 - doe / 146096 as i64) / 365 as i64;
+    let y:   i64 = yoe + era * 400 as i64;
+    let doy: i64 = doe - (365 as i64 * yoe + yoe / 4 as i64 - yoe / 100 as i64);
+    let mp:  i64 = (5 as i64 * doy + 2 as i64) / 153 as i64;
+    let d:   i64 = doy - (153 as i64 * mp + 2 as i64) / 5 as i64 + 1 as i64;
+    let m:   i64 = if mp < 10 as i64 { mp + 3 as i64 } else { mp - 9 as i64 };
+    let year: i64 = if m <= 2 as i64 { y + 1 as i64 } else { y };
+    return CivilTime {
+        year: year,
+        month: m as i32,
+        day: d as i32,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        wday: 0,
+    };
+}
+
+// Positive remainder (a mod b) for b > 0, even when a is negative.
+fn pmod(a: i64, b: i64) -> i64 {
+    let r: i64 = a % b;
+    if r < 0 as i64 { return r + b; }
+    return r;
+}
+
+fn fdiv(a: i64, b: i64) -> i64 {
+    let q: i64 = a / b;
+    let r: i64 = a % b;
+    if r != 0 as i64 {
+        if (r < 0 as i64) != (b < 0 as i64) { return q - 1 as i64; }
+    }
+    return q;
+}
+
+// Break a Unix-epoch second count into UTC civil time.
+pub fn from_unix_secs(secs: i64) -> CivilTime {
+    let day: i64 = fdiv(secs, 86400 as i64);
+    let tod: i64 = pmod(secs, 86400 as i64);
+    let mut ct: CivilTime = civil_from_days(day);
+    ct.hour   = (tod / 3600 as i64) as i32;
+    ct.minute = ((tod / 60 as i64) % 60 as i64) as i32;
+    ct.second = (tod % 60 as i64) as i32;
+    // 1970-01-01 was a Thursday (wday = 4).
+    let w: i64 = pmod(day + 4 as i64, 7 as i64);
+    ct.wday = w as i32;
+    return ct;
+}
+
+// Convert a CivilTime (UTC) back to Unix seconds.
+pub fn to_unix_secs(ct: &CivilTime) -> i64 {
+    let day: i64 = days_from_civil(ct.year, ct.month, ct.day);
+    return day * 86400 as i64
+         + ct.hour as i64 * 3600 as i64
+         + ct.minute as i64 * 60 as i64
+         + ct.second as i64;
+}
+
+pub fn is_leap(y: i64) -> bool {
+    if y % 4 as i64 != 0 as i64 { return false; }
+    if y % 100 as i64 != 0 as i64 { return true; }
+    return y % 400 as i64 == 0 as i64;
+}
+
+pub fn days_in_month(y: i64, m: i32) -> i32 {
+    if m == 1 || m == 3 || m == 5 || m == 7 || m == 8 || m == 10 || m == 12 { return 31; }
+    if m == 4 || m == 6 || m == 9 || m == 11 { return 30; }
+    if m == 2 {
+        if is_leap(y) { return 29; }
+        return 28;
+    }
+    return 0;
+}
+
+// ── Formatting ────────────────────────────────────────────────────────────
+
+fn push_u_pad(out: &mut String, v: i64, width: i32) {
+    let mut tmp: [u8; 20] = [0 as u8; 20];
+    let mut n: i32 = 0;
+    let mut x: i64 = v;
+    if x < 0 as i64 { x = 0 as i64 - x; }
+    if x == 0 as i64 { tmp[0] = 48 as u8; n = 1; }
+    while x > 0 as i64 {
+        tmp[n] = (48 as i64 + x % 10 as i64) as u8;
+        x = x / 10 as i64;
+        n = n + 1;
+    }
+    let mut i: i32 = n;
+    while i < width {
+        out.push_u8(48 as u8);
+        i = i + 1;
+    }
+    let mut j: i32 = n - 1;
+    while j >= 0 {
+        out.push_u8(tmp[j]);
+        j = j - 1;
+    }
+}
+
+// ISO-8601: "YYYY-MM-DDTHH:MM:SSZ"
+pub fn format_iso8601(ct: &CivilTime, out: &mut String) {
+    if ct.year < 0 as i64 { out.push_u8(45 as u8); }    // '-'
+    push_u_pad(out, ct.year, 4);
+    out.push_u8(45 as u8);
+    push_u_pad(out, ct.month as i64, 2);
+    out.push_u8(45 as u8);
+    push_u_pad(out, ct.day as i64, 2);
+    out.push_u8(84 as u8);                               // 'T'
+    push_u_pad(out, ct.hour as i64, 2);
+    out.push_u8(58 as u8);                               // ':'
+    push_u_pad(out, ct.minute as i64, 2);
+    out.push_u8(58 as u8);
+    push_u_pad(out, ct.second as i64, 2);
+    out.push_u8(90 as u8);                               // 'Z'
+}
+
+// Date-only: "YYYY-MM-DD"
+pub fn format_date(ct: &CivilTime, out: &mut String) {
+    if ct.year < 0 as i64 { out.push_u8(45 as u8); }
+    push_u_pad(out, ct.year, 4);
+    out.push_u8(45 as u8);
+    push_u_pad(out, ct.month as i64, 2);
+    out.push_u8(45 as u8);
+    push_u_pad(out, ct.day as i64, 2);
+}
+
+// Time-only: "HH:MM:SS"
+pub fn format_time(ct: &CivilTime, out: &mut String) {
+    push_u_pad(out, ct.hour as i64, 2);
+    out.push_u8(58 as u8);
+    push_u_pad(out, ct.minute as i64, 2);
+    out.push_u8(58 as u8);
+    push_u_pad(out, ct.second as i64, 2);
+}
+
+// Weekday name, full form ("Sunday" .. "Saturday").
+pub fn weekday_name(w: i32) -> str {
+    if w == 0 { return "Sunday"; }
+    if w == 1 { return "Monday"; }
+    if w == 2 { return "Tuesday"; }
+    if w == 3 { return "Wednesday"; }
+    if w == 4 { return "Thursday"; }
+    if w == 5 { return "Friday"; }
+    if w == 6 { return "Saturday"; }
+    return "";
+}
+
+// Month name, full form ("January" .. "December").
+pub fn month_name(m: i32) -> str {
+    if m == 1  { return "January"; }
+    if m == 2  { return "February"; }
+    if m == 3  { return "March"; }
+    if m == 4  { return "April"; }
+    if m == 5  { return "May"; }
+    if m == 6  { return "June"; }
+    if m == 7  { return "July"; }
+    if m == 8  { return "August"; }
+    if m == 9  { return "September"; }
+    if m == 10 { return "October"; }
+    if m == 11 { return "November"; }
+    if m == 12 { return "December"; }
+    return "";
+}
