@@ -900,13 +900,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
         v = gen_expr(*e.args[i]);
         if (!v) return nullptr;
     arg_push:
-        // Coerce concrete struct/class → &dyn Trait if param expects it
+        // Coerce concrete struct/class → &dyn Trait if param expects it.
+        // Box<T> is laid out as { *mut T } so the box value *is* the data pointer;
+        // use T as the vtable key so the impl on T (not Box<T>) is looked up.
         if (fpit != fn_param_types_.end() && i < fpit->second.size()) {
             auto* param_lt = fpit->second[i];
             auto* arg_lt = e.args[i]->type;
             if (param_lt && param_lt->kind == LogosType::Kind::TraitObject &&
                 arg_lt && arg_lt->kind != LogosType::Kind::TraitObject) {
-                v = coerce_to_dyn(v, param_lt->trait_name, type_str(arg_lt));
+                const LogosType* vt_type = arg_lt;
+                if (vt_type->kind == LogosType::Kind::Struct &&
+                    vt_type->struct_name == "Box" &&
+                    vt_type->type_args.size() == 1)
+                    vt_type = vt_type->type_args[0];
+                v = coerce_to_dyn(v, param_lt->trait_name, type_str(vt_type));
             }
         }
         if (i < param_types.size()) {

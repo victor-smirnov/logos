@@ -335,10 +335,16 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         } else {
             // Concrete type → build fat pointer from scratch.
             // For &dyn T from `new Foo {}`, value type is *mut Foo — strip the pointer.
+            // Box<T> is { *mut T } so the value *is* the data ptr; unwrap to T for vtable.
             const LogosType* src_logos_type = s.value->type;
             if (src_logos_type && src_logos_type->kind == LogosType::Kind::Ptr &&
                 src_logos_type->pointee)
                 src_logos_type = src_logos_type->pointee;
+            if (src_logos_type &&
+                src_logos_type->kind == LogosType::Kind::Struct &&
+                src_logos_type->struct_name == "Box" &&
+                src_logos_type->type_args.size() == 1)
+                src_logos_type = src_logos_type->type_args[0];
             std::string src_type = type_str(src_logos_type);
             alloca = coerce_to_dyn(data_ptr, s.type->trait_name, src_type);
         }

@@ -1,0 +1,31 @@
+// Box<dyn Trait> — concrete Box<T> coerces at call sites and let bindings.
+// Box<dyn T> is laid out the same as &dyn T (fat pointer); the underlying
+// Box<T> struct is { *mut T }, so its value is already the data pointer used
+// in the fat pair.
+package test;
+
+use std.mem.box;
+
+pub trait Greet {
+    fn hi(&self) -> i32;
+}
+
+pub struct Hello { v: i32 }
+
+impl Greet for Hello {
+    fn hi(&self) -> i32 { return self.v; }
+}
+
+fn take_box(b: Box<dyn Greet>) -> i32 {
+    return b.hi();
+}
+
+fn main() -> i32 {
+    let h: Hello = Hello { v: 40 };
+    let call_sum: i32 = take_box(box_new::<Hello>(h));
+
+    // let-site coercion: Box<Hello> → Box<dyn Greet>
+    let h2: Hello = Hello { v: 2 };
+    let g: Box<dyn Greet> = box_new::<Hello>(h2);
+    return call_sum + g.hi();
+}
