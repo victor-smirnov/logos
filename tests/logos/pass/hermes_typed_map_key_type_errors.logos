@@ -1,7 +1,7 @@
 // Typed map key typing errors for <I32>{...} / <I32,AnyVal>{...}.
 package hermes_typed_map_key_type_errors;
 
-use hermes.ctr;
+use std.hermes.ctr;
 
 unsafe fn main() -> i32 {
     // Quoted string key is invalid for i32-key map.

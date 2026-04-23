@@ -1,9 +1,9 @@
 package hermes_objectmap;
 // Phase 12: ObjectMap — open-addressing string-keyed hash map over a Hermes zone.
 
-use hermes.zone;
-use hermes.anyval;
-use hermes.objectmap;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.objectmap;
 
 unsafe fn main() -> i32 {
     let mut zone: HermesZone = HermesZone::create(4096);

@@ -3,13 +3,13 @@
 
 package hermes_match_or_struct;
 
-use hermes.anyval;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
-use hermes.ctr;
-use hermes.pat;
-use hermes.view;
+use std.hermes.anyval;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.ctr;
+use std.hermes.pat;
+use std.hermes.view;
 
 unsafe fn kind(d: &HermesStatic) -> i32 {
     match d {

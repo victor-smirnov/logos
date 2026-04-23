@@ -1,7 +1,7 @@
 // Invalid datatype-instantiation syntax must fail parsing.
 package hermes_typed_datatype_values_errors;
 
-use hermes.ctr;
+use std.hermes.ctr;
 
 unsafe fn main() -> i32 {
     // Missing '=' in prefix form.

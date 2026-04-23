@@ -4,16 +4,16 @@ package hermes_parse;
 // Each section parses a raw byte sequence, then inspects AnyVal fields and
 // zone data directly so that regressions in parsing logic are caught.
 
-use hermes.zone;
-use hermes.anyval;
-use hermes.string;
-use hermes.typetag;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
-use hermes.objectmap;
-use hermes.document;
-use hermes.parser;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.hermes.typetag;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.objectmap;
+use std.hermes.document;
+use std.hermes.parser;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

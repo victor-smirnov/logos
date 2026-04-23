@@ -3,7 +3,7 @@ package hermes_zone_seal;
 // Demonstrates: allocate in mutable zone, seal, read from immutable zone,
 // verify holder RC lifecycle throughout.
 
-use hermes.zone;
+use std.hermes.zone;
 
 #[zoned] struct Pair {
     a: i32,

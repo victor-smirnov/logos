@@ -7,8 +7,8 @@
 
 package hermes_as_map_variants;
 
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 use std.lang.text;
 
 pub unsafe fn main() -> i32 {

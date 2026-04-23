@@ -1,8 +1,8 @@
 // Hermes C6: Logos &[T] slice → typed Hermes array via `as <T>[]` cast.
 // C7-fix3/fix5: added content verification via stringify.
 package hermes_as_array;
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.own
+//
+// DataOwn<T>: reference-counted owning handle for a Hermes Datatype T.
+//
+// Phase 7: uses MemHolder (from hermes.zone) instead of a raw base pointer.
+// Holds two RC layers:
+//   1. MemHolder RC  — keeps the zone buffer alive (shared with DataRef/Zone).
+//   2. Per-object RC — tracks how many DataOwn handles refer to this T object.
+//      When per-object RC reaches 0, the MemHolder RC is decremented.
+//
+// Lifecycle:
+//   dataown_create::<T>(holder, offset) → DataOwn<T>  (holder retained, obj RC=1)
+//   own.clone_ref()                     → new DataOwn<T>  (holder retained, obj RC+1)
+//   own.release()                       → obj RC-1; if 0, releases holder too
+//   own.ref_count()                     → current per-object RC (debug)
+//   own.ptr()    / own.mut_ptr()        → raw pointer to T (unsafe)
+
+package std.hermes.own;
+
+use std.hermes.zone;
+use std.hermes.mem_holder;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// ---------------------------------------------------------------------------
+// DataOwn<T> — owning handle for a Datatype T in a Hermes zone.
+//
+// holder  — MemHolder keeping the zone buffer alive
+// offset  — byte offset from holder.base to the T object
+// rc      — heap-allocated per-object reference count
+// ---------------------------------------------------------------------------
+pub struct DataOwn<T> {
+    pub holder: *mut MemHolder,
+    pub offset: u32,
+    rc:         *mut i32,
+}
+
+// Create a new DataOwn<T> with per-object RC = 1.
+// holder/offset identify the T within a zone (e.g. from zone_alloc_typed).
+// Retains the holder so the zone lives at least as long as this DataOwn.
+pub unsafe fn dataown_create<T>(holder: *mut MemHolder, offset: u32) -> DataOwn<T> {
+    memholder_retain(holder);
+    let rc_raw: *mut u8 = malloc(4);
+    let rc: *mut i32    = rc_raw as *mut i32;
+    *rc                 = 1;
+    return DataOwn { holder: holder, offset: offset, rc: rc };
+}
+
+impl<T> DataOwn<T> {
+    // Increment per-object RC and return a second handle to the same object.
+    // Also retains the MemHolder so the zone stays alive for the new handle.
+    pub unsafe fn clone_ref(self: *const DataOwn<T>) -> DataOwn<T> {
+        memholder_retain(self.holder);
+        let rc: *mut i32 = self.rc;
+        *rc = *rc + 1;
+        return DataOwn { holder: self.holder, offset: self.offset, rc: self.rc };
+    }
+
+    // Decrement per-object RC.
+    // When per-object RC reaches 0: frees the RC allocation, then releases
+    // the MemHolder (which may free the zone buffer if zone RC also reaches 0).
+    // Do NOT use this DataOwn after calling release().
+    pub unsafe fn release(self: *mut DataOwn<T>) {
+        let rc: *mut i32 = self.rc;
+        *rc = *rc - 1;
+        if *rc == 0 {
+            free(self.rc as *mut u8);
+            memholder_release(self.holder);
+            self.holder = 0 as *mut MemHolder;
+        }
+    }
+
+    // Current per-object reference count — for testing and debugging.
+    pub unsafe fn ref_count(self: *const DataOwn<T>) -> i32 {
+        let rc: *const i32 = self.rc as *const i32;
+        return *rc;
+    }
+
+    // Resolve to a const raw pointer to T.
+    pub unsafe fn ptr(self: *const DataOwn<T>) -> *const T {
+        let base_int: i64 = self.holder.base as i64;
+        let off: i64      = self.offset as i64;
+        return (base_int + off) as *const T;
+    }
+
+    // Resolve to a mutable raw pointer to T.
+    pub unsafe fn mut_ptr(self: *const DataOwn<T>) -> *mut T {
+        let base_int: i64 = self.holder.base as i64;
+        let off: i64      = self.offset as i64;
+        return (base_int + off) as *mut T;
+    }
+}

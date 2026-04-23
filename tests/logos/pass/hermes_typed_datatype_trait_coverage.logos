@@ -1,17 +1,17 @@
 // TypedValue must participate in Hermes trait dispatch tables.
 package hermes_typed_datatype_trait_coverage;
 
-use hermes.ctr;
-use hermes.anyval;
-use hermes.typetag;
-use hermes.datatag;
-use hermes.registry;
-use hermes.stringify;
-use hermes.equal;
-use hermes.hashing;
-use hermes.clone;
-use hermes.release;
-use hermes.zone;
+use std.hermes.ctr;
+use std.hermes.anyval;
+use std.hermes.typetag;
+use std.hermes.datatag;
+use std.hermes.registry;
+use std.hermes.stringify;
+use std.hermes.equal;
+use std.hermes.hashing;
+use std.hermes.clone;
+use std.hermes.release;
+use std.hermes.zone;
 
 unsafe fn main() -> i32 {
     let mut d: Hermes = Hermes::new(4096);

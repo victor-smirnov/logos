@@ -5,7 +5,7 @@
 
 package hermes_example;
 
-use hermes.ctr;
+use std.hermes.ctr;
 use std.lang.text;
 use std.io;
 

@@ -1,10 +1,10 @@
 package hermes_map_comp_multi;
 
-use hermes.ctr;
-use hermes.anyval;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
+use std.hermes.ctr;
+use std.hermes.anyval;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
 
 fn main() -> i32 {
     // 10 distinct keys — stresses the map-slots allocation in hermes_map_comp_new.

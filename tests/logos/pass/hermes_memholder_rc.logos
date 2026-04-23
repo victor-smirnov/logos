@@ -3,8 +3,8 @@ package hermes_memholder_rc;
 // released in arbitrary order.  Zone buffer must stay alive until the last
 // reference is released.
 
-use hermes.zone;
-use hermes.mem_holder;
+use std.hermes.zone;
+use std.hermes.mem_holder;
 
 #[zoned] struct Counter {
     value: i32,

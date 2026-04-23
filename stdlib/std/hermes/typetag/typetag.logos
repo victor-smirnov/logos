@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.typetag
+//
+// TypeTag helpers — canonical type_code constants for Hermes zone objects.
+//
+// TypeTag wire format (vlen, 1 byte for codes 1-222):
+//   obj[-1] = type_code directly for codes 1-222
+//   obj[-1] = length header for codes 223+ (multi-byte encoding)
+//
+// Read/write of the vlen tag is handled by hermes.datatag:
+//   write_tag(obj, type_code: u64)
+//   read_type_code(obj) -> u64
+//   tag_size(type_code) -> i64
+//
+// Canonical type_code values:
+//   28  = Varchar    (HermesString / ArenaString)
+//   98  = Hermes     (TinyObjectMap)
+//   100 = ObjectArray
+//   101 = ObjectMap  (Logos open-addressing version)
+//   2107 = Array<i32> (<I32>[...], dense primitive array)
+//   3101 = Map<i32, AnyVal> (<I32>{...} / <I32,AnyVal>{...})
+//   4115 = TypedValue (@Type(...)=initializer)
+//   102  = Decimal (fixed-precision decimal with inline limb tail)
+//   3    = Document   (Logos extension — DocumentHeader at zone offset 0)
+// (Canonical registry: stdlib/hermes/tags.logos :: HermesTag)
+
+package std.hermes.typetag;
+
+// ---------------------------------------------------------------------------
+// Canonical type-hash constants
+// ---------------------------------------------------------------------------
+
+pub unsafe fn hermes_tag_string() -> u64 {
+    return 28;    // Varchar / HermesString (ArenaString in C++)
+}
+
+pub unsafe fn hermes_tag_tiny_map() -> u64 {
+    return 98;    // TinyObjectMap (type_hash::Hermes in C++)
+}
+
+pub unsafe fn hermes_tag_array() -> u64 {
+    return 100;   // ObjectArray
+}
+
+pub unsafe fn hermes_tag_map() -> u64 {
+    return 101;   // ObjectMap (Logos open-addressing version)
+}
+
+pub unsafe fn hermes_tag_array_i8() -> u64 {
+    return 2105;  // HermesTag::ArrayI8
+}
+
+pub unsafe fn hermes_tag_array_u8() -> u64 {
+    return 2101;  // HermesTag::ArrayU8
+}
+
+pub unsafe fn hermes_tag_array_i16() -> u64 {
+    return 2106;  // HermesTag::ArrayI16
+}
+
+pub unsafe fn hermes_tag_array_u16() -> u64 {
+    return 2102;  // HermesTag::ArrayU16
+}
+
+pub unsafe fn hermes_tag_array_u32() -> u64 {
+    return 2103;  // HermesTag::ArrayU32
+}
+
+pub unsafe fn hermes_tag_array_i32() -> u64 {
+    return 2107;  // HermesTag::ArrayI32
+}
+
+pub unsafe fn hermes_tag_array_i64() -> u64 {
+    return 2108;  // HermesTag::ArrayI64
+}
+
+pub unsafe fn hermes_tag_array_u64() -> u64 {
+    return 2104;  // HermesTag::ArrayU64
+}
+
+pub unsafe fn hermes_tag_array_f32() -> u64 {
+    return 2109;  // HermesTag::ArrayF32
+}
+
+pub unsafe fn hermes_tag_array_f64() -> u64 {
+    return 2110;  // HermesTag::ArrayF64
+}
+
+pub unsafe fn hermes_tag_map_i32_anyval() -> u64 {
+    return 3101;  // HermesTag::MapI32AnyVal
+}
+
+pub unsafe fn hermes_tag_map_u32_anyval() -> u64 {
+    return 3102;   // HermesTag::MapU32AnyVal
+}
+
+pub unsafe fn hermes_tag_map_i64_anyval() -> u64 {
+    return 3103;   // HermesTag::MapI64AnyVal
+}
+
+pub unsafe fn hermes_tag_map_u64_anyval() -> u64 {
+    return 3104;   // HermesTag::MapU64AnyVal
+}
+
+pub unsafe fn hermes_tag_typed_value() -> u64 {
+    return 4115;  // HermesTag::TypedValue
+}
+
+pub unsafe fn hermes_tag_decimal() -> u64 {
+    return 102;   // HermesTag::Decimal
+}
+
+pub unsafe fn hermes_tag_document() -> u64 {
+    return 3;     // DocumentHeader (Logos extension, no C++ counterpart)
+}
+

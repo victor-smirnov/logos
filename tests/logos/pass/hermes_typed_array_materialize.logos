@@ -2,15 +2,15 @@
 // and be reachable via Hermes tag-dispatch tables.
 package hermes_typed_array_materialize;
 
-use hermes.ctr;
-use hermes.anyval;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
-use hermes.typetag;
-use hermes.datatag;
-use hermes.registry;
-use hermes.stringify;
+use std.hermes.ctr;
+use std.hermes.anyval;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.typetag;
+use std.hermes.datatag;
+use std.hermes.registry;
+use std.hermes.stringify;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

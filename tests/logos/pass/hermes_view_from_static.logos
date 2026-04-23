@@ -1,7 +1,7 @@
 // C8f: HermesStatic → HermesView conversion via as_view().
 package hermes_view_from_static;
-use hermes.ctr;
-use hermes.view;
+use std.hermes.ctr;
+use std.hermes.view;
 use std.lang.text;
 
 unsafe fn check_view(v: &HermesView, expected: str, err_code: i32) -> i32 {

@@ -4,19 +4,19 @@ package hermes_string_view_interop;
 //   • Buffer<HermesString> (heap/SoA — packed bytes + end offsets)
 // Code that consumes StringView doesn't care which one it came from.
 
-use hermes.zone;
-use hermes.anyval;
-use hermes.string;
-use hermes.typetag;
-use hermes.tag_system;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
-use hermes.objectmap;
-use hermes.document;
-use hermes.ctr;
-use hermes.stringify;
-use hermes.parser;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.hermes.typetag;
+use std.hermes.tag_system;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.objectmap;
+use std.hermes.document;
+use std.hermes.ctr;
+use std.hermes.stringify;
+use std.hermes.parser;
 use logos.lang.datatypes;
 
 unsafe fn views_eq(a: StringView, b: StringView) -> bool {

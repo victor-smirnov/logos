@@ -1,22 +1,22 @@
 package hermes_traits_full;
 // End-to-end test of HermesEqual, HermesHash, HermesClone across zones.
 
-use hermes.zone;
-use hermes.anyval;
-use hermes.string;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.string;
 use std.lang.text;
-use hermes.typetag;
-use hermes.tag_system;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
-use hermes.objectmap;
-use hermes.document;
-use hermes.ctr;
-use hermes.stringify;
-use hermes.equal;
-use hermes.hashing;
-use hermes.clone;
+use std.hermes.typetag;
+use std.hermes.tag_system;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.objectmap;
+use std.hermes.document;
+use std.hermes.ctr;
+use std.hermes.stringify;
+use std.hermes.equal;
+use std.hermes.hashing;
+use std.hermes.clone;
 
 unsafe fn build_doc(text: str) -> Hermes {
     let mut doc: Hermes = Hermes::new(8192);

@@ -1,10 +1,10 @@
 package hermes_comp_coerce;
 
-use hermes.ctr;
-use hermes.anyval;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
+use std.hermes.ctr;
+use std.hermes.anyval;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
 
 fn main() -> i32 {
     let xs: [i32; 4] = [1, 2, 3, 4];

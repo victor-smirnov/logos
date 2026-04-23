@@ -1,9 +1,0 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Victor Smirnov
-// Hermes stdlib — hermes.alloc
-// Shared C allocator bindings used by hermes.zone and hermes.own.
-
-package hermes.alloc;
-
-extern fn malloc(size: i64) -> *mut u8;
-extern fn free(ptr: *mut u8);

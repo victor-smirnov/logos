@@ -2,12 +2,12 @@
 // Array<i32>, Array<u64>, Map<i32, AnyVal>.
 package hermes_typed_push;
 
-use hermes.ctr;
-use hermes.view;
-use hermes.anyval;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
+use std.hermes.ctr;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
 
 unsafe fn main() -> i32 {
     // Array<i32>: build cap=8, push 5 ints, read back via Array trait on header.

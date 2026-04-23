@@ -1,7 +1,7 @@
 // HBS round-trip test: serialize a Hermes document to HBS binary and
 // deserialize into a fresh container; verify that stringify output matches.
 package hermes_hbs;
-use hermes.ctr;
+use std.hermes.ctr;
 use std.lang.text;
 
 extern fn write(fd: i32, buf: *const u8, count: i64) -> i32;

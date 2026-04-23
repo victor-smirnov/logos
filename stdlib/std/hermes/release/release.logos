@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.release
+//
+// Per-type release hook for Hermes zone objects.
+//
+// For zone-allocated objects whose storage is owned entirely by the zone,
+// `release` is a no-op — destroying the zone frees everything. This trait
+// exists so that user-defined Hermes datatypes holding external resources
+// (file descriptors, OS handles, mmap'd regions) can opt into cleanup
+// without affecting core types.
+
+package std.hermes.release;
+
+use std.hermes.string;
+use std.hermes.anyval;
+use std.hermes.typetag;
+use std.hermes.tag_system;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.objectmap;
+use std.hermes.document;
+use std.hermes.scalar;
+use std.hermes.decimal;
+
+#[tag_dispatch(HermesTypeTagSystem)]
+pub trait HermesRelease {
+    fn release(&self);
+}
+
+impl HermesRelease for HermesString    { pub fn release(&self) {} }
+impl HermesRelease for AnyVal          { pub fn release(&self) {} }
+impl<T: HermesRelease> HermesRelease for Array<T> { pub fn release(&self) {} }
+impl<V: HermesRelease> HermesRelease for Map<Bitmap, V> { pub fn release(&self) {} }
+impl<K> HermesRelease for Map<K, AnyVal> { pub fn release(&self) {} }
+impl HermesRelease for ObjectMap       { pub fn release(&self) {} }
+impl HermesRelease for TypedValue      { pub fn release(&self) {} }
+impl HermesRelease for DocumentHeader  { pub fn release(&self) {} }
+impl HermesRelease for I64             { pub fn release(&self) {} }
+impl HermesRelease for U64             { pub fn release(&self) {} }
+impl HermesRelease for Decimal         { pub fn release(&self) {} }
+impl HermesRelease for i8              { pub fn release(&self) {} }
+impl HermesRelease for u8              { pub fn release(&self) {} }
+impl HermesRelease for i16             { pub fn release(&self) {} }
+impl HermesRelease for u16             { pub fn release(&self) {} }
+impl HermesRelease for i32             { pub fn release(&self) {} }
+impl HermesRelease for u32             { pub fn release(&self) {} }
+impl HermesRelease for i64             { pub fn release(&self) {} }
+impl HermesRelease for u64             { pub fn release(&self) {} }
+impl HermesRelease for f32             { pub fn release(&self) {} }
+impl HermesRelease for f64             { pub fn release(&self) {} }

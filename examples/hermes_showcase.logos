@@ -17,11 +17,11 @@
 
 package hermes_showcase;
 
-use hermes.ctr;
-use hermes.anyval;
-use hermes.pat;
-use hermes.view;
-use hermes.map;
+use std.hermes.ctr;
+use std.hermes.anyval;
+use std.hermes.pat;
+use std.hermes.view;
+use std.hermes.map;
 use std.lang.text;
 use std.io;
 

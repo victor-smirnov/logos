@@ -1,0 +1,1140 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.ctr
+//
+// Hermes — owning container for a Hermes document.
+//
+// Encapsulates zone allocation and text parsing.
+// The user creates an Hermes, parses text into it, then traverses
+// the result via root(), array_get(), map_get_cstr(), etc.
+// Stringification uses a temporary buffer passed as a parameter.
+// All unsafe zone/pointer work is internal.
+//
+// Drop: Hermes implements Drop and calls zone.release() to clean up
+// the reference-counted MemHolder. The zone's lifetime is tied to Hermes.
+//
+// Usage:
+//   let mut doc: Hermes = Hermes::new(8192);
+//   match doc.parse(text, len) {
+//       Result::Ok(())  => {}
+//       Result::Err(_)  => { return 1; }
+//   }
+//   let root: AnyVal = doc.root();  // access parsed document
+//   let mut buf: String = String::with_capacity(256);
+//   doc.stringify(&mut buf);  // stringify into temporary buffer
+
+package std.hermes.ctr;
+
+use std.hermes.view;
+use std.hermes.string;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.datatag;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.relptr;
+use std.hermes.objectmap;
+use std.hermes.typetag;
+use std.hermes.tag_system;
+use std.hermes.document;
+use std.hermes.parser;
+use std.hermes.scalar;
+use std.hermes.decimal;
+use std.hermes.stringify;
+use std.hermes.clone;
+use std.hermes.check;
+use std.hermes.hbs_write;
+use std.hermes.hbs_read;
+use std.hermes.mem_holder;
+use std.lang.text;
+use std.lang.drop;
+
+// cstr_len — byte length of a null-terminated C string.
+unsafe fn cstr_len(s: *const u8) -> i64 {
+    let mut n: i64 = 0;
+    while *((s as i64 + n) as *const u8) != 0 {
+        n = n + 1;
+    }
+    return n;
+}
+
+// POSIX write(2) — fd 1 = stdout.
+extern fn write(fd: i32, buf: *const u8, count: i64) -> i64;
+
+// ---------------------------------------------------------------------------
+// Result / ParseError
+// ---------------------------------------------------------------------------
+
+pub enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+pub enum ParseError {
+    Failed,
+}
+
+// ---------------------------------------------------------------------------
+// Hermes
+// ---------------------------------------------------------------------------
+
+pub struct Hermes {
+    zone: Zone<Mutable>,
+}
+
+impl HermesRead for Hermes {
+    pub fn base(self: &Hermes) -> *const u8 {
+        unsafe { return self.zone.holder.base; }
+    }
+    pub fn size(self: &Hermes) -> u64 {
+        unsafe { return self.zone.holder.used as u64; }
+    }
+}
+
+impl HermesWrite for Hermes {
+    pub fn zone_mut(self: &mut Hermes) -> *mut Zone<Mutable> {
+        unsafe { return &mut self.zone as *mut Zone<Mutable>; }
+    }
+}
+
+impl HasMemHolder for Hermes {
+    pub fn mem_holder(&self) -> *mut MemHolder {
+        return self.zone.holder;
+    }
+}
+
+impl Hermes {
+    pub fn as_view<'a>(self: &'a Hermes) -> HermesView<'a> {
+        unsafe {
+            return HermesView {
+                base: self.zone.holder.base,
+                size: self.zone.holder.used as u64,
+            };
+        }
+    }
+}
+
+impl Drop for Hermes {
+    fn drop(self: Hermes) {
+        unsafe {
+            let zone_ptr: *mut Zone<Mutable> =
+                (&self.zone as *const Zone<Mutable>) as *mut Zone<Mutable>;
+            zone_ptr.release();
+        }
+    }
+}
+
+impl Hermes {
+    // Allocate a new container backed by a zone of `capacity` bytes.
+    // Used when you will parse a document into the zone (parser creates DocumentHeader).
+    pub static fn new(capacity: i64) -> Hermes {
+        unsafe {
+            return Hermes {
+                zone: zone_create(capacity),
+            };
+        }
+    }
+
+    // For building a document programmatically (without parsing).
+    // Pre-allocates the DocumentHeader at zone offset 0.
+    pub static fn builder(capacity: i64) -> Hermes {
+        unsafe {
+            let mut zone: Zone<Mutable> = zone_create(capacity);
+            let hdr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 8);
+            // Guard: alloc_raw returns null if capacity is too small (< 8 bytes).
+            // Without this check, document_create(null) would write to address 0.
+            if hdr_raw != 0 as *mut u8 {
+                document_create(hdr_raw);
+            }
+            return Hermes {
+                zone: zone,
+            };
+        }
+    }
+
+    // Parse Hermes text into the zone.
+    // Returns Ok(()) on success, Err(ParseError::Failed) on parse error.
+    pub fn parse(&mut self, text: str) -> Result<(), ParseError> {
+        unsafe {
+            if hermes_parse(text, &mut self.zone) {
+                return Result::Ok(());
+            }
+            return Result::Err(ParseError::Failed);
+        }
+    }
+
+    // Raw bytes overload — kept for test compatibility.
+    pub fn parse(&mut self, text: *const u8, len: i64) -> Result<(), ParseError> {
+        unsafe {
+            if hermes_parse(text, len, &mut self.zone) {
+                return Result::Ok(());
+            }
+            return Result::Err(ParseError::Failed);
+        }
+    }
+
+    // C-string convenience overload.
+    pub fn parse(&mut self, text: *const u8) -> Result<(), ParseError> {
+        if text == 0 as *const u8 { return Result::Err(ParseError::Failed); }
+        unsafe {
+            if hermes_parse(text, cstr_len(text), &mut self.zone) {
+                return Result::Ok(());
+            }
+            return Result::Err(ParseError::Failed);
+        }
+    }
+
+    // StringView convenience overload.
+    pub fn parse(&mut self, text: StringView) -> Result<(), ParseError> {
+        unsafe {
+            if hermes_parse(text.ptr, text.len as i64, &mut self.zone) {
+                return Result::Ok(());
+            }
+            return Result::Err(ParseError::Failed);
+        }
+    }
+
+    // Deep-copy all objects reachable from the document root into a fresh zone,
+    // discarding unreachable (garbage) objects.  Returns a new Hermes that
+    // owns the compacted zone.
+    //
+    // capacity_hint: initial byte capacity for the destination zone.
+    //   Pass 0 to auto-size from the source zone's current usage.
+    pub fn compactify(&self, capacity_hint: i64) -> Hermes {
+        unsafe {
+            let new_zone: Zone<Mutable> =
+                document_compactify(&self.zone, capacity_hint);
+            return Hermes { zone: new_zone };
+        }
+    }
+
+    // Convenience overload: auto-size destination zone from source usage.
+    pub fn compactify(&self) -> Hermes {
+        return self.compactify(0);
+    }
+
+    // Raw byte-copy of the zone (O(used), preserves garbage).
+    // Faster than compactify(); use when you want a quick snapshot.
+    pub fn clone(&self) -> Hermes {
+        unsafe {
+            return Hermes { zone: document_clone(&self.zone) };
+        }
+    }
+
+    // ── Import / export across containers ─────────────────────────────────────
+    //
+    // import_from: deep-copy the object graph reachable from `src_val` out of
+    // `src`'s zone into `self`'s zone. Returns an AnyVal whose offset is valid
+    // in `self`. The returned handle is orphaned — unless the caller inserts it
+    // somewhere reachable from the document root (or keeps it alive outside the
+    // zone), the next compactify() will treat the imported subgraph as garbage.
+    // Returns AnyVal::null_ptr() if `src` is null or a zone allocation fails.
+    //
+    // Inline AnyVals (ints, bools, etc.) are passed through unchanged — they
+    // carry no zone reference.
+    pub fn import_from(&mut self, src: *const Hermes, src_val: AnyVal) -> AnyVal {
+        if src == 0 as *const Hermes { return AnyVal::null_ptr(); }
+        unsafe {
+            // Bug 1 guard: self-import would alias src and dst zones.  A grow
+            // of the dst backing buffer during anyval_clone would invalidate
+            // the captured `base_src`, causing reads from freed memory.
+            let self_ptr: *const Hermes = self;
+            if src == self_ptr { return AnyVal::null_ptr(); }
+
+            let src_holder: *mut MemHolder = src.zone.holder;
+            if src_holder == 0 as *mut MemHolder { return AnyVal::null_ptr(); }
+
+            // Bug 2 guard: holder may be non-null with a null backing buffer
+            // (memholder_alloc_backed OOM path).
+            let src_base: *mut u8 = src_holder.base;
+            if src_base == 0 as *mut u8 { return AnyVal::null_ptr(); }
+
+            // Bug 3 guard: destination must have a live zone or allocations
+            // inside anyval_clone dereference a null holder.
+            let dst_holder: *mut MemHolder = self.zone.holder;
+            if dst_holder == 0 as *mut MemHolder { return AnyVal::null_ptr(); }
+
+            let mut clone_map: CloneMap = clone_map_create();
+            if clone_map.keys == 0 as *mut u32 { return AnyVal::null_ptr(); }
+            let mut ctx: CloneCtx = CloneCtx {
+                base_src: src_base,
+                zone_dst: &mut self.zone as *mut Zone<Mutable>,
+                map: &mut clone_map,
+            };
+            let result: AnyVal = anyval_clone(src_val, &mut ctx);
+            clone_map_free(&mut clone_map);
+            return result;
+        }
+    }
+
+    // export: build a fresh container holding only the subgraph reachable from
+    // `src_val`, with the cloned root already installed in the destination's
+    // DocumentHeader. This is the second half of import/export: no manual
+    // wiring is required by the caller.
+    //
+    // capacity_hint: initial byte capacity for the destination zone.
+    //   Pass 0 to auto-size from this container's `used` bytes (an upper bound
+    //   — the subgraph may be strictly smaller, in which case compactify()
+    //   later can trim further).
+    //
+    // Returns a container with a null holder on OOM of the destination zone.
+    pub fn export(&self, src_val: AnyVal, capacity_hint: i64) -> Hermes {
+        unsafe {
+            let cap: i64 = if capacity_hint > 0 {
+                capacity_hint
+            } else {
+                let h: *mut MemHolder = self.zone.holder;
+                if h == 0 as *mut MemHolder {
+                    64
+                } else {
+                    let u: i64 = h.used;
+                    if u < 64 { 64 } else { u }
+                }
+            };
+            let mut new_ctr: Hermes = Hermes::builder(cap);
+            // Single-return structure: every branch falls through to `return
+            // new_ctr`. This keeps the borrow checker happy about a Drop type
+            // that would otherwise be "moved" by an early-return inside `if`.
+            let dst_holder: *mut MemHolder = new_ctr.zone.holder;
+            let src_holder: *mut MemHolder = self.zone.holder;
+            // Bug 5 guard: source holder non-null but with null backing — do
+            // not dereference garbage. Also Bug 3 guard for dst holder.
+            let src_base: *mut u8 = if src_holder == 0 as *mut MemHolder {
+                0 as *mut u8
+            } else {
+                src_holder.base
+            };
+            if dst_holder != 0 as *mut MemHolder
+                && src_base != 0 as *mut u8 {
+                let mut clone_map: CloneMap = clone_map_create();
+                if clone_map.keys != 0 as *mut u32 {
+                    let mut ctx: CloneCtx = CloneCtx {
+                        base_src: src_base,
+                        zone_dst: &mut new_ctr.zone as *mut Zone<Mutable>,
+                        map: &mut clone_map as *mut CloneMap,
+                    };
+                    let new_val: AnyVal = anyval_clone(src_val, &mut ctx);
+                    clone_map_free(&mut clone_map);
+                    let dst_base: *mut u8 = dst_holder.base;
+                    if dst_base != 0 as *mut u8 {
+                        let doc: *mut DocumentHeader = dst_base as *mut DocumentHeader;
+                        document_set_root(doc, new_val);
+                    }
+                }
+            }
+            return new_ctr;
+        }
+    }
+
+    // Convenience overload: auto-size destination zone.
+    pub fn export(&self, src_val: AnyVal) -> Hermes {
+        return self.export(src_val, 0);
+    }
+
+    // Validate structural integrity of the document zone.
+    // Checks that every zone-pointer AnyVal is within bounds, every object's
+    // TypeTag and size fields are consistent, and no two objects share memory.
+    // Returns true if everything is OK, false on the first violation.
+    pub fn check(&self) -> bool {
+        unsafe {
+            return document_check(&self.zone);
+        }
+    }
+
+    // Serialize the document to HBS binary format.
+    // Returns an owned String containing the binary data.
+    pub fn serialize(&self) -> String {
+        let mut buf: String = String::with_capacity(256);
+        unsafe {
+            hbs_write(&self.zone as *const Zone<Mutable>, &mut buf);
+        }
+        return buf;
+    }
+
+    // Deserialize HBS binary data into this container's zone.
+    // The container must be freshly created (builder or new without parse).
+    // Returns true on success, false on error.
+    pub fn deserialize(&mut self, data: *const u8, len: i64) -> bool {
+        unsafe {
+            return hbs_read(data, len, &mut self.zone);
+        }
+    }
+
+}
+
+// Build a Hermes from a compile-time template blob with runtime capture substitution.
+//
+// Called by compiler-generated code for @-literals that contain $-captures.
+//   tmpl       — pointer to template blob in rodata
+//   tmpl_size  — byte size of the template blob
+//   slots      — pointer to ParamSlot table: pairs of u32 (blob_offset, value_idx u24)
+//   n_slots    — number of ParamSlot entries
+//   resolved   — pointer to array of AnyVal.raw (u32) values, one per unique capture
+//   n_values   — number of unique capture values in resolved[]
+//
+// Allocates a fresh zone, memcpy's the template, and patches each PARAM slot.
+pub unsafe fn hermes_build_from_template(tmpl: *const u8, tmpl_size: i64, slots: *const u32, n_slots: i64, resolved: *const u32, n_values: i64) -> Hermes {
+    // Headroom: template bytes + 4096 for future string captures (C5).
+    // C3 bug 5: clamp to avoid i64 overflow when tmpl_size is very large.
+    let mut cap: i64 = tmpl_size;
+    if tmpl_size < 9223372036854771711 { cap = tmpl_size + 4096; }
+    let mut ctr: Hermes = Hermes { zone: zone_create(cap) };
+    hermes_clone_template(&mut ctr.zone, tmpl, tmpl_size, slots, n_slots, resolved, n_values);
+    return ctr;
+}
+
+// ── C5: Zone-alloc capture helpers ───────────────────────────────────────────
+//
+// These are used by capture-literal codegen when one or more $-captures require
+// zone allocation (f64 objects, varchar strings).  The caller:
+//   1. hermes_template_ctr_new — copies the template blob into a fresh zone
+//   2. hermes_ctr_alloc_* — allocates dynamic captures, collects AnyVal.raw values
+//   3. hermes_template_patch  — patches PARAM slots with the resolved AnyVal.raw values
+//
+// All three use the same Hermes (passed by *mut pointer so they can mutate the zone).
+
+// Creates a Hermes with the template blob memcpy'd to the start of the zone.
+// extra_cap is reserved headroom for subsequent dynamic allocations.
+// PARAM placeholders are left in place; call hermes_ctr_alloc_* + hermes_template_patch
+// to resolve them.
+pub unsafe fn hermes_template_ctr_new(
+        tmpl: *const u8, tmpl_size: i64, extra_cap: i64) -> Hermes {
+    let mut total_cap: i64 = tmpl_size;
+    // C5-fix5: use i64::MAX (9223372036854775807), not i64::MAX-4096.
+    if tmpl_size < 9223372036854775807 - extra_cap {
+        total_cap = tmpl_size + extra_cap;
+    }
+    let mut ctr: Hermes = Hermes { zone: zone_create(total_cap) };
+    if tmpl != 0 as *const u8 && tmpl_size > 0 {
+        let dst: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, tmpl_size);
+        if dst != 0 as *mut u8 {
+            let mut bi: i64 = 0;
+            while bi < tmpl_size {
+                *((dst as i64 + bi) as *mut u8) = *((tmpl as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+        }
+    }
+    return ctr;
+}
+
+// Allocates an F64 zone object (type_code=31, 8-byte body) in ctr's zone.
+// Returns AnyVal.raw (zone-relative byte offset, pointer mode, bit0=0).
+// Returns 0 (null AnyVal) on OOM.
+pub unsafe fn hermes_ctr_alloc_f64(ctr: *mut Hermes, val: f64) -> u32 {
+    let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, 8, 31);
+    if raw == 0 as *mut u8 { return 0; }
+    *(raw as *mut f64) = val;
+    let base: *const u8 = ctr.zone.holder.base;
+    return (raw as i64 - base as i64) as u32;
+}
+
+// Allocates a varchar string in ctr's zone from (ptr, len).
+// Returns AnyVal.raw (zone-relative offset). Returns 0 on null ptr, negative len, or OOM.
+pub unsafe fn hermes_ctr_alloc_str(ctr: *mut Hermes, ptr: *const u8, len: i64) -> u32 {
+    if ptr == 0 as *const u8 || len < 0 { return 0; }
+    let lu: u64 = len as u64;
+    let prefix_sz: i64 = vlen_encode_size(lu) as i64;
+    let total: i64 = prefix_sz + len;
+    let raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone, total, hermes_tag_string());
+    if raw == 0 as *mut u8 { return 0; }
+    HermesString::init(raw, ptr, lu);
+    let base: *const u8 = ctr.zone.holder.base;
+    return (raw as i64 - base as i64) as u32;
+}
+
+// C-string (null-terminated) variant.
+pub unsafe fn hermes_ctr_alloc_cstr(ctr: *mut Hermes, ptr: *const u8) -> u32 {
+    if ptr == 0 as *const u8 { return 0; }
+    return hermes_ctr_alloc_str(ctr, ptr, cstr_len(ptr));
+}
+
+// ── C6: Logos-slice → Hermes typed array builders ────────────────────────────
+
+// Builds an Array<i32> Hermes from a raw i32 slice (ptr + element count).
+// Layout: data buffer first (4 bytes/elem, raw), then tagged Array<i32> header.
+// The document root is set to the resulting Array<i32> AnyVal.
+pub unsafe fn hermes_build_array_i32(vals: *const i32, len: i64) -> Hermes {
+    // Bug 7/9 fix: negative len is invalid; very large len overflows len*4.
+    // len==0 is valid (empty typed array); guard only negative and overflow cases.
+    if len < 0 { return Hermes::builder(8); }
+    if len > 536870911 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 4;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<i32>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    // Bug 7 fix: for len==0 skip data alloc (buf_off stays 0); still build header.
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<i32>>() as i64,
+                                   hermes_tag_array_i32());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<i32> = hdr_raw as *mut Array<i32>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// Builds an Array<u64> Hermes from a raw u64 slice (ptr + element count).
+pub unsafe fn hermes_build_array_u64(vals: *const u64, len: i64) -> Hermes {
+    // Bug 8/10 fix: guard negative/overflow; len==0 → empty typed array (not null-root).
+    if len < 0 { return Hermes::builder(8); }
+    if len > 268435455 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 8;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<u64>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<u64>>() as i64,
+                                   hermes_tag_array_u64());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<u64> = hdr_raw as *mut Array<u64>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// ── Additional typed array builders (i8/u8/i16/u16/u32/i64/f32/f64) ─────────────
+
+// Builds an Array<i8> Hermes from a raw i8 slice (ptr + element count).
+pub unsafe fn hermes_build_array_i8(vals: *const i8, len: i64) -> Hermes {
+    if len < 0 { return Hermes::builder(8); }
+    if len > 2147483647 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 1;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<i8>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<i8>>() as i64,
+                                   hermes_tag_array_i8());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<i8> = hdr_raw as *mut Array<i8>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// Builds an Array<u8> Hermes from a raw u8 slice (ptr + element count).
+pub unsafe fn hermes_build_array_u8(vals: *const u8, len: i64) -> Hermes {
+    if len < 0 { return Hermes::builder(8); }
+    if len > 2147483647 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 1;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<u8>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<u8>>() as i64,
+                                   hermes_tag_array_u8());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<u8> = hdr_raw as *mut Array<u8>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// Builds an Array<i16> Hermes from a raw i16 slice (ptr + element count).
+pub unsafe fn hermes_build_array_i16(vals: *const i16, len: i64) -> Hermes {
+    if len < 0 { return Hermes::builder(8); }
+    if len > 1073741823 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 2;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<i16>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<i16>>() as i64,
+                                   hermes_tag_array_i16());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<i16> = hdr_raw as *mut Array<i16>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// Builds an Array<u16> Hermes from a raw u16 slice (ptr + element count).
+pub unsafe fn hermes_build_array_u16(vals: *const u16, len: i64) -> Hermes {
+    if len < 0 { return Hermes::builder(8); }
+    if len > 1073741823 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 2;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<u16>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<u16>>() as i64,
+                                   hermes_tag_array_u16());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<u16> = hdr_raw as *mut Array<u16>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// Builds an Array<u32> Hermes from a raw u32 slice (ptr + element count).
+pub unsafe fn hermes_build_array_u32(vals: *const u32, len: i64) -> Hermes {
+    if len < 0 { return Hermes::builder(8); }
+    if len > 536870911 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 4;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<u32>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<u32>>() as i64,
+                                   hermes_tag_array_u32());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<u32> = hdr_raw as *mut Array<u32>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// Builds an Array<i64> Hermes from a raw i64 slice (ptr + element count).
+pub unsafe fn hermes_build_array_i64(vals: *const i64, len: i64) -> Hermes {
+    if len < 0 { return Hermes::builder(8); }
+    if len > 268435455 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 8;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<i64>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<i64>>() as i64,
+                                   hermes_tag_array_i64());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<i64> = hdr_raw as *mut Array<i64>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// Builds an Array<f32> Hermes from a raw f32 slice (ptr + element count).
+pub unsafe fn hermes_build_array_f32(vals: *const f32, len: i64) -> Hermes {
+    if len < 0 { return Hermes::builder(8); }
+    if len > 536870911 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 4;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<f32>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<f32>>() as i64,
+                                   hermes_tag_array_f32());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<f32> = hdr_raw as *mut Array<f32>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// Builds an Array<f64> Hermes from a raw f64 slice (ptr + element count).
+pub unsafe fn hermes_build_array_f64(vals: *const f64, len: i64) -> Hermes {
+    if len < 0 { return Hermes::builder(8); }
+    if len > 268435455 { return Hermes::builder(8); }
+    let byte_len: i64 = len * 8;
+    let cap: i64 = 8 + byte_len + sizeof::<Array<f64>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let mut buf_off: u32 = 0;
+    let mut ok: bool = true;
+    if byte_len > 0 {
+        let buf_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, byte_len);
+        if buf_raw == 0 as *mut u8 {
+            ok = false;
+        } else {
+            let mut bi: i64 = 0;
+            while bi < byte_len {
+                *((buf_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            buf_off = (buf_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        }
+    }
+    if ok {
+        let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                   sizeof::<Array<f64>>() as i64,
+                                   hermes_tag_array_f64());
+        if hdr_raw != 0 as *mut u8 {
+            let arr: *mut Array<f64> = hdr_raw as *mut Array<f64>;
+            arr.size     = len as u64;
+            arr.capacity = len as u64;
+            arr.data.offset     = buf_off;
+            let arr_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+            document_set_root(doc, AnyVal::from_offset(arr_off));
+        }
+    }
+    return ctr;
+}
+
+// ── C6: Logos-struct → Hermes Map<i32, AnyVal> builder ───────────────────────────
+
+// Source type for `as <I32, AnyVal>{}` cast: parallel key and value slices.
+// Len is derived from keys.len at the cast site; both slices must be the same length.
+pub struct MapSliceI32 {
+    pub keys: &[i32],
+    pub vals: &[AnyVal],
+}
+
+pub struct MapSliceU32 {
+    pub keys: &[u32],
+    pub vals: &[AnyVal],
+}
+
+pub struct MapSliceI64 {
+    pub keys: &[i64],
+    pub vals: &[AnyVal],
+}
+
+pub struct MapSliceU64 {
+    pub keys: &[u64],
+    pub vals: &[AnyVal],
+}
+
+// Builds a Map<i32, AnyVal> Hermes from parallel key and value arrays (len entries).
+// Layout: keys buffer (4 bytes/elem), vals buffer (4 bytes/elem), then tagged header.
+// The document root is set to the resulting Map<i32, AnyVal> AnyVal.
+pub unsafe fn hermes_build_map_i32_anyval(keys: *const i32, vals: *const AnyVal, len: i64) -> Hermes {
+    if len <= 0 { return Hermes::builder(8); }
+    // fix2: guard u32 overflow — Map<i32, AnyVal>.size/capacity are u32.
+    if len > 4294967295 { return Hermes::builder(8); }
+    let key_bytes: i64 = len * 4;
+    let val_bytes: i64 = len * 4;
+    let cap: i64 = 8 + key_bytes + val_bytes + sizeof::<Map<i32, AnyVal>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
+    if keys_raw != 0 as *mut u8 {
+        // fix1: compute keys_off immediately after allocation — keys_raw is valid relative to
+        // current base now; a subsequent alloc (vals_raw) could trigger zone realloc, after
+        // which keys_raw would point to old (freed) memory and keys_raw - new_base = garbage.
+        let keys_off: u32 = (keys_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        // Bug fix: copy key bytes BEFORE allocating vals_raw.
+        // The second alloc may trigger zone realloc, invalidating keys_raw.
+        // Write through the offset-based pointer instead to be safe after any grow.
+        let mut bk: i64 = 0;
+        while bk < key_bytes {
+            *((keys_raw as i64 + bk) as *mut u8) = *((keys as i64 + bk) as *const u8);
+            bk = bk + 1;
+        }
+        let vals_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, val_bytes);
+        if vals_raw != 0 as *mut u8 {
+            let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let mut bi: i64 = 0;
+            while bi < val_bytes {
+                *((vals_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                       sizeof::<Map<i32, AnyVal>>() as i64,
+                                       hermes_tag_map_i32_anyval());
+            if hdr_raw != 0 as *mut u8 {
+                let m: *mut Map<i32, AnyVal> = hdr_raw as *mut Map<i32, AnyVal>;
+                m.size     = len as u32;
+                m.capacity = len as u32;
+                m.keys.offset = keys_off;
+                m.vals.offset = vals_off;
+                let map_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+                let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+                document_set_root(doc, AnyVal::from_offset(map_off));
+            }
+        }
+    }
+    return ctr;
+}
+
+// Builds a Map<u32, AnyVal> Hermes from parallel key and value arrays.
+pub unsafe fn hermes_build_map_u32_anyval(keys: *const u32, vals: *const AnyVal, len: i64) -> Hermes {
+    if len <= 0 { return Hermes::builder(8); }
+    if len > 4294967295 { return Hermes::builder(8); }
+    let key_bytes: i64 = len * 4;
+    let val_bytes: i64 = len * 4;
+    let cap: i64 = 8 + key_bytes + val_bytes + sizeof::<Map<u32, AnyVal>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
+    if keys_raw != 0 as *mut u8 {
+        let keys_off: u32 = (keys_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        let mut bk: i64 = 0;
+        while bk < key_bytes {
+            *((keys_raw as i64 + bk) as *mut u8) = *((keys as i64 + bk) as *const u8);
+            bk = bk + 1;
+        }
+        let vals_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, val_bytes);
+        if vals_raw != 0 as *mut u8 {
+            let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let mut bi: i64 = 0;
+            while bi < val_bytes {
+                *((vals_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                       sizeof::<Map<u32, AnyVal>>() as i64,
+                                       hermes_tag_map_u32_anyval());
+            if hdr_raw != 0 as *mut u8 {
+                let m: *mut Map<u32, AnyVal> = hdr_raw as *mut Map<u32, AnyVal>;
+                m.size     = len as u32;
+                m.capacity = len as u32;
+                m.keys.offset = keys_off;
+                m.vals.offset = vals_off;
+                let map_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+                let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+                document_set_root(doc, AnyVal::from_offset(map_off));
+            }
+        }
+    }
+    return ctr;
+}
+
+// Builds a Map<i64, AnyVal> Hermes from parallel key and value arrays.
+pub unsafe fn hermes_build_map_i64_anyval(keys: *const i64, vals: *const AnyVal, len: i64) -> Hermes {
+    if len <= 0 { return Hermes::builder(8); }
+    if len > 4294967295 { return Hermes::builder(8); }
+    let key_bytes: i64 = len * 8;
+    let val_bytes: i64 = len * 4;
+    let cap: i64 = 8 + key_bytes + val_bytes + sizeof::<Map<i64, AnyVal>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
+    if keys_raw != 0 as *mut u8 {
+        let keys_off: u32 = (keys_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        let mut bk: i64 = 0;
+        while bk < key_bytes {
+            *((keys_raw as i64 + bk) as *mut u8) = *((keys as i64 + bk) as *const u8);
+            bk = bk + 1;
+        }
+        let vals_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, val_bytes);
+        if vals_raw != 0 as *mut u8 {
+            let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let mut bi: i64 = 0;
+            while bi < val_bytes {
+                *((vals_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                       sizeof::<Map<i64, AnyVal>>() as i64,
+                                       hermes_tag_map_i64_anyval());
+            if hdr_raw != 0 as *mut u8 {
+                let m: *mut Map<i64, AnyVal> = hdr_raw as *mut Map<i64, AnyVal>;
+                m.size     = len as u32;
+                m.capacity = len as u32;
+                m.keys.offset = keys_off;
+                m.vals.offset = vals_off;
+                let map_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+                let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+                document_set_root(doc, AnyVal::from_offset(map_off));
+            }
+        }
+    }
+    return ctr;
+}
+
+// Builds a Map<u64, AnyVal> Hermes from parallel key and value arrays.
+pub unsafe fn hermes_build_map_u64_anyval(keys: *const u64, vals: *const AnyVal, len: i64) -> Hermes {
+    if len <= 0 { return Hermes::builder(8); }
+    if len > 4294967295 { return Hermes::builder(8); }
+    let key_bytes: i64 = len * 8;
+    let val_bytes: i64 = len * 4;
+    let cap: i64 = 8 + key_bytes + val_bytes + sizeof::<Map<u64, AnyVal>>() as i64 + 64;
+    let mut ctr: Hermes = Hermes::builder(cap);
+    let keys_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, key_bytes);
+    if keys_raw != 0 as *mut u8 {
+        let keys_off: u32 = (keys_raw as i64 - ctr.zone.holder.base as i64) as u32;
+        let mut bk: i64 = 0;
+        while bk < key_bytes {
+            *((keys_raw as i64 + bk) as *mut u8) = *((keys as i64 + bk) as *const u8);
+            bk = bk + 1;
+        }
+        let vals_raw: *mut u8 = zone_m_alloc_raw(&mut ctr.zone, val_bytes);
+        if vals_raw != 0 as *mut u8 {
+            let vals_off: u32 = (vals_raw as i64 - ctr.zone.holder.base as i64) as u32;
+            let mut bi: i64 = 0;
+            while bi < val_bytes {
+                *((vals_raw as i64 + bi) as *mut u8) = *((vals as i64 + bi) as *const u8);
+                bi = bi + 1;
+            }
+            let hdr_raw: *mut u8 = zone_m_alloc_tagged(&mut ctr.zone,
+                                       sizeof::<Map<u64, AnyVal>>() as i64,
+                                       hermes_tag_map_u64_anyval());
+            if hdr_raw != 0 as *mut u8 {
+                let m: *mut Map<u64, AnyVal> = hdr_raw as *mut Map<u64, AnyVal>;
+                m.size     = len as u32;
+                m.capacity = len as u32;
+                m.keys.offset = keys_off;
+                m.vals.offset = vals_off;
+                let map_off: u32 = (hdr_raw as i64 - ctr.zone.holder.base as i64) as u32;
+                let doc: *mut DocumentHeader = ctr.zone.holder.base as *mut DocumentHeader;
+                document_set_root(doc, AnyVal::from_offset(map_off));
+            }
+        }
+    }
+    return ctr;
+}
+
+// Patches PARAM slots in a zone that was populated via hermes_template_ctr_new.
+// resolved[i] = AnyVal.raw for capture value i; slots is the ParamSlot table
+// (interleaved u32 pairs: blob_offset, value_idx).
+// The template starts at zone.holder.base (offset 0 in the zone).
+pub unsafe fn hermes_template_patch(
+        ctr: *mut Hermes,
+        slots: *const u32, n_slots: i64,
+        resolved: *const u32, n_values: i64) {
+    if n_slots <= 0 || slots == 0 as *const u32 { return; }
+    if n_values > 0 && resolved == 0 as *const u32 { return; }
+    let base: *mut u8 = ctr.zone.holder.base;
+    let zone_used: i64 = ctr.zone.holder.used;
+    let mut si: i64 = 0;
+    while si < n_slots {
+        let off: u32  = *((slots as i64 + si * 8) as *const u32);
+        let vidx: u32 = *((slots as i64 + si * 8 + 4) as *const u32)
+                        & 0xFFFFFF;
+        if (vidx as i64) < n_values && (off as i64) + 4 <= zone_used {
+            let av_raw: u32 = *((resolved as i64 + vidx as i64 * 4) as *const u32);
+            let slot_ptr: *mut u32 = (base as i64 + off as i64) as *mut u32;
+            *slot_ptr = av_raw;
+        }
+        si = si + 1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// List / map comprehension runtime helpers
+// ---------------------------------------------------------------------------
+//
+// `@[expr for x in iter (if g)?]` desugars to:
+//     { let mut c = hermes_list_comp_new(cap);
+//       for x in iter { [if g] hermes_list_comp_push(&mut c, expr); }
+//       c }
+//
+// The element expression must already produce `AnyVal` (wrap scalars with
+// `AnyVal::embed_i24(...)` etc.).  Implicit coercion is a future extension.
+
+pub fn hermes_list_comp_new(cap: i64) -> Hermes {
+    let mut c: Hermes = Hermes::builder(cap);
+    let arr: AnyVal = c.build_array(8);
+    c.set_root(arr);
+    return c;
+}
+
+pub fn hermes_list_comp_push(c: &mut Hermes, v: AnyVal) {
+    let arr: AnyVal = c.root();
+    c.array_push(arr, v);
+}
+
+// Map comprehension: @{kexpr: vexpr for x in iter (if guard)?}
+// v1: string keys only; values must be AnyVal.
+
+pub fn hermes_map_comp_new(cap: i64, slot_hint: i64) -> Hermes {
+    let mut c: Hermes = Hermes::builder(cap);
+    // Round slot_hint up to next power of two (min 8).  ObjectMap::set relies
+    // on cap being a power of two for `slot & (cap-1)` masking.
+    let mut slots: u32 = 8;
+    let mut want: i64 = slot_hint * 2;
+    if want < 8 { want = 8; }
+    while (slots as i64) < want { slots = slots * 2; }
+    let m: AnyVal = c.build_map(slots);
+    c.set_root(m);
+    return c;
+}
+
+pub fn hermes_map_comp_put(c: &mut Hermes, k: str, v: AnyVal) {
+    let m: AnyVal = c.root();
+    c.map_set(m, k, v);
+}
+
+// Scalar → AnyVal coercion helpers for comprehension values.
+// Compiler auto-wraps the element expression in one of these based on its
+// Logos type.  AnyVal values bypass coercion entirely.
+
+pub fn hermes_coerce_i8(v: i8)   -> AnyVal { return AnyVal::embed_i8(v); }
+pub fn hermes_coerce_i16(v: i16) -> AnyVal { return AnyVal::embed_i16(v); }
+pub fn hermes_coerce_i32(v: i32) -> AnyVal { return AnyVal::embed_i24(v); }
+pub fn hermes_coerce_i64(v: i64) -> AnyVal { return AnyVal::embed_i24(v as i32); }
+pub fn hermes_coerce_u8(v: u8)   -> AnyVal { return AnyVal::embed_u8(v); }
+pub fn hermes_coerce_u16(v: u16) -> AnyVal { return AnyVal::embed_u16(v); }
+pub fn hermes_coerce_u32(v: u32) -> AnyVal { return AnyVal::embed_u24(v); }
+pub fn hermes_coerce_u64(v: u64) -> AnyVal { return AnyVal::embed_u24(v as u32); }
+pub fn hermes_coerce_bool(v: bool) -> AnyVal { return AnyVal::embed_bool(v); }
+pub fn hermes_coerce_str(c: &mut Hermes, s: str) -> AnyVal {
+    return c.build_str(s);
+}

@@ -1,6 +1,6 @@
 // Fail: as <T>[] with unsupported element type.
 package hermes_as_array_bad_type;
-use hermes.ctr;
+use std.hermes.ctr;
 
 unsafe fn main() -> i32 {
     let arr: [i32; 2] = [1, 2];

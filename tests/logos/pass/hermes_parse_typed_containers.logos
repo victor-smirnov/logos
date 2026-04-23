@@ -4,12 +4,12 @@
 // Unsupported headers still return parse error.
 package hermes_parse_typed_containers;
 
-use hermes.zone;
-use hermes.anyval;
-use hermes.parser;
-use hermes.document;
-use hermes.ctr;
-use hermes.stringify;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.parser;
+use std.hermes.document;
+use std.hermes.ctr;
+use std.hermes.stringify;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

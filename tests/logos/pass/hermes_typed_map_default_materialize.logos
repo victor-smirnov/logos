@@ -2,10 +2,10 @@
 //   <Varchar>{...} and <Varchar,AnyVal>{...} -> ObjectMap (type_code=101)
 package hermes_typed_map_default_materialize;
 
-use hermes.ctr;
-use hermes.anyval;
-use hermes.typetag;
-use hermes.datatag;
+use std.hermes.ctr;
+use std.hermes.anyval;
+use std.hermes.typetag;
+use std.hermes.datatag;
 
 unsafe fn main() -> i32 {
     // Short form <K>{...}

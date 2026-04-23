@@ -8,11 +8,11 @@
 
 package hermes_typed_map_all_keys;
 
-use hermes.view;
-use hermes.stringify;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
+use std.hermes.view;
+use std.hermes.stringify;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
 use std.lang.text;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {

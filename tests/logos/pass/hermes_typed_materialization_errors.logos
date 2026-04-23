@@ -1,7 +1,7 @@
 // Unsupported typed materializations must return parse error.
 package hermes_typed_materialization_errors;
 
-use hermes.ctr;
+use std.hermes.ctr;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

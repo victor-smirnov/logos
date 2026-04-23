@@ -1,8 +1,8 @@
 // Decimal API smoke test: from_string / to_string / add / sub / metadata.
 package hermes_decimal_methods;
 
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

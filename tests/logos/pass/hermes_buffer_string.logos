@@ -2,7 +2,7 @@ package hermes_buffer_string;
 // Buffer<HermesString>: SoA storage (packed bytes + end offsets).  Push three
 // strings, read them back via StringView, verify each byte.
 
-use hermes.string;
+use std.hermes.string;
 use logos.lang.datatypes;
 
 unsafe fn bytes_eq(a: *const u8, b: *const u8, n: u64) -> bool {

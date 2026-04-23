@@ -1,7 +1,7 @@
 package genos_reflect;
 
-use hermes.view;
-use hermes.anyval;
+use std.hermes.view;
+use std.hermes.anyval;
 
 genos Learnable {
     meta @{ "domain": "inductive", "version": 1 }

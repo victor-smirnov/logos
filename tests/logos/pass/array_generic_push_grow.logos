@@ -3,12 +3,12 @@
 // project_generic_holder_codegen_bug.md), verified working on HEAD.
 package array_generic_push_grow;
 
-use hermes.zone;
-use hermes.mem_holder;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
-use hermes.relptr;
+use std.hermes.zone;
+use std.hermes.mem_holder;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.relptr;
 
 impl<T> Array<T> {
     pub unsafe fn push_grow(self: *mut Array<T>, holder: *mut MemHolder, val_ptr: *const T) {

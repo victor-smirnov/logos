@@ -3,10 +3,10 @@
 
 package hermes_match_bind;
 
-use hermes.anyval;
-use hermes.ctr;
-use hermes.pat;
-use hermes.view;
+use std.hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.pat;
+use std.hermes.view;
 
 unsafe fn classify(d: &HermesStatic) -> i32 {
     match d {

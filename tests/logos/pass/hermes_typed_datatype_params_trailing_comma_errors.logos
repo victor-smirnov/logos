@@ -1,7 +1,7 @@
 // Trailing comma in @Type(...) params must be rejected.
 package hermes_typed_datatype_params_trailing_comma_errors;
 
-use hermes.ctr;
+use std.hermes.ctr;
 
 unsafe fn main() -> i32 {
     let mut d1: Hermes = Hermes::new(1024);

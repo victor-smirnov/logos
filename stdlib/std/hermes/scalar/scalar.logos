@@ -1,0 +1,289 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.scalar
+//
+// Primitive scalar genera and their zone-allocated eide.  Each genus is
+// identified by its Hermes type_code (see openspec/specs/hermes-wire-format.md
+// §"Core Type Codes" for the canonical registry).  Generic code can work
+// against the genos trait directly; concrete zone code deals with the #[zoned] struct
+// struct.
+//
+// Genus / #[zoned] struct pairs in this module:
+//   TinyInt   / I8       (type_code=20, i8)
+//   UTinyInt  / U8       (type_code=21, u8)
+//   SmallInt  / I16      (type_code=22, i16)
+//   Integer   / I24      (type_code=23, i24  — also inline-representable)
+//   USmallInt / U16      (type_code=24, u16)
+//   UInteger  / U24      (type_code=25, u24  — also inline-representable)
+//   Int64     / I64      (type_code=26, i64)
+//   UInt64    / U64      (type_code=27, u64)
+//   Real      / F32      (type_code=30, f32)
+//   Double    / F64      (type_code=31, f64)
+//   Boolean   / Bool     (type_code=37, bool)
+
+package std.hermes.scalar;
+
+use logos.lang.datatypes;
+use std.hermes.tags;
+
+// ── TinyInt (i8) ─────────────────────────────────────────────────────────
+
+#[type_code = HermesTag::I8]
+pub genos TinyInt {
+    unsafe fn value(self: *const Self) -> i8;
+}
+
+#[zoned] pub struct I8 { pub v: i8, }
+
+impl TinyInt for I8 {
+    unsafe fn value(self: *const I8) -> i8 { return self.v; }
+}
+
+impl I8 {
+    pub unsafe fn init(raw: *mut u8, value: i8) -> *mut I8 {
+        let p: *mut I8 = raw as *mut I8;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── UTinyInt (u8) ────────────────────────────────────────────────────────
+
+#[type_code = HermesTag::U8]
+pub genos UTinyInt {
+    unsafe fn value(self: *const Self) -> u8;
+}
+
+#[zoned] pub struct U8 { pub v: u8, }
+
+impl UTinyInt for U8 {
+    unsafe fn value(self: *const U8) -> u8 { return self.v; }
+}
+
+impl U8 {
+    pub unsafe fn init(raw: *mut u8, value: u8) -> *mut U8 {
+        let p: *mut U8 = raw as *mut U8;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── SmallInt (i16) ───────────────────────────────────────────────────────
+
+#[type_code = HermesTag::I16]
+pub genos SmallInt {
+    unsafe fn value(self: *const Self) -> i16;
+}
+
+#[zoned] pub struct I16 { pub v: i16, }
+
+impl SmallInt for I16 {
+    unsafe fn value(self: *const I16) -> i16 { return self.v; }
+}
+
+impl I16 {
+    pub unsafe fn init(raw: *mut u8, value: i16) -> *mut I16 {
+        let p: *mut I16 = raw as *mut I16;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── Integer (i24) ────────────────────────────────────────────────────────
+
+#[type_code = HermesTag::I24]
+pub genos Integer {
+    unsafe fn value(self: *const Self) -> i24;
+}
+
+#[zoned] pub struct I24 { pub v: i24, }
+
+impl Integer for I24 {
+    unsafe fn value(self: *const I24) -> i24 { return self.v; }
+}
+
+impl I24 {
+    pub unsafe fn init(raw: *mut u8, value: i24) -> *mut I24 {
+        let p: *mut I24 = raw as *mut I24;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── USmallInt (u16) ──────────────────────────────────────────────────────
+
+#[type_code = HermesTag::U16]
+pub genos USmallInt {
+    unsafe fn value(self: *const Self) -> u16;
+}
+
+#[zoned] pub struct U16 { pub v: u16, }
+
+impl USmallInt for U16 {
+    unsafe fn value(self: *const U16) -> u16 { return self.v; }
+}
+
+impl U16 {
+    pub unsafe fn init(raw: *mut u8, value: u16) -> *mut U16 {
+        let p: *mut U16 = raw as *mut U16;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── UInteger (u24) ───────────────────────────────────────────────────────
+
+#[type_code = HermesTag::U24]
+pub genos UInteger {
+    unsafe fn value(self: *const Self) -> u24;
+}
+
+#[zoned] pub struct U24 { pub v: u24, }
+
+impl UInteger for U24 {
+    unsafe fn value(self: *const U24) -> u24 { return self.v; }
+}
+
+impl U24 {
+    pub unsafe fn init(raw: *mut u8, value: u24) -> *mut U24 {
+        let p: *mut U24 = raw as *mut U24;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── Int64 (i64) ──────────────────────────────────────────────────────────
+
+#[type_code = HermesTag::I64]
+pub genos Int64 {
+    unsafe fn value(self: *const Self) -> i64;
+}
+
+#[zoned] pub struct I64 { pub v: i64, }
+
+impl Int64 for I64 {
+    unsafe fn value(self: *const I64) -> i64 { return self.v; }
+}
+
+impl I64 {
+    pub unsafe fn init(raw: *mut u8, value: i64) -> *mut I64 {
+        let p: *mut I64 = raw as *mut I64;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── UInt64 (u64) ─────────────────────────────────────────────────────────
+
+#[type_code = HermesTag::U64]
+pub genos UInt64 {
+    unsafe fn value(self: *const Self) -> u64;
+}
+
+#[zoned] pub struct U64 { pub v: u64, }
+
+impl UInt64 for U64 {
+    unsafe fn value(self: *const U64) -> u64 { return self.v; }
+}
+
+impl U64 {
+    pub unsafe fn init(raw: *mut u8, value: u64) -> *mut U64 {
+        let p: *mut U64 = raw as *mut U64;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── Real (f32) ───────────────────────────────────────────────────────────
+
+#[type_code = HermesTag::F32]
+pub genos Real {
+    unsafe fn value(self: *const Self) -> f32;
+}
+
+#[zoned] pub struct F32 { pub v: f32, }
+
+impl Real for F32 {
+    unsafe fn value(self: *const F32) -> f32 { return self.v; }
+}
+
+impl F32 {
+    pub unsafe fn init(raw: *mut u8, value: f32) -> *mut F32 {
+        let p: *mut F32 = raw as *mut F32;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── Double (f64) ─────────────────────────────────────────────────────────
+
+#[type_code = HermesTag::F64]
+pub genos Double {
+    unsafe fn value(self: *const Self) -> f64;
+}
+
+#[zoned] pub struct F64 { pub v: f64, }
+
+impl Double for F64 {
+    unsafe fn value(self: *const F64) -> f64 { return self.v; }
+}
+
+impl F64 {
+    pub unsafe fn init(raw: *mut u8, value: f64) -> *mut F64 {
+        let p: *mut F64 = raw as *mut F64;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── Boolean (bool) ───────────────────────────────────────────────────────
+
+#[type_code = HermesTag::Bool]
+pub genos Boolean {
+    unsafe fn value(self: *const Self) -> bool;
+}
+
+#[zoned] pub struct Bool { pub v: bool, }
+
+impl Boolean for Bool {
+    unsafe fn value(self: *const Bool) -> bool { return self.v; }
+}
+
+impl Bool {
+    pub unsafe fn init(raw: *mut u8, value: bool) -> *mut Bool {
+        let p: *mut Bool = raw as *mut Bool;
+        p.v = value;
+        return p;
+    }
+}
+
+// ── Canonical type-hash constants for the tag-writing helpers ───────────
+
+pub fn hermes_tag_i8() -> u64 { return 20; }
+pub fn hermes_tag_u8() -> u64 { return 21; }
+pub fn hermes_tag_i16() -> u64 { return 22; }
+pub fn hermes_tag_i24() -> u64 { return 23; }
+pub fn hermes_tag_u16() -> u64 { return 24; }
+pub fn hermes_tag_u24() -> u64 { return 25; }
+pub fn hermes_tag_i64() -> u64 { return 26; }
+pub fn hermes_tag_u64() -> u64 { return 27; }
+pub fn hermes_tag_f32() -> u64 { return 30; }
+pub fn hermes_tag_f64() -> u64 { return 31; }
+pub fn hermes_tag_bool() -> u64 { return 37; }
+
+// ── Datatype-ification via the Primitive blanket ────────────────────────
+// All eide above are byte-level POD wrappers around a single scalar field,
+// so they plug straight into the Primitive blanket: View = the inner
+// primitive, Storage = PrimVec<prim>, Buffer<T> works for free.
+
+impl Primitive for I8   { type Prim = i8;   }
+impl Primitive for U8   { type Prim = u8;   }
+impl Primitive for I16  { type Prim = i16;  }
+impl Primitive for I24  { type Prim = i24;  }
+impl Primitive for U16  { type Prim = u16;  }
+impl Primitive for U24  { type Prim = u24;  }
+impl Primitive for I64  { type Prim = i64;  }
+impl Primitive for U64  { type Prim = u64;  }
+impl Primitive for F32  { type Prim = f32;  }
+impl Primitive for F64  { type Prim = f64;  }
+impl Primitive for Bool { type Prim = bool; }

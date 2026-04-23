@@ -1,7 +1,7 @@
 // Decimal ↔ f64 conversion tests
 package hermes_decimal_f64;
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

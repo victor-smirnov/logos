@@ -1,7 +1,7 @@
 package hermes_map_comp_guard_bad;
 
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 
 fn main() -> i32 {
     let xs: [i32; 2] = [1, 2];

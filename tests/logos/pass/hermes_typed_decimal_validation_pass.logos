@@ -1,7 +1,7 @@
 // Decimal typed-value validation: accepted forms.
 package hermes_typed_decimal_validation_pass;
 
-use hermes.ctr;
+use std.hermes.ctr;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

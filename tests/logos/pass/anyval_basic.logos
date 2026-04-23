@@ -2,7 +2,7 @@ package anyval_basic;
 // Phase 9: AnyVal — 4-byte polymorphic pointer/value slot.
 // Tests the full encode/decode/discriminant API.
 
-use hermes.anyval;
+use std.hermes.anyval;
 
 unsafe fn main() -> i32 {
     // --- Pointer mode ---

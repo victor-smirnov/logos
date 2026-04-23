@@ -1,8 +1,8 @@
 // Hermes capture: f64 value captured as zone-allocated F64 object.
 // C7-fix1: added is_ptr() checks — confirms root is a zone object (not inline/null).
 package hermes_capture_f64;
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 
 unsafe fn main() -> i32 {
     // Capture an f64 into a map.

@@ -5,15 +5,15 @@ package hermes_ex_containers;
 // element addresses, entry counts, raw TypeTag bytes — so that silent
 // regressions in the header layout or bookkeeping fields fail here.
 
-use hermes.zone;
-use hermes.anyval;
-use hermes.typetag;
-use hermes.datatag;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
-use hermes.objectmap;
-use hermes.string;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.typetag;
+use std.hermes.datatag;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.objectmap;
+use std.hermes.string;
 
 unsafe fn main() -> i32 {
     let mut zone: Zone<Mutable> = zone_create(8192 as i64);

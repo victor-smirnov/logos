@@ -1,8 +1,8 @@
 // Hermes capture: *const u8 (C-string) captured as varchar into @-literals.
 // C7-fix2: added stringify verification of captured string values.
 package hermes_capture_str;
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

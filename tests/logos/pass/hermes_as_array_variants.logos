@@ -8,7 +8,7 @@
 
 package hermes_as_array_variants;
 
-use hermes.ctr;
+use std.hermes.ctr;
 use std.lang.text;
 
 pub unsafe fn main() -> i32 {

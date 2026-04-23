@@ -8,7 +8,7 @@
 
 package hermes_float_parse;
 
-use hermes.anyval;
+use std.hermes.anyval;
 
 unsafe fn main() -> i32 {
     // f32 parsing is not supported in the current 4-byte AnyVal format.

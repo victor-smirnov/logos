@@ -3,7 +3,7 @@
 package reflect_annotated_auto;
 
 use std.lang.reflect;
-use hermes.string;
+use std.hermes.string;
 
 #[annotation]
 #[zoned] struct Deprecated {

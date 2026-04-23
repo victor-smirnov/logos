@@ -2,7 +2,7 @@ package datatype_zone_ref;
 // Phase 7: DataRef<T> with MemHolder — fat zone pointer.
 // Demonstrates: zone_create → zone_alloc_typed → ptr()/mut_ptr() → release.
 
-use hermes.zone;
+use std.hermes.zone;
 
 #[zoned] struct Point {
     x: i32,

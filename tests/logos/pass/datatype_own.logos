@@ -1,8 +1,8 @@
 package datatype_own;
 // Phase 7: DataOwn<T> with MemHolder — reference-counted owning handle.
 
-use hermes.zone;
-use hermes.own;
+use std.hermes.zone;
+use std.hermes.own;
 
 #[zoned] struct Point {
     x: i32,

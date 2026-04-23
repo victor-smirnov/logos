@@ -1,7 +1,7 @@
 // Deep probe of Decimal — looking for subtle bugs
 package dec_deep;
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

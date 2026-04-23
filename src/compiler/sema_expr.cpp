@@ -3738,7 +3738,7 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
 // ObjectArray of AnyVals, iterating over iter_expr and optionally
 // filtering by guard.  Element expression must evaluate to AnyVal
 // (user coerces scalars explicitly via AnyVal::embed_i24 etc.).
-// Requires `use hermes.ctr;` in scope.
+// Requires `use std.hermes.ctr;` in scope.
 lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
@@ -3769,7 +3769,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     {
         auto [hpkg, hsi] = find_struct_by_name("Hermes");
         if (!hsi) {
-            error("hermes list comprehension requires `use hermes.ctr;`");
+            error("hermes list comprehension requires `use std.hermes.ctr;`");
             return error_expr();
         }
     }
@@ -3781,7 +3781,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     for (auto* fi : new_cands)  if (fi->param_types.size() == 1) { new_fi  = fi; break; }
     for (auto* fi : push_cands) if (fi->param_types.size() == 2) { push_fi = fi; break; }
     if (!new_fi || !push_fi) {
-        error("hermes list comprehension requires `use hermes.ctr;`");
+        error("hermes list comprehension requires `use std.hermes.ctr;`");
         return error_expr();
     }
 
@@ -3877,7 +3877,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
 
 // Hermes map comprehension:  @{kexpr: vexpr for x in iter (if guard)?}
 // v1: string keys only (`str`); values must be AnyVal.
-// Requires `use hermes.ctr;` in scope.
+// Requires `use std.hermes.ctr;` in scope.
 lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
@@ -3908,7 +3908,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     {
         auto [hpkg, hsi] = find_struct_by_name("Hermes");
         if (!hsi) {
-            error("hermes map comprehension requires `use hermes.ctr;`");
+            error("hermes map comprehension requires `use std.hermes.ctr;`");
             return error_expr();
         }
     }
@@ -3920,7 +3920,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     for (auto* fi : new_cands) if (fi->param_types.size() == 2) { new_fi = fi; break; }
     for (auto* fi : put_cands) if (fi->param_types.size() == 3) { put_fi = fi; break; }
     if (!new_fi || !put_fi) {
-        error("hermes map comprehension requires `use hermes.ctr;`");
+        error("hermes map comprehension requires `use std.hermes.ctr;`");
         return error_expr();
     }
 
@@ -4094,7 +4094,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
         if (c->param_types.size() == want_arity) { fi = c; break; }
     }
     if (!fi) {
-        error(std::format("{}: {} not found; `use hermes.ctr;`",
+        error(std::format("{}: {} not found; `use std.hermes.ctr;`",
                           context, helper));
         return error_expr();
     }
@@ -5280,7 +5280,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         if (!datatypes_.count(kit->second.struct_name) &&
             !type_aliases_.count(kit->second.struct_name)) {
             error(std::format(
-                "typed array @<{}>[...] requires '{}' in scope — add 'use hermes.array;'",
+                "typed array @<{}>[...] requires '{}' in scope — add 'use std.hermes.array;'",
                 type_name, kit->second.struct_name));
             return nullptr;
         }
@@ -5359,7 +5359,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                               || struct_specs_sema_.count("Map$G2$K$AnyVal") != 0;
             if (!map_available) {
                 error(std::format(
-                    "typed map @<{}>{{...}} requires 'use hermes.map;'",
+                    "typed map @<{}>{{...}} requires 'use std.hermes.map;'",
                     key_type));
                 return nullptr;
             }

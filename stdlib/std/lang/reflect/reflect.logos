@@ -17,9 +17,9 @@
 
 package std.lang.reflect;
 
-use hermes.view;
-use hermes.anyval;
-use hermes.string;
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
 use std.lang.text;
 
 // ── TypeInfo ─────────────────────────────────────────────────────────────────

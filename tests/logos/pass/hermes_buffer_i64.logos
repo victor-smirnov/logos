@@ -3,7 +3,7 @@ package hermes_buffer_i64;
 // rely on Drop to release the heap buffer at end of scope.
 
 use logos.lang.datatypes;
-use hermes.scalar;
+use std.hermes.scalar;
 
 unsafe fn main() -> i32 {
     let mut b: Buffer<I64> = Buffer::<I64>::new();

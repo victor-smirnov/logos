@@ -1,6 +1,6 @@
 // Fail: capture a non-capturable type (struct with no coercion).
 package hermes_capture_bad_type;
-use hermes.ctr;
+use std.hermes.ctr;
 
 pub struct Point {
     x: i32,

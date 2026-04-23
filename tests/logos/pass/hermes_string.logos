@@ -1,8 +1,8 @@
 package hermes_string;
 // Phase 10: HermesString — vlen encoding and UTF-8 string anchored in a zone.
 
-use hermes.zone;
-use hermes.string;
+use std.hermes.zone;
+use std.hermes.string;
 
 unsafe fn main() -> i32 {
     let mut zone: HermesZone = HermesZone::create(4096);

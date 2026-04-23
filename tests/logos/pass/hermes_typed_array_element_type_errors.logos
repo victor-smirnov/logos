@@ -1,7 +1,7 @@
 // Typed array element typing errors for <I32>[...].
 package hermes_typed_array_element_type_errors;
 
-use hermes.ctr;
+use std.hermes.ctr;
 
 unsafe fn main() -> i32 {
     // String element is not i32-compatible.

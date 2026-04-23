@@ -1,7 +1,7 @@
 // Hermes capture: scalar values captured from variables into @-literals.
 package hermes_capture_scalar;
-use hermes.ctr;
-use hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.anyval;
 
 unsafe fn main() -> i32 {
     let id: i32 = 42;

@@ -4,17 +4,17 @@
 // HermesClone (via CloneElem), HermesRelease.
 package array_i32_polymorphic;
 
-use hermes.zone;
-use hermes.anyval;
-use hermes.array;
-use hermes.map;
-use hermes.typed_value;
-use hermes.relptr;
-use hermes.stringify;
-use hermes.equal;
-use hermes.hashing;
-use hermes.clone;
-use hermes.release;
+use std.hermes.zone;
+use std.hermes.anyval;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.relptr;
+use std.hermes.stringify;
+use std.hermes.equal;
+use std.hermes.hashing;
+use std.hermes.clone;
+use std.hermes.release;
 use std.lang.text;
 
 unsafe fn main() -> i32 {

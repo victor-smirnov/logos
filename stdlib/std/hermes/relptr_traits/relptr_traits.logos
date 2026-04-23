@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+// Logos Hermes stdlib — hermes.relptr_traits
+//
+// Generic trait impls for `RelPtr<T>`: resolve-and-delegate.  Makes
+// `Array<RelPtr<HermesString>>` and similar pointer-indirect containers
+// work with the standard Hermes traits via static dispatch on T.
+
+package std.hermes.relptr_traits;
+
+use std.hermes.relptr;
+use std.hermes.stringify;
+use std.hermes.equal;
+use std.hermes.hashing;
+use std.hermes.clone;
+use std.hermes.release;
+use std.lang.text;
+
+impl<T: HermesStringify> HermesStringify for RelPtr<T> {
+    pub fn stringify(&self, ctx: *mut StringifyCtx) {
+        unsafe {
+            let rp: *const RelPtr<T> = self as *const RelPtr<T>;
+            let target: *const T = rp.resolve(ctx.base);
+            target.stringify(ctx);
+        }
+    }
+}
+
+// RelPtr-as-element never carries a presentational tag — the pointed-to
+// type emits its own if relevant.  Needed so `Array<RelPtr<T>>` satisfies
+// the Array<T> stringify blanket.
+impl<T: HermesStringify> ArrayElemTag for RelPtr<T> {
+    unsafe fn emit_tag(self: *const RelPtr<T>, _out: *mut String) {}
+}
+
+impl<T: HermesEqual> HermesEqual for RelPtr<T> {
+    pub fn equal(&self, other: *const u8, ctx: *mut EqualCtx) -> bool {
+        unsafe {
+            let ra: *const RelPtr<T> = self as *const RelPtr<T>;
+            let rb: *const RelPtr<T> = other as *const RelPtr<T>;
+            let ta: *const T = ra.resolve(ctx.base_self);
+            let tb: *const T = rb.resolve(ctx.base_other);
+            return ta.equal(tb as *const u8, ctx);
+        }
+    }
+}
+
+impl<T: HermesHash> HermesHash for RelPtr<T> {
+    pub fn hash_value(&self, ctx: *mut HashCtx) -> u64 {
+        unsafe {
+            let rp: *const RelPtr<T> = self as *const RelPtr<T>;
+            let target: *const T = rp.resolve(ctx.base);
+            return target.hash_value(ctx);
+        }
+    }
+}
+
+// CloneElem: clone the pointee into ctx.zone_dst via HermesClone and
+// store the new offset in the dst slot.  dst_off is a zone-relative byte
+// offset into ctx.zone_dst; we recompute the raw pointer after clone_to
+// because the zone may have grown (and thus relocated) during the clone.
+impl<T: HermesClone> CloneElem for RelPtr<T> {
+    pub unsafe fn clone_elem(self: *const RelPtr<T>, ctx: *mut CloneCtx, dst_off: u32) {
+        let target: *const T = self.resolve(ctx.base_src);
+        let new_raw: *mut u8 = target.clone_to(ctx);
+        // Recompute dst after possible zone grow inside clone_to.
+        let cur_base: *mut u8 = ctx.zone_dst.holder.base;
+        let dst: *mut RelPtr<T> = cur_base.byte_add(dst_off as i64) as *mut RelPtr<T>;
+        dst.offset = new_raw.byte_offset_from(cur_base) as u32;
+    }
+}
+
+impl<T: HermesRelease> HermesRelease for RelPtr<T> { pub fn release(&self) {} }
+
+// HermesClone for RelPtr<T> exists only to satisfy the `T: HermesClone` bound
+// when RelPtr<T> appears as the element type of another generic container
+// (e.g. `Array<RelPtr<T>>` needs `RelPtr<T>: HermesClone` on the blanket).
+// It is never invoked via tag-dispatch: RelPtr<T> is an inline field, never
+// a tagged zone allocation, so anyval_clone never dispatches to it.  The
+// actual element copy for RelPtr-typed containers goes through CloneElem
+// (above).  Return null to make accidental dispatch explicit.
+impl<T: HermesClone> HermesClone for RelPtr<T> {
+    pub fn clone_to(&self, ctx: *mut CloneCtx) -> *mut u8 {
+        return 0 as *mut u8;
+    }
+}

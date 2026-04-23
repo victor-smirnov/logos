@@ -3,9 +3,9 @@
 
 package hermes_match_scalar;
 
-use hermes.anyval;
-use hermes.ctr;
-use hermes.view;
+use std.hermes.anyval;
+use std.hermes.ctr;
+use std.hermes.view;
 
 unsafe fn mk(v: AnyVal) -> Hermes {
     let mut c: Hermes = Hermes::builder(128 as i64);
