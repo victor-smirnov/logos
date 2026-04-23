@@ -1,0 +1,40 @@
+// Cover if let / while let desugaring to match.
+
+package test;
+
+use std.lang.option;
+
+fn get(ok: bool) -> Option<i32> {
+    if ok { return Option::Some(100); }
+    return Option::None;
+}
+
+fn next(n: i32) -> Option<i32> {
+    if n > 0 { return Option::Some(n); }
+    return Option::None;
+}
+
+fn main() -> i32 {
+    let mut sum: i32 = 0;
+
+    if let Option::Some(v) = get(true) {
+        sum = sum + v;      // +100
+    } else {
+        return 1;
+    }
+
+    if let Option::Some(v) = get(false) {
+        return 2;
+    } else {
+        sum = sum - 58;     // 42
+    }
+
+    let mut n: i32 = 3;
+    while let Option::Some(v) = next(n) {
+        sum = sum + v;      // +3, +2, +1
+        n = n - 1;
+    }
+    // sum = 100 - 58 + 3 + 2 + 1 = 48
+
+    return sum - 6;         // 42
+}

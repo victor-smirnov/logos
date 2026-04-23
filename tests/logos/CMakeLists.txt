@@ -155,7 +155,7 @@ endfunction()
 function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_STDLIB_USERS
         format_basic format_types variadic_format
-        hello stdlib_demo option_chain try_option mem_take_basic string_basic std_hash_basic std_cmp_basic annotation_has_get
+        hello stdlib_demo option_chain try_option mem_take_basic if_while_let string_basic std_hash_basic std_cmp_basic annotation_has_get
         std_hashmap_basic std_hashmap_full std_hashmap_iter std_hashmap_multi_k
         iter_basic
         iter_adapters
