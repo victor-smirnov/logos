@@ -175,3 +175,14 @@ void logos_io_uring_prep_poll_multishot(struct io_uring_sqe *sqe, int fd, int ma
 {
     io_uring_prep_poll_multishot(sqe, fd, (unsigned)mask);
 }
+
+// Prepare a timeout SQE.  `ts` points to a struct __kernel_timespec
+// (two int64_t fields: tv_sec, tv_nsec).  With count=0 and flags=0 the
+// timer fires once after the relative interval elapses; the CQE result
+// is -ETIME on expiry.  The timespec must remain valid until the CQE
+// is posted — callers typically hold it on a parked fiber's stack.
+void logos_io_uring_prep_timeout(struct io_uring_sqe *sqe,
+                                  void *ts, unsigned count, unsigned flags)
+{
+    io_uring_prep_timeout(sqe, (struct __kernel_timespec *)ts, count, flags);
+}

@@ -160,6 +160,49 @@ pub unsafe fn reactor_run(s: *mut Scheduler, r: *mut Reactor) {
     }
 }
 
+// ── Sleep ────────────────────────────────────────────────────────────────
+//
+// fiber_sleep_ms / fiber_sleep_ns park the current fiber until a relative
+// timer elapses, using IORING_OP_TIMEOUT.  The kernel posts a CQE with
+// res=-ETIME (-62); we normalise that to 0 for success.  Returns a
+// negative errno on failure (no reactor, full SQ, etc.).
+
+struct KernelTimespec {
+    tv_sec:  i64,
+    tv_nsec: i64,
+}
+
+extern fn logos_io_uring_prep_timeout(sqe: *mut u8, ts: *const u8,
+                                       count: i32, flags: i32);
+
+// Sleep the current fiber for `ns` nanoseconds.  Must be called from a
+// fiber on a thread with a reactor installed.
+pub fn fiber_sleep_ns(ns: i64) -> i32 {
+    let r: *mut Reactor = reactor_current();
+    if r == 0 as *mut Reactor { return 0 - 22; }
+    if ns < 0 as i64 { return 0 - 22; }
+    let ts: KernelTimespec = KernelTimespec {
+        tv_sec:  ns / 1000000000 as i64,
+        tv_nsec: ns % 1000000000 as i64,
+    };
+    unsafe {
+        let sqe: *mut u8 = reactor_get_sqe(r);
+        if sqe == 0 as *mut u8 { return 0 - 12; }
+        logos_io_uring_prep_timeout(sqe, &ts as *const KernelTimespec as *const u8,
+                                     0, 0);
+        let res: i32 = reactor_submit_and_park(r, sqe);
+        // -ETIME on normal expiry.
+        if res == 0 - 62 { return 0; }
+        return res;
+    }
+}
+
+// Sleep the current fiber for `ms` milliseconds.
+pub fn fiber_sleep_ms(ms: i64) -> i32 {
+    if ms < 0 as i64 { return 0 - 22; }
+    return fiber_sleep_ns(ms * 1000000 as i64);
+}
+
 // Hand a single CQE to its waiting fiber: write the result into the
 // fiber's FLS[0] and enqueue it back onto the scheduler's run queue.
 unsafe fn reactor_dispatch_cqe(r: *mut Reactor, cqe: *mut u8) {

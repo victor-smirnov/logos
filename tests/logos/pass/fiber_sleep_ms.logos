@@ -1,0 +1,42 @@
+// Exercises fiber_sleep_ms: a fiber sleeps briefly, then bumps a counter.
+// Verifies the IORING_OP_TIMEOUT path parks and resumes the fiber with res=0.
+
+package fiber_sleep_ms;
+
+use std.sys.fiber;
+
+fn sleeper(arg: i64) {
+    let res: i32 = fiber_sleep_ms(1 as i64);
+    if res != 0 { return; }
+    let p: *mut i32 = arg as *mut i32;
+    unsafe {
+        let v: i32 = *p;
+        *p = v + 1;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+
+    let r: *mut Reactor = reactor_new(32);
+    if r == 0 as *mut Reactor { return 1; }
+    reactor_set_current(r);
+
+    let counter: i32 = 0;
+    let cptr: i64 = &counter as *const i32 as i64;
+
+    let mut i: i32 = 0;
+    while i < 5 {
+        spawn(sleeper, cptr);
+        i = i + 1;
+    }
+
+    reactor_run(s, r);
+
+    reactor_free(r);
+    sched_free(s);
+
+    if counter != 5 { return 2; }
+    return 42;
+}
