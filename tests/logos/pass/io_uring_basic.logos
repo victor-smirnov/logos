@@ -6,7 +6,7 @@ use std.mem;
 use std.result;
 
 fn main() -> i32 {
-    let mut ring: IoRing = match io_ring_new(8) {
+    let mut ring: IoRing = match IoRing::new(8) {
         Result::Ok(r)  => { r }
         Result::Err(_) => { return 1; }
     };
@@ -22,52 +22,48 @@ fn main() -> i32 {
     ];
 
     // Open (create + truncate) — O_RDWR|O_CREAT|O_TRUNC = 578, mode 0o666 = 438
-    let fd: i32 = match io_ring_openat(&mut ring, AT_FDCWD(), &path[0], 578, 438) {
+    let fd: i32 = match (&mut ring).openat(AT_FDCWD(), &path[0], 578, 438) {
         Result::Ok(v)  => { v }
-        Result::Err(_) => { io_ring_free(&mut ring); return 2; }
+        Result::Err(_) => { return 2; }
     };
 
     // Write "Hello\n" (6 bytes)
     let mut wbuf: [u8; 8] = [72, 101, 108, 108, 111, 10, 0, 0];
-    let nw: i32 = match io_ring_write(&mut ring, fd, &wbuf[0], 6, 0 as i64) {
+    let nw: i64 = match (&mut ring).write(fd, &wbuf[0], 6 as i64, 0 as i64) {
         Result::Ok(v)  => { v }
-        Result::Err(_) => { let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 3; }
+        Result::Err(_) => { let _: Result<(), IoUringError> = (&mut ring).close(fd); return 3; }
     };
-    if nw != 6 {
-        let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd);
-        io_ring_free(&mut ring);
+    if nw != 6 as i64 {
+        let _: Result<(), IoUringError> = (&mut ring).close(fd);
         return 3;
     }
 
     // Read back from offset 0
     let mut rbuf: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
-    let nr: i32 = match io_ring_read(&mut ring, fd, &mut rbuf[0], 6, 0 as i64) {
+    let nr: i64 = match (&mut ring).read(fd, &mut rbuf[0], 6 as i64, 0 as i64) {
         Result::Ok(v)  => { v }
-        Result::Err(_) => { let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 4; }
+        Result::Err(_) => { let _: Result<(), IoUringError> = (&mut ring).close(fd); return 4; }
     };
-    if nr != 6 {
-        let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd);
-        io_ring_free(&mut ring);
+    if nr != 6 as i64 {
+        let _: Result<(), IoUringError> = (&mut ring).close(fd);
         return 4;
     }
 
     // Verify: 'H'=72, 'o'=111
     if rbuf[0] != 72 {
-        let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd);
-        io_ring_free(&mut ring);
+        let _: Result<(), IoUringError> = (&mut ring).close(fd);
         return 5;
     }
     if rbuf[4] != 111 {
-        let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd);
-        io_ring_free(&mut ring);
+        let _: Result<(), IoUringError> = (&mut ring).close(fd);
         return 6;
     }
 
-    match io_ring_close(&mut ring, fd) {
-        Result::Ok(_)  => { }
-        Result::Err(_) => { io_ring_free(&mut ring); return 7; }
+    match (&mut ring).close(fd) {
+        Result::Ok(())  => { }
+        Result::Err(_)  => { return 7; }
     }
 
-    io_ring_free(&mut ring);
+    // ring drops here → io_uring_queue_exit + dealloc.
     return 42;
 }
