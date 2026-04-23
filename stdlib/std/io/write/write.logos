@@ -15,6 +15,18 @@ pub trait Write {
     fn flush(self: &mut Self) -> i64;
 }
 
+// Memory layout matches `struct iovec` on Linux (ptr, len) so an
+// array of these can be passed directly to writev(2)/readv(2) and the
+// io_uring writev/readv ops.
+pub struct IoSlice {
+    pub base: *const u8,
+    pub len:  i64,
+}
+
+pub fn io_slice(ptr: *const u8, len: i64) -> IoSlice {
+    return IoSlice { base: ptr, len: len };
+}
+
 // Write all `len` bytes from `buf`, looping over partial writes.
 // Returns 0 on success, negative errno on error.
 pub fn write_all<W: Write>(w: &mut W, buf: *const u8, len: i64) -> i64 {

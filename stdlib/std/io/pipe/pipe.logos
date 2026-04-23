@@ -7,11 +7,13 @@
 package std.io.pipe;
 
 use std.io.read;
-use std.io.write;
+use std.io.write;  // Write trait, IoSlice
 
 extern fn pipe2(fds: *mut i32, flags: i32) -> i32;
 extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+extern fn writev(fd: i32, iov: *const u8, iovcnt: i32) -> i64;
+extern fn readv(fd: i32, iov: *mut u8, iovcnt: i32) -> i64;
 extern fn close(fd: i32) -> i32;
 
 // ── Pipe ──────────────────────────────────────────────────────────────────
@@ -71,6 +73,19 @@ impl Pipe {
     pub fn close(self: &mut Pipe) {
         self.close_read();
         self.close_write();
+    }
+
+    // Vectored write to the pipe's write-end.  Returns total bytes written
+    // (>=0) or negative errno.  IoSlice layout matches struct iovec.
+    pub fn write_vectored(self: &mut Pipe,
+                          iovs: *const IoSlice, nvecs: i32) -> i64 {
+        unsafe { return writev(self.write_fd, iovs as *const u8, nvecs); }
+    }
+
+    // Vectored read from the pipe's read-end.
+    pub fn read_vectored(self: &mut Pipe,
+                         iovs: *mut IoSlice, nvecs: i32) -> i64 {
+        unsafe { return readv(self.read_fd, iovs as *mut u8, nvecs); }
     }
 }
 

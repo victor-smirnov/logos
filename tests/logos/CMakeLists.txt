@@ -126,7 +126,7 @@ set(LOGOS_INTEGRATION_TESTS
     atomic_basic mutex_basic
     box_basic rc_basic arc_basic
     io_uring_basic
-    fs_basic env_basic io_print_basic panic_basic pipe_basic io_read_write_trait
+    fs_basic env_basic io_print_basic panic_basic pipe_basic io_read_write_trait io_writev_basic
     path_basic process_basic net_basic
     math_basic random_basic thread_basic bufio_basic
     signal_basic os_basic
@@ -174,7 +174,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     utf8_basic
     time_basic
     io_uring_basic
-    fs_basic env_basic io_print_basic panic_basic pipe_basic io_read_write_trait
+    fs_basic env_basic io_print_basic panic_basic pipe_basic io_read_write_trait io_writev_basic
     path_basic process_basic net_basic
     math_basic random_basic thread_basic bufio_basic
     signal_basic os_basic

@@ -176,6 +176,26 @@ void logos_io_uring_prep_poll_multishot(struct io_uring_sqe *sqe, int fd, int ma
     io_uring_prep_poll_multishot(sqe, fd, (unsigned)mask);
 }
 
+// Prepare a writev SQE.  `iovecs` points to an array of struct iovec
+// (two fields: iov_base, iov_len).  The array must remain valid until
+// the CQE is posted — the parked fiber's stack is the natural holder.
+void logos_io_uring_prep_writev(struct io_uring_sqe *sqe, int fd,
+                                 const void *iovecs, unsigned nr_vecs,
+                                 long long offset)
+{
+    io_uring_prep_writev(sqe, fd, (const struct iovec *)iovecs,
+                         nr_vecs, (__u64)offset);
+}
+
+// Prepare a readv SQE (companion to writev above).
+void logos_io_uring_prep_readv(struct io_uring_sqe *sqe, int fd,
+                                void *iovecs, unsigned nr_vecs,
+                                long long offset)
+{
+    io_uring_prep_readv(sqe, fd, (struct iovec *)iovecs,
+                        nr_vecs, (__u64)offset);
+}
+
 // Prepare a timeout SQE.  `ts` points to a struct __kernel_timespec
 // (two int64_t fields: tv_sec, tv_nsec).  With count=0 and flags=0 the
 // timer fires once after the relative interval elapses; the CQE result
