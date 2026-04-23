@@ -1,0 +1,26 @@
+// Tests std.testing: the framework itself.  Use it to run a small test
+// suite where every assertion passes; report summary and expect 0 failures.
+package test;
+
+use std.testing;
+
+fn main() -> i32 {
+    let mut t: TestCtx = TestCtx::new();
+
+    t.begin("arithmetic");
+    t.assert_eq_i64(2 as i64 + 2 as i64, 4 as i64);
+    t.assert_eq_i32(3 * 5, 15);
+
+    t.begin("booleans");
+    t.assert_true(true);
+    t.assert_false(false);
+
+    t.begin("strings");
+    t.assert_eq_str("hello", "hello");
+
+    if t.passed() != 5 { return 1; }
+    if t.failed() != 0 { return 2; }
+    if t.summary() != 0 { return 3; }
+
+    return 42;
+}

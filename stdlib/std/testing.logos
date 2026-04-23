@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.testing
+//
+// Minimal in-process unit-test framework.  Tests accumulate pass/fail
+// counts in a TestCtx; each failing assertion prints a diagnostic to
+// stderr.  Call `ctx.summary()` at the end of main to get an exit code
+// (0 on success, 1 on any failure).
+
+package std.testing;
+
+use std.string;
+
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+unsafe fn emit(msg: str) {
+    let mut off: i64 = 0 as i64;
+    while off < msg.len() {
+        let w: i64 = write(2 as i32,
+                           (msg.as_ptr() as i64 + off) as *const u8,
+                           msg.len() - off);
+        if w <= 0 as i64 { return; }
+        off = off + w;
+    }
+}
+
+unsafe fn emit_bytes(p: *const u8, n: i64) {
+    let mut off: i64 = 0 as i64;
+    while off < n {
+        let w: i64 = write(2 as i32, (p as i64 + off) as *const u8, n - off);
+        if w <= 0 as i64 { return; }
+        off = off + w;
+    }
+}
+
+pub struct TestCtx {
+    passed: i32,
+    failed: i32,
+    current: String,
+}
+
+impl TestCtx {
+    pub static fn new() -> TestCtx {
+        return TestCtx { passed: 0, failed: 0, current: String::new() };
+    }
+
+    pub fn passed(&self) -> i32 { return self.passed; }
+    pub fn failed(&self) -> i32 { return self.failed; }
+
+    // Start a named test case.  The name is included in failure messages
+    // until the next `begin` call.
+    pub fn begin(&mut self, name: str) {
+        self.current.clear();
+        self.current.push_str(name);
+    }
+
+    fn record_pass(&mut self) {
+        self.passed = self.passed + 1;
+    }
+
+    fn record_fail(&mut self, kind: str, detail: str) {
+        self.failed = self.failed + 1;
+        let mut buf: String = String::new();
+        buf.push_str("FAIL");
+        if self.current.len() > 0 as i64 {
+            buf.push_u8(32 as u8);            // ' '
+            buf.push_u8(91 as u8);            // '['
+            unsafe { buf.push_bytes(self.current.as_ptr(), self.current.len()); }
+            buf.push_u8(93 as u8);            // ']'
+        }
+        buf.push_u8(32 as u8);
+        buf.push_str(kind);
+        if detail.len() > 0 as i64 {
+            buf.push_u8(58 as u8);            // ':'
+            buf.push_u8(32 as u8);
+            buf.push_str(detail);
+        }
+        buf.push_u8(10 as u8);
+        unsafe { emit_bytes(buf.as_ptr(), buf.len()); }
+    }
+
+    pub fn assert_true(&mut self, cond: bool) {
+        if cond { self.record_pass(); return; }
+        self.record_fail("assert_true", "expected true");
+    }
+
+    pub fn assert_false(&mut self, cond: bool) {
+        if !cond { self.record_pass(); return; }
+        self.record_fail("assert_false", "expected false");
+    }
+
+    pub fn assert_eq_i64(&mut self, actual: i64, expected: i64) {
+        if actual == expected { self.record_pass(); return; }
+        let mut d: String = String::new();
+        d.push_str("actual=");
+        d.push_i64(actual);
+        d.push_str(" expected=");
+        d.push_i64(expected);
+        unsafe {
+            let ds: str = str_from_raw(d.as_ptr(), d.len());
+            self.record_fail("assert_eq_i64", ds);
+        }
+    }
+
+    pub fn assert_eq_i32(&mut self, actual: i32, expected: i32) {
+        self.assert_eq_i64(actual as i64, expected as i64);
+    }
+
+    pub fn assert_eq_str(&mut self, actual: str, expected: str) {
+        if actual.len() != expected.len() {
+            self.record_fail("assert_eq_str", "length mismatch");
+            return;
+        }
+        let n: i64 = actual.len();
+        let mut i: i64 = 0 as i64;
+        unsafe {
+            while i < n {
+                if actual.as_ptr()[i] != expected.as_ptr()[i] {
+                    self.record_fail("assert_eq_str", "byte mismatch");
+                    return;
+                }
+                i = i + 1 as i64;
+            }
+        }
+        self.record_pass();
+    }
+
+    pub fn fail(&mut self, reason: str) {
+        self.record_fail("fail", reason);
+    }
+
+    // Print summary and return exit code (0 on success, 1 on any failure).
+    pub fn summary(&self) -> i32 {
+        let mut buf: String = String::new();
+        buf.push_str("tests: ");
+        buf.push_i64(self.passed as i64);
+        buf.push_str(" passed, ");
+        buf.push_i64(self.failed as i64);
+        buf.push_str(" failed\n");
+        unsafe { emit_bytes(buf.as_ptr(), buf.len()); }
+        if self.failed > 0 { return 1; }
+        return 0;
+    }
+}
