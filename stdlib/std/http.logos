@@ -835,7 +835,7 @@ pub fn http_send(host_ip: u32, port: u16, req: &Request) -> Option<Response> {
     let mut buf: Vec<u8> = vec_new::<u8>();
     serialize_request(req, &mut buf);
 
-    let mut s: TcpStream = tcp_connect(host_ip, port);
+    let mut s: TcpStream = async_tcp_connect(host_ip, port);
     if !(&s).is_valid() { return Option::None; }
 
     unsafe {
@@ -843,7 +843,7 @@ pub fn http_send(host_ip: u32, port: u16, req: &Request) -> Option<Response> {
         let blen: i64 = bp.length();
         let mut off: i64 = 0;
         while off < blen {
-            let nw: i64 = (&s).send(bp.at_const(off) as *const u8, blen - off);
+            let nw: i64 = (&s).async_send(bp.at_const(off) as *const u8, blen - off);
             if nw <= 0 { s.close(); return Option::None; }
             off = off + nw;
         }
@@ -853,7 +853,7 @@ pub fn http_send(host_ip: u32, port: u16, req: &Request) -> Option<Response> {
     let mut rx: Vec<u8> = vec_new::<u8>();
     let mut chunk: [u8; 4096] = [0 as u8; 4096];
     loop {
-        let n: i64 = (&s).recv(&mut chunk[0 as i64], 4096 as i64);
+        let n: i64 = (&s).async_recv(&mut chunk[0 as i64], 4096 as i64);
         if n < 0 { s.close(); return Option::None; }
         if n == 0 { break; }
         let mut k: i64 = 0;
@@ -936,7 +936,7 @@ pub unsafe fn read_request_message(s: &TcpStream, buf: *mut Vec<u8>) -> i64 {
     let mut hdr_end: i64 = 0 - 1;
     let mut want: i64 = 0 - 1;                           // -1 = unknown yet
     loop {
-        let n: i64 = s.recv(&mut chunk[0 as i64], 2048 as i64);
+        let n: i64 = s.async_recv(&mut chunk[0 as i64], 2048 as i64);
         if n < 0 { return 0 - 1; }
         if n == 0 { break; }
         let mut k: i64 = 0;
@@ -1015,7 +1015,7 @@ pub fn serve_n(port: u16, count: i64, handler: fn(&Request) -> Response) -> i32 
 
     let mut served: i64 = 0;
     while served < count {
-        let mut s: TcpStream = (&listener).accept();
+        let mut s: TcpStream = (&listener).async_accept();
         if !(&s).is_valid() {
             listener.close();
             return 0 - 2;
@@ -1035,7 +1035,7 @@ pub fn serve_n(port: u16, count: i64, handler: fn(&Request) -> Response) -> i32 
                     let tlen: i64 = tp.length();
                     let mut off: i64 = 0;
                     while off < tlen {
-                        let nw: i64 = (&s).send(tp.at_const(off) as *const u8,
+                        let nw: i64 = (&s).async_send(tp.at_const(off) as *const u8,
                                                  tlen - off);
                         if nw <= 0 { off = tlen; }
                         else        { off = off + nw; }
