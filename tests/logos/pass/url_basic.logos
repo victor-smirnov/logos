@@ -1,0 +1,83 @@
+// Tests std.url: percent-encode/decode, form-urlencoded variant.
+package test;
+
+use std.url;
+use std.string;
+
+fn main() -> i32 {
+    // Unreserved pass through.
+    unsafe {
+        let mut out: String = String::new();
+        url_encode_component_str("Foo-bar_9.~", &mut out);
+        if !out.eq_str("Foo-bar_9.~") { return 1; }
+    }
+    // Space and reserved chars encode as %XX (upper hex).
+    unsafe {
+        let mut out: String = String::new();
+        url_encode_component_str("a b/c?", &mut out);
+        if !out.eq_str("a%20b%2Fc%3F") { return 2; }
+    }
+    // Form variant: space → '+'.
+    unsafe {
+        let mut out: String = String::new();
+        url_encode_query_form_str("a b c", &mut out);
+        if !out.eq_str("a+b+c") { return 3; }
+    }
+
+    // Decode %XX.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = url_decode_str("a%20b%2Fc%3F", &mut out);
+        if n != 6 as i64 { return 4; }
+        if !out.eq_str("a b/c?") { return 5; }
+    }
+    // Decode form: '+' → ' '.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = url_decode_form_str("a+b+c", &mut out);
+        if n != 5 as i64 { return 6; }
+        if !out.eq_str("a b c") { return 7; }
+    }
+    // Decode form: '+' stays literal in non-form decode.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = url_decode_str("a+b", &mut out);
+        if n != 3 as i64 { return 8; }
+        if !out.eq_str("a+b") { return 9; }
+    }
+
+    // Malformed: stray '%'.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = url_decode_str("a%", &mut out);
+        if n != 0 - 1 as i64 { return 10; }
+    }
+    // Malformed: non-hex digit after %.
+    unsafe {
+        let mut out: String = String::new();
+        let n: i64 = url_decode_str("a%zz", &mut out);
+        if n != 0 - 1 as i64 { return 11; }
+    }
+
+    // Round-trip all printable ASCII.
+    unsafe {
+        let mut src: String = String::new();
+        let mut i: i32 = 32;
+        while i < 127 {
+            src.push_u8(i as u8);
+            i = i + 1;
+        }
+        let mut enc: String = String::new();
+        url_encode_component(src.as_ptr(), src.len(), &mut enc);
+        let mut back: String = String::new();
+        let n: i64 = url_decode(enc.as_ptr(), enc.len(), &mut back, false);
+        if n != src.len() { return 12; }
+        let mut j: i64 = 0 as i64;
+        while j < src.len() {
+            if back.as_ptr()[j] != src.as_ptr()[j] { return 13; }
+            j = j + 1 as i64;
+        }
+    }
+
+    return 42;
+}
