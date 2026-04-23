@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.pipe
+//
+// Unix pipe: create a connected read/write fd pair.
+// Uses synchronous read(2)/write(2) — same style as std.io.
+
+package std.pipe;
+
+extern fn pipe2(fds: *mut i32, flags: i32) -> i32;
+extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+extern fn close(fd: i32) -> i32;
+
+// ── Pipe ──────────────────────────────────────────────────────────────────
+
+pub struct Pipe {
+    read_fd:  i32,
+    write_fd: i32,
+}
+
+// Create a pipe. Returns Pipe with both ends open, or Pipe{-1,-1} on error.
+pub fn pipe_new() -> Pipe {
+    unsafe {
+        let mut fds: [i32; 2] = [0, 0];
+        let rc: i32 = pipe2(&mut fds[0], 0);
+        if rc < 0 {
+            return Pipe { read_fd: 0 - 1, write_fd: 0 - 1 };
+        }
+        return Pipe { read_fd: fds[0], write_fd: fds[1] };
+    }
+}
+
+pub fn pipe_new_nonblock() -> Pipe {
+    unsafe {
+        let mut fds: [i32; 2] = [0, 0];
+        // O_NONBLOCK = 0x800 on Linux
+        let rc: i32 = pipe2(&mut fds[0], 2048);
+        if rc < 0 {
+            return Pipe { read_fd: 0 - 1, write_fd: 0 - 1 };
+        }
+        return Pipe { read_fd: fds[0], write_fd: fds[1] };
+    }
+}
+
+impl Pipe {
+    pub fn is_valid(self: &Pipe) -> bool {
+        return self.read_fd >= 0 && self.write_fd >= 0;
+    }
+
+    // Read from the read end. Returns bytes read, 0 on EOF, <0 on error.
+    pub fn read(self: &Pipe, buf: *mut u8, len: i64) -> i64 {
+        unsafe { return read(self.read_fd, buf, len); }
+    }
+
+    // Write to the write end. Returns bytes written, <0 on error.
+    pub fn write(self: &Pipe, buf: *const u8, len: i64) -> i64 {
+        unsafe { return write(self.write_fd, buf, len); }
+    }
+
+    pub fn close_read(self: &mut Pipe) {
+        unsafe {
+            if self.read_fd >= 0 {
+                close(self.read_fd);
+                self.read_fd = 0 - 1;
+            }
+        }
+    }
+
+    pub fn close_write(self: &mut Pipe) {
+        unsafe {
+            if self.write_fd >= 0 {
+                close(self.write_fd);
+                self.write_fd = 0 - 1;
+            }
+        }
+    }
+
+    pub fn close(self: &mut Pipe) {
+        self.close_read();
+        self.close_write();
+    }
+}

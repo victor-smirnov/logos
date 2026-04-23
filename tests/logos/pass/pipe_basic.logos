@@ -1,0 +1,29 @@
+// Tests std.pipe: create pipe, write bytes, read them back.
+package test;
+
+use std.pipe;
+
+fn main() -> i32 {
+    let mut p: Pipe = pipe_new();
+    if !p.is_valid() { return 1; }
+
+    // Write "hello" (5 bytes)
+    let msg: str = "hello";
+    unsafe {
+        let nw: i64 = p.write(msg.as_ptr(), 5);
+        if nw != 5 { p.close(); return 2; }
+    }
+
+    // Read back
+    let mut buf: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+    unsafe {
+        let nr: i64 = p.read(&mut buf[0], 8);
+        if nr != 5 { p.close(); return 3; }
+        // h=104 e=101 l=108 l=108 o=111
+        if buf[0] as i32 != 104 { p.close(); return 4; }
+        if buf[4] as i32 != 111 { p.close(); return 5; }
+    }
+
+    p.close();
+    return 42;
+}
