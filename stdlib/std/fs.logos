@@ -24,40 +24,45 @@ impl File {
     }
 
     pub fn read_at(self: &mut File, buf: *mut u8, len: i32, offset: i64) -> i32 {
-        unsafe { return io_ring_read(&mut self.ring, self.fd, buf, len, offset); }
+        match io_ring_read(&mut self.ring, self.fd, buf, len, offset) {
+            Result::Ok(n)  => { return n; }
+            Result::Err(e) => { return io_err_errno(e); }
+        }
     }
 
     pub fn write_at(self: &mut File, buf: *const u8, len: i32, offset: i64) -> i32 {
-        unsafe { return io_ring_write(&mut self.ring, self.fd, buf, len, offset); }
+        match io_ring_write(&mut self.ring, self.fd, buf, len, offset) {
+            Result::Ok(n)  => { return n; }
+            Result::Err(e) => { return io_err_errno(e); }
+        }
     }
 
     pub fn close(self: &mut File) -> i32 {
-        unsafe {
-            if self.fd < 0 { return 0; }
-            let rc: i32 = io_ring_close(&mut self.ring, self.fd);
-            io_ring_free(&mut self.ring);
-            self.fd = 0 - 1;
-            return rc;
-        }
+        if self.fd < 0 { return 0; }
+        let rc: i32 = match io_ring_close(&mut self.ring, self.fd) {
+            Result::Ok(r)  => { r }
+            Result::Err(e) => { io_err_errno(e) }
+        };
+        io_ring_free(&mut self.ring);
+        self.fd = 0 - 1;
+        return rc;
     }
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────
 
-unsafe fn ring_open(path: *const u8, flags: i32, mode: i32) -> File {
-    let mut ring: IoRing = io_ring_new(8);
-    let valid: bool = ring.is_valid();
-    // Compute fd: -ENOMEM if ring init failed, else openat result.
-    let fd: i32 = if valid {
-        io_ring_openat(&mut ring, AT_FDCWD(), path, flags, mode)
-    } else {
-        0 - 12
+fn ring_open(path: *const u8, flags: i32, mode: i32) -> File {
+    let mut ring: IoRing = match io_ring_new(8) {
+        Result::Ok(r)  => { r }
+        Result::Err(_) => { return File { fd: 0 - 12, ring: io_ring_invalid() }; }
+    };
+    let fd: i32 = match io_ring_openat(&mut ring, AT_FDCWD(), path, flags, mode) {
+        Result::Ok(v)  => { v }
+        Result::Err(e) => { io_err_errno(e) }
     };
     if fd >= 0 {
-        // Success: move ring into File.
         return File { fd: fd, ring: ring };
     }
-    // Failure: free ring resources (io_ring_free is a no-op if ring is invalid).
     io_ring_free(&mut ring);
     return File { fd: fd, ring: io_ring_invalid() };
 }
@@ -65,80 +70,74 @@ unsafe fn ring_open(path: *const u8, flags: i32, mode: i32) -> File {
 // Return a closed/invalid File (fd = -1). Useful as a placeholder in
 // match arms where an Ok branch provides the real File.
 pub fn file_invalid() -> File {
-    unsafe { return File { fd: 0 - 1, ring: io_ring_invalid() }; }
+    return File { fd: 0 - 1, ring: io_ring_invalid() };
 }
 
 // ── Open helpers ─────────────────────────────────────────────────────────
 
 pub fn open(path: *const u8) -> Result<File, i32> {
-    unsafe {
-        let f: File = ring_open(path, 0, 0);
-        if f.fd < 0 { return Result::Err(f.fd); }
-        return Result::Ok(f);
-    }
+    let f: File = ring_open(path, 0, 0);
+    if f.fd < 0 { return Result::Err(f.fd); }
+    return Result::Ok(f);
 }
 
 pub fn create(path: *const u8) -> Result<File, i32> {
-    unsafe {
-        let f: File = ring_open(path, 578, 438);  // O_RDWR|O_CREAT|O_TRUNC, 0666
-        if f.fd < 0 { return Result::Err(f.fd); }
-        return Result::Ok(f);
-    }
+    let f: File = ring_open(path, 578, 438);  // O_RDWR|O_CREAT|O_TRUNC, 0666
+    if f.fd < 0 { return Result::Err(f.fd); }
+    return Result::Ok(f);
 }
 
 pub fn open_append(path: *const u8) -> Result<File, i32> {
-    unsafe {
-        let f: File = ring_open(path, 1089, 438); // O_WRONLY|O_CREAT|O_APPEND, 0666
-        if f.fd < 0 { return Result::Err(f.fd); }
-        return Result::Ok(f);
-    }
+    let f: File = ring_open(path, 1089, 438); // O_WRONLY|O_CREAT|O_APPEND, 0666
+    if f.fd < 0 { return Result::Err(f.fd); }
+    return Result::Ok(f);
 }
 
 // ── Convenience: read entire file into a String ───────────────────────────
 
 pub fn read_to_string(path: *const u8) -> Result<String, i32> {
-    unsafe {
-        let mut f: File = ring_open(path, 0, 0);
-        if f.fd < 0 { return Result::Err(f.fd); }
+    let mut f: File = ring_open(path, 0, 0);
+    if f.fd < 0 { return Result::Err(f.fd); }
 
-        let chunk: i32 = 4096;
-        let buf: *mut u8 = alloc(chunk as i64);
-        let mut out: String = String::new();
-        let mut offset: i64 = 0 as i64;
-        let mut err: i32 = 0;
-        let mut going: bool = true;
+    let chunk: i32 = 4096;
+    let buf: *mut u8 = unsafe { alloc(chunk as i64) };
+    let mut out: String = String::new();
+    let mut offset: i64 = 0 as i64;
+    let mut err: i32 = 0;
+    let mut going: bool = true;
 
-        while going {
-            let n: i32 = io_ring_read(&mut f.ring, f.fd, buf, chunk, offset);
-            if n < 0 {
-                err = n;
-                going = false;
-            } else {
-                if n == 0 {
-                    going = false;
-                } else {
-                    out.push_bytes(buf, n as i64);
-                    offset = offset + n as i64;
-                }
-            }
+    while going {
+        let n: i32 = match io_ring_read(&mut f.ring, f.fd, buf, chunk, offset) {
+            Result::Ok(r)  => { r }
+            Result::Err(e) => { io_err_errno(e) }
+        };
+        if n < 0 {
+            err = n;
+            going = false;
+        } else if n == 0 {
+            going = false;
+        } else {
+            unsafe { out.push_bytes(buf, n as i64); }
+            offset = offset + n as i64;
         }
-
-        dealloc(buf);
-        f.close();
-        if err < 0 { return Result::Err(err); }
-        return Result::Ok(out);
     }
+
+    unsafe { dealloc(buf); }
+    f.close();
+    if err < 0 { return Result::Err(err); }
+    return Result::Ok(out);
 }
 
 // ── Convenience: write String to file (overwrite) ────────────────────────
 
 pub fn write_string(path: *const u8, s: &String) -> Result<i32, i32> {
-    unsafe {
-        let mut f: File = ring_open(path, 578, 438);
-        if f.fd < 0 { return Result::Err(f.fd); }
-        let nw: i32 = io_ring_write(&mut f.ring, f.fd, s.as_ptr(), s.len() as i32, 0 as i64);
-        f.close();
-        if nw < 0 { return Result::Err(nw); }
-        return Result::Ok(nw);
-    }
+    let mut f: File = ring_open(path, 578, 438);
+    if f.fd < 0 { return Result::Err(f.fd); }
+    let nw: i32 = match io_ring_write(&mut f.ring, f.fd, s.as_ptr(), s.len() as i32, 0 as i64) {
+        Result::Ok(r)  => { r }
+        Result::Err(e) => { io_err_errno(e) }
+    };
+    f.close();
+    if nw < 0 { return Result::Err(nw); }
+    return Result::Ok(nw);
 }

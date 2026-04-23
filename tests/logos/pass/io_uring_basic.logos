@@ -3,44 +3,71 @@ package test;
 
 use std.io_uring;
 use std.mem;
+use std.result;
 
 fn main() -> i32 {
-    unsafe {
-        let mut ring: IoRing = io_ring_new(8);
-        if !ring.is_valid() { return 1; }
+    let mut ring: IoRing = match io_ring_new(8) {
+        Result::Ok(r)  => { r }
+        Result::Err(_) => { return 1; }
+    };
 
-        // Path: "/tmp/logos_io_ring_test.txt\0" (28 bytes + padding)
-        let mut path: [u8; 31] = [
-            47, 116, 109, 112, 47,           // /tmp/
-            108, 111, 103, 111, 115, 95,     // logos_
-            105, 111, 95, 114, 105, 110,     // io_rin
-            103, 95, 116, 101, 115, 116,     // g_test
-            46, 116, 120, 116, 0,            // .txt\0
-            0, 0, 0                          // padding
-        ];
+    // Path: "/tmp/logos_io_ring_test.txt\0" (28 bytes + padding)
+    let mut path: [u8; 31] = [
+        47, 116, 109, 112, 47,           // /tmp/
+        108, 111, 103, 111, 115, 95,     // logos_
+        105, 111, 95, 114, 105, 110,     // io_rin
+        103, 95, 116, 101, 115, 116,     // g_test
+        46, 116, 120, 116, 0,            // .txt\0
+        0, 0, 0                          // padding
+    ];
 
-        // Open (create + truncate) — O_RDWR|O_CREAT|O_TRUNC = 578, mode 0o666 = 438
-        let fd: i32 = io_ring_openat(&mut ring, AT_FDCWD(), &path[0], 578, 438);
-        if fd < 0 { io_ring_free(&mut ring); return 2; }
+    // Open (create + truncate) — O_RDWR|O_CREAT|O_TRUNC = 578, mode 0o666 = 438
+    let fd: i32 = match io_ring_openat(&mut ring, AT_FDCWD(), &path[0], 578, 438) {
+        Result::Ok(v)  => { v }
+        Result::Err(_) => { io_ring_free(&mut ring); return 2; }
+    };
 
-        // Write "Hello\n" (6 bytes)
-        let mut wbuf: [u8; 8] = [72, 101, 108, 108, 111, 10, 0, 0];
-        let nw: i32 = io_ring_write(&mut ring, fd, &wbuf[0], 6, 0 as i64);
-        if nw != 6 { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 3; }
-
-        // Read back from offset 0
-        let mut rbuf: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
-        let nr: i32 = io_ring_read(&mut ring, fd, &mut rbuf[0], 6, 0 as i64);
-        if nr != 6 { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 4; }
-
-        // Verify: 'H'=72, 'o'=111
-        if rbuf[0] != 72  { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 5; }
-        if rbuf[4] != 111 { io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 6; }
-
-        let rc: i32 = io_ring_close(&mut ring, fd);
-        if rc < 0 { io_ring_free(&mut ring); return 7; }
-
+    // Write "Hello\n" (6 bytes)
+    let mut wbuf: [u8; 8] = [72, 101, 108, 108, 111, 10, 0, 0];
+    let nw: i32 = match io_ring_write(&mut ring, fd, &wbuf[0], 6, 0 as i64) {
+        Result::Ok(v)  => { v }
+        Result::Err(_) => { let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 3; }
+    };
+    if nw != 6 {
+        let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd);
         io_ring_free(&mut ring);
-        return 42;
+        return 3;
     }
+
+    // Read back from offset 0
+    let mut rbuf: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+    let nr: i32 = match io_ring_read(&mut ring, fd, &mut rbuf[0], 6, 0 as i64) {
+        Result::Ok(v)  => { v }
+        Result::Err(_) => { let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd); io_ring_free(&mut ring); return 4; }
+    };
+    if nr != 6 {
+        let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd);
+        io_ring_free(&mut ring);
+        return 4;
+    }
+
+    // Verify: 'H'=72, 'o'=111
+    if rbuf[0] != 72 {
+        let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd);
+        io_ring_free(&mut ring);
+        return 5;
+    }
+    if rbuf[4] != 111 {
+        let _: Result<i32, IoUringError> = io_ring_close(&mut ring, fd);
+        io_ring_free(&mut ring);
+        return 6;
+    }
+
+    match io_ring_close(&mut ring, fd) {
+        Result::Ok(_)  => { }
+        Result::Err(_) => { io_ring_free(&mut ring); return 7; }
+    }
+
+    io_ring_free(&mut ring);
+    return 42;
 }
