@@ -102,6 +102,25 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
             Result::Err(_) => { keep = false; break; }
         };
 
+        // RFC 7231 §5.1.1: if the client signalled Expect: 100-continue we
+        // must acknowledge with an interim 100 response before reading the
+        // body.  Value match is case-insensitive on both the header name
+        // (Headers::get) and the expectation token.
+        match (&req.headers).get("expect") {
+            Option::Some(v) => {
+                let vp: *const u8 = (&v).as_ptr();
+                let vn: i64       = (&v).len();
+                if ascii_ieq(vp, vn, "100-continue".as_ptr(), 12 as i64) {
+                    let reply: str = "HTTP/1.1 100 Continue\r\n\r\n";
+                    let sink: &mut AsyncTcpStream =
+                        buf_reader_inner_mut::<AsyncTcpStream>(&mut br);
+                    let _: i64 = write_all::<AsyncTcpStream>(
+                        sink, reply.as_ptr(), reply.len());
+                }
+            }
+            Option::None => { }
+        }
+
         // Drain the request body so the buffered reader is positioned on the
         // first byte of the next request.
         let bl: i64 = body_length(&req.headers);
