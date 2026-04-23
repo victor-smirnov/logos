@@ -1,0 +1,73 @@
+// serve_bounded — accept loop dispatching through Service trait.
+// Server fiber serves 1 connection via FnService; client fiber does a GET.
+
+package test;
+
+use std.io.http;
+use std.io.net;
+use std.lang.text;
+use std.collections.vec;
+use std.lang.option;
+use std.lang.result;
+use std.sys.fiber;
+
+const TEST_PORT: u16 = 48303 as u16;
+
+fn handler(req: &Request) -> Response {
+    let mut resp: Response = Response::new(200 as i32);
+    (&mut resp.headers).append("Content-Length", "5");
+    (&mut resp.headers).append("Connection", "close");
+    let body: str = "ready";
+    unsafe {
+        let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
+        let mut i: i64 = 0;
+        while i < body.len() { bp.push(body.as_ptr()[i]); i = i + 1; }
+    }
+    return resp;
+}
+
+fn server_fiber(arg: i64) {
+    let mut svc: FnService = fn_service(handler);
+    let _: Result<(), HttpError> =
+        serve_bounded::<FnService>(TEST_PORT, 1 as i64, &mut svc);
+}
+
+fn client_fiber(arg: i64) {
+    let rp: *mut i32 = arg as *mut i32;
+    let ip: u32 = ip4(127 as u32, 0 as u32, 0 as u32, 1 as u32);
+    match http_get_at(ip, TEST_PORT, "localhost", "/") {
+        Result::Ok(resp) => {
+            if resp.status != 200 as i32 { unsafe { *rp = 10; } return; }
+            let expected: str = "ready";
+            unsafe {
+                let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
+                if bp.length() != expected.len() { *rp = 11; return; }
+                let mut i: i64 = 0;
+                while i < expected.len() {
+                    if bp.get(i) != expected.as_ptr()[i] { *rp = 12; return; }
+                    i = i + 1;
+                }
+                *rp = 42;
+            }
+        }
+        Result::Err(_) => { unsafe { *rp = 20; } }
+    }
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+    let r: *mut Reactor = reactor_new(64);
+    if r == 0 as *mut Reactor { return 1; }
+    reactor_set_current(r);
+
+    let mut result: i32 = 0;
+    let rp: i64 = &result as *const i32 as i64;
+    spawn(server_fiber, 0 as i64);
+    spawn(client_fiber, rp);
+    reactor_run(s, r);
+
+    reactor_free(r);
+    sched_free(s);
+    return result;
+}

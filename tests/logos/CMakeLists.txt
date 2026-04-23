@@ -130,7 +130,7 @@ set(LOGOS_INTEGRATION_TESTS
     path_basic process_basic net_basic
     math_basic random_basic thread_basic bufio_basic bufio_generic_reader
     signal_basic os_basic
-    hex_basic base64_basic url_basic url_parse_basic http_types_basic http_parse_basic http_parse_stream http_serialize_stream http_service_basic http_chunked http_chunked_reader http_framing_readers http_roundtrip json_basic log_basic args_basic crypto_basic testing_basic csv_basic datetime_basic regex_basic)
+    hex_basic base64_basic url_basic url_parse_basic http_types_basic http_parse_basic http_parse_stream http_serialize_stream http_service_basic http_serve_bounded http_chunked http_chunked_reader http_framing_readers http_roundtrip json_basic log_basic args_basic crypto_basic testing_basic csv_basic datetime_basic regex_basic)
 
 function(logos_determine_suite MODE BASE OUT_VAR)
     if (BASE IN_LIST LOGOS_SMOKE_TESTS)
@@ -178,7 +178,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     path_basic process_basic net_basic
     math_basic random_basic thread_basic bufio_basic bufio_generic_reader
     signal_basic os_basic
-    hex_basic base64_basic url_basic url_parse_basic http_types_basic http_parse_basic http_parse_stream http_serialize_stream http_service_basic http_chunked http_chunked_reader http_framing_readers http_roundtrip json_basic log_basic args_basic crypto_basic testing_basic csv_basic datetime_basic regex_basic)
+    hex_basic base64_basic url_basic url_parse_basic http_types_basic http_parse_basic http_parse_stream http_serialize_stream http_service_basic http_serve_bounded http_chunked http_chunked_reader http_framing_readers http_roundtrip json_basic log_basic args_basic crypto_basic testing_basic csv_basic datetime_basic regex_basic)
 
     if (BASE IN_LIST LOCAL_STDLIB_USERS)
         set(_extra -I ${STDLIB_BIN_DIR} -L ${STDLIB_BIN_DIR})

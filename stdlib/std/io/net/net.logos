@@ -303,6 +303,39 @@ impl TcpStream {
     }
 }
 
+// ---- AsyncTcpStream --------------------------------------------------------
+// Fiber-aware adapter around TcpStream.  Its Read/Write impls route through
+// async_recv / async_send so calls suspend the current fiber instead of
+// blocking the whole thread.  Use this variant when feeding a TcpStream
+// into a generic reader/writer (BufReader<AsyncTcpStream>, HTTP servers, …)
+// inside a reactor.
+pub struct AsyncTcpStream {
+    pub inner: TcpStream,
+}
+
+pub fn async_tcp_stream(s: TcpStream) -> AsyncTcpStream {
+    return AsyncTcpStream { inner: s };
+}
+
+impl AsyncTcpStream {
+    pub fn is_valid(self: &AsyncTcpStream) -> bool { return self.inner.is_valid(); }
+
+    pub fn close(self: &mut AsyncTcpStream) { self.inner.close(); }
+}
+
+impl Read for AsyncTcpStream {
+    fn read(self: &mut AsyncTcpStream, buf: *mut u8, len: i64) -> i64 {
+        return (&self.inner).async_recv(buf, len);
+    }
+}
+
+impl Write for AsyncTcpStream {
+    fn write(self: &mut AsyncTcpStream, buf: *const u8, len: i64) -> i64 {
+        return (&self.inner).async_send(buf, len);
+    }
+    fn flush(self: &mut AsyncTcpStream) -> i64 { return 0; }
+}
+
 // Connect a fresh TCP socket to ip:port, asynchronously.  Returns TcpStream
 // with fd<0 on error (negative errno).
 pub fn async_tcp_connect(ip: u32, port: u16) -> TcpStream {

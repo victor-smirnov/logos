@@ -92,10 +92,12 @@ pub fn read_request_message(s: &TcpStream, buf: &mut Vec<u8>) -> Result<i64, Htt
 //   • a framing / I/O error occurs.
 // The TcpStream is always closed before return.
 pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
-    let mut br: BufReader<TcpStream> = buf_reader_wrap::<TcpStream>(stream, 4096 as i64);
+    let astream: AsyncTcpStream = async_tcp_stream(stream);
+    let mut br: BufReader<AsyncTcpStream> =
+        buf_reader_wrap::<AsyncTcpStream>(astream, 4096 as i64);
     let mut keep: bool = true;
     while keep {
-        let mut req: Request = match parse_request_stream::<TcpStream>(&mut br) {
+        let mut req: Request = match parse_request_stream::<AsyncTcpStream>(&mut br) {
             Result::Ok(v)  => v,
             Result::Err(_) => { keep = false; break; }
         };
@@ -146,15 +148,57 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
             Option::None    => { }
         }
 
-        let inner: &mut TcpStream = buf_reader_inner_mut::<TcpStream>(&mut br);
-        let rs: i64 = serialize_response_stream::<TcpStream>(&resp, inner);
+        let inner: &mut AsyncTcpStream =
+            buf_reader_inner_mut::<AsyncTcpStream>(&mut br);
+        let rs: i64 = serialize_response_stream::<AsyncTcpStream>(&resp, inner);
         if rs < 0 as i64 { keep = false; }
     }
 
-    let s: &mut TcpStream = buf_reader_inner_mut::<TcpStream>(&mut br);
+    let s: &mut AsyncTcpStream = buf_reader_inner_mut::<AsyncTcpStream>(&mut br);
     s.close();
     br.close();
     return 0 as i64;
+}
+
+// ── Accept loop + graceful shutdown ─────────────────────────────────────────
+// serve_bounded accepts up to `count` connections serially and runs each
+// through serve_connection (so keep-alive works per connection).  Returns
+// after `count` connections have been served or accept fails.  Use this in
+// tests and in "single request batch" scenarios.
+pub fn serve_bounded<S: Service>(port: u16, count: i64, svc: &mut S)
+    -> Result<(), HttpError>
+{
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 128 as i32);
+    if !(&listener).is_valid() { return Result::Err(HttpError::Connect); }
+    let mut i: i64 = 0 as i64;
+    while i < count {
+        let stream: TcpStream = (&listener).async_accept();
+        if !(&stream).is_valid() { break; }
+        let _: i64 = serve_connection::<S>(stream, svc);
+        i = i + 1;
+    }
+    listener.close();
+    return Result::Ok(());
+}
+
+// serve_until accepts connections until `*stop_flag != 0`.  The stop flag
+// must be an i64 cell the caller mutates from another fiber / signal
+// handler — checked between accepts.  Returns Ok(()) on clean stop or
+// Err(Connect) if bind fails.
+pub fn serve_until<S: Service>(port: u16, svc: &mut S, stop_flag: *mut i64)
+    -> Result<(), HttpError>
+{
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 128 as i32);
+    if !(&listener).is_valid() { return Result::Err(HttpError::Connect); }
+    unsafe {
+        while stop_flag[0 as i64] == 0 as i64 {
+            let stream: TcpStream = (&listener).async_accept();
+            if !(&stream).is_valid() { break; }
+            let _: i64 = serve_connection::<S>(stream, svc);
+        }
+    }
+    listener.close();
+    return Result::Ok(());
 }
 
 // Bind, accept `count` connections serially, invoke `handler` for each,
