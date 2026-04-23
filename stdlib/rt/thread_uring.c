@@ -159,3 +159,10 @@ uint64_t logos_io_uring_cqe_user_data(struct io_uring_cqe *cqe)
 {
     return io_uring_cqe_get_data64(cqe);
 }
+
+// Prepare a no-op SQE — generates a CQE with res=0.  Useful for unit
+// tests of the reactor that don't depend on a real fd being ready.
+void logos_io_uring_prep_nop(struct io_uring_sqe *sqe)
+{
+    io_uring_prep_nop(sqe);
+}

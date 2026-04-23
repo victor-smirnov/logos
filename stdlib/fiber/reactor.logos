@@ -138,6 +138,17 @@ pub unsafe fn reactor_poll(r: *mut Reactor, blocking: bool) -> i32 {
     return count;
 }
 
+// Drive a scheduler together with its reactor until both the run queue
+// and the parked set are empty.  Useful for single-threaded tests and
+// simple drivers that don't need the full thread-pool machinery.
+pub unsafe fn reactor_run(s: *mut Scheduler, r: *mut Reactor) {
+    loop {
+        sched_run(s);
+        if !reactor_has_parked(r as *const Reactor) { break; }
+        let _: i32 = reactor_poll(r, true);
+    }
+}
+
 // Hand a single CQE to its waiting fiber: write the result into the
 // fiber's FLS[0] and enqueue it back onto the scheduler's run queue.
 unsafe fn reactor_dispatch_cqe(r: *mut Reactor, cqe: *mut u8) {

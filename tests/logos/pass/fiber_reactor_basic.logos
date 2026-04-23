@@ -1,0 +1,50 @@
+// Exercises the fiber reactor with IORING_OP_NOP: each spawned fiber
+// submits a NOP and parks; reactor_poll drains CQEs and re-enqueues
+// the fibers; each fiber then bumps a shared counter.
+
+package fiber_reactor_basic;
+
+use fiber;
+
+extern fn logos_io_uring_prep_nop(sqe: *mut u8);
+
+fn nop_fiber(arg: i64) {
+    let r: *mut Reactor = reactor_current();
+    let sqe: *mut u8 = unsafe { reactor_get_sqe(r) };
+    if sqe == 0 as *mut u8 { return; }
+    unsafe { logos_io_uring_prep_nop(sqe); }
+    let res: i32 = unsafe { reactor_submit_and_park(r, sqe) };
+    // res must be 0 for a NOP.
+    if res != 0 { return; }
+    let p: *mut i32 = arg as *mut i32;
+    unsafe {
+        let v: i32 = *p;
+        *p = v + 1;
+    }
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+
+    let r: *mut Reactor = reactor_new(32);
+    if r == 0 as *mut Reactor { return 1; }
+    reactor_set_current(r);
+
+    let counter: i32 = 0;
+    let cptr: i64 = &counter as *const i32 as i64;
+
+    let mut i: i32 = 0;
+    while i < 10 {
+        spawn(nop_fiber, cptr);
+        i = i + 1;
+    }
+
+    reactor_run(s, r);
+
+    reactor_free(r);
+    sched_free(s);
+
+    if counter != 10 { return 2; }
+    return 42;
+}
