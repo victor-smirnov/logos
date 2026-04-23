@@ -4776,6 +4776,15 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
 
+    // Move semantics: mark by-value move-type args as moved so that scope-end
+    // drops do not fire on locals whose ownership has been transferred.
+    for (auto& a : arg_exprs) {
+        if (is_move_type(a->type)) {
+            if (auto* vr = std::get_if<lir::EVarRef>(&a->kind))
+                mark_moved(vr->name);
+        }
+    }
+
     return make_expr(fi.ret_type,
         lir::ECall{fi.symbol_name.empty() ? mangled : fi.symbol_name, {}, std::move(arg_exprs)});
 }

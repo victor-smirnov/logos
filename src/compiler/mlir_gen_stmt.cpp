@@ -500,6 +500,21 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
 
         auto val = gen_expr(*s.value);
         if (!val) return;
+        // Slice/str returns: val is a ptr to a {ptr,i64} laid out in caller-
+        // local alloca (stack). That alloca is reclaimed at function exit —
+        // returning it leaves the caller with a dangling pointer. Copy the
+        // 16 bytes to a fresh malloc slot before returning. Leaks, but
+        // matches how &dyn Trait fat pointers are handled above. A proper
+        // fix (sret or by-value slice ABI) belongs to the calling-convention
+        // layer; this keeps slice returns correct in the meantime.
+        if (cur_fn_ret_logos_type_ &&
+            cur_fn_ret_logos_type_->kind == LogosType::Kind::Slice &&
+            val.getType() == ptr_type()) {
+            auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 16LL, 64);
+            auto heap = call_malloc(size16);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, heap, val, size16, false);
+            val = heap;
+        }
         // Tagged enum None returning i32 but function expects ptr:
         // wrap in alloca like gen_let does.
         if (cur_ret_type_ && cur_ret_type_ == ptr_type() && val.getType() != ptr_type()) {
