@@ -1,0 +1,361 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library -- std.crypto
+//
+// SHA-256 and MD5 digests.  One-shot API: feed a byte buffer, get the
+// digest as 32 or 16 raw bytes (appended to a String) or as a lowercase
+// hex string.
+//
+// NOTE: MD5 is cryptographically broken — provided only for legacy formats.
+// Use SHA-256 for anything security-sensitive.
+
+package std.crypto;
+
+use std.string;
+
+// ── SHA-256 ───────────────────────────────────────────────────────────────
+
+unsafe fn sha256_process_block(block: *const u8, h: *mut u32) {
+    let mut k: [u32; 64] = [0 as u32; 64];
+    // Round constants.
+    k[0]  = 0x428a2f98 as u32; k[1]  = 0x71374491 as u32;
+    k[2]  = 0xb5c0fbcf as u32; k[3]  = 0xe9b5dba5 as u32;
+    k[4]  = 0x3956c25b as u32; k[5]  = 0x59f111f1 as u32;
+    k[6]  = 0x923f82a4 as u32; k[7]  = 0xab1c5ed5 as u32;
+    k[8]  = 0xd807aa98 as u32; k[9]  = 0x12835b01 as u32;
+    k[10] = 0x243185be as u32; k[11] = 0x550c7dc3 as u32;
+    k[12] = 0x72be5d74 as u32; k[13] = 0x80deb1fe as u32;
+    k[14] = 0x9bdc06a7 as u32; k[15] = 0xc19bf174 as u32;
+    k[16] = 0xe49b69c1 as u32; k[17] = 0xefbe4786 as u32;
+    k[18] = 0x0fc19dc6 as u32; k[19] = 0x240ca1cc as u32;
+    k[20] = 0x2de92c6f as u32; k[21] = 0x4a7484aa as u32;
+    k[22] = 0x5cb0a9dc as u32; k[23] = 0x76f988da as u32;
+    k[24] = 0x983e5152 as u32; k[25] = 0xa831c66d as u32;
+    k[26] = 0xb00327c8 as u32; k[27] = 0xbf597fc7 as u32;
+    k[28] = 0xc6e00bf3 as u32; k[29] = 0xd5a79147 as u32;
+    k[30] = 0x06ca6351 as u32; k[31] = 0x14292967 as u32;
+    k[32] = 0x27b70a85 as u32; k[33] = 0x2e1b2138 as u32;
+    k[34] = 0x4d2c6dfc as u32; k[35] = 0x53380d13 as u32;
+    k[36] = 0x650a7354 as u32; k[37] = 0x766a0abb as u32;
+    k[38] = 0x81c2c92e as u32; k[39] = 0x92722c85 as u32;
+    k[40] = 0xa2bfe8a1 as u32; k[41] = 0xa81a664b as u32;
+    k[42] = 0xc24b8b70 as u32; k[43] = 0xc76c51a3 as u32;
+    k[44] = 0xd192e819 as u32; k[45] = 0xd6990624 as u32;
+    k[46] = 0xf40e3585 as u32; k[47] = 0x106aa070 as u32;
+    k[48] = 0x19a4c116 as u32; k[49] = 0x1e376c08 as u32;
+    k[50] = 0x2748774c as u32; k[51] = 0x34b0bcb5 as u32;
+    k[52] = 0x391c0cb3 as u32; k[53] = 0x4ed8aa4a as u32;
+    k[54] = 0x5b9cca4f as u32; k[55] = 0x682e6ff3 as u32;
+    k[56] = 0x748f82ee as u32; k[57] = 0x78a5636f as u32;
+    k[58] = 0x84c87814 as u32; k[59] = 0x8cc70208 as u32;
+    k[60] = 0x90befffa as u32; k[61] = 0xa4506ceb as u32;
+    k[62] = 0xbef9a3f7 as u32; k[63] = 0xc67178f2 as u32;
+
+    let mut w: [u32; 64] = [0 as u32; 64];
+    let mut i: i32 = 0;
+    while i < 16 {
+        let off: i64 = (i as i64) * 4 as i64;
+        w[i] = ((block[off]           as u32) << 24 as u32)
+             | ((block[off + 1 as i64] as u32) << 16 as u32)
+             | ((block[off + 2 as i64] as u32) <<  8 as u32)
+             |  (block[off + 3 as i64] as u32);
+        i = i + 1;
+    }
+    i = 16;
+    while i < 64 {
+        let w15: u32 = w[i - 15];
+        let w2:  u32 = w[i -  2];
+        let s0: u32 = rotr32(w15,  7 as u32) ^ rotr32(w15, 18 as u32) ^ (w15 >>  3 as u32);
+        let s1: u32 = rotr32(w2,  17 as u32) ^ rotr32(w2,  19 as u32) ^ (w2  >> 10 as u32);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        i = i + 1;
+    }
+
+    let mut a: u32 = h[0]; let mut b: u32 = h[1];
+    let mut c: u32 = h[2]; let mut d: u32 = h[3];
+    let mut e: u32 = h[4]; let mut f: u32 = h[5];
+    let mut g: u32 = h[6]; let mut hh: u32 = h[7];
+
+    i = 0;
+    while i < 64 {
+        let big_s1: u32 = rotr32(e, 6 as u32) ^ rotr32(e, 11 as u32) ^ rotr32(e, 25 as u32);
+        let ch:     u32 = (e & f) ^ ((e ^ 0xFFFFFFFF as u32) & g);
+        let t1:     u32 = hh + big_s1 + ch + k[i] + w[i];
+        let big_s0: u32 = rotr32(a, 2 as u32) ^ rotr32(a, 13 as u32) ^ rotr32(a, 22 as u32);
+        let maj:    u32 = (a & b) ^ (a & c) ^ (b & c);
+        let t2:     u32 = big_s0 + maj;
+        hh = g; g = f; f = e;
+        e = d + t1;
+        d = c; c = b; b = a;
+        a = t1 + t2;
+        i = i + 1;
+    }
+
+    h[0] = h[0] + a; h[1] = h[1] + b;
+    h[2] = h[2] + c; h[3] = h[3] + d;
+    h[4] = h[4] + e; h[5] = h[5] + f;
+    h[6] = h[6] + g; h[7] = h[7] + hh;
+}
+
+fn rotr32(x: u32, n: u32) -> u32 {
+    return (x >> n) | (x << (32 as u32 - n));
+}
+
+// Compute SHA-256 of [src, src+len).  Appends 32 raw bytes (big-endian)
+// to `out`.
+pub fn sha256(src: *const u8, len: i64, out: &mut String) {
+    unsafe {
+        let mut h: [u32; 8] = [0 as u32; 8];
+        h[0] = 0x6a09e667 as u32; h[1] = 0xbb67ae85 as u32;
+        h[2] = 0x3c6ef372 as u32; h[3] = 0xa54ff53a as u32;
+        h[4] = 0x510e527f as u32; h[5] = 0x9b05688c as u32;
+        h[6] = 0x1f83d9ab as u32; h[7] = 0x5be0cd19 as u32;
+
+        let full_blocks: i64 = len / 64 as i64;
+        let mut i: i64 = 0 as i64;
+        while i < full_blocks {
+            let p: *const u8 = (src as i64 + i * 64 as i64) as *const u8;
+            sha256_process_block(p, &h[0] as *mut u32);
+            i = i + 1 as i64;
+        }
+
+        // Final block(s): pad to 64, then 0x80, zeros, then 8-byte BE bit length.
+        let mut last: [u8; 128] = [0 as u8; 128];
+        let tail: i64 = len - full_blocks * 64 as i64;
+        let base: *const u8 = (src as i64 + full_blocks * 64 as i64) as *const u8;
+        let mut j: i64 = 0 as i64;
+        while j < tail {
+            last[j] = base[j];
+            j = j + 1 as i64;
+        }
+        last[tail] = 0x80 as u8;
+
+        let nblocks: i64 = if tail < 56 as i64 { 1 as i64 } else { 2 as i64 };
+        let bit_len: u64 = (len as u64) * 8 as u64;
+        let lenpos: i64 = nblocks * 64 as i64 - 8 as i64;
+        last[lenpos]          = ((bit_len >> 56 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 1 as i64] = ((bit_len >> 48 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 2 as i64] = ((bit_len >> 40 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 3 as i64] = ((bit_len >> 32 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 4 as i64] = ((bit_len >> 24 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 5 as i64] = ((bit_len >> 16 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 6 as i64] = ((bit_len >>  8 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 7 as i64] =  (bit_len            & 0xFF as u64) as u8;
+
+        let mut bi: i64 = 0 as i64;
+        while bi < nblocks {
+            let p: *const u8 = &last[bi * 64 as i64] as *const u8;
+            sha256_process_block(p, &h[0] as *mut u32);
+            bi = bi + 1 as i64;
+        }
+
+        let mut hi: i32 = 0;
+        while hi < 8 {
+            let v: u32 = h[hi];
+            out.push_u8(((v >> 24 as u32) & 0xFF as u32) as u8);
+            out.push_u8(((v >> 16 as u32) & 0xFF as u32) as u8);
+            out.push_u8(((v >>  8 as u32) & 0xFF as u32) as u8);
+            out.push_u8(( v           & 0xFF as u32) as u8);
+            hi = hi + 1;
+        }
+    }
+}
+
+pub fn sha256_str(s: str, out: &mut String) {
+    unsafe { sha256(s.as_ptr(), s.len(), out); }
+}
+
+// Lowercase 64-char hex digest.
+pub fn sha256_hex(src: *const u8, len: i64, out: &mut String) {
+    let mut bytes: String = String::new();
+    unsafe { sha256(src, len, &mut bytes); }
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < 32 as i64 {
+            let b: u8 = bytes.as_ptr()[i];
+            out.push_u8(hex_lower((b >> 4 as u8) & 15 as u8));
+            out.push_u8(hex_lower(b & 15 as u8));
+            i = i + 1 as i64;
+        }
+    }
+}
+
+pub fn sha256_hex_str(s: str, out: &mut String) {
+    unsafe { sha256_hex(s.as_ptr(), s.len(), out); }
+}
+
+fn hex_lower(n: u8) -> u8 {
+    let ni: i32 = n as i32;
+    if ni < 10 { return (ni + 48) as u8; }
+    return (ni - 10 + 97) as u8;
+}
+
+// ── MD5 (RFC 1321) ────────────────────────────────────────────────────────
+
+fn rotl32(x: u32, n: u32) -> u32 {
+    return (x << n) | (x >> (32 as u32 - n));
+}
+
+unsafe fn md5_process_block(block: *const u8, h: *mut u32) {
+    // Per-round shift amounts.
+    let mut s: [u32; 64] = [0 as u32; 64];
+    s[0]=7 as u32; s[1]=12 as u32; s[2]=17 as u32; s[3]=22 as u32;
+    s[4]=7 as u32; s[5]=12 as u32; s[6]=17 as u32; s[7]=22 as u32;
+    s[8]=7 as u32; s[9]=12 as u32; s[10]=17 as u32; s[11]=22 as u32;
+    s[12]=7 as u32; s[13]=12 as u32; s[14]=17 as u32; s[15]=22 as u32;
+    s[16]=5 as u32; s[17]=9 as u32; s[18]=14 as u32; s[19]=20 as u32;
+    s[20]=5 as u32; s[21]=9 as u32; s[22]=14 as u32; s[23]=20 as u32;
+    s[24]=5 as u32; s[25]=9 as u32; s[26]=14 as u32; s[27]=20 as u32;
+    s[28]=5 as u32; s[29]=9 as u32; s[30]=14 as u32; s[31]=20 as u32;
+    s[32]=4 as u32; s[33]=11 as u32; s[34]=16 as u32; s[35]=23 as u32;
+    s[36]=4 as u32; s[37]=11 as u32; s[38]=16 as u32; s[39]=23 as u32;
+    s[40]=4 as u32; s[41]=11 as u32; s[42]=16 as u32; s[43]=23 as u32;
+    s[44]=4 as u32; s[45]=11 as u32; s[46]=16 as u32; s[47]=23 as u32;
+    s[48]=6 as u32; s[49]=10 as u32; s[50]=15 as u32; s[51]=21 as u32;
+    s[52]=6 as u32; s[53]=10 as u32; s[54]=15 as u32; s[55]=21 as u32;
+    s[56]=6 as u32; s[57]=10 as u32; s[58]=15 as u32; s[59]=21 as u32;
+    s[60]=6 as u32; s[61]=10 as u32; s[62]=15 as u32; s[63]=21 as u32;
+
+    // Round constants T[i] = floor(abs(sin(i+1)) * 2^32).
+    let mut k: [u32; 64] = [0 as u32; 64];
+    k[0]=0xd76aa478 as u32; k[1]=0xe8c7b756 as u32; k[2]=0x242070db as u32; k[3]=0xc1bdceee as u32;
+    k[4]=0xf57c0faf as u32; k[5]=0x4787c62a as u32; k[6]=0xa8304613 as u32; k[7]=0xfd469501 as u32;
+    k[8]=0x698098d8 as u32; k[9]=0x8b44f7af as u32; k[10]=0xffff5bb1 as u32; k[11]=0x895cd7be as u32;
+    k[12]=0x6b901122 as u32; k[13]=0xfd987193 as u32; k[14]=0xa679438e as u32; k[15]=0x49b40821 as u32;
+    k[16]=0xf61e2562 as u32; k[17]=0xc040b340 as u32; k[18]=0x265e5a51 as u32; k[19]=0xe9b6c7aa as u32;
+    k[20]=0xd62f105d as u32; k[21]=0x02441453 as u32; k[22]=0xd8a1e681 as u32; k[23]=0xe7d3fbc8 as u32;
+    k[24]=0x21e1cde6 as u32; k[25]=0xc33707d6 as u32; k[26]=0xf4d50d87 as u32; k[27]=0x455a14ed as u32;
+    k[28]=0xa9e3e905 as u32; k[29]=0xfcefa3f8 as u32; k[30]=0x676f02d9 as u32; k[31]=0x8d2a4c8a as u32;
+    k[32]=0xfffa3942 as u32; k[33]=0x8771f681 as u32; k[34]=0x6d9d6122 as u32; k[35]=0xfde5380c as u32;
+    k[36]=0xa4beea44 as u32; k[37]=0x4bdecfa9 as u32; k[38]=0xf6bb4b60 as u32; k[39]=0xbebfbc70 as u32;
+    k[40]=0x289b7ec6 as u32; k[41]=0xeaa127fa as u32; k[42]=0xd4ef3085 as u32; k[43]=0x04881d05 as u32;
+    k[44]=0xd9d4d039 as u32; k[45]=0xe6db99e5 as u32; k[46]=0x1fa27cf8 as u32; k[47]=0xc4ac5665 as u32;
+    k[48]=0xf4292244 as u32; k[49]=0x432aff97 as u32; k[50]=0xab9423a7 as u32; k[51]=0xfc93a039 as u32;
+    k[52]=0x655b59c3 as u32; k[53]=0x8f0ccc92 as u32; k[54]=0xffeff47d as u32; k[55]=0x85845dd1 as u32;
+    k[56]=0x6fa87e4f as u32; k[57]=0xfe2ce6e0 as u32; k[58]=0xa3014314 as u32; k[59]=0x4e0811a1 as u32;
+    k[60]=0xf7537e82 as u32; k[61]=0xbd3af235 as u32; k[62]=0x2ad7d2bb as u32; k[63]=0xeb86d391 as u32;
+
+    // Load block as 16 little-endian u32.
+    let mut m: [u32; 16] = [0 as u32; 16];
+    let mut i: i32 = 0;
+    while i < 16 {
+        let off: i64 = (i as i64) * 4 as i64;
+        m[i] =  (block[off]             as u32)
+             | ((block[off + 1 as i64] as u32) <<  8 as u32)
+             | ((block[off + 2 as i64] as u32) << 16 as u32)
+             | ((block[off + 3 as i64] as u32) << 24 as u32);
+        i = i + 1;
+    }
+
+    let mut a: u32 = h[0]; let mut b: u32 = h[1];
+    let mut c: u32 = h[2]; let mut d: u32 = h[3];
+
+    i = 0;
+    while i < 64 {
+        let mut f: u32 = 0 as u32;
+        let mut g: i32 = 0;
+        if i < 16 {
+            f = (b & c) | ((b ^ 0xFFFFFFFF as u32) & d);
+            g = i;
+        } else if i < 32 {
+            f = (d & b) | ((d ^ 0xFFFFFFFF as u32) & c);
+            g = (5 * i + 1) & 15;
+        } else if i < 48 {
+            f = b ^ c ^ d;
+            g = (3 * i + 5) & 15;
+        } else {
+            f = c ^ (b | (d ^ 0xFFFFFFFF as u32));
+            g = (7 * i) & 15;
+        }
+        f = f + a + k[i] + m[g];
+        a = d;
+        d = c;
+        c = b;
+        b = b + rotl32(f, s[i]);
+        i = i + 1;
+    }
+
+    h[0] = h[0] + a; h[1] = h[1] + b;
+    h[2] = h[2] + c; h[3] = h[3] + d;
+}
+
+// Compute MD5 of [src, src+len).  Appends 16 raw bytes (little-endian per u32)
+// to `out`.
+pub fn md5(src: *const u8, len: i64, out: &mut String) {
+    unsafe {
+        let mut h: [u32; 4] = [0 as u32; 4];
+        h[0] = 0x67452301 as u32;
+        h[1] = 0xefcdab89 as u32;
+        h[2] = 0x98badcfe as u32;
+        h[3] = 0x10325476 as u32;
+
+        let full_blocks: i64 = len / 64 as i64;
+        let mut i: i64 = 0 as i64;
+        while i < full_blocks {
+            let p: *const u8 = (src as i64 + i * 64 as i64) as *const u8;
+            md5_process_block(p, &h[0] as *mut u32);
+            i = i + 1 as i64;
+        }
+
+        let mut last: [u8; 128] = [0 as u8; 128];
+        let tail: i64 = len - full_blocks * 64 as i64;
+        let base: *const u8 = (src as i64 + full_blocks * 64 as i64) as *const u8;
+        let mut j: i64 = 0 as i64;
+        while j < tail {
+            last[j] = base[j];
+            j = j + 1 as i64;
+        }
+        last[tail] = 0x80 as u8;
+
+        let nblocks: i64 = if tail < 56 as i64 { 1 as i64 } else { 2 as i64 };
+        let bit_len: u64 = (len as u64) * 8 as u64;
+        let lenpos: i64 = nblocks * 64 as i64 - 8 as i64;
+        // Little-endian 8-byte bit length.
+        last[lenpos]          =  (bit_len            & 0xFF as u64) as u8;
+        last[lenpos + 1 as i64] = ((bit_len >>  8 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 2 as i64] = ((bit_len >> 16 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 3 as i64] = ((bit_len >> 24 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 4 as i64] = ((bit_len >> 32 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 5 as i64] = ((bit_len >> 40 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 6 as i64] = ((bit_len >> 48 as u64) & 0xFF as u64) as u8;
+        last[lenpos + 7 as i64] = ((bit_len >> 56 as u64) & 0xFF as u64) as u8;
+
+        let mut bi: i64 = 0 as i64;
+        while bi < nblocks {
+            let p: *const u8 = &last[bi * 64 as i64] as *const u8;
+            md5_process_block(p, &h[0] as *mut u32);
+            bi = bi + 1 as i64;
+        }
+
+        let mut hi: i32 = 0;
+        while hi < 4 {
+            let v: u32 = h[hi];
+            out.push_u8( (v           & 0xFF as u32) as u8);
+            out.push_u8(((v >>  8 as u32) & 0xFF as u32) as u8);
+            out.push_u8(((v >> 16 as u32) & 0xFF as u32) as u8);
+            out.push_u8(((v >> 24 as u32) & 0xFF as u32) as u8);
+            hi = hi + 1;
+        }
+    }
+}
+
+pub fn md5_str(s: str, out: &mut String) {
+    unsafe { md5(s.as_ptr(), s.len(), out); }
+}
+
+pub fn md5_hex(src: *const u8, len: i64, out: &mut String) {
+    let mut bytes: String = String::new();
+    unsafe { md5(src, len, &mut bytes); }
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < 16 as i64 {
+            let b: u8 = bytes.as_ptr()[i];
+            out.push_u8(hex_lower((b >> 4 as u8) & 15 as u8));
+            out.push_u8(hex_lower(b & 15 as u8));
+            i = i + 1 as i64;
+        }
+    }
+}
+
+pub fn md5_hex_str(s: str, out: &mut String) {
+    unsafe { md5_hex(s.as_ptr(), s.len(), out); }
+}

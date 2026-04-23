@@ -1,0 +1,89 @@
+// Tests std.crypto: SHA-256 and MD5 against known vectors.
+package test;
+
+use std.crypto;
+use std.string;
+
+fn main() -> i32 {
+    // SHA-256 of "" → e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    unsafe {
+        let mut out: String = String::new();
+        sha256_hex_str("", &mut out);
+        if !out.eq_str("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") { return 1; }
+    }
+    // SHA-256 of "abc" → ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+    unsafe {
+        let mut out: String = String::new();
+        sha256_hex_str("abc", &mut out);
+        if !out.eq_str("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") { return 2; }
+    }
+    // SHA-256 of "The quick brown fox jumps over the lazy dog"
+    //   → d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592
+    unsafe {
+        let mut out: String = String::new();
+        sha256_hex_str("The quick brown fox jumps over the lazy dog", &mut out);
+        if !out.eq_str("d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592") { return 3; }
+    }
+    // SHA-256 of a 56-byte message exercises the 2-block padding boundary.
+    // "0123456789abcdef0123456789abcdef0123456789abcdef01234567" (56 bytes)
+    //   → 8c08d24a49d486d0ca3a40d9a10b8fe9b7b3c3b9b3b3e4c9a8dbd3efc1c09b9f?
+    // Use a known 55-byte vector instead for the single-block edge:
+    // "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz012" (55 bytes)
+    // We'll just check multi-block by computing a 100-byte repeated-'a' input.
+    unsafe {
+        let mut src: String = String::new();
+        let mut i: i32 = 0;
+        while i < 100 {
+            src.push_u8(97 as u8);  // 'a'
+            i = i + 1;
+        }
+        let mut out: String = String::new();
+        sha256_hex(src.as_ptr(), src.len(), &mut out);
+        // "a" * 100 SHA-256:
+        //   2816597888e4a0d3a36b82b83316ab32680eb8f00f8cd3b904d681246d285a0e
+        if !out.eq_str("2816597888e4a0d3a36b82b83316ab32680eb8f00f8cd3b904d681246d285a0e") { return 4; }
+    }
+
+    // MD5 of "" → d41d8cd98f00b204e9800998ecf8427e
+    unsafe {
+        let mut out: String = String::new();
+        md5_hex_str("", &mut out);
+        if !out.eq_str("d41d8cd98f00b204e9800998ecf8427e") { return 5; }
+    }
+    // MD5 of "abc" → 900150983cd24fb0d6963f7d28e17f72
+    unsafe {
+        let mut out: String = String::new();
+        md5_hex_str("abc", &mut out);
+        if !out.eq_str("900150983cd24fb0d6963f7d28e17f72") { return 6; }
+    }
+    // MD5 of "The quick brown fox jumps over the lazy dog"
+    //   → 9e107d9d372bb6826bd81d3542a419d6
+    unsafe {
+        let mut out: String = String::new();
+        md5_hex_str("The quick brown fox jumps over the lazy dog", &mut out);
+        if !out.eq_str("9e107d9d372bb6826bd81d3542a419d6") { return 7; }
+    }
+    // MD5 of "a" * 100 → 36a92cc94a9e0fa21f625f8bfb007adf
+    unsafe {
+        let mut src: String = String::new();
+        let mut i: i32 = 0;
+        while i < 100 {
+            src.push_u8(97 as u8);
+            i = i + 1;
+        }
+        let mut out: String = String::new();
+        md5_hex(src.as_ptr(), src.len(), &mut out);
+        if !out.eq_str("36a92cc94a9e0fa21f625f8bfb007adf") { return 8; }
+    }
+
+    // Raw bytes variant: sha256 appends 32 bytes.
+    unsafe {
+        let mut raw: String = String::new();
+        sha256_str("abc", &mut raw);
+        if raw.len() != 32 as i64 { return 9; }
+        if raw.as_ptr()[0 as i64] != 0xba as u8 { return 10; }
+        if raw.as_ptr()[31 as i64] != 0xad as u8 { return 11; }
+    }
+
+    return 42;
+}
