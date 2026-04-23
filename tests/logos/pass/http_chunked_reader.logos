@@ -1,0 +1,64 @@
+// Streaming chunked decode via ChunkedReader<BufReader<FdReader>>.
+// Encodes a body with chunked_write_chunk + chunked_finalize, writes to a
+// pipe, reads it back through the streaming decoder, verifies round-trip.
+package test;
+
+use std.io.http;
+use std.io.buffered;
+use std.io.pipe;
+use std.io.read;
+use std.collections.vec;
+use std.lang.text;
+
+fn main() -> i32 {
+    let mut enc: Vec<u8> = vec_new::<u8>();
+    let part1: str = "Hello, ";
+    let part2: str = "World!";
+    unsafe {
+        chunked_write_chunk(part1.as_ptr(), part1.len(), &mut enc);
+        chunked_write_chunk(part2.as_ptr(), part2.len(), &mut enc);
+    }
+    chunked_finalize(&mut enc);
+
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 1; }
+
+        let enc_ptr: *const u8 = vec_at_const_u8(&enc, 0 as i64);
+        let enc_len: i64 = vec_len_u8(&enc);
+
+        let mut w: BufWriter<FdWriter> =
+            buf_writer_wrap::<FdWriter>(fd_writer(p.write_fd), 64 as i64);
+        w.write_bytes(enc_ptr, enc_len);
+        w.flush();
+        w.close();
+        p.close_write();
+
+        let br: BufReader<FdReader> =
+            buf_reader_wrap::<FdReader>(fd_reader(p.read_fd), 16 as i64);
+        let mut cr: ChunkedReader<BufReader<FdReader>> =
+            chunked_reader_wrap::<BufReader<FdReader>>(br);
+
+        let mut out: [u8; 32] = [0 as u8; 32];
+        let mut total: i64 = 0 as i64;
+        while total < 32 as i64 {
+            let dst: *mut u8 = (&mut out[0] as *mut u8 as i64 + total) as *mut u8;
+            let n: i64 = cr.read(dst, 32 as i64 - total);
+            if n == 0 as i64 { break; }
+            if n < 0 as i64 { return 2; }
+            total = total + n;
+        }
+        if total != 13 as i64 { return 3; }
+
+        let expected: str = "Hello, World!";
+        let exp_ptr: *const u8 = expected.as_ptr();
+        let mut i: i64 = 0 as i64;
+        while i < 13 as i64 {
+            if out[i] != exp_ptr[i] { return 4; }
+            i = i + 1;
+        }
+
+        p.close();
+    }
+    return 42;
+}
