@@ -256,6 +256,83 @@ impl<R: Read> Read for ChunkedReader<R> {
     }
 }
 
+// Read a full chunked-encoded body from `r` into `out` (appended).  Unlike
+// ChunkedReader, this helper takes a mutable reference and so can be used
+// when the caller must keep the underlying reader available afterwards
+// (e.g. an HTTP server that reads the request body then reads the next
+// request from the same BufReader).  Returns bytes appended on success,
+// -1 on malformed input / I/O error.
+pub fn read_chunked_body<R: Read>(r: &mut R, out: &mut Vec<u8>) -> i64 {
+    let mut total: i64 = 0 as i64;
+    unsafe {
+        let mut b: u8 = 0 as u8;
+        let bp: *mut u8 = &mut b as *mut u8;
+        loop {
+            // Parse hex size + optional extension terminated by CRLF.
+            let mut size: i64 = 0 as i64;
+            let mut seen: bool = false;
+            let mut in_ext: bool = false;
+            let mut got_eol: bool = false;
+            while !got_eol {
+                let n: i64 = r.read(bp, 1 as i64);
+                if n <= 0 as i64 { return 0 - 1 as i64; }
+                if b == 13 as u8 {
+                    let n2: i64 = r.read(bp, 1 as i64);
+                    if n2 <= 0 as i64 || b != 10 as u8 { return 0 - 1 as i64; }
+                    got_eol = true;
+                } else if !in_ext {
+                    if b == 59 as u8 { in_ext = true; }    // ';'
+                    else {
+                        let d: i32 = hex_digit_value(b);
+                        if d < 0 { return 0 - 1 as i64; }
+                        size = (size << 1 << 1 << 1 << 1) + (d as i64);
+                        seen = true;
+                    }
+                }
+            }
+            if !seen { return 0 - 1 as i64; }
+            if size == 0 as i64 {
+                // Trailer: read lines until an empty CRLF line.
+                loop {
+                    let n: i64 = r.read(bp, 1 as i64);
+                    if n <= 0 as i64 { return 0 - 1 as i64; }
+                    if b == 13 as u8 {
+                        let n2: i64 = r.read(bp, 1 as i64);
+                        if n2 <= 0 as i64 || b != 10 as u8 { return 0 - 1 as i64; }
+                        return total;
+                    }
+                    // Skip rest of the trailer header line up to CRLF.
+                    let mut done_line: bool = false;
+                    while !done_line {
+                        let n3: i64 = r.read(bp, 1 as i64);
+                        if n3 <= 0 as i64 { return 0 - 1 as i64; }
+                        if b == 13 as u8 {
+                            let n4: i64 = r.read(bp, 1 as i64);
+                            if n4 <= 0 as i64 || b != 10 as u8 { return 0 - 1 as i64; }
+                            done_line = true;
+                        }
+                    }
+                }
+            }
+            // Data: read `size` bytes, looping over partial reads.
+            let mut remaining: i64 = size;
+            while remaining > 0 as i64 {
+                let n: i64 = r.read(bp, 1 as i64);
+                if n <= 0 as i64 { return 0 - 1 as i64; }
+                vec_push_u8(out, b);
+                remaining = remaining - 1 as i64;
+                total = total + 1 as i64;
+            }
+            // Consume trailing CRLF after chunk data.
+            let n5: i64 = r.read(bp, 1 as i64);
+            if n5 <= 0 as i64 || b != 13 as u8 { return 0 - 1 as i64; }
+            let n6: i64 = r.read(bp, 1 as i64);
+            if n6 <= 0 as i64 || b != 10 as u8 { return 0 - 1 as i64; }
+        }
+    }
+    return total;
+}
+
 // ── ContentLengthReader<R: Read> ────────────────────────────────────────────
 // Caps reads from a Read source at a fixed byte budget.  Used to frame a
 // body that came with a `Content-Length: N` header.  Returns 0 (EOF) once

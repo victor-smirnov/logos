@@ -1,0 +1,43 @@
+// Isolated test of read_chunked_body: decode a chunked stream sitting in a
+// pipe into a Vec<u8>, verify content.
+package test;
+
+use std.io.http;
+use std.io.pipe;
+use std.io.read;
+use std.io.buffered;
+use std.collections.vec;
+use std.lang.text;
+
+fn main() -> i32 {
+    unsafe {
+        let mut p: Pipe = pipe_new();
+        if !p.is_valid() { return 1; }
+
+        // Push encoded chunked bytes via the pipe writer.
+        let enc: str = "5\r\nHello\r\n6\r\nWorld!\r\n0\r\n\r\n";
+        let wfd: i32 = p.write_fd;
+        let rfd: i32 = p.read_fd;
+        let _: i64 = write(wfd, enc.as_ptr(), enc.len());
+        p.close_write();
+
+        // Decode via read_chunked_body over BufReader<FdReader>.
+        let mut br: BufReader<FdReader> = buf_reader_wrap::<FdReader>(fd_reader(rfd), 64 as i64);
+        let mut out: Vec<u8> = vec_new::<u8>();
+        let n: i64 = read_chunked_body::<BufReader<FdReader>>(&mut br, &mut out);
+        if n < 0 as i64 { return 2; }
+        if n != 11 as i64 { return (10 + n) as i32; }
+        if vec_len_u8(&out) != 11 as i64 { return 3; }
+
+        let expected: str = "HelloWorld!";
+        let mut i: i64 = 0 as i64;
+        while i < 11 as i64 {
+            if vec_get_u8(&out, i) != expected.as_ptr()[i] { return 4; }
+            i = i + 1;
+        }
+        p.close();
+    }
+    return 42;
+}
+
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;

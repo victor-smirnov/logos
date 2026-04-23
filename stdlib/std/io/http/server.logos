@@ -169,8 +169,16 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
                 }
             }
         } else if bl == 0 - 2 as i64 {
-            // chunked request body — not yet handled; close after this turn.
-            keep = false;
+            // Chunked request body — decode into req.body via the shared
+            // BufReader (so the next pipelined request stays accessible).
+            let nr: i64 = read_chunked_body::<BufReader<AsyncTcpStream>>(
+                &mut br, &mut req.body);
+            if nr < 0 as i64 {
+                let sink: &mut AsyncTcpStream =
+                    buf_reader_inner_mut::<AsyncTcpStream>(&mut br);
+                let _: i64 = send_error_response(sink, 400 as i32);
+                keep = false;
+            }
         } else if bl == 0 - 3 as i64 {
             // Malformed Content-Length — reply 400 before closing.
             let sink: &mut AsyncTcpStream =

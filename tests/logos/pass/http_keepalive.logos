@@ -1,0 +1,129 @@
+// P1.12: HTTP/1.1 keep-alive — two requests on one TCP connection.
+// Server serves one connection via serve_bounded (keep-alive aware);
+// client sends request #1, reads response, sends request #2 with
+// Connection: close, reads response, verifies both returned 200.
+
+package test;
+
+use std.io.http;
+use std.io.net;
+use std.lang.text;
+use std.collections.vec;
+use std.lang.option;
+use std.lang.result;
+use std.sys.fiber;
+
+const TEST_PORT: u16 = 48319 as u16;
+
+fn handler(req: &Request) -> Response {
+    let mut resp: Response = Response::new(200 as i32);
+    (&mut resp.headers).append("Content-Length", "2");
+    vec_push_u8(&mut resp.body, 79 as u8);  // O
+    vec_push_u8(&mut resp.body, 75 as u8);  // K
+    return resp;
+}
+
+fn server_fiber(arg: i64) {
+    let mut svc: FnService = fn_service(handler);
+    let _: Result<(), HttpError> =
+        serve_bounded::<FnService>(TEST_PORT, 1 as i64, &mut svc);
+}
+
+// Scan `buf[0..n]` for the byte sequence "HTTP/1.1 200"; return number
+// of non-overlapping occurrences.
+fn count_200(buf: *const u8, n: i64) -> i64 {
+    let needle: str = "HTTP/1.1 200";
+    let nlen: i64 = needle.len();
+    let np: *const u8 = needle.as_ptr();
+    let mut i: i64 = 0 as i64;
+    let mut hits: i64 = 0 as i64;
+    unsafe {
+        while i + nlen <= n {
+            let mut ok: bool = true;
+            let mut k: i64 = 0 as i64;
+            while k < nlen && ok {
+                if buf[i + k] != np[k] { ok = false; }
+                k = k + 1;
+            }
+            if ok { hits = hits + 1; i = i + nlen; } else { i = i + 1; }
+        }
+    }
+    return hits;
+}
+
+fn client_fiber(arg: i64) {
+    let rp: *mut i32 = arg as *mut i32;
+    let ip: u32 = ip4(127 as u32, 0 as u32, 0 as u32, 1 as u32);
+    let mut s: TcpStream = async_tcp_connect(ip, TEST_PORT);
+    if !(&s).is_valid() { unsafe { *rp = 1; } return; }
+
+    // Request 1 — bare GET, expects keep-alive (HTTP/1.1 default).
+    let r1: str = "GET /one HTTP/1.1\r\nHost: x\r\n\r\n";
+    let _: i64 = (&s).async_send(r1.as_ptr(), r1.len());
+
+    // Read response 1 — known size: "HTTP/1.1 200 OK\r\n..." ending after
+    // the 2-byte body "OK".  Keep reading until we see the first CRLFCRLF
+    // plus 2 body bytes.
+    let mut rx: [u8; 1024] = [0 as u8; 1024];
+    let mut got: i64 = 0 as i64;
+    let mut seen1: bool = false;
+    while !seen1 && got < 1024 as i64 {
+        let dst: *mut u8 = (&mut rx[0] as *mut u8 as i64 + got) as *mut u8;
+        let n: i64 = (&s).async_recv(dst, 1024 as i64 - got);
+        if n <= 0 as i64 { unsafe { *rp = 2; } s.close(); return; }
+        got = got + n;
+        // Look for end of headers (CRLFCRLF) and then 2 body bytes.
+        let mut i: i64 = 0 as i64;
+        unsafe {
+            while i + 3 < got {
+                if rx[i] == 13 as u8 && rx[i + 1] == 10 as u8 &&
+                   rx[i + 2] == 13 as u8 && rx[i + 3] == 10 as u8 {
+                    if got >= i + 4 + 2 { seen1 = true; }
+                    i = got;
+                } else { i = i + 1; }
+            }
+        }
+    }
+    if !seen1 { unsafe { *rp = 3; } s.close(); return; }
+    let hits1: i64 = count_200(&rx[0] as *const u8, got);
+    if hits1 != 1 as i64 { unsafe { *rp = 4; } s.close(); return; }
+
+    // Request 2 — Connection: close, server should answer then close.
+    let r2: str = "GET /two HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
+    let _: i64 = (&s).async_send(r2.as_ptr(), r2.len());
+
+    // Read remainder until EOF.
+    let mut got2: i64 = 0 as i64;
+    let mut rx2: [u8; 1024] = [0 as u8; 1024];
+    loop {
+        let dst: *mut u8 = (&mut rx2[0] as *mut u8 as i64 + got2) as *mut u8;
+        let n: i64 = (&s).async_recv(dst, 1024 as i64 - got2);
+        if n < 0 as i64 { unsafe { *rp = 5; } s.close(); return; }
+        if n == 0 as i64 { break; }
+        got2 = got2 + n;
+        if got2 >= 1024 as i64 { break; }
+    }
+    let hits2: i64 = count_200(&rx2[0] as *const u8, got2);
+    if hits2 != 1 as i64 { unsafe { *rp = 6; } s.close(); return; }
+
+    s.close();
+    unsafe { *rp = 42; }
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+    let r: *mut Reactor = reactor_new(64);
+    if r == 0 as *mut Reactor { return 1; }
+    reactor_set_current(r);
+
+    let mut result: i32 = 0;
+    let rp: i64 = &result as *const i32 as i64;
+    spawn(server_fiber, 0 as i64);
+    spawn(client_fiber, rp);
+    reactor_run(s, r);
+
+    reactor_free(r);
+    sched_free(s);
+    return result;
+}
