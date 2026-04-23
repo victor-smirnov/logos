@@ -331,7 +331,7 @@ fn read_http_line<R: Read>(br: &mut BufReader<R>) -> Result<String, HttpError> {
     let mut s: String = String::new();
     let n: i64 = br.read_line(&mut s);
     if n < 0 as i64 { return Result::Err(HttpError::Io); }
-    if n == 0 as i64 { return Result::Err(HttpError::Parse); }
+    if n == 0 as i64 { return Result::Err(HttpError::Io); }   // clean EOF
     // Expect terminating \r\n (RFC 7230 §3.5 permits bare LF leniency,
     // but we require CRLF for simplicity).
     if n < 2 as i64 { return Result::Err(HttpError::Parse); }

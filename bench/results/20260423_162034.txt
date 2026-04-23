@@ -1,0 +1,22 @@
+=== Logos HTTP bench — 20260423_162034 ===
+server:      bench/bin/http_hello (serve_until, single-thread, -O3)
+url:         http://127.0.0.1:18080/
+handler:     GET → 200 'hello\n' + Connection: close
+
+--- ab n=10000 c=10 ---
+Complete requests:      10000
+Failed requests:        0
+Requests per second:    63378.59 [#/sec] (mean)
+Time per request:       0.158 [ms] (mean)
+Time per request:       0.016 [ms] (mean, across all concurrent requests)
+Transfer rate:          5508.49 [Kbytes/sec] received
+
+--- ab n=10000 c=50 ---
+Complete requests:      10000
+Failed requests:        0
+Requests per second:    63299.55 [#/sec] (mean)
+Time per request:       0.790 [ms] (mean)
+Time per request:       0.016 [ms] (mean, across all concurrent requests)
+Transfer rate:          5501.62 [Kbytes/sec] received
+
+--- ab n=5000 c=1 (serial) ---

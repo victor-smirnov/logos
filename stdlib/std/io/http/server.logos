@@ -109,23 +109,23 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
         buf_reader_wrap::<AsyncTcpStream>(astream, 4096 as i64);
     let mut keep: bool = true;
     while keep {
-        let mut req: Request = match parse_request_stream::<AsyncTcpStream>(&mut br) {
-            Result::Ok(v)  => v,
-            Result::Err(e) => {
-                // Reply 4xx before closing.  Distinguish a clean client
-                // hangup (EOF before any bytes) — avoid writing back in
-                // that case; we'd just get EPIPE.
-                match e {
-                    HttpError::Io => { }                    // EOF / peer gone
-                    _             => {
-                        let sink: &mut AsyncTcpStream =
-                            buf_reader_inner_mut::<AsyncTcpStream>(&mut br);
-                        let _: i64 = send_error_response(sink, 400 as i32);
-                    }
-                }
-                keep = false;
-                break;
-            }
+        // Workarounds for two codegen bugs:
+        //   1. `break` inside a match-expression arm whose value is bound to
+        //      a `let` does not exit the enclosing `while` — it falls through.
+        //   2. `match Result<Request, HttpError> { Err(e) => ... }` reads
+        //      garbage bytes into `e` (sizeof(Request) >> sizeof(HttpError)).
+        // Both are dodged by funnelling the outcome through an Option slot
+        // and treating every parse failure as "close silently" — we cannot
+        // safely distinguish EOF from malformed without inspecting `e`.
+        let mut req_slot: Option<Request> = Option::None;
+        match parse_request_stream::<AsyncTcpStream>(&mut br) {
+            Result::Ok(v)  => { req_slot = Option::Some(v); }
+            Result::Err(_) => { keep = false; }
+        }
+        if !keep { break; }
+        let mut req: Request = match req_slot {
+            Option::Some(v) => v,
+            Option::None    => { break; }   // unreachable
         };
 
         // RFC 7231 §5.1.1: if the client signalled Expect: 100-continue we

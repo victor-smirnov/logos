@@ -1,0 +1,63 @@
+// Phase 3 benchmark server: GET / → "hello\n".  Configured via env-less
+// hardcoded knobs (edit + rebuild); bench driver kills the process when
+// the load run finishes.
+package bench_hello;
+
+use std.io.http;
+use std.io.net;
+use std.lang.text;
+use std.collections.vec;
+use std.lang.option;
+use std.lang.result;
+use std.sys.fiber;
+
+const PORT:      u16 = 18080 as u16;
+const N_WORKERS: i32 = 1 as i32;
+
+fn handler(req: &Request) -> Response {
+    let mut resp: Response = Response::new(200 as i32);
+    (&mut resp.headers).append("Content-Length", "6");
+    (&mut resp.headers).append("Content-Type", "text/plain");
+    (&mut resp.headers).append("Connection", "close");
+    unsafe {
+        let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
+        bp.push(104 as u8);  // h
+        bp.push(101 as u8);  // e
+        bp.push(108 as u8);  // l
+        bp.push(108 as u8);  // l
+        bp.push(111 as u8);  // o
+        bp.push(10  as u8);  // \n
+    }
+    return resp;
+}
+
+struct ServerArg {
+    svc:       *mut FnService,
+    stop_flag: *mut i64,
+}
+
+fn server_fiber(arg: i64) {
+    let a: *mut ServerArg = arg as *mut ServerArg;
+    let svc: *mut FnService = unsafe { a.svc };
+    let stop_flag: *mut i64 = unsafe { a.stop_flag };
+    let _: Result<(), HttpError> =
+        serve_until::<FnService>(PORT, unsafe { &mut *svc }, stop_flag);
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_current(s);
+    let r: *mut Reactor = reactor_new(256);
+    if r == 0 as *mut Reactor { return 1; }
+    reactor_set_current(r);
+
+    let mut svc: FnService = fn_service(handler);
+    let mut stop: [i64; 1] = [0 as i64; 1];
+    let mut sa: ServerArg = ServerArg {
+        svc:       &mut svc as *mut FnService,
+        stop_flag: &mut stop[0 as i64] as *mut i64,
+    };
+    spawn(server_fiber, &mut sa as *mut ServerArg as i64);
+    reactor_run(s, r);
+    return 0;
+}
