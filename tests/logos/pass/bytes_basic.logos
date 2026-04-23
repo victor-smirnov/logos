@@ -1,0 +1,43 @@
+// Bytes: refcounted immutable byte slice + BytesMut builder.
+
+package test;
+
+use std.io.bytes;
+
+fn main() -> i32 {
+    unsafe {
+        let mut mb: BytesMut = bytes_mut_with_capacity(4 as i64);
+        mb.extend_from_str("Hel");
+        mb.push_byte(108 as u8); // 'l'
+        mb.extend_from_str("o");
+
+        if mb.len() != 5 as i64 { return 1; }
+
+        let mut b: Bytes = mb.freeze();
+        if b.len() != 5 as i64 { return 2; }
+
+        let mut b2: Bytes = b.clone_bytes();
+        if b2.len() != 5 as i64 { return 3; }
+
+        let mut mid: Bytes = b.slice(1 as i64, 4 as i64); // "ell"
+        if mid.len() != 3 as i64 { return 4; }
+
+        if mid.get(0 as i64) != 101 as u8 { return 5; }
+        if mid.get(1 as i64) != 108 as u8 { return 6; }
+        if mid.get(2 as i64) != 108 as u8 { return 7; }
+
+        let mut whole: Bytes = b.slice(0 - 10 as i64, 99 as i64);
+        if whole.len() != 5 as i64 { return 8; }
+        whole.drop_bytes();
+
+        mid.drop_bytes();
+        b2.drop_bytes();
+        b.drop_bytes();
+
+        let mut s: Bytes = bytes_from_str("abc");
+        if s.len() != 3 as i64 { return 9; }
+        if s.get(0 as i64) != 97 as u8 { return 10; }
+        s.drop_bytes();
+    }
+    return 42;
+}

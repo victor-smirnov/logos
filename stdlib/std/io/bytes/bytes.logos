@@ -1,0 +1,213 @@
+// SPDX-License-Identifier: Apache-2.0
+// Logos standard library — std.io.bytes
+//
+// Bytes — a refcounted immutable byte slice.
+//
+// Cheap to clone (bumps refcount) and cheap to slice (zero-copy).  The
+// underlying heap block carries an atomic refcount so Bytes may travel across
+// fibers / threads.  When the last handle drops, the buffer is freed.
+//
+// Build buffers via BytesMut, then call freeze() to hand out immutable Bytes.
+
+package std.io.bytes;
+
+use std.mem;
+use std.sync.atomic;
+use std.lang.text;
+
+// ── Inner heap block ──────────────────────────────────────────────────────────
+
+struct BytesInner {
+    data:     *mut u8,
+    cap:      i64,
+    refcount: AtomicI32,
+}
+
+unsafe fn inner_alloc(cap: i64) -> *mut BytesInner {
+    let inner: *mut BytesInner = alloc(sizeof::<BytesInner>()) as *mut BytesInner;
+    if inner == 0 as *mut BytesInner { return inner; }
+    let mut data: *mut u8 = 0 as *mut u8;
+    if cap > 0 as i64 { data = alloc(cap); }
+    inner.data     = data;
+    inner.cap      = cap;
+    inner.refcount = atomic_i32_new(1);
+    return inner;
+}
+
+unsafe fn inner_retain(inner: *mut BytesInner) {
+    (&mut inner.refcount).fetch_add(1);
+}
+
+unsafe fn inner_release(inner: *mut BytesInner) {
+    if inner == 0 as *mut BytesInner { return; }
+    let prev: i32 = (&mut inner.refcount).fetch_sub(1);
+    if prev == 1 {
+        if inner.data != 0 as *mut u8 { dealloc(inner.data); }
+        dealloc(inner as *mut u8);
+    }
+}
+
+// ── Bytes (immutable view into a refcounted buffer) ───────────────────────────
+
+pub struct Bytes {
+    inner:  *mut BytesInner,
+    offset: i64,
+    len:    i64,
+}
+
+pub fn bytes_empty() -> Bytes {
+    return Bytes {
+        inner:  0 as *mut BytesInner,
+        offset: 0 as i64,
+        len:    0 as i64,
+    };
+}
+
+pub fn bytes_from_slice(src: *const u8, len: i64) -> Bytes {
+    if len <= 0 as i64 { return bytes_empty(); }
+    unsafe {
+        let inner: *mut BytesInner = inner_alloc(len);
+        copy_bytes(inner.data, src, len);
+        return Bytes { inner: inner, offset: 0 as i64, len: len };
+    }
+}
+
+pub fn bytes_from_string(s: &String) -> Bytes {
+    unsafe { return bytes_from_slice(s.as_ptr(), s.len()); }
+}
+
+pub fn bytes_from_str(s: str) -> Bytes {
+    unsafe { return bytes_from_slice(s.as_ptr(), s.len()); }
+}
+
+impl Bytes {
+    pub unsafe fn len(self: *mut Bytes) -> i64 { return self.len; }
+
+    pub unsafe fn is_empty(self: *mut Bytes) -> bool { return self.len == 0 as i64; }
+
+    pub unsafe fn as_ptr(self: *mut Bytes) -> *const u8 {
+        if self.inner == 0 as *mut BytesInner { return 0 as *const u8; }
+        return (self.inner.data as i64 + self.offset) as *const u8;
+    }
+
+    pub unsafe fn clone_bytes(self: *mut Bytes) -> Bytes {
+        if self.inner != 0 as *mut BytesInner { inner_retain(self.inner); }
+        return Bytes { inner: self.inner, offset: self.offset, len: self.len };
+    }
+
+    // Zero-copy sub-range [start, end).  Indices are clamped to the slice.
+    pub unsafe fn slice(self: *mut Bytes, start: i64, end: i64) -> Bytes {
+        let mut lo: i64 = start;
+        let mut hi: i64 = end;
+        if lo < 0 as i64 { lo = 0 as i64; }
+        if hi > self.len { hi = self.len; }
+        if lo > hi { lo = hi; }
+        if self.inner != 0 as *mut BytesInner { inner_retain(self.inner); }
+        return Bytes {
+            inner:  self.inner,
+            offset: self.offset + lo,
+            len:    hi - lo,
+        };
+    }
+
+    pub unsafe fn drop_bytes(self: *mut Bytes) {
+        inner_release(self.inner);
+        self.inner  = 0 as *mut BytesInner;
+        self.offset = 0 as i64;
+        self.len    = 0 as i64;
+    }
+
+    pub unsafe fn get(self: *mut Bytes, i: i64) -> u8 {
+        let p: *const u8 = (self.inner.data as i64 + self.offset + i) as *const u8;
+        return p[0];
+    }
+}
+
+// ── BytesMut (owned, mutable builder; freeze() yields Bytes) ──────────────────
+
+pub struct BytesMut {
+    inner: *mut BytesInner,   // refcount stays 1 while BytesMut owns it
+    len:   i64,
+}
+
+pub fn bytes_mut_with_capacity(cap: i64) -> BytesMut {
+    unsafe {
+        let inner: *mut BytesInner = inner_alloc(cap);
+        return BytesMut { inner: inner, len: 0 as i64 };
+    }
+}
+
+pub fn bytes_mut_new() -> BytesMut { return bytes_mut_with_capacity(0 as i64); }
+
+impl BytesMut {
+    pub unsafe fn len(self: *mut BytesMut) -> i64 { return self.len; }
+
+    pub unsafe fn capacity(self: *mut BytesMut) -> i64 {
+        if self.inner == 0 as *mut BytesInner { return 0 as i64; }
+        return self.inner.cap;
+    }
+
+    pub unsafe fn as_ptr(self: *mut BytesMut) -> *const u8 {
+        if self.inner == 0 as *mut BytesInner { return 0 as *const u8; }
+        return self.inner.data as *const u8;
+    }
+
+    pub unsafe fn as_mut_ptr(self: *mut BytesMut) -> *mut u8 {
+        if self.inner == 0 as *mut BytesInner { return 0 as *mut u8; }
+        return self.inner.data;
+    }
+
+    pub unsafe fn reserve(self: *mut BytesMut, additional: i64) {
+        let need: i64 = self.len + additional;
+        let mut cur_cap: i64 = 0 as i64;
+        if self.inner != 0 as *mut BytesInner { cur_cap = self.inner.cap; }
+        if need <= cur_cap { return; }
+        let mut new_cap: i64 = cur_cap;
+        if new_cap < 8 as i64 { new_cap = 8 as i64; }
+        while new_cap < need { new_cap = new_cap * 2 as i64; }
+        if self.inner == 0 as *mut BytesInner {
+            self.inner = inner_alloc(new_cap);
+        } else {
+            self.inner.data = realloc_buf(self.inner.data, new_cap);
+            self.inner.cap  = new_cap;
+        }
+    }
+
+    pub unsafe fn push_byte(self: *mut BytesMut, b: u8) {
+        self.reserve(1 as i64);
+        let p: *mut u8 = (self.inner.data as i64 + self.len) as *mut u8;
+        p[0] = b;
+        self.len = self.len + 1 as i64;
+    }
+
+    pub unsafe fn extend_from_slice(self: *mut BytesMut, src: *const u8, n: i64) {
+        if n <= 0 as i64 { return; }
+        self.reserve(n);
+        let dst: *mut u8 = (self.inner.data as i64 + self.len) as *mut u8;
+        copy_bytes(dst, src, n);
+        self.len = self.len + n;
+    }
+
+    pub unsafe fn extend_from_string(self: *mut BytesMut, s: &String) {
+        self.extend_from_slice(s.as_ptr(), s.len());
+    }
+
+    pub unsafe fn extend_from_str(self: *mut BytesMut, s: str) {
+        self.extend_from_slice(s.as_ptr(), s.len());
+    }
+
+    // Hand out an immutable Bytes view covering the populated region.
+    // Consumes the BytesMut (caller must not reuse it).
+    pub unsafe fn freeze(self: *mut BytesMut) -> Bytes {
+        let b: Bytes = Bytes { inner: self.inner, offset: 0 as i64, len: self.len };
+        self.inner = 0 as *mut BytesInner;
+        self.len   = 0 as i64;
+        return b;
+    }
+
+    pub unsafe fn drop_mut(self: *mut BytesMut) {
+        inner_release(self.inner);
+        self.inner = 0 as *mut BytesInner;
+        self.len   = 0 as i64;
+    }
+}
