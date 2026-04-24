@@ -46,6 +46,12 @@ class TypePoolImpl {
 public:
     hermes::Arena                                          arena_;
     std::unordered_map<const LogosType*, hermes::arena_offset_t> mirror_offsets_;
+    // Inverse of mirror_offsets_; populated by TypePool::alloc() right after
+    // the forward map. Phase 2c.4d will use this to resolve AnyVal pointee
+    // offsets read from the mirror back to a const LogosType* so TypeRef's
+    // pointer-valued accessors (pointee/elem/assoc_base/closure_ret) can
+    // source from the mirror. Not yet consumed.
+    std::unordered_map<hermes::arena_offset_t, const LogosType*> mirror_inverse_;
 
     TypePoolImpl(logos::InitTag& tag)
         : arena_(tag, hermes::ArenaMode::GrowableSingleChunk, 64 * 1024)
@@ -360,6 +366,7 @@ const LogosType* TypePool::alloc(LogosType t) {
     if (!impl_) impl_ = TypePoolImpl::make();
     auto off = impl_->mirror(*p);
     impl_->mirror_offsets_[p] = off;
+    impl_->mirror_inverse_[off] = p;
     // Wire back-refs so readers can resolve the mirror on demand.
     // `p` is mutable through &pool_.back().
     auto* mp = const_cast<LogosType*>(p);
@@ -367,6 +374,52 @@ const LogosType* TypePool::alloc(LogosType t) {
     mp->hermes_mirror_off_ = off;
     impl_->validate_mirror(*p, off);
     return p;
+}
+
+// ── TypeRef pointer-valued accessors (Phase 2c.4d.0) ───────────────────────
+//
+// These cross-check the mirror's AnyVal pointee offset against the source
+// struct field via TypePoolImpl's inverse map. The struct field is still
+// what we return; the check confirms the mirror stays consistent under
+// real workloads before 2c.4d flips reads to the mirror.
+namespace {
+
+void check_ptr_mirror(const LogosType* parent, const LogosType* expected,
+                      sema_schema::Key key, const char* name) {
+    if (!parent || !parent->hermes_arena_) return;
+    auto* base = const_cast<uint8_t*>(parent->hermes_arena_->head().data());
+    auto* mp   = reinterpret_cast<const hermes::TinyObjectMap*>(
+        base + parent->hermes_mirror_off_.value());
+    auto av = mp->get(key.code, base);
+    if (!expected) {
+        LOGOS_ASSERT(av.is_null(), "SEMA-TYPEREF-PTR-0001",
+                     "%s mirror has value but struct is null", name);
+        return;
+    }
+    LOGOS_ASSERT(!av.is_null(), "SEMA-TYPEREF-PTR-0002",
+                 "%s mirror is null but struct has value", name);
+    LOGOS_ASSERT(expected->hermes_mirror_off_.value() == av.to_offset().value(),
+                 "SEMA-TYPEREF-PTR-0003",
+                 "%s mirror offset mismatch", name);
+}
+
+}  // namespace
+
+TypeRef TypeRef::pointee() const noexcept {
+    check_ptr_mirror(p_, p_->pointee, sema_schema::POINTEE, "pointee");
+    return p_->pointee;
+}
+TypeRef TypeRef::elem() const noexcept {
+    check_ptr_mirror(p_, p_->elem, sema_schema::ELEM, "elem");
+    return p_->elem;
+}
+TypeRef TypeRef::assoc_base() const noexcept {
+    check_ptr_mirror(p_, p_->assoc_base, sema_schema::ASSOC_BASE, "assoc_base");
+    return p_->assoc_base;
+}
+TypeRef TypeRef::closure_ret() const noexcept {
+    check_ptr_mirror(p_, p_->closure_ret, sema_schema::CLOSURE_RET, "closure_ret");
+    return p_->closure_ret;
 }
 
 namespace la = ast;

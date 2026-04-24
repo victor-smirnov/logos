@@ -191,10 +191,15 @@ public:
             hermes::schema::variant_of(mirror()->schema_type_code()));
     }
 
-    TypeRef pointee()      const noexcept { return p_->pointee; }
-    TypeRef elem()         const noexcept { return p_->elem; }
-    TypeRef assoc_base()   const noexcept { return p_->assoc_base; }
-    TypeRef closure_ret()  const noexcept { return p_->closure_ret; }
+    // Pointer-valued accessors. Struct fields are authoritative; when a
+    // mirror is wired, we cross-check the mirror's AnyVal pointee offset
+    // resolves (via TypePoolImpl's inverse map) to the same LogosType*.
+    // Full cutover is 2c.4d — returns will then come straight from the
+    // mirror and the struct fields can be deleted.
+    TypeRef pointee()      const noexcept;
+    TypeRef elem()         const noexcept;
+    TypeRef assoc_base()   const noexcept;
+    TypeRef closure_ret()  const noexcept;
 
     bool mut_ptr() const noexcept {
         if (!p_->hermes_arena_) return p_->mut_ptr;
