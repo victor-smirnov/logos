@@ -162,8 +162,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 else if ((TypeRef(rt).kind() == LogosType::Kind::Ptr ||
                           TypeRef(rt).kind() == LogosType::Kind::Ref ||
                           TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
-                    if (TypeRef(rt).pointee()->kind == LogosType::Kind::Struct ||
-                        TypeRef(rt).pointee()->kind == LogosType::Kind::ZonedStruct)
+                    if (TypeRef(rt).pointee().kind() == LogosType::Kind::Struct ||
+                        TypeRef(rt).pointee().kind() == LogosType::Kind::ZonedStruct)
                         cname = concrete_struct_name(TypeRef(rt).pointee());
                     else {
                         // Primitive pointee: auto-deref for method dispatch

@@ -150,11 +150,12 @@ public:
     constexpr TypeRef() noexcept = default;
     constexpr TypeRef(const LogosType* p) noexcept : p_(p) {}
 
-    // 2c.4e.2: implicit TypeRef→const LogosType* deleted. `operator->`
-    // and `operator*` still work for during-transition callers that
-    // reach struct fields directly; eventual 2c.4e.3 drops these too.
-    constexpr const LogosType* operator->() const noexcept { return p_; }
-    constexpr const LogosType& operator*()  const noexcept { return *p_; }
+    // 2c.4e.2b: operator-> and operator* removed. Callers that reached
+    // struct fields (e.g. `t.pointee()->kind`) must now use TypeRef
+    // accessor methods (`t.pointee().kind()`). `.raw()` remains as the
+    // last bridge to const LogosType* for APIs that still expect a
+    // pointer (borrow_check, mono's SubstMap, types_equal); 2c.4e.2c will
+    // flip storage to {base,off} and remove .raw() too.
     constexpr explicit operator bool() const noexcept { return p_ != nullptr; }
 
     constexpr const LogosType* raw() const noexcept { return p_; }

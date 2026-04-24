@@ -664,23 +664,23 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
 
 bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (!from || !to) return false;
-    if (types_equal(*from, *to)) return true;
-    if (TypeRef(from).kind() == LogosType::Kind::IntLit && is_integer_kind(to->kind)) return true;
-    if (TypeRef(from).kind() == LogosType::Kind::IntLit && TypeRef(to).kind() == LogosType::Kind::TypeVar) return true;
-    if (TypeRef(from).kind() == LogosType::Kind::IntLit &&
-        (TypeRef(to).kind() == LogosType::Kind::F32 || TypeRef(to).kind() == LogosType::Kind::F64)) return true;
-    if (TypeRef(from).kind() == LogosType::Kind::FloatLit &&
-        (TypeRef(to).kind() == LogosType::Kind::F32 || TypeRef(to).kind() == LogosType::Kind::F64 ||
-         TypeRef(to).kind() == LogosType::Kind::TypeVar)) return true;
-    if (TypeRef(from).kind() == LogosType::Kind::Enum   && is_integer_kind(to->kind)) return true;
-    if (is_integer_kind(from->kind) && TypeRef(to).kind() == LogosType::Kind::Enum)   return true;
+    if (types_equal(*from.raw(), *to.raw())) return true;
+    if (from.kind() == LogosType::Kind::IntLit && is_integer_kind(to.kind())) return true;
+    if (from.kind() == LogosType::Kind::IntLit && to.kind() == LogosType::Kind::TypeVar) return true;
+    if (from.kind() == LogosType::Kind::IntLit &&
+        (to.kind() == LogosType::Kind::F32 || to.kind() == LogosType::Kind::F64)) return true;
+    if (from.kind() == LogosType::Kind::FloatLit &&
+        (to.kind() == LogosType::Kind::F32 || to.kind() == LogosType::Kind::F64 ||
+         to.kind() == LogosType::Kind::TypeVar)) return true;
+    if (from.kind() == LogosType::Kind::Enum   && is_integer_kind(to.kind())) return true;
+    if (is_integer_kind(from.kind()) && to.kind() == LogosType::Kind::Enum)   return true;
     // Safe implicit integer widening (e.g. u32 → i64, i32 → i64, u8 → u32).
     // Value preservation guaranteed; signed→unsigned never allowed here.
-    if (can_widen_int(from->kind, to->kind)) return true;
-    if (TypeRef(from).kind() == LogosType::Kind::Array &&
-        TypeRef(to).kind() == LogosType::Kind::Ptr   &&
-        TypeRef(from).elem() && TypeRef(to).pointee())
-        return types_equal(*TypeRef(from).elem(), *TypeRef(to).pointee());
+    if (can_widen_int(from.kind(), to.kind())) return true;
+    if (from.kind() == LogosType::Kind::Array &&
+        to.kind() == LogosType::Kind::Ptr   &&
+        from.elem() && to.pointee())
+        return types_equal(*from.elem().raw(), *to.pointee().raw());
     // Arrays are compatible if same size and elements are compatible (handles nested arrays).
     if (TypeRef(from).kind() == LogosType::Kind::Array && TypeRef(to).kind() == LogosType::Kind::Array &&
         TypeRef(from).arr_size() == TypeRef(to).arr_size() && TypeRef(from).elem() && TypeRef(to).elem())
@@ -1053,9 +1053,9 @@ std::string_view SemaChecker::struct_name_of(std::string_view var_name) {
     if (TypeRef(t).kind() == LogosType::Kind::Struct ||
         TypeRef(t).kind() == LogosType::Kind::ZonedStruct) return TypeRef(t).struct_name();
     if (is_ref_like(t->kind) && TypeRef(t).pointee() &&
-        (TypeRef(t).pointee()->kind == LogosType::Kind::Struct ||
-         TypeRef(t).pointee()->kind == LogosType::Kind::ZonedStruct))
-        return TypeRef(t).pointee()->struct_name;
+        (TypeRef(t).pointee().kind() == LogosType::Kind::Struct ||
+         TypeRef(t).pointee().kind() == LogosType::Kind::ZonedStruct))
+        return TypeRef(t).pointee().struct_name();
     return {};
 }
 
@@ -1073,14 +1073,14 @@ std::string_view SemaChecker::struct_name_from_type(const LogosType* t) {
         return TypeRef(t).struct_name();
     }
     if (is_ref_like(t->kind) && TypeRef(t).pointee() &&
-        (TypeRef(t).pointee()->kind == LogosType::Kind::Struct ||
-         TypeRef(t).pointee()->kind == LogosType::Kind::ZonedStruct)) {
-        if (!TypeRef(t).pointee()->type_args.empty()) {
+        (TypeRef(t).pointee().kind() == LogosType::Kind::Struct ||
+         TypeRef(t).pointee().kind() == LogosType::Kind::ZonedStruct)) {
+        if (!TypeRef(t).pointee().type_args().empty()) {
             thread_local std::string buf2;
             buf2 = concrete_struct_name(TypeRef(t).pointee());
             return buf2;
         }
-        return TypeRef(t).pointee()->struct_name;
+        return TypeRef(t).pointee().struct_name();
     }
     return {};
 }

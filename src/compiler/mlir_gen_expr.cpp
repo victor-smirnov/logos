@@ -1229,7 +1229,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, const LogosType* ty
     // recv is already a pointer to the tuple (passed as ptr in calling convention).
     const LogosType* recv_type = e.receiver->type;
     if (recv_type && TypeRef(recv_type).pointee() &&
-        TypeRef(recv_type).pointee()->kind == LogosType::Kind::Tuple &&
+        TypeRef(recv_type).pointee().kind() == LogosType::Kind::Tuple &&
         (TypeRef(recv_type).kind() == LogosType::Kind::Ref ||
          TypeRef(recv_type).kind() == LogosType::Kind::MutRef ||
          TypeRef(recv_type).kind() == LogosType::Kind::Ptr))
@@ -1314,7 +1314,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
     if (e.operand->type && e.operand->type->kind == LogosType::Kind::Slice &&
         e.operand->type->elem && e.operand->type->elem->kind == LogosType::Kind::U8 &&
         type && TypeRef(type).kind() == LogosType::Kind::Ptr &&
-        TypeRef(type).pointee() && TypeRef(type).pointee()->kind == LogosType::Kind::U8) {
+        TypeRef(type).pointee() && TypeRef(type).pointee().kind() == LogosType::Kind::U8) {
         auto stype = slice_llvm_type();
         llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
         auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, val, pi);
@@ -2095,8 +2095,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrArith& e, const LogosType*) {
         const LogosType* pt = e.ptr->type;
         if (pt && TypeRef(pt).pointee()) {
             // Struct/Datatype want their aggregate LLVM type, not ptr.
-            if (TypeRef(pt).pointee()->kind == LogosType::Kind::Struct ||
-                TypeRef(pt).pointee()->kind == LogosType::Kind::ZonedStruct) {
+            if (TypeRef(pt).pointee().kind() == LogosType::Kind::Struct ||
+                TypeRef(pt).pointee().kind() == LogosType::Kind::ZonedStruct) {
                 auto cname = concrete_struct_name(TypeRef(pt).pointee());
                 auto sit = struct_types_.find(cname);
                 if (sit != struct_types_.end())
@@ -2125,8 +2125,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrDiff& e, const LogosType*) {
     const LogosType* pt = e.lhs->type;
     if (!pt || !TypeRef(pt).pointee()) return diff;
     mlir::Type elem_mlir = nullptr;
-    if (TypeRef(pt).pointee()->kind == LogosType::Kind::Struct ||
-        TypeRef(pt).pointee()->kind == LogosType::Kind::ZonedStruct) {
+    if (TypeRef(pt).pointee().kind() == LogosType::Kind::Struct ||
+        TypeRef(pt).pointee().kind() == LogosType::Kind::ZonedStruct) {
         auto cname = concrete_struct_name(TypeRef(pt).pointee());
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
@@ -2694,7 +2694,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
         using K = LogosType::Kind;
         if (t->kind == K::F64 || t->kind == K::F32 || t->kind == K::FloatLit) return true;
         if (t->kind == K::Ptr) return true;  // *const u8 → C-string varchar
-        if (t->kind == K::Slice && TypeRef(t).elem() && TypeRef(t).elem()->kind == K::U8) return true; // str → varchar
+        if (t->kind == K::Slice && TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) return true; // str → varchar
         if (t->kind == K::Struct && TypeRef(t).struct_name() == "StringView") return true;
         return false;
     };
@@ -2801,7 +2801,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_cstr_fn, mlir::ValueRange{ctr_alloca, cap_val});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
-                } else if (ct->kind == K::Slice && TypeRef(ct).elem() && TypeRef(ct).elem()->kind == K::U8
+                } else if (ct->kind == K::Slice && TypeRef(ct).elem() && TypeRef(ct).elem().kind() == K::U8
                            && alloc_str_fn) {
                     // str (&[u8]) fat pointer — load ptr+len fields from the alloca.
                     auto stype = slice_llvm_type();

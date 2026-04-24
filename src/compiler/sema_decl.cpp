@@ -251,7 +251,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                          spv.kind() != LogosType::Kind::MutRef &&
                          spv.kind() != LogosType::Kind::Ptr) ||
                         !spv.pointee() ||
-                        !types_equal(*spv.pointee(), *self_t))
+                        !types_equal(*spv.pointee().raw(), *self_t))
                         continue;
                     bool same_tail = true;
                     for (size_t i = 0; i < decl_param_types.size(); ++i) {

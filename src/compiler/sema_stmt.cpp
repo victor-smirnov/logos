@@ -519,11 +519,11 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // Check each IntLit array element fits in the annotation's element type.
         if (TypeRef(ann).kind() == LogosType::Kind::Array && TypeRef(ann).elem() &&
             TypeRef(rhs_type).kind() == LogosType::Kind::Array && TypeRef(rhs_type).elem() &&
-            TypeRef(rhs_type).elem()->kind == LogosType::Kind::IntLit) {
+            TypeRef(rhs_type).elem().kind() == LogosType::Kind::IntLit) {
             if (auto* arrlit = std::get_if<lir::EArrLit>(&rhs->kind)) {
                 for (size_t ei = 0; ei < arrlit->elems.size(); ++ei) {
                     if (auto v = get_intlit_value(arrlit->elems[ei].get()))
-                        if (!intlit_fits(*v, TypeRef(ann).elem()->kind))
+                        if (!intlit_fits(*v, TypeRef(ann).elem().kind()))
                             error(std::format("let '{}': array element {}: value {} does not fit in {}",
                                   name, ei, *v, type_str(TypeRef(ann).elem())));
                 }
@@ -699,7 +699,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
             for (size_t i = 0; i < al->elems.size(); ++i)
                 if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(al->elems[i].get()))
-                        if (!intlit_fits(*v, TypeRef(var_type).elem()->kind))
+                        if (!intlit_fits(*v, TypeRef(var_type).elem().kind()))
                             error(std::format("assignment to '{}': array element {}: value {} does not fit in {}",
                                   name, i, *v, type_str(TypeRef(var_type).elem())));
     // Check tuple literal elements against narrow tuple variable element types.
@@ -786,7 +786,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                     for (size_t i = 0; i < al->elems.size(); ++i)
                         if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
                             if (auto v = get_intlit_value(al->elems[i].get()))
-                                if (!intlit_fits(*v, TypeRef(ret_type_).elem()->kind))
+                                if (!intlit_fits(*v, TypeRef(ret_type_).elem().kind()))
                                     error(std::format("return: array element {}: value {} does not fit in {}",
                                           i, *v, type_str(TypeRef(ret_type_).elem())));
             // Detect tuple literal elements that don't fit in the return tuple element types.
@@ -2088,7 +2088,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
                 TypeRef(iter_type).kind() == LogosType::Kind::ZonedStruct)
                 base_name = TypeRef(iter_type).struct_name();
             else if (is_ref_like(iter_type->kind) && TypeRef(iter_type).pointee())
-                base_name = TypeRef(iter_type).pointee()->struct_name;
+                base_name = TypeRef(iter_type).pointee().struct_name();
             if (!base_name.empty() && base_name != std::string(sname)) {
                 auto base_next = base_name + "__next";
                 if (auto git = find_generic_func(base_next))
@@ -2373,7 +2373,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
             for (size_t i = 0; i < al->elems.size(); ++i)
                 if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(al->elems[i].get()))
-                        if (!intlit_fits(*v, TypeRef(ft).elem()->kind))
+                        if (!intlit_fits(*v, TypeRef(ft).elem().kind()))
                             error(std::format("field write '{}.{}': array element {}: value {} does not fit in {}",
                                   recv_name, field_name, i, *v, type_str(TypeRef(ft).elem())));
     // Check tuple literal elements against narrow tuple field element types.
@@ -2727,7 +2727,7 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
             for (size_t i = 0; i < al->elems.size(); ++i)
                 if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(al->elems[i].get()))
-                        if (!intlit_fits(*v, TypeRef(ft).elem()->kind))
+                        if (!intlit_fits(*v, TypeRef(ft).elem().kind()))
                             error(std::format("deref-field-write '(*{}).{}': array element {}: value {} does not fit in {}",
                                   recv_name, field_name, i, *v, type_str(TypeRef(ft).elem())));
     // Check tuple literal elements against narrow tuple field element types.
@@ -2824,7 +2824,7 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
             for (size_t i = 0; i < al->elems.size(); ++i)
                 if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(al->elems[i].get()))
-                        if (!intlit_fits(*v, TypeRef(elem_type).elem()->kind))
+                        if (!intlit_fits(*v, TypeRef(elem_type).elem().kind()))
                             error(std::format("index write to '{}': array element {}: value {} does not fit in {}",
                                   arr_name, i, *v, type_str(TypeRef(elem_type).elem())));
     // Check tuple literal elements against narrow nested tuple element type.
@@ -3013,7 +3013,7 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
             for (size_t i = 0; i < al->elems.size(); ++i)
                 if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(al->elems[i].get()))
-                        if (!intlit_fits(*v, TypeRef(elem_t).elem()->kind))
+                        if (!intlit_fits(*v, TypeRef(elem_t).elem().kind()))
                             error(std::format("field index write '{}.{}[i]': array element {}: value {} does not fit in {}",
                                   recv_name, field_name, i, *v, type_str(TypeRef(elem_t).elem())));
     // Check tuple literal elements against narrow nested tuple element type.
