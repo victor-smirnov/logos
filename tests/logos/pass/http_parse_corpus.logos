@@ -1,0 +1,399 @@
+// Ported from hyper/httparse (https://github.com/seanmonstar/httparse).
+// A subset of the parser-conformance corpus, translated to our
+// buffer-complete parse_request_buf / parse_response_buf entry points.
+//
+// Only httparse's strict-mode behaviors are ported — our parser has no
+// lenient-mode toggles, so we exercise the "forbid" side of paired tests
+// (e.g. forbid_response_with_whitespace_between_header_name_and_colon).
+//
+// Each subtest returns its ID on failure and 0 on success.  main()
+// propagates the first non-zero ID as the exit code; .expected is
+// exit: 0.  When adding a subtest, assign a new monotonic ID; do NOT
+// renumber existing ones — a CI diff regression is easier to triage
+// when IDs are stable.
+package test;
+
+use std.io.http;
+use std.lang.text;
+use std.io.net.url;
+use std.lang.option;
+use std.lang.result;
+use std.collections.vec;
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+fn push_str(out: &mut Vec<u8>, s: str) {
+    let p: *const u8 = s.as_ptr();
+    let n: i64 = s.len();
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < n { vec_push_u8(out, p[i]); i = i + 1 as i64; }
+    }
+}
+
+fn parse_req_vec(buf: &Vec<u8>) -> Result<Request, HttpError> {
+    unsafe {
+        let bp: *mut Vec<u8> = buf as *const Vec<u8> as *mut Vec<u8>;
+        return parse_request_buf(bp.at_const(0 as i64) as *const u8, bp.length());
+    }
+}
+
+fn parse_resp_vec(buf: &Vec<u8>) -> Result<Response, HttpError> {
+    unsafe {
+        let bp: *mut Vec<u8> = buf as *const Vec<u8> as *mut Vec<u8>;
+        return parse_response_buf(bp.at_const(0 as i64) as *const u8, bp.length());
+    }
+}
+
+fn is_err_req(r: Result<Request, HttpError>) -> bool {
+    match r {
+        Result::Ok(_)  => { return false; }
+        Result::Err(_) => { return true; }
+    }
+}
+
+fn is_err_resp(r: Result<Response, HttpError>) -> bool {
+    match r {
+        Result::Ok(_)  => { return false; }
+        Result::Err(_) => { return true; }
+    }
+}
+
+// ── Positive request tests ───────────────────────────────────────────────
+
+// test_request (httparse) — minimal valid GET.
+fn t001() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nHost: foo.com\r\n\r\n";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if r.method.code != 0 as i32 { return 1; }
+            if !(&r.url.path).eq_str("/") { return 1; }
+            if (&r.headers).len() != 1 as i64 { return 1; }
+            return 0;
+        }
+        Result::Err(_) => { return 1; }
+    }
+}
+
+// test_request_newlines — CRLF variants accepted, lone LF rejected.
+fn t002() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nHost: foo.bar\r\nAccept: */*\r\n\r\n";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if (&r.headers).len() != 2 as i64 { return 2; }
+            match (&r.headers).get("accept") {
+                Option::Some(v) => { if !(&v).eq_str("*/*") { return 2; } }
+                Option::None    => { return 2; }
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 2; }
+    }
+}
+
+// test_post — POST with Content-Length + body.
+fn t003() -> i32 {
+    let s: str = "POST /post HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhello";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if r.method.code != 1 as i32 { return 3; }
+            unsafe {
+                let bp: *mut Vec<u8> = &r.body as *const Vec<u8> as *mut Vec<u8>;
+                if bp.length() != 5 as i64 { return 3; }
+                if bp.get(0) != 104 as u8 { return 3; }  // 'h'
+                if bp.get(4) != 111 as u8 { return 3; }  // 'o'
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 3; }
+    }
+}
+
+// Chunked request body (Transfer-Encoding: chunked).
+// 5\r\nhello\r\n0\r\n\r\n — one chunk "hello" then zero terminator.
+fn t004() -> i32 {
+    let s: str = "POST /c HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            unsafe {
+                let bp: *mut Vec<u8> = &r.body as *const Vec<u8> as *mut Vec<u8>;
+                if bp.length() != 5 as i64 { return 4; }
+                if bp.get(0) != 104 as u8 { return 4; }
+                if bp.get(4) != 111 as u8 { return 4; }
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 4; }
+    }
+}
+
+// Multiple headers, order and duplicates preserved.
+fn t005() -> i32 {
+    let s: str = "GET /r HTTP/1.1\r\nHost: a\r\nAccept: text/plain\r\nAccept: */*\r\nUser-Agent: curl/8\r\n\r\n";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if (&r.headers).len() != 4 as i64 { return 5; }
+            // Headers::get returns FIRST match.
+            match (&r.headers).get("accept") {
+                Option::Some(v) => { if !(&v).eq_str("text/plain") { return 5; } }
+                Option::None    => { return 5; }
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 5; }
+    }
+}
+
+// Origin-form path + query string.
+fn t006() -> i32 {
+    let s: str = "GET /search?q=hello%20world&lang=en HTTP/1.1\r\nHost: x\r\n\r\n";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if !(&r.url.path).eq_str("/search") { return 6; }
+            if !(&r.url.query).eq_str("q=hello%20world&lang=en") { return 6; }
+            return 0;
+        }
+        Result::Err(_) => { return 6; }
+    }
+}
+
+// Absolute-form request-target (HTTP/1.1 §5.3.2, used to proxies).
+fn t007() -> i32 {
+    let s: str = "GET http://www.example.org/pub/WWW/ HTTP/1.1\r\nHost: www.example.org\r\n\r\n";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if !(&r.url.scheme).eq_str("http") { return 7; }
+            if !(&r.url.host).eq_str("www.example.org") { return 7; }
+            if !(&r.url.path).eq_str("/pub/WWW/") { return 7; }
+            return 0;
+        }
+        Result::Err(_) => { return 7; }
+    }
+}
+
+// Header with OWS (leading/trailing tabs and spaces) — must be trimmed.
+fn t008() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nHost:   \t foo.com  \r\n\r\n";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            match (&r.headers).get("host") {
+                Option::Some(v) => { if !(&v).eq_str("foo.com") { return 8; } }
+                Option::None    => { return 8; }
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 8; }
+    }
+}
+
+// Empty header value (valid per RFC 7230 — field-value may be empty).
+fn t009() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nX-Empty:\r\nHost: x\r\n\r\n";
+    match parse_request_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            match (&r.headers).get("x-empty") {
+                Option::Some(v) => { if (&v).len() != 0 as i64 { return 9; } }
+                Option::None    => { return 9; }
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 9; }
+    }
+}
+
+// Large Content-Length with a big body (stay sub-KB for test speed).
+fn t010() -> i32 {
+    let mut buf: Vec<u8> = vec_new::<u8>();
+    push_str(&mut buf, "POST /b HTTP/1.1\r\nHost: x\r\nContent-Length: 512\r\n\r\n");
+    let mut i: i64 = 0 as i64;
+    while i < 512 as i64 {
+        vec_push_u8(&mut buf, 65 as u8);  // 'A'
+        i = i + 1 as i64;
+    }
+    match parse_req_vec(&buf) {
+        Result::Ok(r) => {
+            unsafe {
+                let bp: *mut Vec<u8> = &r.body as *const Vec<u8> as *mut Vec<u8>;
+                if bp.length() != 512 as i64 { return 10; }
+                if bp.get(0) != 65 as u8 { return 10; }
+                if bp.get(511) != 65 as u8 { return 10; }
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 10; }
+    }
+}
+
+// ── Negative request tests (must Err) ────────────────────────────────────
+
+// test_request_missing_crlf — no terminator at all.
+fn t011() -> i32 {
+    let s: str = "GET / HTTP/1.1";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 11; }
+    return 0;
+}
+
+// test_request_with_invalid_method — no version token (only two spaces' worth).
+fn t012() -> i32 {
+    let s: str = "GET /\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 12; }
+    return 0;
+}
+
+// Request-line has only a method, no target / version.
+fn t013() -> i32 {
+    let s: str = "GET\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 13; }
+    return 0;
+}
+
+// Header line without a colon at all.
+fn t014() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nNoColonHere\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 14; }
+    return 0;
+}
+
+// Malformed Content-Length (non-numeric).
+fn t015() -> i32 {
+    let s: str = "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: ten\r\n\r\nhello";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 15; }
+    return 0;
+}
+
+// Content-Length that exceeds buffer length.
+fn t016() -> i32 {
+    let s: str = "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\nhi";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 16; }
+    return 0;
+}
+
+// Headers missing their terminating empty CRLF.
+fn t017() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nHost: x\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 17; }
+    return 0;
+}
+
+// ── Positive response tests ──────────────────────────────────────────────
+
+// test_response — minimal 200 OK.
+fn t018() -> i32 {
+    let s: str = "HTTP/1.1 200 OK\r\n\r\n";
+    match parse_response_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if r.status != 200 as i32 { return 18; }
+            if !(&r.reason).eq_str("OK") { return 18; }
+            return 0;
+        }
+        Result::Err(_) => { return 18; }
+    }
+}
+
+// 404 Not Found with body.
+fn t019() -> i32 {
+    let s: str = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nnot found";
+    match parse_response_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if r.status != 404 as i32 { return 19; }
+            if !(&r.reason).eq_str("Not Found") { return 19; }
+            unsafe {
+                let bp: *mut Vec<u8> = &r.body as *const Vec<u8> as *mut Vec<u8>;
+                if bp.length() != 9 as i64 { return 19; }
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 19; }
+    }
+}
+
+// Response with empty reason phrase ("HTTP/1.1 200\r\n..." per RFC 7230 §3.1.2).
+fn t020() -> i32 {
+    let s: str = "HTTP/1.1 200 \r\n\r\n";
+    match parse_response_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            if r.status != 200 as i32 { return 20; }
+            if (&r.reason).len() != 0 as i64 { return 20; }
+            return 0;
+        }
+        Result::Err(_) => { return 20; }
+    }
+}
+
+// Chunked response body.
+fn t021() -> i32 {
+    let s: str = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nfoo\r\n3\r\nbar\r\n0\r\n\r\n";
+    match parse_response_buf(s.as_ptr(), s.len()) {
+        Result::Ok(r) => {
+            unsafe {
+                let bp: *mut Vec<u8> = &r.body as *const Vec<u8> as *mut Vec<u8>;
+                if bp.length() != 6 as i64 { return 21; }
+                if bp.get(0) != 102 as u8 { return 21; } // 'f'
+                if bp.get(3) != 98 as u8  { return 21; } // 'b'
+            }
+            return 0;
+        }
+        Result::Err(_) => { return 21; }
+    }
+}
+
+// ── Negative response tests ──────────────────────────────────────────────
+
+// Status-line missing CRLF.
+fn t022() -> i32 {
+    let s: str = "HTTP/1.1 200 OK";
+    if !is_err_resp(parse_response_buf(s.as_ptr(), s.len())) { return 22; }
+    return 0;
+}
+
+// Non-numeric status code (test_response_with_spaces_in_code adjacent).
+fn t023() -> i32 {
+    let s: str = "HTTP/1.1 OK OK\r\n\r\n";
+    if !is_err_resp(parse_response_buf(s.as_ptr(), s.len())) { return 23; }
+    return 0;
+}
+
+// Status-line without any status token.
+fn t024() -> i32 {
+    let s: str = "HTTP/1.1\r\n\r\n";
+    if !is_err_resp(parse_response_buf(s.as_ptr(), s.len())) { return 24; }
+    return 0;
+}
+
+// Malformed Content-Length in response.
+fn t025() -> i32 {
+    let s: str = "HTTP/1.1 200 OK\r\nContent-Length: -5\r\n\r\nhello";
+    if !is_err_resp(parse_response_buf(s.as_ptr(), s.len())) { return 25; }
+    return 0;
+}
+
+// ── Entrypoint ───────────────────────────────────────────────────────────
+
+fn main() -> i32 {
+    let r: i32 = t001(); if r != 0 as i32 { return r; }
+    let r: i32 = t002(); if r != 0 as i32 { return r; }
+    let r: i32 = t003(); if r != 0 as i32 { return r; }
+    let r: i32 = t004(); if r != 0 as i32 { return r; }
+    let r: i32 = t005(); if r != 0 as i32 { return r; }
+    let r: i32 = t006(); if r != 0 as i32 { return r; }
+    let r: i32 = t007(); if r != 0 as i32 { return r; }
+    let r: i32 = t008(); if r != 0 as i32 { return r; }
+    let r: i32 = t009(); if r != 0 as i32 { return r; }
+    let r: i32 = t010(); if r != 0 as i32 { return r; }
+    let r: i32 = t011(); if r != 0 as i32 { return r; }
+    let r: i32 = t012(); if r != 0 as i32 { return r; }
+    let r: i32 = t013(); if r != 0 as i32 { return r; }
+    let r: i32 = t014(); if r != 0 as i32 { return r; }
+    let r: i32 = t015(); if r != 0 as i32 { return r; }
+    let r: i32 = t016(); if r != 0 as i32 { return r; }
+    let r: i32 = t017(); if r != 0 as i32 { return r; }
+    let r: i32 = t018(); if r != 0 as i32 { return r; }
+    let r: i32 = t019(); if r != 0 as i32 { return r; }
+    let r: i32 = t020(); if r != 0 as i32 { return r; }
+    let r: i32 = t021(); if r != 0 as i32 { return r; }
+    let r: i32 = t022(); if r != 0 as i32 { return r; }
+    let r: i32 = t023(); if r != 0 as i32 { return r; }
+    let r: i32 = t024(); if r != 0 as i32 { return r; }
+    let r: i32 = t025(); if r != 0 as i32 { return r; }
+    return 42;
+}
