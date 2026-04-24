@@ -27,6 +27,8 @@ extern fn mmap(addr: *mut u8, len: i64, prot: i32, flags: i32,
                fd: i32, offset: i64) -> *mut u8;
 extern fn mprotect(addr: *mut u8, len: i64, prot: i32) -> i32;
 extern fn munmap(addr: *mut u8, len: i64) -> i32;
+extern fn abort();
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -108,11 +110,30 @@ pub struct Scheduler {
 
 // ── Internal queue helpers ─────────────────────────────────────────────────
 
+// Abort with a fixed message.  Used only from sched_enqueue overflow path;
+// keeps fiber.logos free of std.lang.panic dependency (bootstrap ordering).
+fn sched_abort(msg: str) {
+    unsafe {
+        write(2 as i32, msg.as_ptr(), msg.len());
+        abort();
+    }
+}
+
 fn sched_enqueue(s: *mut Scheduler, fptr: i64) {
     unsafe {
+        let next: i64 = (s.ready_tail + 1) % s.ready_cap;
+        // Full when advancing tail would collide with head.  Silent overwrite
+        // here previously caused use-after-free crashes downstream (see
+        // fd1ba7e).  We now fail loud: the fiber runtime invariant is that
+        // ready_cap must exceed the max in-flight ready fiber count.  If we
+        // ever hit this, that's a fiber-leak or an undersized cap — a bug
+        // the developer needs to fix, not paper over.
+        if next == s.ready_head {
+            sched_abort("panic: fiber scheduler ready queue overflow (raise ready_cap)\n");
+        }
         let slot: *mut i64 = (s.ready_buf as i64 + s.ready_tail * 8) as *mut i64;
         *slot = fptr;
-        s.ready_tail = (s.ready_tail + 1) % s.ready_cap;
+        s.ready_tail = next;
     }
 }
 
