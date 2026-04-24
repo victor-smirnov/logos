@@ -42,9 +42,9 @@ namespace logos::compiler {
 
 // Defined in sema.cpp (non-inline, single definition):
 bool types_equal(const LogosType& a, const LogosType& b) noexcept;
-std::string type_str(const LogosType* t);
-std::string concrete_struct_name(const LogosType* t);
-bool types_compatible(const LogosType* from, const LogosType* to) noexcept;
+std::string type_str(TypeRef t);
+std::string concrete_struct_name(TypeRef t);
+bool types_compatible(TypeRef from, TypeRef to) noexcept;
 
 // Inline (defined below, after class, so visible in all TUs):
 inline bool is_integer_kind(LogosType::Kind k) noexcept;

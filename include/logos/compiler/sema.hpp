@@ -184,11 +184,11 @@ public:
 bool types_equal(const LogosType& a, const LogosType& b) noexcept;
 
 // Human-readable name for error messages.
-std::string type_str(const LogosType* t);
+std::string type_str(TypeRef t);
 
 // Concrete struct name: plain structs → struct_name; generic insts → "Pair__i32__bool".
 // Used by mono and mlir_gen to look up instantiated struct definitions.
-std::string concrete_struct_name(const LogosType* t);
+std::string concrete_struct_name(TypeRef t);
 
 
 // ── TypePool ───────────────────────────────────────────────────────────────

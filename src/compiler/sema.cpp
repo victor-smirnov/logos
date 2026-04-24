@@ -83,9 +83,9 @@ bool types_equal(const LogosType& a, const LogosType& b) noexcept {
 
 // ── Generic struct name helpers ───────────────────────────────────────────────
 
-static std::string mangle_type_for_name(const LogosType* t);
+static std::string mangle_type_for_name(TypeRef t);
 
-std::string concrete_struct_name(const LogosType* t) {
+std::string concrete_struct_name(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return {};
     if (TypeRef(t).type_args().empty()) return TypeRef(t).struct_name();
@@ -94,7 +94,7 @@ std::string concrete_struct_name(const LogosType* t) {
     return r;
 }
 
-static std::string mangle_type_for_name(const LogosType* t) {
+static std::string mangle_type_for_name(TypeRef t) {
     if (!t) return "null";
     switch (TypeRef(t).kind()) {
     case LogosType::Kind::Ptr:
@@ -271,7 +271,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
 
 // ── types_compatible ─────────────────────────────────────────────────────────
 
-bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
+bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (!from || !to) return false;
     if (types_equal(*from, *to)) return true;
     if (TypeRef(from).kind() == LogosType::Kind::IntLit && is_integer_kind(to->kind)) return true;
@@ -344,7 +344,7 @@ bool types_compatible(const LogosType* from, const LogosType* to) noexcept {
 
 // ── type_str ─────────────────────────────────────────────────────────────────
 
-std::string type_str(const LogosType* t) {
+std::string type_str(TypeRef t) {
     if (!t) return "<null>";
     switch (TypeRef(t).kind()) {
     case LogosType::Kind::Void:   return "void";
