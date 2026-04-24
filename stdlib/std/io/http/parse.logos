@@ -53,6 +53,21 @@ fn is_header_value_byte(c: u8) -> bool {
     return false;
 }
 
+// Request-target per RFC 7230 §5.3: VCHAR only (0x21-0x7E), no SP / HTAB /
+// CTL / DEL.  Rejects empty targets.
+fn validate_request_target(p: *const u8, n: i64) -> bool {
+    if n <= 0 as i64 { return false; }
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        while i < n {
+            let b: u8 = p[i];
+            if b < 33 as u8 || b > 126 as u8 { return false; }
+            i = i + 1 as i64;
+        }
+    }
+    return true;
+}
+
 fn validate_token(p: *const u8, n: i64) -> bool {
     if n <= 0 { return false; }
     let mut i: i64 = 0;
@@ -448,12 +463,39 @@ pub fn parse_request_stream<R: Read>(br: &mut BufReader<R>)
         }
     }
     if sp1 < 0 || sp2 < 0 { return Result::Err(HttpError::Parse); }
+    // RFC 7230 §3.1.1: exactly one SP between method/target/version, and all
+    // three tokens must be non-empty.  Reject empty method (sp1 == 0), empty
+    // target (adjacent SPs), and empty version (trailing SP).
+    if sp1 == 0 as i64 { return Result::Err(HttpError::Parse); }
+    if sp2 - sp1 <= 1 as i64 { return Result::Err(HttpError::Parse); }
+    if sp2 + 1 as i64 >= ln { return Result::Err(HttpError::Parse); }
+    // HTTP-version must be exactly HTTP/1.0 or HTTP/1.1.
+    let ver_len: i64 = ln - (sp2 + 1 as i64);
+    if ver_len != 8 as i64 { return Result::Err(HttpError::Parse); }
+    unsafe {
+        let vp: *const u8 = lp.byte_add(sp2 + 1 as i64);
+        if vp[0] != 72 as u8 { return Result::Err(HttpError::Parse); } // H
+        if vp[1] != 84 as u8 { return Result::Err(HttpError::Parse); } // T
+        if vp[2] != 84 as u8 { return Result::Err(HttpError::Parse); } // T
+        if vp[3] != 80 as u8 { return Result::Err(HttpError::Parse); } // P
+        if vp[4] != 47 as u8 { return Result::Err(HttpError::Parse); } // /
+        if vp[5] != 49 as u8 { return Result::Err(HttpError::Parse); } // 1
+        if vp[6] != 46 as u8 { return Result::Err(HttpError::Parse); } // .
+        if vp[7] != 48 as u8 && vp[7] != 49 as u8 {                    // 0 | 1
+            return Result::Err(HttpError::Parse);
+        }
+    }
     unsafe {
         if !validate_token(lp, sp1) { return Result::Err(HttpError::Parse); }
     }
     let method_str: String = unsafe { String::from_bytes(lp, sp1) };
     let target_ptr: *const u8 = unsafe { lp.byte_add(sp1 + 1 as i64) };
     let target_len: i64 = sp2 - sp1 - 1 as i64;
+    unsafe {
+        if !validate_request_target(target_ptr, target_len) {
+            return Result::Err(HttpError::Parse);
+        }
+    }
 
     let method: Method = method_parse(s2str(&method_str));
     let url:    Url    = resolve_request_target(target_ptr, target_len);
