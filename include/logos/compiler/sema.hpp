@@ -17,6 +17,9 @@
 #include <vector>
 #include <optional>
 #include <string>
+#include <string_view>
+
+#include <logos/hermes/arena_string.hpp>
 
 #include <logos/compiler/sema_schema.hpp>
 #include <logos/hermes/arena.hpp>
@@ -214,16 +217,40 @@ public:
         return *av.as_ptr<const uint64_t>(mirror_base());
     }
 
-    // These return const std::string& for now; Phase 2c will switch to
-    // string_view once the backing storage moves to a Hermes zone.
-    const std::string& lifetime()        const noexcept { return p_->lifetime; }
-    const std::string& struct_name()     const noexcept { return p_->struct_name; }
-    const std::string& enum_name()       const noexcept { return p_->enum_name; }
-    const std::string& pkg_name()        const noexcept { return p_->pkg_name; }
-    const std::string& trait_name()      const noexcept { return p_->trait_name; }
-    const std::string& type_var_name()   const noexcept { return p_->type_var_name; }
-    const std::string& assoc_type_name() const noexcept { return p_->assoc_type_name; }
-    const std::string& arr_size_var()    const noexcept { return p_->arr_size_var; }
+    // String accessors still return `const std::string&` backed by the
+    // struct field; 2c.4d.2 tried flipping to string_view but broke ~100
+    // callers (string concat, std::string-typed API boundaries). A dedicated
+    // migration pass will do the flip after 2c.4e deletes the struct. For
+    // now we cross-check the mirror's ArenaString matches the source on
+    // every access, exercising the read-path under load.
+private:
+    void check_str_mirror(sema_schema::Key key, const std::string& src,
+                          const char* name) const noexcept {
+        if (!p_->hermes_arena_) return;
+        auto av = mirror()->get(key.code, mirror_base());
+        if (src.empty()) {
+            LOGOS_ASSERT(av.is_null(),
+                         "SEMA-TYPEREF-STR-0001",
+                         "%s mirror has value for empty struct field", name);
+            return;
+        }
+        LOGOS_ASSERT(!av.is_null(),
+                     "SEMA-TYPEREF-STR-0002",
+                     "%s mirror null for populated struct field", name);
+        auto view = av.as_ptr<const hermes::ArenaString>(mirror_base())->view();
+        LOGOS_ASSERT(view == src,
+                     "SEMA-TYPEREF-STR-0003",
+                     "%s mirror text mismatch", name);
+    }
+public:
+    const std::string& lifetime()        const noexcept { check_str_mirror(sema_schema::LIFETIME,        p_->lifetime,        "lifetime");        return p_->lifetime; }
+    const std::string& struct_name()     const noexcept { check_str_mirror(sema_schema::STRUCT_NAME,     p_->struct_name,     "struct_name");     return p_->struct_name; }
+    const std::string& enum_name()       const noexcept { check_str_mirror(sema_schema::ENUM_NAME,       p_->enum_name,       "enum_name");       return p_->enum_name; }
+    const std::string& pkg_name()        const noexcept { check_str_mirror(sema_schema::PKG_NAME,        p_->pkg_name,        "pkg_name");        return p_->pkg_name; }
+    const std::string& trait_name()      const noexcept { check_str_mirror(sema_schema::TRAIT_NAME,      p_->trait_name,      "trait_name");      return p_->trait_name; }
+    const std::string& type_var_name()   const noexcept { check_str_mirror(sema_schema::TYPE_VAR_NAME,   p_->type_var_name,   "type_var_name");   return p_->type_var_name; }
+    const std::string& assoc_type_name() const noexcept { check_str_mirror(sema_schema::ASSOC_TYPE_NAME, p_->assoc_type_name, "assoc_type_name"); return p_->assoc_type_name; }
+    const std::string& arr_size_var()    const noexcept { check_str_mirror(sema_schema::ARR_SIZE_VAR,    p_->arr_size_var,    "arr_size_var");    return p_->arr_size_var; }
 
     const std::vector<const LogosType*>& type_args()      const noexcept { return p_->type_args; }
     const std::vector<const LogosType*>& tuple_elems()    const noexcept { return p_->tuple_elems; }
