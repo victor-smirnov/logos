@@ -184,71 +184,47 @@ public:
             mirror_base() + p_->hermes_mirror_off_.value());
     }
 
-    // Transitional fallback: some call sites construct stack LogosType
-    // without going through TypePool::alloc() (e.g. mono_clone builds a
-    // temporary Struct type to compute its concrete name). Those instances
-    // have no mirror, so we read straight from the struct. Phase 2c.4d
-    // will require every LogosType to live in the arena and remove this.
+    // 2c.4e.1: every LogosType reachable through TypeRef goes through
+    // TypePool::alloc(), so the mirror is always wired. Accessors read
+    // directly from the TinyObjectMap with no struct fallback.
     LogosType::Kind kind() const noexcept {
-        if (!p_->hermes_arena_) return p_->kind;
         return LogosType::Kind(
             hermes::schema::variant_of(mirror()->schema_type_code()));
     }
 
-    // Pointer-valued accessors. Struct fields are authoritative; when a
-    // mirror is wired, we cross-check the mirror's AnyVal pointee offset
-    // resolves (via TypePoolImpl's inverse map) to the same LogosType*.
-    // Full cutover is 2c.4d — returns will then come straight from the
-    // mirror and the struct fields can be deleted.
     TypeRef pointee()      const noexcept;
     TypeRef elem()         const noexcept;
     TypeRef assoc_base()   const noexcept;
     TypeRef closure_ret()  const noexcept;
 
     bool mut_ptr() const noexcept {
-        if (!p_->hermes_arena_) return p_->mut_ptr;
         auto av = mirror()->get(sema_schema::MUT_PTR.code, mirror_base());
         return av.is_value() && av.as_value<uint8_t>() != 0;
     }
     uint64_t arr_size() const noexcept {
-        if (!p_->hermes_arena_) return p_->arr_size;
         auto av = mirror()->get(sema_schema::ARR_SIZE.code, mirror_base());
         if (av.is_null()) return 0;
         return *av.as_ptr<const uint64_t>(mirror_base());
     }
 
-    // 2c.4d.4: string accessors return std::string_view — the view is backed
-    // by the struct field for now, the mirror ArenaString for the future
-    // (post-2c.4e). We continue cross-checking on every access.
+    // 2c.4e.1: string accessors read the mirror ArenaString directly.
+    // The returned string_view is valid as long as the arena is alive
+    // (GrowableSingleChunk — lifetime matches the TypePool).
 private:
-    std::string_view check_str_mirror(sema_schema::Key key, const std::string& src,
-                                      const char* name) const noexcept {
-        if (!p_->hermes_arena_) return std::string_view(src);
+    std::string_view str_from_mirror(sema_schema::Key key) const noexcept {
         auto av = mirror()->get(key.code, mirror_base());
-        if (src.empty()) {
-            LOGOS_ASSERT(av.is_null(),
-                         "SEMA-TYPEREF-STR-0001",
-                         "%s mirror has value for empty struct field", name);
-            return std::string_view(src);
-        }
-        LOGOS_ASSERT(!av.is_null(),
-                     "SEMA-TYPEREF-STR-0002",
-                     "%s mirror null for populated struct field", name);
-        auto view = av.as_ptr<const hermes::ArenaString>(mirror_base())->view();
-        LOGOS_ASSERT(view == src,
-                     "SEMA-TYPEREF-STR-0003",
-                     "%s mirror text mismatch", name);
-        return std::string_view(src);
+        if (av.is_null()) return {};
+        return av.as_ptr<const hermes::ArenaString>(mirror_base())->view();
     }
 public:
-    std::string_view lifetime()        const noexcept { return check_str_mirror(sema_schema::LIFETIME,        p_->lifetime,        "lifetime"); }
-    std::string_view struct_name()     const noexcept { return check_str_mirror(sema_schema::STRUCT_NAME,     p_->struct_name,     "struct_name"); }
-    std::string_view enum_name()       const noexcept { return check_str_mirror(sema_schema::ENUM_NAME,       p_->enum_name,       "enum_name"); }
-    std::string_view pkg_name()        const noexcept { return check_str_mirror(sema_schema::PKG_NAME,        p_->pkg_name,        "pkg_name"); }
-    std::string_view trait_name()      const noexcept { return check_str_mirror(sema_schema::TRAIT_NAME,      p_->trait_name,      "trait_name"); }
-    std::string_view type_var_name()   const noexcept { return check_str_mirror(sema_schema::TYPE_VAR_NAME,   p_->type_var_name,   "type_var_name"); }
-    std::string_view assoc_type_name() const noexcept { return check_str_mirror(sema_schema::ASSOC_TYPE_NAME, p_->assoc_type_name, "assoc_type_name"); }
-    std::string_view arr_size_var()    const noexcept { return check_str_mirror(sema_schema::ARR_SIZE_VAR,    p_->arr_size_var,    "arr_size_var"); }
+    std::string_view lifetime()        const noexcept { return str_from_mirror(sema_schema::LIFETIME);        }
+    std::string_view struct_name()     const noexcept { return str_from_mirror(sema_schema::STRUCT_NAME);     }
+    std::string_view enum_name()       const noexcept { return str_from_mirror(sema_schema::ENUM_NAME);       }
+    std::string_view pkg_name()        const noexcept { return str_from_mirror(sema_schema::PKG_NAME);        }
+    std::string_view trait_name()      const noexcept { return str_from_mirror(sema_schema::TRAIT_NAME);      }
+    std::string_view type_var_name()   const noexcept { return str_from_mirror(sema_schema::TYPE_VAR_NAME);   }
+    std::string_view assoc_type_name() const noexcept { return str_from_mirror(sema_schema::ASSOC_TYPE_NAME); }
+    std::string_view arr_size_var()    const noexcept { return str_from_mirror(sema_schema::ARR_SIZE_VAR);    }
 
     const std::vector<const LogosType*>& type_args()      const noexcept { return p_->type_args; }
     const std::vector<const LogosType*>& tuple_elems()    const noexcept { return p_->tuple_elems; }
@@ -256,26 +232,12 @@ public:
     const std::vector<const LogosType*>& gat_args()       const noexcept { return p_->gat_args; }
     const std::vector<std::string>&      lifetime_args()  const noexcept { return p_->lifetime_args; }
 
-    // const_val still returns the struct's optional — the caller pattern is
-    // `if (t.const_val()) use(*t.const_val())`. We cross-check against the
-    // mirror (debug only via LOGOS_ASSERT) to keep the read-path honest.
-    const std::optional<int64_t>& const_val() const noexcept {
-        if (p_->hermes_arena_) {
-            auto av = mirror()->get(sema_schema::CONST_VAL.code, mirror_base());
-            if (p_->const_val.has_value()) {
-                LOGOS_ASSERT(!av.is_null(),
-                             "LOGOS-Compiler-TypeRef-0001",
-                             "mirror missing CONST_VAL for populated optional");
-                LOGOS_ASSERT(*av.as_ptr<const int64_t>(mirror_base()) == *p_->const_val,
-                             "LOGOS-Compiler-TypeRef-0002",
-                             "mirror CONST_VAL mismatch");
-            } else {
-                LOGOS_ASSERT(av.is_null(),
-                             "LOGOS-Compiler-TypeRef-0003",
-                             "mirror has CONST_VAL for empty optional");
-            }
-        }
-        return p_->const_val;
+    // 2c.4e.1: const_val read from mirror. Returns by value — struct-ref
+    // return is gone now that the mirror is authoritative.
+    std::optional<int64_t> const_val() const noexcept {
+        auto av = mirror()->get(sema_schema::CONST_VAL.code, mirror_base());
+        if (av.is_null()) return std::nullopt;
+        return *av.as_ptr<const int64_t>(mirror_base());
     }
 };
 

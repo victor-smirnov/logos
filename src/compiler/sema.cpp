@@ -385,9 +385,10 @@ const LogosType* TypePool::alloc(LogosType t) {
 // real workloads before 2c.4d flips reads to the mirror.
 namespace {
 
+// 2c.4e.1: every TypeRef points at a pool-allocated LogosType whose
+// mirror is wired. No stack-alloc fallback.
 const LogosType* ptr_via_mirror(const LogosType* parent, sema_schema::Key key) {
-    // Stack-alloc fallback: no mirror, read struct field at call site.
-    if (!parent || !parent->hermes_arena_) return nullptr;
+    if (!parent) return nullptr;
     auto* base = const_cast<uint8_t*>(parent->hermes_arena_->head().data());
     auto* mp   = reinterpret_cast<const hermes::TinyObjectMap*>(
         base + parent->hermes_mirror_off_.value());
@@ -398,22 +399,10 @@ const LogosType* ptr_via_mirror(const LogosType* parent, sema_schema::Key key) {
 
 }  // namespace
 
-TypeRef TypeRef::pointee() const noexcept {
-    if (!p_->hermes_arena_) return p_->pointee;
-    return ptr_via_mirror(p_, sema_schema::POINTEE);
-}
-TypeRef TypeRef::elem() const noexcept {
-    if (!p_->hermes_arena_) return p_->elem;
-    return ptr_via_mirror(p_, sema_schema::ELEM);
-}
-TypeRef TypeRef::assoc_base() const noexcept {
-    if (!p_->hermes_arena_) return p_->assoc_base;
-    return ptr_via_mirror(p_, sema_schema::ASSOC_BASE);
-}
-TypeRef TypeRef::closure_ret() const noexcept {
-    if (!p_->hermes_arena_) return p_->closure_ret;
-    return ptr_via_mirror(p_, sema_schema::CLOSURE_RET);
-}
+TypeRef TypeRef::pointee()     const noexcept { return ptr_via_mirror(p_, sema_schema::POINTEE);     }
+TypeRef TypeRef::elem()        const noexcept { return ptr_via_mirror(p_, sema_schema::ELEM);        }
+TypeRef TypeRef::assoc_base()  const noexcept { return ptr_via_mirror(p_, sema_schema::ASSOC_BASE);  }
+TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(p_, sema_schema::CLOSURE_RET); }
 
 namespace la = ast;
 using hermes::TinyMapView;
