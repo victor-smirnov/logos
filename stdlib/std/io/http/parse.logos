@@ -54,7 +54,9 @@ fn is_header_value_byte(c: u8) -> bool {
 }
 
 // Request-target per RFC 7230 §5.3: VCHAR only (0x21-0x7E), no SP / HTAB /
-// CTL / DEL.  Rejects empty targets.
+// CTL / DEL.  Additionally restricted here to origin-form (starts with `/`)
+// or asterisk-form (exactly `*`).  Absolute-URI and authority-form are
+// rejected: we don't handle proxying and we don't speak CONNECT.
 fn validate_request_target(p: *const u8, n: i64) -> bool {
     if n <= 0 as i64 { return false; }
     let mut i: i64 = 0 as i64;
@@ -64,8 +66,11 @@ fn validate_request_target(p: *const u8, n: i64) -> bool {
             if b < 33 as u8 || b > 126 as u8 { return false; }
             i = i + 1 as i64;
         }
+        let first: u8 = p[0];
+        if first == 47 as u8 { return true; }                         // '/'
+        if n == 1 as i64 && first == 42 as u8 { return true; }        // '*'
     }
-    return true;
+    return false;
 }
 
 fn validate_token(p: *const u8, n: i64) -> bool {
@@ -204,12 +209,20 @@ pub fn parse_headers(src: *const u8, len: i64, pos: i64, h: &mut Headers) -> i64
 //   -3:   malformed Content-Length
 pub fn body_length(h: &Headers) -> i64 {
     let mut has_chunked: bool = false;
+    let mut bad_te:      bool = false;
     match h.get("transfer-encoding") {
         Option::Some(te) => {
+            // RFC 7230 §3.3.3 rule 3: for requests, if Transfer-Encoding is
+            // present and the final coding is not `chunked`, the message
+            // length can't be determined reliably → reject.  We only
+            // implement the exact-`chunked` case; every other value
+            // (identity, gzip, comma-lists) is a hard error.
             if (&te).eq_str("chunked") { has_chunked = true; }
+            else                       { bad_te      = true; }
         }
         Option::None => {}
     }
+    if bad_te { return 0 - 3; }
     match h.get("content-length") {
         Option::Some(cl) => {
             // RFC 9112 §6.1: both TE and CL present MUST be rejected as a
