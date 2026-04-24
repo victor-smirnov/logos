@@ -19,6 +19,8 @@
 #include <logos/compiler/sema_schema.hpp>
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/arena_value.hpp>
+#include <logos/hermes/arena_string.hpp>
+#include <logos/hermes/object_array.hpp>
 #include <logos/hermes/schema_codes.hpp>
 #include <logos/verification/assert.hpp>
 
@@ -80,44 +82,141 @@ public:
             arena_.head().data() + off.value());
     }
 
+    // Allocate an ArenaString and return an AnyVal pointing at it.
+    hermes::AnyVal put_string(std::string_view s) {
+        auto p = hermes::ArenaString::create(arena_, s);
+        LOGOS_ASSERT(p.has_value(), "SEMA-TYPEPOOL-003", "ArenaString alloc failed");
+        return hermes::AnyVal::from_offset(offset_of(*p));
+    }
+
+    // Translate a C++ LogosType pointer to an AnyVal pointing at its mirror.
+    // The mirror must already exist (children allocated before parents).
+    hermes::AnyVal ptr_to_mirror(const LogosType* p) {
+        if (!p) return hermes::AnyVal{};
+        auto it = mirror_offsets_.find(p);
+        LOGOS_ASSERT(it != mirror_offsets_.end(), "SEMA-TYPEPOOL-004",
+            "ptr_to_mirror: child type has no mirror (allocation order bug)");
+        return hermes::AnyVal::from_offset(it->second);
+    }
+
+    // Build an ObjectArray from a vector<const LogosType*> and return AnyVal.
+    hermes::AnyVal put_type_vec(const std::vector<const LogosType*>& v) {
+        auto arr = hermes::ObjectArray::create(arena_, v.empty() ? 1 : v.size());
+        LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
+        auto arr_off = offset_of(*arr);
+        for (auto* elem : v) {
+            auto v_any = ptr_to_mirror(elem);
+            auto r = reinterpret_cast<hermes::ObjectArray*>(
+                         arena_.head().data() + arr_off.value())
+                     ->push_back(v_any, arena_);
+            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
+        }
+        return hermes::AnyVal::from_offset(arr_off);
+    }
+
+    // Build an ObjectArray from a vector<std::string> (lifetime_args).
+    hermes::AnyVal put_string_vec(const std::vector<std::string>& v) {
+        auto arr = hermes::ObjectArray::create(arena_, v.empty() ? 1 : v.size());
+        LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
+        auto arr_off = offset_of(*arr);
+        for (const auto& s : v) {
+            auto v_any = put_string(s);
+            auto r = reinterpret_cast<hermes::ObjectArray*>(
+                         arena_.head().data() + arr_off.value())
+                     ->push_back(v_any, arena_);
+            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
+        }
+        return hermes::AnyVal::from_offset(arr_off);
+    }
+
     // Build a Hermes mirror for `t` and return its arena offset.
-    // Phase 2c.2: primitive-only — schema_type_code + mut_ptr/arr_size/const_val.
-    // Strings/pointees/vectors land in subsequent sub-phases.
+    // Every field populated on the C++ struct is also written to the mirror
+    // under the key defined in sema_schema.hpp. Reads still go through the
+    // raw struct pointer — Phase 2c.3 will switch TypeRef to read the mirror.
     hermes::arena_offset_t mirror(const LogosType& t) {
         namespace k = sema_schema;
 
-        auto map_exp = hermes::TinyObjectMap::create(arena_, /*capacity=*/4);
-        LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
-            "TinyObjectMap allocation failed");
-        hermes::arena_offset_t map_off = offset_of(*map_exp);
+        // Pre-allocate all sub-values first (each may grow the arena and
+        // invalidate `map`); re-fetch the map pointer before every put via
+        // the at(map_off) helper.
+        hermes::AnyVal v_mut_ptr, v_arr_size, v_const_val;
+        hermes::AnyVal v_pointee, v_elem, v_assoc_base, v_closure_ret;
+        hermes::AnyVal v_lifetime, v_arr_size_var, v_struct_name, v_enum_name;
+        hermes::AnyVal v_pkg_name, v_trait_name, v_type_var_name, v_assoc_type_name;
+        hermes::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
+        hermes::AnyVal v_lifetime_args;
 
-        // Header: schema_type_code disambiguates Kind.
-        (*map_exp)->set_schema_type_code(
-            hermes::schema::type(int32_t(t.kind)));
-
-        // MUT_PTR — bool, embeddable.
         if (t.kind == LogosType::Kind::Ptr) {
-            auto v = hermes::AnyVal::from_value<uint8_t>(
+            v_mut_ptr = hermes::AnyVal::from_value<uint8_t>(
                 t.mut_ptr ? 1 : 0, hermes::type_hash::Bool);
-            auto r = at(map_off)->put(k::MUT_PTR.code, v, arena_);
-            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "put MUT_PTR failed");
         }
-
-        // ARR_SIZE — u64, not embeddable; zone-allocate.
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
             auto av = hermes::anyval_put<uint64_t>(arena_, t.arr_size);
             LOGOS_ASSERT(av.has_value(), "SEMA-TYPEPOOL-003", "arr_size put failed");
-            auto r = at(map_off)->put(k::ARR_SIZE.code, *av, arena_);
-            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "put ARR_SIZE failed");
+            v_arr_size = *av;
         }
-
-        // CONST_VAL — optional<i64>; absent → key absent.
         if (t.const_val.has_value()) {
             auto av = hermes::anyval_put<int64_t>(arena_, *t.const_val);
             LOGOS_ASSERT(av.has_value(), "SEMA-TYPEPOOL-003", "const_val put failed");
-            auto r = at(map_off)->put(k::CONST_VAL.code, *av, arena_);
-            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "put CONST_VAL failed");
+            v_const_val = *av;
         }
+
+        if (t.pointee)     v_pointee     = ptr_to_mirror(t.pointee);
+        if (t.elem)        v_elem        = ptr_to_mirror(t.elem);
+        if (t.assoc_base)  v_assoc_base  = ptr_to_mirror(t.assoc_base);
+        if (t.closure_ret) v_closure_ret = ptr_to_mirror(t.closure_ret);
+
+        if (!t.lifetime.empty())        v_lifetime        = put_string(t.lifetime);
+        if (!t.arr_size_var.empty())    v_arr_size_var    = put_string(t.arr_size_var);
+        if (!t.struct_name.empty())     v_struct_name     = put_string(t.struct_name);
+        if (!t.enum_name.empty())       v_enum_name       = put_string(t.enum_name);
+        if (!t.pkg_name.empty())        v_pkg_name        = put_string(t.pkg_name);
+        if (!t.trait_name.empty())      v_trait_name      = put_string(t.trait_name);
+        if (!t.type_var_name.empty())   v_type_var_name   = put_string(t.type_var_name);
+        if (!t.assoc_type_name.empty()) v_assoc_type_name = put_string(t.assoc_type_name);
+
+        if (!t.type_args.empty())       v_type_args       = put_type_vec(t.type_args);
+        if (!t.tuple_elems.empty())     v_tuple_elems     = put_type_vec(t.tuple_elems);
+        if (!t.closure_params.empty())  v_closure_params  = put_type_vec(t.closure_params);
+        if (!t.gat_args.empty())        v_gat_args        = put_type_vec(t.gat_args);
+        if (!t.lifetime_args.empty())   v_lifetime_args   = put_string_vec(t.lifetime_args);
+
+        // Create the map last so it doesn't get moved around by sub-allocs
+        // (the map's own grow() handles relocation internally during put()).
+        auto map_exp = hermes::TinyObjectMap::create(arena_, /*capacity=*/8);
+        LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
+            "TinyObjectMap allocation failed");
+        hermes::arena_offset_t map_off = offset_of(*map_exp);
+        (*map_exp)->set_schema_type_code(
+            hermes::schema::type(int32_t(t.kind)));
+
+        auto put = [&](const sema_schema::Key& key, hermes::AnyVal val) {
+            if (val.is_null()) return;
+            auto r = at(map_off)->put(key.code, val, arena_);
+            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003",
+                "TinyObjectMap put failed");
+        };
+
+        put(k::MUT_PTR,          v_mut_ptr);
+        put(k::ARR_SIZE,         v_arr_size);
+        put(k::CONST_VAL,        v_const_val);
+        put(k::POINTEE,          v_pointee);
+        put(k::ELEM,             v_elem);
+        put(k::ASSOC_BASE,       v_assoc_base);
+        put(k::CLOSURE_RET,      v_closure_ret);
+        put(k::LIFETIME,         v_lifetime);
+        put(k::ARR_SIZE_VAR,     v_arr_size_var);
+        put(k::STRUCT_NAME,      v_struct_name);
+        put(k::ENUM_NAME,        v_enum_name);
+        put(k::PKG_NAME,         v_pkg_name);
+        put(k::TRAIT_NAME,       v_trait_name);
+        put(k::TYPE_VAR_NAME,    v_type_var_name);
+        put(k::ASSOC_TYPE_NAME,  v_assoc_type_name);
+        put(k::TYPE_ARGS,        v_type_args);
+        put(k::TUPLE_ELEMS,      v_tuple_elems);
+        put(k::CLOSURE_PARAMS,   v_closure_params);
+        put(k::GAT_ARGS,         v_gat_args);
+        put(k::LIFETIME_ARGS,    v_lifetime_args);
 
         return map_off;
     }
