@@ -1,0 +1,173 @@
+// http-garden Origin adapter for Logos.
+//
+// Speaks the "Origin" protocol used by http-garden's differential fuzzer:
+// every HTTP request is answered with status 200 and a JSON body that
+// base64-encodes what the server parsed.  See images/go_stdlib/app.go in the
+// http-garden repo for the reference shape.
+//
+//     {"headers":[[b64name,b64value],...],
+//      "body":    "b64",
+//      "method":  "b64",
+//      "version": "b64",
+//      "uri":     "b64"}
+//
+// Register with http-garden via external-services.yml:
+//     logos:
+//       x-props:
+//         role: origin
+//         address: 127.0.0.1
+//         port: 18081
+//
+// Minimal v1: version is hard-coded "HTTP/1.1" and uri is reconstructed
+// from url.path(+url.query).  Upgrade to faithful raw-bytes later if the
+// fuzzer flags divergence on request-target/version quirks.
+package bench_garden_origin;
+
+use std.io.http;
+use std.io.net;
+use std.io.net.url;
+use std.lang.text;
+use std.collections.vec;
+use std.lang.option;
+use std.lang.result;
+use std.sys.fiber;
+use std.encoding.base64;
+
+const PORT: u16 = 18081 as u16;
+
+fn push_b64_quoted_ptr(dst: &mut String, p: *const u8, n: i64) {
+    dst.push_u8(34 as u8); // "
+    base64_encode(p, n, dst);
+    dst.push_u8(34 as u8);
+}
+
+fn push_b64_quoted_string(dst: &mut String, s: &String) {
+    push_b64_quoted_ptr(dst, s.as_ptr(), s.len());
+}
+
+fn push_b64_quoted_str(dst: &mut String, s: str) {
+    dst.push_u8(34 as u8);
+    base64_encode_str(s, dst);
+    dst.push_u8(34 as u8);
+}
+
+fn build_uri(out: &mut String, u: &Url) {
+    out.push_bytes((&u.path).as_ptr(), (&u.path).len());
+    if (&u.query).len() > 0 as i64 {
+        out.push_u8(63 as u8); // ?
+        out.push_bytes((&u.query).as_ptr(), (&u.query).len());
+    }
+}
+
+fn push_body_b64(dst: &mut String, body: &Vec<u8>) {
+    let n: i64 = body.length();
+    let mut buf: String = String::new();
+    unsafe {
+        let bp: *mut Vec<u8> = body as *const Vec<u8> as *mut Vec<u8>;
+        let mut k: i64 = 0 as i64;
+        while k < n {
+            buf.push_u8(bp.get(k));
+            k = k + 1 as i64;
+        }
+    }
+    push_b64_quoted_string(dst, &buf);
+}
+
+fn build_json(req: &Request, json: &mut String) {
+    json.push_str("{\"headers\":[");
+
+    let h: &Headers = &req.headers;
+    let n: i64 = h.len();
+    let mut i: i64 = 0 as i64;
+    unsafe {
+        let ep: *mut Vec<Header> =
+            &h.entries as *const Vec<Header> as *mut Vec<Header>;
+        let bp: *const u8 = (&h.buf).as_ptr();
+        while i < n {
+            if i > 0 as i64 { json.push_u8(44 as u8); } // ,
+            let hdr: Header = ep.get(i);
+            let np: *const u8 = bp.byte_add(hdr.name_off as i64);
+            let vp: *const u8 = bp.byte_add(hdr.value_off as i64);
+            json.push_u8(91 as u8);                              // [
+            push_b64_quoted_ptr(json, np, hdr.name_len as i64);
+            json.push_u8(44 as u8);                              // ,
+            push_b64_quoted_ptr(json, vp, hdr.value_len as i64);
+            json.push_u8(93 as u8);                              // ]
+            i = i + 1 as i64;
+        }
+    }
+
+    json.push_str("],\"body\":");
+    push_body_b64(json, &req.body);
+
+    json.push_str(",\"method\":");
+    push_b64_quoted_string(json, &req.method.name);
+
+    json.push_str(",\"version\":");
+    push_b64_quoted_str(json, "HTTP/1.1");
+
+    json.push_str(",\"uri\":");
+    let mut uri: String = String::new();
+    build_uri(&mut uri, &req.url);
+    push_b64_quoted_string(json, &uri);
+
+    json.push_u8(125 as u8); // }
+}
+
+fn handler(req: &Request) -> Response {
+    let mut resp: Response = Response::new(200 as i32);
+
+    let mut json: String = String::new();
+    build_json(req, &mut json);
+
+    let jlen: i64 = (&json).len();
+    unsafe {
+        let dst: *mut Vec<u8> =
+            &resp.body as *const Vec<u8> as *mut Vec<u8>;
+        let src: *const u8 = (&json).as_ptr();
+        let mut k: i64 = 0 as i64;
+        while k < jlen {
+            dst.push(src[k]);
+            k = k + 1 as i64;
+        }
+    }
+
+    let mut cl: String = String::new();
+    cl.push_i64(jlen);
+    let cl_s: str = unsafe { str_from_raw(cl.as_ptr(), cl.len()) };
+    (&mut resp.headers).append("Content-Length", cl_s);
+    (&mut resp.headers).append("Content-Type", "application/json");
+    return resp;
+}
+
+struct ServerArg {
+    svc:       *mut FnService,
+    stop_flag: *mut i64,
+}
+
+fn server_fiber(arg: i64) {
+    let a: *mut ServerArg = arg as *mut ServerArg;
+    let svc: *mut FnService = unsafe { a.svc };
+    let stop_flag: *mut i64 = unsafe { a.stop_flag };
+    let _: Result<(), HttpError> =
+        serve_until::<FnService>(PORT, unsafe { &mut *svc }, stop_flag);
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut Scheduler = sched_new();
+    sched_set_stack_pool_cap(s, 64 as i64);
+    sched_set_current(s);
+    let r: *mut Reactor = reactor_new(256);
+    if r == 0 as *mut Reactor { return 1; }
+    reactor_set_current(r);
+
+    let mut svc: FnService = fn_service(handler);
+    let mut stop: [i64; 1] = [0 as i64; 1];
+    let mut sa: ServerArg = ServerArg {
+        svc:       &mut svc as *mut FnService,
+        stop_flag: &mut stop[0 as i64] as *mut i64,
+    };
+    spawn(server_fiber, &mut sa as *mut ServerArg as i64);
+    reactor_run(s, r);
+    return 0;
+}
