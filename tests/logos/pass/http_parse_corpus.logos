@@ -367,6 +367,53 @@ fn t025() -> i32 {
     return 0;
 }
 
+// ── RFC 7230 strict-mode regression tests ───────────────────────────────
+// These exercise parser hardening added after the initial corpus port:
+// method token validation, CL+TE smuggling rejection, header-name token
+// validation, no-WS-before-colon, forbidden header value bytes.
+
+// Method containing a non-tchar byte ('@').
+fn t026() -> i32 {
+    let s: str = "GE@T / HTTP/1.1\r\nHost: x\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 26; }
+    return 0;
+}
+
+// Both Content-Length and Transfer-Encoding: chunked present (RFC 9112 §6.1).
+fn t027() -> i32 {
+    let s: str = "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 27; }
+    return 0;
+}
+
+// Empty header name (line starts with ':').
+fn t028() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\n: value\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 28; }
+    return 0;
+}
+
+// Whitespace between header name and colon is forbidden (§3.2.4).
+fn t029() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nHost : foo.com\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 29; }
+    return 0;
+}
+
+// Non-tchar in header name ('@').
+fn t030() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nX@Bad: 1\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 30; }
+    return 0;
+}
+
+// Embedded NUL in header value.
+fn t031() -> i32 {
+    let s: str = "GET / HTTP/1.1\r\nHost: a\0b\r\n\r\n";
+    if !is_err_req(parse_request_buf(s.as_ptr(), s.len())) { return 31; }
+    return 0;
+}
+
 // ── Entrypoint ───────────────────────────────────────────────────────────
 
 fn main() -> i32 {
@@ -395,5 +442,11 @@ fn main() -> i32 {
     let r: i32 = t023(); if r != 0 as i32 { return r; }
     let r: i32 = t024(); if r != 0 as i32 { return r; }
     let r: i32 = t025(); if r != 0 as i32 { return r; }
+    let r: i32 = t026(); if r != 0 as i32 { return r; }
+    let r: i32 = t027(); if r != 0 as i32 { return r; }
+    let r: i32 = t028(); if r != 0 as i32 { return r; }
+    let r: i32 = t029(); if r != 0 as i32 { return r; }
+    let r: i32 = t030(); if r != 0 as i32 { return r; }
+    let r: i32 = t031(); if r != 0 as i32 { return r; }
     return 42;
 }
