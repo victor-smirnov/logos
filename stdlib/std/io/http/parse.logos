@@ -223,18 +223,43 @@ pub fn body_length(h: &Headers) -> i64 {
         Option::None => {}
     }
     if bad_te { return 0 - 3; }
-    match h.get("content-length") {
-        Option::Some(cl) => {
-            // RFC 9112 §6.1: both TE and CL present MUST be rejected as a
-            // smuggling vector rather than silently preferring one.
-            if has_chunked { return 0 - 3; }
-            let p: *const u8 = (&cl).as_ptr();
-            let n: i64 = (&cl).len();
-            let v: i64 = parse_decimal(p, 0, n);
-            if v < 0 { return 0 - 3; }
-            return v;
+    // RFC 9112 §6.3: multiple Content-Length headers (or single CL with
+    // comma-separated list) are a smuggling vector unless every value parses
+    // to the same integer.  Scan all entries, not just the first.
+    let mut cl_seen: bool = false;
+    let mut cl_val:  i64  = 0 - 1;
+    let total: i64 = (&h.entries).length();
+    let mut ei: i64 = 0;
+    unsafe {
+        let ep: *mut Vec<Header> =
+            &h.entries as *const Vec<Header> as *mut Vec<Header>;
+        let bp: *const u8 = (&h.buf).as_ptr();
+        let cl_name: str = "content-length";
+        let cln: i64 = cl_name.len();
+        let clp: *const u8 = cl_name.as_ptr();
+        while ei < total {
+            let hdr: Header = ep.get(ei);
+            let np: *const u8 = bp.byte_add(hdr.name_off as i64);
+            if ascii_ieq(np, hdr.name_len as i64, clp, cln) {
+                let vp: *const u8 = bp.byte_add(hdr.value_off as i64);
+                let vn: i64 = hdr.value_len as i64;
+                let v: i64 = parse_decimal(vp, 0, vn);
+                if v < 0 { return 0 - 3; }
+                if cl_seen {
+                    if v != cl_val { return 0 - 3; }
+                } else {
+                    cl_seen = true;
+                    cl_val  = v;
+                }
+            }
+            ei = ei + 1;
         }
-        Option::None => {}
+    }
+    if cl_seen {
+        // RFC 9112 §6.1: both TE and CL present MUST be rejected as a
+        // smuggling vector rather than silently preferring one.
+        if has_chunked { return 0 - 3; }
+        return cl_val;
     }
     if has_chunked { return 0 - 2; }
     return 0 - 1;
