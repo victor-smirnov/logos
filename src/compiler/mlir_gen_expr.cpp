@@ -1809,7 +1809,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureCall& e, const LogosType* t
         param_types.push_back(val.getType());
     }
 
-    mlir::Type ret = type ? logos_to_mlir(type) : nullptr;
+    // See EFnPtrCall for the struct-return ABI rationale.
+    mlir::Type ret = fn_call_ret_llvm_type(type);
     if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
     bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(ret);
     auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types, false);
@@ -1822,7 +1823,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureCall& e, const LogosType* t
         loc_, llvm_fn_type, mlir::FlatSymbolRefAttr{},
         mlir::ValueRange(all_operands));
     if (is_void) return nullptr;
-    return call.getResult();
+    auto result = call.getResult();
+    if (mlir::isa<mlir::LLVM::LLVMStructType>(ret))
+        return spill_to_alloca(result);
+    return result;
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EFnPtrCall& e, const LogosType* type) {
@@ -1844,7 +1848,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFnPtrCall& e, const LogosType* typ
         param_types.push_back(val.getType());
     }
 
-    mlir::Type ret = type ? logos_to_mlir(type) : nullptr;
+    // Return type must match the callee's ABI — tuples/structs/enums are
+    // returned by aggregate value (the callee uses sret promotion by the LLVM
+    // backend). Using logos_to_mlir(struct) would yield `ptr`, producing a
+    // call type that disagrees with the callee and breaks argument passing
+    // (rdi becomes the first real arg instead of the hidden sret slot).
+    mlir::Type ret = fn_call_ret_llvm_type(type);
     if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
     bool is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(ret);
     auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types, false);
@@ -1856,7 +1865,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFnPtrCall& e, const LogosType* typ
         loc_, llvm_fn_type, mlir::FlatSymbolRefAttr{},
         mlir::ValueRange(all_operands));
     if (is_void) return nullptr;
-    return call.getResult();
+    auto result = call.getResult();
+    // If the return is an aggregate (struct/tuple/enum), spill to alloca so
+    // the rest of codegen — which expects struct values as ptr — can work.
+    if (mlir::isa<mlir::LLVM::LLVMStructType>(ret))
+        return spill_to_alloca(result);
+    return result;
 }
 
 // ---------------------------------------------------------------------------

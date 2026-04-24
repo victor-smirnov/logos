@@ -280,6 +280,11 @@ private:
     // Build the anonymous LLVM struct type for a tuple.
     mlir::Type tuple_llvm_type(const LogosType* t);
 
+    // Compute the LLVM return type matching how function definitions return
+    // values (struct/tuple/enum aggregates by value, not as ptr). Used to
+    // build correct ABI-matching call types for indirect / fn-pointer calls.
+    mlir::Type fn_call_ret_llvm_type(const LogosType* ret_type);
+
     // Slice LLVM type: { ptr, i64 }
     mlir::Type slice_llvm_type();
 

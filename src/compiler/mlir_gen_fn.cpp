@@ -61,6 +61,27 @@ mlir::Value MLIRGenImpl::sizeof_struct(mlir::LLVM::LLVMStructType struct_type) {
 // Function type from LFunction
 // ---------------------------------------------------------------------------
 
+mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(const LogosType* ret_type) {
+    if (!ret_type) return nullptr;
+    if (type_str(ret_type) == "AnyVal") return builder_.getI32Type();
+    if (ret_type->kind == LogosType::Kind::Tuple) {
+        return tuple_llvm_type(ret_type);
+    }
+    if (ret_type->kind == LogosType::Kind::Struct ||
+        ret_type->kind == LogosType::Kind::ZonedStruct) {
+        auto cname = concrete_struct_name(ret_type);
+        auto sit = struct_types_.find(cname);
+        if (sit != struct_types_.end()) return sit->second.llvm_type;
+        return ptr_type();
+    }
+    if (ret_type->kind == LogosType::Kind::Enum) {
+        auto* te = resolve_tagged_enum(ret_type->enum_name, ret_type);
+        if (te) return te->llvm_type;
+        return builder_.getI32Type();
+    }
+    return logos_to_mlir(ret_type);
+}
+
 mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
     llvm::SmallVector<mlir::Type> param_types;
     for (auto& p : fn.params) {
