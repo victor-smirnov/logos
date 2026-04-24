@@ -117,11 +117,11 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             : error_t();
 
         // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────
-        if (target && target->kind == LogosType::Kind::Struct &&
+        if (target && TypeRef(target).kind() == LogosType::Kind::Struct &&
             (target->struct_name == "HermesArr" || target->struct_name == "HermesMap")) {
             if (target->struct_name == "HermesArr") {
                 auto* src = inner->type;
-                if (!src || src->kind != LogosType::Kind::Slice) {
+                if (!src || TypeRef(src).kind() != LogosType::Kind::Slice) {
                     error(std::format(
                         "'as <T>[]' requires a &[T] slice as source; got '{}'",
                         src ? type_str(src) : "?"));
@@ -135,29 +135,29 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     error("internal: <T>[] type missing element type");
                     return error_expr();
                 }
-                // C6-fix4: src->elem must be non-null; don't skip type check silently.
-                if (!src->elem) {
+                // C6-fix4: TypeRef(src).elem() must be non-null; don't skip type check silently.
+                if (!TypeRef(src).elem()) {
                     error("'as <T>[]': source slice has unresolved element type");
                     return error_expr();
                 }
-                if (elem_t->kind != src->elem->kind) {
+                if (elem_t->kind != TypeRef(src).elem()->kind) {
                     error(std::format(
                         "'as <T>[]' element type mismatch: slice has '{}', target needs '{}'",
-                        type_str(src->elem), type_str(elem_t)));
+                        type_str(TypeRef(src).elem()), type_str(elem_t)));
                     return error_expr();
                 }
                 // Pick the stdlib builder function name.
                 std::string build_fn;
-                if      (elem_t->kind == LogosType::Kind::I8)  build_fn = "hermes_build_array_i8";
-                else if (elem_t->kind == LogosType::Kind::U8)  build_fn = "hermes_build_array_u8";
-                else if (elem_t->kind == LogosType::Kind::I16) build_fn = "hermes_build_array_i16";
-                else if (elem_t->kind == LogosType::Kind::U16) build_fn = "hermes_build_array_u16";
-                else if (elem_t->kind == LogosType::Kind::U32) build_fn = "hermes_build_array_u32";
-                else if (elem_t->kind == LogosType::Kind::I32) build_fn = "hermes_build_array_i32";
-                else if (elem_t->kind == LogosType::Kind::I64) build_fn = "hermes_build_array_i64";
-                else if (elem_t->kind == LogosType::Kind::U64) build_fn = "hermes_build_array_u64";
-                else if (elem_t->kind == LogosType::Kind::F32) build_fn = "hermes_build_array_f32";
-                else if (elem_t->kind == LogosType::Kind::F64) build_fn = "hermes_build_array_f64";
+                if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "hermes_build_array_i8";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "hermes_build_array_u8";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "hermes_build_array_i16";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "hermes_build_array_u16";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "hermes_build_array_u32";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "hermes_build_array_i32";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "hermes_build_array_i64";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "hermes_build_array_u64";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "hermes_build_array_f32";
+                else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "hermes_build_array_f64";
                 else {
                     error(std::format("'as <T>[]': unsupported element type '{}'; "
                                       "supported: i8/u8/i16/u16/i32/u32/i64/u64/f32/f64",
@@ -192,7 +192,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     return error_expr();
                 }
                 // Helper: check AnyVal val type.
-                bool val_is_anyval = val_t->kind == LogosType::Kind::Struct &&
+                bool val_is_anyval = TypeRef(val_t).kind() == LogosType::Kind::Struct &&
                                      val_t->struct_name == "AnyVal";
                 std::string map_fn;
                 struct MapVariant { LogosType::Kind key_kind; const char* slice_name; const char* fn_name; };
@@ -206,7 +206,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 if (val_is_anyval) {
                     for (auto& mv : map_variants) {
                         if (key_t->kind == mv.key_kind) {
-                            if (!src || src->kind != LogosType::Kind::Struct ||
+                            if (!src || TypeRef(src).kind() != LogosType::Kind::Struct ||
                                 src->struct_name != mv.slice_name) {
                                 error(std::format(
                                     "'as <{},AnyVal>{{}}' requires a {} as source; got '{}'",
@@ -222,8 +222,8 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 }
                 if (!found_map) {
                     // fix4: guard against calling type_str on error types — check kind first.
-                    auto key_str = (key_t->kind != LogosType::Kind::Error) ? type_str(key_t) : "?";
-                    auto val_str = (val_t->kind != LogosType::Kind::Error) ? type_str(val_t) : "?";
+                    auto key_str = (TypeRef(key_t).kind() != LogosType::Kind::Error) ? type_str(key_t) : "?";
+                    auto val_str = (TypeRef(val_t).kind() != LogosType::Kind::Error) ? type_str(val_t) : "?";
                     error(std::format(
                         "'as <{},{}>{{}}': unsupported combination; supported: <I32/U32/I64/U64,AnyVal>",
                         key_str, val_str));
@@ -244,29 +244,29 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         // ── Ordinary numeric/pointer cast. ────────────────────────────────────
         if (inner->type && target &&
             inner->type->kind != LogosType::Kind::Error &&
-            target->kind != LogosType::Kind::Error) {
+            TypeRef(target).kind() != LogosType::Kind::Error) {
             bool src_agg = inner->type->kind == LogosType::Kind::Struct ||
                            inner->type->kind == LogosType::Kind::Array  ||
                            inner->type->kind == LogosType::Kind::Tuple  ||
                            inner->type->kind == LogosType::Kind::Enum;
-            bool tgt_scalar = target->kind == LogosType::Kind::I32  ||
-                              target->kind == LogosType::Kind::I64  ||
-                              target->kind == LogosType::Kind::U8   ||
-                              target->kind == LogosType::Kind::I8   ||
-                              target->kind == LogosType::Kind::I16  ||
-                              target->kind == LogosType::Kind::U16  ||
-                              target->kind == LogosType::Kind::I24  ||
-                              target->kind == LogosType::Kind::I56  ||
-                              target->kind == LogosType::Kind::U24  ||
-                              target->kind == LogosType::Kind::U56  ||
-                              target->kind == LogosType::Kind::U32  ||
-                              target->kind == LogosType::Kind::U64  ||
-                              target->kind == LogosType::Kind::I128 ||
-                              target->kind == LogosType::Kind::U128 ||
-                              target->kind == LogosType::Kind::F64  ||
-                              target->kind == LogosType::Kind::F32  ||
-                              target->kind == LogosType::Kind::Bool ||
-                              target->kind == LogosType::Kind::Ptr;
+            bool tgt_scalar = TypeRef(target).kind() == LogosType::Kind::I32  ||
+                              TypeRef(target).kind() == LogosType::Kind::I64  ||
+                              TypeRef(target).kind() == LogosType::Kind::U8   ||
+                              TypeRef(target).kind() == LogosType::Kind::I8   ||
+                              TypeRef(target).kind() == LogosType::Kind::I16  ||
+                              TypeRef(target).kind() == LogosType::Kind::U16  ||
+                              TypeRef(target).kind() == LogosType::Kind::I24  ||
+                              TypeRef(target).kind() == LogosType::Kind::I56  ||
+                              TypeRef(target).kind() == LogosType::Kind::U24  ||
+                              TypeRef(target).kind() == LogosType::Kind::U56  ||
+                              TypeRef(target).kind() == LogosType::Kind::U32  ||
+                              TypeRef(target).kind() == LogosType::Kind::U64  ||
+                              TypeRef(target).kind() == LogosType::Kind::I128 ||
+                              TypeRef(target).kind() == LogosType::Kind::U128 ||
+                              TypeRef(target).kind() == LogosType::Kind::F64  ||
+                              TypeRef(target).kind() == LogosType::Kind::F32  ||
+                              TypeRef(target).kind() == LogosType::Kind::Bool ||
+                              TypeRef(target).kind() == LogosType::Kind::Ptr;
             // C-style enum -> integer/bool is allowed (discriminant cast).
             bool src_is_cstyle_enum = false;
             if (inner->type->kind == LogosType::Kind::Enum) {
@@ -287,10 +287,10 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             bool src_is_str = inner->type->kind == LogosType::Kind::Slice &&
                               inner->type->elem &&
                               inner->type->elem->kind == LogosType::Kind::U8;
-            bool tgt_is_mut_ptr = target->kind == LogosType::Kind::Ptr &&
-                                  target->mut_ptr &&
-                                  target->pointee &&
-                                  target->pointee->kind == LogosType::Kind::U8;
+            bool tgt_is_mut_ptr = TypeRef(target).kind() == LogosType::Kind::Ptr &&
+                                  TypeRef(target).mut_ptr() &&
+                                  TypeRef(target).pointee() &&
+                                  TypeRef(target).pointee()->kind == LogosType::Kind::U8;
             if (src_is_str && tgt_is_mut_ptr)
                 error("cannot cast 'str' to '*mut u8': str data is read-only; use '*const u8'");
         }
@@ -312,8 +312,8 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 return error_expr();
             }
             // For arrays, produce &mut elem (reference to first element)
-            if (vt->kind == LogosType::Kind::Array)
-                return make_expr(make_ref(true, vt->elem), lir::EAddrOf{std::string(var_name)});
+            if (TypeRef(vt).kind() == LogosType::Kind::Array)
+                return make_expr(make_ref(true, TypeRef(vt).elem()), lir::EAddrOf{std::string(var_name)});
             return make_expr(make_ref(true, vt), lir::EAddrOf{std::string(var_name)});
         }
         // &mut <expr> — temporary materialization
@@ -330,17 +330,17 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             ? lower_expr(map_of(expr.get(la::VALUE.code)))
             : error_expr();
         auto* inner_t = inner->type;
-        bool is_result = inner_t->kind == LogosType::Kind::Enum
+        bool is_result = TypeRef(inner_t).kind() == LogosType::Kind::Enum
                          && inner_t->enum_name == "Result"
                          && inner_t->type_args.size() >= 2;
-        bool is_option = inner_t->kind == LogosType::Kind::Enum
+        bool is_option = TypeRef(inner_t).kind() == LogosType::Kind::Enum
                          && inner_t->enum_name == "Option"
                          && inner_t->type_args.size() >= 1;
         if (!is_result && !is_option) {
             error("'?' operator requires a Result<T, E> or Option<T> expression");
             return error_expr();
         }
-        if (!ret_type_ || ret_type_->kind != LogosType::Kind::Enum
+        if (!ret_type_ || TypeRef(ret_type_).kind() != LogosType::Kind::Enum
             || ret_type_->enum_name != inner_t->enum_name) {
             if (is_option)
                 error("'?' on Option used in function that does not return Option<T>");
@@ -466,7 +466,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             auto e = lower_expr(map_of(items.get(i)));
             // Upgrade IntLit element type to i64 if the literal overflows i32.
             const LogosType* et = e->type;
-            if (et->kind == LogosType::Kind::IntLit) {
+            if (TypeRef(et).kind() == LogosType::Kind::IntLit) {
                 if (auto v = get_intlit_value(e.get()))
                     if (*v > (int64_t)INT32_MAX || *v < (int64_t)INT32_MIN)
                         et = prim(LogosType::Kind::I64);
@@ -488,18 +488,18 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             recv->type->pointee->kind == LogosType::Kind::Tuple) {
             recv_tuple_type = recv->type->pointee;
         }
-        if (recv_tuple_type->kind != LogosType::Kind::Tuple) {
+        if (TypeRef(recv_tuple_type).kind() != LogosType::Kind::Tuple) {
             error(std::format("tuple index on non-tuple type '{}'", type_str(recv->type)));
             return error_expr();
         }
         auto sv = str_of(expr.get(la::FIELD.code));
         uint32_t idx = (uint32_t)parse_int_literal(sv);
-        if (idx >= recv_tuple_type->tuple_elems.size()) {
+        if (idx >= TypeRef(recv_tuple_type).tuple_elems().size()) {
             error(std::format("tuple index {} out of range (tuple has {} elements)",
-                  idx, recv_tuple_type->tuple_elems.size()));
+                  idx, TypeRef(recv_tuple_type).tuple_elems().size()));
             return error_expr();
         }
-        auto* elem_t = recv_tuple_type->tuple_elems[idx];
+        auto* elem_t = TypeRef(recv_tuple_type).tuple_elems()[idx];
         return make_expr(elem_t, lir::ETupleIndex{std::move(recv), idx});
     }
 
@@ -518,7 +518,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     const LogosType* result_type = error_t();
 
     // Operator overloading: if LHS is a struct, desugar to trait method call.
-    if (lt->kind == LogosType::Kind::Struct) {
+    if (TypeRef(lt).kind() == LogosType::Kind::Struct) {
         // Map operator to trait name and method
         std::string trait_name, method_name;
         if      (op == "+")  { trait_name = "Add"; method_name = "add"; }
@@ -547,26 +547,26 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
     }
 
-    if (lt->kind == LogosType::Kind::Error || rt->kind == LogosType::Kind::Error) {
+    if (TypeRef(lt).kind() == LogosType::Kind::Error || TypeRef(rt).kind() == LogosType::Kind::Error) {
         result_type = error_t();
     } else if (op == "&&" || op == "||") {
-        if (lt->kind != LogosType::Kind::Bool)
+        if (TypeRef(lt).kind() != LogosType::Kind::Bool)
             error(std::format("operator '{}': left must be bool, got {}", op, type_str(lt)));
-        if (rt->kind != LogosType::Kind::Bool)
+        if (TypeRef(rt).kind() != LogosType::Kind::Bool)
             error(std::format("operator '{}': right must be bool, got {}", op, type_str(rt)));
         result_type = bool_t();
     } else if (op == "==" || op == "!=" ||
                op == "<"  || op == "<=" || op == ">" || op == ">=") {
         // Allow pointer-vs-integer-literal comparison (null check: ptr == 0)
         bool ptr_null_cmp =
-            (lt->kind == LogosType::Kind::Ptr && rt->kind == LogosType::Kind::IntLit) ||
-            (rt->kind == LogosType::Kind::Ptr && lt->kind == LogosType::Kind::IntLit);
+            (TypeRef(lt).kind() == LogosType::Kind::Ptr && TypeRef(rt).kind() == LogosType::Kind::IntLit) ||
+            (TypeRef(rt).kind() == LogosType::Kind::Ptr && TypeRef(lt).kind() == LogosType::Kind::IntLit);
         bool ok = ptr_null_cmp || types_compatible(lt, rt) || types_compatible(rt, lt);
         if (!ok)
             error(std::format("operator '{}': type mismatch ({} vs {})",
                   op, type_str(lt), type_str(rt)));
         if (ptr_null_cmp) {
-            const lir::LExpr* lit_expr = (lt->kind == LogosType::Kind::IntLit) ? lhs.get() : rhs.get();
+            const lir::LExpr* lit_expr = (TypeRef(lt).kind() == LogosType::Kind::IntLit) ? lhs.get() : rhs.get();
             if (auto v = get_intlit_value(lit_expr)) {
                 if (*v != 0)
                     error(std::format(
@@ -575,12 +575,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
         // Detect comparisons against IntLit values that can't fit in the other operand.
         // E.g. x: i32 == 10000000000 — the literal can never equal any i32 value.
-        if (lt->kind == LogosType::Kind::IntLit && is_integer_kind(rt->kind)) {
+        if (TypeRef(lt).kind() == LogosType::Kind::IntLit && is_integer_kind(rt->kind)) {
             if (auto v = get_intlit_value(lhs.get()))
                 if (!intlit_fits(*v, rt->kind))
                     error(std::format("operator '{}': literal value {} does not fit in {}",
                           op, *v, type_str(rt)));
-        } else if (rt->kind == LogosType::Kind::IntLit && is_integer_kind(lt->kind)) {
+        } else if (TypeRef(rt).kind() == LogosType::Kind::IntLit && is_integer_kind(lt->kind)) {
             if (auto v = get_intlit_value(rhs.get()))
                 if (!intlit_fits(*v, lt->kind))
                     error(std::format("operator '{}': literal value {} does not fit in {}",
@@ -599,8 +599,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 error(std::format("operator '{}': type mismatch ({} vs {})",
                       op, type_str(lt), type_str(rt)));
             // If one side is TypeVar and the other is IntLit, result is the TypeVar
-            if (lt->kind == LogosType::Kind::TypeVar) result_type = lt;
-            else if (rt->kind == LogosType::Kind::TypeVar) result_type = rt;
+            if (TypeRef(lt).kind() == LogosType::Kind::TypeVar) result_type = lt;
+            else if (TypeRef(rt).kind() == LogosType::Kind::TypeVar) result_type = rt;
             // FloatLit/IntLit on LHS defers to the concrete type on RHS (e.g. 1.0 + x_f32 → f32).
             else result_type = unify_numeric(lt, rt);
         } else {
@@ -609,12 +609,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                       op, type_str(lt), type_str(rt)));
             result_type = unify_int(lt, rt);
             // Check IntLit operand fits in the concrete type of the other operand.
-            if (lt->kind == LogosType::Kind::IntLit && rt->kind != LogosType::Kind::IntLit)
+            if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(lhs.get()))
                     if (!intlit_fits(*v, rt->kind))
                         error(std::format("operator '{}': left value {} does not fit in {}",
                               op, *v, type_str(rt)));
-            if (rt->kind == LogosType::Kind::IntLit && lt->kind != LogosType::Kind::IntLit)
+            if (TypeRef(rt).kind() == LogosType::Kind::IntLit && TypeRef(lt).kind() != LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(rhs.get()))
                     if (!intlit_fits(*v, lt->kind))
                         error(std::format("operator '{}': right value {} does not fit in {}",
@@ -622,18 +622,18 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
     } else if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
         // Bitwise and shift operators — require integer operands.
-        if (!is_integer_kind(lt->kind) && lt->kind != LogosType::Kind::IntLit)
+        if (!is_integer_kind(lt->kind) && TypeRef(lt).kind() != LogosType::Kind::IntLit)
             error(std::format("operator '{}': left must be integer, got {}", op, type_str(lt)));
-        if (!is_integer_kind(rt->kind) && rt->kind != LogosType::Kind::IntLit)
+        if (!is_integer_kind(rt->kind) && TypeRef(rt).kind() != LogosType::Kind::IntLit)
             error(std::format("operator '{}': right must be integer, got {}", op, type_str(rt)));
         result_type = unify_int(lt, rt);
         // Check IntLit operand fits in the concrete type of the other operand.
-        if (lt->kind == LogosType::Kind::IntLit && rt->kind != LogosType::Kind::IntLit)
+        if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
             if (auto v = get_intlit_value(lhs.get()))
                 if (!intlit_fits(*v, rt->kind))
                     error(std::format("operator '{}': left value {} does not fit in {}",
                           op, *v, type_str(rt)));
-        if (rt->kind == LogosType::Kind::IntLit && lt->kind != LogosType::Kind::IntLit)
+        if (TypeRef(rt).kind() == LogosType::Kind::IntLit && TypeRef(lt).kind() != LogosType::Kind::IntLit)
             if (auto v = get_intlit_value(rhs.get()))
                 if (!intlit_fits(*v, lt->kind))
                     error(std::format("operator '{}': right value {} does not fit in {}",
@@ -659,10 +659,10 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 return error_expr();
             }
             // &array → slice: &[T] with len = array size
-            if (vt->kind == LogosType::Kind::Array) {
-                auto addr = make_expr(make_ref(false, vt->elem), lir::EAddrOf{std::string(var_name)});
+            if (TypeRef(vt).kind() == LogosType::Kind::Array) {
+                auto addr = make_expr(make_ref(false, TypeRef(vt).elem()), lir::EAddrOf{std::string(var_name)});
                 auto len  = make_expr(prim(LogosType::Kind::I64), lir::ELitInt{(int64_t)vt->arr_size});
-                return make_expr(make_slice_type(vt->elem),
+                return make_expr(make_slice_type(TypeRef(vt).elem()),
                     lir::ESliceLit{std::move(addr), std::move(len)});
             }
             return make_expr(make_ref(false, vt), lir::EAddrOf{std::string(var_name)});
@@ -676,11 +676,11 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
 
     auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
     auto* vt = operand->type;
-    if (vt->kind == LogosType::Kind::Error)
+    if (TypeRef(vt).kind() == LogosType::Kind::Error)
         return make_expr(error_t(), lir::EUnary{std::string(op), std::move(operand)});
 
     // Unary operator overloading for struct types
-    if (vt->kind == LogosType::Kind::Struct) {
+    if (TypeRef(vt).kind() == LogosType::Kind::Struct) {
         std::string trait_name, method_name;
         if      (op == "-") { trait_name = "Neg"; method_name = "neg"; }
         else if (op == "!") { trait_name = "Not"; method_name = "not_"; }
@@ -703,11 +703,11 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             error(std::format("unary '-': operand must be numeric, got {}", type_str(vt)));
         result_type = vt;
     } else if (op == "!") {
-        if (vt->kind == LogosType::Kind::Bool) {
+        if (TypeRef(vt).kind() == LogosType::Kind::Bool) {
             result_type = bool_t();
-        } else if (is_integer_kind(vt->kind) || vt->kind == LogosType::Kind::IntLit) {
+        } else if (is_integer_kind(vt->kind) || TypeRef(vt).kind() == LogosType::Kind::IntLit) {
             // Bitwise NOT (~x) on integer types
-            result_type = (vt->kind == LogosType::Kind::IntLit) ? i32_t() : vt;
+            result_type = (TypeRef(vt).kind() == LogosType::Kind::IntLit) ? i32_t() : vt;
         } else {
             error(std::format("unary '!': operand must be bool or integer, got {}", type_str(vt)));
             result_type = bool_t();
@@ -722,18 +722,18 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
     auto* vt = operand->type;
-    if (vt->kind == LogosType::Kind::Error)
+    if (TypeRef(vt).kind() == LogosType::Kind::Error)
         return make_expr(error_t(), lir::EDeref{std::move(operand)});
-    if (vt->kind != LogosType::Kind::Ptr &&
-        vt->kind != LogosType::Kind::Ref &&
-        vt->kind != LogosType::Kind::MutRef) {
+    if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
+        TypeRef(vt).kind() != LogosType::Kind::Ref &&
+        TypeRef(vt).kind() != LogosType::Kind::MutRef) {
         error(std::format("dereference of non-pointer type {}", type_str(vt)));
         return make_expr(error_t(), lir::EDeref{std::move(operand)});
     }
     // Raw pointer deref requires unsafe context
-    if (vt->kind == LogosType::Kind::Ptr && !inside_unsafe_)
+    if (TypeRef(vt).kind() == LogosType::Kind::Ptr && !inside_unsafe_)
         error("dereference of raw pointer requires unsafe context");
-    auto* res = vt->pointee ? vt->pointee : error_t();
+    auto* res = TypeRef(vt).pointee().raw() ? TypeRef(vt).pointee().raw() : error_t();
     return make_expr(res, lir::EDeref{std::move(operand)});
 }
 
@@ -742,8 +742,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     // Check if callee is a closure or fn-ptr variable
     auto* callee_type = lookup(callee);
-    bool is_closure = callee_type && callee_type->kind == LogosType::Kind::Closure;
-    bool is_fn_ptr  = callee_type && callee_type->kind == LogosType::Kind::FnPtr;
+    bool is_closure = callee_type && TypeRef(callee_type).kind() == LogosType::Kind::Closure;
+    bool is_fn_ptr  = callee_type && TypeRef(callee_type).kind() == LogosType::Kind::FnPtr;
     if (is_closure || is_fn_ptr) {
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
@@ -752,16 +752,16 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
         }
         uint64_t n_args = arg_exprs.size();
-        uint64_t n_params = callee_type->closure_params.size();
+        uint64_t n_params = TypeRef(callee_type).closure_params().size();
         const char* kind_str = is_fn_ptr ? "fn-ptr call" : "closure call";
         if (n_args != n_params) {
             error(std::format("{}: expected {} args, got {}", kind_str, n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto* at = arg_exprs[i]->type;
-                auto* pt = callee_type->closure_params[i];
-                if (at->kind != LogosType::Kind::Error &&
-                    pt->kind != LogosType::Kind::Error &&
+                auto* pt = TypeRef(callee_type).closure_params()[i];
+                if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::Error &&
                     !types_compatible(at, pt)) {
                     error(std::format("{} arg {}: expected {}, got {}",
                           kind_str, i + 1, type_str(pt), type_str(at)));
@@ -769,7 +769,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             }
         }
         auto callee_expr = make_expr(callee_type, lir::EVarRef{std::string(callee)});
-        const LogosType* ret = callee_type->closure_ret ? callee_type->closure_ret : void_t();
+        const LogosType* ret = TypeRef(callee_type).closure_ret().raw() ? TypeRef(callee_type).closure_ret().raw() : void_t();
         if (is_fn_ptr)
             return make_expr(ret, lir::EFnPtrCall{std::move(callee_expr), std::move(arg_exprs)});
         return make_expr(ret, lir::EClosureCall{std::move(callee_expr), std::move(arg_exprs)});
@@ -841,12 +841,12 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 for (uint64_t i = 0; i < exact_fi->param_types.size(); ++i) {
                     auto* at = arg_exprs[i]->type;
                     auto* pt = exact_fi->param_types[i];
-                    if (at->kind != LogosType::Kind::Error &&
-                        pt->kind != LogosType::Kind::Error &&
+                    if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                        TypeRef(pt).kind() != LogosType::Kind::Error &&
                         !types_compatible(at, pt))
                         error(std::format("call to '{}' arg {}: expected {}, got {}",
                               callee, i + 1, type_str(pt), type_str(at)));
-                    if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                    if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                         if (auto v = get_intlit_value(arg_exprs[i].get()))
                             if (!intlit_fits(*v, pt->kind))
                                 error(std::format("call to '{}' arg {}: value {} does not fit in {}",
@@ -861,52 +861,52 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 try_coerce_closure_to_fnptr(arg_exprs[i], exact_fi->param_types[i]);
                 auto* at = arg_exprs[i]->type;
                 auto* pt = exact_fi->param_types[i];
-                if (at->kind != LogosType::Kind::Error &&
-                    pt->kind != LogosType::Kind::Error &&
+                if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::Error &&
                     !types_compatible(at, pt))
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, type_str(pt), type_str(at)));
-                if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
                         if (!intlit_fits(*v, pt->kind))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
-                if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
                     if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < al->elems.size(); ++ei)
                             if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                 if (auto v = get_intlit_value(al->elems[ei].get()))
-                                    if (!intlit_fits(*v, pt->elem->kind))
+                                    if (!intlit_fits(*v, TypeRef(pt).elem()->kind))
                                         error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
-                                              callee, i + 1, ei, *v, type_str(pt->elem)));
+                                              callee, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
                 // Check tuple literal elements against narrow tuple param element types.
-                if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
                     if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei) {
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                             if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                 if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                    if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                    if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->kind))
                                         error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                              callee, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
-                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                                pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                              callee, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
+                            if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Array &&
+                                TypeRef(pt).tuple_elems()[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                         if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                                if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
+                                                if (!intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->elem->kind))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          callee, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
-                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                                                          callee, i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->elem)));
+                            if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Tuple &&
                                 tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < pt->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                    for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(pt).tuple_elems()[ei]->tuple_elems.size(); ++ii)
                                         if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                                if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                if (TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii]->kind))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          callee, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
+                                                          callee, i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii])));
                         }
             }
         }
@@ -983,8 +983,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 in_generic_context = true; break;
             }
             auto* t = a->type;
-            if (t && (t->kind == LogosType::Kind::TypeVar ||
-                      t->kind == LogosType::Kind::AssocType)) {
+            if (t && (TypeRef(t).kind() == LogosType::Kind::TypeVar ||
+                      TypeRef(t).kind() == LogosType::Kind::AssocType)) {
                 in_generic_context = true; break;
             }
         }
@@ -1023,12 +1023,12 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
                 auto* at = arg_exprs[i]->type;
                 auto* pt = fi.param_types[i];
-                if (at->kind != LogosType::Kind::Error &&
-                    pt->kind != LogosType::Kind::Error &&
+                if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::Error &&
                     !types_compatible(at, pt))
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, type_str(pt), type_str(at)));
-                if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
                         if (!intlit_fits(*v, pt->kind))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
@@ -1043,52 +1043,52 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
             auto* at = arg_exprs[i]->type;
             auto* pt = fi.param_types[i];
-            if (at->kind != LogosType::Kind::Error &&
-                pt->kind != LogosType::Kind::Error &&
+            if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                TypeRef(pt).kind() != LogosType::Kind::Error &&
                 !types_compatible(at, pt))
                 error(std::format("call to '{}' arg {}: expected {}, got {}",
                       callee, i + 1, type_str(pt), type_str(at)));
-            if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+            if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                 if (auto v = get_intlit_value(arg_exprs[i].get()))
                     if (!intlit_fits(*v, pt->kind))
                         error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                               callee, i + 1, *v, type_str(pt)));
             // Check array literal elements against narrow array param type.
-            if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+            if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
                 if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                     for (size_t ei = 0; ei < al->elems.size(); ++ei)
                         if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
                             if (auto v = get_intlit_value(al->elems[ei].get()))
-                                if (!intlit_fits(*v, pt->elem->kind))
+                                if (!intlit_fits(*v, TypeRef(pt).elem()->kind))
                                     error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
-                                          callee, i + 1, ei, *v, type_str(pt->elem)));
+                                          callee, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
             // Check tuple literal elements against narrow tuple param element types.
-            if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+            if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
                 if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                    for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei) {
+                    for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                         if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
                             if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->kind))
                                     error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                          callee, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
-                        if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                            pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                          callee, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
+                        if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Array &&
+                            TypeRef(pt).tuple_elems()[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                     if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                         if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                            if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
+                                            if (!intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->elem->kind))
                                                 error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                      callee, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
-                        if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                                                      callee, i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->elem)));
+                        if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Tuple &&
                             tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < pt->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(pt).tuple_elems()[ei]->tuple_elems.size(); ++ii)
                                     if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                         if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                            if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                            if (TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii]->kind))
                                                 error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      callee, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
+                                                      callee, i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii])));
                     }
         }
     }
@@ -1128,48 +1128,48 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 void SemaChecker::unify_types(const LogosType* formal, const LogosType* actual,
                      std::unordered_map<std::string, const LogosType*>& bindings) {
     if (!formal || !actual) return;
-    if (actual->kind == LogosType::Kind::Error ||
-        formal->kind == LogosType::Kind::Error) return;
+    if (TypeRef(actual).kind() == LogosType::Kind::Error ||
+        TypeRef(formal).kind() == LogosType::Kind::Error) return;
 
     // Widen IntLit to i32 / FloatLit to f64 before any binding
     const LogosType* actual_norm = actual;
-    if (actual->kind == LogosType::Kind::IntLit)
+    if (TypeRef(actual).kind() == LogosType::Kind::IntLit)
         actual_norm = prim(LogosType::Kind::I32);
-    else if (actual->kind == LogosType::Kind::FloatLit)
+    else if (TypeRef(actual).kind() == LogosType::Kind::FloatLit)
         actual_norm = prim(LogosType::Kind::F64);
 
-    if (formal->kind == LogosType::Kind::TypeVar) {
-        if (formal->type_var_name == "Self") return;  // skip implicit Self
-        if (!bindings.count(formal->type_var_name))
-            bindings[formal->type_var_name] = actual_norm;
+    if (TypeRef(formal).kind() == LogosType::Kind::TypeVar) {
+        if (TypeRef(formal).type_var_name() == "Self") return;  // skip implicit Self
+        if (!bindings.count(TypeRef(formal).type_var_name()))
+            bindings[TypeRef(formal).type_var_name()] = actual_norm;
         return;
     }
 
-    switch (formal->kind) {
+    switch (TypeRef(formal).kind()) {
     case LogosType::Kind::Ptr:
-        if (actual_norm->kind == LogosType::Kind::Ptr)
-            unify_types(formal->pointee, actual_norm->pointee, bindings);
-        else if (actual_norm->kind == LogosType::Kind::Ref ||
-                 actual_norm->kind == LogosType::Kind::MutRef)
-            unify_types(formal->pointee, actual_norm->pointee, bindings);
+        if (TypeRef(actual_norm).kind() == LogosType::Kind::Ptr)
+            unify_types(TypeRef(formal).pointee(), TypeRef(actual_norm).pointee(), bindings);
+        else if (TypeRef(actual_norm).kind() == LogosType::Kind::Ref ||
+                 TypeRef(actual_norm).kind() == LogosType::Kind::MutRef)
+            unify_types(TypeRef(formal).pointee(), TypeRef(actual_norm).pointee(), bindings);
         break;
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef:
-        if (actual_norm->kind == LogosType::Kind::Ref ||
-            actual_norm->kind == LogosType::Kind::MutRef ||
-            actual_norm->kind == LogosType::Kind::Ptr)
-            unify_types(formal->pointee, actual_norm->pointee, bindings);
+        if (TypeRef(actual_norm).kind() == LogosType::Kind::Ref ||
+            TypeRef(actual_norm).kind() == LogosType::Kind::MutRef ||
+            TypeRef(actual_norm).kind() == LogosType::Kind::Ptr)
+            unify_types(TypeRef(formal).pointee(), TypeRef(actual_norm).pointee(), bindings);
         break;
     case LogosType::Kind::Array:
-        if (actual_norm->kind == LogosType::Kind::Array)
-            unify_types(formal->elem, actual_norm->elem, bindings);
+        if (TypeRef(actual_norm).kind() == LogosType::Kind::Array)
+            unify_types(TypeRef(formal).elem(), TypeRef(actual_norm).elem(), bindings);
         break;
     case LogosType::Kind::Slice:
-        if (actual_norm->kind == LogosType::Kind::Slice)
-            unify_types(formal->elem, actual_norm->elem, bindings);
+        if (TypeRef(actual_norm).kind() == LogosType::Kind::Slice)
+            unify_types(TypeRef(formal).elem(), TypeRef(actual_norm).elem(), bindings);
         break;
     case LogosType::Kind::Struct:
-        if (actual_norm->kind == LogosType::Kind::Struct &&
+        if (TypeRef(actual_norm).kind() == LogosType::Kind::Struct &&
             formal->struct_name == actual_norm->struct_name) {
             for (size_t i = 0; i < formal->type_args.size() &&
                                 i < actual_norm->type_args.size(); ++i)
@@ -1177,10 +1177,10 @@ void SemaChecker::unify_types(const LogosType* formal, const LogosType* actual,
         }
         break;
     case LogosType::Kind::Tuple:
-        if (actual_norm->kind == LogosType::Kind::Tuple) {
-            for (size_t i = 0; i < formal->tuple_elems.size() &&
-                                i < actual_norm->tuple_elems.size(); ++i)
-                unify_types(formal->tuple_elems[i], actual_norm->tuple_elems[i], bindings);
+        if (TypeRef(actual_norm).kind() == LogosType::Kind::Tuple) {
+            for (size_t i = 0; i < TypeRef(formal).tuple_elems().size() &&
+                                i < TypeRef(actual_norm).tuple_elems().size(); ++i)
+                unify_types(TypeRef(formal).tuple_elems()[i], TypeRef(actual_norm).tuple_elems()[i], bindings);
         }
         break;
     default:
@@ -1219,9 +1219,9 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
     if (has_variadic) {
         for (size_t i = fixed_params; i < arg_exprs.size(); ++i) {
             auto* t = arg_exprs[i]->type;
-            if (t->kind == LogosType::Kind::IntLit)
+            if (TypeRef(t).kind() == LogosType::Kind::IntLit)
                 t = prim(LogosType::Kind::I32);
-            else if (t->kind == LogosType::Kind::FloatLit)
+            else if (TypeRef(t).kind() == LogosType::Kind::FloatLit)
                 t = prim(LogosType::Kind::F64);
             out_type_args.push_back(t);
         }
@@ -1287,14 +1287,14 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             auto* pt = subst_type_sema(fi.param_types[i], subst);
             try_coerce_closure_to_fnptr(arg_exprs[i], pt);
             auto* at = arg_exprs[i]->type;
-            if (at->kind != LogosType::Kind::Error &&
-                pt->kind != LogosType::Kind::Error &&
-                pt->kind != LogosType::Kind::TypeVar &&
+            if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                TypeRef(pt).kind() != LogosType::Kind::Error &&
+                TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                 !types_compatible(at, pt))
                 error(std::format("call to '{}' arg {}: expected {}, got {}",
                       callee_diag, i + 1, type_str(pt), type_str(at)));
-            if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error &&
-                pt->kind != LogosType::Kind::TypeVar)
+            if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
+                TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                 if (auto v = get_intlit_value(arg_exprs[i].get()))
                     if (!intlit_fits(*v, pt->kind))
                         error(std::format("call to '{}' arg {}: value {} does not fit in {}",
@@ -1309,55 +1309,55 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 auto* pt = subst_type_sema(fi.param_types[i], subst);
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
                 auto* at = arg_exprs[i]->type;
-                if (at->kind != LogosType::Kind::Error &&
-                    pt->kind != LogosType::Kind::Error &&
-                    pt->kind != LogosType::Kind::TypeVar &&
-                    pt->kind != LogosType::Kind::AssocType &&
+                if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                    TypeRef(pt).kind() != LogosType::Kind::AssocType &&
                     !types_compatible(at, pt))
                     error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee_diag, i + 1, type_str(pt), type_str(at)));
-                if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error &&
-                    pt->kind != LogosType::Kind::TypeVar)
+                if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
                         if (!intlit_fits(*v, pt->kind))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee_diag, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
-                if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
                     if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < al->elems.size(); ++ei)
                             if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                 if (auto v = get_intlit_value(al->elems[ei].get()))
-                                    if (!intlit_fits(*v, pt->elem->kind))
+                                    if (!intlit_fits(*v, TypeRef(pt).elem()->kind))
                                         error(std::format("call to '{}' arg {}: array element {}: value {} does not fit in {}",
-                                              callee_diag, i + 1, ei, *v, type_str(pt->elem)));
+                                              callee_diag, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
                 // Check tuple literal elements against narrow tuple param element types.
-                if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
                     if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei) {
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                             if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                 if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                    if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                    if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->kind))
                                         error(std::format("call to '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                              callee_diag, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
-                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                                pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                              callee_diag, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
+                            if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Array &&
+                                TypeRef(pt).tuple_elems()[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                         if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                                if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
+                                                if (!intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->elem->kind))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          callee_diag, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
-                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                                                          callee_diag, i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->elem)));
+                            if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Tuple &&
                                 tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < pt->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                    for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(pt).tuple_elems()[ei]->tuple_elems.size(); ++ii)
                                         if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                                if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                if (TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii]->kind))
                                                     error(std::format("call to '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          callee_diag, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
+                                                          callee_diag, i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii])));
                         }
             }
         }
@@ -1473,12 +1473,12 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             return error_expr();
         }
         uint64_t code = 0;
-        if (elem->kind == LogosType::Kind::ZonedStruct && elem->type_args.empty()) {
+        if (TypeRef(elem).kind() == LogosType::Kind::ZonedStruct && elem->type_args.empty()) {
             // Resolve package for this type (needed for both explicit and auto-hash paths).
-            // Prefer elem->pkg_name (set by resolve_type via find_datatype_by_name).
+            // Prefer TypeRef(elem).pkg_name() (set by resolve_type via find_datatype_by_name).
             std::string pkg;
-            if (!elem->pkg_name.empty()) {
-                pkg = elem->pkg_name;
+            if (!TypeRef(elem).pkg_name().empty()) {
+                pkg = TypeRef(elem).pkg_name();
             } else {
                 SemaStructInfo* found = nullptr;
                 { auto [dp, dsi] = find_datatype_by_name(elem->struct_name); found = dsi; }
@@ -1501,21 +1501,21 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 uint64_t raw = type_hash_56bit(hash);
                 code = (raw < 128) ? (raw + 128) : raw;
             }
-        } else if (elem->kind == LogosType::Kind::ZonedStruct && !elem->type_args.empty()) {
+        } else if (TypeRef(elem).kind() == LogosType::Kind::ZonedStruct && !elem->type_args.empty()) {
             // If any type_arg is a TypeVar, defer resolution to mono so every
             // instantiation of the surrounding generic function gets its own
             // concrete type_code.  Otherwise (fully concrete), compute now.
             bool has_tv = false;
             for (auto* a : elem->type_args)
-                if (a && a->kind == LogosType::Kind::TypeVar) { has_tv = true; break; }
+                if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { has_tv = true; break; }
             if (has_tv)
                 return make_expr(prim(LogosType::Kind::U64), lir::ETypeCodeOf{elem});
             // Resolve the package for this generic type.
-            // Prefer elem->pkg_name (set by resolve_type via find_datatype_by_name).
+            // Prefer TypeRef(elem).pkg_name() (set by resolve_type via find_datatype_by_name).
             // Fall back to datatypes_ lookup (bare then qualified), then cur_package_.
             std::string pkg;
-            if (!elem->pkg_name.empty()) {
-                pkg = elem->pkg_name;
+            if (!TypeRef(elem).pkg_name().empty()) {
+                pkg = TypeRef(elem).pkg_name();
             } else {
                 SemaStructInfo* gsi = nullptr;
                 { auto [dp, dsi] = find_datatype_by_name(elem->struct_name); gsi = dsi; }
@@ -1532,7 +1532,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 uint64_t raw = type_hash_56bit(hash);
                 code = (raw < 128) ? (raw + 128) : raw;
             }
-        } else if (elem->kind == LogosType::Kind::TypeVar) {
+        } else if (TypeRef(elem).kind() == LogosType::Kind::TypeVar) {
             // `type_code_of::<T>()` inside a generic fn — defer.
             return make_expr(prim(LogosType::Kind::U64), lir::ETypeCodeOf{elem});
         }
@@ -1558,23 +1558,23 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
         // Bug 4 fix: strip Array wrapper so [DataNode; N] → DataNode correctly.
         const LogosType* check = elem;
-        while (check && check->kind == LogosType::Kind::Array) check = check->elem;
+        while (check && TypeRef(check).kind() == LogosType::Kind::Array) check = TypeRef(check).elem();
         bool is_plain = true;
-        if (check && check->kind == LogosType::Kind::ZonedStruct && check->type_args.empty()) {
+        if (check && TypeRef(check).kind() == LogosType::Kind::ZonedStruct && check->type_args.empty()) {
             // Use import-aware helpers so same-package types (stored under qualified keys
             // after M1) and cross-package types are both found.
             SemaStructInfo* found_si = nullptr;
             { auto [dp, dsi] = find_datatype_by_name(check->struct_name); found_si = dsi; }
             if (!found_si) { auto [sp, ssi] = find_struct_by_name(check->struct_name); found_si = ssi; }
             // Package-qualified fallback using pkg_name on the type itself.
-            if (!found_si && !check->pkg_name.empty()) {
-                auto qkey = sema_key(check->pkg_name, check->struct_name);
+            if (!found_si && !TypeRef(check).pkg_name().empty()) {
+                auto qkey = sema_key(TypeRef(check).pkg_name(), check->struct_name);
                 { auto it = datatypes_.find(qkey); if (it != datatypes_.end()) found_si = &it->second; }
                 if (!found_si) { auto it = structs_.find(qkey); if (it != structs_.end()) found_si = &it->second; }
             }
             if (found_si) is_plain = found_si->is_data_plain;
             // If not found in any map, default to true (unknown type → conservative safe).
-        } else if (check && check->kind == LogosType::Kind::ZonedStruct && !check->type_args.empty()) {
+        } else if (check && TypeRef(check).kind() == LogosType::Kind::ZonedStruct && !check->type_args.empty()) {
             // Generic Datatype: can't determine statically → conservative DataNode.
             is_plain = false;
         }
@@ -1616,17 +1616,17 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             return error_expr();
         }
         const LogosType* T = ts[0];
-        if (T->kind == LogosType::Kind::TypeVar) {
+        if (TypeRef(T).kind() == LogosType::Kind::TypeVar) {
             // Inside a generic function — defer; mono will resolve and register.
             auto* hs_type = make_struct_type("HermesStatic");
             return make_expr(hs_type, lir::EReflectOf{T});
         }
-        if (T->kind != LogosType::Kind::ZonedStruct || !T->type_args.empty()) {
+        if (TypeRef(T).kind() != LogosType::Kind::ZonedStruct || !T->type_args.empty()) {
             error("reflect::<T>() requires a concrete (non-generic) datatype argument");
             return error_expr();
         }
         if (cur_prog_) {
-            std::string pkg = T->pkg_name.empty() ? std::string(cur_package_) : T->pkg_name;
+            std::string pkg = TypeRef(T).pkg_name().empty() ? std::string(cur_package_) : TypeRef(T).pkg_name();
             std::string fqn = pkg.empty() ? T->struct_name : pkg + "::" + T->struct_name;
             cur_prog_->reflect_requests.insert(fqn);
         }
@@ -1645,7 +1645,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         const LogosType* T = ts[0];
         const LogosType* A = ts[1];
         // Look up A's annotation type name
-        if (A->kind != LogosType::Kind::ZonedStruct) {
+        if (TypeRef(A).kind() != LogosType::Kind::ZonedStruct) {
             error("has_annotation: second type argument must be an annotation datatype");
             return error_expr();
         }
@@ -1659,9 +1659,9 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             a_fqn = apkg.empty() ? A->struct_name : apkg + "::" + A->struct_name;
         }
         bool found = false;
-        if (T->kind == LogosType::Kind::ZonedStruct && cur_prog_) {
+        if (TypeRef(T).kind() == LogosType::Kind::ZonedStruct && cur_prog_) {
             for (auto& sd : cur_prog_->structs) {
-                if (sd.name == T->struct_name || (!T->pkg_name.empty() && sd.name == T->struct_name)) {
+                if (sd.name == T->struct_name || (!TypeRef(T).pkg_name().empty() && sd.name == T->struct_name)) {
                     for (auto& inst : sd.annotations)
                         if (inst.ann_fqn == a_fqn || inst.ann_name == A->struct_name)
                             { found = true; break; }
@@ -1682,7 +1682,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
         const LogosType* T = ts[0];
         const LogosType* A = ts[1];
-        if (A->kind != LogosType::Kind::ZonedStruct) {
+        if (TypeRef(A).kind() != LogosType::Kind::ZonedStruct) {
             error("get_annotation: second type argument must be an annotation datatype");
             return error_expr();
         }
@@ -1720,7 +1720,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         const LogosType* a_type = A;  // already a Datatype type
         // Find the annotation instance on T
         const lir::LAnnotationInstance* found_inst = nullptr;
-        if (T->kind == LogosType::Kind::ZonedStruct && cur_prog_) {
+        if (TypeRef(T).kind() == LogosType::Kind::ZonedStruct && cur_prog_) {
             for (auto& sd : cur_prog_->structs) {
                 if (sd.name == T->struct_name) {
                     for (auto& inst : sd.annotations)
@@ -1756,8 +1756,8 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             }
             case K::Array: {
                 std::vector<lir::LExprPtr> elems;
-                const LogosType* elem_t = (expected && expected->kind == LogosType::Kind::Array)
-                                          ? expected->elem : nullptr;
+                const LogosType* elem_t = (expected && TypeRef(expected).kind() == LogosType::Kind::Array)
+                                          ? TypeRef(expected).elem() : nullptr;
                 for (auto& item : av.arr) elems.push_back(annot_val_to_expr(item, elem_t));
                 LogosType at; at.kind = LogosType::Kind::Array;
                 at.elem = elem_t ? elem_t : (elems.empty() ? prim(LogosType::Kind::I64) : elems[0]->type);
@@ -1885,7 +1885,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             }
             auto* at = args[0]->type;
             auto* i64ty = prim(LogosType::Kind::I64);
-            if (at->kind != LogosType::Kind::Error && !types_compatible(at, i64ty))
+            if (TypeRef(at).kind() != LogosType::Kind::Error && !types_compatible(at, i64ty))
                 error(std::format("pointer method '{}': argument must be i64, got {}",
                       method_name, type_str(at)));
             widen_int_expr(args[0], i64ty);
@@ -1903,7 +1903,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 return error_expr();
             }
             auto* at = args[0]->type;
-            if (at->kind != LogosType::Kind::Error && at->kind != LogosType::Kind::Ptr)
+            if (TypeRef(at).kind() != LogosType::Kind::Error && TypeRef(at).kind() != LogosType::Kind::Ptr)
                 error(std::format("pointer method '{}': argument must be a pointer, got {}",
                       method_name, type_str(at)));
             return make_expr(prim(LogosType::Kind::I64),
@@ -1947,65 +1947,65 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         for (uint64_t i = 0; i < explicit_args; ++i) {
                             auto* at = arg_exprs[i]->type;
                             auto* pt = subst_type_sema(m.param_types[i + 1], self_subst);
-                            if (at->kind != LogosType::Kind::Error &&
-                                pt->kind != LogosType::Kind::Error &&
-                                pt->kind != LogosType::Kind::TypeVar &&
-                                pt->kind != LogosType::Kind::AssocType &&
+                            if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                                TypeRef(pt).kind() != LogosType::Kind::Error &&
+                                TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                                TypeRef(pt).kind() != LogosType::Kind::AssocType &&
                                 !types_compatible(at, pt))
                                 error(std::format("method '{}' arg {}: expected {}, got {}",
                                                   std::string(method_name), i + 1,
                                                   type_str(pt), type_str(at)));
-                            if (at->kind == LogosType::Kind::IntLit &&
-                                pt->kind != LogosType::Kind::Error &&
-                                pt->kind != LogosType::Kind::TypeVar)
+                            if (TypeRef(at).kind() == LogosType::Kind::IntLit &&
+                                TypeRef(pt).kind() != LogosType::Kind::Error &&
+                                TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                                 if (auto v = get_intlit_value(arg_exprs[i].get()))
                                     if (!intlit_fits(*v, pt->kind))
                                         error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                                           std::string(method_name), i + 1, *v, type_str(pt)));
                             // Check array literal elements against narrow array param type.
-                            if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                            if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
                                 if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                                     for (size_t ei = 0; ei < al->elems.size(); ++ei)
                                         if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(al->elems[ei].get()))
-                                                if (!intlit_fits(*v, pt->elem->kind))
+                                                if (!intlit_fits(*v, TypeRef(pt).elem()->kind))
                                                     error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
-                                                                      std::string(method_name), i + 1, ei, *v, type_str(pt->elem)));
+                                                                      std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).elem())));
                             // Check tuple literal elements against narrow tuple param element types.
-                            if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                            if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
                                 if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                                    for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei) {
+                                    for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                                         if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                                if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                                if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->kind))
                                                     error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                                                      std::string(method_name), i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
-                                        if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                                            pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                                                      std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
+                                        if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Array &&
+                                            TypeRef(pt).tuple_elems()[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                                     if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                                         if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                                            if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
+                                                            if (!intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->elem->kind))
                                                                 error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                                      std::string(method_name), i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
+                                                                      std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->elem)));
 
-                                        if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                                        if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Tuple &&
                                             tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                                for (size_t ii = 0; ii < itl->elems.size() && ii < pt->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(pt).tuple_elems()[ei]->tuple_elems.size(); ++ii)
                                                     if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                                         if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                                            if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                            if (TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii]->kind))
                                                                 error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                                      std::string(method_name), i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
+                                                                      std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii])));
                                         }
                         }
                     }
                     // Return type: substitute Self → &dyn Trait
                     auto* ret_type = m.ret_type;
-                    if (ret_type && ret_type->kind == LogosType::Kind::TypeVar &&
-                        ret_type->type_var_name == "Self")
+                    if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::TypeVar &&
+                        TypeRef(ret_type).type_var_name() == "Self")
                         ret_type = recv->type;
                     lir::EMethodCall mc;
                     mc.receiver     = std::move(recv);
@@ -2051,8 +2051,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                   std::string(method_name), expected_explicit, arg_exprs.size()));
             // Return type: substitute Self → &tagged<TS> Trait (the receiver type).
             const LogosType* ret_type = m.ret_type;
-            if (ret_type && ret_type->kind == LogosType::Kind::TypeVar &&
-                ret_type->type_var_name == "Self")
+            if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::TypeVar &&
+                TypeRef(ret_type).type_var_name() == "Self")
                 ret_type = recv->type;
             lir::EMethodCall mc;
             mc.receiver    = std::move(recv);
@@ -2071,14 +2071,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // The actual impl method will be resolved during monomorphization.
     // Handle both T and *mut T / *const T / &T / &mut T receivers.
     const LogosType* recv_inner = recv->type;
-    if (recv_inner && recv_inner->kind == LogosType::Kind::Ptr) {
+    if (recv_inner && TypeRef(recv_inner).kind() == LogosType::Kind::Ptr) {
         if (!inside_unsafe_)
             error("method call through raw pointer requires unsafe context");
-        recv_inner = recv_inner->pointee;
-    } else if (recv_inner && is_ref_like(recv_inner->kind) && recv_inner->pointee) {
-        recv_inner = recv_inner->pointee;
+        recv_inner = TypeRef(recv_inner).pointee();
+    } else if (recv_inner && is_ref_like(recv_inner->kind) && TypeRef(recv_inner).pointee()) {
+        recv_inner = TypeRef(recv_inner).pointee();
     }
-    if (recv_inner->kind == LogosType::Kind::TypeVar) {
+    if (TypeRef(recv_inner).kind() == LogosType::Kind::TypeVar) {
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args = arr_of(node.get(la::ARGS.code));
@@ -2086,7 +2086,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
         }
 
-        auto bit = current_type_bounds_.find(recv_inner->type_var_name);
+        auto bit = current_type_bounds_.find(TypeRef(recv_inner).type_var_name());
         const SemaTraitMethodInfo* chosen_method = nullptr;
         std::string chosen_trait;
 
@@ -2104,7 +2104,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (chosen_method && chosen_trait != tname)
                     error(std::format(
                         "method '{}' is ambiguous for type parameter '{}' (matches traits '{}' and '{}')",
-                        std::string(method_name), recv_inner->type_var_name, chosen_trait, tname));
+                        std::string(method_name), TypeRef(recv_inner).type_var_name(), chosen_trait, tname));
                 chosen_method = &m;
                 chosen_trait  = tname;
                 return;  // method found in this trait; don't recurse further
@@ -2151,60 +2151,60 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto* at = arg_exprs[i]->type;
                     auto* pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
-                    if (at->kind != LogosType::Kind::Error &&
-                        pt->kind != LogosType::Kind::Error &&
-                        pt->kind != LogosType::Kind::TypeVar &&
-                        pt->kind != LogosType::Kind::AssocType &&
+                    if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                        TypeRef(pt).kind() != LogosType::Kind::Error &&
+                        TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                        TypeRef(pt).kind() != LogosType::Kind::AssocType &&
                         !types_compatible(at, pt))
                         error(std::format("method '{}' arg {}: expected {}, got {}",
                                           std::string(method_name), i + 1,
                                           type_str(pt), type_str(at)));
-                    if (at->kind == LogosType::Kind::IntLit &&
-                        pt->kind != LogosType::Kind::Error &&
-                        pt->kind != LogosType::Kind::TypeVar &&
-                        pt->kind != LogosType::Kind::AssocType)
+                    if (TypeRef(at).kind() == LogosType::Kind::IntLit &&
+                        TypeRef(pt).kind() != LogosType::Kind::Error &&
+                        TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                        TypeRef(pt).kind() != LogosType::Kind::AssocType)
                         if (auto v = get_intlit_value(arg_exprs[i].get()))
                             if (!intlit_fits(*v, pt->kind))
                                 error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                                   std::string(method_name), i + 1,
                                                   *v, type_str(pt)));
                     // Check array literal elements against narrow array param type.
-                    if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                    if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
                         if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                             for (size_t ei = 0; ei < al->elems.size(); ++ei)
                                 if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                     if (auto v = get_intlit_value(al->elems[ei].get()))
-                                        if (!intlit_fits(*v, pt->elem->kind))
+                                        if (!intlit_fits(*v, TypeRef(pt).elem()->kind))
                                             error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
-                                                              std::string(method_name), i + 1, ei, *v, type_str(pt->elem)));
+                                                              std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).elem())));
                     // Check tuple literal elements against narrow tuple param element types.
-                    if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                    if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
                         if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                            for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei) {
+                            for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                                 if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                     if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                        if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                        if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->kind))
                                             error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                                              std::string(method_name), i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
-                                if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                                    pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                                              std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
+                                if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Array &&
+                                    TypeRef(pt).tuple_elems()[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                                     if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                         for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                             if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                                 if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                                    if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
+                                                    if (!intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->elem->kind))
                                                         error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                              std::string(method_name), i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
+                                                              std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->elem)));
 
-                                if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                                if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Tuple &&
                                     tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                                     if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                        for (size_t ii = 0; ii < itl->elems.size() && ii < pt->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                        for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(pt).tuple_elems()[ei]->tuple_elems.size(); ++ii)
                                             if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                                 if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                                    if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                    if (TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii]->kind))
                                                         error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                              std::string(method_name), i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
+                                                              std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii])));
                                 }
                 }
             }
@@ -2213,7 +2213,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             self_subst["Self"] = recv_inner;
             // Substitute trait type params from the bound: e.g. T: Into<i32> → Into::T = i32
             {
-                auto bit2 = current_type_bounds_.find(recv_inner->type_var_name);
+                auto bit2 = current_type_bounds_.find(TypeRef(recv_inner).type_var_name());
                 if (bit2 != current_type_bounds_.end()) {
                     for (auto& bound : bit2->second) {
                         if (bound.trait_name != chosen_trait) continue;
@@ -2257,7 +2257,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
 
         error(std::format("type parameter '{}' has no trait bound providing method '{}'",
-                          recv_inner->type_var_name, std::string(method_name)));
+                          TypeRef(recv_inner).type_var_name(), std::string(method_name)));
         return make_expr(error_t(),
             lir::EMethodCall{std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1});
     }
@@ -2386,7 +2386,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (formal0 && is_ref_like(formal0->kind) && recv->type &&
                         !is_ref_like(recv->type->kind) &&
                         recv->type->kind != LogosType::Kind::Ptr) {
-                        bool is_mut = formal0->kind == LogosType::Kind::MutRef;
+                        bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                         auto addr = make_expr(make_ref(is_mut, recv->type),
                                               lir::EAddrOfTemp{std::move(recv), is_mut});
                         recv = std::move(addr);
@@ -2405,7 +2405,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (formal0 && is_ref_like(formal0->kind) && recv->type &&
                     !is_ref_like(recv->type->kind) &&
                     recv->type->kind != LogosType::Kind::Ptr) {
-                    bool is_mut = formal0->kind == LogosType::Kind::MutRef;
+                    bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     auto addr = make_expr(make_ref(is_mut, recv->type),
                                           lir::EAddrOfTemp{std::move(recv), is_mut});
                     recv = std::move(addr);
@@ -2431,12 +2431,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     SemaSubst recv_struct_subst;
     {
         const LogosType* rst = recv->type;
-        if (rst && rst->kind == LogosType::Kind::Ptr && rst->pointee) {
-            rst = rst->pointee;
-        } else if (rst && is_ref_like(rst->kind) && rst->pointee) {
-            rst = rst->pointee;
+        if (rst && TypeRef(rst).kind() == LogosType::Kind::Ptr && TypeRef(rst).pointee()) {
+            rst = TypeRef(rst).pointee();
+        } else if (rst && is_ref_like(rst->kind) && TypeRef(rst).pointee()) {
+            rst = TypeRef(rst).pointee();
         }
-        if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::ZonedStruct) &&
+        if ((TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) &&
             !rst->type_args.empty()) {
             SemaStructInfo* si2 = nullptr;
             { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
@@ -2463,25 +2463,25 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 formal0 = subst_type_sema(formal0, recv_struct_subst);
             auto* actual0 = recv->type;
             if (actual0 && formal0 && !types_equal(*actual0, *formal0)) {
-                if (actual0->kind != LogosType::Kind::Ref &&
-                    actual0->kind != LogosType::Kind::MutRef &&
-                    actual0->kind != LogosType::Kind::Ptr &&
-                    is_ref_like(formal0->kind) && formal0->pointee &&
-                    types_equal(*actual0, *formal0->pointee)) {
+                if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
+                    TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
+                    TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
+                    is_ref_like(formal0->kind) && TypeRef(formal0).pointee() &&
+                    types_equal(*actual0, *TypeRef(formal0).pointee())) {
                     needs_ref = true;
-                    needs_mut = formal0->kind == LogosType::Kind::MutRef;
-                } else if (actual0->kind != LogosType::Kind::Ref &&
-                           actual0->kind != LogosType::Kind::MutRef &&
-                           actual0->kind != LogosType::Kind::Ptr &&
-                           formal0->kind == LogosType::Kind::Ptr &&
-                           formal0->pointee &&
-                           types_equal(*actual0, *formal0->pointee)) {
+                    needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+                } else if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
+                           TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
+                           TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
+                           TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
+                           TypeRef(formal0).pointee() &&
+                           types_equal(*actual0, *TypeRef(formal0).pointee())) {
                     needs_ref = true;
                     needs_mut = false;
-                } else if (actual0->kind == LogosType::Kind::Ptr &&
-                           formal0->kind == LogosType::Kind::Ptr &&
-                           actual0->pointee && formal0->pointee &&
-                           types_equal(*actual0->pointee, *formal0->pointee)) {
+                } else if (TypeRef(actual0).kind() == LogosType::Kind::Ptr &&
+                           TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
+                           TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
+                           types_equal(*TypeRef(actual0).pointee(), *TypeRef(formal0).pointee())) {
                     // const/mut pointer receivers are compatible if pointees match.
                 } else if (!types_compatible(actual0, formal0)) {
                     ok = false;
@@ -2536,25 +2536,25 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     formal0 = subst_type_sema(formal0, recv_struct_subst);
                 auto* actual0 = recv->type;
                 if (actual0 && formal0 && !types_equal(*actual0, *formal0)) {
-                    if (actual0->kind != LogosType::Kind::Ref &&
-                        actual0->kind != LogosType::Kind::MutRef &&
-                        actual0->kind != LogosType::Kind::Ptr &&
-                        is_ref_like(formal0->kind) && formal0->pointee &&
-                        types_equal(*actual0, *formal0->pointee)) {
+                    if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
+                        TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
+                        TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
+                        is_ref_like(formal0->kind) && TypeRef(formal0).pointee() &&
+                        types_equal(*actual0, *TypeRef(formal0).pointee())) {
                         needs_ref = true;
-                        needs_mut = formal0->kind == LogosType::Kind::MutRef;
-                    } else if (actual0->kind != LogosType::Kind::Ref &&
-                               actual0->kind != LogosType::Kind::MutRef &&
-                               actual0->kind != LogosType::Kind::Ptr &&
-                               formal0->kind == LogosType::Kind::Ptr &&
-                               formal0->pointee &&
-                               types_equal(*actual0, *formal0->pointee)) {
+                        needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+                    } else if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
+                               TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
+                               TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
+                               TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
+                               TypeRef(formal0).pointee() &&
+                               types_equal(*actual0, *TypeRef(formal0).pointee())) {
                         needs_ref = true;
                         needs_mut = false;
-                    } else if (actual0->kind == LogosType::Kind::Ptr &&
-                               formal0->kind == LogosType::Kind::Ptr &&
-                               actual0->pointee && formal0->pointee &&
-                               types_equal(*actual0->pointee, *formal0->pointee)) {
+                    } else if (TypeRef(actual0).kind() == LogosType::Kind::Ptr &&
+                               TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
+                               TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
+                               types_equal(*TypeRef(actual0).pointee(), *TypeRef(formal0).pointee())) {
                         // const/mut pointer receivers are compatible if pointees match.
                     } else if (!types_compatible(actual0, formal0)) {
                         ok = false;
@@ -2620,9 +2620,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (!mfi) continue;
             // Type arg = receiver's concrete type (unwrapped from ref/ptr).
             const LogosType* recv_inner = recv->type;
-            if (recv_inner && (recv_inner->kind == LogosType::Kind::Ptr ||
-                               is_ref_like(recv_inner->kind)) && recv_inner->pointee)
-                recv_inner = recv_inner->pointee;
+            if (recv_inner && (TypeRef(recv_inner).kind() == LogosType::Kind::Ptr ||
+                               is_ref_like(recv_inner->kind)) && TypeRef(recv_inner).pointee())
+                recv_inner = TypeRef(recv_inner).pointee();
             // Auto-ref: if method expects &self / &mut self but recv is a
             // value, take its address.
             if (!mfi->param_types.empty()) {
@@ -2632,13 +2632,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 const LogosType* target_self =
                     subst_type_sema(mfi->param_types[0], s_subst);
                 if (target_self &&
-                    (target_self->kind == LogosType::Kind::Ref ||
-                     target_self->kind == LogosType::Kind::MutRef) &&
+                    (TypeRef(target_self).kind() == LogosType::Kind::Ref ||
+                     TypeRef(target_self).kind() == LogosType::Kind::MutRef) &&
                     recv->type &&
                     recv->type->kind != LogosType::Kind::Ref &&
                     recv->type->kind != LogosType::Kind::MutRef &&
                     recv->type->kind != LogosType::Kind::Ptr) {
-                    bool is_mut = target_self->kind == LogosType::Kind::MutRef;
+                    bool is_mut = TypeRef(target_self).kind() == LogosType::Kind::MutRef;
                     auto addr = make_expr(target_self,
                                           lir::EAddrOfTemp{std::move(recv), is_mut});
                     recv = std::move(addr);
@@ -2667,14 +2667,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     SemaSubst struct_subst;
     {
         const LogosType* rst = recv->type;
-        if (rst && rst->kind == LogosType::Kind::Ptr) {
+        if (rst && TypeRef(rst).kind() == LogosType::Kind::Ptr) {
             if (!inside_unsafe_)
                 error("method call through raw pointer requires unsafe context");
-            if (rst->pointee) rst = rst->pointee;
-        } else if (rst && is_ref_like(rst->kind) && rst->pointee) {
-            rst = rst->pointee;
+            if (TypeRef(rst).pointee()) rst = TypeRef(rst).pointee();
+        } else if (rst && is_ref_like(rst->kind) && TypeRef(rst).pointee()) {
+            rst = TypeRef(rst).pointee();
         }
-        if ((rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::ZonedStruct) && !rst->type_args.empty()) {
+        if ((TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) && !rst->type_args.empty()) {
             SemaStructInfo* si2 = nullptr;
             { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
             if (!si2) { auto [p, di] = find_datatype_by_name(rst->struct_name); si2 = di; }
@@ -2711,52 +2711,52 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (pi < fi.param_types.size()) {
                 auto* pt = fi.param_types[pi];
                 if (!struct_subst.empty()) pt = subst_type_sema(pt, struct_subst);
-                if (at->kind != LogosType::Kind::Error && pt->kind != LogosType::Kind::Error &&
+                if (TypeRef(at).kind() != LogosType::Kind::Error && TypeRef(pt).kind() != LogosType::Kind::Error &&
                     !types_compatible(at, pt))
                     error(std::format("method '{}' arg {}: expected {}, got {}",
                           mangled, i + 1, type_str(pt), type_str(at)));
-                if (at->kind == LogosType::Kind::IntLit && pt->kind != LogosType::Kind::Error)
+                if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
                         if (!intlit_fits(*v, pt->kind))
                             error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                   mangled, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
-                if (at->kind == LogosType::Kind::Array && pt->kind == LogosType::Kind::Array && pt->elem)
+                if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem())
                     if (auto* al = std::get_if<lir::EArrLit>(&arg_exprs[i]->kind))
                         for (size_t ei = 0; ei < al->elems.size(); ++ei)
                             if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                 if (auto v = get_intlit_value(al->elems[ei].get()))
-                                    if (!intlit_fits(*v, pt->elem->kind))
+                                    if (!intlit_fits(*v, TypeRef(pt).elem()->kind))
                                         error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
-                                              mangled, i + 1, ei, *v, type_str(pt->elem)));
+                                              mangled, i + 1, ei, *v, type_str(TypeRef(pt).elem())));
                 // Check tuple literal elements against narrow tuple param element types.
-                if (at->kind == LogosType::Kind::Tuple && pt->kind == LogosType::Kind::Tuple)
+                if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple)
                     if (auto* tl = std::get_if<lir::ETupleLit>(&arg_exprs[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < pt->tuple_elems.size(); ++ei) {
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(pt).tuple_elems().size(); ++ei) {
                             if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                 if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                    if (pt->tuple_elems[ei] && !intlit_fits(*v, pt->tuple_elems[ei]->kind))
+                                    if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->kind))
                                         error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                              mangled, i + 1, ei, *v, type_str(pt->tuple_elems[ei])));
-                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                                pt->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                              mangled, i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
+                            if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Array &&
+                                TypeRef(pt).tuple_elems()[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                         if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                                if (!intlit_fits(*v, pt->tuple_elems[ei]->elem->kind))
+                                                if (!intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->elem->kind))
                                                     error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          mangled, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->elem)));
+                                                          mangled, i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->elem)));
 
-                            if (pt->tuple_elems[ei] && pt->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                            if (TypeRef(pt).tuple_elems()[ei] && TypeRef(pt).tuple_elems()[ei]->kind == LogosType::Kind::Tuple &&
                                 tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < pt->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                    for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(pt).tuple_elems()[ei]->tuple_elems.size(); ++ii)
                                         if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                                if (pt->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, pt->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                if (TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii]->kind))
                                                     error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          mangled, i + 1, ei, ii, *v, type_str(pt->tuple_elems[ei]->tuple_elems[ii])));
+                                                          mangled, i + 1, ei, ii, *v, type_str(TypeRef(pt).tuple_elems()[ei]->tuple_elems[ii])));
                             }
             }
         }
@@ -2784,9 +2784,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& tp : fi.type_params) struct_only.erase(tp.name);
             // Re-add only receiver-derived ones.
             const LogosType* rst = recv->type;
-            if (rst && (rst->kind == LogosType::Kind::Ptr || is_ref_like(rst->kind)) && rst->pointee)
-                rst = rst->pointee;
-            if (rst && (rst->kind == LogosType::Kind::Struct || rst->kind == LogosType::Kind::ZonedStruct)) {
+            if (rst && (TypeRef(rst).kind() == LogosType::Kind::Ptr || is_ref_like(rst->kind)) && TypeRef(rst).pointee())
+                rst = TypeRef(rst).pointee();
+            if (rst && (TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct)) {
                 SemaStructInfo* si2 = nullptr;
                 { auto [p, si] = find_struct_by_name(rst->struct_name); si2 = si; }
                 if (!si2) { auto [p, di] = find_datatype_by_name(rst->struct_name); si2 = di; }
@@ -2804,8 +2804,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
         bool all_concrete = has_method_level && m_type_args.size() == fi.type_params.size();
         for (auto* ta : m_type_args)
-            if (!ta || ta->kind == LogosType::Kind::TypeVar ||
-                ta->kind == LogosType::Kind::Error) { all_concrete = false; break; }
+            if (!ta || TypeRef(ta).kind() == LogosType::Kind::TypeVar ||
+                TypeRef(ta).kind() == LogosType::Kind::Error) { all_concrete = false; break; }
         if (all_concrete) {
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
@@ -2835,22 +2835,22 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     auto field_name = str_of(node.get(la::FIELD.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
     const LogosType* recv_base_t = recv->type;
-    if (recv_base_t && recv_base_t->kind == LogosType::Kind::Ptr) {
+    if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Ptr) {
         if (!inside_unsafe_)
             error("field read through raw pointer requires unsafe context");
-        recv_base_t = recv_base_t->pointee;
+        recv_base_t = TypeRef(recv_base_t).pointee();
     } else if (recv_base_t && is_ref_like(recv_base_t->kind)) {
-        recv_base_t = recv_base_t->pointee;
+        recv_base_t = TypeRef(recv_base_t).pointee();
     }
 
     // DataRef<T> ergonomic read: p.field → p.ptr().field
     // Intercept before normal struct field lookup so that DataRef<T>.x works without
     // an explicit let pw = p.ptr() intermediate step.
-    if (recv_base_t && recv_base_t->kind == LogosType::Kind::Struct &&
+    if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Struct &&
         recv_base_t->struct_name == "DataRef" &&
         recv_base_t->type_args.size() == 1) {
         const LogosType* T = recv_base_t->type_args[0];
-        if (T && T->kind == LogosType::Kind::ZonedStruct) {
+        if (T && TypeRef(T).kind() == LogosType::Kind::ZonedStruct) {
             auto* ft = field_type_of_for_type(T, field_name);
             if (ft) {
                 if (!inside_unsafe_)
@@ -2941,8 +2941,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             aliased = check_alias(sema_key(pkg, sname_buf));
             if (aliased) break;
         }
-        if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                        aliased->kind == LogosType::Kind::ZonedStruct)) {
+        if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
+                        TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
             sinfo_ptr = find_struct_info(aliased->struct_name);
             if (sinfo_ptr) {
                 sname_buf = aliased->struct_name;
@@ -3023,7 +3023,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     auto items = arr_of(tplist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size() && i < sinfo.type_params.size(); ++i) {
                         auto* resolved = resolve_type(map_of(items.get(i)));
-                        if (resolved && resolved->kind != LogosType::Kind::Error) {
+                        if (resolved && TypeRef(resolved).kind() != LogosType::Kind::Error) {
                             inferred[sinfo.type_params[i].name] = resolved;
                             explicit_args.push_back(resolved);
                         }
@@ -3051,42 +3051,42 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 return field_type_of(std::string(sname), fname);
             }();
             if (!raw_ft) continue;
-            if (raw_ft->kind == LogosType::Kind::TypeVar) {
-                auto& tv = raw_ft->type_var_name;
+            if (TypeRef(raw_ft).kind() == LogosType::Kind::TypeVar) {
+                auto& tv = TypeRef(raw_ft).type_var_name();
                 if (!inferred.count(tv)) {
                     auto* vt = fval->type;
-                    if (vt->kind == LogosType::Kind::IntLit) {
+                    if (TypeRef(vt).kind() == LogosType::Kind::IntLit) {
                         auto* h = hint_for_tv(tv);
-                        vt = (h && h->kind != LogosType::Kind::Error) ? h : i32_t();
-                    } else if (vt->kind == LogosType::Kind::FloatLit) {
+                        vt = (h && TypeRef(h).kind() != LogosType::Kind::Error) ? h : i32_t();
+                    } else if (TypeRef(vt).kind() == LogosType::Kind::FloatLit) {
                         auto* h = hint_for_tv(tv);
-                        vt = (h && h->kind != LogosType::Kind::Error) ? h : prim(LogosType::Kind::F64);
+                        vt = (h && TypeRef(h).kind() != LogosType::Kind::Error) ? h : prim(LogosType::Kind::F64);
                     }
                     inferred[tv] = vt;
                 }
-            } else if (raw_ft->kind == LogosType::Kind::Array && raw_ft->elem &&
-                       raw_ft->elem->kind == LogosType::Kind::TypeVar) {
+            } else if (TypeRef(raw_ft).kind() == LogosType::Kind::Array && TypeRef(raw_ft).elem() &&
+                       TypeRef(raw_ft).elem()->kind == LogosType::Kind::TypeVar) {
                 // [T; N] field — infer T from element type of the value.
-                auto& tv = raw_ft->elem->type_var_name;
+                auto& tv = TypeRef(raw_ft).elem()->type_var_name;
                 if (!inferred.count(tv) && fval->type->kind == LogosType::Kind::Array &&
                     fval->type->elem) {
                     auto* vt = fval->type->elem;
-                    if (vt->kind == LogosType::Kind::IntLit) {
+                    if (TypeRef(vt).kind() == LogosType::Kind::IntLit) {
                         auto* h = hint_for_tv(tv);
-                        vt = (h && h->kind != LogosType::Kind::Error) ? h : i32_t();
+                        vt = (h && TypeRef(h).kind() != LogosType::Kind::Error) ? h : i32_t();
                     }
                     inferred[tv] = vt;
                 }
-            } else if ((raw_ft->kind == LogosType::Kind::Ptr ||
-                        raw_ft->kind == LogosType::Kind::Ref ||
-                        raw_ft->kind == LogosType::Kind::MutRef) && raw_ft->pointee &&
-                       raw_ft->pointee->kind == LogosType::Kind::TypeVar) {
+            } else if ((TypeRef(raw_ft).kind() == LogosType::Kind::Ptr ||
+                        TypeRef(raw_ft).kind() == LogosType::Kind::Ref ||
+                        TypeRef(raw_ft).kind() == LogosType::Kind::MutRef) && TypeRef(raw_ft).pointee() &&
+                       TypeRef(raw_ft).pointee()->kind == LogosType::Kind::TypeVar) {
                 // *T / &T / &mut T field — infer T from the value's pointee type.
-                auto& tv = raw_ft->pointee->type_var_name;
+                auto& tv = TypeRef(raw_ft).pointee()->type_var_name;
                 if (!inferred.count(tv) && is_ref_like(fval->type->kind) &&
                     fval->type->pointee) {
                     auto* vt = fval->type->pointee;
-                    if (vt->kind != LogosType::Kind::Error)
+                    if (TypeRef(vt).kind() != LogosType::Kind::Error)
                         inferred[tv] = vt;
                 }
             }
@@ -3095,7 +3095,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         for (auto& tp : sinfo.type_params) {
             if (!inferred.count(tp.name)) {
                 auto* h = hint_for_tv(tp.name);
-                if (h && h->kind != LogosType::Kind::Error)
+                if (h && TypeRef(h).kind() != LogosType::Kind::Error)
                     inferred[tp.name] = h;
             }
         }
@@ -3126,7 +3126,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         check_type_bounds(std::string(sname), sinfo.type_params, args);
         std::vector<std::string> lit_lt_args;
         if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname))
-            lit_lt_args = hint_struct_type_->lifetime_args;
+            lit_lt_args = TypeRef(hint_struct_type_).lifetime_args();
         const LogosType* lit_type = slit_is_zoned
             ? make_generic_datatype(std::string(sname), args, lit_lt_args)
             : make_generic_struct(std::string(sname), args, lit_lt_args);
@@ -3176,10 +3176,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 const LogosType* ft = nullptr;
                 for (auto& ef : effective->fields)
                     if (ef.name == fname) { ft = ef.type; break; }
-                bool ft_has_typevar = ft && (ft->kind == LogosType::Kind::TypeVar ||
-                    (ft->kind == LogosType::Kind::Array && ft->elem &&
-                     ft->elem->kind == LogosType::Kind::TypeVar));
-                if (ft && ft->kind != LogosType::Kind::Error &&
+                bool ft_has_typevar = ft && (TypeRef(ft).kind() == LogosType::Kind::TypeVar ||
+                    (TypeRef(ft).kind() == LogosType::Kind::Array && TypeRef(ft).elem() &&
+                     TypeRef(ft).elem()->kind == LogosType::Kind::TypeVar));
+                if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                     fval->type->kind != LogosType::Kind::Error &&
                     !ft_has_typevar &&
                     !types_compatible(fval->type, ft) &&
@@ -3215,13 +3215,13 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     initialized[std::string(f.name)] = true;
                     matched_variadic = true;
                     auto* ft = f.type;
-                    if (ft && ft->kind != LogosType::Kind::Error &&
+                    if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                         fval->type->kind != LogosType::Kind::Error &&
                         !types_compatible(fval->type, ft)) {
                         error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                               sname, fname, type_str(ft), type_str(fval->type)));
                     }
-                    if (ft && ft->kind != LogosType::Kind::Error &&
+                    if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                         fval->type->kind == LogosType::Kind::IntLit)
                         if (auto v = get_intlit_value(fval.get()))
                             if (!intlit_fits(*v, ft->kind))
@@ -3239,7 +3239,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             }
             it->second = true;
             auto* ft = field_type_of(std::string(sname), fname);
-            if (ft && ft->kind != LogosType::Kind::Error &&
+            if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                 fval->type->kind != LogosType::Kind::Error &&
                 !types_compatible(fval->type, ft) &&
                 !try_coerce_closure_to_fnptr(fval, ft)) {
@@ -3253,43 +3253,43 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
                               sname, fname, *v, type_str(ft)));
             // Check array literal elements against narrow array field type.
-            if (ft && ft->kind == LogosType::Kind::Array && ft->elem &&
+            if (ft && TypeRef(ft).kind() == LogosType::Kind::Array && TypeRef(ft).elem() &&
                 fval->type->kind == LogosType::Kind::Array)
                 if (auto* al = std::get_if<lir::EArrLit>(&fval->kind))
                     for (size_t i = 0; i < al->elems.size(); ++i)
                         if (al->elems[i]->type->kind == LogosType::Kind::IntLit)
                             if (auto v = get_intlit_value(al->elems[i].get()))
-                                if (!intlit_fits(*v, ft->elem->kind))
+                                if (!intlit_fits(*v, TypeRef(ft).elem()->kind))
                                     error(std::format("struct literal '{}' field '{}': array element {}: value {} does not fit in {}",
-                                          sname, fname, i, *v, type_str(ft->elem)));
+                                          sname, fname, i, *v, type_str(TypeRef(ft).elem())));
             // Check tuple literal elements against narrow tuple field element types.
-            if (ft && ft->kind == LogosType::Kind::Tuple && fval->type->kind == LogosType::Kind::Tuple)
+            if (ft && TypeRef(ft).kind() == LogosType::Kind::Tuple && fval->type->kind == LogosType::Kind::Tuple)
                 if (auto* tl = std::get_if<lir::ETupleLit>(&fval->kind))
-                    for (size_t i = 0; i < tl->elems.size() && i < ft->tuple_elems.size(); ++i) {
+                    for (size_t i = 0; i < tl->elems.size() && i < TypeRef(ft).tuple_elems().size(); ++i) {
                         if (tl->elems[i]->type->kind == LogosType::Kind::IntLit)
                             if (auto v = get_intlit_value(tl->elems[i].get()))
-                                if (ft->tuple_elems[i] && !intlit_fits(*v, ft->tuple_elems[i]->kind))
+                                if (TypeRef(ft).tuple_elems()[i] && !intlit_fits(*v, TypeRef(ft).tuple_elems()[i]->kind))
                                     error(std::format("struct literal '{}' field '{}': tuple element {}: value {} does not fit in {}",
-                                          sname, fname, i, *v, type_str(ft->tuple_elems[i])));
-                        if (ft->tuple_elems[i] && ft->tuple_elems[i]->kind == LogosType::Kind::Array &&
-                            ft->tuple_elems[i]->elem && tl->elems[i]->type->kind == LogosType::Kind::Array)
+                                          sname, fname, i, *v, type_str(TypeRef(ft).tuple_elems()[i])));
+                        if (TypeRef(ft).tuple_elems()[i] && TypeRef(ft).tuple_elems()[i]->kind == LogosType::Kind::Array &&
+                            TypeRef(ft).tuple_elems()[i]->elem && tl->elems[i]->type->kind == LogosType::Kind::Array)
                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[i]->kind))
                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                     if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                         if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                            if (!intlit_fits(*v, ft->tuple_elems[i]->elem->kind))
+                                            if (!intlit_fits(*v, TypeRef(ft).tuple_elems()[i]->elem->kind))
                                                 error(std::format("struct literal '{}' field '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                                      sname, fname, i, ii, *v, type_str(ft->tuple_elems[i]->elem)));
+                                                      sname, fname, i, ii, *v, type_str(TypeRef(ft).tuple_elems()[i]->elem)));
 
-                        if (ft->tuple_elems[i] && ft->tuple_elems[i]->kind == LogosType::Kind::Tuple &&
+                        if (TypeRef(ft).tuple_elems()[i] && TypeRef(ft).tuple_elems()[i]->kind == LogosType::Kind::Tuple &&
                             tl->elems[i]->type->kind == LogosType::Kind::Tuple)
                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[i]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < ft->tuple_elems[i]->tuple_elems.size(); ++ii)
+                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(ft).tuple_elems()[i]->tuple_elems.size(); ++ii)
                                     if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                         if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                            if (ft->tuple_elems[i]->tuple_elems[ii] && !intlit_fits(*v, ft->tuple_elems[i]->tuple_elems[ii]->kind))
+                                            if (TypeRef(ft).tuple_elems()[i]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(ft).tuple_elems()[i]->tuple_elems[ii]->kind))
                                                 error(std::format("struct literal '{}' field '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      sname, fname, i, ii, *v, type_str(ft->tuple_elems[i]->tuple_elems[ii])));
+                                                      sname, fname, i, ii, *v, type_str(TypeRef(ft).tuple_elems()[i]->tuple_elems[ii])));
                         }
         }
     }
@@ -3333,7 +3333,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
 
     std::vector<std::string> ng_lt_args;
     if (hint_struct_type_ && hint_struct_type_->struct_name == std::string(sname))
-        ng_lt_args = hint_struct_type_->lifetime_args;
+        ng_lt_args = TypeRef(hint_struct_type_).lifetime_args();
     LogosType ng_t;
     ng_t.kind = slit_is_zoned
                 ? LogosType::Kind::ZonedStruct : LogosType::Kind::Struct;
@@ -3355,29 +3355,29 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
         error(std::format("array index must be integer, got {}", type_str(idx->type)));
 
     // Slice indexing: s[i] → ESliceIndex
-    if (arr_type->kind == LogosType::Kind::Slice) {
-        auto* elem = arr_type->elem ? arr_type->elem : error_t();
+    if (TypeRef(arr_type).kind() == LogosType::Kind::Slice) {
+        auto* elem = TypeRef(arr_type).elem().raw() ? TypeRef(arr_type).elem().raw() : error_t();
         return make_expr(elem, lir::ESliceIndex{std::move(recv), std::move(idx)});
     }
 
-    if (arr_type->kind != LogosType::Kind::Array &&
-        arr_type->kind != LogosType::Kind::Ptr &&
-        arr_type->kind != LogosType::Kind::Ref &&
-        arr_type->kind != LogosType::Kind::MutRef &&
-        arr_type->kind != LogosType::Kind::Error) {
+    if (TypeRef(arr_type).kind() != LogosType::Kind::Array &&
+        TypeRef(arr_type).kind() != LogosType::Kind::Ptr &&
+        TypeRef(arr_type).kind() != LogosType::Kind::Ref &&
+        TypeRef(arr_type).kind() != LogosType::Kind::MutRef &&
+        TypeRef(arr_type).kind() != LogosType::Kind::Error) {
         error(std::format("index read: receiver is not an array, slice, or pointer (got {})",
               type_str(arr_type)));
     }
-    if (arr_type->kind == LogosType::Kind::Ptr && !inside_unsafe_) {
+    if (TypeRef(arr_type).kind() == LogosType::Kind::Ptr && !inside_unsafe_) {
         error("index read through raw pointer requires unsafe context");
     }
 
     const LogosType* elem = error_t();
-    if (arr_type->kind == LogosType::Kind::Array && arr_type->elem)  elem = arr_type->elem;
-    if ((arr_type->kind == LogosType::Kind::Ptr ||
-         arr_type->kind == LogosType::Kind::Ref ||
-         arr_type->kind == LogosType::Kind::MutRef) && arr_type->pointee)
-        elem = arr_type->pointee;
+    if (TypeRef(arr_type).kind() == LogosType::Kind::Array && TypeRef(arr_type).elem())  elem = TypeRef(arr_type).elem();
+    if ((TypeRef(arr_type).kind() == LogosType::Kind::Ptr ||
+         TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(arr_type).kind() == LogosType::Kind::MutRef) && TypeRef(arr_type).pointee())
+        elem = TypeRef(arr_type).pointee();
 
     return make_expr(elem, lir::EIndexRead{std::move(recv), std::move(idx)});
 }
@@ -3399,56 +3399,56 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     const LogosType* elem_type = elems[0]->type;
     for (uint64_t i = 1; i < elems.size(); ++i) {
         auto* t = elems[i]->type;
-        if (t->kind != LogosType::Kind::Error && elem_type->kind != LogosType::Kind::Error) {
+        if (TypeRef(t).kind() != LogosType::Kind::Error && TypeRef(elem_type).kind() != LogosType::Kind::Error) {
             if (!types_compatible(t, elem_type) && !types_compatible(elem_type, t)) {
                 error(std::format("array literal: element {} has type {}, expected {}",
                       i, type_str(t), type_str(elem_type)));
             } else {
                 // If the concrete element type is narrow and this element is IntLit, check range.
-                if (t->kind == LogosType::Kind::IntLit &&
-                    elem_type->kind != LogosType::Kind::IntLit)
+                if (TypeRef(t).kind() == LogosType::Kind::IntLit &&
+                    TypeRef(elem_type).kind() != LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(elems[i].get()))
                         if (!intlit_fits(*v, elem_type->kind))
                             error(std::format("array literal: element {}: value {} does not fit in {}",
                                   i, *v, type_str(elem_type)));
                 // Check array literal elements against narrow nested array element types.
-                if (elem_type->kind == LogosType::Kind::Array && elem_type->elem &&
-                    t->kind == LogosType::Kind::Array)
+                if (TypeRef(elem_type).kind() == LogosType::Kind::Array && TypeRef(elem_type).elem() &&
+                    TypeRef(t).kind() == LogosType::Kind::Array)
                     if (auto* al = std::get_if<lir::EArrLit>(&elems[i]->kind))
                         for (size_t ei = 0; ei < al->elems.size(); ++ei)
                             if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                 if (auto v = get_intlit_value(al->elems[ei].get()))
-                                    if (!intlit_fits(*v, elem_type->elem->kind))
+                                    if (!intlit_fits(*v, TypeRef(elem_type).elem()->kind))
                                         error(std::format("array literal: element {}: sub-element {}: value {} does not fit in {}",
-                                              i, ei, *v, type_str(elem_type->elem)));
+                                              i, ei, *v, type_str(TypeRef(elem_type).elem())));
                 // Check tuple literal elements against narrow nested tuple element types.
-                if (elem_type->kind == LogosType::Kind::Tuple && t->kind == LogosType::Kind::Tuple)
+                if (TypeRef(elem_type).kind() == LogosType::Kind::Tuple && TypeRef(t).kind() == LogosType::Kind::Tuple)
                     if (auto* tl = std::get_if<lir::ETupleLit>(&elems[i]->kind))
-                        for (size_t ei = 0; ei < tl->elems.size() && ei < elem_type->tuple_elems.size(); ++ei) {
+                        for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(elem_type).tuple_elems().size(); ++ei) {
                             if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
                                 if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                    if (elem_type->tuple_elems[ei] && !intlit_fits(*v, elem_type->tuple_elems[ei]->kind))
+                                    if (TypeRef(elem_type).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(elem_type).tuple_elems()[ei]->kind))
                                         error(std::format("array literal: element {}: tuple element {}: value {} does not fit in {}",
-                                              i, ei, *v, type_str(elem_type->tuple_elems[ei])));
-                            if (elem_type->tuple_elems[ei] && elem_type->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                                elem_type->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                              i, ei, *v, type_str(TypeRef(elem_type).tuple_elems()[ei])));
+                            if (TypeRef(elem_type).tuple_elems()[ei] && TypeRef(elem_type).tuple_elems()[ei]->kind == LogosType::Kind::Array &&
+                                TypeRef(elem_type).tuple_elems()[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                                 if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                     for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                         if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                                if (!intlit_fits(*v, elem_type->tuple_elems[ei]->elem->kind))
+                                                if (!intlit_fits(*v, TypeRef(elem_type).tuple_elems()[ei]->elem->kind))
                                                     error(std::format("array literal: element {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                          i, ei, ii, *v, type_str(elem_type->tuple_elems[ei]->elem)));
+                                                          i, ei, ii, *v, type_str(TypeRef(elem_type).tuple_elems()[ei]->elem)));
 
-                            if (elem_type->tuple_elems[ei] && elem_type->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                            if (TypeRef(elem_type).tuple_elems()[ei] && TypeRef(elem_type).tuple_elems()[ei]->kind == LogosType::Kind::Tuple &&
                                 tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                                 if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                    for (size_t ii = 0; ii < itl->elems.size() && ii < elem_type->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                    for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(elem_type).tuple_elems()[ei]->tuple_elems.size(); ++ii)
                                         if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                             if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                                if (elem_type->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, elem_type->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                                if (TypeRef(elem_type).tuple_elems()[ei]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(elem_type).tuple_elems()[ei]->tuple_elems[ii]->kind))
                                                     error(std::format("array literal: element {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                          i, ei, ii, *v, type_str(elem_type->tuple_elems[ei]->tuple_elems[ii])));
+                                                          i, ei, ii, *v, type_str(TypeRef(elem_type).tuple_elems()[ei]->tuple_elems[ii])));
                             }
                 elem_type = unify_numeric(elem_type, t);
             }
@@ -3463,64 +3463,64 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         const LogosType* anchor = nullptr;
         for (size_t i = 1; i < elems.size() && !anchor; ++i) {
             const LogosType* ti = elems[i]->type;
-            if (ti->kind != LogosType::Kind::IntLit &&
-                !(ti->kind == LogosType::Kind::Array && ti->elem &&
-                  ti->elem->kind == LogosType::Kind::IntLit))
+            if (TypeRef(ti).kind() != LogosType::Kind::IntLit &&
+                !(TypeRef(ti).kind() == LogosType::Kind::Array && TypeRef(ti).elem() &&
+                  TypeRef(ti).elem()->kind == LogosType::Kind::IntLit))
                 anchor = ti;
         }
         if (anchor) {
             auto* e = elems[0].get();
             auto* t0 = elems[0]->type;
             // Scalar IntLit at element 0.
-            if (t0->kind == LogosType::Kind::IntLit)
+            if (TypeRef(t0).kind() == LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(e))
                     if (!intlit_fits(*v, anchor->kind))
                         error(std::format("array literal: element 0: value {} does not fit in {}",
                               *v, type_str(anchor)));
             // Array literal at element 0 (e.g. [[1,200,3], concrete_arr]).
-            if (anchor->kind == LogosType::Kind::Array && anchor->elem &&
-                t0->kind == LogosType::Kind::Array)
+            if (TypeRef(anchor).kind() == LogosType::Kind::Array && TypeRef(anchor).elem() &&
+                TypeRef(t0).kind() == LogosType::Kind::Array)
                 if (auto* al = std::get_if<lir::EArrLit>(&e->kind))
                     for (size_t ei = 0; ei < al->elems.size(); ++ei)
                         if (al->elems[ei]->type->kind == LogosType::Kind::IntLit)
                             if (auto v = get_intlit_value(al->elems[ei].get()))
-                                if (!intlit_fits(*v, anchor->elem->kind))
+                                if (!intlit_fits(*v, TypeRef(anchor).elem()->kind))
                                     error(std::format("array literal: element 0: sub-element {}: value {} does not fit in {}",
-                                          ei, *v, type_str(anchor->elem)));
+                                          ei, *v, type_str(TypeRef(anchor).elem())));
             // Tuple literal at element 0 (tuple elements, including nested array/tuple).
-            if (anchor->kind == LogosType::Kind::Tuple && t0->kind == LogosType::Kind::Tuple)
+            if (TypeRef(anchor).kind() == LogosType::Kind::Tuple && TypeRef(t0).kind() == LogosType::Kind::Tuple)
                 if (auto* tl = std::get_if<lir::ETupleLit>(&e->kind))
-                    for (size_t ei = 0; ei < tl->elems.size() && ei < anchor->tuple_elems.size(); ++ei) {
+                    for (size_t ei = 0; ei < tl->elems.size() && ei < TypeRef(anchor).tuple_elems().size(); ++ei) {
                         if (tl->elems[ei]->type->kind == LogosType::Kind::IntLit)
                             if (auto v = get_intlit_value(tl->elems[ei].get()))
-                                if (anchor->tuple_elems[ei] && !intlit_fits(*v, anchor->tuple_elems[ei]->kind))
+                                if (TypeRef(anchor).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(anchor).tuple_elems()[ei]->kind))
                                     error(std::format("array literal: element 0: tuple element {}: value {} does not fit in {}",
-                                          ei, *v, type_str(anchor->tuple_elems[ei])));
-                        if (anchor->tuple_elems[ei] && anchor->tuple_elems[ei]->kind == LogosType::Kind::Array &&
-                            anchor->tuple_elems[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
+                                          ei, *v, type_str(TypeRef(anchor).tuple_elems()[ei])));
+                        if (TypeRef(anchor).tuple_elems()[ei] && TypeRef(anchor).tuple_elems()[ei]->kind == LogosType::Kind::Array &&
+                            TypeRef(anchor).tuple_elems()[ei]->elem && tl->elems[ei]->type->kind == LogosType::Kind::Array)
                             if (auto* ial = std::get_if<lir::EArrLit>(&tl->elems[ei]->kind))
                                 for (size_t ii = 0; ii < ial->elems.size(); ++ii)
                                     if (ial->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                         if (auto v = get_intlit_value(ial->elems[ii].get()))
-                                            if (!intlit_fits(*v, anchor->tuple_elems[ei]->elem->kind))
+                                            if (!intlit_fits(*v, TypeRef(anchor).tuple_elems()[ei]->elem->kind))
                                                 error(std::format("array literal: element 0: tuple element {}: array element {}: value {} does not fit in {}",
-                                                      ei, ii, *v, type_str(anchor->tuple_elems[ei]->elem)));
-                        if (anchor->tuple_elems[ei] && anchor->tuple_elems[ei]->kind == LogosType::Kind::Tuple &&
+                                                      ei, ii, *v, type_str(TypeRef(anchor).tuple_elems()[ei]->elem)));
+                        if (TypeRef(anchor).tuple_elems()[ei] && TypeRef(anchor).tuple_elems()[ei]->kind == LogosType::Kind::Tuple &&
                             tl->elems[ei]->type->kind == LogosType::Kind::Tuple)
                             if (auto* itl = std::get_if<lir::ETupleLit>(&tl->elems[ei]->kind))
-                                for (size_t ii = 0; ii < itl->elems.size() && ii < anchor->tuple_elems[ei]->tuple_elems.size(); ++ii)
+                                for (size_t ii = 0; ii < itl->elems.size() && ii < TypeRef(anchor).tuple_elems()[ei]->tuple_elems.size(); ++ii)
                                     if (itl->elems[ii]->type->kind == LogosType::Kind::IntLit)
                                         if (auto v = get_intlit_value(itl->elems[ii].get()))
-                                            if (anchor->tuple_elems[ei]->tuple_elems[ii] && !intlit_fits(*v, anchor->tuple_elems[ei]->tuple_elems[ii]->kind))
+                                            if (TypeRef(anchor).tuple_elems()[ei]->tuple_elems[ii] && !intlit_fits(*v, TypeRef(anchor).tuple_elems()[ei]->tuple_elems[ii]->kind))
                                                 error(std::format("array literal: element 0: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      ei, ii, *v, type_str(anchor->tuple_elems[ei]->tuple_elems[ii])));
+                                                      ei, ii, *v, type_str(TypeRef(anchor).tuple_elems()[ei]->tuple_elems[ii])));
                     }
         }
     }
     // For IntLit element type: upgrade to i64 if any value overflows i32.
     // Keep IntLit (don't collapse to i32) so that annotation-based coercion
     // ([i64; N] = [1, 2, 3]) can use types_compatible([IntLit;N], [i64;N]) → true.
-    if (elem_type->kind == LogosType::Kind::IntLit) {
+    if (TypeRef(elem_type).kind() == LogosType::Kind::IntLit) {
         bool needs_i64 = false;
         for (const auto& elem : elems) {
             if (auto v = get_intlit_value(elem.get()))
@@ -3551,11 +3551,11 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     const LogosType* elem_type = nullptr;
     int64_t arr_size = 0;
     bool is_slice = false;
-    if (iter_type->kind == LogosType::Kind::Array) {
-        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
+        elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
         arr_size  = (int64_t)iter_type->arr_size;
-    } else if (iter_type->kind == LogosType::Kind::Slice) {
-        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
+        elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
         is_slice  = true;
     } else {
         error(std::format(
@@ -3657,11 +3657,11 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     const LogosType* elem_type = nullptr;
     int64_t arr_size = 0;
     bool is_slice = false;
-    if (iter_type->kind == LogosType::Kind::Array) {
-        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
+        elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
         arr_size  = (int64_t)iter_type->arr_size;
-    } else if (iter_type->kind == LogosType::Kind::Slice) {
-        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
+        elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
         is_slice  = true;
     } else {
         error(std::format(
@@ -3761,17 +3761,17 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     const LogosType* iter_type = iter->type;
 
     // Short-circuit on upstream error to avoid cascading diagnostics.
-    if (iter_type->kind == LogosType::Kind::Error)
+    if (TypeRef(iter_type).kind() == LogosType::Kind::Error)
         return error_expr();
 
     const LogosType* elem_type = nullptr;
     int64_t arr_size = 0;
     bool is_slice = false;
-    if (iter_type->kind == LogosType::Kind::Array) {
-        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
+        elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
         arr_size  = (int64_t)iter_type->arr_size;
-    } else if (iter_type->kind == LogosType::Kind::Slice) {
-        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
+        elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
         is_slice  = true;
     } else {
         error(std::format(
@@ -3900,17 +3900,17 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     const LogosType* iter_type = iter->type;
 
     // Short-circuit on upstream error to avoid cascading diagnostics.
-    if (iter_type->kind == LogosType::Kind::Error)
+    if (TypeRef(iter_type).kind() == LogosType::Kind::Error)
         return error_expr();
 
     const LogosType* elem_type = nullptr;
     int64_t arr_size = 0;
     bool is_slice = false;
-    if (iter_type->kind == LogosType::Kind::Array) {
-        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
+        elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
         arr_size  = (int64_t)iter_type->arr_size;
-    } else if (iter_type->kind == LogosType::Kind::Slice) {
-        elem_type = iter_type->elem ? iter_type->elem : i32_t();
+    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
+        elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
         is_slice  = true;
     } else {
         error(std::format(
@@ -3955,10 +3955,10 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     // Require KEY to be str (&[u8] slice).  Short-circuit on Error to avoid
     // cascading diagnostics when the key subexpression already failed.
     const LogosType* kt = key_expr->type;
-    if (kt && kt->kind == LogosType::Kind::Error)
+    if (kt && TypeRef(kt).kind() == LogosType::Kind::Error)
         return error_expr();
-    if (!(kt && kt->kind == LogosType::Kind::Slice && kt->elem
-              && kt->elem->kind == LogosType::Kind::U8)) {
+    if (!(kt && TypeRef(kt).kind() == LogosType::Kind::Slice && TypeRef(kt).elem()
+              && TypeRef(kt).elem()->kind == LogosType::Kind::U8)) {
         error(std::format(
             "hermes map comprehension: key expression must be str (got {})",
             type_str(kt)));
@@ -4060,11 +4060,11 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
 
     // Pass Error through unchanged — caller short-circuits on Error without
     // emitting an additional "cannot auto-coerce <error>" diagnostic.
-    if (t->kind == LogosType::Kind::Error) return val;
+    if (TypeRef(t).kind() == LogosType::Kind::Error) return val;
 
     // AnyVal passthrough (datatype or struct form).
-    if ((t->kind == LogosType::Kind::Struct
-         || t->kind == LogosType::Kind::ZonedStruct)
+    if ((TypeRef(t).kind() == LogosType::Kind::Struct
+         || TypeRef(t).kind() == LogosType::Kind::ZonedStruct)
         && t->struct_name == "AnyVal") {
         return val;
     }
@@ -4072,7 +4072,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
     const char* helper = nullptr;
     bool needs_ctr = false;
     using K = LogosType::Kind;
-    switch (t->kind) {
+    switch (TypeRef(t).kind()) {
         case K::Bool: helper = "hermes_coerce_bool"; break;
         case K::I8:   helper = "hermes_coerce_i8";   break;
         case K::I16:  helper = "hermes_coerce_i16";  break;
@@ -4085,7 +4085,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
         // them via i24 would silently truncate high bits.  User must cast
         // explicitly (e.g. `x as i32`) or wrap with AnyVal::embed_i24.
         case K::Slice:
-            if (t->elem && t->elem->kind == K::U8) {
+            if (TypeRef(t).elem() && TypeRef(t).elem()->kind == K::U8) {
                 helper = "hermes_coerce_str";
                 needs_ctr = true;
             }
@@ -4232,10 +4232,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         SemaSubst subst;
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i) {
             auto* pt = vinfo->payload_types[i];
-            if (pt && pt->kind == LogosType::Kind::TypeVar) {
+            if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto* inferred = payload[i]->type;
-                if (inferred->kind == LogosType::Kind::IntLit) inferred = i32_t();
-                subst[pt->type_var_name] = inferred;
+                if (TypeRef(inferred).kind() == LogosType::Kind::IntLit) inferred = i32_t();
+                subst[TypeRef(pt).type_var_name()] = inferred;
             }
         }
         // Fill any still-unresolved type params from hint (e.g. let e: Result<i32,i32> = Result::Err(-1))
@@ -4243,7 +4243,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             for (size_t i = 0; i < einfo.type_params.size() && i < hint_enum_type_->type_args.size(); ++i) {
                 if (subst.find(einfo.type_params[i].name) == subst.end()) {
                     auto* hta = hint_enum_type_->type_args[i];
-                    if (hta && hta->kind != LogosType::Kind::Error)
+                    if (hta && TypeRef(hta).kind() != LogosType::Kind::Error)
                         subst[einfo.type_params[i].name] = hta;
                 }
             }
@@ -4334,7 +4334,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             auto* pack_t = resolved_payload_types[0];
             for (size_t i = 0; i < payload.size(); ++i) {
                 if (payload[i]->type->kind != LogosType::Kind::Error &&
-                    pack_t->kind != LogosType::Kind::Error &&
+                    TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     !types_compatible(payload[i]->type, pack_t))
                     error(std::format("{}::{} variadic arg {}: expected {}, got {}",
                           ename, vname, i, type_str(pack_t), type_str(payload[i]->type)));
@@ -4381,10 +4381,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         SemaSubst subst;
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i) {
             auto* pt = vinfo->payload_types[i];
-            if (pt && pt->kind == LogosType::Kind::TypeVar) {
+            if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto* inferred = payload[i]->type;
-                if (inferred->kind == LogosType::Kind::IntLit) inferred = i32_t();
-                subst[pt->type_var_name] = inferred;
+                if (TypeRef(inferred).kind() == LogosType::Kind::IntLit) inferred = i32_t();
+                subst[TypeRef(pt).type_var_name()] = inferred;
             }
         }
         // Fill any still-unresolved type params from hint
@@ -4392,7 +4392,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             for (size_t i = 0; i < einfo.type_params.size() && i < hint_enum_type_->type_args.size(); ++i) {
                 if (subst.find(einfo.type_params[i].name) == subst.end()) {
                     auto* hta = hint_enum_type_->type_args[i];
-                    if (hta && hta->kind != LogosType::Kind::Error)
+                    if (hta && TypeRef(hta).kind() != LogosType::Kind::Error)
                         subst[einfo.type_params[i].name] = hta;
                 }
             }
@@ -4479,11 +4479,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             auto* pack_t = resolved_payload_types[0];
             for (size_t i = 0; i < payload.size(); ++i) {
                 if (payload[i]->type->kind != LogosType::Kind::Error &&
-                    pack_t->kind != LogosType::Kind::Error &&
+                    TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     !types_compatible(payload[i]->type, pack_t))
                     error(std::format("{}::{} variadic arg {}: expected {}, got {}",
                           ename, vname, i, type_str(pack_t), type_str(payload[i]->type)));
-                if (pack_t->kind != LogosType::Kind::Error &&
+                if (TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     payload[i]->type->kind == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(payload[i].get()))
                         if (!intlit_fits(*v, pack_t->kind))
@@ -4520,8 +4520,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         auto ait = type_aliases_.find(resolved_class);
         if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
             auto* aliased = ait->second.type;
-            if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                            aliased->kind == LogosType::Kind::ZonedStruct)) {
+            if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
+                            TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
                 resolved_class = aliased->type_args.empty()
                     ? aliased->struct_name
                     : concrete_struct_name(aliased);
@@ -4581,7 +4581,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 bool all_concrete = true;
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     auto* t = resolve_type(map_of(items.get(i)));
-                    if (!t || t->kind == LogosType::Kind::TypeVar) { all_concrete = false; break; }
+                    if (!t || TypeRef(t).kind() == LogosType::Kind::TypeVar) { all_concrete = false; break; }
                     tf_args.push_back(t);
                 }
                 if (all_concrete && !tf_args.empty()) {
@@ -4695,8 +4695,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         bool in_generic_context = false;
         for (auto& a : arg_exprs) {
             auto* t = a->type;
-            if (t && (t->kind == LogosType::Kind::TypeVar ||
-                      t->kind == LogosType::Kind::AssocType)) {
+            if (t && (TypeRef(t).kind() == LogosType::Kind::TypeVar ||
+                      TypeRef(t).kind() == LogosType::Kind::AssocType)) {
                 in_generic_context = true; break;
             }
         }
@@ -4706,8 +4706,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     auto* t = resolve_type(map_of(items.get(i)));
-                    if (t && (t->kind == LogosType::Kind::TypeVar ||
-                              t->kind == LogosType::Kind::AssocType)) {
+                    if (t && (TypeRef(t).kind() == LogosType::Kind::TypeVar ||
+                              TypeRef(t).kind() == LogosType::Kind::AssocType)) {
                         in_generic_context = true; break;
                     }
                 }
@@ -4782,8 +4782,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         for (uint64_t i = 0; i < n_args; ++i) {
             auto* at = arg_exprs[i]->type;
             auto* pt = fi.param_types[i];
-            if (at->kind != LogosType::Kind::Error &&
-                pt->kind != LogosType::Kind::Error &&
+            if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                TypeRef(pt).kind() != LogosType::Kind::Error &&
                 !types_compatible(at, pt))
                 error(std::format("static call '{}' arg {}: expected {}, got {}",
                       mangled, i + 1, type_str(pt), type_str(at)));
@@ -4879,7 +4879,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         }
     }
     // If still IntLit, upgrade to i64 if any branch literal overflows i32.
-    if (result_type->kind == LogosType::Kind::IntLit) {
+    if (TypeRef(result_type).kind() == LogosType::Kind::IntLit) {
         auto intlit_overflow = [](const lir::LExpr* e) -> bool {
             // Look through block expressions to the final result.
             if (auto* blk = std::get_if<lir::EBlockExpr>(&e->kind))
@@ -5462,7 +5462,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         auto is_capturable = [&](const LogosType* t) -> bool {
             if (!t) return false;
             using K = LogosType::Kind;
-            switch (t->kind) {
+            switch (TypeRef(t).kind()) {
                 // Scalar integer types and bool: coerced to inline AnyVal.
                 case K::I8: case K::I16: case K::I32: case K::I64:
                 case K::U8: case K::U16: case K::U32: case K::U64:
@@ -5477,10 +5477,10 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                            t->struct_name == "StringView";
                 // *const u8 / *mut u8 captured as C-string varchar — C5.
                 case K::Ptr:
-                    return t->pointee && t->pointee->kind == K::U8;
+                    return TypeRef(t).pointee() && TypeRef(t).pointee()->kind == K::U8;
                 // str (&[u8] slice) captured as varchar — same as *const u8 but with length.
                 case K::Slice:
-                    return t->elem && t->elem->kind == K::U8;
+                    return TypeRef(t).elem() && TypeRef(t).elem()->kind == K::U8;
                 default:
                     return false;
             }

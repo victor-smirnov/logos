@@ -142,7 +142,9 @@ public:
 
     constexpr const LogosType* raw() const noexcept { return p_; }
 
-    friend constexpr bool operator==(TypeRef, TypeRef) noexcept = default;
+    friend constexpr bool operator==(TypeRef a, TypeRef b) noexcept { return a.p_ == b.p_; }
+    friend constexpr bool operator==(TypeRef a, const LogosType* b) noexcept { return a.p_ == b; }
+    friend constexpr bool operator==(const LogosType* a, TypeRef b) noexcept { return a == b.p_; }
 
     // ── View accessors ──
     // These match what a Hermes-backed reader will expose in Phase 2c;
@@ -158,14 +160,16 @@ public:
     bool     mut_ptr()  const noexcept { return p_->mut_ptr; }
     uint64_t arr_size() const noexcept { return p_->arr_size; }
 
-    std::string_view lifetime()        const noexcept { return p_->lifetime; }
-    std::string_view struct_name()     const noexcept { return p_->struct_name; }
-    std::string_view enum_name()       const noexcept { return p_->enum_name; }
-    std::string_view pkg_name()        const noexcept { return p_->pkg_name; }
-    std::string_view trait_name()      const noexcept { return p_->trait_name; }
-    std::string_view type_var_name()   const noexcept { return p_->type_var_name; }
-    std::string_view assoc_type_name() const noexcept { return p_->assoc_type_name; }
-    std::string_view arr_size_var()    const noexcept { return p_->arr_size_var; }
+    // These return const std::string& for now; Phase 2c will switch to
+    // string_view once the backing storage moves to a Hermes zone.
+    const std::string& lifetime()        const noexcept { return p_->lifetime; }
+    const std::string& struct_name()     const noexcept { return p_->struct_name; }
+    const std::string& enum_name()       const noexcept { return p_->enum_name; }
+    const std::string& pkg_name()        const noexcept { return p_->pkg_name; }
+    const std::string& trait_name()      const noexcept { return p_->trait_name; }
+    const std::string& type_var_name()   const noexcept { return p_->type_var_name; }
+    const std::string& assoc_type_name() const noexcept { return p_->assoc_type_name; }
+    const std::string& arr_size_var()    const noexcept { return p_->arr_size_var; }
 
     const std::vector<const LogosType*>& type_args()      const noexcept { return p_->type_args; }
     const std::vector<const LogosType*>& tuple_elems()    const noexcept { return p_->tuple_elems; }

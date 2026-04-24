@@ -87,7 +87,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     if (it != s.end() && it->second) {
                         std::string cname;
                         const LogosType* t = it->second;
-                        if (t->kind == LogosType::Kind::Struct)
+                        if (TypeRef(t).kind() == LogosType::Kind::Struct)
                             cname = concrete_struct_name(t);
                         else
                             cname = type_str(t);
@@ -115,7 +115,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                             // Verify none of the type args are still TypeVar
                             bool all_concrete = true;
                             for (auto* ta : nc.type_args)
-                                if (ta && ta->kind == LogosType::Kind::TypeVar)
+                                if (ta && TypeRef(ta).kind() == LogosType::Kind::TypeVar)
                                     { all_concrete = false; break; }
                             if (all_concrete) {
                                 // Build the concrete struct type.
@@ -145,25 +145,25 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             auto  new_recv = subst_expr(*k.receiver, s);
             // Unwrap pointer/reference for TypeVar check (handles *mut T, &T, &mut T).
             auto* orig_inner = orig_recv_type;
-            if (orig_inner && (orig_inner->kind == LogosType::Kind::Ptr ||
-                               orig_inner->kind == LogosType::Kind::Ref ||
-                               orig_inner->kind == LogosType::Kind::MutRef) &&
-                orig_inner->pointee)
-                orig_inner = orig_inner->pointee;
-            if (orig_inner && orig_inner->kind == LogosType::Kind::TypeVar &&
+            if (orig_inner && (TypeRef(orig_inner).kind() == LogosType::Kind::Ptr ||
+                               TypeRef(orig_inner).kind() == LogosType::Kind::Ref ||
+                               TypeRef(orig_inner).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(orig_inner).pointee())
+                orig_inner = TypeRef(orig_inner).pointee();
+            if (orig_inner && TypeRef(orig_inner).kind() == LogosType::Kind::TypeVar &&
                 new_recv->type) {
                 // Trait method → direct call: TypeName__method(self, args...)
                 std::string cname;
                 auto* rt = new_recv->type;
-                if (rt->kind == LogosType::Kind::Struct ||
-                    rt->kind == LogosType::Kind::ZonedStruct)
+                if (TypeRef(rt).kind() == LogosType::Kind::Struct ||
+                    TypeRef(rt).kind() == LogosType::Kind::ZonedStruct)
                     cname = concrete_struct_name(rt);
-                else if ((rt->kind == LogosType::Kind::Ptr ||
-                          rt->kind == LogosType::Kind::Ref ||
-                          rt->kind == LogosType::Kind::MutRef) && rt->pointee) {
-                    if (rt->pointee->kind == LogosType::Kind::Struct ||
-                        rt->pointee->kind == LogosType::Kind::ZonedStruct)
-                        cname = concrete_struct_name(rt->pointee);
+                else if ((TypeRef(rt).kind() == LogosType::Kind::Ptr ||
+                          TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                          TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
+                    if (TypeRef(rt).pointee()->kind == LogosType::Kind::Struct ||
+                        TypeRef(rt).pointee()->kind == LogosType::Kind::ZonedStruct)
+                        cname = concrete_struct_name(TypeRef(rt).pointee());
                     else {
                         // Primitive pointee: auto-deref for method dispatch
                         // (use `i32__method`) unless an explicit impl on the
@@ -178,7 +178,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         if (!ptr_exists)
                             for (auto& f : out_.functions)
                                 if (f.name == ptr_fn) { ptr_exists = true; break; }
-                        cname = ptr_exists ? ptr_cname : type_str(rt->pointee);
+                        cname = ptr_exists ? ptr_cname : type_str(TypeRef(rt).pointee());
                     }
                 }
                 // Fallback: primitive types (i32, bool, etc.)
@@ -237,23 +237,23 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 bool rewritten = false;
                 if (nm.receiver->type) {
                     const LogosType* rt = nm.receiver->type;
-                    while (rt && (rt->kind == LogosType::Kind::Ptr ||
-                                  rt->kind == LogosType::Kind::Ref ||
-                                  rt->kind == LogosType::Kind::MutRef) && rt->pointee) {
-                        rt = rt->pointee;
+                    while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ptr ||
+                                  TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                                  TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
+                        rt = TypeRef(rt).pointee();
                     }
 
                     if (rt &&
-                        (rt->kind == LogosType::Kind::Struct ||
-                         rt->kind == LogosType::Kind::ZonedStruct ||
-                         rt->kind == LogosType::Kind::Enum)) {
+                        (TypeRef(rt).kind() == LogosType::Kind::Struct ||
+                         TypeRef(rt).kind() == LogosType::Kind::ZonedStruct ||
+                         TypeRef(rt).kind() == LogosType::Kind::Enum)) {
                         std::vector<const LogosType*> combined_args = rt->type_args;
                         for (auto* mta : nm.type_args) combined_args.push_back(mta);
 
                         std::string base_struct;
                         if (!nm.resolved_type.empty()) {
                             base_struct = nm.resolved_type;
-                        } else if (rt->kind == LogosType::Kind::Enum) {
+                        } else if (TypeRef(rt).kind() == LogosType::Kind::Enum) {
                             base_struct = rt->enum_name;
                         } else {
                             base_struct = rt->struct_name;
@@ -312,7 +312,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             // After substitution, if LHS is a struct/class, rewrite binop
             // to operator trait method call (e.g. v + v → Vec2__add(v, v)).
             auto* lt = new_lhs->type;
-            if (lt && lt->kind == LogosType::Kind::Struct) {
+            if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (k.op == "+")  method_name = "add";
                 else if (k.op == "-")  method_name = "sub";
@@ -344,7 +344,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::EUnary>) {
             auto new_op = subst_expr(*k.operand, s);
             auto* vt = new_op->type;
-            if (vt && vt->kind == LogosType::Kind::Struct) {
+            if (vt && TypeRef(vt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (k.op == "-") method_name = "neg";
                 else if (k.op == "!") method_name = "not_";
@@ -516,10 +516,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             bool has_tv = false;
             std::function<void(const LogosType*)> walk = [&](const LogosType* t) {
                 if (!t || has_tv) return;
-                if (t->kind == LogosType::Kind::TypeVar) { has_tv = true; return; }
+                if (TypeRef(t).kind() == LogosType::Kind::TypeVar) { has_tv = true; return; }
                 for (auto* a : t->type_args) walk(a);
-                if (t->pointee) walk(t->pointee);
-                if (t->elem)    walk(t->elem);
+                if (TypeRef(t).pointee()) walk(TypeRef(t).pointee());
+                if (TypeRef(t).elem())    walk(TypeRef(t).elem());
             };
             walk(resolved);
             if (has_tv || !resolved) {
@@ -529,8 +529,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 // struct's type_code first, then fall back to inst_annotations,
                 // then hash of canonical name.
                 uint64_t code = 0;
-                if (resolved->kind == LogosType::Kind::Struct ||
-                    resolved->kind == LogosType::Kind::ZonedStruct) {
+                if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
+                    TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
                     std::string mangled = resolved->type_args.empty()
                         ? resolved->struct_name : concrete_struct_name(resolved);
                     for (auto& sd : out_.structs)
@@ -605,9 +605,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             auto* resolved = subst_type(k.type, s);
             result->kind = lir::EReflectOf{resolved};
             // If the type is now fully concrete, register for TypeInfo emission.
-            if (resolved && resolved->kind == LogosType::Kind::ZonedStruct &&
+            if (resolved && TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct &&
                 resolved->type_args.empty()) {
-                std::string pkg = resolved->pkg_name;
+                std::string pkg = TypeRef(resolved).pkg_name();
                 std::string fqn = pkg.empty() ? resolved->struct_name
                                               : pkg + "::" + resolved->struct_name;
                 out_.reflect_requests.insert(fqn);
@@ -890,10 +890,10 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             const LogosType* concrete = sit->second;
             if (!concrete) continue;
             std::string cname;
-            if (concrete->kind == LogosType::Kind::Struct ||
-                concrete->kind == LogosType::Kind::ZonedStruct)
+            if (TypeRef(concrete).kind() == LogosType::Kind::Struct ||
+                TypeRef(concrete).kind() == LogosType::Kind::ZonedStruct)
                 cname = concrete_struct_name(concrete);
-            else if (concrete->kind == LogosType::Kind::Enum)
+            else if (TypeRef(concrete).kind() == LogosType::Kind::Enum)
                 cname = concrete->enum_name;
             else
                 cname = type_str(concrete);
@@ -1207,8 +1207,8 @@ lir::LEnumDef Mono::clone_enum_def(const lir::LEnumDef& tmpl,
         // Variadic expansion for variants like Multi(...T)
         if (v.is_variadic && !v.payload_types.empty()) {
             auto* pt = v.payload_types[0];
-            if (pt->kind == LogosType::Kind::TypeVar) {
-                auto pit = packs.find(pt->type_var_name);
+            if (TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
+                auto pit = packs.find(TypeRef(pt).type_var_name());
                 if (pit != packs.end()) {
                     for (auto* pt_in_pack : pit->second)
                         nv.payload_types.push_back(subst_type(pt_in_pack, s));
