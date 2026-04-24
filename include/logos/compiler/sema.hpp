@@ -114,6 +114,7 @@ struct LogosType {
     // read fields from the mirror instead of the struct.
     const hermes::Arena*   hermes_arena_      = nullptr;
     hermes::arena_offset_t hermes_mirror_off_ = hermes::NULL_OFFSET;
+    const class TypePoolImpl* hermes_pool_     = nullptr;
 };
 
 // ── Trait bound (for type parameter bounds) ────────────────────────────────
