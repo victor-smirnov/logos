@@ -242,7 +242,7 @@ public:
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).
-bool types_equal(const LogosType& a, const LogosType& b) noexcept;
+bool types_equal(TypeRef a, TypeRef b) noexcept;
 
 // Human-readable name for error messages.
 std::string type_str(TypeRef t);

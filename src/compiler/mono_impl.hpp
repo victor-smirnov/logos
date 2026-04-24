@@ -179,7 +179,7 @@ private:
         if (pattern->kind == LogosType::Kind::TypeVar) {
             auto it = bindings.find(pattern->type_var_name);
             if (it != bindings.end())
-                return types_equal(*concrete, *it->second);
+                return types_equal(concrete, it->second);
             bindings[pattern->type_var_name] = concrete;
             return true;
         }
@@ -197,7 +197,7 @@ private:
         case LogosType::Kind::Struct:
             return pattern->struct_name == concrete->struct_name;
         default:
-            return types_equal(*concrete, *pattern);
+            return types_equal(concrete, pattern);
         }
     }
 

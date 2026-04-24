@@ -413,50 +413,51 @@ using hermes::MemHolder;
 
 // ── types_equal ─────────────────────────────────────────────────────────────
 
-bool types_equal(const LogosType& a, const LogosType& b) noexcept {
-    if (a.kind != b.kind) return false;
-    switch (a.kind) {
+bool types_equal(TypeRef a, TypeRef b) noexcept {
+    if (!a || !b) return false;
+    if (a.kind() != b.kind()) return false;
+    switch (a.kind()) {
     case LogosType::Kind::Ptr:
-        return a.mut_ptr == b.mut_ptr &&
-               a.pointee && b.pointee &&
-               types_equal(*a.pointee, *b.pointee);
+        return a.mut_ptr() == b.mut_ptr() &&
+               a.pointee() && b.pointee() &&
+               types_equal(a.pointee(), b.pointee());
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef:
-        return a.pointee && b.pointee &&
-               types_equal(*a.pointee, *b.pointee);
+        return a.pointee() && b.pointee() &&
+               types_equal(a.pointee(), b.pointee());
         // Note: we intentionally ignore lifetime in equality — structural type equality
     case LogosType::Kind::Array:
-        return a.arr_size == b.arr_size &&
-               a.arr_size_var == b.arr_size_var &&
-               a.elem && b.elem &&
-               types_equal(*a.elem, *b.elem);
+        return a.arr_size() == b.arr_size() &&
+               a.arr_size_var() == b.arr_size_var() &&
+               a.elem() && b.elem() &&
+               types_equal(a.elem(), b.elem());
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
-        if (a.struct_name != b.struct_name) return false;
-        if (a.type_args.size() != b.type_args.size()) return false;
-        for (size_t i = 0; i < a.type_args.size(); ++i)
-            if (!a.type_args[i] || !b.type_args[i] ||
-                !types_equal(*a.type_args[i], *b.type_args[i])) return false;
+        if (a.struct_name() != b.struct_name()) return false;
+        if (a.type_args().size() != b.type_args().size()) return false;
+        for (size_t i = 0; i < a.type_args().size(); ++i)
+            if (!a.type_args()[i] || !b.type_args()[i] ||
+                !types_equal(a.type_args()[i], b.type_args()[i])) return false;
         return true;
     case LogosType::Kind::Enum:
-        return a.enum_name == b.enum_name;
+        return a.enum_name() == b.enum_name();
     case LogosType::Kind::Tuple:
-        if (a.tuple_elems.size() != b.tuple_elems.size()) return false;
-        for (size_t i = 0; i < a.tuple_elems.size(); ++i)
-            if (!a.tuple_elems[i] || !b.tuple_elems[i] ||
-                !types_equal(*a.tuple_elems[i], *b.tuple_elems[i])) return false;
+        if (a.tuple_elems().size() != b.tuple_elems().size()) return false;
+        for (size_t i = 0; i < a.tuple_elems().size(); ++i)
+            if (!a.tuple_elems()[i] || !b.tuple_elems()[i] ||
+                !types_equal(a.tuple_elems()[i], b.tuple_elems()[i])) return false;
         return true;
     case LogosType::Kind::Slice:
-        return a.elem && b.elem && types_equal(*a.elem, *b.elem);
+        return a.elem() && b.elem() && types_equal(a.elem(), b.elem());
     case LogosType::Kind::TraitObject:
-        return a.trait_name == b.trait_name;
+        return a.trait_name() == b.trait_name();
     case LogosType::Kind::ImplTrait:
-        return a.struct_name == b.struct_name;
+        return a.struct_name() == b.struct_name();
     case LogosType::Kind::AssocType:
-        return a.assoc_type_name == b.assoc_type_name &&
-               a.trait_name == b.trait_name &&
-               a.assoc_base && b.assoc_base &&
-               types_equal(*a.assoc_base, *b.assoc_base);
+        return a.assoc_type_name() == b.assoc_type_name() &&
+               a.trait_name() == b.trait_name() &&
+               a.assoc_base() && b.assoc_base() &&
+               types_equal(a.assoc_base(), b.assoc_base());
     default:
         return true;  // primitives
     }
@@ -586,7 +587,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_base_and_signature(
         bool same = true;
         for (size_t i = 0; i < param_types.size(); ++i) {
             if (!fi->param_types[i] || !param_types[i] ||
-                !types_equal(*fi->param_types[i], *param_types[i])) {
+                !types_equal(fi->param_types[i], param_types[i])) {
                 same = false; break;
             }
         }
@@ -638,7 +639,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
             auto* at = arg_exprs[i] ? arg_exprs[i]->type : nullptr;
             auto* pt = fi->param_types[i];
             if (!at || !pt) { ok = false; break; }
-            if (types_equal(*at, *pt)) score = std::max(score, 2);
+            if (types_equal(at, pt)) score = std::max(score, 2);
             else if (!exact_only && types_compatible(at, pt)) score = std::max(score, 1);
             else { ok = false; break; }
         }
@@ -664,7 +665,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
 
 bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (!from || !to) return false;
-    if (types_equal(*from.raw(), *to.raw())) return true;
+    if (types_equal(from, to)) return true;
     if (from.kind() == LogosType::Kind::IntLit && is_integer_kind(to.kind())) return true;
     if (from.kind() == LogosType::Kind::IntLit && to.kind() == LogosType::Kind::TypeVar) return true;
     if (from.kind() == LogosType::Kind::IntLit &&
@@ -680,7 +681,7 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (from.kind() == LogosType::Kind::Array &&
         to.kind() == LogosType::Kind::Ptr   &&
         from.elem() && to.pointee())
-        return types_equal(*from.elem().raw(), *to.pointee().raw());
+        return types_equal(from.elem(), to.pointee());
     // Arrays are compatible if same size and elements are compatible (handles nested arrays).
     if (TypeRef(from).kind() == LogosType::Kind::Array && TypeRef(to).kind() == LogosType::Kind::Array &&
         TypeRef(from).arr_size() == TypeRef(to).arr_size() && TypeRef(from).elem() && TypeRef(to).elem())
@@ -988,7 +989,7 @@ std::string SemaChecker::drop_fn_for(const LogosType* t) const {
     for (auto* cand : find_func_candidates(mangled)) {
         if (!cand || cand->param_types.size() != 1) continue;
         auto* pt = cand->param_types[0];
-        if (pt && types_equal(*pt, *t))
+        if (pt && types_equal(pt, t))
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;
     }
     return {};
@@ -2037,7 +2038,7 @@ static bool match_type_sema(const LogosType* concrete, const LogosType* pattern,
     if (!concrete || !pattern) return false;
     if (TypeRef(pattern).kind() == LogosType::Kind::TypeVar) {
         auto it = bindings.find(TypeRef(pattern).type_var_name());
-        if (it != bindings.end()) return types_equal(*concrete, *it->second);
+        if (it != bindings.end()) return types_equal(concrete, it->second);
         bindings[std::string(TypeRef(pattern).type_var_name())] = concrete;
         return true;
     }
@@ -2056,7 +2057,7 @@ static bool match_type_sema(const LogosType* concrete, const LogosType* pattern,
     case LogosType::Kind::ZonedStruct:
         return TypeRef(pattern).struct_name() == TypeRef(concrete).struct_name();
     default:
-        return types_equal(*concrete, *pattern);
+        return types_equal(concrete, pattern);
     }
 }
 

@@ -909,7 +909,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (tit2 != traits_.end() && ctype) {
                         for (auto& ac_def : tit2->second.assoc_consts) {
                             if (ac_def.name == cname && ac_def.type) {
-                                if (!types_equal(*ac_def.type, *ctype))
+                                if (!types_equal(ac_def.type, ctype))
                                     error(std::format(
                                         "impl {} for {}: associated constant '{}' declared as '{}' but trait requires '{}'",
                                         trait_name, target, cname,
@@ -968,7 +968,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         // it matches any concrete impl type.
                         if (is_generic_param(tp)) continue;
                         if (is_generic_param(cp)) continue;
-                        if (!types_equal(*tp, *cp)) { sig_match = false; break; }
+                        if (!types_equal(tp, cp)) { sig_match = false; break; }
                     }
                     if (sig_match) { matching = c; break; }
                 }

@@ -42,7 +42,7 @@ namespace logos::compiler {
 // (Full definitions are in sema.cpp / sema_impl.hpp bottom section.)
 
 // Defined in sema.cpp (non-inline, single definition):
-bool types_equal(const LogosType& a, const LogosType& b) noexcept;
+bool types_equal(TypeRef a, TypeRef b) noexcept;
 std::string type_str(TypeRef t);
 std::string concrete_struct_name(TypeRef t);
 bool types_compatible(TypeRef from, TypeRef to) noexcept;

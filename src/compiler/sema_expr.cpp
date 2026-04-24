@@ -1391,7 +1391,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             error("is_same::<T1,T2>() requires exactly two type arguments");
             return error_expr();
         }
-        return bool_lit(types_equal(*ts[0], *ts[1]));
+        return bool_lit(types_equal(ts[0], ts[1]));
     }
     if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
         callee == "is_struct" || callee == "is_zoned" || callee == "is_enum" ||
@@ -2462,12 +2462,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (!recv_struct_subst.empty())
                 formal0 = subst_type_sema(formal0, recv_struct_subst);
             auto* actual0 = recv->type;
-            if (actual0 && formal0 && !types_equal(*actual0, *formal0)) {
+            if (actual0 && formal0 && !types_equal(actual0, formal0)) {
                 if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
                     TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
                     TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
                     is_ref_like(formal0->kind) && TypeRef(formal0).pointee() &&
-                    types_equal(*actual0, *TypeRef(formal0).pointee().raw())) {
+                    types_equal(actual0, TypeRef(formal0).pointee())) {
                     needs_ref = true;
                     needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                 } else if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
@@ -2475,13 +2475,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                            TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
                            TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
                            TypeRef(formal0).pointee() &&
-                           types_equal(*actual0, *TypeRef(formal0).pointee().raw())) {
+                           types_equal(actual0, TypeRef(formal0).pointee())) {
                     needs_ref = true;
                     needs_mut = false;
                 } else if (TypeRef(actual0).kind() == LogosType::Kind::Ptr &&
                            TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
                            TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
-                           types_equal(*TypeRef(actual0).pointee().raw(), *TypeRef(formal0).pointee().raw())) {
+                           types_equal(TypeRef(actual0).pointee(), TypeRef(formal0).pointee())) {
                     // const/mut pointer receivers are compatible if pointees match.
                 } else if (!types_compatible(actual0, formal0)) {
                     ok = false;
@@ -2492,7 +2492,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 auto* pt = cand->param_types[i];
                 if (!recv_struct_subst.empty())
                     pt = subst_type_sema(pt, recv_struct_subst);
-                if (!at || !pt || (!types_equal(*at, *pt) && !types_compatible(at, pt))) {
+                if (!at || !pt || (!types_equal(at, pt) && !types_compatible(at, pt))) {
                     ok = false;
                     break;
                 }
@@ -2535,12 +2535,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (!recv_struct_subst.empty())
                     formal0 = subst_type_sema(formal0, recv_struct_subst);
                 auto* actual0 = recv->type;
-                if (actual0 && formal0 && !types_equal(*actual0, *formal0)) {
+                if (actual0 && formal0 && !types_equal(actual0, formal0)) {
                     if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
                         TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
                         TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
                         is_ref_like(formal0->kind) && TypeRef(formal0).pointee() &&
-                        types_equal(*actual0, *TypeRef(formal0).pointee().raw())) {
+                        types_equal(actual0, TypeRef(formal0).pointee())) {
                         needs_ref = true;
                         needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     } else if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
@@ -2548,13 +2548,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
                                TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
                                TypeRef(formal0).pointee() &&
-                               types_equal(*actual0, *TypeRef(formal0).pointee().raw())) {
+                               types_equal(actual0, TypeRef(formal0).pointee())) {
                         needs_ref = true;
                         needs_mut = false;
                     } else if (TypeRef(actual0).kind() == LogosType::Kind::Ptr &&
                                TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
                                TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
-                               types_equal(*TypeRef(actual0).pointee().raw(), *TypeRef(formal0).pointee().raw())) {
+                               types_equal(TypeRef(actual0).pointee(), TypeRef(formal0).pointee())) {
                         // const/mut pointer receivers are compatible if pointees match.
                     } else if (!types_compatible(actual0, formal0)) {
                         ok = false;
@@ -2565,7 +2565,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     auto* pt = cand->param_types[i];
                     if (!recv_struct_subst.empty())
                         pt = subst_type_sema(pt, recv_struct_subst);
-                    if (!at || !pt || (!types_equal(*at, *pt) && !types_compatible(at, pt))) {
+                    if (!at || !pt || (!types_equal(at, pt) && !types_compatible(at, pt))) {
                         ok = false;
                         break;
                     }

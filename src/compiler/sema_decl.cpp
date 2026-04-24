@@ -204,7 +204,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 bool same = true;
                 for (size_t i = 0; i < decl_param_types.size(); ++i) {
                     if (!cand->param_types[i] || !decl_param_types[i] ||
-                        !types_equal(*cand->param_types[i], *decl_param_types[i])) {
+                        !types_equal(cand->param_types[i], decl_param_types[i])) {
                         same = false; break;
                     }
                 }
@@ -221,7 +221,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 bool same_tail = true;
                 for (size_t i = 1; i < decl_param_types.size(); ++i) {
                     if (!cand->param_types[i] || !decl_param_types[i] ||
-                        !types_equal(*cand->param_types[i], *decl_param_types[i])) {
+                        !types_equal(cand->param_types[i], decl_param_types[i])) {
                         same_tail = false;
                         break;
                     }
@@ -251,13 +251,13 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                          spv.kind() != LogosType::Kind::MutRef &&
                          spv.kind() != LogosType::Kind::Ptr) ||
                         !spv.pointee() ||
-                        !types_equal(*spv.pointee().raw(), *self_t))
+                        !types_equal(spv.pointee(), self_t))
                         continue;
                     bool same_tail = true;
                     for (size_t i = 0; i < decl_param_types.size(); ++i) {
                         auto* dt = decl_param_types[i];
                         auto* pt = cand->param_types[i + 1];
-                        if (!dt || !pt || !types_equal(*dt, *pt)) {
+                        if (!dt || !pt || !types_equal(dt, pt)) {
                             same_tail = false;
                             break;
                         }
@@ -886,7 +886,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 TypeRef(p).kind() == LogosType::Kind::TypeVar) continue;  // both TV, OK
                             if (TypeRef(a).kind() == LogosType::Kind::TypeVar ||
                                 TypeRef(p).kind() == LogosType::Kind::TypeVar) { match = false; break; }
-                            if (!types_equal(*a, *p)) { match = false; break; }
+                            if (!types_equal(a, p)) { match = false; break; }
                         }
                         if (match) { target_struct_tmpl = &ss; break; }
                     }
