@@ -220,6 +220,133 @@ public:
 
         return map_off;
     }
+
+    // Validate that the mirror at `map_off` reads back exactly the same data
+    // as the source LogosType `t`. Used as a defence-in-depth check until
+    // TypeRef is rewired to read the mirror directly (Phase 2c.4).
+    void validate_mirror(const LogosType& t, hermes::arena_offset_t map_off) {
+        namespace k = sema_schema;
+        uint8_t* base = arena_.head().data();
+        auto*    m    = at(map_off);
+
+        // schema_type_code <-> kind.
+        LOGOS_ASSERT(
+            m->schema_type_code()
+                == hermes::schema::type(int32_t(t.kind)),
+            "SEMA-TYPEPOOL-VALIDATE", "kind mismatch in mirror");
+
+        auto check_str = [&](const sema_schema::Key& key, const std::string& s) {
+            auto av = m->get(key.code, base);
+            if (s.empty()) {
+                LOGOS_ASSERT(av.is_null(), "SEMA-TYPEPOOL-VALIDATE",
+                    "mirror key {} should be absent", key.name);
+            } else {
+                LOGOS_ASSERT(av.is_pointer(), "SEMA-TYPEPOOL-VALIDATE",
+                    "mirror key {} should be a pointer", key.name);
+                auto* str = av.as_ptr<const hermes::ArenaString>(base);
+                LOGOS_ASSERT(str->view() == s, "SEMA-TYPEPOOL-VALIDATE",
+                    "mirror string mismatch at key {}", key.name);
+            }
+        };
+        check_str(k::LIFETIME,        t.lifetime);
+        check_str(k::ARR_SIZE_VAR,    t.arr_size_var);
+        check_str(k::STRUCT_NAME,     t.struct_name);
+        check_str(k::ENUM_NAME,       t.enum_name);
+        check_str(k::PKG_NAME,        t.pkg_name);
+        check_str(k::TRAIT_NAME,      t.trait_name);
+        check_str(k::TYPE_VAR_NAME,   t.type_var_name);
+        check_str(k::ASSOC_TYPE_NAME, t.assoc_type_name);
+
+        auto check_ptr = [&](const sema_schema::Key& key, const LogosType* p) {
+            auto av = m->get(key.code, base);
+            if (!p) {
+                LOGOS_ASSERT(av.is_null(), "SEMA-TYPEPOOL-VALIDATE",
+                    "mirror key {} should be null", key.name);
+                return;
+            }
+            LOGOS_ASSERT(av.is_pointer(), "SEMA-TYPEPOOL-VALIDATE",
+                "mirror key {} should be a pointer", key.name);
+            auto expected = mirror_offsets_.at(p);
+            LOGOS_ASSERT(av.to_offset() == expected, "SEMA-TYPEPOOL-VALIDATE",
+                "mirror key {} offset mismatch", key.name);
+        };
+        check_ptr(k::POINTEE,     t.pointee);
+        check_ptr(k::ELEM,        t.elem);
+        check_ptr(k::ASSOC_BASE,  t.assoc_base);
+        check_ptr(k::CLOSURE_RET, t.closure_ret);
+
+        if (t.kind == LogosType::Kind::Ptr) {
+            auto av = m->get(k::MUT_PTR.code, base);
+            LOGOS_ASSERT(av.is_value(), "SEMA-TYPEPOOL-VALIDATE",
+                "MUT_PTR must be embedded");
+            LOGOS_ASSERT(av.as_value<uint8_t>() == (t.mut_ptr ? 1 : 0),
+                "SEMA-TYPEPOOL-VALIDATE", "MUT_PTR value mismatch");
+        }
+
+        if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
+            auto av = m->get(k::ARR_SIZE.code, base);
+            LOGOS_ASSERT(av.is_pointer(), "SEMA-TYPEPOOL-VALIDATE",
+                "ARR_SIZE must be pointer (u64)");
+            auto* p = av.as_ptr<const uint64_t>(base);
+            LOGOS_ASSERT(*p == t.arr_size, "SEMA-TYPEPOOL-VALIDATE",
+                "ARR_SIZE value mismatch");
+        }
+
+        if (t.const_val.has_value()) {
+            auto av = m->get(k::CONST_VAL.code, base);
+            LOGOS_ASSERT(av.is_pointer(), "SEMA-TYPEPOOL-VALIDATE",
+                "CONST_VAL must be pointer (i64)");
+            auto* p = av.as_ptr<const int64_t>(base);
+            LOGOS_ASSERT(*p == *t.const_val, "SEMA-TYPEPOOL-VALIDATE",
+                "CONST_VAL value mismatch");
+        }
+
+        auto check_tvec = [&](const sema_schema::Key& key,
+                              const std::vector<const LogosType*>& v) {
+            auto av = m->get(key.code, base);
+            if (v.empty()) {
+                LOGOS_ASSERT(av.is_null(), "SEMA-TYPEPOOL-VALIDATE",
+                    "mirror key {} should be null (empty vec)", key.name);
+                return;
+            }
+            LOGOS_ASSERT(av.is_pointer(), "SEMA-TYPEPOOL-VALIDATE",
+                "mirror key {} should be pointer (ObjectArray)", key.name);
+            auto* arr = av.as_ptr<const hermes::ObjectArray>(base);
+            LOGOS_ASSERT(arr->size() == v.size(), "SEMA-TYPEPOOL-VALIDATE",
+                "ObjectArray size mismatch at {}", key.name);
+            for (uint64_t i = 0; i < v.size(); ++i) {
+                auto e = const_cast<hermes::ObjectArray*>(arr)
+                             ->get(i, base);
+                auto expected = mirror_offsets_.at(v[i]);
+                LOGOS_ASSERT(e.is_pointer() && e.to_offset() == expected,
+                    "SEMA-TYPEPOOL-VALIDATE",
+                    "ObjectArray elem[{}] mismatch at {}", i, key.name);
+            }
+        };
+        check_tvec(k::TYPE_ARGS,      t.type_args);
+        check_tvec(k::TUPLE_ELEMS,    t.tuple_elems);
+        check_tvec(k::CLOSURE_PARAMS, t.closure_params);
+        check_tvec(k::GAT_ARGS,       t.gat_args);
+
+        // lifetime_args — vector<string>
+        if (!t.lifetime_args.empty()) {
+            auto av = m->get(k::LIFETIME_ARGS.code, base);
+            LOGOS_ASSERT(av.is_pointer(), "SEMA-TYPEPOOL-VALIDATE",
+                "LIFETIME_ARGS should be pointer");
+            auto* arr = av.as_ptr<const hermes::ObjectArray>(base);
+            LOGOS_ASSERT(arr->size() == t.lifetime_args.size(),
+                "SEMA-TYPEPOOL-VALIDATE", "LIFETIME_ARGS size mismatch");
+            for (uint64_t i = 0; i < t.lifetime_args.size(); ++i) {
+                auto e = const_cast<hermes::ObjectArray*>(arr)->get(i, base);
+                LOGOS_ASSERT(e.is_pointer(), "SEMA-TYPEPOOL-VALIDATE",
+                    "LIFETIME_ARGS elem must be pointer");
+                auto* str = e.as_ptr<const hermes::ArenaString>(base);
+                LOGOS_ASSERT(str->view() == t.lifetime_args[i],
+                    "SEMA-TYPEPOOL-VALIDATE",
+                    "LIFETIME_ARGS[{}] string mismatch", i);
+            }
+        }
+    }
 };
 
 TypePool::TypePool() = default;
@@ -231,7 +358,9 @@ const LogosType* TypePool::alloc(LogosType t) {
     pool_.push_back(std::move(t));
     const LogosType* p = &pool_.back();
     if (!impl_) impl_ = TypePoolImpl::make();
-    impl_->mirror_offsets_[p] = impl_->mirror(*p);
+    auto off = impl_->mirror(*p);
+    impl_->mirror_offsets_[p] = off;
+    impl_->validate_mirror(*p, off);
     return p;
 }
 
