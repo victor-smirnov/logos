@@ -57,7 +57,7 @@ fn worker_accept_fiber(arg: i64) {
     let svc_raw: i64 = arg;
 
     let mut listener: TcpListener =
-        tcp_listen_reuseport(inaddr_any(), PORT, 128 as i32);
+        tcp_listen_reuseport(inaddr_any(), PORT, 4096 as i32);
     if !(&listener).is_valid() { return; }
 
     loop {

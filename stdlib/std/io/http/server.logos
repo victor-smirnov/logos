@@ -224,7 +224,7 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
 pub fn serve_bounded<S: Service>(port: u16, count: i64, svc: &mut S)
     -> Result<(), HttpError>
 {
-    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 128 as i32);
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 4096 as i32);
     if !(&listener).is_valid() { return Result::Err(HttpError::Connect); }
     let mut i: i64 = 0 as i64;
     while i < count {
@@ -244,7 +244,7 @@ pub fn serve_bounded<S: Service>(port: u16, count: i64, svc: &mut S)
 pub fn serve_until<S: Service>(port: u16, svc: &mut S, stop_flag: *mut i64)
     -> Result<(), HttpError>
 {
-    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 128 as i32);
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 4096 as i32);
     if !(&listener).is_valid() { return Result::Err(HttpError::Connect); }
     unsafe {
         while stop_flag[0 as i64] == 0 as i64 {
@@ -342,7 +342,7 @@ fn serve_mt_conn_fnservice(arg: i64) {
 pub fn serve_mt(port: u16, n_workers: i32, svc: &mut FnService,
                  stop_flag: *mut i64) -> Result<(), HttpError> {
     if n_workers < 1 as i32 { return Result::Err(HttpError::Connect); }
-    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 128 as i32);
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 4096 as i32);
     if !(&listener).is_valid() { return Result::Err(HttpError::Connect); }
 
     let pool: *mut ThreadPool = thread_pool_new(n_workers);
@@ -380,7 +380,7 @@ pub fn serve_mt(port: u16, n_workers: i32, svc: &mut FnService,
 pub fn serve_mt_bounded(port: u16, n_workers: i32, count: i64,
                          svc: &mut FnService) -> *mut ThreadPool {
     if n_workers < 1 as i32 { return 0 as *mut ThreadPool; }
-    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 128 as i32);
+    let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 4096 as i32);
     if !(&listener).is_valid() { return 0 as *mut ThreadPool; }
 
     let pool: *mut ThreadPool = thread_pool_new(n_workers);
