@@ -17,6 +17,8 @@
 #include <optional>
 #include <string>
 
+#include <logos/compiler/sema_schema.hpp>
+
 namespace logos::compiler {
 
 // ── Type representation ────────────────────────────────────────────────────
