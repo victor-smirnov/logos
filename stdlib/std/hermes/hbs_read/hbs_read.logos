@@ -602,6 +602,8 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         // TinyObjectMap
         let count: u32 = deser_read_u32(ctx);
         if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
+        let schema_code: u64 = deser_read_u64(ctx);
+        if ctx.error != HbsError::Ok { return AnyVal::null_ptr(); }
         let cap: u32 = if count == 0 { 8 } else {
             let mut c: u32 = 8;
             while c < count { c = c + 8; }
@@ -618,7 +620,8 @@ unsafe fn deser_read_one_header(ctx: *mut DeserCtx) -> AnyVal {
         let arr_raw: *mut u8 = alloc_raw_in_zone(ctx, cap as i64 * 4);
         if arr_raw == 0 as *mut u8 { return AnyVal::null_ptr(); }
         let base: *mut u8 = ctx.zone.holder.base;
-        TinyObjectMap::init((base as i64 + hdr_off) as *mut u8, arr_raw, base, cap);
+        let m: *mut Map<Bitmap, AnyVal> = TinyObjectMap::init((base as i64 + hdr_off) as *mut u8, arr_raw, base, cap);
+        m.schema_type_code = schema_code;
         let off: u32 = hdr_off;
         if count > 0 {
             ctx.has_pending = true;

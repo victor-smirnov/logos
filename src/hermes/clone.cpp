@@ -173,6 +173,7 @@ logos::expected<uint32_t> c_tiny_map(const uint8_t* o, CloneCtx* c) noexcept {
 
     LOGOS_TRY(auto* dst_map, TinyObjectMap::create(*c->dst, src->capacity()));
     uint32_t dst_off = dst_offset_of(dst_map, *c->dst);
+    dst_map->set_schema_type_code(src->schema_type_code());
     remember(c, src_off, dst_off);
 
     for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {

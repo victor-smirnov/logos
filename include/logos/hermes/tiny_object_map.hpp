@@ -31,6 +31,13 @@ public:
     uint8_t  capacity() const noexcept { return static_cast<uint8_t>((header_ >> 52) & 0x3F); }
     uint64_t bitmap()   const noexcept { return header_ & BITMAP_MASK; }
 
+    // Schema type code — identifies which schema variant this map represents.
+    // 0 means "unset / generic map" (legacy, no schema attached).
+    // Non-zero codes are resolved via the global schema registry and enable
+    // O(1) dispatch over AST / LogosType / L-IR node kinds without a CODE-key lookup.
+    uint64_t schema_type_code() const noexcept { return schema_type_code_; }
+    void set_schema_type_code(uint64_t code) noexcept { schema_type_code_ = code; }
+
     bool has_key(uint8_t key) const noexcept {
         if (key >= MAX_KEYS) return false;
         return (header_ & (1ULL << key)) != 0;
@@ -126,6 +133,7 @@ public:
 
 private:
     uint64_t header_ = 0;
+    uint64_t schema_type_code_ = 0;
     RelativePtr<AnyVal> data_;
 
     uint8_t index_of(uint8_t key) const noexcept {
@@ -168,7 +176,8 @@ private:
     }
 };
 
-// header_(8) + data_(4) + padding(4) = 16 with default arena_offset_t=uint32_t
-static_assert(sizeof(TinyObjectMap) == 16);
+// header_(8) + schema_type_code_(8) + data_(4) + padding(4) = 24
+// with default arena_offset_t=uint32_t
+static_assert(sizeof(TinyObjectMap) == 24);
 
 } // namespace logos::hermes

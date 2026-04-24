@@ -422,6 +422,7 @@ unsafe fn write_zone_object(ws: *mut HbsWriteState, off: u32, stream_id: u32) {
         let sz: u32 = ((m.header >> 58) & 0x3F) as u32;
         hbs_write_u8(buf, 0x42);
         hbs_write_u32(buf, sz);
+        hbs_write_u64(buf, m.schema_type_code);
         if sz > 0 {
             // Push WK_TMAP_IDX: we iterate bitmap positions
             // Store bitmap_low in obj_off field (we need the bitmap to iterate).

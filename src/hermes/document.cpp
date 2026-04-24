@@ -89,6 +89,7 @@ private:
     logos::expected<void*> copy_tiny_map(const void* src) noexcept {
         auto* src_map = static_cast<const TinyObjectMap*>(src);
         LOGOS_TRY(auto* dst_map, TinyObjectMap::create(dst_, src_map->capacity()));
+        dst_map->set_schema_type_code(src_map->schema_type_code());
 
         uint8_t* dst_base = dst_.head().data();
         uint64_t bm = src_map->bitmap();

@@ -124,6 +124,8 @@ private:
 
         write_type_tag(tag);
         write_varint(map->size());
+        // schema_type_code: 0 == unset (1-byte varint), non-zero = schema variant id.
+        write_varint(map->schema_type_code());
 
         uint64_t bm = map->bitmap();
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
@@ -351,7 +353,9 @@ private:
 
     logos::expected<void*> decode_tiny_map(Arena& arena) noexcept {
         uint64_t count = read_varint();
+        uint64_t schema_code = read_varint();
         LOGOS_TRY(auto* map, TinyObjectMap::create(arena, static_cast<uint8_t>(count)));
+        map->set_schema_type_code(schema_code);
         // Track map by offset from head so we can recompute after any arena realloc.
         ptrdiff_t map_off = reinterpret_cast<uint8_t*>(map) - arena.head().data();
 

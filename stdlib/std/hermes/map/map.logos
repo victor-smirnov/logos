@@ -39,11 +39,15 @@ pub genos Map<K, V> {
 // ---------------------------------------------------------------------------
 // Map<Bitmap, V> — bitmap-indexed, max 52 u8 keys (was TinyObjectMap)
 //
-// Layout (16 bytes, 8-byte aligned):
-//   header: u64 — bits[0:51] = key presence bitmap (keys 0..51)
-//                 bits[52:57] = capacity (max 52, 6 bits)
-//                 bits[58:63] = current size (6 bits)
-//   data:   u32 — zone-relative offset to the V[] value array
+// Layout (24 bytes, 8-byte aligned):
+//   header:           u64 — bits[0:51] = key presence bitmap (keys 0..51)
+//                           bits[52:57] = capacity (max 52, 6 bits)
+//                           bits[58:63] = current size (6 bits)
+//   schema_type_code: u64 — 0 = unset / generic map.
+//                           Non-zero identifies a schema variant (AST / LogosType /
+//                           L-IR node kind, or any other registered schema). Enables
+//                           O(1) runtime dispatch without CODE-key lookup.
+//   data:             u32 — zone-relative offset to the V[] value array
 //   (4 bytes implicit trailing padding for C POD 8-byte alignment)
 //
 // Lookup: position of key in value array = popcount(bitmap & mask_below_key).
@@ -61,8 +65,9 @@ pub genos Map<Bitmap, AnyVal>;
 
 // Partial spec: Bitmap-keyed map, any V.
 #[zoned] pub struct Map<Bitmap, V> {
-    pub header: u64,
-    pub data:   RelPtr<V>,
+    pub header:           u64,
+    pub schema_type_code: u64,
+    pub data:             RelPtr<V>,
 }
 
 // Back-compat alias.
@@ -85,8 +90,9 @@ impl Map<Bitmap, AnyVal> {
         let arr_off: u32  = (arr_raw as *const u8).byte_offset_from(base as *const u8) as u32;
         let cap_bits: u64 = (capacity as u64) << 52;
         let map_ptr: *mut Map<Bitmap, AnyVal> = map_raw as *mut Map<Bitmap, AnyVal>;
-        map_ptr.header = cap_bits;
-        map_ptr.data.offset   = arr_off;
+        map_ptr.header           = cap_bits;
+        map_ptr.schema_type_code = 0;
+        map_ptr.data.offset      = arr_off;
         let arr: *mut AnyVal = arr_raw as *mut AnyVal;
         let mut i: u32 = 0;
         while i < capacity {

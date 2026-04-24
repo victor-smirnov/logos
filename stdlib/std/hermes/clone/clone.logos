@@ -433,6 +433,7 @@ impl<V: CloneElem> HermesClone for Map<Bitmap, V> {
             let src_off: u32 = (self as i64 - ctx.base_src as i64) as u32;
             let a: *const Map<Bitmap, V> = (ctx.base_src as i64 + src_off as i64) as *const Map<Bitmap, V>;
             let src_header: u64 = a.header;
+            let src_schema_code: u64 = a.schema_type_code;
             let src_data_off: u32 = a.data.offset;
             let cap: u32 = ((src_header >> 52) & 0x3F) as u32;
 
@@ -454,8 +455,9 @@ impl<V: CloneElem> HermesClone for Map<Bitmap, V> {
             // Write header fields using current base.
             let dst_base: *mut u8 = ctx.zone_dst.holder.base;
             let new_map: *mut Map<Bitmap, V> = (dst_base as i64 + dst_off as i64) as *mut Map<Bitmap, V>;
-            new_map.header = src_header;
-            new_map.data.offset   = arr_off;
+            new_map.header           = src_header;
+            new_map.schema_type_code = src_schema_code;
+            new_map.data.offset      = arr_off;
 
             let mask: u64 = 0x000FFFFFFFFFFFFF;
             let bitmap: u64 = src_header & mask;
