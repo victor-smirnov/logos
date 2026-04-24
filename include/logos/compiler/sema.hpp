@@ -22,6 +22,7 @@
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/schema_codes.hpp>
+#include <logos/verification/assert.hpp>
 
 namespace logos::compiler {
 
@@ -224,7 +225,27 @@ public:
     const std::vector<const LogosType*>& gat_args()       const noexcept { return p_->gat_args; }
     const std::vector<std::string>&      lifetime_args()  const noexcept { return p_->lifetime_args; }
 
-    const std::optional<int64_t>& const_val() const noexcept { return p_->const_val; }
+    // const_val still returns the struct's optional — the caller pattern is
+    // `if (t.const_val()) use(*t.const_val())`. We cross-check against the
+    // mirror (debug only via LOGOS_ASSERT) to keep the read-path honest.
+    const std::optional<int64_t>& const_val() const noexcept {
+        if (p_->hermes_arena_) {
+            auto av = mirror()->get(sema_schema::CONST_VAL.code, mirror_base());
+            if (p_->const_val.has_value()) {
+                LOGOS_ASSERT(!av.is_null(),
+                             "LOGOS-Compiler-TypeRef-0001",
+                             "mirror missing CONST_VAL for populated optional");
+                LOGOS_ASSERT(*av.as_ptr<const int64_t>(mirror_base()) == *p_->const_val,
+                             "LOGOS-Compiler-TypeRef-0002",
+                             "mirror CONST_VAL mismatch");
+            } else {
+                LOGOS_ASSERT(av.is_null(),
+                             "LOGOS-Compiler-TypeRef-0003",
+                             "mirror has CONST_VAL for empty optional");
+            }
+        }
+        return p_->const_val;
+    }
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).
