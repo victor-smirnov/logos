@@ -564,6 +564,12 @@ pub fn parse_request_stream<R: Read>(br: &mut BufReader<R>)
         return Result::Err(HttpError::Parse);
     }
 
+    // RFC 9112 §7: chunked transfer-coding is defined only for HTTP/1.1+.
+    // HTTP/1.0 + Transfer-Encoding is a smuggling vector behind a 1.1 proxy.
+    if ver_minor == 0 as i32 && (&req.headers).contains("Transfer-Encoding") {
+        return Result::Err(HttpError::Parse);
+    }
+
     return Result::Ok(req);
 }
 
