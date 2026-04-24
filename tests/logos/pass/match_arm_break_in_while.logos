@@ -1,0 +1,55 @@
+package match_arm_break_in_while;
+
+// Regression: `break` inside a match arm body inside a while loop was
+// silently dropped by sema (block_always_returns didn't recognize break
+// as diverging, so the block lowering path tried to lower `break` as the
+// tail expression and returned error_expr instead of SBreak).  Result:
+// control fell through to the match merge block, dereferencing an
+// uninitialised result_alloca.
+
+struct Big {
+    a: i64,
+    b: i64,
+    c: i64,
+    d: i64,
+    e: i64,
+    f: i64,
+    g: i64,
+    h: i64,
+}
+
+enum R {
+    Ok(Big),
+    Err(i64),
+}
+
+fn maybe(x: i64) -> R {
+    if x < 3 as i64 {
+        let b: Big = Big {
+            a: x, b: x + 1 as i64, c: x + 2 as i64, d: x + 3 as i64,
+            e: x + 4 as i64, f: x + 5 as i64, g: x + 6 as i64, h: x + 7 as i64,
+        };
+        return R::Ok(b);
+    }
+    return R::Err(x);
+}
+
+unsafe fn main() -> i32 {
+    let mut keep: bool = true;
+    let mut i: i64 = 0 as i64;
+    let mut sum: i64 = 0 as i64;
+    while keep {
+        let v: Big = match maybe(i) {
+            R::Ok(x)  => x,
+            R::Err(e) => {
+                keep = false;
+                break;
+            }
+        };
+        // If break was miscompiled, &v is bogus and reading v.a segfaults.
+        sum = sum + v.a;
+        i = i + 1 as i64;
+    }
+    // sum = 0 + 1 + 2 = 3
+    return sum as i32;
+}

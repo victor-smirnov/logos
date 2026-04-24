@@ -79,6 +79,55 @@ bool SemaChecker::block_always_returns(TinyMapView block) {
     return false;
 }
 
+bool SemaChecker::stmt_always_diverts(TinyMapView stmt) {
+    int32_t c = code_of(stmt);
+    if (c == la::BREAK || c == la::CONTINUE) return true;
+    if (c == la::IF) {
+        if (!stmt.has_key(la::ELSE)) return false;
+        bool then_d = stmt.has_key(la::THEN) &&
+                      block_always_diverts(map_of(stmt.get(la::THEN.code)));
+        auto else_node = map_of(stmt.get(la::ELSE.code));
+        bool else_d  = (code_of(else_node) == la::BLOCK)
+                       ? block_always_diverts(else_node)
+                       : stmt_always_diverts(else_node);
+        return then_d && else_d;
+    }
+    if (c == la::MATCH) {
+        if (!stmt.has_key(la::ITEMS)) return false;
+        auto arms = arr_of(stmt.get(la::ITEMS.code));
+        bool all_d = true;
+        for (uint64_t i = 0; i < arms.size(); ++i) {
+            auto arm = map_of(arms.get(i));
+            if (code_of(arm) != la::MATCH_ARM) continue;
+            if (arm.has_key(la::BODY)) {
+                auto body = map_of(arm.get(la::BODY.code));
+                bool arm_d = (code_of(body) == la::BLOCK)
+                             ? block_always_diverts(body)
+                             : stmt_always_diverts(body);
+                if (!arm_d) all_d = false;
+            } else if (!arm.has_key(la::EXPR)) {
+                all_d = false;
+            }
+        }
+        return all_d && arms.size() > 0;
+    }
+    if (c == la::UNSAFE_BLOCK) {
+        return stmt.has_key(la::BODY) &&
+               block_always_diverts(map_of(stmt.get(la::BODY.code)));
+    }
+    return stmt_always_returns(stmt);
+}
+
+bool SemaChecker::block_always_diverts(TinyMapView block) {
+    if (!block.has_key(la::ITEMS)) return false;
+    auto stmts = arr_of(block.get(la::ITEMS.code));
+    for (uint64_t i = 0; i < stmts.size(); ++i) {
+        auto s = map_of(stmts.get(i));
+        if (!s.is_null() && stmt_always_diverts(s)) return true;
+    }
+    return false;
+}
+
 lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     node_line_ = get_line(stmt);
     int32_t c = code_of(stmt);
@@ -3441,8 +3490,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             } else if (arm.has_key(la::BODY)) {
                 auto body_node = map_of(arm.get(la::BODY.code));
                 bool diverges = (code_of(body_node) == la::BLOCK)
-                                ? block_always_returns(body_node)
-                                : stmt_always_returns(body_node);
+                                ? block_always_diverts(body_node)
+                                : stmt_always_diverts(body_node);
                 if (diverges) {
                     // Block always returns — lower it as a block of stmts;
                     // the tail expression is unreachable so we use error_expr()

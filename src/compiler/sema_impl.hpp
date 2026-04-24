@@ -800,6 +800,11 @@ private:
 
     bool stmt_always_returns(hermes::TinyMapView stmt);
     bool block_always_returns(hermes::TinyMapView block);
+    // Like *_always_returns, but also treats `break`/`continue` as diverging.
+    // Used where we need to know "does the tail expression run?" — e.g. match
+    // arm body: `{ ...; break; }` never reaches a tail expression.
+    bool stmt_always_diverts(hermes::TinyMapView stmt);
+    bool block_always_diverts(hermes::TinyMapView block);
 
     // ── Lowering helpers ─────────────────────────────────────────
 
