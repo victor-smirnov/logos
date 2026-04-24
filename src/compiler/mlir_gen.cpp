@@ -223,11 +223,11 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         auto lpit = var_local_ptrs_.find(name);
         if (lpit != var_local_ptrs_.end()) {
             if (auto sc = scope_.find(name); sc != scope_.end()) {
-                if (recv.type && recv.type->kind == LogosType::Kind::Ptr &&
-                    recv.type->pointee &&
-                    (recv.type->pointee->kind == LogosType::Kind::Struct ||
-                     recv.type->pointee->kind == LogosType::Kind::ZonedStruct)) {
-                    return {sc->second, concrete_struct_name(recv.type->pointee)};
+                if (recv.type && TypeRef(recv.type).kind() == LogosType::Kind::Ptr &&
+                    TypeRef(recv.type).pointee() &&
+                    (TypeRef(recv.type).pointee().kind() == LogosType::Kind::Struct ||
+                     TypeRef(recv.type).pointee().kind() == LogosType::Kind::ZonedStruct)) {
+                    return {sc->second, concrete_struct_name(TypeRef(recv.type).pointee())};
                 }
                 // If the receiver type is unavailable, still treat it as a
                 // struct/datatype pointer using the recorded aggregate type.
@@ -243,13 +243,13 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         // `self: &T` receivers even when the LIR type annotation got dropped.
         if (auto sc = scope_.find(name); sc != scope_.end()) {
             if (recv.type) {
-                const LogosType* t = recv.type;
-                if ((t->kind == LogosType::Kind::Ptr ||
-                     t->kind == LogosType::Kind::Ref ||
-                     t->kind == LogosType::Kind::MutRef) && t->pointee &&
-                    (t->pointee->kind == LogosType::Kind::Struct ||
-                     t->pointee->kind == LogosType::Kind::ZonedStruct)) {
-                    return {sc->second, concrete_struct_name(t->pointee)};
+                TypeRef tv{recv.type};
+                if ((tv.kind() == LogosType::Kind::Ptr ||
+                     tv.kind() == LogosType::Kind::Ref ||
+                     tv.kind() == LogosType::Kind::MutRef) && tv.pointee() &&
+                    (tv.pointee().kind() == LogosType::Kind::Struct ||
+                     tv.pointee().kind() == LogosType::Kind::ZonedStruct)) {
+                    return {sc->second, concrete_struct_name(tv.pointee())};
                 }
             }
             // If this binding is a pointer slot (alloca(ptr)), load the value
@@ -267,23 +267,23 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         // Check if this is a pointer-to-struct variable (e.g. *mut Point).
         // The logical type is Ptr/Ref/MutRef with pointee=Struct/Class.
         if (recv.type) {
-            const LogosType* t = recv.type;
-            if (type_str(t) == "AnyVal") {
+            TypeRef tv{recv.type};
+            if (type_str(recv.type) == "AnyVal") {
                 auto sc = scope_.find(name);
                 if (sc != scope_.end())
                     return {sc->second, "AnyVal"};
             }
-            if ((t->kind == LogosType::Kind::Ptr ||
-                 t->kind == LogosType::Kind::Ref ||
-                 t->kind == LogosType::Kind::MutRef) && t->pointee) {
-                const LogosType* inner = t->pointee;
+            if ((tv.kind() == LogosType::Kind::Ptr ||
+                 tv.kind() == LogosType::Kind::Ref ||
+                 tv.kind() == LogosType::Kind::MutRef) && tv.pointee()) {
+                const LogosType* inner = tv.pointee();
                 if (type_str(inner) == "AnyVal") {
                     auto sc = scope_.find(name);
                     if (sc != scope_.end())
                         return {sc->second, "AnyVal"};
                 }
-                if (inner->kind == LogosType::Kind::Struct ||
-                    inner->kind == LogosType::Kind::ZonedStruct) {
+                if (TypeRef(inner).kind() == LogosType::Kind::Struct ||
+                    TypeRef(inner).kind() == LogosType::Kind::ZonedStruct) {
                     auto sc = scope_.find(name);
                     if (sc != scope_.end()) {
                         // Local let-bound pointer variables are stored in an alloca(slot).
@@ -344,11 +344,13 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
     if (recv.type) {
         const LogosType* t = recv.type;
         // Strip one level of pointer/reference to get the struct/class type
-        if ((t->kind == LogosType::Kind::Ptr ||
-             t->kind == LogosType::Kind::Ref ||
-             t->kind == LogosType::Kind::MutRef) && t->pointee) t = t->pointee;
-        if (t->kind == LogosType::Kind::Struct ||
-            t->kind == LogosType::Kind::ZonedStruct)
+        TypeRef tv{t};
+        if ((tv.kind() == LogosType::Kind::Ptr ||
+             tv.kind() == LogosType::Kind::Ref ||
+             tv.kind() == LogosType::Kind::MutRef) && tv.pointee()) t = tv.pointee();
+        tv = TypeRef{t};
+        if (tv.kind() == LogosType::Kind::Struct ||
+            tv.kind() == LogosType::Kind::ZonedStruct)
             return {ptr, concrete_struct_name(t)};
     }
     std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct/class access\n");

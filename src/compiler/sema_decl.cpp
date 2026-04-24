@@ -245,12 +245,13 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                     if (!cand || cand->type_params.size() != node_tparams.size()) continue;
                     if (cand->param_types.size() != decl_param_types.size() + 1) continue;
                     auto* self_param = cand->param_types[0];
+                    TypeRef spv{self_param};
                     if (!self_param ||
-                        (self_param->kind != LogosType::Kind::Ref &&
-                         self_param->kind != LogosType::Kind::MutRef &&
-                         self_param->kind != LogosType::Kind::Ptr) ||
-                        !self_param->pointee ||
-                        !types_equal(*self_param->pointee, *self_t))
+                        (spv.kind() != LogosType::Kind::Ref &&
+                         spv.kind() != LogosType::Kind::MutRef &&
+                         spv.kind() != LogosType::Kind::Ptr) ||
+                        !spv.pointee() ||
+                        !types_equal(*spv.pointee(), *self_t))
                         continue;
                     bool same_tail = true;
                     for (size_t i = 0; i < decl_param_types.size(); ++i) {
@@ -288,11 +289,12 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // return/param types.  Extract the innermost non-Array element for the check.
     auto datanode_name = [&](const LogosType* t) -> std::string {
         if (!t) return {};
-        while (t->kind == LogosType::Kind::Array) t = t->elem;
-        if (t->kind == LogosType::Kind::ZonedStruct && t->type_args.empty()) {
+        while (TypeRef(t).kind() == LogosType::Kind::Array) t = TypeRef(t).elem();
+        TypeRef tv{t};
+        if (tv.kind() == LogosType::Kind::ZonedStruct && tv.type_args().empty()) {
             auto* dsi = get_datatype_si(t);
             if (dsi && !dsi->is_data_plain)
-                return t->struct_name;
+                return std::string(tv.struct_name());
         }
         return {};
     };
@@ -306,7 +308,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         }
     }
     // Reset impl-trait inference state for this function.
-    if (fn.ret_type && fn.ret_type->kind == LogosType::Kind::ImplTrait)
+    if (fn.ret_type && TypeRef(fn.ret_type).kind() == LogosType::Kind::ImplTrait)
         impl_ret_type_inferred_ = nullptr;
 
     // Put type params in scope for the duration of the function body
@@ -365,7 +367,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         auto body_node = map_of(node.get(la::BODY.code));
         // Detect if the last stmt in the function body is a match.
         // If so, set the flag so lower_match treats EXPR arms as return values.
-        if (fn.ret_type && fn.ret_type->kind != LogosType::Kind::Void) {
+        if (fn.ret_type && TypeRef(fn.ret_type).kind() != LogosType::Kind::Void) {
             if (body_node.has_key(la::ITEMS)) {
                 auto stmts = arr_of(body_node.get(la::ITEMS.code));
                 // Find last non-null stmt
@@ -381,7 +383,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         fn.body = lower_block(body_node);
         match_in_tail_position_ = false;
         // Resolve impl Trait return type to the concrete type inferred from returns.
-        if (fn.ret_type && fn.ret_type->kind == LogosType::Kind::ImplTrait) {
+        if (fn.ret_type && TypeRef(fn.ret_type).kind() == LogosType::Kind::ImplTrait) {
             if (impl_ret_type_inferred_) {
                 fn.ret_type       = impl_ret_type_inferred_;
                 fi_ptr->ret_type  = impl_ret_type_inferred_;
@@ -391,8 +393,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             }
         }
         // Return reachability check (on AST node — before scope is gone)
-        if (fn.ret_type && fn.ret_type->kind != LogosType::Kind::Void &&
-            fn.ret_type->kind != LogosType::Kind::Error &&
+        if (fn.ret_type && TypeRef(fn.ret_type).kind() != LogosType::Kind::Void &&
+            TypeRef(fn.ret_type).kind() != LogosType::Kind::Error &&
             !block_always_returns(body_node)) {
             error("not all paths return a value");
         }
@@ -704,13 +706,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             if (impl_tps.empty()) {
                 auto* resolved = resolve_type(tnode);
-                if (resolved && !resolved->type_args.empty()) {
+                if (resolved && !TypeRef(resolved).type_args().empty()) {
                     bool concrete = true;
-                    for (auto* a : resolved->type_args)
-                        if (a && a->kind == LogosType::Kind::TypeVar) { concrete = false; break; }
+                    for (auto* a : TypeRef(resolved).type_args())
+                        if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { concrete = false; break; }
                     if (concrete) {
-                        if (resolved->kind == LogosType::Kind::Struct ||
-                            resolved->kind == LogosType::Kind::ZonedStruct) {
+                        if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
+                            TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
                             target = concrete_struct_name(resolved);
                             target_resolved = resolved;
                         }
@@ -724,13 +726,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             auto ait = type_aliases_.find(target);
             if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
                 auto* aliased = ait->second.type;
-                if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                                aliased->kind == LogosType::Kind::ZonedStruct)) {
-                    if (!aliased->type_args.empty()) {
+                if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
+                                TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
+                    if (!TypeRef(aliased).type_args().empty()) {
                         target = concrete_struct_name(aliased);
                         target_resolved = aliased;
                     } else {
-                        target = aliased->struct_name;
+                        target = std::string(TypeRef(aliased).struct_name());
                     }
                 }
             }
@@ -871,19 +873,19 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (code_of(tnode) == la::GENERIC_INST) {
                 auto base_name = std::string(str_of(tnode.get(la::NAME.code)));
                 auto* target_type = resolve_type(tnode);
-                if (target_type && !target_type->type_args.empty()) {
+                if (target_type && !TypeRef(target_type).type_args().empty()) {
                     for (auto& ss : prog.struct_specializations) {
                         if (ss.name != base_name) continue;
-                        if (ss.spec_patterns.size() != target_type->type_args.size()) continue;
+                        if (ss.spec_patterns.size() != TypeRef(target_type).type_args().size()) continue;
                         bool match = true;
                         for (size_t i = 0; i < ss.spec_patterns.size(); ++i) {
-                            auto* a = target_type->type_args[i];
+                            auto* a = TypeRef(target_type).type_args()[i];
                             auto* p = ss.spec_patterns[i];
                             if (!a || !p) { match = false; break; }
-                            if (a->kind == LogosType::Kind::TypeVar &&
-                                p->kind == LogosType::Kind::TypeVar) continue;  // both TV, OK
-                            if (a->kind == LogosType::Kind::TypeVar ||
-                                p->kind == LogosType::Kind::TypeVar) { match = false; break; }
+                            if (TypeRef(a).kind() == LogosType::Kind::TypeVar &&
+                                TypeRef(p).kind() == LogosType::Kind::TypeVar) continue;  // both TV, OK
+                            if (TypeRef(a).kind() == LogosType::Kind::TypeVar ||
+                                TypeRef(p).kind() == LogosType::Kind::TypeVar) { match = false; break; }
                             if (!types_equal(*a, *p)) { match = false; break; }
                         }
                         if (match) { target_struct_tmpl = &ss; break; }

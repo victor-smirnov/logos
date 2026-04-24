@@ -199,17 +199,19 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                          : type_params[i];
 
         auto* concrete = args[i];
-        if (!concrete || concrete->kind == LogosType::Kind::Error) continue;
-        if (concrete->kind == LogosType::Kind::TypeVar) continue; // defer until mono
-        if (concrete->kind == LogosType::Kind::AssocType) continue; // deferred (bounds checked via trait decl)
+        if (!concrete) continue;
+        TypeRef cv{concrete};
+        if (cv.kind() == LogosType::Kind::Error) continue;
+        if (cv.kind() == LogosType::Kind::TypeVar) continue; // defer until mono
+        if (cv.kind() == LogosType::Kind::AssocType) continue; // deferred (bounds checked via trait decl)
 
         std::string concrete_str = type_str(concrete);
         std::string unwrapped_name;
-        if ((concrete->kind == LogosType::Kind::Ptr || concrete->kind == LogosType::Kind::Ref || concrete->kind == LogosType::Kind::MutRef) && concrete->pointee) {
-            auto* inner = concrete->pointee;
-            if (inner->kind == LogosType::Kind::Struct)
-                unwrapped_name = concrete_struct_name(inner);
-        } else if (concrete->kind == LogosType::Kind::Struct) {
+        if ((cv.kind() == LogosType::Kind::Ptr || cv.kind() == LogosType::Kind::Ref || cv.kind() == LogosType::Kind::MutRef) && cv.pointee()) {
+            TypeRef iv = cv.pointee();
+            if (iv.kind() == LogosType::Kind::Struct)
+                unwrapped_name = concrete_struct_name(iv);
+        } else if (cv.kind() == LogosType::Kind::Struct) {
             unwrapped_name = concrete_struct_name(concrete);
         }
 
@@ -256,10 +258,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // bound satisfaction if a generic impl for the concrete's base
             // struct exists; the impl's own type-param bounds are validated
             // at monomorphization time by recursive check_type_bounds.
-            if ((concrete->kind == LogosType::Kind::Struct ||
-                 concrete->kind == LogosType::Kind::ZonedStruct) &&
-                !concrete->struct_name.empty()) {
-                auto key3 = bound.trait_name + "::" + concrete->struct_name;
+            if ((cv.kind() == LogosType::Kind::Struct ||
+                 cv.kind() == LogosType::Kind::ZonedStruct) &&
+                !cv.struct_name().empty()) {
+                auto key3 = bound.trait_name + "::" + std::string(cv.struct_name());
                 if (impls_.count(key3)) continue;
             }
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
@@ -359,8 +361,8 @@ void SemaChecker::collect_enum(TinyMapView node) {
     // Optional backing type: `enum Foo : u64 { ... }`.  Must be an integer kind.
     if (node.has_key(la::TYPE)) {
         const LogosType* bt = resolve_type(map_of(node.get(la::TYPE.code)));
-        if (bt && bt->kind != LogosType::Kind::Error) {
-            if (!is_integer_kind(bt->kind))
+        if (bt && TypeRef(bt).kind() != LogosType::Kind::Error) {
+            if (!is_integer_kind(TypeRef(bt).kind()))
                 error(std::format("enum backing type must be an integer, got '{}'", type_str(bt)));
             else
                 info.backing_type = bt;
@@ -383,7 +385,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         if (v.has_key(la::LO_NEG)) vval = -vval;
                     }
                     if (info.backing_type &&
-                        !intlit_fits(vval, info.backing_type->kind))
+                        !intlit_fits(vval, TypeRef(info.backing_type).kind()))
                         error(std::format(
                             "variant '{}::{}' = {} does not fit in backing type '{}'",
                             ename, std::string(vname), vval, type_str(info.backing_type)));
@@ -637,13 +639,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
             if (impl_tps.empty()) {
                 // No own type params — may be a concrete specialization like impl Pair<i32>.
                 auto* resolved = resolve_type(tnode);
-                if (resolved && !resolved->type_args.empty()) {
+                if (resolved && !TypeRef(resolved).type_args().empty()) {
                     bool concrete = true;
-                    for (auto* a : resolved->type_args)
-                        if (a && a->kind == LogosType::Kind::TypeVar) { concrete = false; break; }
+                    for (auto* a : TypeRef(resolved).type_args())
+                        if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { concrete = false; break; }
                     if (concrete) {
-                        if (resolved->kind == LogosType::Kind::Struct ||
-                            resolved->kind == LogosType::Kind::ZonedStruct)
+                        if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
+                            TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct)
                             target = concrete_struct_name(resolved);
                         target_resolved = resolved;
                     }
@@ -657,15 +659,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
             if (ait != type_aliases_.end() &&
                 ait->second.type_params.empty() && ait->second.lifetime_params.empty()) {
                 auto* aliased = ait->second.type;
-                if (aliased && (aliased->kind == LogosType::Kind::Struct ||
-                                aliased->kind == LogosType::Kind::ZonedStruct)) {
-                    if (!aliased->type_args.empty()) {
+                if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
+                                TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
+                    if (!TypeRef(aliased).type_args().empty()) {
                         target = concrete_struct_name(aliased);
                         target_resolved = aliased;
                     } else {
-                        target = aliased->struct_name;
+                        target = std::string(TypeRef(aliased).struct_name());
                     }
-                } else if (aliased && aliased->kind == LogosType::Kind::Slice) {
+                } else if (aliased && TypeRef(aliased).kind() == LogosType::Kind::Slice) {
                     target = type_str(aliased);
                 }
             }
@@ -942,16 +944,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // A TypeVar in the trait param (possibly inside Ref/Ptr) is a
                 // generic param and matches any concrete impl type.
                 auto is_generic_param = [](const LogosType* t) -> bool {
-                    while (t && (t->kind == LogosType::Kind::Ref ||
-                                 t->kind == LogosType::Kind::MutRef ||
-                                 t->kind == LogosType::Kind::Ptr))
-                        t = t->pointee;
+                    while (t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                                 TypeRef(t).kind() == LogosType::Kind::MutRef ||
+                                 TypeRef(t).kind() == LogosType::Kind::Ptr))
+                        t = TypeRef(t).pointee();
                     if (!t) return false;
                     // TypeVar = generic type param (T); AssocType = T::Item
                     // Both are polymorphic from the trait's perspective and
                     // match any concrete type in the impl.
-                    return t->kind == LogosType::Kind::TypeVar ||
-                           t->kind == LogosType::Kind::AssocType;
+                    TypeRef tv{t};
+                    return tv.kind() == LogosType::Kind::TypeVar ||
+                           tv.kind() == LogosType::Kind::AssocType;
                 };
                 const SemaFuncInfo* matching = nullptr;
                 for (auto* c : cands) {
@@ -1177,10 +1180,10 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                         fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
             // Rule 9: datatype fields must be POD-compatible (no heap types).
             // Exception: annotation types are compile-time only and may hold str fields.
-            if (!is_annotation_type && ftype && ftype->kind != LogosType::Kind::Error) {
+            if (!is_annotation_type && ftype && TypeRef(ftype).kind() != LogosType::Kind::Error) {
                 auto is_datatype_safe = [](const LogosType* t, auto& self) -> bool {
                     if (!t) return false;
-                    switch (t->kind) {
+                    switch (TypeRef(t).kind()) {
                     case LogosType::Kind::I8:  case LogosType::Kind::U8:
                     case LogosType::Kind::I16: case LogosType::Kind::U16:
                     case LogosType::Kind::I32: case LogosType::Kind::U32:
@@ -1193,7 +1196,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                     case LogosType::Kind::IntLit: case LogosType::Kind::FloatLit:
                         return true;
                     case LogosType::Kind::Array:
-                        return self(t->elem, self);
+                        return self(TypeRef(t).elem(), self);
                     case LogosType::Kind::ZonedStruct:
                         return true;  // datatypes in datatypes OK
                     case LogosType::Kind::TypeVar:
@@ -1221,15 +1224,16 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
             auto marks_data_node = [&](const LogosType* ft) -> bool {
                 if (!ft) return false;
                 // Strip Array wrapper (Bug 3 fix)
-                while (ft->kind == LogosType::Kind::Array) ft = ft->elem;
-                if (ft->kind == LogosType::Kind::ZonedStruct) {
-                    if (!ft->type_args.empty()) return true;  // generic → conservative
+                while (TypeRef(ft).kind() == LogosType::Kind::Array) ft = TypeRef(ft).elem();
+                TypeRef fv{ft};
+                if (fv.kind() == LogosType::Kind::ZonedStruct) {
+                    if (!fv.type_args().empty()) return true;  // generic → conservative
                     // Try bare name, then current-package qualified, then pkg_name qualified.
-                    auto ndit = datatypes_.find(ft->struct_name);
+                    auto ndit = datatypes_.find(std::string(fv.struct_name()));
                     if (ndit == datatypes_.end() && !cur_package_.empty())
-                        ndit = datatypes_.find(cur_package_ + "::" + ft->struct_name);
-                    if (ndit == datatypes_.end() && !ft->pkg_name.empty())
-                        ndit = datatypes_.find(ft->pkg_name + "::" + ft->struct_name);
+                        ndit = datatypes_.find(cur_package_ + "::" + std::string(fv.struct_name()));
+                    if (ndit == datatypes_.end() && !fv.pkg_name().empty())
+                        ndit = datatypes_.find(std::string(fv.pkg_name()) + "::" + std::string(fv.struct_name()));
                     if (ndit == datatypes_.end()) return true; // unknown → conservative
                     return !ndit->second.is_data_plain;
                 }
@@ -1583,8 +1587,8 @@ lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
     if (!fn.is_extern && node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
         fn.body = lower_block(body_node);
-        if (fn.ret_type && fn.ret_type->kind != LogosType::Kind::Void &&
-            fn.ret_type->kind != LogosType::Kind::Error &&
+        if (fn.ret_type && TypeRef(fn.ret_type).kind() != LogosType::Kind::Void &&
+            TypeRef(fn.ret_type).kind() != LogosType::Kind::Error &&
             !block_always_returns(body_node)) {
             error("not all paths return a value");
         }
