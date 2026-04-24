@@ -247,16 +247,16 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         (TypeRef(rt).kind() == LogosType::Kind::Struct ||
                          TypeRef(rt).kind() == LogosType::Kind::ZonedStruct ||
                          TypeRef(rt).kind() == LogosType::Kind::Enum)) {
-                        std::vector<const LogosType*> combined_args = rt->type_args;
+                        std::vector<const LogosType*> combined_args = TypeRef(rt).type_args();
                         for (auto* mta : nm.type_args) combined_args.push_back(mta);
 
                         std::string base_struct;
                         if (!nm.resolved_type.empty()) {
                             base_struct = nm.resolved_type;
                         } else if (TypeRef(rt).kind() == LogosType::Kind::Enum) {
-                            base_struct = rt->enum_name;
+                            base_struct = TypeRef(rt).enum_name();
                         } else {
-                            base_struct = rt->struct_name;
+                            base_struct = TypeRef(rt).struct_name();
                         }
                         std::string base_name = base_struct + "__" + nm.method;
                         auto pick_mono_template_key = [&]() -> std::string {
@@ -517,7 +517,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             std::function<void(const LogosType*)> walk = [&](const LogosType* t) {
                 if (!t || has_tv) return;
                 if (TypeRef(t).kind() == LogosType::Kind::TypeVar) { has_tv = true; return; }
-                for (auto* a : t->type_args) walk(a);
+                for (auto* a : TypeRef(t).type_args()) walk(a);
                 if (TypeRef(t).pointee()) walk(TypeRef(t).pointee());
                 if (TypeRef(t).elem())    walk(TypeRef(t).elem());
             };
@@ -531,8 +531,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 uint64_t code = 0;
                 if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
                     TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
-                    std::string mangled = resolved->type_args.empty()
-                        ? resolved->struct_name : concrete_struct_name(resolved);
+                    std::string mangled = TypeRef(resolved).type_args().empty()
+                        ? TypeRef(resolved).struct_name() : concrete_struct_name(resolved);
                     for (auto& sd : out_.structs)
                         if (sd.name == mangled && sd.type_code != 0)
                             { code = sd.type_code; break; }
@@ -606,10 +606,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = lir::EReflectOf{resolved};
             // If the type is now fully concrete, register for TypeInfo emission.
             if (resolved && TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct &&
-                resolved->type_args.empty()) {
+                TypeRef(resolved).type_args().empty()) {
                 std::string pkg = TypeRef(resolved).pkg_name();
-                std::string fqn = pkg.empty() ? resolved->struct_name
-                                              : pkg + "::" + resolved->struct_name;
+                std::string fqn = pkg.empty() ? TypeRef(resolved).struct_name()
+                                              : pkg + "::" + TypeRef(resolved).struct_name();
                 out_.reflect_requests.insert(fqn);
             }
         }
@@ -894,7 +894,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
                 TypeRef(concrete).kind() == LogosType::Kind::ZonedStruct)
                 cname = concrete_struct_name(concrete);
             else if (TypeRef(concrete).kind() == LogosType::Kind::Enum)
-                cname = concrete->enum_name;
+                cname = TypeRef(concrete).enum_name();
             else
                 cname = type_str(concrete);
             // Strip instantiation suffix — impls are keyed on base name.
@@ -1134,15 +1134,15 @@ void Mono::instantiate_struct_templates() {
             const LogosType* struct_t = info.first;
             depth_ = info.second;
 
-            const std::string& base = struct_t->struct_name;
+            const std::string& base = TypeRef(struct_t).struct_name();
             SubstMap subst;
 
             const lir::LStructDef* tmpl = nullptr;
             PackMap packs;
-            if (auto* spec = find_best_struct_spec(base, struct_t->type_args)) {
+            if (auto* spec = find_best_struct_spec(base, TypeRef(struct_t).type_args())) {
                 for (size_t i = 0; i < spec->spec_patterns.size() &&
-                                   i < struct_t->type_args.size(); ++i)
-                    match_type(struct_t->type_args[i], spec->spec_patterns[i], subst);
+                                   i < TypeRef(struct_t).type_args().size(); ++i)
+                    match_type(TypeRef(struct_t).type_args()[i], spec->spec_patterns[i], subst);
                 tmpl = spec;
             } else {
                 auto it = struct_templates_.find(base);
@@ -1151,10 +1151,10 @@ void Mono::instantiate_struct_templates() {
                 for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
                     if (tmpl->type_params[i].is_variadic) {
                         std::vector<const LogosType*> pack;
-                        while (j < struct_t->type_args.size()) pack.push_back(struct_t->type_args[j++]);
+                        while (j < TypeRef(struct_t).type_args().size()) pack.push_back(TypeRef(struct_t).type_args()[j++]);
                         packs[tmpl->type_params[i].name] = std::move(pack);
-                    } else if (j < struct_t->type_args.size()) {
-                        subst[tmpl->type_params[i].name] = struct_t->type_args[j++];
+                    } else if (j < TypeRef(struct_t).type_args().size()) {
+                        subst[tmpl->type_params[i].name] = TypeRef(struct_t).type_args()[j++];
                     }
                 }
             }

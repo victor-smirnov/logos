@@ -909,10 +909,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, const LogosType* ret_logo
                 arg_lt && TypeRef(arg_lt).kind() != LogosType::Kind::TraitObject) {
                 const LogosType* vt_type = arg_lt;
                 if (TypeRef(vt_type).kind() == LogosType::Kind::Struct &&
-                    vt_type->struct_name == "Box" &&
-                    vt_type->type_args.size() == 1)
-                    vt_type = vt_type->type_args[0];
-                v = coerce_to_dyn(v, param_lt->trait_name, type_str(vt_type));
+                    TypeRef(vt_type).struct_name() == "Box" &&
+                    TypeRef(vt_type).type_args().size() == 1)
+                    vt_type = TypeRef(vt_type).type_args()[0];
+                v = coerce_to_dyn(v, TypeRef(param_lt).trait_name(), type_str(vt_type));
             }
         }
         if (i < param_types.size()) {
@@ -2551,7 +2551,7 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, const LogosType* t)
             // is_capturable no longer allows these; return null AnyVal as fallback.
             return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
         case K::Struct:
-            if (t->struct_name == "AnyVal") {
+            if (TypeRef(t).struct_name() == "AnyVal") {
                 // C4 bug fix: use mlir::ArrayRef (not llvm::ArrayRef) for ExtractValueOp
                 // to match the MLIR dialect API which takes mlir::ArrayRef<int64_t>.
                 return builder_.create<mlir::LLVM::ExtractValueOp>(
@@ -2695,7 +2695,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
         if (t->kind == K::F64 || t->kind == K::F32 || t->kind == K::FloatLit) return true;
         if (t->kind == K::Ptr) return true;  // *const u8 → C-string varchar
         if (t->kind == K::Slice && TypeRef(t).elem() && TypeRef(t).elem()->kind == K::U8) return true; // str → varchar
-        if (t->kind == K::Struct && t->struct_name == "StringView") return true;
+        if (t->kind == K::Struct && TypeRef(t).struct_name() == "StringView") return true;
         return false;
     };
     bool any_zone_alloc = false;
@@ -2815,7 +2815,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_str_fn, mlir::ValueRange{ctr_alloca, sv_ptr, sv_len});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
-                } else if (ct->kind == K::Struct && ct->struct_name == "StringView"
+                } else if (ct->kind == K::Struct && TypeRef(ct).struct_name() == "StringView"
                            && alloc_str_fn) {
                     // StringView: extract ptr (field 0) and len (field 1).
                     mlir::Value sv_ptr = builder_.create<mlir::LLVM::ExtractValueOp>(

@@ -336,9 +336,9 @@ void MLIRGenImpl::gen_let(const SLet& s) {
                 src_logos_type = TypeRef(src_logos_type).pointee();
             if (src_logos_type &&
                 TypeRef(src_logos_type).kind() == LogosType::Kind::Struct &&
-                src_logos_type->struct_name == "Box" &&
-                src_logos_type->type_args.size() == 1)
-                src_logos_type = src_logos_type->type_args[0];
+                TypeRef(src_logos_type).struct_name() == "Box" &&
+                TypeRef(src_logos_type).type_args().size() == 1)
+                src_logos_type = TypeRef(src_logos_type).type_args()[0];
             std::string src_type = type_str(src_logos_type);
             alloca = coerce_to_dyn(data_ptr, s.type->trait_name, src_type);
         }
@@ -473,7 +473,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
             if (TypeRef(src_lt).kind() == LogosType::Kind::Ptr && TypeRef(src_lt).pointee())
                 src_lt = TypeRef(src_lt).pointee();
             auto vtable = build_inline_vtable(
-                cur_fn_ret_logos_type_->trait_name, type_str(src_lt));
+                TypeRef(cur_fn_ret_logos_type_).trait_name(), type_str(src_lt));
             // Heap-allocate the fat struct so it survives past this function's frame.
             auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 16LL, 64);
             auto fat_ptr = call_malloc(size16);
@@ -1700,7 +1700,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                     };
                     for (size_t i = 0; i < psl->prefix.size(); ++i)
                         bind_elem(psl->prefix[i], (int32_t)i);
-                    size_t total = (size_t)atype->arr_size;
+                    size_t total = (size_t)TypeRef(atype).arr_size();
                     for (size_t i = 0; i < psl->suffix.size(); ++i)
                         bind_elem(psl->suffix[i], (int32_t)(total - psl->suffix.size() + i));
                 }

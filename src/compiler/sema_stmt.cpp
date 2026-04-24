@@ -441,11 +441,11 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
 
     // Set enum/struct hints so literal lowering can fill in unresolved type params
     auto* saved_hint = hint_enum_type_;
-    if (ann && TypeRef(ann).kind() == LogosType::Kind::Enum && !ann->type_args.empty())
+    if (ann && TypeRef(ann).kind() == LogosType::Kind::Enum && !TypeRef(ann).type_args().empty())
         hint_enum_type_ = ann;
     auto* saved_struct_hint = hint_struct_type_;
     if (ann && (TypeRef(ann).kind() == LogosType::Kind::Struct ||
-                TypeRef(ann).kind() == LogosType::Kind::ZonedStruct) && !ann->type_args.empty())
+                TypeRef(ann).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ann).type_args().empty())
         hint_struct_type_ = ann;
 
     lir::LExprPtr rhs;
@@ -744,12 +744,12 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
         if (!vav.is_null()) {
             // Set enum/struct hints from return type so literals can fill in unresolved type params
             auto* saved_hint = hint_enum_type_;
-            if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Enum && !ret_type_->type_args.empty())
+            if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Enum && !TypeRef(ret_type_).type_args().empty())
                 hint_enum_type_ = ret_type_;
             auto* saved_struct_hint = hint_struct_type_;
             if (ret_type_ && (TypeRef(ret_type_).kind() == LogosType::Kind::Struct ||
                               TypeRef(ret_type_).kind() == LogosType::Kind::ZonedStruct) &&
-                !ret_type_->type_args.empty())
+                !TypeRef(ret_type_).type_args().empty())
                 hint_struct_type_ = ret_type_;
             val = lower_expr(map_of(vav));
             hint_enum_type_ = saved_hint;
@@ -878,7 +878,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         } else {
             // NS5: guard scrut_type null before accessing kind (could be null for unknown types).
             if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
-                scrut_type->enum_name != pename)
+                TypeRef(scrut_type).enum_name() != pename)
                 error(std::format("pattern: enum '{}' != scrutinee '{}'",
                       pename, type_str(scrut_type)));
             bool found = false;
@@ -924,11 +924,11 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         if (vinfo) {
             SemaSubst subst;
             if (TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
-                !scrut_type->type_args.empty()) {
+                !TypeRef(scrut_type).type_args().empty()) {
                 auto& einfo = eit->second;
                 for (size_t k = 0; k < einfo.type_params.size() &&
-                                    k < scrut_type->type_args.size(); ++k)
-                    subst[einfo.type_params[k].name] = scrut_type->type_args[k];
+                                    k < TypeRef(scrut_type).type_args().size(); ++k)
+                    subst[einfo.type_params[k].name] = TypeRef(scrut_type).type_args()[k];
             }
             for (auto* pt : vinfo->payload_types) {
                 auto* ct = subst.empty() ? pt : subst_type_sema(pt, subst);
@@ -1169,7 +1169,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
             error(std::format("struct pattern: unknown struct '{}'", sname));
         if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error &&
             TypeRef(scrut_type).kind() == LogosType::Kind::Struct &&
-            scrut_type->struct_name != sname && scrut_type->struct_name != "")
+            TypeRef(scrut_type).struct_name() != sname && TypeRef(scrut_type).struct_name() != "")
             error(std::format("struct pattern: '{}' != scrutinee '{}'",
                   sname, type_str(scrut_type)));
         lir::PatStruct ps;
@@ -1283,14 +1283,14 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         }
         // For fixed-size arrays without rest, validate element count.
         if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Array && !found_rest) {
-            size_t expected = (size_t)scrut_type->arr_size;
+            size_t expected = (size_t)TypeRef(scrut_type).arr_size();
             if (psl.prefix.size() != expected)
                 error(std::format("slice pattern: expected {} elements, got {}",
                       expected, psl.prefix.size()));
         }
         // S3: for fixed-size arrays with rest, prefix+suffix cannot exceed array size.
         if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Array && found_rest) {
-            size_t arr_size = (size_t)scrut_type->arr_size;
+            size_t arr_size = (size_t)TypeRef(scrut_type).arr_size();
             if (psl.prefix.size() + psl.suffix.size() > arr_size)
                 error(std::format("slice pattern: {} + {} elements exceed array size {}",
                       psl.prefix.size(), psl.suffix.size(), arr_size));
@@ -2015,7 +2015,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
     // ── array path (original) ────────────────────────────────────
     if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        int64_t arr_size = (int64_t)iter_type->arr_size;
+        int64_t arr_size = (int64_t)TypeRef(iter_type).arr_size();
         const LogosType* elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
 
         push_scope();
@@ -2086,7 +2086,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             std::string base_name;
             if (TypeRef(iter_type).kind() == LogosType::Kind::Struct ||
                 TypeRef(iter_type).kind() == LogosType::Kind::ZonedStruct)
-                base_name = iter_type->struct_name;
+                base_name = TypeRef(iter_type).struct_name();
             else if (is_ref_like(iter_type->kind) && TypeRef(iter_type).pointee())
                 base_name = TypeRef(iter_type).pointee()->struct_name;
             if (!base_name.empty() && base_name != std::string(sname)) {
@@ -2107,11 +2107,11 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         const LogosType* next_ret = fi_ptr->ret_type;
         // Substitute type args if iterator is generic.  structs_ is keyed by
         // the BASE struct name, not the mangled concrete name.
-        if (!iter_type->type_args.empty()) {
+        if (!TypeRef(iter_type).type_args().empty()) {
             std::string lookup_name =
                 (TypeRef(iter_type).kind() == LogosType::Kind::Struct ||
                  TypeRef(iter_type).kind() == LogosType::Kind::ZonedStruct)
-                    ? iter_type->struct_name
+                    ? TypeRef(iter_type).struct_name()
                     : std::string(sname);
             SemaStructInfo* si = nullptr;
             { auto [sp, ssi] = find_struct_by_name(lookup_name); si = ssi; }
@@ -2125,8 +2125,8 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             if (si) {
                 SemaSubst subst;
                 auto& tps = si->type_params;
-                for (size_t i = 0; i < tps.size() && i < iter_type->type_args.size(); ++i)
-                    subst[tps[i].name] = iter_type->type_args[i];
+                for (size_t i = 0; i < tps.size() && i < TypeRef(iter_type).type_args().size(); ++i)
+                    subst[tps[i].name] = TypeRef(iter_type).type_args()[i];
                 next_ret = subst_type_sema(next_ret, subst);
             }
         }
@@ -2138,27 +2138,27 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         // Find the payload variant (Some-like: first variant with payload)
         const SemaVariantInfo* some_variant = nullptr;
-        auto [epkg_forin, esi_forin] = find_enum_by_name(next_ret->enum_name);
-        auto eit = esi_forin ? enums_.find(sema_key(epkg_forin, next_ret->enum_name)) : enums_.end();
-        if (eit == enums_.end()) eit = enums_.find(next_ret->enum_name);
+        auto [epkg_forin, esi_forin] = find_enum_by_name(TypeRef(next_ret).enum_name());
+        auto eit = esi_forin ? enums_.find(sema_key(epkg_forin, TypeRef(next_ret).enum_name())) : enums_.end();
+        if (eit == enums_.end()) eit = enums_.find(TypeRef(next_ret).enum_name());
         if (eit == enums_.end()) {
-            error(std::format("for-in: enum '{}' not found", next_ret->enum_name));
+            error(std::format("for-in: enum '{}' not found", TypeRef(next_ret).enum_name()));
             return make_stmt(node_line_, lir::SBreak{});
         }
         for (auto& v : eit->second.variants)
             if (!v.payload_types.empty()) { some_variant = &v; break; }
         if (!some_variant) {
-            error(std::format("for-in: enum '{}' has no payload variant", next_ret->enum_name));
+            error(std::format("for-in: enum '{}' has no payload variant", TypeRef(next_ret).enum_name()));
             return make_stmt(node_line_, lir::SBreak{});
         }
 
         // Resolve element type (substitute generics from next_ret's type_args)
         const LogosType* elem_type = some_variant->payload_types[0];
-        if (!next_ret->type_args.empty()) {
+        if (!TypeRef(next_ret).type_args().empty()) {
             SemaSubst subst;
             auto& tps = eit->second.type_params;
-            for (size_t i = 0; i < tps.size() && i < next_ret->type_args.size(); ++i)
-                subst[tps[i].name] = next_ret->type_args[i];
+            for (size_t i = 0; i < tps.size() && i < TypeRef(next_ret).type_args().size(); ++i)
+                subst[tps[i].name] = TypeRef(next_ret).type_args()[i];
             elem_type = subst_type_sema(elem_type, subst);
         }
 
@@ -2183,7 +2183,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         // Then arm: Some(x) → body
         lir::PatVariantData some_pat;
-        some_pat.enum_name = next_ret->enum_name;
+        some_pat.enum_name = TypeRef(next_ret).enum_name();
         some_pat.variant   = some_variant->name;
         some_pat.disc         = some_variant->value;
         some_pat.bindings     = {std::string(var_name)};
@@ -2256,9 +2256,9 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     {
         const LogosType* recv_type = lookup(recv_name);
         if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Struct &&
-            recv_type->struct_name == "DataRef" &&
-            recv_type->type_args.size() == 1) {
-            const LogosType* T = recv_type->type_args[0];
+            TypeRef(recv_type).struct_name() == "DataRef" &&
+            TypeRef(recv_type).type_args().size() == 1) {
+            const LogosType* T = TypeRef(recv_type).type_args()[0];
             if (T && TypeRef(T).kind() == LogosType::Kind::ZonedStruct) {
                 auto* ft = field_type_of_for_type(T, field_name);
                 if (ft) {
@@ -2348,7 +2348,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
 
     auto* saved_struct_hint = hint_struct_type_;
     if (ft && (TypeRef(ft).kind() == LogosType::Kind::Struct ||
-               TypeRef(ft).kind() == LogosType::Kind::ZonedStruct) && !ft->type_args.empty())
+               TypeRef(ft).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ft).type_args().empty())
         hint_struct_type_ = ft;
     lir::LExprPtr val = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
@@ -2693,8 +2693,8 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
     // Pub check for struct/datatype fields.
     if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct || TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct) && ft) {
         SemaStructInfo* si = nullptr;
-        { auto it = structs_.find(std::string(pointee->struct_name)); if (it != structs_.end()) si = &it->second; }
-        if (!si) { auto it = datatypes_.find(std::string(pointee->struct_name)); if (it != datatypes_.end()) si = &it->second; }
+        { auto it = structs_.find(std::string(TypeRef(pointee).struct_name())); if (it != structs_.end()) si = &it->second; }
+        if (!si) { auto it = datatypes_.find(std::string(TypeRef(pointee).struct_name())); if (it != datatypes_.end()) si = &it->second; }
         if (si) {
             for (auto& f : si->fields) {
                 if (f.name == field_name) {
@@ -3273,9 +3273,9 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             }
         }
         if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
-            auto [epkg_match, esi_match] = find_enum_by_name(scrut_type->enum_name);
-            auto eit = esi_match ? enums_.find(sema_key(epkg_match, scrut_type->enum_name)) : enums_.end();
-            if (eit == enums_.end()) eit = enums_.find(scrut_type->enum_name);
+            auto [epkg_match, esi_match] = find_enum_by_name(TypeRef(scrut_type).enum_name());
+            auto eit = esi_match ? enums_.find(sema_key(epkg_match, TypeRef(scrut_type).enum_name())) : enums_.end();
+            if (eit == enums_.end()) eit = enums_.find(TypeRef(scrut_type).enum_name());
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
                 auto add_pat = [&](const lir::Pattern& p) {
@@ -3597,9 +3597,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
         }
         if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
-            auto [epkg_match2, esi_match2] = find_enum_by_name(scrut_type->enum_name);
-            auto eit = esi_match2 ? enums_.find(sema_key(epkg_match2, scrut_type->enum_name)) : enums_.end();
-            if (eit == enums_.end()) eit = enums_.find(scrut_type->enum_name);
+            auto [epkg_match2, esi_match2] = find_enum_by_name(TypeRef(scrut_type).enum_name());
+            auto eit = esi_match2 ? enums_.find(sema_key(epkg_match2, TypeRef(scrut_type).enum_name())) : enums_.end();
+            if (eit == enums_.end()) eit = enums_.find(TypeRef(scrut_type).enum_name());
             if (eit != enums_.end()) {
                 std::set<int32_t> covered;
                 auto add_pat2 = [&](const lir::Pattern& p) {
