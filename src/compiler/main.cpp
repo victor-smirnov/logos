@@ -135,8 +135,8 @@ int main(int argc, char** argv) {
     std::vector<logos::hermes::Hermes> asts;
     std::vector<std::string> filenames;
     std::vector<bool> from_binary;
-    std::unordered_set<std::string> binary_archives_seen;
-    std::unordered_set<std::string> binary_symbols;
+    logos::compiler::StrSet binary_archives_seen;
+    logos::compiler::StrSet binary_symbols;
     for (auto& m : modules) {
         filenames.push_back(m.path);
         from_binary.push_back(m.from_binary_module);

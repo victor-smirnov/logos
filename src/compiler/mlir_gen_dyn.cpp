@@ -661,9 +661,11 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
 // Build inline vtable [N x ptr] heap-allocated for a concrete type.
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::build_inline_vtable(const std::string& trait_name,
-                                               const std::string& type_name) {
-    auto key = trait_name + "::" + type_name;
+mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
+                                               std::string_view type_name) {
+    std::string key;
+    key.reserve(trait_name.size() + 2 + type_name.size());
+    key.append(trait_name); key.append("::"); key.append(type_name);
     auto vit = dyn_vtable_methods_.find(key);
     if (vit == dyn_vtable_methods_.end()) return nullptr;
     auto& methods = vit->second;
@@ -699,8 +701,8 @@ mlir::Value MLIRGenImpl::build_inline_vtable(const std::string& trait_name,
 // Build a &dyn Trait fat pointer from a concrete data_ptr.
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, const std::string& trait_name,
-                                        const std::string& src_type_name) {
+mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
+                                        std::string_view src_type_name) {
     auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
         builder_.getContext(), {ptr_type(), ptr_type()});
     auto alloca = create_entry_alloca(dyn_struct);

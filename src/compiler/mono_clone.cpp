@@ -533,7 +533,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
                     TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
                     std::string mangled = TypeRef(resolved).type_args().empty()
-                        ? TypeRef(resolved).struct_name() : concrete_struct_name(resolved);
+                        ? std::string(TypeRef(resolved).struct_name()) : concrete_struct_name(resolved);
                     for (auto& sd : out_.structs)
                         if (sd.name == mangled && sd.type_code != 0)
                             { code = sd.type_code; break; }
@@ -608,9 +608,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             // If the type is now fully concrete, register for TypeInfo emission.
             if (resolved && TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct &&
                 TypeRef(resolved).type_args().empty()) {
-                std::string pkg = TypeRef(resolved).pkg_name();
-                std::string fqn = pkg.empty() ? TypeRef(resolved).struct_name()
-                                              : pkg + "::" + TypeRef(resolved).struct_name();
+                std::string pkg{TypeRef(resolved).pkg_name()};
+                std::string fqn = pkg.empty() ? std::string(TypeRef(resolved).struct_name())
+                                              : pkg + "::" + std::string(TypeRef(resolved).struct_name());
                 out_.reflect_requests.insert(fqn);
             }
         }
@@ -905,9 +905,9 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             // or if any blanket `impl<U: B> T for U` exists and C impls B.
             // Cycle-guarded via `seen`.
             std::function<bool(const std::string&, const std::string&,
-                               std::unordered_set<std::string>&)> has_impl;
+                               StrSet&)> has_impl;
             has_impl = [&](const std::string& trait, const std::string& cn,
-                           std::unordered_set<std::string>& seen) -> bool {
+                           StrSet& seen) -> bool {
                 std::string k = trait + "::" + cn;
                 if (!seen.insert(k).second) return false;
                 if (concrete_impls_.count(k)) return true;
@@ -919,7 +919,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
                 return false;
             };
             for (auto& tb : itp.bounds) {
-                std::unordered_set<std::string> seen;
+                StrSet seen;
                 if (!has_impl(tb.trait_name, cname, seen)) { bound_ok = false; break; }
             }
             if (!bound_ok) break;
@@ -1135,7 +1135,7 @@ void Mono::instantiate_struct_templates() {
             const LogosType* struct_t = info.first;
             depth_ = info.second;
 
-            const std::string& base = TypeRef(struct_t).struct_name();
+            const std::string base{TypeRef(struct_t).struct_name()};
             SubstMap subst;
 
             const lir::LStructDef* tmpl = nullptr;

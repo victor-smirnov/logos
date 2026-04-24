@@ -294,10 +294,10 @@ private:
     // ── Vtable / dyn ─────────────────────────────────────────────
     void emit_trait_vtables(mlir::ModuleOp mod, const LProgram& prog);
     void emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog);
-    mlir::Value build_inline_vtable(const std::string& trait_name,
-                                     const std::string& type_name);
-    mlir::Value coerce_to_dyn(mlir::Value data_ptr, const std::string& trait_name,
-                               const std::string& src_type_name);
+    mlir::Value build_inline_vtable(std::string_view trait_name,
+                                     std::string_view type_name);
+    mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
+                               std::string_view src_type_name);
     mlir::Value gen_dyn_dispatch(const EMethodCall& e, const LogosType* ret_logos_type);
     mlir::Value gen_tagged_dispatch(const EMethodCall& e, const LogosType* ret_logos_type);
 

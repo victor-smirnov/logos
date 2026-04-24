@@ -219,7 +219,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // Auto trait: synthesize satisfaction from field types.
             auto trit = traits_.find(bound.trait_name);
             if (trit != traits_.end() && trit->second.is_auto) {
-                std::unordered_set<std::string> visited;
+                StrSet visited;
                 last_offender_ = {};
                 if (is_auto_trait_satisfied(concrete, bound.trait_name, visited)) continue;
                 if (!last_offender_.field_name.empty()) {

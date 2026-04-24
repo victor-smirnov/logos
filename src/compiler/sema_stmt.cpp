@@ -2111,7 +2111,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             std::string lookup_name =
                 (TypeRef(iter_type).kind() == LogosType::Kind::Struct ||
                  TypeRef(iter_type).kind() == LogosType::Kind::ZonedStruct)
-                    ? TypeRef(iter_type).struct_name()
+                    ? std::string(TypeRef(iter_type).struct_name())
                     : std::string(sname);
             SemaStructInfo* si = nullptr;
             { auto [sp, ssi] = find_struct_by_name(lookup_name); si = ssi; }

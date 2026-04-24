@@ -16,6 +16,7 @@
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/sha256.hpp>
+#include <logos/compiler/str_map.hpp>
 #include <logos/hermes/view.hpp>
 #include <logos/hermes/tiny_object_map.hpp>
 #include <logos/hermes/object_array.hpp>
@@ -229,8 +230,12 @@ private:
     ImportScope cur_imports_;
 
     // Qualified key: "pkg::name" or "name" if pkg empty
-    static std::string sema_key(const std::string& pkg, const std::string& name) {
-        return pkg.empty() ? name : pkg + "::" + name;
+    static std::string sema_key(std::string_view pkg, std::string_view name) {
+        if (pkg.empty()) return std::string(name);
+        std::string r;
+        r.reserve(pkg.size() + 2 + name.size());
+        r.append(pkg); r.append("::"); r.append(name);
+        return r;
     }
 
     uint32_t     tmp_var_count_ = 0;   // for generating unique internal names
@@ -325,7 +330,7 @@ private:
 
     struct VarInfo { const LogosType* type; bool is_mut = false; };
     struct Frame {
-        std::unordered_map<std::string, VarInfo> vars;  // O(1) lookup
+        logos::compiler::StrMap<VarInfo> vars;  // O(1) lookup
         std::vector<std::string> var_order;              // declaration order
     };
     std::vector<Frame> scope_;
@@ -467,32 +472,32 @@ private:
 
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
-    std::unordered_map<std::string, const LogosType*> current_type_params_;
+    logos::compiler::StrMap<const LogosType*> current_type_params_;
     // Set by collect_impl/lower_impl_block for `impl<T>` blocks so that
     // collect_fn/lower_fn include the impl-level type params in the function.
     std::vector<TypeParam> impl_type_params_;
 
     // Re-export graph: pkg_reexports_["a.b"] = ["x.y", "z"] means `pub use x.y; pub use z;`
     // is declared in package a.b. Used by find_* helpers for transitive import resolution.
-    std::unordered_map<std::string, std::vector<std::string>> pkg_reexports_;
+    logos::compiler::StrMap<std::vector<std::string>> pkg_reexports_;
 
-    std::unordered_map<std::string, SemaStructInfo>   structs_;
-    std::unordered_map<std::string, SemaStructInfo>   datatypes_;  // Hermes datatypes
+    logos::compiler::StrMap<SemaStructInfo>   structs_;
+    logos::compiler::StrMap<SemaStructInfo>   datatypes_;  // Hermes datatypes
     // Explicit type_code from #[type_code=N] annotations; populated in lower_module_items.
-    std::unordered_map<std::string, uint64_t>         explicit_type_codes_;
+    logos::compiler::StrMap<uint64_t>         explicit_type_codes_;
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
-    std::unordered_map<std::string, SemaStructInfo>   struct_specs_sema_;
-    std::unordered_map<std::string, SemaEnumInfo>     enums_;
-    std::unordered_map<std::string, SemaFuncInfo>     funcs_;
+    logos::compiler::StrMap<SemaStructInfo>   struct_specs_sema_;
+    logos::compiler::StrMap<SemaEnumInfo>     enums_;
+    logos::compiler::StrMap<SemaFuncInfo>     funcs_;
     // base name -> concrete overload symbols stored in funcs_.
-    std::unordered_map<std::string, std::vector<std::string>> func_overloads_;
+    logos::compiler::StrMap<std::vector<std::string>> func_overloads_;
     // symbol_name -> generic function info.
-    std::unordered_map<std::string, SemaFuncInfo>     generic_funcs_;
+    logos::compiler::StrMap<SemaFuncInfo>     generic_funcs_;
     // base name -> generic overload symbols stored in generic_funcs_.
-    std::unordered_map<std::string, std::vector<std::string>> generic_overloads_;
+    logos::compiler::StrMap<std::vector<std::string>> generic_overloads_;
     // const fn bodies: mangled_name → (body_block, param_names)
     struct ConstFnBody { hermes::TinyMapView body; std::vector<std::string> param_names; };
-    std::unordered_map<std::string, ConstFnBody>      const_fn_bodies_;
+    logos::compiler::StrMap<ConstFnBody>      const_fn_bodies_;
     // Generic type alias entry: non-generic aliases have type_params empty.
     struct TypeAliasEntry {
         const LogosType*         type;
@@ -501,31 +506,31 @@ private:
     };
 
     // Lifetime substitution map: "'z" → "'a"  (name → name, erased at codegen).
-    using SemaLifetimeSubst = std::unordered_map<std::string, std::string>;
-    std::unordered_map<std::string, TypeAliasEntry> type_aliases_;
-    std::unordered_map<std::string, const LogosType*> module_consts_;
-    std::unordered_map<std::string, SemaTraitInfo>    traits_;
+    using SemaLifetimeSubst = logos::compiler::StrMap<std::string>;
+    logos::compiler::StrMap<TypeAliasEntry> type_aliases_;
+    logos::compiler::StrMap<const LogosType*> module_consts_;
+    logos::compiler::StrMap<SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
-    std::unordered_map<std::string, SemaImplInfo>     impls_;
+    logos::compiler::StrMap<SemaImplInfo>     impls_;
     // "TraitName::TypeName::AssocName" → assoc type + type params for substitution.
     struct AssocTypeEntry {
         const LogosType*       type;
         std::vector<TypeParam> impl_type_params;  // from enclosing impl<T>
         std::vector<TypeParam> gat_type_params;   // from GAT itself: type Item<T> = ...
     };
-    std::unordered_map<std::string, AssocTypeEntry> assoc_type_impls_;
+    logos::compiler::StrMap<AssocTypeEntry> assoc_type_impls_;
 
     // "TraitName::TypeName::ConstName" → assoc const type (value evaluated lazily at call site)
     struct AssocConstEntry {
         const LogosType*  type;
         hermes::AnyVal    value_ast;  // AST expr node for the constant value
     };
-    std::unordered_map<std::string, AssocConstEntry> assoc_const_impls_;
+    logos::compiler::StrMap<AssocConstEntry> assoc_const_impls_;
 
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;
     // Bounds per type param name (set alongside current_type_params_ during push_type_params)
-    std::unordered_map<std::string, std::vector<TraitBound>> current_type_bounds_;
+    logos::compiler::StrMap<std::vector<TraitBound>> current_type_bounds_;
 
     // Blanket impls: `impl<T: Bound> Trait for T { fn method(…) … }`.  Stored
     // here during collect; consulted at method-call sites when direct lookup
@@ -577,7 +582,7 @@ private:
 
     // Collect all packages reachable from `pkg` via pub use re-exports (transitive, cycle-safe).
     void collect_reexports(const std::string& pkg,
-                           std::unordered_set<std::string>& visited,
+                           StrSet& visited,
                            std::vector<std::string>& out) const {
         auto it = pkg_reexports_.find(pkg);
         if (it == pkg_reexports_.end()) return;
@@ -593,7 +598,7 @@ private:
     // Includes directly imported packages AND their transitive pub-use re-exports.
     std::vector<std::string> effective_import_pkgs() const {
         std::vector<std::string> result;
-        std::unordered_set<std::string> visited;
+        StrSet visited;
         for (auto& pkg : cur_imports_.wildcard_packages) {
             if (visited.insert(pkg).second) {
                 result.push_back(pkg);
@@ -725,7 +730,7 @@ private:
 
     // ── Sema-side type substitution (TypeVar → concrete) ────────────
 
-    using SemaSubst = std::unordered_map<std::string, const LogosType*>;
+    using SemaSubst = logos::compiler::StrMap<const LogosType*>;
 
     const LogosType* subst_type_sema(const LogosType* t, const SemaSubst& s,
                                       const SemaLifetimeSubst& ls = {});
@@ -774,7 +779,7 @@ private:
     // Recursively checks whether type T satisfies auto trait `trait_name`
     // (e.g. "Send" or "Sync"). Returns true if satisfied.
     bool is_auto_trait_satisfied(const LogosType* T, std::string_view trait_name,
-                                  std::unordered_set<std::string>& visited);
+                                  StrSet& visited);
 
     // Set by is_auto_trait_satisfied when it finds a non-satisfying field.
     struct AutoTraitOffender {
@@ -852,7 +857,7 @@ private:
     lir::LExprPtr lower_deref(hermes::TinyMapView node);
     lir::LExprPtr lower_call(hermes::TinyMapView node);
     void unify_types(const LogosType* formal, const LogosType* actual,
-                     std::unordered_map<std::string, const LogosType*>& bindings);
+                     logos::compiler::StrMap<const LogosType*>& bindings);
     bool infer_type_args(const SemaFuncInfo& fi,
                          const std::vector<lir::LExprPtr>& arg_exprs,
                          std::vector<const LogosType*>& out_type_args,
@@ -886,7 +891,7 @@ private:
         std::vector<const LogosType*>             types;       // corresponding types
         uint32_t                                  next_slot = 0; // next param_index
         // dedup: symbol binding name → value_index (for pure EIdent captures)
-        std::unordered_map<std::string, uint32_t> ident_dedup;
+        logos::compiler::StrMap<uint32_t> ident_dedup;
     };
     HermesCapCtx* hermes_cap_ctx_ = nullptr;
 
@@ -971,7 +976,7 @@ private:
     lir::LFunction lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
     lir::LStructDef lower_struct_def(hermes::TinyMapView node);
     lir::LEnumDef lower_enum_def(hermes::TinyMapView node);
-    using ConstEnv = std::unordered_map<std::string, int64_t>;
+    using ConstEnv = logos::compiler::StrMap<int64_t>;
     std::optional<int64_t> const_eval_expr(hermes::TinyMapView e, const ConstEnv& env);
     std::optional<int64_t> const_eval_block(hermes::TinyMapView block, ConstEnv env);
     lir::LExprPtr try_const_fold_call(hermes::TinyMapView call_node);

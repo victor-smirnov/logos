@@ -26,7 +26,7 @@ using Kind = LogosType::Kind;
 bool SemaChecker::is_auto_trait_satisfied(
     const LogosType* T,
     std::string_view trait_name,
-    std::unordered_set<std::string>& visited)
+    StrSet& visited)
 {
     if (!T) return true;
     TypeRef tv{T};
@@ -94,7 +94,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         // Bug 3 fix: build substitution map from generic type args so that
         // TypeVar fields in generic struct instantiations (e.g. Vec<i32>
         // has field `data: TypeVar("T")`) are replaced with concrete types.
-        std::unordered_map<std::string, const LogosType*> subst;
+        StrMap<const LogosType*> subst;
         if (!tv.type_args().empty() && !si->type_params.empty()) {
             size_t n = std::min(tv.type_args().size(), si->type_params.size());
             for (size_t j = 0; j < n; ++j)

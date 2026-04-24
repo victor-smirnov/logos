@@ -9,6 +9,7 @@
 #include <logos/compiler/mono.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/sema.hpp>
+#include <logos/compiler/str_map.hpp>
 
 #include <format>
 #include <string>
@@ -18,8 +19,8 @@
 
 namespace logos::compiler {
 
-using SubstMap = std::unordered_map<std::string, const LogosType*>;
-using PackMap  = std::unordered_map<std::string, std::vector<const LogosType*>>;
+using SubstMap = StrMap<const LogosType*>;
+using PackMap  = StrMap<std::vector<const LogosType*>>;
 
 static inline std::string make_pack_arg_name(std::string_view base, size_t idx) {
     return std::string("$pack_arg$") + std::string(base) + "$" + std::to_string(idx);
@@ -38,17 +39,17 @@ private:
     int            depth_ = 0;
     PackMap        cur_packs_;
 
-    std::unordered_map<std::string, const lir::LFunction*>  templates_;
-    std::unordered_map<std::string, std::vector<const lir::LFunction*>> specs_;
-    std::unordered_map<std::string, const lir::LStructDef*> struct_templates_;
-    std::unordered_map<std::string, std::vector<const lir::LStructDef*>> struct_specs_;
-    std::unordered_map<std::string, std::pair<const LogosType*, int>> needed_struct_insts_;
-    std::unordered_set<std::string> struct_done_;
-    std::unordered_map<std::string, const lir::LEnumDef*>   enum_templates_;
-    std::unordered_map<std::string, std::pair<std::vector<const LogosType*>, int>> needed_enum_insts_;
-    std::unordered_set<std::string> enum_done_;
-    std::unordered_set<std::string> done_;
-    std::unordered_map<std::string, const LogosType*> assoc_impls_;
+    StrMap<const lir::LFunction*>  templates_;
+    StrMap<std::vector<const lir::LFunction*>> specs_;
+    StrMap<const lir::LStructDef*> struct_templates_;
+    StrMap<std::vector<const lir::LStructDef*>> struct_specs_;
+    StrMap<std::pair<const LogosType*, int>> needed_struct_insts_;
+    StrSet struct_done_;
+    StrMap<const lir::LEnumDef*>   enum_templates_;
+    StrMap<std::pair<std::vector<const LogosType*>, int>> needed_enum_insts_;
+    StrSet enum_done_;
+    StrSet done_;
+    StrMap<const LogosType*> assoc_impls_;
 
     // Blanket impls indexed for AssocType resolution at mono time.
     // Entry: { trait, bound_trait, target_typevar, assoc_types_map }.
@@ -56,14 +57,14 @@ private:
         std::string trait_name;
         std::string bound_trait;
         std::string target_typevar;
-        std::unordered_map<std::string, const LogosType*> assoc_types;
+        StrMap<const LogosType*> assoc_types;
     };
     std::vector<BlanketImplInfo> blanket_impls_;
 
     // Set of (trait::type) keys: concrete types that implement each trait.
     // Populated from out_.impls (non-blanket) so the blanket fallback can
     // verify a concrete type satisfies the bound.
-    std::unordered_set<std::string> concrete_impls_;
+    StrSet concrete_impls_;
 
     struct WorkItem {
         std::string                mangled;

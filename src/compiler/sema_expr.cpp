@@ -1126,7 +1126,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 }
 
 void SemaChecker::unify_types(const LogosType* formal, const LogosType* actual,
-                     std::unordered_map<std::string, const LogosType*>& bindings) {
+                     StrMap<const LogosType*>& bindings) {
     if (!formal || !actual) return;
     if (TypeRef(actual).kind() == LogosType::Kind::Error ||
         TypeRef(formal).kind() == LogosType::Kind::Error) return;
@@ -1141,7 +1141,7 @@ void SemaChecker::unify_types(const LogosType* formal, const LogosType* actual,
     if (TypeRef(formal).kind() == LogosType::Kind::TypeVar) {
         if (TypeRef(formal).type_var_name() == "Self") return;  // skip implicit Self
         if (!bindings.count(TypeRef(formal).type_var_name()))
-            bindings[TypeRef(formal).type_var_name()] = actual_norm;
+            bindings[std::string(TypeRef(formal).type_var_name())] = actual_norm;
         return;
     }
 
@@ -1193,7 +1193,7 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                          std::vector<const LogosType*>& out_type_args,
                          const SemaSubst& context,
                          size_t param_offset) {
-    std::unordered_map<std::string, const LogosType*> bindings(context.begin(), context.end());
+    StrMap<const LogosType*> bindings(context.begin(), context.end());
     bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
     size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
     size_t fixed_params = fi.param_types.size() >= param_offset
@@ -1258,7 +1258,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     }
 
     // Build substitution map for non-variadic type params
-    std::unordered_map<std::string, const LogosType*> subst;
+    StrMap<const LogosType*> subst;
     for (size_t i = 0; i < non_variadic_count && i < type_args.size(); ++i)
         subst[fi.type_params[i].name] = type_args[i];
 
@@ -1489,14 +1489,14 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             }
             // Build the fully-qualified name used as explicit_type_codes_ key (matches
             // the key written by apply_annots_to_struct in sema.cpp).
-            std::string fqn = pkg.empty() ? TypeRef(elem).struct_name() : pkg + "::" + TypeRef(elem).struct_name();
+            std::string fqn = pkg.empty() ? std::string(TypeRef(elem).struct_name()) : pkg + "::" + std::string(TypeRef(elem).struct_name());
 
             // Check for explicit #[type_code=N] annotation first.
             auto eit = explicit_type_codes_.find(fqn);
             if (eit != explicit_type_codes_.end()) {
                 code = eit->second;
             } else {
-                std::string canon = pkg + "::" + TypeRef(elem).struct_name();
+                std::string canon = pkg + "::" + std::string(TypeRef(elem).struct_name());
                 auto hash = type_hash_23(canon);
                 uint64_t raw = type_hash_56bit(hash);
                 code = (raw < 128) ? (raw + 128) : raw;
@@ -1626,8 +1626,8 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             return error_expr();
         }
         if (cur_prog_) {
-            std::string pkg = TypeRef(T).pkg_name().empty() ? std::string(cur_package_) : TypeRef(T).pkg_name();
-            std::string fqn = pkg.empty() ? TypeRef(T).struct_name() : pkg + "::" + TypeRef(T).struct_name();
+            std::string pkg = TypeRef(T).pkg_name().empty() ? std::string(cur_package_) : std::string(TypeRef(T).pkg_name());
+            std::string fqn = pkg.empty() ? std::string(TypeRef(T).struct_name()) : pkg + "::" + std::string(TypeRef(T).struct_name());
             cur_prog_->reflect_requests.insert(fqn);
         }
         auto* hs_type = make_struct_type("HermesStatic");
@@ -1656,7 +1656,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 error(std::format("has_annotation: '{}' is not an annotation type", TypeRef(A).struct_name()));
                 return error_expr();
             }
-            a_fqn = apkg.empty() ? TypeRef(A).struct_name() : apkg + "::" + TypeRef(A).struct_name();
+            a_fqn = apkg.empty() ? std::string(TypeRef(A).struct_name()) : apkg + "::" + std::string(TypeRef(A).struct_name());
         }
         bool found = false;
         if (TypeRef(T).kind() == LogosType::Kind::ZonedStruct && cur_prog_) {
@@ -1694,7 +1694,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 error(std::format("get_annotation: '{}' is not an annotation type", TypeRef(A).struct_name()));
                 return error_expr();
             }
-            a_fqn = apkg.empty() ? TypeRef(A).struct_name() : apkg + "::" + TypeRef(A).struct_name();
+            a_fqn = apkg.empty() ? std::string(TypeRef(A).struct_name()) : apkg + "::" + std::string(TypeRef(A).struct_name());
             a_pkg = std::string(apkg);
             a_info = asi;
         }
@@ -1776,7 +1776,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 if (f.name == fname) { ftype = f.type; break; }
             fields.emplace_back(fname, annot_val_to_expr(fval, ftype));
         }
-        auto struct_expr = make_expr(a_type, lir::EStructLit{TypeRef(A).struct_name(), std::move(fields)});
+        auto struct_expr = make_expr(a_type, lir::EStructLit{std::string(TypeRef(A).struct_name()), std::move(fields)});
         // Wrap in Option<A>::Some(struct_expr)
         std::vector<lir::LExprPtr> payload;
         payload.push_back(std::move(struct_expr));
@@ -2094,7 +2094,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // visited prevents infinite loops on circular supertrait definitions (Bug 2).
         // The !chosen_method guard is NOT used so all supertrait siblings are searched
         // for ambiguity detection (Bug 1 fix: e.g. trait Foo: A+B where both define m()).
-        std::unordered_set<std::string> st_visited;
+        StrSet st_visited;
         std::function<void(const std::string&)> search_trait = [&](const std::string& tname) {
             if (!st_visited.insert(tname).second) return;  // cycle / diamond guard (Bug 2)
             auto tit = traits_.find(tname);
@@ -2135,7 +2135,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // Infer method-level type params (e.g. `fn hash<H: Hasher>`) from
                 // arg types so the compat check sees substituted param types.
                 if (!chosen_method->type_params.empty()) {
-                    std::unordered_map<std::string, const LogosType*> bindings(
+                    StrMap<const LogosType*> bindings(
                         self_subst.begin(), self_subst.end());
                     for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                         if (i + 1 >= chosen_method->param_types.size()) break;
@@ -2238,7 +2238,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             mc.type_args = {};
             // Propagate method-level type params (e.g. H in `hash<H>`) inferred above.
             if (!chosen_method->type_params.empty()) {
-                std::unordered_map<std::string, const LogosType*> bindings(
+                StrMap<const LogosType*> bindings(
                     self_subst.begin(), self_subst.end());
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     if (i + 1 >= chosen_method->param_types.size()) break;
@@ -2792,7 +2792,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (!si2) { auto [p, di] = find_datatype_by_name(TypeRef(rst).struct_name()); si2 = di; }
                 if (si2) {
                     auto& tps = si2->type_params;
-                    std::unordered_set<std::string> struct_names;
+                    StrSet struct_names;
                     for (auto& tp : tps) struct_names.insert(tp.name);
                     for (auto& tp : fi.type_params)
                         if (!struct_names.count(tp.name)) { has_method_level = true; break; }
@@ -2943,9 +2943,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         }
         if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
                         TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
-            sinfo_ptr = find_struct_info(TypeRef(aliased).struct_name());
+            sinfo_ptr = find_struct_info(std::string(TypeRef(aliased).struct_name()));
             if (sinfo_ptr) {
-                sname_buf = TypeRef(aliased).struct_name();
+                sname_buf = std::string(TypeRef(aliased).struct_name());
                 hint_struct_type_ = aliased;
             }
         }
@@ -3000,7 +3000,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     // For generic structs: infer type args and resolve to spec or template.
     if (!sinfo.type_params.empty()) {
         // Helper: get the hint type for a TypeVar from hint_struct_type_ annotation.
-        auto hint_for_tv = [&](const std::string& tv_name) -> const LogosType* {
+        auto hint_for_tv = [&](std::string_view tv_name) -> const LogosType* {
             if (!hint_struct_type_ || TypeRef(hint_struct_type_).struct_name() != std::string(sname))
                 return nullptr;
             for (size_t i = 0; i < sinfo.type_params.size(); ++i)
@@ -3052,7 +3052,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             }();
             if (!raw_ft) continue;
             if (TypeRef(raw_ft).kind() == LogosType::Kind::TypeVar) {
-                auto& tv = TypeRef(raw_ft).type_var_name();
+                auto tv = TypeRef(raw_ft).type_var_name();
                 if (!inferred.count(tv)) {
                     auto* vt = fval->type;
                     if (TypeRef(vt).kind() == LogosType::Kind::IntLit) {
@@ -3062,7 +3062,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         auto* h = hint_for_tv(tv);
                         vt = (h && TypeRef(h).kind() != LogosType::Kind::Error) ? h : prim(LogosType::Kind::F64);
                     }
-                    inferred[tv] = vt;
+                    inferred[std::string(tv)] = vt;
                 }
             } else if (TypeRef(raw_ft).kind() == LogosType::Kind::Array && TypeRef(raw_ft).elem() &&
                        TypeRef(raw_ft).elem()->kind == LogosType::Kind::TypeVar) {
@@ -3142,7 +3142,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             effective = pspec;
 
         // Validate fields against the effective definition.
-        std::unordered_map<std::string, bool> initialized;
+        StrMap<bool> initialized;
         for (auto& f : effective->fields) initialized[std::string(f.name)] = false;
         for (auto& [fname, fval] : fields) {
             auto it = initialized.find(fname);
@@ -3203,7 +3203,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     }
 
     // Non-generic struct: validate against template fields directly.
-    std::unordered_map<std::string, bool> initialized;
+    StrMap<bool> initialized;
     for (auto& f : sinfo.fields) initialized[std::string(f.name)] = false;
     for (auto& [fname, fval] : fields) {
         auto it = initialized.find(fname);
@@ -4235,7 +4235,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto* inferred = payload[i]->type;
                 if (TypeRef(inferred).kind() == LogosType::Kind::IntLit) inferred = i32_t();
-                subst[TypeRef(pt).type_var_name()] = inferred;
+                subst[std::string(TypeRef(pt).type_var_name())] = inferred;
             }
         }
         // Fill any still-unresolved type params from hint (e.g. let e: Result<i32,i32> = Result::Err(-1))
@@ -4384,7 +4384,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto* inferred = payload[i]->type;
                 if (TypeRef(inferred).kind() == LogosType::Kind::IntLit) inferred = i32_t();
-                subst[TypeRef(pt).type_var_name()] = inferred;
+                subst[std::string(TypeRef(pt).type_var_name())] = inferred;
             }
         }
         // Fill any still-unresolved type params from hint
@@ -4936,7 +4936,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         define(p.name, p.type);
 
     // Collect current scope variables (for capture detection)
-    std::unordered_set<std::string> param_names;
+    StrSet param_names;
     for (auto& p : params) param_names.insert(p.name);
 
     // Lower body — closure body is its own unsafe scope, does NOT inherit enclosing context.
@@ -4958,7 +4958,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // that are not params and still resolve in the enclosing scope.
     std::vector<std::string> captures;
     std::vector<const LogosType*> capture_types;
-    std::unordered_set<std::string> seen;
+    StrSet seen;
     auto add_capture = [&](const std::string& name) {
         if (param_names.count(name) || seen.count(name))
             return;

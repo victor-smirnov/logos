@@ -480,8 +480,8 @@ static std::string mangle_type_for_name(TypeRef t);
 std::string concrete_struct_name(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return {};
-    if (TypeRef(t).type_args().empty()) return TypeRef(t).struct_name();
-    std::string r = TypeRef(t).struct_name() + "$G" + std::to_string(TypeRef(t).type_args().size());
+    if (TypeRef(t).type_args().empty()) return std::string(TypeRef(t).struct_name());
+    std::string r = std::string(TypeRef(t).struct_name()) + "$G" + std::to_string(TypeRef(t).type_args().size());
     for (auto* a : TypeRef(t).type_args()) { r += "$"; r += mangle_type_for_name(a); }
     return r;
 }
@@ -518,7 +518,7 @@ static std::string mangle_type_for_name(TypeRef t) {
     case LogosType::Kind::Slice:
         return "slice_" + mangle_type_for_name(TypeRef(t).elem());
     case LogosType::Kind::AssocType:
-        return mangle_type_for_name(TypeRef(t).assoc_base()) + "::" + TypeRef(t).assoc_type_name();
+        return mangle_type_for_name(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
     default:
         return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
     }
@@ -773,20 +773,20 @@ std::string type_str(TypeRef t) {
         return std::string(TypeRef(t).mut_ptr() ? "*mut " : "*const ") + type_str(TypeRef(t).pointee());
     case LogosType::Kind::Ref: {
         std::string s = "&";
-        if (!TypeRef(t).lifetime().empty()) s += TypeRef(t).lifetime() + " ";
+        if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
         return s + type_str(TypeRef(t).pointee());
     }
     case LogosType::Kind::MutRef: {
         std::string s = "&";
-        if (!TypeRef(t).lifetime().empty()) s += TypeRef(t).lifetime() + " ";
+        if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
         return s + "mut " + type_str(TypeRef(t).pointee());
     }
     case LogosType::Kind::Array:
         return std::format("[{}; {}]", type_str(TypeRef(t).elem()), TypeRef(t).arr_size());
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
-        if (TypeRef(t).type_args().empty() && TypeRef(t).lifetime_args().empty()) return TypeRef(t).struct_name();
-        { std::string r = TypeRef(t).struct_name() + "<";
+        if (TypeRef(t).type_args().empty() && TypeRef(t).lifetime_args().empty()) return std::string(TypeRef(t).struct_name());
+        { std::string r = std::string(TypeRef(t).struct_name()) + "<";
           bool first = true;
           for (auto& lt : TypeRef(t).lifetime_args()) {
               if (!first) r += ", "; first = false;
@@ -824,13 +824,13 @@ std::string type_str(TypeRef t) {
         r += ") -> ";
         r += type_str(TypeRef(t).closure_ret());
         return r; }
-    case LogosType::Kind::Enum:        return TypeRef(t).enum_name();
-    case LogosType::Kind::TraitObject: return "&dyn " + TypeRef(t).trait_name();
-    case LogosType::Kind::TaggedPtr:   return "&tagged<" + TypeRef(t).struct_name() + "> " + TypeRef(t).trait_name();
+    case LogosType::Kind::Enum:        return std::string(TypeRef(t).enum_name());
+    case LogosType::Kind::TraitObject: return "&dyn " + std::string(TypeRef(t).trait_name());
+    case LogosType::Kind::TaggedPtr:   return "&tagged<" + std::string(TypeRef(t).struct_name()) + "> " + std::string(TypeRef(t).trait_name());
     case LogosType::Kind::TypeVar:     return std::string(TypeRef(t).type_var_name());
     case LogosType::Kind::ConstVar:    return std::string(TypeRef(t).type_var_name());
     case LogosType::Kind::AssocType: {
-        std::string r = type_str(TypeRef(t).assoc_base()) + "::" + TypeRef(t).assoc_type_name();
+        std::string r = type_str(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
         if (!TypeRef(t).gat_args().empty()) {
             r += "<";
             for (size_t i = 0; i < TypeRef(t).gat_args().size(); ++i) {
@@ -841,7 +841,7 @@ std::string type_str(TypeRef t) {
         }
         return r;
     }
-    case LogosType::Kind::ImplTrait:   return "impl " + TypeRef(t).struct_name();
+    case LogosType::Kind::ImplTrait:   return "impl " + std::string(TypeRef(t).struct_name());
     case LogosType::Kind::Error:   return "<error>";
     }
     return "<unknown>";
@@ -872,7 +872,7 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // dispatch table (and trigger a link-time collision via the sentinel
     // globals in mlir_gen_dyn.cpp).  Surface a clearer diagnostic here.
     {
-        std::unordered_map<std::string, std::string> seen;
+        StrMap<std::string> seen;
         for (const auto& de : prog.dispatch_entries) {
             if (de.type_code == 0) continue;
             auto key = de.tag_system + "#" + std::to_string(de.type_code);
@@ -984,13 +984,13 @@ bool SemaChecker::is_move_type(const LogosType* t) const {
     // Struct types are move types unless they implement Copy.
     if (TypeRef(t).kind() != LogosType::Kind::Struct)
         return false;
-    return !copy_types_.count(TypeRef(t).struct_name());
+    return !copy_types_.count(std::string(TypeRef(t).struct_name()));
 }
 
 std::string SemaChecker::drop_fn_for(const LogosType* t) const {
     if (!t) return {};
     std::string type_name;
-    if (TypeRef(t).kind() == LogosType::Kind::Struct) type_name = TypeRef(t).struct_name();
+    if (TypeRef(t).kind() == LogosType::Kind::Struct) type_name = std::string(TypeRef(t).struct_name());
     if (type_name.empty()) return {};
     std::string mangled = type_name + "__drop";
     std::vector<const LogosType*> sig{t};
@@ -1012,7 +1012,7 @@ bool SemaChecker::has_droppable_fields(const LogosType* t) const {
         auto qkey = sema_key(TypeRef(t).pkg_name(), TypeRef(t).struct_name());
         sit = structs_.find(qkey);
     }
-    if (sit == structs_.end()) sit = structs_.find(TypeRef(t).struct_name());
+    if (sit == structs_.end()) sit = structs_.find(std::string(TypeRef(t).struct_name()));
     if (sit == structs_.end()) return false;
     for (auto& f : sit->second.fields) {
         if (!drop_fn_for(f.type).empty()) return true;
@@ -1305,13 +1305,13 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
     switch (TypeRef(t).kind()) {
     case LogosType::Kind::ConstVar:
     case LogosType::Kind::TypeVar: {
-        auto it = s.find(TypeRef(t).type_var_name());
+        auto it = s.find(std::string(TypeRef(t).type_var_name()));
         return (it != s.end()) ? it->second : t;
     }
     case LogosType::Kind::Array: {
         auto* elem = subst_type_sema(TypeRef(t).elem(), s, ls);
         uint64_t size = TypeRef(t).arr_size();
-        std::string symbolic = TypeRef(t).arr_size_var();
+        std::string symbolic{TypeRef(t).arr_size_var()};
         if (!symbolic.empty()) {
             auto it = s.find(symbolic);
             if (it != s.end()) {
@@ -1334,7 +1334,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef: {
         auto* inner = subst_type_sema(TypeRef(t).pointee(), s, ls);
-        std::string lt = TypeRef(t).lifetime();
+        std::string lt{TypeRef(t).lifetime()};
         if (!lt.empty()) { auto it = ls.find(lt); if (it != ls.end()) lt = it->second; }
         if (inner == TypeRef(t).pointee() && lt == TypeRef(t).lifetime()) return t;
         return make_ref(TypeRef(t).kind() == LogosType::Kind::MutRef, inner, lt);
@@ -1472,17 +1472,17 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
             };
 
             // 1. Direct lookup (non-generic impls: key stored under concrete name).
-            std::string key = TypeRef(t).trait_name() + "::" + concrete_name + "::" + TypeRef(t).assoc_type_name();
+            std::string key = std::string(TypeRef(t).trait_name()) + "::" + concrete_name + "::" + std::string(TypeRef(t).assoc_type_name());
             auto ait = assoc_type_impls_.find(key);
             if (ait != assoc_type_impls_.end()) {
                 return subst_type_sema(ait->second.type, make_subst(ait->second));
             }
             // 2. Base-name fallback (generic impls).
             std::string base_name = (TypeRef(concrete).kind() == LogosType::Kind::Struct)
-                                    ? TypeRef(concrete).struct_name() : "";
+                                    ? std::string(TypeRef(concrete).struct_name()) : "";
             if (!base_name.empty() && base_name != concrete_name) {
-                std::string base_key = TypeRef(t).trait_name() + "::" + base_name
-                                      + "::" + TypeRef(t).assoc_type_name();
+                std::string base_key = std::string(TypeRef(t).trait_name()) + "::" + base_name
+                                      + "::" + std::string(TypeRef(t).assoc_type_name());
                 auto ait2 = assoc_type_impls_.find(base_key);
                 if (ait2 != assoc_type_impls_.end())
                     return subst_type_sema(ait2->second.type, make_subst(ait2->second));
@@ -1499,10 +1499,10 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
                     satisfied = impls_.count(bkey2) > 0;
                 }
                 if (!satisfied) continue;
-                std::string blanket_key = TypeRef(t).trait_name() + "::$blanket$"
-                    + TypeRef(t).trait_name() + "$" + bi.bound_trait
+                std::string blanket_key = std::string(TypeRef(t).trait_name()) + "::$blanket$"
+                    + std::string(TypeRef(t).trait_name()) + "$" + bi.bound_trait
                     + "$" + bi.target_typevar
-                    + "::" + TypeRef(t).assoc_type_name();
+                    + "::" + std::string(TypeRef(t).assoc_type_name());
                 auto bait = assoc_type_impls_.find(blanket_key);
                 if (bait == assoc_type_impls_.end()) continue;
                 // Substitute the blanket's target typevar → concrete.
@@ -1603,7 +1603,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         const LogosType* ts_type = nullptr;
         if (node.has_key(la::TYPE.code))
             ts_type = resolve_type(map_of(node.get(la::TYPE.code)));
-        std::string ts_name = ts_type ? TypeRef(ts_type).struct_name() : "";
+        std::string ts_name = ts_type ? std::string(TypeRef(ts_type).struct_name()) : "";
         if (ts_name.empty())
             error("&tagged<TS> Trait: TS must be a concrete struct type");
         LogosType t;
@@ -1725,7 +1725,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         std::string trait_for_assoc;
 
         if (TypeRef(base_type).kind() == LogosType::Kind::TypeVar) {
-            auto& tp_name = TypeRef(base_type).type_var_name();
+            auto tp_name = TypeRef(base_type).type_var_name();
             if (tp_name == "Self" && !current_trait_name_.empty()) {
                 trait_for_assoc = current_trait_name_;
             } else {
@@ -1735,7 +1735,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
                     // the assoc type. A `Container: Datatype` bound pulls in
                     // Datatype's `View` through the supertrait edge.
                     std::vector<std::string> worklist;
-                    std::unordered_set<std::string> seen;
+                    StrSet seen;
                     for (auto& b : bit->second) worklist.push_back(b.trait_name);
                     while (!worklist.empty() && trait_for_assoc.empty()) {
                         std::string tn = std::move(worklist.back());
@@ -1837,7 +1837,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
     if (tc == la::HERMES_ARR_TYPE) {
         auto elem_name = str_of(node.get(la::TYPE.code));
         // Resolve element type — must be a known Hermes scalar type name.
-        static const std::unordered_map<std::string, const char*> arr_elem_map = {
+        static const StrMap<const char*> arr_elem_map = {
             {"I8",  "ArrayI8"},  {"U8",  "ArrayU8"},
             {"I16", "ArrayI16"}, {"U16", "ArrayU16"},
             {"U32", "ArrayU32"}, {"I32", "ArrayI32"},
@@ -1877,7 +1877,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
             ? str_of(node.get(la::RET_TYPE.code)) : std::string_view{"AnyVal"};
         // C6-fix1: removed "Varchar" — it was advertised as supported but key_t
         // resolution only handled "I32", producing silent error_t() for Varchar.
-        static const std::unordered_map<std::string, const char*> map_key_map = {
+        static const StrMap<const char*> map_key_map = {
             {"I32", "I32"}, {"U32", "U32"}, {"I64", "I64"}, {"U64", "U64"},
         };
         if (map_key_map.find(std::string(key_name)) == map_key_map.end()) {
@@ -2044,12 +2044,12 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
 // Match `concrete` against `pattern`, binding TypeVars.  Minimal mirror of
 // mono's match_type — only the cases we need for struct-spec selection.
 static bool match_type_sema(const LogosType* concrete, const LogosType* pattern,
-                            std::unordered_map<std::string, const LogosType*>& bindings) {
+                            StrMap<const LogosType*>& bindings) {
     if (!concrete || !pattern) return false;
     if (TypeRef(pattern).kind() == LogosType::Kind::TypeVar) {
         auto it = bindings.find(TypeRef(pattern).type_var_name());
         if (it != bindings.end()) return types_equal(*concrete, *it->second);
-        bindings[TypeRef(pattern).type_var_name()] = concrete;
+        bindings[std::string(TypeRef(pattern).type_var_name())] = concrete;
         return true;
     }
     if (pattern->kind != concrete->kind) return false;
@@ -2088,7 +2088,7 @@ const SemaChecker::SemaStructInfo* SemaChecker::find_best_sema_struct_spec(
     for (auto& [key, info] : struct_specs_sema_) {
         if (info.base_name != base_name) continue;
         if (info.spec_patterns.size() != type_args.size()) continue;
-        std::unordered_map<std::string, const LogosType*> binds;
+        StrMap<const LogosType*> binds;
         bool ok = true;
         std::vector<int> scores(type_args.size());
         for (size_t i = 0; i < type_args.size(); ++i) {

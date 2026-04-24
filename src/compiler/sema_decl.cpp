@@ -898,7 +898,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 if (sd.name == target) { target_struct_tmpl = &sd; break; }
         }
     }
-    std::unordered_set<std::string> overridden;
+    StrSet overridden;
     // Blanket impls lower methods under a synthetic target name so they don't
     // collide with `T::method` for any other generic `T` in the program.
     std::string lower_target = ib.is_blanket

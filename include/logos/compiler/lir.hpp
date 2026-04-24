@@ -17,6 +17,7 @@
 #pragma once
 
 #include <logos/compiler/sema.hpp>   // LogosType, TypePool, SemaResult
+#include <logos/compiler/str_map.hpp>
 #include <unordered_set>
 #include <string>
 
@@ -739,7 +740,7 @@ struct LImplBlock {
     std::string              target_type;  // concrete type name (e.g. "Point")
     std::vector<LFunction>   methods;
     // Associated type definitions: "Item" → i32
-    std::unordered_map<std::string, const LogosType*> assoc_types;
+    StrMap<const LogosType*> assoc_types;
     bool                     is_unsafe = false;  // declared as `unsafe impl`
 
     // Blanket impl support: `impl<T: Bound> Trait for T` — target_type is a
@@ -822,7 +823,7 @@ struct LProgram {
     std::vector<LDispatchEntry>  dispatch_entries; // tag-dispatch table entries
 
     // Populated by sema when reflect::<T>() is lowered; consumed by reflection_emit pass.
-    std::unordered_set<std::string> reflect_requests; // fqn of types to reflect
+    StrSet reflect_requests; // fqn of types to reflect
 
     // Populated by reflection_emit pass; consumed by mlir_gen.
     std::vector<LReflectGlobal> reflection_globals;
@@ -830,7 +831,7 @@ struct LProgram {
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
     // already compiled and will be found by the linker in the .a).
-    std::unordered_set<std::string> binary_symbols;
+    StrSet binary_symbols;
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }
