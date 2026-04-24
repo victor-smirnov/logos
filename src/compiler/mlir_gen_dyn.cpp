@@ -867,7 +867,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
 
     // 6. Build LLVM function type and call indirectly.
     mlir::Type ret_type;
-    if (ret_logos_type && ret_logos_type->kind != LogosType::Kind::Void)
+    if (ret_logos_type && TypeRef(ret_logos_type).kind() != LogosType::Kind::Void)
         ret_type = logos_to_mlir(ret_logos_type);
     if (!ret_type)
         ret_type = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
@@ -938,7 +938,7 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(const EMethodCall& e,
     for (auto& a : args) param_types.push_back(a.getType());
 
     mlir::Type ret_type;
-    if (ret_logos_type && ret_logos_type->kind != LogosType::Kind::Void) {
+    if (ret_logos_type && TypeRef(ret_logos_type).kind() != LogosType::Kind::Void) {
         ret_type = logos_to_mlir(ret_logos_type);
     }
     if (!ret_type)
@@ -1138,17 +1138,17 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
             // identically to a normal local variable.
             scope_[e.captures[i]] = val;
             if (is_struct_cap)
-                var_struct_[e.captures[i]] = ct->struct_name;
+                var_struct_[e.captures[i]] = std::string(TypeRef(ct).struct_name());
             else if (is_class_cap)
-                var_class_[e.captures[i]] = ct->struct_name;
+                var_class_[e.captures[i]] = std::string(TypeRef(ct).struct_name());
             else if (is_array_cap)
-                var_subscript_[e.captures[i]] = logos_to_mlir(ct ? ct->elem : nullptr);
+                var_subscript_[e.captures[i]] = logos_to_mlir(ct ? TypeRef(ct).elem().raw() : nullptr);
             else if (is_tuple_cap)
                 var_tuple_.insert(e.captures[i]);
             else if (is_enum_cap)
                 var_tagged_enum_.insert(e.captures[i]);
             else if (is_dyn_cap && ct)
-                var_dyn_trait_[e.captures[i]] = ct->trait_name;
+                var_dyn_trait_[e.captures[i]] = std::string(TypeRef(ct).trait_name());
         } else {
             // Scalar capture: store in alloca for let-variable semantics.
             auto alloca = create_entry_alloca(cap_fields[i]);

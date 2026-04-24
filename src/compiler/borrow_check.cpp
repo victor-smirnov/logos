@@ -68,19 +68,19 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     return ts;
 }
 
-static bool has_droppable_fields(const LogosType*, const lir::LProgram&, const TypeSets&);
+static bool has_droppable_fields(TypeRef, const lir::LProgram&, const TypeSets&);
 
-static bool needs_drop(const LogosType* t, const lir::LProgram& prog, const TypeSets& ts) {
-    if (!t || t->kind != LogosType::Kind::Struct) return false;
-    return ts.drop_types.count(t->struct_name) || has_droppable_fields(t, prog, ts);
+static bool needs_drop(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
+    if (!t || t.kind() != LogosType::Kind::Struct) return false;
+    return ts.drop_types.count(std::string(t.struct_name())) || has_droppable_fields(t, prog, ts);
 }
 
-static bool has_droppable_fields(const LogosType* t, const lir::LProgram& prog,
+static bool has_droppable_fields(TypeRef t, const lir::LProgram& prog,
                                   const TypeSets& ts) {
-    if (!t || t->kind != LogosType::Kind::Struct) return false;
+    if (!t || t.kind() != LogosType::Kind::Struct) return false;
     auto check = [&](const std::vector<LStructDef>& defs) -> bool {
         for (auto& sd : defs) {
-            if (sd.name != t->struct_name) continue;
+            if (sd.name != t.struct_name()) continue;
             for (auto& f : sd.fields)
                 if (needs_drop(f.type, prog, ts)) return true;
             return false;
@@ -90,10 +90,10 @@ static bool has_droppable_fields(const LogosType* t, const lir::LProgram& prog,
     return check(prog.structs) || check(prog.struct_specializations);
 }
 
-static bool is_move_type(const LogosType* t, const lir::LProgram& prog, const TypeSets& ts) {
-    if (!t || t->kind != LogosType::Kind::Struct) return false;
+static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
+    if (!t || t.kind() != LogosType::Kind::Struct) return false;
     if (!needs_drop(t, prog, ts)) return false;
-    return !ts.copy_types.count(t->struct_name);
+    return !ts.copy_types.count(std::string(t.struct_name()));
 }
 
 // ── Variable state ───────────────────────────────────────────────────────────
@@ -136,12 +136,12 @@ static void merge_provs(ProvMap& base, const ProvMap& other) {
         base[name] = merge_prov(base[name], p);
 }
 
-static bool is_ref_kind(const LogosType* t) {
-    return t && (t->kind == LogosType::Kind::Ref || t->kind == LogosType::Kind::MutRef);
+static bool is_ref_kind(TypeRef t) {
+    return t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
 }
 
-static bool is_mut_ref(const LogosType* t) {
-    return t && t->kind == LogosType::Kind::MutRef;
+static bool is_mut_ref(TypeRef t) {
+    return t && t.kind() == LogosType::Kind::MutRef;
 }
 
 struct BorrowRecord {
@@ -510,9 +510,9 @@ class BorrowChecker {
                 declare_var(s.name);
                 if (is_ref_kind(s.type))
                     prov_[s.name] = prov_of(s.value);
-                else if (s.type && !s.type->lifetime_args.empty() &&
-                         (s.type->kind == LogosType::Kind::Struct ||
-                          s.type->kind == LogosType::Kind::ZonedStruct))
+                else if (s.type && !TypeRef(s.type).lifetime_args().empty() &&
+                         (TypeRef(s.type).kind() == LogosType::Kind::Struct ||
+                          TypeRef(s.type).kind() == LogosType::Kind::ZonedStruct))
                     prov_[s.name] = prov_of(s.value);  // struct<'z> borrows through lifetime
 
             // ── Assignment ───────────────────────────────────────────────

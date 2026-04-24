@@ -118,10 +118,10 @@ static AnyVal build_annotation_map(Hermes& doc, const lir::LAnnotationInstance& 
 
 // ── Build one field entry ─────────────────────────────────────────────────
 
-static std::string type_name_of(const LogosType* t) {
+static std::string type_name_of(TypeRef t) {
     if (!t) return "?";
     using K = LogosType::Kind;
-    switch (t->kind) {
+    switch (t.kind()) {
     case K::I8:   return "i8";   case K::U8:   return "u8";
     case K::I16:  return "i16";  case K::U16:  return "u16";
     case K::I32:  return "i32";  case K::U32:  return "u32";
@@ -129,9 +129,9 @@ static std::string type_name_of(const LogosType* t) {
     case K::I128: return "i128"; case K::U128: return "u128";
     case K::F32:  return "f32";  case K::F64:  return "f64";
     case K::Bool: return "bool";
-    case K::Struct:   return t->struct_name;
-    case K::ZonedStruct: return t->struct_name;
-    case K::Enum:     return t->enum_name;
+    case K::Struct:   return std::string(t.struct_name());
+    case K::ZonedStruct: return std::string(t.struct_name());
+    case K::Enum:     return std::string(t.enum_name());
     default: return "?";
     }
 }
