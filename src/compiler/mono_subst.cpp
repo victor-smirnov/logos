@@ -17,7 +17,7 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
         return t;
     }
     if (tv.kind() == LogosType::Kind::Array) {
-        auto* elem = subst_type(tv.elem(), s);
+        auto* elem = subst_type(tv.elem().raw(), s);
         uint64_t size = tv.arr_size();
         std::string symbolic = std::string(tv.arr_size_var());
         if (!symbolic.empty()) {
@@ -43,7 +43,7 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
     case LogosType::Kind::Ptr:
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef: {
-        auto* inner = subst_type(tv.pointee(), s);
+        auto* inner = subst_type(tv.pointee().raw(), s);
         if (inner == tv.pointee().raw()) return t;
         LogosType nt = *t; nt.pointee = inner;
         return out_.type_pool.alloc(nt);
@@ -89,7 +89,7 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
         return result;
     }
     case LogosType::Kind::Slice: {
-        auto* elem = subst_type(tv.elem(), s);
+        auto* elem = subst_type(tv.elem().raw(), s);
         if (elem == tv.elem().raw()) return t;
         LogosType nt; nt.kind = LogosType::Kind::Slice;
         nt.elem = elem;
@@ -110,7 +110,7 @@ const LogosType* Mono::subst_type(const LogosType* t, const SubstMap& s) noexcep
     }
     case LogosType::Kind::AssocType: {
         // Resolve: recursively substitute the base, then look up TraitName::ConcreteType::AssocName
-        auto* subbed_base = subst_type(tv.assoc_base(), s);
+        auto* subbed_base = subst_type(tv.assoc_base().raw(), s);
         TypeRef sbv{subbed_base};
         if (sbv.kind() == LogosType::Kind::Struct ||
             sbv.kind() == LogosType::Kind::ZonedStruct ||

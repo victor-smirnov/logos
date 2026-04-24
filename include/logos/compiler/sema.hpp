@@ -150,10 +150,9 @@ public:
     constexpr TypeRef() noexcept = default;
     constexpr TypeRef(const LogosType* p) noexcept : p_(p) {}
 
-    // Backward compatibility with `const LogosType*` — both directions
-    // are implicit so TypeRef and raw pointers are mixable in signatures
-    // during the incremental rewrite.
-    constexpr operator const LogosType*() const noexcept { return p_; }
+    // 2c.4e.2: implicit TypeRef→const LogosType* deleted. `operator->`
+    // and `operator*` still work for during-transition callers that
+    // reach struct fields directly; eventual 2c.4e.3 drops these too.
     constexpr const LogosType* operator->() const noexcept { return p_; }
     constexpr const LogosType& operator*()  const noexcept { return *p_; }
     constexpr explicit operator bool() const noexcept { return p_ != nullptr; }

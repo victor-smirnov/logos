@@ -333,7 +333,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             const LogosType* src_logos_type = s.value->type;
             if (src_logos_type && TypeRef(src_logos_type).kind() == LogosType::Kind::Ptr &&
                 TypeRef(src_logos_type).pointee())
-                src_logos_type = TypeRef(src_logos_type).pointee();
+                src_logos_type = TypeRef(src_logos_type).pointee().raw();
             if (src_logos_type &&
                 TypeRef(src_logos_type).kind() == LogosType::Kind::Struct &&
                 TypeRef(src_logos_type).struct_name() == "Box" &&
@@ -471,7 +471,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
             if (!val) return;
             const LogosType* src_lt = s.value->type;
             if (TypeRef(src_lt).kind() == LogosType::Kind::Ptr && TypeRef(src_lt).pointee())
-                src_lt = TypeRef(src_lt).pointee();
+                src_lt = TypeRef(src_lt).pointee().raw();
             auto vtable = build_inline_vtable(
                 TypeRef(cur_fn_ret_logos_type_).trait_name(), type_str(src_lt));
             // Heap-allocate the fat struct so it survives past this function's frame.
@@ -1139,7 +1139,7 @@ void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
                 const LogosType* ft = f.type;
                 // field is *mut S → descend into pointee
                 if (TypeRef(ft).kind() == LogosType::Kind::Ptr && TypeRef(ft).pointee())
-                    ft = TypeRef(ft).pointee();
+                    ft = TypeRef(ft).pointee().raw();
                 mid_type_name = concrete_struct_name(ft);
                 break;
             }
@@ -1671,7 +1671,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         if (auto* psl = std::get_if<PatSlice>(&arm.pat)) {
             auto* atype = s.scrut->type;
             if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
-                auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
+                auto elem_mlir = logos_to_mlir(TypeRef(atype).elem().raw());
                 auto arr_mlir  = logos_to_mlir(atype);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
                 if (aptr && elem_mlir && arr_mlir) {

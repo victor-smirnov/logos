@@ -1197,7 +1197,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EStructLit& e, const LogosType*) {
 mlir::Value MLIRGenImpl::gen_expr_kind(const EArrLit& e, const LogosType* type) {
     mlir::Type elem_type = builder_.getI32Type();
     if (type && TypeRef(type).elem()) {
-        auto et = logos_to_mlir(TypeRef(type).elem());
+        auto et = logos_to_mlir(TypeRef(type).elem().raw());
         if (et) elem_type = et;
     }
     return gen_arr_lit(e, elem_type);
@@ -1233,7 +1233,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, const LogosType* ty
         (TypeRef(recv_type).kind() == LogosType::Kind::Ref ||
          TypeRef(recv_type).kind() == LogosType::Kind::MutRef ||
          TypeRef(recv_type).kind() == LogosType::Kind::Ptr))
-        recv_type = TypeRef(recv_type).pointee();
+        recv_type = TypeRef(recv_type).pointee().raw();
     auto stype = tuple_llvm_type(recv_type);
     if (!stype) return nullptr;
     auto elem_mlir = logos_to_mlir(type);
@@ -2102,9 +2102,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrArith& e, const LogosType*) {
                 if (sit != struct_types_.end())
                     elem_ty = sit->second.llvm_type;
                 else
-                    elem_ty = logos_to_mlir(TypeRef(pt).pointee());
+                    elem_ty = logos_to_mlir(TypeRef(pt).pointee().raw());
             } else {
-                elem_ty = logos_to_mlir(TypeRef(pt).pointee());
+                elem_ty = logos_to_mlir(TypeRef(pt).pointee().raw());
             }
         }
     }
@@ -2131,7 +2131,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrDiff& e, const LogosType*) {
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
     }
-    if (!elem_mlir) elem_mlir = logos_to_mlir(TypeRef(pt).pointee());
+    if (!elem_mlir) elem_mlir = logos_to_mlir(TypeRef(pt).pointee().raw());
     if (!elem_mlir) return diff;
     // sizeof trick.
     mlir::Value zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);

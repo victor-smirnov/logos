@@ -62,14 +62,14 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Shared reference &T: Send iff T:Sync; Sync iff T:Sync ──────────────
     case Kind::Ref:
-        return is_auto_trait_satisfied(tv.pointee(), "Sync", visited);
+        return is_auto_trait_satisfied(tv.pointee().raw(), "Sync", visited);
 
     // ── Mutable reference &mut T: Send iff T:Send; Sync iff T:Sync ─────────
     case Kind::MutRef:
         if (trait_name == "Send")
-            return is_auto_trait_satisfied(tv.pointee(), "Send", visited);
+            return is_auto_trait_satisfied(tv.pointee().raw(), "Send", visited);
         else
-            return is_auto_trait_satisfied(tv.pointee(), "Sync", visited);
+            return is_auto_trait_satisfied(tv.pointee().raw(), "Sync", visited);
 
     // ── TypeVar: satisfied if bound list includes the trait ─────────────────
     case Kind::TypeVar: {
@@ -134,12 +134,12 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Array: element must satisfy ─────────────────────────────────────────
     case Kind::Array:
-        return tv.elem() ? is_auto_trait_satisfied(tv.elem(), trait_name, visited) : true;
+        return tv.elem() ? is_auto_trait_satisfied(tv.elem().raw(), trait_name, visited) : true;
 
     // ── Slice &[T]: like &T, both Send and Sync require the element to be Sync ─
     // Bug 2 fix: &[T] is a shared reference; must check T: Sync, not T: trait_name.
     case Kind::Slice:
-        return tv.elem() ? is_auto_trait_satisfied(tv.elem(), "Sync", visited) : true;
+        return tv.elem() ? is_auto_trait_satisfied(tv.elem().raw(), "Sync", visited) : true;
 
     // ── Tuple: every element must satisfy ───────────────────────────────────
     case Kind::Tuple:

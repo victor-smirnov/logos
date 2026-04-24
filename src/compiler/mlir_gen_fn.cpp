@@ -203,7 +203,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
         if (p.type) {
             TypeRef pv{p.type};
             if (is_ptr_kind(pv.kind()) && pv.pointee()) {
-                auto et = logos_to_mlir(pv.pointee());
+                auto et = logos_to_mlir(pv.pointee().raw());
                 if (et) var_subscript_[p.name] = et;
             }
         }

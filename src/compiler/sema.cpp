@@ -1298,7 +1298,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         return (it != s.end()) ? it->second : t;
     }
     case LogosType::Kind::Array: {
-        auto* elem = subst_type_sema(TypeRef(t).elem(), s, ls);
+        auto* elem = subst_type_sema(TypeRef(t).elem().raw(), s, ls);
         uint64_t size = TypeRef(t).arr_size();
         std::string symbolic{TypeRef(t).arr_size_var()};
         if (!symbolic.empty()) {
@@ -1316,13 +1316,13 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         return make_array(elem, size, symbolic);
     }
     case LogosType::Kind::Ptr: {
-        auto* inner = subst_type_sema(TypeRef(t).pointee(), s, ls);
+        auto* inner = subst_type_sema(TypeRef(t).pointee().raw(), s, ls);
         if (inner == TypeRef(t).pointee()) return t;
         return make_ptr(TypeRef(t).mut_ptr(), inner);
     }
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef: {
-        auto* inner = subst_type_sema(TypeRef(t).pointee(), s, ls);
+        auto* inner = subst_type_sema(TypeRef(t).pointee().raw(), s, ls);
         std::string lt{TypeRef(t).lifetime()};
         if (!lt.empty()) { auto it = ls.find(lt); if (it != ls.end()) lt = it->second; }
         if (inner == TypeRef(t).pointee() && lt == TypeRef(t).lifetime()) return t;
@@ -1390,7 +1390,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         return make_tuple_type(std::move(new_elems));
     }
     case LogosType::Kind::Slice: {
-        auto* elem = subst_type_sema(TypeRef(t).elem(), s, ls);
+        auto* elem = subst_type_sema(TypeRef(t).elem().raw(), s, ls);
         if (elem == TypeRef(t).elem()) return t;
         return make_slice_type(elem);
     }
@@ -1403,7 +1403,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
             changed |= (np != p);
             new_params.push_back(np);
         }
-        auto* new_ret = subst_type_sema(TypeRef(t).closure_ret(), s, ls);
+        auto* new_ret = subst_type_sema(TypeRef(t).closure_ret().raw(), s, ls);
         changed |= (new_ret != TypeRef(t).closure_ret());
         if (!changed) return t;
 
@@ -1415,7 +1415,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
     }
     case LogosType::Kind::AssocType: {
         // Substitute the base type first.
-        auto* subbed_base = subst_type_sema(TypeRef(t).assoc_base(), s, ls);
+        auto* subbed_base = subst_type_sema(TypeRef(t).assoc_base().raw(), s, ls);
         
         // Try resolving: if base is substituted to a concrete type, look up impl.
         const LogosType* concrete = nullptr;
@@ -2045,13 +2045,13 @@ static bool match_type_sema(const LogosType* concrete, const LogosType* pattern,
     switch (TypeRef(pattern).kind()) {
     case LogosType::Kind::Ptr:
         return TypeRef(pattern).mut_ptr() == TypeRef(concrete).mut_ptr() &&
-               match_type_sema(TypeRef(concrete).pointee(), TypeRef(pattern).pointee(), bindings);
+               match_type_sema(TypeRef(concrete).pointee().raw(), TypeRef(pattern).pointee().raw(), bindings);
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef:
-        return match_type_sema(TypeRef(concrete).pointee(), TypeRef(pattern).pointee(), bindings);
+        return match_type_sema(TypeRef(concrete).pointee().raw(), TypeRef(pattern).pointee().raw(), bindings);
     case LogosType::Kind::Array:
         return TypeRef(pattern).arr_size() == TypeRef(concrete).arr_size() &&
-               match_type_sema(TypeRef(concrete).elem(), TypeRef(pattern).elem(), bindings);
+               match_type_sema(TypeRef(concrete).elem().raw(), TypeRef(pattern).elem().raw(), bindings);
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
         return TypeRef(pattern).struct_name() == TypeRef(concrete).struct_name();
@@ -2062,8 +2062,8 @@ static bool match_type_sema(const LogosType* concrete, const LogosType* pattern,
 
 static int specificity_sema(const LogosType* t) {
     if (!t || TypeRef(t).kind() == LogosType::Kind::TypeVar) return 0;
-    if (TypeRef(t).kind() == LogosType::Kind::Ptr)   return 1 + specificity_sema(TypeRef(t).pointee());
-    if (TypeRef(t).kind() == LogosType::Kind::Array) return 1 + specificity_sema(TypeRef(t).elem());
+    if (TypeRef(t).kind() == LogosType::Kind::Ptr)   return 1 + specificity_sema(TypeRef(t).pointee().raw());
+    if (TypeRef(t).kind() == LogosType::Kind::Array) return 1 + specificity_sema(TypeRef(t).elem().raw());
     return 100;
 }
 

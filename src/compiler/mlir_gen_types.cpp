@@ -49,7 +49,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
     case LogosType::Kind::Ref:    return ptr_type();  // &T — same layout as *const T
     case LogosType::Kind::MutRef: return ptr_type();  // &mut T — same layout as *mut T
     case LogosType::Kind::Array: {
-        auto elem = logos_to_mlir(tv.elem());
+        auto elem = logos_to_mlir(tv.elem().raw());
         if (!elem) return nullptr;
         return mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size());
     }
@@ -218,7 +218,7 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(const LogosType* t,
     case LogosType::Kind::U128:        return 16;
     case LogosType::Kind::Array:
         if (!tv.elem()) return 0;
-        return tv.arr_size() * logos_abi_byte_size(tv.elem(), seen);
+        return tv.arr_size() * logos_abi_byte_size(tv.elem().raw(), seen);
     case LogosType::Kind::Closure:
     case LogosType::Kind::TraitObject: return 16;  // two pointers
     case LogosType::Kind::Tuple: {

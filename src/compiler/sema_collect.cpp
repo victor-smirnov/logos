@@ -947,7 +947,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     while (t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
                                  TypeRef(t).kind() == LogosType::Kind::MutRef ||
                                  TypeRef(t).kind() == LogosType::Kind::Ptr))
-                        t = TypeRef(t).pointee();
+                        t = TypeRef(t).pointee().raw();
                     if (!t) return false;
                     // TypeVar = generic type param (T); AssocType = T::Item
                     // Both are polymorphic from the trait's perspective and
@@ -1196,7 +1196,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                     case LogosType::Kind::IntLit: case LogosType::Kind::FloatLit:
                         return true;
                     case LogosType::Kind::Array:
-                        return self(TypeRef(t).elem(), self);
+                        return self(TypeRef(t).elem().raw(), self);
                     case LogosType::Kind::ZonedStruct:
                         return true;  // datatypes in datatypes OK
                     case LogosType::Kind::TypeVar:
@@ -1224,7 +1224,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
             auto marks_data_node = [&](const LogosType* ft) -> bool {
                 if (!ft) return false;
                 // Strip Array wrapper (Bug 3 fix)
-                while (TypeRef(ft).kind() == LogosType::Kind::Array) ft = TypeRef(ft).elem();
+                while (TypeRef(ft).kind() == LogosType::Kind::Array) ft = TypeRef(ft).elem().raw();
                 TypeRef fv{ft};
                 if (fv.kind() == LogosType::Kind::ZonedStruct) {
                     if (!fv.type_args().empty()) return true;  // generic → conservative
