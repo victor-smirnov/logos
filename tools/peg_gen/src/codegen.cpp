@@ -712,6 +712,7 @@ private:
         w.line();
         w.fmt("#include \"{}.hpp\"", g_.output);
         w.line("#include <logos/hermes/access.hpp>");
+        w.line("#include <logos/hermes/schema_codes.hpp>");
         w.line("#include <logos/verification/assert.hpp>");
         w.line("#include <charconv>");
         w.line("#include <cctype>");
@@ -1745,7 +1746,7 @@ private:
                 // TinyObjectMap header as schema_type_code so runtime dispatch
                 // does not need a bitmap+popcount CODE-key lookup.
                 if (field.name == "CODE") {
-                    w.fmt("node->set_schema_type_code(static_cast<uint64_t>(static_cast<int32_t>({}::{})));",
+                    w.fmt("node->set_schema_type_code(logos::hermes::schema::ast(static_cast<int32_t>({}::{})));",
                           ast_ns_, expr.value);
                 }
                 break;
@@ -1755,7 +1756,7 @@ private:
                 w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::hermes::HermesAccess::arena(doc_)).get();",
                       field_const, expr.int_val);
                 if (field.name == "CODE") {
-                    w.fmt("node->set_schema_type_code(static_cast<uint64_t>(int32_t({})));",
+                    w.fmt("node->set_schema_type_code(logos::hermes::schema::ast(int32_t({})));",
                           expr.int_val);
                 }
                 break;
