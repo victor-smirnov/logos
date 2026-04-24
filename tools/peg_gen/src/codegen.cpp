@@ -1741,12 +1741,23 @@ private:
                 // Symbolic name (e.g. MAP_NODE) → NamedCode value.
                 w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::hermes::HermesAccess::arena(doc_)).get();",
                       field_const, ast_ns_, expr.value);
+                // When writing the CODE discriminant, mirror it into the
+                // TinyObjectMap header as schema_type_code so runtime dispatch
+                // does not need a bitmap+popcount CODE-key lookup.
+                if (field.name == "CODE") {
+                    w.fmt("node->set_schema_type_code(static_cast<uint64_t>(static_cast<int32_t>({}::{})));",
+                          ast_ns_, expr.value);
+                }
                 break;
             }
 
             case int32_t(ast::INT_LIT): {
                 w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::hermes::HermesAccess::arena(doc_)).get();",
                       field_const, expr.int_val);
+                if (field.name == "CODE") {
+                    w.fmt("node->set_schema_type_code(static_cast<uint64_t>(int32_t({})));",
+                          expr.int_val);
+                }
                 break;
             }
 
