@@ -119,6 +119,63 @@ struct TypeParam {
     const LogosType*         const_type  = nullptr;
 };
 
+// ── TypeRef ───────────────────────────────────────────────────────────────
+//
+// Non-owning view over a LogosType living in a TypePool (Phase 2 transition:
+// wraps `const LogosType*` with implicit conversion both ways so existing
+// call sites work unchanged; view methods provide the API surface that will
+// remain after the underlying storage moves to a Hermes zone in Phase 2c).
+
+class TypeRef {
+    const LogosType* p_ = nullptr;
+public:
+    constexpr TypeRef() noexcept = default;
+    constexpr TypeRef(const LogosType* p) noexcept : p_(p) {}
+
+    // Backward compatibility with `const LogosType*` — both directions
+    // are implicit so TypeRef and raw pointers are mixable in signatures
+    // during the incremental rewrite.
+    constexpr operator const LogosType*() const noexcept { return p_; }
+    constexpr const LogosType* operator->() const noexcept { return p_; }
+    constexpr const LogosType& operator*()  const noexcept { return *p_; }
+    constexpr explicit operator bool() const noexcept { return p_ != nullptr; }
+
+    constexpr const LogosType* raw() const noexcept { return p_; }
+
+    friend constexpr bool operator==(TypeRef, TypeRef) noexcept = default;
+
+    // ── View accessors ──
+    // These match what a Hermes-backed reader will expose in Phase 2c;
+    // new code should prefer them over direct field access.
+
+    LogosType::Kind kind() const noexcept { return p_->kind; }
+
+    TypeRef pointee()      const noexcept { return p_->pointee; }
+    TypeRef elem()         const noexcept { return p_->elem; }
+    TypeRef assoc_base()   const noexcept { return p_->assoc_base; }
+    TypeRef closure_ret()  const noexcept { return p_->closure_ret; }
+
+    bool     mut_ptr()  const noexcept { return p_->mut_ptr; }
+    uint64_t arr_size() const noexcept { return p_->arr_size; }
+
+    std::string_view lifetime()        const noexcept { return p_->lifetime; }
+    std::string_view struct_name()     const noexcept { return p_->struct_name; }
+    std::string_view enum_name()       const noexcept { return p_->enum_name; }
+    std::string_view pkg_name()        const noexcept { return p_->pkg_name; }
+    std::string_view trait_name()      const noexcept { return p_->trait_name; }
+    std::string_view type_var_name()   const noexcept { return p_->type_var_name; }
+    std::string_view assoc_type_name() const noexcept { return p_->assoc_type_name; }
+    std::string_view arr_size_var()    const noexcept { return p_->arr_size_var; }
+
+    const std::vector<const LogosType*>& type_args()      const noexcept { return p_->type_args; }
+    const std::vector<const LogosType*>& tuple_elems()    const noexcept { return p_->tuple_elems; }
+    const std::vector<const LogosType*>& closure_params() const noexcept { return p_->closure_params; }
+    const std::vector<const LogosType*>& gat_args()       const noexcept { return p_->gat_args; }
+    const std::vector<std::string>&      lifetime_args()  const noexcept { return p_->lifetime_args; }
+
+    const std::optional<int64_t>& const_val() const noexcept { return p_->const_val; }
+};
+
 // Structural equality (pointer-to-pointer not checked — use value comparison).
 bool types_equal(const LogosType& a, const LogosType& b) noexcept;
 
