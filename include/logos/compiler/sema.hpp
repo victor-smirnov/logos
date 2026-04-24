@@ -19,12 +19,9 @@
 #include <string>
 
 #include <logos/compiler/sema_schema.hpp>
-#include <logos/hermes/config.hpp>  // arena_offset_t
-
-namespace logos::hermes {
-class Arena;
-class TinyObjectMap;
-}  // namespace logos::hermes
+#include <logos/hermes/arena.hpp>
+#include <logos/hermes/tiny_object_map.hpp>
+#include <logos/hermes/schema_codes.hpp>
 
 namespace logos::compiler {
 
@@ -166,15 +163,49 @@ public:
     // These match what a Hermes-backed reader will expose in Phase 2c;
     // new code should prefer them over direct field access.
 
-    LogosType::Kind kind() const noexcept { return p_->kind; }
+    // Hermes mirror helpers — used by accessors that have been cut over to
+    // reading from the TinyObjectMap (Phase 2c.4b+). The struct back-refs
+    // are populated by TypePool::alloc(); offset is stable across arena
+    // growth, so the base is re-derived on each call.
+    // Note: returns non-const uint8_t* because TinyObjectMap::get/slot take
+    // a mutable base (even from const methods). The arena is logically const
+    // here; const_cast is safe as the reads are side-effect-free.
+    uint8_t* mirror_base() const noexcept {
+        return const_cast<uint8_t*>(
+            p_->hermes_arena_->head().data());
+    }
+    const hermes::TinyObjectMap* mirror() const noexcept {
+        return reinterpret_cast<const hermes::TinyObjectMap*>(
+            mirror_base() + p_->hermes_mirror_off_.value());
+    }
+
+    // Transitional fallback: some call sites construct stack LogosType
+    // without going through TypePool::alloc() (e.g. mono_clone builds a
+    // temporary Struct type to compute its concrete name). Those instances
+    // have no mirror, so we read straight from the struct. Phase 2c.4d
+    // will require every LogosType to live in the arena and remove this.
+    LogosType::Kind kind() const noexcept {
+        if (!p_->hermes_arena_) return p_->kind;
+        return LogosType::Kind(
+            hermes::schema::variant_of(mirror()->schema_type_code()));
+    }
 
     TypeRef pointee()      const noexcept { return p_->pointee; }
     TypeRef elem()         const noexcept { return p_->elem; }
     TypeRef assoc_base()   const noexcept { return p_->assoc_base; }
     TypeRef closure_ret()  const noexcept { return p_->closure_ret; }
 
-    bool     mut_ptr()  const noexcept { return p_->mut_ptr; }
-    uint64_t arr_size() const noexcept { return p_->arr_size; }
+    bool mut_ptr() const noexcept {
+        if (!p_->hermes_arena_) return p_->mut_ptr;
+        auto av = mirror()->get(sema_schema::MUT_PTR.code, mirror_base());
+        return av.is_value() && av.as_value<uint8_t>() != 0;
+    }
+    uint64_t arr_size() const noexcept {
+        if (!p_->hermes_arena_) return p_->arr_size;
+        auto av = mirror()->get(sema_schema::ARR_SIZE.code, mirror_base());
+        if (av.is_null()) return 0;
+        return *av.as_ptr<const uint64_t>(mirror_base());
+    }
 
     // These return const std::string& for now; Phase 2c will switch to
     // string_view once the backing storage moves to a Hermes zone.
