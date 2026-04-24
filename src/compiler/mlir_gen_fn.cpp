@@ -63,19 +63,20 @@ mlir::Value MLIRGenImpl::sizeof_struct(mlir::LLVM::LLVMStructType struct_type) {
 
 mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(const LogosType* ret_type) {
     if (!ret_type) return nullptr;
+    TypeRef rv{ret_type};
     if (type_str(ret_type) == "AnyVal") return builder_.getI32Type();
-    if (ret_type->kind == LogosType::Kind::Tuple) {
+    if (rv.kind() == LogosType::Kind::Tuple) {
         return tuple_llvm_type(ret_type);
     }
-    if (ret_type->kind == LogosType::Kind::Struct ||
-        ret_type->kind == LogosType::Kind::ZonedStruct) {
+    if (rv.kind() == LogosType::Kind::Struct ||
+        rv.kind() == LogosType::Kind::ZonedStruct) {
         auto cname = concrete_struct_name(ret_type);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) return sit->second.llvm_type;
         return ptr_type();
     }
-    if (ret_type->kind == LogosType::Kind::Enum) {
-        auto* te = resolve_tagged_enum(ret_type->enum_name, ret_type);
+    if (rv.kind() == LogosType::Kind::Enum) {
+        auto* te = resolve_tagged_enum(std::string(rv.enum_name()), ret_type);
         if (te) return te->llvm_type;
         return builder_.getI32Type();
     }
@@ -90,7 +91,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
             continue;
         }
         // Arrays (like structs) are passed by pointer.
-        if (p.type && p.type->kind == LogosType::Kind::Array)
+        if (p.type && TypeRef(p.type).kind() == LogosType::Kind::Array)
             param_types.push_back(ptr_type());
         else {
             auto t = logos_to_mlir(p.type);
@@ -99,25 +100,26 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
     }
     llvm::SmallVector<mlir::Type> ret_types;
     if (fn.ret_type) {
+        TypeRef rv{fn.ret_type};
         if (type_str(fn.ret_type) == "AnyVal") {
             ret_types.push_back(builder_.getI32Type());
         } else
         // Tuples and structs are returned by value (as LLVM struct), not by pointer.
         // Returning a pointer to a local alloca would be a dangling pointer after return.
-        if (fn.ret_type->kind == LogosType::Kind::Tuple) {
+        if (rv.kind() == LogosType::Kind::Tuple) {
             auto rt = tuple_llvm_type(fn.ret_type);
             if (rt) ret_types.push_back(rt);
-        } else if (fn.ret_type->kind == LogosType::Kind::Struct ||
-                   fn.ret_type->kind == LogosType::Kind::ZonedStruct) {
+        } else if (rv.kind() == LogosType::Kind::Struct ||
+                   rv.kind() == LogosType::Kind::ZonedStruct) {
             auto cname = concrete_struct_name(fn.ret_type);
             auto sit = struct_types_.find(cname);
             if (sit != struct_types_.end())
                 ret_types.push_back(sit->second.llvm_type);
             else
                 ret_types.push_back(ptr_type()); // fallback (struct not yet registered)
-        } else if (fn.ret_type->kind == LogosType::Kind::Enum) {
+        } else if (rv.kind() == LogosType::Kind::Enum) {
             // Tagged enums must also be returned by value (aggregate), not by pointer.
-            auto* te = resolve_tagged_enum(fn.ret_type->enum_name, fn.ret_type);
+            auto* te = resolve_tagged_enum(std::string(rv.enum_name()), fn.ret_type);
             if (te)
                 ret_types.push_back(te->llvm_type);
             else {
@@ -198,21 +200,25 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                    k == LogosType::Kind::Ref ||
                    k == LogosType::Kind::MutRef;
         };
-        if (p.type && is_ptr_kind(p.type->kind) && p.type->pointee) {
-            auto et = logos_to_mlir(p.type->pointee);
-            if (et) var_subscript_[p.name] = et;
+        if (p.type) {
+            TypeRef pv{p.type};
+            if (is_ptr_kind(pv.kind()) && pv.pointee()) {
+                auto et = logos_to_mlir(pv.pointee());
+                if (et) var_subscript_[p.name] = et;
+            }
         }
 
         // Track struct / class type for parameters (including 'self').
         if (p.type) {
+            TypeRef pv{p.type};
             std::string sname;
-            if (p.type->kind == LogosType::Kind::Struct ||
-                p.type->kind == LogosType::Kind::ZonedStruct)
+            if (pv.kind() == LogosType::Kind::Struct ||
+                pv.kind() == LogosType::Kind::ZonedStruct)
                 sname = concrete_struct_name(p.type);
-            else if (is_ptr_kind(p.type->kind) && p.type->pointee &&
-                     (p.type->pointee->kind == LogosType::Kind::Struct ||
-                      p.type->pointee->kind == LogosType::Kind::ZonedStruct))
-                sname = concrete_struct_name(p.type->pointee);
+            else if (is_ptr_kind(pv.kind()) && pv.pointee() &&
+                     (pv.pointee().kind() == LogosType::Kind::Struct ||
+                      pv.pointee().kind() == LogosType::Kind::ZonedStruct))
+                sname = concrete_struct_name(pv.pointee());
             if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
 
         }

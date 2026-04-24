@@ -29,7 +29,8 @@ bool SemaChecker::is_auto_trait_satisfied(
     std::unordered_set<std::string>& visited)
 {
     if (!T) return true;
-    if (T->kind == Kind::Error) return true;
+    TypeRef tv{T};
+    if (tv.kind() == Kind::Error) return true;
 
     // Cycle guard — prevents infinite recursion on recursive types.
     auto cycle_key = type_str(T) + "::" + std::string(trait_name);
@@ -40,7 +41,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         return impls_.count(std::string(trait_name) + "::" + name) > 0;
     };
 
-    switch (T->kind) {
+    switch (tv.kind()) {
     // ── Scalars and fn-ptr: always Send + Sync ─────────────────────────────
     case Kind::Void:
     case Kind::Bool:
@@ -61,18 +62,18 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Shared reference &T: Send iff T:Sync; Sync iff T:Sync ──────────────
     case Kind::Ref:
-        return is_auto_trait_satisfied(T->pointee, "Sync", visited);
+        return is_auto_trait_satisfied(tv.pointee(), "Sync", visited);
 
     // ── Mutable reference &mut T: Send iff T:Send; Sync iff T:Sync ─────────
     case Kind::MutRef:
         if (trait_name == "Send")
-            return is_auto_trait_satisfied(T->pointee, "Send", visited);
+            return is_auto_trait_satisfied(tv.pointee(), "Send", visited);
         else
-            return is_auto_trait_satisfied(T->pointee, "Sync", visited);
+            return is_auto_trait_satisfied(tv.pointee(), "Sync", visited);
 
     // ── TypeVar: satisfied if bound list includes the trait ─────────────────
     case Kind::TypeVar: {
-        auto it = current_type_bounds_.find(T->type_var_name);
+        auto it = current_type_bounds_.find(std::string(tv.type_var_name()));
         if (it != current_type_bounds_.end()) {
             for (auto& b : it->second)
                 if (b.trait_name == trait_name) return true;
@@ -94,15 +95,15 @@ bool SemaChecker::is_auto_trait_satisfied(
         // TypeVar fields in generic struct instantiations (e.g. Vec<i32>
         // has field `data: TypeVar("T")`) are replaced with concrete types.
         std::unordered_map<std::string, const LogosType*> subst;
-        if (!T->type_args.empty() && !si->type_params.empty()) {
-            size_t n = std::min(T->type_args.size(), si->type_params.size());
+        if (!tv.type_args().empty() && !si->type_params.empty()) {
+            size_t n = std::min(tv.type_args().size(), si->type_params.size());
             for (size_t j = 0; j < n; ++j)
-                subst[si->type_params[j].name] = T->type_args[j];
+                subst[si->type_params[j].name] = tv.type_args()[j];
         }
         for (auto& f : si->fields) {
             const LogosType* ftype = f.type;
-            if (ftype && ftype->kind == Kind::TypeVar && !subst.empty()) {
-                auto sit = subst.find(ftype->type_var_name);
+            if (ftype && TypeRef(ftype).kind() == Kind::TypeVar && !subst.empty()) {
+                auto sit = subst.find(std::string(TypeRef(ftype).type_var_name()));
                 if (sit != subst.end()) ftype = sit->second;
             }
             if (!is_auto_trait_satisfied(ftype, trait_name, visited)) {
@@ -116,7 +117,7 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Enum: explicit impl OR every variant payload satisfied ──────────────
     case Kind::Enum: {
-        if (has_explicit(T->enum_name) || has_explicit(type_str(T))) return true;
+        if (has_explicit(std::string(tv.enum_name())) || has_explicit(type_str(T))) return true;
         auto* ei = get_enum_si(T);
         if (!ei) return true; // unknown enum — be lenient
         for (auto& v : ei->variants) {
@@ -133,16 +134,16 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Array: element must satisfy ─────────────────────────────────────────
     case Kind::Array:
-        return T->elem ? is_auto_trait_satisfied(T->elem, trait_name, visited) : true;
+        return tv.elem() ? is_auto_trait_satisfied(tv.elem(), trait_name, visited) : true;
 
     // ── Slice &[T]: like &T, both Send and Sync require the element to be Sync ─
     // Bug 2 fix: &[T] is a shared reference; must check T: Sync, not T: trait_name.
     case Kind::Slice:
-        return T->elem ? is_auto_trait_satisfied(T->elem, "Sync", visited) : true;
+        return tv.elem() ? is_auto_trait_satisfied(tv.elem(), "Sync", visited) : true;
 
     // ── Tuple: every element must satisfy ───────────────────────────────────
     case Kind::Tuple:
-        for (auto* e : T->tuple_elems)
+        for (auto* e : tv.tuple_elems())
             if (!is_auto_trait_satisfied(e, trait_name, visited)) return false;
         return true;
 
