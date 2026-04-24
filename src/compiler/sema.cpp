@@ -360,6 +360,11 @@ const LogosType* TypePool::alloc(LogosType t) {
     if (!impl_) impl_ = TypePoolImpl::make();
     auto off = impl_->mirror(*p);
     impl_->mirror_offsets_[p] = off;
+    // Wire back-refs so readers can resolve the mirror on demand.
+    // `p` is mutable through &pool_.back().
+    auto* mp = const_cast<LogosType*>(p);
+    mp->hermes_arena_      = &impl_->arena_;
+    mp->hermes_mirror_off_ = off;
     impl_->validate_mirror(*p, off);
     return p;
 }

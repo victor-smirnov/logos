@@ -19,6 +19,12 @@
 #include <string>
 
 #include <logos/compiler/sema_schema.hpp>
+#include <logos/hermes/config.hpp>  // arena_offset_t
+
+namespace logos::hermes {
+class Arena;
+class TinyObjectMap;
+}  // namespace logos::hermes
 
 namespace logos::compiler {
 
@@ -101,6 +107,15 @@ struct LogosType {
 
     // Constant literal value (for monomorphized constant generics)
     std::optional<int64_t> const_val;
+
+    // ── Hermes mirror back-refs (Phase 2c.4a) ──
+    // Set by TypePool::alloc() after building the TinyObjectMap mirror.
+    // offset is stable across arena growth (arena is GrowableSingleChunk);
+    // mirror pointer is resolved on demand as `hermes_arena_->head().data()
+    // + hermes_mirror_off_`. Used by TypeRef accessors in Phase 2c.4b+ to
+    // read fields from the mirror instead of the struct.
+    const hermes::Arena*   hermes_arena_      = nullptr;
+    hermes::arena_offset_t hermes_mirror_off_ = hermes::NULL_OFFSET;
 };
 
 // ── Trait bound (for type parameter bounds) ────────────────────────────────
