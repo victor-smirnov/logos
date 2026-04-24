@@ -12,6 +12,7 @@
 #include <deque>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 #include <optional>
@@ -195,22 +196,29 @@ std::string concrete_struct_name(TypeRef t);
 //
 // Owns all LogosType objects.  std::deque gives pointer stability on push_back.
 // Moved into LProgram so pointers remain valid after sema_lower() returns.
+//
+// Phase 2c.2: TypePool also owns a Hermes arena and mirrors every allocated
+// LogosType into a TinyObjectMap node inside it. The mirror is not yet read
+// by anyone — Phase 2c.3 will switch TypeRef view accessors to read from it.
+// Readers that currently resolve through the raw struct pointer are
+// unaffected.
+
+class TypePoolImpl;  // PIMPL — owns hermes::Arena and offset mapping
 
 class TypePool {
-    std::deque<LogosType> pool_;
+    std::deque<LogosType>          pool_;
+    std::unique_ptr<TypePoolImpl>  impl_;  // lazily created on first alloc()
 public:
-    TypePool() = default;
-    TypePool(TypePool&&) = default;
-    TypePool& operator=(TypePool&&) = default;
+    TypePool();
+    ~TypePool();
+    TypePool(TypePool&&) noexcept;
+    TypePool& operator=(TypePool&&) noexcept;
 
     // Non-copyable — pointer stability requires unique ownership.
     TypePool(const TypePool&) = delete;
     TypePool& operator=(const TypePool&) = delete;
 
-    const LogosType* alloc(LogosType t) {
-        pool_.push_back(std::move(t));
-        return &pool_.back();
-    }
+    const LogosType* alloc(LogosType t);
 };
 
 // ── Diagnostics ────────────────────────────────────────────────────────────

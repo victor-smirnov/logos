@@ -16,12 +16,125 @@
 #include "sema_impl.hpp"
 
 #include <logos/compiler/sha256.hpp>
+#include <logos/compiler/sema_schema.hpp>
+#include <logos/hermes/arena.hpp>
+#include <logos/hermes/arena_value.hpp>
+#include <logos/hermes/schema_codes.hpp>
+#include <logos/verification/assert.hpp>
 
 #include <cstdio>
 #include <format>
 #include <functional>
 
 namespace logos::compiler {
+
+// ── TypePool PIMPL (Phase 2c.2) ────────────────────────────────────────────
+//
+// Mirrors each LogosType into a Hermes TinyObjectMap inside a local Arena.
+// Not yet read by anyone: Phase 2c.3 will switch TypeRef accessors to consult
+// the mirror. For now the goal is simply: every alloc() builds a faithful
+// Hermes mirror of the new LogosType, and existing behaviour is unchanged.
+//
+// Arena mode: GrowableSingleChunk so that RelativePtrs resolved against
+// arena.head().data() are always valid (MultiChunk would scatter tail
+// allocations into separate buffers, breaking TinyObjectMap's fixed-base
+// addressing).
+
+class TypePoolImpl {
+public:
+    hermes::Arena                                          arena_;
+    std::unordered_map<const LogosType*, hermes::arena_offset_t> mirror_offsets_;
+
+    TypePoolImpl(logos::InitTag& tag)
+        : arena_(tag, hermes::ArenaMode::GrowableSingleChunk, 64 * 1024)
+    {
+        if (!tag.ok()) return;
+        // Reserve offset 0 for the DocumentHeader so a zero offset reads as
+        // the canonical "null" sentinel for AnyVal / RelativePtr.
+        auto hdr_exp = arena_.allocate_raw(sizeof(hermes::DocumentHeader),
+                                           alignof(hermes::DocumentHeader));
+        if (!hdr_exp) {
+            tag.fail(std::move(hdr_exp.error()));
+            return;
+        }
+        auto* hdr = static_cast<hermes::DocumentHeader*>(*hdr_exp);
+        hdr->root_offset = hermes::NULL_OFFSET;
+    }
+
+    static std::unique_ptr<TypePoolImpl> make() {
+        logos::InitTag tag;
+        auto p = std::make_unique<TypePoolImpl>(tag);
+        LOGOS_ASSERT(tag.ok(), "SEMA-TYPEPOOL-001",
+            "TypePool Hermes arena initialisation failed");
+        return p;
+    }
+
+    hermes::arena_offset_t offset_of(const void* p) const noexcept {
+        auto off = static_cast<uint32_t>(
+            static_cast<const uint8_t*>(p) - arena_.head().data());
+        return hermes::arena_offset_t{off};
+    }
+
+    hermes::TinyObjectMap* at(hermes::arena_offset_t off) noexcept {
+        return reinterpret_cast<hermes::TinyObjectMap*>(
+            arena_.head().data() + off.value());
+    }
+
+    // Build a Hermes mirror for `t` and return its arena offset.
+    // Phase 2c.2: primitive-only — schema_type_code + mut_ptr/arr_size/const_val.
+    // Strings/pointees/vectors land in subsequent sub-phases.
+    hermes::arena_offset_t mirror(const LogosType& t) {
+        namespace k = sema_schema;
+
+        auto map_exp = hermes::TinyObjectMap::create(arena_, /*capacity=*/4);
+        LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
+            "TinyObjectMap allocation failed");
+        hermes::arena_offset_t map_off = offset_of(*map_exp);
+
+        // Header: schema_type_code disambiguates Kind.
+        (*map_exp)->set_schema_type_code(
+            hermes::schema::type(int32_t(t.kind)));
+
+        // MUT_PTR — bool, embeddable.
+        if (t.kind == LogosType::Kind::Ptr) {
+            auto v = hermes::AnyVal::from_value<uint8_t>(
+                t.mut_ptr ? 1 : 0, hermes::type_hash::Bool);
+            auto r = at(map_off)->put(k::MUT_PTR.code, v, arena_);
+            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "put MUT_PTR failed");
+        }
+
+        // ARR_SIZE — u64, not embeddable; zone-allocate.
+        if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
+            auto av = hermes::anyval_put<uint64_t>(arena_, t.arr_size);
+            LOGOS_ASSERT(av.has_value(), "SEMA-TYPEPOOL-003", "arr_size put failed");
+            auto r = at(map_off)->put(k::ARR_SIZE.code, *av, arena_);
+            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "put ARR_SIZE failed");
+        }
+
+        // CONST_VAL — optional<i64>; absent → key absent.
+        if (t.const_val.has_value()) {
+            auto av = hermes::anyval_put<int64_t>(arena_, *t.const_val);
+            LOGOS_ASSERT(av.has_value(), "SEMA-TYPEPOOL-003", "const_val put failed");
+            auto r = at(map_off)->put(k::CONST_VAL.code, *av, arena_);
+            LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "put CONST_VAL failed");
+        }
+
+        return map_off;
+    }
+};
+
+TypePool::TypePool() = default;
+TypePool::~TypePool() = default;
+TypePool::TypePool(TypePool&&) noexcept = default;
+TypePool& TypePool::operator=(TypePool&&) noexcept = default;
+
+const LogosType* TypePool::alloc(LogosType t) {
+    pool_.push_back(std::move(t));
+    const LogosType* p = &pool_.back();
+    if (!impl_) impl_ = TypePoolImpl::make();
+    impl_->mirror_offsets_[p] = impl_->mirror(*p);
+    return p;
+}
 
 namespace la = ast;
 using hermes::TinyMapView;
