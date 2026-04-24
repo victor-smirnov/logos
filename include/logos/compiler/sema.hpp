@@ -291,6 +291,13 @@ std::string type_str(TypeRef t);
 // Used by mono and mlir_gen to look up instantiated struct definitions.
 std::string concrete_struct_name(TypeRef t);
 
+// Raw variant that takes the struct base name + concrete type args directly.
+// Used at a few call sites that would otherwise need to synthesise a stack
+// LogosType (which bypasses TypePool's Hermes mirror). The args must already
+// be concrete — no TypeVar / IntLit.
+std::string concrete_struct_name_raw(std::string_view base_name,
+                                     const std::vector<const LogosType*>& type_args);
+
 
 // ── TypePool ───────────────────────────────────────────────────────────────
 //

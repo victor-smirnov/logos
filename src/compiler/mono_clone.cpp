@@ -118,14 +118,15 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                 if (ta && TypeRef(ta).kind() == LogosType::Kind::TypeVar)
                                     { all_concrete = false; break; }
                             if (all_concrete) {
-                                // Build the concrete struct type.
-                                LogosType st;
-                                st.kind = LogosType::Kind::Struct;
-                                st.struct_name = struct_part;
+                                // Build the concrete struct's mangled name via the free
+                                // helper — no stack LogosType (which would bypass the
+                                // Hermes mirror in TypePool).
                                 size_t n_impl_tp = sit->second->type_params.size();
-                                for (size_t i = 0; i < n_impl_tp && i < nc.type_args.size(); ++i)
-                                    st.type_args.push_back(nc.type_args[i]);
-                                std::string cname = concrete_struct_name(&st);
+                                size_t n_args    = std::min(n_impl_tp, nc.type_args.size());
+                                std::vector<const LogosType*> args(
+                                    nc.type_args.begin(), nc.type_args.begin() + n_args);
+                                std::string cname = concrete_struct_name_raw(
+                                    struct_part, args);
                                 nc.callee = cname + method_part;
                                 nc.type_args.clear();  // call is now concrete
                                 rewritten_as_struct_method = true;

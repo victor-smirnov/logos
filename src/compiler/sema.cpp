@@ -486,6 +486,16 @@ std::string concrete_struct_name(TypeRef t) {
     return r;
 }
 
+std::string concrete_struct_name_raw(std::string_view base_name,
+                                     const std::vector<const LogosType*>& type_args) {
+    if (type_args.empty()) return std::string(base_name);
+    std::string r(base_name);
+    r += "$G";
+    r += std::to_string(type_args.size());
+    for (auto* a : type_args) { r += "$"; r += mangle_type_for_name(a); }
+    return r;
+}
+
 static std::string mangle_type_for_name(TypeRef t) {
     if (!t) return "null";
     switch (TypeRef(t).kind()) {
