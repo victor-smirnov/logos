@@ -287,6 +287,10 @@ pub struct Request {
     pub url:     Url,
     pub headers: Headers,
     pub body:    Vec<u8>,
+    // HTTP version minor digit from the request line.  0 for HTTP/1.0,
+    // 1 for HTTP/1.1.  Major is always 1 (higher majors are rejected by
+    // the parser).
+    pub version_minor: i32,
 }
 
 pub struct Response {
@@ -299,10 +303,11 @@ pub struct Response {
 impl Request {
     pub static fn new(method: Method, u: Url) -> Request {
         return Request {
-            method:  method,
-            url:     u,
-            headers: Headers::new(),
-            body:    vec_new::<u8>(),
+            method:        method,
+            url:           u,
+            headers:       Headers::new(),
+            body:          vec_new::<u8>(),
+            version_minor: 1 as i32,
         };
     }
 }

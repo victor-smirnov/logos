@@ -472,6 +472,7 @@ pub fn parse_request_stream<R: Read>(br: &mut BufReader<R>)
     // HTTP-version must be exactly HTTP/1.0 or HTTP/1.1.
     let ver_len: i64 = ln - (sp2 + 1 as i64);
     if ver_len != 8 as i64 { return Result::Err(HttpError::Parse); }
+    let mut ver_minor: i32 = 1 as i32;
     unsafe {
         let vp: *const u8 = lp.byte_add(sp2 + 1 as i64);
         if vp[0] != 72 as u8 { return Result::Err(HttpError::Parse); } // H
@@ -481,7 +482,9 @@ pub fn parse_request_stream<R: Read>(br: &mut BufReader<R>)
         if vp[4] != 47 as u8 { return Result::Err(HttpError::Parse); } // /
         if vp[5] != 49 as u8 { return Result::Err(HttpError::Parse); } // 1
         if vp[6] != 46 as u8 { return Result::Err(HttpError::Parse); } // .
-        if vp[7] != 48 as u8 && vp[7] != 49 as u8 {                    // 0 | 1
+        if vp[7] == 48 as u8 {
+            ver_minor = 0 as i32;
+        } else if vp[7] != 49 as u8 {
             return Result::Err(HttpError::Parse);
         }
     }
@@ -501,6 +504,7 @@ pub fn parse_request_stream<R: Read>(br: &mut BufReader<R>)
     let url:    Url    = resolve_request_target(target_ptr, target_len);
 
     let mut req: Request = Request::new(method, url);
+    req.version_minor = ver_minor;
 
     // Header block terminated by an empty CRLF line.
     while true {
@@ -515,6 +519,13 @@ pub fn parse_request_stream<R: Read>(br: &mut BufReader<R>)
             return Result::Err(HttpError::Parse);
         }
     }
+
+    // RFC 7230 §5.4: HTTP/1.1 requests MUST include a Host header.
+    // HTTP/1.0 has no such requirement.
+    if ver_minor == 1 as i32 && !(&req.headers).contains("Host") {
+        return Result::Err(HttpError::Parse);
+    }
+
     return Result::Ok(req);
 }
 

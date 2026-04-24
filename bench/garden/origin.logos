@@ -104,7 +104,11 @@ fn build_json(req: &Request, json: &mut String) {
     push_b64_quoted_string(json, &req.method.name);
 
     json.push_str(",\"version\":");
-    push_b64_quoted_str(json, "HTTP/1.1");
+    if req.version_minor == 0 as i32 {
+        push_b64_quoted_str(json, "HTTP/1.0");
+    } else {
+        push_b64_quoted_str(json, "HTTP/1.1");
+    }
 
     json.push_str(",\"uri\":");
     let mut uri: String = String::new();
