@@ -1,0 +1,61 @@
+// Minimal stress test for the per-thread SPSC inbox + cross-thread wake-up
+// path, with no HTTP / reactor I/O on top.
+//
+// Setup mirrors http_hello_mt:
+//   • thread_pool_new(N_WORKERS)   — each worker has Scheduler + Reactor + inbox
+//   • thread_pool_set_stack_pool_cap
+//   • thread_pool_start
+//   • main loops thread_submit(worker_i, task_fiber, payload) for N_TASKS
+//     distributed round-robin across workers; each task_fiber is a one-shot
+//     fiber that just bumps a shared atomic and retires.
+//   • thread_pool_signal_done + thread_pool_join to drain.
+//
+// If the SpscRing / Thread layout or lifetime has a bug, we should see it
+// here too, without the HTTP code path involved.
+package bench_mpsc_stress;
+
+use std.sys.fiber;
+use std.mem;
+
+extern fn logos_atomic_fetch_add64(ptr: *mut i64, v: i64) -> i64;
+
+const N_WORKERS: i32 = 4 as i32;
+const N_TASKS:   i64 = 1000000 as i64;
+const STACK_POOL_PER_WORKER: i64 = 64 as i64;
+
+struct Counter { v: i64 }
+
+fn task_fiber(arg: i64) {
+    let c: *mut Counter = arg as *mut Counter;
+    let cp: *mut i64 = &mut (unsafe { *c }).v as *mut i64;
+    let _: i64 = unsafe { logos_atomic_fetch_add64(cp, 1 as i64) };
+}
+
+unsafe fn main() -> i32 {
+    let pool: *mut ThreadPool = thread_pool_new(N_WORKERS);
+    thread_pool_set_stack_pool_cap(pool, STACK_POOL_PER_WORKER);
+    thread_pool_start(pool);
+
+    let mut counter: Counter = Counter { v: 0 as i64 };
+    let cp: i64 = &mut counter as *mut Counter as i64;
+
+    let fp: fn(i64) -> () = task_fiber;
+
+    let mut i: i64 = 0 as i64;
+    while i < N_TASKS {
+        let w: i32 = (i % (N_WORKERS as i64)) as i32;
+        thread_submit(pool, w, fp, cp);
+        i = i + 1 as i64;
+    }
+
+    thread_pool_signal_done(pool);
+    thread_pool_join(pool);
+    thread_pool_free(pool);
+
+    let diff: i64 = N_TASKS - counter.v;
+    if diff != 0 as i64 {
+        // print the shortfall
+        return diff as i32;
+    }
+    return 0;
+}

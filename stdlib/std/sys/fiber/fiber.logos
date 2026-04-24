@@ -175,12 +175,12 @@ fn retire_fiber(s: *mut Scheduler, dead: *mut Fiber) {
 pub fn sched_new() -> *mut Scheduler {
     let raw: *mut u8 = alloc(sizeof::<Scheduler>());
     let s: *mut Scheduler = raw as *mut Scheduler;
-    let buf: *mut u8 = alloc(256 * 8);
+    let buf: *mut u8 = alloc(4096 * 8);
     unsafe {
         s.ready_buf  = buf as *mut i64;
         s.ready_head = 0;
         s.ready_tail = 0;
-        s.ready_cap  = 256;
+        s.ready_cap  = 4096;
         s.current      = 0;
         s.pending_free = 0;
         // Stack pool is opt-in; caller enables via sched_set_stack_pool_cap.
