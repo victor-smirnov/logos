@@ -35,7 +35,7 @@ fn derive_debug_e2e_hook(target_offset: u32) -> () {
     let n: u64 = view.ast_struct_field_count(item);
 
     let mut em: Emitter = Emitter::new();
-    em.emit_raw("package main;");
+    em.emit_target_pkg(&view);
     em.emit_raw("use std.fmt;");
     em.emit_raw("use std.lang.text;");
 

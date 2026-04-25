@@ -69,4 +69,26 @@ impl OView {
         let nm: AnyVal = self.tiny_map_get(ty, 1 as u8);
         return self.get_str_view(nm);
     }
+
+    // Append the user-root MODULE's dotted package name to `buf`.
+    // For `package main;` writes `main`; for `package std.lang.text;`
+    // writes `std.lang.text`. Reads NAME(1) (first identifier) plus
+    // each PATH_PARTS(16)[i].NAME (subsequent dotted parts).
+    pub fn module_package_append(self: &OView, buf: &mut String) {
+        let root: AnyVal = self.root();
+        let head: StringView = self.ast_node_name(root);
+        if head.len == (0 as u64) { return; }
+        unsafe { buf.push_bytes(head.ptr, head.len as i64); }
+        let parts: AnyVal = self.tiny_map_get(root, 16 as u8);
+        if parts.raw == 0 { return; }
+        let n: u64 = self.array_len(parts);
+        let mut i: u64 = 0 as u64;
+        while i < n {
+            let part: AnyVal = self.array_get(parts, i);
+            let pn: StringView = self.ast_node_name(part);
+            buf.push_u8(46 as u8);  // '.'
+            unsafe { buf.push_bytes(pn.ptr, pn.len as i64); }
+            i = i + (1 as u64);
+        }
+    }
 }
