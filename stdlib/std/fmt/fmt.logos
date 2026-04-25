@@ -14,6 +14,29 @@ package std.fmt;
 
 use std.lang.text;
 
+// ── Debug trait ───────────────────────────────────────────────────────────
+//
+// `Debug` mirrors `Display` (same `fn fmt(self, &mut String)` shape) but
+// is a separate trait so that derive-Debug-style metaprograms can target
+// it without colliding with user-written Display impls. Method renamed
+// to `dbg` to avoid two-trait `x.fmt(buf)` ambiguity.
+
+trait Debug {
+    fn dbg(self: Self, buf: &mut String);
+}
+
+impl Debug for i32 { fn dbg(self: i32, buf: &mut String) { self.fmt(buf); } }
+impl Debug for i64 { fn dbg(self: i64, buf: &mut String) { self.fmt(buf); } }
+impl Debug for u64 { fn dbg(self: u64, buf: &mut String) { self.fmt(buf); } }
+impl Debug for bool { fn dbg(self: bool, buf: &mut String) { self.fmt(buf); } }
+
+// NOTE: `impl Debug for str` is intentionally not provided here. Direct
+// method-call dispatch on slice/str types short-circuits trait impls in
+// sema_expr.cpp::lower_method_call — `"x".dbg(&mut s)` errors with
+// "slice has no method 'dbg'". Generic-context dispatch (T: Debug) works
+// fine, so this trait is usable inside generic code today. Direct dot-
+// call for str is a separate sema fix (planned slice).
+
 // ── Format engine (variadic) ──────────────────────────────────────────────
 
 // Base case: no more args — copy remaining format string into buf.

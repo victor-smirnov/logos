@@ -1,0 +1,26 @@
+// std.fmt::Debug — primitive impls. Slice 15 of Phase 7 (path to derive-Debug).
+// Direct dot-call (`x.dbg(buf)`) on primitive receivers does not yet
+// fall through to trait impls in lower_method_call — we exercise the
+// trait via generic dispatch (`dbg_to(...)`) which is the path the
+// derived Debug impls will take from inside generic context.
+package debug_primitives;
+
+use std.fmt;
+use std.lang.text;
+use std.io;
+
+fn dbg_to<T: Debug>(v: T, buf: &mut String) {
+    v.dbg(buf);
+    buf.push_u8(32 as u8);
+}
+
+unsafe fn main() -> i32 {
+    let mut s: String = String::new();
+    dbg_to::<i32>(0 - 7, &mut s);
+    dbg_to::<bool>(true, &mut s);
+    dbg_to::<u64>(42 as u64, &mut s);
+    let n: i64 = 0 - 999;
+    dbg_to::<i64>(n, &mut s);
+    println_string(&s);
+    return 42;
+}
