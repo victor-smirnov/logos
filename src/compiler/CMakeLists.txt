@@ -155,8 +155,9 @@ set_tests_properties(jit_logosc_main PROPERTIES
 # must contain "metaprog iter 1" — proves the seam fired, the loop
 # re-ran sema, and convergence kicked in.
 add_test(NAME jit_metaprog_hook
-    COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -o \"$3\" 2>&1); echo \"$out\"; echo \"$out\" | grep -q 'metaprog iter 1' && nm \"$3\" | grep -q root_seen"
+    COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; echo \"$out\" | grep -q 'metaprog iter 1' && nm \"$3\" | grep -q ast_walk_ok"
             sh
             $<TARGET_FILE:logosc>
             ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_hook.logos
-            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_hook.o)
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_hook.o
+            ${CMAKE_SOURCE_DIR}/stdlib)

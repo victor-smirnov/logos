@@ -1,12 +1,23 @@
 package test;
 
-// Phase 7 slice 3a: hook calls `logos_get_module_ast` to obtain a fat
-// borrow (base+size) of the user's root document, then conditionally
-// emits a marker fn iff the host returned a non-null base. Passing
-// `nm output.o | grep root_seen` proves the host-call seam fired and
-// the hook acted on its result.
+// Phase 7 slice 3b: hook actually walks the user's AST.
+//   1. Get base+size via logos_get_module_ast (slice 3a).
+//   2. Wrap in HermesView<'a> (sound for the hook frame —
+//      asts[0] outlives every hook invocation).
+//   3. Resolve root → TinyObjectMap (the MODULE node).
+//   4. Read ITEMS (key=2) → ObjectArray; iterate.
+//   5. Match each child by schema_type_code = schema::ast(FN)
+//      (CAT_AST = 1<<48, FN = 10 — see ast.hpp + schema_codes.hpp).
+//   6. If at least one FN was seen, emit a marker fn so the test
+//      harness can prove the walk fired (`nm | grep ast_walk_ok`).
+
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.map;
+
 extern fn logos_emit_source(src: *const u8) -> i32;
-extern fn logos_get_module_ast(out_base: *mut *const u8, out_size: *mut u64) -> ();
+extern fn logos_get_module_ast(out_base: *mut *const u8,
+                               out_size: *mut u64) -> ();
 
 #[metaprogram_post_sema]
 fn my_hook() -> () {
@@ -16,8 +27,42 @@ fn my_hook() -> () {
         logos_get_module_ast(&mut base as *mut *const u8,
                              &mut size as *mut u64);
     }
-    if base != 0 as *const u8 {
-        let src: str = "package test; pub fn root_seen() -> i32 { return 1; }";
+    if base == 0 as *const u8 { return; }
+
+    let view: HermesView = HermesView { base: base, size: size };
+    let root: AnyVal = view.root();
+    unsafe {
+        if !root.is_ptr() { return; }
+        if root.is_null()  { return; }
+    }
+
+    let root_off: u32 = unsafe { root.as_offset() };
+    let root_obj: *const Map<Bitmap, AnyVal> =
+        ((base as i64) + (root_off as i64)) as *const Map<Bitmap, AnyVal>;
+
+    let items: AnyVal = unsafe { root_obj.get(base, 2 as u8) };
+    let n: u64 = view.array_len(items);
+
+    let cat_ast_fn: u64 = ((1 as u64) << 48) | (10 as u64);
+
+    let mut found: bool = false;
+    let mut i: u64 = 0;
+    while i < n {
+        let it: AnyVal = view.array_get(items, i);
+        unsafe {
+            if it.is_ptr() && !it.is_null() {
+                let it_off: u32 = it.as_offset();
+                let it_obj: *const Map<Bitmap, AnyVal> =
+                    ((base as i64) + (it_off as i64)) as *const Map<Bitmap, AnyVal>;
+                let stc: u64 = it_obj.schema_type_code;
+                if stc == cat_ast_fn { found = true; }
+            }
+        }
+        i = i + 1;
+    }
+
+    if found {
+        let src: str = "package test; pub fn ast_walk_ok() -> i32 { return 1; }";
         unsafe { logos_emit_source(src.as_ptr() as *const u8); }
     }
     return;
