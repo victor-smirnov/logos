@@ -1,0 +1,227 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Victor Smirnov
+//
+// Logos metaprogramming showcase: pre-sema hooks that synthesise
+// Logos source per annotated item, executed by an in-process JIT
+// during the same `logosc` invocation that produces this binary.
+//
+// Demonstrates:
+//   1. #[derive_show]      on a flat struct  → impl Debug { ... }
+//   2. #[derive_show]      on a generic      → impl<T: Debug> Debug { ... }
+//   3. #[derive_show_enum] on an enum        → match self { ... }
+//   4. #[derive_arity]     on any of them    → fn arity_<T>() -> i32
+//
+// The hooks below use the std.compiler.metaprog Emitter's `tpl*` /
+// `push_view` / `push_text` helpers — `$NAME`-substituted templates
+// that read closer to the source they synthesise than raw push_bytes
+// chains. See ADR 0003 for the rationale.
+
+package logos_showcase;
+
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.compiler.metaprog;
+use std.fmt;
+use std.lang.text;
+use std.io;
+
+// ── hook 1: derive(Debug) for a struct (handles generic params) ────────────
+
+#[metaprog_handler("derive_show")]
+fn derive_show_struct_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let name: StringView = view.ast_node_name(item);
+    if name.len == 0 { return; }
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    if nf == 0 { return; }
+
+    // Build "<T, U, ...>" (tys) and "<T: Debug, U: Debug, ...>" (bounds).
+    // Inlined rather than factored out: helper fns in the entry file are
+    // is_metaprog_stub'd during the discovery pass, and hooks that call
+    // them fail at MLIR gen.
+    let np: u64 = view.ast_type_param_count(item);
+    let mut tys: String = String::new();
+    let mut bounds: String = String::new();
+    if np > 0 {
+        tys.push_str("<");
+        bounds.push_str("<");
+        let mut k: u64 = 0;
+        while k < np {
+            if k > 0 {
+                tys.push_str(", ");
+                bounds.push_str(", ");
+            }
+            let tp: StringView = view.ast_type_param_name(item, k);
+            unsafe {
+                tys.push_bytes(tp.ptr, tp.len as i64);
+                bounds.push_bytes(tp.ptr, tp.len as i64);
+            }
+            bounds.push_str(": Debug");
+            k = k + 1;
+        }
+        tys.push_str(">");
+        bounds.push_str(">");
+    }
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.emit_raw("use std.fmt;");
+    em.emit_raw("use std.lang.text;");
+
+    em.tpl3(
+        "impl$BOUNDS Debug for $T$TYS { fn dbg(self: $T$TYS, buf: &mut String) { buf.push_str(\"$T {\"); ",
+        "BOUNDS", view_of_string(&bounds),
+        "T",      name,
+        "TYS",    view_of_string(&tys));
+
+    let mut i: u64 = 0;
+    while i < nf {
+        let fld:   AnyVal     = view.ast_struct_field(item, i);
+        let fname: StringView = view.ast_field_name(fld);
+        let lead:  str        = if i == 0 { " " } else { ", " };
+        em.tpl2(
+            "buf.push_str(\"$LEAD$F: \"); self.$F.dbg(buf); ",
+            "LEAD", view_of_str(lead),
+            "F",    fname);
+        i = i + 1;
+    }
+
+    em.push_text("buf.push_str(\" }\"); } }");
+    em.commit();
+    return;
+}
+
+// ── hook 2: derive(Debug) for an enum (mixed unit / tuple variants) ────────
+
+#[metaprog_handler("derive_show_enum")]
+fn derive_show_enum_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let name: StringView = view.ast_node_name(item);
+    if name.len == 0 { return; }
+
+    let nv: u64 = view.ast_enum_variant_count(item);
+    if nv == 0 { return; }
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.emit_raw("use std.fmt;");
+    em.emit_raw("use std.lang.text;");
+
+    em.tpl1(
+        "impl Debug for $T { fn dbg(self: $T, buf: &mut String) { match self { ",
+        "T", name);
+
+    let mut i: u64 = 0;
+    while i < nv {
+        let v:     AnyVal     = view.ast_enum_variant(item, i);
+        let vname: StringView = view.ast_node_name(v);
+        let arity: u64        = view.ast_variant_arity(v);
+
+        if arity == 0 {
+            em.tpl2(
+                "$T::$V => { buf.push_str(\"$V\"); } ",
+                "T", name,
+                "V", vname);
+        } else {
+            em.tpl2("$T::$V(", "T", name, "V", vname);
+            let mut k: u64 = 0;
+            while k < arity {
+                if k > 0 { em.push_text(", "); }
+                em.push_text("_v"); em.push_num(k);
+                k = k + 1;
+            }
+            em.tpl1(") => { buf.push_str(\"$V(\"); ", "V", vname);
+            let mut k2: u64 = 0;
+            while k2 < arity {
+                if k2 > 0 { em.push_text("buf.push_str(\", \"); "); }
+                em.push_text("_v"); em.push_num(k2);
+                em.push_text(".dbg(buf); ");
+                k2 = k2 + 1;
+            }
+            em.push_text("buf.push_u8(41u8); } ");   // ')'
+        }
+        i = i + 1;
+    }
+    em.push_text("} } }");
+    em.commit();
+    return;
+}
+
+// ── hook 3: orthogonal helper — emit a free fn returning the field arity ──
+
+#[metaprog_handler("derive_arity")]
+fn derive_arity_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let name: StringView = view.ast_node_name(item);
+    if name.len == 0 { return; }
+
+    let mut n: u64 = view.ast_struct_field_count(item);
+    if n == 0 { n = view.ast_enum_variant_count(item); }
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.tpl1("pub fn arity_$T() -> i32 { return ", "T", name);
+    em.push_num(n);
+    em.push_text(" as i32; }");
+    em.commit();
+    return;
+}
+
+// ── annotated targets ──────────────────────────────────────────────────────
+
+#[derive_show]
+#[derive_arity]
+struct Widget { x: i32, y: i32 }
+
+#[derive_show]
+struct Pair<T> { a: T, b: T }
+
+#[derive_show_enum]
+#[derive_arity]
+enum Shape { Circle(i32), Rect(i32, i32), Empty }
+
+// ── runtime: exercise every synthesised item ──────────────────────────────
+
+unsafe fn show<T: Debug>(label: str, v: T) {
+    let mut s: String = String::new();
+    s.push_str(label);
+    s.push_str(" = ");
+    v.dbg(&mut s);
+    println_string(&s);
+}
+
+unsafe fn main() -> i32 {
+    let w: Widget = Widget { x: 1, y: 2 };
+    let pi: Pair<i32> = Pair { a: 7, b: 11 };
+    let pb: Pair<bool> = Pair { a: true, b: false };
+    let s1: Shape = Shape::Rect(3, 4);
+    let s2: Shape = Shape::Circle(9);
+    let s3: Shape = Shape::Empty;
+
+    show::<Widget>("widget   ", w);
+    show::<Pair<i32>>("pair_i32 ", pi);
+    show::<Pair<bool>>("pair_bool", pb);
+    show::<Shape>("shape_R  ", s1);
+    show::<Shape>("shape_C  ", s2);
+    show::<Shape>("shape_E  ", s3);
+
+    let mut a: String = String::new();
+    a.push_str("arity_Widget = ");
+    a.push_u64(arity_Widget() as u64);
+    a.push_str("  arity_Shape = ");
+    a.push_u64(arity_Shape() as u64);
+    println_string(&a);
+
+    return 0;
+}

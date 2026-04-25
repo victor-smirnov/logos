@@ -50,6 +50,8 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept;
 // Inline (defined below, after class, so visible in all TUs):
 inline bool is_integer_kind(LogosType::Kind k) noexcept;
 inline int64_t parse_int_literal(std::string_view sv) noexcept;
+inline std::optional<int64_t> get_intlit_value(const lir::LExpr* e) noexcept;
+inline bool intlit_fits(int64_t v, LogosType::Kind k) noexcept;
 
 // Aliases used throughout SemaChecker method implementations.
 // Placed here so all sema_*.cpp files get them automatically.
@@ -1089,14 +1091,43 @@ inline const LogosType* unify_int(const LogosType* a, const LogosType* b) noexce
 // If `e`'s type is a concrete integer kind strictly narrower than `target`,
 // and widens safely, wrap `e` in ECast(target).  No-op for IntLit (literals
 // are retyped directly, not cast) and for types that don't safely widen.
+//
+// Also handles the const-narrow case: if `e` is a constant integer literal
+// expression (per get_intlit_value) and the value fits in `target`'s range,
+// the cast is inserted even if the static narrow→narrow widening rule would
+// otherwise reject it. Lets `push_u8(0u64)` and similar typed-but-trivially-
+// fits literals coerce without an explicit `as` cast.
 inline void widen_int_expr(lir::LExprPtr& e, const LogosType* target) {
     if (!e || !target || !e->type) return;
     if (e->type->kind == target->kind) return;
-    if (!can_widen_int(e->type->kind, target->kind)) return;
+    bool ok = can_widen_int(e->type->kind, target->kind);
+    if (!ok && is_integer_kind(e->type->kind) && is_integer_kind(target->kind)) {
+        if (auto v = get_intlit_value(e.get()))
+            if (intlit_fits(*v, target->kind))
+                ok = true;
+    }
+    if (!ok) return;
     auto inner = std::move(e);
     e = std::make_unique<lir::LExpr>();
     e->kind = lir::ECast{std::move(inner)};
     e->type = target;
+}
+
+// Predicate used during overload resolution: types are compatible, or the
+// argument is a compile-time integer constant whose value fits the parameter's
+// integer range. Lets `s.push_u8(0u64)` find the `push_u8(c: u8)` candidate
+// without an explicit cast on the call site. The actual ECast is inserted
+// later by widen_int_expr once a candidate is picked.
+inline bool arg_compatible_for_dispatch(const lir::LExpr* arg,
+                                        const LogosType* at,
+                                        const LogosType* pt) noexcept {
+    if (types_equal(at, pt)) return true;
+    if (types_compatible(at, pt)) return true;
+    if (arg && at && pt && is_integer_kind(at->kind) && is_integer_kind(pt->kind))
+        if (auto v = get_intlit_value(arg))
+            if (intlit_fits(*v, pt->kind))
+                return true;
+    return false;
 }
 
 // Like unify_int but also promotes FloatLit to a concrete float type (F32/F64).
