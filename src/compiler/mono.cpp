@@ -108,7 +108,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 const LogosType* concrete_t = nullptr;
                 for (auto& sd : out_.structs)
                     if (sd.name == concrete) {
-                        LogosType st;
+                        LogosTypeBuilder st;
                         st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
                                                  : LogosType::Kind::Struct;
                         st.struct_name = concrete;

@@ -76,7 +76,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             auto cands = find_func_candidates(name);
             if (cands.size() == 1) {
                 const SemaFuncInfo& fi = *cands[0];
-                LogosType ft;
+                LogosTypeBuilder ft;
                 ft.kind = LogosType::Kind::FnPtr;
                 for (auto* pt : fi.param_types)
                     ft.closure_params.push_back(pt);
@@ -167,7 +167,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 // Result type: Hermes.
                 auto* ctr_t = lookup_type_by_name("Hermes");
                 if (!ctr_t) {
-                    LogosType t{};
+                    LogosTypeBuilder t{};
                     t.kind = LogosType::Kind::Struct;
                     t.struct_name = "Hermes";
                     ctr_t = pool_.alloc(std::move(t));
@@ -231,7 +231,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 }
                 auto* ctr_t = lookup_type_by_name("Hermes");
                 if (!ctr_t) {
-                    LogosType t{};
+                    LogosTypeBuilder t{};
                     t.kind = LogosType::Kind::Struct;
                     t.struct_name = "Hermes";
                     ctr_t = pool_.alloc(std::move(t));
@@ -1716,7 +1716,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             else if (v.name == "None") none_disc = v.value;
         }
         // Build Option<A> type
-        LogosType opt_type; opt_type.kind = LogosType::Kind::Enum;
+        LogosTypeBuilder opt_type; opt_type.kind = LogosType::Kind::Enum;
         opt_type.enum_name = "Option";
         if (!opt_pkg.empty()) opt_type.pkg_name = opt_pkg;
         opt_type.type_args = {A};
@@ -1764,7 +1764,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 const LogosType* elem_t = (expected && TypeRef(expected).kind() == LogosType::Kind::Array)
                                           ? TypeRef(expected).elem().raw() : nullptr;
                 for (auto& item : av.arr) elems.push_back(annot_val_to_expr(item, elem_t));
-                LogosType at; at.kind = LogosType::Kind::Array;
+                LogosTypeBuilder at; at.kind = LogosType::Kind::Array;
                 at.elem = elem_t ? elem_t : (elems.empty() ? prim(LogosType::Kind::I64) : elems[0]->type);
                 at.arr_size = (int64_t)elems.size();
                 return make_expr(pool_.alloc(std::move(at)), lir::EArrLit{std::move(elems)});
@@ -3342,7 +3342,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     std::vector<std::string> ng_lt_args;
     if (hint_struct_type_ && TypeRef(hint_struct_type_).struct_name() == std::string(sname))
         ng_lt_args = TypeRef(hint_struct_type_).lifetime_args();
-    LogosType ng_t;
+    LogosTypeBuilder ng_t;
     ng_t.kind = slit_is_zoned
                 ? LogosType::Kind::ZonedStruct : LogosType::Kind::Struct;
     ng_t.struct_name   = std::string(sname);
@@ -4263,7 +4263,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             type_args.push_back(sit != subst.end() ? sit->second : error_t());
         }
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
-        LogosType et; et.kind = LogosType::Kind::Enum;
+        LogosTypeBuilder et; et.kind = LogosType::Kind::Enum;
         et.enum_name = std::string(ename);
         et.type_args = std::move(type_args);
         result_type = pool_.alloc(std::move(et));
@@ -4411,7 +4411,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             type_args.push_back(sit != subst.end() ? sit->second : error_t());
         }
         check_type_bounds(std::string(ename), einfo.type_params, type_args);
-        LogosType et; et.kind = LogosType::Kind::Enum;
+        LogosTypeBuilder et; et.kind = LogosType::Kind::Enum;
         et.enum_name = std::string(ename);
         et.type_args = std::move(type_args);
         result_type = pool_.alloc(std::move(et));

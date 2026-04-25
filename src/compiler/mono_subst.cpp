@@ -80,7 +80,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             record_needed_enum(tv);
             return tv.raw();
         }
-        LogosType nt; nt.kind = LogosType::Kind::Enum;
+        LogosTypeBuilder nt; nt.kind = LogosType::Kind::Enum;
         nt.enum_name = std::string(tv.enum_name());
         nt.type_args = std::move(new_args);
         const LogosType* result = out_.type_pool.alloc(std::move(nt));
@@ -90,7 +90,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     case LogosType::Kind::Slice: {
         auto* elem = subst_type(tv.elem(), s);
         if (elem == tv.elem().raw()) return tv.raw();
-        LogosType nt; nt.kind = LogosType::Kind::Slice;
+        LogosTypeBuilder nt; nt.kind = LogosType::Kind::Slice;
         nt.elem = elem;
         return out_.type_pool.alloc(std::move(nt));
     }
@@ -103,7 +103,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             new_elems.push_back(ne);
         }
         if (!changed) return tv.raw();
-        LogosType nt; nt.kind = LogosType::Kind::Tuple;
+        LogosTypeBuilder nt; nt.kind = LogosType::Kind::Tuple;
         nt.tuple_elems = std::move(new_elems);
         return out_.type_pool.alloc(std::move(nt));
     }

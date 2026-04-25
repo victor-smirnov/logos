@@ -1150,7 +1150,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                           pnode.get(la::IS_MUT.code).is_value() &&
                           pnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
             auto bname = std::string(str_of(pnode.get(la::NAME.code)));
-            LogosType ref_t;
+            LogosTypeBuilder ref_t;
             ref_t.kind    = is_mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
             ref_t.pointee = scrut_type;
             const LogosType* btype = pool_.alloc(std::move(ref_t));

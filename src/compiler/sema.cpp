@@ -320,7 +320,7 @@ std::vector<std::string>      TypeRef::lifetime_args()  const noexcept { return 
 // LogosType slims to back-refs only, this body keeps working unchanged
 // because LogosTypeBuilder will be the struct that retains data fields.
 LogosType TypeRef::to_builder() const {
-    LogosType b;
+    LogosTypeBuilder b;
     if (!p_) return b;
     b.kind            = kind();
     b.mut_ptr         = mut_ptr();
@@ -827,7 +827,7 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
 
 void SemaChecker::init_primitives() {
     auto ap = [&](LogosType::Kind k) {
-        LogosType t; t.kind = k;
+        LogosTypeBuilder t; t.kind = k;
         prims_[int(k)] = pool_.alloc(t);
     };
     ap(LogosType::Kind::Void);
@@ -1290,7 +1290,7 @@ const LogosType* SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             else                  new_lt_args.push_back(lt);
         }
         if (!changed && !lt_changed) return t.raw();
-        LogosType nt;
+        LogosTypeBuilder nt;
         nt.kind = t.kind();
         nt.struct_name = t.struct_name();
         nt.pkg_name = t.pkg_name();  // preserve package qualification after substitution
@@ -1315,7 +1315,7 @@ const LogosType* SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             else                  new_lt_args.push_back(lt);
         }
         if (!changed && !lt_changed) return t.raw();
-        LogosType nt;
+        LogosTypeBuilder nt;
         nt.kind = LogosType::Kind::Enum;
         nt.enum_name = t.enum_name();
         nt.type_args = std::move(new_args);
@@ -1351,7 +1351,7 @@ const LogosType* SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         changed |= (new_ret != t.closure_ret());
         if (!changed) return t.raw();
 
-        LogosType nt;
+        LogosTypeBuilder nt;
         nt.kind = t.kind();  // preserve Closure vs FnPtr
         nt.closure_params = std::move(new_params);
         nt.closure_ret = new_ret;
@@ -1539,7 +1539,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         std::string ts_name = ts_type ? std::string(TypeRef(ts_type).struct_name()) : "";
         if (ts_name.empty())
             error("&tagged<TS> Trait: TS must be a concrete struct type");
-        LogosType t;
+        LogosTypeBuilder t;
         t.kind       = LogosType::Kind::TaggedPtr;
         t.struct_name = ts_name;   // tag system type name
         t.trait_name  = tname;     // dispatched trait name
@@ -1548,14 +1548,14 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::IMPL_TYPE) {
         auto tname = std::string(str_of(node.get(la::NAME.code)));
-        LogosType t;
+        LogosTypeBuilder t;
         t.kind = LogosType::Kind::ImplTrait;
         t.struct_name = tname;  // reuse struct_name to store trait name
         return pool_.alloc(std::move(t));
     }
 
     if (tc == la::CLOSURE_TYPE) {
-        LogosType t;
+        LogosTypeBuilder t;
         t.kind = LogosType::Kind::Closure;
         if (node.has_key(la::PARAMS)) {
             auto params_node = map_of(node.get(la::PARAMS.code));
@@ -1574,7 +1574,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
     if (tc == la::FN_PTR_TYPE) {
         // fn(T1, T2) -> R — bare function pointer, single ptr in LLVM.
         // Reuse closure_params / closure_ret fields.
-        LogosType t;
+        LogosTypeBuilder t;
         t.kind = LogosType::Kind::FnPtr;
         if (node.has_key(la::PARAMS)) {
             auto params_node = map_of(node.get(la::PARAMS.code));
@@ -1592,7 +1592,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::LIT_INT) {
         auto sv = str_of(node.get(la::VALUE.code));
-        LogosType t; t.kind = LogosType::Kind::IntLit;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::IntLit;
         t.const_val = parse_int_literal(sv);
         return pool_.alloc(std::move(t));
     }
@@ -1742,7 +1742,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
                 }
             }
         }
-        LogosType t;
+        LogosTypeBuilder t;
         t.kind            = LogosType::Kind::AssocType;
         t.assoc_base      = base_type;
         t.trait_name      = trait_for_assoc;
@@ -1798,7 +1798,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         else if (elem_name == "F64") elem_t = prim(LogosType::Kind::F64);
         else elem_t = error_t();
         // Result type: struct LogosType with special name "HermesArr".
-        LogosType t{};
+        LogosTypeBuilder t{};
         t.kind = LogosType::Kind::Struct;
         t.struct_name = "HermesArr";
         t.type_args.push_back(elem_t);
@@ -1826,7 +1826,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         else key_t = error_t();
         const LogosType* val_t = nullptr;
         if (val_name == "AnyVal") {
-            LogosType vt{};
+            LogosTypeBuilder vt{};
             vt.kind = LogosType::Kind::Struct;
             vt.struct_name = "AnyVal";
             val_t = pool_.alloc(std::move(vt));
@@ -1836,7 +1836,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
                               "supported: AnyVal", key_name, val_name, val_name));
             return error_t();
         }
-        LogosType t{};
+        LogosTypeBuilder t{};
         t.kind = LogosType::Kind::Struct;
         t.struct_name = "HermesMap";
         t.type_args.push_back(key_t);
@@ -1941,7 +1941,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         }
         if (is_enum) {
             if (esi) check_type_bounds(std::string(name), esi->type_params, args);
-            LogosType t; t.kind = LogosType::Kind::Enum;
+            LogosTypeBuilder t; t.kind = LogosType::Kind::Enum;
             t.enum_name = std::string(name);
             if (!epkg.empty()) t.pkg_name = epkg;
             t.type_args = std::move(args);
@@ -1950,7 +1950,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         }
         if (is_dtype) {
             if (dsi) check_type_bounds(std::string(name), dsi->type_params, args);
-            LogosType t; t.kind = LogosType::Kind::ZonedStruct;
+            LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct;
             t.struct_name = std::string(name);
             if (!dpkg.empty()) t.pkg_name = dpkg;
             t.type_args = std::move(args);
@@ -1959,7 +1959,7 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
         }
         if (ssi) check_type_bounds(std::string(name), ssi->type_params, args);
         {
-            LogosType t; t.kind = LogosType::Kind::Struct;
+            LogosTypeBuilder t; t.kind = LogosType::Kind::Struct;
             t.struct_name = std::string(name);
             if (!spkg.empty()) t.pkg_name = spkg;
             t.type_args = std::move(args);

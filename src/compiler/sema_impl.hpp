@@ -88,30 +88,30 @@ private:
     const LogosType* error_t()   { return prim(LogosType::Kind::Error); }
 
     const LogosType* make_ptr(bool mut, const LogosType* pointee) {
-        LogosType t; t.kind = LogosType::Kind::Ptr;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Ptr;
         t.mut_ptr = mut; t.pointee = pointee;
         return pool_.alloc(t);
     }
     const LogosType* make_ref(bool mut, const LogosType* pointee, std::string lifetime = "") {
-        LogosType t;
+        LogosTypeBuilder t;
         t.kind = mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
         t.pointee = pointee;
         t.lifetime = std::move(lifetime);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_array(const LogosType* elem, uint64_t n, std::string_view symbolic = "") {
-        LogosType t; t.kind = LogosType::Kind::Array;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Array;
         t.elem = elem; t.arr_size = n;
         t.arr_size_var = std::string(symbolic);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_struct_type(std::string_view name, std::string_view pkg = {}) {
-        LogosType t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_datatype_type(std::string_view name, std::string_view pkg = {}) {
-        LogosType t; t.kind = LogosType::Kind::ZonedStruct; t.struct_name = std::string(name);
+        LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct; t.struct_name = std::string(name);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
@@ -119,7 +119,7 @@ private:
                                    std::vector<const LogosType*> args,
                                    std::vector<std::string> lt_args = {},
                                    std::string_view pkg = {}) {
-        LogosType t; t.kind = LogosType::Kind::ZonedStruct;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct;
         t.struct_name   = std::string(name);
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
@@ -130,7 +130,7 @@ private:
                                  std::vector<const LogosType*> args,
                                  std::vector<std::string> lt_args = {},
                                  std::string_view pkg = {}) {
-        LogosType t; t.kind = LogosType::Kind::Struct;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Struct;
         t.struct_name   = std::string(name);
         t.type_args     = std::move(args);
         t.lifetime_args = std::move(lt_args);
@@ -138,23 +138,23 @@ private:
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_enum_type(std::string_view name, std::string_view pkg = {}) {
-        LogosType t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_tuple_type(std::vector<const LogosType*> elems) {
-        LogosType t; t.kind = LogosType::Kind::Tuple;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Tuple;
         t.tuple_elems = std::move(elems);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_closure_type(std::vector<const LogosType*> params, const LogosType* ret) {
-        LogosType t; t.kind = LogosType::Kind::Closure;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Closure;
         t.closure_params = std::move(params);
         t.closure_ret = ret;
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_fn_ptr_type(std::vector<const LogosType*> params, const LogosType* ret) {
-        LogosType t; t.kind = LogosType::Kind::FnPtr;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::FnPtr;
         t.closure_params = std::move(params);
         t.closure_ret = ret ? ret : void_t();
         return pool_.alloc(std::move(t));
@@ -176,17 +176,17 @@ private:
         return true;
     }
     const LogosType* make_slice_type(const LogosType* elem) {
-        LogosType t; t.kind = LogosType::Kind::Slice;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_trait_object(std::string_view tname) {
-        LogosType t; t.kind = LogosType::Kind::TraitObject;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
         t.trait_name = std::string(tname);
         return pool_.alloc(std::move(t));
     }
     const LogosType* make_typevar(std::string_view name) {
-        LogosType t; t.kind = LogosType::Kind::TypeVar;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::TypeVar;
         t.type_var_name = std::string(name);
         return pool_.alloc(t);
     }
@@ -703,7 +703,7 @@ private:
             if (bit != current_type_bounds_.end()) { f.had_bounds = true; f.old_bounds = bit->second; }
             frames.push_back(std::move(f));
             if (tp.is_const) {
-                LogosType c; c.kind = LogosType::Kind::ConstVar;
+                LogosTypeBuilder c; c.kind = LogosType::Kind::ConstVar;
                 c.type_var_name = tp.name;
                 c.pointee = tp.const_type;
                 current_type_params_[tp.name] = pool_.alloc(std::move(c));
