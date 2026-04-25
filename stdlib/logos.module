@@ -1,3 +1,10 @@
 module stdlib
 version 0.1
 root stdlib/
+
+# Metaprog plumbing: reference host externs (logos_emit_source,
+# logos_get_module_ast_oview, ...) defined inside logosc itself for
+# JIT'd hooks. Hooks find these sources via -I at metaprog compile
+# time, but they must NOT be baked into the user-link-time archive —
+# the externs aren't resolvable in user binaries.
+exclude std/compiler/metaprog
