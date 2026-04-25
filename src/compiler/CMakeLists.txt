@@ -149,39 +149,47 @@ add_test(NAME jit_logosc_main
 set_tests_properties(jit_logosc_main PROPERTIES
     PASS_REGULAR_EXPRESSION "JIT_OK")
 
-# Phase 4 slice 4 + Phase 7 slice 1: drive a #[metaprogram_post_sema]
-# hook through the JIT during compilation. Hook calls the host emit
-# marker; host dedup converges the loop after iter 1. Trace output
-# must contain "metaprog iter 1" — proves the seam fired, the loop
-# re-ran sema, and convergence kicked in.
-add_test(NAME jit_metaprog_hook
-    COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; echo \"$out\" | grep -q 'metaprog iter 1' && nm \"$3\" | grep -q ast_walk_ok && nm \"$3\" | grep -q fn_count"
+# Phase 7 slice 13: spanned diagnostics. Handler emits via
+# error_at(target_offset, msg); host prefixes file:line from the
+# target node's SRC_LINE.
+add_test(NAME jit_metaprog_diag_span
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$3\" -o /dev/null 2>&1); ec=$?; echo \"$out\"; test $ec -ne 0 && echo \"$out\" | grep -q ':16: metaprog hook .reject_hook.: rejected'"
             sh
             $<TARGET_FILE:logosc>
-            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_hook.logos
-            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_hook.o
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_diag_span.logos
             ${CMAKE_SOURCE_DIR}/stdlib)
 
-# Phase 7 slice 6: derive-Debug-style metaprogram. Hook walks the
-# user's AST, finds STRUCT nodes, reads each one's NAME and FIELDS
-# count, and emits `pub fn debug_<NAME>_field_count() -> i64 ...`.
-# Test fixture has Point (2 fields), RGB (3 fields), Marker (0
-# fields, must be skipped). ctest verifies the right symbols
-# appear and that the empty-struct skip works.
-# Phase 7 diagnostics: hook calls metaprog::error("..."); driver must
-# print "error: metaprog hook 'complain': schema not supported" and
-# fail the build (non-zero exit). Test inverts the exit check via !.
-add_test(NAME jit_metaprog_diag
-    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$3\" -o /dev/null 2>&1); ec=$?; echo \"$out\"; test $ec -ne 0 && echo \"$out\" | grep -q \"metaprog hook 'complain': schema not supported\""
+# Phase 7 slice 12: target-driven hook. #[metaprog_handler("derive_marker")]
+# fn fires once per #[derive_marker]-annotated item in the user AST,
+# receiving the item's offset. Hook synthesises `marker_<NAME>()` per
+# triggered struct. Test verifies marker_Alpha and marker_Bravo emit.
+add_test(NAME jit_metaprog_handler
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q marker_Alpha && nm \"$3\" | grep -q marker_Bravo"
             sh
             $<TARGET_FILE:logosc>
-            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_diag.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_handler.logos
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_handler.o
             ${CMAKE_SOURCE_DIR}/stdlib)
 
-add_test(NAME jit_metaprog_derive
-    COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q debug_Point_field_count && nm \"$3\" | grep -q debug_RGB_field_count && ! nm \"$3\" | grep -q debug_Marker_field_count"
+# Phase 7 slice 16: hook emits an `impl Debug for Widget { fn dbg ... }`
+# block via Emitter::emit_raw. Test asserts `Widget__dbg` appears in nm —
+# i.e. the impl was parsed, sema'd, mono'd, and lowered to LLVM.
+add_test(NAME jit_metaprog_derive_debug
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q Widget__dbg"
             sh
             $<TARGET_FILE:logosc>
-            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_derive.logos
-            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_derive.o
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_derive_debug.logos
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_derive_debug.o
             ${CMAKE_SOURCE_DIR}/stdlib)
+
+# Phase 7 slice 14: multiple handlers per trigger. Both pair_a_hook and
+# pair_b_hook are registered for "derive_pair" and must both fire on
+# the single #[derive_pair] struct Solo.
+add_test(NAME jit_metaprog_handler_multi
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q pair_a_Solo && nm \"$3\" | grep -q pair_b_Solo"
+            sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_handler_multi.logos
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_handler_multi.o
+            ${CMAKE_SOURCE_DIR}/stdlib)
+

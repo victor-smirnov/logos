@@ -18,6 +18,7 @@
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/type_ops.hpp>
+#include <logos/hermes/tiny_object_map.hpp>
 
 // MLIR
 #include <mlir/IR/MLIRContext.h>
@@ -157,6 +158,38 @@ extern "C" void logos_holder_release(void* h) {
 extern "C" void logos_metaprog_error(const char* msg) {
     if (!g_metaprog_diags || !msg) return;
     std::string out;
+    if (g_current_hook_name) {
+        out.append("metaprog hook '");
+        out.append(g_current_hook_name);
+        out.append("': ");
+    }
+    out.append(msg);
+    g_metaprog_diags->push_back(std::move(out));
+}
+
+// Phase 7 slice 13: error with span. `target_offset` is an offset
+// into the user-root Hermes doc; host reads SRC_LINE from the node
+// there and prefixes the diag with `<file>:<line>:`. offset==0 (no
+// span) falls back to the un-spanned form.
+extern "C" void logos_metaprog_error_at(uint32_t target_offset,
+                                         const char* msg) {
+    if (!g_metaprog_diags || !msg) return;
+    std::string out;
+    if (target_offset != 0
+        && g_asts && g_asts->size() > g_user_root_idx
+        && g_filenames && g_filenames->size() > g_user_root_idx) {
+        auto* base = (*g_asts)[g_user_root_idx].holder()->base();
+        auto* tom = reinterpret_cast<const logos::hermes::TinyObjectMap*>(
+            base + target_offset);
+        // SRC_LINE = key 24, u32 inline.
+        auto line_av = tom->get(24, base);
+        uint32_t line = (!line_av.is_null() && line_av.is_value())
+                        ? line_av.as_value<uint32_t>() : 0;
+        out.append((*g_filenames)[g_user_root_idx]);
+        out.append(":");
+        out.append(std::to_string(line));
+        out.append(": ");
+    }
     if (g_current_hook_name) {
         out.append("metaprog hook '");
         out.append(g_current_hook_name);
@@ -356,19 +389,28 @@ int main(int argc, char** argv) {
     // after asts grows.
     g_user_root_idx = asts.empty() ? 0 : asts.size() - 1;
     logos::compiler::lir::LProgram prog;
+    // Phase 7 slice 17: pre-sema hook timing. The discovery pass runs in
+    // metaprog mode — entry-file fn bodies (other than handlers) are NOT
+    // lowered, so references to types/impls that hooks will synthesize do
+    // not error out. Handlers and stdlib bodies *are* fully lowered, so
+    // the JIT can compile them. After convergence, a final non-metaprog
+    // sema pass lowers the now-complete entry file.
+    logos::compiler::SemaOptions meta_opts;
+    meta_opts.metaprog_mode = true;
+    meta_opts.entry_ast_idx = g_user_root_idx;
     for (int iter = 0; ; ++iter) {
-        prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+        prog = logos::compiler::sema_lower(asts, filenames, from_binary, meta_opts);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
 
-        if (prog.metaprog_post_sema_hooks.empty()) break;
+        if (prog.metaprog_targets.empty()) break;
 
         if (trace) {
-            std::fprintf(stderr, "[metaprog iter %d] %zu hook(s):\n",
-                         iter, prog.metaprog_post_sema_hooks.size());
-            for (auto& h : prog.metaprog_post_sema_hooks)
-                std::fprintf(stderr, "                 - %s\n", h.c_str());
+            std::fprintf(stderr, "[metaprog iter %d] %zu target(s):\n",
+                         iter, prog.metaprog_targets.size());
+            for (auto& t : prog.metaprog_targets)
+                std::fprintf(stderr, "                 - %s\n", t.trigger.c_str());
         }
 
         // Phase 4 slice 4: JIT-invoke each hook. Until the AST emit API
@@ -377,8 +419,16 @@ int main(int argc, char** argv) {
         // throwaway full-pipeline copy of the current sources — we
         // can't reuse the outer `prog` because the post-loop expects a
         // pre-mono LProgram.
-        auto meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+        // meta_prog (JIT input) uses metaprog_mode so the entry file may
+        // reference items that hooks will synthesize without erroring out.
+        // After sema, drop is_metaprog_stub fns (entry-file non-handler
+        // bodies were skipped) — mono/MLIR would otherwise see empty bodies.
+        auto meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary, meta_opts);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        meta_prog.functions.erase(
+            std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
+                [](const auto& f) { return f.is_metaprog_stub; }),
+            meta_prog.functions.end());
         meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
         meta_prog = logos::compiler::mono_pass(std::move(meta_prog));
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
@@ -414,7 +464,7 @@ int main(int argc, char** argv) {
         // Metaprog JIT gets process symbols (libc malloc/free, printf,
         // memcpy, etc.) so hooks can use stdlib types like String/format
         // without per-symbol bindings. The compiler is the trust root
-        // for #[metaprogram_post_sema] code, so this is acceptable.
+        // for hook code, so this is acceptable.
         auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog",
                                               /*with_process_symbols=*/true);
         if (!meta_jit) return 1;
@@ -454,16 +504,44 @@ int main(int argc, char** argv) {
                          meta_jit->error_str().c_str());
             return 1;
         }
-        for (const auto& hname : prog.metaprog_post_sema_hooks) {
-            auto* sym = meta_jit->lookup(hname);
-            if (!sym) {
-                std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
-                             hname.c_str(), meta_jit->error_str().c_str());
+        if (!meta_jit->define_symbol("logos_metaprog_error_at",
+                                     reinterpret_cast<void*>(&logos_metaprog_error_at))) {
+            std::fprintf(stderr, "logosc: bind logos_metaprog_error_at: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        // Phase 7 slice 12: derive-style handlers fire once per target item.
+        // trigger→hook lookup is linear (handler list is short — typically
+        // a handful per program); switch to map if it grows.
+        for (const auto& tgt : prog.metaprog_targets) {
+            // Offset is only meaningful within one Hermes doc; hooks
+            // see the entry-file doc via `oview_module_ast()`. Skip
+            // triggers in non-entry asts (imported user sources):
+            // cross-doc targeting needs an ast_idx-aware hook ABI.
+            if (tgt.ast_idx != g_user_root_idx) continue;
+            // Phase 7 slice 14: fire all handlers registered for this
+            // trigger, in source-declaration order (the order sema
+            // collected them).
+            bool any_handler = false;
+            for (const auto& mh : prog.metaprog_handlers) {
+                if (mh.trigger != tgt.trigger) continue;
+                any_handler = true;
+                auto* sym = meta_jit->lookup(mh.hook_fn);
+                if (!sym) {
+                    std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
+                                 mh.hook_fn.c_str(), meta_jit->error_str().c_str());
+                    return 1;
+                }
+                g_current_hook_name = mh.hook_fn.c_str();
+                reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
+                g_current_hook_name = nullptr;
+            }
+            if (!any_handler) {
+                std::fprintf(stderr,
+                    "logosc: internal: no handler for trigger '%s'\n",
+                    tgt.trigger.c_str());
                 return 1;
             }
-            g_current_hook_name = hname.c_str();
-            reinterpret_cast<void (*)()>(sym)();
-            g_current_hook_name = nullptr;
         }
         if (!hook_diags.empty()) {
             for (const auto& d : hook_diags)
@@ -482,6 +560,28 @@ int main(int argc, char** argv) {
         // TODO Phase 5 (compactify): for each AST, asts[i] = hermes::clone(asts[i]);
         // — drops dead nodes accumulated by the previous iteration.
     }
+    // Phase 7 slice 17: final, non-metaprog sema pass. Discovery loop ran in
+    // metaprog_mode which skips entry-file fn bodies; here we lower them
+    // for real, now that all hook-synthesized items are present.
+    prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+    prog.print_diags(stderr);
+    if (!prog.ok()) return 1;
+    report("sema+lower (final)");
+
+    // Phase 7 slice 19: strip metaprog hook fns from the FINAL prog. Their
+    // bodies reference host-only symbols (logos_emit_source, etc.) that the
+    // user's compiled artifact has no business carrying — they're purely
+    // compile-time machinery. Hooks are still validated (sema lowered them)
+    // but won't reach mono / MLIR / linker.
+    {
+        std::set<std::string> hook_names;
+        for (const auto& mh : prog.metaprog_handlers) hook_names.insert(mh.hook_fn);
+        prog.functions.erase(
+            std::remove_if(prog.functions.begin(), prog.functions.end(),
+                [&](const auto& f) { return hook_names.count(f.name) > 0; }),
+            prog.functions.end());
+    }
+
     prog.binary_symbols = std::move(binary_symbols);
 
     // ── Step 2b+: Reflection TypeInfo emission (pre-mono, concrete types only)

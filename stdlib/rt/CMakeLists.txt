@@ -15,7 +15,7 @@
 set(STDLIB_BIN_DIR ${CMAKE_BINARY_DIR}/stdlib_bin)
 file(MAKE_DIRECTORY ${STDLIB_BIN_DIR})
 
-add_library(logos_rt STATIC fiber_ctx.S thread_uring.c env.c)
+add_library(logos_rt STATIC fiber_ctx.S thread_uring.c env.c metaprog_stubs.c)
 target_include_directories(logos_rt PRIVATE /usr/include)
 set_target_properties(logos_rt PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}

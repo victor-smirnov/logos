@@ -23,6 +23,7 @@ extern fn logos_emit_source(src: *const u8) -> i32;
 // compilation after the hook returns. Hooks may report multiple
 // errors per invocation; all surface together.
 extern fn logos_metaprog_error(msg: *const u8) -> ();
+extern fn logos_metaprog_error_at(target_offset: u32, msg: *const u8) -> ();
 
 // Push a NUL-terminated copy of `msg` to the host diag channel.
 // Allocates a small heap buffer (str isn't NUL-terminated by default).
@@ -31,6 +32,17 @@ pub fn error(msg: str) {
     buf.push_str(msg);
     buf.push_u8(0 as u8);
     unsafe { logos_metaprog_error(buf.as_ptr() as *const u8); }
+}
+
+// Like error(), but attributes the diag to the user-AST node at
+// `target_offset` — typically the offset received by a
+// #[metaprog_handler] hook. Host prefixes the message with
+// <file>:<line>: read from the node's SRC_LINE field.
+pub fn error_at(target_offset: u32, msg: str) {
+    let mut buf: String = String::new();
+    buf.push_str(msg);
+    buf.push_u8(0 as u8);
+    unsafe { logos_metaprog_error_at(target_offset, buf.as_ptr() as *const u8); }
 }
 
 pub struct Emitter {
@@ -45,6 +57,25 @@ impl Emitter {
     pub fn emit_raw(&mut self, src: str) {
         self.buf.push_str(src);
         self.buf.push_u8(10 as u8);
+    }
+
+    // Begin a new chunk in package `pkg`: writes `package <pkg>; ` to
+    // the buffer. Caller appends the rest (use decls, item source) and
+    // calls commit(). Sugar so hooks don't hard-code `package main;`.
+    pub fn emit_into(&mut self, pkg: str) {
+        self.buf.push_str("package ");
+        self.buf.push_str(pkg);
+        self.buf.push_str("; ");
+    }
+
+    // Same as emit_into, but the package name is auto-detected from
+    // the user's root MODULE node via `view.module_package_append`.
+    // Exactly what most `#[metaprog_handler]` hooks want — the synth
+    // lands in the same package as the trigger.
+    pub fn emit_target_pkg(&mut self, view: &OView) {
+        self.buf.push_str("package ");
+        view.module_package_append(&mut self.buf);
+        self.buf.push_str("; ");
     }
 
     pub fn emit_view(&mut self, src: StringView) {

@@ -611,6 +611,11 @@ struct LFunction {
     bool                     is_extern = false;
     bool                     is_vararg = false;
     bool                     is_pub    = false;
+    // Phase 7 slice 17: set by sema in metaprog-mode for entry-file fns
+    // whose body was skipped (non-handler user fns). meta_prog driver must
+    // filter these out before mono/MLIR — the body is empty and there's
+    // nothing valid to lower.
+    bool                     is_metaprog_stub = false;
 
     // Specialisation support (set by sema, cleared by mono after instantiation).
     // is_specialization == true  →  this is a specialisation of `name`.
@@ -828,9 +833,28 @@ struct LProgram {
     // Populated by reflection_emit pass; consumed by mlir_gen.
     std::vector<LReflectGlobal> reflection_globals;
 
-    // Phase 5: fully-qualified names of fns annotated `#[metaprogram_post_sema]`.
-    // Collected during sema; consumed by the metaprog driver loop in main.cpp.
-    std::vector<std::string> metaprog_post_sema_hooks;
+    // Phase 7 slice 12: trigger-name → handler-fn-name. Hook fns annotated
+    // `#[metaprog_handler("trigger")]` register here; user items carrying
+    // `#[trigger]` cause the handler to fire once per item with the item's
+    // node pointer as argument. Vector (not map) so duplicate-trigger
+    // collisions surface as sema errors with deterministic ordering.
+    struct MetaprogHandler {
+        std::string trigger;     // user-facing name, e.g. "derive_debug"
+        std::string hook_fn;     // fn name to JIT-invoke
+    };
+    std::vector<MetaprogHandler> metaprog_handlers;
+
+    // Phase 7 slice 12: per-iter list of (ast_idx, item_offset, trigger_name)
+    // for top-level items in the user sources whose annotations match a
+    // registered handler trigger. The driver computes the absolute target
+    // pointer at invoke time as `asts[ast_idx].holder()->base() + offset`
+    // (offsets are stable; base may move on arena growth between iters).
+    struct MetaprogTarget {
+        size_t      ast_idx;
+        uint32_t    item_offset;  // offset of the TinyObjectMap node in the holder
+        std::string trigger;
+    };
+    std::vector<MetaprogTarget> metaprog_targets;
 
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
@@ -849,6 +873,18 @@ struct LProgram {
 
 namespace logos::compiler {
 
+// Phase 7 slice 17: metaprog-compile mode. When `metaprog_mode` is true,
+// sema_lower compiles handlers + non-entry-file (stdlib) bodies fully, but
+// skips lowering the bodies of non-handler fns in the entry ast. Errors
+// inside skipped bodies are dropped. Used to JIT-compile metaprog handlers
+// even when surrounding user code references not-yet-emitted impls. The
+// final, full sema pass runs with `metaprog_mode = false` after expansion
+// has converged.
+struct SemaOptions {
+    bool metaprog_mode = false;
+    size_t entry_ast_idx = static_cast<size_t>(-1);
+};
+
 // Run semantic analysis and produce L-IR from all parsed module ASTs.
 // The ASTs must remain alive for the duration of this call (string_views).
 // filenames[i] is the source path for asts[i] — used in diagnostics.
@@ -856,7 +892,8 @@ namespace logos::compiler {
 // binary module archive and its non-generic symbols should not be re-emitted.
 lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames = {},
-                          const std::vector<bool>& from_binary = {});
+                          const std::vector<bool>& from_binary = {},
+                          SemaOptions opts = {});
 
 // Build TypeInfo rodata blobs for types in reflect_requests and annotated datatypes.
 // Populates prog.reflection_globals with LReflectGlobal entries.

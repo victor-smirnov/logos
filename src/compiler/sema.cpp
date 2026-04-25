@@ -978,32 +978,51 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
         }
     }
 
-    // Phase 5: validate hook signatures.  Until the AST emit API lands
-    // (Phase 7) hooks must be `fn() -> ()` — no params, no type params,
-    // not extern, returning Void.
-    for (const auto& hname : metaprog_post_sema_hooks_) {
-        const lir::LFunction* fn = nullptr;
-        for (const auto& f : prog.functions)
-            if (f.name == hname) { fn = &f; break; }
-        ctx_ = std::format("fn {}", hname);
-        node_line_ = 0;
-        if (!fn) {
-            error("#[metaprogram_post_sema] hook is not a free fn");
-            continue;
+    // Phase 7 slice 12: validate `#[metaprog_handler(...)]` registrations.
+    // Hook fn must be a non-extern, non-generic free fn taking a single
+    // `*const u8` parameter (target node ptr) and returning ().
+    // Trigger names must be unique across the program — collisions would
+    // make handler dispatch ambiguous.
+    {
+        for (const auto& mh : metaprog_handlers_) {
+            ctx_ = std::format("fn {}", mh.hook_fn);
+            node_line_ = 0;
+            if (mh.trigger == "<missing>") {
+                error("#[metaprog_handler] requires a string-literal trigger name, e.g. #[metaprog_handler(\"derive_debug\")]");
+                continue;
+            }
+            // Phase 7 slice 14: multiple handlers per trigger are allowed —
+            // all fire on each match in source-declaration order. No
+            // dedup of the (trigger, hook_fn) pair: registering the same
+            // fn twice would call it twice, which is the user's bug.
+            const lir::LFunction* fn = nullptr;
+            for (const auto& f : prog.functions)
+                if (f.name == mh.hook_fn) { fn = &f; break; }
+            if (!fn) { error("#[metaprog_handler] not a free fn"); continue; }
+            if (fn->is_extern)
+                error("#[metaprog_handler] cannot be applied to extern fn");
+            if (!fn->type_params.empty())
+                error("#[metaprog_handler] hook must not be generic");
+            if (fn->params.size() != 1) {
+                error("#[metaprog_handler] hook must take exactly one parameter (target_offset: u32)");
+                continue;
+            }
+            // Param is the AnyVal-style offset of the triggered item
+            // within the module's Hermes doc. Hooks reconstruct the
+            // node via AnyVal::from_offset(target_offset) + existing
+            // HermesView/OView API.
+            auto pt = TypeRef(fn->params[0].type);
+            if (pt.kind() != LogosType::Kind::U32)
+                error("#[metaprog_handler] hook param must be u32 (offset of triggered item)");
+            if (fn->ret_type && TypeRef(fn->ret_type).kind() != LogosType::Kind::Void)
+                error("#[metaprog_handler] hook must return ()");
         }
-        if (fn->is_extern)
-            error("#[metaprogram_post_sema] cannot be applied to extern fn");
-        if (!fn->type_params.empty())
-            error("#[metaprogram_post_sema] hook must not be generic");
-        if (!fn->params.empty())
-            error("#[metaprogram_post_sema] hook must take no parameters (yet)");
-        if (fn->ret_type && TypeRef(fn->ret_type).kind() != LogosType::Kind::Void)
-            error("#[metaprogram_post_sema] hook must return ()");
     }
 
     prog.diags      = std::move(result_);
     prog.type_pool  = std::move(pool_);
-    prog.metaprog_post_sema_hooks = std::move(metaprog_post_sema_hooks_);
+    prog.metaprog_handlers = std::move(metaprog_handlers_);
+    prog.metaprog_targets = std::move(metaprog_targets_);
     return prog;
 }
 
@@ -2315,6 +2334,7 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
 void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog) {
     using namespace ast;
     for (size_t i = 0; i < asts.size(); ++i) {
+        cur_ast_idx_ = i;
         holder_ = asts[i].holder();
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
         cur_from_binary_ = (from_binary_ && i < from_binary_->size()) ? (*from_binary_)[i] : false;
@@ -2875,8 +2895,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
 
 lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames,
-                          const std::vector<bool>& from_binary) {
+                          const std::vector<bool>& from_binary,
+                          SemaOptions opts) {
     SemaChecker checker;
+    checker.set_metaprog_options(opts.metaprog_mode, opts.entry_ast_idx);
     return checker.run(asts, filenames, from_binary);
 }
 

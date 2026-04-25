@@ -362,8 +362,18 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     bool was_unsafe = inside_unsafe_;
     if (fi_ptr->is_unsafe) inside_unsafe_ = true;
 
+    // Metaprog pre-sema mode: in the entry AST, skip body lowering for fns
+    // that are NOT registered metaprog handlers. The entry file may reference
+    // symbols (impls, types) that don't exist yet — they will be synthesized
+    // by handler hooks. Handlers themselves must be fully lowered so the JIT
+    // can compile them.
+    bool skip_body = metaprog_mode_
+                  && cur_ast_idx_ == metaprog_entry_ast_idx_
+                  && !fn_is_metaprog_handler(fn.name);
+    if (skip_body) fn.is_metaprog_stub = true;
+
     // Body (extern fns have no body)
-    if (!fn.is_extern && node.has_key(la::BODY)) {
+    if (!fn.is_extern && !skip_body && node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
         // Detect if the last stmt in the function body is a match.
         // If so, set the flag so lower_match treats EXPR arms as return values.
