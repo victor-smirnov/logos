@@ -1305,11 +1305,12 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         if (!symbolic.empty()) {
             auto it = s.find(symbolic);
             if (it != s.end()) {
-                if (it->second->const_val) {
-                    size = (uint64_t)*it->second->const_val;
+                TypeRef sub(it->second);
+                if (auto cv = sub.const_val()) {
+                    size = (uint64_t)*cv;
                     symbolic = "";
-                } else if (it->second->kind == LogosType::Kind::ConstVar) {
-                    symbolic = it->second->type_var_name;
+                } else if (sub.kind() == LogosType::Kind::ConstVar) {
+                    symbolic = std::string(sub.type_var_name());
                 }
             }
         }
@@ -2141,10 +2142,10 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
             for (auto& f : si2->fields) {
                 if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_') {
                     size_t idx = std::stoull(std::string(fname.substr(f.name.size() + 1)));
-                    if (f.type && f.type->kind == LogosType::Kind::TypeVar) {
+                    if (f.type && TypeRef(f.type).kind() == LogosType::Kind::TypeVar) {
                         for (size_t i = 0, arg_idx = 0; i < si2->type_params.size(); ++i) {
                             if (si2->type_params[i].is_variadic) {
-                                if (si2->type_params[i].name == f.type->type_var_name) {
+                                if (si2->type_params[i].name == TypeRef(f.type).type_var_name()) {
                                     if (arg_idx + idx < TypeRef(struct_t).type_args().size())
                                         return TypeRef(struct_t).type_args()[arg_idx + idx];
                                 }
