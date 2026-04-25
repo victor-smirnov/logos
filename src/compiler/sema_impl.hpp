@@ -162,16 +162,17 @@ private:
     // Coerce a non-capturing closure to fn ptr when target type is FnPtr.
     // Returns true if coercion was applied (arg's type is changed to FnPtr).
     bool try_coerce_closure_to_fnptr(lir::LExprPtr& arg, const LogosType* expected) {
-        if (!arg || !expected || expected->kind != LogosType::Kind::FnPtr) return false;
-        auto* at = arg->type;
-        if (!at || at->kind != LogosType::Kind::Closure) return false;
+        TypeRef er(expected);
+        if (!arg || !er || er.kind() != LogosType::Kind::FnPtr) return false;
+        TypeRef at(arg->type);
+        if (!at || at.kind() != LogosType::Kind::Closure) return false;
         auto* box = std::get_if<lir::EClosureBox>(&arg->kind);
         if (!box || !box->inner || !box->inner->captures.empty()) return false;
-        if (at->closure_params.size() != expected->closure_params.size()) return false;
-        for (size_t i = 0; i < at->closure_params.size(); ++i)
-            if (!types_compatible(at->closure_params[i], expected->closure_params[i])) return false;
+        if (at.closure_params().size() != er.closure_params().size()) return false;
+        for (size_t i = 0; i < at.closure_params().size(); ++i)
+            if (!types_compatible(at.closure_params()[i], er.closure_params()[i])) return false;
         box->inner->as_fn_ptr = true;
-        arg->type = make_fn_ptr_type(at->closure_params, at->closure_ret);
+        arg->type = make_fn_ptr_type(at.closure_params(), at.closure_ret().raw());
         return true;
     }
     const LogosType* make_slice_type(const LogosType* elem) {
@@ -550,33 +551,36 @@ private:
 
     // Look up struct/datatype/enum by LogosType (uses pkg_name if set, else unqualified fallback)
     SemaStructInfo* get_struct_si(const LogosType* t) {
-        if (!t) return nullptr;
-        if (!t->pkg_name.empty()) {
-            auto it = structs_.find(sema_key(t->pkg_name, t->struct_name));
+        TypeRef tr(t);
+        if (!tr) return nullptr;
+        if (!tr.pkg_name().empty()) {
+            auto it = structs_.find(sema_key(tr.pkg_name(), tr.struct_name()));
             if (it != structs_.end()) return &it->second;
             return nullptr;
         }
-        auto it = structs_.find(t->struct_name);
+        auto it = structs_.find(tr.struct_name());
         return it != structs_.end() ? &it->second : nullptr;
     }
     SemaStructInfo* get_datatype_si(const LogosType* t) {
-        if (!t) return nullptr;
-        if (!t->pkg_name.empty()) {
-            auto it = datatypes_.find(sema_key(t->pkg_name, t->struct_name));
+        TypeRef tr(t);
+        if (!tr) return nullptr;
+        if (!tr.pkg_name().empty()) {
+            auto it = datatypes_.find(sema_key(tr.pkg_name(), tr.struct_name()));
             if (it != datatypes_.end()) return &it->second;
             return nullptr;
         }
-        auto it = datatypes_.find(t->struct_name);
+        auto it = datatypes_.find(tr.struct_name());
         return it != datatypes_.end() ? &it->second : nullptr;
     }
     SemaEnumInfo* get_enum_si(const LogosType* t) {
-        if (!t) return nullptr;
-        if (!t->pkg_name.empty()) {
-            auto it = enums_.find(sema_key(t->pkg_name, t->enum_name));
+        TypeRef tr(t);
+        if (!tr) return nullptr;
+        if (!tr.pkg_name().empty()) {
+            auto it = enums_.find(sema_key(tr.pkg_name(), tr.enum_name()));
             if (it != enums_.end()) return &it->second;
             return nullptr;
         }
-        auto it = enums_.find(t->enum_name);
+        auto it = enums_.find(tr.enum_name());
         return it != enums_.end() ? &it->second : nullptr;
     }
 
@@ -931,18 +935,19 @@ private:
     // Returns the "inner" (ref-stripped) view type if `t` is Hermes,
     // HermesView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
     const LogosType* hermes_view_inner(const LogosType* t) const {
-        if (!t) return nullptr;
-        const LogosType* inner = t;
-        if (t->kind == LogosType::Kind::Ref ||
-            t->kind == LogosType::Kind::MutRef)
-            inner = t->pointee;
+        TypeRef tr(t);
+        if (!tr) return nullptr;
+        TypeRef inner = tr;
+        if (tr.kind() == LogosType::Kind::Ref ||
+            tr.kind() == LogosType::Kind::MutRef)
+            inner = tr.pointee();
         if (!inner) return nullptr;
-        if ((inner->kind == LogosType::Kind::Struct ||
-             inner->kind == LogosType::Kind::ZonedStruct) &&
-            (inner->struct_name == "Hermes" ||
-             inner->struct_name == "HermesView" ||
-             inner->struct_name == "HermesStatic"))
-            return inner;
+        if ((inner.kind() == LogosType::Kind::Struct ||
+             inner.kind() == LogosType::Kind::ZonedStruct) &&
+            (inner.struct_name() == "Hermes" ||
+             inner.struct_name() == "HermesView" ||
+             inner.struct_name() == "HermesStatic"))
+            return inner.raw();
         return nullptr;
     }
     // True while lowering match arms where Hermes scalar patterns are
