@@ -1,0 +1,135 @@
+// Phase 7 slice 24a: derive(Debug) on a generic struct.
+//
+// Same pre-sema hook pattern as derive_debug_e2e, but the target may
+// carry TYPE_PARAMS. Hook reads them via OView::ast_type_param_count
+// + ast_type_param_name and emits an `impl<T: Debug, ...> Debug for
+// Pair<T, ...>` header. The body's per-field call `self.<name>.dbg(buf)`
+// dispatches into `T::dbg` through the generic-context path (same as
+// debug_primitives.logos's `dbg_to<T: Debug>`).
+//
+// Test instantiates Pair<i32> and asserts the printed length —
+// proves type-param plumbing in OView and the synth template work.
+package main;
+
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.compiler.metaprog;
+use std.fmt;
+use std.lang.text;
+use std.io;
+
+#[metaprog_handler("derive_debug_g")]
+fn derive_debug_g_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let name: StringView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    let np: u64 = view.ast_type_param_count(item);
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.emit_raw("use std.fmt;");
+    em.emit_raw("use std.lang.text;");
+
+    // impl<T: Debug, ...> Debug for Name<T, ...>
+    em.buf.push_str("impl");
+    if np > (0 as u64) {
+        em.buf.push_str("<");
+        let mut k: u64 = 0 as u64;
+        while k < np {
+            if k > (0 as u64) { em.buf.push_str(", "); }
+            let tp: StringView = view.ast_type_param_name(item, k);
+            unsafe { em.buf.push_bytes(tp.ptr, tp.len as i64); }
+            em.buf.push_str(": Debug");
+            k = k + (1 as u64);
+        }
+        em.buf.push_str(">");
+    }
+    em.buf.push_str(" Debug for ");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    if np > (0 as u64) {
+        em.buf.push_str("<");
+        let mut k: u64 = 0 as u64;
+        while k < np {
+            if k > (0 as u64) { em.buf.push_str(", "); }
+            let tp: StringView = view.ast_type_param_name(item, k);
+            unsafe { em.buf.push_bytes(tp.ptr, tp.len as i64); }
+            k = k + (1 as u64);
+        }
+        em.buf.push_str(">");
+    }
+    em.buf.push_str(" {");
+    em.buf.push_u8(10 as u8);
+
+    em.buf.push_str("    fn dbg(self: ");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    if np > (0 as u64) {
+        em.buf.push_str("<");
+        let mut k: u64 = 0 as u64;
+        while k < np {
+            if k > (0 as u64) { em.buf.push_str(", "); }
+            let tp: StringView = view.ast_type_param_name(item, k);
+            unsafe { em.buf.push_bytes(tp.ptr, tp.len as i64); }
+            k = k + (1 as u64);
+        }
+        em.buf.push_str(">");
+    }
+    em.buf.push_str(", buf: &mut String) {");
+    em.buf.push_u8(10 as u8);
+
+    em.buf.push_str("        buf.push_str(\"");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str(" {\");");
+    em.buf.push_u8(10 as u8);
+
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: AnyVal = view.ast_struct_field(item, i);
+        let fname: StringView = view.ast_field_name(fld);
+
+        if i == (0 as u64) {
+            em.buf.push_str("        buf.push_str(\" \");");
+        } else {
+            em.buf.push_str("        buf.push_str(\", \");");
+        }
+        em.buf.push_u8(10 as u8);
+
+        em.buf.push_str("        buf.push_str(\"");
+        unsafe { em.buf.push_bytes(fname.ptr, fname.len as i64); }
+        em.buf.push_str(": \");");
+        em.buf.push_u8(10 as u8);
+
+        em.buf.push_str("        self.");
+        unsafe { em.buf.push_bytes(fname.ptr, fname.len as i64); }
+        em.buf.push_str(".dbg(buf);");
+        em.buf.push_u8(10 as u8);
+
+        i = i + (1 as u64);
+    }
+
+    em.buf.push_str("        buf.push_str(\" }\");");
+    em.buf.push_u8(10 as u8);
+
+    em.buf.push_str("    }");
+    em.buf.push_u8(10 as u8);
+    em.buf.push_str("}");
+    em.commit();
+    return;
+}
+
+#[derive_debug_g]
+struct Pair<T> { a: T, b: T }
+
+unsafe fn main() -> i32 {
+    let p: Pair<i32> = Pair { a: 7, b: 11 };
+    let mut s: String = String::new();
+    p.dbg(&mut s);
+    println_string(&s);
+    // "Pair { a: 7, b: 11 }" = 20 bytes
+    return s.len() as i32;
+}
