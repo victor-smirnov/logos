@@ -200,6 +200,17 @@ add_test(NAME jit_metaprog_handler
             ${CMAKE_CURRENT_BINARY_DIR}/test_jit_handler.o
             ${CMAKE_SOURCE_DIR}/stdlib)
 
+# Phase 7 slice 16: hook emits an `impl Debug for Widget { fn dbg ... }`
+# block via Emitter::emit_raw. Test asserts `Widget__dbg` appears in nm —
+# i.e. the impl was parsed, sema'd, mono'd, and lowered to LLVM.
+add_test(NAME jit_metaprog_derive_debug
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q Widget__dbg"
+            sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_derive_debug.logos
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_derive_debug.o
+            ${CMAKE_SOURCE_DIR}/stdlib)
+
 # Phase 7 slice 14: multiple handlers per trigger. Both pair_a_hook and
 # pair_b_hook are registered for "derive_pair" and must both fire on
 # the single #[derive_pair] struct Solo.
