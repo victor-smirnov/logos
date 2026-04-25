@@ -262,8 +262,29 @@ bool emit_module(const ModuleManifest& manifest,
     std::vector<std::string> search_paths = {root};
     for (auto& p : opts.extra_search_paths) search_paths.push_back(p);
 
-    // Collect all .logos files under the module root.
+    // Collect all .logos files under the module root, dropping anything
+    // that matches a manifest `exclude <prefix>` directive. Excluded
+    // sources are still discoverable via -I path search at compile time
+    // (e.g. for metaprog JIT), they just don't get baked into libNAME.a.
     auto all_files = collect_logos_files(root);
+    if (!manifest.excludes.empty()) {
+        std::vector<std::string> abs_excludes;
+        abs_excludes.reserve(manifest.excludes.size());
+        for (auto& e : manifest.excludes) {
+            auto p = fs::path(root) / e;
+            abs_excludes.push_back(fs::weakly_canonical(p).string());
+        }
+        std::vector<std::string> filtered;
+        filtered.reserve(all_files.size());
+        for (auto& f : all_files) {
+            bool drop = false;
+            for (auto& ex : abs_excludes) {
+                if (f.compare(0, ex.size(), ex) == 0) { drop = true; break; }
+            }
+            if (!drop) filtered.push_back(f);
+        }
+        all_files = std::move(filtered);
+    }
     if (all_files.empty()) {
         std::fprintf(stderr, "emit_module: no .logos files found under %s\n",
                      root.c_str());
