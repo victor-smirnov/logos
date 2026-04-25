@@ -85,9 +85,9 @@ bool SemaChecker::is_auto_trait_satisfied(
     case Kind::ZonedStruct: {
         std::string base = concrete_struct_name(tv);
         if (has_explicit(base) || has_explicit(type_str(tv))) return true;
-        auto* si = get_struct_si(tv.raw());
+        auto* si = get_struct_si(tv);
         if (!si) {
-            si = get_datatype_si(tv.raw());
+            si = get_datatype_si(tv);
             if (!si) return true; // unknown struct — be lenient
         }
         // Bug 3 fix: build substitution map from generic type args so that
@@ -117,7 +117,7 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Enum: explicit impl OR every variant payload satisfied ──────────────
     case Kind::Enum: {
         if (has_explicit(std::string(tv.enum_name())) || has_explicit(type_str(tv))) return true;
-        auto* ei = get_enum_si(tv.raw());
+        auto* ei = get_enum_si(tv);
         if (!ei) return true; // unknown enum — be lenient
         for (auto& v : ei->variants) {
             for (auto* pt : v.payload_types) {

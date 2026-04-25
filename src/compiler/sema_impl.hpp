@@ -550,8 +550,7 @@ private:
     // ── Package-qualified symbol lookup helpers ───────────────────
 
     // Look up struct/datatype/enum by LogosType (uses pkg_name if set, else unqualified fallback)
-    SemaStructInfo* get_struct_si(const LogosType* t) {
-        TypeRef tr(t);
+    SemaStructInfo* get_struct_si(TypeRef tr) {
         if (!tr) return nullptr;
         if (!tr.pkg_name().empty()) {
             auto it = structs_.find(sema_key(tr.pkg_name(), tr.struct_name()));
@@ -561,8 +560,7 @@ private:
         auto it = structs_.find(tr.struct_name());
         return it != structs_.end() ? &it->second : nullptr;
     }
-    SemaStructInfo* get_datatype_si(const LogosType* t) {
-        TypeRef tr(t);
+    SemaStructInfo* get_datatype_si(TypeRef tr) {
         if (!tr) return nullptr;
         if (!tr.pkg_name().empty()) {
             auto it = datatypes_.find(sema_key(tr.pkg_name(), tr.struct_name()));
@@ -572,8 +570,7 @@ private:
         auto it = datatypes_.find(tr.struct_name());
         return it != datatypes_.end() ? &it->second : nullptr;
     }
-    SemaEnumInfo* get_enum_si(const LogosType* t) {
-        TypeRef tr(t);
+    SemaEnumInfo* get_enum_si(TypeRef tr) {
         if (!tr) return nullptr;
         if (!tr.pkg_name().empty()) {
             auto it = enums_.find(sema_key(tr.pkg_name(), tr.enum_name()));
