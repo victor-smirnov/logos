@@ -53,6 +53,12 @@ public:
     // source from the mirror. Not yet consumed.
     std::unordered_map<hermes::arena_offset_t, const LogosType*> mirror_inverse_;
 
+    // 2c.5.2b: intern table — alloc() consults this before inserting a new
+    // LogosType. Keyed by type_hash; each bucket is structural-compared
+    // candidate by candidate via builder_equals_typeref(). On match alloc
+    // returns the existing canonical ptr; on miss it inserts and registers.
+    std::unordered_map<uint64_t, std::vector<const LogosType*>> intern_buckets_;
+
     TypePoolImpl(logos::InitTag& tag)
         : arena_(tag, hermes::ArenaMode::GrowableSingleChunk, 64 * 1024)
     {
@@ -326,18 +332,93 @@ uint64_t compute_type_hash(const LogosTypeBuilder& t) noexcept {
 
 } // namespace
 
+// 2c.5.2b: byte-strict structural compare between a fresh builder and an
+// already-interned TypeRef. Sub-types compared by ptr-equality (interning is
+// bottom-up, so all sub-types in `b` are canonical and `t` was constructed
+// from canonical sub-types as well). Distinguishes lifetime (borrow_check
+// reads .lifetime() off the ptr), Enum type_args, and TypeVar names — fields
+// types_equal collapses but consumers read directly.
+namespace {
+
+bool vec_ptr_eq(const std::vector<const LogosType*>& a,
+                const std::vector<const LogosType*>& b) noexcept {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) if (a[i] != b[i]) return false;
+    return true;
+}
+
+bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
+    if (!r) return false;
+    if (t.kind != r.kind()) return false;
+    using K = LogosType::Kind;
+    switch (t.kind) {
+    case K::Ptr:
+        return t.mut_ptr == r.mut_ptr() && t.pointee == r.pointee().raw();
+    case K::Ref:
+    case K::MutRef:
+        return t.pointee == r.pointee().raw() &&
+               t.lifetime == r.lifetime();
+    case K::Array:
+        return t.arr_size == r.arr_size() &&
+               t.arr_size_var == r.arr_size_var() &&
+               t.elem == r.elem().raw();
+    case K::Struct:
+    case K::ZonedStruct:
+        return t.struct_name == r.struct_name() &&
+               t.pkg_name == r.pkg_name() &&
+               vec_ptr_eq(t.type_args, r.type_args()) &&
+               t.lifetime_args == r.lifetime_args();
+    case K::Enum:
+        return t.enum_name == r.enum_name() &&
+               t.pkg_name == r.pkg_name() &&
+               vec_ptr_eq(t.type_args, r.type_args());
+    case K::Tuple:
+        return vec_ptr_eq(t.tuple_elems, r.tuple_elems());
+    case K::Slice:
+        return t.elem == r.elem().raw();
+    case K::Closure:
+    case K::FnPtr:
+        return vec_ptr_eq(t.closure_params, r.closure_params()) &&
+               t.closure_ret == r.closure_ret().raw();
+    case K::TraitObject:
+    case K::TaggedPtr:
+        return t.trait_name == r.trait_name();
+    case K::ImplTrait:
+        return t.struct_name == r.struct_name();
+    case K::TypeVar:
+    case K::ConstVar:
+        return t.type_var_name == r.type_var_name() &&
+               t.const_val == r.const_val();
+    case K::AssocType:
+        return t.trait_name == r.trait_name() &&
+               t.assoc_type_name == r.assoc_type_name() &&
+               t.assoc_base == r.assoc_base().raw() &&
+               vec_ptr_eq(t.gat_args, r.gat_args());
+    default:
+        return true;  // primitives — kind alone is identity
+    }
+}
+
+} // namespace
+
 const LogosType* TypePool::alloc(LogosTypeBuilder t) {
+    if (!impl_) impl_ = TypePoolImpl::make();
+    uint64_t h = compute_type_hash(t);
+    auto& bucket = impl_->intern_buckets_[h];
+    for (const LogosType* cand : bucket)
+        if (builder_equals_typeref(t, TypeRef(cand))) return cand;
+
     pool_.push_back(LogosType{});
     LogosType* mp = &pool_.back();
     mp->kind = t.kind;
-    mp->type_hash = compute_type_hash(t);
-    if (!impl_) impl_ = TypePoolImpl::make();
+    mp->type_hash = h;
     auto off = impl_->mirror(t);
     impl_->mirror_offsets_[mp] = off;
     impl_->mirror_inverse_[off] = mp;
     mp->hermes_arena_      = &impl_->arena_;
     mp->hermes_mirror_off_ = off;
     mp->hermes_pool_       = impl_.get();
+    bucket.push_back(mp);
     return mp;
 }
 
