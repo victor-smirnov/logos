@@ -833,10 +833,6 @@ struct LProgram {
     // Populated by reflection_emit pass; consumed by mlir_gen.
     std::vector<LReflectGlobal> reflection_globals;
 
-    // Phase 5: fully-qualified names of fns annotated `#[metaprogram_post_sema]`.
-    // Collected during sema; consumed by the metaprog driver loop in main.cpp.
-    std::vector<std::string> metaprog_post_sema_hooks;
-
     // Phase 7 slice 12: trigger-name → handler-fn-name. Hook fns annotated
     // `#[metaprog_handler("trigger")]` register here; user items carrying
     // `#[trigger]` cause the handler to fire once per item with the item's

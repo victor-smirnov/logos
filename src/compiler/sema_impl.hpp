@@ -346,10 +346,6 @@ private:
 
     int destruct_counter_ = 0;           // unique-name source for `let (...)` temps
 
-    // Phase 5: fns annotated `#[metaprogram_post_sema]`, gathered during
-    // collect_module; copied into LProgram at the end of sema_lower.
-    std::vector<std::string> metaprog_post_sema_hooks_;
-
     // Phase 7 slice 12: derive-style handler registry, collected from
     // `#[metaprog_handler("name")]` annotations on hook fns.
     std::vector<lir::LProgram::MetaprogHandler> metaprog_handlers_;
@@ -366,8 +362,6 @@ private:
     bool fn_is_metaprog_handler(std::string_view name) const {
         for (const auto& mh : metaprog_handlers_)
             if (mh.hook_fn == name) return true;
-        for (const auto& h : metaprog_post_sema_hooks_)
-            if (h == name) return true;
         return false;
     }
 

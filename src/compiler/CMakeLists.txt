@@ -149,35 +149,6 @@ add_test(NAME jit_logosc_main
 set_tests_properties(jit_logosc_main PROPERTIES
     PASS_REGULAR_EXPRESSION "JIT_OK")
 
-# Phase 4 slice 4 + Phase 7 slice 1: drive a #[metaprogram_post_sema]
-# hook through the JIT during compilation. Hook calls the host emit
-# marker; host dedup converges the loop after iter 1. Trace output
-# must contain "metaprog iter 1" — proves the seam fired, the loop
-# re-ran sema, and convergence kicked in.
-add_test(NAME jit_metaprog_hook
-    COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; echo \"$out\" | grep -q 'metaprog iter 1' && nm \"$3\" | grep -q ast_walk_ok && nm \"$3\" | grep -q fn_count"
-            sh
-            $<TARGET_FILE:logosc>
-            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_hook.logos
-            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_hook.o
-            ${CMAKE_SOURCE_DIR}/stdlib)
-
-# Phase 7 slice 6: derive-Debug-style metaprogram. Hook walks the
-# user's AST, finds STRUCT nodes, reads each one's NAME and FIELDS
-# count, and emits `pub fn debug_<NAME>_field_count() -> i64 ...`.
-# Test fixture has Point (2 fields), RGB (3 fields), Marker (0
-# fields, must be skipped). ctest verifies the right symbols
-# appear and that the empty-struct skip works.
-# Phase 7 diagnostics: hook calls metaprog::error("..."); driver must
-# print "error: metaprog hook 'complain': schema not supported" and
-# fail the build (non-zero exit). Test inverts the exit check via !.
-add_test(NAME jit_metaprog_diag
-    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$3\" -o /dev/null 2>&1); ec=$?; echo \"$out\"; test $ec -ne 0 && echo \"$out\" | grep -q \"metaprog hook 'complain': schema not supported\""
-            sh
-            $<TARGET_FILE:logosc>
-            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_diag.logos
-            ${CMAKE_SOURCE_DIR}/stdlib)
-
 # Phase 7 slice 13: spanned diagnostics. Handler emits via
 # error_at(target_offset, msg); host prefixes file:line from the
 # target node's SRC_LINE.
@@ -222,10 +193,3 @@ add_test(NAME jit_metaprog_handler_multi
             ${CMAKE_CURRENT_BINARY_DIR}/test_jit_handler_multi.o
             ${CMAKE_SOURCE_DIR}/stdlib)
 
-add_test(NAME jit_metaprog_derive
-    COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q debug_Point_field_count && nm \"$3\" | grep -q debug_RGB_field_count && ! nm \"$3\" | grep -q debug_Marker_field_count"
-            sh
-            $<TARGET_FILE:logosc>
-            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_derive.logos
-            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_derive.o
-            ${CMAKE_SOURCE_DIR}/stdlib)

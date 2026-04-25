@@ -376,17 +376,6 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             }
             else if (c == la::ENUM)                       collect_enum(item);
             else if (c == la::FN || c == la::EXTERN_FN)   {
-                // Phase 5: record `#[metaprogram_post_sema]` hooks.
-                for (auto& ann : pending_annots) {
-                    if (str_of(ann.get(la::NAME.code)) == "metaprogram_post_sema") {
-                        // LFunction::name for free fns is bare (no package
-                        // prefix); store the same so the driver loop can
-                        // look it up directly in prog.functions.
-                        metaprog_post_sema_hooks_.push_back(
-                            std::string(str_of(item.get(la::NAME.code))));
-                        break;
-                    }
-                }
                 // Phase 7 slice 12: record `#[metaprog_handler("trigger")]`
                 // hooks. The annotation's first positional arg is the
                 // user-facing trigger name; the host driver scans user

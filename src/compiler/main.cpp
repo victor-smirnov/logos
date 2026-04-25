@@ -404,13 +404,13 @@ int main(int argc, char** argv) {
         if (!prog.ok()) return 1;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
 
-        if (prog.metaprog_post_sema_hooks.empty() && prog.metaprog_targets.empty()) break;
+        if (prog.metaprog_targets.empty()) break;
 
         if (trace) {
-            std::fprintf(stderr, "[metaprog iter %d] %zu hook(s):\n",
-                         iter, prog.metaprog_post_sema_hooks.size());
-            for (auto& h : prog.metaprog_post_sema_hooks)
-                std::fprintf(stderr, "                 - %s\n", h.c_str());
+            std::fprintf(stderr, "[metaprog iter %d] %zu target(s):\n",
+                         iter, prog.metaprog_targets.size());
+            for (auto& t : prog.metaprog_targets)
+                std::fprintf(stderr, "                 - %s\n", t.trigger.c_str());
         }
 
         // Phase 4 slice 4: JIT-invoke each hook. Until the AST emit API
@@ -464,7 +464,7 @@ int main(int argc, char** argv) {
         // Metaprog JIT gets process symbols (libc malloc/free, printf,
         // memcpy, etc.) so hooks can use stdlib types like String/format
         // without per-symbol bindings. The compiler is the trust root
-        // for #[metaprogram_post_sema] code, so this is acceptable.
+        // for hook code, so this is acceptable.
         auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog",
                                               /*with_process_symbols=*/true);
         if (!meta_jit) return 1;
@@ -509,17 +509,6 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "logosc: bind logos_metaprog_error_at: %s\n",
                          meta_jit->error_str().c_str());
             return 1;
-        }
-        for (const auto& hname : prog.metaprog_post_sema_hooks) {
-            auto* sym = meta_jit->lookup(hname);
-            if (!sym) {
-                std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
-                             hname.c_str(), meta_jit->error_str().c_str());
-                return 1;
-            }
-            g_current_hook_name = hname.c_str();
-            reinterpret_cast<void (*)()>(sym)();
-            g_current_hook_name = nullptr;
         }
         // Phase 7 slice 12: derive-style handlers fire once per target item.
         // trigger→hook lookup is linear (handler list is short — typically
@@ -587,7 +576,6 @@ int main(int argc, char** argv) {
     {
         std::set<std::string> hook_names;
         for (const auto& mh : prog.metaprog_handlers) hook_names.insert(mh.hook_fn);
-        for (const auto& h  : prog.metaprog_post_sema_hooks) hook_names.insert(h);
         prog.functions.erase(
             std::remove_if(prog.functions.begin(), prog.functions.end(),
                 [&](const auto& f) { return hook_names.count(f.name) > 0; }),

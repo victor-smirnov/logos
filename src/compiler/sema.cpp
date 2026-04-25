@@ -978,29 +978,6 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
         }
     }
 
-    // Phase 5: validate hook signatures.  Until the AST emit API lands
-    // (Phase 7) hooks must be `fn() -> ()` — no params, no type params,
-    // not extern, returning Void.
-    for (const auto& hname : metaprog_post_sema_hooks_) {
-        const lir::LFunction* fn = nullptr;
-        for (const auto& f : prog.functions)
-            if (f.name == hname) { fn = &f; break; }
-        ctx_ = std::format("fn {}", hname);
-        node_line_ = 0;
-        if (!fn) {
-            error("#[metaprogram_post_sema] hook is not a free fn");
-            continue;
-        }
-        if (fn->is_extern)
-            error("#[metaprogram_post_sema] cannot be applied to extern fn");
-        if (!fn->type_params.empty())
-            error("#[metaprogram_post_sema] hook must not be generic");
-        if (!fn->params.empty())
-            error("#[metaprogram_post_sema] hook must take no parameters (yet)");
-        if (fn->ret_type && TypeRef(fn->ret_type).kind() != LogosType::Kind::Void)
-            error("#[metaprogram_post_sema] hook must return ()");
-    }
-
     // Phase 7 slice 12: validate `#[metaprog_handler(...)]` registrations.
     // Hook fn must be a non-extern, non-generic free fn taking a single
     // `*const u8` parameter (target node ptr) and returning ().
@@ -1044,7 +1021,6 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
 
     prog.diags      = std::move(result_);
     prog.type_pool  = std::move(pool_);
-    prog.metaprog_post_sema_hooks = std::move(metaprog_post_sema_hooks_);
     prog.metaprog_handlers = std::move(metaprog_handlers_);
     prog.metaprog_targets = std::move(metaprog_targets_);
     return prog;
