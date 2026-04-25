@@ -508,32 +508,34 @@ int main(int argc, char** argv) {
         // trigger→hook lookup is linear (handler list is short — typically
         // a handful per program); switch to map if it grows.
         for (const auto& tgt : prog.metaprog_targets) {
-            const std::string* hook_name = nullptr;
-            for (const auto& mh : prog.metaprog_handlers)
-                if (mh.trigger == tgt.trigger) { hook_name = &mh.hook_fn; break; }
-            if (!hook_name) {
-                // Should not happen — sema collected only matched triggers.
-                std::fprintf(stderr,
-                    "logosc: internal: no handler for trigger '%s'\n",
-                    tgt.trigger.c_str());
-                return 1;
-            }
-            auto* sym = meta_jit->lookup(*hook_name);
-            if (!sym) {
-                std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
-                             hook_name->c_str(), meta_jit->error_str().c_str());
-                return 1;
-            }
-            // Recompute target ptr at invoke time — base may have moved
-            // if a previous hook in this iter grew the holder's arena.
             // Offset is only meaningful within one Hermes doc; hooks
             // see the entry-file doc via `oview_module_ast()`. Skip
             // triggers in non-entry asts (imported user sources):
             // cross-doc targeting needs an ast_idx-aware hook ABI.
             if (tgt.ast_idx != g_user_root_idx) continue;
-            g_current_hook_name = hook_name->c_str();
-            reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
-            g_current_hook_name = nullptr;
+            // Phase 7 slice 14: fire all handlers registered for this
+            // trigger, in source-declaration order (the order sema
+            // collected them).
+            bool any_handler = false;
+            for (const auto& mh : prog.metaprog_handlers) {
+                if (mh.trigger != tgt.trigger) continue;
+                any_handler = true;
+                auto* sym = meta_jit->lookup(mh.hook_fn);
+                if (!sym) {
+                    std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
+                                 mh.hook_fn.c_str(), meta_jit->error_str().c_str());
+                    return 1;
+                }
+                g_current_hook_name = mh.hook_fn.c_str();
+                reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
+                g_current_hook_name = nullptr;
+            }
+            if (!any_handler) {
+                std::fprintf(stderr,
+                    "logosc: internal: no handler for trigger '%s'\n",
+                    tgt.trigger.c_str());
+                return 1;
+            }
         }
         if (!hook_diags.empty()) {
             for (const auto& d : hook_diags)

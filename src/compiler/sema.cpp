@@ -1007,7 +1007,6 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // Trigger names must be unique across the program — collisions would
     // make handler dispatch ambiguous.
     {
-        std::set<std::string> seen;
         for (const auto& mh : metaprog_handlers_) {
             ctx_ = std::format("fn {}", mh.hook_fn);
             node_line_ = 0;
@@ -1015,10 +1014,10 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
                 error("#[metaprog_handler] requires a string-literal trigger name, e.g. #[metaprog_handler(\"derive_debug\")]");
                 continue;
             }
-            if (!seen.insert(mh.trigger).second) {
-                error(std::format("duplicate #[metaprog_handler(\"{}\")]: trigger names must be unique", mh.trigger));
-                continue;
-            }
+            // Phase 7 slice 14: multiple handlers per trigger are allowed —
+            // all fire on each match in source-declaration order. No
+            // dedup of the (trigger, hook_fn) pair: registering the same
+            // fn twice would call it twice, which is the user's bug.
             const lir::LFunction* fn = nullptr;
             for (const auto& f : prog.functions)
                 if (f.name == mh.hook_fn) { fn = &f; break; }

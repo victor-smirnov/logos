@@ -200,6 +200,17 @@ add_test(NAME jit_metaprog_handler
             ${CMAKE_CURRENT_BINARY_DIR}/test_jit_handler.o
             ${CMAKE_SOURCE_DIR}/stdlib)
 
+# Phase 7 slice 14: multiple handlers per trigger. Both pair_a_hook and
+# pair_b_hook are registered for "derive_pair" and must both fire on
+# the single #[derive_pair] struct Solo.
+add_test(NAME jit_metaprog_handler_multi
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q pair_a_Solo && nm \"$3\" | grep -q pair_b_Solo"
+            sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_handler_multi.logos
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_handler_multi.o
+            ${CMAKE_SOURCE_DIR}/stdlib)
+
 add_test(NAME jit_metaprog_derive
     COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q debug_Point_field_count && nm \"$3\" | grep -q debug_RGB_field_count && ! nm \"$3\" | grep -q debug_Marker_field_count"
             sh
