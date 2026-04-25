@@ -168,6 +168,12 @@ int main(int argc, char** argv) {
     if (!prog.ok()) return 1;
     prog.binary_symbols = std::move(binary_symbols);
     report("sema+lower");
+    if (trace && !prog.metaprog_post_sema_hooks.empty()) {
+        std::fprintf(stderr, "[trace] metaprog_post_sema hooks: %zu\n",
+                     prog.metaprog_post_sema_hooks.size());
+        for (auto& h : prog.metaprog_post_sema_hooks)
+            std::fprintf(stderr, "        - %s\n", h.c_str());
+    }
 
     // ── Step 2b+: Reflection TypeInfo emission (pre-mono, concrete types only)
     prog = logos::compiler::reflection_emit(std::move(prog));

@@ -828,6 +828,10 @@ struct LProgram {
     // Populated by reflection_emit pass; consumed by mlir_gen.
     std::vector<LReflectGlobal> reflection_globals;
 
+    // Phase 5: fully-qualified names of fns annotated `#[metaprogram_post_sema]`.
+    // Collected during sema; consumed by the metaprog driver loop in main.cpp.
+    std::vector<std::string> metaprog_post_sema_hooks;
+
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
     // already compiled and will be found by the linker in the .a).

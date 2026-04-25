@@ -980,6 +980,7 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
 
     prog.diags      = std::move(result_);
     prog.type_pool  = std::move(pool_);
+    prog.metaprog_post_sema_hooks = std::move(metaprog_post_sema_hooks_);
     return prog;
 }
 

@@ -341,6 +341,10 @@ private:
 
     int destruct_counter_ = 0;           // unique-name source for `let (...)` temps
 
+    // Phase 5: fns annotated `#[metaprogram_post_sema]`, gathered during
+    // collect_module; copied into LProgram at the end of sema_lower.
+    std::vector<std::string> metaprog_post_sema_hooks_;
+
     void push_scope() { scope_.emplace_back(); }
     void pop_scope() {
         if (!scope_.empty()) {

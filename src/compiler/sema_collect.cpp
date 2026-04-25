@@ -341,7 +341,19 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 }
             }
             else if (c == la::ENUM)                       collect_enum(item);
-            else if (c == la::FN || c == la::EXTERN_FN)   collect_fn(item);
+            else if (c == la::FN || c == la::EXTERN_FN)   {
+                // Phase 5: record `#[metaprogram_post_sema]` hooks.
+                for (auto& ann : pending_annots) {
+                    if (str_of(ann.get(la::NAME.code)) == "metaprogram_post_sema") {
+                        auto fname = std::string(str_of(item.get(la::NAME.code)));
+                        auto fqn = cur_package_.empty() ? fname
+                                                        : cur_package_ + "::" + fname;
+                        metaprog_post_sema_hooks_.push_back(std::move(fqn));
+                        break;
+                    }
+                }
+                collect_fn(item);
+            }
             else if (c == la::TRAIT_DEF || c == la::GENOS_DEF) collect_trait(item);
             else if (c == la::IMPL_BLOCK)                 collect_impl(item);
         } else {
