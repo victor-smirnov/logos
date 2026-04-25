@@ -12,6 +12,7 @@
 #include <deque>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -69,11 +70,19 @@ struct LogosType {
     // legacy raw pointer; this duplicate just speeds the hot debug path).
     Kind kind = Kind::Error;
 
-    // 2c.5 step 1: canonical structural hash, computed by TypePool::alloc.
-    // Mirrors what types_equal considers equivalent (lifetime ignored, etc.).
-    // Used as an O(1) inequality fast-fail; structural compare still runs on
-    // hash collision. Becomes the equality oracle once interning lands.
-    uint64_t type_hash = 0;
+    // 2c.5.4: 32-byte TypeUID — canonical structural identity used as the
+    // equality oracle (types_equal is ptr-eq || memcmp(type_uid)).
+    // Layout per master plan: byte 0 = kind tag, bytes 1..23 = SHA-256
+    // truncation of canonical type expression (lifetime ignored, matches
+    // types_equal semantics), bytes 24..31 = reserved member-id (0 for
+    // pure types; future trait-dispatch will populate).
+    struct TypeUID {
+        uint8_t bytes[32] = {};
+        bool operator==(const TypeUID& o) const noexcept {
+            return std::memcmp(bytes, o.bytes, 32) == 0;
+        }
+    };
+    TypeUID type_uid;
 
     // ── Hermes mirror back-refs ──
     // Set by TypePool::alloc() after building the TinyObjectMap mirror.

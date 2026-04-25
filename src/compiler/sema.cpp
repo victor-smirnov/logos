@@ -53,11 +53,18 @@ public:
     // source from the mirror. Not yet consumed.
     std::unordered_map<hermes::arena_offset_t, const LogosType*> mirror_inverse_;
 
-    // 2c.5.2b: intern table — alloc() consults this before inserting a new
-    // LogosType. Keyed by type_hash; each bucket is structural-compared
-    // candidate by candidate via builder_equals_typeref(). On match alloc
-    // returns the existing canonical ptr; on miss it inserts and registers.
-    std::unordered_map<uint64_t, std::vector<const LogosType*>> intern_buckets_;
+    // 2c.5.4: intern table keyed by TypeUID (32-byte SHA-256-derived).
+    // Forward-declared via LogosType::TypeUID. Bucket walk via
+    // builder_equals_typeref preserves byte-strict equality (lifetime,
+    // pkg_name, lifetime_args, const_val) which TypeUID intentionally
+    // collapses to match types_equal semantics.
+    struct UIDHash {
+        size_t operator()(const LogosType::TypeUID& u) const noexcept {
+            size_t h = 0; std::memcpy(&h, u.bytes, sizeof(h)); return h;
+        }
+    };
+    std::unordered_map<LogosType::TypeUID,
+                       std::vector<const LogosType*>, UIDHash> intern_buckets_;
 
     TypePoolImpl(logos::InitTag& tag)
         : arena_(tag, hermes::ArenaMode::GrowableSingleChunk, 64 * 1024)
@@ -241,94 +248,108 @@ TypePool::TypePool(TypePool&&) noexcept = default;
 TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 
 // ── Canonical structural hash ──
-// 2c.5 step 1: FNV-1a 64 over a serialization that mirrors what types_equal
-// considers equivalent. Sub-type contributions are read from the sub-type's
-// already-computed type_hash (alloc is bottom-up: pointee/elem/type_args are
-// inserted into the pool before the parent calls alloc()).
+// 2c.5.4: canonical TypeUID computation.
+//
+// Layout per master plan: byte 0 = kind tag, bytes 1..23 = SHA-256 trim of
+// canonical structural serialization (lifetime ignored, matches types_equal),
+// bytes 24..31 = reserved member-id (0 for pure types).
+//
+// Serialization composes sub-type UIDs (already computed bottom-up) so the
+// induction "sub-uid equality ⇔ sub-types-equal" closes the same way the
+// previous u64 hash did.
 namespace {
 
-constexpr uint64_t FNV_OFFSET = 0xcbf29ce484222325ULL;
-constexpr uint64_t FNV_PRIME  = 0x100000001b3ULL;
-
-inline uint64_t fnv_byte(uint64_t h, uint8_t b) {
-    return (h ^ b) * FNV_PRIME;
+inline void put_byte(std::string& s, uint8_t b) { s.push_back(char(b)); }
+inline void put_u64(std::string& s, uint64_t v) {
+    for (int i = 0; i < 8; ++i) { s.push_back(char(v & 0xFF)); v >>= 8; }
 }
-inline uint64_t fnv_bytes(uint64_t h, const void* data, size_t n) {
-    auto* p = static_cast<const uint8_t*>(data);
-    for (size_t i = 0; i < n; ++i) h = fnv_byte(h, p[i]);
-    return h;
+inline void put_str(std::string& s, std::string_view v) {
+    put_u64(s, v.size());
+    s.append(v);
 }
-inline uint64_t fnv_str(uint64_t h, std::string_view s) {
-    return fnv_bytes(h, s.data(), s.size());
-}
-inline uint64_t fnv_u64(uint64_t h, uint64_t v) {
-    return fnv_bytes(h, &v, sizeof(v));
-}
-inline uint64_t sub_hash(const LogosType* p) {
-    return p ? p->type_hash : 0;
+inline void put_sub(std::string& s, const LogosType* p) {
+    if (!p) { for (int i = 0; i < 32; ++i) s.push_back(0); return; }
+    s.append(reinterpret_cast<const char*>(p->type_uid.bytes), 32);
 }
 
-uint64_t compute_type_hash(const LogosTypeBuilder& t) noexcept {
-    uint64_t h = FNV_OFFSET;
-    h = fnv_byte(h, uint8_t(t.kind));
+LogosType::TypeUID compute_type_uid(const LogosTypeBuilder& t) noexcept {
+    std::string buf;
+    buf.reserve(64);
+    put_byte(buf, uint8_t(t.kind));
     using K = LogosType::Kind;
     switch (t.kind) {
     case K::Ptr:
-        h = fnv_byte(h, t.mut_ptr ? 1 : 0);
-        h = fnv_u64(h, sub_hash(t.pointee));
+        put_byte(buf, t.mut_ptr ? 1 : 0);
+        put_sub(buf, t.pointee);
         break;
     case K::Ref:
     case K::MutRef:
-        // lifetime intentionally ignored to match types_equal
-        h = fnv_u64(h, sub_hash(t.pointee));
+        // lifetime intentionally omitted — matches types_equal semantics.
+        put_sub(buf, t.pointee);
         break;
     case K::Array:
-        h = fnv_u64(h, t.arr_size);
-        h = fnv_str(h, t.arr_size_var);
-        h = fnv_u64(h, sub_hash(t.elem));
+        put_u64(buf, t.arr_size);
+        put_str(buf, t.arr_size_var);
+        put_sub(buf, t.elem);
         break;
     case K::Struct:
     case K::ZonedStruct:
-        h = fnv_str(h, t.struct_name);
-        for (auto* a : t.type_args) h = fnv_u64(h, sub_hash(a));
+        put_str(buf, t.struct_name);
+        for (auto* a : t.type_args) put_sub(buf, a);
         break;
     case K::Enum:
-        h = fnv_str(h, t.enum_name);
-        for (auto* a : t.type_args) h = fnv_u64(h, sub_hash(a));
+        put_str(buf, t.enum_name);
+        for (auto* a : t.type_args) put_sub(buf, a);
         break;
     case K::Tuple:
-        for (auto* e : t.tuple_elems) h = fnv_u64(h, sub_hash(e));
+        for (auto* e : t.tuple_elems) put_sub(buf, e);
         break;
     case K::Slice:
-        h = fnv_u64(h, sub_hash(t.elem));
+        put_sub(buf, t.elem);
         break;
     case K::Closure:
     case K::FnPtr:
-        for (auto* p : t.closure_params) h = fnv_u64(h, sub_hash(p));
-        h = fnv_u64(h, sub_hash(t.closure_ret));
+        for (auto* p : t.closure_params) put_sub(buf, p);
+        put_sub(buf, t.closure_ret);
         break;
     case K::TraitObject:
     case K::TaggedPtr:
-        h = fnv_str(h, t.trait_name);
+        put_str(buf, t.trait_name);
         break;
     case K::ImplTrait:
-        h = fnv_str(h, t.struct_name);
+        put_str(buf, t.struct_name);
         break;
     case K::TypeVar:
     case K::ConstVar:
-        h = fnv_str(h, t.type_var_name);
+        put_str(buf, t.type_var_name);
         break;
     case K::AssocType:
-        h = fnv_str(h, t.trait_name);
-        h = fnv_str(h, t.assoc_type_name);
-        h = fnv_u64(h, sub_hash(t.assoc_base));
-        for (auto* a : t.gat_args) h = fnv_u64(h, sub_hash(a));
+        put_str(buf, t.trait_name);
+        put_str(buf, t.assoc_type_name);
+        put_sub(buf, t.assoc_base);
+        for (auto* a : t.gat_args) put_sub(buf, a);
         break;
     default:
-        break;
+        break;  // primitives: kind tag alone identifies
     }
-    return h;
+
+    auto sha = sha256(buf);
+    LogosType::TypeUID uid{};
+    uid.bytes[0] = uint8_t(t.kind);
+    std::memcpy(&uid.bytes[1], sha.data(), 23);
+    // bytes[24..31] left zero (reserved for future member-id / dispatch).
+    return uid;
 }
+
+// Hash adapter for unordered_map keying — first 8 bytes of the (already
+// well-distributed) SHA-256 trim are sufficient.
+struct TypeUIDHash {
+    size_t operator()(const LogosType::TypeUID& u) const noexcept {
+        size_t h = 0;
+        std::memcpy(&h, u.bytes, sizeof(h));
+        return h;
+    }
+};
 
 } // namespace
 
@@ -403,15 +424,15 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
 
 const LogosType* TypePool::alloc(LogosTypeBuilder t) {
     if (!impl_) impl_ = TypePoolImpl::make();
-    uint64_t h = compute_type_hash(t);
-    auto& bucket = impl_->intern_buckets_[h];
+    LogosType::TypeUID uid = compute_type_uid(t);
+    auto& bucket = impl_->intern_buckets_[uid];
     for (const LogosType* cand : bucket)
         if (builder_equals_typeref(t, TypeRef(cand))) return cand;
 
     pool_.push_back(LogosType{});
     LogosType* mp = &pool_.back();
     mp->kind = t.kind;
-    mp->type_hash = h;
+    mp->type_uid = uid;
     auto off = impl_->mirror(t);
     impl_->mirror_offsets_[mp] = off;
     impl_->mirror_inverse_[off] = mp;
@@ -539,7 +560,7 @@ using hermes::MemHolder;
 bool types_equal(TypeRef a, TypeRef b) noexcept {
     if (!a || !b) return false;
     if (a.raw() == b.raw()) return true;
-    return a.raw()->type_hash == b.raw()->type_hash;
+    return a.raw()->type_uid == b.raw()->type_uid;
 }
 
 // ── Generic struct name helpers ───────────────────────────────────────────────
