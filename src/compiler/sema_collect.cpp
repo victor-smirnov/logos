@@ -345,10 +345,11 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 // Phase 5: record `#[metaprogram_post_sema]` hooks.
                 for (auto& ann : pending_annots) {
                     if (str_of(ann.get(la::NAME.code)) == "metaprogram_post_sema") {
-                        auto fname = std::string(str_of(item.get(la::NAME.code)));
-                        auto fqn = cur_package_.empty() ? fname
-                                                        : cur_package_ + "::" + fname;
-                        metaprog_post_sema_hooks_.push_back(std::move(fqn));
+                        // LFunction::name for free fns is bare (no package
+                        // prefix); store the same so the driver loop can
+                        // look it up directly in prog.functions.
+                        metaprog_post_sema_hooks_.push_back(
+                            std::string(str_of(item.get(la::NAME.code))));
                         break;
                     }
                 }
