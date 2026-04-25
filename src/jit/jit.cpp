@@ -6,6 +6,7 @@
 
 #include <llvm/ExecutionEngine/Orc/AbsoluteSymbols.h>
 #include <llvm/ExecutionEngine/Orc/CoreContainers.h>
+#include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/LLVMContext.h>
@@ -70,6 +71,19 @@ bool Jit::define_symbol(std::string_view name, void* addr) {
         last_err_ = take_err(std::move(err));
         return false;
     }
+    return true;
+}
+
+bool Jit::enable_process_symbols() {
+    if (!impl_->lljit) { last_err_ = "Jit::init not called"; return false; }
+    auto& jd = impl_->lljit->getMainJITDylib();
+    auto gen = llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
+        impl_->lljit->getDataLayout().getGlobalPrefix());
+    if (!gen) {
+        last_err_ = take_err(gen.takeError());
+        return false;
+    }
+    jd.addGenerator(std::move(*gen));
     return true;
 }
 

@@ -138,10 +138,16 @@ extern "C" int32_t logos_emit_source(const char* src) {
 // can't move it. Acceptable cost for current module sizes; revisit
 // when feeding metaprog-sized programs.
 static std::unique_ptr<logos::jit::Jit>
-build_jit_from_module(const llvm::Module& src_module, const char* who) {
+build_jit_from_module(const llvm::Module& src_module, const char* who,
+                      bool with_process_symbols = false) {
     auto jit = std::make_unique<logos::jit::Jit>();
     if (!jit->init()) {
         std::fprintf(stderr, "%s: jit init: %s\n", who, jit->error_str().c_str());
+        return nullptr;
+    }
+    if (with_process_symbols && !jit->enable_process_symbols()) {
+        std::fprintf(stderr, "%s: enable_process_symbols: %s\n", who,
+                     jit->error_str().c_str());
         return nullptr;
     }
     auto ctx = std::make_unique<llvm::LLVMContext>();
@@ -349,7 +355,12 @@ int main(int argc, char** argv) {
         llvm::InitializeNativeTarget();
         llvm::InitializeNativeTargetAsmPrinter();
 
-        auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog");
+        // Metaprog JIT gets process symbols (libc malloc/free, printf,
+        // memcpy, etc.) so hooks can use stdlib types like String/format
+        // without per-symbol bindings. The compiler is the trust root
+        // for #[metaprogram_post_sema] code, so this is acceptable.
+        auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog",
+                                              /*with_process_symbols=*/true);
         if (!meta_jit) return 1;
         report("metaprog jit");
 

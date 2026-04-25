@@ -14,6 +14,8 @@ package test;
 use std.hermes.view;
 use std.hermes.anyval;
 use std.hermes.map;
+use std.lang.text;
+use std.fmt;
 
 extern fn logos_emit_source(src: *const u8) -> i32;
 extern fn logos_get_module_ast(out_base: *mut *const u8,
@@ -62,45 +64,16 @@ fn my_hook() -> () {
     }
 
     if count > 0 {
-        // Build "package test; pub fn ast_walk_ok() -> i32 { return 1; }
-        //       pub fn fn_count() -> i64 { return <N>; }" into a stack
-        //  buffer with a hand-rolled itoa for <N>. We can't use std.fmt
-        //  here because alloc/dealloc resolve to libc malloc/free, and
-        //  the metaprog JIT does not yet bind process symbols.
-        let mut buf: [u8; 256] = [0 as u8; 256];
-        let prefix: str = "package test; pub fn ast_walk_ok() -> i32 { return 1; } pub fn fn_count() -> i64 { return ";
-        let suffix: str = "; }";
-        let mut p: i64 = 0;
-        let mut k: i64 = 0;
-        while k < prefix.len() {
-            unsafe { buf[p] = prefix[k]; }
-            p = p + 1;
-            k = k + 1;
-        }
-
-        let mut digits: [u8; 22] = [0 as u8; 22];
-        let mut dp: i64 = 0;
-        let mut m: i64 = count;
-        while m > 0 {
-            digits[dp] = (m - (m / 10) * 10) as u8 + (48 as u8);
-            m = m / 10;
-            dp = dp + 1;
-        }
-        while dp > 0 {
-            dp = dp - 1;
-            unsafe { buf[p] = digits[dp]; }
-            p = p + 1;
-        }
-
-        k = 0;
-        while k < suffix.len() {
-            unsafe { buf[p] = suffix[k]; }
-            p = p + 1;
-            k = k + 1;
-        }
-        unsafe { buf[p] = 0 as u8; }
-
-        unsafe { logos_emit_source(&buf[0] as *const u8); }
+        // Build the emitted source via std.fmt::format. This works because
+        // the metaprog JIT enables process-symbol resolution (slice 5),
+        // so libc malloc/free behind String/alloc resolve automatically.
+        let mut src: String = unsafe {
+            format::<i64>("package test; pub fn ast_walk_ok() -> i32 { return 1; } pub fn fn_count() -> i64 { return {}; }", count)
+        };
+        // logos_emit_source uses std::string(src) on the host side, so it
+        // needs a NUL-terminator. String stores raw bytes without one.
+        src.push_u8(0 as u8);
+        unsafe { logos_emit_source(src.as_ptr() as *const u8); }
     }
     return;
 }

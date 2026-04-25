@@ -43,6 +43,13 @@ public:
     // references the name is added (ORC resolves on add).
     bool define_symbol(std::string_view name, void* addr);
 
+    // Add the host process's exported symbols (libc, libm, anything in
+    // RTLD_DEFAULT) to the main JITDylib's lookup chain. After this,
+    // JIT'd `extern` declarations for malloc/free/printf/memcpy/etc.
+    // resolve automatically. Opt-in: not called by default — callers
+    // that JIT untrusted code should leave it off.
+    bool enable_process_symbols();
+
     // Returns the JIT'd address of `name`, or nullptr on miss.
     void* lookup(std::string_view name);
 
