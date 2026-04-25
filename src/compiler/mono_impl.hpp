@@ -76,7 +76,7 @@ private:
     std::vector<WorkItem> worklist_;
 
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
-    const LogosType* subst_type(const LogosType* t, const SubstMap& s) noexcept;
+    const LogosType* subst_type(TypeRef tv, const SubstMap& s) noexcept;
 
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(const LogosType* t) {
