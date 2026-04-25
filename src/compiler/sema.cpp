@@ -2072,38 +2072,38 @@ const LogosType* SemaChecker::resolve_type(TinyMapView node) {
 
 // Match `concrete` against `pattern`, binding TypeVars.  Minimal mirror of
 // mono's match_type — only the cases we need for struct-spec selection.
-static bool match_type_sema(const LogosType* concrete, const LogosType* pattern,
+static bool match_type_sema(TypeRef c, TypeRef p,
                             StrMap<const LogosType*>& bindings) {
-    if (!concrete || !pattern) return false;
-    if (TypeRef(pattern).kind() == LogosType::Kind::TypeVar) {
-        auto it = bindings.find(TypeRef(pattern).type_var_name());
-        if (it != bindings.end()) return types_equal(concrete, it->second);
-        bindings[std::string(TypeRef(pattern).type_var_name())] = concrete;
+    if (!c || !p) return false;
+    if (p.kind() == LogosType::Kind::TypeVar) {
+        auto it = bindings.find(p.type_var_name());
+        if (it != bindings.end()) return types_equal(c, TypeRef(it->second));
+        bindings[std::string(p.type_var_name())] = c.raw();
         return true;
     }
-    if (pattern->kind != concrete->kind) return false;
-    switch (TypeRef(pattern).kind()) {
+    if (p.kind() != c.kind()) return false;
+    switch (p.kind()) {
     case LogosType::Kind::Ptr:
-        return TypeRef(pattern).mut_ptr() == TypeRef(concrete).mut_ptr() &&
-               match_type_sema(TypeRef(concrete).pointee().raw(), TypeRef(pattern).pointee().raw(), bindings);
+        return p.mut_ptr() == c.mut_ptr() &&
+               match_type_sema(c.pointee(), p.pointee(), bindings);
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef:
-        return match_type_sema(TypeRef(concrete).pointee().raw(), TypeRef(pattern).pointee().raw(), bindings);
+        return match_type_sema(c.pointee(), p.pointee(), bindings);
     case LogosType::Kind::Array:
-        return TypeRef(pattern).arr_size() == TypeRef(concrete).arr_size() &&
-               match_type_sema(TypeRef(concrete).elem().raw(), TypeRef(pattern).elem().raw(), bindings);
+        return p.arr_size() == c.arr_size() &&
+               match_type_sema(c.elem(), p.elem(), bindings);
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
-        return TypeRef(pattern).struct_name() == TypeRef(concrete).struct_name();
+        return p.struct_name() == c.struct_name();
     default:
-        return types_equal(concrete, pattern);
+        return types_equal(c, p);
     }
 }
 
-static int specificity_sema(const LogosType* t) {
-    if (!t || TypeRef(t).kind() == LogosType::Kind::TypeVar) return 0;
-    if (TypeRef(t).kind() == LogosType::Kind::Ptr)   return 1 + specificity_sema(TypeRef(t).pointee().raw());
-    if (TypeRef(t).kind() == LogosType::Kind::Array) return 1 + specificity_sema(TypeRef(t).elem().raw());
+static int specificity_sema(TypeRef t) {
+    if (!t || t.kind() == LogosType::Kind::TypeVar) return 0;
+    if (t.kind() == LogosType::Kind::Ptr)   return 1 + specificity_sema(t.pointee());
+    if (t.kind() == LogosType::Kind::Array) return 1 + specificity_sema(t.elem());
     return 100;
 }
 

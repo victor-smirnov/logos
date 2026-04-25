@@ -176,41 +176,39 @@ private:
     void scan_expr(const lir::LExpr& e);
 
     // ── Pattern matching (static — inline) ───────────────────────────────
-    static bool match_type(const LogosType* concrete, const LogosType* pattern,
+    static bool match_type(TypeRef c, TypeRef p,
                            SubstMap& bindings) noexcept {
-        TypeRef c(concrete), p(pattern);
         if (!c || !p) return false;
         if (p.kind() == LogosType::Kind::TypeVar) {
             auto tvn = p.type_var_name();
             auto it = bindings.find(tvn);
             if (it != bindings.end())
-                return types_equal(concrete, it->second);
-            bindings[std::string(tvn)] = concrete;
+                return types_equal(c, TypeRef(it->second));
+            bindings[std::string(tvn)] = c.raw();
             return true;
         }
         if (p.kind() != c.kind()) return false;
         switch (p.kind()) {
         case LogosType::Kind::Ptr:
             return p.mut_ptr() == c.mut_ptr() &&
-                   match_type(c.pointee().raw(), p.pointee().raw(), bindings);
+                   match_type(c.pointee(), p.pointee(), bindings);
         case LogosType::Kind::Ref:
         case LogosType::Kind::MutRef:
-            return match_type(c.pointee().raw(), p.pointee().raw(), bindings);
+            return match_type(c.pointee(), p.pointee(), bindings);
         case LogosType::Kind::Array:
             return p.arr_size() == c.arr_size() &&
-                   match_type(c.elem().raw(), p.elem().raw(), bindings);
+                   match_type(c.elem(), p.elem(), bindings);
         case LogosType::Kind::Struct:
             return p.struct_name() == c.struct_name();
         default:
-            return types_equal(concrete, pattern);
+            return types_equal(c, p);
         }
     }
 
-    static int type_specificity(const LogosType* t) noexcept {
-        TypeRef tr(t);
+    static int type_specificity(TypeRef tr) noexcept {
         if (!tr || tr.kind() == LogosType::Kind::TypeVar) return 0;
-        if (tr.kind() == LogosType::Kind::Ptr)   return 1 + type_specificity(tr.pointee().raw());
-        if (tr.kind() == LogosType::Kind::Array)  return 1 + type_specificity(tr.elem().raw());
+        if (tr.kind() == LogosType::Kind::Ptr)   return 1 + type_specificity(tr.pointee());
+        if (tr.kind() == LogosType::Kind::Array)  return 1 + type_specificity(tr.elem());
         return 100;
     }
 
