@@ -178,6 +178,16 @@ add_test(NAME jit_metaprog_diag
             ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_diag.logos
             ${CMAKE_SOURCE_DIR}/stdlib)
 
+# Phase 7 slice 13: spanned diagnostics. Handler emits via
+# error_at(target_offset, msg); host prefixes file:line from the
+# target node's SRC_LINE.
+add_test(NAME jit_metaprog_diag_span
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$3\" -o /dev/null 2>&1); ec=$?; echo \"$out\"; test $ec -ne 0 && echo \"$out\" | grep -q ':16: metaprog hook .reject_hook.: rejected'"
+            sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_diag_span.logos
+            ${CMAKE_SOURCE_DIR}/stdlib)
+
 # Phase 7 slice 12: target-driven hook. #[metaprog_handler("derive_marker")]
 # fn fires once per #[derive_marker]-annotated item in the user AST,
 # receiving the item's offset. Hook synthesises `marker_<NAME>()` per

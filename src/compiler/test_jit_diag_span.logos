@@ -1,0 +1,18 @@
+// Phase 7 slice 13: spanned diagnostics. Handler hook fires on each
+// #[reject] item and reports an error attributed to that item's
+// source location via metaprog::error_at(target_offset, msg).
+// Test asserts the diag carries `:16:` — the line of `struct Bad`,
+// the item's SRC_LINE (annotation precedes the item but doesn't shift
+// the recorded line).
+package main;
+use std.compiler.metaprog;
+
+#[metaprog_handler("reject")]
+fn reject_hook(target_offset: u32) -> () {
+    error_at(target_offset, "rejected");
+}
+
+#[reject]
+struct Bad { x: i32 }
+
+fn main() -> i32 { return 0; }

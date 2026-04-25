@@ -18,6 +18,7 @@
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/type_ops.hpp>
+#include <logos/hermes/tiny_object_map.hpp>
 
 // MLIR
 #include <mlir/IR/MLIRContext.h>
@@ -157,6 +158,38 @@ extern "C" void logos_holder_release(void* h) {
 extern "C" void logos_metaprog_error(const char* msg) {
     if (!g_metaprog_diags || !msg) return;
     std::string out;
+    if (g_current_hook_name) {
+        out.append("metaprog hook '");
+        out.append(g_current_hook_name);
+        out.append("': ");
+    }
+    out.append(msg);
+    g_metaprog_diags->push_back(std::move(out));
+}
+
+// Phase 7 slice 13: error with span. `target_offset` is an offset
+// into the user-root Hermes doc; host reads SRC_LINE from the node
+// there and prefixes the diag with `<file>:<line>:`. offset==0 (no
+// span) falls back to the un-spanned form.
+extern "C" void logos_metaprog_error_at(uint32_t target_offset,
+                                         const char* msg) {
+    if (!g_metaprog_diags || !msg) return;
+    std::string out;
+    if (target_offset != 0
+        && g_asts && g_asts->size() > g_user_root_idx
+        && g_filenames && g_filenames->size() > g_user_root_idx) {
+        auto* base = (*g_asts)[g_user_root_idx].holder()->base();
+        auto* tom = reinterpret_cast<const logos::hermes::TinyObjectMap*>(
+            base + target_offset);
+        // SRC_LINE = key 24, u32 inline.
+        auto line_av = tom->get(24, base);
+        uint32_t line = (!line_av.is_null() && line_av.is_value())
+                        ? line_av.as_value<uint32_t>() : 0;
+        out.append((*g_filenames)[g_user_root_idx]);
+        out.append(":");
+        out.append(std::to_string(line));
+        out.append(": ");
+    }
     if (g_current_hook_name) {
         out.append("metaprog hook '");
         out.append(g_current_hook_name);
@@ -451,6 +484,12 @@ int main(int argc, char** argv) {
         if (!meta_jit->define_symbol("logos_metaprog_error",
                                      reinterpret_cast<void*>(&logos_metaprog_error))) {
             std::fprintf(stderr, "logosc: bind logos_metaprog_error: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_metaprog_error_at",
+                                     reinterpret_cast<void*>(&logos_metaprog_error_at))) {
+            std::fprintf(stderr, "logosc: bind logos_metaprog_error_at: %s\n",
                          meta_jit->error_str().c_str());
             return 1;
         }

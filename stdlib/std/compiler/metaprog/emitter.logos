@@ -23,6 +23,7 @@ extern fn logos_emit_source(src: *const u8) -> i32;
 // compilation after the hook returns. Hooks may report multiple
 // errors per invocation; all surface together.
 extern fn logos_metaprog_error(msg: *const u8) -> ();
+extern fn logos_metaprog_error_at(target_offset: u32, msg: *const u8) -> ();
 
 // Push a NUL-terminated copy of `msg` to the host diag channel.
 // Allocates a small heap buffer (str isn't NUL-terminated by default).
@@ -31,6 +32,17 @@ pub fn error(msg: str) {
     buf.push_str(msg);
     buf.push_u8(0 as u8);
     unsafe { logos_metaprog_error(buf.as_ptr() as *const u8); }
+}
+
+// Like error(), but attributes the diag to the user-AST node at
+// `target_offset` — typically the offset received by a
+// #[metaprog_handler] hook. Host prefixes the message with
+// <file>:<line>: read from the node's SRC_LINE field.
+pub fn error_at(target_offset: u32, msg: str) {
+    let mut buf: String = String::new();
+    buf.push_str(msg);
+    buf.push_u8(0 as u8);
+    unsafe { logos_metaprog_error_at(target_offset, buf.as_ptr() as *const u8); }
 }
 
 pub struct Emitter {
