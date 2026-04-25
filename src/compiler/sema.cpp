@@ -288,6 +288,7 @@ uint64_t compute_type_hash(const LogosTypeBuilder& t) noexcept {
         break;
     case K::Enum:
         h = fnv_str(h, t.enum_name);
+        for (auto* a : t.type_args) h = fnv_u64(h, sub_hash(a));
         break;
     case K::Tuple:
         for (auto* e : t.tuple_elems) h = fnv_u64(h, sub_hash(e));
@@ -475,8 +476,14 @@ bool types_equal(TypeRef a, TypeRef b) noexcept {
             if (!a.type_args()[i] || !b.type_args()[i] ||
                 !types_equal(a.type_args()[i], b.type_args()[i])) return false;
         return true;
-    case LogosType::Kind::Enum:
-        return a.enum_name() == b.enum_name();
+    case LogosType::Kind::Enum: {
+        if (a.enum_name() != b.enum_name()) return false;
+        auto aa = a.type_args(); auto bb = b.type_args();
+        if (aa.size() != bb.size()) return false;
+        for (size_t i = 0; i < aa.size(); ++i)
+            if (!aa[i] || !bb[i] || !types_equal(aa[i], bb[i])) return false;
+        return true;
+    }
     case LogosType::Kind::Tuple:
         if (a.tuple_elems().size() != b.tuple_elems().size()) return false;
         for (size_t i = 0; i < a.tuple_elems().size(); ++i)
