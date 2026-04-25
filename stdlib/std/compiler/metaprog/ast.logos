@@ -94,6 +94,43 @@ impl OView {
         return self.ast_node_name(item);
     }
 
+    // ── ENUM helpers ──────────────────────────────────────────────
+    //
+    // ENUM AST shape (mirrors logos.peg): `node.ITEMS` (key 2) is a
+    // wrapper TinyObjectMap whose own ITEMS key holds the array of
+    // VARIANT_DEF nodes. Inner variant payloads follow the same
+    // wrapper pattern (so `variant.ITEMS` → wrapper → array of type_ref
+    // maps), except for variadic variants where ITEMS is a single
+    // type_ref node — those are out of scope here.
+
+    // Number of variants in an ENUM node. Zero if ITEMS is missing.
+    pub fn ast_enum_variant_count(self: &OView, node: AnyVal) -> u64 {
+        let outer: AnyVal = self.tiny_map_get(node, 2 as u8);
+        if outer.raw == 0 { return 0 as u64; }
+        let inner: AnyVal = self.tiny_map_get(outer, 2 as u8);
+        if inner.raw == 0 { return 0 as u64; }
+        return self.array_len(inner);
+    }
+
+    // i-th VARIANT_DEF node from an ENUM. Caller stays within
+    // ast_enum_variant_count(); out-of-range yields a null AnyVal.
+    pub fn ast_enum_variant(self: &OView, node: AnyVal, idx: u64) -> AnyVal {
+        let outer: AnyVal = self.tiny_map_get(node, 2 as u8);
+        let inner: AnyVal = self.tiny_map_get(outer, 2 as u8);
+        return self.array_get(inner, idx);
+    }
+
+    // Arity (number of payload types) for a VARIANT_DEF. Zero for
+    // unit variants. Variadic variants (T...) report 1 here but
+    // callers should check IS_VARIADIC if it matters.
+    pub fn ast_variant_arity(self: &OView, variant: AnyVal) -> u64 {
+        let outer: AnyVal = self.tiny_map_get(variant, 2 as u8);
+        if outer.raw == 0 { return 0 as u64; }
+        let inner: AnyVal = self.tiny_map_get(outer, 2 as u8);
+        if inner.raw == 0 { return 1 as u64; }
+        return self.array_len(inner);
+    }
+
     // Append the user-root MODULE's dotted package name to `buf`.
     // For `package main;` writes `main`; for `package std.lang.text;`
     // writes `std.lang.text`. Reads NAME(1) (first identifier) plus
