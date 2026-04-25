@@ -77,7 +77,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (!changed) {
             // Still record the need even if types didn't change
             // (e.g., non-generic function using Option<i32>).
-            record_needed_enum(tv.raw());
+            record_needed_enum(tv);
             return tv.raw();
         }
         LogosType nt; nt.kind = LogosType::Kind::Enum;

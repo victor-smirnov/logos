@@ -79,14 +79,13 @@ private:
     const LogosType* subst_type(TypeRef tv, const SubstMap& s) noexcept;
 
     // ── Record needed instantiations (small — inline) ────────────────────
-    void record_needed_struct(const LogosType* t) {
-        TypeRef tr(t);
+    void record_needed_struct(TypeRef tr) {
         if (!tr || (tr.kind() != LogosType::Kind::Struct &&
                     tr.kind() != LogosType::Kind::ZonedStruct) ||
             tr.type_args().empty()) return;
         for (auto* a : tr.type_args())
             if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
-        auto cname = concrete_struct_name(t);
+        auto cname = concrete_struct_name(tr);
         if (!struct_done_.count(cname)) {
             if (depth_ >= max_depth_) {
                 in_.diags.diags.push_back({Diag::Level::Error, "mono",
@@ -94,12 +93,11 @@ private:
                                 max_depth_, cname), {}, 0});
                 return;
             }
-            needed_struct_insts_[cname] = {t, depth_ + 1};
+            needed_struct_insts_[cname] = {tr.raw(), depth_ + 1};
         }
     }
 
-    void record_needed_enum(const LogosType* t) {
-        TypeRef tr(t);
+    void record_needed_enum(TypeRef tr) {
         if (!tr || tr.kind() != LogosType::Kind::Enum || tr.type_args().empty()) return;
         for (auto* a : tr.type_args())
             if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
@@ -250,17 +248,16 @@ private:
     }
 
     // ── Struct/class/enum type collection (inline) ────────────────────────
-    void collect_type_for_structs(const LogosType* t) {
-        TypeRef tr(t);
+    void collect_type_for_structs(TypeRef tr) {
         if (!tr) return;
         switch (tr.kind()) {
         case LogosType::Kind::Ptr:
         case LogosType::Kind::Ref:
-        case LogosType::Kind::MutRef:   collect_type_for_structs(tr.pointee().raw()); break;
-        case LogosType::Kind::Array: collect_type_for_structs(tr.elem().raw());    break;
+        case LogosType::Kind::MutRef:   collect_type_for_structs(tr.pointee()); break;
+        case LogosType::Kind::Array: collect_type_for_structs(tr.elem());    break;
         case LogosType::Kind::Struct:
         case LogosType::Kind::ZonedStruct:
-            record_needed_struct(t);
+            record_needed_struct(tr);
             for (auto* a : tr.type_args()) collect_type_for_structs(a);
             break;
         default: break;
