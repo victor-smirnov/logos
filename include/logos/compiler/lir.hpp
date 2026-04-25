@@ -832,6 +832,29 @@ struct LProgram {
     // Collected during sema; consumed by the metaprog driver loop in main.cpp.
     std::vector<std::string> metaprog_post_sema_hooks;
 
+    // Phase 7 slice 12: trigger-name → handler-fn-name. Hook fns annotated
+    // `#[metaprog_handler("trigger")]` register here; user items carrying
+    // `#[trigger]` cause the handler to fire once per item with the item's
+    // node pointer as argument. Vector (not map) so duplicate-trigger
+    // collisions surface as sema errors with deterministic ordering.
+    struct MetaprogHandler {
+        std::string trigger;     // user-facing name, e.g. "derive_debug"
+        std::string hook_fn;     // fn name to JIT-invoke
+    };
+    std::vector<MetaprogHandler> metaprog_handlers;
+
+    // Phase 7 slice 12: per-iter list of (ast_idx, item_offset, trigger_name)
+    // for top-level items in the user sources whose annotations match a
+    // registered handler trigger. The driver computes the absolute target
+    // pointer at invoke time as `asts[ast_idx].holder()->base() + offset`
+    // (offsets are stable; base may move on arena growth between iters).
+    struct MetaprogTarget {
+        size_t      ast_idx;
+        uint32_t    item_offset;  // offset of the TinyObjectMap node in the holder
+        std::string trigger;
+    };
+    std::vector<MetaprogTarget> metaprog_targets;
+
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
     // already compiled and will be found by the linker in the .a).

@@ -178,6 +178,18 @@ add_test(NAME jit_metaprog_diag
             ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_diag.logos
             ${CMAKE_SOURCE_DIR}/stdlib)
 
+# Phase 7 slice 12: target-driven hook. #[metaprog_handler("derive_marker")]
+# fn fires once per #[derive_marker]-annotated item in the user AST,
+# receiving the item's offset. Hook synthesises `marker_<NAME>()` per
+# triggered struct. Test verifies marker_Alpha and marker_Bravo emit.
+add_test(NAME jit_metaprog_handler
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q marker_Alpha && nm \"$3\" | grep -q marker_Bravo"
+            sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_handler.logos
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_handler.o
+            ${CMAKE_SOURCE_DIR}/stdlib)
+
 add_test(NAME jit_metaprog_derive
     COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q debug_Point_field_count && nm \"$3\" | grep -q debug_RGB_field_count && ! nm \"$3\" | grep -q debug_Marker_field_count"
             sh

@@ -362,7 +362,7 @@ int main(int argc, char** argv) {
         if (!prog.ok()) return 1;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
 
-        if (prog.metaprog_post_sema_hooks.empty()) break;
+        if (prog.metaprog_post_sema_hooks.empty() && prog.metaprog_targets.empty()) break;
 
         if (trace) {
             std::fprintf(stderr, "[metaprog iter %d] %zu hook(s):\n",
@@ -463,6 +463,37 @@ int main(int argc, char** argv) {
             }
             g_current_hook_name = hname.c_str();
             reinterpret_cast<void (*)()>(sym)();
+            g_current_hook_name = nullptr;
+        }
+        // Phase 7 slice 12: derive-style handlers fire once per target item.
+        // trigger→hook lookup is linear (handler list is short — typically
+        // a handful per program); switch to map if it grows.
+        for (const auto& tgt : prog.metaprog_targets) {
+            const std::string* hook_name = nullptr;
+            for (const auto& mh : prog.metaprog_handlers)
+                if (mh.trigger == tgt.trigger) { hook_name = &mh.hook_fn; break; }
+            if (!hook_name) {
+                // Should not happen — sema collected only matched triggers.
+                std::fprintf(stderr,
+                    "logosc: internal: no handler for trigger '%s'\n",
+                    tgt.trigger.c_str());
+                return 1;
+            }
+            auto* sym = meta_jit->lookup(*hook_name);
+            if (!sym) {
+                std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
+                             hook_name->c_str(), meta_jit->error_str().c_str());
+                return 1;
+            }
+            // Recompute target ptr at invoke time — base may have moved
+            // if a previous hook in this iter grew the holder's arena.
+            // Offset is only meaningful within one Hermes doc; hooks
+            // see the entry-file doc via `oview_module_ast()`. Skip
+            // triggers in non-entry asts (imported user sources):
+            // cross-doc targeting needs an ast_idx-aware hook ABI.
+            if (tgt.ast_idx != g_user_root_idx) continue;
+            g_current_hook_name = hook_name->c_str();
+            reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
             g_current_hook_name = nullptr;
         }
         if (!hook_diags.empty()) {

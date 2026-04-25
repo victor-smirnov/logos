@@ -126,6 +126,40 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     }
     cur_package_ = {};
 
+    // Phase 7 slice 12: scan top-level items in user (non-binary) asts
+    // for annotations whose name matches a registered metaprog handler
+    // trigger; record (ast_idx, offset, trigger) targets for the driver.
+    // Done after phase 1 so the handler registry is complete.
+    if (!metaprog_handlers_.empty()) {
+        std::set<std::string> trigger_names;
+        for (const auto& mh : metaprog_handlers_)
+            if (mh.trigger != "<missing>") trigger_names.insert(mh.trigger);
+        for (size_t ai = 0; ai < asts.size(); ++ai) {
+            bool is_bin = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
+            if (is_bin) continue;
+            auto root = asts[ai].root_object().as_tiny_map();
+            if (!root.has_key(la::ITEMS)) continue;
+            auto items = arr_of(root.get(la::ITEMS.code));
+            std::vector<std::string> pending;
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto item = map_of(items.get(i));
+                int32_t ic = code_of(item);
+                if (ic == la::ANNOTATION) {
+                    auto aname = std::string(str_of(item.get(la::NAME.code)));
+                    if (trigger_names.count(aname)) pending.push_back(std::move(aname));
+                    continue;
+                }
+                for (auto& trig : pending)
+                    metaprog_targets_.push_back({
+                        ai,
+                        static_cast<uint32_t>(item.offset().value()),
+                        trig
+                    });
+                pending.clear();
+            }
+        }
+    }
+
     // Final pass: simplify all collected types (resolve concrete associated types).
     simplify_all_types();
 
@@ -352,6 +386,43 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                             std::string(str_of(item.get(la::NAME.code))));
                         break;
                     }
+                }
+                // Phase 7 slice 12: record `#[metaprog_handler("trigger")]`
+                // hooks. The annotation's first positional arg is the
+                // user-facing trigger name; the host driver scans user
+                // items for matching `#[trigger]` annotations and
+                // invokes the registered hook on each.
+                for (auto& ann : pending_annots) {
+                    if (str_of(ann.get(la::NAME.code)) != "metaprog_handler")
+                        continue;
+                    std::string trigger;
+                    if (ann.has_key(la::ARGS.code)) {
+                        auto args_map = map_of(ann.get(la::ARGS.code));
+                        if (args_map.has_key(la::ITEMS.code)) {
+                            auto args_items = arr_of(args_map.get(la::ITEMS.code));
+                            if (args_items.size() > 0) {
+                                auto a0 = map_of(args_items.get(0));
+                                if (code_of(a0) == la::ANNOT_POS && a0.has_key(la::VALUE.code)) {
+                                    auto vmap = map_of(a0.get(la::VALUE.code));
+                                    if (code_of(vmap) == la::LIT_STR) {
+                                        auto raw = str_of(vmap.get(la::VALUE.code));
+                                        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+                                            trigger.assign(raw.substr(1, raw.size() - 2));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (trigger.empty()) {
+                        // Surface as a sema diagnostic later via a degenerate
+                        // entry — still record so validation can complain.
+                        trigger = "<missing>";
+                    }
+                    metaprog_handlers_.push_back({
+                        std::move(trigger),
+                        std::string(str_of(item.get(la::NAME.code)))
+                    });
+                    break;
                 }
                 collect_fn(item);
             }

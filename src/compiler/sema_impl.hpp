@@ -345,6 +345,11 @@ private:
     // collect_module; copied into LProgram at the end of sema_lower.
     std::vector<std::string> metaprog_post_sema_hooks_;
 
+    // Phase 7 slice 12: derive-style handler registry, collected from
+    // `#[metaprog_handler("name")]` annotations on hook fns.
+    std::vector<lir::LProgram::MetaprogHandler> metaprog_handlers_;
+    std::vector<lir::LProgram::MetaprogTarget>  metaprog_targets_;
+
     void push_scope() { scope_.emplace_back(); }
     void pop_scope() {
         if (!scope_.empty()) {

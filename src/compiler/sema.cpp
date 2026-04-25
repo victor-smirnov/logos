@@ -1001,9 +1001,53 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
             error("#[metaprogram_post_sema] hook must return ()");
     }
 
+    // Phase 7 slice 12: validate `#[metaprog_handler(...)]` registrations.
+    // Hook fn must be a non-extern, non-generic free fn taking a single
+    // `*const u8` parameter (target node ptr) and returning ().
+    // Trigger names must be unique across the program — collisions would
+    // make handler dispatch ambiguous.
+    {
+        std::set<std::string> seen;
+        for (const auto& mh : metaprog_handlers_) {
+            ctx_ = std::format("fn {}", mh.hook_fn);
+            node_line_ = 0;
+            if (mh.trigger == "<missing>") {
+                error("#[metaprog_handler] requires a string-literal trigger name, e.g. #[metaprog_handler(\"derive_debug\")]");
+                continue;
+            }
+            if (!seen.insert(mh.trigger).second) {
+                error(std::format("duplicate #[metaprog_handler(\"{}\")]: trigger names must be unique", mh.trigger));
+                continue;
+            }
+            const lir::LFunction* fn = nullptr;
+            for (const auto& f : prog.functions)
+                if (f.name == mh.hook_fn) { fn = &f; break; }
+            if (!fn) { error("#[metaprog_handler] not a free fn"); continue; }
+            if (fn->is_extern)
+                error("#[metaprog_handler] cannot be applied to extern fn");
+            if (!fn->type_params.empty())
+                error("#[metaprog_handler] hook must not be generic");
+            if (fn->params.size() != 1) {
+                error("#[metaprog_handler] hook must take exactly one parameter (target_offset: u32)");
+                continue;
+            }
+            // Param is the AnyVal-style offset of the triggered item
+            // within the module's Hermes doc. Hooks reconstruct the
+            // node via AnyVal::from_offset(target_offset) + existing
+            // HermesView/OView API.
+            auto pt = TypeRef(fn->params[0].type);
+            if (pt.kind() != LogosType::Kind::U32)
+                error("#[metaprog_handler] hook param must be u32 (offset of triggered item)");
+            if (fn->ret_type && TypeRef(fn->ret_type).kind() != LogosType::Kind::Void)
+                error("#[metaprog_handler] hook must return ()");
+        }
+    }
+
     prog.diags      = std::move(result_);
     prog.type_pool  = std::move(pool_);
     prog.metaprog_post_sema_hooks = std::move(metaprog_post_sema_hooks_);
+    prog.metaprog_handlers = std::move(metaprog_handlers_);
+    prog.metaprog_targets = std::move(metaprog_targets_);
     return prog;
 }
 
