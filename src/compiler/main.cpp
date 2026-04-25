@@ -162,18 +162,47 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[trace] binary_symbols: %zu from %zu archive(s)\n",
                      binary_symbols.size(), binary_archives_seen.size());
 
-    // ── Step 2b: Semantic analysis + L-IR lowering ──────────────
-    auto prog = logos::compiler::sema_lower(asts, filenames, from_binary);
-    prog.print_diags(stderr);
-    if (!prog.ok()) return 1;
-    prog.binary_symbols = std::move(binary_symbols);
-    report("sema+lower");
-    if (trace && !prog.metaprog_post_sema_hooks.empty()) {
-        std::fprintf(stderr, "[trace] metaprog_post_sema hooks: %zu\n",
-                     prog.metaprog_post_sema_hooks.size());
-        for (auto& h : prog.metaprog_post_sema_hooks)
-            std::fprintf(stderr, "        - %s\n", h.c_str());
+    // ── Step 2b: Semantic analysis + L-IR lowering, with metaprog loop ──
+    //
+    // Phase 5 driver: re-run sema after each round of post-sema hooks until
+    // no new AST items are emitted.  Hooks are currently no-op C++ stubs;
+    // when the JIT lands (Phase 4) and the AST emit API lands (Phase 7),
+    // the body of this loop fills in.  `kMaxMetaprogIters` is a safety cap
+    // against pathological recursive emission.
+    constexpr int kMaxMetaprogIters = 16;
+    logos::compiler::lir::LProgram prog;
+    for (int iter = 0; ; ++iter) {
+        prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+        prog.print_diags(stderr);
+        if (!prog.ok()) return 1;
+        report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
+
+        if (prog.metaprog_post_sema_hooks.empty()) break;
+
+        if (trace) {
+            std::fprintf(stderr, "[metaprog iter %d] %zu hook(s):\n",
+                         iter, prog.metaprog_post_sema_hooks.size());
+            for (auto& h : prog.metaprog_post_sema_hooks)
+                std::fprintf(stderr, "                 - %s\n", h.c_str());
+        }
+
+        // TODO Phase 4 + 7: JIT-invoke each hook against `prog`, collect
+        // emitted AST items, splice them into the source ASTs, set
+        // `any_emitted = true` if anything was added.
+        bool any_emitted = false;
+        if (!any_emitted) break;
+
+        if (iter + 1 >= kMaxMetaprogIters) {
+            std::fprintf(stderr,
+                "logosc: metaprog loop did not converge in %d iterations\n",
+                kMaxMetaprogIters);
+            return 1;
+        }
+
+        // TODO Phase 5 (compactify): for each AST, asts[i] = hermes::clone(asts[i]);
+        // — drops dead nodes accumulated by the previous iteration.
     }
+    prog.binary_symbols = std::move(binary_symbols);
 
     // ── Step 2b+: Reflection TypeInfo emission (pre-mono, concrete types only)
     prog = logos::compiler::reflection_emit(std::move(prog));
