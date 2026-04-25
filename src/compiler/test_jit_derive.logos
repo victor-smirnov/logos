@@ -1,0 +1,93 @@
+package test;
+
+// Phase 7 slice 6: first "real" derive-style metaprogram.
+//   For every STRUCT in the user's AST, the hook emits
+//     pub fn debug_<NAME>_field_count() -> i64 { return <N>; }
+//   where <N> is the FIELDS array length read from the struct node.
+//   This is a stand-in for derive(Debug): proves the hook can read
+//   per-struct identity AND per-struct data, then synthesise a
+//   compilable function that depends on both.
+
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.map;
+use std.hermes.string;
+use std.lang.text;
+use std.fmt;
+
+extern fn logos_emit_source(src: *const u8) -> i32;
+extern fn logos_get_module_ast(out_base: *mut *const u8,
+                               out_size: *mut u64) -> ();
+
+// Test-fixture structs the hook will iterate over.
+//   Point   → debug_Point_field_count   == 2
+//   RGB     → debug_RGB_field_count     == 3
+//   Marker  → debug_Marker_field_count  == 0  (skipped: zero fields)
+struct Point { x: i32, y: i32 }
+struct RGB   { r: i32, g: i32, b: i32 }
+struct Marker {}
+
+#[metaprogram_post_sema]
+fn derive_debug_hook() -> () {
+    let mut base: *const u8 = 0 as *const u8;
+    let mut size: u64 = 0;
+    unsafe {
+        logos_get_module_ast(&mut base as *mut *const u8,
+                             &mut size as *mut u64);
+    }
+    if base == 0 as *const u8 { return; }
+
+    let view: HermesView = HermesView { base: base, size: size };
+    let root: AnyVal = view.root();
+    unsafe {
+        if !root.is_ptr() { return; }
+        if root.is_null()  { return; }
+    }
+
+    let root_off: u32 = unsafe { root.as_offset() };
+    let root_obj: *const Map<Bitmap, AnyVal> =
+        ((base as i64) + (root_off as i64)) as *const Map<Bitmap, AnyVal>;
+
+    let items: AnyVal = unsafe { root_obj.get(base, 2 as u8) };
+    let n: u64 = view.array_len(items);
+
+    let cat_ast_struct: u64 = ((1 as u64) << 48) | (50 as u64);
+
+    let mut i: u64 = 0;
+    while i < n {
+        let it: AnyVal = view.array_get(items, i);
+        i = i + 1;
+        unsafe {
+            if !it.is_ptr() { continue; }
+            if it.is_null()  { continue; }
+        }
+
+        let it_off: u32 = unsafe { it.as_offset() };
+        let it_obj: *const Map<Bitmap, AnyVal> =
+            ((base as i64) + (it_off as i64)) as *const Map<Bitmap, AnyVal>;
+        let stc: u64 = unsafe { it_obj.schema_type_code };
+        if stc != cat_ast_struct { continue; }
+
+        let name_val: AnyVal = unsafe { it_obj.get(base, 1 as u8) };
+        let name: StringView = view.get_str_view(name_val);
+        if name.len == (0 as u64) { continue; }
+
+        let fields_val: AnyVal = unsafe { it_obj.get(base, 22 as u8) };
+        let nf: u64 = view.array_len(fields_val);
+        if nf == (0 as u64) { continue; }
+
+        let mut s: String = String::new();
+        s.push_str("package gen; pub fn debug_");
+        unsafe { s.push_bytes(name.ptr, name.len as i64); }
+        s.push_str("_field_count() -> i64 { return ");
+        s.push_u64(nf);
+        s.push_str("; }");
+        s.push_u8(0 as u8);
+        unsafe { logos_emit_source(s.as_ptr() as *const u8); }
+    }
+    return;
+}
+
+fn main() -> i32 {
+    return 0;
+}

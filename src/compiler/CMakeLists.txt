@@ -161,3 +161,17 @@ add_test(NAME jit_metaprog_hook
             ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_hook.logos
             ${CMAKE_CURRENT_BINARY_DIR}/test_jit_hook.o
             ${CMAKE_SOURCE_DIR}/stdlib)
+
+# Phase 7 slice 6: derive-Debug-style metaprogram. Hook walks the
+# user's AST, finds STRUCT nodes, reads each one's NAME and FIELDS
+# count, and emits `pub fn debug_<NAME>_field_count() -> i64 ...`.
+# Test fixture has Point (2 fields), RGB (3 fields), Marker (0
+# fields, must be skipped). ctest verifies the right symbols
+# appear and that the empty-struct skip works.
+add_test(NAME jit_metaprog_derive
+    COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q debug_Point_field_count && nm \"$3\" | grep -q debug_RGB_field_count && ! nm \"$3\" | grep -q debug_Marker_field_count"
+            sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_derive.logos
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_derive.o
+            ${CMAKE_SOURCE_DIR}/stdlib)
