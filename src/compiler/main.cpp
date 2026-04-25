@@ -389,8 +389,17 @@ int main(int argc, char** argv) {
     // after asts grows.
     g_user_root_idx = asts.empty() ? 0 : asts.size() - 1;
     logos::compiler::lir::LProgram prog;
+    // Phase 7 slice 17: pre-sema hook timing. The discovery pass runs in
+    // metaprog mode — entry-file fn bodies (other than handlers) are NOT
+    // lowered, so references to types/impls that hooks will synthesize do
+    // not error out. Handlers and stdlib bodies *are* fully lowered, so
+    // the JIT can compile them. After convergence, a final non-metaprog
+    // sema pass lowers the now-complete entry file.
+    logos::compiler::SemaOptions meta_opts;
+    meta_opts.metaprog_mode = true;
+    meta_opts.entry_ast_idx = g_user_root_idx;
     for (int iter = 0; ; ++iter) {
-        prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+        prog = logos::compiler::sema_lower(asts, filenames, from_binary, meta_opts);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
@@ -410,6 +419,10 @@ int main(int argc, char** argv) {
         // throwaway full-pipeline copy of the current sources — we
         // can't reuse the outer `prog` because the post-loop expects a
         // pre-mono LProgram.
+        // meta_prog (JIT input) uses full sema — skipped bodies would become
+        // empty fns that MLIR rejects. When entry-file bodies reference
+        // synthesized symbols this will fail; future S18/S19 will filter
+        // to handler-only fns before MLIR gen.
         auto meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
@@ -554,6 +567,13 @@ int main(int argc, char** argv) {
         // TODO Phase 5 (compactify): for each AST, asts[i] = hermes::clone(asts[i]);
         // — drops dead nodes accumulated by the previous iteration.
     }
+    // Phase 7 slice 17: final, non-metaprog sema pass. Discovery loop ran in
+    // metaprog_mode which skips entry-file fn bodies; here we lower them
+    // for real, now that all hook-synthesized items are present.
+    prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+    prog.print_diags(stderr);
+    if (!prog.ok()) return 1;
+    report("sema+lower (final)");
     prog.binary_symbols = std::move(binary_symbols);
 
     // ── Step 2b+: Reflection TypeInfo emission (pre-mono, concrete types only)

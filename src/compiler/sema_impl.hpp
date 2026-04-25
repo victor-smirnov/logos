@@ -68,6 +68,11 @@ public:
                       const std::vector<std::string>& filenames,
                       const std::vector<bool>& from_binary = {});
 
+    void set_metaprog_options(bool mode, size_t entry_ast_idx) {
+        metaprog_mode_ = mode;
+        metaprog_entry_ast_idx_ = entry_ast_idx;
+    }
+
 private:
     // ── Type pool and primitives ─────────────────────────────────
 
@@ -349,6 +354,20 @@ private:
     // `#[metaprog_handler("name")]` annotations on hook fns.
     std::vector<lir::LProgram::MetaprogHandler> metaprog_handlers_;
     std::vector<lir::LProgram::MetaprogTarget>  metaprog_targets_;
+
+    // Phase 7 slice 17: metaprog-compile mode. When metaprog_mode_ is true,
+    // lower_fn skips body lowering for non-handler fns in the entry ast
+    // (cur_ast_idx_ == metaprog_entry_ast_idx_). Errors inside skipped
+    // bodies don't reach result_.diags. Set via sema_lower's SemaOptions.
+    bool   metaprog_mode_           = false;
+    size_t metaprog_entry_ast_idx_  = static_cast<size_t>(-1);
+    size_t cur_ast_idx_             = static_cast<size_t>(-1);
+
+    bool fn_is_metaprog_handler(std::string_view name) const {
+        for (const auto& mh : metaprog_handlers_)
+            if (mh.hook_fn == name) return true;
+        return false;
+    }
 
     void push_scope() { scope_.emplace_back(); }
     void pop_scope() {

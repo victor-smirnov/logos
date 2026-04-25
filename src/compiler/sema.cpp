@@ -2358,6 +2358,7 @@ const LogosType* SemaChecker::field_type_of_for_type(const LogosType* struct_t,
 void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog) {
     using namespace ast;
     for (size_t i = 0; i < asts.size(); ++i) {
+        cur_ast_idx_ = i;
         holder_ = asts[i].holder();
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
         cur_from_binary_ = (from_binary_ && i < from_binary_->size()) ? (*from_binary_)[i] : false;
@@ -2918,8 +2919,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
 
 lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames,
-                          const std::vector<bool>& from_binary) {
+                          const std::vector<bool>& from_binary,
+                          SemaOptions opts) {
     SemaChecker checker;
+    checker.set_metaprog_options(opts.metaprog_mode, opts.entry_ast_idx);
     return checker.run(asts, filenames, from_binary);
 }
 

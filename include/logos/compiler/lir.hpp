@@ -872,6 +872,18 @@ struct LProgram {
 
 namespace logos::compiler {
 
+// Phase 7 slice 17: metaprog-compile mode. When `metaprog_mode` is true,
+// sema_lower compiles handlers + non-entry-file (stdlib) bodies fully, but
+// skips lowering the bodies of non-handler fns in the entry ast. Errors
+// inside skipped bodies are dropped. Used to JIT-compile metaprog handlers
+// even when surrounding user code references not-yet-emitted impls. The
+// final, full sema pass runs with `metaprog_mode = false` after expansion
+// has converged.
+struct SemaOptions {
+    bool metaprog_mode = false;
+    size_t entry_ast_idx = static_cast<size_t>(-1);
+};
+
 // Run semantic analysis and produce L-IR from all parsed module ASTs.
 // The ASTs must remain alive for the duration of this call (string_views).
 // filenames[i] is the source path for asts[i] — used in diagnostics.
@@ -879,7 +891,8 @@ namespace logos::compiler {
 // binary module archive and its non-generic symbols should not be re-emitted.
 lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames = {},
-                          const std::vector<bool>& from_binary = {});
+                          const std::vector<bool>& from_binary = {},
+                          SemaOptions opts = {});
 
 // Build TypeInfo rodata blobs for types in reflect_requests and annotated datatypes.
 // Populates prog.reflection_globals with LReflectGlobal entries.
