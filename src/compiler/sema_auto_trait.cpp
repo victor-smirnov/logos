@@ -55,15 +55,15 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Raw pointer: hardcoded !Send / !Sync unless explicit unsafe impl ────
     case Kind::Ptr: {
-        std::string tstr = type_str(tv.raw());
+        std::string tstr = type_str(tv);
         return has_explicit(tstr);
     }
 
-    // ── Shared reference &tv.raw(): Send iff tv.raw():Sync; Sync iff tv.raw():Sync ──────────────
+    // ── Shared reference &T: Send iff T:Sync; Sync iff T:Sync ──────────────
     case Kind::Ref:
         return is_auto_trait_satisfied(tv.pointee(), "Sync", visited);
 
-    // ── Mutable reference &mut tv.raw(): Send iff tv.raw():Send; Sync iff tv.raw():Sync ─────────
+    // ── Mutable reference &mut T: Send iff T:Send; Sync iff T:Sync ─────────
     case Kind::MutRef:
         if (trait_name == "Send")
             return is_auto_trait_satisfied(tv.pointee(), "Send", visited);
@@ -83,8 +83,8 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Struct / ZonedStruct: explicit impl OR all fields satisfied ─────────
     case Kind::Struct:
     case Kind::ZonedStruct: {
-        std::string base = concrete_struct_name(tv.raw());
-        if (has_explicit(base) || has_explicit(type_str(tv.raw()))) return true;
+        std::string base = concrete_struct_name(tv);
+        if (has_explicit(base) || has_explicit(type_str(tv))) return true;
         auto* si = get_struct_si(tv.raw());
         if (!si) {
             si = get_datatype_si(tv.raw());
@@ -92,7 +92,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         }
         // Bug 3 fix: build substitution map from generic type args so that
         // TypeVar fields in generic struct instantiations (e.g. Vec<i32>
-        // has field `data: TypeVar("tv.raw()")`) are replaced with concrete types.
+        // has field `data: TypeVar("T")`) are replaced with concrete types.
         StrMap<const LogosType*> subst;
         if (!tv.type_args().empty() && !si->type_params.empty()) {
             size_t n = std::min(tv.type_args().size(), si->type_params.size());
@@ -116,7 +116,7 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Enum: explicit impl OR every variant payload satisfied ──────────────
     case Kind::Enum: {
-        if (has_explicit(std::string(tv.enum_name())) || has_explicit(type_str(tv.raw()))) return true;
+        if (has_explicit(std::string(tv.enum_name())) || has_explicit(type_str(tv))) return true;
         auto* ei = get_enum_si(tv.raw());
         if (!ei) return true; // unknown enum — be lenient
         for (auto& v : ei->variants) {
@@ -135,8 +135,8 @@ bool SemaChecker::is_auto_trait_satisfied(
     case Kind::Array:
         return tv.elem() ? is_auto_trait_satisfied(tv.elem(), trait_name, visited) : true;
 
-    // ── Slice &[tv.raw()]: like &tv.raw(), both Send and Sync require the element to be Sync ─
-    // Bug 2 fix: &[tv.raw()] is a shared reference; must check tv.raw(): Sync, not tv.raw(): trait_name.
+    // ── Slice &[T]: like &T, both Send and Sync require the element to be Sync ─
+    // Bug 2 fix: &[T] is a shared reference; must check T: Sync, not T: trait_name.
     case Kind::Slice:
         return tv.elem() ? is_auto_trait_satisfied(tv.elem(), "Sync", visited) : true;
 
