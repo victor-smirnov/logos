@@ -80,10 +80,12 @@ private:
 
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(const LogosType* t) {
-        if (!t || (t->kind != LogosType::Kind::Struct &&
-                   t->kind != LogosType::Kind::ZonedStruct) || t->type_args.empty()) return;
-        for (auto* a : t->type_args)
-            if (a->kind == LogosType::Kind::TypeVar) return;
+        TypeRef tr(t);
+        if (!tr || (tr.kind() != LogosType::Kind::Struct &&
+                    tr.kind() != LogosType::Kind::ZonedStruct) ||
+            tr.type_args().empty()) return;
+        for (auto* a : tr.type_args())
+            if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
         auto cname = concrete_struct_name(t);
         if (!struct_done_.count(cname)) {
             if (depth_ >= max_depth_) {
@@ -97,11 +99,12 @@ private:
     }
 
     void record_needed_enum(const LogosType* t) {
-        if (!t || t->kind != LogosType::Kind::Enum || t->type_args.empty()) return;
-        for (auto* a : t->type_args)
-            if (a->kind == LogosType::Kind::TypeVar) return;
-        std::string cname = t->enum_name;
-        for (auto* a : t->type_args) { cname += "__"; cname += mangle_type(a); }
+        TypeRef tr(t);
+        if (!tr || tr.kind() != LogosType::Kind::Enum || tr.type_args().empty()) return;
+        for (auto* a : tr.type_args())
+            if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
+        std::string cname = std::string(tr.enum_name());
+        for (auto* a : tr.type_args()) { cname += "__"; cname += mangle_type(a); }
         if (!enum_done_.count(cname)) {
             if (depth_ >= max_depth_) {
                 in_.diags.diags.push_back({Diag::Level::Error, "mono",
@@ -109,20 +112,21 @@ private:
                                 max_depth_, cname), {}, 0});
                 return;
             }
-            needed_enum_insts_[cname] = {t->type_args, depth_ + 1};
+            needed_enum_insts_[cname] = {tr.type_args(), depth_ + 1};
         }
     }
 
     // ── Mangling (static — inline) ────────────────────────────────────────
     static std::string mangle_type(const LogosType* t) {
-        if (!t) return "null";
-        switch (t->kind) {
+        TypeRef tr(t);
+        if (!tr) return "null";
+        switch (tr.kind()) {
         case LogosType::Kind::Ptr:
-            return (t->mut_ptr ? "pmut_" : "pcst_") + mangle_type(t->pointee);
-        case LogosType::Kind::Ref:    return "ref_"    + mangle_type(t->pointee);
-        case LogosType::Kind::MutRef: return "refmut_" + mangle_type(t->pointee);
+            return (tr.mut_ptr() ? "pmut_" : "pcst_") + mangle_type(tr.pointee().raw());
+        case LogosType::Kind::Ref:    return "ref_"    + mangle_type(tr.pointee().raw());
+        case LogosType::Kind::MutRef: return "refmut_" + mangle_type(tr.pointee().raw());
         case LogosType::Kind::Array:
-            return "arr" + std::to_string(t->arr_size) + "_" + mangle_type(t->elem);
+            return "arr" + std::to_string(tr.arr_size()) + "_" + mangle_type(tr.elem().raw());
         case LogosType::Kind::Struct:
             return concrete_struct_name(t);
         default:
@@ -175,36 +179,39 @@ private:
     // ── Pattern matching (static — inline) ───────────────────────────────
     static bool match_type(const LogosType* concrete, const LogosType* pattern,
                            SubstMap& bindings) noexcept {
-        if (!concrete || !pattern) return false;
-        if (pattern->kind == LogosType::Kind::TypeVar) {
-            auto it = bindings.find(pattern->type_var_name);
+        TypeRef c(concrete), p(pattern);
+        if (!c || !p) return false;
+        if (p.kind() == LogosType::Kind::TypeVar) {
+            auto tvn = p.type_var_name();
+            auto it = bindings.find(tvn);
             if (it != bindings.end())
                 return types_equal(concrete, it->second);
-            bindings[pattern->type_var_name] = concrete;
+            bindings[std::string(tvn)] = concrete;
             return true;
         }
-        if (pattern->kind != concrete->kind) return false;
-        switch (pattern->kind) {
+        if (p.kind() != c.kind()) return false;
+        switch (p.kind()) {
         case LogosType::Kind::Ptr:
-            return pattern->mut_ptr == concrete->mut_ptr &&
-                   match_type(concrete->pointee, pattern->pointee, bindings);
+            return p.mut_ptr() == c.mut_ptr() &&
+                   match_type(c.pointee().raw(), p.pointee().raw(), bindings);
         case LogosType::Kind::Ref:
         case LogosType::Kind::MutRef:
-            return match_type(concrete->pointee, pattern->pointee, bindings);
+            return match_type(c.pointee().raw(), p.pointee().raw(), bindings);
         case LogosType::Kind::Array:
-            return pattern->arr_size == concrete->arr_size &&
-                   match_type(concrete->elem, pattern->elem, bindings);
+            return p.arr_size() == c.arr_size() &&
+                   match_type(c.elem().raw(), p.elem().raw(), bindings);
         case LogosType::Kind::Struct:
-            return pattern->struct_name == concrete->struct_name;
+            return p.struct_name() == c.struct_name();
         default:
             return types_equal(concrete, pattern);
         }
     }
 
     static int type_specificity(const LogosType* t) noexcept {
-        if (!t || t->kind == LogosType::Kind::TypeVar) return 0;
-        if (t->kind == LogosType::Kind::Ptr)   return 1 + type_specificity(t->pointee);
-        if (t->kind == LogosType::Kind::Array)  return 1 + type_specificity(t->elem);
+        TypeRef tr(t);
+        if (!tr || tr.kind() == LogosType::Kind::TypeVar) return 0;
+        if (tr.kind() == LogosType::Kind::Ptr)   return 1 + type_specificity(tr.pointee().raw());
+        if (tr.kind() == LogosType::Kind::Array)  return 1 + type_specificity(tr.elem().raw());
         return 100;
     }
 
@@ -247,16 +254,17 @@ private:
 
     // ── Struct/class/enum type collection (inline) ────────────────────────
     void collect_type_for_structs(const LogosType* t) {
-        if (!t) return;
-        switch (t->kind) {
+        TypeRef tr(t);
+        if (!tr) return;
+        switch (tr.kind()) {
         case LogosType::Kind::Ptr:
         case LogosType::Kind::Ref:
-        case LogosType::Kind::MutRef:   collect_type_for_structs(t->pointee); break;
-        case LogosType::Kind::Array: collect_type_for_structs(t->elem);    break;
+        case LogosType::Kind::MutRef:   collect_type_for_structs(tr.pointee().raw()); break;
+        case LogosType::Kind::Array: collect_type_for_structs(tr.elem().raw());    break;
         case LogosType::Kind::Struct:
         case LogosType::Kind::ZonedStruct:
             record_needed_struct(t);
-            for (auto* a : t->type_args) collect_type_for_structs(a);
+            for (auto* a : tr.type_args()) collect_type_for_structs(a);
             break;
         default: break;
         }
