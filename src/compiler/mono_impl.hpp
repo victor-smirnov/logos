@@ -117,20 +117,19 @@ private:
     }
 
     // ── Mangling (static — inline) ────────────────────────────────────────
-    static std::string mangle_type(const LogosType* t) {
-        TypeRef tr(t);
+    static std::string mangle_type(TypeRef tr) {
         if (!tr) return "null";
         switch (tr.kind()) {
         case LogosType::Kind::Ptr:
-            return (tr.mut_ptr() ? "pmut_" : "pcst_") + mangle_type(tr.pointee().raw());
-        case LogosType::Kind::Ref:    return "ref_"    + mangle_type(tr.pointee().raw());
-        case LogosType::Kind::MutRef: return "refmut_" + mangle_type(tr.pointee().raw());
+            return (tr.mut_ptr() ? "pmut_" : "pcst_") + mangle_type(tr.pointee());
+        case LogosType::Kind::Ref:    return "ref_"    + mangle_type(tr.pointee());
+        case LogosType::Kind::MutRef: return "refmut_" + mangle_type(tr.pointee());
         case LogosType::Kind::Array:
-            return "arr" + std::to_string(tr.arr_size()) + "_" + mangle_type(tr.elem().raw());
+            return "arr" + std::to_string(tr.arr_size()) + "_" + mangle_type(tr.elem());
         case LogosType::Kind::Struct:
-            return concrete_struct_name(t);
+            return concrete_struct_name(tr);
         default:
-            return type_str(t);
+            return type_str(tr);
         }
     }
 
