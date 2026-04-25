@@ -120,6 +120,15 @@ struct LogosType {
     const class TypePoolImpl* hermes_pool_     = nullptr;
 };
 
+// ── LogosTypeBuilder ──────────────────────────────────────────────────────
+//
+// Phase 2c.4e.3.3: an alias for LogosType while the two are field-compatible.
+// Will diverge in a follow-up commit when LogosType is slimmed to back-refs
+// only and the data fields move into LogosTypeBuilder. Builder sites (writers
+// preparing a value to hand to TypePool::alloc) should use this type so the
+// later split is a non-event for them.
+using LogosTypeBuilder = LogosType;
+
 // ── Trait bound (for type parameter bounds) ────────────────────────────────
 
 struct TraitBound {
@@ -252,6 +261,13 @@ public:
         if (av.is_null()) return std::nullopt;
         return *av.as_ptr<const int64_t>(mirror_base());
     }
+
+    // 2c.4e.3.3: produce a LogosTypeBuilder reading every field from the
+    // mirror. Used by the "copy and mutate one field" sites that previously
+    // did `LogosType nt = *tv.raw()`. After LogosType is slimmed to back-refs
+    // only, this remains the only sanctioned way to obtain a writable view
+    // of an interned type.
+    LogosType to_builder() const;
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).

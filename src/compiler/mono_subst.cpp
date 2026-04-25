@@ -32,7 +32,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             }
         }
         if (elem == tv.elem().raw() && size == tv.arr_size() && symbolic == tv.arr_size_var()) return tv.raw();
-        LogosType nt = *tv.raw();
+        LogosTypeBuilder nt = tv.to_builder();
         nt.elem = elem;
         nt.arr_size = size;
         nt.arr_size_var = symbolic;
@@ -44,7 +44,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     case LogosType::Kind::MutRef: {
         auto* inner = subst_type(tv.pointee(), s);
         if (inner == tv.pointee().raw()) return tv.raw();
-        LogosType nt = *tv.raw(); nt.pointee = inner;
+        LogosTypeBuilder nt = tv.to_builder(); nt.pointee = inner;
         return out_.type_pool.alloc(nt);
     }
     case LogosType::Kind::Struct:
@@ -58,7 +58,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             new_args.push_back(na);
         }
         if (!changed) return tv.raw();
-        LogosType nt = *tv.raw();
+        LogosTypeBuilder nt = tv.to_builder();
         nt.type_args = std::move(new_args);
         // Track this instantiation for struct monomorphization.
         const LogosType* result = out_.type_pool.alloc(nt);
@@ -141,7 +141,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             }
         }
         if (subbed_base != tv.assoc_base().raw()) {
-            LogosType nt = *tv.raw();
+            LogosTypeBuilder nt = tv.to_builder();
             nt.assoc_base = subbed_base;
             return out_.type_pool.alloc(std::move(nt));
         }

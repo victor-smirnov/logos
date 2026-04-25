@@ -315,6 +315,37 @@ std::vector<const LogosType*> TypeRef::closure_params() const noexcept { return 
 std::vector<const LogosType*> TypeRef::gat_args()       const noexcept { return type_vec_via_mirror(*this, sema_schema::GAT_ARGS); }
 std::vector<std::string>      TypeRef::lifetime_args()  const noexcept { return string_vec_via_mirror(*this, sema_schema::LIFETIME_ARGS); }
 
+// 2c.4e.3.3: LogosTypeBuilder is currently a typedef for LogosType. The
+// mirror is authoritative, so populate every field from accessors. Once
+// LogosType slims to back-refs only, this body keeps working unchanged
+// because LogosTypeBuilder will be the struct that retains data fields.
+LogosType TypeRef::to_builder() const {
+    LogosType b;
+    if (!p_) return b;
+    b.kind            = kind();
+    b.mut_ptr         = mut_ptr();
+    b.pointee         = pointee().raw();
+    b.lifetime        = std::string(lifetime());
+    b.elem            = elem().raw();
+    b.arr_size        = arr_size();
+    b.arr_size_var    = std::string(arr_size_var());
+    b.struct_name     = std::string(struct_name());
+    b.enum_name       = std::string(enum_name());
+    b.pkg_name        = std::string(pkg_name());
+    b.type_args       = type_args();
+    b.lifetime_args   = lifetime_args();
+    b.tuple_elems     = tuple_elems();
+    b.closure_params  = closure_params();
+    b.closure_ret     = closure_ret().raw();
+    b.trait_name      = std::string(trait_name());
+    b.type_var_name   = std::string(type_var_name());
+    b.assoc_base      = assoc_base().raw();
+    b.assoc_type_name = std::string(assoc_type_name());
+    b.gat_args        = gat_args();
+    b.const_val       = const_val();
+    return b;
+}
+
 namespace la = ast;
 using hermes::TinyMapView;
 using hermes::ArrayView;
@@ -1414,7 +1445,7 @@ const LogosType* SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             }
         }
         if (subbed_base != t.assoc_base() || gat_changed) {
-            LogosType nt = *t.raw();
+            LogosTypeBuilder nt = t.to_builder();
             nt.assoc_base = subbed_base;
             nt.gat_args   = std::move(subbed_gat_args);
             return pool_.alloc(std::move(nt));
