@@ -137,6 +137,47 @@ static std::vector<std::string> collect_logos_files(const std::string& root) {
 }
 
 // ---------------------------------------------------------------------------
+// Lower an already-typechecked LProgram to an LLVM module.
+// Public entry — used by emit_module (→ .o) and by --jit (→ in-process).
+// ---------------------------------------------------------------------------
+std::unique_ptr<llvm::Module>
+lower_to_llvm_module(const lir::LProgram& prog, llvm::LLVMContext& llvm_ctx) {
+    mlir::MLIRContext mlir_ctx;
+    mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+
+    auto mlir_module = mlir_gen(mlir_ctx, prog);
+    if (!mlir_module) {
+        std::fprintf(stderr, "lower_to_llvm_module: MLIR generation failed\n");
+        return nullptr;
+    }
+
+    mlir::PassManager pm(&mlir_ctx);
+    pm.addPass(mlir::createSCFToControlFlowPass());
+    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+    pm.addPass(mlir::createArithToLLVMConversionPass());
+    pm.addPass(mlir::createConvertFuncToLLVMPass());
+    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+    if (mlir::failed(pm.run(*mlir_module))) {
+        std::fprintf(stderr, "lower_to_llvm_module: MLIR lowering failed\n");
+        return nullptr;
+    }
+
+    mlir::registerBuiltinDialectTranslation(mlir_ctx);
+    mlir::registerLLVMDialectTranslation(mlir_ctx);
+    auto llvm_module = mlir::translateModuleToLLVMIR(*mlir_module, llvm_ctx);
+    if (!llvm_module) {
+        std::fprintf(stderr, "lower_to_llvm_module: LLVM IR translation failed\n");
+        return nullptr;
+    }
+    llvm_module->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+    return llvm_module;
+}
+
+// ---------------------------------------------------------------------------
 // Compile a set of parsed modules to an object file.
 // Returns true on success.
 // ---------------------------------------------------------------------------
@@ -158,42 +199,9 @@ static bool compile_to_object(const std::vector<hermes::Hermes>& asts,
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
-    // MLIR gen
-    mlir::MLIRContext mlir_ctx;
-    mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
-    mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-
-    auto mlir_module = mlir_gen(mlir_ctx, prog);
-    if (!mlir_module) {
-        std::fprintf(stderr, "emit_module: MLIR generation failed\n");
-        return false;
-    }
-
-    // Lower MLIR → LLVM dialect
-    mlir::PassManager pm(&mlir_ctx);
-    pm.addPass(mlir::createSCFToControlFlowPass());
-    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
-    pm.addPass(mlir::createArithToLLVMConversionPass());
-    pm.addPass(mlir::createConvertFuncToLLVMPass());
-    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
-    if (mlir::failed(pm.run(*mlir_module))) {
-        std::fprintf(stderr, "emit_module: MLIR lowering failed\n");
-        return false;
-    }
-
-    // MLIR → LLVM IR
-    mlir::registerBuiltinDialectTranslation(mlir_ctx);
-    mlir::registerLLVMDialectTranslation(mlir_ctx);
     llvm::LLVMContext llvm_ctx;
-    auto llvm_module = mlir::translateModuleToLLVMIR(*mlir_module, llvm_ctx);
-    if (!llvm_module) {
-        std::fprintf(stderr, "emit_module: LLVM IR translation failed\n");
-        return false;
-    }
-    llvm_module->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+    auto llvm_module = lower_to_llvm_module(prog, llvm_ctx);
+    if (!llvm_module) return false;
 
     // LLVM IR → .o
     llvm::InitializeNativeTarget();

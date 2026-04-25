@@ -80,6 +80,7 @@ target_include_directories(logosc PRIVATE
 #   func dialect → arith dialect → scf/cf → LLVM dialect → LLVM IR → target
 target_link_libraries(logosc PRIVATE
     logos_hermes
+    logos_jit
 
     # MLIR dialects
     MLIRFuncDialect
@@ -126,6 +127,9 @@ target_link_libraries(logosc PRIVATE
     LLVMScalarOpts
     LLVMipo
     LLVMPasses
+    LLVMIRReader
+    LLVMAsmParser
+    LLVMBitReader
 )
 
 # Note: MLIR/LLVM built without RTTI, but Hermes requires it.
@@ -133,3 +137,14 @@ target_link_libraries(logosc PRIVATE
 # (no dynamic_cast across boundary).  If linking fails, we'll need
 # to split into separate TUs.
 target_compile_options(logosc PRIVATE -fno-rtti)
+
+# Phase 4 slice 3: end-to-end JIT smoke — compiles a tiny .logos with
+# logosc --jit and asserts main() returns 42 (the wrapper echoes "OK"
+# on the expected exit code).
+add_test(NAME jit_logosc_main
+    COMMAND sh -c "\"$1\" --jit \"$2\"; test \$? -eq 42 && echo JIT_OK"
+            sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_main.logos)
+set_tests_properties(jit_logosc_main PROPERTIES
+    PASS_REGULAR_EXPRESSION "JIT_OK")

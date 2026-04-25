@@ -50,6 +50,12 @@
 // LLVM new pass manager (optimization pipeline)
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
+#include <llvm/IRReader/IRReader.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/SourceMgr.h>
+
+// JIT (Phase 4)
+#include <logos/jit/jit.hpp>
 
 #include <cstdio>
 #include <string>
@@ -69,6 +75,7 @@ int main(int argc, char** argv) {
     const char* output_path = "output.o";
     bool emit_mlir = false;
     bool emit_llvm = false;
+    bool jit_run   = false;                      // --jit: compile and run main() in-process
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     std::vector<std::string> search_paths;
     int opt_level = 0;
@@ -91,6 +98,7 @@ int main(int argc, char** argv) {
         else if (arg == "-I" && i + 1 < argc) { search_paths.push_back(argv[++i]); }
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
+        else if (arg == "--jit") { jit_run = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
         else if (arg == "-O0") { opt_level = 0; }
         else if (arg == "-O1") { opt_level = 1; }
@@ -269,6 +277,48 @@ int main(int argc, char** argv) {
     }
 
     llvm_module->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+
+    // ── --jit: compile and run main() in-process via ORC ──────────────
+    if (jit_run) {
+        logos::jit::Jit jit;
+        if (!jit.init()) {
+            std::fprintf(stderr, "logosc: jit init: %s\n", jit.error_str().c_str());
+            return 1;
+        }
+        // Hand the module + its context to the JIT.
+        auto mod_ctx = std::make_unique<llvm::LLVMContext>();
+        // We can't move llvm_ctx (stack-allocated above), so move the module
+        // into a fresh context-owning ThreadSafeModule via clone-into-new-context.
+        // Simpler: addIRModule wants a unique_ptr<LLVMContext>, but ours is on
+        // the stack. Workaround: recreate the LLVM module in a heap context.
+        // For Phase 4 slice 3 we accept this round-trip — module is small.
+        std::string ir;
+        {
+            llvm::raw_string_ostream os(ir);
+            llvm_module->print(os, nullptr);
+        }
+        llvm::SMDiagnostic diag;
+        auto buf = llvm::MemoryBuffer::getMemBuffer(ir);
+        auto reparsed = llvm::parseIR(*buf, diag, *mod_ctx);
+        if (!reparsed) {
+            std::fprintf(stderr, "logosc: jit reparse: %s\n",
+                         diag.getMessage().str().c_str());
+            return 1;
+        }
+        if (!jit.add_module(std::move(reparsed), std::move(mod_ctx))) {
+            std::fprintf(stderr, "logosc: jit add_module: %s\n",
+                         jit.error_str().c_str());
+            return 1;
+        }
+        auto* sym = jit.lookup("main");
+        if (!sym) {
+            std::fprintf(stderr, "logosc: jit lookup main: %s\n",
+                         jit.error_str().c_str());
+            return 1;
+        }
+        report("jit_compile");
+        return reinterpret_cast<int (*)()>(sym)();
+    }
 
     if (emit_llvm) {
         llvm_module->print(llvm::outs(), nullptr);
