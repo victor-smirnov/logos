@@ -365,7 +365,7 @@ class BorrowChecker {
         }
 
         // 2. Explicit lifetime on return type — check sources match.
-        const std::string& ret_lt = ret_type_->lifetime;
+        const std::string ret_lt(TypeRef(ret_type_).lifetime());
         if (!ret_lt.empty() && ret_lt != "'_") {
             if (prov.params.empty()) {
                 report(line, std::format(
@@ -688,7 +688,7 @@ public:
             declare_var(p.name);
             param_names_.insert(p.name);
             if (is_ref_kind(p.type))
-                param_lifetimes_[p.name] = p.type->lifetime;
+                param_lifetimes_[p.name] = std::string(TypeRef(p.type).lifetime());
         }
 
         visit_block(fn.body);
