@@ -84,23 +84,28 @@ bool*                                g_any_emitted = nullptr;
 std::vector<logos::hermes::Hermes>*  g_asts        = nullptr;
 std::vector<std::string>*            g_filenames   = nullptr;
 std::vector<bool>*                   g_from_binary = nullptr;
+size_t                               g_user_root_idx = 0;
 }
 
 // Phase 7 slice 3a: read-only AST view for metaprog hooks.
 //
-// Returns base+size of the user's root document (asts[0]) into the
-// caller's out-params. Logos-side wraps the pair in `HermesView<'a>`
-// — a non-owning fat-borrow whose 'a is the hook frame's lifetime.
-// OView (RC-owning view) is the eventual API; for now the borrow is
-// sound because asts[0] outlives every hook invocation.
+// Returns base+size of the user's entry-file document into the
+// caller's out-params. The module loader walks dependencies in
+// post-order, so the entry file is at index `g_user_root_idx`
+// (recorded right after load_modules, before any metaprog splice).
+// Logos-side wraps the pair in `HermesView<'a>` — non-owning
+// fat-borrow whose 'a is the hook frame's lifetime. OView
+// (RC-owning view) is the eventual API; the borrow is sound
+// because the root doc outlives every hook invocation.
 extern "C" void logos_get_module_ast(const uint8_t** out_base,
                                      uint64_t*       out_size) {
-    if (!g_asts || g_asts->empty() || !out_base || !out_size) {
+    if (!g_asts || g_asts->size() <= g_user_root_idx
+        || !out_base || !out_size) {
         if (out_base) *out_base = nullptr;
         if (out_size) *out_size = 0;
         return;
     }
-    auto* h = (*g_asts)[0].holder();
+    auto* h = (*g_asts)[g_user_root_idx].holder();
     *out_base = h->base();
     *out_size = static_cast<uint64_t>(h->arena().head().used);
 }
@@ -283,6 +288,11 @@ int main(int argc, char** argv) {
     g_asts        = &asts;
     g_filenames   = &filenames;
     g_from_binary = &from_binary;
+    // Module loader is post-order: dependencies first, entry file last.
+    // Record the entry-file index before any metaprog source-splice so
+    // logos_get_module_ast keeps pointing at the user's root doc even
+    // after asts grows.
+    g_user_root_idx = asts.empty() ? 0 : asts.size() - 1;
     logos::compiler::lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
         prog = logos::compiler::sema_lower(asts, filenames, from_binary);
