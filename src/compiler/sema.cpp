@@ -526,65 +526,20 @@ using hermes::MemHolder;
 
 // ── types_equal ─────────────────────────────────────────────────────────────
 
+// 2c.5.3: post-interning, types_equal collapses to ptr-or-hash compare.
+//
+// Invariant after 2c.5.2b: every LogosType* comes from the interned pool;
+// two distinct ptrs are byte-strict different. Hash buckets can only hold
+// distinct ptrs that differ in fields types_equal ignores (lifetime, pkg_name,
+// lifetime_args, const_val). Therefore within the pool:
+//   hash_eq ⇒ types_equal   (and ptr_eq trivially ⇒ types_equal).
+//
+// Sub-types are interned bottom-up so sub-hash equality ⇒ sub-types-equal,
+// closing the inductive step for Closure/FnPtr/Ref/etc.
 bool types_equal(TypeRef a, TypeRef b) noexcept {
     if (!a || !b) return false;
     if (a.raw() == b.raw()) return true;
-    // 2c.5 step 1: hash mismatch is conclusive (FNV-1a over the same fields
-    // structural compare reads). Equal hashes still fall through to the
-    // structural path until interning makes pointer identity sufficient.
-    if (a.raw()->type_hash != b.raw()->type_hash) return false;
-    if (a.kind() != b.kind()) return false;
-    switch (a.kind()) {
-    case LogosType::Kind::Ptr:
-        return a.mut_ptr() == b.mut_ptr() &&
-               a.pointee() && b.pointee() &&
-               types_equal(a.pointee(), b.pointee());
-    case LogosType::Kind::Ref:
-    case LogosType::Kind::MutRef:
-        return a.pointee() && b.pointee() &&
-               types_equal(a.pointee(), b.pointee());
-        // Note: we intentionally ignore lifetime in equality — structural type equality
-    case LogosType::Kind::Array:
-        return a.arr_size() == b.arr_size() &&
-               a.arr_size_var() == b.arr_size_var() &&
-               a.elem() && b.elem() &&
-               types_equal(a.elem(), b.elem());
-    case LogosType::Kind::Struct:
-    case LogosType::Kind::ZonedStruct:
-        if (a.struct_name() != b.struct_name()) return false;
-        if (a.type_args().size() != b.type_args().size()) return false;
-        for (size_t i = 0; i < a.type_args().size(); ++i)
-            if (!a.type_args()[i] || !b.type_args()[i] ||
-                !types_equal(a.type_args()[i], b.type_args()[i])) return false;
-        return true;
-    case LogosType::Kind::Enum: {
-        if (a.enum_name() != b.enum_name()) return false;
-        auto aa = a.type_args(); auto bb = b.type_args();
-        if (aa.size() != bb.size()) return false;
-        for (size_t i = 0; i < aa.size(); ++i)
-            if (!aa[i] || !bb[i] || !types_equal(aa[i], bb[i])) return false;
-        return true;
-    }
-    case LogosType::Kind::Tuple:
-        if (a.tuple_elems().size() != b.tuple_elems().size()) return false;
-        for (size_t i = 0; i < a.tuple_elems().size(); ++i)
-            if (!a.tuple_elems()[i] || !b.tuple_elems()[i] ||
-                !types_equal(a.tuple_elems()[i], b.tuple_elems()[i])) return false;
-        return true;
-    case LogosType::Kind::Slice:
-        return a.elem() && b.elem() && types_equal(a.elem(), b.elem());
-    case LogosType::Kind::TraitObject:
-        return a.trait_name() == b.trait_name();
-    case LogosType::Kind::ImplTrait:
-        return a.struct_name() == b.struct_name();
-    case LogosType::Kind::AssocType:
-        return a.assoc_type_name() == b.assoc_type_name() &&
-               a.trait_name() == b.trait_name() &&
-               a.assoc_base() && b.assoc_base() &&
-               types_equal(a.assoc_base(), b.assoc_base());
-    default:
-        return true;  // primitives
-    }
+    return a.raw()->type_hash == b.raw()->type_hash;
 }
 
 // ── Generic struct name helpers ───────────────────────────────────────────────
