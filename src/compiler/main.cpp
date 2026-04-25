@@ -85,6 +85,26 @@ std::vector<logos::hermes::Hermes>*  g_asts        = nullptr;
 std::vector<std::string>*            g_filenames   = nullptr;
 std::vector<bool>*                   g_from_binary = nullptr;
 }
+
+// Phase 7 slice 3a: read-only AST view for metaprog hooks.
+//
+// Returns base+size of the user's root document (asts[0]) into the
+// caller's out-params. Logos-side wraps the pair in `HermesView<'a>`
+// — a non-owning fat-borrow whose 'a is the hook frame's lifetime.
+// OView (RC-owning view) is the eventual API; for now the borrow is
+// sound because asts[0] outlives every hook invocation.
+extern "C" void logos_get_module_ast(const uint8_t** out_base,
+                                     uint64_t*       out_size) {
+    if (!g_asts || g_asts->empty() || !out_base || !out_size) {
+        if (out_base) *out_base = nullptr;
+        if (out_size) *out_size = 0;
+        return;
+    }
+    auto* h = (*g_asts)[0].holder();
+    *out_base = h->base();
+    *out_size = static_cast<uint64_t>(h->arena().head().used);
+}
+
 extern "C" int32_t logos_emit_source(const char* src) {
     if (!g_emit_seen || !g_any_emitted || !g_asts || !g_filenames
         || !g_from_binary || !src) return 0;
@@ -328,6 +348,12 @@ int main(int argc, char** argv) {
         if (!meta_jit->define_symbol("logos_emit_source",
                                      reinterpret_cast<void*>(&logos_emit_source))) {
             std::fprintf(stderr, "logosc: bind logos_emit_source: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_get_module_ast",
+                                     reinterpret_cast<void*>(&logos_get_module_ast))) {
+            std::fprintf(stderr, "logosc: bind logos_get_module_ast: %s\n",
                          meta_jit->error_str().c_str());
             return 1;
         }
