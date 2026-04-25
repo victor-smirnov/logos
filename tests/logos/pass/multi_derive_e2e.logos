@@ -1,0 +1,73 @@
+// Phase 7 slice 22: multi-derive sanity test.
+//
+// Two distinct triggers (`#[derive_dbg_md]` and `#[derive_size_md]`)
+// on the same struct. Both hooks fire; each synthesises a different
+// helper. main() consumes both — proving the pre-sema timing copes
+// with multiple independent expansions feeding one consumer, and
+// trigger→handler dispatch correctly routes per-annotation rather
+// than firing every handler for every match.
+
+package main;
+
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.compiler.metaprog;
+use std.fmt;
+use std.lang.text;
+use std.io;
+
+#[metaprog_handler("derive_dbg_md")]
+fn derive_dbg_md_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let name: StringView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+
+    em.buf.push_str("pub fn dbg_name_");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str("() -> i32 { return ");
+    em.buf.push_u64(name.len);
+    em.buf.push_str(" as i32; }");
+    em.commit();
+    return;
+}
+
+#[metaprog_handler("derive_size_md")]
+fn derive_size_md_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let name: StringView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+
+    let n: u64 = view.ast_struct_field_count(item);
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+
+    em.buf.push_str("pub fn field_count_");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str("() -> i32 { return ");
+    em.buf.push_u64(n);
+    em.buf.push_str(" as i32; }");
+    em.commit();
+    return;
+}
+
+#[derive_dbg_md]
+#[derive_size_md]
+struct Widget { x: i32, y: i32, z: i32 }
+
+fn main() -> i32 {
+    // dbg_name_Widget = strlen("Widget") = 6
+    // field_count_Widget = 3
+    // 6 * 10 + 3 = 63 — both hooks contributed.
+    return dbg_name_Widget() * 10 + field_count_Widget();
+}
