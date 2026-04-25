@@ -59,3 +59,13 @@ target_link_libraries(exerciser_jit_smoke PRIVATE logos_jit)
 target_compile_options(exerciser_jit_smoke PRIVATE -fno-rtti)
 
 add_test(NAME jit_smoke COMMAND exerciser_jit_smoke)
+
+# Host-symbol resolution exerciser (slice 2).
+add_executable(exerciser_jit_host_call exerciser_jit_host_call.cpp)
+target_link_libraries(exerciser_jit_host_call PRIVATE logos_jit)
+target_compile_options(exerciser_jit_host_call PRIVATE -fno-rtti)
+# host_double must be visible as a dynamic symbol so JIT can resolve it
+# even when we register it through ORC's absolute symbols (kept for safety
+# in case future ORC paths fall back to process search).
+set_target_properties(exerciser_jit_host_call PROPERTIES ENABLE_EXPORTS ON)
+add_test(NAME jit_host_call COMMAND exerciser_jit_host_call)

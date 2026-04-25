@@ -4,6 +4,8 @@
 
 #include <logos/jit/jit.hpp>
 
+#include <llvm/ExecutionEngine/Orc/AbsoluteSymbols.h>
+#include <llvm/ExecutionEngine/Orc/CoreContainers.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/LLVMContext.h>
@@ -50,6 +52,21 @@ bool Jit::add_module(std::unique_ptr<llvm::Module>      mod,
     if (!impl_->lljit) { last_err_ = "Jit::init not called"; return false; }
     llvm::orc::ThreadSafeModule tsm(std::move(mod), std::move(ctx));
     if (auto err = impl_->lljit->addIRModule(std::move(tsm))) {
+        last_err_ = take_err(std::move(err));
+        return false;
+    }
+    return true;
+}
+
+bool Jit::define_symbol(std::string_view name, void* addr) {
+    if (!impl_->lljit) { last_err_ = "Jit::init not called"; return false; }
+    auto& jd = impl_->lljit->getMainJITDylib();
+    llvm::orc::SymbolMap syms;
+    syms[impl_->lljit->mangleAndIntern(llvm::StringRef(name.data(), name.size()))] = {
+        llvm::orc::ExecutorAddr::fromPtr(addr),
+        llvm::JITSymbolFlags::Exported | llvm::JITSymbolFlags::Callable,
+    };
+    if (auto err = jd.define(llvm::orc::absoluteSymbols(std::move(syms)))) {
         last_err_ = take_err(std::move(err));
         return false;
     }

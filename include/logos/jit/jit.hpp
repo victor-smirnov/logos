@@ -38,6 +38,11 @@ public:
     bool add_module(std::unique_ptr<llvm::Module>      mod,
                     std::unique_ptr<llvm::LLVMContext> ctx);
 
+    // Register a host pointer under `name` so JIT'd code can call it via
+    // an `extern` declaration. Must be called before any module that
+    // references the name is added (ORC resolves on add).
+    bool define_symbol(std::string_view name, void* addr);
+
     // Returns the JIT'd address of `name`, or nullptr on miss.
     void* lookup(std::string_view name);
 
