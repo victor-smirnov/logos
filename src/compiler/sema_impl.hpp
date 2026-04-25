@@ -782,7 +782,7 @@ private:
 
     // Recursively checks whether type T satisfies auto trait `trait_name`
     // (e.g. "Send" or "Sync"). Returns true if satisfied.
-    bool is_auto_trait_satisfied(const LogosType* T, std::string_view trait_name,
+    bool is_auto_trait_satisfied(TypeRef tv, std::string_view trait_name,
                                   StrSet& visited);
 
     // Set by is_auto_trait_satisfied when it finds a non-satisfying field.
