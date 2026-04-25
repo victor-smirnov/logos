@@ -22,7 +22,11 @@ fn derive_marker_hook(target_offset: u32) -> () {
     if name.len == (0 as u64) { return; }
 
     let mut em: Emitter = Emitter::new();
-    em.emit_fn_i64_named("gen", "marker_", name, "", 1 as u64);
+    em.emit_into("gen");
+    em.buf.push_str("pub fn marker_");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str("() -> i64 { return 1; }");
+    em.commit();
     return;
 }
 
