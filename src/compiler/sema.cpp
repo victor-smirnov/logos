@@ -385,54 +385,45 @@ const LogosType* TypePool::alloc(LogosType t) {
 // real workloads before 2c.4d flips reads to the mirror.
 namespace {
 
-// 2c.4e.1: every TypeRef points at a pool-allocated LogosType whose
-// mirror is wired. No stack-alloc fallback.
-const LogosType* ptr_via_mirror(const LogosType* parent, sema_schema::Key key) {
-    if (!parent) return nullptr;
-    auto* base = const_cast<uint8_t*>(parent->hermes_arena_->head().data());
-    auto* mp   = reinterpret_cast<const hermes::TinyObjectMap*>(
-        base + parent->hermes_mirror_off_.value());
-    auto av = mp->get(key.code, base);
-    if (av.is_null()) return nullptr;
-    return parent->hermes_pool_->mirror_inverse_.at(av.to_offset());
+// 2c.4e.3.1: accessors source from TypeRef's fat-pointer fields directly.
+TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
+    if (!self) return {};
+    auto av = self.mirror()->get(key.code, self.mirror_base());
+    if (av.is_null()) return {};
+    return TypeRef(self.pool()->mirror_inverse_.at(av.to_offset()));
 }
 
 }  // namespace
 
-TypeRef TypeRef::pointee()     const noexcept { return ptr_via_mirror(p_, sema_schema::POINTEE);     }
-TypeRef TypeRef::elem()        const noexcept { return ptr_via_mirror(p_, sema_schema::ELEM);        }
-TypeRef TypeRef::assoc_base()  const noexcept { return ptr_via_mirror(p_, sema_schema::ASSOC_BASE);  }
-TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(p_, sema_schema::CLOSURE_RET); }
+TypeRef TypeRef::pointee()     const noexcept { return ptr_via_mirror(*this, sema_schema::POINTEE);     }
+TypeRef TypeRef::elem()        const noexcept { return ptr_via_mirror(*this, sema_schema::ELEM);        }
+TypeRef TypeRef::assoc_base()  const noexcept { return ptr_via_mirror(*this, sema_schema::ASSOC_BASE);  }
+TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(*this, sema_schema::CLOSURE_RET); }
 
-// 2c.4e.3.0: vector accessors via mirror ObjectArray. Each element of a
-// type-vec stores an arena_offset to another LogosType's mirror; we resolve
-// it back through TypePoolImpl::mirror_inverse_.
+// 2c.4e.3.0/.1: vector accessors via mirror ObjectArray, sourced from
+// TypeRef's base/off/pool fat pointer.
 namespace {
-std::vector<const LogosType*> type_vec_via_mirror(const LogosType* parent,
+std::vector<const LogosType*> type_vec_via_mirror(const TypeRef& self,
                                                    sema_schema::Key key) {
     std::vector<const LogosType*> result;
-    if (!parent) return result;
-    auto* base = const_cast<uint8_t*>(parent->hermes_arena_->head().data());
-    auto* mp   = reinterpret_cast<const hermes::TinyObjectMap*>(
-        base + parent->hermes_mirror_off_.value());
-    auto av = mp->get(key.code, base);
+    if (!self) return result;
+    auto* base = self.mirror_base();
+    auto av = self.mirror()->get(key.code, base);
     if (av.is_null()) return result;
     auto* arr = av.as_ptr<const hermes::ObjectArray>(base);
     result.reserve(arr->size());
     for (uint64_t i = 0; i < arr->size(); ++i) {
         auto e = const_cast<hermes::ObjectArray*>(arr)->get(i, base);
-        result.push_back(parent->hermes_pool_->mirror_inverse_.at(e.to_offset()));
+        result.push_back(self.pool()->mirror_inverse_.at(e.to_offset()));
     }
     return result;
 }
-std::vector<std::string> string_vec_via_mirror(const LogosType* parent,
+std::vector<std::string> string_vec_via_mirror(const TypeRef& self,
                                                 sema_schema::Key key) {
     std::vector<std::string> result;
-    if (!parent) return result;
-    auto* base = const_cast<uint8_t*>(parent->hermes_arena_->head().data());
-    auto* mp   = reinterpret_cast<const hermes::TinyObjectMap*>(
-        base + parent->hermes_mirror_off_.value());
-    auto av = mp->get(key.code, base);
+    if (!self) return result;
+    auto* base = self.mirror_base();
+    auto av = self.mirror()->get(key.code, base);
     if (av.is_null()) return result;
     auto* arr = av.as_ptr<const hermes::ObjectArray>(base);
     result.reserve(arr->size());
@@ -445,11 +436,11 @@ std::vector<std::string> string_vec_via_mirror(const LogosType* parent,
 }
 }  // namespace
 
-std::vector<const LogosType*> TypeRef::type_args()      const noexcept { return type_vec_via_mirror(p_, sema_schema::TYPE_ARGS); }
-std::vector<const LogosType*> TypeRef::tuple_elems()    const noexcept { return type_vec_via_mirror(p_, sema_schema::TUPLE_ELEMS); }
-std::vector<const LogosType*> TypeRef::closure_params() const noexcept { return type_vec_via_mirror(p_, sema_schema::CLOSURE_PARAMS); }
-std::vector<const LogosType*> TypeRef::gat_args()       const noexcept { return type_vec_via_mirror(p_, sema_schema::GAT_ARGS); }
-std::vector<std::string>      TypeRef::lifetime_args()  const noexcept { return string_vec_via_mirror(p_, sema_schema::LIFETIME_ARGS); }
+std::vector<const LogosType*> TypeRef::type_args()      const noexcept { return type_vec_via_mirror(*this, sema_schema::TYPE_ARGS); }
+std::vector<const LogosType*> TypeRef::tuple_elems()    const noexcept { return type_vec_via_mirror(*this, sema_schema::TUPLE_ELEMS); }
+std::vector<const LogosType*> TypeRef::closure_params() const noexcept { return type_vec_via_mirror(*this, sema_schema::CLOSURE_PARAMS); }
+std::vector<const LogosType*> TypeRef::gat_args()       const noexcept { return type_vec_via_mirror(*this, sema_schema::GAT_ARGS); }
+std::vector<std::string>      TypeRef::lifetime_args()  const noexcept { return string_vec_via_mirror(*this, sema_schema::LIFETIME_ARGS); }
 
 namespace la = ast;
 using hermes::TinyMapView;

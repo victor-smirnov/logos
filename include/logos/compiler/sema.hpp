@@ -145,10 +145,21 @@ struct TypeParam {
 // remain after the underlying storage moves to a Hermes zone in Phase 2c).
 
 class TypeRef {
-    const LogosType* p_ = nullptr;
+    // 2c.4e.3.1: fat-pointer storage. The mirror is the source of truth;
+    // base_/off_ locate the TinyObjectMap directly, pool_ resolves
+    // arena offsets back to LogosType* via mirror_inverse_. p_ remains as
+    // the bridge for `.raw()` until 2c.4e.3.2 retires it.
+    const LogosType*          p_    = nullptr;
+    uint8_t*                  base_ = nullptr;
+    hermes::arena_offset_t    off_{};
+    const TypePoolImpl*       pool_ = nullptr;
 public:
     constexpr TypeRef() noexcept = default;
-    constexpr TypeRef(const LogosType* p) noexcept : p_(p) {}
+    TypeRef(const LogosType* p) noexcept
+        : p_(p),
+          base_(p ? const_cast<uint8_t*>(p->hermes_arena_->head().data()) : nullptr),
+          off_(p ? p->hermes_mirror_off_ : hermes::arena_offset_t{}),
+          pool_(p ? p->hermes_pool_ : nullptr) {}
 
     // 2c.4e.2b: operator-> and operator* removed. Callers that reached
     // struct fields (e.g. `t.pointee()->kind`) must now use TypeRef
@@ -175,14 +186,11 @@ public:
     // Note: returns non-const uint8_t* because TinyObjectMap::get/slot take
     // a mutable base (even from const methods). The arena is logically const
     // here; const_cast is safe as the reads are side-effect-free.
-    uint8_t* mirror_base() const noexcept {
-        return const_cast<uint8_t*>(
-            p_->hermes_arena_->head().data());
-    }
+    uint8_t* mirror_base() const noexcept { return base_; }
     const hermes::TinyObjectMap* mirror() const noexcept {
-        return reinterpret_cast<const hermes::TinyObjectMap*>(
-            mirror_base() + p_->hermes_mirror_off_.value());
+        return reinterpret_cast<const hermes::TinyObjectMap*>(base_ + off_.value());
     }
+    const TypePoolImpl* pool() const noexcept { return pool_; }
 
     // 2c.4e.1: every LogosType reachable through TypeRef goes through
     // TypePool::alloc(), so the mirror is always wired. Accessors read
