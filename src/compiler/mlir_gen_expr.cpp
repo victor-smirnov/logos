@@ -640,10 +640,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
                     auto slot = get_subscript_ptr(vr->name);
                     base_ptr  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
                     elem_type = lpit->second;
-                } else if (ir->receiver->type &&
-                           ir->receiver->type->kind == LogosType::Kind::Ptr &&
-                           ir->receiver->type->pointee) {
-                    auto cname = concrete_struct_name(ir->receiver->type->pointee);
+                } else if (TypeRef rt(ir->receiver->type);
+                           rt && rt.kind() == LogosType::Kind::Ptr && rt.pointee()) {
+                    auto cname = concrete_struct_name(rt.pointee().raw());
                     auto sit   = struct_types_.find(cname);
                     if (sit != struct_types_.end()) {
                         auto sc = scope_.find(vr->name);
@@ -652,8 +651,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
                             elem_type = sit->second.llvm_type;
                         }
                     }
-                } else if (ir->receiver->type &&
-                           ir->receiver->type->kind == LogosType::Kind::Array) {
+                } else if (TypeRef rt(ir->receiver->type);
+                           rt && rt.kind() == LogosType::Kind::Array) {
                     // Stack-allocated array: get_subscript_ptr returns the alloca
                     // directly (no load needed since the alloca IS the array base).
                     auto sp = get_subscript_ptr(vr->name);
@@ -673,10 +672,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
                         if (field_is_ptr) {
                             base_ptr = builder_.create<mlir::LLVM::LoadOp>(
                                 loc_, ptr_type(), field_ptr);
-                            if (ir->receiver->type->pointee &&
-                                (ir->receiver->type->pointee->kind == LogosType::Kind::Struct ||
-                                 ir->receiver->type->pointee->kind == LogosType::Kind::ZonedStruct)) {
-                                auto cname = concrete_struct_name(ir->receiver->type->pointee);
+                            TypeRef rpt = TypeRef(ir->receiver->type).pointee();
+                            if (rpt &&
+                                (rpt.kind() == LogosType::Kind::Struct ||
+                                 rpt.kind() == LogosType::Kind::ZonedStruct)) {
+                                auto cname = concrete_struct_name(rpt.raw());
                                 auto sit2  = struct_types_.find(cname);
                                 if (sit2 != struct_types_.end())
                                     elem_type = sit2->second.llvm_type;
@@ -1035,13 +1035,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, const LogosType* re
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(const EFieldRead& e, const LogosType* type) {
-    if (e.field == "raw" && e.receiver->type) {
+    if (TypeRef rt(e.receiver->type); e.field == "raw" && rt) {
         bool is_anyval = type_str(e.receiver->type) == "AnyVal";
-        bool is_anyval_ptr = (e.receiver->type->kind == LogosType::Kind::Ptr ||
-                              e.receiver->type->kind == LogosType::Kind::Ref ||
-                              e.receiver->type->kind == LogosType::Kind::MutRef) &&
-                             e.receiver->type->pointee &&
-                             type_str(e.receiver->type->pointee) == "AnyVal";
+        bool is_anyval_ptr = (rt.kind() == LogosType::Kind::Ptr ||
+                              rt.kind() == LogosType::Kind::Ref ||
+                              rt.kind() == LogosType::Kind::MutRef) &&
+                             rt.pointee() &&
+                             type_str(rt.pointee().raw()) == "AnyVal";
         if (is_anyval || is_anyval_ptr) {
             auto recv = gen_expr(*e.receiver);
             if (!recv) return nullptr;
@@ -1073,15 +1073,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
             auto alloca = get_subscript_ptr(vr->name);
             arr_ptr   = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), alloca);
             elem_type = lpit->second;
-        } else if (e.receiver->type &&
-                   e.receiver->type->kind == LogosType::Kind::Ptr &&
-                   e.receiver->type->pointee &&
-                   (e.receiver->type->pointee->kind == LogosType::Kind::Struct ||
-                    e.receiver->type->pointee->kind == LogosType::Kind::ZonedStruct)) {
-            // Non-mut `let pp: *mut Struct = …`: scope_ holds the pointer directly.
-            // Use the struct's LLVM type as element so [i] strides by struct size,
-            // not the default i32.
-            auto cname = concrete_struct_name(e.receiver->type->pointee);
+        } else if (TypeRef rt(e.receiver->type);
+                   rt && rt.kind() == LogosType::Kind::Ptr &&
+                   rt.pointee() &&
+                   (rt.pointee().kind() == LogosType::Kind::Struct ||
+                    rt.pointee().kind() == LogosType::Kind::ZonedStruct)) {
+            auto cname = concrete_struct_name(rt.pointee().raw());
             auto sit   = struct_types_.find(cname);
             if (sit != struct_types_.end()) {
                 auto sc = scope_.find(vr->name);
@@ -1143,10 +1140,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
                 if (field_is_ptr) {
                     arr_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_ptr);
                     // Use struct LLVM type for stride when pointee is a struct/datatype.
-                    if (e.receiver->type->pointee &&
-                        (e.receiver->type->pointee->kind == LogosType::Kind::Struct ||
-                         e.receiver->type->pointee->kind == LogosType::Kind::ZonedStruct)) {
-                        auto cname = concrete_struct_name(e.receiver->type->pointee);
+                    TypeRef rpt = TypeRef(e.receiver->type).pointee();
+                    if (rpt &&
+                        (rpt.kind() == LogosType::Kind::Struct ||
+                         rpt.kind() == LogosType::Kind::ZonedStruct)) {
+                        auto cname = concrete_struct_name(rpt.raw());
                         auto sit   = struct_types_.find(cname);
                         if (sit != struct_types_.end())
                             elem_type = sit->second.llvm_type;
@@ -1311,8 +1309,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, const LogosType* type) {
     // str (Slice<u8> = fat pointer {ptr, i64}) as *const u8 → extract field 0.
     // Must be checked BEFORE the val.getType() == target early-return because
     // both the alloca ptr (fat struct) and *const u8 are !llvm.ptr in LLVM 17.
-    if (e.operand->type && e.operand->type->kind == LogosType::Kind::Slice &&
-        e.operand->type->elem && e.operand->type->elem->kind == LogosType::Kind::U8 &&
+    if (TypeRef ot(e.operand->type);
+        ot && ot.kind() == LogosType::Kind::Slice &&
+        ot.elem() && ot.elem().kind() == LogosType::Kind::U8 &&
         type && TypeRef(type).kind() == LogosType::Kind::Ptr &&
         TypeRef(type).pointee() && TypeRef(type).pointee().kind() == LogosType::Kind::U8) {
         auto stype = slice_llvm_type();
@@ -1509,8 +1508,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
     // Detect tagged enum: load discriminant.
     mlir::Value scrut_ptr = nullptr;
     const TaggedEnumInfo* te_info = nullptr;
-    if (e.scrut->type && e.scrut->type->kind == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(e.scrut->type->enum_name, e.scrut->type);
+    if (TypeRef st(e.scrut->type); st && st.kind() == LogosType::Kind::Enum) {
+        te_info = resolve_tagged_enum(std::string(st.enum_name()), e.scrut->type);
         if (te_info) {
             // GEP requires a pointer operand.  If the scrutinee is a by-value
             // struct (e.g. a direct function call result), spill it to an alloca.
@@ -1645,12 +1644,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, const LogosType* typ
         if (has_wild) {
             exhaustive_discrete = true;
         } else {
-            auto eit = enum_types_.find(e.scrut->type->enum_name);
+            std::string en(TypeRef(e.scrut->type).enum_name());
+            auto eit = enum_types_.find(en);
             if (eit != enum_types_.end() && eit->second) {
                 exhaustive_discrete = std::all_of(
                     eit->second->variants.begin(), eit->second->variants.end(),
                     [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
-            } else if (auto* te = resolve_tagged_enum(e.scrut->type->enum_name, e.scrut->type)) {
+            } else if (auto* te = resolve_tagged_enum(en, e.scrut->type)) {
                 exhaustive_discrete = std::all_of(
                     te->variants.begin(), te->variants.end(),
                     [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });
@@ -2166,7 +2166,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, const LogosType* type) {
     // Aggregate returned by value — spill to alloca so GEP works below.
     inner_ptr = spill_to_alloca(inner_ptr);
 
-    auto* te = resolve_tagged_enum(e.inner->type->enum_name, e.inner->type);
+    auto* te = resolve_tagged_enum(std::string(TypeRef(e.inner->type).enum_name()), e.inner->type);
     if (!te) {
         std::fprintf(stderr, "mlir_gen: ETry: cannot resolve Result enum\n");
         return nullptr;
@@ -2569,9 +2569,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EReflectOf& e, const LogosType*) {
 
     // Compute symbol name deterministically from fqn (same formula as reflection_emit).
     std::string fqn;
-    if (e.type) {
-        std::string pkg = e.type->pkg_name.empty() ? "" : e.type->pkg_name;
-        fqn = pkg.empty() ? e.type->struct_name : pkg + "::" + e.type->struct_name;
+    if (TypeRef et = e.type) {
+        auto pkg = et.pkg_name();
+        auto sn  = et.struct_name();
+        fqn = pkg.empty() ? std::string(sn) : std::string(pkg) + "::" + std::string(sn);
     }
     auto hash = logos::compiler::type_hash_23(fqn);
     static const char hexc[] = "0123456789abcdef";
