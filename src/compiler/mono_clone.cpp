@@ -32,10 +32,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
 
         } else if constexpr (std::is_same_v<K, lir::EEnumLit>) {
             lir::EEnumLit ne = k;
-            if (result->type && result->type->kind == LogosType::Kind::Enum &&
-                !result->type->type_args.empty()) {
-                std::string cname = result->type->enum_name;
-                for (auto* a : result->type->type_args) { cname += "__"; cname += mangle_type(a); }
+            TypeRef rt(result->type);
+            if (rt && rt.kind() == LogosType::Kind::Enum &&
+                !rt.type_args().empty()) {
+                std::string cname = std::string(rt.enum_name());
+                for (auto* a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
                 ne.enum_name = cname;
                 record_needed_enum(result->type);
             }
@@ -55,8 +56,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     // Find which type pack this var belongs to.
                     // The var's type is a TypeVar whose name is in cur_packs_.
                     std::string pack_name;
-                    if (a->type && a->type->kind == LogosType::Kind::TypeVar)
-                        pack_name = a->type->type_var_name;
+                    TypeRef at(a->type);
+                    if (at && at.kind() == LogosType::Kind::TypeVar)
+                        pack_name = std::string(at.type_var_name());
                     auto pit = cur_packs_.find(pack_name);
                     if (pit != cur_packs_.end()) {
                         for (size_t pi = 0; pi < pit->second.size(); ++pi) {
@@ -375,9 +377,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::EStructLit>) {
             lir::EStructLit ns;
             // Update name to the concrete mangled struct name if generic.
-            if (result->type && (result->type->kind == LogosType::Kind::Struct ||
-                                  result->type->kind == LogosType::Kind::ZonedStruct) &&
-                !result->type->type_args.empty())
+            TypeRef rt2(result->type);
+            if (rt2 && (rt2.kind() == LogosType::Kind::Struct ||
+                        rt2.kind() == LogosType::Kind::ZonedStruct) &&
+                !rt2.type_args().empty())
                 ns.name = concrete_struct_name(result->type);
             else
                 ns.name = k.name;
@@ -466,10 +469,11 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
             lir::EEnumLitData ne;
             // Use concrete enum name if type has type_args
-            if (result->type && result->type->kind == LogosType::Kind::Enum &&
-                !result->type->type_args.empty()) {
-                std::string cname = result->type->enum_name;
-                for (auto* a : result->type->type_args) { cname += "__"; cname += mangle_type(a); }
+            TypeRef rt3(result->type);
+            if (rt3 && rt3.kind() == LogosType::Kind::Enum &&
+                !rt3.type_args().empty()) {
+                std::string cname = std::string(rt3.enum_name());
+                for (auto* a : rt3.type_args()) { cname += "__"; cname += mangle_type(a); }
                 ne.enum_name = cname;
                 record_needed_enum(result->type);
             } else {
@@ -830,8 +834,9 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
             // Expand variadic param into N concrete params.
             // Find the pack type for this param's TypeVar name.
             std::string pack_name;
-            if (p.type && p.type->kind == LogosType::Kind::TypeVar)
-                pack_name = p.type->type_var_name;
+            TypeRef pt(p.type);
+            if (pt && pt.kind() == LogosType::Kind::TypeVar)
+                pack_name = std::string(pt.type_var_name());
             auto pit = packs.find(pack_name);
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
@@ -865,8 +870,9 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     for (auto& f : tmpl.fields) {
         if (f.is_variadic) {
             std::string pack_name;
-            if (f.type && f.type->kind == LogosType::Kind::TypeVar)
-                pack_name = f.type->type_var_name;
+            TypeRef ft(f.type);
+            if (ft && ft.kind() == LogosType::Kind::TypeVar)
+                pack_name = std::string(ft.type_var_name());
             auto pit = packs.find(pack_name);
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
