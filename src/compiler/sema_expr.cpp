@@ -1128,62 +1128,64 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     return make_expr(fi.ret_type, lir::ECall{std::string(callee), {}, std::move(arg_exprs)});
 }
 
-void SemaChecker::unify_types(const LogosType* formal, const LogosType* actual,
+void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
                      StrMap<const LogosType*>& bindings) {
     if (!formal || !actual) return;
-    if (TypeRef(actual).kind() == LogosType::Kind::Error ||
-        TypeRef(formal).kind() == LogosType::Kind::Error) return;
+    if (actual.kind() == LogosType::Kind::Error ||
+        formal.kind() == LogosType::Kind::Error) return;
 
     // Widen IntLit to i32 / FloatLit to f64 before any binding
-    const LogosType* actual_norm = actual;
-    if (TypeRef(actual).kind() == LogosType::Kind::IntLit)
-        actual_norm = prim(LogosType::Kind::I32);
-    else if (TypeRef(actual).kind() == LogosType::Kind::FloatLit)
-        actual_norm = prim(LogosType::Kind::F64);
+    TypeRef actual_norm = actual;
+    if (actual.kind() == LogosType::Kind::IntLit)
+        actual_norm = TypeRef(prim(LogosType::Kind::I32));
+    else if (actual.kind() == LogosType::Kind::FloatLit)
+        actual_norm = TypeRef(prim(LogosType::Kind::F64));
 
-    if (TypeRef(formal).kind() == LogosType::Kind::TypeVar) {
-        if (TypeRef(formal).type_var_name() == "Self") return;  // skip implicit Self
-        if (!bindings.count(TypeRef(formal).type_var_name()))
-            bindings[std::string(TypeRef(formal).type_var_name())] = actual_norm;
+    if (formal.kind() == LogosType::Kind::TypeVar) {
+        if (formal.type_var_name() == "Self") return;  // skip implicit Self
+        if (!bindings.count(formal.type_var_name()))
+            bindings[std::string(formal.type_var_name())] = actual_norm.raw();
         return;
     }
 
-    switch (TypeRef(formal).kind()) {
+    switch (formal.kind()) {
     case LogosType::Kind::Ptr:
-        if (TypeRef(actual_norm).kind() == LogosType::Kind::Ptr)
-            unify_types(TypeRef(formal).pointee().raw(), TypeRef(actual_norm).pointee().raw(), bindings);
-        else if (TypeRef(actual_norm).kind() == LogosType::Kind::Ref ||
-                 TypeRef(actual_norm).kind() == LogosType::Kind::MutRef)
-            unify_types(TypeRef(formal).pointee().raw(), TypeRef(actual_norm).pointee().raw(), bindings);
+        if (actual_norm.kind() == LogosType::Kind::Ptr)
+            unify_types(formal.pointee(), actual_norm.pointee(), bindings);
+        else if (actual_norm.kind() == LogosType::Kind::Ref ||
+                 actual_norm.kind() == LogosType::Kind::MutRef)
+            unify_types(formal.pointee(), actual_norm.pointee(), bindings);
         break;
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef:
-        if (TypeRef(actual_norm).kind() == LogosType::Kind::Ref ||
-            TypeRef(actual_norm).kind() == LogosType::Kind::MutRef ||
-            TypeRef(actual_norm).kind() == LogosType::Kind::Ptr)
-            unify_types(TypeRef(formal).pointee().raw(), TypeRef(actual_norm).pointee().raw(), bindings);
+        if (actual_norm.kind() == LogosType::Kind::Ref ||
+            actual_norm.kind() == LogosType::Kind::MutRef ||
+            actual_norm.kind() == LogosType::Kind::Ptr)
+            unify_types(formal.pointee(), actual_norm.pointee(), bindings);
         break;
     case LogosType::Kind::Array:
-        if (TypeRef(actual_norm).kind() == LogosType::Kind::Array)
-            unify_types(TypeRef(formal).elem().raw(), TypeRef(actual_norm).elem().raw(), bindings);
+        if (actual_norm.kind() == LogosType::Kind::Array)
+            unify_types(formal.elem(), actual_norm.elem(), bindings);
         break;
     case LogosType::Kind::Slice:
-        if (TypeRef(actual_norm).kind() == LogosType::Kind::Slice)
-            unify_types(TypeRef(formal).elem().raw(), TypeRef(actual_norm).elem().raw(), bindings);
+        if (actual_norm.kind() == LogosType::Kind::Slice)
+            unify_types(formal.elem(), actual_norm.elem(), bindings);
         break;
     case LogosType::Kind::Struct:
-        if (TypeRef(actual_norm).kind() == LogosType::Kind::Struct &&
-            TypeRef(formal).struct_name() == TypeRef(actual_norm).struct_name()) {
-            for (size_t i = 0; i < TypeRef(formal).type_args().size() &&
-                                i < TypeRef(actual_norm).type_args().size(); ++i)
-                unify_types(TypeRef(formal).type_args()[i], TypeRef(actual_norm).type_args()[i], bindings);
+        if (actual_norm.kind() == LogosType::Kind::Struct &&
+            formal.struct_name() == actual_norm.struct_name()) {
+            auto fa = formal.type_args();
+            auto aa = actual_norm.type_args();
+            for (size_t i = 0; i < fa.size() && i < aa.size(); ++i)
+                unify_types(fa[i], aa[i], bindings);
         }
         break;
     case LogosType::Kind::Tuple:
-        if (TypeRef(actual_norm).kind() == LogosType::Kind::Tuple) {
-            for (size_t i = 0; i < TypeRef(formal).tuple_elems().size() &&
-                                i < TypeRef(actual_norm).tuple_elems().size(); ++i)
-                unify_types(TypeRef(formal).tuple_elems()[i], TypeRef(actual_norm).tuple_elems()[i], bindings);
+        if (actual_norm.kind() == LogosType::Kind::Tuple) {
+            auto fe = formal.tuple_elems();
+            auto ae = actual_norm.tuple_elems();
+            for (size_t i = 0; i < fe.size() && i < ae.size(); ++i)
+                unify_types(fe[i], ae[i], bindings);
         }
         break;
     default:

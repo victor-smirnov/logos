@@ -860,7 +860,7 @@ private:
     lir::LExprPtr lower_unary(hermes::TinyMapView node);
     lir::LExprPtr lower_deref(hermes::TinyMapView node);
     lir::LExprPtr lower_call(hermes::TinyMapView node);
-    void unify_types(const LogosType* formal, const LogosType* actual,
+    void unify_types(TypeRef formal, TypeRef actual,
                      logos::compiler::StrMap<const LogosType*>& bindings);
     bool infer_type_args(const SemaFuncInfo& fi,
                          const std::vector<lir::LExprPtr>& arg_exprs,
