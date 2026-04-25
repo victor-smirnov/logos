@@ -1,8 +1,9 @@
 // std.fmt::Debug — primitive impls. Slice 15 of Phase 7 (path to derive-Debug).
-// Direct dot-call (`x.dbg(buf)`) on primitive receivers does not yet
-// fall through to trait impls in lower_method_call — we exercise the
-// trait via generic dispatch (`dbg_to(...)`) which is the path the
-// derived Debug impls will take from inside generic context.
+// Direct `x.dbg(buf)` works on typed primitive receivers (let x: i32 = ...,
+// or struct fields). The remaining gap is unannotated integer literals
+// (`{integer}` falls through method dispatch before defaulting to i32) —
+// here we exercise the trait via generic dispatch (`dbg_to(...)`) so we
+// can mix bool/u64/i64 in one driver without per-call `as` casts.
 package debug_primitives;
 
 use std.fmt;
