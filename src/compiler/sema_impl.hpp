@@ -366,6 +366,8 @@ private:
     bool fn_is_metaprog_handler(std::string_view name) const {
         for (const auto& mh : metaprog_handlers_)
             if (mh.hook_fn == name) return true;
+        for (const auto& h : metaprog_post_sema_hooks_)
+            if (h == name) return true;
         return false;
     }
 

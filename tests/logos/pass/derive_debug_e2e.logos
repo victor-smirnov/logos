@@ -1,0 +1,108 @@
+// Phase 7 slice 19: derive(Debug) end-to-end.
+//
+// Pre-sema hook walks the struct's FIELDS, reads each field's NAME +
+// TYPE, and synthesises `impl Debug for Widget { fn dbg ... }`. The
+// per-field call goes through a small generic helper `_dbg<T: Debug>`
+// because direct dot-call on primitive receivers doesn't yet fall
+// through to trait impls (see debug_primitives.logos for the same
+// workaround).
+//
+// `main` then *uses* the synthesised impl on a real Widget instance.
+// This is the milestone proof for slice 17's pre-sema hook timing:
+// in iter 0, sema runs in metaprog_mode with entry-file fn bodies
+// skipped, so `w.dbg(&mut s)` doesn't error; hook fires; final
+// non-metaprog sema pass lowers main() with the impl in place.
+
+package main;
+
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.compiler.metaprog;
+use std.fmt;
+use std.lang.text;
+use std.io;
+
+#[metaprog_handler("derive_debug_e2e")]
+fn derive_debug_e2e_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let name: StringView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+
+    let n: u64 = view.ast_struct_field_count(item);
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_raw("package main;");
+    em.emit_raw("use std.fmt;");
+    em.emit_raw("use std.lang.text;");
+
+    em.buf.push_str("impl Debug for ");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str(" {");
+    em.buf.push_u8(10 as u8);
+
+    em.buf.push_str("    fn dbg(self: ");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str(", buf: &mut String) {");
+    em.buf.push_u8(10 as u8);
+
+    em.buf.push_str("        buf.push_str(\"");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str(" {\");");
+    em.buf.push_u8(10 as u8);
+
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        let fld: AnyVal = view.ast_struct_field(item, i);
+        let fname: StringView = view.ast_field_name(fld);
+        let ftype: StringView = view.ast_field_type_name(fld);
+
+        if i == (0 as u64) {
+            em.buf.push_str("        buf.push_str(\" \");");
+        } else {
+            em.buf.push_str("        buf.push_str(\", \");");
+        }
+        em.buf.push_u8(10 as u8);
+
+        em.buf.push_str("        buf.push_str(\"");
+        unsafe { em.buf.push_bytes(fname.ptr, fname.len as i64); }
+        em.buf.push_str(": \");");
+        em.buf.push_u8(10 as u8);
+
+        em.buf.push_str("        _dbg::<");
+        unsafe { em.buf.push_bytes(ftype.ptr, ftype.len as i64); }
+        em.buf.push_str(">(self.");
+        unsafe { em.buf.push_bytes(fname.ptr, fname.len as i64); }
+        em.buf.push_str(", buf);");
+        em.buf.push_u8(10 as u8);
+
+        i = i + (1 as u64);
+    }
+
+    em.buf.push_str("        buf.push_str(\" }\");");
+    em.buf.push_u8(10 as u8);
+
+    em.buf.push_str("    }");
+    em.buf.push_u8(10 as u8);
+    em.buf.push_str("}");
+    em.commit();
+    return;
+}
+
+fn _dbg<T: Debug>(v: T, buf: &mut String) {
+    v.dbg(buf);
+}
+
+#[derive_debug_e2e]
+struct Widget { x: i32, y: i32 }
+
+unsafe fn main() -> i32 {
+    let w: Widget = Widget { x: 1, y: 2 };
+    let mut s: String = String::new();
+    w.dbg(&mut s);
+    println_string(&s);
+    return s.len() as i32;
+}

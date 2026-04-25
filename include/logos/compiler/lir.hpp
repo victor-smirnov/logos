@@ -611,6 +611,11 @@ struct LFunction {
     bool                     is_extern = false;
     bool                     is_vararg = false;
     bool                     is_pub    = false;
+    // Phase 7 slice 17: set by sema in metaprog-mode for entry-file fns
+    // whose body was skipped (non-handler user fns). meta_prog driver must
+    // filter these out before mono/MLIR — the body is empty and there's
+    // nothing valid to lower.
+    bool                     is_metaprog_stub = false;
 
     // Specialisation support (set by sema, cleared by mono after instantiation).
     // is_specialization == true  →  this is a specialisation of `name`.

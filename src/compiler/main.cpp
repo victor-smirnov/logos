@@ -419,12 +419,16 @@ int main(int argc, char** argv) {
         // throwaway full-pipeline copy of the current sources — we
         // can't reuse the outer `prog` because the post-loop expects a
         // pre-mono LProgram.
-        // meta_prog (JIT input) uses full sema — skipped bodies would become
-        // empty fns that MLIR rejects. When entry-file bodies reference
-        // synthesized symbols this will fail; future S18/S19 will filter
-        // to handler-only fns before MLIR gen.
-        auto meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+        // meta_prog (JIT input) uses metaprog_mode so the entry file may
+        // reference items that hooks will synthesize without erroring out.
+        // After sema, drop is_metaprog_stub fns (entry-file non-handler
+        // bodies were skipped) — mono/MLIR would otherwise see empty bodies.
+        auto meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary, meta_opts);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        meta_prog.functions.erase(
+            std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
+                [](const auto& f) { return f.is_metaprog_stub; }),
+            meta_prog.functions.end());
         meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
         meta_prog = logos::compiler::mono_pass(std::move(meta_prog));
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
@@ -574,6 +578,22 @@ int main(int argc, char** argv) {
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
     report("sema+lower (final)");
+
+    // Phase 7 slice 19: strip metaprog hook fns from the FINAL prog. Their
+    // bodies reference host-only symbols (logos_emit_source, etc.) that the
+    // user's compiled artifact has no business carrying — they're purely
+    // compile-time machinery. Hooks are still validated (sema lowered them)
+    // but won't reach mono / MLIR / linker.
+    {
+        std::set<std::string> hook_names;
+        for (const auto& mh : prog.metaprog_handlers) hook_names.insert(mh.hook_fn);
+        for (const auto& h  : prog.metaprog_post_sema_hooks) hook_names.insert(h);
+        prog.functions.erase(
+            std::remove_if(prog.functions.begin(), prog.functions.end(),
+                [&](const auto& f) { return hook_names.count(f.name) > 0; }),
+            prog.functions.end());
+    }
+
     prog.binary_symbols = std::move(binary_symbols);
 
     // ── Step 2b+: Reflection TypeInfo emission (pre-mono, concrete types only)

@@ -370,6 +370,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     bool skip_body = metaprog_mode_
                   && cur_ast_idx_ == metaprog_entry_ast_idx_
                   && !fn_is_metaprog_handler(fn.name);
+    if (skip_body) fn.is_metaprog_stub = true;
 
     // Body (extern fns have no body)
     if (!fn.is_extern && !skip_body && node.has_key(la::BODY)) {
