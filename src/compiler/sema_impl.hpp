@@ -339,6 +339,8 @@ private:
     std::set<std::string> moved_vars_;   // variables consumed by move
     std::set<std::string> copy_types_;   // types with impl Copy — never move-only
 
+    int destruct_counter_ = 0;           // unique-name source for `let (...)` temps
+
     void push_scope() { scope_.emplace_back(); }
     void pop_scope() {
         if (!scope_.empty()) {

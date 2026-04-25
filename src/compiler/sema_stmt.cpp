@@ -335,8 +335,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
     }
 
     // Build SBlock: let __destruct_N = rhs; let a = __destruct_N.0; ...
-    static int destruct_counter = 0;
-    std::string tmp = std::format("__destruct_{}", destruct_counter++);
+    std::string tmp = std::format("__destruct_{}", destruct_counter_++);
 
     auto blk = std::make_unique<lir::LBlock>();
 
