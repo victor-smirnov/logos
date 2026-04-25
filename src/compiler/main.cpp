@@ -57,30 +57,52 @@
 // JIT (Phase 4)
 #include <logos/jit/jit.hpp>
 
+// Generated parser (for runtime parse of metaprog-emitted source).
+#include "logos_parser.hpp"
+
 #include <cstdio>
 #include <set>
 #include <string>
 #include <vector>
 
-// Phase 7 slice 1: minimal AST-emit seam for metaprog hooks.
+// Phase 7 slice 1+2: AST-emit seam for metaprog hooks.
 //
-// `logos_emit_marker(tag)` is host-resolved at JIT bind time. Hooks call
-// it to request another iteration of the metaprog loop. Host-side dedup
-// by tag means a naive hook that calls emit unconditionally still
-// converges in 2 iters: iter 0 inserts and flags any_emitted; iter 1
-// hits the existing entry and the loop breaks.
+// `logos_emit_source(src)` parses a chunk of Logos text via the
+// in-process parser and appends the resulting AST as a fresh entry
+// in `asts`. Sema's next iteration sees it as if it were another
+// source file. Host-side dedup by source-text means a naive
+// always-emit hook still converges in 2 iters: iter 0 parses +
+// appends + flags any_emitted; iter 1 hits the existing entry and
+// the loop breaks.
 //
-// Real AST mutation lands in a follow-up slice — this commit just
-// proves the bind/dedup/converge plumbing end-to-end.
+// Splicing whole documents (vs in-place mutation of asts[0]) reuses
+// the parser, sidesteps cross-arena pointer concerns, and stays
+// trivially compactable via per-document hermes::clone().
 namespace {
-std::set<std::string>* g_emit_seen   = nullptr;
-bool*                  g_any_emitted = nullptr;
+std::set<std::string>*               g_emit_seen   = nullptr;
+bool*                                g_any_emitted = nullptr;
+std::vector<logos::hermes::Hermes>*  g_asts        = nullptr;
+std::vector<std::string>*            g_filenames   = nullptr;
+std::vector<bool>*                   g_from_binary = nullptr;
 }
-extern "C" int32_t logos_emit_marker(const char* tag) {
-    if (!g_emit_seen || !g_any_emitted || !tag) return 0;
-    auto [_, inserted] = g_emit_seen->emplace(tag);
-    if (inserted) *g_any_emitted = true;
-    return inserted ? 1 : 0;
+extern "C" int32_t logos_emit_source(const char* src) {
+    if (!g_emit_seen || !g_any_emitted || !g_asts || !g_filenames
+        || !g_from_binary || !src) return 0;
+    std::string s(src);
+    if (!g_emit_seen->insert(s).second) return 0;  // already emitted
+    logos::compiler::LogosParser parser(s);
+    auto ast = parser.parse_module();
+    if (ast.is_null() || !parser.at_eof()) {
+        std::fprintf(stderr, "logos_emit_source: parse failed near line %u\n",
+                     parser.next_line());
+        g_emit_seen->erase(s);  // allow caller to retry with corrected text
+        return 0;
+    }
+    g_asts->push_back(std::move(ast));
+    g_filenames->emplace_back("<metaprog>");
+    g_from_binary->push_back(false);
+    *g_any_emitted = true;
+    return 1;
 }
 
 // Round-trip a stack-built LLVM module through textual IR into a fresh
@@ -237,7 +259,10 @@ int main(int argc, char** argv) {
     // against pathological recursive emission.
     constexpr int kMaxMetaprogIters = 16;
     std::set<std::string> emit_seen;
-    g_emit_seen = &emit_seen;
+    g_emit_seen   = &emit_seen;
+    g_asts        = &asts;
+    g_filenames   = &filenames;
+    g_from_binary = &from_binary;
     logos::compiler::lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
         prog = logos::compiler::sema_lower(asts, filenames, from_binary);
@@ -300,9 +325,9 @@ int main(int argc, char** argv) {
 
         bool any_emitted = false;
         g_any_emitted = &any_emitted;
-        if (!meta_jit->define_symbol("logos_emit_marker",
-                                     reinterpret_cast<void*>(&logos_emit_marker))) {
-            std::fprintf(stderr, "logosc: bind logos_emit_marker: %s\n",
+        if (!meta_jit->define_symbol("logos_emit_source",
+                                     reinterpret_cast<void*>(&logos_emit_source))) {
+            std::fprintf(stderr, "logosc: bind logos_emit_source: %s\n",
                          meta_jit->error_str().c_str());
             return 1;
         }
