@@ -18,6 +18,21 @@ use std.hermes.string;
 
 extern fn logos_emit_source(src: *const u8) -> i32;
 
+// Phase 7 diagnostics: report a structured error from a metaprog hook.
+// The host attributes the message to the originating hook and fails
+// compilation after the hook returns. Hooks may report multiple
+// errors per invocation; all surface together.
+extern fn logos_metaprog_error(msg: *const u8) -> ();
+
+// Push a NUL-terminated copy of `msg` to the host diag channel.
+// Allocates a small heap buffer (str isn't NUL-terminated by default).
+pub fn error(msg: str) {
+    let mut buf: String = String::new();
+    buf.push_str(msg);
+    buf.push_u8(0 as u8);
+    unsafe { logos_metaprog_error(buf.as_ptr() as *const u8); }
+}
+
 pub struct Emitter {
     pub buf: String,
 }
