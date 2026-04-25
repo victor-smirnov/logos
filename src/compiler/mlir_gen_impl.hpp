@@ -250,7 +250,7 @@ private:
     }
 
     // ── Type conversion ──────────────────────────────────────────
-    mlir::Type logos_to_mlir(const LogosType* t);
+    mlir::Type logos_to_mlir(TypeRef tv);
 
     // MLIR type for a C-style enum's discriminant.  Uses the enum's
     // explicit backing type if declared (`enum Foo : u64 {}`), else i32.

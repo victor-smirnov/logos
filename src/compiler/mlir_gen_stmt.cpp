@@ -112,7 +112,7 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
     if (pt && pt.pointee() &&
         (pt.kind() == LogosType::Kind::Ptr ||
          pt.kind() == LogosType::Kind::MutRef))
-        elem_type = logos_to_mlir(pt.pointee().raw());
+        elem_type = logos_to_mlir(pt.pointee());
     if (!elem_type) elem_type = builder_.getI32Type();
     const LogosType* pointee_t = (pt && pt.pointee()) ? pt.pointee().raw() : nullptr;
     if (pointee_t && (TypeRef(pointee_t).kind() == LogosType::Kind::Struct ||
@@ -164,7 +164,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // ── Array literal ─────────────────────────────────────────
     if (std::holds_alternative<EArrLit>(s.value->kind)) {
         auto& lit = std::get<EArrLit>(s.value->kind);
-        auto elem_type = logos_to_mlir(TypeRef(s.type).elem().raw());
+        auto elem_type = logos_to_mlir(TypeRef(s.type).elem());
         if (!elem_type) elem_type = builder_.getI32Type();
         auto alloca = gen_arr_lit(lit, elem_type);
         if (!alloca) return;
@@ -395,7 +395,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // (!llvm.array<N x i32>). Setting var_elem_types_ to the array type causes
     // nested indexing like `row[j]` to generate GEPs with the wrong elem_type.
     if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Array && st.elem()) {
-        auto elem_mlir = logos_to_mlir(st.elem().raw());
+        auto elem_mlir = logos_to_mlir(st.elem());
         if (!elem_mlir) elem_mlir = builder_.getI32Type();
         var_elem_types_[s.name] = elem_mlir;
         var_subscript_[s.name]  = elem_mlir;
@@ -1662,7 +1662,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         if (auto* psl = std::get_if<PatSlice>(&arm.pat)) {
             auto* atype = s.scrut->type;
             if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
-                auto elem_mlir = logos_to_mlir(TypeRef(atype).elem().raw());
+                auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
                 auto arr_mlir  = logos_to_mlir(atype);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
                 if (aptr && elem_mlir && arr_mlir) {

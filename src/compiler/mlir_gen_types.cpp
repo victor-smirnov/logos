@@ -14,10 +14,9 @@ using namespace lir;
 // Type conversion: LogosType → mlir::Type
 // ---------------------------------------------------------------------------
 
-mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
-    if (!t) return nullptr;
-    TypeRef tv{t};
-    if (type_str(t) == "AnyVal") return builder_.getI32Type();
+mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
+    if (!tv) return nullptr;
+    if (type_str(tv) == "AnyVal") return builder_.getI32Type();
     switch (tv.kind()) {
     case LogosType::Kind::Void:   return nullptr;
     case LogosType::Kind::I32:    return builder_.getI32Type();
@@ -42,21 +41,21 @@ mlir::Type MLIRGenImpl::logos_to_mlir(const LogosType* t) {
     case LogosType::Kind::Enum: {
         // Tagged enums are passed by pointer; C-style enums use their
         // backing integer type (i32 by default, or `enum Foo : u64 {}`).
-        if (resolve_tagged_enum(std::string(tv.enum_name()), t)) return ptr_type();
+        if (resolve_tagged_enum(std::string(tv.enum_name()), tv.raw())) return ptr_type();
         return enum_disc_mlir(std::string(tv.enum_name()));
     }
     case LogosType::Kind::Ptr:    return ptr_type();
     case LogosType::Kind::Ref:    return ptr_type();  // &T — same layout as *const T
     case LogosType::Kind::MutRef: return ptr_type();  // &mut T — same layout as *mut T
     case LogosType::Kind::Array: {
-        auto elem = logos_to_mlir(tv.elem().raw());
+        auto elem = logos_to_mlir(tv.elem());
         if (!elem) return nullptr;
         return mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size());
     }
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct: {
         // Check type alias first.
-        auto cname = concrete_struct_name(t);
+        auto cname = concrete_struct_name(tv);
         auto ait = type_aliases_.find(cname);
         if (ait != type_aliases_.end()) return ait->second;
         // Structs/datatypes are always passed by pointer; no need to wait for registration.

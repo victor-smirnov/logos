@@ -1144,7 +1144,7 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
             else if (is_class_cap)
                 var_class_[e.captures[i]] = std::string(TypeRef(ct).struct_name());
             else if (is_array_cap)
-                var_subscript_[e.captures[i]] = logos_to_mlir(ct ? TypeRef(ct).elem().raw() : nullptr);
+                var_subscript_[e.captures[i]] = logos_to_mlir(ct ? TypeRef(ct).elem() : TypeRef());
             else if (is_tuple_cap)
                 var_tuple_.insert(e.captures[i]);
             else if (is_enum_cap)
