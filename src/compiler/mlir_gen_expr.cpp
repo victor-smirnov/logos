@@ -642,7 +642,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
                     elem_type = lpit->second;
                 } else if (TypeRef rt(ir->receiver->type);
                            rt && rt.kind() == LogosType::Kind::Ptr && rt.pointee()) {
-                    auto cname = concrete_struct_name(rt.pointee().raw());
+                    auto cname = concrete_struct_name(rt.pointee());
                     auto sit   = struct_types_.find(cname);
                     if (sit != struct_types_.end()) {
                         auto sc = scope_.find(vr->name);
@@ -676,7 +676,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, const LogosType*) {
                             if (rpt &&
                                 (rpt.kind() == LogosType::Kind::Struct ||
                                  rpt.kind() == LogosType::Kind::ZonedStruct)) {
-                                auto cname = concrete_struct_name(rpt.raw());
+                                auto cname = concrete_struct_name(rpt);
                                 auto sit2  = struct_types_.find(cname);
                                 if (sit2 != struct_types_.end())
                                     elem_type = sit2->second.llvm_type;
@@ -1041,7 +1041,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFieldRead& e, const LogosType* typ
                               rt.kind() == LogosType::Kind::Ref ||
                               rt.kind() == LogosType::Kind::MutRef) &&
                              rt.pointee() &&
-                             type_str(rt.pointee().raw()) == "AnyVal";
+                             type_str(rt.pointee()) == "AnyVal";
         if (is_anyval || is_anyval_ptr) {
             auto recv = gen_expr(*e.receiver);
             if (!recv) return nullptr;
@@ -1078,7 +1078,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
                    rt.pointee() &&
                    (rt.pointee().kind() == LogosType::Kind::Struct ||
                     rt.pointee().kind() == LogosType::Kind::ZonedStruct)) {
-            auto cname = concrete_struct_name(rt.pointee().raw());
+            auto cname = concrete_struct_name(rt.pointee());
             auto sit   = struct_types_.find(cname);
             if (sit != struct_types_.end()) {
                 auto sc = scope_.find(vr->name);
@@ -1144,7 +1144,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, const LogosType* typ
                     if (rpt &&
                         (rpt.kind() == LogosType::Kind::Struct ||
                          rpt.kind() == LogosType::Kind::ZonedStruct)) {
-                        auto cname = concrete_struct_name(rpt.raw());
+                        auto cname = concrete_struct_name(rpt);
                         auto sit   = struct_types_.find(cname);
                         if (sit != struct_types_.end())
                             elem_type = sit->second.llvm_type;

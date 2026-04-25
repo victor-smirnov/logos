@@ -308,7 +308,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         if (!val) return;
         scope_[s.name] = val;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = concrete_struct_name(st.pointee().raw());
+        var_struct_[s.name] = concrete_struct_name(st.pointee());
         return;
     }
 
@@ -355,7 +355,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
             scope_[s.name] = slot;
             var_elem_types_[s.name] = ptr_type();
-            auto cname = concrete_struct_name(st.pointee().raw());
+            auto cname = concrete_struct_name(st.pointee());
             auto sit2 = struct_types_.find(cname);
             if (sit2 != struct_types_.end())
                 var_local_ptrs_[s.name] = sit2->second.llvm_type;
@@ -363,7 +363,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             scope_[s.name] = val;
         }
         let_vars_.insert(s.name);
-        var_struct_[s.name] = concrete_struct_name(st.pointee().raw());
+        var_struct_[s.name] = concrete_struct_name(st.pointee());
         return;
     }
 

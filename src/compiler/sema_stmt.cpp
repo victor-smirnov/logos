@@ -566,7 +566,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                                     if (auto v = get_intlit_value(ial->elems[ii].get()))
                                         if (!intlit_fits(*v, TypeRef(TypeRef(ann).tuple_elems()[ei]).elem().kind()))
                                             error(std::format("let '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                                  name, ei, ii, *v, type_str(TypeRef(TypeRef(ann).tuple_elems()[ei]).elem().raw())));
+                                                  name, ei, ii, *v, type_str(TypeRef(TypeRef(ann).tuple_elems()[ei]).elem())));
                     // Tuple element is itself a tuple literal.
                     if (TypeRef(ann).tuple_elems()[ei] && TypeRef(TypeRef(ann).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
                         tlit->elems[ei]->type->kind == LogosType::Kind::Tuple)
@@ -719,7 +719,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
                                 if (auto v = get_intlit_value(ial->elems[ii].get()))
                                     if (!intlit_fits(*v, TypeRef(TypeRef(var_type).tuple_elems()[i]).elem().kind()))
                                         error(std::format("assignment to '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                              name, i, ii, *v, type_str(TypeRef(TypeRef(var_type).tuple_elems()[i]).elem().raw())));
+                                              name, i, ii, *v, type_str(TypeRef(TypeRef(var_type).tuple_elems()[i]).elem())));
 
                 if (TypeRef(var_type).tuple_elems()[i] && TypeRef(TypeRef(var_type).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
                     tl->elems[i]->type->kind == LogosType::Kind::Tuple)
@@ -807,7 +807,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                                         if (auto v = get_intlit_value(ial->elems[ii].get()))
                                             if (!intlit_fits(*v, TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem().kind()))
                                                 error(std::format("return: tuple element {}: array element {}: value {} does not fit in {}",
-                                                      i, ii, *v, type_str(TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem().raw())));
+                                                      i, ii, *v, type_str(TypeRef(TypeRef(ret_type_).tuple_elems()[i]).elem())));
 
                         if (TypeRef(ret_type_).tuple_elems()[i] && TypeRef(TypeRef(ret_type_).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
                             tl->elems[i]->type->kind == LogosType::Kind::Tuple)
@@ -2393,7 +2393,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                                 if (auto v = get_intlit_value(ial->elems[ii].get()))
                                     if (!intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).elem().kind()))
                                         error(std::format("field write '{}.{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                              recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem().raw())));
+                                              recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem())));
 
                 if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
                     tl->elems[i]->type->kind == LogosType::Kind::Tuple)
@@ -2747,7 +2747,7 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
                                 if (auto v = get_intlit_value(ial->elems[ii].get()))
                                     if (!intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).elem().kind()))
                                         error(std::format("deref-field-write '(*{}).{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                              recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem().raw())));
+                                              recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem())));
 
                 if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
                     tl->elems[i]->type->kind == LogosType::Kind::Tuple)
@@ -2845,7 +2845,7 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
                                 if (auto v = get_intlit_value(ial->elems[ii].get()))
                                     if (!intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[i]).elem().kind()))
                                         error(std::format("index write to '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                              arr_name, i, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[i]).elem().raw())));
+                                              arr_name, i, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[i]).elem())));
 
                 if (TypeRef(elem_type).tuple_elems()[i] && TypeRef(TypeRef(elem_type).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
                     tl->elems[i]->type->kind == LogosType::Kind::Tuple)
@@ -3034,7 +3034,7 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
                                 if (auto v = get_intlit_value(ial->elems[ii].get()))
                                     if (!intlit_fits(*v, TypeRef(TypeRef(elem_t).tuple_elems()[i]).elem().kind()))
                                         error(std::format("field index write '{}.{}[i]': tuple element {}: array element {}: value {} does not fit in {}",
-                                              recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(elem_t).tuple_elems()[i]).elem().raw())));
+                                              recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(elem_t).tuple_elems()[i]).elem())));
 
                 if (TypeRef(elem_t).tuple_elems()[i] && TypeRef(TypeRef(elem_t).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
                     tl->elems[i]->type->kind == LogosType::Kind::Tuple)
