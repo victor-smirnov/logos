@@ -1,0 +1,10 @@
+package test;
+
+#[metaprogram_post_sema]
+fn my_hook() -> () {
+    return;
+}
+
+fn main() -> i32 {
+    return 0;
+}

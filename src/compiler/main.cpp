@@ -61,6 +61,42 @@
 #include <string>
 #include <vector>
 
+// Round-trip a stack-built LLVM module through textual IR into a fresh
+// heap-owned LLVMContext, then hand it to a new logos::jit::Jit. Returns
+// the fully initialized Jit or nullptr on failure (errors printed).
+// The round-trip is needed because LLJIT::addIRModule wants a
+// unique_ptr<LLVMContext>; sites that already own a stack context
+// can't move it. Acceptable cost for current module sizes; revisit
+// when feeding metaprog-sized programs.
+static std::unique_ptr<logos::jit::Jit>
+build_jit_from_module(const llvm::Module& src_module, const char* who) {
+    auto jit = std::make_unique<logos::jit::Jit>();
+    if (!jit->init()) {
+        std::fprintf(stderr, "%s: jit init: %s\n", who, jit->error_str().c_str());
+        return nullptr;
+    }
+    auto ctx = std::make_unique<llvm::LLVMContext>();
+    std::string ir;
+    {
+        llvm::raw_string_ostream os(ir);
+        src_module.print(os, nullptr);
+    }
+    llvm::SMDiagnostic diag;
+    auto buf = llvm::MemoryBuffer::getMemBuffer(ir);
+    auto reparsed = llvm::parseIR(*buf, diag, *ctx);
+    if (!reparsed) {
+        std::fprintf(stderr, "%s: jit reparse: %s\n", who,
+                     diag.getMessage().str().c_str());
+        return nullptr;
+    }
+    if (!jit->add_module(std::move(reparsed), std::move(ctx))) {
+        std::fprintf(stderr, "%s: jit add_module: %s\n", who,
+                     jit->error_str().c_str());
+        return nullptr;
+    }
+    return jit;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm]\n");
@@ -194,10 +230,62 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "                 - %s\n", h.c_str());
         }
 
-        // TODO Phase 4 + 7: JIT-invoke each hook against `prog`, collect
-        // emitted AST items, splice them into the source ASTs, set
-        // `any_emitted = true` if anything was added.
+        // Phase 4 slice 4: JIT-invoke each hook. Until the AST emit API
+        // lands (Phase 7) hooks are validated `fn() -> ()` no-ops; we
+        // call them to exercise the seam end-to-end. `meta_prog` is a
+        // throwaway full-pipeline copy of the current sources — we
+        // can't reuse the outer `prog` because the post-loop expects a
+        // pre-mono LProgram.
+        auto meta_prog = logos::compiler::sema_lower(asts, filenames, from_binary);
+        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
+        meta_prog = logos::compiler::mono_pass(std::move(meta_prog));
+        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        meta_prog = logos::compiler::borrow_check(std::move(meta_prog));
+        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+
+        mlir::MLIRContext meta_mlir_ctx;
+        meta_mlir_ctx.getOrLoadDialect<mlir::func::FuncDialect>();
+        meta_mlir_ctx.getOrLoadDialect<mlir::arith::ArithDialect>();
+        meta_mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
+        meta_mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
+        meta_mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+        auto meta_mlir = logos::compiler::mlir_gen(meta_mlir_ctx, meta_prog);
+        if (!meta_mlir) { std::fprintf(stderr, "logosc: metaprog MLIR gen failed\n"); return 1; }
+        mlir::PassManager meta_pm(&meta_mlir_ctx);
+        meta_pm.addPass(mlir::createSCFToControlFlowPass());
+        meta_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+        meta_pm.addPass(mlir::createArithToLLVMConversionPass());
+        meta_pm.addPass(mlir::createConvertFuncToLLVMPass());
+        meta_pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+        if (mlir::failed(meta_pm.run(*meta_mlir))) {
+            std::fprintf(stderr, "logosc: metaprog MLIR lowering failed\n"); return 1;
+        }
+        mlir::registerBuiltinDialectTranslation(meta_mlir_ctx);
+        mlir::registerLLVMDialectTranslation(meta_mlir_ctx);
+        llvm::LLVMContext meta_llvm_ctx;
+        auto meta_llvm = mlir::translateModuleToLLVMIR(*meta_mlir, meta_llvm_ctx);
+        if (!meta_llvm) { std::fprintf(stderr, "logosc: metaprog LLVM IR translate failed\n"); return 1; }
+        meta_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+        llvm::InitializeNativeTarget();
+        llvm::InitializeNativeTargetAsmPrinter();
+
+        auto meta_jit = build_jit_from_module(*meta_llvm, "logosc-metaprog");
+        if (!meta_jit) return 1;
+        report("metaprog jit");
+
         bool any_emitted = false;
+        for (const auto& hname : prog.metaprog_post_sema_hooks) {
+            auto* sym = meta_jit->lookup(hname);
+            if (!sym) {
+                std::fprintf(stderr, "logosc: metaprog hook lookup '%s': %s\n",
+                             hname.c_str(), meta_jit->error_str().c_str());
+                return 1;
+            }
+            reinterpret_cast<void (*)()>(sym)();
+            // TODO Phase 7: collect AST items the hook emitted, splice
+            // them into `asts`, set any_emitted = true.
+        }
         if (!any_emitted) break;
 
         if (iter + 1 >= kMaxMetaprogIters) {
@@ -280,40 +368,12 @@ int main(int argc, char** argv) {
 
     // ── --jit: compile and run main() in-process via ORC ──────────────
     if (jit_run) {
-        logos::jit::Jit jit;
-        if (!jit.init()) {
-            std::fprintf(stderr, "logosc: jit init: %s\n", jit.error_str().c_str());
-            return 1;
-        }
-        // Hand the module + its context to the JIT.
-        auto mod_ctx = std::make_unique<llvm::LLVMContext>();
-        // We can't move llvm_ctx (stack-allocated above), so move the module
-        // into a fresh context-owning ThreadSafeModule via clone-into-new-context.
-        // Simpler: addIRModule wants a unique_ptr<LLVMContext>, but ours is on
-        // the stack. Workaround: recreate the LLVM module in a heap context.
-        // For Phase 4 slice 3 we accept this round-trip — module is small.
-        std::string ir;
-        {
-            llvm::raw_string_ostream os(ir);
-            llvm_module->print(os, nullptr);
-        }
-        llvm::SMDiagnostic diag;
-        auto buf = llvm::MemoryBuffer::getMemBuffer(ir);
-        auto reparsed = llvm::parseIR(*buf, diag, *mod_ctx);
-        if (!reparsed) {
-            std::fprintf(stderr, "logosc: jit reparse: %s\n",
-                         diag.getMessage().str().c_str());
-            return 1;
-        }
-        if (!jit.add_module(std::move(reparsed), std::move(mod_ctx))) {
-            std::fprintf(stderr, "logosc: jit add_module: %s\n",
-                         jit.error_str().c_str());
-            return 1;
-        }
-        auto* sym = jit.lookup("main");
+        auto jit = build_jit_from_module(*llvm_module, "logosc");
+        if (!jit) return 1;
+        auto* sym = jit->lookup("main");
         if (!sym) {
             std::fprintf(stderr, "logosc: jit lookup main: %s\n",
-                         jit.error_str().c_str());
+                         jit->error_str().c_str());
             return 1;
         }
         report("jit_compile");

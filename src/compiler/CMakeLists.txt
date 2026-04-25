@@ -148,3 +148,11 @@ add_test(NAME jit_logosc_main
             ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_main.logos)
 set_tests_properties(jit_logosc_main PROPERTIES
     PASS_REGULAR_EXPRESSION "JIT_OK")
+
+# Phase 4 slice 4: drive a #[metaprogram_post_sema] hook through the
+# JIT during compilation. Hook is a no-op fn() -> (); just exercises
+# the seam end-to-end. Output goes to a temp .o file we don't keep.
+add_test(NAME jit_metaprog_hook
+    COMMAND $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_hook.logos
+            -o ${CMAKE_CURRENT_BINARY_DIR}/test_jit_hook.o)
