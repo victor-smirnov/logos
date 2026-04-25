@@ -34,7 +34,7 @@ extern fn logos_metaprog_error_at(target_offset: u32, msg: *const u8) -> ();
 pub fn error(msg: str) {
     let mut buf: String = String::new();
     buf.push_str(msg);
-    buf.push_u8(0 as u8);
+    buf.push_u8(0);
     unsafe { logos_metaprog_error(buf.as_ptr() as *const u8); }
 }
 
@@ -45,7 +45,7 @@ pub fn error(msg: str) {
 pub fn error_at(target_offset: u32, msg: str) {
     let mut buf: String = String::new();
     buf.push_str(msg);
-    buf.push_u8(0 as u8);
+    buf.push_u8(0);
     unsafe { logos_metaprog_error_at(target_offset, buf.as_ptr() as *const u8); }
 }
 
@@ -60,7 +60,7 @@ impl Emitter {
 
     pub fn emit_raw(&mut self, src: str) {
         self.buf.push_str(src);
-        self.buf.push_u8(10 as u8);
+        self.buf.push_u8(10);
     }
 
     // Begin a new chunk in package `pkg`: writes `package <pkg>; ` to
@@ -87,9 +87,181 @@ impl Emitter {
     // double-commit is harmless but wasteful — Emitter clears its
     // buffer after a successful commit.
     pub fn commit(&mut self) {
-        if self.buf.len() == (0 as i64) { return; }
-        self.buf.push_u8(0 as u8);
+        if self.buf.len() == 0 { return; }
+        self.buf.push_u8(0);
         unsafe { logos_emit_source(self.buf.as_ptr() as *const u8); }
         self.buf.clear();
+    }
+
+    // ── ergonomic shortcuts ───────────────────────────────────────────────
+    //
+    // Push raw text (str) without trailing newline — the difference from
+    // emit_raw which adds one. Useful inside tighter expressions.
+    pub fn push_text(&mut self, s: str) {
+        self.buf.push_str(s);
+    }
+
+    // Push the bytes of a StringView verbatim, hiding the unsafe push_bytes
+    // ceremony that hooks otherwise repeat per AST-name reference.
+    pub fn push_view(&mut self, v: StringView) {
+        unsafe { self.buf.push_bytes(v.ptr, v.len as i64); }
+    }
+
+    // Push a u64 in decimal — direct shortcut over self.buf.push_u64.
+    pub fn push_num(&mut self, n: u64) {
+        self.buf.push_u64(n);
+    }
+
+    // ── string-template substitution ──────────────────────────────────────
+    //
+    // tpl1/tpl2/tpl3 scan `template` and replace `$<ident>` occurrences
+    // whose ident matches one of the supplied keys with the corresponding
+    // value bytes. Rules:
+    //   * `$$`     → literal `$`
+    //   * `$ident` known   → value bytes spliced
+    //   * `$ident` unknown → left as-is (`$ident` literal)
+    //   * `$<non-ident>`   → literal `$` then continue
+    //
+    // ident chars: [A-Za-z_][A-Za-z0-9_]*. Values are StringView so they can
+    // come from AST nodes directly (`view.ast_node_name(item)`); use
+    // view_of_str() to bind a literal str.
+    pub fn tpl1(&mut self, template: str, k1: str, v1: StringView) {
+        unsafe {
+            tpl_render_into(&mut self.buf, template,
+                k1, v1,
+                str_empty(), view_empty(),
+                str_empty(), view_empty());
+        }
+    }
+
+    pub fn tpl2(&mut self, template: str,
+                k1: str, v1: StringView,
+                k2: str, v2: StringView) {
+        unsafe {
+            tpl_render_into(&mut self.buf, template,
+                k1, v1,
+                k2, v2,
+                str_empty(), view_empty());
+        }
+    }
+
+    pub fn tpl3(&mut self, template: str,
+                k1: str, v1: StringView,
+                k2: str, v2: StringView,
+                k3: str, v3: StringView) {
+        unsafe {
+            tpl_render_into(&mut self.buf, template,
+                k1, v1,
+                k2, v2,
+                k3, v3);
+        }
+    }
+}
+
+// Wrap a str as a StringView for use as a tpl* binding value.
+pub fn view_of_str(s: str) -> StringView {
+    return StringView { ptr: s.as_ptr(), len: s.len() as u64 };
+}
+
+// Wrap a String as a StringView (borrows the string's buffer; valid only
+// while the source String is alive and unmodified).
+pub fn view_of_string(s: &String) -> StringView {
+    return StringView { ptr: s.as_ptr(), len: s.len() as u64 };
+}
+
+fn view_empty() -> StringView {
+    return StringView { ptr: 0 as *const u8, len: 0 };
+}
+
+fn str_empty() -> str {
+    return "";
+}
+
+unsafe fn bytes_eq(a: *const u8, b: *const u8, n: i64) -> bool {
+    let mut i: i64 = 0;
+    while i < n {
+        let ca: u8 = *((a as i64 + i) as *const u8);
+        let cb: u8 = *((b as i64 + i) as *const u8);
+        if ca != cb { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn is_ident_start(c: u8) -> bool {
+    if c >= 65u8 && c <= 90u8 { return true; }    // A..Z
+    if c >= 97u8 && c <= 122u8 { return true; }   // a..z
+    if c == 95u8 { return true; }                  // _
+    return false;
+}
+
+fn is_ident_cont(c: u8) -> bool {
+    if is_ident_start(c) { return true; }
+    if c >= 48u8 && c <= 57u8 { return true; }    // 0..9
+    return false;
+}
+
+unsafe fn match_key(p: *const u8, n: i64, k: str, v: StringView,
+                    out_buf: &mut String) -> bool {
+    let kn: i64 = k.len();
+    if kn != n { return false; }
+    if kn == 0 { return false; }
+    if !bytes_eq(p, k.as_ptr(), n) { return false; }
+    out_buf.push_bytes(v.ptr, v.len as i64);
+    return true;
+}
+
+// Internal: render `template` into `out`, substituting up to three
+// (key, value) bindings. Empty keys (k.len() == 0) are skipped.
+unsafe fn tpl_render_into(out: &mut String, template: str,
+                          k1: str, v1: StringView,
+                          k2: str, v2: StringView,
+                          k3: str, v3: StringView) {
+    let p: *const u8 = template.as_ptr();
+    let len: i64 = template.len();
+    let dollar: u8 = 36u8;   // '$'
+    let mut i: i64 = 0;
+    while i < len {
+        let c: u8 = *((p as i64 + i) as *const u8);
+        if c != dollar {
+            out.push_u8(c);
+            i = i + 1;
+            continue;
+        }
+        // c == '$'
+        if i + 1 >= len {
+            out.push_u8(dollar);
+            i = i + 1;
+            continue;
+        }
+        let c2: u8 = *((p as i64 + i + 1) as *const u8);
+        if c2 == dollar {
+            out.push_u8(dollar);
+            i = i + 2;
+            continue;
+        }
+        if !is_ident_start(c2) {
+            out.push_u8(dollar);
+            i = i + 1;
+            continue;
+        }
+        // collect ident [i+1, j)
+        let mut j: i64 = i + 1;
+        while j < len {
+            let cj: u8 = *((p as i64 + j) as *const u8);
+            if !is_ident_cont(cj) { break; }
+            j = j + 1;
+        }
+        let id_ptr: *const u8 = (p as i64 + i + 1) as *const u8;
+        let id_len: i64 = j - (i + 1);
+        let matched: bool =
+            match_key(id_ptr, id_len, k1, v1, out) ||
+            match_key(id_ptr, id_len, k2, v2, out) ||
+            match_key(id_ptr, id_len, k3, v3, out);
+        if !matched {
+            out.push_u8(dollar);
+            out.push_bytes(id_ptr, id_len);
+        }
+        i = j;
     }
 }
