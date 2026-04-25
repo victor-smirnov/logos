@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // std.compiler.metaprog — typed Emitter over logos_emit_source.
 //
-// Each `emit_*` builds a complete Logos compilation unit (one
-// `package <name>; ...` chunk) into the internal buffer and flushes
-// it via `logos_emit_source`. Multiple emits per hook are fine — the
-// runtime parser wants exactly one `package` statement per chunk, so
-// each item gets its own flush.
+// An Emitter buffers a single Logos compilation unit (one `package
+// <name>; ...` chunk) in `self.buf` and flushes it via `commit()`,
+// which calls into the host's `logos_emit_source`. Multiple emits
+// per hook are fine — the runtime parser wants exactly one `package`
+// statement per chunk, so each item gets its own flush.
 //
 //   let mut em: Emitter = Emitter::new();
-//   em.emit_fn_i64("gen", "debug_Point_field_count", "2");
-//   em.emit_fn_i64_named("gen", "debug_", name, "_field_count", 2);
+//   em.emit_target_pkg(&view);              // package <user-pkg>;
+//   em.emit_raw("use std.fmt;");
+//   em.buf.push_str("pub fn marker_");      // arbitrary text
+//   unsafe { em.buf.push_bytes(p, n); }
+//   em.buf.push_str("() -> i32 { return 1; }");
+//   em.commit();
 
 package std.compiler.metaprog;
 
@@ -76,45 +80,6 @@ impl Emitter {
         self.buf.push_str("package ");
         view.module_package_append(&mut self.buf);
         self.buf.push_str("; ");
-    }
-
-    pub fn emit_view(&mut self, src: StringView) {
-        unsafe { self.buf.push_bytes(src.ptr, src.len as i64); }
-        self.buf.push_u8(10 as u8);
-    }
-
-    // package <pkg>; pub fn <name>() -> i64 { return <body>; }
-    // <body> is a literal expression (caller supplies digits / ident).
-    pub fn emit_fn_i64(&mut self, pkg: str, name: str, body: str) {
-        self.buf.push_str("package ");
-        self.buf.push_str(pkg);
-        self.buf.push_str("; pub fn ");
-        self.buf.push_str(name);
-        self.buf.push_str("() -> i64 { return ");
-        self.buf.push_str(body);
-        self.buf.push_str("; }");
-        self.commit();
-    }
-
-    // Same, but the function name is built from a static prefix + a
-    // StringView (e.g. an AST identifier read out of HermesView) +
-    // a static suffix. Saves the caller a manual push_bytes.
-    pub fn emit_fn_i64_named(&mut self,
-                             pkg: str,
-                             name_prefix: str,
-                             name_view: StringView,
-                             name_suffix: str,
-                             body_u64: u64) {
-        self.buf.push_str("package ");
-        self.buf.push_str(pkg);
-        self.buf.push_str("; pub fn ");
-        self.buf.push_str(name_prefix);
-        unsafe { self.buf.push_bytes(name_view.ptr, name_view.len as i64); }
-        self.buf.push_str(name_suffix);
-        self.buf.push_str("() -> i64 { return ");
-        self.buf.push_u64(body_u64);
-        self.buf.push_str("; }");
-        self.commit();
     }
 
     // Flush buffered source to the host compiler. Idempotent in the

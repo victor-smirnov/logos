@@ -1,7 +1,11 @@
 # ADR 0001 — Metaprog Phase 7: Hook Loop, AST Ownership, Source-Splice Seam
 
-Status: Accepted (commits 3620659, 9684ad2, ead1df6, 09adaf4 on `compiler-refactoring1`).
-Date: 2026-04-25.
+Status: Partially superseded by ADR 0002 (target-driven `#[metaprog_handler]`
++ pre-sema execution). Sections 1, 2, 3 (with revised termination), 5, 6
+remain authoritative; section 4 (snapshot semantics) and references to
+`#[metaprogram_post_sema]` are obsolete — see 0002.
+
+Original date: 2026-04-25 (commits 3620659, 9684ad2, ead1df6, 09adaf4).
 
 Retrospective notes for design choices made while landing the first
 end-to-end Logos metaprograms (`#[metaprogram_post_sema]`).
