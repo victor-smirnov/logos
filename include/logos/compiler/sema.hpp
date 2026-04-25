@@ -226,11 +226,16 @@ public:
     std::string_view assoc_type_name() const noexcept { return str_from_mirror(sema_schema::ASSOC_TYPE_NAME); }
     std::string_view arr_size_var()    const noexcept { return str_from_mirror(sema_schema::ARR_SIZE_VAR);    }
 
-    const std::vector<const LogosType*>& type_args()      const noexcept { return p_->type_args; }
-    const std::vector<const LogosType*>& tuple_elems()    const noexcept { return p_->tuple_elems; }
-    const std::vector<const LogosType*>& closure_params() const noexcept { return p_->closure_params; }
-    const std::vector<const LogosType*>& gat_args()       const noexcept { return p_->gat_args; }
-    const std::vector<std::string>&      lifetime_args()  const noexcept { return p_->lifetime_args; }
+    // 2c.4e.3.0: vector accessors read the mirror's ObjectArray and return
+    // by value. Callers using range-for, .size(), .empty(), op[] keep working
+    // unchanged (rvalue lifetime-extends through full expression / range-for).
+    // Out-of-line definitions live in sema.cpp (TypePoolImpl::mirror_inverse_
+    // is needed to translate offsets back to LogosType*).
+    std::vector<const LogosType*> type_args()      const noexcept;
+    std::vector<const LogosType*> tuple_elems()    const noexcept;
+    std::vector<const LogosType*> closure_params() const noexcept;
+    std::vector<const LogosType*> gat_args()       const noexcept;
+    std::vector<std::string>      lifetime_args()  const noexcept;
 
     // 2c.4e.1: const_val read from mirror. Returns by value — struct-ref
     // return is gone now that the mirror is authoritative.
