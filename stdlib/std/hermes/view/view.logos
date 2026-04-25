@@ -208,6 +208,24 @@ pub trait HermesRead {
         }
     }
 
+    // Look up a u8 key in a TinyObjectMap (the AST/Hermes-schema flavour
+    // of map). Companion to `map_get` for the ObjectMap case: hooks that
+    // walk Hermes documents shouldn't have to drop to raw
+    // `*const Map<Bitmap, AnyVal>` casts. Returns null_ptr if `val` is
+    // not a map, or if it is an ObjectMap rather than a TinyObjectMap.
+    fn tiny_map_get(self: &Self, val: AnyVal, key: u8) -> AnyVal {
+        unsafe {
+            let base: *const u8 = self.base();
+            if !val.is_map(base) { return AnyVal::null_ptr(); }
+            let obj: *const u8 = (base as i64 + val.as_offset() as i64) as *const u8;
+            let tag_hash: u64 = read_type_code(obj);
+            if tag_hash != hermes_tag_tiny_map() { return AnyVal::null_ptr(); }
+            let tom: *const Map<Bitmap, AnyVal> =
+                obj as *const Map<Bitmap, AnyVal>;
+            return tom.get(base, key);
+        }
+    }
+
     // DecimalView for a zone Decimal AnyVal.
     fn decimal_view(self: &Self, val: AnyVal) -> DecimalView {
         unsafe { return DecimalView::from_anyval(self.base(), val); }

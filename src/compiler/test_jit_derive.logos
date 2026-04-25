@@ -38,11 +38,7 @@ fn derive_debug_hook() -> () {
         if root.is_null()  { return; }
     }
 
-    let root_off: u32 = unsafe { root.as_offset() };
-    let root_obj: *const Map<Bitmap, AnyVal> =
-        ((base as i64) + (root_off as i64)) as *const Map<Bitmap, AnyVal>;
-
-    let items: AnyVal = unsafe { root_obj.get(base, 2 as u8) };
+    let items: AnyVal = view.tiny_map_get(root, 2 as u8);
     let n: u64 = view.array_len(items);
 
     let cat_ast_struct: u64 = ((1 as u64) << 48) | (50 as u64);
@@ -62,11 +58,11 @@ fn derive_debug_hook() -> () {
         let stc: u64 = unsafe { it_obj.schema_type_code };
         if stc != cat_ast_struct { continue; }
 
-        let name_val: AnyVal = unsafe { it_obj.get(base, 1 as u8) };
+        let name_val: AnyVal = view.tiny_map_get(it, 1 as u8);
         let name: StringView = view.get_str_view(name_val);
         if name.len == (0 as u64) { continue; }
 
-        let fields_val: AnyVal = unsafe { it_obj.get(base, 22 as u8) };
+        let fields_val: AnyVal = view.tiny_map_get(it, 22 as u8);
         let nf: u64 = view.array_len(fields_val);
         if nf == (0 as u64) { continue; }
 

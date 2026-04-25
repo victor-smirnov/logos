@@ -32,11 +32,7 @@ fn my_hook() -> () {
         if root.is_null()  { return; }
     }
 
-    let root_off: u32 = unsafe { root.as_offset() };
-    let root_obj: *const Map<Bitmap, AnyVal> =
-        ((base as i64) + (root_off as i64)) as *const Map<Bitmap, AnyVal>;
-
-    let items: AnyVal = unsafe { root_obj.get(base, 2 as u8) };
+    let items: AnyVal = view.tiny_map_get(root, 2 as u8);
     let n: u64 = view.array_len(items);
 
     let cat_ast_fn: u64 = ((1 as u64) << 48) | (10 as u64);
