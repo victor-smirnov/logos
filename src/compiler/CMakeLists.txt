@@ -149,10 +149,14 @@ add_test(NAME jit_logosc_main
 set_tests_properties(jit_logosc_main PROPERTIES
     PASS_REGULAR_EXPRESSION "JIT_OK")
 
-# Phase 4 slice 4: drive a #[metaprogram_post_sema] hook through the
-# JIT during compilation. Hook is a no-op fn() -> (); just exercises
-# the seam end-to-end. Output goes to a temp .o file we don't keep.
+# Phase 4 slice 4 + Phase 7 slice 1: drive a #[metaprogram_post_sema]
+# hook through the JIT during compilation. Hook calls the host emit
+# marker; host dedup converges the loop after iter 1. Trace output
+# must contain "metaprog iter 1" — proves the seam fired, the loop
+# re-ran sema, and convergence kicked in.
 add_test(NAME jit_metaprog_hook
-    COMMAND $<TARGET_FILE:logosc>
+    COMMAND sh -c "LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -o \"$3\" 2>&1 | tee /dev/stderr | grep -q 'metaprog iter 1'"
+            sh
+            $<TARGET_FILE:logosc>
             ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_hook.logos
-            -o ${CMAKE_CURRENT_BINARY_DIR}/test_jit_hook.o)
+            ${CMAKE_CURRENT_BINARY_DIR}/test_jit_hook.o)

@@ -58,8 +58,30 @@
 #include <logos/jit/jit.hpp>
 
 #include <cstdio>
+#include <set>
 #include <string>
 #include <vector>
+
+// Phase 7 slice 1: minimal AST-emit seam for metaprog hooks.
+//
+// `logos_emit_marker(tag)` is host-resolved at JIT bind time. Hooks call
+// it to request another iteration of the metaprog loop. Host-side dedup
+// by tag means a naive hook that calls emit unconditionally still
+// converges in 2 iters: iter 0 inserts and flags any_emitted; iter 1
+// hits the existing entry and the loop breaks.
+//
+// Real AST mutation lands in a follow-up slice — this commit just
+// proves the bind/dedup/converge plumbing end-to-end.
+namespace {
+std::set<std::string>* g_emit_seen   = nullptr;
+bool*                  g_any_emitted = nullptr;
+}
+extern "C" int32_t logos_emit_marker(const char* tag) {
+    if (!g_emit_seen || !g_any_emitted || !tag) return 0;
+    auto [_, inserted] = g_emit_seen->emplace(tag);
+    if (inserted) *g_any_emitted = true;
+    return inserted ? 1 : 0;
+}
 
 // Round-trip a stack-built LLVM module through textual IR into a fresh
 // heap-owned LLVMContext, then hand it to a new logos::jit::Jit. Returns
@@ -214,6 +236,8 @@ int main(int argc, char** argv) {
     // the body of this loop fills in.  `kMaxMetaprogIters` is a safety cap
     // against pathological recursive emission.
     constexpr int kMaxMetaprogIters = 16;
+    std::set<std::string> emit_seen;
+    g_emit_seen = &emit_seen;
     logos::compiler::lir::LProgram prog;
     for (int iter = 0; ; ++iter) {
         prog = logos::compiler::sema_lower(asts, filenames, from_binary);
@@ -275,6 +299,13 @@ int main(int argc, char** argv) {
         report("metaprog jit");
 
         bool any_emitted = false;
+        g_any_emitted = &any_emitted;
+        if (!meta_jit->define_symbol("logos_emit_marker",
+                                     reinterpret_cast<void*>(&logos_emit_marker))) {
+            std::fprintf(stderr, "logosc: bind logos_emit_marker: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
         for (const auto& hname : prog.metaprog_post_sema_hooks) {
             auto* sym = meta_jit->lookup(hname);
             if (!sym) {

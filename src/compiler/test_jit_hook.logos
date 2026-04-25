@@ -1,7 +1,15 @@
 package test;
 
+// Phase 7 slice 1: hook calls a host-resolved emit symbol. Host
+// dedups by tag, so a naive "always-emit" hook converges in 2 iters
+// (iter 0: marker inserted → any_emitted=true; iter 1: already
+// present → loop breaks).
+extern fn logos_emit_marker(tag: *const u8) -> i32;
+
 #[metaprogram_post_sema]
 fn my_hook() -> () {
+    let tag: str = "marker";
+    unsafe { logos_emit_marker(tag.as_ptr() as *const u8); }
     return;
 }
 
