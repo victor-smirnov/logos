@@ -16,6 +16,7 @@
 #include <logos/compiler/mono.hpp>
 
 #include <logos/hermes/document.hpp>
+#include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/type_ops.hpp>
 
 // MLIR
@@ -108,6 +109,39 @@ extern "C" void logos_get_module_ast(const uint8_t** out_base,
     auto* h = (*g_asts)[g_user_root_idx].holder();
     *out_base = h->base();
     *out_size = static_cast<uint64_t>(h->arena().head().used);
+}
+
+// Phase 7 slice 7: owning-view bindings.
+//
+// `logos_get_module_ast_oview` is the OView ctor's host-side: it fills
+// (holder, base, size) from the user's entry-file document and bumps
+// the holder's refcount by one. The Logos OView takes ownership of
+// that ref and releases it via Drop -> logos_holder_release.
+//
+// The C++ MemHolder layout (atomic ref + Arena) does not match the
+// stdlib `std.hermes.mem_holder.MemHolder` POD, so OView treats the
+// holder as opaque (`*mut u8`) and only ever passes it back to host
+// fns — base/size are cached in OView itself at ctor time.
+extern "C" void logos_get_module_ast_oview(void**           out_holder,
+                                           const uint8_t**  out_base,
+                                           uint64_t*        out_size) {
+    if (!g_asts || g_asts->size() <= g_user_root_idx
+        || !out_holder || !out_base || !out_size) {
+        if (out_holder) *out_holder = nullptr;
+        if (out_base)   *out_base   = nullptr;
+        if (out_size)   *out_size   = 0;
+        return;
+    }
+    auto* h = (*g_asts)[g_user_root_idx].holder();
+    h->ref();
+    *out_holder = h;
+    *out_base   = h->base();
+    *out_size   = static_cast<uint64_t>(h->arena().head().used);
+}
+
+extern "C" void logos_holder_release(void* h) {
+    if (!h) return;
+    static_cast<logos::hermes::MemHolder*>(h)->unref();
 }
 
 extern "C" int32_t logos_emit_source(const char* src) {
@@ -375,6 +409,18 @@ int main(int argc, char** argv) {
         if (!meta_jit->define_symbol("logos_get_module_ast",
                                      reinterpret_cast<void*>(&logos_get_module_ast))) {
             std::fprintf(stderr, "logosc: bind logos_get_module_ast: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_get_module_ast_oview",
+                                     reinterpret_cast<void*>(&logos_get_module_ast_oview))) {
+            std::fprintf(stderr, "logosc: bind logos_get_module_ast_oview: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
+        if (!meta_jit->define_symbol("logos_holder_release",
+                                     reinterpret_cast<void*>(&logos_holder_release))) {
+            std::fprintf(stderr, "logosc: bind logos_holder_release: %s\n",
                          meta_jit->error_str().c_str());
             return 1;
         }

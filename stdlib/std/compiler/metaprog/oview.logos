@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: Apache-2.0
+// std.compiler.metaprog — owning view over the user's AST document.
+//
+// OView (Owning View) is the proper API for metaprog hooks that
+// need to navigate the host's Hermes document. Where HermesView<'a>
+// is a non-owning fat-borrow tied to the hook frame, OView holds
+// a retained reference to the host's MemHolder and releases it on
+// Drop. Hooks that stash AST AnyVals across iterations / save them
+// into module-level state want OView, not HermesView.
+//
+// The host (logosc) layout of MemHolder differs from the
+// `std.hermes.mem_holder.MemHolder` POD because the C++ side uses
+// std::atomic<int32_t>+Arena. We hide that difference behind two
+// extern host functions and treat the holder pointer as opaque.
+
+package std.compiler.metaprog;
+
+// HermesRead's default methods touch AnyVal/StringView/DecimalView/etc.;
+// impl'ing it for OView instantiates those defaults, so we need the
+// same module surface as `std.hermes.view` itself imports.
+use std.hermes.view;
+use std.hermes.anyval;
+use std.hermes.string;
+use std.hermes.scalar;
+use std.hermes.objectmap;
+use std.hermes.array;
+use std.hermes.map;
+use std.hermes.typed_value;
+use std.hermes.relptr;
+use std.hermes.decimal;
+use std.hermes.datatag;
+use std.hermes.typetag;
+use std.hermes.stringify;
+use std.hermes.document;
+use std.lang.text;
+
+// ── Host runtime hooks ─────────────────────────────────────────────────────
+//
+// `logos_get_module_ast_oview` fills (holder, base, size) from the
+// user's entry-file document and bumps the holder's RC by one;
+// the OView ctor takes ownership of that increment.
+//
+// `logos_holder_release` decrements RC and tears down the doc when
+// the count hits zero.
+
+extern fn logos_get_module_ast_oview(out_holder: *mut *mut u8,
+                                     out_base:   *mut *const u8,
+                                     out_size:   *mut u64) -> ();
+
+extern fn logos_holder_release(holder: *mut u8) -> ();
+
+// ── OView ─────────────────────────────────────────────────────────────────
+
+pub struct OView {
+    pub holder: *mut u8,
+    pub base:   *const u8,
+    pub size:   u64,
+}
+
+// Acquire a retained view of the user's AST root. Returns an OView
+// whose `holder` field is null when no document is loaded — callers
+// should branch on that before using `base`.
+pub fn oview_module_ast() -> OView {
+    let mut holder: *mut u8   = 0 as *mut u8;
+    let mut base:   *const u8 = 0 as *const u8;
+    let mut size:   u64       = 0;
+    unsafe {
+        logos_get_module_ast_oview(&mut holder as *mut *mut u8,
+                                   &mut base   as *mut *const u8,
+                                   &mut size   as *mut u64);
+    }
+    return OView { holder: holder, base: base, size: size };
+}
+
+impl Drop for OView {
+    fn drop(self: OView) {
+        if self.holder != (0 as *mut u8) {
+            unsafe { logos_holder_release(self.holder); }
+        }
+    }
+}
+
+impl HermesRead for OView {
+    fn base(self: &OView) -> *const u8 { return self.base; }
+    fn size(self: &OView) -> u64       { return self.size; }
+}

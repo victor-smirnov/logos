@@ -16,22 +16,16 @@ use std.hermes.anyval;
 use std.hermes.map;
 use std.lang.text;
 use std.fmt;
+use std.compiler.metaprog;
 
 extern fn logos_emit_source(src: *const u8) -> i32;
-extern fn logos_get_module_ast(out_base: *mut *const u8,
-                               out_size: *mut u64) -> ();
 
 #[metaprogram_post_sema]
 fn my_hook() -> () {
-    let mut base: *const u8 = 0 as *const u8;
-    let mut size: u64 = 0;
-    unsafe {
-        logos_get_module_ast(&mut base as *mut *const u8,
-                             &mut size as *mut u64);
-    }
-    if base == 0 as *const u8 { return; }
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
 
-    let view: HermesView = HermesView { base: base, size: size };
+    let base: *const u8 = view.base;
     let root: AnyVal = view.root();
     unsafe {
         if !root.is_ptr() { return; }
