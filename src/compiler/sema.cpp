@@ -1327,19 +1327,19 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
 
 // ── Sema-side type substitution ──────────────────────────────────────────────
 
-const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubst& s,
+const LogosType* SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                                                const SemaLifetimeSubst& ls) {
-    if (!t) return t;
-    switch (TypeRef(t).kind()) {
+    if (!t) return t.raw();
+    switch (t.kind()) {
     case LogosType::Kind::ConstVar:
     case LogosType::Kind::TypeVar: {
-        auto it = s.find(std::string(TypeRef(t).type_var_name()));
-        return (it != s.end()) ? it->second : t;
+        auto it = s.find(std::string(t.type_var_name()));
+        return (it != s.end()) ? it->second : t.raw();
     }
     case LogosType::Kind::Array: {
-        auto* elem = subst_type_sema(TypeRef(t).elem().raw(), s, ls);
-        uint64_t size = TypeRef(t).arr_size();
-        std::string symbolic{TypeRef(t).arr_size_var()};
+        auto* elem = subst_type_sema(t.elem(), s, ls);
+        uint64_t size = t.arr_size();
+        std::string symbolic{t.arr_size_var()};
         if (!symbolic.empty()) {
             auto it = s.find(symbolic);
             if (it != s.end()) {
@@ -1352,68 +1352,68 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
                 }
             }
         }
-        if (elem == TypeRef(t).elem() && size == TypeRef(t).arr_size() && symbolic == TypeRef(t).arr_size_var()) return t;
+        if (elem == t.elem() && size == t.arr_size() && symbolic == t.arr_size_var()) return t.raw();
         return make_array(elem, size, symbolic);
     }
     case LogosType::Kind::Ptr: {
-        auto* inner = subst_type_sema(TypeRef(t).pointee().raw(), s, ls);
-        if (inner == TypeRef(t).pointee()) return t;
-        return make_ptr(TypeRef(t).mut_ptr(), inner);
+        auto* inner = subst_type_sema(t.pointee(), s, ls);
+        if (inner == t.pointee()) return t.raw();
+        return make_ptr(t.mut_ptr(), inner);
     }
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef: {
-        auto* inner = subst_type_sema(TypeRef(t).pointee().raw(), s, ls);
-        std::string lt{TypeRef(t).lifetime()};
+        auto* inner = subst_type_sema(t.pointee(), s, ls);
+        std::string lt{t.lifetime()};
         if (!lt.empty()) { auto it = ls.find(lt); if (it != ls.end()) lt = it->second; }
-        if (inner == TypeRef(t).pointee() && lt == TypeRef(t).lifetime()) return t;
-        return make_ref(TypeRef(t).kind() == LogosType::Kind::MutRef, inner, lt);
+        if (inner == t.pointee() && lt == t.lifetime()) return t.raw();
+        return make_ref(t.kind() == LogosType::Kind::MutRef, inner, lt);
     }
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct: {
-        if (TypeRef(t).type_args().empty() && TypeRef(t).lifetime_args().empty()) return t;
+        if (t.type_args().empty() && t.lifetime_args().empty()) return t.raw();
         std::vector<const LogosType*> new_args;
         bool changed = false;
-        for (auto* a : TypeRef(t).type_args()) {
+        for (auto* a : t.type_args()) {
             auto* na = subst_type_sema(a, s, ls);
             changed |= (na != a);
             new_args.push_back(na);
         }
         std::vector<std::string> new_lt_args;
         bool lt_changed = false;
-        for (auto& lt : TypeRef(t).lifetime_args()) {
+        for (auto& lt : t.lifetime_args()) {
             auto it = ls.find(lt);
             if (it != ls.end()) { new_lt_args.push_back(it->second); lt_changed = true; }
             else                  new_lt_args.push_back(lt);
         }
-        if (!changed && !lt_changed) return t;
+        if (!changed && !lt_changed) return t.raw();
         LogosType nt;
-        nt.kind = t->kind;
-        nt.struct_name = TypeRef(t).struct_name();
-        nt.pkg_name = TypeRef(t).pkg_name();  // preserve package qualification after substitution
+        nt.kind = t.kind();
+        nt.struct_name = t.struct_name();
+        nt.pkg_name = t.pkg_name();  // preserve package qualification after substitution
         nt.type_args = std::move(new_args);
         nt.lifetime_args = std::move(new_lt_args);
         return pool_.alloc(std::move(nt));
     }
     case LogosType::Kind::Enum: {
-        if (TypeRef(t).type_args().empty() && TypeRef(t).lifetime_args().empty()) return t;
+        if (t.type_args().empty() && t.lifetime_args().empty()) return t.raw();
         std::vector<const LogosType*> new_args;
         bool changed = false;
-        for (auto* a : TypeRef(t).type_args()) {
+        for (auto* a : t.type_args()) {
             auto* na = subst_type_sema(a, s, ls);
             changed |= (na != a);
             new_args.push_back(na);
         }
         std::vector<std::string> new_lt_args;
         bool lt_changed = false;
-        for (auto& lt : TypeRef(t).lifetime_args()) {
+        for (auto& lt : t.lifetime_args()) {
             auto it = ls.find(lt);
             if (it != ls.end()) { new_lt_args.push_back(it->second); lt_changed = true; }
             else                  new_lt_args.push_back(lt);
         }
-        if (!changed && !lt_changed) return t;
+        if (!changed && !lt_changed) return t.raw();
         LogosType nt;
         nt.kind = LogosType::Kind::Enum;
-        nt.enum_name = TypeRef(t).enum_name();
+        nt.enum_name = t.enum_name();
         nt.type_args = std::move(new_args);
         nt.lifetime_args = std::move(new_lt_args);
         return pool_.alloc(std::move(nt));
@@ -1421,41 +1421,41 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
     case LogosType::Kind::Tuple: {
         std::vector<const LogosType*> new_elems;
         bool changed = false;
-        for (auto* e : TypeRef(t).tuple_elems()) {
+        for (auto* e : t.tuple_elems()) {
             auto* ne = subst_type_sema(e, s, ls);
             changed |= (ne != e);
             new_elems.push_back(ne);
         }
-        if (!changed) return t;
+        if (!changed) return t.raw();
         return make_tuple_type(std::move(new_elems));
     }
     case LogosType::Kind::Slice: {
-        auto* elem = subst_type_sema(TypeRef(t).elem().raw(), s, ls);
-        if (elem == TypeRef(t).elem()) return t;
+        auto* elem = subst_type_sema(t.elem(), s, ls);
+        if (elem == t.elem()) return t.raw();
         return make_slice_type(elem);
     }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnPtr: {
         std::vector<const LogosType*> new_params;
         bool changed = false;
-        for (auto* p : TypeRef(t).closure_params()) {
+        for (auto* p : t.closure_params()) {
             auto* np = subst_type_sema(p, s, ls);
             changed |= (np != p);
             new_params.push_back(np);
         }
-        auto* new_ret = subst_type_sema(TypeRef(t).closure_ret().raw(), s, ls);
-        changed |= (new_ret != TypeRef(t).closure_ret());
-        if (!changed) return t;
+        auto* new_ret = subst_type_sema(t.closure_ret(), s, ls);
+        changed |= (new_ret != t.closure_ret());
+        if (!changed) return t.raw();
 
         LogosType nt;
-        nt.kind = t->kind;  // preserve Closure vs FnPtr
+        nt.kind = t.kind();  // preserve Closure vs FnPtr
         nt.closure_params = std::move(new_params);
         nt.closure_ret = new_ret;
         return pool_.alloc(std::move(nt));
     }
     case LogosType::Kind::AssocType: {
         // Substitute the base type first.
-        auto* subbed_base = subst_type_sema(TypeRef(t).assoc_base().raw(), s, ls);
+        auto* subbed_base = subst_type_sema(t.assoc_base(), s, ls);
         
         // Try resolving: if base is substituted to a concrete type, look up impl.
         const LogosType* concrete = nullptr;
@@ -1480,7 +1480,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
         // Substitute gat_args as well
         std::vector<const LogosType*> subbed_gat_args;
         bool gat_changed = false;
-        for (auto* ga : TypeRef(t).gat_args()) {
+        for (auto* ga : t.gat_args()) {
             auto* nga = subst_type_sema(ga, s, ls);
             gat_changed |= (nga != ga);
             subbed_gat_args.push_back(nga);
@@ -1501,7 +1501,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
             };
 
             // 1. Direct lookup (non-generic impls: key stored under concrete name).
-            std::string key = std::string(TypeRef(t).trait_name()) + "::" + concrete_name + "::" + std::string(TypeRef(t).assoc_type_name());
+            std::string key = std::string(t.trait_name()) + "::" + concrete_name + "::" + std::string(t.assoc_type_name());
             auto ait = assoc_type_impls_.find(key);
             if (ait != assoc_type_impls_.end()) {
                 return subst_type_sema(ait->second.type, make_subst(ait->second));
@@ -1510,8 +1510,8 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
             std::string base_name = (TypeRef(concrete).kind() == LogosType::Kind::Struct)
                                     ? std::string(TypeRef(concrete).struct_name()) : "";
             if (!base_name.empty() && base_name != concrete_name) {
-                std::string base_key = std::string(TypeRef(t).trait_name()) + "::" + base_name
-                                      + "::" + std::string(TypeRef(t).assoc_type_name());
+                std::string base_key = std::string(t.trait_name()) + "::" + base_name
+                                      + "::" + std::string(t.assoc_type_name());
                 auto ait2 = assoc_type_impls_.find(base_key);
                 if (ait2 != assoc_type_impls_.end())
                     return subst_type_sema(ait2->second.type, make_subst(ait2->second));
@@ -1519,7 +1519,7 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
             // 3. Blanket-impl fallback: `impl<T: Bound> Trait for T` provides
             // `type Assoc = …`.  Use it when `concrete` satisfies Bound.
             for (auto& bi : blanket_impls_) {
-                if (bi.trait_name != TypeRef(t).trait_name()) continue;
+                if (bi.trait_name != t.trait_name()) continue;
                 // Concrete type must implement the blanket's bound trait.
                 auto bkey = bi.bound_trait + "::" + concrete_name;
                 bool satisfied = impls_.count(bkey) > 0;
@@ -1528,10 +1528,10 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
                     satisfied = impls_.count(bkey2) > 0;
                 }
                 if (!satisfied) continue;
-                std::string blanket_key = std::string(TypeRef(t).trait_name()) + "::$blanket$"
-                    + std::string(TypeRef(t).trait_name()) + "$" + bi.bound_trait
+                std::string blanket_key = std::string(t.trait_name()) + "::$blanket$"
+                    + std::string(t.trait_name()) + "$" + bi.bound_trait
                     + "$" + bi.target_typevar
-                    + "::" + std::string(TypeRef(t).assoc_type_name());
+                    + "::" + std::string(t.assoc_type_name());
                 auto bait = assoc_type_impls_.find(blanket_key);
                 if (bait == assoc_type_impls_.end()) continue;
                 // Substitute the blanket's target typevar → concrete.
@@ -1540,15 +1540,15 @@ const LogosType* SemaChecker::subst_type_sema(const LogosType* t, const SemaSubs
                 return subst_type_sema(bait->second.type, bsubst);
             }
         }
-        if (subbed_base != TypeRef(t).assoc_base() || gat_changed) {
-            LogosType nt = *t;
+        if (subbed_base != t.assoc_base() || gat_changed) {
+            LogosType nt = *t.raw();
             nt.assoc_base = subbed_base;
             nt.gat_args   = std::move(subbed_gat_args);
             return pool_.alloc(std::move(nt));
         }
-        return t;
+        return t.raw();
     }
-    default: return t;
+    default: return t.raw();
     }
 }
 

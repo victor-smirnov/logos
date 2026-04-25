@@ -736,7 +736,7 @@ private:
 
     using SemaSubst = logos::compiler::StrMap<const LogosType*>;
 
-    const LogosType* subst_type_sema(const LogosType* t, const SemaSubst& s,
+    const LogosType* subst_type_sema(TypeRef t, const SemaSubst& s,
                                       const SemaLifetimeSubst& ls = {});
 
     // ── Compatibility ────────────────────────────────────────────
