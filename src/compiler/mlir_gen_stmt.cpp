@@ -73,8 +73,8 @@ void MLIRGenImpl::gen_stmt_kind(const SDrop& s) {
     }
 
     // 2. Auto-drop droppable fields (reverse field order)
-    if (s.drop_fields && s.type && s.type->kind == LogosType::Kind::Struct) {
-        auto sit = struct_types_.find(s.type->struct_name);
+    if (TypeRef st(s.type); s.drop_fields && st && st.kind() == LogosType::Kind::Struct) {
+        auto sit = struct_types_.find(std::string(st.struct_name()));
         if (sit != struct_types_.end()) {
             auto& info = sit->second;
             for (int fi = (int)info.fields.size() - 1; fi >= 0; --fi) {
@@ -108,19 +108,13 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
     if (!ptr || !val) return;
     // Determine element type from pointer's pointee type (handles both *T and &mut T)
     mlir::Type elem_type = nullptr;
-    if (s.ptr->type && s.ptr->type->pointee &&
-        (s.ptr->type->kind == LogosType::Kind::Ptr ||
-         s.ptr->type->kind == LogosType::Kind::MutRef))
-        elem_type = logos_to_mlir(s.ptr->type->pointee);
+    TypeRef pt(s.ptr->type);
+    if (pt && pt.pointee() &&
+        (pt.kind() == LogosType::Kind::Ptr ||
+         pt.kind() == LogosType::Kind::MutRef))
+        elem_type = logos_to_mlir(pt.pointee().raw());
     if (!elem_type) elem_type = builder_.getI32Type();
-    // Struct/datatype assignment through a pointer is a byte-level copy:
-    // both sides are represented as `ptr` in MLIR, but the value being
-    // stored is the bytes pointed at by `val`, not the pointer itself.
-    // Emit an llvm.memcpy of sizeof(struct) bytes — resolved via the
-    // registered LLVM struct type, not elem_type (which is just ptr_type
-    // for any struct at MLIR level).
-    const LogosType* pointee_t = (s.ptr->type && s.ptr->type->pointee)
-                                  ? s.ptr->type->pointee : nullptr;
+    const LogosType* pointee_t = (pt && pt.pointee()) ? pt.pointee().raw() : nullptr;
     if (pointee_t && (TypeRef(pointee_t).kind() == LogosType::Kind::Struct ||
                       TypeRef(pointee_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -170,7 +164,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // ── Array literal ─────────────────────────────────────────
     if (std::holds_alternative<EArrLit>(s.value->kind)) {
         auto& lit = std::get<EArrLit>(s.value->kind);
-        auto elem_type = logos_to_mlir(s.type->elem ? s.type->elem : nullptr);
+        auto elem_type = logos_to_mlir(TypeRef(s.type).elem().raw());
         if (!elem_type) elem_type = builder_.getI32Type();
         auto alloca = gen_arr_lit(lit, elem_type);
         if (!alloca) return;
@@ -244,8 +238,8 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
 
     // ── Tagged enum value ────────────────────────────────────
-    if (s.type && s.type->kind == LogosType::Kind::Enum) {
-        auto* te = resolve_tagged_enum(s.type->enum_name, s.type);
+    if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Enum) {
+        auto* te = resolve_tagged_enum(std::string(st.enum_name()), s.type);
         if (te) {
             auto val = gen_expr(*s.value);
             if (!val) return;
@@ -305,24 +299,25 @@ void MLIRGenImpl::gen_let(const SLet& s) {
 
     // ── Reference to struct (&Struct or &mut Struct) ─────────
     // The value is a pointer to the struct; register in var_struct_ for field access.
-    if (s.type && (s.type->kind == LogosType::Kind::Ref ||
-                   s.type->kind == LogosType::Kind::MutRef) &&
-        s.type->pointee && (s.type->pointee->kind == LogosType::Kind::Struct ||
-                            s.type->pointee->kind == LogosType::Kind::ZonedStruct)) {
+    if (TypeRef st(s.type);
+        st && (st.kind() == LogosType::Kind::Ref ||
+               st.kind() == LogosType::Kind::MutRef) &&
+        st.pointee() && (st.pointee().kind() == LogosType::Kind::Struct ||
+                         st.pointee().kind() == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         scope_[s.name] = val;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = concrete_struct_name(s.type->pointee);
+        var_struct_[s.name] = concrete_struct_name(st.pointee().raw());
         return;
     }
 
     // ── &dyn Trait / Box<dyn Trait> coercion ─────────────────
-    if (s.type && s.type->kind == LogosType::Kind::TraitObject) {
+    if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::TraitObject) {
         auto data_ptr = gen_expr(*s.value);
         if (!data_ptr) return;
         mlir::Value alloca;
-        if (s.value->type && s.value->type->kind == LogosType::Kind::TraitObject) {
+        if (TypeRef vt(s.value->type); vt && vt.kind() == LogosType::Kind::TraitObject) {
             // RHS is already a fat pointer (e.g., returned from a Box<dyn T> function).
             // Use it directly — no need to rebuild the fat struct.
             alloca = data_ptr;
@@ -340,32 +335,27 @@ void MLIRGenImpl::gen_let(const SLet& s) {
                 TypeRef(src_logos_type).type_args().size() == 1)
                 src_logos_type = TypeRef(src_logos_type).type_args()[0];
             std::string src_type = type_str(src_logos_type);
-            alloca = coerce_to_dyn(data_ptr, s.type->trait_name, src_type);
+            alloca = coerce_to_dyn(data_ptr, std::string(st.trait_name()), src_type);
         }
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
-        var_dyn_trait_[s.name] = s.type->trait_name;
+        var_dyn_trait_[s.name] = std::string(st.trait_name());
         return;
     }
 
     // ── Pointer to struct/datatype ────────────────────────────
-    // Keep raw pointer receivers as raw pointers in scope so method dispatch
-    // on `*const HermesString` / `*mut ObjectMap` can reuse the pointer
-    // directly without an extra alloca(ptr) wrapper.
-    if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee &&
-        (s.type->pointee->kind == LogosType::Kind::Struct ||
-         s.type->pointee->kind == LogosType::Kind::ZonedStruct)) {
+    if (TypeRef st(s.type);
+        st && st.kind() == LogosType::Kind::Ptr && st.pointee() &&
+        (st.pointee().kind() == LogosType::Kind::Struct ||
+         st.pointee().kind() == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         if (s.is_mut) {
-            // Mutable raw-pointer locals must live in a rebinding slot.
-            // Keeping a bare ptr in scope_ makes later `x = ...` assignments
-            // store through the pointee address instead of rebinding x itself.
             auto slot = create_entry_alloca(ptr_type());
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
             scope_[s.name] = slot;
             var_elem_types_[s.name] = ptr_type();
-            auto cname = concrete_struct_name(s.type->pointee);
+            auto cname = concrete_struct_name(st.pointee().raw());
             auto sit2 = struct_types_.find(cname);
             if (sit2 != struct_types_.end())
                 var_local_ptrs_[s.name] = sit2->second.llvm_type;
@@ -373,7 +363,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             scope_[s.name] = val;
         }
         let_vars_.insert(s.name);
-        var_struct_[s.name] = concrete_struct_name(s.type->pointee);
+        var_struct_[s.name] = concrete_struct_name(st.pointee().raw());
         return;
     }
 
@@ -404,8 +394,8 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // subscript_elem_type must return the element type (i32), NOT the array type
     // (!llvm.array<N x i32>). Setting var_elem_types_ to the array type causes
     // nested indexing like `row[j]` to generate GEPs with the wrong elem_type.
-    if (s.type && s.type->kind == LogosType::Kind::Array && s.type->elem) {
-        auto elem_mlir = logos_to_mlir(s.type->elem);
+    if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Array && st.elem()) {
+        auto elem_mlir = logos_to_mlir(st.elem().raw());
         if (!elem_mlir) elem_mlir = builder_.getI32Type();
         var_elem_types_[s.name] = elem_mlir;
         var_subscript_[s.name]  = elem_mlir;
@@ -413,8 +403,8 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         var_elem_types_[s.name] = var_type;
     }
     // Track local pointer variables so indexing can load the ptr before GEP.
-    if (s.type && s.type->kind == LogosType::Kind::Ptr && s.type->pointee) {
-        const LogosType* pointee = s.type->pointee;
+    if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Ptr && st.pointee()) {
+        const LogosType* pointee = st.pointee().raw();
         if (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct) {
             // logos_to_mlir(Struct/Datatype) == ptr_type(), which can't be matched
@@ -1417,8 +1407,8 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
     // Detect tagged enum: scrut is a pointer, load discriminant.
     mlir::Value scrut_ptr = nullptr;  // non-null for tagged enums
     const TaggedEnumInfo* te_info = nullptr;
-    if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(s.scrut->type->enum_name, s.scrut->type);
+    if (TypeRef sct(s.scrut->type); sct && sct.kind() == LogosType::Kind::Enum) {
+        te_info = resolve_tagged_enum(std::string(sct.enum_name()), s.scrut->type);
         if (te_info) {
             // If scrut is an aggregate (returned by value from a function),
             // spill it to an alloca so GEP works below.
@@ -1517,12 +1507,13 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         if (has_wild) {
             exhaustive_discrete = true;
         } else {
-            auto eit = enum_types_.find(s.scrut->type->enum_name);
+            std::string en(TypeRef(s.scrut->type).enum_name());
+            auto eit = enum_types_.find(en);
             if (eit != enum_types_.end() && eit->second) {
                 exhaustive_discrete = std::all_of(
                     eit->second->variants.begin(), eit->second->variants.end(),
                     [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
-            } else if (auto* te = resolve_tagged_enum(s.scrut->type->enum_name, s.scrut->type)) {
+            } else if (auto* te = resolve_tagged_enum(en, s.scrut->type)) {
                 exhaustive_discrete = std::all_of(
                     te->variants.begin(), te->variants.end(),
                     [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });
@@ -2034,12 +2025,12 @@ void MLIRGenImpl::gen_delete(const SDelete& s) {
     auto ptr = gen_expr(*s.expr);
     if (!ptr) return;
     // Call Drop before free (if the class/struct has a drop function)
-    if (s.expr->type && s.expr->type->kind == LogosType::Kind::Ptr &&
-        s.expr->type->pointee) {
-        auto& tname = s.expr->type->pointee->struct_name;
+    if (TypeRef et(s.expr->type);
+        et && et.kind() == LogosType::Kind::Ptr && et.pointee()) {
+        auto tname = et.pointee().struct_name();
         if (!tname.empty()) {
             auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-            auto drop_fn = mod.lookupSymbol<mlir::func::FuncOp>(tname + "__drop");
+            auto drop_fn = mod.lookupSymbol<mlir::func::FuncOp>(std::string(tname) + "__drop");
             if (drop_fn)
                 builder_.create<mlir::func::CallOp>(loc_, drop_fn, mlir::ValueRange{ptr});
         }
@@ -2105,8 +2096,8 @@ void MLIRGenImpl::gen_stmt_kind(const lir::SLetElse& s) {
     mlir::Value disc_val;
     int32_t expected_disc = 0;
 
-    if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(s.scrut->type->enum_name, s.scrut->type);
+    if (TypeRef sct(s.scrut->type); sct && sct.kind() == LogosType::Kind::Enum) {
+        te_info = resolve_tagged_enum(std::string(sct.enum_name()), s.scrut->type);
         if (te_info) {
             // Spill to alloca if it's a value (not already a pointer)
             if (scrut_val.getType() != ptr_type()) {
