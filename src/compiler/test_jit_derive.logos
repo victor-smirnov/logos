@@ -16,8 +16,6 @@ use std.lang.text;
 use std.fmt;
 use std.compiler.metaprog;
 
-extern fn logos_emit_source(src: *const u8) -> i32;
-
 // Test-fixture structs the hook will iterate over.
 //   Point   → debug_Point_field_count   == 2
 //   RGB     → debug_RGB_field_count     == 3
@@ -43,6 +41,7 @@ fn derive_debug_hook() -> () {
 
     let cat_ast_struct: u64 = ((1 as u64) << 48) | (50 as u64);
 
+    let mut em: Emitter = Emitter::new();
     let mut i: u64 = 0;
     while i < n {
         let it: AnyVal = view.array_get(items, i);
@@ -66,14 +65,7 @@ fn derive_debug_hook() -> () {
         let nf: u64 = view.array_len(fields_val);
         if nf == (0 as u64) { continue; }
 
-        let mut s: String = String::new();
-        s.push_str("package gen; pub fn debug_");
-        unsafe { s.push_bytes(name.ptr, name.len as i64); }
-        s.push_str("_field_count() -> i64 { return ");
-        s.push_u64(nf);
-        s.push_str("; }");
-        s.push_u8(0 as u8);
-        unsafe { logos_emit_source(s.as_ptr() as *const u8); }
+        em.emit_fn_i64_named("gen", "debug_", name, "_field_count", nf);
     }
     return;
 }
