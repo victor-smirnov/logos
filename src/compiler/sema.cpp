@@ -139,7 +139,7 @@ public:
     // Every field populated on the C++ struct is also written to the mirror
     // under the key defined in sema_schema.hpp. Reads still go through the
     // raw struct pointer — Phase 2c.3 will switch TypeRef to read the mirror.
-    hermes::arena_offset_t mirror(const LogosType& t) {
+    hermes::arena_offset_t mirror(const LogosTypeBuilder& t) {
         namespace k = sema_schema;
 
         // Pre-allocate all sub-values first (each may grow the arena and
@@ -234,20 +234,18 @@ TypePool::~TypePool() = default;
 TypePool::TypePool(TypePool&&) noexcept = default;
 TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 
-const LogosType* TypePool::alloc(LogosType t) {
-    pool_.push_back(std::move(t));
-    const LogosType* p = &pool_.back();
+const LogosType* TypePool::alloc(LogosTypeBuilder t) {
+    pool_.push_back(LogosType{});
+    LogosType* mp = &pool_.back();
+    mp->kind = t.kind;
     if (!impl_) impl_ = TypePoolImpl::make();
-    auto off = impl_->mirror(*p);
-    impl_->mirror_offsets_[p] = off;
-    impl_->mirror_inverse_[off] = p;
-    // Wire back-refs so readers can resolve the mirror on demand.
-    // `p` is mutable through &pool_.back().
-    auto* mp = const_cast<LogosType*>(p);
+    auto off = impl_->mirror(t);
+    impl_->mirror_offsets_[mp] = off;
+    impl_->mirror_inverse_[off] = mp;
     mp->hermes_arena_      = &impl_->arena_;
     mp->hermes_mirror_off_ = off;
     mp->hermes_pool_       = impl_.get();
-    return p;
+    return mp;
 }
 
 // ── TypeRef pointer-valued accessors (Phase 2c.4d.0) ───────────────────────
@@ -315,11 +313,10 @@ std::vector<const LogosType*> TypeRef::closure_params() const noexcept { return 
 std::vector<const LogosType*> TypeRef::gat_args()       const noexcept { return type_vec_via_mirror(*this, sema_schema::GAT_ARGS); }
 std::vector<std::string>      TypeRef::lifetime_args()  const noexcept { return string_vec_via_mirror(*this, sema_schema::LIFETIME_ARGS); }
 
-// 2c.4e.3.3: LogosTypeBuilder is currently a typedef for LogosType. The
-// mirror is authoritative, so populate every field from accessors. Once
-// LogosType slims to back-refs only, this body keeps working unchanged
-// because LogosTypeBuilder will be the struct that retains data fields.
-LogosType TypeRef::to_builder() const {
+// 2c.4e.3.3: populate every field from the Hermes mirror via the accessors.
+// LogosType is slim (kind + back-refs); LogosTypeBuilder retains the data
+// fields and is consumed by TypePool::alloc.
+LogosTypeBuilder TypeRef::to_builder() const {
     LogosTypeBuilder b;
     if (!p_) return b;
     b.kind            = kind();

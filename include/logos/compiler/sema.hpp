@@ -31,6 +31,10 @@ namespace logos::compiler {
 
 // ── Type representation ────────────────────────────────────────────────────
 
+// 2c.4e.3.3: LogosType is now a slim handle. Reads happen through TypeRef
+// (which queries the Hermes mirror via the back-refs below). Writes happen
+// through LogosTypeBuilder, which carries the data fields and is consumed
+// by TypePool::alloc.
 struct LogosType {
     enum class Kind {
         Void,                     // no return value
@@ -60,6 +64,32 @@ struct LogosType {
         Error                     // sentinel for ill-typed expressions
     };
 
+    // Kept on the slim struct for fast type tagging without a mirror lookup
+    // (TypeRef::kind() still goes through the mirror so it works for any
+    // legacy raw pointer; this duplicate just speeds the hot debug path).
+    Kind kind = Kind::Error;
+
+    // ── Hermes mirror back-refs ──
+    // Set by TypePool::alloc() after building the TinyObjectMap mirror.
+    // offset is stable across arena growth (arena is GrowableSingleChunk);
+    // mirror pointer is resolved on demand as `hermes_arena_->head().data()
+    // + hermes_mirror_off_`. All payload fields live in the mirror; reads go
+    // through TypeRef accessors.
+    const hermes::Arena*   hermes_arena_      = nullptr;
+    hermes::arena_offset_t hermes_mirror_off_ = hermes::NULL_OFFSET;
+    const class TypePoolImpl* hermes_pool_     = nullptr;
+};
+
+// ── LogosTypeBuilder ──────────────────────────────────────────────────────
+//
+// 2c.4e.3.3: write-side companion to slim LogosType. Builder code populates
+// fields freely and hands the result to TypePool::alloc, which writes them
+// into the Hermes mirror and returns a slim LogosType*. The builder is also
+// what TypeRef::to_builder() returns when callers need to copy-and-mutate
+// an interned type.
+struct LogosTypeBuilder {
+    using Kind = LogosType::Kind;
+
     Kind kind = Kind::Error;
 
     // Ptr / Ref / MutRef — all use pointee
@@ -72,62 +102,40 @@ struct LogosType {
     // Array
     const LogosType* elem     = nullptr;  // non-owning, pool-allocated
     uint64_t         arr_size = 0;
-    std::string      arr_size_var;        // [NEW] for symbolic size 'N' (Bug 13)
+    std::string      arr_size_var;        // for symbolic size 'N'
 
     // Struct / Enum
     std::string      struct_name;         // base struct name (owned; never mangled)
     std::string      enum_name;           // enum name (owned)
-    std::string      pkg_name;            // package owning this type ("std.vec", "hermes.ctr", etc.); empty for unpackaged
+    std::string      pkg_name;            // package owning this type
 
     // Generic struct instantiation: Pair<i32> → struct_name="Pair", type_args=[i32]
-    // Empty for plain (non-generic) structs.
     std::vector<const LogosType*> type_args;
 
-    // Lifetime arguments for struct instantiation: StringView<'z> → lifetime_args=["'z"]
-    // Parallel to type_args but for lifetime params. Erased at codegen.
+    // Lifetime arguments for struct instantiation
     std::vector<std::string> lifetime_args;
 
     // Tuple
-    std::vector<const LogosType*> tuple_elems;  // element types (Tuple kind only)
+    std::vector<const LogosType*> tuple_elems;
 
     // Closure
-    std::vector<const LogosType*> closure_params;  // parameter types
-    const LogosType* closure_ret = nullptr;         // return type
+    std::vector<const LogosType*> closure_params;
+    const LogosType* closure_ret = nullptr;
 
     // TraitObject — &dyn Trait
-    std::string      trait_name;          // e.g. "Display" (TraitObject kind only)
+    std::string      trait_name;
 
     // TypeVar — name stored as a std::string (owns its storage)
-    std::string      type_var_name;       // e.g. "T" (TypeVar kind only)
+    std::string      type_var_name;
 
-    // AssocType — associated type: base::Item or base::Item<A,B> (GAT)
-    // trait_name:    the trait that declares it ("Iterator")
-    const LogosType* assoc_base = nullptr;  // the base type (e.g. TypeVar(T) or AssocType(T::A))
-    std::string      assoc_type_name;       // e.g. "Item" (AssocType kind only)
-    std::vector<const LogosType*> gat_args; // GAT type arguments: T::Item<i32> → [i32]
+    // AssocType — associated type
+    const LogosType* assoc_base = nullptr;
+    std::string      assoc_type_name;
+    std::vector<const LogosType*> gat_args;
 
     // Constant literal value (for monomorphized constant generics)
     std::optional<int64_t> const_val;
-
-    // ── Hermes mirror back-refs (Phase 2c.4a) ──
-    // Set by TypePool::alloc() after building the TinyObjectMap mirror.
-    // offset is stable across arena growth (arena is GrowableSingleChunk);
-    // mirror pointer is resolved on demand as `hermes_arena_->head().data()
-    // + hermes_mirror_off_`. Used by TypeRef accessors in Phase 2c.4b+ to
-    // read fields from the mirror instead of the struct.
-    const hermes::Arena*   hermes_arena_      = nullptr;
-    hermes::arena_offset_t hermes_mirror_off_ = hermes::NULL_OFFSET;
-    const class TypePoolImpl* hermes_pool_     = nullptr;
 };
-
-// ── LogosTypeBuilder ──────────────────────────────────────────────────────
-//
-// Phase 2c.4e.3.3: an alias for LogosType while the two are field-compatible.
-// Will diverge in a follow-up commit when LogosType is slimmed to back-refs
-// only and the data fields move into LogosTypeBuilder. Builder sites (writers
-// preparing a value to hand to TypePool::alloc) should use this type so the
-// later split is a non-event for them.
-using LogosTypeBuilder = LogosType;
 
 // ── Trait bound (for type parameter bounds) ────────────────────────────────
 
@@ -267,7 +275,7 @@ public:
     // did `LogosType nt = *tv.raw()`. After LogosType is slimmed to back-refs
     // only, this remains the only sanctioned way to obtain a writable view
     // of an interned type.
-    LogosType to_builder() const;
+    LogosTypeBuilder to_builder() const;
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).
@@ -314,7 +322,7 @@ public:
     TypePool(const TypePool&) = delete;
     TypePool& operator=(const TypePool&) = delete;
 
-    const LogosType* alloc(LogosType t);
+    const LogosType* alloc(LogosTypeBuilder t);
 };
 
 // ── Diagnostics ────────────────────────────────────────────────────────────
