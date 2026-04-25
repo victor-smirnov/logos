@@ -86,6 +86,12 @@ std::vector<logos::hermes::Hermes>*  g_asts        = nullptr;
 std::vector<std::string>*            g_filenames   = nullptr;
 std::vector<bool>*                   g_from_binary = nullptr;
 size_t                               g_user_root_idx = 0;
+// Phase 7 diagnostics: hooks call logos_metaprog_error(msg) to push
+// a structured error. The driver drains this after each hook and
+// fails compilation if non-empty. Spans/locations TBD when hook
+// arg-passing lands (an emitted node ref will carry source info).
+std::vector<std::string>*            g_metaprog_diags = nullptr;
+const char*                          g_current_hook_name = nullptr;
 }
 
 // Phase 7 slice 3a: read-only AST view for metaprog hooks.
@@ -142,6 +148,22 @@ extern "C" void logos_get_module_ast_oview(void**           out_holder,
 extern "C" void logos_holder_release(void* h) {
     if (!h) return;
     static_cast<logos::hermes::MemHolder*>(h)->unref();
+}
+
+// Phase 7 diagnostics: structured error from a metaprog hook.
+// Copies the string (caller's buffer is hook-frame-scoped) and
+// records the originating hook for the driver's report. No-op
+// outside a hook frame (defensive — host accidents shouldn't crash).
+extern "C" void logos_metaprog_error(const char* msg) {
+    if (!g_metaprog_diags || !msg) return;
+    std::string out;
+    if (g_current_hook_name) {
+        out.append("metaprog hook '");
+        out.append(g_current_hook_name);
+        out.append("': ");
+    }
+    out.append(msg);
+    g_metaprog_diags->push_back(std::move(out));
 }
 
 extern "C" int32_t logos_emit_source(const char* src) {
@@ -400,6 +422,8 @@ int main(int argc, char** argv) {
 
         bool any_emitted = false;
         g_any_emitted = &any_emitted;
+        std::vector<std::string> hook_diags;
+        g_metaprog_diags = &hook_diags;
         if (!meta_jit->define_symbol("logos_emit_source",
                                      reinterpret_cast<void*>(&logos_emit_source))) {
             std::fprintf(stderr, "logosc: bind logos_emit_source: %s\n",
@@ -424,6 +448,12 @@ int main(int argc, char** argv) {
                          meta_jit->error_str().c_str());
             return 1;
         }
+        if (!meta_jit->define_symbol("logos_metaprog_error",
+                                     reinterpret_cast<void*>(&logos_metaprog_error))) {
+            std::fprintf(stderr, "logosc: bind logos_metaprog_error: %s\n",
+                         meta_jit->error_str().c_str());
+            return 1;
+        }
         for (const auto& hname : prog.metaprog_post_sema_hooks) {
             auto* sym = meta_jit->lookup(hname);
             if (!sym) {
@@ -431,9 +461,14 @@ int main(int argc, char** argv) {
                              hname.c_str(), meta_jit->error_str().c_str());
                 return 1;
             }
+            g_current_hook_name = hname.c_str();
             reinterpret_cast<void (*)()>(sym)();
-            // TODO Phase 7: collect AST items the hook emitted, splice
-            // them into `asts`, set any_emitted = true.
+            g_current_hook_name = nullptr;
+        }
+        if (!hook_diags.empty()) {
+            for (const auto& d : hook_diags)
+                std::fprintf(stderr, "error: %s\n", d.c_str());
+            return 1;
         }
         if (!any_emitted) break;
 

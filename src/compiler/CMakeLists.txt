@@ -168,6 +168,16 @@ add_test(NAME jit_metaprog_hook
 # Test fixture has Point (2 fields), RGB (3 fields), Marker (0
 # fields, must be skipped). ctest verifies the right symbols
 # appear and that the empty-struct skip works.
+# Phase 7 diagnostics: hook calls metaprog::error("..."); driver must
+# print "error: metaprog hook 'complain': schema not supported" and
+# fail the build (non-zero exit). Test inverts the exit check via !.
+add_test(NAME jit_metaprog_diag
+    COMMAND sh -c "out=$(\"$1\" \"$2\" -I \"$3\" -o /dev/null 2>&1); ec=$?; echo \"$out\"; test $ec -ne 0 && echo \"$out\" | grep -q \"metaprog hook 'complain': schema not supported\""
+            sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_jit_diag.logos
+            ${CMAKE_SOURCE_DIR}/stdlib)
+
 add_test(NAME jit_metaprog_derive
     COMMAND sh -c "out=$(LOGOS_TRACE_PHASES=1 \"$1\" \"$2\" -I \"$4\" -o \"$3\" 2>&1); echo \"$out\"; nm \"$3\" | grep -q debug_Point_field_count && nm \"$3\" | grep -q debug_RGB_field_count && ! nm \"$3\" | grep -q debug_Marker_field_count"
             sh
