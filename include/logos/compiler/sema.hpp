@@ -69,6 +69,12 @@ struct LogosType {
     // legacy raw pointer; this duplicate just speeds the hot debug path).
     Kind kind = Kind::Error;
 
+    // 2c.5 step 1: canonical structural hash, computed by TypePool::alloc.
+    // Mirrors what types_equal considers equivalent (lifetime ignored, etc.).
+    // Used as an O(1) inequality fast-fail; structural compare still runs on
+    // hash collision. Becomes the equality oracle once interning lands.
+    uint64_t type_hash = 0;
+
     // ── Hermes mirror back-refs ──
     // Set by TypePool::alloc() after building the TinyObjectMap mirror.
     // offset is stable across arena growth (arena is GrowableSingleChunk);

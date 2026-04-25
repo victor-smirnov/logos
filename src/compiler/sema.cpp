@@ -234,10 +234,102 @@ TypePool::~TypePool() = default;
 TypePool::TypePool(TypePool&&) noexcept = default;
 TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 
+// ── Canonical structural hash ──
+// 2c.5 step 1: FNV-1a 64 over a serialization that mirrors what types_equal
+// considers equivalent. Sub-type contributions are read from the sub-type's
+// already-computed type_hash (alloc is bottom-up: pointee/elem/type_args are
+// inserted into the pool before the parent calls alloc()).
+namespace {
+
+constexpr uint64_t FNV_OFFSET = 0xcbf29ce484222325ULL;
+constexpr uint64_t FNV_PRIME  = 0x100000001b3ULL;
+
+inline uint64_t fnv_byte(uint64_t h, uint8_t b) {
+    return (h ^ b) * FNV_PRIME;
+}
+inline uint64_t fnv_bytes(uint64_t h, const void* data, size_t n) {
+    auto* p = static_cast<const uint8_t*>(data);
+    for (size_t i = 0; i < n; ++i) h = fnv_byte(h, p[i]);
+    return h;
+}
+inline uint64_t fnv_str(uint64_t h, std::string_view s) {
+    return fnv_bytes(h, s.data(), s.size());
+}
+inline uint64_t fnv_u64(uint64_t h, uint64_t v) {
+    return fnv_bytes(h, &v, sizeof(v));
+}
+inline uint64_t sub_hash(const LogosType* p) {
+    return p ? p->type_hash : 0;
+}
+
+uint64_t compute_type_hash(const LogosTypeBuilder& t) noexcept {
+    uint64_t h = FNV_OFFSET;
+    h = fnv_byte(h, uint8_t(t.kind));
+    using K = LogosType::Kind;
+    switch (t.kind) {
+    case K::Ptr:
+        h = fnv_byte(h, t.mut_ptr ? 1 : 0);
+        h = fnv_u64(h, sub_hash(t.pointee));
+        break;
+    case K::Ref:
+    case K::MutRef:
+        // lifetime intentionally ignored to match types_equal
+        h = fnv_u64(h, sub_hash(t.pointee));
+        break;
+    case K::Array:
+        h = fnv_u64(h, t.arr_size);
+        h = fnv_str(h, t.arr_size_var);
+        h = fnv_u64(h, sub_hash(t.elem));
+        break;
+    case K::Struct:
+    case K::ZonedStruct:
+        h = fnv_str(h, t.struct_name);
+        for (auto* a : t.type_args) h = fnv_u64(h, sub_hash(a));
+        break;
+    case K::Enum:
+        h = fnv_str(h, t.enum_name);
+        break;
+    case K::Tuple:
+        for (auto* e : t.tuple_elems) h = fnv_u64(h, sub_hash(e));
+        break;
+    case K::Slice:
+        h = fnv_u64(h, sub_hash(t.elem));
+        break;
+    case K::Closure:
+    case K::FnPtr:
+        for (auto* p : t.closure_params) h = fnv_u64(h, sub_hash(p));
+        h = fnv_u64(h, sub_hash(t.closure_ret));
+        break;
+    case K::TraitObject:
+    case K::TaggedPtr:
+        h = fnv_str(h, t.trait_name);
+        break;
+    case K::ImplTrait:
+        h = fnv_str(h, t.struct_name);
+        break;
+    case K::TypeVar:
+    case K::ConstVar:
+        h = fnv_str(h, t.type_var_name);
+        break;
+    case K::AssocType:
+        h = fnv_str(h, t.trait_name);
+        h = fnv_str(h, t.assoc_type_name);
+        h = fnv_u64(h, sub_hash(t.assoc_base));
+        for (auto* a : t.gat_args) h = fnv_u64(h, sub_hash(a));
+        break;
+    default:
+        break;
+    }
+    return h;
+}
+
+} // namespace
+
 const LogosType* TypePool::alloc(LogosTypeBuilder t) {
     pool_.push_back(LogosType{});
     LogosType* mp = &pool_.back();
     mp->kind = t.kind;
+    mp->type_hash = compute_type_hash(t);
     if (!impl_) impl_ = TypePoolImpl::make();
     auto off = impl_->mirror(t);
     impl_->mirror_offsets_[mp] = off;
@@ -354,6 +446,11 @@ using hermes::MemHolder;
 
 bool types_equal(TypeRef a, TypeRef b) noexcept {
     if (!a || !b) return false;
+    if (a.raw() == b.raw()) return true;
+    // 2c.5 step 1: hash mismatch is conclusive (FNV-1a over the same fields
+    // structural compare reads). Equal hashes still fall through to the
+    // structural path until interning makes pointer identity sufficient.
+    if (a.raw()->type_hash != b.raw()->type_hash) return false;
     if (a.kind() != b.kind()) return false;
     switch (a.kind()) {
     case LogosType::Kind::Ptr:
