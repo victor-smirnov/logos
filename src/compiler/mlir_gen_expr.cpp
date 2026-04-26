@@ -825,17 +825,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ECall>(_le->kind);
+    namespace ec = lir_schema::expr;
+    std::string callee(v.callee());
+    std::vector<lir_view::ExprRef> arg_refs;
+    v.each_arg([&](lir_view::ExprRef ar){ arg_refs.push_back(ar); });
+    std::vector<const LExpr*> arg_les;
+    arg_les.reserve(arg_refs.size());
+    for (auto& ar : arg_refs) {
+        auto* le = lexpr_of(ar);
+        if (!le) return nullptr;
+        arg_les.push_back(le);
+    }
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
     // ── Compiler intrinsics recognised by name ────────────────────────────────
     // str_from_raw(ptr: *const u8, len: i64) -> str
     // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.
-    if (e.callee == "str__str_from_raw" || e.callee == "str_from_raw") {
-        if (e.args.size() == 2) {
-            auto ptr_v = gen_expr(*e.args[0]); if (!ptr_v) return nullptr;
-            auto len_v = gen_expr(*e.args[1]); if (!len_v) return nullptr;
+    if (callee == "str__str_from_raw" || callee == "str_from_raw") {
+        if (arg_les.size() == 2) {
+            auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+            auto len_v = gen_expr(*arg_les[1]); if (!len_v) return nullptr;
             auto stype  = slice_llvm_type();
             auto alloca = create_entry_alloca(stype);
             llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
@@ -851,48 +860,48 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
 
     // Bitwise intrinsics on u64 — emit LLVM dialect ops.
     // popcount/ctlz/cttz return i64 from i64 input; truncate to i32 for u32 return.
-    if (e.callee == "popcount_u64"        || e.callee == "leading_zeros_u64"  ||
-        e.callee == "trailing_zeros_u64"  || e.callee == "bswap_u64"          ||
-        e.callee == "bitreverse_u64") {
-        if (e.args.size() == 1) {
-            auto v = gen_expr(*e.args[0]); if (!v) return nullptr;
+    if (callee == "popcount_u64"        || callee == "leading_zeros_u64"  ||
+        callee == "trailing_zeros_u64"  || callee == "bswap_u64"          ||
+        callee == "bitreverse_u64") {
+        if (arg_les.size() == 1) {
+            auto v = gen_expr(*arg_les[0]); if (!v) return nullptr;
             auto i64_ty = builder_.getIntegerType(64);
             auto i32_ty = builder_.getIntegerType(32);
             v = coerce_int(v, i64_ty);
             mlir::Value res;
-            if (e.callee == "popcount_u64")
+            if (callee == "popcount_u64")
                 res = builder_.create<mlir::LLVM::CtPopOp>(loc_, i64_ty, v);
-            else if (e.callee == "leading_zeros_u64")
+            else if (callee == "leading_zeros_u64")
                 res = builder_.create<mlir::LLVM::CountLeadingZerosOp>(
                     loc_, i64_ty, v, /*is_zero_poison=*/false);
-            else if (e.callee == "trailing_zeros_u64")
+            else if (callee == "trailing_zeros_u64")
                 res = builder_.create<mlir::LLVM::CountTrailingZerosOp>(
                     loc_, i64_ty, v, /*is_zero_poison=*/false);
-            else if (e.callee == "bswap_u64")
+            else if (callee == "bswap_u64")
                 res = builder_.create<mlir::LLVM::ByteSwapOp>(loc_, i64_ty, v);
             else // bitreverse_u64
                 res = builder_.create<mlir::LLVM::BitReverseOp>(loc_, i64_ty, v);
             // popcount/ctlz/cttz: Logos return type is u32; truncate.
-            if (e.callee == "popcount_u64"       ||
-                e.callee == "leading_zeros_u64"  ||
-                e.callee == "trailing_zeros_u64")
+            if (callee == "popcount_u64"       ||
+                callee == "leading_zeros_u64"  ||
+                callee == "trailing_zeros_u64")
                 res = coerce_int(res, i32_ty);
             return res;
         }
     }
 
     // Check if this is a vararg extern fn (declared as llvm.func)
-    if (vararg_fns_.count(e.callee)) {
-        auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(e.callee);
+    if (vararg_fns_.count(callee)) {
+        auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(callee);
         if (!callee_fn) {
-            std::fprintf(stderr, "mlir_gen: undefined vararg function '%s'\n", e.callee.c_str());
+            std::fprintf(stderr, "mlir_gen: undefined vararg function '%s'\n", callee.c_str());
             return nullptr;
         }
         llvm::SmallVector<mlir::Value> args;
         auto fn_type   = callee_fn.getFunctionType();
         auto fixed_inputs = fn_type.getParams();
-        for (size_t i = 0; i < e.args.size(); ++i) {
-            auto v = gen_expr(*e.args[i]);
+        for (size_t i = 0; i < arg_les.size(); ++i) {
+            auto v = gen_expr(*arg_les[i]);
             if (!v) return nullptr;
             if (i < fixed_inputs.size()) v = coerce_numeric(v, fixed_inputs[i]);
             args.push_back(v);
@@ -906,16 +915,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         return res ? res : nullptr;
     }
 
-    auto callee_fn  = find_func_op(parent_mod, e.callee);
+    auto callee_fn  = find_func_op(parent_mod, callee);
     if (!callee_fn) {
-        auto gpos = e.callee.find("__g__");
+        auto gpos = callee.find("__g__");
         if (gpos != std::string::npos)
-            callee_fn = find_func_op(parent_mod, e.callee.substr(0, gpos));
+            callee_fn = find_func_op(parent_mod, callee.substr(0, gpos));
         if (!callee_fn) {
             // Generic instantiations may be emitted without their trailing
             // `__g__...` suffix in the call site.  Fall back to the concrete
             // generic symbol with the same base prefix.
-            std::string generic_prefix = e.callee + "__g__";
+            std::string generic_prefix = callee + "__g__";
             parent_mod.walk([&](mlir::func::FuncOp fn) {
                 auto fn_name = fn.getName().str();
                 if (fn_name.rfind(generic_prefix, 0) == 0) {
@@ -928,8 +937,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     }
     if (!callee_fn) {
         llvm::SmallVector<mlir::Value> args;
-        for (size_t i = 0; i < e.args.size(); ++i) {
-            auto v = gen_expr(*e.args[i]);
+        for (size_t i = 0; i < arg_les.size(); ++i) {
+            auto v = gen_expr(*arg_les[i]);
             if (!v) return nullptr;
             args.push_back(v);
         }
@@ -940,31 +949,33 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 result_types.push_back(ret_mlir);
         }
         auto call = builder_.create<mlir::func::CallOp>(
-            loc_, e.callee, result_types, mlir::ValueRange(args));
+            loc_, callee, result_types, mlir::ValueRange(args));
         return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
     llvm::SmallVector<mlir::Value> args;
     auto param_types = callee_fn.getFunctionType().getInputs();
     // Look up Logos-level param types for dyn coercion
-    auto fpit = fn_param_types_.find(e.callee);
-    for (size_t i = 0; i < e.args.size(); ++i) {
+    auto fpit = fn_param_types_.find(callee);
+    for (size_t i = 0; i < arg_les.size(); ++i) {
         mlir::Value v;
         // When the callee expects a pointer and the arg is an EFieldRead of an
         // inline-embedded struct, pass the field's GEP directly instead of
         // load+spill. This ensures mutations (e.g. &mut self.inner) write back
         // to the original struct, not a disconnected alloca copy.
-        if (i < param_types.size() && param_types[i] == ptr_type()) {
-            if (auto* fr = std::get_if<EFieldRead>(&e.args[i]->kind)) {
-                auto [base_ptr, base_sname] = gen_recv_struct(*fr->receiver);
+        if (i < param_types.size() && param_types[i] == ptr_type() &&
+            arg_refs[i].kind() == ec::Code::FieldRead) {
+            lir_view::EFieldReadView frv{arg_refs[i]};
+            auto* fr_recv_le = lexpr_of(frv.receiver());
+            std::string fr_field(frv.field());
+            if (fr_recv_le) {
+                auto [base_ptr, base_sname] = gen_recv_struct(*fr_recv_le);
                 if (base_ptr && !base_sname.empty()) {
                     auto bit = struct_types_.find(base_sname);
                     if (bit != struct_types_.end()) {
-                        auto gep = gep_field(base_ptr, bit->second, fr->field);
+                        auto gep = gep_field(base_ptr, bit->second, fr_field);
                         if (gep) {
-                            // Only use GEP directly when the field is an inline
-                            // struct — primitives/pointers don't need this.
                             for (auto& f : bit->second.fields) {
-                                if (f.name == fr->field &&
+                                if (f.name == fr_field &&
                                     mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
                                     v = gep;
                                     goto arg_push;
@@ -975,7 +986,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 }
             }
         }
-        v = gen_expr(*e.args[i]);
+        v = gen_expr(*arg_les[i]);
         if (!v) return nullptr;
     arg_push:
         // Coerce concrete struct/class → &dyn Trait if param expects it.
@@ -983,7 +994,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         // use T as the vtable key so the impl on T (not Box<T>) is looked up.
         if (fpit != fn_param_types_.end() && i < fpit->second.size()) {
             auto param_lt = fpit->second[i];
-            auto arg_lt = e.args[i]->type;
+            auto arg_lt = arg_refs[i].type(pool_impl());
             if (param_lt && TypeRef(param_lt).kind() == LogosType::Kind::TraitObject &&
                 arg_lt && TypeRef(arg_lt).kind() != LogosType::Kind::TraitObject) {
                 TypeRef vt_type = arg_lt;
@@ -1001,7 +1012,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
                 v = spill_to_alloca(v);
             else if (v.getType() != ptr_type())
-                v = coerce_numeric(v, param_types[i], e.args[i]->type);
+                v = coerce_numeric(v, param_types[i], arg_refs[i].type(pool_impl()));
         }
         args.push_back(v);
     }
