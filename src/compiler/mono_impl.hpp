@@ -8,6 +8,7 @@
 
 #include <logos/compiler/mono.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/str_map.hpp>
@@ -36,9 +37,30 @@ public:
 private:
     lir::LProgram  in_;
     lir::LProgram  out_;
+    // Mirror of in_'s L-IR, populated at the start of run() so subst_*
+    // passes can read sub-nodes via lir_view::PatRef/ExprRef. Offsets refer
+    // into out_.type_pool.arena() (in_.type_pool is moved into out_ early).
+    std::unique_ptr<LirMirrorTable>  in_mirror_;
     int            max_depth_;
     int            depth_ = 0;
     PackMap        cur_packs_;
+
+protected:
+    // Resolve an input Pattern* to its mirror PatRef. Returns null PatRef
+    // when the mirror has no entry (caller falls back to variant access).
+    lir_view::PatRef pat_ref_of(const lir::Pattern& p) const noexcept {
+        if (!in_mirror_) return {};
+        auto it = in_mirror_->pat.find(&p);
+        if (it == in_mirror_->pat.end()) return {};
+        return lir_view::PatRef(out_.type_pool.arena(), it->second);
+    }
+    lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
+        if (!in_mirror_) return {};
+        auto it = in_mirror_->expr.find(&e);
+        if (it == in_mirror_->expr.end()) return {};
+        return lir_view::ExprRef(out_.type_pool.arena(), it->second);
+    }
+private:
 
     StrMap<const lir::LFunction*>  templates_;
     StrMap<std::vector<const lir::LFunction*>> specs_;
@@ -78,6 +100,9 @@ private:
 
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
     TypeRef subst_type(TypeRef tv, const SubstMap& s) noexcept;
+
+    // Pattern substitution — view-based walk over the input mirror.
+    lir::Pattern subst_pattern(const lir::Pattern& pat, const SubstMap& s);
 
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(TypeRef tr) {

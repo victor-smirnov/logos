@@ -14,6 +14,7 @@
 #pragma once
 
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_builder.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
@@ -212,6 +213,14 @@ private:
 
     lir::LExprPtr error_expr() {
         return make_expr(error_t(), lir::ELitInt{0});
+    }
+
+    // Stage 3f L-IR builder. Bound to cur_prog_ when sema is lowering a
+    // module. ADR 0005: variant write-path verbatim today; Stage 3g
+    // re-implementation flips this to direct Hermes-zone emission with no
+    // caller change.
+    LirBuilder builder() {
+        return LirBuilder(*cur_prog_);
     }
 
     template<typename K>

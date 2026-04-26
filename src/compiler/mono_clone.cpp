@@ -11,9 +11,27 @@
 
 namespace logos::compiler {
 
-// Forward declaration (defined before subst_stmt, used in subst_expr and subst_stmt).
+// Type-subst function used by the pattern walker.
 using TypeSubstFn = std::function<TypeRef(TypeRef)>;
-static lir::Pattern subst_pattern(const lir::Pattern& pat, const TypeSubstFn& st);
+namespace {
+class PatSubstWalker {
+public:
+    PatSubstWalker(TypeSubstFn st, const TypePoolImpl* pool) noexcept
+        : st_(std::move(st)), pool_(pool) {}
+    lir::Pattern walk(lir_view::PatRef pref) const;
+private:
+    TypeSubstFn         st_;
+    const TypePoolImpl* pool_;
+};
+} // anonymous
+
+lir::Pattern Mono::subst_pattern(const lir::Pattern& pat, const SubstMap& s) {
+    auto pref = pat_ref_of(pat);
+    if (!pref) return pat;  // mirror miss — pass through (defensive)
+    PatSubstWalker w([&](TypeRef t) { return subst_type(t, s); },
+                     out_.type_pool.impl());
+    return w.walk(pref);
+}
 
 lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                           const PackMap& /*unused*/) {
@@ -53,7 +71,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 nc.type_args.push_back(subst_type(ta, s));
             for (auto& a : k.args) {
                 // Pack expansion: args... → expand into individual args
-                if (auto* pe = std::get_if<lir::EPackExpand>(&a->kind)) {
+                auto a_ref = expr_ref_of(*a);
+                if (a_ref && a_ref.kind() == lir_schema::expr::Code::PackExpand) {
+                    std::string pe_var_name(lir_view::EPackExpandView{a_ref}.var_name());
                     // Find which type pack this var belongs to.
                     // The var's type is a TypeVar whose name is in cur_packs_.
                     std::string pack_name;
@@ -65,7 +85,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         for (size_t pi = 0; pi < pit->second.size(); ++pi) {
                             auto ref = std::make_unique<lir::LExpr>();
                             ref->type = pit->second[pi];
-                            ref->kind = lir::EVarRef{make_pack_arg_name(pe->var_name, pi)};
+                            ref->kind = lir::EVarRef{make_pack_arg_name(pe_var_name, pi)};
                             nc.args.push_back(std::move(ref));
                         }
                         // If callee is a template, add pack types as type_args
@@ -507,7 +527,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             nm.scrut = subst_expr(*k.scrut, s);
             for (auto& arm : k.arms) {
                 lir::EMatchArm na;
-                na.pat   = subst_pattern(arm.pat, [&](auto t){ return subst_type(t, s); });  // M1
+                na.pat   = subst_pattern(arm.pat, s);  // M1
                 if (arm.guard) na.guard = subst_expr(**arm.guard, s);
                 na.value = subst_expr(*arm.value, s);
                 nm.arms.push_back(std::move(na));
@@ -625,60 +645,97 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
 }
 
 
-// Helper: recursively substitute LogosType* pointers in a pattern.
-// Fixes M2 (PatOr), M3 (PatRefPat), M4 (PatAt.sub), M5 (PatStruct fields).
-static lir::Pattern subst_pattern(const lir::Pattern& pat, const TypeSubstFn& st) {
-    if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
-        lir::PatVariantData n = *pvd;
-        for (auto& bt : n.binding_types) bt = st(bt);
+// View-based pattern subst: walks input via PatRef (mirror-tracked), builds
+// new lir::Pattern variants from view fields. M1-M5 fixes preserved.
+lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
+    namespace pc = lir_schema::pat;
+    if (!pref) return lir::PatWild{};  // defensive: no mirror entry
+    switch (pref.kind()) {
+    case pc::Code::Variant: {
+        lir_view::PatVariantView v{pref};
+        return lir::PatVariant{std::string(v.enum_name()),
+                               std::string(v.variant()), v.disc()};
+    }
+    case pc::Code::Int:
+        return lir::PatInt{lir_view::PatIntView{pref}.value()};
+    case pc::Code::Bool:
+        return lir::PatBool{lir_view::PatBoolView{pref}.value()};
+    case pc::Code::Wild:
+        return lir::PatWild{std::string(lir_view::PatWildView{pref}.name())};
+    case pc::Code::Range: {
+        lir_view::PatRangeView v{pref};
+        return lir::PatRange{v.lo(), v.hi()};
+    }
+    case pc::Code::VariantData: {
+        lir_view::PatVariantDataView v{pref};
+        lir::PatVariantData n;
+        n.enum_name = std::string(v.enum_name());
+        n.variant   = std::string(v.variant());
+        n.disc      = v.disc();
+        v.each_binding([&](std::string_view s) { n.bindings.emplace_back(s); });
+        v.each_binding_type(pool_, [&](TypeRef t) { n.binding_types.push_back(st_(t)); });
         return n;
     }
-    if (auto* pt = std::get_if<lir::PatTuple>(&pat)) {
-        lir::PatTuple n = *pt;
-        for (auto& bt : n.binding_types) bt = st(bt);
-        for (auto& sp : n.subs) sp = subst_pattern(sp, st);
+    case pc::Code::Or: {
+        lir::PatOr n;
+        lir_view::PatOrView{pref}.each_alt(
+            [&](lir_view::PatRef alt) { n.alts.push_back(walk(alt)); });
         return n;
     }
-    if (auto* pa = std::get_if<lir::PatAt>(&pat)) {
-        lir::PatAt n = *pa;
-        n.type = st(n.type);
-        // M4: substitute types in sub-pattern too.
-        for (auto& sp : n.sub) sp = subst_pattern(sp, st);
+    case pc::Code::Tuple: {
+        lir_view::PatTupleView v{pref};
+        lir::PatTuple n;
+        v.each_binding([&](std::string_view s) { n.bindings.emplace_back(s); });
+        v.each_binding_type(pool_, [&](TypeRef t) { n.binding_types.push_back(st_(t)); });
+        v.each_sub([&](lir_view::PatRef sp) { n.subs.push_back(walk(sp)); });
         return n;
     }
-    if (auto* prb = std::get_if<lir::PatRefBind>(&pat)) {
-        lir::PatRefBind n = *prb;
-        n.bind_type = st(n.bind_type);
+    case pc::Code::Struct: {
+        lir_view::PatStructView v{pref};
+        lir::PatStruct n;
+        n.struct_name = std::string(v.struct_name());
+        n.has_rest    = v.has_rest();
+        v.each_field([&](lir_view::PatFieldBindingView fbv) {
+            lir::PatFieldBinding pfb;
+            pfb.field_name = std::string(fbv.field_name());
+            if (auto sub = fbv.sub()) pfb.sub.push_back(walk(sub));
+            n.fields.push_back(std::move(pfb));
+        });
         return n;
     }
-    // M2: PatOr — substitute each alternative.
-    if (auto* por = std::get_if<lir::PatOr>(&pat)) {
-        lir::PatOr n = *por;
-        for (auto& alt : n.alts) alt = subst_pattern(alt, st);
+    case pc::Code::Slice: {
+        lir_view::PatSliceView v{pref};
+        lir::PatSlice n;
+        v.each_prefix([&](lir_view::PatRef p) { n.prefix.push_back(walk(p)); });
+        if (auto r = v.rest()) n.rest.push_back(walk(r));
+        v.each_suffix([&](lir_view::PatRef p) { n.suffix.push_back(walk(p)); });
         return n;
     }
-    // M3: PatRefPat — substitute inner pattern.
-    if (auto* prp = std::get_if<lir::PatRefPat>(&pat)) {
-        lir::PatRefPat n = *prp;
-        for (auto& ip : n.inner) ip = subst_pattern(ip, st);
+    case pc::Code::At: {
+        lir_view::PatAtView v{pref};
+        lir::PatAt n;
+        n.name = std::string(v.name());
+        n.type = st_(v.type(pool_));
+        if (auto sub = v.sub()) n.sub.push_back(walk(sub));
         return n;
     }
-    // M5: PatStruct — substitute types in field sub-patterns.
-    if (auto* ps = std::get_if<lir::PatStruct>(&pat)) {
-        lir::PatStruct n = *ps;
-        for (auto& pfb : n.fields)
-            for (auto& sp : pfb.sub)
-                sp = subst_pattern(sp, st);
+    case pc::Code::RefBind: {
+        lir_view::PatRefBindView v{pref};
+        lir::PatRefBind n;
+        n.name      = std::string(v.name());
+        n.is_mut    = v.is_mut();
+        n.bind_type = st_(v.bind_type(pool_));
         return n;
     }
-    if (auto* psl = std::get_if<lir::PatSlice>(&pat)) {
-        lir::PatSlice n = *psl;
-        for (auto& p : n.prefix) p = subst_pattern(p, st);
-        for (auto& p : n.rest)   p = subst_pattern(p, st);
-        for (auto& p : n.suffix) p = subst_pattern(p, st);
+    case pc::Code::RefPat: {
+        lir_view::PatRefPatView v{pref};
+        lir::PatRefPat n;
+        n.is_mut = v.is_mut();
+        if (auto inner = v.inner()) n.inner.push_back(walk(inner));
         return n;
     }
-    return pat;  // PatWild, PatInt, PatBool, PatVariant, PatRange
+    }
+    return lir::PatWild{};
 }
 
 lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
@@ -785,7 +842,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             nm.scrut = subst_expr(*k.scrut, s);
             for (auto& arm : k.arms) {
                 lir::LMatchArm na;
-                na.pat  = subst_pattern(arm.pat, [&](auto t){ return subst_type(t, s); });  // M2/M3/M4/M5
+                na.pat  = subst_pattern(arm.pat, s);  // M2/M3/M4/M5
                 na.body = std::make_unique<lir::LBlock>(subst_block(*arm.body, s));
                 if (arm.guard)
                     na.guard = subst_expr(**arm.guard, s);
@@ -805,7 +862,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
 
         } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
             lir::SLetElse sle;
-            sle.pat        = subst_pattern(k.pat, [&](auto t){ return subst_type(t, s); });  // M2/M3/M4/M5
+            sle.pat        = subst_pattern(k.pat, s);  // M2/M3/M4/M5
             sle.scrut      = subst_expr(*k.scrut, s);
             sle.else_block = std::make_unique<lir::LBlock>(subst_block(*k.else_block, s));
             ns.kind        = std::move(sle);

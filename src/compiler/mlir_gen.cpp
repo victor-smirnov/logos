@@ -210,8 +210,11 @@ mlir::Value MLIRGenImpl::gep_field(mlir::Value base, const StructInfo& info,
 // Resolve receiver expr → (object_ptr, type_name).
 // Works for both structs (var_struct_) and classes (var_class_).
 std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& recv) {
-    if (auto* vr = std::get_if<EVarRef>(&recv.kind)) {
-        auto& name = vr->name;
+    namespace ec = lir_schema::expr;
+    auto recv_ref = expr_ref_of(recv);
+    auto recv_kind = recv_ref ? recv_ref.kind() : ec::Code(0);
+    if (recv_kind == ec::Code::VarRef) {
+        std::string name(lir_view::EVarRefView{recv_ref}.name());
         // Check class first
         auto cit = var_class_.find(name);
         if (cit != var_class_.end())
@@ -306,16 +309,20 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         // Some pointer-like receivers are lowered as plain values in scope_
         // or through temp SSA values, and gen_expr(recv) can still recover them.
     }
-    if (auto* fr = std::get_if<EFieldRead>(&recv.kind)) {
-        auto [base_ptr, base_sname] = gen_recv_struct(*fr->receiver);
+    if (recv_kind == ec::Code::FieldRead) {
+        lir_view::EFieldReadView fr{recv_ref};
+        auto rec_le = lexpr_of(fr.receiver());
+        if (!rec_le) return {nullptr, {}};
+        std::string field(fr.field());
+        auto [base_ptr, base_sname] = gen_recv_struct(*rec_le);
         if (!base_ptr || base_sname.empty()) return {nullptr, {}};
         auto it = struct_types_.find(base_sname);
         if (it == struct_types_.end()) return {nullptr, {}};
         auto& info = it->second;
-        auto gep = gep_field(base_ptr, info, fr->field);
+        auto gep = gep_field(base_ptr, info, field);
         if (!gep) return {nullptr, {}};
         for (auto& f : info.fields) {
-            if (f.name == fr->field) {
+            if (f.name == field) {
                 if (!f.struct_name.empty()) {
                     // Check if field is inline-embedded struct (LLVMStructType) or pointer.
                     if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
@@ -330,7 +337,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                     return {obj_ptr, f.struct_name};
                 }
                 std::fprintf(stderr, "mlir_gen: field '%s' is not a struct/class type\n",
-                             fr->field.c_str());
+                             field.c_str());
                 return {nullptr, {}};
             }
         }

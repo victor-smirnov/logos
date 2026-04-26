@@ -958,7 +958,10 @@ struct EHermesLitView {
     }
 };
 
-struct EPackExpandView { ExprRef self; };
+struct EPackExpandView {
+    ExprRef self;
+    std::string_view var_name() const noexcept { return detail::read_string(self, ek::NAME.code); }
+};
 
 // ── Pattern leaf exemplar ────────────────────────────────────────────────
 
@@ -988,6 +991,17 @@ struct PatVariantDataView {
             auto el = arr->get(i, self.base());
             if (el.is_null()) continue;
             f(el.as_ptr<const hermes::ArenaString>(self.base())->view());
+        }
+    }
+    template <class F>
+    void each_binding_type(const TypePoolImpl* pool, F&& f) const noexcept {
+        auto av = self.mirror()->get(pk::BINDING_TYPES.code, self.base());
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) { f(TypeRef{}); continue; }
+            f(TypeRef(self.arena(), el.to_offset(), pool));
         }
     }
 };
@@ -1020,6 +1034,181 @@ struct PatOrView {
             f(PatRef(self.arena(), el.to_offset()));
         }
     }
+};
+
+namespace detail {
+
+// Iterate a key-stored Array<RelPtr<Pattern>> on a PatRef.
+template <class F>
+inline void for_each_pat(const PatRef& r, uint8_t key, F&& f) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return;
+    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        auto el = arr->get(i, r.base());
+        if (el.is_null()) continue;
+        f(PatRef(r.arena(), el.to_offset()));
+    }
+}
+
+// Iterate a key-stored Array<Varchar> on a PatRef.
+template <class F>
+inline void for_each_string(const PatRef& r, uint8_t key, F&& f) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return;
+    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        auto el = arr->get(i, r.base());
+        if (el.is_null()) { f(std::string_view{}); continue; }
+        f(el.as_ptr<const hermes::ArenaString>(r.base())->view());
+    }
+}
+
+// Iterate a key-stored Array<RelPtr<LogosType>> on a PatRef.
+template <class F>
+inline void for_each_type(const PatRef& r, uint8_t key,
+                          const TypePoolImpl* pool, F&& f) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return;
+    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        auto el = arr->get(i, r.base());
+        if (el.is_null()) { f(TypeRef{}); continue; }
+        f(TypeRef(r.arena(), el.to_offset(), pool));
+    }
+}
+
+// Read a single RelPtr<Pattern> stored under SUB / etc. as a 0-or-1 array.
+inline PatRef first_pat(const PatRef& r, uint8_t key) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return {};
+    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
+    if (arr->size() == 0) return {};
+    auto el = arr->get(0, r.base());
+    if (el.is_null()) return {};
+    return PatRef(r.arena(), el.to_offset());
+}
+
+inline TypeRef pat_type(const PatRef& r, uint8_t key,
+                        const TypePoolImpl* pool) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return TypeRef{};
+    return TypeRef(r.arena(), av.to_offset(), pool);
+}
+
+} // namespace detail
+
+// PatTuple { bindings, binding_types, subs }
+struct PatTupleView {
+    PatRef self;
+    template <class F> void each_binding(F&& f) const noexcept {
+        detail::for_each_string(self, pk::BINDINGS.code, std::forward<F>(f));
+    }
+    template <class F> void each_binding_type(const TypePoolImpl* pool, F&& f) const noexcept {
+        detail::for_each_type(self, pk::BINDING_TYPES.code, pool, std::forward<F>(f));
+    }
+    template <class F> void each_sub(F&& f) const noexcept {
+        detail::for_each_pat(self, pk::SUBS.code, std::forward<F>(f));
+    }
+    uint64_t sub_count() const noexcept {
+        auto av = self.mirror()->get(pk::SUBS.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+    uint64_t binding_count() const noexcept {
+        auto av = self.mirror()->get(pk::BINDINGS.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+};
+
+// PatRange { lo: i64, hi: i64 }
+struct PatRangeView {
+    PatRef self;
+    int64_t lo() const noexcept { return detail::read_i64(self, pk::LO.code); }
+    int64_t hi() const noexcept { return detail::read_i64(self, pk::HI.code); }
+};
+
+// PatFieldBinding mirror { field_name, sub: 0|1 pattern }
+struct PatFieldBindingView {
+    PatRef self;
+    std::string_view field_name() const noexcept {
+        return detail::read_string(self, pk::FIELD_NAME.code);
+    }
+    PatRef sub() const noexcept { return detail::first_pat(self, pk::SUB.code); }
+};
+
+// PatStruct { struct_name, fields: Array<PatFieldBinding>, has_rest }
+struct PatStructView {
+    PatRef self;
+    std::string_view struct_name() const noexcept {
+        return detail::read_string(self, pk::STRUCT_NAME.code);
+    }
+    bool has_rest() const noexcept {
+        return detail::read_bool(self, pk::HAS_REST.code);
+    }
+    template <class F> void each_field(F&& f) const noexcept {
+        auto av = self.mirror()->get(pk::FIELDS.code, self.base());
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) continue;
+            f(PatFieldBindingView{PatRef(self.arena(), el.to_offset())});
+        }
+    }
+};
+
+// PatSlice { prefix, rest: 0|1, suffix }
+struct PatSliceView {
+    PatRef self;
+    template <class F> void each_prefix(F&& f) const noexcept {
+        detail::for_each_pat(self, pk::PREFIX.code, std::forward<F>(f));
+    }
+    template <class F> void each_rest(F&& f) const noexcept {
+        detail::for_each_pat(self, pk::REST.code, std::forward<F>(f));
+    }
+    template <class F> void each_suffix(F&& f) const noexcept {
+        detail::for_each_pat(self, pk::SUFFIX.code, std::forward<F>(f));
+    }
+    uint64_t prefix_count() const noexcept {
+        auto av = self.mirror()->get(pk::PREFIX.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+    uint64_t suffix_count() const noexcept {
+        auto av = self.mirror()->get(pk::SUFFIX.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+    PatRef rest() const noexcept { return detail::first_pat(self, pk::REST.code); }
+};
+
+// PatAt { name, sub: 0|1 pattern, type }
+struct PatAtView {
+    PatRef self;
+    std::string_view name() const noexcept { return detail::read_string(self, pk::NAME.code); }
+    PatRef           sub()  const noexcept { return detail::first_pat(self, pk::SUB.code); }
+    TypeRef          type(const TypePoolImpl* pool) const noexcept {
+        return detail::pat_type(self, pk::TYPE.code, pool);
+    }
+};
+
+// PatRefBind { name, is_mut, bind_type }
+struct PatRefBindView {
+    PatRef self;
+    std::string_view name() const noexcept { return detail::read_string(self, pk::NAME.code); }
+    bool             is_mut() const noexcept { return detail::read_bool(self, pk::IS_MUT.code); }
+    TypeRef          bind_type(const TypePoolImpl* pool) const noexcept {
+        return detail::pat_type(self, pk::BIND_TYPE.code, pool);
+    }
+};
+
+// PatRefPat { inner: 1 pattern, is_mut }
+struct PatRefPatView {
+    PatRef self;
+    bool             is_mut() const noexcept { return detail::read_bool(self, pk::IS_MUT.code); }
+    PatRef           inner()  const noexcept { return detail::first_pat(self, pk::INNER.code); }
 };
 
 // ── LStmt variant views ──────────────────────────────────────────────────
@@ -1191,6 +1380,11 @@ struct SLetElseView {
     StmtRef self;
     ExprRef  scrut() const noexcept       { return detail::stmt_sub_expr(self, sk::SCRUT.code); }
     BlockRef else_block() const noexcept  { return detail::stmt_sub_block(self, sk::ELSE_DIVERGE.code); }
+    PatRef   pat() const noexcept {
+        auto av = self.mirror()->get(sk::PAT.code, self.base());
+        if (av.is_null()) return {};
+        return PatRef(self.arena(), av.to_offset());
+    }
 };
 
 struct SBreakView {
