@@ -55,6 +55,7 @@ add_executable(logosc
     emit_module.cpp
     module_loader.cpp
     module_manifest.cpp
+    lir_mirror.cpp
     mono.cpp
     mono_subst.cpp
     mono_clone.cpp
