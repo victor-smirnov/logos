@@ -228,7 +228,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
     cur_fn_ret_logos_type_ = fn.ret_type;
 
-    gen_block(fn.body);
+    gen_block(block_ref_of(fn.body));
 
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::func::ReturnOp>(loc_);

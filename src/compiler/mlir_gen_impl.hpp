@@ -114,6 +114,10 @@ private:
         if (it == mirror_->pat.end()) return {};
         return lir_view::PatRef(prog_->type_pool.arena(), it->second);
     }
+    lir_view::BlockRef block_ref_of(const LBlock& b) const noexcept {
+        if (!prog_ || b.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::BlockRef(prog_->type_pool.arena(), b.mirror_offset_);
+    }
     const LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
         if (!mirror_) return nullptr;
         auto it = mirror_->block_by_offset.find(uint32_t(r.offset()));
@@ -360,10 +364,12 @@ private:
     bool gen_function_body(mlir::func::FuncOp func, const LFunction& fn);
 
     // ── Block ─────────────────────────────────────────────────────
-    void gen_block(const LBlock& block);
+    // Stage 3g.3: BlockRef / StmtRef in signatures so the dispatcher no
+    // longer round-trips offset → C++ block ptr → offset via lblock_of.
+    void gen_block(lir_view::BlockRef block);
 
     // ── Statements ────────────────────────────────────────────────
-    void gen_stmt(const LStmt& stmt);
+    void gen_stmt(lir_view::StmtRef stmt);
 
     void gen_stmt_kind(lir_view::SLetView v);
     void gen_stmt_kind(lir_view::SAssignView v);

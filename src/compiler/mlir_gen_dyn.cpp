@@ -997,7 +997,6 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     bool        as_fn_ptr_flag = v.as_fn_ptr();
 
     auto body_blk = v.body();
-    const LBlock* body_lblk = lblock_of(body_blk);
 
     // Non-capturing closure coerced to fn ptr: emit as plain function (no env_ptr).
     if (as_fn_ptr_flag) {
@@ -1043,7 +1042,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             scope_[params[i].first] = entry->getArgument(i);
         bool saved_in_llvm = in_llvm_func_;
         in_llvm_func_ = true;
-        if (body_lblk) gen_block(*body_lblk);
+        if (body_blk) gen_block(body_blk);
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
         in_llvm_func_ = saved_in_llvm;
@@ -1195,7 +1194,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     // Generate body (inside llvm.func — use llvm.return)
     bool saved_in_llvm = in_llvm_func_;
     in_llvm_func_ = true;
-    if (body_lblk) gen_block(*body_lblk);
+    if (body_blk) gen_block(body_blk);
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
     in_llvm_func_ = saved_in_llvm;

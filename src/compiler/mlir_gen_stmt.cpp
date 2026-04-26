@@ -14,19 +14,19 @@ using namespace lir;
 // Block
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_block(const LBlock& block) {
-    for (auto& s : block.stmts) {
-        if (is_terminated(builder_.getBlock())) break;
+void MLIRGenImpl::gen_block(lir_view::BlockRef block) {
+    if (!block) return;
+    block.each_stmt([&](lir_view::StmtRef s) {
+        if (is_terminated(builder_.getBlock())) return;
         gen_stmt(s);
-    }
+    });
 }
 
 // ---------------------------------------------------------------------------
 // Statement dispatch
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_stmt(const LStmt& stmt) {
-    auto sr = stmt_ref_of(stmt);
+void MLIRGenImpl::gen_stmt(lir_view::StmtRef sr) {
     if (!sr) {
         std::fprintf(stderr, "mlir_gen: gen_stmt called without LIR mirror\n");
         return;
@@ -89,7 +89,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { if (auto* le = le
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { if (auto* lb = lblock_of(v.body())) gen_block(*lb); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { gen_block(v.body()); }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     std::string var_name(v.var_name());
@@ -616,12 +616,12 @@ void MLIRGenImpl::gen_if(lir_view::SIfView v) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
 
     builder_.setInsertionPointToStart(then_block);
-    gen_block(*then_lb);
+    gen_block(v.then_block());
     bool then_falls = !is_terminated(builder_.getBlock());
     if (then_falls) builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
     builder_.setInsertionPointToStart(else_block);
-    if (else_lb) gen_block(*else_lb);
+    if (else_lb) gen_block(v.else_block());
     bool else_falls = !is_terminated(builder_.getBlock());
     if (else_falls) builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
@@ -657,7 +657,7 @@ void MLIRGenImpl::gen_while(lir_view::SWhileView v) {
 
     builder_.setInsertionPointToStart(body_block);
     loop_stack_.push_back({cond_block, exit_block, {}, label});
-    gen_block(*body_lb);
+    gen_block(v.body());
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
@@ -679,10 +679,10 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
         const LExpr* lo;
         const LExpr* hi;
         bool inclusive;
-        const LBlock* body;
+        lir_view::BlockRef body;
         std::string label;
     };
-    ForCtx s{std::string(v.var()), lo_le, hi_le, v.inclusive(), body_lb,
+    ForCtx s{std::string(v.var()), lo_le, hi_le, v.inclusive(), v.body(),
              std::string(v.label())};
     auto lo = gen_expr(*s.lo);
     auto hi = gen_expr(*s.hi);
@@ -758,7 +758,7 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
     builder_.setInsertionPointToStart(body_block);
     // continue → incr_block (so that i is incremented before re-checking)
     loop_stack_.push_back({incr_block, exit_block, {}, s.label});
-    gen_block(*s.body);
+    gen_block(s.body);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::cf::BranchOp>(loc_, incr_block);
@@ -816,7 +816,7 @@ void MLIRGenImpl::gen_loop(lir_view::SLoopView v) {
 
     builder_.setInsertionPointToStart(loop_block);
     loop_stack_.push_back({loop_block, exit_block, break_slot, label});
-    gen_block(*body_lb);
+    gen_block(v.body());
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
@@ -875,10 +875,10 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         TypeRef      elem_type;
         int64_t      arr_size;
         bool         is_slice;
-        const LBlock* body;
+        lir_view::BlockRef body;
     };
     ForEachCtx s{std::string(v.var()), iter_le, v.elem_type(pool_impl()),
-                 v.arr_size(), v.is_slice(), body_lb};
+                 v.arr_size(), v.is_slice(), v.body()};
     // Evaluate the iter (array/slice) expression.
     mlir::Type elem_mlir = logos_to_mlir(s.elem_type);
     if (!elem_mlir) return;
@@ -937,7 +937,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         let_vars_.insert(s.var);
 
         loop_stack_.push_back({incr_block, exit_block, {}, {}});
-        gen_block(*s.body);
+        gen_block(s.body);
         loop_stack_.pop_back();
 
         if (!is_terminated(builder_.getBlock()))
@@ -1018,7 +1018,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     region->push_back(incr_block);
 
     loop_stack_.push_back({incr_block, exit_block, {}, {}});
-    gen_block(*s.body);
+    gen_block(s.body);
     loop_stack_.pop_back();
 
     if (!is_terminated(builder_.getBlock()))
@@ -1961,7 +1961,6 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         auto arm_kind  = arm_pat ? arm_pat.kind() : pc::Code(-1);
         auto arm_guard_ref = arm_refs[i].guard();
         auto arm_body_ref  = arm_refs[i].body();
-        auto* body_lb      = lblock_of(arm_body_ref);
         auto* body_block   = new mlir::Block();
         region->push_back(body_block);
 
@@ -1985,7 +1984,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(body_block);
-                if (body_lb) gen_block(*body_lb);
+                if (arm_body_ref) gen_block(arm_body_ref);
                 if (!is_terminated(builder_.getBlock()))
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
             }
@@ -1995,7 +1994,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(body_block);
                 extract_payload(arm_pat);
-                if (body_lb) gen_block(*body_lb);
+                if (arm_body_ref) gen_block(arm_body_ref);
                 if (!is_terminated(builder_.getBlock()))
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
             }
@@ -2257,7 +2256,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         {
             mlir::OpBuilder::InsertionGuard ig(builder_);
             builder_.setInsertionPointToStart(dead);
-            gen_block(*else_lb);
+            gen_block(v.else_block());
             if (!is_terminated(builder_.getBlock()))
                 builder_.create<mlir::LLVM::UnreachableOp>(loc_);
         }
@@ -2320,7 +2319,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     {
         mlir::OpBuilder::InsertionGuard ig(builder_);
         builder_.setInsertionPointToStart(else_block);
-        gen_block(*else_lb);
+        gen_block(v.else_block());
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::LLVM::UnreachableOp>(loc_);
     }

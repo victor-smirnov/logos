@@ -2339,9 +2339,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETypeCodeOfView, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBlockExprView v, TypeRef) {
-    if (auto br = v.block(); br) {
-        if (auto* blk = lblock_of(br)) gen_block(*blk);
-    }
+    if (auto br = v.block(); br) gen_block(br);
     if (is_terminated(builder_.getBlock())) return nullptr;
     if (auto rr = v.result(); rr) {
         if (auto* r = lexpr_of(rr)) return gen_expr(*r);
