@@ -1341,22 +1341,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ECast>(_le->kind);
+    auto* op_le = lexpr_of(v.operand());
+    if (!op_le) return nullptr;
+    std::string hermes_build_fn(v.hermes_build_fn());
     // ── Hermes typed container cast: &[T] as <I32>[] → Hermes. ──────────
-    if (!e.hermes_build_fn.empty()) {
-        auto val = gen_expr(*e.operand);
+    if (!hermes_build_fn.empty()) {
+        auto val = gen_expr(*op_le);
         if (!val) return nullptr;
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-        auto build_fn = find_func_op(parent_mod, e.hermes_build_fn);
+        auto build_fn = find_func_op(parent_mod, hermes_build_fn);
         if (!build_fn) {
             std::fprintf(stderr, "mlir_gen: '%s' not found — add 'use std.hermes.ctr;'\n",
-                         e.hermes_build_fn.c_str());
+                         hermes_build_fn.c_str());
             return nullptr;
         }
         // fix3: dispatch by function name prefix, not arg count — getNumArguments() is fragile
         // (any future 3-arg array builder would silently take the wrong path).
-        if (e.hermes_build_fn.rfind("hermes_build_map_", 0) == 0) {
+        if (hermes_build_fn.rfind("hermes_build_map_", 0) == 0) {
             // Map source: alloca ptr to MapSliceI32 { &[i32], &[AnyVal] }.
             // LLVM layout: { ptr (→keys_slice {ptr,i64}), ptr (→vals_slice {ptr,i64}) }
             auto mtype = mlir::LLVM::LLVMStructType::getLiteral(
@@ -1400,13 +1401,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
 
-    auto val    = gen_expr(*e.operand);
+    auto val    = gen_expr(*op_le);
     if (!val) return nullptr;
 
     // str (Slice<u8> = fat pointer {ptr, i64}) as *const u8 → extract field 0.
     // Must be checked BEFORE the val.getType() == target early-return because
     // both the alloca ptr (fat struct) and *const u8 are !llvm.ptr in LLVM 17.
-    if (TypeRef ot(e.operand->type);
+    if (TypeRef ot(op_le->type);
         ot && ot.kind() == LogosType::Kind::Slice &&
         ot.elem() && ot.elem().kind() == LogosType::Kind::U8 &&
         type && TypeRef(type).kind() == LogosType::Kind::Ptr &&
@@ -1425,14 +1426,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     if (fi && ti) {
         if (ti.getWidth() > fi.getWidth()) {
             bool src_unsigned = fi.getWidth() == 1 ||
-                (e.operand->type &&
-                 (TypeRef(e.operand->type).kind() == LogosType::Kind::U8  ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U16 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U32 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U24 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U56 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U64 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U128));
+                (op_le->type &&
+                 (TypeRef(op_le->type).kind() == LogosType::Kind::U8  ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U16 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U32 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U24 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U56 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U64 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U128));
             if (src_unsigned)
                 return builder_.create<mlir::arith::ExtUIOp>(loc_, target, val);
             return builder_.create<mlir::arith::ExtSIOp>(loc_, target, val);
@@ -1446,14 +1447,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // Bool (i1) must be zero-extended before conversion: sitofp(i1(1)) = -1.0 (wrong),
         // uitofp(i1(1)) = 1.0 (correct).  Treat i1 the same as unsigned integers.
         bool src_unsigned = (val.getType() == builder_.getI1Type()) ||
-            (e.operand->type &&
-             (TypeRef(e.operand->type).kind() == LogosType::Kind::U8  ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U16 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U32 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U24 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U56 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U64 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U128));
+            (op_le->type &&
+             (TypeRef(op_le->type).kind() == LogosType::Kind::U8  ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U16 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U32 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U24 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U56 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U64 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U128));
         if (src_unsigned)
             return builder_.create<mlir::arith::UIToFPOp>(loc_, target, val);
         return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
@@ -1485,14 +1486,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     // int → ptr
     if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) && target == ptr_type()) {
         mlir::Value v64;
-        bool src_unsigned = e.operand->type &&
-            (TypeRef(e.operand->type).kind() == LogosType::Kind::U8  ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U16 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U32 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U24 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U56 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U64 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U128);
+        bool src_unsigned = op_le->type &&
+            (TypeRef(op_le->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U128);
         if (src_unsigned && val.getType() != builder_.getI64Type())
             v64 = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), val);
         else

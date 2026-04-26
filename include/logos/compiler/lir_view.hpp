@@ -334,6 +334,9 @@ struct ETupleIndexView {
 struct ECastView {
     ExprRef self;
     ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
+    std::string_view hermes_build_fn() const noexcept {
+        return detail::read_string(self, ek::HERMES_BUILD_FN.code);
+    }
 };
 
 // EIndexRead { receiver: LExpr, index: LExpr }
