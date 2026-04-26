@@ -130,6 +130,9 @@ private:
         if (it == mirror_->stmt_by_offset.end()) return nullptr;
         return it->second;
     }
+    const TypePoolImpl* pool_impl() const noexcept {
+        return prog_ ? prog_->type_pool.impl() : nullptr;
+    }
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
     std::unordered_map<std::string, const LStructDef*> all_struct_defs_; // name→def for recursive registration

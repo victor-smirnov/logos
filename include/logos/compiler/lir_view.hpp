@@ -141,6 +141,13 @@ public:
 
     // Helper: reach a sub-expression via a sparse key (used by view structs).
     ExprRef sub_expr(uint8_t key) const noexcept;
+
+    // Helper: reach a sub-type (RelPtr<LogosType>) via a sparse key.
+    TypeRef sub_type(uint8_t key, const TypePoolImpl* pool) const noexcept {
+        auto av = mirror()->get(key, base());
+        if (av.is_null()) return TypeRef{};
+        return TypeRef(arena(), av.to_offset(), pool);
+    }
 };
 
 // ── StmtRef ───────────────────────────────────────────────────────────────
@@ -596,12 +603,38 @@ struct EClosureBoxView {
 // underlying variant. Promoted to richer accessors as call-sites migrate.
 
 struct EAddrOfTempView { ExprRef self; };
-struct EEnumLitView    { ExprRef self; };
-struct ESizeOfView     { ExprRef self; };
-struct ETypeCodeOfView { ExprRef self; };
+
+struct EEnumLitView {
+    ExprRef self;
+    std::string_view enum_name() const noexcept { return detail::read_string(self, ek::ENUM_NAME.code); }
+    std::string_view variant()   const noexcept { return detail::read_string(self, ek::VARIANT.code); }
+    int64_t          disc()      const noexcept { return detail::read_i64(self, ek::DISC.code); }
+};
+
+struct ESizeOfView {
+    ExprRef self;
+    TypeRef elem_type(const TypePoolImpl* pool) const noexcept {
+        return self.sub_type(ek::ELEM_TYPE.code, pool);
+    }
+};
+
+struct ETypeCodeOfView {
+    ExprRef self;
+    TypeRef elem_type(const TypePoolImpl* pool) const noexcept {
+        return self.sub_type(ek::ELEM_TYPE.code, pool);
+    }
+};
+
 struct EPtrArithView   { ExprRef self; };
 struct EPtrDiffView    { ExprRef self; };
-struct EReflectOfView  { ExprRef self; };
+
+struct EReflectOfView {
+    ExprRef self;
+    TypeRef type(const TypePoolImpl* pool) const noexcept {
+        return self.sub_type(ek::ELEM_TYPE.code, pool);
+    }
+};
+
 struct EHermesLitView  { ExprRef self; };
 struct EPackExpandView { ExprRef self; };
 

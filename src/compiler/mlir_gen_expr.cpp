@@ -292,12 +292,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EEnumLit>(_le->kind);
+    std::string enum_name(v.enum_name());
+    int64_t     disc = v.disc();
     // Tagged enum without payload (e.g. Option::None, HttpError::Io):
     // heap-allocate so the pointer can safely escape — including being stored
     // into another enum's payload slot as a pointer (EEnumLitData path).
-    auto* te = resolve_tagged_enum(e.enum_name, type);
+    auto* te = resolve_tagged_enum(enum_name, type);
     if (te) {
         mlir::Value size = sizeof_struct(te->llvm_type);
         auto heap = call_malloc(size);
@@ -305,13 +305,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(0)};
         auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), te->llvm_type, heap, idx);
-        auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
+        auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
         builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
         return heap;
     }
     // C-style enum: just the discriminant, sized per backing type.
     return builder_.create<mlir::arith::ConstantIntOp>(
-        loc_, e.disc, enum_disc_bits(e.enum_name));
+        loc_, disc, enum_disc_bits(enum_name));
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef type) {
@@ -2171,19 +2171,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPackExpandView, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ESizeOf>(_le->kind);
+    TypeRef elem_type = v.elem_type(pool_impl());
     // For Struct/Datatype: logos_to_mlir returns ptr_type() (always passed by pointer),
     // but sizeof needs the actual aggregate type, not the pointer.
     mlir::Type elem_mlir = nullptr;
-    if (e.elem_type && (TypeRef(e.elem_type).kind() == LogosType::Kind::Struct ||
-                        TypeRef(e.elem_type).kind() == LogosType::Kind::ZonedStruct)) {
-        auto cname = concrete_struct_name(e.elem_type);
+    if (elem_type && (elem_type.kind() == LogosType::Kind::Struct ||
+                      elem_type.kind() == LogosType::Kind::ZonedStruct)) {
+        auto cname = concrete_struct_name(elem_type);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end())
             elem_mlir = sit->second.llvm_type;
     }
-    if (!elem_mlir) elem_mlir = logos_to_mlir(e.elem_type);
+    if (!elem_mlir) elem_mlir = logos_to_mlir(elem_type);
     if (!elem_mlir) {
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
     }
@@ -2266,12 +2265,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrDiffView v, TypeRef) {
     return builder_.create<mlir::arith::DivSIOp>(loc_, diff, sz);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETypeCodeOfView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ETypeCodeOf>(_le->kind);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETypeCodeOfView, TypeRef) {
     // Should have been folded to ELitInt by mono.  Emit 0 as a defensive
     // fallback (not expected to be reached for well-formed programs).
-    (void)e;
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
 }
 
@@ -2699,13 +2695,11 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EReflectOfView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EReflectOf>(_le->kind);
     auto i8 = builder_.getIntegerType(8);
 
     // Compute symbol name deterministically from fqn (same formula as reflection_emit).
     std::string fqn;
-    if (TypeRef et = e.type) {
+    if (TypeRef et = v.type(pool_impl())) {
         auto pkg = et.pkg_name();
         auto sn  = et.struct_name();
         fqn = pkg.empty() ? std::string(sn) : std::string(pkg) + "::" + std::string(sn);
