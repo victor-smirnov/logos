@@ -82,14 +82,14 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     ft.closure_params.push_back(pt);
                 ft.closure_ret = fi.ret_type ? fi.ret_type : void_t();
                 auto fn_type = pool_.alloc(std::move(ft));
-                return make_expr(fn_type, lir::EVarRef{fi.symbol_name.empty() ? std::string(name) : fi.symbol_name});
+                return builder().var_ref(fi.symbol_name.empty() ? std::string(name) : fi.symbol_name, fn_type);
             }
             error(std::format("undefined variable '{}'", name));
             return error_expr();
         }
         if (moved_vars_.count(std::string(name)))
             error(std::format("use of moved variable '{}'", name));
-        return make_expr(t, lir::EVarRef{std::string(name)});
+        return builder().var_ref(std::string(name), t);
     }
 
     case la::PACK_EXPAND: {
@@ -423,7 +423,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         // we just read it back via EVarRef after the loop exits.
         auto block = std::make_unique<lir::LBlock>();
         block->stmts.push_back(std::move(loop_stmt));
-        auto slot_ref = make_expr(result_type, lir::EVarRef{break_slot});
+        auto slot_ref = builder().var_ref(break_slot, result_type);
         return make_expr(result_type, lir::EBlockExpr{std::move(block), std::move(slot_ref)});
     }
 
@@ -645,7 +645,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         error(std::format("unknown binary operator '{}'", op));
     }
 
-    return make_expr(result_type, lir::EBinOp{std::string(op), std::move(lhs), std::move(rhs)});
+    return builder().bin_op(std::string(op), std::move(lhs), std::move(rhs), result_type);
 }
 
 lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
@@ -772,7 +772,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 }
             }
         }
-        auto callee_expr = make_expr(callee_type, lir::EVarRef{std::string(callee)});
+        auto callee_expr = builder().var_ref(std::string(callee), callee_type);
         TypeRef ret = TypeRef(callee_type).closure_ret() ? TypeRef(callee_type).closure_ret() : void_t();
         if (is_fn_ptr)
             return make_expr(ret, lir::EFnPtrCall{std::move(callee_expr), std::move(arg_exprs)});
@@ -3007,7 +3007,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     error(std::format("undefined variable '{}' used as field shorthand", fname));
                     val = error_expr();
                 } else {
-                    val = make_expr(t, lir::EVarRef{std::string(fname)});
+                    val = builder().var_ref(std::string(fname), t);
                 }
             } else {
                 val = init.has_key(la::VALUE)
@@ -3331,7 +3331,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 auto ft = field_type_of(std::string(sname), fname);
                 lir::LExprPtr recv;
                 if (!base_var.empty()) {
-                    recv = make_expr(base_expr->type, lir::EVarRef{base_var});
+                    recv = builder().var_ref(base_var, base_expr->type);
                 } else {
                     // Complex base: re-lower (might evaluate twice, but rare)
                     recv = lower_expr(base_node);
@@ -3662,7 +3662,7 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     outer->stmts.push_back(make_stmt(node_line_, std::move(let_v)));
     outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
 
-    auto result = make_expr(vec_t, lir::EVarRef{vec_var});
+    auto result = builder().var_ref(vec_var, vec_t);
     return make_expr(vec_t, lir::EBlockExpr{std::move(outer), std::move(result)});
 }
 
@@ -3766,7 +3766,7 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     outer->stmts.push_back(make_stmt(node_line_, std::move(let_m)));
     outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
 
-    auto result = make_expr(hm_t, lir::EVarRef{hm_var});
+    auto result = builder().var_ref(hm_var, hm_t);
     return make_expr(hm_t, lir::EBlockExpr{std::move(outer), std::move(result)});
 }
 
@@ -3908,7 +3908,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     outer->stmts.push_back(make_stmt(node_line_, std::move(let_c)));
     outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
 
-    auto result = make_expr(ctr_t, lir::EVarRef{ctr_var});
+    auto result = builder().var_ref(ctr_var, ctr_t);
     return make_expr(ctr_t, lir::EBlockExpr{std::move(outer), std::move(result)});
 }
 
@@ -4065,7 +4065,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     outer->stmts.push_back(make_stmt(node_line_, std::move(let_c)));
     outer->stmts.push_back(make_stmt(node_line_, std::move(sfe)));
 
-    auto result = make_expr(ctr_t, lir::EVarRef{ctr_var});
+    auto result = builder().var_ref(ctr_var, ctr_t);
     return make_expr(ctr_t, lir::EBlockExpr{std::move(outer), std::move(result)});
 }
 
@@ -5533,7 +5533,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 value_idx = it->second;
             } else {
                 value_idx = static_cast<uint32_t>(hermes_cap_ctx_->exprs.size());
-                hermes_cap_ctx_->exprs.push_back(make_expr(var_type, lir::EVarRef{name}));
+                hermes_cap_ctx_->exprs.push_back(builder().var_ref(name, var_type));
                 hermes_cap_ctx_->types.push_back(var_type);
                 hermes_cap_ctx_->ident_dedup[name] = value_idx;
             }
