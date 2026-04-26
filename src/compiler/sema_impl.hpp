@@ -1084,8 +1084,10 @@ inline const LogosType* unify_int(const LogosType* a, const LogosType* b) noexce
     if (TypeRef(a).kind() == LogosType::Kind::IntLit) return b;
     if (TypeRef(b).kind() == LogosType::Kind::IntLit) return a;
     // Widen narrower to wider when safe: caller has already verified compat.
-    if (can_widen_int(a->kind, b->kind)) return b;
-    if (can_widen_int(b->kind, a->kind)) return a;
+    auto ak = TypeRef(a).kind();
+    auto bk = TypeRef(b).kind();
+    if (can_widen_int(ak, bk)) return b;
+    if (can_widen_int(bk, ak)) return a;
     return a;
 }
 
@@ -1100,8 +1102,10 @@ inline const LogosType* unify_int(const LogosType* a, const LogosType* b) noexce
 // fits literals coerce without an explicit `as` cast.
 inline void widen_int_expr(lir::LExprPtr& e, const LogosType* target) {
     if (!e || !target || !e->type) return;
-    if (e->type->kind == target->kind) return;
-    bool ok = can_widen_int(e->type->kind, target->kind);
+    auto ek = TypeRef(e->type).kind();
+    auto tk = TypeRef(target).kind();
+    if (ek == tk) return;
+    bool ok = can_widen_int(ek, tk);
     if (!ok && is_integer_kind(TypeRef(e->type).kind()) && is_integer_kind(TypeRef(target).kind())) {
         if (auto v = get_intlit_value(e.get()))
             if (intlit_fits(*v, TypeRef(target).kind()))

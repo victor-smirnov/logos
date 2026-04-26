@@ -197,7 +197,7 @@ private:
             bool src_unsigned = fi.getWidth() == 1;
             if (src_lt) {
                 using K = LogosType::Kind;
-                auto k = src_lt->kind;
+                auto k = TypeRef(src_lt).kind();
                 src_unsigned = src_unsigned ||
                     k == K::U8 || k == K::U16 || k == K::U24 || k == K::U32 ||
                     k == K::U56 || k == K::U64 || k == K::U128 || k == K::Bool;

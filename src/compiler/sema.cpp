@@ -1196,7 +1196,7 @@ std::string_view SemaChecker::struct_name_of(std::string_view var_name) {
     if (!t) return {};
     if (TypeRef(t).kind() == LogosType::Kind::Struct ||
         TypeRef(t).kind() == LogosType::Kind::ZonedStruct) return TypeRef(t).struct_name();
-    if (is_ref_like(t->kind) && TypeRef(t).pointee() &&
+    if (is_ref_like(TypeRef(t).kind()) && TypeRef(t).pointee() &&
         (TypeRef(t).pointee().kind() == LogosType::Kind::Struct ||
          TypeRef(t).pointee().kind() == LogosType::Kind::ZonedStruct))
         return TypeRef(t).pointee().struct_name();
@@ -1216,7 +1216,7 @@ std::string_view SemaChecker::struct_name_from_type(const LogosType* t) {
         }
         return TypeRef(t).struct_name();
     }
-    if (is_ref_like(t->kind) && TypeRef(t).pointee() &&
+    if (is_ref_like(TypeRef(t).kind()) && TypeRef(t).pointee() &&
         (TypeRef(t).pointee().kind() == LogosType::Kind::Struct ||
          TypeRef(t).pointee().kind() == LogosType::Kind::ZonedStruct)) {
         if (!TypeRef(t).pointee().type_args().empty()) {

@@ -2693,10 +2693,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
     auto is_zone_alloc_cap = [](const LogosType* t) -> bool {
         if (!t) return false;
         using K = LogosType::Kind;
-        if (t->kind == K::F64 || t->kind == K::F32 || t->kind == K::FloatLit) return true;
-        if (t->kind == K::Ptr) return true;  // *const u8 → C-string varchar
-        if (t->kind == K::Slice && TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) return true; // str → varchar
-        if (t->kind == K::Struct && TypeRef(t).struct_name() == "StringView") return true;
+        K tk = TypeRef(t).kind();
+        if (tk == K::F64 || tk == K::F32 || tk == K::FloatLit) return true;
+        if (tk == K::Ptr) return true;  // *const u8 → C-string varchar
+        if (tk == K::Slice && TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) return true; // str → varchar
+        if (tk == K::Struct && TypeRef(t).struct_name() == "StringView") return true;
         return false;
     };
     bool any_zone_alloc = false;
@@ -2751,7 +2752,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
         for (auto* ct : e.capture_types) {
             using K = LogosType::Kind;
             if (!ct || !is_zone_alloc_cap(ct)) continue;
-            if (ct->kind == K::F64 || ct->kind == K::F32 || ct->kind == K::FloatLit)
+            K ctk = TypeRef(ct).kind();
+            if (ctk == K::F64 || ctk == K::F32 || ctk == K::FloatLit)
                 extra_cap_bytes += 16;
             else
                 extra_cap_bytes += 4096;  // string: generous estimate
@@ -2781,11 +2783,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
 
             if (is_zone_alloc_cap(ct)) {
                 using K = LogosType::Kind;
-                if ((ct->kind == K::F64 || ct->kind == K::F32 ||
-                     ct->kind == K::FloatLit) && alloc_f64_fn) {
+                K ctk = TypeRef(ct).kind();
+                if ((ctk == K::F64 || ctk == K::F32 ||
+                     ctk == K::FloatLit) && alloc_f64_fn) {
                     // Widen f32 → f64 if needed. FloatLit defaults to f64.
                     mlir::Value f64_val = cap_val;
-                    if (ct->kind == K::F32) {
+                    if (ctk == K::F32) {
                         auto f64_type = builder_.getF64Type();
                         f64_val = builder_.create<mlir::arith::ExtFOp>(loc_, f64_type, cap_val);
                     }
@@ -2797,12 +2800,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_f64_fn, mlir::ValueRange{ctr_alloca, f64_val});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
-                } else if (ct->kind == K::Ptr && alloc_cstr_fn) {
+                } else if (ctk == K::Ptr && alloc_cstr_fn) {
                     // *const u8 — treat as null-terminated C-string.
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_cstr_fn, mlir::ValueRange{ctr_alloca, cap_val});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
-                } else if (ct->kind == K::Slice && TypeRef(ct).elem() && TypeRef(ct).elem().kind() == K::U8
+                } else if (ctk == K::Slice && TypeRef(ct).elem() && TypeRef(ct).elem().kind() == K::U8
                            && alloc_str_fn) {
                     // str (&[u8]) fat pointer — load ptr+len fields from the alloca.
                     auto stype = slice_llvm_type();
@@ -2816,7 +2819,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, const LogosType* ret
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_str_fn, mlir::ValueRange{ctr_alloca, sv_ptr, sv_len});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
-                } else if (ct->kind == K::Struct && TypeRef(ct).struct_name() == "StringView"
+                } else if (ctk == K::Struct && TypeRef(ct).struct_name() == "StringView"
                            && alloc_str_fn) {
                     // StringView: extract ptr (field 0) and len (field 1).
                     mlir::Value sv_ptr = builder_.create<mlir::LLVM::ExtractValueOp>(

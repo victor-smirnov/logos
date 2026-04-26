@@ -140,7 +140,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     error("'as <T>[]': source slice has unresolved element type");
                     return error_expr();
                 }
-                if (elem_t->kind != TypeRef(src).elem().kind()) {
+                if (TypeRef(elem_t).kind() != TypeRef(src).elem().kind()) {
                     error(std::format(
                         "'as <T>[]' element type mismatch: slice has '{}', target needs '{}'",
                         type_str(TypeRef(src).elem()), type_str(elem_t)));
@@ -205,7 +205,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 bool found_map = false;
                 if (val_is_anyval) {
                     for (auto& mv : map_variants) {
-                        if (key_t->kind == mv.key_kind) {
+                        if (TypeRef(key_t).kind() == mv.key_kind) {
                             if (!src || TypeRef(src).kind() != LogosType::Kind::Struct ||
                                 TypeRef(src).struct_name() != mv.slice_name) {
                                 error(std::format(
@@ -1417,37 +1417,38 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
         const LogosType* t = ts[0];
         using K = LogosType::Kind;
+        K tk = TypeRef(t).kind();
         bool r = false;
-        if      (callee == "is_ptr")       r = (t->kind == K::Ptr);
-        else if (callee == "is_ref")       r = (t->kind == K::Ref);
-        else if (callee == "is_mut_ref")   r = (t->kind == K::MutRef);
-        else if (callee == "is_struct")    r = (t->kind == K::Struct);
-        else if (callee == "is_zoned")  r = (t->kind == K::ZonedStruct);
-        else if (callee == "is_enum")      r = (t->kind == K::Enum);
-        else if (callee == "is_tuple")     r = (t->kind == K::Tuple);
-        else if (callee == "is_slice")     r = (t->kind == K::Slice);
-        else if (callee == "is_array")     r = (t->kind == K::Array);
-        else if (callee == "is_bool")      r = (t->kind == K::Bool);
-        else if (callee == "is_float")     r = (t->kind == K::F32 || t->kind == K::F64);
-        else if (callee == "is_signed")    r = (t->kind == K::I8 || t->kind == K::I16 || t->kind == K::I24 ||
-                                                t->kind == K::I32 || t->kind == K::I56 || t->kind == K::I64 ||
-                                                t->kind == K::I128);
-        else if (callee == "is_unsigned")  r = (t->kind == K::U8 || t->kind == K::U16 || t->kind == K::U24 ||
-                                                t->kind == K::U32 || t->kind == K::U56 || t->kind == K::U64 ||
-                                                t->kind == K::U128);
-        else if (callee == "is_integer")   r = (t->kind == K::I8 || t->kind == K::I16 || t->kind == K::I24 ||
-                                                t->kind == K::I32 || t->kind == K::I56 || t->kind == K::I64 ||
-                                                t->kind == K::I128 ||
-                                                t->kind == K::U8 || t->kind == K::U16 || t->kind == K::U24 ||
-                                                t->kind == K::U32 || t->kind == K::U56 || t->kind == K::U64 ||
-                                                t->kind == K::U128);
-        else if (callee == "is_primitive") r = (t->kind == K::Bool || t->kind == K::F32 || t->kind == K::F64 ||
-                                                t->kind == K::I8 || t->kind == K::I16 || t->kind == K::I24 ||
-                                                t->kind == K::I32 || t->kind == K::I56 || t->kind == K::I64 ||
-                                                t->kind == K::I128 ||
-                                                t->kind == K::U8 || t->kind == K::U16 || t->kind == K::U24 ||
-                                                t->kind == K::U32 || t->kind == K::U56 || t->kind == K::U64 ||
-                                                t->kind == K::U128);
+        if      (callee == "is_ptr")       r = (tk == K::Ptr);
+        else if (callee == "is_ref")       r = (tk == K::Ref);
+        else if (callee == "is_mut_ref")   r = (tk == K::MutRef);
+        else if (callee == "is_struct")    r = (tk == K::Struct);
+        else if (callee == "is_zoned")  r = (tk == K::ZonedStruct);
+        else if (callee == "is_enum")      r = (tk == K::Enum);
+        else if (callee == "is_tuple")     r = (tk == K::Tuple);
+        else if (callee == "is_slice")     r = (tk == K::Slice);
+        else if (callee == "is_array")     r = (tk == K::Array);
+        else if (callee == "is_bool")      r = (tk == K::Bool);
+        else if (callee == "is_float")     r = (tk == K::F32 || tk == K::F64);
+        else if (callee == "is_signed")    r = (tk == K::I8 || tk == K::I16 || tk == K::I24 ||
+                                                tk == K::I32 || tk == K::I56 || tk == K::I64 ||
+                                                tk == K::I128);
+        else if (callee == "is_unsigned")  r = (tk == K::U8 || tk == K::U16 || tk == K::U24 ||
+                                                tk == K::U32 || tk == K::U56 || tk == K::U64 ||
+                                                tk == K::U128);
+        else if (callee == "is_integer")   r = (tk == K::I8 || tk == K::I16 || tk == K::I24 ||
+                                                tk == K::I32 || tk == K::I56 || tk == K::I64 ||
+                                                tk == K::I128 ||
+                                                tk == K::U8 || tk == K::U16 || tk == K::U24 ||
+                                                tk == K::U32 || tk == K::U56 || tk == K::U64 ||
+                                                tk == K::U128);
+        else if (callee == "is_primitive") r = (tk == K::Bool || tk == K::F32 || tk == K::F64 ||
+                                                tk == K::I8 || tk == K::I16 || tk == K::I24 ||
+                                                tk == K::I32 || tk == K::I56 || tk == K::I64 ||
+                                                tk == K::I128 ||
+                                                tk == K::U8 || tk == K::U16 || tk == K::U24 ||
+                                                tk == K::U32 || tk == K::U56 || tk == K::U64 ||
+                                                tk == K::U128);
         return bool_lit(r);
     }
 
@@ -2088,7 +2089,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (!inside_unsafe_)
             error("method call through raw pointer requires unsafe context");
         recv_inner = TypeRef(recv_inner).pointee().raw();
-    } else if (recv_inner && is_ref_like(recv_inner->kind) && TypeRef(recv_inner).pointee()) {
+    } else if (recv_inner && is_ref_like(TypeRef(recv_inner).kind()) && TypeRef(recv_inner).pointee()) {
         recv_inner = TypeRef(recv_inner).pointee().raw();
     }
     if (TypeRef(recv_inner).kind() == LogosType::Kind::TypeVar) {
@@ -2398,7 +2399,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // Auto-ref receiver if method expects &Self / &mut Self.
                 if (!fi_ptr->param_types.empty()) {
                     auto* formal0 = fi_ptr->param_types[0];
-                    if (formal0 && is_ref_like(formal0->kind) && recv->type &&
+                    if (formal0 && is_ref_like(TypeRef(formal0).kind()) && recv->type &&
                         !is_ref_like(TypeRef(recv->type).kind()) &&
                         TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                         bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
@@ -2417,7 +2418,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // Auto-ref receiver if method expects &Self / &mut Self.
             if (!fi_ptr->param_types.empty()) {
                 auto* formal0 = fi_ptr->param_types[0];
-                if (formal0 && is_ref_like(formal0->kind) && recv->type &&
+                if (formal0 && is_ref_like(TypeRef(formal0).kind()) && recv->type &&
                     !is_ref_like(TypeRef(recv->type).kind()) &&
                     TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
@@ -2448,7 +2449,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         const LogosType* rst = recv->type;
         if (rst && TypeRef(rst).kind() == LogosType::Kind::Ptr && TypeRef(rst).pointee()) {
             rst = TypeRef(rst).pointee().raw();
-        } else if (rst && is_ref_like(rst->kind) && TypeRef(rst).pointee()) {
+        } else if (rst && is_ref_like(TypeRef(rst).kind()) && TypeRef(rst).pointee()) {
             rst = TypeRef(rst).pointee().raw();
         }
         if ((TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) &&
@@ -2481,7 +2482,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
                     TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
                     TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                    is_ref_like(formal0->kind) && TypeRef(formal0).pointee() &&
+                    is_ref_like(TypeRef(formal0).kind()) && TypeRef(formal0).pointee() &&
                     types_equal(actual0, TypeRef(formal0).pointee())) {
                     needs_ref = true;
                     needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
@@ -2554,7 +2555,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
                         TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
                         TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                        is_ref_like(formal0->kind) && TypeRef(formal0).pointee() &&
+                        is_ref_like(TypeRef(formal0).kind()) && TypeRef(formal0).pointee() &&
                         types_equal(actual0, TypeRef(formal0).pointee())) {
                         needs_ref = true;
                         needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
@@ -2636,7 +2637,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // Type arg = receiver's concrete type (unwrapped from ref/ptr).
             const LogosType* recv_inner = recv->type;
             if (recv_inner && (TypeRef(recv_inner).kind() == LogosType::Kind::Ptr ||
-                               is_ref_like(recv_inner->kind)) && TypeRef(recv_inner).pointee())
+                               is_ref_like(TypeRef(recv_inner).kind())) && TypeRef(recv_inner).pointee())
                 recv_inner = TypeRef(recv_inner).pointee().raw();
             // Auto-ref: if method expects &self / &mut self but recv is a
             // value, take its address.
@@ -2686,7 +2687,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (!inside_unsafe_)
                 error("method call through raw pointer requires unsafe context");
             if (TypeRef(rst).pointee().raw()) rst = TypeRef(rst).pointee().raw();
-        } else if (rst && is_ref_like(rst->kind) && TypeRef(rst).pointee()) {
+        } else if (rst && is_ref_like(TypeRef(rst).kind()) && TypeRef(rst).pointee()) {
             rst = TypeRef(rst).pointee().raw();
         }
         if ((TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(rst).type_args().empty()) {
@@ -2804,7 +2805,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& tp : fi.type_params) struct_only.erase(tp.name);
             // Re-add only receiver-derived ones.
             const LogosType* rst = recv->type;
-            if (rst && (TypeRef(rst).kind() == LogosType::Kind::Ptr || is_ref_like(rst->kind)) && TypeRef(rst).pointee())
+            if (rst && (TypeRef(rst).kind() == LogosType::Kind::Ptr || is_ref_like(TypeRef(rst).kind())) && TypeRef(rst).pointee())
                 rst = TypeRef(rst).pointee().raw();
             if (rst && (TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct)) {
                 SemaStructInfo* si2 = nullptr;
@@ -2859,7 +2860,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         if (!inside_unsafe_)
             error("field read through raw pointer requires unsafe context");
         recv_base_t = TypeRef(recv_base_t).pointee().raw();
-    } else if (recv_base_t && is_ref_like(recv_base_t->kind)) {
+    } else if (recv_base_t && is_ref_like(TypeRef(recv_base_t).kind())) {
         recv_base_t = TypeRef(recv_base_t).pointee().raw();
     }
 
