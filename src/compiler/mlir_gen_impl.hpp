@@ -391,10 +391,10 @@ private:
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(const LExpr& e);
 
-    mlir::Value gen_expr_kind(const ELitInt& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ELitFloat& e, TypeRef);
-    mlir::Value gen_expr_kind(const ELitBool& e, TypeRef);
-    mlir::Value gen_expr_kind(const ELitStr& e, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ELitIntView v,   TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ELitFloatView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ELitBoolView v,  TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ELitStrView v,   TypeRef);
     mlir::Value gen_expr_kind(const EVarRef& e, TypeRef type);
     mlir::Value gen_expr_kind(const EEnumLit& e, TypeRef type);
     mlir::Value gen_expr_kind(const EEnumLitData& e, TypeRef type);

@@ -45,14 +45,37 @@ static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
-    return std::visit([&](auto& k) { return gen_expr_kind(k, e.type); }, e.kind);
+    if (auto er = expr_ref_of(e); er) {
+        using C = lir_schema::expr::Code;
+        switch (er.kind()) {
+        case C::LitInt:   return gen_expr_kind(lir_view::ELitIntView{er},   e.type);
+        case C::LitFloat: return gen_expr_kind(lir_view::ELitFloatView{er}, e.type);
+        case C::LitBool:  return gen_expr_kind(lir_view::ELitBoolView{er},  e.type);
+        case C::LitStr:   return gen_expr_kind(lir_view::ELitStrView{er},   e.type);
+        default: break;
+        }
+    }
+    return std::visit([&](auto& k) -> mlir::Value {
+        using K = std::decay_t<decltype(k)>;
+        if constexpr (std::is_same_v<K, ELitInt>   ||
+                      std::is_same_v<K, ELitFloat> ||
+                      std::is_same_v<K, ELitBool>  ||
+                      std::is_same_v<K, ELitStr>) {
+            // Unreachable: handled by the schema-switch above.
+            (void)k;
+            return {};
+        } else {
+            return gen_expr_kind(k, e.type);
+        }
+    }, e.kind);
 }
 
 // ---------------------------------------------------------------------------
 // Literals
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitInt& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitIntView v, TypeRef type) {
+    int64_t value = v.value();
     int width = 32;
     if (type) {
         switch (TypeRef(type).kind()) {
@@ -71,32 +94,32 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitInt& e, TypeRef type) {
         case LogosType::Kind::Bool: width = 1; break;
         case LogosType::Kind::IntLit:
             // Untyped literal: use i64 if value doesn't fit in i32.
-            if (e.value > INT32_MAX || e.value < INT32_MIN) width = 64;
+            if (value > INT32_MAX || value < INT32_MIN) width = 64;
             break;
         default: break;
         }
     }
-    return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value, width);
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, value, width);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitFloat& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitFloatView v, TypeRef type) {
     bool is_f32 = type && TypeRef(type).kind() == LogosType::Kind::F32;
     if (is_f32) {
         auto f32 = builder_.getF32Type();
         return builder_.create<mlir::arith::ConstantFloatOp>(
-            loc_, f32, llvm::APFloat(float(e.value)));
+            loc_, f32, llvm::APFloat(float(v.value())));
     }
     auto f64 = builder_.getF64Type();
     return builder_.create<mlir::arith::ConstantFloatOp>(
-        loc_, f64, llvm::APFloat(e.value));
+        loc_, f64, llvm::APFloat(v.value()));
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitBool& e, TypeRef) {
-    return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value ? 1 : 0, 1);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitBoolView v, TypeRef) {
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, v.value() ? 1 : 0, 1);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitStr& e, TypeRef) {
-    std::string raw = e.value;
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
+    std::string raw{v.value()};
     bool is_raw = raw.size() >= 3 && raw[0] == 'r' &&
                   (raw[1] == '"' || raw[1] == '#');
     if (is_raw) {

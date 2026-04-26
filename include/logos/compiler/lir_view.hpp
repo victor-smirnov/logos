@@ -80,6 +80,12 @@ inline int64_t read_i64(const RefBase& r, uint8_t key) noexcept {
     return *av.as_ptr<const int64_t>(r.base());
 }
 
+inline double read_f64(const RefBase& r, uint8_t key) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return 0.0;
+    return *av.as_ptr<const double>(r.base());
+}
+
 inline std::optional<int64_t> read_i64_opt(const RefBase& r, uint8_t key) noexcept {
     auto av = r.mirror()->get(key, r.base());
     if (av.is_null()) return std::nullopt;
@@ -373,6 +379,21 @@ struct EMatchExprView {
 struct ELitIntView {
     ExprRef self;
     int64_t value() const noexcept { return detail::read_i64(self, ek::LIT_I64.code); }
+};
+
+struct ELitFloatView {
+    ExprRef self;
+    double value() const noexcept { return detail::read_f64(self, ek::LIT_F64.code); }
+};
+
+struct ELitBoolView {
+    ExprRef self;
+    bool value() const noexcept { return detail::read_bool(self, ek::LIT_BOOL.code); }
+};
+
+struct ELitStrView {
+    ExprRef self;
+    std::string_view value() const noexcept { return detail::read_string(self, ek::LIT_STR.code); }
 };
 
 struct EBinOpView {
