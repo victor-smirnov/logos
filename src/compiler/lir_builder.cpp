@@ -10,16 +10,17 @@
 namespace logos::compiler {
 
 namespace {
-// Stage 3g.1: every builder-constructed node is also mirrored into the
-// program's Hermes zone immediately. The post-sema lir_mirror_emit_into
-// pass and mono's per-clone emit still run unchanged; both are now
-// no-ops on builder-created nodes (table cache hits).
+// Stage 3g.1: builder carries a prog& so future per-node mirror emits can
+// hook in here. Eager emit is currently disabled because sema's TypePool
+// (`pool_`) and prog.type_pool are distinct Arenas during lowering — they
+// are unified only at sema's end via `prog.type_pool = std::move(pool_)`.
+// Until that identity is fixed (separate slice in 3g), mirror emission is
+// done as a single bulk pass at end of sema (see sema.cpp).
 template <class K>
-inline lir::LExprPtr make_expr(lir::LProgram& prog, TypeRef t, K&& k) {
+inline lir::LExprPtr make_expr(lir::LProgram& /*prog*/, TypeRef t, K&& k) {
     auto e = std::make_unique<lir::LExpr>();
     e->type = t;
     e->kind = std::forward<K>(k);
-    lir_mirror_emit_expr_node(prog, *e);
     return e;
 }
 } // anonymous

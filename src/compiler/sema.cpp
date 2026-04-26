@@ -15,6 +15,7 @@
 
 #include "sema_impl.hpp"
 
+#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/sema_schema.hpp>
 #include <logos/hermes/arena.hpp>
@@ -1034,6 +1035,13 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     prog.type_pool  = std::move(pool_);
     prog.metaprog_handlers = std::move(metaprog_handlers_);
     prog.metaprog_targets = std::move(metaprog_targets_);
+
+    // Stage 3g.1: populate prog.mirror_table after type_pool is finalised so
+    // mirror offsets share the same arena as TypeRef offsets and survive the
+    // move into mono. mono now reads in_.mirror_table directly instead of
+    // building its own.
+    lir_mirror_emit_into(prog, *prog.mirror_table);
+
     return prog;
 }
 
