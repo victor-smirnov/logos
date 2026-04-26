@@ -360,56 +360,70 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
     return {nullptr, {}};
 }
 
-mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
-    if (e.name == "AnyVal") {
+mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
+    namespace ec = lir_schema::expr;
+    std::string name(v.name());
+    if (name == "AnyVal") {
         // AnyVal is lowered as a scalar i32 everywhere in MLIR.
         // Hermes source still spells it as a struct literal (`AnyVal { raw: ... }`),
         // so treat that syntax as a constructor for the raw slot value.
-        if (e.fields.size() != 1 || e.fields.front().first != "raw") {
+        std::vector<std::pair<std::string, lir_view::ExprRef>> fields;
+        v.each_field([&](std::string_view fn, lir_view::ExprRef val){
+            fields.emplace_back(std::string(fn), val);
+        });
+        if (fields.size() != 1 || fields.front().first != "raw") {
             std::fprintf(stderr, "mlir_gen: AnyVal literal expects a single 'raw' field\n");
             return nullptr;
         }
-        auto raw = gen_expr(*e.fields.front().second);
+        auto* le = lexpr_of(fields.front().second); if (!le) return nullptr;
+        auto raw = gen_expr(*le);
         if (!raw) return nullptr;
         return coerce_numeric(raw, builder_.getI32Type());
     }
-    auto sit = struct_types_.find(e.name);
+    auto sit = struct_types_.find(name);
     if (sit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: unknown struct '%s'\n", e.name.c_str());
+        std::fprintf(stderr, "mlir_gen: unknown struct '%s'\n", name.c_str());
         return nullptr;
     }
     auto& info  = sit->second;
     auto alloca = create_entry_alloca(info.llvm_type);
-    for (auto& [fname, fval] : e.fields) {
+    bool ok = true;
+    v.each_field([&](std::string_view fn_sv, lir_view::ExprRef fval){
+        if (!ok) return;
+        std::string fname(fn_sv);
         // Find field metadata.
         const FieldInfo* fi = nullptr;
         for (auto& f : info.fields) if (f.name == fname) { fi = &f; break; }
 
         auto gep = gep_field(alloca, info, fname);
-        if (!gep) return nullptr;
+        if (!gep) { ok = false; return; }
 
         // Special case: if the field is an inline array (LLVMArrayType) and
         // the initialiser is an EArrLit, copy elements one-by-one into the
         // struct field instead of storing a pointer returned by gen_arr_lit.
         auto arr_llvm = fi ? mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(fi->type)
                            : mlir::LLVM::LLVMArrayType{};
-        if (arr_llvm && expr_ref_of(*fval).kind() == lir_schema::expr::Code::ArrLit) {
-            auto& arr_lit = std::get<EArrLit>(fval->kind);
+        if (arr_llvm && fval.kind() == ec::Code::ArrLit) {
+            lir_view::EArrLitView arr_view{fval};
             auto elem_type = arr_llvm.getElementType();
-            for (uint64_t i = 0; i < arr_lit.elems.size(); ++i) {
-                auto val = gen_expr(*arr_lit.elems[i]);
-                if (!val) return nullptr;
+            uint64_t n = arr_view.count();
+            for (uint64_t i = 0; i < n; ++i) {
+                auto er = arr_view.elem(i);
+                auto* le = lexpr_of(er); if (!le) { ok = false; return; }
+                auto val = gen_expr(*le);
+                if (!val) { ok = false; return; }
                 val = coerce_numeric(val, elem_type);
                 llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
                 auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), arr_llvm, gep, idx);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, elem_gep);
             }
-            continue;
+            return;
         }
 
-        auto val = gen_expr(*fval);
-        if (!val) return nullptr;
+        auto* fle = lexpr_of(fval); if (!fle) { ok = false; return; }
+        auto val = gen_expr(*fle);
+        if (!val) { ok = false; return; }
         // Coerce scalar literals to the field's declared type (e.g. IntLit→i64, FloatLit→f32).
         if (fi && fi->type && !mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type)) {
             if (mlir::isa<mlir::LLVM::LLVMStructType>(fi->type) &&
@@ -421,8 +435,8 @@ mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
             }
         }
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-    }
-    return alloca;
+    });
+    return ok ? alloca : nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -446,8 +460,8 @@ mlir::Type MLIRGenImpl::subscript_elem_type(const std::string& name) {
     return builder_.getI32Type();
 }
 
-mlir::Value MLIRGenImpl::gen_arr_lit(const EArrLit& e, mlir::Type elem_type) {
-    uint64_t n = e.elems.size();
+mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type) {
+    uint64_t n = v.count();
     auto arr_type = mlir::LLVM::LLVMArrayType::get(elem_type, n);
     auto alloca   = create_entry_alloca(arr_type);
     bool elem_is_array = elem_type && mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type);
@@ -455,12 +469,11 @@ mlir::Value MLIRGenImpl::gen_arr_lit(const EArrLit& e, mlir::Type elem_type) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(i)};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), elem_type, alloca, idx);
+        auto er = v.elem(i);
+        auto* le = lexpr_of(er); if (!le) return nullptr;
         if (elem_is_array) {
-            // For nested arrays: the sub-element is an EArrLit generating a pointer.
-            // We need to copy its contents element-by-element into gep.
-            auto inner_ptr = gen_expr(*e.elems[i]);
+            auto inner_ptr = gen_expr(*le);
             if (!inner_ptr) return nullptr;
-            // Copy the inner array by loading and storing
             auto inner_arr_type = mlir::cast<mlir::LLVM::LLVMArrayType>(elem_type);
             auto inner_elem_type = inner_arr_type.getElementType();
             for (uint64_t j = 0; j < inner_arr_type.getNumElements(); ++j) {
@@ -473,7 +486,7 @@ mlir::Value MLIRGenImpl::gen_arr_lit(const EArrLit& e, mlir::Type elem_type) {
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, dst_gep);
             }
         } else {
-            auto val = gen_expr(*e.elems[i]);
+            auto val = gen_expr(*le);
             if (!val) return nullptr;
             val = coerce_numeric(val, elem_type);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);

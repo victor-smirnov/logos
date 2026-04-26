@@ -825,17 +825,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ECall>(_le->kind);
+    namespace ec = lir_schema::expr;
+    std::string callee(v.callee());
+    std::vector<lir_view::ExprRef> arg_refs;
+    v.each_arg([&](lir_view::ExprRef ar){ arg_refs.push_back(ar); });
+    std::vector<const LExpr*> arg_les;
+    arg_les.reserve(arg_refs.size());
+    for (auto& ar : arg_refs) {
+        auto* le = lexpr_of(ar);
+        if (!le) return nullptr;
+        arg_les.push_back(le);
+    }
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
     // ── Compiler intrinsics recognised by name ────────────────────────────────
     // str_from_raw(ptr: *const u8, len: i64) -> str
     // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.
-    if (e.callee == "str__str_from_raw" || e.callee == "str_from_raw") {
-        if (e.args.size() == 2) {
-            auto ptr_v = gen_expr(*e.args[0]); if (!ptr_v) return nullptr;
-            auto len_v = gen_expr(*e.args[1]); if (!len_v) return nullptr;
+    if (callee == "str__str_from_raw" || callee == "str_from_raw") {
+        if (arg_les.size() == 2) {
+            auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+            auto len_v = gen_expr(*arg_les[1]); if (!len_v) return nullptr;
             auto stype  = slice_llvm_type();
             auto alloca = create_entry_alloca(stype);
             llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
@@ -851,48 +860,48 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
 
     // Bitwise intrinsics on u64 — emit LLVM dialect ops.
     // popcount/ctlz/cttz return i64 from i64 input; truncate to i32 for u32 return.
-    if (e.callee == "popcount_u64"        || e.callee == "leading_zeros_u64"  ||
-        e.callee == "trailing_zeros_u64"  || e.callee == "bswap_u64"          ||
-        e.callee == "bitreverse_u64") {
-        if (e.args.size() == 1) {
-            auto v = gen_expr(*e.args[0]); if (!v) return nullptr;
+    if (callee == "popcount_u64"        || callee == "leading_zeros_u64"  ||
+        callee == "trailing_zeros_u64"  || callee == "bswap_u64"          ||
+        callee == "bitreverse_u64") {
+        if (arg_les.size() == 1) {
+            auto v = gen_expr(*arg_les[0]); if (!v) return nullptr;
             auto i64_ty = builder_.getIntegerType(64);
             auto i32_ty = builder_.getIntegerType(32);
             v = coerce_int(v, i64_ty);
             mlir::Value res;
-            if (e.callee == "popcount_u64")
+            if (callee == "popcount_u64")
                 res = builder_.create<mlir::LLVM::CtPopOp>(loc_, i64_ty, v);
-            else if (e.callee == "leading_zeros_u64")
+            else if (callee == "leading_zeros_u64")
                 res = builder_.create<mlir::LLVM::CountLeadingZerosOp>(
                     loc_, i64_ty, v, /*is_zero_poison=*/false);
-            else if (e.callee == "trailing_zeros_u64")
+            else if (callee == "trailing_zeros_u64")
                 res = builder_.create<mlir::LLVM::CountTrailingZerosOp>(
                     loc_, i64_ty, v, /*is_zero_poison=*/false);
-            else if (e.callee == "bswap_u64")
+            else if (callee == "bswap_u64")
                 res = builder_.create<mlir::LLVM::ByteSwapOp>(loc_, i64_ty, v);
             else // bitreverse_u64
                 res = builder_.create<mlir::LLVM::BitReverseOp>(loc_, i64_ty, v);
             // popcount/ctlz/cttz: Logos return type is u32; truncate.
-            if (e.callee == "popcount_u64"       ||
-                e.callee == "leading_zeros_u64"  ||
-                e.callee == "trailing_zeros_u64")
+            if (callee == "popcount_u64"       ||
+                callee == "leading_zeros_u64"  ||
+                callee == "trailing_zeros_u64")
                 res = coerce_int(res, i32_ty);
             return res;
         }
     }
 
     // Check if this is a vararg extern fn (declared as llvm.func)
-    if (vararg_fns_.count(e.callee)) {
-        auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(e.callee);
+    if (vararg_fns_.count(callee)) {
+        auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(callee);
         if (!callee_fn) {
-            std::fprintf(stderr, "mlir_gen: undefined vararg function '%s'\n", e.callee.c_str());
+            std::fprintf(stderr, "mlir_gen: undefined vararg function '%s'\n", callee.c_str());
             return nullptr;
         }
         llvm::SmallVector<mlir::Value> args;
         auto fn_type   = callee_fn.getFunctionType();
         auto fixed_inputs = fn_type.getParams();
-        for (size_t i = 0; i < e.args.size(); ++i) {
-            auto v = gen_expr(*e.args[i]);
+        for (size_t i = 0; i < arg_les.size(); ++i) {
+            auto v = gen_expr(*arg_les[i]);
             if (!v) return nullptr;
             if (i < fixed_inputs.size()) v = coerce_numeric(v, fixed_inputs[i]);
             args.push_back(v);
@@ -906,16 +915,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         return res ? res : nullptr;
     }
 
-    auto callee_fn  = find_func_op(parent_mod, e.callee);
+    auto callee_fn  = find_func_op(parent_mod, callee);
     if (!callee_fn) {
-        auto gpos = e.callee.find("__g__");
+        auto gpos = callee.find("__g__");
         if (gpos != std::string::npos)
-            callee_fn = find_func_op(parent_mod, e.callee.substr(0, gpos));
+            callee_fn = find_func_op(parent_mod, callee.substr(0, gpos));
         if (!callee_fn) {
             // Generic instantiations may be emitted without their trailing
             // `__g__...` suffix in the call site.  Fall back to the concrete
             // generic symbol with the same base prefix.
-            std::string generic_prefix = e.callee + "__g__";
+            std::string generic_prefix = callee + "__g__";
             parent_mod.walk([&](mlir::func::FuncOp fn) {
                 auto fn_name = fn.getName().str();
                 if (fn_name.rfind(generic_prefix, 0) == 0) {
@@ -928,8 +937,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     }
     if (!callee_fn) {
         llvm::SmallVector<mlir::Value> args;
-        for (size_t i = 0; i < e.args.size(); ++i) {
-            auto v = gen_expr(*e.args[i]);
+        for (size_t i = 0; i < arg_les.size(); ++i) {
+            auto v = gen_expr(*arg_les[i]);
             if (!v) return nullptr;
             args.push_back(v);
         }
@@ -940,31 +949,33 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 result_types.push_back(ret_mlir);
         }
         auto call = builder_.create<mlir::func::CallOp>(
-            loc_, e.callee, result_types, mlir::ValueRange(args));
+            loc_, callee, result_types, mlir::ValueRange(args));
         return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
     llvm::SmallVector<mlir::Value> args;
     auto param_types = callee_fn.getFunctionType().getInputs();
     // Look up Logos-level param types for dyn coercion
-    auto fpit = fn_param_types_.find(e.callee);
-    for (size_t i = 0; i < e.args.size(); ++i) {
+    auto fpit = fn_param_types_.find(callee);
+    for (size_t i = 0; i < arg_les.size(); ++i) {
         mlir::Value v;
         // When the callee expects a pointer and the arg is an EFieldRead of an
         // inline-embedded struct, pass the field's GEP directly instead of
         // load+spill. This ensures mutations (e.g. &mut self.inner) write back
         // to the original struct, not a disconnected alloca copy.
-        if (i < param_types.size() && param_types[i] == ptr_type()) {
-            if (auto* fr = std::get_if<EFieldRead>(&e.args[i]->kind)) {
-                auto [base_ptr, base_sname] = gen_recv_struct(*fr->receiver);
+        if (i < param_types.size() && param_types[i] == ptr_type() &&
+            arg_refs[i].kind() == ec::Code::FieldRead) {
+            lir_view::EFieldReadView frv{arg_refs[i]};
+            auto* fr_recv_le = lexpr_of(frv.receiver());
+            std::string fr_field(frv.field());
+            if (fr_recv_le) {
+                auto [base_ptr, base_sname] = gen_recv_struct(*fr_recv_le);
                 if (base_ptr && !base_sname.empty()) {
                     auto bit = struct_types_.find(base_sname);
                     if (bit != struct_types_.end()) {
-                        auto gep = gep_field(base_ptr, bit->second, fr->field);
+                        auto gep = gep_field(base_ptr, bit->second, fr_field);
                         if (gep) {
-                            // Only use GEP directly when the field is an inline
-                            // struct — primitives/pointers don't need this.
                             for (auto& f : bit->second.fields) {
-                                if (f.name == fr->field &&
+                                if (f.name == fr_field &&
                                     mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
                                     v = gep;
                                     goto arg_push;
@@ -975,7 +986,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 }
             }
         }
-        v = gen_expr(*e.args[i]);
+        v = gen_expr(*arg_les[i]);
         if (!v) return nullptr;
     arg_push:
         // Coerce concrete struct/class → &dyn Trait if param expects it.
@@ -983,7 +994,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         // use T as the vtable key so the impl on T (not Box<T>) is looked up.
         if (fpit != fn_param_types_.end() && i < fpit->second.size()) {
             auto param_lt = fpit->second[i];
-            auto arg_lt = e.args[i]->type;
+            auto arg_lt = arg_refs[i].type(pool_impl());
             if (param_lt && TypeRef(param_lt).kind() == LogosType::Kind::TraitObject &&
                 arg_lt && TypeRef(arg_lt).kind() != LogosType::Kind::TraitObject) {
                 TypeRef vt_type = arg_lt;
@@ -1001,7 +1012,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
                 v = spill_to_alloca(v);
             else if (v.getType() != ptr_type())
-                v = coerce_numeric(v, param_types[i], e.args[i]->type);
+                v = coerce_numeric(v, param_types[i], arg_refs[i].type(pool_impl()));
         }
         args.push_back(v);
     }
@@ -1010,55 +1021,66 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_logos_type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EMethodCall>(_le->kind);
-    if (e.method == "as_offset" && e.receiver && e.receiver->type) {
-        const auto rt = e.receiver->type;
+    std::string method(v.method());
+    std::string tag_system(v.tag_system());
+    std::string resolved_type(v.resolved_type());
+    std::string resolved_symbol(v.resolved_symbol());
+    int32_t     vtable_index = v.vtable_index();
+    auto recv_ref = v.receiver();
+    auto* recv_le = lexpr_of(recv_ref);
+    if (!recv_le) return nullptr;
+    TypeRef recv_t = recv_ref.type(pool_impl());
+
+    std::vector<lir_view::ExprRef>    arg_refs;
+    v.each_arg([&](lir_view::ExprRef ar){ arg_refs.push_back(ar); });
+    std::vector<const LExpr*> arg_les;
+    arg_les.reserve(arg_refs.size());
+    for (auto& ar : arg_refs) {
+        auto* le = lexpr_of(ar);
+        if (!le) return nullptr;
+        arg_les.push_back(le);
+    }
+
+    if (method == "as_offset" && recv_t) {
         bool is_anyval =
-            type_str(rt) == "AnyVal" ||
-            ((TypeRef(rt).kind() == LogosType::Kind::Ptr ||
-              TypeRef(rt).kind() == LogosType::Kind::Ref ||
-              TypeRef(rt).kind() == LogosType::Kind::MutRef) &&
-             TypeRef(rt).pointee() && type_str(TypeRef(rt).pointee()) == "AnyVal");
+            type_str(recv_t) == "AnyVal" ||
+            ((recv_t.kind() == LogosType::Kind::Ptr ||
+              recv_t.kind() == LogosType::Kind::Ref ||
+              recv_t.kind() == LogosType::Kind::MutRef) &&
+             recv_t.pointee() && type_str(recv_t.pointee()) == "AnyVal");
         if (is_anyval) {
-        auto recv = gen_expr(*e.receiver);
-        if (!recv) return nullptr;
-        if (recv.getType() == ptr_type())
-            return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
-        return coerce_numeric(recv, builder_.getI32Type());
+            auto recv = gen_expr(*recv_le);
+            if (!recv) return nullptr;
+            if (recv.getType() == ptr_type())
+                return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
+            return coerce_numeric(recv, builder_.getI32Type());
         }
     }
-    // &tagged<TS> Trait dispatch: read type_code, GEP tier-1 table, indirect call.
-    if (!e.tag_system.empty()) {
+    // Tagged- and dyn-dispatch helpers still consume the raw EMethodCall variant;
+    // pull it from lexpr_of(v.self) for the duration of Phase 3e.
+    if (!tag_system.empty()) {
+        auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+        auto& e = std::get<EMethodCall>(_le->kind);
         return gen_tagged_dispatch(e, ret_logos_type);
     }
-    // &dyn Trait dispatch: load vtable, GEP slot, indirect call
-    if (e.receiver->type &&
-        TypeRef(e.receiver->type).kind() == LogosType::Kind::TraitObject &&
-        e.vtable_index >= 0) {
+    if (recv_t && recv_t.kind() == LogosType::Kind::TraitObject && vtable_index >= 0) {
+        auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+        auto& e = std::get<EMethodCall>(_le->kind);
         return gen_dyn_dispatch(e, ret_logos_type);
     }
-    auto [ptr, tname] = gen_recv_struct(*e.receiver);
+    auto [ptr, tname] = gen_recv_struct(*recv_le);
     if (!ptr || tname.empty()) return nullptr;
     if (tname == "AnyVal" && ptr.getType() != ptr_type()) {
         auto slot = create_entry_alloca(builder_.getI32Type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
         ptr = slot;
     }
-    // Direct call:
-    // 1) prefer sema-resolved concrete symbol (overload-safe),
-    // 2) fallback to legacy TypeName__method lookup.
-    // If resolved_type is set (inherited method), use the defining class name.
-    const std::string& defining = e.resolved_type.empty() ? tname : e.resolved_type;
-    auto mangled    = defining + "__" + e.method;
-    auto callee_name = e.resolved_symbol.empty() ? mangled : e.resolved_symbol;
-    auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    auto callee_fn  = find_func_op(parent_mod, callee_name);
+    const std::string& defining = resolved_type.empty() ? tname : resolved_type;
+    auto mangled     = defining + "__" + method;
+    auto callee_name = resolved_symbol.empty() ? mangled : resolved_symbol;
+    auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    auto callee_fn   = find_func_op(parent_mod, callee_name);
     if (!callee_fn) {
-        // Generic struct methods may retain a trailing generic suffix in the
-        // instantiated symbol name, e.g. `Box$G1$i32__unwrap__g__Box$G1$T`.
-        // Fall back to the first function whose name starts with the concrete
-        // direct-call prefix.
         std::string generic_prefix = callee_name + "__g__";
         parent_mod.walk([&](mlir::func::FuncOp fn) {
             auto fn_name = fn.getName().str();
@@ -1069,9 +1091,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             return mlir::WalkResult::advance();
         });
     }
-    // If sema provided a resolved symbol and it wasn't found (e.g. mono renamed),
-    // try legacy receiver-based lookup as a final compatibility fallback.
-    if (!callee_fn && !e.resolved_symbol.empty()) {
+    if (!callee_fn && !resolved_symbol.empty()) {
         callee_name = mangled;
         callee_fn = find_func_op(parent_mod, callee_name);
         if (!callee_fn) {
@@ -1093,19 +1113,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     llvm::SmallVector<mlir::Value> args;
     args.push_back(ptr);
     auto param_types = callee_fn.getFunctionType().getInputs();
-    for (size_t i = 0; i < e.args.size(); ++i) {
-        auto v = gen_expr(*e.args[i]);
-        if (!v) return nullptr;
+    for (size_t i = 0; i < arg_les.size(); ++i) {
+        auto val = gen_expr(*arg_les[i]);
+        if (!val) return nullptr;
         size_t pi = i + 1;
         if (pi < param_types.size()) {
-            if (v.getType() != param_types[pi] &&
+            if (val.getType() != param_types[pi] &&
                 param_types[pi] == ptr_type() &&
-                mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
-                v = spill_to_alloca(v);
+                mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()))
+                val = spill_to_alloca(val);
             else
-                v = coerce_numeric(v, param_types[pi], e.args[i]->type);
+                val = coerce_numeric(val, param_types[pi], arg_refs[i].type(pool_impl()));
         }
-        args.push_back(v);
+        args.push_back(val);
     }
     auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
     return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
@@ -1298,20 +1318,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EStructLitView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EStructLit>(_le->kind);
-    return gen_struct_lit(e);
+    return gen_struct_lit(v);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EArrLitView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EArrLit>(_le->kind);
     mlir::Type elem_type = builder_.getI32Type();
     if (type && TypeRef(type).elem()) {
         auto et = logos_to_mlir(TypeRef(type).elem());
         if (et) elem_type = et;
     }
-    return gen_arr_lit(e, elem_type);
+    return gen_arr_lit(v, elem_type);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) {
@@ -1625,6 +1641,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type) {
     auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
     auto& e = std::get<EMatchExpr>(_le->kind);
+    namespace pc = lir_schema::pat;
+    std::vector<lir_view::EMatchArmRef> arm_refs;
+    v.each_arm([&](lir_view::EMatchArmRef a){ arm_refs.push_back(a); });
     mlir::Type result_type = logos_to_mlir(type);
     if (!result_type) return nullptr;
 
@@ -1665,29 +1684,30 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     mlir::Type scrut_type = scrut.getType();
 
     // Extract payload bindings for a PatVariantData arm into scope.
-    auto extract_arm_payload = [&](const EMatchArm& arm) -> std::vector<std::string> {
+    auto extract_arm_payload = [&](lir_view::PatRef pat_ref) -> std::vector<std::string> {
         std::vector<std::string> added;
-        if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) {
+        if (pat_ref.kind() == pc::Code::VariantData) {
+            lir_view::PatVariantDataView pvd{pat_ref};
+            std::vector<std::string> bindings;
+            pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+            int64_t pvd_disc = pvd.disc();
             if (te_info && scrut_ptr) {
                 llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
                 auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
                 const TaggedEnumInfo::VariantPayload* vp = nullptr;
                 for (auto& v : te_info->variants)
-                    if (v.disc == pvd->disc) { vp = &v; break; }
+                    if (v.disc == pvd_disc) { vp = &v; break; }
                 if (vp) {
                     llvm::SmallVector<mlir::Type> ft;
                     for (auto& t : vp->field_types) ft.push_back(t);
                     auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
                         builder_.getContext(), ft);
-                    for (size_t bi = 0; bi < pvd->bindings.size() &&
+                    for (size_t bi = 0; bi < bindings.size() &&
                                          bi < vp->field_types.size(); ++bi) {
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                         auto fp = builder_.create<mlir::LLVM::GEPOp>(
                             loc_, ptr_type(), pay_struct, pay_ptr, fi);
-                        // For inline structs (logos_to_mlir returns ptr but struct is stored
-                        // inline in the payload), fp already points to the struct bytes —
-                        // use fp directly as the variable (no extra load).
                         TypeRef lt = bi < vp->logos_types.size()
                                               ? vp->logos_types[bi] : nullptr;
                         bool is_inline_struct = lt &&
@@ -1699,18 +1719,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         if (is_inline_struct &&
                             (TypeRef(lt).kind() == LogosType::Kind::Struct ||
                              TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {
-                            // Bind the payload bytes directly: scope_[name]=fp
-                            // points at the inline struct, matching the normal
-                            // struct-var convention (scope_ holds a pointer
-                            // *to* the struct bytes, not a pointer-to-pointer).
-                            // Without this, SDrop would call T__drop(alloca)
-                            // where alloca is an 8-byte slot holding fp, so
-                            // T__drop would read garbage stack as field[1..]
-                            // and free an out-of-range pointer.
-                            scope_[pvd->bindings[bi]] = fp;
-                            let_vars_.insert(pvd->bindings[bi]);
-                            var_struct_[pvd->bindings[bi]] = concrete_struct_name(lt);
-                            added.push_back(pvd->bindings[bi]);
+                            scope_[bindings[bi]] = fp;
+                            let_vars_.insert(bindings[bi]);
+                            var_struct_[bindings[bi]] = concrete_struct_name(lt);
+                            added.push_back(bindings[bi]);
                         } else {
                             mlir::Value bound_val;
                             if (is_inline_struct) {
@@ -1721,23 +1733,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             }
                             auto alloca = create_entry_alloca(vp->field_types[bi]);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
-                            scope_[pvd->bindings[bi]] = alloca;
-                            let_vars_.insert(pvd->bindings[bi]);
-                            var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
-                            added.push_back(pvd->bindings[bi]);
+                            scope_[bindings[bi]] = alloca;
+                            let_vars_.insert(bindings[bi]);
+                            var_elem_types_[bindings[bi]] = vp->field_types[bi];
+                            added.push_back(bindings[bi]);
                         }
                     }
                 }
             }
-        } else if (auto* pw = std::get_if<PatWild>(&arm.pat)) {
-            if (pw->name != "_") {
+        } else if (pat_ref.kind() == pc::Code::Wild) {
+            std::string name(lir_view::PatWildView{pat_ref}.name());
+            if (!name.empty() && name != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
                 auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                scope_[pw->name] = alloca;
-                let_vars_.insert(pw->name);
-                var_elem_types_[pw->name] = sv.getType();
-                added.push_back(pw->name);
+                scope_[name] = alloca;
+                let_vars_.insert(name);
+                var_elem_types_[name] = sv.getType();
+                added.push_back(name);
             }
         }
         return added;
@@ -1747,35 +1760,39 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     bool exhaustive_discrete = false;
     if (e.scrut->type && TypeRef(e.scrut->type).kind() == LogosType::Kind::Bool) {
         bool has_true = false, has_false = false, has_wild = false;
-        for (auto& arm : e.arms) {
+        for (size_t ai = 0; ai < e.arms.size(); ++ai) {
+            auto& arm = e.arms[ai];
             if (arm.guard) continue;
-            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
-            auto check_bool = [&](const lir::Pattern& p) {
-                if (auto* pb = std::get_if<lir::PatBool>(&p)) {
-                    if (pb->value) has_true = true; else has_false = true;
+            auto pat_ref = arm_refs[ai].pat();
+            if (pat_ref.kind() == pc::Code::Wild) { has_wild = true; break; }
+            auto check_bool = [&](lir_view::PatRef p) {
+                if (p.kind() == pc::Code::Bool) {
+                    if (lir_view::PatBoolView{p}.value()) has_true = true; else has_false = true;
                 }
             };
-            if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
-                for (auto& alt : por->alts) check_bool(alt);
+            if (pat_ref.kind() == pc::Code::Or) {
+                lir_view::PatOrView{pat_ref}.each_alt([&](lir_view::PatRef a){ check_bool(a); });
             } else {
-                check_bool(arm.pat);
+                check_bool(pat_ref);
             }
         }
         exhaustive_discrete = has_wild || (has_true && has_false);
     } else if (e.scrut->type && TypeRef(e.scrut->type).kind() == LogosType::Kind::Enum) {
         std::set<int32_t> covered;
         bool has_wild = false;
-        auto cover_enum = [&](const lir::Pattern& p) {
-            if (auto* pv  = std::get_if<lir::PatVariant>(&p))     covered.insert(pv->disc);
-            else if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) covered.insert(pvd->disc);
+        auto cover_enum = [&](lir_view::PatRef p) {
+            if (p.kind() == pc::Code::Variant)          covered.insert(static_cast<int32_t>(lir_view::PatVariantView{p}.disc()));
+            else if (p.kind() == pc::Code::VariantData) covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{p}.disc()));
         };
-        for (auto& arm : e.arms) {
+        for (size_t ai = 0; ai < e.arms.size(); ++ai) {
+            auto& arm = e.arms[ai];
             if (arm.guard) continue;
-            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
-            if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
-                for (auto& alt : por->alts) cover_enum(alt);
+            auto pat_ref = arm_refs[ai].pat();
+            if (pat_ref.kind() == pc::Code::Wild) { has_wild = true; break; }
+            if (pat_ref.kind() == pc::Code::Or) {
+                lir_view::PatOrView{pat_ref}.each_alt([&](lir_view::PatRef a){ cover_enum(a); });
             } else {
-                cover_enum(arm.pat);
+                cover_enum(pat_ref);
             }
         }
         if (has_wild) {
@@ -1806,6 +1823,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     }
     for (int i = (int)e.arms.size() - 1; i >= 0; --i) {
         auto& arm = e.arms[i];
+        auto arm_pat_ref = arm_refs[i].pat();
         auto* body_block = new mlir::Block();
         region->push_back(body_block);
 
@@ -1819,7 +1837,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(guard_block);
-                guard_added = extract_arm_payload(arm);
+                guard_added = extract_arm_payload(arm_pat_ref);
                 auto gval = gen_expr(**arm.guard);
                 gval = coerce_int(gval, builder_.getI1Type());
                 builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
@@ -1842,7 +1860,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         } else {
             mlir::OpBuilder::InsertionGuard ig(builder_);
             builder_.setInsertionPointToStart(body_block);
-            auto added = extract_arm_payload(arm);
+            auto added = extract_arm_payload(arm_pat_ref);
             auto val = gen_expr(*arm.value);
             for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
             if (!is_terminated(builder_.getBlock())) {
@@ -1854,22 +1872,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             }
         }
 
-        bool is_wild = std::holds_alternative<PatWild>(arm.pat);
+        bool is_wild = arm_pat_ref.kind() == pc::Code::Wild;
+        auto get_disc = [](lir_view::PatRef p) -> int64_t {
+            switch (p.kind()) {
+            case pc::Code::Variant:     return lir_view::PatVariantView{p}.disc();
+            case pc::Code::VariantData: return lir_view::PatVariantDataView{p}.disc();
+            case pc::Code::Int:         return lir_view::PatIntView{p}.value();
+            case pc::Code::Bool:        return lir_view::PatBoolView{p}.value() ? 1 : 0;
+            default: return 0;
+            }
+        };
         if (is_wild) {
             else_block = arm_entry;
-        } else if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
-            auto get_disc = [](const lir::Pattern& p) -> int64_t {
-                if (auto* pv  = std::get_if<lir::PatVariant>(&p))     return pv->disc;
-                if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) return pvd->disc;
-                if (auto* pi  = std::get_if<lir::PatInt>(&p))         return pi->value;
-                if (auto* pb  = std::get_if<lir::PatBool>(&p))        return pb->value ? 1 : 0;
-                return 0;
-            };
+        } else if (arm_pat_ref.kind() == pc::Code::Or) {
+            std::vector<lir_view::PatRef> alts;
+            lir_view::PatOrView{arm_pat_ref}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
             mlir::Block* cur_else = else_block;
-            for (int64_t ai = static_cast<int64_t>(por->alts.size()) - 1; ai >= 0; --ai) {
+            for (int64_t ai = static_cast<int64_t>(alts.size()) - 1; ai >= 0; --ai) {
                 auto* test_block = new mlir::Block();
                 region->push_back(test_block);
-                int64_t disc = get_disc(por->alts[static_cast<size_t>(ai)]);
+                int64_t disc = get_disc(alts[static_cast<size_t>(ai)]);
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
                 auto disc_val = coerce_int(
@@ -1881,11 +1903,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             }
             else_block = cur_else;
         } else {
-            int64_t disc = 0;
-            if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;
-            else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) disc = pvd->disc;
-            else if (auto* pi = std::get_if<PatInt>(&arm.pat))  disc = pi->value;
-            else if (auto* pb = std::get_if<PatBool>(&arm.pat)) disc = pb->value ? 1 : 0;
+            int64_t disc = get_disc(arm_pat_ref);
 
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
@@ -1914,10 +1932,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& box = std::get<EClosureBox>(_le->kind);
-    if (!box.inner) return nullptr;
-    return gen_closure(*box.inner, type);
+    return gen_closure(v, type);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef type) {

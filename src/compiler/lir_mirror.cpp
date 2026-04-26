@@ -390,8 +390,24 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
     auto cap_types_av = type_array(c.capture_types);
     auto captures_av  = string_array(c.captures);
 
-    // Synthesize a small map; closure-id, params skipped for brevity in 3b
-    // (sema/codegen never reads the mirror — Phase 3d will add what's needed).
+    // Param names + types as parallel arrays.
+    hermes::AnyVal param_names_av, param_types_av;
+    if (!c.params.empty()) {
+        std::vector<hermes::AnyVal> n_elems, t_elems;
+        n_elems.reserve(c.params.size());
+        t_elems.reserve(c.params.size());
+        for (auto& p : c.params) {
+            n_elems.push_back(put_string(p.name));
+            t_elems.push_back(p.type ? type_av(p.type) : hermes::AnyVal{});
+        }
+        auto n_off = make_array(n_elems.size());
+        for (auto av : n_elems) array_push(n_off, av);
+        auto t_off = make_array(t_elems.size());
+        for (auto av : t_elems) array_push(t_off, av);
+        param_names_av = hermes::AnyVal::from_offset(n_off);
+        param_types_av = hermes::AnyVal::from_offset(t_off);
+    }
+
     auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureBox)
                             | (1ULL << 47));  // closure marker bit (synthetic)
     put(map_off, ck::BLOCK,         hermes::AnyVal::from_offset(body_off));
@@ -399,6 +415,8 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
         put(map_off, ck::NAME, put_string(c.closure_id));
     put(map_off, ck::CAPTURE_TYPES, cap_types_av);
     put(map_off, ck::CAPTURE_NAMES, captures_av);
+    put(map_off, ck::PARAM_NAMES,   param_names_av);
+    put(map_off, ck::PARAM_TYPES,   param_types_av);
     if (c.ret_type) put(map_off, ck::RET_TYPE, type_av(c.ret_type));
     put(map_off, ck::IS_MOVE,   put_bool(c.is_move));
     put(map_off, ck::AS_FN_PTR, put_bool(c.as_fn_ptr));

@@ -394,13 +394,13 @@ private:
     void gen_stmt_kind(lir_view::SChainFieldWriteView v);
 
     void gen_let(const SLet& s);
-    void gen_assign(const SAssign& s);
-    void gen_return(const SReturn& s);
+    void gen_assign(lir_view::SAssignView v);
+    void gen_return(lir_view::SReturnView v);
     void gen_if(const SIf& s);
     void gen_while(const SWhile& s);
     void gen_for(const SFor& s);
     void gen_loop(const SLoop& s);
-    void gen_break(const SBreak& s);
+    void gen_break(lir_view::SBreakView v);
     void gen_continue();
     void gen_for_each(const SForEach& s);
     void gen_field_write(const SFieldWrite& s);
@@ -410,7 +410,7 @@ private:
     void gen_index_write(const SIndexWrite& s);
     void gen_field_index_write(const SFieldIndexWrite& s);
     void gen_match(const SMatch& s);
-    void gen_delete(const SDelete& s);
+    void gen_delete(lir_view::SDeleteView v);
 
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(const LExpr& e);
@@ -440,7 +440,7 @@ private:
     mlir::Value gen_expr_kind(lir_view::ETupleLitView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type);
-    mlir::Value gen_closure(const EClosure& e, TypeRef);
+    mlir::Value gen_closure(lir_view::EClosureBoxView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EClosureCallView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ESliceLitView v, TypeRef);
@@ -465,12 +465,12 @@ private:
     mlir::Value gep_field(mlir::Value base, const StructInfo& info,
                           const std::string& field_name);
     std::pair<mlir::Value, std::string> gen_recv_struct(const LExpr& recv);
-    mlir::Value gen_struct_lit(const EStructLit& e);
+    mlir::Value gen_struct_lit(lir_view::EStructLitView v);
 
     // ── Array helpers ─────────────────────────────────────────────
     mlir::Value get_subscript_ptr(const std::string& name);
     mlir::Type subscript_elem_type(const std::string& name);
-    mlir::Value gen_arr_lit(const EArrLit& e, mlir::Type elem_type);
+    mlir::Value gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type);
 
     // ── format() built-in ─────────────────────────────────────────
     static int format_type_tag(TypeRef t) noexcept;

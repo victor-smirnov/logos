@@ -60,13 +60,13 @@ void MLIRGenImpl::gen_stmt(const LStmt& stmt) {
 }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(std::get<SLet>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(std::get<SAssign>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(std::get<SReturn>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(v); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(std::get<SIf>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(std::get<SWhile>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(std::get<SFor>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(std::get<SLoop>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(std::get<SBreak>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
     auto& s = std::get<SContinue>(lstmt_of(v.self)->kind);
     if (loop_stack_.empty()) return;
@@ -87,25 +87,26 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_wr
 void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldIndexWriteView v) { gen_field_index_write(std::get<SFieldIndexWrite>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { gen_expr(*std::get<SExprStmt>(lstmt_of(v.self)->kind).expr); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(std::get<SMatch>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(std::get<SDelete>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(std::get<SForEach>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { gen_block(*std::get<SBlock>(lstmt_of(v.self)->kind).body); }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
-    auto& s = std::get<SDrop>(lstmt_of(v.self)->kind);
-    auto it = scope_.find(s.var_name);
+    std::string var_name(v.var_name());
+    auto it = scope_.find(var_name);
     if (it == scope_.end()) return;
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
     // 1. Call user's explicit drop function (if any)
-    if (!s.drop_fn.empty()) {
-        auto fn = mod.lookupSymbol<mlir::func::FuncOp>(s.drop_fn);
+    std::string drop_fn(v.drop_fn());
+    if (!drop_fn.empty()) {
+        auto fn = mod.lookupSymbol<mlir::func::FuncOp>(drop_fn);
         if (fn)
             builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{it->second});
     }
 
     // 2. Auto-drop droppable fields (reverse field order)
-    if (TypeRef st(s.type); s.drop_fields && st && st.kind() == LogosType::Kind::Struct) {
+    if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st && st.kind() == LogosType::Kind::Struct) {
         auto sit = struct_types_.find(std::string(st.struct_name()));
         if (sit != struct_types_.end()) {
             auto& info = sit->second;
@@ -135,13 +136,15 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
 }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
-    auto& s = std::get<SDerefWrite>(lstmt_of(v.self)->kind);
-    auto ptr = gen_expr(*s.ptr);
-    auto val = gen_expr(*s.value);
+    auto* ptr_le = lexpr_of(v.ptr());
+    auto* val_le = lexpr_of(v.value());
+    if (!ptr_le || !val_le) return;
+    auto ptr = gen_expr(*ptr_le);
+    auto val = gen_expr(*val_le);
     if (!ptr || !val) return;
     // Determine element type from pointer's pointee type (handles both *T and &mut T)
     mlir::Type elem_type = nullptr;
-    TypeRef pt(s.ptr->type);
+    TypeRef pt(ptr_le->type);
     if (pt && pt.pointee() &&
         (pt.kind() == LogosType::Kind::Ptr ||
          pt.kind() == LogosType::Kind::MutRef))
@@ -186,18 +189,18 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     auto val_code = expr_ref_of(*s.value).kind();
     // ── Struct literal ────────────────────────────────────────
     if (val_code == lir_schema::expr::Code::StructLit) {
-        auto& lit = std::get<EStructLit>(s.value->kind);
+        lir_view::EStructLitView lit{expr_ref_of(*s.value)};
         auto alloca = gen_struct_lit(lit);
         if (!alloca) return;
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = s.type ? concrete_struct_name(s.type) : lit.name;
+        var_struct_[s.name] = s.type ? concrete_struct_name(s.type) : std::string(lit.name());
         return;
     }
 
     // ── Array literal ─────────────────────────────────────────
     if (val_code == lir_schema::expr::Code::ArrLit) {
-        auto& lit = std::get<EArrLit>(s.value->kind);
+        lir_view::EArrLitView lit{expr_ref_of(*s.value)};
         auto elem_type = logos_to_mlir(TypeRef(s.type).elem());
         if (!elem_type) elem_type = builder_.getI32Type();
         auto alloca = gen_arr_lit(lit, elem_type);
@@ -459,22 +462,25 @@ void MLIRGenImpl::gen_let(const SLet& s) {
 // gen_assign
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_assign(const SAssign& s) {
-    auto val = gen_expr(*s.value);
+void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
+    auto* val_le = lexpr_of(v.value());
+    if (!val_le) return;
+    auto val = gen_expr(*val_le);
     if (!val) return;
-    auto it = scope_.find(s.name);
+    std::string name(v.name());
+    auto it = scope_.find(name);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: assign to undefined '%s'\n", s.name.c_str());
+        std::fprintf(stderr, "mlir_gen: assign to undefined '%s'\n", name.c_str());
         return;
     }
     // Mutable tagged enum: val is a new struct ptr; store to pointer slot.
-    if (var_tagged_enum_ptr_.count(s.name)) {
+    if (var_tagged_enum_ptr_.count(name)) {
         // If val is an aggregate (returned by value), spill to alloca first.
         val = spill_to_alloca(val);
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, it->second);
         return;
     }
-    auto et = var_elem_types_.find(s.name);
+    auto et = var_elem_types_.find(name);
     if (et != var_elem_types_.end())
         val = coerce_int(val, et->second);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, it->second);
@@ -484,16 +490,19 @@ void MLIRGenImpl::gen_assign(const SAssign& s) {
 // gen_return
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_return(const SReturn& s) {
-    if (s.value) {
+void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
+    auto val_er = v.value();
+    const LExpr* val_le = val_er ? lexpr_of(val_er) : nullptr;
+    if (val_le) {
+        const LExpr& s_value = *val_le;
         // Box<dyn Trait> / &dyn Trait return: coerce concrete type to heap fat pointer.
         if (cur_fn_ret_logos_type_ &&
             TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::TraitObject &&
-            s.value->type &&
-            TypeRef(s.value->type).kind() != LogosType::Kind::TraitObject) {
-            auto val = gen_expr(*s.value);
+            s_value.type &&
+            TypeRef(s_value.type).kind() != LogosType::Kind::TraitObject) {
+            auto val = gen_expr(s_value);
             if (!val) return;
-            TypeRef src_lt = s.value->type;
+            TypeRef src_lt = s_value.type;
             if (TypeRef(src_lt).kind() == LogosType::Kind::Ptr && TypeRef(src_lt).pointee())
                 src_lt = TypeRef(src_lt).pointee();
             auto vtable = build_inline_vtable(
@@ -520,15 +529,8 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
             return;
         }
 
-        auto val = gen_expr(*s.value);
+        auto val = gen_expr(s_value);
         if (!val) return;
-        // Slice/str returns: val is a ptr to a {ptr,i64} laid out in caller-
-        // local alloca (stack). That alloca is reclaimed at function exit —
-        // returning it leaves the caller with a dangling pointer. Copy the
-        // 16 bytes to a fresh malloc slot before returning. Leaks, but
-        // matches how &dyn Trait fat pointers are handled above. A proper
-        // fix (sret or by-value slice ABI) belongs to the calling-convention
-        // layer; this keeps slice returns correct in the meantime.
         if (cur_fn_ret_logos_type_ &&
             TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::Slice &&
             val.getType() == ptr_type()) {
@@ -537,11 +539,8 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, heap, val, size16, false);
             val = heap;
         }
-        // Tagged enum None returning i32 but function expects ptr:
-        // wrap in alloca like gen_let does.
         if (cur_ret_type_ && cur_ret_type_ == ptr_type() && val.getType() != ptr_type()) {
-            // Find the tagged enum info from the return value's LIR type
-            if (s.value->type && TypeRef(s.value->type).kind() == LogosType::Kind::Enum) {
+            if (s_value.type && TypeRef(s_value.type).kind() == LogosType::Kind::Enum) {
                 // The value is a discriminant — need to figure out the enum struct type.
                 // Look through all registered tagged enums to find a matching one.
                 // For now: create a generic {i32, [4 x i8]} wrapper.
@@ -572,7 +571,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
             }
         }
         else if (cur_ret_type_)
-            val = coerce_numeric(val, cur_ret_type_, s.value->type);
+            val = coerce_numeric(val, cur_ret_type_, s_value.type);
         if (in_llvm_func_)
             builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{val});
         else
@@ -797,23 +796,25 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
 // gen_break / gen_continue
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_break(const SBreak& s) {
+void MLIRGenImpl::gen_break(lir_view::SBreakView v) {
     if (loop_stack_.empty()) return;
-    // Find target loop: if label specified, search from innermost outward.
+    std::string label(v.label());
     LoopBlocks* target = nullptr;
-    if (s.label.empty()) {
+    if (label.empty()) {
         target = &loop_stack_.back();
     } else {
         for (int i = (int)loop_stack_.size() - 1; i >= 0; --i) {
-            if (loop_stack_[i].label == s.label) { target = &loop_stack_[i]; break; }
+            if (loop_stack_[i].label == label) { target = &loop_stack_[i]; break; }
         }
         if (!target) { target = &loop_stack_.back(); }
     }
-    // Store break value into the slot if present.
-    if (s.value && target->break_slot) {
-        mlir::Value val = gen_expr(*s.value);
-        if (val)
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, target->break_slot);
+    auto val_er = v.value();
+    if (val_er && target->break_slot) {
+        if (auto* val_le = lexpr_of(val_er)) {
+            mlir::Value val = gen_expr(*val_le);
+            if (val)
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val, target->break_slot);
+        }
     }
     builder_.create<mlir::cf::BranchOp>(loc_, target->exit);
 }
@@ -2055,11 +2056,14 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
 // gen_delete
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_delete(const SDelete& s) {
-    auto ptr = gen_expr(*s.expr);
+void MLIRGenImpl::gen_delete(lir_view::SDeleteView v) {
+    auto er = v.expr();
+    auto* le = er ? lexpr_of(er) : nullptr;
+    if (!le) return;
+    auto ptr = gen_expr(*le);
     if (!ptr) return;
     // Call Drop before free (if the class/struct has a drop function)
-    if (TypeRef et(s.expr->type);
+    if (TypeRef et(le->type);
         et && et.kind() == LogosType::Kind::Ptr && et.pointee()) {
         auto tname = et.pointee().struct_name();
         if (!tname.empty()) {
