@@ -503,6 +503,15 @@ struct ECallView {
 struct EMethodCallView {
     ExprRef self;
     ExprRef receiver() const noexcept { return self.sub_expr(ek::RECEIVER.code); }
+    std::string_view method() const noexcept          { return detail::read_string(self, ek::METHOD.code); }
+    std::string_view resolved_symbol() const noexcept { return detail::read_string(self, ek::RESOLVED_SYMBOL.code); }
+    std::string_view resolved_type() const noexcept   { return detail::read_string(self, ek::RESOLVED_TYPE.code); }
+    std::string_view tag_system() const noexcept      { return detail::read_string(self, ek::TAG_SYSTEM.code); }
+    int32_t          vtable_index() const noexcept {
+        auto av = self.mirror()->get(ek::VTABLE_INDEX.code, self.base());
+        if (av.is_null()) return -1;
+        return int32_t(detail::read_u32(self, ek::VTABLE_INDEX.code));
+    }
     template <class F> void each_arg(F&& f) const noexcept {
         detail::for_each_arg(self, std::forward<F>(f));
     }

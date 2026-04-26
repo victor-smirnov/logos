@@ -1021,55 +1021,66 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_logos_type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EMethodCall>(_le->kind);
-    if (e.method == "as_offset" && e.receiver && e.receiver->type) {
-        const auto rt = e.receiver->type;
+    std::string method(v.method());
+    std::string tag_system(v.tag_system());
+    std::string resolved_type(v.resolved_type());
+    std::string resolved_symbol(v.resolved_symbol());
+    int32_t     vtable_index = v.vtable_index();
+    auto recv_ref = v.receiver();
+    auto* recv_le = lexpr_of(recv_ref);
+    if (!recv_le) return nullptr;
+    TypeRef recv_t = recv_ref.type(pool_impl());
+
+    std::vector<lir_view::ExprRef>    arg_refs;
+    v.each_arg([&](lir_view::ExprRef ar){ arg_refs.push_back(ar); });
+    std::vector<const LExpr*> arg_les;
+    arg_les.reserve(arg_refs.size());
+    for (auto& ar : arg_refs) {
+        auto* le = lexpr_of(ar);
+        if (!le) return nullptr;
+        arg_les.push_back(le);
+    }
+
+    if (method == "as_offset" && recv_t) {
         bool is_anyval =
-            type_str(rt) == "AnyVal" ||
-            ((TypeRef(rt).kind() == LogosType::Kind::Ptr ||
-              TypeRef(rt).kind() == LogosType::Kind::Ref ||
-              TypeRef(rt).kind() == LogosType::Kind::MutRef) &&
-             TypeRef(rt).pointee() && type_str(TypeRef(rt).pointee()) == "AnyVal");
+            type_str(recv_t) == "AnyVal" ||
+            ((recv_t.kind() == LogosType::Kind::Ptr ||
+              recv_t.kind() == LogosType::Kind::Ref ||
+              recv_t.kind() == LogosType::Kind::MutRef) &&
+             recv_t.pointee() && type_str(recv_t.pointee()) == "AnyVal");
         if (is_anyval) {
-        auto recv = gen_expr(*e.receiver);
-        if (!recv) return nullptr;
-        if (recv.getType() == ptr_type())
-            return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
-        return coerce_numeric(recv, builder_.getI32Type());
+            auto recv = gen_expr(*recv_le);
+            if (!recv) return nullptr;
+            if (recv.getType() == ptr_type())
+                return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
+            return coerce_numeric(recv, builder_.getI32Type());
         }
     }
-    // &tagged<TS> Trait dispatch: read type_code, GEP tier-1 table, indirect call.
-    if (!e.tag_system.empty()) {
+    // Tagged- and dyn-dispatch helpers still consume the raw EMethodCall variant;
+    // pull it from lexpr_of(v.self) for the duration of Phase 3e.
+    if (!tag_system.empty()) {
+        auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+        auto& e = std::get<EMethodCall>(_le->kind);
         return gen_tagged_dispatch(e, ret_logos_type);
     }
-    // &dyn Trait dispatch: load vtable, GEP slot, indirect call
-    if (e.receiver->type &&
-        TypeRef(e.receiver->type).kind() == LogosType::Kind::TraitObject &&
-        e.vtable_index >= 0) {
+    if (recv_t && recv_t.kind() == LogosType::Kind::TraitObject && vtable_index >= 0) {
+        auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+        auto& e = std::get<EMethodCall>(_le->kind);
         return gen_dyn_dispatch(e, ret_logos_type);
     }
-    auto [ptr, tname] = gen_recv_struct(*e.receiver);
+    auto [ptr, tname] = gen_recv_struct(*recv_le);
     if (!ptr || tname.empty()) return nullptr;
     if (tname == "AnyVal" && ptr.getType() != ptr_type()) {
         auto slot = create_entry_alloca(builder_.getI32Type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
         ptr = slot;
     }
-    // Direct call:
-    // 1) prefer sema-resolved concrete symbol (overload-safe),
-    // 2) fallback to legacy TypeName__method lookup.
-    // If resolved_type is set (inherited method), use the defining class name.
-    const std::string& defining = e.resolved_type.empty() ? tname : e.resolved_type;
-    auto mangled    = defining + "__" + e.method;
-    auto callee_name = e.resolved_symbol.empty() ? mangled : e.resolved_symbol;
-    auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    auto callee_fn  = find_func_op(parent_mod, callee_name);
+    const std::string& defining = resolved_type.empty() ? tname : resolved_type;
+    auto mangled     = defining + "__" + method;
+    auto callee_name = resolved_symbol.empty() ? mangled : resolved_symbol;
+    auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    auto callee_fn   = find_func_op(parent_mod, callee_name);
     if (!callee_fn) {
-        // Generic struct methods may retain a trailing generic suffix in the
-        // instantiated symbol name, e.g. `Box$G1$i32__unwrap__g__Box$G1$T`.
-        // Fall back to the first function whose name starts with the concrete
-        // direct-call prefix.
         std::string generic_prefix = callee_name + "__g__";
         parent_mod.walk([&](mlir::func::FuncOp fn) {
             auto fn_name = fn.getName().str();
@@ -1080,9 +1091,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             return mlir::WalkResult::advance();
         });
     }
-    // If sema provided a resolved symbol and it wasn't found (e.g. mono renamed),
-    // try legacy receiver-based lookup as a final compatibility fallback.
-    if (!callee_fn && !e.resolved_symbol.empty()) {
+    if (!callee_fn && !resolved_symbol.empty()) {
         callee_name = mangled;
         callee_fn = find_func_op(parent_mod, callee_name);
         if (!callee_fn) {
@@ -1104,19 +1113,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     llvm::SmallVector<mlir::Value> args;
     args.push_back(ptr);
     auto param_types = callee_fn.getFunctionType().getInputs();
-    for (size_t i = 0; i < e.args.size(); ++i) {
-        auto v = gen_expr(*e.args[i]);
-        if (!v) return nullptr;
+    for (size_t i = 0; i < arg_les.size(); ++i) {
+        auto val = gen_expr(*arg_les[i]);
+        if (!val) return nullptr;
         size_t pi = i + 1;
         if (pi < param_types.size()) {
-            if (v.getType() != param_types[pi] &&
+            if (val.getType() != param_types[pi] &&
                 param_types[pi] == ptr_type() &&
-                mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
-                v = spill_to_alloca(v);
+                mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()))
+                val = spill_to_alloca(val);
             else
-                v = coerce_numeric(v, param_types[pi], e.args[i]->type);
+                val = coerce_numeric(val, param_types[pi], arg_refs[i].type(pool_impl()));
         }
-        args.push_back(v);
+        args.push_back(val);
     }
     auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
     return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
