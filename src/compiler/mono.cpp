@@ -28,7 +28,13 @@ namespace logos::compiler {
 lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     in_ = std::move(in);
 
-    // L-IR Hermes mirror — populated incrementally as functions are cloned
+    // L-IR Hermes mirror of the input program. Built before type_pool moves
+    // so subst_* passes can read sub-patterns/exprs via lir_view. Mirror
+    // offsets remain valid after the move (TypePool is unique_ptr-backed).
+    in_mirror_ = std::make_unique<LirMirrorTable>();
+    lir_mirror_emit_into(in_, *in_mirror_);
+
+    // Output mirror — populated incrementally as functions are cloned
     // (so scan_fn can dispatch via lir_view). Empty at start of mono.
     out_.mirror_table = std::make_unique<LirMirrorTable>();
 
