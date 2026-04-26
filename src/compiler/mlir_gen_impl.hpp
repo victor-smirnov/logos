@@ -399,7 +399,7 @@ private:
     void gen_if(lir_view::SIfView v);
     void gen_while(lir_view::SWhileView v);
     void gen_for(lir_view::SForView v);
-    void gen_loop(const SLoop& s);
+    void gen_loop(lir_view::SLoopView v);
     void gen_break(lir_view::SBreakView v);
     void gen_continue();
     void gen_for_each(lir_view::SForEachView v);

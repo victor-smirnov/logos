@@ -65,7 +65,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(std::get<SLoop>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
     if (loop_stack_.empty()) return;
@@ -787,7 +787,13 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
 // gen_loop
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_loop(const SLoop& s) {
+void MLIRGenImpl::gen_loop(lir_view::SLoopView v) {
+    auto* body_lb = lblock_of(v.body());
+    if (!body_lb) return;
+    std::string break_slot_name(v.break_slot());
+    std::string label(v.label());
+    TypeRef result_type = v.result_type(pool_impl());
+
     auto* region     = builder_.getBlock()->getParent();
     auto* loop_block = new mlir::Block();
     auto* exit_block = new mlir::Block();
@@ -796,21 +802,21 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
 
     // Allocate break-value slot before the loop block, if needed.
     mlir::Value break_slot;
-    if (!s.break_slot.empty() && s.result_type) {
-        mlir::Type slot_ty = logos_to_mlir(s.result_type);
+    if (!break_slot_name.empty() && result_type) {
+        mlir::Type slot_ty = logos_to_mlir(result_type);
         if (slot_ty) {
             break_slot  = create_entry_alloca(slot_ty);
-            scope_[s.break_slot]          = break_slot;
-            let_vars_.insert(s.break_slot);
-            var_elem_types_[s.break_slot] = slot_ty;
+            scope_[break_slot_name]          = break_slot;
+            let_vars_.insert(break_slot_name);
+            var_elem_types_[break_slot_name] = slot_ty;
         }
     }
 
     builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
 
     builder_.setInsertionPointToStart(loop_block);
-    loop_stack_.push_back({loop_block, exit_block, break_slot, s.label});
-    gen_block(*s.body);
+    loop_stack_.push_back({loop_block, exit_block, break_slot, label});
+    gen_block(*body_lb);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
