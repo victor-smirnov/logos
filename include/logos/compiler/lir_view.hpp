@@ -787,6 +787,9 @@ struct SBreakView {
     ExprRef value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
 };
 
+struct SContinueView { StmtRef self; };
+struct SDropView     { StmtRef self; };
+
 struct SMatchView {
     StmtRef self;
     ExprRef scrut() const noexcept { return detail::stmt_sub_expr(self, sk::SCRUT.code); }

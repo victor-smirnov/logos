@@ -26,18 +26,49 @@ void MLIRGenImpl::gen_block(const LBlock& block) {
 // ---------------------------------------------------------------------------
 
 void MLIRGenImpl::gen_stmt(const LStmt& stmt) {
-    std::visit([&](auto& s) { gen_stmt_kind(s); }, stmt.kind);
+    auto sr = stmt_ref_of(stmt);
+    if (!sr) {
+        std::fprintf(stderr, "mlir_gen: gen_stmt called without LIR mirror\n");
+        return;
+    }
+    using C = lir_schema::stmt::Code;
+    switch (sr.kind()) {
+    case C::Let:             gen_stmt_kind(lir_view::SLetView{sr}); return;
+    case C::Assign:          gen_stmt_kind(lir_view::SAssignView{sr}); return;
+    case C::Return:          gen_stmt_kind(lir_view::SReturnView{sr}); return;
+    case C::If:              gen_stmt_kind(lir_view::SIfView{sr}); return;
+    case C::While:           gen_stmt_kind(lir_view::SWhileView{sr}); return;
+    case C::For:             gen_stmt_kind(lir_view::SForView{sr}); return;
+    case C::Loop:            gen_stmt_kind(lir_view::SLoopView{sr}); return;
+    case C::Break:           gen_stmt_kind(lir_view::SBreakView{sr}); return;
+    case C::Continue:        gen_stmt_kind(lir_view::SContinueView{sr}); return;
+    case C::Block:           gen_stmt_kind(lir_view::SBlockView{sr}); return;
+    case C::FieldWrite:      gen_stmt_kind(lir_view::SFieldWriteView{sr}); return;
+    case C::IndexWrite:      gen_stmt_kind(lir_view::SIndexWriteView{sr}); return;
+    case C::FieldIndexWrite: gen_stmt_kind(lir_view::SFieldIndexWriteView{sr}); return;
+    case C::ExprStmt:        gen_stmt_kind(lir_view::SExprStmtView{sr}); return;
+    case C::Match:           gen_stmt_kind(lir_view::SMatchView{sr}); return;
+    case C::Delete:          gen_stmt_kind(lir_view::SDeleteView{sr}); return;
+    case C::ForEach:         gen_stmt_kind(lir_view::SForEachView{sr}); return;
+    case C::DerefWrite:      gen_stmt_kind(lir_view::SDerefWriteView{sr}); return;
+    case C::Drop:            gen_stmt_kind(lir_view::SDropView{sr}); return;
+    case C::DerefFieldWrite: gen_stmt_kind(lir_view::SDerefFieldWriteView{sr}); return;
+    case C::TupleWrite:      gen_stmt_kind(lir_view::STupleWriteView{sr}); return;
+    case C::LetElse:         gen_stmt_kind(lir_view::SLetElseView{sr}); return;
+    case C::ChainFieldWrite: gen_stmt_kind(lir_view::SChainFieldWriteView{sr}); return;
+    }
 }
 
-void MLIRGenImpl::gen_stmt_kind(const SLet& s)        { gen_let(s); }
-void MLIRGenImpl::gen_stmt_kind(const SAssign& s)      { gen_assign(s); }
-void MLIRGenImpl::gen_stmt_kind(const SReturn& s)      { gen_return(s); }
-void MLIRGenImpl::gen_stmt_kind(const SIf& s)          { gen_if(s); }
-void MLIRGenImpl::gen_stmt_kind(const SWhile& s)       { gen_while(s); }
-void MLIRGenImpl::gen_stmt_kind(const SFor& s)         { gen_for(s); }
-void MLIRGenImpl::gen_stmt_kind(const SLoop& s)        { gen_loop(s); }
-void MLIRGenImpl::gen_stmt_kind(const SBreak& s)       { gen_break(s); }
-void MLIRGenImpl::gen_stmt_kind(const SContinue& s) {
+void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(std::get<SLet>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(std::get<SAssign>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(std::get<SReturn>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(std::get<SIf>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(std::get<SWhile>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(std::get<SFor>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(std::get<SLoop>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(std::get<SBreak>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
+    auto& s = std::get<SContinue>(lstmt_of(v.self)->kind);
     if (loop_stack_.empty()) return;
     if (s.label.empty()) { gen_continue(); return; }
     for (int i = (int)loop_stack_.size() - 1; i >= 0; --i) {
@@ -48,19 +79,20 @@ void MLIRGenImpl::gen_stmt_kind(const SContinue& s) {
     }
     gen_continue(); // fallback
 }
-void MLIRGenImpl::gen_stmt_kind(const SFieldWrite& s)       { gen_field_write(s); }
-void MLIRGenImpl::gen_stmt_kind(const STupleWrite& s)       { gen_tuple_write(s); }
-void MLIRGenImpl::gen_stmt_kind(const SDerefFieldWrite& s)  { gen_deref_field_write(s); }
-void MLIRGenImpl::gen_stmt_kind(const SChainFieldWrite& s)  { gen_chain_field_write(s); }
-void MLIRGenImpl::gen_stmt_kind(const SIndexWrite& s)       { gen_index_write(s); }
-void MLIRGenImpl::gen_stmt_kind(const SFieldIndexWrite& s)  { gen_field_index_write(s); }
-void MLIRGenImpl::gen_stmt_kind(const SExprStmt& s)    { gen_expr(*s.expr); }
-void MLIRGenImpl::gen_stmt_kind(const SMatch& s)       { gen_match(s); }
-void MLIRGenImpl::gen_stmt_kind(const SDelete& s)      { gen_delete(s); }
-void MLIRGenImpl::gen_stmt_kind(const SForEach& s)     { gen_for_each(s); }
-void MLIRGenImpl::gen_stmt_kind(const SBlock& s)       { gen_block(*s.body); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldWriteView v)      { gen_field_write(std::get<SFieldWrite>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::STupleWriteView v)      { gen_tuple_write(std::get<STupleWrite>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefFieldWriteView v) { gen_deref_field_write(std::get<SDerefFieldWrite>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SChainFieldWriteView v) { gen_chain_field_write(std::get<SChainFieldWrite>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_write(std::get<SIndexWrite>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldIndexWriteView v) { gen_field_index_write(std::get<SFieldIndexWrite>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { gen_expr(*std::get<SExprStmt>(lstmt_of(v.self)->kind).expr); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(std::get<SMatch>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(std::get<SDelete>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(std::get<SForEach>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { gen_block(*std::get<SBlock>(lstmt_of(v.self)->kind).body); }
 
-void MLIRGenImpl::gen_stmt_kind(const SDrop& s) {
+void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
+    auto& s = std::get<SDrop>(lstmt_of(v.self)->kind);
     auto it = scope_.find(s.var_name);
     if (it == scope_.end()) return;
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
@@ -102,7 +134,8 @@ void MLIRGenImpl::gen_stmt_kind(const SDrop& s) {
     }
 }
 
-void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
+void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
+    auto& s = std::get<SDerefWrite>(lstmt_of(v.self)->kind);
     auto ptr = gen_expr(*s.ptr);
     auto val = gen_expr(*s.value);
     if (!ptr || !val) return;
@@ -2061,7 +2094,8 @@ void MLIRGenImpl::gen_delete(const SDelete& s) {
 // For PatVariant (unit variant): test discriminant, no bindings.
 // For PatVariantData: test discriminant + extract payload bindings.
 
-void MLIRGenImpl::gen_stmt_kind(const lir::SLetElse& s) {
+void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
+    auto& s = std::get<lir::SLetElse>(lstmt_of(v.self)->kind);
     auto* region = builder_.getBlock()->getParent();
 
     // ── Evaluate scrutinee ────────────────────────────────────────────────
