@@ -440,7 +440,7 @@ private:
     mlir::Value gen_expr_kind(lir_view::ETupleLitView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type);
-    mlir::Value gen_closure(const EClosure& e, TypeRef);
+    mlir::Value gen_closure(lir_view::EClosureBoxView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EClosureCallView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ESliceLitView v, TypeRef);

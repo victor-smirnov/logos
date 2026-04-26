@@ -651,25 +651,62 @@ struct EEnumLitDataView {
 struct EClosureBoxView {
     ExprRef self;
 
+private:
+    const hermes::TinyObjectMap* cl_map() const noexcept {
+        auto cl_av = self.mirror()->get(ek::CLOSURE.code, self.base());
+        if (cl_av.is_null()) return nullptr;
+        return reinterpret_cast<const hermes::TinyObjectMap*>(
+            self.base() + cl_av.to_offset().value());
+    }
+
+public:
     // Block of the captured closure body (closure_keys::BLOCK = 0 within the
     // closure-map). Returns null BlockRef if the closure mirror is missing.
     BlockRef body() const noexcept {
-        auto cl_av = self.mirror()->get(ek::CLOSURE.code, self.base());
-        if (cl_av.is_null()) return {};
-        auto* cl_map = reinterpret_cast<const hermes::TinyObjectMap*>(
-            self.base() + cl_av.to_offset().value());
-        auto blk_av = cl_map->get(lir_schema::closure_keys::BLOCK.code, self.base());
+        auto* m = cl_map();
+        if (!m) return {};
+        auto blk_av = m->get(lir_schema::closure_keys::BLOCK.code, self.base());
         if (blk_av.is_null()) return {};
         return BlockRef(self.arena(), blk_av.to_offset());
     }
 
+    std::string_view closure_id() const noexcept {
+        auto* m = cl_map();
+        if (!m) return {};
+        auto av = m->get(lir_schema::closure_keys::NAME.code, self.base());
+        if (av.is_null()) return {};
+        return av.as_ptr<const hermes::ArenaString>(self.base())->view();
+    }
+
+    bool as_fn_ptr() const noexcept {
+        auto* m = cl_map();
+        if (!m) return false;
+        auto av = m->get(lir_schema::closure_keys::AS_FN_PTR.code, self.base());
+        if (av.is_null()) return false;
+        return av.as_value<uint8_t>() != 0;
+    }
+
+    bool is_move() const noexcept {
+        auto* m = cl_map();
+        if (!m) return false;
+        auto av = m->get(lir_schema::closure_keys::IS_MOVE.code, self.base());
+        if (av.is_null()) return false;
+        return av.as_value<uint8_t>() != 0;
+    }
+
+    TypeRef ret_type(const TypePoolImpl* pool) const noexcept {
+        auto* m = cl_map();
+        if (!m) return {};
+        auto av = m->get(lir_schema::closure_keys::RET_TYPE.code, self.base());
+        if (av.is_null()) return {};
+        return TypeRef(self.arena(), av.to_offset(), pool);
+    }
+
     template <class F>
     void each_capture_name(F&& f) const noexcept {
-        auto cl_av = self.mirror()->get(ek::CLOSURE.code, self.base());
-        if (cl_av.is_null()) return;
-        auto* cl_map = reinterpret_cast<const hermes::TinyObjectMap*>(
-            self.base() + cl_av.to_offset().value());
-        auto names_av = cl_map->get(
+        auto* m = cl_map();
+        if (!m) return;
+        auto names_av = m->get(
             lir_schema::closure_keys::CAPTURE_NAMES.code, self.base());
         if (names_av.is_null()) return;
         auto* arr = names_av.as_ptr<const hermes::ObjectArray>(self.base());
@@ -677,6 +714,60 @@ struct EClosureBoxView {
             auto el = arr->get(i, self.base());
             if (el.is_null()) continue;
             f(el.as_ptr<const hermes::ArenaString>(self.base())->view());
+        }
+    }
+
+    // Iterate (name, type) pairs from CL_CAPTURE_NAMES + CL_CAPTURE_TYPES.
+    template <class F>
+    void each_capture(const TypePoolImpl* pool, F&& f) const noexcept {
+        auto* m = cl_map();
+        if (!m) return;
+        auto names_av = m->get(lir_schema::closure_keys::CAPTURE_NAMES.code, self.base());
+        auto types_av = m->get(lir_schema::closure_keys::CAPTURE_TYPES.code, self.base());
+        if (names_av.is_null()) return;
+        auto* names_arr = names_av.as_ptr<const hermes::ObjectArray>(self.base());
+        const hermes::ObjectArray* types_arr = nullptr;
+        if (!types_av.is_null())
+            types_arr = types_av.as_ptr<const hermes::ObjectArray>(self.base());
+        uint64_t n = names_arr->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto nv = names_arr->get(i, self.base());
+            std::string_view name;
+            if (!nv.is_null())
+                name = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
+            TypeRef t;
+            if (types_arr && i < types_arr->size()) {
+                auto tv = types_arr->get(i, self.base());
+                if (!tv.is_null()) t = TypeRef(self.arena(), tv.to_offset(), pool);
+            }
+            f(name, t);
+        }
+    }
+
+    // Iterate (name, type) pairs from CL_PARAM_NAMES + CL_PARAM_TYPES.
+    template <class F>
+    void each_param(const TypePoolImpl* pool, F&& f) const noexcept {
+        auto* m = cl_map();
+        if (!m) return;
+        auto names_av = m->get(lir_schema::closure_keys::PARAM_NAMES.code, self.base());
+        auto types_av = m->get(lir_schema::closure_keys::PARAM_TYPES.code, self.base());
+        if (names_av.is_null()) return;
+        auto* names_arr = names_av.as_ptr<const hermes::ObjectArray>(self.base());
+        const hermes::ObjectArray* types_arr = nullptr;
+        if (!types_av.is_null())
+            types_arr = types_av.as_ptr<const hermes::ObjectArray>(self.base());
+        uint64_t n = names_arr->size();
+        for (uint64_t i = 0; i < n; ++i) {
+            auto nv = names_arr->get(i, self.base());
+            std::string_view name;
+            if (!nv.is_null())
+                name = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
+            TypeRef t;
+            if (types_arr && i < types_arr->size()) {
+                auto tv = types_arr->get(i, self.base());
+                if (!tv.is_null()) t = TypeRef(self.arena(), tv.to_offset(), pool);
+            }
+            f(name, t);
         }
     }
 };

@@ -963,25 +963,43 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(const EMethodCall& e,
 // Closure generation
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto save_pt = builder_.saveInsertionPoint();
 
+    // Materialise params, captures, ret_type / closure_id once from the view.
+    std::vector<std::pair<std::string, TypeRef>> params;
+    v.each_param(pool_impl(), [&](std::string_view name, TypeRef t) {
+        params.emplace_back(std::string(name), t);
+    });
+    std::vector<std::string> captures;
+    std::vector<TypeRef> capture_types;
+    v.each_capture(pool_impl(), [&](std::string_view name, TypeRef t) {
+        captures.emplace_back(name);
+        capture_types.push_back(t);
+    });
+    TypeRef ret_t        = v.ret_type(pool_impl());
+    std::string closure_id(v.closure_id());
+    bool        as_fn_ptr_flag = v.as_fn_ptr();
+
+    auto body_blk = v.body();
+    const LBlock* body_lblk = lblock_of(body_blk);
+
     // Non-capturing closure coerced to fn ptr: emit as plain function (no env_ptr).
-    if (e.as_fn_ptr) {
+    if (as_fn_ptr_flag) {
         // Build function type without env_ptr: (params...) -> ret
         llvm::SmallVector<mlir::Type> fn_params;
-        for (auto& p : e.params) {
-            auto pt = logos_to_mlir(p.type);
+        for (auto& [_, pt_type] : params) {
+            auto pt = logos_to_mlir(pt_type);
             if (pt) fn_params.push_back(pt);
         }
-        mlir::Type llvm_ret = e.ret_type
-            ? logos_to_mlir(e.ret_type)
+        mlir::Type llvm_ret = ret_t
+            ? logos_to_mlir(ret_t)
             : mlir::LLVM::LLVMVoidType::get(builder_.getContext());
         if (!llvm_ret) llvm_ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
         auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(llvm_ret, fn_params, false);
         builder_.setInsertionPointToEnd(parent_mod.getBody());
-        auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, e.closure_id, llvm_fn_type);
+        auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, closure_id, llvm_fn_type);
         fn.setLinkage(mlir::LLVM::Linkage::Private);
         auto* entry = fn.addEntryBlock(builder_);
         builder_.setInsertionPointToStart(entry);
@@ -1005,13 +1023,13 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
         var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
         var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
         var_local_ptrs_.clear(); var_dyn_trait_.clear(); loop_stack_.clear();
-        cur_ret_type_ = e.ret_type ? logos_to_mlir(e.ret_type) : mlir::Type{};
+        cur_ret_type_ = ret_t ? logos_to_mlir(ret_t) : mlir::Type{};
         // Bind params starting from arg 0 (no env_ptr)
-        for (size_t i = 0; i < e.params.size(); ++i)
-            scope_[e.params[i].name] = entry->getArgument(i);
+        for (size_t i = 0; i < params.size(); ++i)
+            scope_[params[i].first] = entry->getArgument(i);
         bool saved_in_llvm = in_llvm_func_;
         in_llvm_func_ = true;
-        gen_block(e.body);
+        if (body_lblk) gen_block(*body_lblk);
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
         in_llvm_func_ = saved_in_llvm;
@@ -1031,18 +1049,18 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
         cur_entry_block_    = saved_entry_block;
         builder_.restoreInsertionPoint(save_pt);
         // Return the function address (this IS the fn ptr value)
-        return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), e.closure_id);
+        return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), closure_id);
     }
 
-    std::vector<bool> capture_is_struct(e.captures.size(), false);
-    std::vector<bool> capture_is_class(e.captures.size(), false);
-    std::vector<bool> capture_is_array(e.captures.size(), false);
-    std::vector<bool> capture_is_tuple(e.captures.size(), false);
-    std::vector<bool> capture_is_enum(e.captures.size(), false);
-    std::vector<bool> capture_is_dyn(e.captures.size(), false);
-    std::vector<bool> capture_is_pointer_repr(e.captures.size(), false);
-    for (size_t i = 0; i < e.captures.size(); ++i) {
-        const auto& name = e.captures[i];
+    std::vector<bool> capture_is_struct(captures.size(), false);
+    std::vector<bool> capture_is_class(captures.size(), false);
+    std::vector<bool> capture_is_array(captures.size(), false);
+    std::vector<bool> capture_is_tuple(captures.size(), false);
+    std::vector<bool> capture_is_enum(captures.size(), false);
+    std::vector<bool> capture_is_dyn(captures.size(), false);
+    std::vector<bool> capture_is_pointer_repr(captures.size(), false);
+    for (size_t i = 0; i < captures.size(); ++i) {
+        const auto& name = captures[i];
         capture_is_struct[i] = var_struct_.count(name);
         capture_is_class[i]  = var_class_.count(name);
         capture_is_array[i]  = var_subscript_.count(name);
@@ -1055,11 +1073,9 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
     }
 
     // Build capture struct type.
-    // Pointer-represented locals (structs, classes, arrays, tuples, tagged enums,
-    // closures, dyn trait fat pointers) must stay pointers inside the env.
     llvm::SmallVector<mlir::Type> cap_fields;
-    for (size_t i = 0; i < e.capture_types.size(); ++i) {
-        auto ct = e.capture_types[i];
+    for (size_t i = 0; i < capture_types.size(); ++i) {
+        auto ct = capture_types[i];
         mlir::Type ft;
         if (capture_is_pointer_repr[i])
             ft = ptr_type();
@@ -1075,13 +1091,13 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
     // Build function type: (env_ptr, params...) -> ret
     llvm::SmallVector<mlir::Type> fn_params;
     fn_params.push_back(ptr_type());  // env pointer
-    for (auto& p : e.params) {
-        auto pt = logos_to_mlir(p.type);
+    for (auto& [_, pt_type] : params) {
+        auto pt = logos_to_mlir(pt_type);
         if (pt) fn_params.push_back(pt);
     }
     llvm::SmallVector<mlir::Type> fn_rets;
-    if (e.ret_type) {
-        auto rt = logos_to_mlir(e.ret_type);
+    if (ret_t) {
+        auto rt = logos_to_mlir(ret_t);
         if (rt) fn_rets.push_back(rt);
     }
     // Create the closure function as llvm.func (so llvm.mlir.addressof works)
@@ -1089,7 +1105,7 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
     mlir::Type llvm_ret = fn_rets.empty()
         ? mlir::LLVM::LLVMVoidType::get(builder_.getContext()) : fn_rets[0];
     auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(llvm_ret, fn_params, false);
-    auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, e.closure_id, llvm_fn_type);
+    auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, closure_id, llvm_fn_type);
     fn.setLinkage(mlir::LLVM::Linkage::Private);
     auto* entry = fn.addEntryBlock(builder_);
     builder_.setInsertionPointToStart(entry);
@@ -1120,13 +1136,13 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
 
     // Unpack captures from env pointer (arg 0)
     auto env_ptr = entry->getArgument(0);
-    for (size_t i = 0; i < e.captures.size(); ++i) {
+    for (size_t i = 0; i < captures.size(); ++i) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
         auto fp = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), cap_struct, env_ptr, idx);
         auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i], fp);
 
-        TypeRef ct = e.capture_types[i];
+        TypeRef ct = capture_types[i];
         bool is_struct_cap = capture_is_struct[i];
         bool is_class_cap  = capture_is_class[i];
         bool is_array_cap  = capture_is_array[i];
@@ -1135,41 +1151,37 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
         bool is_dyn_cap    = capture_is_dyn[i];
         if (is_struct_cap || is_class_cap || is_array_cap ||
             is_tuple_cap || is_enum_cap || is_dyn_cap) {
-            // val is a pointer-like capture — restore the same variable shape
-            // the enclosing scope used so downstream codegen can treat it
-            // identically to a normal local variable.
-            scope_[e.captures[i]] = val;
+            scope_[captures[i]] = val;
             if (is_struct_cap)
-                var_struct_[e.captures[i]] = std::string(TypeRef(ct).struct_name());
+                var_struct_[captures[i]] = std::string(TypeRef(ct).struct_name());
             else if (is_class_cap)
-                var_class_[e.captures[i]] = std::string(TypeRef(ct).struct_name());
+                var_class_[captures[i]] = std::string(TypeRef(ct).struct_name());
             else if (is_array_cap)
-                var_subscript_[e.captures[i]] = logos_to_mlir(ct ? TypeRef(ct).elem() : TypeRef());
+                var_subscript_[captures[i]] = logos_to_mlir(ct ? TypeRef(ct).elem() : TypeRef());
             else if (is_tuple_cap)
-                var_tuple_.insert(e.captures[i]);
+                var_tuple_.insert(captures[i]);
             else if (is_enum_cap)
-                var_tagged_enum_.insert(e.captures[i]);
+                var_tagged_enum_.insert(captures[i]);
             else if (is_dyn_cap && ct)
-                var_dyn_trait_[e.captures[i]] = std::string(TypeRef(ct).trait_name());
+                var_dyn_trait_[captures[i]] = std::string(TypeRef(ct).trait_name());
         } else {
-            // Scalar capture: store in alloca for let-variable semantics.
             auto alloca = create_entry_alloca(cap_fields[i]);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-            scope_[e.captures[i]] = alloca;
-            let_vars_.insert(e.captures[i]);
-            var_elem_types_[e.captures[i]] = cap_fields[i];
+            scope_[captures[i]] = alloca;
+            let_vars_.insert(captures[i]);
+            var_elem_types_[captures[i]] = cap_fields[i];
         }
     }
 
     // Bind params (starting from arg 1)
-    for (size_t i = 0; i < e.params.size(); ++i) {
-        scope_[e.params[i].name] = entry->getArgument(i + 1);
+    for (size_t i = 0; i < params.size(); ++i) {
+        scope_[params[i].first] = entry->getArgument(i + 1);
     }
 
     // Generate body (inside llvm.func — use llvm.return)
     bool saved_in_llvm = in_llvm_func_;
     in_llvm_func_ = true;
-    gen_block(e.body);
+    if (body_lblk) gen_block(*body_lblk);
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
     in_llvm_func_ = saved_in_llvm;
@@ -1193,15 +1205,15 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
 
     // At the creation site: alloca capture struct, store captures
     auto env_alloca = create_entry_alloca(cap_struct);
-    for (size_t i = 0; i < e.captures.size(); ++i) {
-        auto it = scope_.find(e.captures[i]);
+    for (size_t i = 0; i < captures.size(); ++i) {
+        auto it = scope_.find(captures[i]);
         if (it == scope_.end()) continue;
         mlir::Value cap_val;
         bool pointer_repr = capture_is_pointer_repr[i];
-        auto eit = var_elem_types_.find(e.captures[i]);
+        auto eit = var_elem_types_.find(captures[i]);
         if (pointer_repr)
             cap_val = it->second;
-        else if (let_vars_.count(e.captures[i]) && eit != var_elem_types_.end())
+        else if (let_vars_.count(captures[i]) && eit != var_elem_types_.end())
             cap_val = builder_.create<mlir::LLVM::LoadOp>(loc_, eit->second, it->second);
         else
             cap_val = it->second;
@@ -1214,13 +1226,11 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
     // Build closure value: { fn_ptr, env_ptr }
     auto ctype = closure_llvm_type();
     auto closure_alloca = create_entry_alloca(ctype);
-    // Store fn_ptr
     auto fn_addr = builder_.create<mlir::LLVM::AddressOfOp>(
-        loc_, ptr_type(), e.closure_id);
+        loc_, ptr_type(), closure_id);
     llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
     auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure_alloca, fi);
     builder_.create<mlir::LLVM::StoreOp>(loc_, fn_addr, fp);
-    // Store env_ptr
     llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(1)};
     auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure_alloca, ei);
     builder_.create<mlir::LLVM::StoreOp>(loc_, env_alloca, ep);

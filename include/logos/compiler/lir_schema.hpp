@@ -259,6 +259,8 @@ inline constexpr Key CAPTURE_NAMES     {"CL_CAPTURE_NAMES", 3};   // Array<Varch
 inline constexpr Key RET_TYPE          {"CL_RET_TYPE",      4};   // RelPtr<LogosType>
 inline constexpr Key IS_MOVE           {"CL_IS_MOVE",       5};   // u8
 inline constexpr Key AS_FN_PTR         {"CL_AS_FN_PTR",     6};   // u8
+inline constexpr Key PARAM_NAMES       {"CL_PARAM_NAMES",   7};   // Array<Varchar>
+inline constexpr Key PARAM_TYPES       {"CL_PARAM_TYPES",   8};   // Array<RelPtr<LogosType>>
 } // namespace closure_keys
 
 // Keys for the EPtrDiff LExpr variant map (in addition to expr_common::TYPE,

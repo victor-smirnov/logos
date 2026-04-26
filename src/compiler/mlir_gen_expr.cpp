@@ -1938,10 +1938,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& box = std::get<EClosureBox>(_le->kind);
-    if (!box.inner) return nullptr;
-    return gen_closure(*box.inner, type);
+    return gen_closure(v, type);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef type) {
