@@ -1645,6 +1645,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type) {
     auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
     auto& e = std::get<EMatchExpr>(_le->kind);
+    namespace pc = lir_schema::pat;
+    std::vector<lir_view::EMatchArmRef> arm_refs;
+    v.each_arm([&](lir_view::EMatchArmRef a){ arm_refs.push_back(a); });
     mlir::Type result_type = logos_to_mlir(type);
     if (!result_type) return nullptr;
 
@@ -1767,35 +1770,39 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     bool exhaustive_discrete = false;
     if (e.scrut->type && TypeRef(e.scrut->type).kind() == LogosType::Kind::Bool) {
         bool has_true = false, has_false = false, has_wild = false;
-        for (auto& arm : e.arms) {
+        for (size_t ai = 0; ai < e.arms.size(); ++ai) {
+            auto& arm = e.arms[ai];
             if (arm.guard) continue;
-            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
-            auto check_bool = [&](const lir::Pattern& p) {
-                if (auto* pb = std::get_if<lir::PatBool>(&p)) {
-                    if (pb->value) has_true = true; else has_false = true;
+            auto pat_ref = arm_refs[ai].pat();
+            if (pat_ref.kind() == pc::Code::Wild) { has_wild = true; break; }
+            auto check_bool = [&](lir_view::PatRef p) {
+                if (p.kind() == pc::Code::Bool) {
+                    if (lir_view::PatBoolView{p}.value()) has_true = true; else has_false = true;
                 }
             };
-            if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
-                for (auto& alt : por->alts) check_bool(alt);
+            if (pat_ref.kind() == pc::Code::Or) {
+                lir_view::PatOrView{pat_ref}.each_alt([&](lir_view::PatRef a){ check_bool(a); });
             } else {
-                check_bool(arm.pat);
+                check_bool(pat_ref);
             }
         }
         exhaustive_discrete = has_wild || (has_true && has_false);
     } else if (e.scrut->type && TypeRef(e.scrut->type).kind() == LogosType::Kind::Enum) {
         std::set<int32_t> covered;
         bool has_wild = false;
-        auto cover_enum = [&](const lir::Pattern& p) {
-            if (auto* pv  = std::get_if<lir::PatVariant>(&p))     covered.insert(pv->disc);
-            else if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) covered.insert(pvd->disc);
+        auto cover_enum = [&](lir_view::PatRef p) {
+            if (p.kind() == pc::Code::Variant)          covered.insert(static_cast<int32_t>(lir_view::PatVariantView{p}.disc()));
+            else if (p.kind() == pc::Code::VariantData) covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{p}.disc()));
         };
-        for (auto& arm : e.arms) {
+        for (size_t ai = 0; ai < e.arms.size(); ++ai) {
+            auto& arm = e.arms[ai];
             if (arm.guard) continue;
-            if (std::holds_alternative<PatWild>(arm.pat)) { has_wild = true; break; }
-            if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
-                for (auto& alt : por->alts) cover_enum(alt);
+            auto pat_ref = arm_refs[ai].pat();
+            if (pat_ref.kind() == pc::Code::Wild) { has_wild = true; break; }
+            if (pat_ref.kind() == pc::Code::Or) {
+                lir_view::PatOrView{pat_ref}.each_alt([&](lir_view::PatRef a){ cover_enum(a); });
             } else {
-                cover_enum(arm.pat);
+                cover_enum(pat_ref);
             }
         }
         if (has_wild) {
@@ -1826,6 +1833,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     }
     for (int i = (int)e.arms.size() - 1; i >= 0; --i) {
         auto& arm = e.arms[i];
+        auto arm_pat_ref = arm_refs[i].pat();
         auto* body_block = new mlir::Block();
         region->push_back(body_block);
 
@@ -1874,22 +1882,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             }
         }
 
-        bool is_wild = std::holds_alternative<PatWild>(arm.pat);
+        bool is_wild = arm_pat_ref.kind() == pc::Code::Wild;
+        auto get_disc = [](lir_view::PatRef p) -> int64_t {
+            switch (p.kind()) {
+            case pc::Code::Variant:     return lir_view::PatVariantView{p}.disc();
+            case pc::Code::VariantData: return lir_view::PatVariantDataView{p}.disc();
+            case pc::Code::Int:         return lir_view::PatIntView{p}.value();
+            case pc::Code::Bool:        return lir_view::PatBoolView{p}.value() ? 1 : 0;
+            default: return 0;
+            }
+        };
         if (is_wild) {
             else_block = arm_entry;
-        } else if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
-            auto get_disc = [](const lir::Pattern& p) -> int64_t {
-                if (auto* pv  = std::get_if<lir::PatVariant>(&p))     return pv->disc;
-                if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) return pvd->disc;
-                if (auto* pi  = std::get_if<lir::PatInt>(&p))         return pi->value;
-                if (auto* pb  = std::get_if<lir::PatBool>(&p))        return pb->value ? 1 : 0;
-                return 0;
-            };
+        } else if (arm_pat_ref.kind() == pc::Code::Or) {
+            std::vector<lir_view::PatRef> alts;
+            lir_view::PatOrView{arm_pat_ref}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
             mlir::Block* cur_else = else_block;
-            for (int64_t ai = static_cast<int64_t>(por->alts.size()) - 1; ai >= 0; --ai) {
+            for (int64_t ai = static_cast<int64_t>(alts.size()) - 1; ai >= 0; --ai) {
                 auto* test_block = new mlir::Block();
                 region->push_back(test_block);
-                int64_t disc = get_disc(por->alts[static_cast<size_t>(ai)]);
+                int64_t disc = get_disc(alts[static_cast<size_t>(ai)]);
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
                 auto disc_val = coerce_int(
@@ -1901,11 +1913,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             }
             else_block = cur_else;
         } else {
-            int64_t disc = 0;
-            if (auto* pv = std::get_if<PatVariant>(&arm.pat)) disc = pv->disc;
-            else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) disc = pvd->disc;
-            else if (auto* pi = std::get_if<PatInt>(&arm.pat))  disc = pi->value;
-            else if (auto* pb = std::get_if<PatBool>(&arm.pat)) disc = pb->value ? 1 : 0;
+            int64_t disc = get_disc(arm_pat_ref);
 
             auto* test_block = new mlir::Block();
             region->push_back(test_block);

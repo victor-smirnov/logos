@@ -718,6 +718,9 @@ struct PatWildView {
 // PatVariantData { enum_name, variant, disc, bindings: Array<Varchar>, binding_types }
 struct PatVariantDataView {
     PatRef self;
+    int64_t          disc()      const noexcept { return detail::read_i64(self, pk::DISC.code); }
+    std::string_view enum_name() const noexcept { return detail::read_string(self, pk::ENUM_NAME.code); }
+    std::string_view variant()   const noexcept { return detail::read_string(self, pk::VARIANT.code); }
     template <class F>
     void each_binding(F&& f) const noexcept {
         auto av = self.mirror()->get(pk::BINDINGS.code, self.base());
@@ -727,6 +730,36 @@ struct PatVariantDataView {
             auto el = arr->get(i, self.base());
             if (el.is_null()) continue;
             f(el.as_ptr<const hermes::ArenaString>(self.base())->view());
+        }
+    }
+};
+
+// PatVariant { enum_name, variant, disc }
+struct PatVariantView {
+    PatRef self;
+    int64_t          disc()      const noexcept { return detail::read_i64(self, pk::DISC.code); }
+    std::string_view enum_name() const noexcept { return detail::read_string(self, pk::ENUM_NAME.code); }
+    std::string_view variant()   const noexcept { return detail::read_string(self, pk::VARIANT.code); }
+};
+
+// PatInt { value: i64 }
+struct PatIntView {
+    PatRef self;
+    int64_t value() const noexcept { return detail::read_i64(self, pk::INT_VALUE.code); }
+};
+
+// PatOr { alts: Array<RelPtr<Pattern>> }
+struct PatOrView {
+    PatRef self;
+    template <class F>
+    void each_alt(F&& f) const noexcept {
+        auto av = self.mirror()->get(pk::SUBS.code, self.base());
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) continue;
+            f(PatRef(self.arena(), el.to_offset()));
         }
     }
 };
