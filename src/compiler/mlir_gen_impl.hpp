@@ -394,13 +394,13 @@ private:
     void gen_stmt_kind(lir_view::SChainFieldWriteView v);
 
     void gen_let(const SLet& s);
-    void gen_assign(const SAssign& s);
+    void gen_assign(lir_view::SAssignView v);
     void gen_return(const SReturn& s);
     void gen_if(const SIf& s);
     void gen_while(const SWhile& s);
     void gen_for(const SFor& s);
     void gen_loop(const SLoop& s);
-    void gen_break(const SBreak& s);
+    void gen_break(lir_view::SBreakView v);
     void gen_continue();
     void gen_for_each(const SForEach& s);
     void gen_field_write(const SFieldWrite& s);

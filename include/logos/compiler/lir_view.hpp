@@ -1039,7 +1039,8 @@ struct SLetElseView {
 struct SBreakView {
     StmtRef self;
     // Optional break-with-value expression (null ExprRef when absent).
-    ExprRef value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    ExprRef          value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
 };
 
 struct SContinueView { StmtRef self; };

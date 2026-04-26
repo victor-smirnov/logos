@@ -60,13 +60,13 @@ void MLIRGenImpl::gen_stmt(const LStmt& stmt) {
 }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(std::get<SLet>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(std::get<SAssign>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(std::get<SReturn>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(std::get<SIf>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(std::get<SWhile>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(std::get<SFor>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(std::get<SLoop>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(std::get<SBreak>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
     auto& s = std::get<SContinue>(lstmt_of(v.self)->kind);
     if (loop_stack_.empty()) return;
@@ -459,22 +459,25 @@ void MLIRGenImpl::gen_let(const SLet& s) {
 // gen_assign
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_assign(const SAssign& s) {
-    auto val = gen_expr(*s.value);
+void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
+    auto* val_le = lexpr_of(v.value());
+    if (!val_le) return;
+    auto val = gen_expr(*val_le);
     if (!val) return;
-    auto it = scope_.find(s.name);
+    std::string name(v.name());
+    auto it = scope_.find(name);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: assign to undefined '%s'\n", s.name.c_str());
+        std::fprintf(stderr, "mlir_gen: assign to undefined '%s'\n", name.c_str());
         return;
     }
     // Mutable tagged enum: val is a new struct ptr; store to pointer slot.
-    if (var_tagged_enum_ptr_.count(s.name)) {
+    if (var_tagged_enum_ptr_.count(name)) {
         // If val is an aggregate (returned by value), spill to alloca first.
         val = spill_to_alloca(val);
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, it->second);
         return;
     }
-    auto et = var_elem_types_.find(s.name);
+    auto et = var_elem_types_.find(name);
     if (et != var_elem_types_.end())
         val = coerce_int(val, et->second);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, it->second);
@@ -797,23 +800,25 @@ void MLIRGenImpl::gen_loop(const SLoop& s) {
 // gen_break / gen_continue
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_break(const SBreak& s) {
+void MLIRGenImpl::gen_break(lir_view::SBreakView v) {
     if (loop_stack_.empty()) return;
-    // Find target loop: if label specified, search from innermost outward.
+    std::string label(v.label());
     LoopBlocks* target = nullptr;
-    if (s.label.empty()) {
+    if (label.empty()) {
         target = &loop_stack_.back();
     } else {
         for (int i = (int)loop_stack_.size() - 1; i >= 0; --i) {
-            if (loop_stack_[i].label == s.label) { target = &loop_stack_[i]; break; }
+            if (loop_stack_[i].label == label) { target = &loop_stack_[i]; break; }
         }
         if (!target) { target = &loop_stack_.back(); }
     }
-    // Store break value into the slot if present.
-    if (s.value && target->break_slot) {
-        mlir::Value val = gen_expr(*s.value);
-        if (val)
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, target->break_slot);
+    auto val_er = v.value();
+    if (val_er && target->break_slot) {
+        if (auto* val_le = lexpr_of(val_er)) {
+            mlir::Value val = gen_expr(*val_le);
+            if (val)
+                builder_.create<mlir::LLVM::StoreOp>(loc_, val, target->break_slot);
+        }
     }
     builder_.create<mlir::cf::BranchOp>(loc_, target->exit);
 }
