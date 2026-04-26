@@ -745,10 +745,11 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
 
     // 1. Evaluate the receiver.
     mlir::Value obj_ptr = nullptr;
-    if (auto* vr = std::get_if<lir::EVarRef>(&recv_le->kind)) {
-        auto it = scope_.find(vr->name);
+    if (recv_ref && recv_ref.kind() == lir_schema::expr::Code::VarRef) {
+        std::string name(lir_view::EVarRefView{recv_ref}.name());
+        auto it = scope_.find(name);
         if (it != scope_.end()) {
-            if (let_vars_.count(vr->name))
+            if (let_vars_.count(name))
                 obj_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_t, it->second);
             else
                 obj_ptr = it->second;
@@ -900,13 +901,15 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
                                            TypeRef ret_logos_type) {
     // The receiver is a &dyn Trait — a pointer to {data_ptr, vtable_ptr}.
 
-    auto* recv_le = lexpr_of(v.receiver());
+    auto recv_ref = v.receiver();
+    auto* recv_le = lexpr_of(recv_ref);
     if (!recv_le) return nullptr;
 
     // Check if receiver is a variable we know is dyn
     mlir::Value recv_alloca = nullptr;
-    if (auto* vr = std::get_if<EVarRef>(&recv_le->kind)) {
-        auto it = scope_.find(vr->name);
+    if (recv_ref && recv_ref.kind() == lir_schema::expr::Code::VarRef) {
+        std::string name(lir_view::EVarRefView{recv_ref}.name());
+        auto it = scope_.find(name);
         if (it != scope_.end()) recv_alloca = it->second;
     }
     if (!recv_alloca) {
