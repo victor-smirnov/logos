@@ -3,155 +3,295 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // mono_scan.cpp — Function scanning and generic call enqueueing.
+//
+// Phase 3d: walks the L-IR Hermes mirror via lir_view types instead of the
+// std::variant tree. Mirror entries for the function being scanned must be
+// emitted via lir_mirror_emit_function before scan_fn runs — call-site
+// ordering in mono.cpp / mono_clone.cpp guarantees this.
 
 #include "mono_impl.hpp"
 
+#include <logos/compiler/lir_view.hpp>
+#include <logos/compiler/lir_mirror.hpp>
+
 namespace logos::compiler {
 
+namespace {
+
+using ECode = lir_schema::expr::Code;
+using SCode = lir_schema::stmt::Code;
+
+} // namespace
+
 void Mono::scan_fn(const lir::LFunction& fn) {
-    scan_block(fn.body);
+    if (!out_.mirror_table) return;
+    auto it = out_.mirror_table->block.find(&fn.body);
+    if (it == out_.mirror_table->block.end()) return;
+    auto& arena = out_.type_pool.arena_or_init();
+    scan_block(lir_view::BlockRef(&arena, it->second));
 }
 
-
-void Mono::scan_block(const lir::LBlock& b) {
-    for (auto& st : b.stmts) scan_stmt(st);
+void Mono::scan_block(lir_view::BlockRef b) {
+    if (!b) return;
+    b.each_stmt([&](lir_view::StmtRef s) { scan_stmt(s); });
 }
 
+void Mono::scan_stmt(lir_view::StmtRef s) {
+    if (!s) return;
+    switch (s.kind()) {
+    case SCode::Let:
+        scan_expr(lir_view::SLetView{s}.value());
+        break;
+    case SCode::Assign:
+        scan_expr(lir_view::SAssignView{s}.value());
+        break;
+    case SCode::Return: {
+        if (auto v = lir_view::SReturnView{s}.value()) scan_expr(v);
+        break;
+    }
+    case SCode::If: {
+        lir_view::SIfView v{s};
+        scan_expr(v.cond());
+        scan_block(v.then_block());
+        scan_block(v.else_block());
+        break;
+    }
+    case SCode::While: {
+        lir_view::SWhileView v{s};
+        scan_expr(v.cond());
+        scan_block(v.body());
+        break;
+    }
+    case SCode::For: {
+        lir_view::SForView v{s};
+        scan_expr(v.lo());
+        scan_expr(v.hi());
+        scan_block(v.body());
+        break;
+    }
+    case SCode::Loop:
+        scan_block(lir_view::SLoopView{s}.body());
+        break;
+    case SCode::Block:
+        scan_block(lir_view::SBlockView{s}.body());
+        break;
+    case SCode::FieldWrite:
+        scan_expr(lir_view::SFieldWriteView{s}.value());
+        break;
+    case SCode::DerefFieldWrite:
+        scan_expr(lir_view::SDerefFieldWriteView{s}.value());
+        break;
+    case SCode::IndexWrite: {
+        lir_view::SIndexWriteView v{s};
+        scan_expr(v.index());
+        scan_expr(v.value());
+        break;
+    }
+    case SCode::FieldIndexWrite: {
+        lir_view::SFieldIndexWriteView v{s};
+        scan_expr(v.index());
+        scan_expr(v.value());
+        break;
+    }
+    case SCode::DerefWrite: {
+        lir_view::SDerefWriteView v{s};
+        scan_expr(v.ptr());
+        scan_expr(v.value());
+        break;
+    }
+    case SCode::TupleWrite:
+        scan_expr(lir_view::STupleWriteView{s}.value());
+        break;
+    case SCode::ChainFieldWrite:
+        scan_expr(lir_view::SChainFieldWriteView{s}.value());
+        break;
+    case SCode::ExprStmt:
+        scan_expr(lir_view::SExprStmtView{s}.expr());
+        break;
+    case SCode::Delete:
+        scan_expr(lir_view::SDeleteView{s}.expr());
+        break;
+    case SCode::Match: {
+        lir_view::SMatchView v{s};
+        scan_expr(v.scrut());
+        v.each_arm([&](lir_view::EMatchArmRef arm) {
+            if (auto g = arm.guard()) scan_expr(g);
+            scan_block(arm.body());
+        });
+        break;
+    }
+    case SCode::ForEach: {
+        lir_view::SForEachView v{s};
+        scan_expr(v.iter());
+        scan_block(v.body());
+        break;
+    }
+    case SCode::LetElse: {
+        lir_view::SLetElseView v{s};
+        scan_expr(v.scrut());
+        scan_block(v.else_block());
+        break;
+    }
+    case SCode::Break: {
+        if (auto v = lir_view::SBreakView{s}.value()) scan_expr(v);
+        break;
+    }
+    case SCode::Continue:
+    case SCode::Drop:
+        // No sub-expressions to scan.
+        break;
+    }
+}
 
-void Mono::scan_stmt(const lir::LStmt& st) {
-    std::visit([&](const auto& k) {
-        using K = std::decay_t<decltype(k)>;
-        if constexpr (std::is_same_v<K, lir::SLet>)
-            scan_expr(*k.value);
-        else if constexpr (std::is_same_v<K, lir::SAssign>)
-            scan_expr(*k.value);
-        else if constexpr (std::is_same_v<K, lir::SReturn>)
-            { if (k.value) scan_expr(*k.value); }
-        else if constexpr (std::is_same_v<K, lir::SIf>) {
-            scan_expr(*k.cond);
-            scan_block(*k.then_);
-            if (k.else_) scan_block(**k.else_);
-        } else if constexpr (std::is_same_v<K, lir::SWhile>) {
-            scan_expr(*k.cond); scan_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SFor>) {
-            scan_expr(*k.lo); scan_expr(*k.hi); scan_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SLoop>) {
-            scan_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SBlock>) {
-            scan_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
-            scan_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
-            scan_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
-            scan_expr(*k.index); scan_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SFieldIndexWrite>) {
-            scan_expr(*k.index); scan_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SDerefWrite>) {
-            scan_expr(*k.ptr); scan_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::STupleWrite>) {
-            scan_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
-            scan_expr(*k.expr);
-        } else if constexpr (std::is_same_v<K, lir::SDelete>) {
-            scan_expr(*k.expr);
-        } else if constexpr (std::is_same_v<K, lir::SDrop>) {
-            // no-op: SDrop only references a variable name, not an expression
-        } else if constexpr (std::is_same_v<K, lir::SMatch>) {
-            scan_expr(*k.scrut);
-            for (auto& arm : k.arms) {
-                // NM3: scan guard expressions so generic calls inside guards are found.
-                if (arm.guard) scan_expr(**arm.guard);
-                scan_block(*arm.body);
-            }
-        } else if constexpr (std::is_same_v<K, lir::SForEach>) {
-            scan_expr(*k.iter); scan_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
-            // NM1: scan scrutinee and the else diverge-block for generic calls.
-            scan_expr(*k.scrut);
-            scan_block(*k.else_block);
-        } else if constexpr (std::is_same_v<K, lir::SChainFieldWrite>) {
-            scan_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SBreak>) {
-            // NM5: break-with-value expressions may contain generic calls.
-            if (k.value) scan_expr(*k.value);
+void Mono::scan_expr(lir_view::ExprRef e) {
+    if (!e) return;
+    switch (e.kind()) {
+    case ECode::Call: {
+        lir_view::ECallView v{e};
+        if (v.has_type_args()) {
+            // Post-substitution generic call: callee is already mangled.
+            enqueue_if_needed(std::string(v.callee()), v.type_args(out_.type_pool.impl()));
         }
-    }, st.kind);
-}
-
-
-void Mono::scan_expr(const lir::LExpr& e) {
-    std::visit([&](const auto& k) {
-        using K = std::decay_t<decltype(k)>;
-        if constexpr (std::is_same_v<K, lir::ECall>) {
-            if (!k.type_args.empty()) {
-                // This is a post-substitution generic call: callee is already mangled.
-                // The name was rewritten by subst_expr. Try to find the original template.
-                // We identify originals by checking templates_ using the un-mangled name.
-                // In practice after subst_expr, callee == mangled name.
-                enqueue_if_needed(k.callee, k.type_args);
-            }
-            for (auto& a : k.args) scan_expr(*a);
-        } else if constexpr (std::is_same_v<K, lir::EBinOp>) {
-            scan_expr(*k.lhs); scan_expr(*k.rhs);
-        } else if constexpr (std::is_same_v<K, lir::EUnary>) {
-            scan_expr(*k.operand);
-        } else if constexpr (std::is_same_v<K, lir::EDeref>) {
-            scan_expr(*k.operand);
-        } else if constexpr (std::is_same_v<K, lir::EFieldRead>) {
-            scan_expr(*k.receiver);
-        } else if constexpr (std::is_same_v<K, lir::EIndexRead>) {
-            scan_expr(*k.receiver); scan_expr(*k.index);
-        } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {
-            scan_expr(*k.receiver);
-            for (auto& a : k.args) scan_expr(*a);
-        } else if constexpr (std::is_same_v<K, lir::EStructLit>) {
-            for (auto& [fn, fv] : k.fields) scan_expr(*fv);
-        } else if constexpr (std::is_same_v<K, lir::EArrLit>) {
-            for (auto& elem : k.elems) scan_expr(*elem);
-        } else if constexpr (std::is_same_v<K, lir::ECast>) {
-            scan_expr(*k.operand);
-        } else if constexpr (std::is_same_v<K, lir::ENew>) {
-            for (auto& [fn, fv] : k.fields) scan_expr(*fv);
-        } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
-            scan_expr(*k.cond); scan_expr(*k.then_val); scan_expr(*k.else_val);
-        } else if constexpr (std::is_same_v<K, lir::ETupleLit>) {
-            for (auto& elem : k.elems) scan_expr(*elem);
-        } else if constexpr (std::is_same_v<K, lir::ETupleIndex>) {
-            scan_expr(*k.receiver);
-        } else if constexpr (std::is_same_v<K, lir::EClosureBox>) {
-            if (k.inner) for (auto& st : k.inner->body.stmts) scan_stmt(st);
-        } else if constexpr (std::is_same_v<K, lir::EClosureCall>) {
-            scan_expr(*k.callee);
-            for (auto& a : k.args) scan_expr(*a);
-        } else if constexpr (std::is_same_v<K, lir::ESliceLit>) {
-            scan_expr(*k.base); scan_expr(*k.len);
-        } else if constexpr (std::is_same_v<K, lir::ESliceIndex>) {
-            scan_expr(*k.slice); scan_expr(*k.index);
-        } else if constexpr (std::is_same_v<K, lir::ESliceLen>) {
-            scan_expr(*k.slice);
-        } else if constexpr (std::is_same_v<K, lir::ESlicePtr>) {
-            scan_expr(*k.slice);
-        } else if constexpr (std::is_same_v<K, lir::EEnumLitData>) {
-            for (auto& a : k.payload) scan_expr(*a);
-        } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
-            scan_expr(*k.fmt);
-            for (auto& a : k.args) scan_expr(*a);
-        } else if constexpr (std::is_same_v<K, lir::EPackExpand>) {
-            // nothing to scan
-        } else if constexpr (std::is_same_v<K, lir::ETry>) {
-            scan_expr(*k.inner);
-        } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
-            scan_expr(*k.scrut);
-            for (auto& arm : k.arms) {
-                if (arm.guard) scan_expr(**arm.guard);
-                scan_expr(*arm.value);
-            }
-        } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
-            if (k.block) scan_block(*k.block);
-            if (k.result) scan_expr(*k.result);
-        }
-    }, e.kind);
+        v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
+        break;
+    }
+    case ECode::BinOp: {
+        lir_view::EBinOpView v{e};
+        scan_expr(v.lhs());
+        scan_expr(v.rhs());
+        break;
+    }
+    case ECode::Unary:
+        scan_expr(lir_view::EUnaryView{e}.operand());
+        break;
+    case ECode::Deref:
+        scan_expr(lir_view::EDerefView{e}.operand());
+        break;
+    case ECode::FieldRead:
+        scan_expr(lir_view::EFieldReadView{e}.receiver());
+        break;
+    case ECode::IndexRead: {
+        lir_view::EIndexReadView v{e};
+        scan_expr(v.receiver());
+        scan_expr(v.index());
+        break;
+    }
+    case ECode::MethodCall: {
+        lir_view::EMethodCallView v{e};
+        scan_expr(v.receiver());
+        v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
+        break;
+    }
+    case ECode::StructLit:
+        lir_view::EStructLitView{e}.each_field_value(
+            [&](lir_view::ExprRef fv) { scan_expr(fv); });
+        break;
+    case ECode::ArrLit:
+        lir_view::EArrLitView{e}.each_elem(
+            [&](lir_view::ExprRef el) { scan_expr(el); });
+        break;
+    case ECode::Cast:
+        scan_expr(lir_view::ECastView{e}.operand());
+        break;
+    case ECode::New:
+        lir_view::ENewView{e}.each_field_value(
+            [&](lir_view::ExprRef fv) { scan_expr(fv); });
+        break;
+    case ECode::IfExpr: {
+        lir_view::EIfExprView v{e};
+        scan_expr(v.cond());
+        scan_expr(v.then_val());
+        scan_expr(v.else_val());
+        break;
+    }
+    case ECode::TupleLit:
+        lir_view::ETupleLitView{e}.each_elem(
+            [&](lir_view::ExprRef el) { scan_expr(el); });
+        break;
+    case ECode::TupleIndex:
+        scan_expr(lir_view::ETupleIndexView{e}.receiver());
+        break;
+    case ECode::ClosureBox: {
+        // Walk the captured closure body's statements.
+        scan_block(lir_view::EClosureBoxView{e}.body());
+        break;
+    }
+    case ECode::ClosureCall: {
+        lir_view::EClosureCallView v{e};
+        scan_expr(v.callee());
+        v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
+        break;
+    }
+    case ECode::FnPtrCall: {
+        lir_view::EFnPtrCallView v{e};
+        scan_expr(v.callee());
+        v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
+        break;
+    }
+    case ECode::SliceLit: {
+        lir_view::ESliceLitView v{e};
+        scan_expr(v.base());
+        scan_expr(v.len());
+        break;
+    }
+    case ECode::SliceIndex: {
+        lir_view::ESliceIndexView v{e};
+        scan_expr(v.slice());
+        scan_expr(v.index());
+        break;
+    }
+    case ECode::SliceLen:
+        scan_expr(lir_view::ESliceLenView{e}.slice());
+        break;
+    case ECode::SlicePtr:
+        scan_expr(lir_view::ESlicePtrView{e}.slice());
+        break;
+    case ECode::EnumLitData:
+        lir_view::EEnumLitDataView{e}.each_payload(
+            [&](lir_view::ExprRef p) { scan_expr(p); });
+        break;
+    case ECode::FormatCall: {
+        lir_view::EFormatCallView v{e};
+        scan_expr(v.fmt());
+        v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
+        break;
+    }
+    case ECode::Try:
+        scan_expr(lir_view::ETryView{e}.inner());
+        break;
+    case ECode::MatchExpr: {
+        lir_view::EMatchExprView v{e};
+        scan_expr(v.scrut());
+        v.each_arm([&](lir_view::EMatchArmRef arm) {
+            if (auto g = arm.guard()) scan_expr(g);
+            if (auto val = arm.value()) scan_expr(val);
+        });
+        break;
+    }
+    case ECode::BlockExpr: {
+        lir_view::EBlockExprView v{e};
+        scan_block(v.block());
+        if (auto r = v.result()) scan_expr(r);
+        break;
+    }
+    // Leaf / no-recurse variants.
+    case ECode::LitInt:
+    case ECode::LitFloat:
+    case ECode::LitBool:
+    case ECode::LitStr:
+    case ECode::VarRef:
+    case ECode::EnumLit:
+    case ECode::AddrOf:
+    case ECode::AddrOfTemp:
+    case ECode::PackExpand:
+    case ECode::SizeOf:
+    case ECode::TypeCodeOf:
+    case ECode::HermesLit:
+    case ECode::PtrArith:
+    case ECode::PtrDiff:
+    case ECode::ReflectOf:
+        break;
+    }
 }
 
 

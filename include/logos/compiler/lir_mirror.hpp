@@ -63,4 +63,10 @@ void lir_mirror_emit_function(lir::LProgram& prog,
                               LirMirrorTable& table,
                               lir::LFunction& fn);
 
+// Run the full emit driver but extend an existing table rather than create a
+// fresh one. Used by mono as a fixup pass to cover items not reached via the
+// per-function path (consts, impls, struct methods of non-instantiated
+// structs). Already-emitted nodes are deduplicated by the table caches.
+void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table);
+
 } // namespace logos::compiler

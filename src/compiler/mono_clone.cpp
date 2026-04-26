@@ -6,6 +6,7 @@
 
 #include "mono_impl.hpp"
 #include "logos/compiler/sha256.hpp"
+#include <logos/compiler/lir_mirror.hpp>
 #include <functional>
 
 namespace logos::compiler {
@@ -1168,6 +1169,11 @@ void Mono::instantiate_struct_templates() {
             }
 
             auto inst = clone_struct_def(*tmpl, subst, packs, cname);
+            // Emit mirror for each method before scan_fn; methods are
+            // unique_ptr<LFunction> so body addresses are stable across the
+            // later move into out_.structs.
+            for (auto& m : inst.methods)
+                lir_mirror_emit_function(out_, *out_.mirror_table, *m);
             for (auto& m : inst.methods) scan_fn(*m);
             // Apply explicit instantiation annotation if present (sets type_code
             // on a specific generic instantiation, e.g. `#[type_code=100] eidos Array<AnyVal>;`).
@@ -1189,8 +1195,10 @@ void Mono::instantiate_struct_templates() {
             worklist_.pop_back();
             depth_ = item.depth;
             auto fn_inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
-            scan_fn(fn_inst);
             out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn_inst)));
+            auto& fn_ref = *out_.functions.back();
+            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+            scan_fn(fn_ref);
         }
         depth_ = 0;
     }

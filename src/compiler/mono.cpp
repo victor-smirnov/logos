@@ -28,6 +28,10 @@ namespace logos::compiler {
 lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     in_ = std::move(in);
 
+    // L-IR Hermes mirror — populated incrementally as functions are cloned
+    // (so scan_fn can dispatch via lir_view). Empty at start of mono.
+    out_.mirror_table = std::make_unique<LirMirrorTable>();
+
     out_.consts              = std::move(in_.consts);
     out_.type_aliases        = std::move(in_.type_aliases);
     out_.traits              = std::move(in_.traits);
@@ -123,8 +127,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 auto cloned = clone_fn(tfn, subst);
                 cloned.name = dest;
                 cloned.type_params.clear();
-                scan_fn(cloned);
                 out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
+                auto& fn_ref = *out_.functions.back();
+                lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+                scan_fn(fn_ref);
                 done_.insert(dest);
             }
         }
@@ -143,8 +149,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         auto& fn = *fn_up;
         if (!fn.type_params.empty()) continue;
         auto cloned = clone_fn(fn, {});
-        scan_fn(cloned);
         out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
+        auto& fn_ref = *out_.functions.back();
+        lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+        scan_fn(fn_ref);
     }
 
     // Process function work-list.
@@ -154,8 +162,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // Set current depth for enqueue_if_needed during scan_fn
         depth_ = item.depth;
         auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
-        scan_fn(inst);
         out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
+        auto& fn_ref = *out_.functions.back();
+        lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+        scan_fn(fn_ref);
     }
     depth_ = 0;
 
@@ -235,10 +245,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     out_.diags          = std::move(in_.diags);
     out_.binary_symbols = std::move(in_.binary_symbols);
 
-    // Hermes mirror of L-IR (Phase 3b/d). Emitted here so the output of mono
-    // ships with a populated mirror — borrow_check / mlir_gen consumers read
-    // via lir_view without needing a separate pass.
-    out_.mirror_table = std::make_unique<LirMirrorTable>(lir_mirror_emit(out_));
+    // Final fixup: emit mirror entries for items not produced by per-fn
+    // clone+push_back paths above (consts, impl methods, struct method
+    // bodies of non-instantiated structs, etc.). Already-emitted nodes
+    // are deduplicated by the table caches.
+    lir_mirror_emit_into(out_, *out_.mirror_table);
 
     return std::move(out_);
 }

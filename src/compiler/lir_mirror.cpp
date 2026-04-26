@@ -1108,4 +1108,10 @@ void lir_mirror_emit_function(lir::LProgram& prog,
     em.emit_function(fn);
 }
 
+void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, table);
+    em.run(prog);
+}
+
 } // namespace logos::compiler

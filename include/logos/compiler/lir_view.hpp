@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace logos::compiler::lir_view {
 
@@ -174,6 +175,11 @@ public:
     BlockRef() = default;
     BlockRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : RefBase(a, o) {}
+
+    // Block stmts are stored under stmt_keys::ARMS (key 24) — a single key
+    // shared with SMatch.arms because both are Array<RelPtr<sub-node>>.
+    template <class F>
+    void each_stmt(F&& f) const noexcept;
 };
 
 class HermesValRef : public detail::RefBase {
@@ -201,6 +207,20 @@ inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
     auto av = mirror()->get(key, base());
     if (av.is_null()) return {};
     return StmtRef(arena_, av.to_offset());
+}
+
+// Iterate stmts inside a block. The mirror stores them at stmt_keys::ARMS (24),
+// reusing the same key for SMatch.arms — see lir_mirror.cpp:emit_block.
+template <class F>
+inline void BlockRef::each_stmt(F&& f) const noexcept {
+    auto av = mirror()->get(/*stmt_keys::ARMS*/ 24, base());
+    if (av.is_null()) return;
+    auto* arr = av.as_ptr<const hermes::ObjectArray>(base());
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        auto el = arr->get(i, base());
+        if (el.is_null()) continue;
+        f(StmtRef(arena_, el.to_offset()));
+    }
 }
 
 // ── View structs ─────────────────────────────────────────────────────────
@@ -415,8 +435,34 @@ void for_each_payload(const ExprRef& e, F&& f) noexcept {
 
 struct ECallView {
     ExprRef self;
+    std::string_view callee() const noexcept { return detail::read_string(self, ek::CALLEE.code); }
     template <class F> void each_arg(F&& f) const noexcept {
         detail::for_each_arg(self, std::forward<F>(f));
+    }
+
+    // True if TYPE_ARGS is non-empty (post-substitution generic call).
+    bool has_type_args() const noexcept {
+        auto av = self.mirror()->get(ek::TYPE_ARGS.code, self.base());
+        if (av.is_null()) return false;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        return arr->size() > 0;
+    }
+
+    // Read TYPE_ARGS into a TypeRef vector. Pool is used so the returned
+    // TypeRefs carry the caller's TypePoolImpl* (needed for accessors that
+    // touch trait/impl resolution).
+    std::vector<TypeRef> type_args(const TypePoolImpl* pool) const noexcept {
+        std::vector<TypeRef> out;
+        auto av = self.mirror()->get(ek::TYPE_ARGS.code, self.base());
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        out.reserve(arr->size());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) { out.emplace_back(); continue; }
+            out.emplace_back(self.arena(), el.to_offset(), pool);
+        }
+        return out;
     }
 };
 
@@ -491,6 +537,19 @@ struct EEnumLitDataView {
 // closure mirror's CL_CAPTURE_NAMES (closure_keys::CAPTURE_NAMES).
 struct EClosureBoxView {
     ExprRef self;
+
+    // Block of the captured closure body (closure_keys::BLOCK = 0 within the
+    // closure-map). Returns null BlockRef if the closure mirror is missing.
+    BlockRef body() const noexcept {
+        auto cl_av = self.mirror()->get(ek::CLOSURE.code, self.base());
+        if (cl_av.is_null()) return {};
+        auto* cl_map = reinterpret_cast<const hermes::TinyObjectMap*>(
+            self.base() + cl_av.to_offset().value());
+        auto blk_av = cl_map->get(lir_schema::closure_keys::BLOCK.code, self.base());
+        if (blk_av.is_null()) return {};
+        return BlockRef(self.arena(), blk_av.to_offset());
+    }
+
     template <class F>
     void each_capture_name(F&& f) const noexcept {
         auto cl_av = self.mirror()->get(ek::CLOSURE.code, self.base());
@@ -677,6 +736,18 @@ struct SForEachView {
     std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
     ExprRef          iter() const noexcept { return detail::stmt_sub_expr(self, sk::ITER.code); }
     BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+};
+
+struct SLetElseView {
+    StmtRef self;
+    ExprRef  scrut() const noexcept       { return detail::stmt_sub_expr(self, sk::SCRUT.code); }
+    BlockRef else_block() const noexcept  { return detail::stmt_sub_block(self, sk::ELSE_DIVERGE.code); }
+};
+
+struct SBreakView {
+    StmtRef self;
+    // Optional break-with-value expression (null ExprRef when absent).
+    ExprRef value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
 };
 
 struct SMatchView {
