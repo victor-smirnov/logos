@@ -21,6 +21,8 @@
 
 #include "mono_impl.hpp"
 
+#include <logos/compiler/lir_mirror.hpp>
+
 namespace logos::compiler {
 
 lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
@@ -232,6 +234,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     out_.diags          = std::move(in_.diags);
     out_.binary_symbols = std::move(in_.binary_symbols);
+
+    // Hermes mirror of L-IR (Phase 3b/d). Emitted here so the output of mono
+    // ships with a populated mirror — borrow_check / mlir_gen consumers read
+    // via lir_view without needing a separate pass.
+    out_.mirror_table = std::make_unique<LirMirrorTable>(lir_mirror_emit(out_));
+
     return std::move(out_);
 }
 

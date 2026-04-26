@@ -13,7 +13,6 @@
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
-#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/mono.hpp>
 
 #include <logos/hermes/document.hpp>
@@ -433,8 +432,6 @@ int main(int argc, char** argv) {
         meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
         meta_prog = logos::compiler::mono_pass(std::move(meta_prog));
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
-        meta_prog.mirror_table = std::make_unique<logos::compiler::LirMirrorTable>(
-            logos::compiler::lir_mirror_emit(meta_prog));
         meta_prog = logos::compiler::borrow_check(std::move(meta_prog));
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
 
@@ -591,18 +588,11 @@ int main(int argc, char** argv) {
     prog = logos::compiler::reflection_emit(std::move(prog));
     report("reflection_emit");
 
-    // ── Step 2c: Monomorphization ────────────────────────────────
+    // ── Step 2c: Monomorphization (also emits L-IR Hermes mirror) ─
     prog = logos::compiler::mono_pass(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
     report("mono");
-
-    // ── Step 2c-bis: Hermes mirror of L-IR (Phase 3b/d) ──────────
-    // Emitted post-mono so borrow_check + downstream readers can
-    // consume the mirror via lir_view.
-    prog.mirror_table = std::make_unique<logos::compiler::LirMirrorTable>(
-        logos::compiler::lir_mirror_emit(prog));
-    report("lir_mirror_emit");
 
     // ── Step 2d: Borrow checking ─────────────────────────────────
     prog = logos::compiler::borrow_check(std::move(prog));
