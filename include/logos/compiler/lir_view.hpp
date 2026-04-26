@@ -256,6 +256,11 @@ public:
         if (av.is_null()) return {};
         return ExprRef(arena(), av.to_offset());
     }
+    BlockRef body() const noexcept {
+        auto av = mirror()->get(ak::BODY.code, base());
+        if (av.is_null()) return {};
+        return BlockRef(arena(), av.to_offset());
+    }
 };
 
 // ── LExpr variant views ──────────────────────────────────────────────────
@@ -532,5 +537,167 @@ struct PatVariantDataView {
         }
     }
 };
+
+// ── LStmt variant views ──────────────────────────────────────────────────
+
+namespace sk = lir_schema::stmt_keys;
+namespace sc = lir_schema::stmt_common;
+
+namespace detail {
+
+inline ExprRef stmt_sub_expr(const StmtRef& s, uint8_t key) noexcept {
+    return s.sub_expr(key);
+}
+
+inline BlockRef stmt_sub_block(const StmtRef& s, uint8_t key) noexcept {
+    auto av = s.mirror()->get(key, s.base());
+    if (av.is_null()) return {};
+    return BlockRef(s.arena(), av.to_offset());
+}
+
+inline std::string_view stmt_str(const StmtRef& s, uint8_t key) noexcept {
+    return read_string(s, key);
+}
+
+inline TypeRef stmt_type(const StmtRef& s, uint8_t key, const TypePoolImpl* pool) noexcept {
+    auto av = s.mirror()->get(key, s.base());
+    if (av.is_null()) return TypeRef{};
+    return TypeRef(s.arena(), av.to_offset(), pool);
+}
+
+} // namespace detail
+
+struct SLetView {
+    StmtRef self;
+    std::string_view name() const noexcept   { return detail::stmt_str(self, sk::NAME.code); }
+    ExprRef          value() const noexcept  { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    TypeRef          type(const TypePoolImpl* pool) const noexcept {
+        return detail::stmt_type(self, sk::TYPE.code, pool);
+    }
+};
+
+struct SAssignView {
+    StmtRef self;
+    std::string_view name() const noexcept  { return detail::stmt_str(self, sk::NAME.code); }
+    ExprRef          value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct SReturnView {
+    StmtRef self;
+    ExprRef value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct SExprStmtView {
+    StmtRef self;
+    ExprRef expr() const noexcept { return detail::stmt_sub_expr(self, sk::EXPR.code); }
+};
+
+struct SFieldWriteView {
+    StmtRef self;
+    std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct SIndexWriteView {
+    StmtRef self;
+    std::string_view arr() const noexcept   { return detail::stmt_str(self, sk::NAME.code); }
+    ExprRef          index() const noexcept { return detail::stmt_sub_expr(self, sk::INDEX.code); }
+    ExprRef          value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct SFieldIndexWriteView {
+    StmtRef self;
+    std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    ExprRef          index() const noexcept    { return detail::stmt_sub_expr(self, sk::INDEX.code); }
+    ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct SChainFieldWriteView {
+    StmtRef self;
+    std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct SDerefFieldWriteView {
+    StmtRef self;
+    std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct SDerefWriteView {
+    StmtRef self;
+    ExprRef ptr() const noexcept   { return detail::stmt_sub_expr(self, sk::PTR.code); }
+    ExprRef value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct STupleWriteView {
+    StmtRef self;
+    std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+};
+
+struct SDeleteView {
+    StmtRef self;
+    ExprRef expr() const noexcept { return detail::stmt_sub_expr(self, sk::EXPR.code); }
+};
+
+struct SIfView {
+    StmtRef self;
+    ExprRef  cond() const noexcept       { return detail::stmt_sub_expr(self, sk::COND.code); }
+    BlockRef then_block() const noexcept { return detail::stmt_sub_block(self, sk::THEN_BLOCK.code); }
+    BlockRef else_block() const noexcept { return detail::stmt_sub_block(self, sk::ELSE_BLOCK.code); }
+};
+
+struct SWhileView {
+    StmtRef self;
+    ExprRef  cond() const noexcept { return detail::stmt_sub_expr(self, sk::COND.code); }
+    BlockRef body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+};
+
+struct SForView {
+    StmtRef self;
+    std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
+    ExprRef          lo() const noexcept   { return detail::stmt_sub_expr(self, sk::LO.code); }
+    ExprRef          hi() const noexcept   { return detail::stmt_sub_expr(self, sk::HI.code); }
+    BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+};
+
+struct SLoopView {
+    StmtRef self;
+    BlockRef body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+};
+
+struct SBlockView {
+    StmtRef self;
+    BlockRef body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+};
+
+struct SForEachView {
+    StmtRef self;
+    std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
+    ExprRef          iter() const noexcept { return detail::stmt_sub_expr(self, sk::ITER.code); }
+    BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+};
+
+struct SMatchView {
+    StmtRef self;
+    ExprRef scrut() const noexcept { return detail::stmt_sub_expr(self, sk::SCRUT.code); }
+
+    template <class F>
+    void each_arm(F&& f) const noexcept {
+        auto av = self.mirror()->get(sk::ARMS.code, self.base());
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) continue;
+            f(EMatchArmRef(self.arena(), el.to_offset()));
+        }
+    }
+};
+
+inline uint32_t stmt_line(const StmtRef& s) noexcept {
+    return detail::read_u32(s, sc::LINE.code);
+}
 
 } // namespace logos::compiler::lir_view

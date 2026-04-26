@@ -310,6 +310,20 @@ class BorrowChecker {
         return lir_view::ExprRef(prog_.type_pool.arena(), it->second);
     }
 
+    lir_view::StmtRef stmt_ref(const LStmt& s) const {
+        auto& tbl = *prog_.mirror_table;
+        auto it = tbl.stmt.find(&s);
+        if (it == tbl.stmt.end()) return {};
+        return lir_view::StmtRef(prog_.type_pool.arena(), it->second);
+    }
+
+    const LBlock* block_ptr(lir_view::BlockRef br) const {
+        if (!br) return nullptr;
+        auto& m = prog_.mirror_table->block_by_offset;
+        auto it = m.find(br.offset().value());
+        return it == m.end() ? nullptr : it->second;
+    }
+
     lir_view::PatRef pat_ref(const Pattern& p) const {
         auto& tbl = *prog_.mirror_table;
         auto it = tbl.pat.find(&p);
@@ -401,15 +415,14 @@ class BorrowChecker {
 
     // ── Phase 3 + 4: dangling / lifetime check on return ──────────────────
 
-    void check_return_value(const LExprPtr& e, uint32_t line) {
+    void check_return_value(lir_view::ExprRef er, uint32_t line) {
         if (!ret_type_ || !is_ref_kind(ret_type_)) return;
 
-        RefProv prov = prov_of(e);
+        RefProv prov = prov_of(er);
 
         // 1. Definitely local → always dangling.
         if (prov.is_local) {
             std::string src;
-            auto er = expr_ref(e);
             if (er) {
                 using Code = lir_schema::expr::Code;
                 if (er.kind() == Code::AddrOf)
@@ -567,151 +580,203 @@ class BorrowChecker {
 
     void visit_stmt(const LStmt& stmt) {
         uint32_t ln = stmt.line;
-        std::visit([&](auto& s) {
-            using S = std::decay_t<decltype(s)>;
+        auto sr = stmt_ref(stmt);
+        if (!sr) return;
+        using namespace lir_view;
+        using Code = lir_schema::stmt::Code;
+        const auto* pool = prog_.type_pool.impl();
 
+        switch (sr.kind()) {
             // ── Let binding ──────────────────────────────────────────────
-            if constexpr (std::is_same_v<S, SLet>) {
-                if (s.value && is_ref_kind(s.type)) {
-                    // Ref binding: take scoped borrows for all EAddrOf sources,
-                    // including those nested inside if/match arms.
-                    take_ref_borrows(s.value, ln);
-                } else if (s.value) {
-                    visit(s.value, /*consuming=*/true, ln);
+            case Code::Let: {
+                SLetView v{sr};
+                auto val = v.value();
+                auto t   = v.type(pool);
+                std::string name(v.name());
+                if (val && is_ref_kind(t)) {
+                    take_ref_borrows(val, ln);
+                } else if (val) {
+                    visit(val, /*consuming=*/true, ln);
                 }
-                declare_var(s.name);
-                if (is_ref_kind(s.type))
-                    prov_[s.name] = prov_of(s.value);
-                else if (s.type && !TypeRef(s.type).lifetime_args().empty() &&
-                         (TypeRef(s.type).kind() == LogosType::Kind::Struct ||
-                          TypeRef(s.type).kind() == LogosType::Kind::ZonedStruct))
-                    prov_[s.name] = prov_of(s.value);  // struct<'z> borrows through lifetime
+                declare_var(name);
+                if (is_ref_kind(t))
+                    prov_[name] = prov_of(val);
+                else if (t && !t.lifetime_args().empty() &&
+                         (t.kind() == LogosType::Kind::Struct ||
+                          t.kind() == LogosType::Kind::ZonedStruct))
+                    prov_[name] = prov_of(val);  // struct<'z> borrows through lifetime
+                break;
+            }
 
             // ── Assignment ───────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SAssign>) {
-                bool is_ref_assign = s.value &&
-                    (prov_.count(s.name) || is_ref_kind(s.value->type));
+            case Code::Assign: {
+                SAssignView v{sr};
+                auto val = v.value();
+                std::string name(v.name());
+                bool is_ref_assign = val &&
+                    (prov_.count(name) || is_ref_kind(val.type(pool)));
                 if (is_ref_assign) {
-                    // Ref reassignment: take scoped borrows for all EAddrOf
-                    // sources (may be conditional).
-                    take_ref_borrows(s.value, ln);
-                } else if (s.value) {
-                    visit(s.value, /*consuming=*/true, ln);
+                    take_ref_borrows(val, ln);
+                } else if (val) {
+                    visit(val, /*consuming=*/true, ln);
                 }
-                if (states_.count(s.name))
-                    states_[s.name] = VarState{};  // re-own
-                // Update provenance for ref variable reassignment.
+                if (states_.count(name))
+                    states_[name] = VarState{};  // re-own
                 if (is_ref_assign)
-                    prov_[s.name] = prov_of(s.value);
+                    prov_[name] = prov_of(val);
+                break;
+            }
 
             // ── Return ───────────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SReturn>) {
-                if (s.value) {
-                    check_return_value(s.value, ln);
-                    visit(s.value, /*consuming=*/true, ln);
+            case Code::Return: {
+                if (auto val = SReturnView{sr}.value()) {
+                    check_return_value(val, ln);
+                    visit(val, /*consuming=*/true, ln);
                 }
+                break;
+            }
 
             // ── Expression statement ─────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SExprStmt>) {
-                visit(s.expr, /*consuming=*/true, ln);
+            case Code::ExprStmt:
+                visit(SExprStmtView{sr}.expr(), /*consuming=*/true, ln);
+                break;
 
             // ── Field write: recv.field = value ──────────────────────────
-            } else if constexpr (std::is_same_v<S, SFieldWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::FieldWrite: {
+                SFieldWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Index write: arr[i] = value ──────────────────────────────
-            } else if constexpr (std::is_same_v<S, SIndexWrite>) {
-                check_live(s.arr, ln);
-                visit(s.index, /*consuming=*/true, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::IndexWrite: {
+                SIndexWriteView v{sr};
+                check_live(std::string(v.arr()), ln);
+                visit(v.index(), /*consuming=*/true, ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Field-index write: recv.field[i] = value ─────────────────
-            } else if constexpr (std::is_same_v<S, SFieldIndexWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.index, /*consuming=*/true, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::FieldIndexWrite: {
+                SFieldIndexWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.index(), /*consuming=*/true, ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Chain field write: recv.mid.field = value ────────────────
-            } else if constexpr (std::is_same_v<S, SChainFieldWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::ChainFieldWrite: {
+                SChainFieldWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Deref-field write: (*recv).field = value ─────────────────
-            } else if constexpr (std::is_same_v<S, SDerefFieldWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::DerefFieldWrite: {
+                SDerefFieldWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Deref write: *ptr = value ─────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SDerefWrite>) {
-                visit(s.ptr, /*consuming=*/false, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::DerefWrite: {
+                SDerefWriteView v{sr};
+                visit(v.ptr(),   /*consuming=*/false, ln);
+                visit(v.value(), /*consuming=*/true,  ln);
+                break;
+            }
 
             // ── Tuple field write: var.N = value ──────────────────────────
-            } else if constexpr (std::is_same_v<S, STupleWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::TupleWrite: {
+                STupleWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── delete ptr ───────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SDelete>) {
-                visit(s.expr, /*consuming=*/true, ln);
+            case Code::Delete:
+                visit(SDeleteView{sr}.expr(), /*consuming=*/true, ln);
+                break;
 
             // ── SDrop — compiler-generated, no-op in borrow checker ───────
-            } else if constexpr (std::is_same_v<S, SDrop>) {
-                (void)s;
+            case Code::Drop:
+                break;
 
             // ── If / else ────────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SIf>) {
-                visit(s.cond, /*consuming=*/true, ln);
+            case Code::If: {
+                SIfView v{sr};
+                visit(v.cond(), /*consuming=*/true, ln);
                 auto saved_s = states_;
                 auto saved_p = prov_;
-                visit_block(*s.then_);
+                if (auto then_b = block_ptr(v.then_block())) visit_block(*then_b);
                 auto then_s = states_;
                 auto then_p = prov_;
                 states_ = saved_s;
                 prov_   = saved_p;
-                if (s.else_) visit_block(**s.else_);
+                if (auto else_b = block_ptr(v.else_block())) visit_block(*else_b);
                 merge_moves(states_, then_s);
                 merge_provs(prov_,   then_p);
+                break;
+            }
 
             // ── While loop ───────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SWhile>) {
-                visit(s.cond, /*consuming=*/true, ln);
-                visit_loop_body(*s.body);
+            case Code::While: {
+                SWhileView v{sr};
+                visit(v.cond(), /*consuming=*/true, ln);
+                if (auto b = block_ptr(v.body())) visit_loop_body(*b);
+                break;
+            }
 
             // ── For range loop ───────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SFor>) {
-                visit(s.lo, /*consuming=*/true, ln);
-                visit(s.hi, /*consuming=*/true, ln);
-                visit_loop_body(*s.body, {s.var});
+            case Code::For: {
+                SForView v{sr};
+                visit(v.lo(), /*consuming=*/true, ln);
+                visit(v.hi(), /*consuming=*/true, ln);
+                if (auto b = block_ptr(v.body()))
+                    visit_loop_body(*b, {std::string(v.var())});
+                break;
+            }
 
             // ── Infinite loop ─────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SLoop>) {
-                visit_loop_body(*s.body);
+            case Code::Loop:
+                if (auto b = block_ptr(SLoopView{sr}.body())) visit_loop_body(*b);
+                break;
 
             // ── Scoping block ─────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SBlock>) {
-                visit_block(*s.body);
+            case Code::Block:
+                if (auto b = block_ptr(SBlockView{sr}.body())) visit_block(*b);
+                break;
 
             // ── For-each loop ─────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SForEach>) {
-                visit(s.iter, /*consuming=*/false, ln);
-                visit_loop_body(*s.body, {s.var});
+            case Code::ForEach: {
+                SForEachView v{sr};
+                visit(v.iter(), /*consuming=*/false, ln);
+                if (auto b = block_ptr(v.body()))
+                    visit_loop_body(*b, {std::string(v.var())});
+                break;
+            }
 
             // ── Match statement ───────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SMatch>) {
-                visit(s.scrut, /*consuming=*/false, ln);
+            case Code::Match: {
+                SMatchView v{sr};
+                visit(v.scrut(), /*consuming=*/false, ln);
                 auto saved_s = states_;
                 auto saved_p = prov_;
                 std::optional<StateMap> merged_s;
                 std::optional<ProvMap>  merged_p;
-                for (auto& arm : s.arms) {
+                v.each_arm([&](EMatchArmRef arm) {
                     states_ = saved_s;
                     prov_   = saved_p;
                     push_scope();
-                    declare_pat_bindings(arm.pat);
-                    if (arm.guard) visit(*arm.guard, /*consuming=*/true, ln);
-                    visit_block(*arm.body);
+                    declare_pat_bindings(arm.pat());
+                    if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
+                    if (auto body = block_ptr(arm.body())) visit_block(*body);
                     pop_scope();
                     if (!merged_s) {
                         merged_s = states_;
@@ -722,15 +787,19 @@ class BorrowChecker {
                                 (*merged_s)[name] = st;
                         merge_provs(*merged_p, prov_);
                     }
-                }
+                });
                 if (merged_s) {
                     for (auto& [name, st] : *merged_s)
                         if (saved_s.count(name)) states_[name] = st;
                     merge_provs(prov_, *merged_p);
                 }
+                break;
             }
-            // SBreak, SContinue — no variable effects.
-        }, stmt.kind);
+
+            // SBreak, SContinue, LetElse — no variable effects in this pass.
+            default:
+                break;
+        }
     }
 
 public:
