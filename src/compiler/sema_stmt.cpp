@@ -354,7 +354,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
         define(names[i], elem_t);
 
         auto tmp_ref = builder().var_ref(tmp, rhs_type);
-        auto elem_expr = make_expr(elem_t, lir::ETupleIndex{std::move(tmp_ref), (uint32_t)i});
+        auto elem_expr = builder().tuple_index(std::move(tmp_ref), (uint32_t)i, elem_t);
 
         lir::SLet elem_let;
         elem_let.name   = names[i];
@@ -1393,8 +1393,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             want_arity = 3;
             auto sv = str_of(p.get(la::VALUE.code));
             std::string lit(sv);
-            extra_args.push_back(make_expr(make_slice_type(prim(LogosType::Kind::U8)),
-                lir::ELitStr{std::move(lit)}));
+            extra_args.push_back(builder().lit_str(std::move(lit), make_slice_type(prim(LogosType::Kind::U8))));
         }
 
         auto cands = find_func_candidates(helper);
@@ -1408,7 +1407,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t));
         if (pc == la::PAT_HERMES_STR) {
             args.push_back(builder().var_ref(base_var, u8_ptr_t));
         }
@@ -1434,7 +1433,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return "";
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{parent_av}));
+        args.push_back(builder().addr_of(parent_av, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
@@ -1461,7 +1460,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
@@ -1481,7 +1480,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
@@ -1501,7 +1500,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)tc, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
@@ -1521,7 +1520,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
@@ -1539,7 +1538,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
-        args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
     };
@@ -1568,9 +1567,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     if (code_of(ent) != la::PAT_HERMES_MAP_ENTRY) continue;
                     auto ksv = str_of(ent.get(la::KEY.code));
                     std::vector<lir::LExprPtr> xargs;
-                    xargs.push_back(make_expr(
-                        make_slice_type(prim(LogosType::Kind::U8)),
-                        lir::ELitStr{std::string(ksv)}));
+                    xargs.push_back(builder().lit_str(std::string(ksv), make_slice_type(prim(LogosType::Kind::U8))));
                     std::string child = emit_child_let(
                         "hermes_pat_map_slot", sv, std::move(xargs), 3);
                     if (child.empty()) {
@@ -2527,10 +2524,10 @@ lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
     auto recv_expr = builder().var_ref(std::string(recv_name), lookup(recv_name) ? lookup(recv_name) : error_t());
     // mid read: recv.mid  (as EFieldRead)
     TypeRef mid_read_t = mid_ft ? mid_ft : error_t();
-    auto mid_expr = make_expr(mid_read_t, lir::EFieldRead{std::move(recv_expr), std::string(mid_name)});
+    auto mid_expr = builder().field_read(std::move(recv_expr), std::string(mid_name), mid_read_t);
     // field read: (recv.mid).field  (as EFieldRead)
     TypeRef ft2 = ft ? ft : error_t();
-    auto field_expr = make_expr(ft2, lir::EFieldRead{std::move(mid_expr), std::string(field_name)});
+    auto field_expr = builder().field_read(std::move(mid_expr), std::string(field_name), ft2);
 
     // op(old, rhs)
     lir::LExprPtr combined = builder().bin_op(base_op, std::move(field_expr), std::move(rhs), ft2);
@@ -2578,7 +2575,7 @@ lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
 
     // lhs = s.field (read): EFieldRead{VarRef(recv_name), field_name}
     auto recv_varref = builder().var_ref(std::string(recv_name), recv_var_type);
-    auto lhs_read    = make_expr(result_type, lir::EFieldRead{std::move(recv_varref), std::string(field_name)});
+    auto lhs_read    = builder().field_read(std::move(recv_varref), std::string(field_name), result_type);
     // rhs = expr
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
@@ -2909,7 +2906,7 @@ lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
     }
     // Build lhs read: arr[idx_for_read]
     auto arr_recv = builder().var_ref(std::string(arr_name), arr_type);
-    auto lhs_read = make_expr(elem_type, lir::EIndexRead{std::move(arr_recv), std::move(idx_for_read)});
+    auto lhs_read = builder().index_read(std::move(arr_recv), std::move(idx_for_read), elem_type);
     // combined = lhs op rhs
     auto combined = builder().bin_op(base_op, std::move(lhs_read), std::move(rhs), elem_type);
 
@@ -3694,7 +3691,7 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
 
     // lhs_read = (*ptr).field
     auto ptr_ref  = builder().var_ref(std::string(recv_name), ptr_type);
-    auto lhs_read = make_expr(ft, lir::EFieldRead{std::move(ptr_ref), std::string(field_name)});
+    auto lhs_read = builder().field_read(std::move(ptr_ref), std::string(field_name), ft);
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
@@ -3756,7 +3753,7 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
 
     TypeRef ft = TypeRef(recv_t).tuple_elems()[idx];
     auto recv_ref = builder().var_ref(std::string(recv_name), orig_recv_t ? orig_recv_t : recv_t);
-    auto lhs_read = make_expr(ft, lir::ETupleIndex{std::move(recv_ref), (uint32_t)idx});
+    auto lhs_read = builder().tuple_index(std::move(recv_ref), (uint32_t)idx, ft);
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
@@ -3835,8 +3832,8 @@ lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
     }
     // Build lhs read: s.field[idx_for_read]
     auto recv_ref  = builder().var_ref(std::string(recv_name), recv_t ? recv_t : error_t());
-    auto field_rd  = make_expr(field_t, lir::EFieldRead{std::move(recv_ref), std::string(field_name)});
-    auto lhs_read  = make_expr(elem_t, lir::EIndexRead{std::move(field_rd), std::move(idx_for_read)});
+    auto field_rd  = builder().field_read(std::move(recv_ref), std::string(field_name), field_t);
+    auto lhs_read  = builder().index_read(std::move(field_rd), std::move(idx_for_read), elem_t);
     auto combined  = builder().bin_op(base_op, std::move(lhs_read), std::move(rhs), elem_t);
 
     lir::SFieldIndexWrite sfiw;
