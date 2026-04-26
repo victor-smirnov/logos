@@ -307,6 +307,11 @@ public:
     // arena if no types have been interned yet). Used by the L-IR mirror
     // emitter when the program contains no LogosType allocations.
     hermes::Arena&       arena_or_init();
+
+    // Phase 3d: expose the impl pointer so lir_view callers can wrap a raw
+    // arena offset into a TypeRef (TypeRef stores pool* for trait/method
+    // resolution; nullptr-pool TypeRefs work for kind/name accessors only).
+    const TypePoolImpl* impl() const noexcept { return impl_.get(); }
 };
 
 // ── Diagnostics ────────────────────────────────────────────────────────────

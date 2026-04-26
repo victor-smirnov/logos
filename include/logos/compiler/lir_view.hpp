@@ -16,6 +16,7 @@
 #pragma once
 
 #include <logos/compiler/lir_schema.hpp>
+#include <logos/compiler/sema.hpp>  // TypeRef, TypePoolImpl
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/object_array.hpp>
@@ -122,9 +123,14 @@ public:
             int32_t(hermes::schema::variant_of(schema_type_code())));
     }
 
-    // Type lookup is added by Phase 3d when a reader needs it (requires a
-    // TypePoolImpl* to wrap the offset in a TypeRef). For now views that
-    // don't use the type field skip the dependency.
+    // TypeRef of the expression. The mirror stores the type's arena offset
+    // under expr_common::TYPE; wrap it with the caller's TypePoolImpl* so
+    // pool-dependent accessors (e.g. trait resolution) keep working.
+    TypeRef type(const TypePoolImpl* pool) const noexcept {
+        auto av = mirror()->get(lir_schema::expr_common::TYPE.code, base());
+        if (av.is_null()) return TypeRef{};
+        return TypeRef(arena(), av.to_offset(), pool);
+    }
 
     // Helper: reach a sub-expression via a sparse key (used by view structs).
     ExprRef sub_expr(uint8_t key) const noexcept;
