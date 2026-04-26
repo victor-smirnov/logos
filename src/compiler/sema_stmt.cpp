@@ -1343,7 +1343,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
     TypeRef u8_ptr_t_outer = make_ptr(false, prim(LogosType::Kind::U8));
     TypeRef u64_t = prim(LogosType::Kind::U64);
     auto mk_true = [&]() {
-        return make_expr(bool_t(), lir::ELitBool{true});
+        return builder().lit_bool(true, bool_t());
     };
     auto mk_and = [&](lir::LExprPtr a, lir::LExprPtr b) -> lir::LExprPtr {
         if (!a) return b;
@@ -1372,7 +1372,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             want_arity = 2;
             AnyVal bv = p.get(la::VALUE.code);
             bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
-            extra_args.push_back(make_expr(bool_t(), lir::ELitBool{bval}));
+            extra_args.push_back(builder().lit_bool(bval, bool_t()));
         } else if (pc == la::PAT_HERMES_INT) {
             helper = "hermes_pat_eq_i24";
             want_arity = 2;
@@ -1388,7 +1388,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                 error(std::format("@<int> pattern: value {} does not fit in i24", v));
                 v = 0;
             }
-            extra_args.push_back(make_expr(i32_t(), lir::ELitInt{v}));
+            extra_args.push_back(builder().lit_int(v, i32_t()));
         } else {  // PAT_HERMES_STR — hermes_pat_eq_str(*av, base, str)
             helper = "hermes_pat_eq_str";
             want_arity = 3;
@@ -1406,7 +1406,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             error(std::format(
                 "Hermes pattern needs stdlib helper `{}`; `use std.hermes.anyval;`",
                 helper));
-            return make_expr(bool_t(), lir::ELitBool{false});
+            return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(make_expr(ptr_t, lir::EAddrOf{sv}));
@@ -1459,12 +1459,12 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             error(std::format(
                 "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
                 helper));
-            return make_expr(bool_t(), lir::ELitBool{false});
+            return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
         args.push_back(make_expr(u8_ptr_t_outer, lir::EVarRef{base_var}));
-        args.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)n}));
+        args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
     };
@@ -1479,12 +1479,12 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             error(std::format(
                 "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
                 helper));
-            return make_expr(bool_t(), lir::ELitBool{false});
+            return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
         args.push_back(make_expr(u8_ptr_t_outer, lir::EVarRef{base_var}));
-        args.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)n}));
+        args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
     };
@@ -1499,12 +1499,12 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             error(std::format(
                 "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
                 helper));
-            return make_expr(bool_t(), lir::ELitBool{false});
+            return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
         args.push_back(make_expr(u8_ptr_t_outer, lir::EVarRef{base_var}));
-        args.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)tc}));
+        args.push_back(builder().lit_int((int64_t)tc, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
     };
@@ -1519,7 +1519,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             error(std::format(
                 "Hermes pattern needs stdlib helper `{}`; `use std.hermes.pat;`",
                 helper));
-            return make_expr(bool_t(), lir::ELitBool{false});
+            return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
@@ -1537,7 +1537,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         if (!fi) {
             error(std::format(
                 "Hermes pattern needs stdlib helper `{}`", helper));
-            return make_expr(bool_t(), lir::ELitBool{false});
+            return builder().lit_bool(false, bool_t());
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(make_expr(ptr_t_outer, lir::EAddrOf{sv}));
@@ -1575,7 +1575,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     std::string child = emit_child_let(
                         "hermes_pat_map_slot", sv, std::move(xargs), 3);
                     if (child.empty()) {
-                        return make_expr(bool_t(), lir::ELitBool{false});
+                        return builder().lit_bool(false, bool_t());
                     }
                     auto presence = emit_present(child);
                     lir::LExprPtr sub;
@@ -1604,7 +1604,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                         if (i + 1 != n_total) {
                             error("`..` must be the last element in a Hermes "
                                   "array pattern");
-                            return make_expr(bool_t(), lir::ELitBool{false});
+                            return builder().lit_bool(false, bool_t());
                         }
                         has_rest = true;
                     }
@@ -1617,11 +1617,11 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                 auto items = arr_of(arr_wrap.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < n_bind; ++i) {
                     std::vector<lir::LExprPtr> xargs;
-                    xargs.push_back(make_expr(u64_t, lir::ELitInt{(int64_t)i}));
+                    xargs.push_back(builder().lit_int((int64_t)i, u64_t));
                     std::string child = emit_child_let(
                         "hermes_pat_array_slot", sv, std::move(xargs), 3);
                     if (child.empty()) {
-                        return make_expr(bool_t(), lir::ELitBool{false});
+                        return builder().lit_bool(false, bool_t());
                     }
                     auto sub = build_rec(map_of(items.get(i)), child);
                     acc = mk_and(std::move(acc), std::move(sub));
@@ -1651,7 +1651,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     "typed array pattern @<{}>[..]: unsupported element type;"
                     " supported: I8, U8, I16, U16, I32, U32, I64, U64,"
                     " F32, F64, AnyVal", tname));
-                return make_expr(bool_t(), lir::ELitBool{false});
+                return builder().lit_bool(false, bool_t());
             }
             return emit_has_type_code(sv, it->second);
         }
@@ -1665,7 +1665,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                 error(std::format(
                     "typed map pattern @<{},{}>{{..}}: unsupported value type;"
                     " only AnyVal is supported", kname, vname));
-                return make_expr(bool_t(), lir::ELitBool{false});
+                return builder().lit_bool(false, bool_t());
             }
             static const std::map<std::string, uint64_t> map_tcs = {
                 {"Varchar", th::ObjectMap},
@@ -1679,13 +1679,13 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                 error(std::format(
                     "typed map pattern @<{}>{{..}}: unsupported key type;"
                     " supported: Varchar, I32, U32, I64, U64", kname));
-                return make_expr(bool_t(), lir::ELitBool{false});
+                return builder().lit_bool(false, bool_t());
             }
             return emit_has_type_code(sv, it->second);
         }
         // Unsupported in Hermes context.
         error("unsupported pattern inside Hermes @{...}/@[...] pattern");
-        return make_expr(bool_t(), lir::ELitBool{false});
+        return builder().lit_bool(false, bool_t());
     };
 
     // Unwrap PAT_OR: build per-alt guards and OR them (scalar alts only).
@@ -1720,7 +1720,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         if (any_non) {
             error("or-pattern mixing Hermes patterns with other "
                   "patterns is not supported");
-            return make_expr(bool_t(), lir::ELitBool{false});
+            return builder().lit_bool(false, bool_t());
         }
         lir::LExprPtr acc;
         for (uint64_t i = 0; i < alts.size(); ++i) {

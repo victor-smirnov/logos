@@ -625,7 +625,7 @@ lir::LExprPtr SemaChecker::try_const_fold_call(TinyMapView call_node) {
 
     auto result = const_eval_block(bit->second.body, env);
     if (!result) return nullptr;
-    return make_expr(i32_t(), lir::ELitInt{*result});
+    return builder().lit_int(*result, i32_t());
 }
 
 lir::LConst SemaChecker::lower_const_def(TinyMapView node) {

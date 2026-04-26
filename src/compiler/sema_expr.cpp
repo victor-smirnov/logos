@@ -40,7 +40,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         int64_t v = parse_int_literal(sv);
         auto suf = int_suffix_kind(sv);
         TypeRef t = (suf != LogosType::Kind::Error) ? prim(suf) : intlit_t();
-        return make_expr(t, lir::ELitInt{v});
+        return builder().lit_int(v, t);
     }
     case la::LIT_FLOAT: {
         auto sv = str_of(expr.get(la::VALUE.code));
@@ -61,7 +61,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::LIT_BOOL: {
         AnyVal av = expr.get(la::VALUE.code);
         bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-        return make_expr(bool_t(), lir::ELitBool{v});
+        return builder().lit_bool(v, bool_t());
     }
     case la::LIT_STR: {
         auto sv = str_of(expr.get(la::VALUE.code));
@@ -664,7 +664,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             // &array → slice: &[T] with len = array size
             if (TypeRef(vt).kind() == LogosType::Kind::Array) {
                 auto addr = make_expr(make_ref(false, TypeRef(vt).elem()), lir::EAddrOf{std::string(var_name)});
-                auto len  = make_expr(prim(LogosType::Kind::I64), lir::ELitInt{(int64_t)TypeRef(vt).arr_size()});
+                auto len  = builder().lit_int((int64_t)TypeRef(vt).arr_size(), prim(LogosType::Kind::I64));
                 return make_expr(make_slice_type(TypeRef(vt).elem()),
                     lir::ESliceLit{std::move(addr), std::move(len)});
             }
@@ -1394,7 +1394,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         return out;
     };
     auto bool_lit = [&](bool v) {
-        return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{v ? 1LL : 0LL});
+        return builder().lit_int(v ? 1LL : 0LL, prim(LogosType::Kind::Bool));
     };
 
     if (callee == "is_same") {
@@ -1549,7 +1549,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             // `type_code_of::<T>()` inside a generic fn — defer.
             return make_expr(prim(LogosType::Kind::U64), lir::ETypeCodeOf{elem});
         }
-        return make_expr(prim(LogosType::Kind::U64), lir::ELitInt{(int64_t)code});
+        return builder().lit_int((int64_t)code, prim(LogosType::Kind::U64));
     }
 
     // is_data_plain_of::<T>() — returns true (1) if T is a DataPlain datatype
@@ -1591,7 +1591,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             // Generic Datatype: can't determine statically → conservative DataNode.
             is_plain = false;
         }
-        return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{is_plain ? 1LL : 0LL});
+        return builder().lit_int(is_plain ? 1LL : 0LL, prim(LogosType::Kind::Bool));
     }
 
     // reflect::<T>() -> HermesStatic — compile-time request for TypeInfo rodata.
@@ -1754,9 +1754,9 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         annot_val_to_expr = [&](const lir::LAnnotationValue& av, TypeRef expected) -> lir::LExprPtr {
             using K = lir::LAnnotationValue::Kind;
             switch (av.kind) {
-            case K::Int:   return make_expr(expected ? expected : prim(LogosType::Kind::I64), lir::ELitInt{av.i});
+            case K::Int:   return builder().lit_int(av.i, expected ? expected : prim(LogosType::Kind::I64));
             case K::Float: return make_expr(expected ? expected : prim(LogosType::Kind::F64), lir::ELitFloat{av.f});
-            case K::Bool:  return make_expr(prim(LogosType::Kind::Bool), lir::ELitInt{av.i});
+            case K::Bool:  return builder().lit_int(av.i, prim(LogosType::Kind::Bool));
             case K::Str:   return make_expr(make_slice_type(u8_t()), lir::ELitStr{av.s});
             case K::Enum:  {
                 // Emit as enum literal: av.enum_name::av.enum_variant
@@ -3863,7 +3863,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
                                                       : new_fi->symbol_name;
     std::vector<lir::LExprPtr> new_args;
     int64_t cap_hint = arr_size > 0 ? (arr_size * 8 + 128) : 128;
-    new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{cap_hint}));
+    new_args.push_back(builder().lit_int(cap_hint, prim(LogosType::Kind::I64)));
     auto call_new = make_expr(ctr_t,
         lir::ECall{new_sym, {}, std::move(new_args)});
     lir::SLet let_c;
@@ -4019,8 +4019,8 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     int64_t slot_hint = arr_size > 0 ? arr_size : 64;
     int64_t cap_hint  = arr_size > 0 ? (arr_size * 48 + 256) : 4096;
     std::vector<lir::LExprPtr> new_args;
-    new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{cap_hint}));
-    new_args.push_back(make_expr(prim(LogosType::Kind::I64), lir::ELitInt{slot_hint}));
+    new_args.push_back(builder().lit_int(cap_hint, prim(LogosType::Kind::I64)));
+    new_args.push_back(builder().lit_int(slot_hint, prim(LogosType::Kind::I64)));
     auto call_new = make_expr(ctr_t,
         lir::ECall{new_sym, {}, std::move(new_args)});
     lir::SLet let_c;
