@@ -1152,7 +1152,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
             LogosTypeBuilder ref_t;
             ref_t.kind    = is_mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
             ref_t.pointee = scrut_type;
-            TypeRef btype = pool_.alloc(std::move(ref_t));
+            TypeRef btype = pool_->alloc(std::move(ref_t));
             return lir::PatRefBind{bname, is_mut, btype};
         }
     }

@@ -81,7 +81,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 for (auto pt : fi.param_types)
                     ft.closure_params.push_back(pt);
                 ft.closure_ret = fi.ret_type ? fi.ret_type : void_t();
-                auto fn_type = pool_.alloc(std::move(ft));
+                auto fn_type = pool_->alloc(std::move(ft));
                 return builder().var_ref(fi.symbol_name.empty() ? std::string(name) : fi.symbol_name, fn_type);
             }
             error(std::format("undefined variable '{}'", name));
@@ -170,7 +170,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     LogosTypeBuilder t{};
                     t.kind = LogosType::Kind::Struct;
                     t.struct_name = "Hermes";
-                    ctr_t = pool_.alloc(std::move(t));
+                    ctr_t = pool_->alloc(std::move(t));
                 }
                 return builder().hermes_cast(std::move(inner), std::move(build_fn), ctr_t);
             }
@@ -233,7 +233,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     LogosTypeBuilder t{};
                     t.kind = LogosType::Kind::Struct;
                     t.struct_name = "Hermes";
-                    ctr_t = pool_.alloc(std::move(t));
+                    ctr_t = pool_->alloc(std::move(t));
                 }
                 return builder().hermes_cast(std::move(inner), std::move(map_fn), ctr_t);
             }
@@ -1719,7 +1719,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         opt_type.enum_name = "Option";
         if (!opt_pkg.empty()) opt_type.pkg_name = opt_pkg;
         opt_type.type_args = {A};
-        TypeRef result_type = pool_.alloc(std::move(opt_type));
+        TypeRef result_type = pool_->alloc(std::move(opt_type));
         // Build Datatype<A> type for the struct literal
         TypeRef a_type = A;  // already a Datatype type
         // Find the annotation instance on T
@@ -1765,7 +1765,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 LogosTypeBuilder at; at.kind = LogosType::Kind::Array;
                 at.elem = elem_t ? elem_t : (elems.empty() ? prim(LogosType::Kind::I64) : elems[0]->type);
                 at.arr_size = (int64_t)elems.size();
-                return builder().arr_lit(std::move(elems), pool_.alloc(std::move(at)));
+                return builder().arr_lit(std::move(elems), pool_->alloc(std::move(at)));
             }
             }
             return error_expr();
@@ -3342,7 +3342,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 ? LogosType::Kind::ZonedStruct : LogosType::Kind::Struct;
     ng_t.struct_name   = std::string(sname);
     ng_t.lifetime_args = std::move(ng_lt_args);
-    TypeRef lit_result_type = pool_.alloc(std::move(ng_t));
+    TypeRef lit_result_type = pool_->alloc(std::move(ng_t));
     return builder().struct_lit(std::string(sname), std::move(fields), lit_result_type);
 }
 
@@ -4254,7 +4254,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         LogosTypeBuilder et; et.kind = LogosType::Kind::Enum;
         et.enum_name = std::string(ename);
         et.type_args = std::move(type_args);
-        result_type = pool_.alloc(std::move(et));
+        result_type = pool_->alloc(std::move(et));
         // Resolve payload types with substitution
         for (size_t i = 0; i < resolved_payload_types.size(); ++i)
             resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
@@ -4400,7 +4400,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         LogosTypeBuilder et; et.kind = LogosType::Kind::Enum;
         et.enum_name = std::string(ename);
         et.type_args = std::move(type_args);
-        result_type = pool_.alloc(std::move(et));
+        result_type = pool_->alloc(std::move(et));
         for (size_t i = 0; i < resolved_payload_types.size(); ++i)
             resolved_payload_types[i] = subst_type_sema(resolved_payload_types[i], subst);
     }
