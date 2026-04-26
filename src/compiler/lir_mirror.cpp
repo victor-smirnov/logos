@@ -43,6 +43,11 @@ namespace ec = lir_schema::expr_common;
 namespace sk = lir_schema::stmt_keys;
 namespace sc = lir_schema::stmt_common;
 namespace pk = lir_schema::pat_keys;
+namespace ak = lir_schema::arm_keys;
+namespace hl = lir_schema::hermes_lit_keys;
+namespace hk = lir_schema::hv_keys;
+namespace ck = lir_schema::closure_keys;
+namespace pdk = lir_schema::ptrdiff_keys;
 
 class LirMirrorEmitter {
     hermes::Arena&  arena_;
@@ -292,9 +297,9 @@ hermes::arena_offset_t LirMirrorEmitter::emit_arm(const LMatchArm& a) {
     if (a.guard.has_value()) guard_av = expr_av(*a.guard);
 
     auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 1));
-    put(map_off, ek::ARM_PAT,   hermes::AnyVal::from_offset(pat_off));
-    put(map_off, ek::ARM_BODY,  hermes::AnyVal::from_offset(body_off));
-    put(map_off, ek::ARM_GUARD, guard_av);
+    put(map_off, ak::PAT,   hermes::AnyVal::from_offset(pat_off));
+    put(map_off, ak::BODY,  hermes::AnyVal::from_offset(body_off));
+    put(map_off, ak::GUARD, guard_av);
     return map_off;
 }
 
@@ -305,9 +310,9 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr_arm(const lir::EMatchArm& a) 
     if (a.guard.has_value()) guard_av = expr_av(*a.guard);
 
     auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 2));
-    put(map_off, ek::ARM_PAT,   hermes::AnyVal::from_offset(pat_off));
-    put(map_off, ek::ARM_VALUE, hermes::AnyVal::from_offset(value_off));
-    put(map_off, ek::ARM_GUARD, guard_av);
+    put(map_off, ak::PAT,   hermes::AnyVal::from_offset(pat_off));
+    put(map_off, ak::VALUE, hermes::AnyVal::from_offset(value_off));
+    put(map_off, ak::GUARD, guard_av);
     return map_off;
 }
 
@@ -383,14 +388,14 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
     // (sema/codegen never reads the mirror — Phase 3d will add what's needed).
     auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureBox)
                             | (1ULL << 47));  // closure marker bit (synthetic)
-    put(map_off, ek::BLOCK,         hermes::AnyVal::from_offset(body_off));
+    put(map_off, ck::BLOCK,         hermes::AnyVal::from_offset(body_off));
     if (!c.closure_id.empty())
-        put(map_off, ek::NAME, put_string(c.closure_id));
-    put(map_off, ek::CAPTURE_TYPES, cap_types_av);
-    put(map_off, ek::CAPTURE_EXPRS, captures_av);  // reuse for capture *names* here
-    if (c.ret_type) put(map_off, ek::ELEM_TYPE, type_av(c.ret_type));
-    put(map_off, ek::IS_MUT, put_bool(c.is_move));
-    put(map_off, ek::HAS_CAPTURES, put_bool(c.as_fn_ptr));
+        put(map_off, ck::NAME, put_string(c.closure_id));
+    put(map_off, ck::CAPTURE_TYPES, cap_types_av);
+    put(map_off, ck::CAPTURE_NAMES, captures_av);
+    if (c.ret_type) put(map_off, ck::RET_TYPE, type_av(c.ret_type));
+    put(map_off, ck::IS_MOVE,   put_bool(c.is_move));
+    put(map_off, ck::AS_FN_PTR, put_bool(c.as_fn_ptr));
     return map_off;
 }
 
@@ -417,16 +422,16 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
             map_off = make_map(hermes::schema::lir_expr(HV_BASE + 0));
         } else if constexpr (std::is_same_v<T, HVBool>) {
             map_off = make_map(hermes::schema::lir_expr(HV_BASE + 1));
-            put(map_off, ek::LIT_BOOL, put_bool(alt.value));
+            put(map_off, hk::BOOL_VALUE, put_bool(alt.value));
         } else if constexpr (std::is_same_v<T, HVInt>) {
             map_off = make_map(hermes::schema::lir_expr(HV_BASE + 2));
-            put(map_off, ek::LIT_I64, put_i64(alt.value));
+            put(map_off, hk::INT_VALUE, put_i64(alt.value));
         } else if constexpr (std::is_same_v<T, HVFloat>) {
             map_off = make_map(hermes::schema::lir_expr(HV_BASE + 3));
-            put(map_off, ek::LIT_F64, put_f64(alt.value));
+            put(map_off, hk::FLOAT_VALUE, put_f64(alt.value));
         } else if constexpr (std::is_same_v<T, HVStr>) {
             map_off = make_map(hermes::schema::lir_expr(HV_BASE + 4));
-            put(map_off, ek::LIT_STR, put_string(alt.value));
+            put(map_off, hk::STR_VALUE, put_string(alt.value));
         } else if constexpr (std::is_same_v<T, HVMap>) {
             // Pre-emit values
             std::vector<hermes::AnyVal> key_strs, key_ints, val_avs;
@@ -457,10 +462,10 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
                 vals_av = hermes::AnyVal::from_offset(off);
             }
             map_off = make_map(hermes::schema::lir_expr(HV_BASE + 5));
-            put(map_off, ek::FIELD_NAMES,  keys_av);
-            put(map_off, ek::FIELD_VALUES, vals_av);
+            put(map_off, hk::MAP_KEYS,   keys_av);
+            put(map_off, hk::MAP_VALUES, vals_av);
             if (!alt.key_type.empty())
-                put(map_off, ek::NAME, put_string(alt.key_type));
+                put(map_off, hk::TYPE_NAME, put_string(alt.key_type));
         } else if constexpr (std::is_same_v<T, HVArray>) {
             std::vector<hermes::AnyVal> elems;
             elems.reserve(alt.elements.size());
@@ -472,13 +477,13 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
                 arr_av = hermes::AnyVal::from_offset(off);
             }
             map_off = make_map(hermes::schema::lir_expr(HV_BASE + 6));
-            put(map_off, ek::ELEMS, arr_av);
+            put(map_off, hk::ELEMS, arr_av);
             if (!alt.elem_type.empty())
-                put(map_off, ek::NAME, put_string(alt.elem_type));
+                put(map_off, hk::TYPE_NAME, put_string(alt.elem_type));
         } else if constexpr (std::is_same_v<T, HVCapture>) {
             map_off = make_map(hermes::schema::lir_expr(HV_BASE + 7));
-            put(map_off, ek::CAPTURE_PARAM_COUNT, put_u32(alt.param_index));
-            put(map_off, ek::VALUE_INDICES,       put_u32(alt.value_index));
+            put(map_off, hk::PARAM_INDEX, put_u32(alt.param_index));
+            put(map_off, hk::VALUE_INDEX, put_u32(alt.value_index));
         }
     }, v.kind);
     (void)code;
@@ -1006,11 +1011,11 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
             auto cap_ex  = expr_array(alt.capture_exprs);
             auto cap_ty  = type_array(alt.capture_types);
             map_off = make_map(hermes::schema::lir_expr(Code::HermesLit));
-            put(map_off, ek::ROOT,                  root_av);
-            put(map_off, ek::HAS_CAPTURES,          put_bool(alt.has_captures));
-            put(map_off, ek::CAPTURE_EXPRS,         cap_ex);
-            put(map_off, ek::CAPTURE_TYPES,         cap_ty);
-            put(map_off, ek::CAPTURE_PARAM_COUNT,   put_u32(alt.capture_param_count));
+            put(map_off, hl::ROOT,                  root_av);
+            put(map_off, hl::HAS_CAPTURES,          put_bool(alt.has_captures));
+            put(map_off, hl::CAPTURE_EXPRS,         cap_ex);
+            put(map_off, hl::CAPTURE_TYPES,         cap_ty);
+            put(map_off, hl::CAPTURE_PARAM_COUNT,   put_u32(alt.capture_param_count));
         } else if constexpr (std::is_same_v<T, EPtrArith>) {
             auto p_av = expr_av(alt.ptr);
             auto o_av = expr_av(alt.offset);
@@ -1022,7 +1027,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
             auto l_av = expr_av(alt.lhs);
             auto r_av = expr_av(alt.rhs);
             map_off = make_map(hermes::schema::lir_expr(Code::PtrDiff));
-            put(map_off, ek::BY_BYTE, put_bool(alt.by_byte));
+            put(map_off, pdk::BY_BYTE, put_bool(alt.by_byte));
             put(map_off, ek::LHS,     l_av);
             put(map_off, ek::RHS,     r_av);
         } else if constexpr (std::is_same_v<T, EReflectOf>) {

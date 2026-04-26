@@ -210,6 +210,7 @@ inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
 
 namespace ek = lir_schema::expr_keys;
 namespace pk = lir_schema::pat_keys;
+namespace ak = lir_schema::arm_keys;
 
 namespace detail {
 
@@ -241,17 +242,17 @@ public:
         : RefBase(a, o) {}
 
     PatRef  pat() const noexcept {
-        auto av = mirror()->get(ek::ARM_PAT.code, base());
+        auto av = mirror()->get(ak::PAT.code, base());
         if (av.is_null()) return {};
         return PatRef(arena(), av.to_offset());
     }
     ExprRef value() const noexcept {
-        auto av = mirror()->get(ek::ARM_VALUE.code, base());
+        auto av = mirror()->get(ak::VALUE.code, base());
         if (av.is_null()) return {};
         return ExprRef(arena(), av.to_offset());
     }
     ExprRef guard() const noexcept {
-        auto av = mirror()->get(ek::ARM_GUARD.code, base());
+        auto av = mirror()->get(ak::GUARD.code, base());
         if (av.is_null()) return {};
         return ExprRef(arena(), av.to_offset());
     }
