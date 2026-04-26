@@ -58,6 +58,11 @@ public:
 
     void run(lir::LProgram& prog);
 
+    void emit_function(LFunction& f) {
+        if (f.is_extern || f.is_metaprog_stub || f.from_binary_module) return;
+        emit_block(f.body);
+    }
+
 private:
     // ── primitive helpers ───────────────────────────────────────────────────
 
@@ -1093,6 +1098,14 @@ LirMirrorTable lir_mirror_emit(lir::LProgram& prog) {
     LirMirrorEmitter em(arena, table);
     em.run(prog);
     return table;
+}
+
+void lir_mirror_emit_function(lir::LProgram& prog,
+                              LirMirrorTable& table,
+                              lir::LFunction& fn) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, table);
+    em.emit_function(fn);
 }
 
 } // namespace logos::compiler

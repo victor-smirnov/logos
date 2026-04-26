@@ -13,6 +13,7 @@
 
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/mono.hpp>
 #include <logos/hermes/binary_codec.hpp>
 #include <logos/hermes/document.hpp>
@@ -193,6 +194,9 @@ static bool compile_to_object(const std::vector<hermes::Hermes>& asts,
     prog = mono_pass(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
+
+    // Hermes mirror of L-IR (Phase 3b/d) — borrow_check reads via mirror.
+    prog.mirror_table = std::make_unique<LirMirrorTable>(lir_mirror_emit(prog));
 
     // Borrow check
     prog = borrow_check(std::move(prog));

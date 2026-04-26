@@ -55,4 +55,12 @@ struct LirMirrorTable {
 // mirror nodes; no de-duplication — L-IR has no interning).
 LirMirrorTable lir_mirror_emit(lir::LProgram& prog);
 
+// Emit mirror entries for a single function body into an existing table.
+// Used by mono to mirror each cloned/instantiated function as it is produced
+// (so scan_fn / borrow_check can read the variant tree via mirror dispatch).
+// Skips extern / metaprog_stub / from_binary_module functions, like run().
+void lir_mirror_emit_function(lir::LProgram& prog,
+                              LirMirrorTable& table,
+                              lir::LFunction& fn);
+
 } // namespace logos::compiler
