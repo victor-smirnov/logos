@@ -114,7 +114,7 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
          pt.kind() == LogosType::Kind::MutRef))
         elem_type = logos_to_mlir(pt.pointee());
     if (!elem_type) elem_type = builder_.getI32Type();
-    const LogosType* pointee_t = (pt && pt.pointee()) ? pt.pointee().raw() : nullptr;
+    TypeRef pointee_t = (pt && pt.pointee()) ? pt.pointee() : nullptr;
     if (pointee_t && (TypeRef(pointee_t).kind() == LogosType::Kind::Struct ||
                       TypeRef(pointee_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -188,7 +188,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // ── Tuple value (from call or variable) ──────────────────
     // If the value is already a pointer (tuple literal, variable), use directly.
     // If the value is a struct by-value (from function return), store into alloca.
-    if (s.type && s.type->kind == LogosType::Kind::Tuple) {
+    if (s.type && TypeRef(s.type).kind() == LogosType::Kind::Tuple) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         auto stype = tuple_llvm_type(s.type);
@@ -205,7 +205,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
 
     // ── Closure value ─────────────────────────────────────────
-    if (s.type && s.type->kind == LogosType::Kind::Closure) {
+    if (s.type && TypeRef(s.type).kind() == LogosType::Kind::Closure) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         scope_[s.name] = val;
@@ -215,7 +215,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
 
     // ── FnPtr value (fn(T) -> R) ──────────────────────────────
-    if (s.type && s.type->kind == LogosType::Kind::FnPtr) {
+    if (s.type && TypeRef(s.type).kind() == LogosType::Kind::FnPtr) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         // Store as a let-bound scalar (alloca holding a ptr).
@@ -228,7 +228,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
 
     // ── Slice / str value ────────────────────────────────────
-    if (s.type && s.type->kind == LogosType::Kind::Slice) {
+    if (s.type && TypeRef(s.type).kind() == LogosType::Kind::Slice) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         scope_[s.name] = val;
@@ -277,8 +277,8 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     // Structs are always held as pointers (alloca).
     // If the value is a by-value aggregate (e.g. returned from a function),
     // store it into a fresh alloca so the rest of the pipeline sees a pointer.
-    if (s.type && (s.type->kind == LogosType::Kind::Struct ||
-                    s.type->kind == LogosType::Kind::ZonedStruct)) {
+    if (s.type && (TypeRef(s.type).kind() == LogosType::Kind::Struct ||
+                    TypeRef(s.type).kind() == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         if (val.getType() != ptr_type()) {
@@ -325,10 +325,10 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             // Concrete type → build fat pointer from scratch.
             // For &dyn T from `new Foo {}`, value type is *mut Foo — strip the pointer.
             // Box<T> is { *mut T } so the value *is* the data ptr; unwrap to T for vtable.
-            const LogosType* src_logos_type = s.value->type;
+            TypeRef src_logos_type = s.value->type;
             if (src_logos_type && TypeRef(src_logos_type).kind() == LogosType::Kind::Ptr &&
                 TypeRef(src_logos_type).pointee())
-                src_logos_type = TypeRef(src_logos_type).pointee().raw();
+                src_logos_type = TypeRef(src_logos_type).pointee();
             if (src_logos_type &&
                 TypeRef(src_logos_type).kind() == LogosType::Kind::Struct &&
                 TypeRef(src_logos_type).struct_name() == "Box" &&
@@ -404,7 +404,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
     // Track local pointer variables so indexing can load the ptr before GEP.
     if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Ptr && st.pointee()) {
-        const LogosType* pointee = st.pointee().raw();
+        TypeRef pointee = st.pointee();
         if (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct) {
             // logos_to_mlir(Struct/Datatype) == ptr_type(), which can't be matched
@@ -456,12 +456,12 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
         if (cur_fn_ret_logos_type_ &&
             TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::TraitObject &&
             s.value->type &&
-            s.value->type->kind != LogosType::Kind::TraitObject) {
+            TypeRef(s.value->type).kind() != LogosType::Kind::TraitObject) {
             auto val = gen_expr(*s.value);
             if (!val) return;
-            const LogosType* src_lt = s.value->type;
+            TypeRef src_lt = s.value->type;
             if (TypeRef(src_lt).kind() == LogosType::Kind::Ptr && TypeRef(src_lt).pointee())
-                src_lt = TypeRef(src_lt).pointee().raw();
+                src_lt = TypeRef(src_lt).pointee();
             auto vtable = build_inline_vtable(
                 TypeRef(cur_fn_ret_logos_type_).trait_name(), type_str(src_lt));
             // Heap-allocate the fat struct so it survives past this function's frame.
@@ -507,7 +507,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
         // wrap in alloca like gen_let does.
         if (cur_ret_type_ && cur_ret_type_ == ptr_type() && val.getType() != ptr_type()) {
             // Find the tagged enum info from the return value's LIR type
-            if (s.value->type && s.value->type->kind == LogosType::Kind::Enum) {
+            if (s.value->type && TypeRef(s.value->type).kind() == LogosType::Kind::Enum) {
                 // The value is a discriminant — need to figure out the enum struct type.
                 // Look through all registered tagged enums to find a matching one.
                 // For now: create a generic {i32, [4 x i8]} wrapper.
@@ -634,13 +634,13 @@ void MLIRGenImpl::gen_for(const SFor& s) {
 
     auto i_alloca = create_entry_alloca(loop_type);
     bool lo_unsigned = s.lo->type &&
-        (s.lo->type->kind == LogosType::Kind::U8  ||
-         s.lo->type->kind == LogosType::Kind::U16 ||
-         s.lo->type->kind == LogosType::Kind::U32 ||
-         s.lo->type->kind == LogosType::Kind::U24 ||
-         s.lo->type->kind == LogosType::Kind::U56 ||
-         s.lo->type->kind == LogosType::Kind::U64 ||
-         s.lo->type->kind == LogosType::Kind::U128);
+        (TypeRef(s.lo->type).kind() == LogosType::Kind::U8  ||
+         TypeRef(s.lo->type).kind() == LogosType::Kind::U16 ||
+         TypeRef(s.lo->type).kind() == LogosType::Kind::U32 ||
+         TypeRef(s.lo->type).kind() == LogosType::Kind::U24 ||
+         TypeRef(s.lo->type).kind() == LogosType::Kind::U56 ||
+         TypeRef(s.lo->type).kind() == LogosType::Kind::U64 ||
+         TypeRef(s.lo->type).kind() == LogosType::Kind::U128);
     mlir::Value lo_coerced;
     if (lo_unsigned && lo.getType() != loop_type)
         lo_coerced = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, lo);
@@ -666,13 +666,13 @@ void MLIRGenImpl::gen_for(const SFor& s) {
     builder_.setInsertionPointToStart(cond_block);
     auto i_val  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
     bool hi_unsigned = s.hi->type &&
-        (s.hi->type->kind == LogosType::Kind::U8  ||
-         s.hi->type->kind == LogosType::Kind::U16 ||
-         s.hi->type->kind == LogosType::Kind::U32 ||
-         s.hi->type->kind == LogosType::Kind::U24 ||
-         s.hi->type->kind == LogosType::Kind::U56 ||
-         s.hi->type->kind == LogosType::Kind::U64 ||
-         s.hi->type->kind == LogosType::Kind::U128);
+        (TypeRef(s.hi->type).kind() == LogosType::Kind::U8  ||
+         TypeRef(s.hi->type).kind() == LogosType::Kind::U16 ||
+         TypeRef(s.hi->type).kind() == LogosType::Kind::U32 ||
+         TypeRef(s.hi->type).kind() == LogosType::Kind::U24 ||
+         TypeRef(s.hi->type).kind() == LogosType::Kind::U56 ||
+         TypeRef(s.hi->type).kind() == LogosType::Kind::U64 ||
+         TypeRef(s.hi->type).kind() == LogosType::Kind::U128);
     mlir::Value hi_val;
     if (hi_unsigned && hi.getType() != loop_type)
         hi_val = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, hi);
@@ -909,7 +909,7 @@ void MLIRGenImpl::gen_for_each(const SForEach& s) {
         loc_, ptr_type(), elem_mlir, arr_alloca, arr_idx);
 
     bool is_struct_elem = s.elem_type &&
-        s.elem_type->kind == LogosType::Kind::Struct;
+        TypeRef(s.elem_type).kind() == LogosType::Kind::Struct;
 
     if (is_struct_elem) {
         // Struct elements are stored as pointers in the array ([N x ptr]).
@@ -1126,10 +1126,10 @@ void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
     if (odi != all_struct_defs_.end()) {
         for (auto& f : odi->second->fields) {
             if (f.name == s.mid_field && f.type) {
-                const LogosType* ft = f.type;
+                TypeRef ft = f.type;
                 // field is *mut S → descend into pointee
                 if (TypeRef(ft).kind() == LogosType::Kind::Ptr && TypeRef(ft).pointee())
-                    ft = TypeRef(ft).pointee().raw();
+                    ft = TypeRef(ft).pointee();
                 mid_type_name = concrete_struct_name(ft);
                 break;
             }
@@ -1161,7 +1161,7 @@ void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
     if (odi != all_struct_defs_.end()) {
         for (auto& f : odi->second->fields) {
             if (f.name == s.mid_field && f.type &&
-                f.type->kind == LogosType::Kind::Ptr) {
+                TypeRef(f.type).kind() == LogosType::Kind::Ptr) {
                 mid_base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), mid_gep);
                 break;
             }
@@ -1242,13 +1242,13 @@ void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
 
     // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
     bool idx_unsigned = s.index->type &&
-        (s.index->type->kind == LogosType::Kind::U8  ||
-         s.index->type->kind == LogosType::Kind::U16 ||
-         s.index->type->kind == LogosType::Kind::U32 ||
-         s.index->type->kind == LogosType::Kind::U24 ||
-         s.index->type->kind == LogosType::Kind::U56 ||
-         s.index->type->kind == LogosType::Kind::U64 ||
-         s.index->type->kind == LogosType::Kind::U128);
+        (TypeRef(s.index->type).kind() == LogosType::Kind::U8  ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U16 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U32 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U24 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U56 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U64 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U128);
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
         idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
@@ -1259,7 +1259,7 @@ void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
     // struct-typed r-value returns a pointer to the struct bytes, not the
     // struct by value. Emit llvm.memcpy of sizeof(struct) bytes. Mirrors the
     // path in gen_stmt_kind(SDerefWrite).
-    const LogosType* val_t = s.value ? s.value->type : nullptr;
+    TypeRef val_t = s.value ? s.value->type : nullptr;
     if (val_t && (TypeRef(val_t).kind() == LogosType::Kind::Struct ||
                   TypeRef(val_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -1320,13 +1320,13 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
 
     // Zero-extend unsigned index types; coerce_int sign-extends, which is wrong for u8/u16/u32/u64.
     bool idx_unsigned = s.index->type &&
-        (s.index->type->kind == LogosType::Kind::U8  ||
-         s.index->type->kind == LogosType::Kind::U16 ||
-         s.index->type->kind == LogosType::Kind::U32 ||
-         s.index->type->kind == LogosType::Kind::U24 ||
-         s.index->type->kind == LogosType::Kind::U56 ||
-         s.index->type->kind == LogosType::Kind::U64 ||
-         s.index->type->kind == LogosType::Kind::U128);
+        (TypeRef(s.index->type).kind() == LogosType::Kind::U8  ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U16 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U32 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U24 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U56 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U64 ||
+         TypeRef(s.index->type).kind() == LogosType::Kind::U128);
     auto extend_idx = [&](mlir::Type to) -> mlir::Value {
         if (idx.getType() == to) return idx;
         auto fi = mlir::dyn_cast<mlir::IntegerType>(idx.getType());
@@ -1353,7 +1353,7 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
         // For struct-typed values, val_type is ptr (structs are passed by ref);
         // GEP stride must use the concrete struct LLVM type, not ptr_type (8B).
         mlir::Type gep_elem = val_type;
-        const LogosType* vt = s.value ? s.value->type : nullptr;
+        TypeRef vt = s.value ? s.value->type : nullptr;
         if (vt && (TypeRef(vt).kind() == LogosType::Kind::Struct ||
                    TypeRef(vt).kind() == LogosType::Kind::ZonedStruct)) {
             auto cname = concrete_struct_name(vt);
@@ -1368,7 +1368,7 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
     // Struct/datatype element assignment is a byte-level copy: gen_expr of a
     // struct-typed r-value returns a pointer to the struct bytes. Emit
     // llvm.memcpy instead of StoreOp (mirrors gen_index_write / SDerefWrite).
-    const LogosType* val_t = s.value ? s.value->type : nullptr;
+    TypeRef val_t = s.value ? s.value->type : nullptr;
     if (val_t && (TypeRef(val_t).kind() == LogosType::Kind::Struct ||
                   TypeRef(val_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -1465,13 +1465,13 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         }
         return false;
     };
-    if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Tuple) {
+    if (s.scrut->type && TypeRef(s.scrut->type).kind() == LogosType::Kind::Tuple) {
         // Tuple patterns are always irrefutable.
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
             if (is_irrefutable(arm.pat)) { exhaustive_discrete = true; break; }
         }
-    } else if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Bool) {
+    } else if (s.scrut->type && TypeRef(s.scrut->type).kind() == LogosType::Kind::Bool) {
         bool has_true = false, has_false = false, has_wild = false;
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
@@ -1488,7 +1488,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             }
         }
         exhaustive_discrete = has_wild || (has_true && has_false);
-    } else if (s.scrut->type && s.scrut->type->kind == LogosType::Kind::Enum) {
+    } else if (s.scrut->type && TypeRef(s.scrut->type).kind() == LogosType::Kind::Enum) {
         std::set<int32_t> covered;
         bool has_wild = false;
         auto cover_enum = [&](const lir::Pattern& p) {
@@ -1575,7 +1575,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                             loc_, ptr_type(), pay_struct, pay_ptr, fi);
                         // For inline structs, fp already points to the struct bytes —
                         // use it directly (no load), matching the memcpy write side.
-                        const LogosType* lt = bi < vp->logos_types.size()
+                        TypeRef lt = bi < vp->logos_types.size()
                                               ? vp->logos_types[bi] : nullptr;
                         bool is_inline_struct = lt &&
                             (TypeRef(lt).kind() == LogosType::Kind::Struct ||
@@ -1660,7 +1660,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         }
         // ── PatSlice: GEP-extract indexed elements ────────────────────────
         if (auto* psl = std::get_if<PatSlice>(&arm.pat)) {
-            auto* atype = s.scrut->type;
+            auto atype = s.scrut->type;
             if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
                 auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
                 auto arr_mlir  = logos_to_mlir(atype);
@@ -1822,13 +1822,13 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             // Range pattern: lo <= scrut && scrut <= hi
             // C2: use unsigned predicates for unsigned scrutinee types.
             bool range_unsigned = s.scrut->type &&
-                (s.scrut->type->kind == LogosType::Kind::U8  ||
-                 s.scrut->type->kind == LogosType::Kind::U16 ||
-                 s.scrut->type->kind == LogosType::Kind::U32 ||
-                 s.scrut->type->kind == LogosType::Kind::U24 ||
-                 s.scrut->type->kind == LogosType::Kind::U56 ||
-                 s.scrut->type->kind == LogosType::Kind::U64 ||
-                 s.scrut->type->kind == LogosType::Kind::U128);
+                (TypeRef(s.scrut->type).kind() == LogosType::Kind::U8  ||
+                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U16 ||
+                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U32 ||
+                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U24 ||
+                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U56 ||
+                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U64 ||
+                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U128);
             auto pred_ge = range_unsigned ? mlir::arith::CmpIPredicate::uge
                                           : mlir::arith::CmpIPredicate::sge;
             auto pred_le = range_unsigned ? mlir::arith::CmpIPredicate::ule
@@ -1892,13 +1892,13 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 if (auto* pr = std::get_if<lir::PatRange>(&sub)) {
                     // C2: same unsigned predicate fix for PatAt + PatRange.
                     bool pat_at_unsigned = s.scrut->type &&
-                        (s.scrut->type->kind == LogosType::Kind::U8  ||
-                         s.scrut->type->kind == LogosType::Kind::U16 ||
-                         s.scrut->type->kind == LogosType::Kind::U32 ||
-                         s.scrut->type->kind == LogosType::Kind::U24 ||
-                         s.scrut->type->kind == LogosType::Kind::U56 ||
-                         s.scrut->type->kind == LogosType::Kind::U64 ||
-                         s.scrut->type->kind == LogosType::Kind::U128);
+                        (TypeRef(s.scrut->type).kind() == LogosType::Kind::U8  ||
+                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U16 ||
+                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U32 ||
+                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U24 ||
+                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U56 ||
+                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U64 ||
+                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U128);
                     auto at_pred_ge = pat_at_unsigned ? mlir::arith::CmpIPredicate::uge
                                                       : mlir::arith::CmpIPredicate::sge;
                     auto at_pred_le = pat_at_unsigned ? mlir::arith::CmpIPredicate::ule

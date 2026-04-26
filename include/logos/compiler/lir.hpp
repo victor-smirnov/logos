@@ -5,7 +5,7 @@
 // Logos Typed IR (L-IR) — produced by the semantic analysis pass.
 //
 // L-IR is the compiler's first fully-typed intermediate representation.
-// Every expression node carries a `const LogosType* type`.  All name
+// Every expression node carries a `TypeRef type`.  All name
 // lookups, parentheses, and type aliases have been resolved.  The IR
 // is suitable for monomorphisation (Batch D) without re-running sema.
 //
@@ -55,7 +55,7 @@ struct PatVariantData {
     std::string variant;
     int64_t     disc;
     std::vector<std::string>        bindings;      // bound variable names
-    std::vector<const LogosType*>   binding_types;  // their types
+    std::vector<TypeRef>   binding_types;  // their types
 };
 
 // OR pattern: 1 | 2 | 3 — each alternative must be a non-OR pattern.
@@ -75,7 +75,7 @@ struct PatAt;
 struct PatRefBind {
     std::string      name;
     bool             is_mut;
-    const LogosType* bind_type;  // &T or &mut T
+    TypeRef bind_type;  // &T or &mut T
 };
 // Reference pattern: &pat or &mut pat — strips one level of indirection.
 struct PatRefPat;
@@ -87,7 +87,7 @@ using Pattern = std::variant<
 struct PatOr   { std::vector<Pattern> alts; };
 struct PatTuple {
     std::vector<std::string>        bindings;      // bound variable names (or "_" to skip)
-    std::vector<const LogosType*>   binding_types; // their types (filled by sema)
+    std::vector<TypeRef>   binding_types; // their types (filled by sema)
     std::vector<Pattern>            subs;          // sub-pattern per element (parallel to bindings)
 };
 // PatFieldBinding: sub empty = shorthand binding, sub[0] = explicit sub-pattern.
@@ -108,7 +108,7 @@ struct PatSlice {
 struct PatAt {
     std::string          name;
     std::vector<Pattern> sub;   // exactly 1 element: the inner pattern
-    const LogosType*     type;
+    TypeRef     type;
 };
 struct PatRefPat {
     std::vector<Pattern> inner;  // exactly 1 element: the dereferenced pattern
@@ -169,7 +169,7 @@ struct EHermesLit {
     HermesValPtr root;
     bool has_captures = false;
     std::vector<LExprPtr>                    capture_exprs;   // one per unique value
-    std::vector<const struct LogosType*>     capture_types;   // one per unique value
+    std::vector<TypeRef>                     capture_types;   // one per unique value
     uint32_t                                 capture_param_count = 0; // total slots
 };
 
@@ -198,7 +198,7 @@ struct EEnumLitData {
 
 struct ECall      {
     std::string                   callee;
-    std::vector<const LogosType*> type_args;  // empty for non-generic calls
+    std::vector<TypeRef> type_args;  // empty for non-generic calls
     std::vector<LExprPtr>         args;
 };
 
@@ -208,7 +208,7 @@ struct EMethodCall {
     // Concrete function symbol selected by sema for direct calls.
     // Empty means "resolve by receiver type + method name" in later phases.
     std::string                   resolved_symbol{};
-    std::vector<const LogosType*> type_args;  // [NEW] for generic methods
+    std::vector<TypeRef> type_args;  // [NEW] for generic methods
     std::vector<LExprPtr>         args;
     int32_t                       vtable_index = -1;  // -1 = direct (struct), >=0 = virtual (class)
     std::string                   resolved_type{};    // class/struct where method is defined (for inherited methods)
@@ -361,7 +361,7 @@ struct ESlicePtr {
 struct EFormatCall {
     LExprPtr                    fmt;        // format string expr
     std::vector<LExprPtr>       args;       // arguments (without fmt)
-    std::vector<const LogosType*> arg_types; // parallel to args, resolved at sema
+    std::vector<TypeRef> arg_types; // parallel to args, resolved at sema
 };
 
 // Variadic pack expansion: args... in function body.
@@ -372,7 +372,7 @@ struct EPackExpand {
 
 // sizeof::<T>() — size in bytes of type T, computed at compile time via GEP trick.
 struct ESizeOf {
-    const LogosType* elem_type = nullptr;
+    TypeRef elem_type = nullptr;
 };
 
 // Raw-pointer arithmetic intrinsic methods:
@@ -397,7 +397,7 @@ struct EPtrDiff {
 // type_code_of::<T>() — Hermes wire-format type_code of T.  Deferred to mono
 // so each instantiation of a generic function gets T's own type_code.
 struct ETypeCodeOf {
-    const LogosType* elem_type = nullptr;
+    TypeRef elem_type = nullptr;
 };
 
 // Try expression: expr? — extract Ok(v) or early-return Err(e).
@@ -418,12 +418,12 @@ struct EBlockExpr {
 
 
 // reflect::<T>() — returns HermesStatic view of T's TypeInfo rodata global.
-struct EReflectOf { const LogosType* type; };
+struct EReflectOf { TypeRef type; };
 
 // ── Expression node ───────────────────────────────────────────────────────
 
 struct LExpr {
-    const LogosType* type = nullptr;   // always set; error_t() on ill-typed nodes
+    TypeRef type = nullptr;   // always set; error_t() on ill-typed nodes
     std::variant<
         ELitInt, ELitFloat, ELitBool, ELitStr, EVarRef, EEnumLit, EEnumLitData,
         ECall, EMethodCall, EBinOp, EUnary, EAddrOf, EAddrOfTemp, EDeref,
@@ -439,7 +439,7 @@ struct LExpr {
 
 struct SLet {
     std::string      name;
-    const LogosType* type;         // concrete type (annotations resolved; IntLit → i32)
+    TypeRef type;         // concrete type (annotations resolved; IntLit → i32)
     bool             is_mut;
     LExprPtr         value;
 };
@@ -472,7 +472,7 @@ struct SFor {
 
 struct SLoop {
     LBlockPtr        body;
-    const LogosType* result_type = nullptr;  // non-null when loop yields a value
+    TypeRef result_type = nullptr;  // non-null when loop yields a value
     std::string      break_slot;             // alloca name for the break value (non-empty ↔ result_type != null)
     std::string      label;                  // optional loop label, empty = unlabeled
 };
@@ -529,14 +529,14 @@ struct STupleWrite {
     std::string      receiver;      // local variable holding the tuple
     uint32_t         index;         // field index (0, 1, ...)
     LExprPtr         value;
-    const LogosType* recv_type = nullptr;  // LogosType of the tuple variable
+    TypeRef recv_type = nullptr;  // LogosType of the tuple variable
 };
 
 // for item in array { body } — iterates over a fixed-size array
 struct SForEach {
     std::string      var;         // loop variable name (item)
     LExprPtr         iter;        // the array or slice expression
-    const LogosType* elem_type;   // element type
+    TypeRef elem_type;   // element type
     int64_t          arr_size;    // static array size; 0 for slices
     bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
     LBlockPtr        body;
@@ -559,7 +559,7 @@ struct SLetElse {
 struct SDrop {
     std::string      var_name;
     std::string      drop_fn;          // user's explicit drop (may be empty)
-    const LogosType* type;
+    TypeRef type;
     bool             drop_fields = false;  // auto-drop droppable fields after drop_fn
 };
 
@@ -584,7 +584,7 @@ struct LBlock {
 
 struct LParam {
     std::string      name;
-    const LogosType* type;
+    TypeRef type;
     bool             is_variadic = false;  // variadic pack parameter
 };
 
@@ -592,11 +592,11 @@ struct LParam {
 struct EClosure {
     std::string                     closure_id;
     std::vector<LParam>             params;
-    const LogosType*                ret_type = nullptr;
+    TypeRef                ret_type = nullptr;
     LBlock                          body;
     bool                            is_move = false;
     std::vector<std::string>        captures;
-    std::vector<const LogosType*>   capture_types;
+    std::vector<TypeRef>   capture_types;
     // When true: non-capturing closure coerced to fn ptr; emitted without env_ptr.
     bool                            as_fn_ptr = false;
 };
@@ -606,7 +606,7 @@ struct LFunction {
     std::vector<TypeParam>   type_params;    // TypeVar names (generic def, empty otherwise)
     std::vector<std::string> lifetime_params; // Lifetime param names, e.g. ["'a", "'b"]
     std::vector<LParam>      params;
-    const LogosType*         ret_type  = nullptr;
+    TypeRef         ret_type  = nullptr;
     LBlock                   body;
     bool                     is_extern = false;
     bool                     is_vararg = false;
@@ -622,7 +622,7 @@ struct LFunction {
     // spec_patterns: one LogosType* per type-param position; may contain TypeVar
     //   for partial specialisations (e.g. fn foo<*T> → pattern = *const TypeVar<T>).
     bool                          is_specialization = false;
-    std::vector<const LogosType*> spec_patterns;
+    std::vector<TypeRef> spec_patterns;
 
     // Set when this function was loaded from a binary module (.hermes0 in .a).
     // Non-generic functions with this flag are forward-declared only; the linker
@@ -640,7 +640,7 @@ struct LFunction {
 
 struct LField {
     std::string      name;
-    const LogosType* type;
+    TypeRef type;
     bool             is_variadic = false;
 };
 
@@ -690,14 +690,14 @@ struct LStructDef {
 
     // Specialisation support (mirrors LFunction).
     bool                          is_specialization = false;
-    std::vector<const LogosType*> spec_patterns;
+    std::vector<TypeRef> spec_patterns;
 };
 
 
 struct LVariant {
     std::string name;
     int64_t     disc;
-    std::vector<const LogosType*> payload_types;  // empty = no payload (C-style)
+    std::vector<TypeRef> payload_types;  // empty = no payload (C-style)
     bool        is_variadic = false;              // variadic pack payload (...T)
 };
 
@@ -705,7 +705,7 @@ struct LEnumDef {
     std::string              name;
     std::vector<TypeParam>   type_params;   // empty for non-generic enums
     std::vector<LVariant>    variants;
-    const LogosType*         backing_type = nullptr;  // null = default (i32)
+    TypeRef         backing_type = nullptr;  // null = default (i32)
     bool has_payload() const {
         for (auto& v : variants)
             if (!v.payload_types.empty()) return true;
@@ -718,7 +718,7 @@ struct LEnumDef {
 struct LTraitMethodSig {
     std::string              name;
     std::vector<LParam>      params;
-    const LogosType*         ret_type = nullptr;
+    TypeRef         ret_type = nullptr;
 };
 
 struct LAssocTypeDef {
@@ -745,7 +745,7 @@ struct LImplBlock {
     std::string              target_type;  // concrete type name (e.g. "Point")
     std::vector<LFunction>   methods;
     // Associated type definitions: "Item" → i32
-    StrMap<const LogosType*> assoc_types;
+    StrMap<TypeRef> assoc_types;
     bool                     is_unsafe = false;  // declared as `unsafe impl`
 
     // Blanket impl support: `impl<T: Bound> Trait for T` — target_type is a
@@ -756,13 +756,13 @@ struct LImplBlock {
 
 struct LConst {
     std::string      name;
-    const LogosType* type;
+    TypeRef type;
     LExprPtr         value;
 };
 
 struct LTypeAlias {
     std::string      name;
-    const LogosType* type;
+    TypeRef type;
 };
 
 // ── Program ───────────────────────────────────────────────────────────────
@@ -783,7 +783,7 @@ struct LInstAnnotation {
     // Used by mono to demand struct instantiation even when no Logos code references
     // Foo<T> directly (e.g. blob literals like @<I32>[...] produce type_code-tagged
     // objects at C++ level without instantiating the Logos struct).
-    const LogosType*  struct_type = nullptr;
+    TypeRef  struct_type = nullptr;
 };
 
 // One entry in a tag-based dispatch table.

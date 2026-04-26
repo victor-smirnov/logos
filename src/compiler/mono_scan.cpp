@@ -160,7 +160,7 @@ void Mono::scan_expr(const lir::LExpr& e) {
 // Return the most specific specialisation that matches type_args, or nullptr.
 const lir::LFunction* Mono::find_best_spec(
     const std::string& base_name,
-    const std::vector<const LogosType*>& type_args) {
+    const std::vector<TypeRef>& type_args) {
     auto sit = specs_.find(base_name);
     if (sit == specs_.end()) {
         std::string raw = base_name;
@@ -207,7 +207,7 @@ const lir::LFunction* Mono::find_best_spec(
 // ── Enqueue an instantiation if needed ───────────────────────
 
 void Mono::enqueue_if_needed(const std::string& mangled_callee,
-                       const std::vector<const LogosType*>& type_args) {
+                       const std::vector<TypeRef>& type_args) {
     if (done_.count(mangled_callee)) return;
 
     // Find the base name by checking templates_ and specs_.
@@ -250,7 +250,7 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
         subst[tmpl->type_params[i].name] = type_args[i];
     if (has_variadic) {
         auto& vtp = tmpl->type_params.back();
-        std::vector<const LogosType*> pack_types;
+        std::vector<TypeRef> pack_types;
         for (size_t i = non_variadic_count; i < type_args.size(); ++i)
             pack_types.push_back(type_args[i]);
         packs[vtp.name] = std::move(pack_types);

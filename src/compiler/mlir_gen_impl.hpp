@@ -62,7 +62,7 @@ struct TaggedEnumInfo {
     struct VariantPayload {
         int64_t disc;
         std::vector<mlir::Type>        field_types;   // empty = no payload
-        std::vector<const LogosType*>  logos_types;   // parallel: original LogosType per field
+        std::vector<TypeRef>  logos_types;   // parallel: original LogosType per field
     };
     std::vector<VariantPayload> variants;
 };
@@ -95,7 +95,7 @@ private:
     // Per-function: variables holding &dyn Trait values (name → trait name).
     std::unordered_map<std::string, std::string>  var_dyn_trait_;
     // Function name → Logos-level parameter types (for dyn coercion at call sites).
-    std::unordered_map<std::string, std::vector<const LogosType*>> fn_param_types_;
+    std::unordered_map<std::string, std::vector<TypeRef>> fn_param_types_;
 
     // Per-function: tracks class name for variables/params holding class pointers.
     std::unordered_map<std::string, std::string>       var_class_;
@@ -115,7 +115,7 @@ private:
     // Needed because scope_[name] is an alloca(ptr), so indexing requires a load first.
     std::unordered_map<std::string, mlir::Type>   var_local_ptrs_;
     mlir::Type                                    cur_ret_type_;
-    const LogosType*                              cur_fn_ret_logos_type_ = nullptr;
+    TypeRef                              cur_fn_ret_logos_type_ = nullptr;
     bool                                          in_llvm_func_ = false;
     // Entry block of the function currently being emitted.  All LLVM::AllocaOp
     // instructions must be inserted here (at the top) so LLVM treats them as
@@ -185,7 +185,7 @@ private:
     }
 
     mlir::Value coerce_int(mlir::Value v, mlir::Type to,
-                           const LogosType* src_lt = nullptr) {
+                           TypeRef src_lt = nullptr) {
         if (!v || !to || v.getType() == to) return v;
         auto fi = mlir::dyn_cast<mlir::IntegerType>(v.getType());
         auto ti = mlir::dyn_cast<mlir::IntegerType>(to);
@@ -197,7 +197,7 @@ private:
             bool src_unsigned = fi.getWidth() == 1;
             if (src_lt) {
                 using K = LogosType::Kind;
-                auto k = src_lt->kind;
+                auto k = TypeRef(src_lt).kind();
                 src_unsigned = src_unsigned ||
                     k == K::U8 || k == K::U16 || k == K::U24 || k == K::U32 ||
                     k == K::U56 || k == K::U64 || k == K::U128 || k == K::Bool;
@@ -225,7 +225,7 @@ private:
     // Does NOT handle float→int (that requires an explicit cast).
     // src_lt: Logos source type — required for correct signed/unsigned int→float conversion.
     mlir::Value coerce_numeric(mlir::Value v, mlir::Type to,
-                               const LogosType* src_lt = nullptr) {
+                               TypeRef src_lt = nullptr) {
         if (!v || !to || v.getType() == to) return v;
         // int → int
         if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::IntegerType>(to))
@@ -235,13 +235,14 @@ private:
             return coerce_float(v, to);
         // int → float: use unsigned op for unsigned Logos types
         if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::FloatType>(to)) {
+            auto src_k = src_lt ? TypeRef(src_lt).kind() : LogosType::Kind::Error;
             bool src_unsigned = src_lt &&
-                (src_lt->kind == LogosType::Kind::U8   ||
-                 src_lt->kind == LogosType::Kind::U16  ||
-                 src_lt->kind == LogosType::Kind::U32  ||
-                 src_lt->kind == LogosType::Kind::U56  ||
-                 src_lt->kind == LogosType::Kind::U64  ||
-                 src_lt->kind == LogosType::Kind::U128);
+                (src_k == LogosType::Kind::U8   ||
+                 src_k == LogosType::Kind::U16  ||
+                 src_k == LogosType::Kind::U32  ||
+                 src_k == LogosType::Kind::U56  ||
+                 src_k == LogosType::Kind::U64  ||
+                 src_k == LogosType::Kind::U128);
             if (src_unsigned)
                 return builder_.create<mlir::arith::UIToFPOp>(loc_, to, v);
             return builder_.create<mlir::arith::SIToFPOp>(loc_, to, v);
@@ -271,19 +272,19 @@ private:
     // ── Struct / enum / class registration ──────────────────────
     bool register_struct(const LStructDef& sd);
     void register_tagged_enum(const LEnumDef& ed);
-    uint64_t logos_abi_byte_size(const LogosType* t,
+    uint64_t logos_abi_byte_size(TypeRef t,
                                   std::unordered_set<std::string>& seen);
 
     // Resolve a tagged enum name from the expression type (handles generic enums).
-    const TaggedEnumInfo* resolve_tagged_enum(const std::string& name, const LogosType* type);
+    const TaggedEnumInfo* resolve_tagged_enum(const std::string& name, TypeRef type);
 
     // Build the anonymous LLVM struct type for a tuple.
-    mlir::Type tuple_llvm_type(const LogosType* t);
+    mlir::Type tuple_llvm_type(TypeRef t);
 
     // Compute the LLVM return type matching how function definitions return
     // values (struct/tuple/enum aggregates by value, not as ptr). Used to
     // build correct ABI-matching call types for indirect / fn-pointer calls.
-    mlir::Type fn_call_ret_llvm_type(const LogosType* ret_type);
+    mlir::Type fn_call_ret_llvm_type(TypeRef ret_type);
 
     // Slice LLVM type: { ptr, i64 }
     mlir::Type slice_llvm_type();
@@ -298,8 +299,8 @@ private:
                                      std::string_view type_name);
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
                                std::string_view src_type_name);
-    mlir::Value gen_dyn_dispatch(const EMethodCall& e, const LogosType* ret_logos_type);
-    mlir::Value gen_tagged_dispatch(const EMethodCall& e, const LogosType* ret_logos_type);
+    mlir::Value gen_dyn_dispatch(const EMethodCall& e, TypeRef ret_logos_type);
+    mlir::Value gen_tagged_dispatch(const EMethodCall& e, TypeRef ret_logos_type);
 
     // ── malloc / free helpers ─────────────────────────────────────
     void ensure_malloc_free(mlir::ModuleOp mod);
@@ -364,50 +365,50 @@ private:
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(const LExpr& e);
 
-    mlir::Value gen_expr_kind(const ELitInt& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const ELitFloat& e, const LogosType*);
-    mlir::Value gen_expr_kind(const ELitBool& e, const LogosType*);
-    mlir::Value gen_expr_kind(const ELitStr& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EVarRef& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EEnumLit& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EEnumLitData& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EBinOp& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EUnary& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EAddrOf& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EAddrOfTemp& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EDeref& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const ECall& e, const LogosType* ret_logos_type);
-    mlir::Value gen_expr_kind(const EMethodCall& e, const LogosType* ret_logos_type);
-    mlir::Value gen_expr_kind(const EFieldRead& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EIndexRead& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EStructLit& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EArrLit& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const ECast& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const ENew& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EIfExpr& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EMatchExpr& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const ETupleLit& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const ETupleIndex& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EClosureBox& box, const LogosType* type);
-    mlir::Value gen_closure(const EClosure& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EClosureCall& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EFnPtrCall& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const ESliceLit& e, const LogosType*);
-    mlir::Value gen_expr_kind(const ESliceIndex& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const ESliceLen& e, const LogosType*);
-    mlir::Value gen_expr_kind(const ESlicePtr& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EFormatCall& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EPackExpand&, const LogosType*);
-    mlir::Value gen_expr_kind(const ESizeOf& e, const LogosType*);
-    mlir::Value gen_expr_kind(const ETypeCodeOf& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EBlockExpr& e, const LogosType*);
-    mlir::Value gen_expr_kind(const ETry& e, const LogosType* type);
-    mlir::Value gen_expr_kind(const EHermesLit& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EPtrArith& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EPtrDiff& e, const LogosType*);
-    mlir::Value gen_expr_kind(const EReflectOf& e, const LogosType*);
+    mlir::Value gen_expr_kind(const ELitInt& e, TypeRef type);
+    mlir::Value gen_expr_kind(const ELitFloat& e, TypeRef);
+    mlir::Value gen_expr_kind(const ELitBool& e, TypeRef);
+    mlir::Value gen_expr_kind(const ELitStr& e, TypeRef);
+    mlir::Value gen_expr_kind(const EVarRef& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EEnumLit& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EEnumLitData& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EBinOp& e, TypeRef);
+    mlir::Value gen_expr_kind(const EUnary& e, TypeRef);
+    mlir::Value gen_expr_kind(const EAddrOf& e, TypeRef);
+    mlir::Value gen_expr_kind(const EAddrOfTemp& e, TypeRef);
+    mlir::Value gen_expr_kind(const EDeref& e, TypeRef type);
+    mlir::Value gen_expr_kind(const ECall& e, TypeRef ret_logos_type);
+    mlir::Value gen_expr_kind(const EMethodCall& e, TypeRef ret_logos_type);
+    mlir::Value gen_expr_kind(const EFieldRead& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EIndexRead& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EStructLit& e, TypeRef);
+    mlir::Value gen_expr_kind(const EArrLit& e, TypeRef type);
+    mlir::Value gen_expr_kind(const ECast& e, TypeRef type);
+    mlir::Value gen_expr_kind(const ENew& e, TypeRef);
+    mlir::Value gen_expr_kind(const EIfExpr& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EMatchExpr& e, TypeRef type);
+    mlir::Value gen_expr_kind(const ETupleLit& e, TypeRef type);
+    mlir::Value gen_expr_kind(const ETupleIndex& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EClosureBox& box, TypeRef type);
+    mlir::Value gen_closure(const EClosure& e, TypeRef);
+    mlir::Value gen_expr_kind(const EClosureCall& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EFnPtrCall& e, TypeRef type);
+    mlir::Value gen_expr_kind(const ESliceLit& e, TypeRef);
+    mlir::Value gen_expr_kind(const ESliceIndex& e, TypeRef type);
+    mlir::Value gen_expr_kind(const ESliceLen& e, TypeRef);
+    mlir::Value gen_expr_kind(const ESlicePtr& e, TypeRef);
+    mlir::Value gen_expr_kind(const EFormatCall& e, TypeRef);
+    mlir::Value gen_expr_kind(const EPackExpand&, TypeRef);
+    mlir::Value gen_expr_kind(const ESizeOf& e, TypeRef);
+    mlir::Value gen_expr_kind(const ETypeCodeOf& e, TypeRef);
+    mlir::Value gen_expr_kind(const EBlockExpr& e, TypeRef);
+    mlir::Value gen_expr_kind(const ETry& e, TypeRef type);
+    mlir::Value gen_expr_kind(const EHermesLit& e, TypeRef);
+    mlir::Value gen_expr_kind(const EPtrArith& e, TypeRef);
+    mlir::Value gen_expr_kind(const EPtrDiff& e, TypeRef);
+    mlir::Value gen_expr_kind(const EReflectOf& e, TypeRef);
     // Coerce a Logos runtime value to AnyVal.raw (u32) for hermes capture substitution.
-    mlir::Value coerce_to_anyval_raw(mlir::Value v, const LogosType* t);
+    mlir::Value coerce_to_anyval_raw(mlir::Value v, TypeRef t);
 
     // ── Struct helpers ────────────────────────────────────────────
     mlir::Value get_struct_ptr(const std::string& name);
@@ -422,7 +423,7 @@ private:
     mlir::Value gen_arr_lit(const EArrLit& e, mlir::Type elem_type);
 
     // ── format() built-in ─────────────────────────────────────────
-    static int format_type_tag(const LogosType* t) noexcept;
+    static int format_type_tag(TypeRef t) noexcept;
 };
 
 } // namespace logos::compiler

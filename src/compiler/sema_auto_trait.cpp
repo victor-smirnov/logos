@@ -93,14 +93,14 @@ bool SemaChecker::is_auto_trait_satisfied(
         // Bug 3 fix: build substitution map from generic type args so that
         // TypeVar fields in generic struct instantiations (e.g. Vec<i32>
         // has field `data: TypeVar("T")`) are replaced with concrete types.
-        StrMap<const LogosType*> subst;
+        StrMap<TypeRef> subst;
         if (!tv.type_args().empty() && !si->type_params.empty()) {
             size_t n = std::min(tv.type_args().size(), si->type_params.size());
             for (size_t j = 0; j < n; ++j)
                 subst[si->type_params[j].name] = tv.type_args()[j];
         }
         for (auto& f : si->fields) {
-            const LogosType* ftype = f.type;
+            TypeRef ftype = f.type;
             if (ftype && TypeRef(ftype).kind() == Kind::TypeVar && !subst.empty()) {
                 auto sit = subst.find(std::string(TypeRef(ftype).type_var_name()));
                 if (sit != subst.end()) ftype = sit->second;
@@ -120,7 +120,7 @@ bool SemaChecker::is_auto_trait_satisfied(
         auto* ei = get_enum_si(tv);
         if (!ei) return true; // unknown enum — be lenient
         for (auto& v : ei->variants) {
-            for (auto* pt : v.payload_types) {
+            for (auto pt : v.payload_types) {
                 if (!is_auto_trait_satisfied(pt, trait_name, visited)) {
                     if (last_offender_.field_name.empty())
                         last_offender_ = {std::string(v.name), pt};
@@ -142,7 +142,7 @@ bool SemaChecker::is_auto_trait_satisfied(
 
     // ── Tuple: every element must satisfy ───────────────────────────────────
     case Kind::Tuple:
-        for (auto* e : tv.tuple_elems())
+        for (auto e : tv.tuple_elems())
             if (!is_auto_trait_satisfied(e, trait_name, visited)) return false;
         return true;
 

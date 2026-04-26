@@ -41,7 +41,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Enum: {
         // Tagged enums are passed by pointer; C-style enums use their
         // backing integer type (i32 by default, or `enum Foo : u64 {}`).
-        if (resolve_tagged_enum(std::string(tv.enum_name()), tv.raw())) return ptr_type();
+        if (resolve_tagged_enum(std::string(tv.enum_name()), tv)) return ptr_type();
         return enum_disc_mlir(std::string(tv.enum_name()));
     }
     case LogosType::Kind::Ptr:    return ptr_type();
@@ -73,7 +73,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Tuple: {
         // Tuples are anonymous LLVM struct types, passed by pointer (like structs).
         llvm::SmallVector<mlir::Type> fields;
-        for (auto* e : tv.tuple_elems()) {
+        for (auto e : tv.tuple_elems()) {
             auto ft = logos_to_mlir(e);
             if (!ft) return nullptr;
             fields.push_back(ft);
@@ -184,7 +184,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
 
 // Compute ABI byte size from LogosType — avoids MLIR opaque struct problem.
 // Used to size enum payload slots correctly before MLIR struct bodies are set.
-uint64_t MLIRGenImpl::logos_abi_byte_size(const LogosType* t,
+uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
                                            std::unordered_set<std::string>& seen) {
     if (!t) return 8;
     TypeRef tv{t};
@@ -217,12 +217,12 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(const LogosType* t,
     case LogosType::Kind::U128:        return 16;
     case LogosType::Kind::Array:
         if (!tv.elem()) return 0;
-        return tv.arr_size() * logos_abi_byte_size(tv.elem().raw(), seen);
+        return tv.arr_size() * logos_abi_byte_size(tv.elem(), seen);
     case LogosType::Kind::Closure:
     case LogosType::Kind::TraitObject: return 16;  // two pointers
     case LogosType::Kind::Tuple: {
         uint64_t offset = 0, max_align = 1;
-        for (auto* e : tv.tuple_elems()) {
+        for (auto e : tv.tuple_elems()) {
             uint64_t esz = logos_abi_byte_size(e, seen);
             uint64_t align = std::min(esz, (uint64_t)8);
             if (align > 1) offset = (offset + align - 1) & ~(align - 1);
@@ -269,7 +269,7 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
         TaggedEnumInfo::VariantPayload vp;
         vp.disc = v.disc;
         uint64_t variant_bytes = 0;
-        for (auto* pt : v.payload_types) {
+        for (auto pt : v.payload_types) {
             if (TypeRef(pt).kind() == LogosType::Kind::Void) continue;  // () unit — no field
             auto ft = logos_to_mlir(pt);
             if (!ft) ft = builder_.getI32Type();
@@ -298,14 +298,14 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
 // ---------------------------------------------------------------------------
 
 const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
-                                                        const LogosType* type) {
+                                                        TypeRef type) {
     auto tit = tagged_enums_.find(name);
     if (tit != tagged_enums_.end()) return &tit->second;
     // For generic enums: compute concrete name from type_args.
     // Must match the mangling used by mono's record_needed_enum:
     // struct/datatype args use concrete_struct_name(), others use type_str().
     if (type && TypeRef(type).kind() == LogosType::Kind::Enum && !TypeRef(type).type_args().empty()) {
-        auto mangle_arg = [](const LogosType* a) -> std::string {
+        auto mangle_arg = [](TypeRef a) -> std::string {
             if (!a) return "null";
             TypeRef av{a};
             if (av.kind() == LogosType::Kind::Struct || av.kind() == LogosType::Kind::ZonedStruct)
@@ -313,17 +313,17 @@ const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
             return type_str(a);
         };
         std::string cname = std::string(TypeRef(type).enum_name());
-        for (auto* a : TypeRef(type).type_args()) { cname += "__"; cname += mangle_arg(a); }
+        for (auto a : TypeRef(type).type_args()) { cname += "__"; cname += mangle_arg(a); }
         tit = tagged_enums_.find(cname);
         if (tit != tagged_enums_.end()) return &tit->second;
     }
     return nullptr;
 }
 
-mlir::Type MLIRGenImpl::tuple_llvm_type(const LogosType* t) {
+mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
     if (!t || TypeRef(t).kind() != LogosType::Kind::Tuple) return nullptr;
     llvm::SmallVector<mlir::Type> fields;
-    for (auto* e : TypeRef(t).tuple_elems()) {
+    for (auto e : TypeRef(t).tuple_elems()) {
         auto ft = logos_to_mlir(e);
         if (!ft) return nullptr;
         fields.push_back(ft);

@@ -179,7 +179,7 @@ class BorrowChecker {
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
     std::vector<std::string>             fn_lifetime_params_;
     // Phase 3/4: return type of current function.
-    const LogosType*         ret_type_ = nullptr;
+    TypeRef         ret_type_ = nullptr;
 
     void report(uint32_t line, std::string msg) {
         Diag d;

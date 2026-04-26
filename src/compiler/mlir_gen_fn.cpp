@@ -61,7 +61,7 @@ mlir::Value MLIRGenImpl::sizeof_struct(mlir::LLVM::LLVMStructType struct_type) {
 // Function type from LFunction
 // ---------------------------------------------------------------------------
 
-mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(const LogosType* ret_type) {
+mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
     if (!ret_type) return nullptr;
     TypeRef rv{ret_type};
     if (type_str(ret_type) == "AnyVal") return builder_.getI32Type();
@@ -162,7 +162,7 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn) {
     if (fn.is_extern) f.setPrivate();
     mod.push_back(f);
     // Record Logos-level param types for dyn coercion at call sites.
-    std::vector<const LogosType*> ptypes;
+    std::vector<TypeRef> ptypes;
     for (auto& p : fn.params) ptypes.push_back(p.type);
     fn_param_types_[fn.name] = std::move(ptypes);
 }
