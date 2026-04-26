@@ -958,7 +958,10 @@ struct EHermesLitView {
     }
 };
 
-struct EPackExpandView { ExprRef self; };
+struct EPackExpandView {
+    ExprRef self;
+    std::string_view var_name() const noexcept { return detail::read_string(self, ek::NAME.code); }
+};
 
 // ── Pattern leaf exemplar ────────────────────────────────────────────────
 
@@ -988,6 +991,17 @@ struct PatVariantDataView {
             auto el = arr->get(i, self.base());
             if (el.is_null()) continue;
             f(el.as_ptr<const hermes::ArenaString>(self.base())->view());
+        }
+    }
+    template <class F>
+    void each_binding_type(const TypePoolImpl* pool, F&& f) const noexcept {
+        auto av = self.mirror()->get(pk::BINDING_TYPES.code, self.base());
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) { f(TypeRef{}); continue; }
+            f(TypeRef(self.arena(), el.to_offset(), pool));
         }
     }
 };
