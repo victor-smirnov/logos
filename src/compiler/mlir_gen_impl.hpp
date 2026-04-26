@@ -428,13 +428,13 @@ private:
     mlir::Value gen_expr_kind(const ENew& e, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EIfExprView v, TypeRef type);
     mlir::Value gen_expr_kind(const EMatchExpr& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ETupleLit& e, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ETupleLitView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type);
     mlir::Value gen_expr_kind(const EClosureBox& box, TypeRef type);
     mlir::Value gen_closure(const EClosure& e, TypeRef);
     mlir::Value gen_expr_kind(const EClosureCall& e, TypeRef type);
     mlir::Value gen_expr_kind(const EFnPtrCall& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ESliceLit& e, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ESliceLitView v, TypeRef);
     mlir::Value gen_expr_kind(const ESliceIndex& e, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ESliceLenView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::ESlicePtrView v, TypeRef);

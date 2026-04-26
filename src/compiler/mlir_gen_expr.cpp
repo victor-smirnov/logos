@@ -63,6 +63,8 @@ mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
         case C::TupleIndex:return gen_expr_kind(lir_view::ETupleIndexView{er}, e.type);
         case C::IfExpr:    return gen_expr_kind(lir_view::EIfExprView{er},     e.type);
         case C::BlockExpr: return gen_expr_kind(lir_view::EBlockExprView{er},  e.type);
+        case C::TupleLit:  return gen_expr_kind(lir_view::ETupleLitView{er},   e.type);
+        case C::SliceLit:  return gen_expr_kind(lir_view::ESliceLitView{er},   e.type);
         default: break;
         }
     }
@@ -82,7 +84,9 @@ mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
                       std::is_same_v<K, EFieldRead> ||
                       std::is_same_v<K, ETupleIndex> ||
                       std::is_same_v<K, EIfExpr>    ||
-                      std::is_same_v<K, EBlockExpr>) {
+                      std::is_same_v<K, EBlockExpr> ||
+                      std::is_same_v<K, ETupleLit>  ||
+                      std::is_same_v<K, ESliceLit>) {
             // Unreachable: handled by the schema-switch above.
             (void)k;
             return {};
@@ -1257,14 +1261,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EArrLit& e, TypeRef type) {
     return gen_arr_lit(e, elem_type);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleLit& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) {
     auto stype = tuple_llvm_type(type);
     if (!stype) return nullptr;
     // Allocate tuple on stack, store each element via GEP.
     auto alloca = create_entry_alloca(stype);
-    for (uint32_t i = 0; i < e.elems.size(); ++i) {
-        auto val = gen_expr(*e.elems[i]);
-        if (!val) return nullptr;
+    uint32_t i = 0;
+    bool ok = true;
+    v.each_elem([&](lir_view::ExprRef er) {
+        if (!ok) return;
+        auto* el = lexpr_of(er);
+        if (!el) { ok = false; return; }
+        auto val = gen_expr(*el);
+        if (!val) { ok = false; return; }
         if (TypeRef(type).tuple_elems()[i]) {
             auto et = logos_to_mlir(TypeRef(type).tuple_elems()[i]);
             if (et) val = coerce_numeric(val, et);
@@ -1272,7 +1281,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleLit& e, TypeRef type) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, idx);
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-    }
+        ++i;
+    });
+    if (!ok) return nullptr;
     return alloca;
 }
 
@@ -1939,9 +1950,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFnPtrCall& e, TypeRef type) {
 // Slice helpers
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLit& e, TypeRef) {
-    auto base = gen_expr(*e.base);
-    auto len  = gen_expr(*e.len);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef) {
+    auto* base_l = lexpr_of(v.base());
+    auto* len_l  = lexpr_of(v.len());
+    if (!base_l || !len_l) return nullptr;
+    auto base = gen_expr(*base_l);
+    auto len  = gen_expr(*len_l);
     if (!base || !len) return nullptr;
     auto stype = slice_llvm_type();
     auto alloca = create_entry_alloca(stype);
