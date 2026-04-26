@@ -54,10 +54,8 @@ protected:
         return lir_view::PatRef(out_.type_pool.arena(), it->second);
     }
     lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
-        auto& tbl = *in_.mirror_table;
-        auto it = tbl.expr.find(&e);
-        if (it == tbl.expr.end()) return {};
-        return lir_view::ExprRef(out_.type_pool.arena(), it->second);
+        if (e.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::ExprRef(out_.type_pool.arena(), e.mirror_offset_);
     }
 private:
 

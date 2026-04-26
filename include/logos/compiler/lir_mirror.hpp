@@ -29,6 +29,12 @@ namespace logos::compiler {
 // are uniquely owned (no aliasing); a successful lookup yields the offset of
 // the corresponding TinyObjectMap inside the program's TypePool arena.
 struct LirMirrorTable {
+    // Stage 3g.2: pointer-keyed forward maps still drive per-table dedup
+    // (so reverse maps stay consistent across multiple table instances —
+    // e.g. sema's prog.mirror_table vs mono's out_.mirror_table). Consumer
+    // hot-path reads (`expr_ref_of(LExpr&)` etc.) bypass these maps and
+    // hit `LExpr::mirror_offset_` directly — that field is the cross-table
+    // back-pointer set on first emission.
     std::unordered_map<const lir::LExpr*,    hermes::arena_offset_t> expr;
     std::unordered_map<const lir::LStmt*,    hermes::arena_offset_t> stmt;
     std::unordered_map<const lir::LBlock*,   hermes::arena_offset_t> block;

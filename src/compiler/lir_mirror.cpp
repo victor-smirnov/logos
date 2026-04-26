@@ -294,6 +294,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_block(const LBlock& b) {
     // — out-of-band of real stmt codes — to keep the category space simple.
     auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count));
     if (!stmts_av.is_null()) put(map_off, sk::ARMS, stmts_av);  // reuse ARMS key as STMTS list
+    b.mirror_offset_ = map_off;
     table_.block[&b] = map_off;
     table_.block_by_offset[map_off.value()] = &b;
     return map_off;
@@ -518,6 +519,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
         }
     }, v.kind);
     (void)code;
+    v.mirror_offset_ = map_off;
     table_.hermes_val[&v] = map_off;
     return map_off;
 }
@@ -811,6 +813,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_stmt(const LStmt& s) {
     if (s.line != 0)
         put(map_off, sc::LINE, put_u32(s.line));
 
+    s.mirror_offset_ = map_off;
     table_.stmt[&s] = map_off;
     table_.stmt_by_offset[map_off.value()] = &s;
     return map_off;
@@ -1073,6 +1076,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
 
     if (e.type) put(map_off, ec::TYPE, type_av(e.type));
 
+    e.mirror_offset_ = map_off;
     table_.expr[&e] = map_off;
     table_.expr_by_offset[map_off.value()] = &e;
     return map_off;
