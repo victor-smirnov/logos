@@ -409,7 +409,7 @@ private:
     void gen_tuple_write(lir_view::STupleWriteView v);
     void gen_index_write(lir_view::SIndexWriteView v);
     void gen_field_index_write(lir_view::SFieldIndexWriteView v);
-    void gen_match(const SMatch& s);
+    void gen_match(lir_view::SMatchView v);
     void gen_delete(lir_view::SDeleteView v);
 
     // ── Expressions ───────────────────────────────────────────────

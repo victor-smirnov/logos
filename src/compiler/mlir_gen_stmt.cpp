@@ -86,7 +86,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SChainFieldWriteView v) { gen_chain_fi
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldIndexWriteView v) { gen_field_index_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { if (auto* le = lexpr_of(v.expr())) gen_expr(*le); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(std::get<SMatch>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { if (auto* lb = lblock_of(v.body())) gen_block(*lb); }
@@ -1507,11 +1507,16 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
 // gen_match
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_match(const SMatch& s) {
+void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
+    // Pat/arm walking still goes through the C++ variant; scrut is routed
+    // through the view. Full PatRef migration is a separate slice.
+    auto* scrut_le = lexpr_of(v.scrut());
+    if (!scrut_le) return;
+    auto& s = std::get<SMatch>(lstmt_of(v.self)->kind);
     auto* region      = builder_.getBlock()->getParent();
     auto* merge_block = new mlir::Block();
 
-    auto scrut = gen_expr(*s.scrut);
+    auto scrut = gen_expr(*scrut_le);
     if (!scrut) {
         region->push_back(merge_block);
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -1522,8 +1527,8 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
     // Detect tagged enum: scrut is a pointer, load discriminant.
     mlir::Value scrut_ptr = nullptr;  // non-null for tagged enums
     const TaggedEnumInfo* te_info = nullptr;
-    if (TypeRef sct(s.scrut->type); sct && sct.kind() == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(std::string(sct.enum_name()), s.scrut->type);
+    if (TypeRef sct(scrut_le->type); sct && sct.kind() == LogosType::Kind::Enum) {
+        te_info = resolve_tagged_enum(std::string(sct.enum_name()), scrut_le->type);
         if (te_info) {
             // If scrut is an aggregate (returned by value from a function),
             // spill it to an alloca so GEP works below.
@@ -1580,13 +1585,13 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         }
         return false;
     };
-    if (s.scrut->type && TypeRef(s.scrut->type).kind() == LogosType::Kind::Tuple) {
+    if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Tuple) {
         // Tuple patterns are always irrefutable.
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
             if (is_irrefutable(arm.pat)) { exhaustive_discrete = true; break; }
         }
-    } else if (s.scrut->type && TypeRef(s.scrut->type).kind() == LogosType::Kind::Bool) {
+    } else if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Bool) {
         bool has_true = false, has_false = false, has_wild = false;
         for (auto& arm : s.arms) {
             if (arm.guard) continue;
@@ -1603,7 +1608,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             }
         }
         exhaustive_discrete = has_wild || (has_true && has_false);
-    } else if (s.scrut->type && TypeRef(s.scrut->type).kind() == LogosType::Kind::Enum) {
+    } else if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Enum) {
         std::set<int32_t> covered;
         bool has_wild = false;
         auto cover_enum = [&](const lir::Pattern& p) {
@@ -1622,13 +1627,13 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         if (has_wild) {
             exhaustive_discrete = true;
         } else {
-            std::string en(TypeRef(s.scrut->type).enum_name());
+            std::string en(TypeRef(scrut_le->type).enum_name());
             auto eit = enum_types_.find(en);
             if (eit != enum_types_.end() && eit->second) {
                 exhaustive_discrete = std::all_of(
                     eit->second->variants.begin(), eit->second->variants.end(),
                     [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
-            } else if (auto* te = resolve_tagged_enum(en, s.scrut->type)) {
+            } else if (auto* te = resolve_tagged_enum(en, scrut_le->type)) {
                 exhaustive_discrete = std::all_of(
                     te->variants.begin(), te->variants.end(),
                     [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });
@@ -1650,9 +1655,9 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
     std::function<void(const LMatchArm&)> extract_payload = [&](const LMatchArm& arm) {
         // ── PatTuple ───────────────────────────────────────────────────────
         if (auto* pt = std::get_if<PatTuple>(&arm.pat)) {
-            auto ttype = tuple_llvm_type(s.scrut->type);
+            auto ttype = tuple_llvm_type(scrut_le->type);
             if (!ttype) return;
-            mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
+            mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
             if (!tptr) return;
             for (size_t bi = 0; bi < pt->bindings.size() && bi < pt->binding_types.size(); ++bi) {
                 if (pt->bindings[bi] == "_") continue;
@@ -1733,7 +1738,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             auto sit = struct_types_.find(ps->struct_name);
             if (sit == struct_types_.end()) return;
             const StructInfo& sinfo = sit->second;
-            mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
+            mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
             if (!sptr) return;
             for (auto& pfb : ps->fields) {
                 // Helper: GEP + load a field value and bind it to `bind_name`.
@@ -1775,11 +1780,11 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         }
         // ── PatSlice: GEP-extract indexed elements ────────────────────────
         if (auto* psl = std::get_if<PatSlice>(&arm.pat)) {
-            auto atype = s.scrut->type;
+            auto atype = scrut_le->type;
             if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
                 auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
                 auto arr_mlir  = logos_to_mlir(atype);
-                mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
+                mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
                 if (aptr && elem_mlir && arr_mlir) {
                     auto bind_elem = [&](const lir::Pattern& p, int32_t idx) {
                         // GEP element pointer for this index.
@@ -1936,14 +1941,14 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         } else if (auto* pr = std::get_if<lir::PatRange>(&arm.pat)) {
             // Range pattern: lo <= scrut && scrut <= hi
             // C2: use unsigned predicates for unsigned scrutinee types.
-            bool range_unsigned = s.scrut->type &&
-                (TypeRef(s.scrut->type).kind() == LogosType::Kind::U8  ||
-                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U16 ||
-                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U32 ||
-                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U24 ||
-                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U56 ||
-                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U64 ||
-                 TypeRef(s.scrut->type).kind() == LogosType::Kind::U128);
+            bool range_unsigned = scrut_le->type &&
+                (TypeRef(scrut_le->type).kind() == LogosType::Kind::U8  ||
+                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U16 ||
+                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U32 ||
+                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U24 ||
+                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U56 ||
+                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U64 ||
+                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U128);
             auto pred_ge = range_unsigned ? mlir::arith::CmpIPredicate::uge
                                           : mlir::arith::CmpIPredicate::sge;
             auto pred_le = range_unsigned ? mlir::arith::CmpIPredicate::ule
@@ -2006,14 +2011,14 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                 const lir::Pattern& sub = pa->sub[0];
                 if (auto* pr = std::get_if<lir::PatRange>(&sub)) {
                     // C2: same unsigned predicate fix for PatAt + PatRange.
-                    bool pat_at_unsigned = s.scrut->type &&
-                        (TypeRef(s.scrut->type).kind() == LogosType::Kind::U8  ||
-                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U16 ||
-                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U32 ||
-                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U24 ||
-                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U56 ||
-                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U64 ||
-                         TypeRef(s.scrut->type).kind() == LogosType::Kind::U128);
+                    bool pat_at_unsigned = scrut_le->type &&
+                        (TypeRef(scrut_le->type).kind() == LogosType::Kind::U8  ||
+                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U16 ||
+                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U32 ||
+                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U24 ||
+                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U56 ||
+                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U64 ||
+                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U128);
                     auto at_pred_ge = pat_at_unsigned ? mlir::arith::CmpIPredicate::uge
                                                       : mlir::arith::CmpIPredicate::sge;
                     auto at_pred_le = pat_at_unsigned ? mlir::arith::CmpIPredicate::ule
@@ -2059,13 +2064,13 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
             }
         } else if (auto* pt = std::get_if<lir::PatTuple>(&arm.pat); pt && !pt->subs.empty()) {
             // Refutable tuple: GEP each refutable element and AND-chain equality tests.
-            auto ttype = tuple_llvm_type(s.scrut->type);
+            auto ttype = tuple_llvm_type(scrut_le->type);
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*s.scrut);
+                mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
                 mlir::Value cond =
                     builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
                 for (size_t i = 0; i < pt->subs.size() && ttype; ++i) {
