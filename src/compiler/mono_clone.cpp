@@ -742,132 +742,221 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     lir::LStmt ns;
     ns.line = st.line;
 
-    std::visit([&](const auto& k) {
-        using K = std::decay_t<decltype(k)>;
+    auto sref = stmt_ref_of(st);
+    if (!sref) return ns;  // mirror miss — defensive
 
-        if constexpr (std::is_same_v<K, lir::SLet>) {
-            lir::SLet nl;
-            nl.name   = k.name;
-            nl.type   = subst_type(k.type, s);
-            nl.is_mut = k.is_mut;
-            nl.value  = subst_expr(*k.value, s);
-            ns.kind   = std::move(nl);
+    auto subst_child_expr = [&](lir_view::ExprRef er) -> lir::LExprPtr {
+        auto* le = lexpr_of(er);
+        return le ? subst_expr(*le, s) : nullptr;
+    };
+    auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
+        auto* lb = lblock_of(br);
+        return lb ? subst_block(*lb, s) : lir::LBlock{};
+    };
 
-        } else if constexpr (std::is_same_v<K, lir::SAssign>) {
-            ns.kind = lir::SAssign{k.name, subst_expr(*k.value, s)};
+    using SCode = lir_schema::stmt::Code;
+    const TypePoolImpl* pool = out_.type_pool.impl();
 
-        } else if constexpr (std::is_same_v<K, lir::SReturn>) {
-            ns.kind = lir::SReturn{k.value ? subst_expr(*k.value, s) : nullptr};
-
-        } else if constexpr (std::is_same_v<K, lir::SIf>) {
-            lir::SIf ni;
-            ni.cond  = subst_expr(*k.cond, s);
-            ni.then_ = std::make_unique<lir::LBlock>(subst_block(*k.then_, s));
-            if (k.else_)
-                ni.else_ = std::make_unique<lir::LBlock>(subst_block(**k.else_, s));
-            ns.kind = std::move(ni);
-
-        } else if constexpr (std::is_same_v<K, lir::SWhile>) {
-            lir::SWhile nw;
-            nw.cond  = subst_expr(*k.cond, s);
-            nw.body  = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
-            nw.label = k.label;
-            ns.kind  = std::move(nw);
-
-        } else if constexpr (std::is_same_v<K, lir::SFor>) {
-            lir::SFor nf;
-            nf.var       = k.var;
-            nf.lo        = subst_expr(*k.lo, s);
-            nf.hi        = subst_expr(*k.hi, s);
-            nf.inclusive = k.inclusive;
-            nf.body      = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
-            nf.label     = k.label;
-            ns.kind      = std::move(nf);
-
-        } else if constexpr (std::is_same_v<K, lir::SLoop>) {
-            lir::SLoop nl;
-            nl.body        = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
-            nl.result_type = k.result_type;
-            nl.break_slot  = k.break_slot;
-            nl.label       = k.label;
-            ns.kind        = std::move(nl);
-
-        } else if constexpr (std::is_same_v<K, lir::SBlock>) {
-            ns.kind = lir::SBlock{
-                std::make_unique<lir::LBlock>(subst_block(*k.body, s))};
-
-        } else if constexpr (std::is_same_v<K, lir::SBreak>) {
-            lir::SBreak nb;
-            if (k.value) nb.value = subst_expr(*k.value, s);
-            nb.label = k.label;
-            ns.kind = std::move(nb);
-
-        } else if constexpr (std::is_same_v<K, lir::SContinue>) {
-            ns.kind = k;  // SContinue copies the label via default copy
-
-        } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
-            ns.kind = lir::SFieldWrite{k.receiver, k.field, subst_expr(*k.value, s)};
-
-        } else if constexpr (std::is_same_v<K, lir::SChainFieldWrite>) {
-            ns.kind = lir::SChainFieldWrite{k.receiver, k.mid_field, k.field, subst_expr(*k.value, s)};
-
-        } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
-            ns.kind = lir::SDerefFieldWrite{k.receiver, k.type_name, k.field, subst_expr(*k.value, s)};
-
-        } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
-            ns.kind = lir::SIndexWrite{
-                k.arr, subst_expr(*k.index, s), subst_expr(*k.value, s)};
-
-        } else if constexpr (std::is_same_v<K, lir::SFieldIndexWrite>) {
-            ns.kind = lir::SFieldIndexWrite{
-                k.receiver, k.field, subst_expr(*k.index, s), subst_expr(*k.value, s)};
-
-        } else if constexpr (std::is_same_v<K, lir::SDerefWrite>) {
-            ns.kind = lir::SDerefWrite{subst_expr(*k.ptr, s), subst_expr(*k.value, s)};
-
-        } else if constexpr (std::is_same_v<K, lir::STupleWrite>) {
-            ns.kind = lir::STupleWrite{k.receiver, k.index, subst_expr(*k.value, s), k.recv_type};
-
-        } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
-            ns.kind = lir::SExprStmt{subst_expr(*k.expr, s)};
-
-        } else if constexpr (std::is_same_v<K, lir::SDelete>) {
-            ns.kind = lir::SDelete{subst_expr(*k.expr, s)};
-
-        } else if constexpr (std::is_same_v<K, lir::SDrop>) {
-            ns.kind = lir::SDrop{k.var_name, k.drop_fn, subst_type(k.type, s), k.drop_fields};
-
-        } else if constexpr (std::is_same_v<K, lir::SMatch>) {
-            lir::SMatch nm;
-            nm.scrut = subst_expr(*k.scrut, s);
-            for (auto& arm : k.arms) {
-                lir::LMatchArm na;
-                na.pat  = subst_pattern(arm.pat, s);  // M2/M3/M4/M5
-                na.body = std::make_unique<lir::LBlock>(subst_block(*arm.body, s));
-                if (arm.guard)
-                    na.guard = subst_expr(**arm.guard, s);
-                nm.arms.push_back(std::move(na));
+    switch (sref.kind()) {
+    case SCode::Let: {
+        lir_view::SLetView v{sref};
+        lir::SLet nl;
+        nl.name   = std::string(v.name());
+        nl.type   = subst_type(v.type(pool), s);
+        nl.is_mut = v.is_mut();
+        nl.value  = subst_child_expr(v.value());
+        ns.kind   = std::move(nl);
+        break;
+    }
+    case SCode::Assign: {
+        lir_view::SAssignView v{sref};
+        ns.kind = lir::SAssign{std::string(v.name()), subst_child_expr(v.value())};
+        break;
+    }
+    case SCode::Return: {
+        auto val = lir_view::SReturnView{sref}.value();
+        ns.kind = lir::SReturn{val ? subst_child_expr(val) : nullptr};
+        break;
+    }
+    case SCode::If: {
+        lir_view::SIfView v{sref};
+        lir::SIf ni;
+        ni.cond  = subst_child_expr(v.cond());
+        ni.then_ = std::make_unique<lir::LBlock>(subst_child_block(v.then_block()));
+        if (auto eb = v.else_block())
+            ni.else_ = std::make_unique<lir::LBlock>(subst_child_block(eb));
+        ns.kind = std::move(ni);
+        break;
+    }
+    case SCode::While: {
+        lir_view::SWhileView v{sref};
+        lir::SWhile nw;
+        nw.cond  = subst_child_expr(v.cond());
+        nw.body  = std::make_unique<lir::LBlock>(subst_child_block(v.body()));
+        nw.label = std::string(v.label());
+        ns.kind  = std::move(nw);
+        break;
+    }
+    case SCode::For: {
+        lir_view::SForView v{sref};
+        lir::SFor nf;
+        nf.var       = std::string(v.var());
+        nf.lo        = subst_child_expr(v.lo());
+        nf.hi        = subst_child_expr(v.hi());
+        nf.inclusive = v.inclusive();
+        nf.body      = std::make_unique<lir::LBlock>(subst_child_block(v.body()));
+        nf.label     = std::string(v.label());
+        ns.kind      = std::move(nf);
+        break;
+    }
+    case SCode::Loop: {
+        lir_view::SLoopView v{sref};
+        lir::SLoop nl;
+        nl.body        = std::make_unique<lir::LBlock>(subst_child_block(v.body()));
+        nl.result_type = v.result_type(pool);
+        nl.break_slot  = std::string(v.break_slot());
+        nl.label       = std::string(v.label());
+        ns.kind        = std::move(nl);
+        break;
+    }
+    case SCode::Block: {
+        lir_view::SBlockView v{sref};
+        ns.kind = lir::SBlock{
+            std::make_unique<lir::LBlock>(subst_child_block(v.body()))};
+        break;
+    }
+    case SCode::Break: {
+        lir_view::SBreakView v{sref};
+        lir::SBreak nb;
+        if (auto val = v.value()) nb.value = subst_child_expr(val);
+        nb.label = std::string(v.label());
+        ns.kind = std::move(nb);
+        break;
+    }
+    case SCode::Continue: {
+        ns.kind = lir::SContinue{std::string(lir_view::SContinueView{sref}.label())};
+        break;
+    }
+    case SCode::FieldWrite: {
+        lir_view::SFieldWriteView v{sref};
+        ns.kind = lir::SFieldWrite{std::string(v.receiver()),
+                                   std::string(v.field()),
+                                   subst_child_expr(v.value())};
+        break;
+    }
+    case SCode::ChainFieldWrite: {
+        lir_view::SChainFieldWriteView v{sref};
+        ns.kind = lir::SChainFieldWrite{std::string(v.receiver()),
+                                        std::string(v.mid_field()),
+                                        std::string(v.field()),
+                                        subst_child_expr(v.value())};
+        break;
+    }
+    case SCode::DerefFieldWrite: {
+        lir_view::SDerefFieldWriteView v{sref};
+        ns.kind = lir::SDerefFieldWrite{std::string(v.receiver()),
+                                        std::string(v.type_name()),
+                                        std::string(v.field()),
+                                        subst_child_expr(v.value())};
+        break;
+    }
+    case SCode::IndexWrite: {
+        lir_view::SIndexWriteView v{sref};
+        ns.kind = lir::SIndexWrite{std::string(v.arr()),
+                                   subst_child_expr(v.index()),
+                                   subst_child_expr(v.value())};
+        break;
+    }
+    case SCode::FieldIndexWrite: {
+        lir_view::SFieldIndexWriteView v{sref};
+        ns.kind = lir::SFieldIndexWrite{std::string(v.receiver()),
+                                        std::string(v.field()),
+                                        subst_child_expr(v.index()),
+                                        subst_child_expr(v.value())};
+        break;
+    }
+    case SCode::DerefWrite: {
+        lir_view::SDerefWriteView v{sref};
+        ns.kind = lir::SDerefWrite{subst_child_expr(v.ptr()),
+                                   subst_child_expr(v.value())};
+        break;
+    }
+    case SCode::TupleWrite: {
+        lir_view::STupleWriteView v{sref};
+        ns.kind = lir::STupleWrite{std::string(v.receiver()),
+                                   v.index(),
+                                   subst_child_expr(v.value()),
+                                   v.recv_type(pool)};
+        break;
+    }
+    case SCode::ExprStmt: {
+        ns.kind = lir::SExprStmt{
+            subst_child_expr(lir_view::SExprStmtView{sref}.expr())};
+        break;
+    }
+    case SCode::Delete: {
+        ns.kind = lir::SDelete{
+            subst_child_expr(lir_view::SDeleteView{sref}.expr())};
+        break;
+    }
+    case SCode::Drop: {
+        lir_view::SDropView v{sref};
+        ns.kind = lir::SDrop{std::string(v.var_name()),
+                             std::string(v.drop_fn()),
+                             subst_type(v.type(pool), s),
+                             v.drop_fields()};
+        break;
+    }
+    case SCode::Match: {
+        lir_view::SMatchView v{sref};
+        lir::SMatch nm;
+        nm.scrut = subst_child_expr(v.scrut());
+        v.each_arm([&](lir_view::EMatchArmRef arm) {
+            lir::LMatchArm na;
+            // pat: still need variant access for subst_pattern
+            if (auto* lstmt_in = lstmt_of(sref)) {
+                if (auto* sm = std::get_if<lir::SMatch>(&lstmt_in->kind)) {
+                    size_t idx = nm.arms.size();
+                    if (idx < sm->arms.size()) {
+                        na.pat = subst_pattern(sm->arms[idx].pat, s);
+                    }
+                }
             }
-            ns.kind = std::move(nm);
-
-        } else if constexpr (std::is_same_v<K, lir::SForEach>) {
-            lir::SForEach nf;
-            nf.var       = k.var;
-            nf.iter      = subst_expr(*k.iter, s);
-            nf.elem_type = subst_type(k.elem_type, s);
-            nf.arr_size  = k.arr_size;
-            nf.is_slice  = k.is_slice;
-            nf.body      = std::make_unique<lir::LBlock>(subst_block(*k.body, s));
-            ns.kind      = std::move(nf);
-
-        } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
-            lir::SLetElse sle;
-            sle.pat        = subst_pattern(k.pat, s);  // M2/M3/M4/M5
-            sle.scrut      = subst_expr(*k.scrut, s);
-            sle.else_block = std::make_unique<lir::LBlock>(subst_block(*k.else_block, s));
-            ns.kind        = std::move(sle);
+            na.body = std::make_unique<lir::LBlock>(subst_child_block(arm.body()));
+            if (auto g = arm.guard()) na.guard = subst_child_expr(g);
+            nm.arms.push_back(std::move(na));
+        });
+        ns.kind = std::move(nm);
+        break;
+    }
+    case SCode::ForEach: {
+        lir_view::SForEachView v{sref};
+        lir::SForEach nf;
+        nf.var       = std::string(v.var());
+        nf.iter      = subst_child_expr(v.iter());
+        nf.elem_type = subst_type(v.elem_type(pool), s);
+        nf.arr_size  = v.arr_size();
+        nf.is_slice  = v.is_slice();
+        nf.body      = std::make_unique<lir::LBlock>(subst_child_block(v.body()));
+        ns.kind      = std::move(nf);
+        break;
+    }
+    case SCode::LetElse: {
+        lir_view::SLetElseView v{sref};
+        lir::SLetElse sle;
+        // pat: still via variant access
+        if (auto* lstmt_in = lstmt_of(sref)) {
+            if (auto* sle_in = std::get_if<lir::SLetElse>(&lstmt_in->kind)) {
+                sle.pat = subst_pattern(sle_in->pat, s);
+            }
         }
-    }, st.kind);
+        sle.scrut      = subst_child_expr(v.scrut());
+        sle.else_block = std::make_unique<lir::LBlock>(subst_child_block(v.else_block()));
+        ns.kind        = std::move(sle);
+        break;
+    }
+    default: break;
+    }
 
     return ns;
 }
