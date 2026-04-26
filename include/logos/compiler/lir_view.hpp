@@ -641,7 +641,10 @@ struct EClosureBoxView {
 // ── Stub views (Phase 3d): bodies still go through lexpr_of() to reach the
 // underlying variant. Promoted to richer accessors as call-sites migrate.
 
-struct EAddrOfTempView { ExprRef self; };
+struct EAddrOfTempView {
+    ExprRef self;
+    ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
+};
 
 struct EEnumLitView {
     ExprRef self;
