@@ -1631,9 +1631,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EMatchExpr>(_le->kind);
     namespace pc = lir_schema::pat;
+    auto* scrut_le = lexpr_of(v.scrut());
+    if (!scrut_le) return nullptr;
     std::vector<lir_view::EMatchArmRef> arm_refs;
     v.each_arm([&](lir_view::EMatchArmRef a){ arm_refs.push_back(a); });
     mlir::Type result_type = logos_to_mlir(type);
@@ -1645,7 +1645,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     auto* region      = builder_.getBlock()->getParent();
     auto* merge_block = new mlir::Block();
 
-    auto scrut = gen_expr(*e.scrut);
+    auto scrut = gen_expr(*scrut_le);
     if (!scrut) {
         region->push_back(merge_block);
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -1656,8 +1656,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     // Detect tagged enum: load discriminant.
     mlir::Value scrut_ptr = nullptr;
     const TaggedEnumInfo* te_info = nullptr;
-    if (TypeRef st(e.scrut->type); st && st.kind() == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(std::string(st.enum_name()), e.scrut->type);
+    if (TypeRef st(scrut_le->type); st && st.kind() == LogosType::Kind::Enum) {
+        te_info = resolve_tagged_enum(std::string(st.enum_name()), scrut_le->type);
         if (te_info) {
             // GEP requires a pointer operand.  If the scrutinee is a by-value
             // struct (e.g. a direct function call result), spill it to an alloca.
@@ -1750,11 +1750,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
 
     mlir::Block* else_block = merge_block;
     bool exhaustive_discrete = false;
-    if (e.scrut->type && TypeRef(e.scrut->type).kind() == LogosType::Kind::Bool) {
+    if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Bool) {
         bool has_true = false, has_false = false, has_wild = false;
-        for (size_t ai = 0; ai < e.arms.size(); ++ai) {
-            auto& arm = e.arms[ai];
-            if (arm.guard) continue;
+        for (size_t ai = 0; ai < arm_refs.size(); ++ai) {
+            if (arm_refs[ai].guard()) continue;
             auto pat_ref = arm_refs[ai].pat();
             if (pat_ref.kind() == pc::Code::Wild) { has_wild = true; break; }
             auto check_bool = [&](lir_view::PatRef p) {
@@ -1769,16 +1768,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             }
         }
         exhaustive_discrete = has_wild || (has_true && has_false);
-    } else if (e.scrut->type && TypeRef(e.scrut->type).kind() == LogosType::Kind::Enum) {
+    } else if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Enum) {
         std::set<int32_t> covered;
         bool has_wild = false;
         auto cover_enum = [&](lir_view::PatRef p) {
             if (p.kind() == pc::Code::Variant)          covered.insert(static_cast<int32_t>(lir_view::PatVariantView{p}.disc()));
             else if (p.kind() == pc::Code::VariantData) covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{p}.disc()));
         };
-        for (size_t ai = 0; ai < e.arms.size(); ++ai) {
-            auto& arm = e.arms[ai];
-            if (arm.guard) continue;
+        for (size_t ai = 0; ai < arm_refs.size(); ++ai) {
+            if (arm_refs[ai].guard()) continue;
             auto pat_ref = arm_refs[ai].pat();
             if (pat_ref.kind() == pc::Code::Wild) { has_wild = true; break; }
             if (pat_ref.kind() == pc::Code::Or) {
@@ -1790,13 +1788,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         if (has_wild) {
             exhaustive_discrete = true;
         } else {
-            std::string en(TypeRef(e.scrut->type).enum_name());
+            std::string en(TypeRef(scrut_le->type).enum_name());
             auto eit = enum_types_.find(en);
             if (eit != enum_types_.end() && eit->second) {
                 exhaustive_discrete = std::all_of(
                     eit->second->variants.begin(), eit->second->variants.end(),
                     [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
-            } else if (auto* te = resolve_tagged_enum(en, e.scrut->type)) {
+            } else if (auto* te = resolve_tagged_enum(en, scrut_le->type)) {
                 exhaustive_discrete = std::all_of(
                     te->variants.begin(), te->variants.end(),
                     [&](const TaggedEnumInfo::VariantPayload& v) { return covered.count(v.disc) > 0; });
@@ -1813,15 +1811,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         }
         else_block = default_block;
     }
-    for (int i = (int)e.arms.size() - 1; i >= 0; --i) {
-        auto& arm = e.arms[i];
+    for (int i = (int)arm_refs.size() - 1; i >= 0; --i) {
+        auto arm_guard_ref = arm_refs[i].guard();
+        auto arm_value_ref = arm_refs[i].value();
         auto arm_pat_ref = arm_refs[i].pat();
         auto* body_block = new mlir::Block();
         region->push_back(body_block);
 
         mlir::Block* arm_entry = body_block;
 
-        if (arm.guard) {
+        if (arm_guard_ref) {
             // guard_block: extract bindings, evaluate guard, branch to body_block or else_block.
             auto* guard_block = new mlir::Block();
             region->push_back(guard_block);
@@ -1830,7 +1829,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(guard_block);
                 guard_added = extract_arm_payload(arm_pat_ref);
-                auto gval = gen_expr(**arm.guard);
+                auto* guard_le = lexpr_of(arm_guard_ref);
+                auto gval = guard_le ? gen_expr(*guard_le) : nullptr;
                 gval = coerce_int(gval, builder_.getI1Type());
                 builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
             }
@@ -1839,7 +1839,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(body_block);
-                auto val = gen_expr(*arm.value);
+                auto* value_le = lexpr_of(arm_value_ref);
+                auto val = value_le ? gen_expr(*value_le) : nullptr;
                 for (auto& n : guard_added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
                 if (!is_terminated(builder_.getBlock())) {
                     if (val) {
@@ -1853,7 +1854,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             mlir::OpBuilder::InsertionGuard ig(builder_);
             builder_.setInsertionPointToStart(body_block);
             auto added = extract_arm_payload(arm_pat_ref);
-            auto val = gen_expr(*arm.value);
+            auto* value_le = lexpr_of(arm_value_ref);
+            auto val = value_le ? gen_expr(*value_le) : nullptr;
             for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
             if (!is_terminated(builder_.getBlock())) {
                 if (val) {
