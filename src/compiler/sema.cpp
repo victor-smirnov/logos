@@ -66,6 +66,17 @@ public:
     std::unordered_map<LogosType::TypeUID,
                        std::vector<const LogosType*>, UIDHash> intern_buckets_;
 
+    // 2c.6.6.B.1: TypeUID lifted off the slim struct into this side map.
+    // Populated by TypePool::alloc(); read by put_sub (UID composition) and
+    // types_equal. The slim LogosType now carries only Hermes back-refs.
+    std::unordered_map<const LogosType*, LogosType::TypeUID> uid_of_;
+
+    LogosType::TypeUID uid_of(const LogosType* p) const noexcept {
+        if (!p) return LogosType::TypeUID{};
+        auto it = uid_of_.find(p);
+        return it != uid_of_.end() ? it->second : LogosType::TypeUID{};
+    }
+
     TypePoolImpl(logos::InitTag& tag)
         : arena_(tag, hermes::ArenaMode::GrowableSingleChunk, 64 * 1024)
     {
@@ -267,12 +278,14 @@ inline void put_str(std::string& s, std::string_view v) {
     put_u64(s, v.size());
     s.append(v);
 }
-inline void put_sub(std::string& s, const LogosType* p) {
+inline void put_sub(std::string& s, const TypePoolImpl* impl, const LogosType* p) {
     if (!p) { for (int i = 0; i < 32; ++i) s.push_back(0); return; }
-    s.append(reinterpret_cast<const char*>(p->type_uid.bytes), 32);
+    auto uid = impl ? impl->uid_of(p) : LogosType::TypeUID{};
+    s.append(reinterpret_cast<const char*>(uid.bytes), 32);
 }
 
-LogosType::TypeUID compute_type_uid(const LogosTypeBuilder& t) noexcept {
+LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
+                                    const LogosTypeBuilder& t) noexcept {
     std::string buf;
     buf.reserve(64);
     put_byte(buf, uint8_t(t.kind));
@@ -280,37 +293,37 @@ LogosType::TypeUID compute_type_uid(const LogosTypeBuilder& t) noexcept {
     switch (t.kind) {
     case K::Ptr:
         put_byte(buf, t.mut_ptr ? 1 : 0);
-        put_sub(buf, t.pointee);
+        put_sub(buf, impl, t.pointee);
         break;
     case K::Ref:
     case K::MutRef:
         // lifetime intentionally omitted — matches types_equal semantics.
-        put_sub(buf, t.pointee);
+        put_sub(buf, impl, t.pointee);
         break;
     case K::Array:
         put_u64(buf, t.arr_size);
         put_str(buf, t.arr_size_var);
-        put_sub(buf, t.elem);
+        put_sub(buf, impl, t.elem);
         break;
     case K::Struct:
     case K::ZonedStruct:
         put_str(buf, t.struct_name);
-        for (auto* a : t.type_args) put_sub(buf, a);
+        for (auto* a : t.type_args) put_sub(buf, impl, a);
         break;
     case K::Enum:
         put_str(buf, t.enum_name);
-        for (auto* a : t.type_args) put_sub(buf, a);
+        for (auto* a : t.type_args) put_sub(buf, impl, a);
         break;
     case K::Tuple:
-        for (auto* e : t.tuple_elems) put_sub(buf, e);
+        for (auto* e : t.tuple_elems) put_sub(buf, impl, e);
         break;
     case K::Slice:
-        put_sub(buf, t.elem);
+        put_sub(buf, impl, t.elem);
         break;
     case K::Closure:
     case K::FnPtr:
-        for (auto* p : t.closure_params) put_sub(buf, p);
-        put_sub(buf, t.closure_ret);
+        for (auto* p : t.closure_params) put_sub(buf, impl, p);
+        put_sub(buf, impl, t.closure_ret);
         break;
     case K::TraitObject:
     case K::TaggedPtr:
@@ -326,8 +339,8 @@ LogosType::TypeUID compute_type_uid(const LogosTypeBuilder& t) noexcept {
     case K::AssocType:
         put_str(buf, t.trait_name);
         put_str(buf, t.assoc_type_name);
-        put_sub(buf, t.assoc_base);
-        for (auto* a : t.gat_args) put_sub(buf, a);
+        put_sub(buf, impl, t.assoc_base);
+        for (auto* a : t.gat_args) put_sub(buf, impl, a);
         break;
     default:
         break;  // primitives: kind tag alone identifies
@@ -424,14 +437,14 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
 
 const LogosType* TypePool::alloc(LogosTypeBuilder t) {
     if (!impl_) impl_ = TypePoolImpl::make();
-    LogosType::TypeUID uid = compute_type_uid(t);
+    LogosType::TypeUID uid = compute_type_uid(impl_.get(), t);
     auto& bucket = impl_->intern_buckets_[uid];
     for (const LogosType* cand : bucket)
         if (builder_equals_typeref(t, TypeRef(cand))) return cand;
 
     pool_.push_back(LogosType{});
     LogosType* mp = &pool_.back();
-    mp->type_uid = uid;
+    impl_->uid_of_[mp] = uid;
     auto off = impl_->mirror(t);
     impl_->mirror_offsets_[mp] = off;
     impl_->mirror_inverse_[off] = mp;
@@ -559,7 +572,10 @@ using hermes::MemHolder;
 bool types_equal(TypeRef a, TypeRef b) noexcept {
     if (!a || !b) return false;
     if (a.raw() == b.raw()) return true;
-    return a.raw()->type_uid == b.raw()->type_uid;
+    auto* pa = a.pool();
+    auto* pb = b.pool();
+    if (!pa || pa != pb) return false;
+    return pa->uid_of(a.raw()) == pa->uid_of(b.raw());
 }
 
 // ── Generic struct name helpers ───────────────────────────────────────────────

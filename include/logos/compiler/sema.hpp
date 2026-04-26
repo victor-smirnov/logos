@@ -75,13 +75,16 @@ struct LogosType {
     // truncation of canonical type expression (lifetime ignored, matches
     // types_equal semantics), bytes 24..31 = reserved member-id (0 for
     // pure types; future trait-dispatch will populate).
+    //
+    // 2c.6.6.B.1: TypeUID lives in TypePoolImpl::uid_of_, not on the slim
+    // struct. The type stays on this class so the pool's side map can
+    // reference it.
     struct TypeUID {
         uint8_t bytes[32] = {};
         bool operator==(const TypeUID& o) const noexcept {
             return std::memcmp(bytes, o.bytes, 32) == 0;
         }
     };
-    TypeUID type_uid;
 
     // ── Hermes mirror back-refs ──
     // Set by TypePool::alloc() after building the TinyObjectMap mirror.
