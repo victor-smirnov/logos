@@ -71,7 +71,9 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 nc.type_args.push_back(subst_type(ta, s));
             for (auto& a : k.args) {
                 // Pack expansion: args... → expand into individual args
-                if (auto* pe = std::get_if<lir::EPackExpand>(&a->kind)) {
+                auto a_ref = expr_ref_of(*a);
+                if (a_ref && a_ref.kind() == lir_schema::expr::Code::PackExpand) {
+                    std::string pe_var_name(lir_view::EPackExpandView{a_ref}.var_name());
                     // Find which type pack this var belongs to.
                     // The var's type is a TypeVar whose name is in cur_packs_.
                     std::string pack_name;
@@ -83,7 +85,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         for (size_t pi = 0; pi < pit->second.size(); ++pi) {
                             auto ref = std::make_unique<lir::LExpr>();
                             ref->type = pit->second[pi];
-                            ref->kind = lir::EVarRef{make_pack_arg_name(pe->var_name, pi)};
+                            ref->kind = lir::EVarRef{make_pack_arg_name(pe_var_name, pi)};
                             nc.args.push_back(std::move(ref));
                         }
                         // If callee is a template, add pack types as type_args
