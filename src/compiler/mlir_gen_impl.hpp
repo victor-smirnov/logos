@@ -407,7 +407,7 @@ private:
     void gen_deref_field_write(const SDerefFieldWrite& s);
     void gen_chain_field_write(const SChainFieldWrite& s);
     void gen_tuple_write(lir_view::STupleWriteView v);
-    void gen_index_write(const SIndexWrite& s);
+    void gen_index_write(lir_view::SIndexWriteView v);
     void gen_field_index_write(const SFieldIndexWrite& s);
     void gen_match(const SMatch& s);
     void gen_delete(lir_view::SDeleteView v);

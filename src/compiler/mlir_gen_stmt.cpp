@@ -83,7 +83,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldWriteView v)      { gen_field_wr
 void MLIRGenImpl::gen_stmt_kind(lir_view::STupleWriteView v)      { gen_tuple_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefFieldWriteView v) { gen_deref_field_write(std::get<SDerefFieldWrite>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SChainFieldWriteView v) { gen_chain_field_write(std::get<SChainFieldWrite>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_write(std::get<SIndexWrite>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldIndexWriteView v) { gen_field_index_write(std::get<SFieldIndexWrite>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { gen_expr(*std::get<SExprStmt>(lstmt_of(v.self)->kind).expr); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(std::get<SMatch>(lstmt_of(v.self)->kind)); }
@@ -1255,38 +1255,42 @@ void MLIRGenImpl::gen_tuple_write(lir_view::STupleWriteView v) {
 // gen_index_write / gen_field_index_write
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
-    auto it = scope_.find(s.arr);
+void MLIRGenImpl::gen_index_write(lir_view::SIndexWriteView v) {
+    std::string arr(v.arr());
+    auto it = scope_.find(arr);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: index write: undefined '%s'\n", s.arr.c_str());
+        std::fprintf(stderr, "mlir_gen: index write: undefined '%s'\n", arr.c_str());
         return;
     }
     // Local pointer variables: scope_ holds an alloca(ptr); load the actual ptr first.
     mlir::Value base_ptr;
     mlir::Type  elem_type;
-    auto lpit = var_local_ptrs_.find(s.arr);
+    auto lpit = var_local_ptrs_.find(arr);
     if (lpit != var_local_ptrs_.end()) {
         base_ptr  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
         elem_type = lpit->second;
     } else {
         base_ptr  = it->second;
-        elem_type = subscript_elem_type(s.arr);
+        elem_type = subscript_elem_type(arr);
     }
 
-    auto idx = gen_expr(*s.index);
-    auto val = gen_expr(*s.value);
+    auto* idx_le = lexpr_of(v.index());
+    auto* val_le = lexpr_of(v.value());
+    if (!idx_le || !val_le) return;
+    auto idx = gen_expr(*idx_le);
+    auto val = gen_expr(*val_le);
     if (!idx || !val) return;
     val = coerce_int(val, elem_type);
 
     // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
-    bool idx_unsigned = s.index->type &&
-        (TypeRef(s.index->type).kind() == LogosType::Kind::U8  ||
-         TypeRef(s.index->type).kind() == LogosType::Kind::U16 ||
-         TypeRef(s.index->type).kind() == LogosType::Kind::U32 ||
-         TypeRef(s.index->type).kind() == LogosType::Kind::U24 ||
-         TypeRef(s.index->type).kind() == LogosType::Kind::U56 ||
-         TypeRef(s.index->type).kind() == LogosType::Kind::U64 ||
-         TypeRef(s.index->type).kind() == LogosType::Kind::U128);
+    bool idx_unsigned = idx_le->type &&
+        (TypeRef(idx_le->type).kind() == LogosType::Kind::U8  ||
+         TypeRef(idx_le->type).kind() == LogosType::Kind::U16 ||
+         TypeRef(idx_le->type).kind() == LogosType::Kind::U32 ||
+         TypeRef(idx_le->type).kind() == LogosType::Kind::U24 ||
+         TypeRef(idx_le->type).kind() == LogosType::Kind::U56 ||
+         TypeRef(idx_le->type).kind() == LogosType::Kind::U64 ||
+         TypeRef(idx_le->type).kind() == LogosType::Kind::U128);
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
         idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
@@ -1297,7 +1301,7 @@ void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
     // struct-typed r-value returns a pointer to the struct bytes, not the
     // struct by value. Emit llvm.memcpy of sizeof(struct) bytes. Mirrors the
     // path in gen_stmt_kind(SDerefWrite).
-    TypeRef val_t = s.value ? s.value->type : nullptr;
+    TypeRef val_t = val_le ? val_le->type : nullptr;
     if (val_t && (TypeRef(val_t).kind() == LogosType::Kind::Struct ||
                   TypeRef(val_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
