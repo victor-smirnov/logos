@@ -80,7 +80,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
     gen_continue(); // fallback
 }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldWriteView v)      { gen_field_write(std::get<SFieldWrite>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::STupleWriteView v)      { gen_tuple_write(std::get<STupleWrite>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::STupleWriteView v)      { gen_tuple_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefFieldWriteView v) { gen_deref_field_write(std::get<SDerefFieldWrite>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SChainFieldWriteView v) { gen_chain_field_write(std::get<SChainFieldWrite>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_write(std::get<SIndexWrite>(lstmt_of(v.self)->kind)); }
@@ -1226,24 +1226,27 @@ void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, field_gep);
 }
 
-void MLIRGenImpl::gen_tuple_write(const STupleWrite& s) {
+void MLIRGenImpl::gen_tuple_write(lir_view::STupleWriteView v) {
     // var.N = value;  — tuple field write via GEP + store
-    auto it = scope_.find(s.receiver);
+    std::string receiver(v.receiver());
+    auto it = scope_.find(receiver);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: tuple write: undefined '%s'\n", s.receiver.c_str());
+        std::fprintf(stderr, "mlir_gen: tuple write: undefined '%s'\n", receiver.c_str());
         return;
     }
     // Get the LLVM struct type for the tuple from the LIR receiver type.
-    auto stype = tuple_llvm_type(s.recv_type);
+    auto stype = tuple_llvm_type(v.recv_type(pool_impl()));
     if (!stype) {
         std::fprintf(stderr, "mlir_gen: tuple write: cannot derive tuple type for '%s'\n",
-                     s.receiver.c_str());
+                     receiver.c_str());
         return;
     }
+    auto* val_le = lexpr_of(v.value());
+    if (!val_le) return;
     mlir::Value base_ptr = it->second;
-    auto val = gen_expr(*s.value);
+    auto val = gen_expr(*val_le);
     if (!val) return;
-    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(s.index)};
+    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(v.index())};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, base_ptr, idx);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
 }

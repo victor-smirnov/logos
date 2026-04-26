@@ -985,6 +985,10 @@ struct STupleWriteView {
     StmtRef self;
     std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
     ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    uint32_t         index() const noexcept    { return detail::read_u32(self, sk::TUPLE_INDEX_VAL.code); }
+    TypeRef          recv_type(const TypePoolImpl* pool) const noexcept {
+        return detail::stmt_type(self, sk::RECV_TYPE.code, pool);
+    }
 };
 
 struct SDeleteView {
