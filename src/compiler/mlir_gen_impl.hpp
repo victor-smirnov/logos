@@ -413,7 +413,7 @@ private:
     mlir::Value gen_expr_kind(lir_view::EVarRefView v, TypeRef type);
     mlir::Value gen_expr_kind(const EEnumLit& e, TypeRef type);
     mlir::Value gen_expr_kind(const EEnumLitData& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EBinOp& e, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EBinOpView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EUnaryView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EAddrOfView v, TypeRef);
     mlir::Value gen_expr_kind(const EAddrOfTemp& e, TypeRef);
@@ -435,7 +435,7 @@ private:
     mlir::Value gen_expr_kind(const EClosureCall& e, TypeRef type);
     mlir::Value gen_expr_kind(const EFnPtrCall& e, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ESliceLitView v, TypeRef);
-    mlir::Value gen_expr_kind(const ESliceIndex& e, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ESliceLenView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::ESlicePtrView v, TypeRef);
     mlir::Value gen_expr_kind(const EFormatCall& e, TypeRef);
