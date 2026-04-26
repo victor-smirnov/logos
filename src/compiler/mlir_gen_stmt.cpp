@@ -59,7 +59,7 @@ void MLIRGenImpl::gen_stmt(const LStmt& stmt) {
     }
 }
 
-void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(std::get<SLet>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(std::get<SIf>(lstmt_of(v.self)->kind)); }
@@ -174,7 +174,16 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
 // gen_let
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_let(const SLet& s) {
+void MLIRGenImpl::gen_let(lir_view::SLetView v) {
+    auto* val_le = lexpr_of(v.value());
+    if (!val_le) return;
+    struct LetCtx {
+        std::string  name;
+        TypeRef      type;
+        bool         is_mut;
+        const LExpr* value;
+    };
+    LetCtx s{std::string(v.name()), v.type(pool_impl()), v.is_mut(), val_le};
     if (s.type && type_str(s.type) == "AnyVal") {
         auto val = gen_expr(*s.value);
         if (!val) return;

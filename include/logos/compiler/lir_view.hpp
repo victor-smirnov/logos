@@ -922,6 +922,7 @@ struct SLetView {
     StmtRef self;
     std::string_view name() const noexcept   { return detail::stmt_str(self, sk::NAME.code); }
     ExprRef          value() const noexcept  { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    bool             is_mut() const noexcept { return detail::read_bool(self, sk::IS_MUT.code); }
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::TYPE.code, pool);
     }

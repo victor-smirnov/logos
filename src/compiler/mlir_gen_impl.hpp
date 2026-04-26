@@ -393,7 +393,7 @@ private:
     void gen_stmt_kind(lir_view::SLetElseView v);
     void gen_stmt_kind(lir_view::SChainFieldWriteView v);
 
-    void gen_let(const SLet& s);
+    void gen_let(lir_view::SLetView v);
     void gen_assign(lir_view::SAssignView v);
     void gen_return(lir_view::SReturnView v);
     void gen_if(const SIf& s);
