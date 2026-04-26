@@ -52,6 +52,12 @@ mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
         case C::LitFloat: return gen_expr_kind(lir_view::ELitFloatView{er}, e.type);
         case C::LitBool:  return gen_expr_kind(lir_view::ELitBoolView{er},  e.type);
         case C::LitStr:   return gen_expr_kind(lir_view::ELitStrView{er},   e.type);
+        case C::Unary:    return gen_expr_kind(lir_view::EUnaryView{er},    e.type);
+        case C::AddrOf:   return gen_expr_kind(lir_view::EAddrOfView{er},   e.type);
+        case C::Deref:    return gen_expr_kind(lir_view::EDerefView{er},    e.type);
+        case C::SliceLen: return gen_expr_kind(lir_view::ESliceLenView{er}, e.type);
+        case C::SlicePtr: return gen_expr_kind(lir_view::ESlicePtrView{er}, e.type);
+        case C::Try:      return gen_expr_kind(lir_view::ETryView{er},      e.type);
         default: break;
         }
     }
@@ -60,7 +66,13 @@ mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
         if constexpr (std::is_same_v<K, ELitInt>   ||
                       std::is_same_v<K, ELitFloat> ||
                       std::is_same_v<K, ELitBool>  ||
-                      std::is_same_v<K, ELitStr>) {
+                      std::is_same_v<K, ELitStr>   ||
+                      std::is_same_v<K, EUnary>    ||
+                      std::is_same_v<K, EAddrOf>   ||
+                      std::is_same_v<K, EDeref>    ||
+                      std::is_same_v<K, ESliceLen> ||
+                      std::is_same_v<K, ESlicePtr> ||
+                      std::is_same_v<K, ETry>) {
             // Unreachable: handled by the schema-switch above.
             (void)k;
             return {};
@@ -575,17 +587,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
     return nullptr;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EUnary& e, TypeRef) {
-    auto val = gen_expr(*e.operand);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EUnaryView v, TypeRef) {
+    auto* operand = lexpr_of(v.operand());
+    if (!operand) return nullptr;
+    auto val = gen_expr(*operand);
     if (!val) return nullptr;
-    if (e.op == "-") {
+    auto op = v.op();
+    if (op == "-") {
         if (mlir::isa<mlir::FloatType>(val.getType()))
             return builder_.create<mlir::arith::NegFOp>(loc_, val);
         auto zero = builder_.create<mlir::arith::ConstantIntOp>(
             loc_, 0, mlir::cast<mlir::IntegerType>(val.getType()).getWidth());
         return builder_.create<mlir::arith::SubIOp>(loc_, zero, val);
     }
-    if (e.op == "!") {
+    if (op == "!") {
         auto itype = mlir::dyn_cast<mlir::IntegerType>(val.getType());
         if (!itype) {
             std::fprintf(stderr, "mlir_gen: unary '!' on non-integer type\n");
@@ -602,7 +617,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EUnary& e, TypeRef) {
             return builder_.create<mlir::arith::XOrIOp>(loc_, val, allones);
         }
     }
-    std::fprintf(stderr, "mlir_gen: unknown unary op '%s'\n", e.op.c_str());
+    std::fprintf(stderr, "mlir_gen: unknown unary op '%.*s'\n",
+                 int(op.size()), op.data());
     return nullptr;
 }
 
@@ -610,11 +626,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EUnary& e, TypeRef) {
 // AddrOf / Deref
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOf& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
     // Address-of: return the alloca pointer directly.
-    auto it = scope_.find(e.var_name);
+    std::string var_name{v.var_name()};
+    auto it = scope_.find(var_name);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", e.var_name.c_str());
+        std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", var_name.c_str());
         return nullptr;
     }
     // Fn parameters are bound as SSA values (not allocas).  Taking `&x` on a
@@ -749,8 +766,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, TypeRef) {
     return alloca;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EDeref& e, TypeRef type) {
-    auto ptr = gen_expr(*e.operand);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
+    auto* operand = lexpr_of(v.operand());
+    if (!operand) return nullptr;
+    auto ptr = gen_expr(*operand);
     if (!ptr) return nullptr;
     // Structs/datatypes are always pointer-represented in MLIR/LLVM; the
     // logical *-deref just yields the same pointer.  Subsequent field
@@ -1949,8 +1968,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceIndex& e, TypeRef type) {
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, elem_ptr);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLen& e, TypeRef) {
-    auto slice = gen_expr(*e.slice);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLenView v, TypeRef) {
+    auto* sl = lexpr_of(v.slice());
+    if (!sl) return nullptr;
+    auto slice = gen_expr(*sl);
     if (!slice) return nullptr;
     auto stype = slice_llvm_type();
     // Load len from field 1
@@ -1959,8 +1980,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLen& e, TypeRef) {
     return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESlicePtr& e, TypeRef) {
-    auto slice = gen_expr(*e.slice);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESlicePtrView v, TypeRef) {
+    auto* sl = lexpr_of(v.slice());
+    if (!sl) return nullptr;
+    auto slice = gen_expr(*sl);
     if (!slice) return nullptr;
     auto stype = slice_llvm_type();
     // Load ptr from field 0
@@ -2183,13 +2206,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBlockExpr& e, TypeRef) {
 // Try expression: expr?
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
-    auto inner_ptr = gen_expr(*e.inner);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
+    auto* inner = lexpr_of(v.inner());
+    if (!inner) return nullptr;
+    auto inner_ptr = gen_expr(*inner);
     if (!inner_ptr) return nullptr;
     // Aggregate returned by value — spill to alloca so GEP works below.
     inner_ptr = spill_to_alloca(inner_ptr);
 
-    auto* te = resolve_tagged_enum(std::string(TypeRef(e.inner->type).enum_name()), e.inner->type);
+    auto* te = resolve_tagged_enum(std::string(TypeRef(inner->type).enum_name()), inner->type);
     if (!te) {
         std::fprintf(stderr, "mlir_gen: ETry: cannot resolve Result enum\n");
         return nullptr;
@@ -2199,7 +2224,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
     llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
     auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, inner_ptr, di);
     auto disc     = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), disc_ptr);
-    auto ok_cst   = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.ok_disc, 32);
+    auto ok_cst   = builder_.create<mlir::arith::ConstantIntOp>(loc_, v.ok_disc(), 32);
     auto is_ok    = builder_.create<mlir::arith::CmpIOp>(
                         loc_, mlir::arith::CmpIPredicate::eq, disc, ok_cst);
 
@@ -2221,7 +2246,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
     builder_.setInsertionPointToStart(ok_block);
     {
         const TaggedEnumInfo::VariantPayload* ok_vp = nullptr;
-        for (auto& v : te->variants) if (v.disc == e.ok_disc) { ok_vp = &v; break; }
+        int32_t ok_d = v.ok_disc();
+        for (auto& vp : te->variants) if (vp.disc == ok_d) { ok_vp = &vp; break; }
 
         llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
         auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
@@ -2250,7 +2276,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
     builder_.setInsertionPointToStart(err_block);
     {
         const TaggedEnumInfo::VariantPayload* err_vp = nullptr;
-        for (auto& v : te->variants) if (v.disc == e.err_disc) { err_vp = &v; break; }
+        int32_t err_d = v.err_disc();
+        for (auto& vp : te->variants) if (vp.disc == err_d) { err_vp = &vp; break; }
 
         llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
         auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
@@ -2261,7 +2288,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
         llvm::SmallVector<mlir::LLVM::GEPArg> di2{int32_t(0), int32_t(0)};
         auto rdp = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), te->llvm_type, ret_alloca, di2);
-        auto edc = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.err_disc, 32);
+        auto edc = builder_.create<mlir::arith::ConstantIntOp>(loc_, v.err_disc(), 32);
         builder_.create<mlir::LLVM::StoreOp>(loc_, edc, rdp);
         // Copy E payload if it exists
         if (err_vp && !err_vp->field_types.empty()) {

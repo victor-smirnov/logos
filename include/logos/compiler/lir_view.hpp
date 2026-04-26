@@ -405,12 +405,15 @@ struct EBinOpView {
 
 struct EUnaryView {
     ExprRef self;
+    std::string_view op() const noexcept { return detail::read_string(self, ek::OP.code); }
     ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
 };
 
 struct ETryView {
     ExprRef self;
     ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
+    int32_t ok_disc()  const noexcept { return int32_t(detail::read_u32(self, ek::OK_DISC.code)); }
+    int32_t err_disc() const noexcept { return int32_t(detail::read_u32(self, ek::ERR_DISC.code)); }
 };
 
 struct ESliceLitView {
