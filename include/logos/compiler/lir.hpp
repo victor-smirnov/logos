@@ -810,10 +810,19 @@ struct LReflectGlobal {
     std::vector<uint8_t>  blob;   // [u64 size_le][hermes_doc bytes...]
 };
 
+} // namespace logos::compiler::lir
+namespace logos::compiler { struct LirMirrorTable; }
+namespace logos::compiler::lir {
+
 struct LProgram {
     SemaResult             diags;
 
     TypePool               type_pool;  // owns all LogosType*
+
+    // Phase 3b: Hermes mirror back-references. Populated by lir_mirror_emit.
+    // Held by unique_ptr to keep lir.hpp free of <unordered_map> for the
+    // millions of TUs that include it just for the variant tree.
+    std::unique_ptr<::logos::compiler::LirMirrorTable> mirror_table;
 
     std::vector<LStructDef>      structs;
     std::vector<LStructDef>      struct_specializations;  // struct specs (consumed by mono)
@@ -863,6 +872,13 @@ struct LProgram {
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }
+
+    LProgram();
+    ~LProgram();
+    LProgram(LProgram&&) noexcept;
+    LProgram& operator=(LProgram&&) noexcept;
+    LProgram(const LProgram&)            = delete;
+    LProgram& operator=(const LProgram&) = delete;
 };
 
 } // namespace logos::compiler::lir

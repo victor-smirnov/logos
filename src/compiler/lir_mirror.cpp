@@ -1063,6 +1063,19 @@ void LirMirrorEmitter::run(lir::LProgram& prog) {
 
 } // namespace
 
+// Out-of-line LProgram special members — declared in lir.hpp, defined here
+// where LirMirrorTable is complete (unique_ptr<LirMirrorTable> dtor needs it).
+} // namespace logos::compiler
+
+namespace logos::compiler::lir {
+LProgram::LProgram() = default;
+LProgram::~LProgram() = default;
+LProgram::LProgram(LProgram&&) noexcept = default;
+LProgram& LProgram::operator=(LProgram&&) noexcept = default;
+} // namespace logos::compiler::lir
+
+namespace logos::compiler {
+
 LirMirrorTable lir_mirror_emit(lir::LProgram& prog) {
     LirMirrorTable table;
     auto& arena = prog.type_pool.arena_or_init();
