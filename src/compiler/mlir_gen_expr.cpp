@@ -1507,11 +1507,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ENewView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ENew>(_le->kind);
-    auto sit = struct_types_.find(e.class_name);
+    std::string class_name(v.class_name());
+    auto sit = struct_types_.find(class_name);
     if (sit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: unknown class '%s'\n", e.class_name.c_str());
+        std::fprintf(stderr, "mlir_gen: unknown class '%s'\n", class_name.c_str());
         return nullptr;
     }
     auto& info = sit->second;
@@ -1528,13 +1527,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ENewView v, TypeRef) {
     if (!raw) return nullptr;
 
     // Initialize user fields
-    for (auto& [fname, fval] : e.fields) {
-        auto val = gen_expr(*fval);
-        if (!val) return nullptr;
-        auto gep = gep_field(raw, info, fname);
-        if (!gep) return nullptr;
+    bool ok = true;
+    v.each_field([&](std::string_view fname, lir_view::ExprRef vr) {
+        if (!ok) return;
+        auto* fv_le = lexpr_of(vr);
+        if (!fv_le) { ok = false; return; }
+        auto val = gen_expr(*fv_le);
+        if (!val) { ok = false; return; }
+        auto gep = gep_field(raw, info, std::string(fname));
+        if (!gep) { ok = false; return; }
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-    }
+    });
+    if (!ok) return nullptr;
 
     return raw;  // *mut ClassName
 }

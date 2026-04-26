@@ -178,6 +178,14 @@ Mediated ownership lets the work move forward as fast as the human can (a) keep 
 
 The platform therefore has to support the whole spectrum, not optimize for one point on it. Tooling that only works under fully mediated ownership ("just trust the agent") forces every user into the regime with the loosest control. Tooling that only works under fully direct ownership leaves all of the AI-era leverage on the table. The right shape is a platform where a user can slide along the spectrum task by task, even line by line, and where the cost of asking for *more* direct ownership at a particular point is low — because that is where responsibility ultimately gets discharged.
 
+### Why the AI-Primary Framing Is Self-Reinforcing
+
+The spectrum is not stationary. The center of mass is *moving toward the mediated end*, and that movement is observable: rising commit volumes that no plausible growth in the number of human authors can explain, a growing share of code that its nominal owner did not type, and an increasing fraction of routine in-distribution tasks where models are already reliable enough — and reliable in a way that keeps improving — to be trusted at the technical level by a human who only checks the visible behavior.
+
+This has a recursive consequence for platform design. A platform optimized for the model raises the *ceiling* of mediated ownership: the AI produces code with stronger structural guarantees, gets denser machine-readable feedback, and operates in a substrate where its mistakes are caught earlier and localized better. A higher mediated-ownership ceiling means more humans, on more tasks, can stay at the mediated end of the spectrum without losing the ability to take responsibility for the result. That, in turn, shifts the center of mass further toward mediated, which makes "optimize the platform for the model" a still-better investment for the *next* increment.
+
+The argument is not that direct ownership becomes obsolete — the spectrum's other end remains load-bearing wherever stakes are high or behavior is OoD. The argument is that, for any given level of human responsibility, *the achievable degree of mediated ownership is bounded by how well the platform serves the model*. Optimizing for the model is therefore not a bet against humans; it is the most direct way to raise the practical ceiling on what indirect ownership can deliver to them.
+
 ### A Note for Technical and Business Leadership
 
 The next point is not about platform design or platform use — it is about how organizations adopt AI. It belongs here because the same dynamics that bound platform throughput also bound team throughput, and getting this wrong is expensive in a way that is *not* obvious from the budget sheet.
