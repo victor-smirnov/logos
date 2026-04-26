@@ -1044,7 +1044,15 @@ struct SBreakView {
 };
 
 struct SContinueView { StmtRef self; };
-struct SDropView     { StmtRef self; };
+struct SDropView     {
+    StmtRef self;
+    std::string_view var_name() const noexcept { return detail::stmt_str(self, sk::NAME.code); }
+    std::string_view drop_fn() const noexcept  { return detail::stmt_str(self, sk::DROP_FN.code); }
+    bool             drop_fields() const noexcept { return detail::read_bool(self, sk::DROP_FIELDS.code); }
+    TypeRef          type(const TypePoolImpl* pool) const noexcept {
+        return detail::stmt_type(self, sk::TYPE.code, pool);
+    }
+};
 
 struct SMatchView {
     StmtRef self;

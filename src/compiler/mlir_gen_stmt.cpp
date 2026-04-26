@@ -92,20 +92,21 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(std:
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { gen_block(*std::get<SBlock>(lstmt_of(v.self)->kind).body); }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
-    auto& s = std::get<SDrop>(lstmt_of(v.self)->kind);
-    auto it = scope_.find(s.var_name);
+    std::string var_name(v.var_name());
+    auto it = scope_.find(var_name);
     if (it == scope_.end()) return;
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
     // 1. Call user's explicit drop function (if any)
-    if (!s.drop_fn.empty()) {
-        auto fn = mod.lookupSymbol<mlir::func::FuncOp>(s.drop_fn);
+    std::string drop_fn(v.drop_fn());
+    if (!drop_fn.empty()) {
+        auto fn = mod.lookupSymbol<mlir::func::FuncOp>(drop_fn);
         if (fn)
             builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{it->second});
     }
 
     // 2. Auto-drop droppable fields (reverse field order)
-    if (TypeRef st(s.type); s.drop_fields && st && st.kind() == LogosType::Kind::Struct) {
+    if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st && st.kind() == LogosType::Kind::Struct) {
         auto sit = struct_types_.find(std::string(st.struct_name()));
         if (sit != struct_types_.end()) {
             auto& info = sit->second;
