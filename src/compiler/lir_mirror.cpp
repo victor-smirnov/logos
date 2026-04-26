@@ -496,6 +496,8 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
+    if (auto it = table_.pat.find(&p); it != table_.pat.end())
+        return it->second;
     using namespace lir;
     hermes::arena_offset_t map_off;
     std::visit([&](auto const& alt) {
@@ -579,6 +581,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
             put(map_off, pk::IS_MUT, put_bool(alt.is_mut));
         }
     }, p);
+    table_.pat[&p] = map_off;
     return map_off;
 }
 

@@ -32,10 +32,12 @@ struct LirMirrorTable {
     std::unordered_map<const lir::LExpr*,    hermes::arena_offset_t> expr;
     std::unordered_map<const lir::LStmt*,    hermes::arena_offset_t> stmt;
     std::unordered_map<const lir::LBlock*,   hermes::arena_offset_t> block;
+    std::unordered_map<const lir::Pattern*,  hermes::arena_offset_t> pat;
     std::unordered_map<const lir::HermesVal*, hermes::arena_offset_t> hermes_val;
 
     bool empty() const noexcept {
-        return expr.empty() && stmt.empty() && block.empty() && hermes_val.empty();
+        return expr.empty() && stmt.empty() && block.empty() && pat.empty()
+            && hermes_val.empty();
     }
 };
 

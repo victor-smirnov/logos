@@ -310,6 +310,35 @@ class BorrowChecker {
         return lir_view::ExprRef(prog_.type_pool.arena(), it->second);
     }
 
+    lir_view::PatRef pat_ref(const Pattern& p) const {
+        auto& tbl = *prog_.mirror_table;
+        auto it = tbl.pat.find(&p);
+        if (it == tbl.pat.end()) return {};
+        return lir_view::PatRef(prog_.type_pool.arena(), it->second);
+    }
+
+    // Match arm pattern bindings: PatVariantData injects each binding name into
+    // scope; PatWild may also bind (when name is non-empty and not "_").
+    void declare_pat_bindings(const Pattern& p) {
+        auto pr = pat_ref(p);
+        if (!pr) return;
+        using Code = lir_schema::pat::Code;
+        switch (pr.kind()) {
+            case Code::VariantData: {
+                lir_view::PatVariantDataView{pr}.each_binding([&](std::string_view b) {
+                    declare_var(std::string(b));
+                });
+                break;
+            }
+            case Code::Wild: {
+                std::string n(lir_view::PatWildView{pr}.name());
+                if (!n.empty() && n != "_") declare_var(n);
+                break;
+            }
+            default: break;
+        }
+    }
+
     RefProv prov_of(lir_view::ExprRef e) const {
         if (!e) return {};
         using namespace lir_view;
@@ -665,15 +694,7 @@ class BorrowChecker {
                     states_ = saved_s;
                     prov_   = saved_p;
                     push_scope();
-                    std::visit([&](auto& p) {
-                        if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
-                                                     PatVariantData>) {
-                            for (auto& b : p.bindings) declare_var(b);
-                        } else if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
-                                                             PatWild>) {
-                            if (!p.name.empty() && p.name != "_") declare_var(p.name);
-                        }
-                    }, arm.pat);
+                    declare_pat_bindings(arm.pat);
                     if (arm.guard) visit(*arm.guard, /*consuming=*/true, ln);
                     visit_block(*arm.body);
                     pop_scope();
@@ -838,15 +859,7 @@ void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
                 states_ = saved_s;
                 prov_   = saved_p;
                 push_scope();
-                std::visit([&](auto& p) {
-                    if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
-                                                 PatVariantData>) {
-                        for (auto& b : p.bindings) declare_var(b);
-                    } else if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
-                                                         PatWild>) {
-                        if (!p.name.empty() && p.name != "_") declare_var(p.name);
-                    }
-                }, arm.pat);
+                declare_pat_bindings(arm.pat);
                 if (arm.guard) visit(*arm.guard, /*consuming=*/true, line);
                 visit(arm.value, consuming, line);
                 pop_scope();

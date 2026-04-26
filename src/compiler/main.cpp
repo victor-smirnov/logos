@@ -433,6 +433,8 @@ int main(int argc, char** argv) {
         meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
         meta_prog = logos::compiler::mono_pass(std::move(meta_prog));
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        meta_prog.mirror_table = std::make_unique<logos::compiler::LirMirrorTable>(
+            logos::compiler::lir_mirror_emit(meta_prog));
         meta_prog = logos::compiler::borrow_check(std::move(meta_prog));
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
 

@@ -364,4 +364,26 @@ struct PatBoolView {
     bool value() const noexcept { return detail::read_bool(self, pk::BOOL_VALUE.code); }
 };
 
+// PatWild { name: Varchar (optional) }
+struct PatWildView {
+    PatRef self;
+    std::string_view name() const noexcept { return detail::read_string(self, pk::NAME.code); }
+};
+
+// PatVariantData { enum_name, variant, disc, bindings: Array<Varchar>, binding_types }
+struct PatVariantDataView {
+    PatRef self;
+    template <class F>
+    void each_binding(F&& f) const noexcept {
+        auto av = self.mirror()->get(pk::BINDINGS.code, self.base());
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) continue;
+            f(el.as_ptr<const hermes::ArenaString>(self.base())->view());
+        }
+    }
+};
+
 } // namespace logos::compiler::lir_view
