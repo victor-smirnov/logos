@@ -1059,10 +1059,13 @@ const lir::LStructDef* Mono::find_best_struct_spec(
 
 // Walk all output functions collecting generic struct instantiations needed.
 void Mono::collect_struct_needs_from_output() {
+    auto& arena = out_.type_pool.arena_or_init();
     for (auto& fn : out_.functions) {
         collect_type_for_structs(fn->ret_type);
         for (auto& p : fn->params) collect_type_for_structs(p.type);
-        collect_struct_needs_from_block(fn->body);
+        if (fn->body.mirror_offset_ != hermes::arena_offset_t{})
+            collect_struct_needs_from_block(
+                lir_view::BlockRef(&arena, fn->body.mirror_offset_));
     }
     // Also walk already-instantiated structs (field types may reference more).
     for (auto& sd : out_.structs)
@@ -1070,117 +1073,186 @@ void Mono::collect_struct_needs_from_output() {
 }
 
 
-void Mono::collect_struct_needs_from_block(const lir::LBlock& b) {
-    for (auto& st : b.stmts) collect_struct_needs_from_stmt(st);
+void Mono::collect_struct_needs_from_block(lir_view::BlockRef b) {
+    if (!b) return;
+    b.each_stmt([&](lir_view::StmtRef s) { collect_struct_needs_from_stmt(s); });
 }
 
 
-void Mono::collect_struct_needs_from_stmt(const lir::LStmt& st) {
-    std::visit([&](const auto& k) {
-        using K = std::decay_t<decltype(k)>;
-        if constexpr (std::is_same_v<K, lir::SLet>)
-            { collect_type_for_structs(k.type); collect_struct_needs_from_expr(*k.value); }
-        else if constexpr (std::is_same_v<K, lir::SAssign>)
-            collect_struct_needs_from_expr(*k.value);
-        else if constexpr (std::is_same_v<K, lir::SReturn>)
-            { if (k.value) collect_struct_needs_from_expr(*k.value); }
-        else if constexpr (std::is_same_v<K, lir::SIf>) {
-            collect_struct_needs_from_expr(*k.cond);
-            collect_struct_needs_from_block(*k.then_);
-            if (k.else_) collect_struct_needs_from_block(**k.else_);
-        } else if constexpr (std::is_same_v<K, lir::SWhile>) {
-            collect_struct_needs_from_expr(*k.cond);
-            collect_struct_needs_from_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SFor>) {
-            collect_struct_needs_from_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SLoop>) {
-            collect_struct_needs_from_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SBlock>) {
-            collect_struct_needs_from_block(*k.body);
-        } else if constexpr (std::is_same_v<K, lir::SFieldWrite>) {
-            collect_struct_needs_from_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SChainFieldWrite>) {
-            collect_struct_needs_from_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SDerefFieldWrite>) {
-            collect_struct_needs_from_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SIndexWrite>) {
-            collect_struct_needs_from_expr(*k.index);
-            collect_struct_needs_from_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SFieldIndexWrite>) {
-            collect_struct_needs_from_expr(*k.index);
-            collect_struct_needs_from_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SDerefWrite>) {
-            collect_struct_needs_from_expr(*k.ptr);
-            collect_struct_needs_from_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::STupleWrite>) {
-            collect_struct_needs_from_expr(*k.value);
-        } else if constexpr (std::is_same_v<K, lir::SExprStmt>) {
-            collect_struct_needs_from_expr(*k.expr);
-        } else if constexpr (std::is_same_v<K, lir::SDelete>) {
-            collect_struct_needs_from_expr(*k.expr);
-        } else if constexpr (std::is_same_v<K, lir::SDrop>) {
-            // no-op
-        } else if constexpr (std::is_same_v<K, lir::SMatch>) {
-            collect_struct_needs_from_expr(*k.scrut);
-            for (auto& arm : k.arms) {
-                // NM4: scan guards so struct types used in guards are discovered.
-                if (arm.guard) collect_struct_needs_from_expr(**arm.guard);
-                collect_struct_needs_from_block(*arm.body);
-            }
-        } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
-            // NM2: scan scrutinee and else-block for struct types.
-            collect_struct_needs_from_expr(*k.scrut);
-            collect_struct_needs_from_block(*k.else_block);
-        }
-    }, st.kind);
+void Mono::collect_struct_needs_from_stmt(lir_view::StmtRef s) {
+    if (!s) return;
+    using SCode = lir_schema::stmt::Code;
+    const TypePoolImpl* pool = out_.type_pool.impl();
+    switch (s.kind()) {
+    case SCode::Let: {
+        lir_view::SLetView v{s};
+        collect_type_for_structs(v.type(pool));
+        collect_struct_needs_from_expr(v.value());
+        break;
+    }
+    case SCode::Assign:
+        collect_struct_needs_from_expr(lir_view::SAssignView{s}.value());
+        break;
+    case SCode::Return:
+        if (auto v = lir_view::SReturnView{s}.value()) collect_struct_needs_from_expr(v);
+        break;
+    case SCode::If: {
+        lir_view::SIfView v{s};
+        collect_struct_needs_from_expr(v.cond());
+        collect_struct_needs_from_block(v.then_block());
+        collect_struct_needs_from_block(v.else_block());
+        break;
+    }
+    case SCode::While: {
+        lir_view::SWhileView v{s};
+        collect_struct_needs_from_expr(v.cond());
+        collect_struct_needs_from_block(v.body());
+        break;
+    }
+    case SCode::For:
+        collect_struct_needs_from_block(lir_view::SForView{s}.body());
+        break;
+    case SCode::Loop:
+        collect_struct_needs_from_block(lir_view::SLoopView{s}.body());
+        break;
+    case SCode::Block:
+        collect_struct_needs_from_block(lir_view::SBlockView{s}.body());
+        break;
+    case SCode::FieldWrite:
+        collect_struct_needs_from_expr(lir_view::SFieldWriteView{s}.value());
+        break;
+    case SCode::ChainFieldWrite:
+        collect_struct_needs_from_expr(lir_view::SChainFieldWriteView{s}.value());
+        break;
+    case SCode::DerefFieldWrite:
+        collect_struct_needs_from_expr(lir_view::SDerefFieldWriteView{s}.value());
+        break;
+    case SCode::IndexWrite: {
+        lir_view::SIndexWriteView v{s};
+        collect_struct_needs_from_expr(v.index());
+        collect_struct_needs_from_expr(v.value());
+        break;
+    }
+    case SCode::FieldIndexWrite: {
+        lir_view::SFieldIndexWriteView v{s};
+        collect_struct_needs_from_expr(v.index());
+        collect_struct_needs_from_expr(v.value());
+        break;
+    }
+    case SCode::DerefWrite: {
+        lir_view::SDerefWriteView v{s};
+        collect_struct_needs_from_expr(v.ptr());
+        collect_struct_needs_from_expr(v.value());
+        break;
+    }
+    case SCode::TupleWrite:
+        collect_struct_needs_from_expr(lir_view::STupleWriteView{s}.value());
+        break;
+    case SCode::ExprStmt:
+        collect_struct_needs_from_expr(lir_view::SExprStmtView{s}.expr());
+        break;
+    case SCode::Delete:
+        collect_struct_needs_from_expr(lir_view::SDeleteView{s}.expr());
+        break;
+    case SCode::Drop:
+        break;
+    case SCode::Match: {
+        lir_view::SMatchView v{s};
+        collect_struct_needs_from_expr(v.scrut());
+        v.each_arm([&](lir_view::EMatchArmRef arm) {
+            if (auto g = arm.guard()) collect_struct_needs_from_expr(g);
+            collect_struct_needs_from_block(arm.body());
+        });
+        break;
+    }
+    case SCode::LetElse: {
+        lir_view::SLetElseView v{s};
+        collect_struct_needs_from_expr(v.scrut());
+        collect_struct_needs_from_block(v.else_block());
+        break;
+    }
+    default: break;
+    }
 }
 
 
-void Mono::collect_struct_needs_from_expr(const lir::LExpr& e) {
-    collect_type_for_structs(e.type);
-    std::visit([&](const auto& k) {
-        using K = std::decay_t<decltype(k)>;
-        if constexpr (std::is_same_v<K, lir::ECall>) {
-            for (auto& a : k.args) collect_struct_needs_from_expr(*a);
-        } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {
-            collect_struct_needs_from_expr(*k.receiver);
-            for (auto& a : k.args) collect_struct_needs_from_expr(*a);
-        } else if constexpr (std::is_same_v<K, lir::EBinOp>) {
-            collect_struct_needs_from_expr(*k.lhs);
-            collect_struct_needs_from_expr(*k.rhs);
-        } else if constexpr (std::is_same_v<K, lir::EUnary>) {
-            collect_struct_needs_from_expr(*k.operand);
-        } else if constexpr (std::is_same_v<K, lir::EDeref>) {
-            collect_struct_needs_from_expr(*k.operand);
-        } else if constexpr (std::is_same_v<K, lir::EFieldRead>) {
-            collect_struct_needs_from_expr(*k.receiver);
-        } else if constexpr (std::is_same_v<K, lir::EIndexRead>) {
-            collect_struct_needs_from_expr(*k.receiver);
-            collect_struct_needs_from_expr(*k.index);
-        } else if constexpr (std::is_same_v<K, lir::EStructLit>) {
-            for (auto& [fn, fv] : k.fields) collect_struct_needs_from_expr(*fv);
-        } else if constexpr (std::is_same_v<K, lir::EArrLit>) {
-            for (auto& elem : k.elems) collect_struct_needs_from_expr(*elem);
-        } else if constexpr (std::is_same_v<K, lir::ECast>) {
-            collect_struct_needs_from_expr(*k.operand);
-        } else if constexpr (std::is_same_v<K, lir::ENew>) {
-            for (auto& [fn, fv] : k.fields) collect_struct_needs_from_expr(*fv);
-        } else if constexpr (std::is_same_v<K, lir::EFormatCall>) {
-            collect_struct_needs_from_expr(*k.fmt);
-            for (auto& a : k.args) collect_struct_needs_from_expr(*a);
-        } else if constexpr (std::is_same_v<K, lir::EPackExpand>) {
-            // nothing
-        } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
-            collect_struct_needs_from_expr(*k.scrut);
-            for (auto& arm : k.arms) {
-                if (arm.guard) collect_struct_needs_from_expr(**arm.guard);
-                collect_struct_needs_from_expr(*arm.value);
-            }
-        } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
-            if (k.block) collect_struct_needs_from_block(*k.block);
-            if (k.result) collect_struct_needs_from_expr(*k.result);
-        }
-    }, e.kind);
+void Mono::collect_struct_needs_from_expr(lir_view::ExprRef e) {
+    if (!e) return;
+    const TypePoolImpl* pool = out_.type_pool.impl();
+    collect_type_for_structs(e.type(pool));
+    using ECode = lir_schema::expr::Code;
+    switch (e.kind()) {
+    case ECode::Call:
+        lir_view::ECallView{e}.each_arg(
+            [&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
+        break;
+    case ECode::MethodCall: {
+        lir_view::EMethodCallView v{e};
+        collect_struct_needs_from_expr(v.receiver());
+        v.each_arg([&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
+        break;
+    }
+    case ECode::BinOp: {
+        lir_view::EBinOpView v{e};
+        collect_struct_needs_from_expr(v.lhs());
+        collect_struct_needs_from_expr(v.rhs());
+        break;
+    }
+    case ECode::Unary:
+        collect_struct_needs_from_expr(lir_view::EUnaryView{e}.operand());
+        break;
+    case ECode::Deref:
+        collect_struct_needs_from_expr(lir_view::EDerefView{e}.operand());
+        break;
+    case ECode::FieldRead:
+        collect_struct_needs_from_expr(lir_view::EFieldReadView{e}.receiver());
+        break;
+    case ECode::IndexRead: {
+        lir_view::EIndexReadView v{e};
+        collect_struct_needs_from_expr(v.receiver());
+        collect_struct_needs_from_expr(v.index());
+        break;
+    }
+    case ECode::StructLit:
+        lir_view::EStructLitView{e}.each_field_value(
+            [&](lir_view::ExprRef fv) { collect_struct_needs_from_expr(fv); });
+        break;
+    case ECode::ArrLit:
+        lir_view::EArrLitView{e}.each_elem(
+            [&](lir_view::ExprRef el) { collect_struct_needs_from_expr(el); });
+        break;
+    case ECode::Cast:
+        collect_struct_needs_from_expr(lir_view::ECastView{e}.operand());
+        break;
+    case ECode::New:
+        lir_view::ENewView{e}.each_field_value(
+            [&](lir_view::ExprRef fv) { collect_struct_needs_from_expr(fv); });
+        break;
+    case ECode::FormatCall: {
+        lir_view::EFormatCallView v{e};
+        collect_struct_needs_from_expr(v.fmt());
+        v.each_arg([&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
+        break;
+    }
+    case ECode::PackExpand:
+        break;
+    case ECode::MatchExpr: {
+        lir_view::EMatchExprView v{e};
+        collect_struct_needs_from_expr(v.scrut());
+        v.each_arm([&](lir_view::EMatchArmRef arm) {
+            if (auto g = arm.guard()) collect_struct_needs_from_expr(g);
+            collect_struct_needs_from_expr(arm.value());
+        });
+        break;
+    }
+    case ECode::BlockExpr: {
+        lir_view::EBlockExprView v{e};
+        if (auto blk = v.block()) collect_struct_needs_from_block(blk);
+        if (auto r = v.result()) collect_struct_needs_from_expr(r);
+        break;
+    }
+    default: break;
+    }
 }
 
 

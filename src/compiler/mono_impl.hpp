@@ -293,9 +293,9 @@ private:
 
     // ── Struct/enum needs collection (defined in mono_clone.cpp) ────
     void collect_struct_needs_from_output();
-    void collect_struct_needs_from_block(const lir::LBlock& b);
-    void collect_struct_needs_from_stmt(const lir::LStmt& st);
-    void collect_struct_needs_from_expr(const lir::LExpr& e);
+    void collect_struct_needs_from_block(lir_view::BlockRef b);
+    void collect_struct_needs_from_stmt(lir_view::StmtRef s);
+    void collect_struct_needs_from_expr(lir_view::ExprRef e);
 
     // ── Instantiation (defined in mono_clone.cpp) ─────────────────────────
     void instantiate_struct_templates();
