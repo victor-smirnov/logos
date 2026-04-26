@@ -395,7 +395,7 @@ private:
 
     void gen_let(const SLet& s);
     void gen_assign(lir_view::SAssignView v);
-    void gen_return(const SReturn& s);
+    void gen_return(lir_view::SReturnView v);
     void gen_if(const SIf& s);
     void gen_while(const SWhile& s);
     void gen_for(const SFor& s);
@@ -410,7 +410,7 @@ private:
     void gen_index_write(const SIndexWrite& s);
     void gen_field_index_write(const SFieldIndexWrite& s);
     void gen_match(const SMatch& s);
-    void gen_delete(const SDelete& s);
+    void gen_delete(lir_view::SDeleteView v);
 
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(const LExpr& e);
