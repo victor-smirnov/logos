@@ -283,6 +283,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_block(const LBlock& b) {
     auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count));
     if (!stmts_av.is_null()) put(map_off, sk::ARMS, stmts_av);  // reuse ARMS key as STMTS list
     table_.block[&b] = map_off;
+    table_.block_by_offset[map_off.value()] = &b;
     return map_off;
 }
 
@@ -1042,6 +1043,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
     if (e.type) put(map_off, ec::TYPE, type_av(e.type));
 
     table_.expr[&e] = map_off;
+    table_.expr_by_offset[map_off.value()] = &e;
     return map_off;
 }
 

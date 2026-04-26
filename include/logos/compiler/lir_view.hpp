@@ -357,6 +357,153 @@ struct EBinOpView {
     ExprRef rhs() const noexcept { return self.sub_expr(ek::RHS.code); }
 };
 
+struct EUnaryView {
+    ExprRef self;
+    ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
+};
+
+struct ETryView {
+    ExprRef self;
+    ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
+};
+
+struct ESliceLitView {
+    ExprRef self;
+    ExprRef base() const noexcept { return self.sub_expr(ek::BASE_PTR.code); }
+    ExprRef len()  const noexcept { return self.sub_expr(ek::LEN.code); }
+};
+
+struct ESliceIndexView {
+    ExprRef self;
+    ExprRef slice() const noexcept { return self.sub_expr(ek::SLICE.code); }
+    ExprRef index() const noexcept { return self.sub_expr(ek::INDEX.code); }
+};
+
+struct ESliceLenView {
+    ExprRef self;
+    ExprRef slice() const noexcept { return self.sub_expr(ek::SLICE.code); }
+};
+
+struct ESlicePtrView {
+    ExprRef self;
+    ExprRef slice() const noexcept { return self.sub_expr(ek::SLICE.code); }
+};
+
+namespace detail {
+template <class F>
+void for_each_arg(const ExprRef& e, F&& f) noexcept {
+    for_each_expr(e, ek::ARGS.code, std::forward<F>(f));
+}
+template <class F>
+void for_each_elem(const ExprRef& e, F&& f) noexcept {
+    for_each_expr(e, ek::ELEMS.code, std::forward<F>(f));
+}
+template <class F>
+void for_each_field_value(const ExprRef& e, F&& f) noexcept {
+    for_each_expr(e, ek::FIELD_VALUES.code, std::forward<F>(f));
+}
+template <class F>
+void for_each_payload(const ExprRef& e, F&& f) noexcept {
+    for_each_expr(e, ek::PAYLOAD.code, std::forward<F>(f));
+}
+} // namespace detail
+
+struct ECallView {
+    ExprRef self;
+    template <class F> void each_arg(F&& f) const noexcept {
+        detail::for_each_arg(self, std::forward<F>(f));
+    }
+};
+
+struct EMethodCallView {
+    ExprRef self;
+    ExprRef receiver() const noexcept { return self.sub_expr(ek::RECEIVER.code); }
+    template <class F> void each_arg(F&& f) const noexcept {
+        detail::for_each_arg(self, std::forward<F>(f));
+    }
+};
+
+struct EClosureCallView {
+    ExprRef self;
+    ExprRef callee() const noexcept { return self.sub_expr(ek::CALLEE.code); }
+    template <class F> void each_arg(F&& f) const noexcept {
+        detail::for_each_arg(self, std::forward<F>(f));
+    }
+};
+
+struct EFnPtrCallView {
+    ExprRef self;
+    ExprRef callee() const noexcept { return self.sub_expr(ek::CALLEE.code); }
+    template <class F> void each_arg(F&& f) const noexcept {
+        detail::for_each_arg(self, std::forward<F>(f));
+    }
+};
+
+struct EFormatCallView {
+    ExprRef self;
+    ExprRef fmt() const noexcept { return self.sub_expr(ek::FMT.code); }
+    template <class F> void each_arg(F&& f) const noexcept {
+        detail::for_each_arg(self, std::forward<F>(f));
+    }
+};
+
+struct EStructLitView {
+    ExprRef self;
+    template <class F> void each_field_value(F&& f) const noexcept {
+        detail::for_each_field_value(self, std::forward<F>(f));
+    }
+};
+
+struct ENewView {
+    ExprRef self;
+    template <class F> void each_field_value(F&& f) const noexcept {
+        detail::for_each_field_value(self, std::forward<F>(f));
+    }
+};
+
+struct EArrLitView {
+    ExprRef self;
+    template <class F> void each_elem(F&& f) const noexcept {
+        detail::for_each_elem(self, std::forward<F>(f));
+    }
+};
+
+struct ETupleLitView {
+    ExprRef self;
+    template <class F> void each_elem(F&& f) const noexcept {
+        detail::for_each_elem(self, std::forward<F>(f));
+    }
+};
+
+struct EEnumLitDataView {
+    ExprRef self;
+    template <class F> void each_payload(F&& f) const noexcept {
+        detail::for_each_payload(self, std::forward<F>(f));
+    }
+};
+
+// EClosureBox { closure: RelPtr<EClosure-mirror> } — captures live in the
+// closure mirror's CL_CAPTURE_NAMES (closure_keys::CAPTURE_NAMES).
+struct EClosureBoxView {
+    ExprRef self;
+    template <class F>
+    void each_capture_name(F&& f) const noexcept {
+        auto cl_av = self.mirror()->get(ek::CLOSURE.code, self.base());
+        if (cl_av.is_null()) return;
+        auto* cl_map = reinterpret_cast<const hermes::TinyObjectMap*>(
+            self.base() + cl_av.to_offset().value());
+        auto names_av = cl_map->get(
+            lir_schema::closure_keys::CAPTURE_NAMES.code, self.base());
+        if (names_av.is_null()) return;
+        auto* arr = names_av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) continue;
+            f(el.as_ptr<const hermes::ArenaString>(self.base())->view());
+        }
+    }
+};
+
 // ── Pattern leaf exemplar ────────────────────────────────────────────────
 
 struct PatBoolView {
