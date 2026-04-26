@@ -55,6 +55,22 @@ public:
     lir::LExprPtr arr_lit  (std::vector<lir::LExprPtr> elems, TypeRef ty);
     lir::LExprPtr tuple_lit(std::vector<lir::LExprPtr> elems, TypeRef ty);
     lir::LExprPtr try_expr(lir::LExprPtr inner, int32_t ok_disc, int32_t err_disc, TypeRef ty);
+    lir::LExprPtr call(std::string callee,
+                       std::vector<TypeRef> type_args,
+                       std::vector<lir::LExprPtr> args,
+                       TypeRef ty);
+    lir::LExprPtr block_expr(std::unique_ptr<lir::LBlock> block,
+                             lir::LExprPtr result, TypeRef ty);
+    lir::LExprPtr struct_lit(std::string name,
+                             std::vector<std::pair<std::string, lir::LExprPtr>> fields,
+                             TypeRef ty);
+    lir::LExprPtr enum_lit(std::string enum_name, std::string variant,
+                           int64_t disc, TypeRef ty);
+    lir::LExprPtr closure_box(std::unique_ptr<lir::EClosure> inner, TypeRef ty);
+    lir::LExprPtr closure_call(lir::LExprPtr callee,
+                               std::vector<lir::LExprPtr> args, TypeRef ty);
+    lir::LExprPtr fn_ptr_call(lir::LExprPtr callee,
+                              std::vector<lir::LExprPtr> args, TypeRef ty);
 
     // … grows as sema sites migrate; do not pre-populate.
 

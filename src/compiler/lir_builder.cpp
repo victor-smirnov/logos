@@ -107,4 +107,46 @@ lir::LExprPtr LirBuilder::try_expr(lir::LExprPtr inner, int32_t ok_disc,
     return make_expr(ty, lir::ETry{std::move(inner), ok_disc, err_disc});
 }
 
+lir::LExprPtr LirBuilder::call(std::string callee,
+                                std::vector<TypeRef> type_args,
+                                std::vector<lir::LExprPtr> args,
+                                TypeRef ty) {
+    return make_expr(ty, lir::ECall{std::move(callee), std::move(type_args),
+                                    std::move(args)});
+}
+
+lir::LExprPtr LirBuilder::block_expr(std::unique_ptr<lir::LBlock> block,
+                                      lir::LExprPtr result, TypeRef ty) {
+    return make_expr(ty, lir::EBlockExpr{std::move(block), std::move(result)});
+}
+
+lir::LExprPtr LirBuilder::struct_lit(
+    std::string name,
+    std::vector<std::pair<std::string, lir::LExprPtr>> fields,
+    TypeRef ty) {
+    return make_expr(ty, lir::EStructLit{std::move(name), std::move(fields)});
+}
+
+lir::LExprPtr LirBuilder::enum_lit(std::string enum_name, std::string variant,
+                                    int64_t disc, TypeRef ty) {
+    return make_expr(ty, lir::EEnumLit{std::move(enum_name), std::move(variant), disc});
+}
+
+lir::LExprPtr LirBuilder::closure_box(std::unique_ptr<lir::EClosure> inner,
+                                       TypeRef ty) {
+    return make_expr(ty, lir::EClosureBox{std::move(inner)});
+}
+
+lir::LExprPtr LirBuilder::closure_call(lir::LExprPtr callee,
+                                        std::vector<lir::LExprPtr> args,
+                                        TypeRef ty) {
+    return make_expr(ty, lir::EClosureCall{std::move(callee), std::move(args)});
+}
+
+lir::LExprPtr LirBuilder::fn_ptr_call(lir::LExprPtr callee,
+                                       std::vector<lir::LExprPtr> args,
+                                       TypeRef ty) {
+    return make_expr(ty, lir::EFnPtrCall{std::move(callee), std::move(args)});
+}
+
 } // namespace logos::compiler

@@ -1413,7 +1413,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
 
     // Emit `let __hp_N: AnyVal = helper(&parent_av, base, ...);`
@@ -1437,8 +1437,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        auto call = make_expr(scrut_type,
-            lir::ECall{sym, {}, std::move(args)});
+        auto call = builder().call(sym, {}, std::move(args), scrut_type);
         std::string child = "__hp_" + std::to_string(tmp_var_count_++);
         lir::SLet sl;
         sl.name = child; sl.type = scrut_type; sl.is_mut = false;
@@ -1464,7 +1463,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_array_len_ge(&sv, base, n)` as a bool expr.
     auto emit_array_len_ge = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
@@ -1484,7 +1483,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_has_type_code(&sv, base, tc)` bool expr.
     auto emit_has_type_code = [&](const std::string& sv, uint64_t tc) -> lir::LExprPtr {
@@ -1504,7 +1503,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)tc, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_is_map(&sv, base)` bool expr.
     auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
@@ -1523,7 +1522,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         args.push_back(builder().addr_of(sv, ptr_t_outer));
         args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_is_present(&sv)` bool expr.
     auto emit_present = [&](const std::string& sv) -> lir::LExprPtr {
@@ -1540,7 +1539,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         std::vector<lir::LExprPtr> args;
         args.push_back(builder().addr_of(sv, ptr_t_outer));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return make_expr(bool_t(), lir::ECall{sym, {}, std::move(args)});
+        return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Recursive: build a guard expr for pattern `p` against AnyVal local `sv`.
     std::function<lir::LExprPtr(TinyMapView, const std::string&)> build_rec;
@@ -3162,8 +3161,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 if (!g_stmts.empty() && raw) {
                     auto blk = std::make_unique<lir::LBlock>();
                     blk->stmts = std::move(g_stmts);
-                    synth_guard = make_expr(bool_t(),
-                        lir::EBlockExpr{std::move(blk), std::move(raw)});
+                    synth_guard = builder().block_expr(std::move(blk), std::move(raw), bool_t());
                 } else {
                     synth_guard = std::move(raw);
                 }
@@ -3426,8 +3424,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (!g_stmts.empty() && raw) {
                     auto blk = std::make_unique<lir::LBlock>();
                     blk->stmts = std::move(g_stmts);
-                    synth_guard = make_expr(bool_t(),
-                        lir::EBlockExpr{std::move(blk), std::move(raw)});
+                    synth_guard = builder().block_expr(std::move(blk), std::move(raw), bool_t());
                 } else {
                     synth_guard = std::move(raw);
                 }
@@ -3491,8 +3488,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     else
                         blk.stmts.push_back(lower_stmt(body_node));
                     auto blk_ptr = std::make_unique<lir::LBlock>(std::move(blk));
-                    val = make_expr(error_t(),
-                        lir::EBlockExpr{std::move(blk_ptr), error_expr()});
+                    val = builder().block_expr(std::move(blk_ptr), error_expr(), error_t());
                 } else if (code_of(body_node) == la::BLOCK &&
                            body_node.has_key(la::ITEMS)) {
                     // Non-diverging block: last item must be an expression.
@@ -3519,7 +3515,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         last_expr = error_expr();
                     }
                     TypeRef vt = last_expr->type;
-                    val = make_expr(vt, lir::EBlockExpr{std::move(blk), std::move(last_expr)});
+                    val = builder().block_expr(std::move(blk), std::move(last_expr), vt);
                 } else {
                     error("match expression: block arm must end with an expression or always return");
                     val = error_expr();
@@ -3541,8 +3537,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 auto blk = std::make_unique<lir::LBlock>();
                 blk->stmts = std::move(prologue);
                 TypeRef vt = val->type;
-                val = make_expr(vt,
-                    lir::EBlockExpr{std::move(blk), std::move(val)});
+                val = builder().block_expr(std::move(blk), std::move(val), vt);
             }
             if (TypeRef(result_type).kind() == LogosType::Kind::Error) {
                 result_type = val->type;
@@ -3637,8 +3632,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         blk->stmts.push_back(std::move(hoist_let_view));
         blk->stmts.push_back(std::move(hoist_let_root));
         blk->stmts.push_back(std::move(hoist_let_base));
-        return make_expr(result_type,
-            lir::EBlockExpr{std::move(blk), std::move(me_expr)});
+        return builder().block_expr(std::move(blk), std::move(me_expr), result_type);
     }
     return me_expr;
 }
