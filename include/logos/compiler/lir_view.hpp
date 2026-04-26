@@ -625,8 +625,21 @@ struct ETypeCodeOfView {
     }
 };
 
-struct EPtrArithView   { ExprRef self; };
-struct EPtrDiffView    { ExprRef self; };
+namespace pdk = lir_schema::ptrdiff_keys;
+
+struct EPtrArithView {
+    ExprRef self;
+    uint8_t op_code() const noexcept { return detail::read_u8(self, ek::PTR_ARITH_OP.code); }
+    ExprRef ptr()     const noexcept { return self.sub_expr(ek::BASE_PTR.code); }
+    ExprRef offset()  const noexcept { return self.sub_expr(ek::OFFSET.code); }
+};
+
+struct EPtrDiffView {
+    ExprRef self;
+    bool    by_byte() const noexcept { return detail::read_bool(self, pdk::BY_BYTE.code); }
+    ExprRef lhs()     const noexcept { return self.sub_expr(ek::LHS.code); }
+    ExprRef rhs()     const noexcept { return self.sub_expr(ek::RHS.code); }
+};
 
 struct EReflectOfView {
     ExprRef self;

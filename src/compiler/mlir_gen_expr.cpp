@@ -2196,36 +2196,40 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EPtrArith>(_le->kind);
-    auto p = gen_expr(*e.ptr);
-    auto n = gen_expr(*e.offset);
+    auto ptr_ref    = v.ptr();
+    auto offset_ref = v.offset();
+    auto op         = EPtrArith::Op(v.op_code());
+    auto* ptr_le    = lexpr_of(ptr_ref);
+    auto* off_le    = lexpr_of(offset_ref);
+    if (!ptr_le || !off_le) return nullptr;
+    auto p = gen_expr(*ptr_le);
+    auto n = gen_expr(*off_le);
     if (!p || !n) return nullptr;
     // Widen/narrow offset to i64 just in case.
     if (auto it = mlir::dyn_cast<mlir::IntegerType>(n.getType()))
         if (it.getWidth() != 64)
-            n = coerce_int(n, builder_.getI64Type(), e.offset->type);
+            n = coerce_int(n, builder_.getI64Type(), off_le->type);
     // Negate for Sub variants.
-    if (e.op == EPtrArith::ByteSub || e.op == EPtrArith::Sub) {
+    if (op == EPtrArith::ByteSub || op == EPtrArith::Sub) {
         auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
         n = builder_.create<mlir::arith::SubIOp>(loc_, zero, n);
     }
     mlir::Type elem_ty = builder_.getI8Type();  // default: byte indexing
-    if (e.op == EPtrArith::Add || e.op == EPtrArith::Sub) {
+    if (op == EPtrArith::Add || op == EPtrArith::Sub) {
         // Element indexing uses the pointee type from the receiver.
-        TypeRef pt = e.ptr->type;
-        if (pt && TypeRef(pt).pointee()) {
+        TypeRef pt = ptr_le->type;
+        if (pt && pt.pointee()) {
             // Struct/Datatype want their aggregate LLVM type, not ptr.
-            if (TypeRef(pt).pointee().kind() == LogosType::Kind::Struct ||
-                TypeRef(pt).pointee().kind() == LogosType::Kind::ZonedStruct) {
-                auto cname = concrete_struct_name(TypeRef(pt).pointee());
+            if (pt.pointee().kind() == LogosType::Kind::Struct ||
+                pt.pointee().kind() == LogosType::Kind::ZonedStruct) {
+                auto cname = concrete_struct_name(pt.pointee());
                 auto sit = struct_types_.find(cname);
                 if (sit != struct_types_.end())
                     elem_ty = sit->second.llvm_type;
                 else
-                    elem_ty = logos_to_mlir(TypeRef(pt).pointee());
+                    elem_ty = logos_to_mlir(pt.pointee());
             } else {
-                elem_ty = logos_to_mlir(TypeRef(pt).pointee());
+                elem_ty = logos_to_mlir(pt.pointee());
             }
         }
     }
@@ -2234,27 +2238,28 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrDiffView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EPtrDiff>(_le->kind);
-    auto a = gen_expr(*e.lhs);
-    auto b = gen_expr(*e.rhs);
+    auto* lhs_le = lexpr_of(v.lhs());
+    auto* rhs_le = lexpr_of(v.rhs());
+    if (!lhs_le || !rhs_le) return nullptr;
+    auto a = gen_expr(*lhs_le);
+    auto b = gen_expr(*rhs_le);
     if (!a || !b) return nullptr;
     auto i64ty = builder_.getI64Type();
     auto ai = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64ty, a);
     auto bi = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64ty, b);
     mlir::Value diff = builder_.create<mlir::arith::SubIOp>(loc_, ai, bi);
-    if (e.by_byte) return diff;
+    if (v.by_byte()) return diff;
     // Element distance: diff / sizeof(pointee).
-    TypeRef pt = e.lhs->type;
-    if (!pt || !TypeRef(pt).pointee()) return diff;
+    TypeRef pt = lhs_le->type;
+    if (!pt || !pt.pointee()) return diff;
     mlir::Type elem_mlir = nullptr;
-    if (TypeRef(pt).pointee().kind() == LogosType::Kind::Struct ||
-        TypeRef(pt).pointee().kind() == LogosType::Kind::ZonedStruct) {
-        auto cname = concrete_struct_name(TypeRef(pt).pointee());
+    if (pt.pointee().kind() == LogosType::Kind::Struct ||
+        pt.pointee().kind() == LogosType::Kind::ZonedStruct) {
+        auto cname = concrete_struct_name(pt.pointee());
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
     }
-    if (!elem_mlir) elem_mlir = logos_to_mlir(TypeRef(pt).pointee());
+    if (!elem_mlir) elem_mlir = logos_to_mlir(pt.pointee());
     if (!elem_mlir) return diff;
     // sizeof trick.
     mlir::Value zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
