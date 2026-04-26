@@ -315,11 +315,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EEnumLitData>(_le->kind);
-    auto* te = resolve_tagged_enum(e.enum_name, type);
+    std::string enum_name(v.enum_name());
+    int64_t disc = v.disc();
+    std::vector<lir_view::ExprRef> payload;
+    v.each_payload([&](lir_view::ExprRef pr){ payload.push_back(pr); });
+
+    auto* te = resolve_tagged_enum(enum_name, type);
     if (!te) {
-        std::fprintf(stderr, "mlir_gen: unknown tagged enum '%s'\n", e.enum_name.c_str());
+        std::fprintf(stderr, "mlir_gen: unknown tagged enum '%s'\n", enum_name.c_str());
         return nullptr;
     }
     auto& info = *te;
@@ -331,26 +334,28 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
     llvm::SmallVector<mlir::LLVM::GEPArg> disc_idx{int32_t(0), int32_t(0)};
     auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), info.llvm_type, alloca, disc_idx);
-    auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
+    auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
     builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
     // Store payload into field 1 (the [N x i8] area), bitcasted
-    if (!e.payload.empty()) {
+    if (!payload.empty()) {
         // GEP to the payload area (field index 1)
         llvm::SmallVector<mlir::LLVM::GEPArg> pay_idx{int32_t(0), int32_t(1)};
         auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), info.llvm_type, alloca, pay_idx);
         // Find the variant's field types
         const TaggedEnumInfo::VariantPayload* vp = nullptr;
-        for (auto& v : info.variants)
-            if (v.disc == e.disc) { vp = &v; break; }
+        for (auto& vi : info.variants)
+            if (vi.disc == disc) { vp = &vi; break; }
         if (vp) {
             // Build a struct type for this variant's payload
             llvm::SmallVector<mlir::Type> ft;
             for (auto& t : vp->field_types) ft.push_back(t);
             auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
                 builder_.getContext(), ft);
-            for (size_t i = 0; i < e.payload.size() && i < vp->field_types.size(); ++i) {
-                auto val = gen_expr(*e.payload[i]);
+            for (size_t i = 0; i < payload.size() && i < vp->field_types.size(); ++i) {
+                auto* pl_le = lexpr_of(payload[i]);
+                if (!pl_le) return nullptr;
+                auto val = gen_expr(*pl_le);
                 if (!val) return nullptr;
                 llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(i)};
                 auto fp = builder_.create<mlir::LLVM::GEPOp>(

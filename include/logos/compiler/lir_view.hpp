@@ -593,6 +593,8 @@ struct ETupleLitView {
 
 struct EEnumLitDataView {
     ExprRef self;
+    std::string_view enum_name() const noexcept { return detail::read_string(self, ek::ENUM_NAME.code); }
+    int64_t          disc()      const noexcept { return detail::read_i64(self, ek::DISC.code); }
     template <class F> void each_payload(F&& f) const noexcept {
         detail::for_each_payload(self, std::forward<F>(f));
     }
