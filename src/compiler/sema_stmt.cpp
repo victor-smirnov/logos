@@ -2170,8 +2170,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         // Synthesize __iter.next() call expression (inside the loop)
         auto make_next_call = [&]() -> lir::LExprPtr {
             auto iter_ref = builder().var_ref(iter_var, iter_type);
-            return make_expr(next_ret,
-                lir::EMethodCall{std::move(iter_ref), "next", "", {}, {}, -1});
+            return builder().method_call(std::move(iter_ref), "next", "", {}, {}, -1, next_ret);
         };
 
         // Then arm: Some(x) → body
@@ -2277,8 +2276,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                     let_s.name   = tmp;
                     let_s.type   = mut_ptr_T;
                     let_s.is_mut = false;
-                    let_s.value  = make_expr(mut_ptr_T,
-                        lir::EMethodCall{std::move(recv_expr), "mut_ptr", "", {}, {}, -1});
+                    let_s.value  = builder().method_call(std::move(recv_expr), "mut_ptr", "", {}, {}, -1, mut_ptr_T);
                     // Synthesize: (*__dr_tmp).field = val
                     lir::SDerefFieldWrite dfw;
                     dfw.receiver  = tmp;
@@ -3117,8 +3115,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         root_var = "__hmatch_root_" + std::to_string(tmp_var_count_++);
         {
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto root_call = make_expr(anyval_t,
-                lir::EMethodCall{std::move(view_ref), "root", "", {}, {}, -1});
+            auto root_call = builder().method_call(std::move(view_ref), "root", "", {}, {}, -1, anyval_t);
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);
@@ -3128,8 +3125,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         {
             TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto base_call = make_expr(u8_ptr_t,
-                lir::EMethodCall{std::move(view_ref), "base", "", {}, {}, -1});
+            auto base_call = builder().method_call(std::move(view_ref), "base", "", {}, {}, -1, u8_ptr_t);
             lir::SLet sl;
             sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
             sl.value = std::move(base_call);
@@ -3380,8 +3376,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         root_var = "__hmatche_root_" + std::to_string(tmp_var_count_++);
         {
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto root_call = make_expr(anyval_t,
-                lir::EMethodCall{std::move(view_ref), "root", "", {}, {}, -1});
+            auto root_call = builder().method_call(std::move(view_ref), "root", "", {}, {}, -1, anyval_t);
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);
@@ -3391,8 +3386,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         {
             TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto base_call = make_expr(u8_ptr_t,
-                lir::EMethodCall{std::move(view_ref), "base", "", {}, {}, -1});
+            auto base_call = builder().method_call(std::move(view_ref), "base", "", {}, {}, -1, u8_ptr_t);
             lir::SLet sl;
             sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
             sl.value = std::move(base_call);
@@ -3626,7 +3620,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         }
     }
 
-    auto me_expr = make_expr(result_type, std::move(me));
+    auto me_expr = builder().match_expr_v(std::move(me), result_type);
     if (has_hoist_let) {
         auto blk = std::make_unique<lir::LBlock>();
         blk->stmts.push_back(std::move(hoist_let_view));

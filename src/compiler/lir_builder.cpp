@@ -149,4 +149,75 @@ lir::LExprPtr LirBuilder::fn_ptr_call(lir::LExprPtr callee,
     return make_expr(ty, lir::EFnPtrCall{std::move(callee), std::move(args)});
 }
 
+lir::LExprPtr LirBuilder::addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef ty) {
+    return make_expr(ty, lir::EAddrOfTemp{std::move(inner), is_mut});
+}
+
+lir::LExprPtr LirBuilder::slice_lit(lir::LExprPtr base, lir::LExprPtr len, TypeRef ty) {
+    return make_expr(ty, lir::ESliceLit{std::move(base), std::move(len)});
+}
+
+lir::LExprPtr LirBuilder::slice_len(lir::LExprPtr slice, TypeRef ty) {
+    return make_expr(ty, lir::ESliceLen{std::move(slice)});
+}
+
+lir::LExprPtr LirBuilder::slice_ptr(lir::LExprPtr slice, TypeRef ty) {
+    return make_expr(ty, lir::ESlicePtr{std::move(slice)});
+}
+
+lir::LExprPtr LirBuilder::ptr_arith(lir::EPtrArith::Op op,
+                                     lir::LExprPtr lhs, lir::LExprPtr rhs,
+                                     TypeRef ty) {
+    return make_expr(ty, lir::EPtrArith{op, std::move(lhs), std::move(rhs)});
+}
+
+lir::LExprPtr LirBuilder::ptr_diff(bool by_byte,
+                                    lir::LExprPtr lhs, lir::LExprPtr rhs,
+                                    TypeRef ty) {
+    return make_expr(ty, lir::EPtrDiff{by_byte, std::move(lhs), std::move(rhs)});
+}
+
+lir::LExprPtr LirBuilder::enum_lit_data(std::string enum_name, std::string variant,
+                                         int64_t disc,
+                                         std::vector<lir::LExprPtr> payload,
+                                         TypeRef ty) {
+    return make_expr(ty, lir::EEnumLitData{
+        std::move(enum_name), std::move(variant), disc, std::move(payload)});
+}
+
+lir::LExprPtr LirBuilder::method_call(lir::LExprPtr receiver, std::string method,
+                                       std::string resolved_symbol,
+                                       std::vector<TypeRef> type_args,
+                                       std::vector<lir::LExprPtr> args,
+                                       int32_t vtable_index, TypeRef ty) {
+    return make_expr(ty, lir::EMethodCall{
+        std::move(receiver), std::move(method), std::move(resolved_symbol),
+        std::move(type_args), std::move(args), vtable_index});
+}
+
+lir::LExprPtr LirBuilder::hermes_cast(lir::LExprPtr operand, std::string build_fn,
+                                       TypeRef ty) {
+    return make_expr(ty, lir::ECast{std::move(operand), std::move(build_fn)});
+}
+
+lir::LExprPtr LirBuilder::call_v(lir::ECall ec, TypeRef ty) {
+    return make_expr(ty, std::move(ec));
+}
+
+lir::LExprPtr LirBuilder::method_call_v(lir::EMethodCall mc, TypeRef ty) {
+    return make_expr(ty, std::move(mc));
+}
+
+lir::LExprPtr LirBuilder::if_expr_v(lir::EIfExpr eif, TypeRef ty) {
+    return make_expr(ty, std::move(eif));
+}
+
+lir::LExprPtr LirBuilder::hermes_lit_v(lir::EHermesLit lit, TypeRef ty) {
+    return make_expr(ty, std::move(lit));
+}
+
+lir::LExprPtr LirBuilder::match_expr_v(lir::EMatchExpr me, TypeRef ty) {
+    return make_expr(ty, std::move(me));
+}
+
 } // namespace logos::compiler

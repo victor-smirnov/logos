@@ -71,6 +71,35 @@ public:
                                std::vector<lir::LExprPtr> args, TypeRef ty);
     lir::LExprPtr fn_ptr_call(lir::LExprPtr callee,
                               std::vector<lir::LExprPtr> args, TypeRef ty);
+    lir::LExprPtr addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef ty);
+    lir::LExprPtr slice_lit(lir::LExprPtr base, lir::LExprPtr len, TypeRef ty);
+    lir::LExprPtr slice_len(lir::LExprPtr slice, TypeRef ty);
+    lir::LExprPtr slice_ptr(lir::LExprPtr slice, TypeRef ty);
+    lir::LExprPtr ptr_arith(lir::EPtrArith::Op op, lir::LExprPtr lhs,
+                            lir::LExprPtr rhs, TypeRef ty);
+    lir::LExprPtr ptr_diff(bool by_byte, lir::LExprPtr lhs,
+                           lir::LExprPtr rhs, TypeRef ty);
+    lir::LExprPtr enum_lit_data(std::string enum_name, std::string variant,
+                                int64_t disc,
+                                std::vector<lir::LExprPtr> payload,
+                                TypeRef ty);
+    lir::LExprPtr method_call(lir::LExprPtr receiver, std::string method,
+                              std::string resolved_symbol,
+                              std::vector<TypeRef> type_args,
+                              std::vector<lir::LExprPtr> args,
+                              int32_t vtable_index, TypeRef ty);
+    lir::LExprPtr hermes_cast(lir::LExprPtr operand, std::string build_fn,
+                              TypeRef ty);
+
+    // ── Adopt-style: pre-built variants populated incrementally ─────────────
+    // Stage 3g deletes these along with the variant types. Until then, sema
+    // sites that fill multi-field variants in place hand the result here so
+    // LExpr construction still goes through the builder.
+    lir::LExprPtr call_v       (lir::ECall ec,        TypeRef ty);
+    lir::LExprPtr method_call_v(lir::EMethodCall mc,  TypeRef ty);
+    lir::LExprPtr if_expr_v    (lir::EIfExpr eif,     TypeRef ty);
+    lir::LExprPtr hermes_lit_v (lir::EHermesLit lit,  TypeRef ty);
+    lir::LExprPtr match_expr_v (lir::EMatchExpr me,   TypeRef ty);
 
     // … grows as sema sites migrate; do not pre-populate.
 

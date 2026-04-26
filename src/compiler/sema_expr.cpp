@@ -172,8 +172,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     t.struct_name = "Hermes";
                     ctr_t = pool_.alloc(std::move(t));
                 }
-                return make_expr(ctr_t,
-                    lir::ECast{std::move(inner), std::move(build_fn)});
+                return builder().hermes_cast(std::move(inner), std::move(build_fn), ctr_t);
             }
             // fix5: explicit guard — outer if allows HermesArr||HermesMap; must be HermesMap here.
             if (TypeRef(target).struct_name() != "HermesMap") {
@@ -236,8 +235,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     t.struct_name = "Hermes";
                     ctr_t = pool_.alloc(std::move(t));
                 }
-                return make_expr(ctr_t,
-                    lir::ECast{std::move(inner), std::move(map_fn)});
+                return builder().hermes_cast(std::move(inner), std::move(map_fn), ctr_t);
             }
         }
 
@@ -321,8 +319,9 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         // &mut <expr> — temporary materialization
         auto inner = lower_expr(child);
         if (TypeRef(inner->type).kind() == LogosType::Kind::Error) return error_expr();
-        return make_expr(make_ref(true, inner->type),
-            lir::EAddrOfTemp{std::move(inner), true});
+        auto __ty_inner = make_ref(true, inner->type);
+
+        return builder().addr_of_temp(std::move(inner), true, __ty_inner);
     }
     case la::TRY_EXPR: {
         // expr? — two flavours:
@@ -664,16 +663,16 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             if (TypeRef(vt).kind() == LogosType::Kind::Array) {
                 auto addr = builder().addr_of(std::string(var_name), make_ref(false, TypeRef(vt).elem()));
                 auto len  = builder().lit_int((int64_t)TypeRef(vt).arr_size(), prim(LogosType::Kind::I64));
-                return make_expr(make_slice_type(TypeRef(vt).elem()),
-                    lir::ESliceLit{std::move(addr), std::move(len)});
+                return builder().slice_lit(std::move(addr), std::move(len), make_slice_type(TypeRef(vt).elem()));
             }
             return builder().addr_of(std::string(var_name), make_ref(false, vt));
         }
         // &<expr> — temporary materialization: spill rvalue to stack
         auto inner = lower_expr(child);
         if (TypeRef(inner->type).kind() == LogosType::Kind::Error) return error_expr();
-        return make_expr(make_ref(false, inner->type),
-            lir::EAddrOfTemp{std::move(inner), false});
+        auto __ty_inner = make_ref(false, inner->type);
+
+        return builder().addr_of_temp(std::move(inner), false, __ty_inner);
     }
 
     auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
@@ -799,7 +798,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         lir::ECall ec;
         ec.callee = "str_from_raw";
         for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
-        return make_expr(str_t, std::move(ec));
+        return builder().call_v(std::move(ec), str_t);
     }
 
     // Bitwise intrinsics on u64 — map to LLVM intrinsics in codegen.
@@ -819,7 +818,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         lir::ECall ec;
         ec.callee = callee;
         for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
-        return make_expr(ret, std::move(ec));
+        return builder().call_v(std::move(ec), ret);
     }
 
     bool call_has_pack_expand = false;
@@ -1784,8 +1783,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         // Wrap in Option<A>::Some(struct_expr)
         std::vector<lir::LExprPtr> payload;
         payload.push_back(std::move(struct_expr));
-        return make_expr(result_type,
-            lir::EEnumLitData{"Option", "Some", some_disc, std::move(payload)});
+        return builder().enum_lit_data("Option", "Some", some_disc, std::move(payload), result_type);
     }
 
     size_t n_args = 0;
@@ -1852,12 +1850,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // Slice / str built-in methods: .len(), .as_ptr()
     if (TypeRef(recv->type).kind() == LogosType::Kind::Slice) {
         if (method_name == "len") {
-            return make_expr(prim(LogosType::Kind::I64),
-                lir::ESliceLen{std::move(recv)});
+            return builder().slice_len(std::move(recv), prim(LogosType::Kind::I64));
         }
         if (method_name == "as_ptr") {
-            return make_expr(make_ptr(false, u8_t()),
-                lir::ESlicePtr{std::move(recv)});
+            return builder().slice_ptr(std::move(recv), make_ptr(false, u8_t()));
         }
         error(std::format("slice has no method '{}'", method_name));
         return error_expr();
@@ -1894,8 +1890,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                       method_name, type_str(at)));
             widen_int_expr(args[0], i64ty);
             auto ret_type = recv->type;
-            return make_expr(ret_type,
-                lir::EPtrArith{op, std::move(recv), std::move(args[0])});
+            return builder().ptr_arith(op, std::move(recv), std::move(args[0]), ret_type);
         };
         auto mk_diff = [&](bool by_byte) -> lir::LExprPtr {
             if (!inside_unsafe_)
@@ -1910,8 +1905,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (TypeRef(at).kind() != LogosType::Kind::Error && TypeRef(at).kind() != LogosType::Kind::Ptr)
                 error(std::format("pointer method '{}': argument must be a pointer, got {}",
                       method_name, type_str(at)));
-            return make_expr(prim(LogosType::Kind::I64),
-                lir::EPtrDiff{by_byte, std::move(recv), std::move(args[0])});
+            return builder().ptr_diff(by_byte, std::move(recv), std::move(args[0]), prim(LogosType::Kind::I64));
         };
         if (method_name == "byte_add")         return mk_arith(lir::EPtrArith::ByteAdd);
         if (method_name == "byte_sub")         return mk_arith(lir::EPtrArith::ByteSub);
@@ -2019,7 +2013,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     mc.args         = std::move(arg_exprs);
                     mc.vtable_index = (int32_t)mi;  // slot in vtable
                     mc.resolved_type = "";
-                    return make_expr(ret_type, std::move(mc));
+                    return builder().method_call_v(std::move(mc), ret_type);
                 }
             }
         }
@@ -2066,7 +2060,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             mc.vtable_index = -1;
             mc.tag_system  = std::string(ts_name);
             mc.tag_trait   = std::string(tname);
-            return make_expr(ret_type, std::move(mc));
+            return builder().method_call_v(std::move(mc), ret_type);
         }
         error(std::format("trait '{}' has no method '{}'", tname, method_name));
         return error_expr();
@@ -2259,13 +2253,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             mc.args     = std::move(arg_exprs);
             mc.vtable_index = -1;
             mc.resolved_type = "";
-            return make_expr(ret_type, std::move(mc));
+            return builder().method_call_v(std::move(mc), ret_type);
         }
 
         error(std::format("type parameter '{}' has no trait bound providing method '{}'",
                           TypeRef(recv_inner).type_var_name(), std::string(method_name)));
-        return make_expr(error_t(),
-            lir::EMethodCall{std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1});
+        return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
 
     auto sname = struct_name_from_type(recv->type);
@@ -2394,8 +2387,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         !is_ref_like(TypeRef(recv->type).kind()) &&
                         TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                         bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-                        auto addr = make_expr(make_ref(is_mut, recv->type),
-                                              lir::EAddrOfTemp{std::move(recv), is_mut});
+                        auto __ty_recv = make_ref(is_mut, recv->type);
+
+                        auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
                         recv = std::move(addr);
                     }
                 }
@@ -2413,8 +2407,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     !is_ref_like(TypeRef(recv->type).kind()) &&
                     TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-                    auto addr = make_expr(make_ref(is_mut, recv->type),
-                                          lir::EAddrOfTemp{std::move(recv), is_mut});
+                    auto __ty_recv = make_ref(is_mut, recv->type);
+
+                    auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
                     recv = std::move(addr);
                 }
             }
@@ -2425,8 +2420,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
         error(std::format("method call: receiver is not a struct (got {})",
               type_str(recv->type)));
-        return make_expr(error_t(),
-            lir::EMethodCall{std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1});
+        return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
 
     auto mangled = std::string(sname) + "__" + std::string(method_name);
@@ -2515,8 +2509,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         TypeRef(recv->type).kind() != LogosType::Kind::Ref &&
         TypeRef(recv->type).kind() != LogosType::Kind::MutRef &&
         TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
-        auto addr = make_expr(make_ref(auto_ref_mut, recv->type),
-                              lir::EAddrOfTemp{std::move(recv), auto_ref_mut});
+        auto __ty_recv = make_ref(auto_ref_mut, recv->type);
+
+        auto addr = builder().addr_of_temp(std::move(recv), auto_ref_mut, __ty_recv);
         recv = std::move(addr);
     }
 
@@ -2595,8 +2590,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         TypeRef(recv->type).kind() != LogosType::Kind::Ref &&
         TypeRef(recv->type).kind() != LogosType::Kind::MutRef &&
         TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
-        auto addr = make_expr(make_ref(auto_ref_mut, recv->type),
-                              lir::EAddrOfTemp{std::move(recv), auto_ref_mut});
+        auto __ty_recv = make_ref(auto_ref_mut, recv->type);
+
+        auto addr = builder().addr_of_temp(std::move(recv), auto_ref_mut, __ty_recv);
         recv = std::move(addr);
     }
 
@@ -2644,8 +2640,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     TypeRef(recv->type).kind() != LogosType::Kind::MutRef &&
                     TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                     bool is_mut = TypeRef(target_self).kind() == LogosType::Kind::MutRef;
-                    auto addr = make_expr(target_self,
-                                          lir::EAddrOfTemp{std::move(recv), is_mut});
+                    auto addr = builder().addr_of_temp(std::move(recv), is_mut, target_self);
                     recv = std::move(addr);
                 }
             }
@@ -2658,8 +2653,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                        std::move(type_args), std::move(pargs));
         }
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
-        return make_expr(error_t(),
-            lir::EMethodCall{std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1});
+        return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
 
     auto& fi = *fi_ptr;
@@ -2838,7 +2832,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     mc.args         = std::move(arg_exprs);
     mc.vtable_index = -1;
     mc.resolved_type = "";
-    return make_expr(ret, std::move(mc));
+    return builder().method_call_v(std::move(mc), ret);
 }
 
 lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
@@ -2867,8 +2861,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                     error(std::format("DataRef<T>.{}: field access requires unsafe context",
                                       field_name));
                 TypeRef ptr_t = make_ptr(false, T);
-                auto mc = make_expr(ptr_t,
-                    lir::EMethodCall{std::move(recv), "ptr", "", {}, {}, -1});
+                auto mc = builder().method_call(std::move(recv), "ptr", "", {}, {}, -1, ptr_t);
                 return builder().field_read(std::move(mc), std::string(field_name), ft);
             }
         }
@@ -4345,9 +4338,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         }
     }
 
-    return make_expr(result_type,
-        lir::EEnumLitData{std::string(ename), std::string(vname),
-                          vinfo->value, std::move(payload)});
+    return builder().enum_lit_data(std::string(ename), std::string(vname), vinfo->value, std::move(payload), result_type);
 }
 
 lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
@@ -4495,9 +4486,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             }
         }
     }
-    return make_expr(result_type,
-        lir::EEnumLitData{std::string(ename), std::string(vname),
-                          vinfo->value, std::move(payload)});
+    return builder().enum_lit_data(std::string(ename), std::string(vname), vinfo->value, std::move(payload), result_type);
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
@@ -4895,7 +4884,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     eif.cond      = std::move(cond);
     eif.then_val  = std::move(then_val);
     eif.else_val  = std::move(else_val);
-    return make_expr(result_type, std::move(eif));
+    return builder().if_expr_v(std::move(eif), result_type);
 }
 
 lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
@@ -5565,7 +5554,7 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
     }
     // Type: HermesStatic for static blobs; Hermes for captures (codegen handles both).
     auto result_type = lit.has_captures ? make_struct_type("Hermes") : make_struct_type("HermesStatic");
-    return make_expr(result_type, std::move(lit));
+    return builder().hermes_lit_v(std::move(lit), result_type);
 }
 
 } // namespace logos::compiler
