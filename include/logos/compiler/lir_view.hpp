@@ -959,6 +959,7 @@ struct SIndexWriteView {
 struct SFieldIndexWriteView {
     StmtRef self;
     std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    std::string_view field() const noexcept    { return detail::stmt_str(self, sk::FIELD.code); }
     ExprRef          index() const noexcept    { return detail::stmt_sub_expr(self, sk::INDEX.code); }
     ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
 };
