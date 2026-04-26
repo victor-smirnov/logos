@@ -272,6 +272,76 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = lir::EBinOp{op, std::move(new_lhs), std::move(new_rhs)};
             break;
         }
+        case C::AddrOfTemp: {
+            lir_view::EAddrOfTempView v{eref};
+            result->kind = lir::EAddrOfTemp{subst_child_expr(v.inner()), v.is_mut()};
+            break;
+        }
+        case C::EnumLit: {
+            lir_view::EEnumLitView v{eref};
+            lir::EEnumLit ne;
+            ne.enum_name = std::string(v.enum_name());
+            ne.variant   = std::string(v.variant());
+            ne.disc      = v.disc();
+            TypeRef rt(result->type);
+            if (rt && rt.kind() == LogosType::Kind::Enum &&
+                !rt.type_args().empty()) {
+                std::string cname = std::string(rt.enum_name());
+                for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
+                ne.enum_name = std::move(cname);
+                record_needed_enum(result->type);
+            }
+            result->kind = std::move(ne);
+            break;
+        }
+        case C::EnumLitData: {
+            lir_view::EEnumLitDataView v{eref};
+            lir::EEnumLitData ne;
+            ne.variant = std::string(v.variant());
+            ne.disc    = v.disc();
+            TypeRef rt(result->type);
+            if (rt && rt.kind() == LogosType::Kind::Enum &&
+                !rt.type_args().empty()) {
+                std::string cname = std::string(rt.enum_name());
+                for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
+                ne.enum_name = std::move(cname);
+                record_needed_enum(result->type);
+            } else {
+                ne.enum_name = std::string(v.enum_name());
+            }
+            v.each_payload([&](lir_view::ExprRef er) {
+                ne.payload.push_back(subst_child_expr(er));
+            });
+            result->kind = std::move(ne);
+            break;
+        }
+        case C::StructLit: {
+            lir_view::EStructLitView v{eref};
+            lir::EStructLit ns;
+            TypeRef rt2(result->type);
+            if (rt2 && (rt2.kind() == LogosType::Kind::Struct ||
+                        rt2.kind() == LogosType::Kind::ZonedStruct) &&
+                !rt2.type_args().empty())
+                ns.name = concrete_struct_name(result->type);
+            else
+                ns.name = std::string(v.name());
+            v.each_field([&](std::string_view fname, lir_view::ExprRef er) {
+                ns.fields.push_back({std::string(fname), subst_child_expr(er)});
+            });
+            record_needed_struct(result->type);
+            result->kind = std::move(ns);
+            break;
+        }
+        case C::New: {
+            lir_view::ENewView v{eref};
+            lir::ENew nn;
+            nn.class_name = std::string(v.class_name());
+            v.each_field([&](std::string_view fname, lir_view::ExprRef er) {
+                nn.fields.push_back({std::string(fname), subst_child_expr(er)});
+            });
+            result->kind = std::move(nn);
+            break;
+        }
         default:
             handled = false;
             break;

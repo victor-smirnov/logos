@@ -521,6 +521,19 @@ struct EMethodCallView {
     template <class F> void each_arg(F&& f) const noexcept {
         detail::for_each_arg(self, std::forward<F>(f));
     }
+    std::vector<TypeRef> type_args(const TypePoolImpl* pool) const noexcept {
+        std::vector<TypeRef> out;
+        auto av = self.mirror()->get(ek::TYPE_ARGS.code, self.base());
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        out.reserve(arr->size());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) { out.emplace_back(); continue; }
+            out.emplace_back(self.arena(), el.to_offset(), pool);
+        }
+        return out;
+    }
 };
 
 struct EClosureCallView {
@@ -646,6 +659,7 @@ struct ETupleLitView {
 struct EEnumLitDataView {
     ExprRef self;
     std::string_view enum_name() const noexcept { return detail::read_string(self, ek::ENUM_NAME.code); }
+    std::string_view variant()   const noexcept { return detail::read_string(self, ek::VARIANT.code); }
     int64_t          disc()      const noexcept { return detail::read_i64(self, ek::DISC.code); }
     template <class F> void each_payload(F&& f) const noexcept {
         detail::for_each_payload(self, std::forward<F>(f));
@@ -784,6 +798,7 @@ public:
 struct EAddrOfTempView {
     ExprRef self;
     ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
+    bool is_mut() const noexcept { return detail::read_bool(self, ek::IS_MUT.code); }
 };
 
 struct EEnumLitView {
