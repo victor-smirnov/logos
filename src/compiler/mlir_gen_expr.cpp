@@ -61,6 +61,8 @@ mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
         case C::VarRef:   return gen_expr_kind(lir_view::EVarRefView{er},   e.type);
         case C::FieldRead: return gen_expr_kind(lir_view::EFieldReadView{er},  e.type);
         case C::TupleIndex:return gen_expr_kind(lir_view::ETupleIndexView{er}, e.type);
+        case C::IfExpr:    return gen_expr_kind(lir_view::EIfExprView{er},     e.type);
+        case C::BlockExpr: return gen_expr_kind(lir_view::EBlockExprView{er},  e.type);
         default: break;
         }
     }
@@ -78,7 +80,9 @@ mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
                       std::is_same_v<K, ETry>     ||
                       std::is_same_v<K, EVarRef>    ||
                       std::is_same_v<K, EFieldRead> ||
-                      std::is_same_v<K, ETupleIndex>) {
+                      std::is_same_v<K, ETupleIndex> ||
+                      std::is_same_v<K, EIfExpr>    ||
+                      std::is_same_v<K, EBlockExpr>) {
             // Unreachable: handled by the schema-switch above.
             (void)k;
             return {};
@@ -1503,8 +1507,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ENew& e, TypeRef) {
 // If-expression / match-expression
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EIfExpr& e, TypeRef type) {
-    auto cond = gen_expr(*e.cond);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
+    auto* cond_l  = lexpr_of(v.cond());
+    auto* then_l  = lexpr_of(v.then_val());
+    auto* else_l  = lexpr_of(v.else_val());
+    if (!cond_l || !then_l || !else_l) return nullptr;
+    auto cond = gen_expr(*cond_l);
     if (!cond) return nullptr;
 
     mlir::Type result_type = logos_to_mlir(type);
@@ -1524,14 +1532,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIfExpr& e, TypeRef type) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
 
     builder_.setInsertionPointToStart(then_block);
-    auto then_val = gen_expr(*e.then_val);
+    auto then_val = gen_expr(*then_l);
     if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
     then_val = coerce_numeric(then_val, result_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
     builder_.setInsertionPointToStart(else_block);
-    auto else_val = gen_expr(*e.else_val);
+    auto else_val = gen_expr(*else_l);
     if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
     else_val = coerce_numeric(else_val, result_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
@@ -2207,10 +2215,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETypeCodeOf& e, TypeRef) {
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EBlockExpr& e, TypeRef) {
-    if (e.block) gen_block(*e.block);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBlockExprView v, TypeRef) {
+    if (auto br = v.block(); br) {
+        if (auto* blk = lblock_of(br)) gen_block(*blk);
+    }
     if (is_terminated(builder_.getBlock())) return nullptr;
-    if (e.result) return gen_expr(*e.result);
+    if (auto rr = v.result(); rr) {
+        if (auto* r = lexpr_of(rr)) return gen_expr(*r);
+    }
     return nullptr;
 }
 

@@ -118,6 +118,12 @@ private:
         if (it == mirror_->pat.end()) return {};
         return lir_view::PatRef(prog_->type_pool.arena(), it->second);
     }
+    const LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
+        if (!mirror_) return nullptr;
+        auto it = mirror_->block_by_offset.find(uint32_t(r.offset()));
+        if (it == mirror_->block_by_offset.end()) return nullptr;
+        return it->second;
+    }
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
     std::unordered_map<std::string, const LStructDef*> all_struct_defs_; // name→def for recursive registration
@@ -420,7 +426,7 @@ private:
     mlir::Value gen_expr_kind(const EArrLit& e, TypeRef type);
     mlir::Value gen_expr_kind(const ECast& e, TypeRef type);
     mlir::Value gen_expr_kind(const ENew& e, TypeRef);
-    mlir::Value gen_expr_kind(const EIfExpr& e, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EIfExprView v, TypeRef type);
     mlir::Value gen_expr_kind(const EMatchExpr& e, TypeRef type);
     mlir::Value gen_expr_kind(const ETupleLit& e, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type);
@@ -436,7 +442,7 @@ private:
     mlir::Value gen_expr_kind(const EPackExpand&, TypeRef);
     mlir::Value gen_expr_kind(const ESizeOf& e, TypeRef);
     mlir::Value gen_expr_kind(const ETypeCodeOf& e, TypeRef);
-    mlir::Value gen_expr_kind(const EBlockExpr& e, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EBlockExprView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::ETryView v, TypeRef type);
     mlir::Value gen_expr_kind(const EHermesLit& e, TypeRef);
     mlir::Value gen_expr_kind(const EPtrArith& e, TypeRef);
