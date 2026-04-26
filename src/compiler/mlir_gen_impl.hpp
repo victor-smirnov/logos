@@ -393,7 +393,7 @@ private:
     void gen_stmt_kind(lir_view::SLetElseView v);
     void gen_stmt_kind(lir_view::SChainFieldWriteView v);
 
-    void gen_let(const SLet& s);
+    void gen_let(lir_view::SLetView v);
     void gen_assign(lir_view::SAssignView v);
     void gen_return(lir_view::SReturnView v);
     void gen_if(const SIf& s);
@@ -403,12 +403,12 @@ private:
     void gen_break(lir_view::SBreakView v);
     void gen_continue();
     void gen_for_each(const SForEach& s);
-    void gen_field_write(const SFieldWrite& s);
-    void gen_deref_field_write(const SDerefFieldWrite& s);
-    void gen_chain_field_write(const SChainFieldWrite& s);
-    void gen_tuple_write(const STupleWrite& s);
-    void gen_index_write(const SIndexWrite& s);
-    void gen_field_index_write(const SFieldIndexWrite& s);
+    void gen_field_write(lir_view::SFieldWriteView v);
+    void gen_deref_field_write(lir_view::SDerefFieldWriteView v);
+    void gen_chain_field_write(lir_view::SChainFieldWriteView v);
+    void gen_tuple_write(lir_view::STupleWriteView v);
+    void gen_index_write(lir_view::SIndexWriteView v);
+    void gen_field_index_write(lir_view::SFieldIndexWriteView v);
     void gen_match(const SMatch& s);
     void gen_delete(lir_view::SDeleteView v);
 
