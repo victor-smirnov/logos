@@ -527,6 +527,19 @@ struct EFormatCallView {
     template <class F> void each_arg(F&& f) const noexcept {
         detail::for_each_arg(self, std::forward<F>(f));
     }
+    std::vector<TypeRef> arg_types(const TypePoolImpl* pool) const noexcept {
+        std::vector<TypeRef> out;
+        auto av = self.mirror()->get(ek::ARG_TYPES.code, self.base());
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        out.reserve(arr->size());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) { out.emplace_back(); continue; }
+            out.emplace_back(self.arena(), el.to_offset(), pool);
+        }
+        return out;
+    }
 };
 
 struct EStructLitView {

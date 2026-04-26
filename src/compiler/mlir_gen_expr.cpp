@@ -2102,12 +2102,16 @@ int MLIRGenImpl::format_type_tag(TypeRef t) noexcept {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EFormatCall>(_le->kind);
-    auto fmt_val = gen_expr(*e.fmt);
+    auto* fmt_le = lexpr_of(v.fmt());
+    if (!fmt_le) return nullptr;
+    auto fmt_val = gen_expr(*fmt_le);
     if (!fmt_val) return nullptr;
 
-    int n = (int)e.args.size();
+    auto arg_types = v.arg_types(pool_impl());
+    std::vector<lir_view::ExprRef> arg_refs;
+    v.each_arg([&](lir_view::ExprRef r) { arg_refs.push_back(r); });
+    int n = (int)arg_refs.size();
+
     auto i32_type = builder_.getI32Type();
     auto i64_type = builder_.getI64Type();
 
@@ -2117,7 +2121,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
     auto data_alloca = create_entry_alloca(i64_type, n_cnt);
 
     for (int i = 0; i < n; ++i) {
-        int tag = format_type_tag(e.arg_types[i]);
+        int tag = format_type_tag(arg_types[i]);
 
         // Store tag at tags[i]
         llvm::SmallVector<mlir::LLVM::GEPArg> ti{int32_t(i)};
@@ -2128,21 +2132,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
 
         // Evaluate arg and widen to i64.
         // Unsigned types narrower than 64 bits must be zero-extended, not sign-extended.
-        auto arg_val = gen_expr(*e.args[i]);
+        auto* a_le = lexpr_of(arg_refs[i]);
+        if (!a_le) return nullptr;
+        auto arg_val = gen_expr(*a_le);
         if (!arg_val) return nullptr;
         mlir::Value as_i64;
         if (arg_val.getType() == ptr_type()) {
             as_i64 = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_type, arg_val);
         } else {
-            auto arg_lt = static_cast<size_t>(i) < e.arg_types.size() ? e.arg_types[i] : nullptr;
+            TypeRef arg_lt = static_cast<size_t>(i) < arg_types.size() ? arg_types[i] : TypeRef{};
             bool arg_unsigned = arg_lt &&
-                (TypeRef(arg_lt).kind() == LogosType::Kind::U8   ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U16  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U32  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U24  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U56  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U64  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U128);
+                (arg_lt.kind() == LogosType::Kind::U8   ||
+                 arg_lt.kind() == LogosType::Kind::U16  ||
+                 arg_lt.kind() == LogosType::Kind::U32  ||
+                 arg_lt.kind() == LogosType::Kind::U24  ||
+                 arg_lt.kind() == LogosType::Kind::U56  ||
+                 arg_lt.kind() == LogosType::Kind::U64  ||
+                 arg_lt.kind() == LogosType::Kind::U128);
             auto ai = mlir::dyn_cast<mlir::IntegerType>(arg_val.getType());
             if (arg_unsigned && ai && ai.getWidth() < 64)
                 as_i64 = builder_.create<mlir::arith::ExtUIOp>(loc_, i64_type, arg_val);
