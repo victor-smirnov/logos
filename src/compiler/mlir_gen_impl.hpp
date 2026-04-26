@@ -97,6 +97,15 @@ private:
         if (it == mirror_->expr.end()) return {};
         return lir_view::ExprRef(prog_->type_pool.arena(), it->second);
     }
+    // Resolve an ExprRef back to its variant LExpr* via the mirror's reverse
+    // map. Used inside view-handlers to recurse through gen_expr() on
+    // sub-expressions while the rest of the dispatcher still walks variants.
+    const LExpr* lexpr_of(lir_view::ExprRef r) const noexcept {
+        if (!mirror_) return nullptr;
+        auto it = mirror_->expr_by_offset.find(uint32_t(r.offset()));
+        if (it == mirror_->expr_by_offset.end()) return nullptr;
+        return it->second;
+    }
     lir_view::StmtRef stmt_ref_of(const LStmt& s) const noexcept {
         if (!mirror_ || !prog_) return {};
         auto it = mirror_->stmt.find(&s);
@@ -108,6 +117,12 @@ private:
         auto it = mirror_->pat.find(&p);
         if (it == mirror_->pat.end()) return {};
         return lir_view::PatRef(prog_->type_pool.arena(), it->second);
+    }
+    const LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
+        if (!mirror_) return nullptr;
+        auto it = mirror_->block_by_offset.find(uint32_t(r.offset()));
+        if (it == mirror_->block_by_offset.end()) return nullptr;
+        return it->second;
     }
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
@@ -391,48 +406,48 @@ private:
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(const LExpr& e);
 
-    mlir::Value gen_expr_kind(const ELitInt& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ELitFloat& e, TypeRef);
-    mlir::Value gen_expr_kind(const ELitBool& e, TypeRef);
-    mlir::Value gen_expr_kind(const ELitStr& e, TypeRef);
-    mlir::Value gen_expr_kind(const EVarRef& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EEnumLit& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EEnumLitData& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EBinOp& e, TypeRef);
-    mlir::Value gen_expr_kind(const EUnary& e, TypeRef);
-    mlir::Value gen_expr_kind(const EAddrOf& e, TypeRef);
-    mlir::Value gen_expr_kind(const EAddrOfTemp& e, TypeRef);
-    mlir::Value gen_expr_kind(const EDeref& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ECall& e, TypeRef ret_logos_type);
-    mlir::Value gen_expr_kind(const EMethodCall& e, TypeRef ret_logos_type);
-    mlir::Value gen_expr_kind(const EFieldRead& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EIndexRead& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EStructLit& e, TypeRef);
-    mlir::Value gen_expr_kind(const EArrLit& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ECast& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ENew& e, TypeRef);
-    mlir::Value gen_expr_kind(const EIfExpr& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EMatchExpr& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ETupleLit& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ETupleIndex& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EClosureBox& box, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ELitIntView v,   TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ELitFloatView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ELitBoolView v,  TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ELitStrView v,   TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EVarRefView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EEnumLitView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EBinOpView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EUnaryView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EAddrOfView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EDerefView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_type);
+    mlir::Value gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_logos_type);
+    mlir::Value gen_expr_kind(lir_view::EFieldReadView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EIndexReadView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EStructLitView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EArrLitView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ECastView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ENewView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EIfExprView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EMatchExprView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ETupleLitView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type);
     mlir::Value gen_closure(const EClosure& e, TypeRef);
-    mlir::Value gen_expr_kind(const EClosureCall& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EFnPtrCall& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ESliceLit& e, TypeRef);
-    mlir::Value gen_expr_kind(const ESliceIndex& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ESliceLen& e, TypeRef);
-    mlir::Value gen_expr_kind(const ESlicePtr& e, TypeRef);
-    mlir::Value gen_expr_kind(const EFormatCall& e, TypeRef);
-    mlir::Value gen_expr_kind(const EPackExpand&, TypeRef);
-    mlir::Value gen_expr_kind(const ESizeOf& e, TypeRef);
-    mlir::Value gen_expr_kind(const ETypeCodeOf& e, TypeRef);
-    mlir::Value gen_expr_kind(const EBlockExpr& e, TypeRef);
-    mlir::Value gen_expr_kind(const ETry& e, TypeRef type);
-    mlir::Value gen_expr_kind(const EHermesLit& e, TypeRef);
-    mlir::Value gen_expr_kind(const EPtrArith& e, TypeRef);
-    mlir::Value gen_expr_kind(const EPtrDiff& e, TypeRef);
-    mlir::Value gen_expr_kind(const EReflectOf& e, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EClosureCallView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ESliceLitView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ESliceLenView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ESlicePtrView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EFormatCallView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EPackExpandView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ESizeOfView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ETypeCodeOfView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EBlockExprView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::ETryView v, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EHermesLitView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EPtrArithView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EPtrDiffView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EReflectOfView v, TypeRef);
     // Coerce a Logos runtime value to AnyVal.raw (u32) for hermes capture substitution.
     mlir::Value coerce_to_anyval_raw(mlir::Value v, TypeRef t);
 

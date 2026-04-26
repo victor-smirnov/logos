@@ -45,14 +45,65 @@ static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
-    return std::visit([&](auto& k) { return gen_expr_kind(k, e.type); }, e.kind);
+    auto er = expr_ref_of(e);
+    if (!er) {
+        std::fprintf(stderr, "mlir_gen: gen_expr called without LIR mirror\n");
+        return nullptr;
+    }
+    using C = lir_schema::expr::Code;
+    switch (er.kind()) {
+    case C::LitInt:     return gen_expr_kind(lir_view::ELitIntView{er},     e.type);
+    case C::LitFloat:   return gen_expr_kind(lir_view::ELitFloatView{er},   e.type);
+    case C::LitBool:    return gen_expr_kind(lir_view::ELitBoolView{er},    e.type);
+    case C::LitStr:     return gen_expr_kind(lir_view::ELitStrView{er},     e.type);
+    case C::VarRef:     return gen_expr_kind(lir_view::EVarRefView{er},     e.type);
+    case C::EnumLit:    return gen_expr_kind(lir_view::EEnumLitView{er},    e.type);
+    case C::EnumLitData:return gen_expr_kind(lir_view::EEnumLitDataView{er},e.type);
+    case C::Call:       return gen_expr_kind(lir_view::ECallView{er},       e.type);
+    case C::MethodCall: return gen_expr_kind(lir_view::EMethodCallView{er}, e.type);
+    case C::BinOp:      return gen_expr_kind(lir_view::EBinOpView{er},      e.type);
+    case C::Unary:      return gen_expr_kind(lir_view::EUnaryView{er},      e.type);
+    case C::AddrOf:     return gen_expr_kind(lir_view::EAddrOfView{er},     e.type);
+    case C::AddrOfTemp: return gen_expr_kind(lir_view::EAddrOfTempView{er}, e.type);
+    case C::Deref:      return gen_expr_kind(lir_view::EDerefView{er},      e.type);
+    case C::FieldRead:  return gen_expr_kind(lir_view::EFieldReadView{er},  e.type);
+    case C::IndexRead:  return gen_expr_kind(lir_view::EIndexReadView{er},  e.type);
+    case C::StructLit:  return gen_expr_kind(lir_view::EStructLitView{er},  e.type);
+    case C::ArrLit:     return gen_expr_kind(lir_view::EArrLitView{er},     e.type);
+    case C::Cast:       return gen_expr_kind(lir_view::ECastView{er},       e.type);
+    case C::New:        return gen_expr_kind(lir_view::ENewView{er},        e.type);
+    case C::IfExpr:     return gen_expr_kind(lir_view::EIfExprView{er},     e.type);
+    case C::TupleLit:   return gen_expr_kind(lir_view::ETupleLitView{er},   e.type);
+    case C::TupleIndex: return gen_expr_kind(lir_view::ETupleIndexView{er}, e.type);
+    case C::SliceLit:   return gen_expr_kind(lir_view::ESliceLitView{er},   e.type);
+    case C::SliceIndex: return gen_expr_kind(lir_view::ESliceIndexView{er}, e.type);
+    case C::SliceLen:   return gen_expr_kind(lir_view::ESliceLenView{er},   e.type);
+    case C::SlicePtr:   return gen_expr_kind(lir_view::ESlicePtrView{er},   e.type);
+    case C::ClosureBox: return gen_expr_kind(lir_view::EClosureBoxView{er}, e.type);
+    case C::ClosureCall:return gen_expr_kind(lir_view::EClosureCallView{er},e.type);
+    case C::FnPtrCall:  return gen_expr_kind(lir_view::EFnPtrCallView{er},  e.type);
+    case C::FormatCall: return gen_expr_kind(lir_view::EFormatCallView{er}, e.type);
+    case C::PackExpand: return gen_expr_kind(lir_view::EPackExpandView{er}, e.type);
+    case C::Try:        return gen_expr_kind(lir_view::ETryView{er},        e.type);
+    case C::MatchExpr:  return gen_expr_kind(lir_view::EMatchExprView{er},  e.type);
+    case C::SizeOf:     return gen_expr_kind(lir_view::ESizeOfView{er},     e.type);
+    case C::TypeCodeOf: return gen_expr_kind(lir_view::ETypeCodeOfView{er}, e.type);
+    case C::BlockExpr:  return gen_expr_kind(lir_view::EBlockExprView{er},  e.type);
+    case C::HermesLit:  return gen_expr_kind(lir_view::EHermesLitView{er},  e.type);
+    case C::PtrArith:   return gen_expr_kind(lir_view::EPtrArithView{er},   e.type);
+    case C::PtrDiff:    return gen_expr_kind(lir_view::EPtrDiffView{er},    e.type);
+    case C::ReflectOf:  return gen_expr_kind(lir_view::EReflectOfView{er},  e.type);
+    }
+    std::fprintf(stderr, "mlir_gen: unhandled expr code %d\n", int(er.kind()));
+    return nullptr;
 }
 
 // ---------------------------------------------------------------------------
 // Literals
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitInt& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitIntView v, TypeRef type) {
+    int64_t value = v.value();
     int width = 32;
     if (type) {
         switch (TypeRef(type).kind()) {
@@ -71,32 +122,32 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitInt& e, TypeRef type) {
         case LogosType::Kind::Bool: width = 1; break;
         case LogosType::Kind::IntLit:
             // Untyped literal: use i64 if value doesn't fit in i32.
-            if (e.value > INT32_MAX || e.value < INT32_MIN) width = 64;
+            if (value > INT32_MAX || value < INT32_MIN) width = 64;
             break;
         default: break;
         }
     }
-    return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value, width);
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, value, width);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitFloat& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitFloatView v, TypeRef type) {
     bool is_f32 = type && TypeRef(type).kind() == LogosType::Kind::F32;
     if (is_f32) {
         auto f32 = builder_.getF32Type();
         return builder_.create<mlir::arith::ConstantFloatOp>(
-            loc_, f32, llvm::APFloat(float(e.value)));
+            loc_, f32, llvm::APFloat(float(v.value())));
     }
     auto f64 = builder_.getF64Type();
     return builder_.create<mlir::arith::ConstantFloatOp>(
-        loc_, f64, llvm::APFloat(e.value));
+        loc_, f64, llvm::APFloat(v.value()));
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitBool& e, TypeRef) {
-    return builder_.create<mlir::arith::ConstantIntOp>(loc_, e.value ? 1 : 0, 1);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitBoolView v, TypeRef) {
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, v.value() ? 1 : 0, 1);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ELitStr& e, TypeRef) {
-    std::string raw = e.value;
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
+    std::string raw{v.value()};
     bool is_raw = raw.size() >= 3 && raw[0] == 'r' &&
                   (raw[1] == '"' || raw[1] == '#');
     if (is_raw) {
@@ -166,22 +217,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ELitStr& e, TypeRef) {
 // Variable reference
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
+    std::string name{v.name()};
     // Module constant: re-evaluate inline.
-    auto cit = module_consts_.find(e.name);
+    auto cit = module_consts_.find(name);
     if (cit != module_consts_.end())
         return gen_expr(*cit->second->value);
 
-    auto it = scope_.find(e.name);
+    auto it = scope_.find(name);
     if (it == scope_.end()) {
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
         // Check if name is a free function being used as a bare fn-ptr.
         if (type && TypeRef(type).kind() == LogosType::Kind::FnPtr) {
-            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.name);
+            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(name);
             if (fn_sym) {
                 // Return just the function address as a raw ptr.
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
-                    loc_, fn_sym.getFunctionType(), e.name);
+                    loc_, fn_sym.getFunctionType(), name);
                 return builder_.create<mlir::UnrealizedConversionCastOp>(
                     loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
             }
@@ -189,7 +241,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
         // Check if name is a free function being used as a value (closure fat pointer).
         // Create a non-capturing closure: {fn_ptr, null_env}.
         if (type && TypeRef(type).kind() == LogosType::Kind::Closure) {
-            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.name);
+            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(name);
             if (fn_sym) {
                 // Build closure fat pointer: { fn_ptr, env_ptr=null }
                 auto closure_struct_t = mlir::LLVM::LLVMStructType::getLiteral(
@@ -197,7 +249,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
                 auto alloca = create_entry_alloca(closure_struct_t);
                 // Store the function address as fn_ptr.
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
-                    loc_, fn_sym.getFunctionType(), e.name);
+                    loc_, fn_sym.getFunctionType(), name);
                 auto fn_addr = builder_.create<mlir::UnrealizedConversionCastOp>(
                     loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
                 llvm::SmallVector<mlir::LLVM::GEPArg> fp_idx{int32_t(0), int32_t(0)};
@@ -213,21 +265,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
                 return alloca;
             }
         }
-        std::fprintf(stderr, "mlir_gen: undefined '%s'\n", e.name.c_str());
+        std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
         return nullptr;
     }
     // Mutable tagged enum: load struct ptr from pointer slot.
-    if (var_tagged_enum_ptr_.count(e.name))
+    if (var_tagged_enum_ptr_.count(name))
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
     // Struct/class/array/tuple/tagged-enum/dyn-trait variables: return pointer directly.
-    if (var_struct_.count(e.name) || var_class_.count(e.name))
-        return get_struct_ptr(e.name);
-    if (var_subscript_.count(e.name) || var_tuple_.count(e.name) ||
-        var_tagged_enum_.count(e.name) || var_dyn_trait_.count(e.name))
+    if (var_struct_.count(name) || var_class_.count(name))
+        return get_struct_ptr(name);
+    if (var_subscript_.count(name) || var_tuple_.count(name) ||
+        var_tagged_enum_.count(name) || var_dyn_trait_.count(name))
         return it->second;
     // Let-bound scalar: load from alloca.
-    if (let_vars_.count(e.name)) {
-        auto et = var_elem_types_.find(e.name);
+    if (let_vars_.count(name)) {
+        auto et = var_elem_types_.find(name);
         if (et == var_elem_types_.end()) return nullptr;
         return builder_.create<mlir::LLVM::LoadOp>(loc_, et->second, it->second);
     }
@@ -239,7 +291,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
 // Enum literals
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLit& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EEnumLit>(_le->kind);
     // Tagged enum without payload (e.g. Option::None, HttpError::Io):
     // heap-allocate so the pointer can safely escape — including being stored
     // into another enum's payload slot as a pointer (EEnumLitData path).
@@ -260,7 +314,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLit& e, TypeRef type) {
         loc_, e.disc, enum_disc_bits(e.enum_name));
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLitData& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EEnumLitData>(_le->kind);
     auto* te = resolve_tagged_enum(e.enum_name, type);
     if (!te) {
         std::fprintf(stderr, "mlir_gen: unknown tagged enum '%s'\n", e.enum_name.c_str());
@@ -324,14 +380,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLitData& e, TypeRef type) {
 // Binary / Unary operators
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
-    auto lhs = gen_expr(*e.lhs);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
+    auto* lhs_l = lexpr_of(v.lhs());
+    auto* rhs_l = lexpr_of(v.rhs());
+    if (!lhs_l || !rhs_l) return nullptr;
+    std::string op{v.op()};
+    auto lhs = gen_expr(*lhs_l);
     if (!lhs) return nullptr;
 
     // Short-circuit operators: evaluate RHS only when LHS doesn't determine the result.
     // && : if LHS is false, result is false (skip RHS)
     // || : if LHS is true,  result is true  (skip RHS)
-    if (e.op == "&&" || e.op == "||") {
+    if (op == "&&" || op == "||") {
         auto i1 = builder_.getI1Type();
         auto result_alloca = create_entry_alloca(i1);
 
@@ -345,7 +405,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
 
         // && : evaluate RHS when LHS=true; short-circuit to false when LHS=false
         // || : evaluate RHS when LHS=false; short-circuit to true  when LHS=true
-        if (e.op == "&&")
+        if (op == "&&")
             builder_.create<mlir::cf::CondBranchOp>(loc_, lhs, rhs_block, sc_block);
         else
             builder_.create<mlir::cf::CondBranchOp>(loc_, lhs, sc_block, rhs_block);
@@ -353,13 +413,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
         // Short-circuit block: store the known result without evaluating RHS.
         builder_.setInsertionPointToStart(sc_block);
         auto sc_val = builder_.create<mlir::arith::ConstantIntOp>(
-            loc_, (e.op == "||") ? 1 : 0, 1);
+            loc_, (op == "||") ? 1 : 0, 1);
         builder_.create<mlir::LLVM::StoreOp>(loc_, sc_val, result_alloca);
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
         // RHS block: evaluate RHS, store its value.
         builder_.setInsertionPointToStart(rhs_block);
-        auto rhs_val = gen_expr(*e.rhs);
+        auto rhs_val = gen_expr(*rhs_l);
         if (!rhs_val)
             rhs_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
         builder_.create<mlir::LLVM::StoreOp>(loc_, rhs_val, result_alloca);
@@ -369,35 +429,35 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
         return builder_.create<mlir::LLVM::LoadOp>(loc_, i1, result_alloca);
     }
 
-    auto rhs = gen_expr(*e.rhs);
+    auto rhs = gen_expr(*rhs_l);
     if (!rhs) return nullptr;
     // Widen narrower integer operand, using zero-extend for unsigned types.
     if (auto li = mlir::dyn_cast<mlir::IntegerType>(lhs.getType())) {
         if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType())) {
             if (li.getWidth() < ri.getWidth()) {
-                bool lhs_unsigned = e.lhs->type &&
-                    (TypeRef(e.lhs->type).kind() == LogosType::Kind::U8   ||
-                     TypeRef(e.lhs->type).kind() == LogosType::Kind::U16  ||
-                     TypeRef(e.lhs->type).kind() == LogosType::Kind::U32  ||
-                     TypeRef(e.lhs->type).kind() == LogosType::Kind::U24  ||
-                     TypeRef(e.lhs->type).kind() == LogosType::Kind::U56  ||
-                     TypeRef(e.lhs->type).kind() == LogosType::Kind::U64  ||
-                     TypeRef(e.lhs->type).kind() == LogosType::Kind::U128 ||
-                     TypeRef(e.lhs->type).kind() == LogosType::Kind::Bool);
+                bool lhs_unsigned = lhs_l->type &&
+                    (TypeRef(lhs_l->type).kind() == LogosType::Kind::U8   ||
+                     TypeRef(lhs_l->type).kind() == LogosType::Kind::U16  ||
+                     TypeRef(lhs_l->type).kind() == LogosType::Kind::U32  ||
+                     TypeRef(lhs_l->type).kind() == LogosType::Kind::U24  ||
+                     TypeRef(lhs_l->type).kind() == LogosType::Kind::U56  ||
+                     TypeRef(lhs_l->type).kind() == LogosType::Kind::U64  ||
+                     TypeRef(lhs_l->type).kind() == LogosType::Kind::U128 ||
+                     TypeRef(lhs_l->type).kind() == LogosType::Kind::Bool);
                 if (lhs_unsigned)
                     lhs = builder_.create<mlir::arith::ExtUIOp>(loc_, rhs.getType(), lhs);
                 else
                     lhs = builder_.create<mlir::arith::ExtSIOp>(loc_, rhs.getType(), lhs);
             } else if (ri.getWidth() < li.getWidth()) {
-                bool rhs_unsigned = e.rhs->type &&
-                    (TypeRef(e.rhs->type).kind() == LogosType::Kind::U8   ||
-                     TypeRef(e.rhs->type).kind() == LogosType::Kind::U16  ||
-                     TypeRef(e.rhs->type).kind() == LogosType::Kind::U32  ||
-                     TypeRef(e.rhs->type).kind() == LogosType::Kind::U24  ||
-                     TypeRef(e.rhs->type).kind() == LogosType::Kind::U56  ||
-                     TypeRef(e.rhs->type).kind() == LogosType::Kind::U64  ||
-                     TypeRef(e.rhs->type).kind() == LogosType::Kind::U128 ||
-                     TypeRef(e.rhs->type).kind() == LogosType::Kind::Bool);
+                bool rhs_unsigned = rhs_l->type &&
+                    (TypeRef(rhs_l->type).kind() == LogosType::Kind::U8   ||
+                     TypeRef(rhs_l->type).kind() == LogosType::Kind::U16  ||
+                     TypeRef(rhs_l->type).kind() == LogosType::Kind::U32  ||
+                     TypeRef(rhs_l->type).kind() == LogosType::Kind::U24  ||
+                     TypeRef(rhs_l->type).kind() == LogosType::Kind::U56  ||
+                     TypeRef(rhs_l->type).kind() == LogosType::Kind::U64  ||
+                     TypeRef(rhs_l->type).kind() == LogosType::Kind::U128 ||
+                     TypeRef(rhs_l->type).kind() == LogosType::Kind::Bool);
                 if (rhs_unsigned)
                     rhs = builder_.create<mlir::arith::ExtUIOp>(loc_, lhs.getType(), rhs);
                 else
@@ -409,14 +469,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
     // float+int → convert int to float; float+float of different widths → widen narrower.
     if (mlir::isa<mlir::FloatType>(lhs.getType()) &&
         mlir::isa<mlir::IntegerType>(rhs.getType())) {
-        bool rhs_unsigned = e.rhs->type &&
-            (TypeRef(e.rhs->type).kind() == LogosType::Kind::U8  ||
-             TypeRef(e.rhs->type).kind() == LogosType::Kind::U16 ||
-             TypeRef(e.rhs->type).kind() == LogosType::Kind::U32 ||
-             TypeRef(e.rhs->type).kind() == LogosType::Kind::U24 ||
-             TypeRef(e.rhs->type).kind() == LogosType::Kind::U56 ||
-             TypeRef(e.rhs->type).kind() == LogosType::Kind::U64 ||
-             TypeRef(e.rhs->type).kind() == LogosType::Kind::U128);
+        bool rhs_unsigned = rhs_l->type &&
+            (TypeRef(rhs_l->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(rhs_l->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(rhs_l->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(rhs_l->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(rhs_l->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(rhs_l->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(rhs_l->type).kind() == LogosType::Kind::U128);
         if (rhs_unsigned)
             rhs = builder_.create<mlir::arith::UIToFPOp>(loc_, lhs.getType(), rhs);
         else
@@ -424,14 +484,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
     }
     if (mlir::isa<mlir::IntegerType>(lhs.getType()) &&
         mlir::isa<mlir::FloatType>(rhs.getType())) {
-        bool lhs_unsigned = e.lhs->type &&
-            (TypeRef(e.lhs->type).kind() == LogosType::Kind::U8  ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U16 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U32 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U24 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U56 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U64 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U128);
+        bool lhs_unsigned = lhs_l->type &&
+            (TypeRef(lhs_l->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U128);
         if (lhs_unsigned)
             lhs = builder_.create<mlir::arith::UIToFPOp>(loc_, rhs.getType(), lhs);
         else
@@ -443,8 +503,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
         auto lft = mlir::dyn_cast<mlir::FloatType>(lhs.getType());
         auto rft = mlir::dyn_cast<mlir::FloatType>(rhs.getType());
         if (lft && rft) {
-            bool lhs_is_lit = e.lhs->type && TypeRef(e.lhs->type).kind() == LogosType::Kind::FloatLit;
-            bool rhs_is_lit = e.rhs->type && TypeRef(e.rhs->type).kind() == LogosType::Kind::FloatLit;
+            bool lhs_is_lit = lhs_l->type && TypeRef(lhs_l->type).kind() == LogosType::Kind::FloatLit;
+            bool rhs_is_lit = rhs_l->type && TypeRef(rhs_l->type).kind() == LogosType::Kind::FloatLit;
             if (rhs_is_lit && !lhs_is_lit) {
                 // rhs is FloatLit, lhs is typed: coerce rhs to lhs type
                 rhs = coerce_float(rhs, lhs.getType());
@@ -460,7 +520,6 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
             }
         }
     }
-    auto& op = e.op;
     bool is_float = mlir::isa<mlir::FloatType>(lhs.getType());
     if (is_float) {
         if (op == "+")  return builder_.create<mlir::arith::AddFOp>(loc_, lhs, rhs);
@@ -479,14 +538,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
     if (op == "-")  return builder_.create<mlir::arith::SubIOp>(loc_, lhs, rhs);
     if (op == "*")  return builder_.create<mlir::arith::MulIOp>(loc_, lhs, rhs);
     {
-        bool is_unsigned = e.lhs->type &&
-            (TypeRef(e.lhs->type).kind() == LogosType::Kind::U8  ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U16 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U32 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U24 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U56 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U64 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U128);
+        bool is_unsigned = lhs_l->type &&
+            (TypeRef(lhs_l->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U128);
         if (op == "/") {
             if (is_unsigned) return builder_.create<mlir::arith::DivUIOp>(loc_, lhs, rhs);
             return builder_.create<mlir::arith::DivSIOp>(loc_, lhs, rhs);
@@ -504,14 +563,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
     if (op == "<<") return builder_.create<mlir::arith::ShLIOp>(loc_, lhs, rhs);
     if (op == ">>") {
         auto it = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
-        bool is_unsigned = it && (e.lhs->type &&
-            (TypeRef(e.lhs->type).kind() == LogosType::Kind::U8  ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U16 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U32 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U24 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U56 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U64 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U128));
+        bool is_unsigned = it && (lhs_l->type &&
+            (TypeRef(lhs_l->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U128));
         if (is_unsigned)
             return builder_.create<mlir::arith::ShRUIOp>(loc_, lhs, rhs);
         return builder_.create<mlir::arith::ShRSIOp>(loc_, lhs, rhs);
@@ -531,14 +590,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
         return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::ne,  lhs, rhs);
     }
     {
-        bool is_unsigned_cmp = e.lhs->type &&
-            (TypeRef(e.lhs->type).kind() == LogosType::Kind::U8  ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U16 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U32 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U24 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U56 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U64 ||
-             TypeRef(e.lhs->type).kind() == LogosType::Kind::U128);
+        bool is_unsigned_cmp = lhs_l->type &&
+            (TypeRef(lhs_l->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(lhs_l->type).kind() == LogosType::Kind::U128);
         if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_,
             is_unsigned_cmp ? mlir::arith::CmpIPredicate::ult : mlir::arith::CmpIPredicate::slt, lhs, rhs);
         if (op == ">")  return builder_.create<mlir::arith::CmpIOp>(loc_,
@@ -552,17 +611,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBinOp& e, TypeRef) {
     return nullptr;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EUnary& e, TypeRef) {
-    auto val = gen_expr(*e.operand);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EUnaryView v, TypeRef) {
+    auto* operand = lexpr_of(v.operand());
+    if (!operand) return nullptr;
+    auto val = gen_expr(*operand);
     if (!val) return nullptr;
-    if (e.op == "-") {
+    auto op = v.op();
+    if (op == "-") {
         if (mlir::isa<mlir::FloatType>(val.getType()))
             return builder_.create<mlir::arith::NegFOp>(loc_, val);
         auto zero = builder_.create<mlir::arith::ConstantIntOp>(
             loc_, 0, mlir::cast<mlir::IntegerType>(val.getType()).getWidth());
         return builder_.create<mlir::arith::SubIOp>(loc_, zero, val);
     }
-    if (e.op == "!") {
+    if (op == "!") {
         auto itype = mlir::dyn_cast<mlir::IntegerType>(val.getType());
         if (!itype) {
             std::fprintf(stderr, "mlir_gen: unary '!' on non-integer type\n");
@@ -579,7 +641,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EUnary& e, TypeRef) {
             return builder_.create<mlir::arith::XOrIOp>(loc_, val, allones);
         }
     }
-    std::fprintf(stderr, "mlir_gen: unknown unary op '%s'\n", e.op.c_str());
+    std::fprintf(stderr, "mlir_gen: unknown unary op '%.*s'\n",
+                 int(op.size()), op.data());
     return nullptr;
 }
 
@@ -587,11 +650,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EUnary& e, TypeRef) {
 // AddrOf / Deref
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOf& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
     // Address-of: return the alloca pointer directly.
-    auto it = scope_.find(e.var_name);
+    std::string var_name{v.var_name()};
+    auto it = scope_.find(var_name);
     if (it == scope_.end()) {
-        std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", e.var_name.c_str());
+        std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", var_name.c_str());
         return nullptr;
     }
     // Fn parameters are bound as SSA values (not allocas).  Taking `&x` on a
@@ -605,7 +669,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOf& e, TypeRef) {
     return it->second;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EAddrOfTemp>(_le->kind);
     // Materialize a temporary rvalue to an anonymous stack slot and return its address.
     // Aggregates (tuple, struct, array) are already pointer-represented by the codegen
     // (their gen_expr returns an alloca directly) — no extra wrapping needed.
@@ -726,8 +792,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, TypeRef) {
     return alloca;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EDeref& e, TypeRef type) {
-    auto ptr = gen_expr(*e.operand);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
+    auto* operand = lexpr_of(v.operand());
+    if (!operand) return nullptr;
+    auto ptr = gen_expr(*operand);
     if (!ptr) return nullptr;
     // Structs/datatypes are always pointer-represented in MLIR/LLVM; the
     // logical *-deref just yields the same pointer.  Subsequent field
@@ -747,7 +815,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EDeref& e, TypeRef type) {
 // Function calls
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, TypeRef ret_logos_type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ECall>(_le->kind);
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
     // ── Compiler intrinsics recognised by name ────────────────────────────────
@@ -930,7 +1000,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, TypeRef ret_logos_type) {
     return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, TypeRef ret_logos_type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_logos_type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EMethodCall>(_le->kind);
     if (e.method == "as_offset" && e.receiver && e.receiver->type) {
         const auto rt = e.receiver->type;
         bool is_anyval =
@@ -1034,34 +1106,39 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, TypeRef ret_logos_t
 // Field / index reads
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EFieldRead& e, TypeRef type) {
-    if (TypeRef rt(e.receiver->type); e.field == "raw" && rt) {
-        bool is_anyval = type_str(e.receiver->type) == "AnyVal";
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type) {
+    auto* recv_l = lexpr_of(v.receiver());
+    if (!recv_l) return nullptr;
+    std::string field{v.field()};
+    if (TypeRef rt(recv_l->type); field == "raw" && rt) {
+        bool is_anyval = type_str(recv_l->type) == "AnyVal";
         bool is_anyval_ptr = (rt.kind() == LogosType::Kind::Ptr ||
                               rt.kind() == LogosType::Kind::Ref ||
                               rt.kind() == LogosType::Kind::MutRef) &&
                              rt.pointee() &&
                              type_str(rt.pointee()) == "AnyVal";
         if (is_anyval || is_anyval_ptr) {
-            auto recv = gen_expr(*e.receiver);
+            auto recv = gen_expr(*recv_l);
             if (!recv) return nullptr;
             if (recv.getType() == ptr_type())
                 return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
             return coerce_numeric(recv, builder_.getI32Type());
         }
     }
-    auto [ptr, sname] = gen_recv_struct(*e.receiver);
+    auto [ptr, sname] = gen_recv_struct(*recv_l);
     if (!ptr || sname.empty()) return nullptr;
     auto& info = struct_types_[sname];
-    auto gep   = gep_field(ptr, info, e.field);
+    auto gep   = gep_field(ptr, info, field);
     if (!gep) return nullptr;
     for (auto& f : info.fields)
-        if (f.name == e.field)
+        if (f.name == field)
             return builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, gep);
     return nullptr;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EIndexRead>(_le->kind);
     // Receiver: try to get the alloca pointer directly for VAR_REF.
     mlir::Value arr_ptr;
     mlir::Type  elem_type;
@@ -1188,11 +1265,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, TypeRef type) {
 // Struct / array / tuple literals
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EStructLit& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EStructLitView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EStructLit>(_le->kind);
     return gen_struct_lit(e);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EArrLit& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EArrLitView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EArrLit>(_le->kind);
     mlir::Type elem_type = builder_.getI32Type();
     if (type && TypeRef(type).elem()) {
         auto et = logos_to_mlir(TypeRef(type).elem());
@@ -1201,14 +1282,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EArrLit& e, TypeRef type) {
     return gen_arr_lit(e, elem_type);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleLit& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) {
     auto stype = tuple_llvm_type(type);
     if (!stype) return nullptr;
     // Allocate tuple on stack, store each element via GEP.
     auto alloca = create_entry_alloca(stype);
-    for (uint32_t i = 0; i < e.elems.size(); ++i) {
-        auto val = gen_expr(*e.elems[i]);
-        if (!val) return nullptr;
+    uint32_t i = 0;
+    bool ok = true;
+    v.each_elem([&](lir_view::ExprRef er) {
+        if (!ok) return;
+        auto* el = lexpr_of(er);
+        if (!el) { ok = false; return; }
+        auto val = gen_expr(*el);
+        if (!val) { ok = false; return; }
         if (TypeRef(type).tuple_elems()[i]) {
             auto et = logos_to_mlir(TypeRef(type).tuple_elems()[i]);
             if (et) val = coerce_numeric(val, et);
@@ -1216,16 +1302,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleLit& e, TypeRef type) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, idx);
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-    }
+        ++i;
+    });
+    if (!ok) return nullptr;
     return alloca;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, TypeRef type) {
-    auto recv = gen_expr(*e.receiver);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type) {
+    auto* recv_l = lexpr_of(v.receiver());
+    if (!recv_l) return nullptr;
+    auto recv = gen_expr(*recv_l);
     if (!recv) return nullptr;
     // Auto-deref: if receiver is &(tuple) or &mut(tuple), use pointee for GEP type.
     // recv is already a pointer to the tuple (passed as ptr in calling convention).
-    TypeRef recv_type = e.receiver->type;
+    TypeRef recv_type = recv_l->type;
     if (recv_type && TypeRef(recv_type).pointee() &&
         TypeRef(recv_type).pointee().kind() == LogosType::Kind::Tuple &&
         (TypeRef(recv_type).kind() == LogosType::Kind::Ref ||
@@ -1236,7 +1326,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, TypeRef type) {
     if (!stype) return nullptr;
     auto elem_mlir = logos_to_mlir(type);
     if (!elem_mlir) return nullptr;
-    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(e.index)};
+    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(v.index())};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, recv, idx);
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
 }
@@ -1245,7 +1335,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, TypeRef type) {
 // Cast
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ECast>(_le->kind);
     // ── Hermes typed container cast: &[T] as <I32>[] → Hermes. ──────────
     if (!e.hermes_build_fn.empty()) {
         auto val = gen_expr(*e.operand);
@@ -1414,7 +1506,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, TypeRef type) {
 // Class new
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ENew& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ENewView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ENew>(_le->kind);
     auto sit = struct_types_.find(e.class_name);
     if (sit == struct_types_.end()) {
         std::fprintf(stderr, "mlir_gen: unknown class '%s'\n", e.class_name.c_str());
@@ -1449,8 +1543,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ENew& e, TypeRef) {
 // If-expression / match-expression
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EIfExpr& e, TypeRef type) {
-    auto cond = gen_expr(*e.cond);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
+    auto* cond_l  = lexpr_of(v.cond());
+    auto* then_l  = lexpr_of(v.then_val());
+    auto* else_l  = lexpr_of(v.else_val());
+    if (!cond_l || !then_l || !else_l) return nullptr;
+    auto cond = gen_expr(*cond_l);
     if (!cond) return nullptr;
 
     mlir::Type result_type = logos_to_mlir(type);
@@ -1470,14 +1568,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIfExpr& e, TypeRef type) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
 
     builder_.setInsertionPointToStart(then_block);
-    auto then_val = gen_expr(*e.then_val);
+    auto then_val = gen_expr(*then_l);
     if (!then_val) then_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
     then_val = coerce_numeric(then_val, result_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, then_val, result_alloca);
     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
     builder_.setInsertionPointToStart(else_block);
-    auto else_val = gen_expr(*e.else_val);
+    auto else_val = gen_expr(*else_l);
     if (!else_val) else_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
     else_val = coerce_numeric(else_val, result_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, else_val, result_alloca);
@@ -1487,7 +1585,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIfExpr& e, TypeRef type) {
     return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EMatchExpr>(_le->kind);
     mlir::Type result_type = logos_to_mlir(type);
     if (!result_type) return nullptr;
 
@@ -1776,12 +1876,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, TypeRef type) {
 // Closure call
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureBox& box, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& box = std::get<EClosureBox>(_le->kind);
     if (!box.inner) return nullptr;
     return gen_closure(*box.inner, type);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureCall& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EClosureCall>(_le->kind);
     auto closure = gen_expr(*e.callee);
     if (!closure) return nullptr;
 
@@ -1829,7 +1933,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureCall& e, TypeRef type) {
     return result;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EFnPtrCall& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EFnPtrCall>(_le->kind);
     // Bare function pointer call: fn_ptr(arg1, arg2, ...) — no env_ptr.
     auto fn_ptr = gen_expr(*e.callee);
     if (!fn_ptr) return nullptr;
@@ -1877,9 +1983,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFnPtrCall& e, TypeRef type) {
 // Slice helpers
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLit& e, TypeRef) {
-    auto base = gen_expr(*e.base);
-    auto len  = gen_expr(*e.len);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef) {
+    auto* base_l = lexpr_of(v.base());
+    auto* len_l  = lexpr_of(v.len());
+    if (!base_l || !len_l) return nullptr;
+    auto base = gen_expr(*base_l);
+    auto len  = gen_expr(*len_l);
     if (!base || !len) return nullptr;
     auto stype = slice_llvm_type();
     auto alloca = create_entry_alloca(stype);
@@ -1895,9 +2004,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLit& e, TypeRef) {
     return alloca;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceIndex& e, TypeRef type) {
-    auto slice = gen_expr(*e.slice);
-    auto index = gen_expr(*e.index);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type) {
+    auto* slice_l = lexpr_of(v.slice());
+    auto* index_l = lexpr_of(v.index());
+    if (!slice_l || !index_l) return nullptr;
+    auto slice = gen_expr(*slice_l);
+    auto index = gen_expr(*index_l);
     if (!slice || !index) return nullptr;
     auto elem_type = logos_to_mlir(type);
     if (!elem_type) elem_type = builder_.getI32Type();
@@ -1907,14 +2019,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceIndex& e, TypeRef type) {
     auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, pi);
     auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
     // GEP into data array by index.
-    bool idx_unsigned = e.index->type &&
-        (TypeRef(e.index->type).kind() == LogosType::Kind::U8  ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U16 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U32 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U24 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U56 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U64 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U128);
+    bool idx_unsigned = index_l->type &&
+        (TypeRef(index_l->type).kind() == LogosType::Kind::U8  ||
+         TypeRef(index_l->type).kind() == LogosType::Kind::U16 ||
+         TypeRef(index_l->type).kind() == LogosType::Kind::U32 ||
+         TypeRef(index_l->type).kind() == LogosType::Kind::U24 ||
+         TypeRef(index_l->type).kind() == LogosType::Kind::U56 ||
+         TypeRef(index_l->type).kind() == LogosType::Kind::U64 ||
+         TypeRef(index_l->type).kind() == LogosType::Kind::U128);
     mlir::Value gep_idx;
     if (idx_unsigned && index.getType() != builder_.getI64Type())
         gep_idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), index);
@@ -1926,8 +2038,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceIndex& e, TypeRef type) {
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, elem_ptr);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLen& e, TypeRef) {
-    auto slice = gen_expr(*e.slice);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLenView v, TypeRef) {
+    auto* sl = lexpr_of(v.slice());
+    if (!sl) return nullptr;
+    auto slice = gen_expr(*sl);
     if (!slice) return nullptr;
     auto stype = slice_llvm_type();
     // Load len from field 1
@@ -1936,8 +2050,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESliceLen& e, TypeRef) {
     return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESlicePtr& e, TypeRef) {
-    auto slice = gen_expr(*e.slice);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESlicePtrView v, TypeRef) {
+    auto* sl = lexpr_of(v.slice());
+    if (!sl) return nullptr;
+    auto slice = gen_expr(*sl);
     if (!slice) return nullptr;
     auto stype = slice_llvm_type();
     // Load ptr from field 0
@@ -1975,7 +2091,9 @@ int MLIRGenImpl::format_type_tag(TypeRef t) noexcept {
     }
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EFormatCall& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EFormatCall>(_le->kind);
     auto fmt_val = gen_expr(*e.fmt);
     if (!fmt_val) return nullptr;
 
@@ -2047,12 +2165,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFormatCall& e, TypeRef) {
 // Misc expression kinds
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EPackExpand&, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPackExpandView, TypeRef) {
     std::fprintf(stderr, "mlir_gen: unexpected EPackExpand (should be expanded by mono)\n");
     return nullptr;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESizeOf& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ESizeOf>(_le->kind);
     // For Struct/Datatype: logos_to_mlir returns ptr_type() (always passed by pointer),
     // but sizeof needs the actual aggregate type, not the pointer.
     mlir::Type elem_mlir = nullptr;
@@ -2076,7 +2196,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESizeOf& e, TypeRef) {
         loc_, builder_.getI64Type(), size_ptr);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrArith& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EPtrArith>(_le->kind);
     auto p = gen_expr(*e.ptr);
     auto n = gen_expr(*e.offset);
     if (!p || !n) return nullptr;
@@ -2112,7 +2234,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrArith& e, TypeRef) {
     return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_ty, p, idx);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrDiff& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrDiffView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EPtrDiff>(_le->kind);
     auto a = gen_expr(*e.lhs);
     auto b = gen_expr(*e.rhs);
     if (!a || !b) return nullptr;
@@ -2142,17 +2266,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrDiff& e, TypeRef) {
     return builder_.create<mlir::arith::DivSIOp>(loc_, diff, sz);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ETypeCodeOf& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETypeCodeOfView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ETypeCodeOf>(_le->kind);
     // Should have been folded to ELitInt by mono.  Emit 0 as a defensive
     // fallback (not expected to be reached for well-formed programs).
     (void)e;
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EBlockExpr& e, TypeRef) {
-    if (e.block) gen_block(*e.block);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBlockExprView v, TypeRef) {
+    if (auto br = v.block(); br) {
+        if (auto* blk = lblock_of(br)) gen_block(*blk);
+    }
     if (is_terminated(builder_.getBlock())) return nullptr;
-    if (e.result) return gen_expr(*e.result);
+    if (auto rr = v.result(); rr) {
+        if (auto* r = lexpr_of(rr)) return gen_expr(*r);
+    }
     return nullptr;
 }
 
@@ -2160,13 +2290,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EBlockExpr& e, TypeRef) {
 // Try expression: expr?
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
-    auto inner_ptr = gen_expr(*e.inner);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
+    auto* inner = lexpr_of(v.inner());
+    if (!inner) return nullptr;
+    auto inner_ptr = gen_expr(*inner);
     if (!inner_ptr) return nullptr;
     // Aggregate returned by value — spill to alloca so GEP works below.
     inner_ptr = spill_to_alloca(inner_ptr);
 
-    auto* te = resolve_tagged_enum(std::string(TypeRef(e.inner->type).enum_name()), e.inner->type);
+    auto* te = resolve_tagged_enum(std::string(TypeRef(inner->type).enum_name()), inner->type);
     if (!te) {
         std::fprintf(stderr, "mlir_gen: ETry: cannot resolve Result enum\n");
         return nullptr;
@@ -2176,7 +2308,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
     llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
     auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, inner_ptr, di);
     auto disc     = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), disc_ptr);
-    auto ok_cst   = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.ok_disc, 32);
+    auto ok_cst   = builder_.create<mlir::arith::ConstantIntOp>(loc_, v.ok_disc(), 32);
     auto is_ok    = builder_.create<mlir::arith::CmpIOp>(
                         loc_, mlir::arith::CmpIPredicate::eq, disc, ok_cst);
 
@@ -2198,7 +2330,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
     builder_.setInsertionPointToStart(ok_block);
     {
         const TaggedEnumInfo::VariantPayload* ok_vp = nullptr;
-        for (auto& v : te->variants) if (v.disc == e.ok_disc) { ok_vp = &v; break; }
+        int32_t ok_d = v.ok_disc();
+        for (auto& vp : te->variants) if (vp.disc == ok_d) { ok_vp = &vp; break; }
 
         llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
         auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
@@ -2227,7 +2360,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
     builder_.setInsertionPointToStart(err_block);
     {
         const TaggedEnumInfo::VariantPayload* err_vp = nullptr;
-        for (auto& v : te->variants) if (v.disc == e.err_disc) { err_vp = &v; break; }
+        int32_t err_d = v.err_disc();
+        for (auto& vp : te->variants) if (vp.disc == err_d) { err_vp = &vp; break; }
 
         llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
         auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
@@ -2238,7 +2372,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETry& e, TypeRef type) {
         llvm::SmallVector<mlir::LLVM::GEPArg> di2{int32_t(0), int32_t(0)};
         auto rdp = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), te->llvm_type, ret_alloca, di2);
-        auto edc = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.err_disc, 32);
+        auto edc = builder_.create<mlir::arith::ConstantIntOp>(loc_, v.err_disc(), 32);
         builder_.create<mlir::LLVM::StoreOp>(loc_, edc, rdp);
         // Copy E payload if it exists
         if (err_vp && !err_vp->field_types.empty()) {
@@ -2564,7 +2698,9 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EReflectOf& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EReflectOfView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EReflectOf>(_le->kind);
     auto i8 = builder_.getIntegerType(8);
 
     // Compute symbol name deterministically from fqn (same formula as reflection_emit).
@@ -2608,7 +2744,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EReflectOf& e, TypeRef) {
     return alloca;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, TypeRef ret_type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EHermesLit>(_le->kind);
     auto [blob, param_slots] = build_hermes_zone(e);
 
     auto lit_idx    = hermes_lit_counter_++;

@@ -80,6 +80,12 @@ inline int64_t read_i64(const RefBase& r, uint8_t key) noexcept {
     return *av.as_ptr<const int64_t>(r.base());
 }
 
+inline double read_f64(const RefBase& r, uint8_t key) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return 0.0;
+    return *av.as_ptr<const double>(r.base());
+}
+
 inline std::optional<int64_t> read_i64_opt(const RefBase& r, uint8_t key) noexcept {
     auto av = r.mirror()->get(key, r.base());
     if (av.is_null()) return std::nullopt;
@@ -375,6 +381,21 @@ struct ELitIntView {
     int64_t value() const noexcept { return detail::read_i64(self, ek::LIT_I64.code); }
 };
 
+struct ELitFloatView {
+    ExprRef self;
+    double value() const noexcept { return detail::read_f64(self, ek::LIT_F64.code); }
+};
+
+struct ELitBoolView {
+    ExprRef self;
+    bool value() const noexcept { return detail::read_bool(self, ek::LIT_BOOL.code); }
+};
+
+struct ELitStrView {
+    ExprRef self;
+    std::string_view value() const noexcept { return detail::read_string(self, ek::LIT_STR.code); }
+};
+
 struct EBinOpView {
     ExprRef self;
     std::string_view op() const noexcept { return detail::read_string(self, ek::OP.code); }
@@ -384,12 +405,15 @@ struct EBinOpView {
 
 struct EUnaryView {
     ExprRef self;
+    std::string_view op() const noexcept { return detail::read_string(self, ek::OP.code); }
     ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
 };
 
 struct ETryView {
     ExprRef self;
     ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
+    int32_t ok_disc()  const noexcept { return int32_t(detail::read_u32(self, ek::OK_DISC.code)); }
+    int32_t err_disc() const noexcept { return int32_t(detail::read_u32(self, ek::ERR_DISC.code)); }
 };
 
 struct ESliceLitView {
@@ -567,6 +591,19 @@ struct EClosureBoxView {
         }
     }
 };
+
+// ── Stub views (Phase 3d): bodies still go through lexpr_of() to reach the
+// underlying variant. Promoted to richer accessors as call-sites migrate.
+
+struct EAddrOfTempView { ExprRef self; };
+struct EEnumLitView    { ExprRef self; };
+struct ESizeOfView     { ExprRef self; };
+struct ETypeCodeOfView { ExprRef self; };
+struct EPtrArithView   { ExprRef self; };
+struct EPtrDiffView    { ExprRef self; };
+struct EReflectOfView  { ExprRef self; };
+struct EHermesLitView  { ExprRef self; };
+struct EPackExpandView { ExprRef self; };
 
 // ── Pattern leaf exemplar ────────────────────────────────────────────────
 
