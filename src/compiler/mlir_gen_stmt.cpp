@@ -63,7 +63,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(std::get<SWhile>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(std::get<SFor>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(std::get<SLoop>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(v); }
@@ -636,7 +636,11 @@ void MLIRGenImpl::gen_if(lir_view::SIfView v) {
 // gen_while
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_while(const SWhile& s) {
+void MLIRGenImpl::gen_while(lir_view::SWhileView v) {
+    auto* cond_le = lexpr_of(v.cond());
+    auto* body_lb = lblock_of(v.body());
+    if (!cond_le || !body_lb) return;
+    std::string label(v.label());
     auto* region     = builder_.getBlock()->getParent();
     auto* cond_block = new mlir::Block();
     auto* body_block = new mlir::Block();
@@ -647,13 +651,13 @@ void MLIRGenImpl::gen_while(const SWhile& s) {
 
     builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
     builder_.setInsertionPointToStart(cond_block);
-    auto cond = gen_expr(*s.cond);
+    auto cond = gen_expr(*cond_le);
     if (!cond) return;
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
     builder_.setInsertionPointToStart(body_block);
-    loop_stack_.push_back({cond_block, exit_block, {}, s.label});
-    gen_block(*s.body);
+    loop_stack_.push_back({cond_block, exit_block, {}, label});
+    gen_block(*body_lb);
     loop_stack_.pop_back();
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::cf::BranchOp>(loc_, cond_block);

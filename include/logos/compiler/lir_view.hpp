@@ -1012,21 +1012,29 @@ struct SIfView {
 
 struct SWhileView {
     StmtRef self;
-    ExprRef  cond() const noexcept { return detail::stmt_sub_expr(self, sk::COND.code); }
-    BlockRef body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    ExprRef  cond() const noexcept  { return detail::stmt_sub_expr(self, sk::COND.code); }
+    BlockRef body() const noexcept  { return detail::stmt_sub_block(self, sk::BODY.code); }
+    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
 };
 
 struct SForView {
     StmtRef self;
-    std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
-    ExprRef          lo() const noexcept   { return detail::stmt_sub_expr(self, sk::LO.code); }
-    ExprRef          hi() const noexcept   { return detail::stmt_sub_expr(self, sk::HI.code); }
-    BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    std::string_view var() const noexcept   { return detail::stmt_str(self, sk::VAR.code); }
+    ExprRef          lo() const noexcept    { return detail::stmt_sub_expr(self, sk::LO.code); }
+    ExprRef          hi() const noexcept    { return detail::stmt_sub_expr(self, sk::HI.code); }
+    BlockRef         body() const noexcept  { return detail::stmt_sub_block(self, sk::BODY.code); }
+    bool             inclusive() const noexcept { return detail::read_bool(self, sk::INCLUSIVE.code); }
+    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
 };
 
 struct SLoopView {
     StmtRef self;
-    BlockRef body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    BlockRef         body() const noexcept       { return detail::stmt_sub_block(self, sk::BODY.code); }
+    std::string_view label() const noexcept      { return detail::stmt_str(self, sk::LABEL.code); }
+    std::string_view break_slot() const noexcept { return detail::stmt_str(self, sk::BREAK_SLOT.code); }
+    TypeRef          result_type(const TypePoolImpl* pool) const noexcept {
+        return detail::stmt_type(self, sk::RESULT_TYPE.code, pool);
+    }
 };
 
 struct SBlockView {
