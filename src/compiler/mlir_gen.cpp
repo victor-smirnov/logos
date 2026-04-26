@@ -29,6 +29,9 @@ using namespace lir;
 mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     auto mod = mlir::ModuleOp::create(loc_);
 
+    prog_   = &prog;
+    mirror_ = prog.mirror_table.get();
+
     // Pass 0: build struct lookup table so register_tagged_enum can compute
     // payload sizes from LogosType field trees (logos_abi_byte_size).
     for (auto& sd : prog.structs)
@@ -66,8 +69,8 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 
     if (std::getenv("LOGOS_TRACE_PHASES")) {
         size_t total = 0, skipped = 0;
-        for (auto& sd : prog.structs) for (auto& m : sd.methods) { ++total; if (is_binary_skip(m)) ++skipped; }
-        for (auto& fn : prog.functions) { ++total; if (is_binary_skip(fn)) ++skipped; }
+        for (auto& sd : prog.structs) for (auto& m : sd.methods) { ++total; if (is_binary_skip(*m)) ++skipped; }
+        for (auto& fn : prog.functions) { ++total; if (is_binary_skip(*fn)) ++skipped; }
         std::fprintf(stderr, "mlir_gen: %zu functions total, %zu binary-skip\n", total, skipped);
     }
 
@@ -76,21 +79,21 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // provides the implementation from the archive.
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            forward_declare(mod, m);
+            forward_declare(mod, *m);
 
     for (auto& fn : prog.functions)
-        forward_declare(mod, fn);
+        forward_declare(mod, *fn);
 
     // Binary-skip functions are declarations only (no body); MLIR requires
     // declarations to have private visibility.
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            if (is_binary_skip(m))
-                if (auto f = mod.lookupSymbol<mlir::func::FuncOp>(m.name))
+            if (is_binary_skip(*m))
+                if (auto f = mod.lookupSymbol<mlir::func::FuncOp>(m->name))
                     f.setPrivate();
     for (auto& fn : prog.functions)
-        if (is_binary_skip(fn))
-            if (auto f = mod.lookupSymbol<mlir::func::FuncOp>(fn.name))
+        if (is_binary_skip(*fn))
+            if (auto f = mod.lookupSymbol<mlir::func::FuncOp>(fn->name))
                 f.setPrivate();
 
     // Pass 1b: emit vtable globals for trait impls (&dyn Trait support).
@@ -119,15 +122,15 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // Pass 2: fill function bodies (structs, free fns).
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
-            if (is_binary_skip(m)) continue;
-            auto func = mod.lookupSymbol<mlir::func::FuncOp>(m.name);
-            if (!gen_function_body(func, m)) return nullptr;
+            if (is_binary_skip(*m)) continue;
+            auto func = mod.lookupSymbol<mlir::func::FuncOp>(m->name);
+            if (!gen_function_body(func, *m)) return nullptr;
         }
     }
     for (auto& fn : prog.functions) {
-        if (fn.is_extern || is_binary_skip(fn)) continue;
-        auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn.name);
-        if (!gen_function_body(func, fn)) return nullptr;
+        if (fn->is_extern || is_binary_skip(*fn)) continue;
+        auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn->name);
+        if (!gen_function_body(func, *fn)) return nullptr;
     }
 
     // Pass 3: inject dispatch table init calls at the start of main().
@@ -390,7 +393,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
         // struct field instead of storing a pointer returned by gen_arr_lit.
         auto arr_llvm = fi ? mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(fi->type)
                            : mlir::LLVM::LLVMArrayType{};
-        if (arr_llvm && std::holds_alternative<EArrLit>(fval->kind)) {
+        if (arr_llvm && expr_ref_of(*fval).kind() == lir_schema::expr::Code::ArrLit) {
             auto& arr_lit = std::get<EArrLit>(fval->kind);
             auto elem_type = arr_llvm.getElementType();
             for (uint64_t i = 0; i < arr_lit.elems.size(); ++i) {

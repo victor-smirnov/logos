@@ -12,6 +12,8 @@
 #include "mlir_gen.hpp"
 
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>
+#include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 
 #include <mlir/IR/Builders.h>
@@ -83,6 +85,30 @@ public:
 private:
     mlir::OpBuilder builder_;
     mlir::Location  loc_;
+
+    // Set in generate(); used by view-ref helpers below to resolve LExpr*/LStmt*/Pattern*
+    // back to mirror offsets so callers can read fields through lir_view types.
+    const LProgram*       prog_   = nullptr;
+    const LirMirrorTable* mirror_ = nullptr;
+
+    lir_view::ExprRef expr_ref_of(const LExpr& e) const noexcept {
+        if (!mirror_ || !prog_) return {};
+        auto it = mirror_->expr.find(&e);
+        if (it == mirror_->expr.end()) return {};
+        return lir_view::ExprRef(prog_->type_pool.arena(), it->second);
+    }
+    lir_view::StmtRef stmt_ref_of(const LStmt& s) const noexcept {
+        if (!mirror_ || !prog_) return {};
+        auto it = mirror_->stmt.find(&s);
+        if (it == mirror_->stmt.end()) return {};
+        return lir_view::StmtRef(prog_->type_pool.arena(), it->second);
+    }
+    lir_view::PatRef pat_ref_of(const Pattern& p) const noexcept {
+        if (!mirror_ || !prog_) return {};
+        auto it = mirror_->pat.find(&p);
+        if (it == mirror_->pat.end()) return {};
+        return lir_view::PatRef(prog_->type_pool.arena(), it->second);
+    }
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
     std::unordered_map<std::string, const LStructDef*> all_struct_defs_; // name→def for recursive registration

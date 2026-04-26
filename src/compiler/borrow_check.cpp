@@ -26,6 +26,8 @@
 
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>
+#include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 
 #include <format>
@@ -53,15 +55,15 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         if (auto p = sym.find("__drop"); p != std::string_view::npos)
             ts.drop_types.insert(std::string(sym.substr(0, p)));
     };
-    auto scan_fns = [&](const std::vector<LFunction>& fns) {
+    auto scan_fns = [&](const std::vector<LFunctionPtr>& fns) {
         for (auto& fn : fns)
-            register_drop_symbol(fn.name);
+            register_drop_symbol(fn->name);
     };
     scan_fns(prog.functions);
     scan_fns(prog.specializations);
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            register_drop_symbol(m.name);
+            register_drop_symbol(m->name);
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);
@@ -301,63 +303,133 @@ class BorrowChecker {
     // params.empty() && !is_local → unknown/global — assumed safe (e.g. static data,
     //   or result of a function call where we don't track cross-call lifetimes).
 
-    RefProv prov_of(const LExprPtr& e) const {
-        if (!e) return {};
-        return std::visit([&](auto& k) -> RefProv {
-            using K = std::decay_t<decltype(k)>;
+    lir_view::ExprRef expr_ref(const LExprPtr& e) const {
+        auto& tbl = *prog_.mirror_table;
+        auto it = tbl.expr.find(e.get());
+        if (it == tbl.expr.end()) return {};
+        return lir_view::ExprRef(prog_.type_pool.arena(), it->second);
+    }
 
-            if constexpr (std::is_same_v<K, lir::EVarRef>) {
-                // A param variable used directly as a reference value.
-                if (param_names_.count(k.name) && is_ref_kind(e->type))
-                    return {{k.name}, false};
-                // A local ref variable whose provenance we've already computed.
-                auto it = prov_.find(k.name);
+    lir_view::StmtRef stmt_ref(const LStmt& s) const {
+        auto& tbl = *prog_.mirror_table;
+        auto it = tbl.stmt.find(&s);
+        if (it == tbl.stmt.end()) return {};
+        return lir_view::StmtRef(prog_.type_pool.arena(), it->second);
+    }
+
+    const LBlock* block_ptr(lir_view::BlockRef br) const {
+        if (!br) return nullptr;
+        auto& m = prog_.mirror_table->block_by_offset;
+        auto it = m.find(br.offset().value());
+        return it == m.end() ? nullptr : it->second;
+    }
+
+    lir_view::PatRef pat_ref(const Pattern& p) const {
+        auto& tbl = *prog_.mirror_table;
+        auto it = tbl.pat.find(&p);
+        if (it == tbl.pat.end()) return {};
+        return lir_view::PatRef(prog_.type_pool.arena(), it->second);
+    }
+
+    // Match arm pattern bindings: PatVariantData injects each binding name into
+    // scope; PatWild may also bind (when name is non-empty and not "_").
+    void declare_pat_bindings(lir_view::PatRef pr) {
+        if (!pr) return;
+        using Code = lir_schema::pat::Code;
+        switch (pr.kind()) {
+            case Code::VariantData: {
+                lir_view::PatVariantDataView{pr}.each_binding([&](std::string_view b) {
+                    declare_var(std::string(b));
+                });
+                break;
+            }
+            case Code::Wild: {
+                std::string n(lir_view::PatWildView{pr}.name());
+                if (!n.empty() && n != "_") declare_var(n);
+                break;
+            }
+            default: break;
+        }
+    }
+    void declare_pat_bindings(const Pattern& p) {
+        declare_pat_bindings(pat_ref(p));
+    }
+
+    RefProv prov_of(lir_view::ExprRef e) const {
+        if (!e) return {};
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+
+        switch (e.kind()) {
+            case Code::VarRef: {
+                EVarRefView v{e};
+                std::string name(v.name());
+                if (param_names_.count(name) && is_ref_kind(e.type(pool)))
+                    return {{name}, false};
+                auto it = prov_.find(name);
                 if (it != prov_.end()) return it->second;
-                return {};   // unknown non-ref or untracked — assume safe
+                return {};
             }
-            if constexpr (std::is_same_v<K, lir::EAddrOf>) {
-                if (param_names_.count(k.var_name)) return {{k.var_name}, false};
-                if (states_.count(k.var_name))      return {{},           true};
-                return {};  // &global — safe
+            case Code::AddrOf: {
+                EAddrOfView v{e};
+                std::string name(v.var_name());
+                if (param_names_.count(name)) return {{name}, false};
+                if (states_.count(name))      return {{},     true};
+                return {};
             }
-            if constexpr (std::is_same_v<K, lir::EFieldRead>)
-                return prov_of(k.receiver);
-            if constexpr (std::is_same_v<K, lir::EDeref>)
-                return prov_of(k.operand);
-            if constexpr (std::is_same_v<K, lir::ETupleIndex>)
-                return prov_of(k.receiver);
-            if constexpr (std::is_same_v<K, lir::ECast>)
-                return prov_of(k.operand);
-            if constexpr (std::is_same_v<K, lir::EIndexRead>)
-                return prov_of(k.receiver);
-            if constexpr (std::is_same_v<K, lir::EIfExpr>)
-                return merge_prov(prov_of(k.then_val), prov_of(k.else_val));
-            if constexpr (std::is_same_v<K, lir::EBlockExpr>)
-                return prov_of(k.result);
-            if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
+            case Code::FieldRead:
+                return prov_of(EFieldReadView{e}.receiver());
+            case Code::Deref:
+                return prov_of(EDerefView{e}.operand());
+            case Code::TupleIndex:
+                return prov_of(ETupleIndexView{e}.receiver());
+            case Code::Cast:
+                return prov_of(ECastView{e}.operand());
+            case Code::IndexRead:
+                return prov_of(EIndexReadView{e}.receiver());
+            case Code::IfExpr: {
+                EIfExprView v{e};
+                return merge_prov(prov_of(v.then_val()), prov_of(v.else_val()));
+            }
+            case Code::BlockExpr:
+                return prov_of(EBlockExprView{e}.result());
+            case Code::MatchExpr: {
                 RefProv merged = {};
-                for (auto& arm : k.arms)
-                    merged = merge_prov(merged, prov_of(arm.value));
+                EMatchExprView{e}.each_arm([&](EMatchArmRef arm) {
+                    merged = merge_prov(merged, prov_of(arm.value()));
+                });
                 return merged;
             }
-            // ECall / EMethodCall / EStructLit / literals — value is caller-owned,
-            // not a borrowed reference; leave provenance empty (= unknown/safe).
-            return {};
-        }, e->kind);
+            default:
+                // ECall / EMethodCall / EStructLit / literals — value is caller-owned,
+                // not a borrowed reference; leave provenance empty (= unknown/safe).
+                return {};
+        }
+    }
+
+    RefProv prov_of(const LExprPtr& e) const {
+        if (!e) return {};
+        return prov_of(expr_ref(e));
     }
 
     // ── Phase 3 + 4: dangling / lifetime check on return ──────────────────
 
-    void check_return_value(const LExprPtr& e, uint32_t line) {
+    void check_return_value(lir_view::ExprRef er, uint32_t line) {
         if (!ret_type_ || !is_ref_kind(ret_type_)) return;
 
-        RefProv prov = prov_of(e);
+        RefProv prov = prov_of(er);
 
         // 1. Definitely local → always dangling.
         if (prov.is_local) {
             std::string src;
-            if (auto* a = std::get_if<lir::EAddrOf>(&e->kind))  src = a->var_name;
-            else if (auto* v = std::get_if<lir::EVarRef>(&e->kind)) src = v->name;
+            if (er) {
+                using Code = lir_schema::expr::Code;
+                if (er.kind() == Code::AddrOf)
+                    src = std::string(lir_view::EAddrOfView{er}.var_name());
+                else if (er.kind() == Code::VarRef)
+                    src = std::string(lir_view::EVarRefView{er}.name());
+            }
             report(line, std::format(
                 "cannot return reference to local variable '{}': dangling reference",
                 src.empty() ? "?" : src));
@@ -414,7 +486,11 @@ class BorrowChecker {
 
     // ── Expression visitor ─────────────────────────────────────────────────
 
-    void visit(const LExprPtr& e, bool consuming, uint32_t line);
+    void visit(lir_view::ExprRef e, bool consuming, uint32_t line);
+    void visit(const LExprPtr& e, bool consuming, uint32_t line) {
+        if (!e) return;
+        visit(expr_ref(e), consuming, line);
+    }
 
     // Take scoped borrows for all EAddrOf nodes reachable through a ref
     // expression.  Handles the case where the ref is formed conditionally:
@@ -422,45 +498,54 @@ class BorrowChecker {
     //   let r = match tag { A => &x, _ => &y };      borrowed for the scope.
     // For non-borrow sub-expressions (condition of if, scrutinee of match,
     // function calls, etc.) we fall through to a regular visit().
-    void take_ref_borrows(const LExprPtr& e, uint32_t line) {
+    void take_ref_borrows(lir_view::ExprRef e, uint32_t line) {
         if (!e) return;
-        std::visit([&](auto& k) {
-            using K = std::decay_t<decltype(k)>;
-            if constexpr (std::is_same_v<K, lir::EAddrOf>) {
-                take_borrow(k.var_name, is_mut_ref(e->type), line);
-            } else if constexpr (std::is_same_v<K, lir::EIfExpr>) {
-                visit(k.cond, /*consuming=*/true, line);
-                take_ref_borrows(k.then_val, line);
-                take_ref_borrows(k.else_val, line);
-            } else if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
-                visit(k.scrut, /*consuming=*/false, line);
-                for (auto& arm : k.arms) {
-                    if (arm.guard) visit(*arm.guard, /*consuming=*/true, line);
-                    take_ref_borrows(arm.value, line);
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+
+        switch (e.kind()) {
+            case Code::AddrOf: {
+                EAddrOfView v{e};
+                take_borrow(std::string(v.var_name()), is_mut_ref(e.type(pool)), line);
+                break;
+            }
+            case Code::IfExpr: {
+                EIfExprView v{e};
+                visit(v.cond(), /*consuming=*/true, line);
+                take_ref_borrows(v.then_val(), line);
+                take_ref_borrows(v.else_val(), line);
+                break;
+            }
+            case Code::MatchExpr: {
+                EMatchExprView v{e};
+                visit(v.scrut(), /*consuming=*/false, line);
+                v.each_arm([&](EMatchArmRef arm) {
+                    if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
+                    take_ref_borrows(arm.value(), line);
+                });
+                break;
+            }
+            case Code::BlockExpr: {
+                EBlockExprView v{e};
+                if (auto br = v.block()) {
+                    auto it = prog_.mirror_table->block_by_offset.find(
+                        br.offset().value());
+                    if (it != prog_.mirror_table->block_by_offset.end())
+                        visit_block(*it->second);
                 }
-            } else if constexpr (std::is_same_v<K, lir::EBlockExpr>) {
-                if (k.block) visit_block(*k.block);
-                take_ref_borrows(k.result, line);
-            } else {
+                take_ref_borrows(v.result(), line);
+                break;
+            }
+            default:
                 // EVarRef (ref param forwarded), ECall, EMethodCall, etc.
                 visit(e, /*consuming=*/true, line);
-            }
-        }, e->kind);
-    }
-
-    // Visit a sequence of call arguments, handling borrows transiently.
-    // EAddrOf args (including those nested in if/match) create call-site
-    // borrows released when the scope pops after the call.
-    void visit_call_args(const std::vector<LExprPtr>& args, uint32_t line) {
-        push_scope();  // call-site borrow scope
-        for (auto& a : args) {
-            if (a && is_ref_kind(a->type)) {
-                take_ref_borrows(a, line);
-            } else {
-                visit(a, /*consuming=*/true, line);
-            }
+                break;
         }
-        pop_scope();
+    }
+    void take_ref_borrows(const LExprPtr& e, uint32_t line) {
+        if (!e) return;
+        take_ref_borrows(expr_ref(e), line);
     }
 
     // ── Statement visitor ─────────────────────────────────────────────────
@@ -495,159 +580,203 @@ class BorrowChecker {
 
     void visit_stmt(const LStmt& stmt) {
         uint32_t ln = stmt.line;
-        std::visit([&](auto& s) {
-            using S = std::decay_t<decltype(s)>;
+        auto sr = stmt_ref(stmt);
+        if (!sr) return;
+        using namespace lir_view;
+        using Code = lir_schema::stmt::Code;
+        const auto* pool = prog_.type_pool.impl();
 
+        switch (sr.kind()) {
             // ── Let binding ──────────────────────────────────────────────
-            if constexpr (std::is_same_v<S, SLet>) {
-                if (s.value && is_ref_kind(s.type)) {
-                    // Ref binding: take scoped borrows for all EAddrOf sources,
-                    // including those nested inside if/match arms.
-                    take_ref_borrows(s.value, ln);
-                } else if (s.value) {
-                    visit(s.value, /*consuming=*/true, ln);
+            case Code::Let: {
+                SLetView v{sr};
+                auto val = v.value();
+                auto t   = v.type(pool);
+                std::string name(v.name());
+                if (val && is_ref_kind(t)) {
+                    take_ref_borrows(val, ln);
+                } else if (val) {
+                    visit(val, /*consuming=*/true, ln);
                 }
-                declare_var(s.name);
-                if (is_ref_kind(s.type))
-                    prov_[s.name] = prov_of(s.value);
-                else if (s.type && !TypeRef(s.type).lifetime_args().empty() &&
-                         (TypeRef(s.type).kind() == LogosType::Kind::Struct ||
-                          TypeRef(s.type).kind() == LogosType::Kind::ZonedStruct))
-                    prov_[s.name] = prov_of(s.value);  // struct<'z> borrows through lifetime
+                declare_var(name);
+                if (is_ref_kind(t))
+                    prov_[name] = prov_of(val);
+                else if (t && !t.lifetime_args().empty() &&
+                         (t.kind() == LogosType::Kind::Struct ||
+                          t.kind() == LogosType::Kind::ZonedStruct))
+                    prov_[name] = prov_of(val);  // struct<'z> borrows through lifetime
+                break;
+            }
 
             // ── Assignment ───────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SAssign>) {
-                bool is_ref_assign = s.value &&
-                    (prov_.count(s.name) || is_ref_kind(s.value->type));
+            case Code::Assign: {
+                SAssignView v{sr};
+                auto val = v.value();
+                std::string name(v.name());
+                bool is_ref_assign = val &&
+                    (prov_.count(name) || is_ref_kind(val.type(pool)));
                 if (is_ref_assign) {
-                    // Ref reassignment: take scoped borrows for all EAddrOf
-                    // sources (may be conditional).
-                    take_ref_borrows(s.value, ln);
-                } else if (s.value) {
-                    visit(s.value, /*consuming=*/true, ln);
+                    take_ref_borrows(val, ln);
+                } else if (val) {
+                    visit(val, /*consuming=*/true, ln);
                 }
-                if (states_.count(s.name))
-                    states_[s.name] = VarState{};  // re-own
-                // Update provenance for ref variable reassignment.
+                if (states_.count(name))
+                    states_[name] = VarState{};  // re-own
                 if (is_ref_assign)
-                    prov_[s.name] = prov_of(s.value);
+                    prov_[name] = prov_of(val);
+                break;
+            }
 
             // ── Return ───────────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SReturn>) {
-                if (s.value) {
-                    check_return_value(s.value, ln);
-                    visit(s.value, /*consuming=*/true, ln);
+            case Code::Return: {
+                if (auto val = SReturnView{sr}.value()) {
+                    check_return_value(val, ln);
+                    visit(val, /*consuming=*/true, ln);
                 }
+                break;
+            }
 
             // ── Expression statement ─────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SExprStmt>) {
-                visit(s.expr, /*consuming=*/true, ln);
+            case Code::ExprStmt:
+                visit(SExprStmtView{sr}.expr(), /*consuming=*/true, ln);
+                break;
 
             // ── Field write: recv.field = value ──────────────────────────
-            } else if constexpr (std::is_same_v<S, SFieldWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::FieldWrite: {
+                SFieldWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Index write: arr[i] = value ──────────────────────────────
-            } else if constexpr (std::is_same_v<S, SIndexWrite>) {
-                check_live(s.arr, ln);
-                visit(s.index, /*consuming=*/true, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::IndexWrite: {
+                SIndexWriteView v{sr};
+                check_live(std::string(v.arr()), ln);
+                visit(v.index(), /*consuming=*/true, ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Field-index write: recv.field[i] = value ─────────────────
-            } else if constexpr (std::is_same_v<S, SFieldIndexWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.index, /*consuming=*/true, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::FieldIndexWrite: {
+                SFieldIndexWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.index(), /*consuming=*/true, ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Chain field write: recv.mid.field = value ────────────────
-            } else if constexpr (std::is_same_v<S, SChainFieldWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::ChainFieldWrite: {
+                SChainFieldWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Deref-field write: (*recv).field = value ─────────────────
-            } else if constexpr (std::is_same_v<S, SDerefFieldWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::DerefFieldWrite: {
+                SDerefFieldWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── Deref write: *ptr = value ─────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SDerefWrite>) {
-                visit(s.ptr, /*consuming=*/false, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::DerefWrite: {
+                SDerefWriteView v{sr};
+                visit(v.ptr(),   /*consuming=*/false, ln);
+                visit(v.value(), /*consuming=*/true,  ln);
+                break;
+            }
 
             // ── Tuple field write: var.N = value ──────────────────────────
-            } else if constexpr (std::is_same_v<S, STupleWrite>) {
-                check_live(s.receiver, ln);
-                visit(s.value, /*consuming=*/true, ln);
+            case Code::TupleWrite: {
+                STupleWriteView v{sr};
+                check_live(std::string(v.receiver()), ln);
+                visit(v.value(), /*consuming=*/true, ln);
+                break;
+            }
 
             // ── delete ptr ───────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SDelete>) {
-                visit(s.expr, /*consuming=*/true, ln);
+            case Code::Delete:
+                visit(SDeleteView{sr}.expr(), /*consuming=*/true, ln);
+                break;
 
             // ── SDrop — compiler-generated, no-op in borrow checker ───────
-            } else if constexpr (std::is_same_v<S, SDrop>) {
-                (void)s;
+            case Code::Drop:
+                break;
 
             // ── If / else ────────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SIf>) {
-                visit(s.cond, /*consuming=*/true, ln);
+            case Code::If: {
+                SIfView v{sr};
+                visit(v.cond(), /*consuming=*/true, ln);
                 auto saved_s = states_;
                 auto saved_p = prov_;
-                visit_block(*s.then_);
+                if (auto then_b = block_ptr(v.then_block())) visit_block(*then_b);
                 auto then_s = states_;
                 auto then_p = prov_;
                 states_ = saved_s;
                 prov_   = saved_p;
-                if (s.else_) visit_block(**s.else_);
+                if (auto else_b = block_ptr(v.else_block())) visit_block(*else_b);
                 merge_moves(states_, then_s);
                 merge_provs(prov_,   then_p);
+                break;
+            }
 
             // ── While loop ───────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SWhile>) {
-                visit(s.cond, /*consuming=*/true, ln);
-                visit_loop_body(*s.body);
+            case Code::While: {
+                SWhileView v{sr};
+                visit(v.cond(), /*consuming=*/true, ln);
+                if (auto b = block_ptr(v.body())) visit_loop_body(*b);
+                break;
+            }
 
             // ── For range loop ───────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SFor>) {
-                visit(s.lo, /*consuming=*/true, ln);
-                visit(s.hi, /*consuming=*/true, ln);
-                visit_loop_body(*s.body, {s.var});
+            case Code::For: {
+                SForView v{sr};
+                visit(v.lo(), /*consuming=*/true, ln);
+                visit(v.hi(), /*consuming=*/true, ln);
+                if (auto b = block_ptr(v.body()))
+                    visit_loop_body(*b, {std::string(v.var())});
+                break;
+            }
 
             // ── Infinite loop ─────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SLoop>) {
-                visit_loop_body(*s.body);
+            case Code::Loop:
+                if (auto b = block_ptr(SLoopView{sr}.body())) visit_loop_body(*b);
+                break;
 
             // ── Scoping block ─────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SBlock>) {
-                visit_block(*s.body);
+            case Code::Block:
+                if (auto b = block_ptr(SBlockView{sr}.body())) visit_block(*b);
+                break;
 
             // ── For-each loop ─────────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SForEach>) {
-                visit(s.iter, /*consuming=*/false, ln);
-                visit_loop_body(*s.body, {s.var});
+            case Code::ForEach: {
+                SForEachView v{sr};
+                visit(v.iter(), /*consuming=*/false, ln);
+                if (auto b = block_ptr(v.body()))
+                    visit_loop_body(*b, {std::string(v.var())});
+                break;
+            }
 
             // ── Match statement ───────────────────────────────────────────
-            } else if constexpr (std::is_same_v<S, SMatch>) {
-                visit(s.scrut, /*consuming=*/false, ln);
+            case Code::Match: {
+                SMatchView v{sr};
+                visit(v.scrut(), /*consuming=*/false, ln);
                 auto saved_s = states_;
                 auto saved_p = prov_;
                 std::optional<StateMap> merged_s;
                 std::optional<ProvMap>  merged_p;
-                for (auto& arm : s.arms) {
+                v.each_arm([&](EMatchArmRef arm) {
                     states_ = saved_s;
                     prov_   = saved_p;
                     push_scope();
-                    std::visit([&](auto& p) {
-                        if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
-                                                     PatVariantData>) {
-                            for (auto& b : p.bindings) declare_var(b);
-                        } else if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
-                                                             PatWild>) {
-                            if (!p.name.empty() && p.name != "_") declare_var(p.name);
-                        }
-                    }, arm.pat);
-                    if (arm.guard) visit(*arm.guard, /*consuming=*/true, ln);
-                    visit_block(*arm.body);
+                    declare_pat_bindings(arm.pat());
+                    if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
+                    if (auto body = block_ptr(arm.body())) visit_block(*body);
                     pop_scope();
                     if (!merged_s) {
                         merged_s = states_;
@@ -658,15 +787,19 @@ class BorrowChecker {
                                 (*merged_s)[name] = st;
                         merge_provs(*merged_p, prov_);
                     }
-                }
+                });
                 if (merged_s) {
                     for (auto& [name, st] : *merged_s)
                         if (saved_s.count(name)) states_[name] = st;
                     merge_provs(prov_, *merged_p);
                 }
+                break;
             }
-            // SBreak, SContinue — no variable effects.
-        }, stmt.kind);
+
+            // SBreak, SContinue, LetElse — no variable effects in this pass.
+            default:
+                break;
+        }
     }
 
 public:
@@ -698,129 +831,181 @@ public:
 
 // Expression visitor — out-of-line.
 
-void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
+void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
     if (!e) return;
-    std::visit([&](auto& k) {
-        using K = std::decay_t<decltype(k)>;
+    using namespace lir_view;
+    using Code = lir_schema::expr::Code;
+    const auto* pool = prog_.type_pool.impl();
 
+    // Helper: visit a sequence of call arguments via per-view each_arg.
+    // EAddrOf args (including those nested in if/match) create call-site
+    // borrows released when the scope pops after the call.
+    auto visit_args = [&](auto&& view) {
+        push_scope();  // call-site borrow scope
+        view.each_arg([&](ExprRef a) {
+            if (a && is_ref_kind(a.type(pool))) take_ref_borrows(a, line);
+            else                                visit(a, /*consuming=*/true, line);
+        });
+        pop_scope();
+    };
+
+    switch (e.kind()) {
         // ── Variable reference ─────────────────────────────────────────
-        if constexpr (std::is_same_v<K, EVarRef>) {
-            if (consuming && is_move_type(e->type, prog_, ts_))
-                consume(k.name, line);
+        case Code::VarRef: {
+            EVarRefView v{e};
+            std::string name(v.name());
+            if (consuming && is_move_type(e.type(pool), prog_, ts_))
+                consume(name, line);
             else
-                check_live(k.name, line);
+                check_live(name, line);
+            break;
+        }
 
         // ── Address-of: &x or &mut x ──────────────────────────────────
         // When EAddrOf appears directly in visit (not as SLet/SAssign RHS),
-        // this is a transient borrow — caller handles scope (visit_call_args).
-        // We just verify the source is alive.
-        } else if constexpr (std::is_same_v<K, EAddrOf>) {
-            check_live(k.var_name, line);
+        // this is a transient borrow — caller handles scope. We just verify
+        // the source is alive.
+        case Code::AddrOf: {
+            check_live(std::string(EAddrOfView{e}.var_name()), line);
+            break;
+        }
 
         // ── Dereference: *ptr ──────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EDeref>) {
-            visit(k.operand, /*consuming=*/false, line);
+        case Code::Deref:
+            visit(EDerefView{e}.operand(), /*consuming=*/false, line);
+            break;
 
         // ── Field read: recv.field ─────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EFieldRead>) {
-            visit(k.receiver, /*consuming=*/false, line);
+        case Code::FieldRead:
+            visit(EFieldReadView{e}.receiver(), /*consuming=*/false, line);
+            break;
 
         // ── Index read: arr[i] ─────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EIndexRead>) {
-            visit(k.receiver, /*consuming=*/false, line);
-            visit(k.index,    /*consuming=*/true,  line);
+        case Code::IndexRead: {
+            EIndexReadView v{e};
+            visit(v.receiver(), /*consuming=*/false, line);
+            visit(v.index(),    /*consuming=*/true,  line);
+            break;
+        }
 
         // ── Tuple index: t.N ──────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, ETupleIndex>) {
-            visit(k.receiver, /*consuming=*/false, line);
+        case Code::TupleIndex:
+            visit(ETupleIndexView{e}.receiver(), /*consuming=*/false, line);
+            break;
 
         // ── Method call: recv.method(args) ────────────────────────────
         // Receiver is typically &mut self — already wrapped in EAddrOf.
-        } else if constexpr (std::is_same_v<K, EMethodCall>) {
-            visit(k.receiver, /*consuming=*/false, line);
-            visit_call_args(k.args, line);
+        case Code::MethodCall: {
+            EMethodCallView v{e};
+            visit(v.receiver(), /*consuming=*/false, line);
+            visit_args(v);
+            break;
+        }
 
         // ── Free function call: f(args) ───────────────────────────────
-        } else if constexpr (std::is_same_v<K, ECall>) {
-            visit_call_args(k.args, line);
+        case Code::Call:
+            visit_args(ECallView{e});
+            break;
 
         // ── Closure call ───────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EClosureCall>) {
-            visit(k.callee, /*consuming=*/false, line);
-            visit_call_args(k.args, line);
+        case Code::ClosureCall: {
+            EClosureCallView v{e};
+            visit(v.callee(), /*consuming=*/false, line);
+            visit_args(v);
+            break;
+        }
+
+        // ── Fn-pointer call ────────────────────────────────────────────
+        case Code::FnPtrCall: {
+            EFnPtrCallView v{e};
+            visit(v.callee(), /*consuming=*/false, line);
+            visit_args(v);
+            break;
+        }
 
         // ── Binary / Unary ─────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EBinOp>) {
-            visit(k.lhs, /*consuming=*/true, line);
-            visit(k.rhs, /*consuming=*/true, line);
-        } else if constexpr (std::is_same_v<K, EUnary>) {
-            visit(k.operand, /*consuming=*/true, line);
+        case Code::BinOp: {
+            EBinOpView v{e};
+            visit(v.lhs(), /*consuming=*/true, line);
+            visit(v.rhs(), /*consuming=*/true, line);
+            break;
+        }
+        case Code::Unary:
+            visit(EUnaryView{e}.operand(), /*consuming=*/true, line);
+            break;
 
         // ── Cast ───────────────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, ECast>) {
-            visit(k.operand, consuming, line);
+        case Code::Cast:
+            visit(ECastView{e}.operand(), consuming, line);
+            break;
 
         // ── Struct literal ─────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EStructLit>) {
-            for (auto& [fname, fval] : k.fields)
-                visit(fval, /*consuming=*/true, line);
+        case Code::StructLit:
+            EStructLitView{e}.each_field_value([&](ExprRef fv) {
+                visit(fv, /*consuming=*/true, line);
+            });
+            break;
 
         // ── New: new Foo { ... } ───────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, ENew>) {
-            for (auto& [fname, fval] : k.fields)
-                visit(fval, /*consuming=*/true, line);
+        case Code::New:
+            ENewView{e}.each_field_value([&](ExprRef fv) {
+                visit(fv, /*consuming=*/true, line);
+            });
+            break;
 
         // ── Array literal ──────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EArrLit>) {
-            for (auto& elem : k.elems)
-                visit(elem, /*consuming=*/true, line);
+        case Code::ArrLit:
+            EArrLitView{e}.each_elem([&](ExprRef el) {
+                visit(el, /*consuming=*/true, line);
+            });
+            break;
 
         // ── Tuple literal ──────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, ETupleLit>) {
-            for (auto& elem : k.elems)
-                visit(elem, /*consuming=*/true, line);
+        case Code::TupleLit:
+            ETupleLitView{e}.each_elem([&](ExprRef el) {
+                visit(el, /*consuming=*/true, line);
+            });
+            break;
 
         // ── Enum literal with payload ──────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EEnumLitData>) {
-            for (auto& pl : k.payload)
+        case Code::EnumLitData:
+            EEnumLitDataView{e}.each_payload([&](ExprRef pl) {
                 visit(pl, /*consuming=*/true, line);
+            });
+            break;
 
         // ── If expression ──────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EIfExpr>) {
-            visit(k.cond, /*consuming=*/true, line);
+        case Code::IfExpr: {
+            EIfExprView v{e};
+            visit(v.cond(), /*consuming=*/true, line);
             auto saved_s = states_;
             auto saved_p = prov_;
-            visit(k.then_val, consuming, line);
+            visit(v.then_val(), consuming, line);
             auto then_s = states_;
             auto then_p = prov_;
             states_ = saved_s;
             prov_   = saved_p;
-            visit(k.else_val, consuming, line);
+            visit(v.else_val(), consuming, line);
             merge_moves(states_, then_s);
             merge_provs(prov_,   then_p);
+            break;
+        }
 
         // ── Match expression ───────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EMatchExpr>) {
-            visit(k.scrut, /*consuming=*/false, line);
+        case Code::MatchExpr: {
+            EMatchExprView v{e};
+            visit(v.scrut(), /*consuming=*/false, line);
             auto saved_s = states_;
             auto saved_p = prov_;
             std::optional<StateMap> merged_s;
             std::optional<ProvMap>  merged_p;
-            for (auto& arm : k.arms) {
+            v.each_arm([&](EMatchArmRef arm) {
                 states_ = saved_s;
                 prov_   = saved_p;
                 push_scope();
-                std::visit([&](auto& p) {
-                    if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
-                                                 PatVariantData>) {
-                        for (auto& b : p.bindings) declare_var(b);
-                    } else if constexpr (std::is_same_v<std::decay_t<decltype(p)>,
-                                                         PatWild>) {
-                        if (!p.name.empty() && p.name != "_") declare_var(p.name);
-                    }
-                }, arm.pat);
-                if (arm.guard) visit(*arm.guard, /*consuming=*/true, line);
-                visit(arm.value, consuming, line);
+                declare_pat_bindings(arm.pat());
+                if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
+                visit(arm.value(), consuming, line);
                 pop_scope();
                 if (!merged_s) {
                     merged_s = states_;
@@ -831,51 +1016,72 @@ void BorrowChecker::visit(const LExprPtr& e, bool consuming, uint32_t line) {
                             (*merged_s)[name] = st;
                     merge_provs(*merged_p, prov_);
                 }
-            }
+            });
             if (merged_s) {
                 for (auto& [name, st] : *merged_s)
                     if (saved_s.count(name)) states_[name] = st;
                 merge_provs(prov_, *merged_p);
             }
+            break;
+        }
 
         // ── Try expression: expr? ──────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, ETry>) {
-            visit(k.inner, consuming, line);
+        case Code::Try:
+            visit(ETryView{e}.inner(), consuming, line);
+            break;
 
         // ── Slice ──────────────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, ESliceLit>) {
-            visit(k.base, /*consuming=*/false, line);
-            visit(k.len,  /*consuming=*/true,  line);
-        } else if constexpr (std::is_same_v<K, ESliceIndex>) {
-            visit(k.slice, /*consuming=*/false, line);
-            visit(k.index, /*consuming=*/true,  line);
-        } else if constexpr (std::is_same_v<K, ESliceLen>) {
-            visit(k.slice, /*consuming=*/false, line);
-        } else if constexpr (std::is_same_v<K, ESlicePtr>) {
-            visit(k.slice, /*consuming=*/false, line);
+        case Code::SliceLit: {
+            ESliceLitView v{e};
+            visit(v.base(), /*consuming=*/false, line);
+            visit(v.len(),  /*consuming=*/true,  line);
+            break;
+        }
+        case Code::SliceIndex: {
+            ESliceIndexView v{e};
+            visit(v.slice(), /*consuming=*/false, line);
+            visit(v.index(), /*consuming=*/true,  line);
+            break;
+        }
+        case Code::SliceLen:
+            visit(ESliceLenView{e}.slice(), /*consuming=*/false, line);
+            break;
+        case Code::SlicePtr:
+            visit(ESlicePtrView{e}.slice(), /*consuming=*/false, line);
+            break;
 
         // ── Format call ────────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EFormatCall>) {
-            visit(k.fmt, /*consuming=*/false, line);
-            visit_call_args(k.args, line);
+        case Code::FormatCall: {
+            EFormatCallView v{e};
+            visit(v.fmt(), /*consuming=*/false, line);
+            visit_args(v);
+            break;
+        }
 
         // ── Closure box ────────────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EClosureBox>) {
-            if (k.inner) {
-                for (auto& cap : k.inner->captures)
-                    check_live(cap, line);
-            }
+        case Code::ClosureBox:
+            EClosureBoxView{e}.each_capture_name([&](std::string_view cap) {
+                check_live(std::string(cap), line);
+            });
+            break;
 
         // ── Block expression ───────────────────────────────────────────
-        } else if constexpr (std::is_same_v<K, EBlockExpr>) {
-            if (k.block) visit_block(*k.block);
-            if (k.result) visit(k.result, consuming, line);
+        case Code::BlockExpr: {
+            EBlockExprView v{e};
+            if (auto br = v.block()) {
+                auto it = prog_.mirror_table->block_by_offset.find(
+                    br.offset().value());
+                if (it != prog_.mirror_table->block_by_offset.end())
+                    visit_block(*it->second);
+            }
+            if (auto r = v.result()) visit(r, consuming, line);
+            break;
+        }
 
         // ── Literals / compile-time nodes — no ownership effects ───────
-        } else {
-            (void)k;
-        }
-    }, e->kind);
+        default:
+            break;
+    }
 }
 
 // ── Pass entry point ────────────────────────────────────────────────────────
@@ -889,10 +1095,10 @@ lir::LProgram borrow_check(lir::LProgram prog) {
         BorrowChecker(prog.diags, "fn " + fn.name, prog, ts).check(fn);
     };
 
-    for (auto& fn : prog.functions)       check(fn);
-    for (auto& fn : prog.specializations) check(fn);
+    for (auto& fn : prog.functions)       check(*fn);
+    for (auto& fn : prog.specializations) check(*fn);
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods)        check(m);
+        for (auto& m : sd.methods)        check(*m);
 
     return prog;
 }

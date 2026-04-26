@@ -13,7 +13,6 @@
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
-#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/mono.hpp>
 
 #include <logos/hermes/document.hpp>
@@ -428,7 +427,7 @@ int main(int argc, char** argv) {
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         meta_prog.functions.erase(
             std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
-                [](const auto& f) { return f.is_metaprog_stub; }),
+                [](const auto& f) { return f->is_metaprog_stub; }),
             meta_prog.functions.end());
         meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
         meta_prog = logos::compiler::mono_pass(std::move(meta_prog));
@@ -579,7 +578,7 @@ int main(int argc, char** argv) {
         for (const auto& mh : prog.metaprog_handlers) hook_names.insert(mh.hook_fn);
         prog.functions.erase(
             std::remove_if(prog.functions.begin(), prog.functions.end(),
-                [&](const auto& f) { return hook_names.count(f.name) > 0; }),
+                [&](const auto& f) { return hook_names.count(f->name) > 0; }),
             prog.functions.end());
     }
 
@@ -589,7 +588,7 @@ int main(int argc, char** argv) {
     prog = logos::compiler::reflection_emit(std::move(prog));
     report("reflection_emit");
 
-    // ── Step 2c: Monomorphization ────────────────────────────────
+    // ── Step 2c: Monomorphization (also emits L-IR Hermes mirror) ─
     prog = logos::compiler::mono_pass(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
@@ -600,13 +599,6 @@ int main(int argc, char** argv) {
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
     report("borrow");
-
-    // ── Step 2e: Emit Hermes mirror of L-IR (Phase 3b — write-only) ──
-    // Validates the variant→Hermes mapping on every compile; consumers
-    // arrive in Phase 3d.
-    prog.mirror_table = std::make_unique<logos::compiler::LirMirrorTable>(
-        logos::compiler::lir_mirror_emit(prog));
-    report("lir_mirror_emit");
 
     // ── Step 3: L-IR → MLIR ─────────────────────────────────────
     mlir::MLIRContext mlir_ctx;

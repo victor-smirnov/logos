@@ -206,28 +206,66 @@ inline constexpr Key ELEM_TYPE         {"ELEM_TYPE",       49};   // RelPtr<Logo
 inline constexpr Key OK_DISC           {"OK_DISC",         50};   // i32
 inline constexpr Key ERR_DISC          {"ERR_DISC",        51};   // i32
 
-// EPtrDiff
-inline constexpr Key BY_BYTE           {"BY_BYTE",         52};   // u8
-
-// EHermesLit
-inline constexpr Key ROOT              {"ROOT",            53};   // RelPtr<HermesVal-mirror>
-inline constexpr Key HAS_CAPTURES      {"HAS_CAPTURES",    54};   // u8
-inline constexpr Key CAPTURE_EXPRS     {"CAPTURE_EXPRS",   55};   // Array<RelPtr<LExpr>>
-inline constexpr Key CAPTURE_TYPES     {"CAPTURE_TYPES",   56};   // Array<RelPtr<LogosType>>
-inline constexpr Key CAPTURE_PARAM_COUNT {"CAPTURE_PARAM_COUNT", 57}; // u32
-inline constexpr Key VALUE_INDICES     {"VALUE_INDICES",   58};   // Array<u32> (capture slot → value index)
-
-// EMatchExpr arm mirror keys (separate sub-namespace? — folded here for now)
-inline constexpr Key ARM_PAT           {"ARM_PAT",         59};   // RelPtr<Pattern-mirror>
-inline constexpr Key ARM_GUARD         {"ARM_GUARD",       60};   // RelPtr<LExpr> (optional)
-inline constexpr Key ARM_VALUE         {"ARM_VALUE",       61};   // RelPtr<LExpr>
-inline constexpr Key ARM_BODY          {"ARM_BODY",        62};   // RelPtr<LBlock>
-
-// Type field (for STupleWrite, SForEach, SDrop, SLoop result_type, ...)
-// NOTE: every LExpr already has TYPE in expr_common. These are extras for
-// payloads that carry an additional LogosType field.
-inline constexpr Key RECV_TYPE         {"RECV_TYPE",       63};   // RelPtr<LogosType>
 } // namespace expr_keys
+
+// ── Per-variant / per-mirror-map sub-namespaces ───────────────────────────
+//
+// TinyObjectMap caps unique key ids per map at MAX_KEYS=52 (52-bit bitmap in
+// the 64-bit header). Variant-specific or mirror-specific keys live here so
+// the global expr_keys numbering stays under 52. Each namespace's ids are
+// only valid in maps of the corresponding category — they freely overlap with
+// expr_keys numerically because they're never present in the same map.
+
+// Keys for LMatchArm / EMatchArm mirror maps (separate map category).
+namespace arm_keys {
+inline constexpr Key PAT               {"ARM_PAT",          0};   // RelPtr<Pattern-mirror>
+inline constexpr Key GUARD             {"ARM_GUARD",        1};   // RelPtr<LExpr> (optional)
+inline constexpr Key VALUE             {"ARM_VALUE",        2};   // RelPtr<LExpr> (EMatchArm)
+inline constexpr Key BODY              {"ARM_BODY",         3};   // RelPtr<LBlock> (LMatchArm)
+} // namespace arm_keys
+
+// Keys for the EHermesLit LExpr variant map. expr_common::TYPE at 0 still
+// applies; these start at 1.
+namespace hermes_lit_keys {
+inline constexpr Key ROOT                {"ROOT",                1};   // RelPtr<HermesVal-mirror>
+inline constexpr Key HAS_CAPTURES        {"HAS_CAPTURES",        2};   // u8
+inline constexpr Key CAPTURE_EXPRS       {"CAPTURE_EXPRS",       3};   // Array<RelPtr<LExpr>>
+inline constexpr Key CAPTURE_TYPES       {"CAPTURE_TYPES",       4};   // Array<RelPtr<LogosType>>
+inline constexpr Key CAPTURE_PARAM_COUNT {"CAPTURE_PARAM_COUNT", 5};   // u32
+} // namespace hermes_lit_keys
+
+// Keys for HermesVal mirror maps (HVNull / HVBool / HVInt / HVFloat / HVStr /
+// HVMap / HVArray / HVCapture). HermesVal lives outside the LExpr variant
+// space (synthetic HV_BASE category), so no expr_common::TYPE is reserved.
+namespace hv_keys {
+inline constexpr Key BOOL_VALUE        {"HV_BOOL",          0};   // u8
+inline constexpr Key INT_VALUE         {"HV_I64",           1};   // i64
+inline constexpr Key FLOAT_VALUE       {"HV_F64",           2};   // f64
+inline constexpr Key STR_VALUE         {"HV_STR",           3};   // Varchar
+inline constexpr Key MAP_KEYS          {"HV_MAP_KEYS",      4};   // Array<Varchar | i64>
+inline constexpr Key MAP_VALUES        {"HV_MAP_VALUES",    5};   // Array<RelPtr<HermesVal-mirror>>
+inline constexpr Key TYPE_NAME         {"HV_TYPE_NAME",     6};   // Varchar (HVMap key_type / HVArray elem_type)
+inline constexpr Key ELEMS             {"HV_ELEMS",         7};   // Array<RelPtr<HermesVal-mirror>>
+inline constexpr Key PARAM_INDEX       {"HV_PARAM_INDEX",   8};   // u32 (HVCapture)
+inline constexpr Key VALUE_INDEX       {"HV_VALUE_INDEX",   9};   // u32 (HVCapture)
+} // namespace hv_keys
+
+// Keys for the EClosure synthetic mirror map.
+namespace closure_keys {
+inline constexpr Key BLOCK             {"CL_BLOCK",         0};   // RelPtr<LBlock>
+inline constexpr Key NAME              {"CL_NAME",          1};   // Varchar (closure_id)
+inline constexpr Key CAPTURE_TYPES     {"CL_CAPTURE_TYPES", 2};   // Array<RelPtr<LogosType>>
+inline constexpr Key CAPTURE_NAMES     {"CL_CAPTURE_NAMES", 3};   // Array<Varchar>
+inline constexpr Key RET_TYPE          {"CL_RET_TYPE",      4};   // RelPtr<LogosType>
+inline constexpr Key IS_MOVE           {"CL_IS_MOVE",       5};   // u8
+inline constexpr Key AS_FN_PTR         {"CL_AS_FN_PTR",     6};   // u8
+} // namespace closure_keys
+
+// Keys for the EPtrDiff LExpr variant map (in addition to expr_common::TYPE,
+// expr_keys::LHS, expr_keys::RHS).
+namespace ptrdiff_keys {
+inline constexpr Key BY_BYTE           {"BY_BYTE",          1};   // u8
+} // namespace ptrdiff_keys
 
 // ── LStmt sparse keys ─────────────────────────────────────────────────────
 

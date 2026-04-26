@@ -189,7 +189,7 @@ static bool compile_to_object(const std::vector<hermes::Hermes>& asts,
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
-    // Mono
+    // Mono (also emits L-IR Hermes mirror; borrow_check reads via mirror)
     prog = mono_pass(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return false;

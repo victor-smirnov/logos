@@ -451,7 +451,7 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
             auto method = map_of(methods.get(m));
             int32_t mc = code_of(method);
             if (mc == la::FN || mc == la::STATIC_FN)
-                sd.methods.push_back(lower_fn(method, sname));
+                sd.methods.push_back(std::make_unique<lir::LFunction>(lower_fn(method, sname)));
         }
     }
     sd.meta_val = extract_meta_val(node);
@@ -952,9 +952,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // Preserve impl-level type params with their bounds so mono
                     // can gate instantiation on bound satisfaction.
                     fn.impl_type_params = impl_tps;
-                    target_struct_tmpl->methods.push_back(std::move(fn));
+                    target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                 } else {
-                    prog.functions.push_back(std::move(fn));
+                    prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                 }
             }
         }
@@ -1000,7 +1000,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     auto fn = lower_fn(map_of(m.default_ast), target);
                     holder_ = saved_holder;
                     fn.is_pub = true;  // default trait method inherits trait visibility
-                    prog.functions.push_back(std::move(fn));
+                    prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                     current_type_params_.erase("Self");
                 }
             }

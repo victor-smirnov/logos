@@ -32,10 +32,18 @@ struct LirMirrorTable {
     std::unordered_map<const lir::LExpr*,    hermes::arena_offset_t> expr;
     std::unordered_map<const lir::LStmt*,    hermes::arena_offset_t> stmt;
     std::unordered_map<const lir::LBlock*,   hermes::arena_offset_t> block;
+    std::unordered_map<const lir::Pattern*,  hermes::arena_offset_t> pat;
     std::unordered_map<const lir::HermesVal*, hermes::arena_offset_t> hermes_val;
 
+    // Reverse maps. Populated alongside their forward counterparts so view
+    // code can descend back to the variant tree where the recursion target
+    // is still a C++ struct (e.g. visit_block(LBlock&) during Phase 3d).
+    std::unordered_map<uint32_t, const lir::LBlock*> block_by_offset;
+    std::unordered_map<uint32_t, const lir::LExpr*>  expr_by_offset;
+
     bool empty() const noexcept {
-        return expr.empty() && stmt.empty() && block.empty() && hermes_val.empty();
+        return expr.empty() && stmt.empty() && block.empty() && pat.empty()
+            && hermes_val.empty();
     }
 };
 
@@ -46,5 +54,19 @@ struct LirMirrorTable {
 // Idempotent: re-emitting on the same prog produces a fresh table (and fresh
 // mirror nodes; no de-duplication — L-IR has no interning).
 LirMirrorTable lir_mirror_emit(lir::LProgram& prog);
+
+// Emit mirror entries for a single function body into an existing table.
+// Used by mono to mirror each cloned/instantiated function as it is produced
+// (so scan_fn / borrow_check can read the variant tree via mirror dispatch).
+// Skips extern / metaprog_stub / from_binary_module functions, like run().
+void lir_mirror_emit_function(lir::LProgram& prog,
+                              LirMirrorTable& table,
+                              lir::LFunction& fn);
+
+// Run the full emit driver but extend an existing table rather than create a
+// fresh one. Used by mono as a fixup pass to cover items not reached via the
+// per-function path (consts, impls, struct methods of non-instantiated
+// structs). Already-emitted nodes are deduplicated by the table caches.
+void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table);
 
 } // namespace logos::compiler

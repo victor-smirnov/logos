@@ -6,6 +6,7 @@
 
 #include "mono_impl.hpp"
 #include "logos/compiler/sha256.hpp"
+#include <logos/compiler/lir_mirror.hpp>
 #include <functional>
 
 namespace logos::compiler {
@@ -177,10 +178,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         bool ptr_exists = templates_.count(ptr_fn) || specs_.count(ptr_fn);
                         if (!ptr_exists)
                             for (auto& f : in_.functions)
-                                if (f.name == ptr_fn) { ptr_exists = true; break; }
+                                if (f->name == ptr_fn) { ptr_exists = true; break; }
                         if (!ptr_exists)
                             for (auto& f : out_.functions)
-                                if (f.name == ptr_fn) { ptr_exists = true; break; }
+                                if (f->name == ptr_fn) { ptr_exists = true; break; }
                         cname = ptr_exists ? ptr_cname : type_str(TypeRef(rt).pointee());
                     }
                 }
@@ -883,7 +884,8 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             nd.fields.push_back({f.name, subst_type(f.type, s)});
         }
     }
-    for (auto& m : tmpl.methods) {
+    for (auto& m_up : tmpl.methods) {
+        auto& m = *m_up;
         // Bound gate: if this method came from `impl<T: Bound> Trait for S<T>`,
         // skip cloning when the concrete type substituted for T doesn't satisfy
         // Bound.  Without this gate, methods get cloned with bodies that call
@@ -948,12 +950,12 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         // with the correct body.
         bool overridden = false;
         for (auto& fn : in_.functions) {
-            if (!fn.type_params.empty()) continue;
-            if (fn.name == nm.name) { overridden = true; break; }
+            if (!fn->type_params.empty()) continue;
+            if (fn->name == nm.name) { overridden = true; break; }
         }
         if (overridden) continue;
         // Substitute struct type in params/ret as needed (already done by clone_fn).
-        nd.methods.push_back(std::move(nm));
+        nd.methods.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
     }
     return nd;
 }
@@ -1001,9 +1003,9 @@ const lir::LStructDef* Mono::find_best_struct_spec(
 // Walk all output functions collecting generic struct instantiations needed.
 void Mono::collect_struct_needs_from_output() {
     for (auto& fn : out_.functions) {
-        collect_type_for_structs(fn.ret_type);
-        for (auto& p : fn.params) collect_type_for_structs(p.type);
-        collect_struct_needs_from_block(fn.body);
+        collect_type_for_structs(fn->ret_type);
+        for (auto& p : fn->params) collect_type_for_structs(p.type);
+        collect_struct_needs_from_block(fn->body);
     }
     // Also walk already-instantiated structs (field types may reference more).
     for (auto& sd : out_.structs)
@@ -1167,7 +1169,12 @@ void Mono::instantiate_struct_templates() {
             }
 
             auto inst = clone_struct_def(*tmpl, subst, packs, cname);
-            for (auto& m : inst.methods) scan_fn(m);
+            // Emit mirror for each method before scan_fn; methods are
+            // unique_ptr<LFunction> so body addresses are stable across the
+            // later move into out_.structs.
+            for (auto& m : inst.methods)
+                lir_mirror_emit_function(out_, *out_.mirror_table, *m);
+            for (auto& m : inst.methods) scan_fn(*m);
             // Apply explicit instantiation annotation if present (sets type_code
             // on a specific generic instantiation, e.g. `#[type_code=100] eidos Array<AnyVal>;`).
             for (auto& ia : out_.inst_annotations) {
@@ -1188,8 +1195,10 @@ void Mono::instantiate_struct_templates() {
             worklist_.pop_back();
             depth_ = item.depth;
             auto fn_inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
-            scan_fn(fn_inst);
-            out_.functions.push_back(std::move(fn_inst));
+            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn_inst)));
+            auto& fn_ref = *out_.functions.back();
+            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+            scan_fn(fn_ref);
         }
         depth_ = 0;
     }
@@ -1275,7 +1284,8 @@ void Mono::instantiate_enum_templates() {
             // Instantiate any impl<T> methods stored as generic functions in prog.functions.
             // Convention: function name starts with "Base__" and has matching type params.
             std::string prefix = base + "__";
-            for (auto& fn : in_.functions) {
+            for (auto& fn_up : in_.functions) {
+                auto& fn = *fn_up;
                 if (fn.type_params.empty()) continue;
                 if (fn.name.substr(0, prefix.size()) != prefix) continue;
                 // Match type params to subst keys
@@ -1298,7 +1308,7 @@ void Mono::instantiate_enum_templates() {
                 auto nm = clone_fn(fn, fn_subst, fn_packs);
                 nm.name = inst_name;
                 done_.insert(inst_name);
-                out_.functions.push_back(std::move(nm));
+                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
             }
             out_.enums.push_back(std::move(inst));
         }

@@ -8,6 +8,7 @@
 
 #include <logos/compiler/mono.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/str_map.hpp>
 
@@ -168,10 +169,14 @@ private:
                                     const std::string& new_name);
 
     // ── Scan (defined in mono_scan.cpp) ───────────────────────────────────
+    // Mirror-dispatched: scan_fn looks up the function's body offset in
+    // out_.mirror_table and walks through view types from there. This
+    // requires lir_mirror_emit_function to have been called for `fn`
+    // before scan_fn — see clone+push_back sites in mono.cpp.
     void scan_fn(const lir::LFunction& fn);
-    void scan_block(const lir::LBlock& b);
-    void scan_stmt(const lir::LStmt& st);
-    void scan_expr(const lir::LExpr& e);
+    void scan_block(lir_view::BlockRef b);
+    void scan_stmt(lir_view::StmtRef s);
+    void scan_expr(lir_view::ExprRef e);
 
     // ── Pattern matching (static — inline) ───────────────────────────────
     static bool match_type(TypeRef c, TypeRef p,

@@ -1008,7 +1008,7 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
             // fn twice would call it twice, which is the user's bug.
             const lir::LFunction* fn = nullptr;
             for (const auto& f : prog.functions)
-                if (f.name == mh.hook_fn) { fn = &f; break; }
+                if (f->name == mh.hook_fn) { fn = f.get(); break; }
             if (!fn) { error("#[metaprog_handler] not a free fn"); continue; }
             if (fn->is_extern)
                 error("#[metaprog_handler] cannot be applied to extern fn");
@@ -2754,9 +2754,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         else if (c == la::ENUM)       prog.enums.push_back(lower_enum_def(item));
         else if (c == la::FN || c == la::EXTERN_FN) {
             if (is_specialization_fn(item))
-                prog.specializations.push_back(lower_spec_fn(item));
+                prog.specializations.push_back(std::make_unique<lir::LFunction>(lower_spec_fn(item)));
             else
-                prog.functions.push_back(lower_fn(item));
+                prog.functions.push_back(std::make_unique<lir::LFunction>(lower_fn(item)));
         }
         else if (c == la::CONST_DEF)  prog.consts.push_back(lower_const_def(item));
         else if (c == la::TYPE_ALIAS) prog.type_aliases.push_back(lower_type_alias_def(item));
