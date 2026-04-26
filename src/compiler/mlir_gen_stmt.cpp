@@ -64,7 +64,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(std::get<SFor>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(std::get<SLoop>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
@@ -669,7 +669,21 @@ void MLIRGenImpl::gen_while(lir_view::SWhileView v) {
 // gen_for
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_for(const SFor& s) {
+void MLIRGenImpl::gen_for(lir_view::SForView v) {
+    auto* lo_le   = lexpr_of(v.lo());
+    auto* hi_le   = lexpr_of(v.hi());
+    auto* body_lb = lblock_of(v.body());
+    if (!lo_le || !hi_le || !body_lb) return;
+    struct ForCtx {
+        std::string var;
+        const LExpr* lo;
+        const LExpr* hi;
+        bool inclusive;
+        const LBlock* body;
+        std::string label;
+    };
+    ForCtx s{std::string(v.var()), lo_le, hi_le, v.inclusive(), body_lb,
+             std::string(v.label())};
     auto lo = gen_expr(*s.lo);
     auto hi = gen_expr(*s.hi);
     if (!lo || !hi) return;
