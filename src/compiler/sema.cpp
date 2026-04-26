@@ -73,7 +73,7 @@ public:
 
     LogosType::TypeUID uid_of(TypeRef p) const noexcept {
         if (!p) return LogosType::TypeUID{};
-        auto it = uid_of_.find(p);
+        auto it = uid_of_.find(p.raw());
         return it != uid_of_.end() ? it->second : LogosType::TypeUID{};
     }
 
@@ -123,7 +123,7 @@ public:
     // The mirror must already exist (children allocated before parents).
     hermes::AnyVal ptr_to_mirror(TypeRef p) {
         if (!p) return hermes::AnyVal{};
-        auto it = mirror_offsets_.find(p);
+        auto it = mirror_offsets_.find(p.raw());
         LOGOS_ASSERT(it != mirror_offsets_.end(), "SEMA-TYPEPOOL-004",
             "ptr_to_mirror: child type has no mirror (allocation order bug)");
         if (it->second.value() & 1) std::fprintf(stderr, "ptr_to_mirror ODD off=0x%lx p_kind=%d\n", (unsigned long)it->second.value(), (int)p.kind());

@@ -123,12 +123,6 @@ public:
 
     constexpr explicit operator bool() const noexcept { return p_ != nullptr; }
 
-    // 2c.6.6.B transition aid: implicit TypeRef → const LogosType*. Restored
-    // temporarily so the wholesale const LogosType* → TypeRef sweep can land
-    // in stages. Removed once every site is converted.
-    constexpr operator const LogosType*() const noexcept { return p_; }
-    constexpr const LogosType* operator->() const noexcept { return p_; }
-
     constexpr const LogosType* raw() const noexcept { return p_; }
 
     friend constexpr bool operator==(TypeRef a, TypeRef b) noexcept { return a.p_ == b.p_; }
