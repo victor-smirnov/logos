@@ -19,8 +19,8 @@
 
 namespace logos::compiler {
 
-using SubstMap = StrMap<const LogosType*>;
-using PackMap  = StrMap<std::vector<const LogosType*>>;
+using SubstMap = StrMap<TypeRef>;
+using PackMap  = StrMap<std::vector<TypeRef>>;
 
 static inline std::string make_pack_arg_name(std::string_view base, size_t idx) {
     return std::string("$pack_arg$") + std::string(base) + "$" + std::to_string(idx);
@@ -43,13 +43,13 @@ private:
     StrMap<std::vector<const lir::LFunction*>> specs_;
     StrMap<const lir::LStructDef*> struct_templates_;
     StrMap<std::vector<const lir::LStructDef*>> struct_specs_;
-    StrMap<std::pair<const LogosType*, int>> needed_struct_insts_;
+    StrMap<std::pair<TypeRef, int>> needed_struct_insts_;
     StrSet struct_done_;
     StrMap<const lir::LEnumDef*>   enum_templates_;
-    StrMap<std::pair<std::vector<const LogosType*>, int>> needed_enum_insts_;
+    StrMap<std::pair<std::vector<TypeRef>, int>> needed_enum_insts_;
     StrSet enum_done_;
     StrSet done_;
-    StrMap<const LogosType*> assoc_impls_;
+    StrMap<TypeRef> assoc_impls_;
 
     // Blanket impls indexed for AssocType resolution at mono time.
     // Entry: { trait, bound_trait, target_typevar, assoc_types_map }.
@@ -57,7 +57,7 @@ private:
         std::string trait_name;
         std::string bound_trait;
         std::string target_typevar;
-        StrMap<const LogosType*> assoc_types;
+        StrMap<TypeRef> assoc_types;
     };
     std::vector<BlanketImplInfo> blanket_impls_;
 
@@ -76,14 +76,14 @@ private:
     std::vector<WorkItem> worklist_;
 
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
-    const LogosType* subst_type(TypeRef tv, const SubstMap& s) noexcept;
+    TypeRef subst_type(TypeRef tv, const SubstMap& s) noexcept;
 
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(TypeRef tr) {
         if (!tr || (tr.kind() != LogosType::Kind::Struct &&
                     tr.kind() != LogosType::Kind::ZonedStruct) ||
             tr.type_args().empty()) return;
-        for (auto* a : tr.type_args())
+        for (auto a : tr.type_args())
             if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
         auto cname = concrete_struct_name(tr);
         if (!struct_done_.count(cname)) {
@@ -99,10 +99,10 @@ private:
 
     void record_needed_enum(TypeRef tr) {
         if (!tr || tr.kind() != LogosType::Kind::Enum || tr.type_args().empty()) return;
-        for (auto* a : tr.type_args())
+        for (auto a : tr.type_args())
             if (TypeRef(a).kind() == LogosType::Kind::TypeVar) return;
         std::string cname = std::string(tr.enum_name());
-        for (auto* a : tr.type_args()) { cname += "__"; cname += mangle_type(a); }
+        for (auto a : tr.type_args()) { cname += "__"; cname += mangle_type(a); }
         if (!enum_done_.count(cname)) {
             if (depth_ >= max_depth_) {
                 in_.diags.diags.push_back({Diag::Level::Error, "mono",
@@ -132,9 +132,9 @@ private:
     }
 
     static std::string mangle(const std::string& name,
-                               const std::vector<const LogosType*>& type_args) {
+                               const std::vector<TypeRef>& type_args) {
         std::string result = name;
-        for (auto* t : type_args) {
+        for (auto t : type_args) {
             result += "__";
             result += mangle_type(t);
         }
@@ -210,31 +210,31 @@ private:
         return 100;
     }
 
-    static int specificity_score(const std::vector<const LogosType*>& patterns) noexcept {
+    static int specificity_score(const std::vector<TypeRef>& patterns) noexcept {
         int s = 0;
-        for (auto* p : patterns) s += type_specificity(p);
+        for (auto p : patterns) s += type_specificity(p);
         return s;
     }
 
     // Per-position specificity vector for lexicographic comparison.
     // Enables correct disambiguation of partial specs like Map<Bitmap,V> vs Map<K,AnyVal>
     // when both score equally by summed specificity but differ positionally.
-    static std::vector<int> specificity_vec(const std::vector<const LogosType*>& patterns) noexcept {
+    static std::vector<int> specificity_vec(const std::vector<TypeRef>& patterns) noexcept {
         std::vector<int> v;
         v.reserve(patterns.size());
-        for (auto* p : patterns) v.push_back(type_specificity(p));
+        for (auto p : patterns) v.push_back(type_specificity(p));
         return v;
     }
 
     // ── Spec selection (defined in mono_scan.cpp) ─────────────────────────
     const lir::LFunction*  find_best_spec(const std::string& base_name,
-                                          const std::vector<const LogosType*>& type_args);
+                                          const std::vector<TypeRef>& type_args);
     const lir::LStructDef* find_best_struct_spec(const std::string& base_name,
-                                                  const std::vector<const LogosType*>& type_args);
+                                                  const std::vector<TypeRef>& type_args);
 
     // ── Enqueue / instantiate (defined in mono_scan.cpp) ─────────────────
     void enqueue_if_needed(const std::string& mangled_callee,
-                           const std::vector<const LogosType*>& type_args);
+                           const std::vector<TypeRef>& type_args);
 
     lir::LFunction instantiate_fn(const lir::LFunction& tmpl,
                                    const std::string& mangled_name,
@@ -258,7 +258,7 @@ private:
         case LogosType::Kind::Struct:
         case LogosType::Kind::ZonedStruct:
             record_needed_struct(tr);
-            for (auto* a : tr.type_args()) collect_type_for_structs(a);
+            for (auto a : tr.type_args()) collect_type_for_structs(a);
             break;
         default: break;
         }

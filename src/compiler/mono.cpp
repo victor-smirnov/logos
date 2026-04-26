@@ -105,7 +105,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 SubstMap subst;
                 // Build concrete type for substitution.
                 // Target may be a struct or datatype — use the right Kind.
-                const LogosType* concrete_t = nullptr;
+                TypeRef concrete_t = nullptr;
                 for (auto& sd : out_.structs)
                     if (sd.name == concrete) {
                         LogosTypeBuilder st;

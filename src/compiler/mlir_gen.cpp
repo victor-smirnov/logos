@@ -276,7 +276,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
             if ((tv.kind() == LogosType::Kind::Ptr ||
                  tv.kind() == LogosType::Kind::Ref ||
                  tv.kind() == LogosType::Kind::MutRef) && tv.pointee()) {
-                const LogosType* inner = tv.pointee().raw();
+                TypeRef inner = tv.pointee().raw();
                 if (type_str(inner) == "AnyVal") {
                     auto sc = scope_.find(name);
                     if (sc != scope_.end())
@@ -342,7 +342,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         (!recv.type || type_str(recv.type) != "AnyVal"))
         ptr = spill_to_alloca(ptr);
     if (recv.type) {
-        const LogosType* t = recv.type;
+        TypeRef t = recv.type;
         // Strip one level of pointer/reference to get the struct/class type
         TypeRef tv{t};
         if ((tv.kind() == LogosType::Kind::Ptr ||

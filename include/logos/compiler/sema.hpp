@@ -97,138 +97,54 @@ struct LogosType {
     const class TypePoolImpl* hermes_pool_     = nullptr;
 };
 
-// ── LogosTypeBuilder ──────────────────────────────────────────────────────
-//
-// 2c.4e.3.3: write-side companion to slim LogosType. Builder code populates
-// fields freely and hands the result to TypePool::alloc, which writes them
-// into the Hermes mirror and returns a slim LogosType*. The builder is also
-// what TypeRef::to_builder() returns when callers need to copy-and-mutate
-// an interned type.
-struct LogosTypeBuilder {
-    using Kind = LogosType::Kind;
-
-    Kind kind = Kind::Error;
-
-    // Ptr / Ref / MutRef — all use pointee
-    bool             mut_ptr  = false;    // Ptr only: true → *mut, false → *const
-    const LogosType* pointee  = nullptr;  // non-owning, pool-allocated
-
-    // Ref / MutRef — lifetime annotation
-    std::string      lifetime;            // "'a", "'static", "'_", "" = elided
-
-    // Array
-    const LogosType* elem     = nullptr;  // non-owning, pool-allocated
-    uint64_t         arr_size = 0;
-    std::string      arr_size_var;        // for symbolic size 'N'
-
-    // Struct / Enum
-    std::string      struct_name;         // base struct name (owned; never mangled)
-    std::string      enum_name;           // enum name (owned)
-    std::string      pkg_name;            // package owning this type
-
-    // Generic struct instantiation: Pair<i32> → struct_name="Pair", type_args=[i32]
-    std::vector<const LogosType*> type_args;
-
-    // Lifetime arguments for struct instantiation
-    std::vector<std::string> lifetime_args;
-
-    // Tuple
-    std::vector<const LogosType*> tuple_elems;
-
-    // Closure
-    std::vector<const LogosType*> closure_params;
-    const LogosType* closure_ret = nullptr;
-
-    // TraitObject — &dyn Trait
-    std::string      trait_name;
-
-    // TypeVar — name stored as a std::string (owns its storage)
-    std::string      type_var_name;
-
-    // AssocType — associated type
-    const LogosType* assoc_base = nullptr;
-    std::string      assoc_type_name;
-    std::vector<const LogosType*> gat_args;
-
-    // Constant literal value (for monomorphized constant generics)
-    std::optional<int64_t> const_val;
-};
-
-// ── Trait bound (for type parameter bounds) ────────────────────────────────
-
-struct TraitBound {
-    std::string                   trait_name;  // e.g. "Into", "Add"
-    std::vector<const LogosType*> type_args;   // e.g. Into<i32> -> [i32]
-};
-
-// ── Type parameter ────────────────────────────────────────────────────────
-
-struct TypeParam {
-    std::string              name;          // e.g. "T"
-    std::vector<TraitBound>  bounds;        // e.g. [Ord, Clone]
-    bool                     is_variadic = false;  // T... variadic pack
-    bool                     is_const    = false;  // const N: T
-    const LogosType*         const_type  = nullptr;
-};
+struct LogosTypeBuilder;  // defined below TypeRef
 
 // ── TypeRef ───────────────────────────────────────────────────────────────
 //
-// Non-owning view over a LogosType living in a TypePool (Phase 2 transition:
-// wraps `const LogosType*` with implicit conversion both ways so existing
-// call sites work unchanged; view methods provide the API surface that will
-// remain after the underlying storage moves to a Hermes zone in Phase 2c).
+// Non-owning view over a LogosType living in a TypePool. Carries the fat
+// {arena base, offset, pool} triple needed to read the Hermes mirror
+// directly. Implicit conversion from `const LogosType*` is preserved during
+// the 2c.6.6.B refactor; the reverse implicit conversion is restored as a
+// transition aid and removed once every call site uses TypeRef.
 
 class TypeRef {
-    // 2c.4e.3.1: fat-pointer storage. The mirror is the source of truth;
-    // base_/off_ locate the TinyObjectMap directly, pool_ resolves
-    // arena offsets back to LogosType* via mirror_inverse_. p_ remains as
-    // the bridge for `.raw()` until 2c.4e.3.2 retires it.
-    const LogosType*          p_    = nullptr;
-    uint8_t*                  base_ = nullptr;
+    const LogosType*          p_     = nullptr;
+    const hermes::Arena*      arena_ = nullptr;
     hermes::arena_offset_t    off_{};
-    const TypePoolImpl*       pool_ = nullptr;
+    const TypePoolImpl*       pool_  = nullptr;
 public:
     constexpr TypeRef() noexcept = default;
     TypeRef(const LogosType* p) noexcept
         : p_(p),
-          base_(p ? const_cast<uint8_t*>(p->hermes_arena_->head().data()) : nullptr),
+          arena_(p ? p->hermes_arena_ : nullptr),
           off_(p ? p->hermes_mirror_off_ : hermes::arena_offset_t{}),
           pool_(p ? p->hermes_pool_ : nullptr) {}
+    constexpr TypeRef(std::nullptr_t) noexcept {}
 
-    // 2c.4e.2b: operator-> and operator* removed. Callers that reached
-    // struct fields (e.g. `t.pointee()->kind`) must now use TypeRef
-    // accessor methods (`t.pointee().kind()`). `.raw()` remains as the
-    // last bridge to const LogosType* for APIs that still expect a
-    // pointer (borrow_check, mono's SubstMap, types_equal); 2c.4e.2c will
-    // flip storage to {base,off} and remove .raw() too.
     constexpr explicit operator bool() const noexcept { return p_ != nullptr; }
+
+    // 2c.6.6.B transition aid: implicit TypeRef → const LogosType*. Restored
+    // temporarily so the wholesale const LogosType* → TypeRef sweep can land
+    // in stages. Removed once every site is converted.
+    constexpr operator const LogosType*() const noexcept { return p_; }
+    constexpr const LogosType* operator->() const noexcept { return p_; }
 
     constexpr const LogosType* raw() const noexcept { return p_; }
 
     friend constexpr bool operator==(TypeRef a, TypeRef b) noexcept { return a.p_ == b.p_; }
+    friend constexpr bool operator==(TypeRef a, std::nullptr_t) noexcept { return a.p_ == nullptr; }
+    friend constexpr bool operator==(std::nullptr_t, TypeRef a) noexcept { return a.p_ == nullptr; }
     friend constexpr bool operator==(TypeRef a, const LogosType* b) noexcept { return a.p_ == b; }
     friend constexpr bool operator==(const LogosType* a, TypeRef b) noexcept { return a == b.p_; }
 
-    // ── View accessors ──
-    // These match what a Hermes-backed reader will expose in Phase 2c;
-    // new code should prefer them over direct field access.
-
-    // Hermes mirror helpers — used by accessors that have been cut over to
-    // reading from the TinyObjectMap (Phase 2c.4b+). The struct back-refs
-    // are populated by TypePool::alloc(); offset is stable across arena
-    // growth, so the base is re-derived on each call.
-    // Note: returns non-const uint8_t* because TinyObjectMap::get/slot take
-    // a mutable base (even from const methods). The arena is logically const
-    // here; const_cast is safe as the reads are side-effect-free.
-    uint8_t* mirror_base() const noexcept { return base_; }
+    uint8_t* mirror_base() const noexcept {
+        return arena_ ? const_cast<uint8_t*>(arena_->head().data()) : nullptr;
+    }
     const hermes::TinyObjectMap* mirror() const noexcept {
-        return reinterpret_cast<const hermes::TinyObjectMap*>(base_ + off_.value());
+        return reinterpret_cast<const hermes::TinyObjectMap*>(mirror_base() + off_.value());
     }
     const TypePoolImpl* pool() const noexcept { return pool_; }
 
-    // 2c.4e.1: every LogosType reachable through TypeRef goes through
-    // TypePool::alloc(), so the mirror is always wired. Accessors read
-    // directly from the TinyObjectMap with no struct fallback.
     LogosType::Kind kind() const noexcept {
         return LogosType::Kind(
             hermes::schema::variant_of(mirror()->schema_type_code()));
@@ -249,9 +165,6 @@ public:
         return *av.as_ptr<const uint64_t>(mirror_base());
     }
 
-    // 2c.4e.1: string accessors read the mirror ArenaString directly.
-    // The returned string_view is valid as long as the arena is alive
-    // (GrowableSingleChunk — lifetime matches the TypePool).
 private:
     std::string_view str_from_mirror(sema_schema::Key key) const noexcept {
         auto av = mirror()->get(key.code, mirror_base());
@@ -268,31 +181,93 @@ public:
     std::string_view assoc_type_name() const noexcept { return str_from_mirror(sema_schema::ASSOC_TYPE_NAME); }
     std::string_view arr_size_var()    const noexcept { return str_from_mirror(sema_schema::ARR_SIZE_VAR);    }
 
-    // 2c.4e.3.0: vector accessors read the mirror's ObjectArray and return
-    // by value. Callers using range-for, .size(), .empty(), op[] keep working
-    // unchanged (rvalue lifetime-extends through full expression / range-for).
-    // Out-of-line definitions live in sema.cpp (TypePoolImpl::mirror_inverse_
-    // is needed to translate offsets back to LogosType*).
-    std::vector<const LogosType*> type_args()      const noexcept;
-    std::vector<const LogosType*> tuple_elems()    const noexcept;
-    std::vector<const LogosType*> closure_params() const noexcept;
-    std::vector<const LogosType*> gat_args()       const noexcept;
-    std::vector<std::string>      lifetime_args()  const noexcept;
+    std::vector<TypeRef> type_args()      const noexcept;
+    std::vector<TypeRef> tuple_elems()    const noexcept;
+    std::vector<TypeRef> closure_params() const noexcept;
+    std::vector<TypeRef> gat_args()       const noexcept;
+    std::vector<std::string> lifetime_args() const noexcept;
 
-    // 2c.4e.1: const_val read from mirror. Returns by value — struct-ref
-    // return is gone now that the mirror is authoritative.
     std::optional<int64_t> const_val() const noexcept {
         auto av = mirror()->get(sema_schema::CONST_VAL.code, mirror_base());
         if (av.is_null()) return std::nullopt;
         return *av.as_ptr<const int64_t>(mirror_base());
     }
 
-    // 2c.4e.3.3: produce a LogosTypeBuilder reading every field from the
-    // mirror. Used by the "copy and mutate one field" sites that previously
-    // did `LogosType nt = *tv.raw()`. After LogosType is slimmed to back-refs
-    // only, this remains the only sanctioned way to obtain a writable view
-    // of an interned type.
     LogosTypeBuilder to_builder() const;
+};
+
+// ── LogosTypeBuilder ──────────────────────────────────────────────────────
+//
+// 2c.4e.3.3: write-side companion to slim LogosType. Builder code populates
+// fields freely and hands the result to TypePool::alloc, which writes them
+// into the Hermes mirror and returns a slim LogosType*. The builder is also
+// what TypeRef::to_builder() returns when callers need to copy-and-mutate
+// an interned type.
+struct LogosTypeBuilder {
+    using Kind = LogosType::Kind;
+
+    Kind kind = Kind::Error;
+
+    // Ptr / Ref / MutRef — all use pointee
+    bool        mut_ptr  = false;   // Ptr only: true → *mut, false → *const
+    TypeRef     pointee;            // non-owning, pool-allocated
+
+    // Ref / MutRef — lifetime annotation
+    std::string lifetime;           // "'a", "'static", "'_", "" = elided
+
+    // Array
+    TypeRef     elem;               // non-owning, pool-allocated
+    uint64_t    arr_size = 0;
+    std::string arr_size_var;       // for symbolic size 'N'
+
+    // Struct / Enum
+    std::string struct_name;        // base struct name (owned; never mangled)
+    std::string enum_name;          // enum name (owned)
+    std::string pkg_name;           // package owning this type
+
+    // Generic struct instantiation: Pair<i32> → struct_name="Pair", type_args=[i32]
+    std::vector<TypeRef> type_args;
+
+    // Lifetime arguments for struct instantiation
+    std::vector<std::string> lifetime_args;
+
+    // Tuple
+    std::vector<TypeRef> tuple_elems;
+
+    // Closure
+    std::vector<TypeRef> closure_params;
+    TypeRef     closure_ret;
+
+    // TraitObject — &dyn Trait
+    std::string trait_name;
+
+    // TypeVar — name stored as a std::string (owns its storage)
+    std::string type_var_name;
+
+    // AssocType — associated type
+    TypeRef     assoc_base;
+    std::string assoc_type_name;
+    std::vector<TypeRef> gat_args;
+
+    // Constant literal value (for monomorphized constant generics)
+    std::optional<int64_t> const_val;
+};
+
+// ── Trait bound (for type parameter bounds) ────────────────────────────────
+
+struct TraitBound {
+    std::string                   trait_name;  // e.g. "Into", "Add"
+    std::vector<TypeRef> type_args;   // e.g. Into<i32> -> [i32]
+};
+
+// ── Type parameter ────────────────────────────────────────────────────────
+
+struct TypeParam {
+    std::string              name;          // e.g. "T"
+    std::vector<TraitBound>  bounds;        // e.g. [Ord, Clone]
+    bool                     is_variadic = false;  // T... variadic pack
+    bool                     is_const    = false;  // const N: T
+    TypeRef         const_type  = nullptr;
 };
 
 // Structural equality (pointer-to-pointer not checked — use value comparison).
@@ -310,7 +285,7 @@ std::string concrete_struct_name(TypeRef t);
 // LogosType (which bypasses TypePool's Hermes mirror). The args must already
 // be concrete — no TypeVar / IntLit.
 std::string concrete_struct_name_raw(std::string_view base_name,
-                                     const std::vector<const LogosType*>& type_args);
+                                     const std::vector<TypeRef>& type_args);
 
 
 // ── TypePool ───────────────────────────────────────────────────────────────
@@ -339,7 +314,7 @@ public:
     TypePool(const TypePool&) = delete;
     TypePool& operator=(const TypePool&) = delete;
 
-    const LogosType* alloc(LogosTypeBuilder t);
+    TypeRef alloc(LogosTypeBuilder t);
 };
 
 // ── Diagnostics ────────────────────────────────────────────────────────────

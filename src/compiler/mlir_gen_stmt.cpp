@@ -114,7 +114,7 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
          pt.kind() == LogosType::Kind::MutRef))
         elem_type = logos_to_mlir(pt.pointee());
     if (!elem_type) elem_type = builder_.getI32Type();
-    const LogosType* pointee_t = (pt && pt.pointee()) ? pt.pointee().raw() : nullptr;
+    TypeRef pointee_t = (pt && pt.pointee()) ? pt.pointee().raw() : nullptr;
     if (pointee_t && (TypeRef(pointee_t).kind() == LogosType::Kind::Struct ||
                       TypeRef(pointee_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -325,7 +325,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             // Concrete type → build fat pointer from scratch.
             // For &dyn T from `new Foo {}`, value type is *mut Foo — strip the pointer.
             // Box<T> is { *mut T } so the value *is* the data ptr; unwrap to T for vtable.
-            const LogosType* src_logos_type = s.value->type;
+            TypeRef src_logos_type = s.value->type;
             if (src_logos_type && TypeRef(src_logos_type).kind() == LogosType::Kind::Ptr &&
                 TypeRef(src_logos_type).pointee())
                 src_logos_type = TypeRef(src_logos_type).pointee().raw();
@@ -404,7 +404,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
     // Track local pointer variables so indexing can load the ptr before GEP.
     if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Ptr && st.pointee()) {
-        const LogosType* pointee = st.pointee().raw();
+        TypeRef pointee = st.pointee().raw();
         if (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct) {
             // logos_to_mlir(Struct/Datatype) == ptr_type(), which can't be matched
@@ -459,7 +459,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
             TypeRef(s.value->type).kind() != LogosType::Kind::TraitObject) {
             auto val = gen_expr(*s.value);
             if (!val) return;
-            const LogosType* src_lt = s.value->type;
+            TypeRef src_lt = s.value->type;
             if (TypeRef(src_lt).kind() == LogosType::Kind::Ptr && TypeRef(src_lt).pointee())
                 src_lt = TypeRef(src_lt).pointee().raw();
             auto vtable = build_inline_vtable(
@@ -1126,7 +1126,7 @@ void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
     if (odi != all_struct_defs_.end()) {
         for (auto& f : odi->second->fields) {
             if (f.name == s.mid_field && f.type) {
-                const LogosType* ft = f.type;
+                TypeRef ft = f.type;
                 // field is *mut S → descend into pointee
                 if (TypeRef(ft).kind() == LogosType::Kind::Ptr && TypeRef(ft).pointee())
                     ft = TypeRef(ft).pointee().raw();
@@ -1259,7 +1259,7 @@ void MLIRGenImpl::gen_index_write(const SIndexWrite& s) {
     // struct-typed r-value returns a pointer to the struct bytes, not the
     // struct by value. Emit llvm.memcpy of sizeof(struct) bytes. Mirrors the
     // path in gen_stmt_kind(SDerefWrite).
-    const LogosType* val_t = s.value ? s.value->type : nullptr;
+    TypeRef val_t = s.value ? s.value->type : nullptr;
     if (val_t && (TypeRef(val_t).kind() == LogosType::Kind::Struct ||
                   TypeRef(val_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -1353,7 +1353,7 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
         // For struct-typed values, val_type is ptr (structs are passed by ref);
         // GEP stride must use the concrete struct LLVM type, not ptr_type (8B).
         mlir::Type gep_elem = val_type;
-        const LogosType* vt = s.value ? s.value->type : nullptr;
+        TypeRef vt = s.value ? s.value->type : nullptr;
         if (vt && (TypeRef(vt).kind() == LogosType::Kind::Struct ||
                    TypeRef(vt).kind() == LogosType::Kind::ZonedStruct)) {
             auto cname = concrete_struct_name(vt);
@@ -1368,7 +1368,7 @@ void MLIRGenImpl::gen_field_index_write(const SFieldIndexWrite& s) {
     // Struct/datatype element assignment is a byte-level copy: gen_expr of a
     // struct-typed r-value returns a pointer to the struct bytes. Emit
     // llvm.memcpy instead of StoreOp (mirrors gen_index_write / SDerefWrite).
-    const LogosType* val_t = s.value ? s.value->type : nullptr;
+    TypeRef val_t = s.value ? s.value->type : nullptr;
     if (val_t && (TypeRef(val_t).kind() == LogosType::Kind::Struct ||
                   TypeRef(val_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -1575,7 +1575,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
                             loc_, ptr_type(), pay_struct, pay_ptr, fi);
                         // For inline structs, fp already points to the struct bytes —
                         // use it directly (no load), matching the memcpy write side.
-                        const LogosType* lt = bi < vp->logos_types.size()
+                        TypeRef lt = bi < vp->logos_types.size()
                                               ? vp->logos_types[bi] : nullptr;
                         bool is_inline_struct = lt &&
                             (TypeRef(lt).kind() == LogosType::Kind::Struct ||
@@ -1660,7 +1660,7 @@ void MLIRGenImpl::gen_match(const SMatch& s) {
         }
         // ── PatSlice: GEP-extract indexed elements ────────────────────────
         if (auto* psl = std::get_if<PatSlice>(&arm.pat)) {
-            auto* atype = s.scrut->type;
+            auto atype = s.scrut->type;
             if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
                 auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
                 auto arr_mlir  = logos_to_mlir(atype);

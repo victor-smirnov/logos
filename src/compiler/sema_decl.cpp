@@ -144,7 +144,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             current_type_params_["Self"] = make_datatype_type(struct_ctx, dpkg);
         else if (ssi)
             current_type_params_["Self"] = make_struct_type(struct_ctx, spkg);
-        else if (auto* prim_t = lookup_type_by_name(struct_ctx))
+        else if (auto prim_t = lookup_type_by_name(struct_ctx))
             current_type_params_["Self"] = prim_t;
     }
 
@@ -163,7 +163,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     auto node_tparams = read_type_params(node);
     SemaFuncInfo* fi_ptr = nullptr;
     {
-    std::vector<const LogosType*> decl_param_types;
+    std::vector<TypeRef> decl_param_types;
     size_t decl_param_arity = 0;
     push_type_params(impl_type_params_);
     push_type_params(node_tparams);
@@ -179,7 +179,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                         if (p.has_key(la::TYPE))
                             decl_param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
                         else {
-                            auto* self_t = current_type_params_.count("Self")
+                            auto self_t = current_type_params_.count("Self")
                                 ? current_type_params_.at("Self") : error_t();
                             bool is_mut = p.has_key(la::IS_MUT) &&
                                           !p.get(la::IS_MUT.code).is_null() &&
@@ -233,7 +233,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         // `self` in the reconstructed decl signature. For overloaded methods this
         // makes exact arity matching fail and leaves fi_ptr unresolved.
         if (!fi_ptr && !struct_ctx.empty()) {
-            const LogosType* self_t = nullptr;
+            TypeRef self_t = nullptr;
             {
                 auto [dpkg_sc, dsi_sc] = find_datatype_by_name(struct_ctx);
                 auto [spkg_sc, ssi_sc] = find_struct_by_name(struct_ctx);
@@ -244,7 +244,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 for (auto* cand : find_func_candidates(mangled)) {
                     if (!cand || cand->type_params.size() != node_tparams.size()) continue;
                     if (cand->param_types.size() != decl_param_types.size() + 1) continue;
-                    auto* self_param = cand->param_types[0];
+                    auto self_param = cand->param_types[0];
                     TypeRef spv{self_param};
                     if (!self_param ||
                         (spv.kind() != LogosType::Kind::Ref &&
@@ -255,8 +255,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                         continue;
                     bool same_tail = true;
                     for (size_t i = 0; i < decl_param_types.size(); ++i) {
-                        auto* dt = decl_param_types[i];
-                        auto* pt = cand->param_types[i + 1];
+                        auto dt = decl_param_types[i];
+                        auto pt = cand->param_types[i + 1];
                         if (!dt || !pt || !types_equal(dt, pt)) {
                             same_tail = false;
                             break;
@@ -287,7 +287,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     ret_type_      = fn.ret_type;
     // Bug 5 fix: DataNode enforcement covers both bare Datatype and Array-of-Datatype
     // return/param types.  Extract the innermost non-Array element for the check.
-    auto datanode_name = [&](const LogosType* t) -> std::string {
+    auto datanode_name = [&](TypeRef t) -> std::string {
         if (!t) return {};
         while (TypeRef(t).kind() == LogosType::Kind::Array) t = TypeRef(t).elem().raw();
         TypeRef tv{t};
@@ -336,7 +336,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                         p_variadic = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
                     }
                     // Simplify parameter type too
-                    const LogosType* pt = subst_type_sema(ptype, {});
+                    TypeRef pt = subst_type_sema(ptype, {});
                     // DataNode enforcement: DataNode datatypes (has relative-pointer fields)
                     // cannot be passed by bare value — the relative pointers require a base
                     // pointer that is not available without zone context.  Use DataRef<T>.
@@ -706,19 +706,19 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         impl_type_params_ = impl_tps;  // so lower_fn includes them in fn.type_params
     }
     std::string target;
-    const LogosType* target_resolved = nullptr;
+    TypeRef target_resolved = nullptr;
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         if (code_of(tnode) == la::PTR_TYPE) {
-            auto* resolved = resolve_type(tnode);
+            auto resolved = resolve_type(tnode);
             target = type_str(resolved);
         } else if (code_of(tnode) == la::GENERIC_INST) {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             if (impl_tps.empty()) {
-                auto* resolved = resolve_type(tnode);
+                auto resolved = resolve_type(tnode);
                 if (resolved && !TypeRef(resolved).type_args().empty()) {
                     bool concrete = true;
-                    for (auto* a : TypeRef(resolved).type_args())
+                    for (auto a : TypeRef(resolved).type_args())
                         if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { concrete = false; break; }
                     if (concrete) {
                         if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
@@ -735,7 +735,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             // `impl Trait for ObjectArray` equivalent to `impl Trait for Array<AnyVal>`.
             auto ait = type_aliases_.find(target);
             if (ait != type_aliases_.end() && ait->second.type_params.empty()) {
-                auto* aliased = ait->second.type;
+                auto aliased = ait->second.type;
                 if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
                                 TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
                     if (!TypeRef(aliased).type_args().empty()) {
@@ -824,7 +824,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         ib.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
     // Resolve trait type args and push into scope
-    std::vector<const LogosType*> impl_trait_args;
+    std::vector<TypeRef> impl_trait_args;
     if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
         if (!tpav.is_null()) {
@@ -882,15 +882,15 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             auto tnode = map_of(node.get(la::TYPE.code));
             if (code_of(tnode) == la::GENERIC_INST) {
                 auto base_name = std::string(str_of(tnode.get(la::NAME.code)));
-                auto* target_type = resolve_type(tnode);
+                auto target_type = resolve_type(tnode);
                 if (target_type && !TypeRef(target_type).type_args().empty()) {
                     for (auto& ss : prog.struct_specializations) {
                         if (ss.name != base_name) continue;
                         if (ss.spec_patterns.size() != TypeRef(target_type).type_args().size()) continue;
                         bool match = true;
                         for (size_t i = 0; i < ss.spec_patterns.size(); ++i) {
-                            auto* a = TypeRef(target_type).type_args()[i];
-                            auto* p = ss.spec_patterns[i];
+                            auto a = TypeRef(target_type).type_args()[i];
+                            auto p = ss.spec_patterns[i];
                             if (!a || !p) { match = false; break; }
                             if (TypeRef(a).kind() == LogosType::Kind::TypeVar &&
                                 TypeRef(p).kind() == LogosType::Kind::TypeVar) continue;  // both TV, OK
@@ -967,13 +967,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto mangled = target + "__" + m.name;
                 if (m.has_default && !overridden.count(mangled)) {
                     // Push Self → target type; for generic impls include type params as TypeVars.
-                    const LogosType* self_type = nullptr;
+                    TypeRef self_type = nullptr;
                     {
                         auto [spkg2, ssi2] = find_struct_by_name(target);
                         auto [dpkg2, dsi2] = find_datatype_by_name(target);
                         if (ssi2) {
                             if (!impl_tps.empty()) {
-                                std::vector<const LogosType*> tv_args;
+                                std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
                                     tv_args.push_back(make_typevar(tp.name));
                                 self_type = make_generic_struct(target, std::move(tv_args), {}, spkg2);
@@ -982,7 +982,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             }
                         } else if (dsi2) {
                             if (!impl_tps.empty()) {
-                                std::vector<const LogosType*> tv_args;
+                                std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
                                     tv_args.push_back(make_typevar(tp.name));
                                 self_type = make_generic_datatype(target, std::move(tv_args), {}, dpkg2);

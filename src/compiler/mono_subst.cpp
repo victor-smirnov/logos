@@ -8,7 +8,7 @@
 
 namespace logos::compiler {
 
-const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
+TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     if (!tv) return tv.raw();
     if (tv.kind() == LogosType::Kind::TypeVar || tv.kind() == LogosType::Kind::ConstVar) {
         auto it = s.find(std::string(tv.type_var_name()));
@@ -16,7 +16,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         return tv.raw();
     }
     if (tv.kind() == LogosType::Kind::Array) {
-        auto* elem = subst_type(tv.elem(), s);
+        auto elem = subst_type(tv.elem(), s);
         uint64_t size = tv.arr_size();
         std::string symbolic = std::string(tv.arr_size_var());
         if (!symbolic.empty()) {
@@ -42,7 +42,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     case LogosType::Kind::Ptr:
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef: {
-        auto* inner = subst_type(tv.pointee(), s);
+        auto inner = subst_type(tv.pointee(), s);
         if (inner == tv.pointee().raw()) return tv.raw();
         LogosTypeBuilder nt = tv.to_builder(); nt.pointee = inner;
         return out_.type_pool.alloc(nt);
@@ -50,10 +50,10 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct: {
         if (tv.type_args().empty()) return tv.raw();
-        std::vector<const LogosType*> new_args;
+        std::vector<TypeRef> new_args;
         bool changed = false;
-        for (auto* a : tv.type_args()) {
-            auto* na = subst_type(a, s);
+        for (auto a : tv.type_args()) {
+            auto na = subst_type(a, s);
             changed |= (na != a);
             new_args.push_back(na);
         }
@@ -61,16 +61,16 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         LogosTypeBuilder nt = tv.to_builder();
         nt.type_args = std::move(new_args);
         // Track this instantiation for struct monomorphization.
-        const LogosType* result = out_.type_pool.alloc(nt);
+        TypeRef result = out_.type_pool.alloc(nt);
         record_needed_struct(result);
         return result;
     }
     case LogosType::Kind::Enum: {
         if (tv.type_args().empty()) return tv.raw();
-        std::vector<const LogosType*> new_args;
+        std::vector<TypeRef> new_args;
         bool changed = false;
-        for (auto* a : tv.type_args()) {
-            auto* na = subst_type(a, s);
+        for (auto a : tv.type_args()) {
+            auto na = subst_type(a, s);
             changed |= (na != a);
             new_args.push_back(na);
         }
@@ -83,22 +83,22 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         LogosTypeBuilder nt; nt.kind = LogosType::Kind::Enum;
         nt.enum_name = std::string(tv.enum_name());
         nt.type_args = std::move(new_args);
-        const LogosType* result = out_.type_pool.alloc(std::move(nt));
+        TypeRef result = out_.type_pool.alloc(std::move(nt));
         record_needed_enum(result);
         return result;
     }
     case LogosType::Kind::Slice: {
-        auto* elem = subst_type(tv.elem(), s);
+        auto elem = subst_type(tv.elem(), s);
         if (elem == tv.elem().raw()) return tv.raw();
         LogosTypeBuilder nt; nt.kind = LogosType::Kind::Slice;
         nt.elem = elem;
         return out_.type_pool.alloc(std::move(nt));
     }
     case LogosType::Kind::Tuple: {
-        std::vector<const LogosType*> new_elems;
+        std::vector<TypeRef> new_elems;
         bool changed = false;
-        for (auto* e : tv.tuple_elems()) {
-            auto* ne = subst_type(e, s);
+        for (auto e : tv.tuple_elems()) {
+            auto ne = subst_type(e, s);
             changed |= (ne != e);
             new_elems.push_back(ne);
         }
@@ -109,7 +109,7 @@ const LogosType* Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     }
     case LogosType::Kind::AssocType: {
         // Resolve: recursively substitute the base, then look up TraitName::ConcreteType::AssocName
-        auto* subbed_base = subst_type(tv.assoc_base(), s);
+        auto subbed_base = subst_type(tv.assoc_base(), s);
         TypeRef sbv{subbed_base};
         if (sbv.kind() == LogosType::Kind::Struct ||
             sbv.kind() == LogosType::Kind::ZonedStruct ||

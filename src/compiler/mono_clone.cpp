@@ -11,7 +11,7 @@
 namespace logos::compiler {
 
 // Forward declaration (defined before subst_stmt, used in subst_expr and subst_stmt).
-using TypeSubstFn = std::function<const LogosType*(const LogosType*)>;
+using TypeSubstFn = std::function<TypeRef(TypeRef)>;
 static lir::Pattern subst_pattern(const lir::Pattern& pat, const TypeSubstFn& st);
 
 lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
@@ -36,7 +36,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
                 std::string cname = std::string(rt.enum_name());
-                for (auto* a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
+                for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
                 ne.enum_name = cname;
                 record_needed_enum(result->type);
             }
@@ -48,7 +48,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::ECall>) {
             lir::ECall nc;
             nc.callee = k.callee;
-            for (auto* ta : k.type_args)
+            for (auto ta : k.type_args)
                 nc.type_args.push_back(subst_type(ta, s));
             for (auto& a : k.args) {
                 // Pack expansion: args... → expand into individual args
@@ -70,7 +70,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         // If callee is a template, add pack types as type_args
                         // so mono enqueues the recursive instantiation.
                         if (templates_.count(nc.callee)) {
-                            for (auto* pt : pit->second)
+                            for (auto pt : pit->second)
                                 nc.type_args.push_back(pt);
                         }
                     }
@@ -88,7 +88,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     auto it = s.find(prefix);
                     if (it != s.end() && it->second) {
                         std::string cname;
-                        const LogosType* t = it->second;
+                        TypeRef t = it->second;
                         if (TypeRef(t).kind() == LogosType::Kind::Struct)
                             cname = concrete_struct_name(t);
                         else
@@ -116,7 +116,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         if (sit != struct_templates_.end()) {
                             // Verify none of the type args are still TypeVar
                             bool all_concrete = true;
-                            for (auto* ta : nc.type_args)
+                            for (auto ta : nc.type_args)
                                 if (ta && TypeRef(ta).kind() == LogosType::Kind::TypeVar)
                                     { all_concrete = false; break; }
                             if (all_concrete) {
@@ -125,7 +125,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                 // Hermes mirror in TypePool).
                                 size_t n_impl_tp = sit->second->type_params.size();
                                 size_t n_args    = std::min(n_impl_tp, nc.type_args.size());
-                                std::vector<const LogosType*> args(
+                                std::vector<TypeRef> args(
                                     nc.type_args.begin(), nc.type_args.begin() + n_args);
                                 std::string cname = concrete_struct_name_raw(
                                     struct_part, args);
@@ -144,10 +144,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::EMethodCall>) {
             // Check if this is a trait method call on a TypeVar that got resolved.
             // If so, rewrite to a direct ECall.
-            auto* orig_recv_type = k.receiver->type;
+            auto orig_recv_type = k.receiver->type;
             auto  new_recv = subst_expr(*k.receiver, s);
             // Unwrap pointer/reference for TypeVar check (handles *mut T, &T, &mut T).
-            auto* orig_inner = orig_recv_type;
+            auto orig_inner = orig_recv_type;
             if (orig_inner && (TypeRef(orig_inner).kind() == LogosType::Kind::Ptr ||
                                TypeRef(orig_inner).kind() == LogosType::Kind::Ref ||
                                TypeRef(orig_inner).kind() == LogosType::Kind::MutRef) &&
@@ -157,7 +157,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 new_recv->type) {
                 // Trait method → direct call: TypeName__method(self, args...)
                 std::string cname;
-                auto* rt = new_recv->type;
+                auto rt = new_recv->type;
                 if (TypeRef(rt).kind() == LogosType::Kind::Struct ||
                     TypeRef(rt).kind() == LogosType::Kind::ZonedStruct)
                     cname = concrete_struct_name(rt);
@@ -210,7 +210,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
                     for (auto& a : k.args) nc.args.push_back(subst_expr(*a, s));
-                    for (auto* ta : k.type_args) nc.type_args.push_back(subst_type(ta, s));
+                    for (auto ta : k.type_args) nc.type_args.push_back(subst_type(ta, s));
                     if (!nc.type_args.empty())
                         nc.callee = mangle(tmpl_key, nc.type_args);
                     result->kind = std::move(nc);
@@ -231,7 +231,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 nm.receiver = std::move(new_recv);
                 nm.method = k.method;
                 nm.resolved_symbol = k.resolved_symbol;
-                for (auto* ta : k.type_args) nm.type_args.push_back(subst_type(ta, s));
+                for (auto ta : k.type_args) nm.type_args.push_back(subst_type(ta, s));
                 nm.vtable_index = k.vtable_index;
                 nm.tag_system = k.tag_system;
                 nm.tag_trait  = k.tag_trait;
@@ -239,7 +239,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 // SPECIALIZATION LOOKUP (Bug 12)
                 bool rewritten = false;
                 if (nm.receiver->type) {
-                    const LogosType* rt = nm.receiver->type;
+                    TypeRef rt = nm.receiver->type;
                     while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ptr ||
                                   TypeRef(rt).kind() == LogosType::Kind::Ref ||
                                   TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
@@ -250,8 +250,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                         (TypeRef(rt).kind() == LogosType::Kind::Struct ||
                          TypeRef(rt).kind() == LogosType::Kind::ZonedStruct ||
                          TypeRef(rt).kind() == LogosType::Kind::Enum)) {
-                        std::vector<const LogosType*> combined_args = TypeRef(rt).type_args();
-                        for (auto* mta : nm.type_args) combined_args.push_back(mta);
+                        std::vector<TypeRef> combined_args = TypeRef(rt).type_args();
+                        for (auto mta : nm.type_args) combined_args.push_back(mta);
 
                         std::string base_struct;
                         if (!nm.resolved_type.empty()) {
@@ -314,7 +314,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             auto new_rhs = subst_expr(*k.rhs, s);
             // After substitution, if LHS is a struct/class, rewrite binop
             // to operator trait method call (e.g. v + v → Vec2__add(v, v)).
-            auto* lt = new_lhs->type;
+            auto lt = new_lhs->type;
             if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (k.op == "+")  method_name = "add";
@@ -346,7 +346,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
 
         } else if constexpr (std::is_same_v<K, lir::EUnary>) {
             auto new_op = subst_expr(*k.operand, s);
-            auto* vt = new_op->type;
+            auto vt = new_op->type;
             if (vt && TypeRef(vt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (k.op == "-") method_name = "neg";
@@ -433,7 +433,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 nc->is_move = k.inner->is_move;
                 nc->as_fn_ptr = k.inner->as_fn_ptr;
                 nc->captures = k.inner->captures;
-                for (auto* ct : k.inner->capture_types)
+                for (auto ct : k.inner->capture_types)
                     nc->capture_types.push_back(subst_type(ct, s));
                 result->kind = lir::EClosureBox{std::move(nc)};
             } else {
@@ -473,7 +473,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             if (rt3 && rt3.kind() == LogosType::Kind::Enum &&
                 !rt3.type_args().empty()) {
                 std::string cname = std::string(rt3.enum_name());
-                for (auto* a : rt3.type_args()) { cname += "__"; cname += mangle_type(a); }
+                for (auto a : rt3.type_args()) { cname += "__"; cname += mangle_type(a); }
                 ne.enum_name = cname;
                 record_needed_enum(result->type);
             } else {
@@ -506,7 +506,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             nm.scrut = subst_expr(*k.scrut, s);
             for (auto& arm : k.arms) {
                 lir::EMatchArm na;
-                na.pat   = subst_pattern(arm.pat, [&](auto* t){ return subst_type(t, s); });  // M1
+                na.pat   = subst_pattern(arm.pat, [&](auto t){ return subst_type(t, s); });  // M1
                 if (arm.guard) na.guard = subst_expr(**arm.guard, s);
                 na.value = subst_expr(*arm.value, s);
                 nm.arms.push_back(std::move(na));
@@ -517,12 +517,12 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::ETypeCodeOf>) {
             // Re-evaluate after substitution.  If the type is now fully
             // concrete, fold to ELitInt.  Otherwise keep deferred.
-            auto* resolved = subst_type(k.elem_type, s);
+            auto resolved = subst_type(k.elem_type, s);
             bool has_tv = false;
-            std::function<void(const LogosType*)> walk = [&](const LogosType* t) {
+            std::function<void(TypeRef)> walk = [&](TypeRef t) {
                 if (!t || has_tv) return;
                 if (TypeRef(t).kind() == LogosType::Kind::TypeVar) { has_tv = true; return; }
-                for (auto* a : TypeRef(t).type_args()) walk(a);
+                for (auto a : TypeRef(t).type_args()) walk(a);
                 if (TypeRef(t).pointee()) walk(TypeRef(t).pointee().raw());
                 if (TypeRef(t).elem())    walk(TypeRef(t).elem().raw());
             };
@@ -597,7 +597,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             nl.capture_param_count = k.capture_param_count;
             for (auto& ce : k.capture_exprs)
                 nl.capture_exprs.push_back(subst_expr(*ce, s, {}));
-            for (auto* ct : k.capture_types)
+            for (auto ct : k.capture_types)
                 nl.capture_types.push_back(subst_type(ct, s));
             result->kind = std::move(nl);
         } else if constexpr (std::is_same_v<K, lir::EPtrArith>) {
@@ -607,7 +607,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
             result->kind = lir::EPtrDiff{k.by_byte,
                 subst_expr(*k.lhs, s), subst_expr(*k.rhs, s)};
         } else if constexpr (std::is_same_v<K, lir::EReflectOf>) {
-            auto* resolved = subst_type(k.type, s);
+            auto resolved = subst_type(k.type, s);
             result->kind = lir::EReflectOf{resolved};
             // If the type is now fully concrete, register for TypeInfo emission.
             if (resolved && TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct &&
@@ -784,7 +784,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
             nm.scrut = subst_expr(*k.scrut, s);
             for (auto& arm : k.arms) {
                 lir::LMatchArm na;
-                na.pat  = subst_pattern(arm.pat, [&](auto* t){ return subst_type(t, s); });  // M2/M3/M4/M5
+                na.pat  = subst_pattern(arm.pat, [&](auto t){ return subst_type(t, s); });  // M2/M3/M4/M5
                 na.body = std::make_unique<lir::LBlock>(subst_block(*arm.body, s));
                 if (arm.guard)
                     na.guard = subst_expr(**arm.guard, s);
@@ -804,7 +804,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
 
         } else if constexpr (std::is_same_v<K, lir::SLetElse>) {
             lir::SLetElse sle;
-            sle.pat        = subst_pattern(k.pat, [&](auto* t){ return subst_type(t, s); });  // M2/M3/M4/M5
+            sle.pat        = subst_pattern(k.pat, [&](auto t){ return subst_type(t, s); });  // M2/M3/M4/M5
             sle.scrut      = subst_expr(*k.scrut, s);
             sle.else_block = std::make_unique<lir::LBlock>(subst_block(*k.else_block, s));
             ns.kind        = std::move(sle);
@@ -894,7 +894,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             if (itp.bounds.empty()) continue;
             auto sit = s.find(itp.name);
             if (sit == s.end()) continue;  // TypeVar not substituted — keep.
-            const LogosType* concrete = sit->second;
+            TypeRef concrete = sit->second;
             if (!concrete) continue;
             std::string cname;
             if (TypeRef(concrete).kind() == LogosType::Kind::Struct ||
@@ -962,7 +962,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
 // Return the best-matching struct specialisation for (base_name, type_args).
 const lir::LStructDef* Mono::find_best_struct_spec(
     const std::string& base_name,
-    const std::vector<const LogosType*>& type_args) {
+    const std::vector<TypeRef>& type_args) {
     auto sit = struct_specs_.find(base_name);
     if (sit == struct_specs_.end()) return nullptr;
 
@@ -1138,7 +1138,7 @@ void Mono::instantiate_struct_templates() {
             if (struct_done_.count(cname)) continue;
             struct_done_.insert(cname);
 
-            const LogosType* struct_t = info.first;
+            TypeRef struct_t = info.first;
             depth_ = info.second;
 
             const std::string base{TypeRef(struct_t).struct_name()};
@@ -1157,7 +1157,7 @@ void Mono::instantiate_struct_templates() {
                 tmpl = it->second;
                 for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
                     if (tmpl->type_params[i].is_variadic) {
-                        std::vector<const LogosType*> pack;
+                        std::vector<TypeRef> pack;
                         while (j < TypeRef(struct_t).type_args().size()) pack.push_back(TypeRef(struct_t).type_args()[j++]);
                         packs[tmpl->type_params[i].name] = std::move(pack);
                     } else if (j < TypeRef(struct_t).type_args().size()) {
@@ -1213,11 +1213,11 @@ lir::LEnumDef Mono::clone_enum_def(const lir::LEnumDef& tmpl,
         nv.disc = v.disc;
         // Variadic expansion for variants like Multi(...T)
         if (v.is_variadic && !v.payload_types.empty()) {
-            auto* pt = v.payload_types[0];
+            auto pt = v.payload_types[0];
             if (TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto pit = packs.find(TypeRef(pt).type_var_name());
                 if (pit != packs.end()) {
-                    for (auto* pt_in_pack : pit->second)
+                    for (auto pt_in_pack : pit->second)
                         nv.payload_types.push_back(subst_type(pt_in_pack, s));
                 } else {
                     nv.payload_types.push_back(subst_type(pt, s));
@@ -1226,7 +1226,7 @@ lir::LEnumDef Mono::clone_enum_def(const lir::LEnumDef& tmpl,
                 nv.payload_types.push_back(subst_type(pt, s));
             }
         } else {
-            for (auto* pt : v.payload_types)
+            for (auto pt : v.payload_types)
                 nv.payload_types.push_back(subst_type(pt, s));
         }
         nd.variants.push_back(std::move(nv));
@@ -1239,7 +1239,7 @@ void Mono::instantiate_enum_templates() {
     // Instantiate generic enums that were recorded during function cloning.
     // Simple approach: iterate until no more needed (fixed-point).
     while (true) {
-        std::vector<std::pair<std::string, std::pair<std::vector<const LogosType*>, int>>> todo;
+        std::vector<std::pair<std::string, std::pair<std::vector<TypeRef>, int>>> todo;
         for (auto& [cname, info] : needed_enum_insts_) {
             if (enum_done_.count(cname)) continue;
             todo.push_back({cname, info});
@@ -1262,7 +1262,7 @@ void Mono::instantiate_enum_templates() {
             PackMap packs;
             for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
                 if (tmpl->type_params[i].is_variadic) {
-                    std::vector<const LogosType*> pack;
+                    std::vector<TypeRef> pack;
                     while (j < args.size()) pack.push_back(args[j++]);
                     packs[tmpl->type_params[i].name] = std::move(pack);
                 } else if (j < args.size()) {
@@ -1288,7 +1288,7 @@ void Mono::instantiate_enum_templates() {
                 // Override type params with the enum's type param names if different
                 for (size_t i = 0, j = 0; i < fn.type_params.size(); ++i) {
                     if (fn.type_params[i].is_variadic) {
-                         std::vector<const LogosType*> pack;
+                         std::vector<TypeRef> pack;
                          while (j < args.size()) pack.push_back(args[j++]);
                          fn_packs[fn.type_params[i].name] = std::move(pack);
                     } else if (j < args.size()) {

@@ -219,7 +219,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         lir::LExprPtr val = stmt.has_key(la::VALUE)
             ? lower_expr(map_of(stmt.get(la::VALUE.code)))
             : error_expr();
-        auto* pt = ptr->type;
+        auto pt = ptr->type;
         // Writing through &mut T is safe; writing through raw *mut/*const T requires unsafe
         bool is_mut_ref = TypeRef(pt).kind() == LogosType::Kind::MutRef;
         if (!is_mut_ref && !inside_unsafe_)
@@ -268,7 +268,7 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
             if (auto* sr = std::get_if<lir::SReturn>(&lowered.kind)) {
                 auto drops = collect_all_drops();
                 if (!drops.empty() && sr->value) {
-                    const LogosType* rt = sr->value->type;
+                    TypeRef rt = sr->value->type;
                     std::string tmp = "__ret_tmp_" +
                         std::to_string(tmp_var_count_++);
                     lir::SLet sl;
@@ -310,7 +310,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
-    const LogosType* rhs_type = rhs->type;
+    TypeRef rhs_type = rhs->type;
     if (TypeRef(rhs_type).kind() != LogosType::Kind::Tuple) {
         error(std::format("let (...) = ...: right-hand side must be a tuple, got {}",
               type_str(rhs_type)));
@@ -350,7 +350,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
 
     // let name_i = __destruct_N.i
     for (size_t i = 0; i < names.size() && i < TypeRef(rhs_type).tuple_elems().size(); ++i) {
-        auto* elem_t = TypeRef(rhs_type).tuple_elems()[i];
+        auto elem_t = TypeRef(rhs_type).tuple_elems()[i];
         define(names[i], elem_t);
 
         auto tmp_ref = make_expr(rhs_type, lir::EVarRef{tmp});
@@ -383,7 +383,7 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
     lir::LExprPtr scrut = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
-    const LogosType* scrut_type = scrut->type;
+    TypeRef scrut_type = scrut->type;
 
     // 2. Build pattern (this also validates binding types)
     auto pat_node = map_of(node.get(la::PAT.code));
@@ -434,21 +434,21 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     }
 
     // Parse type annotation first so we can use it as a hint for enum literal inference
-    const LogosType* ann = nullptr;
+    TypeRef ann = nullptr;
     if (node.has_key(la::TYPE))
         ann = resolve_type(map_of(node.get(la::TYPE.code)));
 
     // Set enum/struct hints so literal lowering can fill in unresolved type params
-    auto* saved_hint = hint_enum_type_;
+    auto saved_hint = hint_enum_type_;
     if (ann && TypeRef(ann).kind() == LogosType::Kind::Enum && !TypeRef(ann).type_args().empty())
         hint_enum_type_ = ann;
-    auto* saved_struct_hint = hint_struct_type_;
+    auto saved_struct_hint = hint_struct_type_;
     if (ann && (TypeRef(ann).kind() == LogosType::Kind::Struct ||
                 TypeRef(ann).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ann).type_args().empty())
         hint_struct_type_ = ann;
 
     lir::LExprPtr rhs;
-    const LogosType* rhs_type;
+    TypeRef rhs_type;
     if (node.has_key(la::VALUE)) {
         rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
         rhs_type = rhs->type;
@@ -461,7 +461,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     hint_enum_type_ = saved_hint;
     hint_struct_type_ = saved_struct_hint;
 
-    const LogosType* var_type;
+    TypeRef var_type;
     if (ann != nullptr) {
         // impl Trait annotation: any concrete struct/class that was returned from an
         // impl-Trait-returning function is acceptable — treat the variable type as the
@@ -628,7 +628,7 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
     else
         base_op = std::string(op_tok);  // fallback
 
-    auto* var_type = lookup(name);
+    auto var_type = lookup(name);
     if (!var_type) {
         error(std::format("compound assignment to undefined variable '{}'", name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
@@ -656,7 +656,7 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
 
 lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     auto name = str_of(node.get(la::NAME.code));
-    auto* var_type = lookup(name);
+    auto var_type = lookup(name);
     if (!var_type) {
         error(std::format("assignment to undefined variable '{}'", name));
         lir::LExprPtr dummy = node.has_key(la::VALUE)
@@ -742,10 +742,10 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
         AnyVal vav = node.get(la::VALUE.code);
         if (!vav.is_null()) {
             // Set enum/struct hints from return type so literals can fill in unresolved type params
-            auto* saved_hint = hint_enum_type_;
+            auto saved_hint = hint_enum_type_;
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Enum && !TypeRef(ret_type_).type_args().empty())
                 hint_enum_type_ = ret_type_;
-            auto* saved_struct_hint = hint_struct_type_;
+            auto saved_struct_hint = hint_struct_type_;
             if (ret_type_ && (TypeRef(ret_type_).kind() == LogosType::Kind::Struct ||
                               TypeRef(ret_type_).kind() == LogosType::Kind::ZonedStruct) &&
                 !TypeRef(ret_type_).type_args().empty())
@@ -863,7 +863,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
     return make_stmt(node_line_, lir::SReturn{nullptr});
 }
 
-lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scrut_type) {
+lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
     int32_t pc = code_of(pnode);
     if (pc == la::PAT_VARIANT) {
         auto pename = std::string(str_of(pnode.get(la::NAME.code)));
@@ -919,7 +919,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                 }
             }
         }
-        std::vector<const LogosType*> binding_types;
+        std::vector<TypeRef> binding_types;
         if (vinfo) {
             SemaSubst subst;
             if (TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
@@ -929,8 +929,8 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                                     k < TypeRef(scrut_type).type_args().size(); ++k)
                     subst[einfo.type_params[k].name] = TypeRef(scrut_type).type_args()[k];
             }
-            for (auto* pt : vinfo->payload_types) {
-                auto* ct = subst.empty() ? pt : subst_type_sema(pt, subst);
+            for (auto pt : vinfo->payload_types) {
+                auto ct = subst.empty() ? pt : subst_type_sema(pt, subst);
                 if (TypeRef(ct).kind() == LogosType::Kind::Void) continue;  // () unit — no field
                 binding_types.push_back(ct);
             }
@@ -1037,7 +1037,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                 // Each element in a tuple pattern must be a simple binding (PAT_WILD = identifier)
                 // or _ (wildcard). Nested patterns aren't supported yet.
                 // Element type for this position, used by recursive build_pattern for type-checking.
-                const LogosType* elem_ty = nullptr;
+                TypeRef elem_ty = nullptr;
                 if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Tuple &&
                     i < TypeRef(scrut_type).tuple_elems().size())
                     elem_ty = TypeRef(scrut_type).tuple_elems()[i];
@@ -1116,7 +1116,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
         bool is_mut = pnode.has_key(la::IS_MUT) &&
                       pnode.get(la::IS_MUT.code).is_value() &&
                       pnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
-        const LogosType* inner_type = error_t();
+        TypeRef inner_type = error_t();
         if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
             if (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
                 TypeRef(scrut_type).kind() == LogosType::Kind::MutRef) {
@@ -1124,7 +1124,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                 if (is_mut && TypeRef(scrut_type).kind() != LogosType::Kind::MutRef)
                     error(std::format("reference pattern: '&mut' requires '&mut' scrutinee, got '{}'",
                           type_str(scrut_type)));
-                inner_type = TypeRef(scrut_type).pointee().raw() ? TypeRef(scrut_type).pointee().raw() : error_t();
+                inner_type = TypeRef(scrut_type).pointee() ? TypeRef(scrut_type).pointee() : error_t();
             } else {
                 // NS1: non-reference scrutinee with a reference pattern is always wrong.
                 error(std::format("reference pattern requires reference scrutinee, got '{}'",
@@ -1152,7 +1152,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
             LogosTypeBuilder ref_t;
             ref_t.kind    = is_mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
             ref_t.pointee = scrut_type;
-            const LogosType* btype = pool_.alloc(std::move(ref_t));
+            TypeRef btype = pool_.alloc(std::move(ref_t));
             return lir::PatRefBind{bname, is_mut, btype};
         }
     }
@@ -1194,7 +1194,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
                             error("struct pattern: named field after '..'");
                         // PAT_FIELD: NAME = field name, VALUE = sub-pattern (optional)
                         auto fname = std::string(str_of(fnode.get(la::NAME.code)));
-                        const LogosType* ftype = error_t();
+                        TypeRef ftype = error_t();
                         if (sinfo) {
                             for (auto& f : sinfo->fields)
                                 if (f.name == fname) { ftype = f.type; break; }
@@ -1247,7 +1247,7 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
 
     // ── PAT_SLICE: [a, b] or [first, .., last] ───────────────────────────
     if (pc == la::PAT_SLICE) {
-        const LogosType* elem_type = error_t();
+        TypeRef elem_type = error_t();
         if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Array && TypeRef(scrut_type).elem())
             elem_type = TypeRef(scrut_type).elem().raw();
         else if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Slice && TypeRef(scrut_type).elem())
@@ -1336,12 +1336,12 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, const LogosType* scru
 // PAT_OR unwraps transparently.
 lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         TinyMapView pnode, const std::string& scrut_var,
-        const LogosType* scrut_type, const std::string& base_var,
+        TypeRef scrut_type, const std::string& base_var,
         std::vector<lir::LStmt>& out_stmts,
         std::vector<HermesPatBinding>& out_bindings) {
-    const LogosType* ptr_t_outer = make_ptr(false, scrut_type);
-    const LogosType* u8_ptr_t_outer = make_ptr(false, prim(LogosType::Kind::U8));
-    const LogosType* u64_t = prim(LogosType::Kind::U64);
+    TypeRef ptr_t_outer = make_ptr(false, scrut_type);
+    TypeRef u8_ptr_t_outer = make_ptr(false, prim(LogosType::Kind::U8));
+    TypeRef u64_t = prim(LogosType::Kind::U64);
     auto mk_true = [&]() {
         return make_expr(bool_t(), lir::ELitBool{true});
     };
@@ -1359,8 +1359,8 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             pc != la::PAT_HERMES_INT  && pc != la::PAT_HERMES_STR)
             return nullptr;
 
-        const LogosType* ptr_t = ptr_t_outer;
-        const LogosType* u8_ptr_t = u8_ptr_t_outer;
+        TypeRef ptr_t = ptr_t_outer;
+        TypeRef u8_ptr_t = u8_ptr_t_outer;
 
         const char* helper = nullptr;
         size_t want_arity = 1;
@@ -1737,7 +1737,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
 }
 
 void SemaChecker::bind_pattern(const lir::Pattern& pat,
-                      const LogosType* scrut_type) {
+                      TypeRef scrut_type) {
     if (auto* pvd = std::get_if<lir::PatVariantData>(&pat)) {
         for (size_t i = 0; i < pvd->bindings.size() &&
                             i < pvd->binding_types.size(); ++i)
@@ -1757,7 +1757,7 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
         if (!pa->sub.empty()) bind_pattern(pa->sub[0], pa->type);
     } else if (auto* prp = std::get_if<lir::PatRefPat>(&pat)) {
         // NS4: only extract pointee when the kind is actually Ref or MutRef.
-        const LogosType* inner_t = error_t();
+        TypeRef inner_t = error_t();
         if (scrut_type && (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
                            TypeRef(scrut_type).kind() == LogosType::Kind::MutRef) &&
             TypeRef(scrut_type).pointee())
@@ -1773,7 +1773,7 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
             if (dit != datatypes_.end()) sinfo = &dit->second;
         }
         for (auto& pfb : ps->fields) {
-            const LogosType* ftype = error_t();
+            TypeRef ftype = error_t();
             if (sinfo)
                 for (auto& f : sinfo->fields)
                     if (f.name == pfb.field_name) { ftype = f.type; break; }
@@ -1785,7 +1785,7 @@ void SemaChecker::bind_pattern(const lir::Pattern& pat,
             }
         }
     } else if (auto* psl = std::get_if<lir::PatSlice>(&pat)) {
-        const LogosType* elem_t = (scrut_type && TypeRef(scrut_type).elem()) ? TypeRef(scrut_type).elem().raw() : error_t();
+        TypeRef elem_t = (scrut_type && TypeRef(scrut_type).elem()) ? TypeRef(scrut_type).elem() : error_t();
         for (auto& p : psl->prefix) bind_pattern(p, elem_t);
         for (auto& p : psl->rest)   bind_pattern(p, elem_t);  // S4: elem_t not scrut_type
         for (auto& p : psl->suffix) bind_pattern(p, elem_t);
@@ -1800,7 +1800,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
     if (node.has_key(la::PAT)) {
         auto scrut = node.has_key(la::VALUE)
             ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
-        const LogosType* scrut_type = scrut->type;
+        TypeRef scrut_type = scrut->type;
 
         auto pat = build_pattern(map_of(node.get(la::PAT.code)), scrut_type);
 
@@ -1873,7 +1873,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
     if (node.has_key(la::PAT)) {
         auto scrut = node.has_key(la::VALUE)
             ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
-        const LogosType* scrut_type = scrut->type;
+        TypeRef scrut_type = scrut->type;
 
         auto pat = build_pattern(map_of(node.get(la::PAT.code)), scrut_type);
 
@@ -1958,7 +1958,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
             default: return 32;
         }
     };
-    const LogosType* var_t = i32_t();
+    TypeRef var_t = i32_t();
     {
         int lo_w = int_kind_width(TypeRef(lo->type).kind());
         int hi_w = int_kind_width(TypeRef(hi->type).kind());
@@ -2010,12 +2010,12 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     lir::LExprPtr iter = node.has_key(la::ITER)
         ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
 
-    const LogosType* iter_type = iter->type;
+    TypeRef iter_type = iter->type;
 
     // ── array path (original) ────────────────────────────────────
     if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
         int64_t arr_size = (int64_t)TypeRef(iter_type).arr_size();
-        const LogosType* elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
+        TypeRef elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
 
         push_scope();
         define(var_name, elem_type, false);
@@ -2038,7 +2038,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
     // ── slice path: &[T] — iterate by index over fat pointer ────────
     if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        const LogosType* elem_type = TypeRef(iter_type).elem().raw() ? TypeRef(iter_type).elem().raw() : i32_t();
+        TypeRef elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
         push_scope();
         define(var_name, elem_type, false);
         auto body = std::make_unique<lir::LBlock>();
@@ -2103,7 +2103,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         }
 
         // next() must return an enum (Option-like)
-        const LogosType* next_ret = fi_ptr->ret_type;
+        TypeRef next_ret = fi_ptr->ret_type;
         // Substitute type args if iterator is generic.  structs_ is keyed by
         // the BASE struct name, not the mangled concrete name.
         if (!TypeRef(iter_type).type_args().empty()) {
@@ -2152,7 +2152,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         }
 
         // Resolve element type (substitute generics from next_ret's type_args)
-        const LogosType* elem_type = some_variant->payload_types[0];
+        TypeRef elem_type = some_variant->payload_types[0];
         if (!TypeRef(next_ret).type_args().empty()) {
             SemaSubst subst;
             auto& tps = eit->second.type_params;
@@ -2226,7 +2226,7 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     pending_loop_label_.clear();
 
     auto body = std::make_unique<lir::LBlock>();
-    const LogosType* saved_break_type = break_value_type_;
+    TypeRef saved_break_type = break_value_type_;
     bool saved_break_without_value = break_without_value_;
     break_value_type_ = nullptr;
     break_without_value_ = false;
@@ -2253,13 +2253,13 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
 
     // DataRef<T> ergonomic write: p.field = val → { let __tmp = p.mut_ptr(); (*__tmp).field = val; }
     {
-        const LogosType* recv_type = lookup(recv_name);
+        TypeRef recv_type = lookup(recv_name);
         if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Struct &&
             TypeRef(recv_type).struct_name() == "DataRef" &&
             TypeRef(recv_type).type_args().size() == 1) {
-            const LogosType* T = TypeRef(recv_type).type_args()[0];
+            TypeRef T = TypeRef(recv_type).type_args()[0];
             if (T && TypeRef(T).kind() == LogosType::Kind::ZonedStruct) {
-                auto* ft = field_type_of_for_type(T, field_name);
+                auto ft = field_type_of_for_type(T, field_name);
                 if (ft) {
                     if (!inside_unsafe_)
                         error(std::format("DataRef<T>.{}: field write requires unsafe context",
@@ -2276,7 +2276,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
                         error(std::format("field write '{}.{}': expected {}, got {}",
                               recv_name, field_name, type_str(ft), type_str(val->type)));
                     // Synthesize: let __dr_tmp = p.mut_ptr();
-                    const LogosType* mut_ptr_T = make_ptr(true, T);
+                    TypeRef mut_ptr_T = make_ptr(true, T);
                     std::string tmp = "__dr_tmp_" + std::string(recv_name);
                     auto recv_expr = make_expr(recv_type, lir::EVarRef{std::string(recv_name)});
                     lir::SLet let_s;
@@ -2305,7 +2305,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     if (sname.empty()) {
         error(std::format("field write: '{}' is not a struct", recv_name));
     } else {
-        auto* recv_type = lookup(recv_name);
+        auto recv_type = lookup(recv_name);
         if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr) {
             if (!TypeRef(recv_type).mut_ptr())
                 error(std::format("field write to '{}': receiver is *const pointer", recv_name));
@@ -2316,7 +2316,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
             error(std::format("field write to immutable variable '{}'", recv_name));
         }
     }
-    const LogosType* recv_struct_t = sname.empty() ? nullptr : lookup(recv_name);
+    TypeRef recv_struct_t = sname.empty() ? nullptr : lookup(recv_name);
     if (recv_struct_t && TypeRef(recv_struct_t).kind() == LogosType::Kind::Ptr) {
         if (!inside_unsafe_)
             error("field write through raw pointer requires unsafe context");
@@ -2324,7 +2324,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     } else if (recv_struct_t && is_ref_like(TypeRef(recv_struct_t).kind())) {
         recv_struct_t = TypeRef(recv_struct_t).pointee().raw();
     }
-    const LogosType* ft = nullptr;
+    TypeRef ft = nullptr;
     if (recv_struct_t) {
         ft = field_type_of_for_type(recv_struct_t, field_name);
     }
@@ -2345,7 +2345,7 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
         }
     }
 
-    auto* saved_struct_hint = hint_struct_type_;
+    auto saved_struct_hint = hint_struct_type_;
     if (ft && (TypeRef(ft).kind() == LogosType::Kind::Struct ||
                TypeRef(ft).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ft).type_args().empty())
         hint_struct_type_ = ft;
@@ -2424,7 +2424,7 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
         return make_stmt(node_line_, lir::SExprStmt{error_expr()});
     }
     // Require mutable receiver.
-    auto* recv_type = lookup(recv_name);
+    auto recv_type = lookup(recv_name);
     if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ref)
         error(std::format("chain field write '{}': receiver is &T (shared reference)", recv_name));
     else if (recv_type && TypeRef(recv_type).kind() != LogosType::Kind::Ptr && !lookup_is_mut(recv_name))
@@ -2434,12 +2434,12 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
 
     // Get mid-field type — use typed lookup so generic type args are substituted
     // (e.g. Array<i32>.data resolves to RelPtr<i32>, not RelPtr<T>).
-    const LogosType* outer_struct_t = recv_type;
+    TypeRef outer_struct_t = recv_type;
     if (outer_struct_t && TypeRef(outer_struct_t).kind() == LogosType::Kind::Ptr)
         outer_struct_t = TypeRef(outer_struct_t).pointee().raw();
     else if (outer_struct_t && is_ref_like(TypeRef(outer_struct_t).kind()))
         outer_struct_t = TypeRef(outer_struct_t).pointee().raw();
-    const LogosType* mid_ft = outer_struct_t
+    TypeRef mid_ft = outer_struct_t
         ? field_type_of_for_type(outer_struct_t, mid_name)
         : field_type_of(std::string(outer_sname), mid_name);
     if (!mid_ft) {
@@ -2447,7 +2447,7 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
         return make_stmt(node_line_, lir::SExprStmt{error_expr()});
     }
     // Resolve through pointer if mid-field is itself a pointer type.
-    const LogosType* mid_struct_t = mid_ft;
+    TypeRef mid_struct_t = mid_ft;
     if (TypeRef(mid_struct_t).kind() == LogosType::Kind::Ptr) mid_struct_t = TypeRef(mid_struct_t).pointee().raw();
 
     auto mid_sname = mid_struct_t ? concrete_struct_name(mid_struct_t) : std::string{};
@@ -2457,7 +2457,7 @@ lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
     }
 
     // Get final field type — again via typed lookup for generic substitution.
-    const LogosType* ft = field_type_of_for_type(mid_struct_t, field_name);
+    TypeRef ft = field_type_of_for_type(mid_struct_t, field_name);
     if (!ft) {
         error(std::format("chain field write: struct '{}' has no field '{}'", mid_sname, field_name));
         return make_stmt(node_line_, lir::SExprStmt{error_expr()});
@@ -2493,26 +2493,26 @@ lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
         : std::string(op_tok);
 
     auto outer_sname = struct_name_of(recv_name);
-    auto* recv_type_for_cfca = lookup(recv_name);
+    auto recv_type_for_cfca = lookup(recv_name);
     if (recv_type_for_cfca && TypeRef(recv_type_for_cfca).kind() == LogosType::Kind::Ref)
         error(std::format("chain field compound assign '{}': receiver is &T (shared reference)", recv_name));
     else if (recv_type_for_cfca && TypeRef(recv_type_for_cfca).kind() != LogosType::Kind::Ptr && !lookup_is_mut(recv_name))
         error(std::format("chain field compound assign to immutable variable '{}'", recv_name));
     if (recv_type_for_cfca && TypeRef(recv_type_for_cfca).kind() == LogosType::Kind::Ptr && !TypeRef(recv_type_for_cfca).mut_ptr())
         error(std::format("chain field compound assign '{}': receiver is *const pointer", recv_name));
-    const LogosType* outer_struct_t_cfca = recv_type_for_cfca;
+    TypeRef outer_struct_t_cfca = recv_type_for_cfca;
     if (outer_struct_t_cfca && TypeRef(outer_struct_t_cfca).kind() == LogosType::Kind::Ptr)
         outer_struct_t_cfca = TypeRef(outer_struct_t_cfca).pointee().raw();
     else if (outer_struct_t_cfca && is_ref_like(TypeRef(outer_struct_t_cfca).kind()))
         outer_struct_t_cfca = TypeRef(outer_struct_t_cfca).pointee().raw();
-    const LogosType* mid_ft = outer_struct_t_cfca
+    TypeRef mid_ft = outer_struct_t_cfca
         ? field_type_of_for_type(outer_struct_t_cfca, mid_name)
         : (outer_sname.empty() ? nullptr : field_type_of(std::string(outer_sname), mid_name));
-    const LogosType* mid_struct_t = mid_ft;
+    TypeRef mid_struct_t = mid_ft;
     if (mid_struct_t && TypeRef(mid_struct_t).kind() == LogosType::Kind::Ptr)
         mid_struct_t = TypeRef(mid_struct_t).pointee().raw();
     auto mid_sname = mid_struct_t ? concrete_struct_name(mid_struct_t) : std::string{};
-    const LogosType* ft = mid_struct_t
+    TypeRef ft = mid_struct_t
         ? field_type_of_for_type(mid_struct_t, field_name)
         : (mid_sname.empty() ? nullptr : field_type_of(mid_sname, field_name));
 
@@ -2529,10 +2529,10 @@ lir::LStmt SemaChecker::lower_chain_field_compound_assign(TinyMapView node) {
     auto recv_expr = make_expr(lookup(recv_name) ? lookup(recv_name) : error_t(),
                                lir::EVarRef{std::string(recv_name)});
     // mid read: recv.mid  (as EFieldRead)
-    const LogosType* mid_read_t = mid_ft ? mid_ft : error_t();
+    TypeRef mid_read_t = mid_ft ? mid_ft : error_t();
     auto mid_expr = make_expr(mid_read_t, lir::EFieldRead{std::move(recv_expr), std::string(mid_name)});
     // field read: (recv.mid).field  (as EFieldRead)
-    const LogosType* ft2 = ft ? ft : error_t();
+    TypeRef ft2 = ft ? ft : error_t();
     auto field_expr = make_expr(ft2, lir::EFieldRead{std::move(mid_expr), std::string(field_name)});
 
     // op(old, rhs)
@@ -2559,7 +2559,7 @@ lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
 
     // Determine field type
     auto sname = struct_name_of(recv_name);
-    const LogosType* ft = sname.empty() ? nullptr : field_type_of(std::string(sname), field_name);
+    TypeRef ft = sname.empty() ? nullptr : field_type_of(std::string(sname), field_name);
 
     if (!sname.empty() && !ft) {
         error(std::format("field compound assign: struct '{}' has no field '{}'", sname, field_name));
@@ -2568,7 +2568,7 @@ lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
     }
 
     // Check mutability
-    auto* recv_type = lookup(recv_name);
+    auto recv_type = lookup(recv_name);
     if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ref)
         error(std::format("field compound assign to '{}': receiver is &T (shared reference)", recv_name));
     else if (!lookup_is_mut(recv_name) &&
@@ -2576,8 +2576,8 @@ lir::LStmt SemaChecker::lower_field_compound_assign(TinyMapView node) {
                              TypeRef(recv_type).kind() == LogosType::Kind::Ptr)))
         error(std::format("field compound assign to immutable variable '{}'", recv_name));
 
-    const LogosType* recv_var_type = recv_type ? recv_type : error_t();
-    const LogosType* result_type   = ft ? ft : error_t();
+    TypeRef recv_var_type = recv_type ? recv_type : error_t();
+    TypeRef result_type   = ft ? ft : error_t();
 
     // lhs = s.field (read): EFieldRead{VarRef(recv_name), field_name}
     auto recv_varref = make_expr(recv_var_type, lir::EVarRef{std::string(recv_name)});
@@ -2608,7 +2608,7 @@ lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
     auto idx_sv    = str_of(node.get(la::INDEX.code));
     uint64_t idx   = (uint64_t)parse_int_literal(idx_sv);
 
-    const LogosType* recv_t = lookup(recv_name);
+    TypeRef recv_t = lookup(recv_name);
     if (!recv_t) {
         error(std::format("tuple field write: undefined variable '{}'", recv_name));
         return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
@@ -2626,13 +2626,13 @@ lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
                           idx, TypeRef(recv_t).tuple_elems().size()));
         return make_stmt(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
     }
-    const LogosType* orig_recv_t = lookup(recv_name);
+    TypeRef orig_recv_t = lookup(recv_name);
     bool via_mut_ref = orig_recv_t && TypeRef(orig_recv_t).kind() == LogosType::Kind::MutRef;
     if (!lookup_is_mut(recv_name) && !via_mut_ref) {
         error(std::format("tuple field write to immutable variable '{}'", recv_name));
     }
 
-    const LogosType* ft = TypeRef(recv_t).tuple_elems()[idx];
+    TypeRef ft = TypeRef(recv_t).tuple_elems()[idx];
     lir::LExprPtr val = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
@@ -2655,7 +2655,7 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
     auto recv_name  = str_of(node.get(la::RECEIVER.code));
     auto field_name = str_of(node.get(la::FIELD.code));
 
-    const LogosType* ptr_type = lookup(recv_name);
+    TypeRef ptr_type = lookup(recv_name);
     if (!ptr_type) {
         error(std::format("deref-field-write: undefined variable '{}'", recv_name));
     } else if (!is_ref_like(TypeRef(ptr_type).kind()) || !TypeRef(ptr_type).pointee()) {
@@ -2672,9 +2672,9 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
     if (ptr_type && TypeRef(ptr_type).kind() == LogosType::Kind::Ptr && !inside_unsafe_)
         error("write through raw pointer field requires unsafe context");
 
-    const LogosType* pointee = (ptr_type && TypeRef(ptr_type).pointee().raw()) ? TypeRef(ptr_type).pointee().raw() : nullptr;
+    TypeRef pointee = (ptr_type && TypeRef(ptr_type).pointee().raw()) ? TypeRef(ptr_type).pointee().raw() : nullptr;
     std::string type_name;
-    const LogosType* ft = nullptr;
+    TypeRef ft = nullptr;
     if (pointee) {
         if (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct) {
@@ -2769,7 +2769,7 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
 
 lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
     auto arr_name = str_of(node.get(la::NAME.code));
-    auto* arr_type = lookup(arr_name);
+    auto arr_type = lookup(arr_name);
     if (!arr_type) {
         error(std::format("index write: undefined variable '{}'", arr_name));
     } else if (TypeRef(arr_type).kind() != LogosType::Kind::Array &&
@@ -2794,7 +2794,7 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
     if (!is_integer(idx->type))
         error(std::format("array index must be an integer, got {}", type_str(idx->type)));
 
-    const LogosType* elem_type = nullptr;
+    TypeRef elem_type = nullptr;
     if (arr_type) {
         if (TypeRef(arr_type).kind() == LogosType::Kind::Array) elem_type = TypeRef(arr_type).elem().raw();
         else if (TypeRef(arr_type).kind() == LogosType::Kind::Ptr ||
@@ -2874,7 +2874,7 @@ lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
     else
         base_op = std::string(op_tok);
 
-    auto* arr_type = lookup(arr_name);
+    auto arr_type = lookup(arr_name);
     if (!arr_type) {
         error(std::format("index compound assign: undefined variable '{}'", arr_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
@@ -2883,7 +2883,7 @@ lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
     if (TypeRef(arr_type).kind() == LogosType::Kind::Array && !lookup_is_mut(arr_name))
         error(std::format("index compound assign to immutable array '{}'", arr_name));
 
-    const LogosType* elem_type = nullptr;
+    TypeRef elem_type = nullptr;
     if (TypeRef(arr_type).kind() == LogosType::Kind::Array) elem_type = TypeRef(arr_type).elem().raw();
     else if (TypeRef(arr_type).kind() == LogosType::Kind::Ptr ||
              TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
@@ -2928,14 +2928,14 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
     auto field_name = str_of(node.get(la::FIELD.code));
 
     // Resolve field type — must be *mut T.
-    auto* recv_t = lookup(recv_name);
+    auto recv_t = lookup(recv_name);
     if (!recv_t) error(std::format("field index write: undefined variable '{}'", recv_name));
 
     // Unwrap pointer/reference receiver (class/struct-via-ptr/ref).
-    const LogosType* base_t = recv_t;
+    TypeRef base_t = recv_t;
     if (base_t && is_ref_like(TypeRef(base_t).kind())) base_t = TypeRef(base_t).pointee().raw();
 
-    const LogosType* field_t = nullptr;
+    TypeRef field_t = nullptr;
     if (base_t) {
         auto sname = struct_name_from_type(base_t);
         if (!sname.empty()) field_t = field_type_of_for_type(base_t, field_name);
@@ -2978,7 +2978,7 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
         error(std::format("field index write: field '{}.{}' is &T (shared reference), cannot write",
               recv_name, field_name));
 
-    const LogosType* elem_t = nullptr;
+    TypeRef elem_t = nullptr;
     if (field_t) {
         if (TypeRef(field_t).kind() == LogosType::Kind::Ptr ||
             TypeRef(field_t).kind() == LogosType::Kind::Ref ||
@@ -3056,7 +3056,7 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
 
 lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     lir::LExprPtr scrut;
-    const LogosType* scrut_type = error_t();
+    TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {
         scrut = lower_expr(map_of(node.get(la::VALUE.code)));
         scrut_type = scrut->type;
@@ -3105,7 +3105,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     lir::LStmt hoist_let_root;
     lir::LStmt hoist_let_base;
     bool has_hoist_let = false;
-    const LogosType* anyval_t = nullptr;
+    TypeRef anyval_t = nullptr;
     if (has_hermes_pat) {
         if (!hermes_view_inner(scrut_type)) {
             error(std::format(
@@ -3133,7 +3133,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         }
         base_var = "__hmatch_base_" + std::to_string(tmp_var_count_++);
         {
-            const LogosType* u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
+            TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
             auto view_ref = make_expr(scrut_type, lir::EVarRef{view_var});
             auto base_call = make_expr(u8_ptr_t,
                 lir::EMethodCall{std::move(view_ref), "base", "", {}, {}, -1});
@@ -3330,7 +3330,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
 
 lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     lir::LExprPtr scrut;
-    const LogosType* scrut_type = error_t();
+    TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {
         scrut = lower_expr(map_of(node.get(la::VALUE.code)));
         scrut_type = scrut->type;
@@ -3371,7 +3371,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     lir::LStmt hoist_let_root;
     lir::LStmt hoist_let_base;
     bool has_hoist_let = false;
-    const LogosType* anyval_t = nullptr;
+    TypeRef anyval_t = nullptr;
     if (has_hermes_pat) {
         if (!hermes_view_inner(scrut_type)) {
             error(std::format(
@@ -3399,7 +3399,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         }
         base_var = "__hmatche_base_" + std::to_string(tmp_var_count_++);
         {
-            const LogosType* u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
+            TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
             auto view_ref = make_expr(scrut_type, lir::EVarRef{view_var});
             auto base_call = make_expr(u8_ptr_t,
                 lir::EMethodCall{std::move(view_ref), "base", "", {}, {}, -1});
@@ -3414,7 +3414,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
     lir::EMatchExpr me;
     me.scrut = std::move(scrut);
-    const LogosType* result_type = error_t();
+    TypeRef result_type = error_t();
 
     if (node.has_key(la::ITEMS)) {
         auto arms = arr_of(node.get(la::ITEMS.code));
@@ -3528,7 +3528,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         error("match expression: block arm must end with an expression or always return");
                         last_expr = error_expr();
                     }
-                    const LogosType* vt = last_expr->type;
+                    TypeRef vt = last_expr->type;
                     val = make_expr(vt, lir::EBlockExpr{std::move(blk), std::move(last_expr)});
                 } else {
                     error("match expression: block arm must end with an expression or always return");
@@ -3550,7 +3550,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 }
                 auto blk = std::make_unique<lir::LBlock>();
                 blk->stmts = std::move(prologue);
-                const LogosType* vt = val->type;
+                TypeRef vt = val->type;
                 val = make_expr(vt,
                     lir::EBlockExpr{std::move(blk), std::move(val)});
             }
@@ -3667,7 +3667,7 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
     else
         base_op = std::string(op_tok);
 
-    const LogosType* ptr_type = lookup(recv_name);
+    TypeRef ptr_type = lookup(recv_name);
     if (!ptr_type) {
         error(std::format("deref-field compound assign: undefined variable '{}'", recv_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
@@ -3686,9 +3686,9 @@ lir::LStmt SemaChecker::lower_deref_field_compound_assign(TinyMapView node) {
     if (TypeRef(ptr_type).kind() == LogosType::Kind::Ref)
         error(std::format("deref-field compound assign: '{}' is &T (need &mut T)", recv_name));
 
-    const LogosType* pointee = TypeRef(ptr_type).pointee().raw();
+    TypeRef pointee = TypeRef(ptr_type).pointee().raw();
     std::string type_name;
-    const LogosType* ft = nullptr;
+    TypeRef ft = nullptr;
     if (TypeRef(pointee).kind() == LogosType::Kind::Struct) {
         type_name = concrete_struct_name(pointee);
         ft = field_type_of_for_type(pointee, field_name);
@@ -3736,7 +3736,7 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
     else
         base_op = std::string(op_tok);
 
-    const LogosType* recv_t = lookup(recv_name);
+    TypeRef recv_t = lookup(recv_name);
     if (!recv_t) {
         error(std::format("tuple field compound assign: undefined variable '{}'", recv_name));
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
@@ -3756,12 +3756,12 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
         return make_stmt(node_line_, lir::SBreak{});
     }
-    const LogosType* orig_recv_t = lookup(recv_name);
+    TypeRef orig_recv_t = lookup(recv_name);
     if (!lookup_is_mut(recv_name) &&
         !(orig_recv_t && TypeRef(orig_recv_t).kind() == LogosType::Kind::MutRef))
         error(std::format("tuple field compound assign to immutable variable '{}'", recv_name));
 
-    const LogosType* ft = TypeRef(recv_t).tuple_elems()[idx];
+    TypeRef ft = TypeRef(recv_t).tuple_elems()[idx];
     auto recv_ref = make_expr(orig_recv_t ? orig_recv_t : recv_t,
                               lir::EVarRef{std::string(recv_name)});
     auto lhs_read = make_expr(ft, lir::ETupleIndex{std::move(recv_ref), (uint32_t)idx});
@@ -3794,13 +3794,13 @@ lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
     else
         base_op = std::string(op_tok);
 
-    auto* recv_t = lookup(recv_name);
+    auto recv_t = lookup(recv_name);
     if (!recv_t) error(std::format("field index compound assign: undefined variable '{}'", recv_name));
 
-    const LogosType* base_t = recv_t;
+    TypeRef base_t = recv_t;
     if (base_t && is_ref_like(TypeRef(base_t).kind())) base_t = TypeRef(base_t).pointee().raw();
 
-    const LogosType* field_t = nullptr;
+    TypeRef field_t = nullptr;
     if (base_t) {
         auto sname = struct_name_from_type(base_t);
         if (!sname.empty()) field_t = field_type_of_for_type(base_t, field_name);
@@ -3817,7 +3817,7 @@ lir::LStmt SemaChecker::lower_field_index_compound_assign(TinyMapView node) {
         error(std::format("field index compound assign: '{}.{}' is not an array or pointer (got {})",
               recv_name, field_name, type_str(field_t)));
 
-    const LogosType* elem_t = nullptr;
+    TypeRef elem_t = nullptr;
     if (TypeRef(field_t).kind() == LogosType::Kind::Array)
         elem_t = TypeRef(field_t).elem().raw();
     else if (TypeRef(field_t).kind() == LogosType::Kind::Ptr ||

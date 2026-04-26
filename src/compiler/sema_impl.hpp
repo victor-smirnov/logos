@@ -82,48 +82,48 @@ private:
 
     // prims_[int(Kind)] for primitive kinds.  TypeVar is not a primitive.
     // Size = int(Kind::Error) + 1 to cover all Kind values.
-    std::array<const LogosType*, int(LogosType::Kind::Error) + 1> prims_{};
+    std::array<TypeRef, int(LogosType::Kind::Error) + 1> prims_{};
 
     void init_primitives();
 
-    const LogosType* prim(LogosType::Kind k)  { return prims_[int(k)]; }
-    const LogosType* void_t()    { return prim(LogosType::Kind::Void); }
-    const LogosType* i32_t()     { return prim(LogosType::Kind::I32); }
-    const LogosType* bool_t()    { return prim(LogosType::Kind::Bool); }
-    const LogosType* u8_t()      { return prim(LogosType::Kind::U8); }
-    const LogosType* intlit_t()  { return prim(LogosType::Kind::IntLit); }
-    const LogosType* error_t()   { return prim(LogosType::Kind::Error); }
+    TypeRef prim(LogosType::Kind k)  { return prims_[int(k)]; }
+    TypeRef void_t()    { return prim(LogosType::Kind::Void); }
+    TypeRef i32_t()     { return prim(LogosType::Kind::I32); }
+    TypeRef bool_t()    { return prim(LogosType::Kind::Bool); }
+    TypeRef u8_t()      { return prim(LogosType::Kind::U8); }
+    TypeRef intlit_t()  { return prim(LogosType::Kind::IntLit); }
+    TypeRef error_t()   { return prim(LogosType::Kind::Error); }
 
-    const LogosType* make_ptr(bool mut, const LogosType* pointee) {
+    TypeRef make_ptr(bool mut, TypeRef pointee) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Ptr;
         t.mut_ptr = mut; t.pointee = pointee;
         return pool_.alloc(t);
     }
-    const LogosType* make_ref(bool mut, const LogosType* pointee, std::string lifetime = "") {
+    TypeRef make_ref(bool mut, TypeRef pointee, std::string lifetime = "") {
         LogosTypeBuilder t;
         t.kind = mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
         t.pointee = pointee;
         t.lifetime = std::move(lifetime);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_array(const LogosType* elem, uint64_t n, std::string_view symbolic = "") {
+    TypeRef make_array(TypeRef elem, uint64_t n, std::string_view symbolic = "") {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Array;
         t.elem = elem; t.arr_size = n;
         t.arr_size_var = std::string(symbolic);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_struct_type(std::string_view name, std::string_view pkg = {}) {
+    TypeRef make_struct_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Struct; t.struct_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_datatype_type(std::string_view name, std::string_view pkg = {}) {
+    TypeRef make_datatype_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct; t.struct_name = std::string(name);
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_generic_datatype(std::string_view name,
-                                   std::vector<const LogosType*> args,
+    TypeRef make_generic_datatype(std::string_view name,
+                                   std::vector<TypeRef> args,
                                    std::vector<std::string> lt_args = {},
                                    std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::ZonedStruct;
@@ -133,8 +133,8 @@ private:
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_generic_struct(std::string_view name,
-                                 std::vector<const LogosType*> args,
+    TypeRef make_generic_struct(std::string_view name,
+                                 std::vector<TypeRef> args,
                                  std::vector<std::string> lt_args = {},
                                  std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Struct;
@@ -144,23 +144,23 @@ private:
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_enum_type(std::string_view name, std::string_view pkg = {}) {
+    TypeRef make_enum_type(std::string_view name, std::string_view pkg = {}) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Enum; t.enum_name = name;
         if (!pkg.empty()) t.pkg_name = std::string(pkg);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_tuple_type(std::vector<const LogosType*> elems) {
+    TypeRef make_tuple_type(std::vector<TypeRef> elems) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Tuple;
         t.tuple_elems = std::move(elems);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_closure_type(std::vector<const LogosType*> params, const LogosType* ret) {
+    TypeRef make_closure_type(std::vector<TypeRef> params, TypeRef ret) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Closure;
         t.closure_params = std::move(params);
         t.closure_ret = ret;
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_fn_ptr_type(std::vector<const LogosType*> params, const LogosType* ret) {
+    TypeRef make_fn_ptr_type(std::vector<TypeRef> params, TypeRef ret) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::FnPtr;
         t.closure_params = std::move(params);
         t.closure_ret = ret ? ret : void_t();
@@ -168,7 +168,7 @@ private:
     }
     // Coerce a non-capturing closure to fn ptr when target type is FnPtr.
     // Returns true if coercion was applied (arg's type is changed to FnPtr).
-    bool try_coerce_closure_to_fnptr(lir::LExprPtr& arg, const LogosType* expected) {
+    bool try_coerce_closure_to_fnptr(lir::LExprPtr& arg, TypeRef expected) {
         TypeRef er(expected);
         if (!arg || !er || er.kind() != LogosType::Kind::FnPtr) return false;
         TypeRef at(arg->type);
@@ -182,28 +182,28 @@ private:
         arg->type = make_fn_ptr_type(at.closure_params(), at.closure_ret().raw());
         return true;
     }
-    const LogosType* make_slice_type(const LogosType* elem) {
+    TypeRef make_slice_type(TypeRef elem) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_trait_object(std::string_view tname) {
+    TypeRef make_trait_object(std::string_view tname) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
         t.trait_name = std::string(tname);
         return pool_.alloc(std::move(t));
     }
-    const LogosType* make_typevar(std::string_view name) {
+    TypeRef make_typevar(std::string_view name) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TypeVar;
         t.type_var_name = std::string(name);
         return pool_.alloc(t);
     }
 
-    const LogosType* lookup_type_by_name(std::string_view name);
+    TypeRef lookup_type_by_name(std::string_view name);
 
     // ── L-IR node factories ──────────────────────────────────────
 
     template<typename K>
-    static lir::LExprPtr make_expr(const LogosType* t, K&& k) {
+    static lir::LExprPtr make_expr(TypeRef t, K&& k) {
         auto e = std::make_unique<lir::LExpr>();
         e->type = t;
         e->kind = std::forward<K>(k);
@@ -336,7 +336,7 @@ private:
 
     // ── Scope management ─────────────────────────────────────────
 
-    struct VarInfo { const LogosType* type; bool is_mut = false; };
+    struct VarInfo { TypeRef type; bool is_mut = false; };
     struct Frame {
         logos::compiler::StrMap<VarInfo> vars;  // O(1) lookup
         std::vector<std::string> var_order;              // declaration order
@@ -377,12 +377,12 @@ private:
         }
     }
 
-    bool is_move_type(const LogosType* t) const;
+    bool is_move_type(TypeRef t) const;
     void mark_moved(const std::string& name) { moved_vars_.insert(name); }
 
-    std::string drop_fn_for(const LogosType* t) const;
-    bool has_droppable_fields(const LogosType* t) const;
-    bool needs_drop(const LogosType* t) const {
+    std::string drop_fn_for(TypeRef t) const;
+    bool has_droppable_fields(TypeRef t) const;
+    bool needs_drop(TypeRef t) const {
         return !drop_fn_for(t).empty() || has_droppable_fields(t);
     }
 
@@ -390,7 +390,7 @@ private:
     std::vector<lir::LStmt> collect_drops() const;
     std::vector<lir::LStmt> collect_all_drops() const;
 
-    void define(std::string_view name, const LogosType* t, bool is_mut = false) {
+    void define(std::string_view name, TypeRef t, bool is_mut = false) {
         if (!scope_.empty()) {
             auto sname = std::string(name);
             if (!scope_.back().vars.count(sname))
@@ -399,7 +399,7 @@ private:
         }
     }
 
-    const LogosType* lookup(std::string_view name) const {
+    TypeRef lookup(std::string_view name) const {
         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
             auto f = it->vars.find(std::string(name));
             if (f != it->vars.end()) return f->second.type;
@@ -425,11 +425,11 @@ private:
     }
 
     std::string_view struct_name_of(std::string_view var_name);
-    std::string_view struct_name_from_type(const LogosType* t);
+    std::string_view struct_name_from_type(TypeRef t);
 
     // ── Module-level symbol tables ───────────────────────────────
 
-    struct SemaFieldInfo  { std::string_view name; const LogosType* type; bool is_pub = false; bool is_variadic = false; };
+    struct SemaFieldInfo  { std::string_view name; TypeRef type; bool is_pub = false; bool is_variadic = false; };
     struct SemaStructInfo { std::vector<SemaFieldInfo> fields; std::vector<TypeParam> type_params;
                             std::vector<std::string> lifetime_params;
                             bool is_pub = false; std::string source_file;
@@ -441,9 +441,9 @@ private:
                             // spec_patterns holds one entry per type-param slot
                             // (either concrete types or TypeVars for partial specs).
                             std::string base_name;
-                            std::vector<const LogosType*> spec_patterns;
+                            std::vector<TypeRef> spec_patterns;
                           };
-    struct SemaFuncInfo   { std::vector<const LogosType*> param_types; const LogosType* ret_type;
+    struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             bool is_pub = false; bool is_const = false; bool is_unsafe = false;
                             bool is_extern = false;
@@ -453,21 +453,21 @@ private:
                             std::string source_file; std::string package; };
     struct SemaVariantInfo{
         std::string_view name; int64_t value;
-        std::vector<const LogosType*> payload_types;  // empty = no payload
+        std::vector<TypeRef> payload_types;  // empty = no payload
         bool is_variadic = false;                     // variadic pack payload (...T)
     };
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
         std::vector<TypeParam> type_params;  // for generic enums
-        const LogosType* backing_type = nullptr;  // null = default (i32)
+        TypeRef backing_type = nullptr;  // null = default (i32)
     };
 
     // ── Trait info ───────────────────────────────────────────────
     struct SemaTraitMethodInfo {
         std::string name;
         std::vector<TypeParam> type_params;  // method-level: `fn hash<H: Hasher>(...)` has [H]
-        std::vector<const LogosType*> param_types;  // includes self
-        const LogosType* ret_type = nullptr;
+        std::vector<TypeRef> param_types;  // includes self
+        TypeRef ret_type = nullptr;
         bool has_default = false;   // trait method has a default body
         bool is_unsafe = false;     // declared unsafe fn in trait
         hermes::AnyVal default_ast{};    // AST node for default method (valid when has_default)
@@ -480,7 +480,7 @@ private:
     };
     struct SemaAssocConstInfo {
         std::string      name;         // e.g. "MAX"
-        const LogosType* type = nullptr;
+        TypeRef type = nullptr;
     };
     struct SemaTraitInfo {
         std::string name;
@@ -501,7 +501,7 @@ private:
 
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
-    logos::compiler::StrMap<const LogosType*> current_type_params_;
+    logos::compiler::StrMap<TypeRef> current_type_params_;
     // Set by collect_impl/lower_impl_block for `impl<T>` blocks so that
     // collect_fn/lower_fn include the impl-level type params in the function.
     std::vector<TypeParam> impl_type_params_;
@@ -529,7 +529,7 @@ private:
     logos::compiler::StrMap<ConstFnBody>      const_fn_bodies_;
     // Generic type alias entry: non-generic aliases have type_params empty.
     struct TypeAliasEntry {
-        const LogosType*         type;
+        TypeRef         type;
         std::vector<TypeParam>   type_params;
         std::vector<std::string> lifetime_params;  // e.g. ["'z"] for type Foo<'z, T> = ...
     };
@@ -537,13 +537,13 @@ private:
     // Lifetime substitution map: "'z" → "'a"  (name → name, erased at codegen).
     using SemaLifetimeSubst = logos::compiler::StrMap<std::string>;
     logos::compiler::StrMap<TypeAliasEntry> type_aliases_;
-    logos::compiler::StrMap<const LogosType*> module_consts_;
+    logos::compiler::StrMap<TypeRef> module_consts_;
     logos::compiler::StrMap<SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
     logos::compiler::StrMap<SemaImplInfo>     impls_;
     // "TraitName::TypeName::AssocName" → assoc type + type params for substitution.
     struct AssocTypeEntry {
-        const LogosType*       type;
+        TypeRef       type;
         std::vector<TypeParam> impl_type_params;  // from enclosing impl<T>
         std::vector<TypeParam> gat_type_params;   // from GAT itself: type Item<T> = ...
     };
@@ -551,7 +551,7 @@ private:
 
     // "TraitName::TypeName::ConstName" → assoc const type (value evaluated lazily at call site)
     struct AssocConstEntry {
-        const LogosType*  type;
+        TypeRef  type;
         hermes::AnyVal    value_ast;  // AST expr node for the constant value
     };
     logos::compiler::StrMap<AssocConstEntry> assoc_const_impls_;
@@ -711,7 +711,7 @@ private:
     // keyed by call site (vector address); pop restores in reverse order.
     struct ShadowFrame {
         std::string name;
-        const LogosType* old_type = nullptr;
+        TypeRef old_type = nullptr;
         bool had_type = false;
         std::vector<TraitBound> old_bounds;
         bool had_bounds = false;
@@ -759,19 +759,19 @@ private:
 
     // ── Sema-side type substitution (TypeVar → concrete) ────────────
 
-    using SemaSubst = logos::compiler::StrMap<const LogosType*>;
+    using SemaSubst = logos::compiler::StrMap<TypeRef>;
 
-    const LogosType* subst_type_sema(TypeRef t, const SemaSubst& s,
+    TypeRef subst_type_sema(TypeRef t, const SemaSubst& s,
                                       const SemaLifetimeSubst& ls = {});
 
     // ── Compatibility ────────────────────────────────────────────
-    bool compat(const LogosType* from, const LogosType* to) const {
+    bool compat(TypeRef from, TypeRef to) const {
         return types_compatible(from, to);
     }
 
     // ── Type resolution ──────────────────────────────────────────
 
-    const LogosType* resolve_type(hermes::TinyMapView node);
+    TypeRef resolve_type(hermes::TinyMapView node);
 
     // ── Collection phase ─────────────────────────────────────────
 
@@ -783,7 +783,7 @@ private:
                           std::string_view item_name);
     void check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
-                           const std::vector<const LogosType*>& args);
+                           const std::vector<TypeRef>& args);
     void collect_module(hermes::TinyMapView mod, int phase);
     void collect_enum(hermes::TinyMapView node);
     void collect_type_alias(hermes::TinyMapView node);
@@ -793,7 +793,7 @@ private:
     void collect_struct_spec(hermes::TinyMapView node);
     void collect_struct(hermes::TinyMapView node);
     void collect_datatype(hermes::TinyMapView node, bool is_annotation_type = false);
-    const LogosType* try_resolve_as_known_type(std::string_view name);
+    TypeRef try_resolve_as_known_type(std::string_view name);
     bool is_known_type_name(std::string_view name) const;
     void extract_typevars_from_type_node(hermes::TinyMapView node,
                                          std::vector<TypeParam>& out);
@@ -813,7 +813,7 @@ private:
     // Set by is_auto_trait_satisfied when it finds a non-satisfying field.
     struct AutoTraitOffender {
         std::string      field_name;
-        const LogosType* field_ty = nullptr;
+        TypeRef field_ty = nullptr;
     };
     AutoTraitOffender last_offender_;
 
@@ -821,14 +821,14 @@ private:
 
     int loop_depth_ = 0;
     bool inside_unsafe_ = false;
-    const LogosType* ret_type_ = nullptr;
-    const LogosType* break_value_type_ = nullptr;  // type yielded by break <expr>
+    TypeRef ret_type_ = nullptr;
+    TypeRef break_value_type_ = nullptr;  // type yielded by break <expr>
     bool break_without_value_ = false;
     std::string pending_loop_label_;  // set by LABELED_LOOP before lowering inner loop
     bool match_in_tail_position_ = false;
-    const LogosType* impl_ret_type_inferred_ = nullptr;
-    const LogosType* hint_enum_type_ = nullptr;
-    const LogosType* hint_struct_type_ = nullptr;
+    TypeRef impl_ret_type_inferred_ = nullptr;
+    TypeRef hint_enum_type_ = nullptr;
+    TypeRef hint_struct_type_ = nullptr;
 
     // ── Return reachability ───────────────────────────────────────
 
@@ -842,7 +842,7 @@ private:
 
     // ── Lowering helpers ─────────────────────────────────────────
 
-    static bool is_numeric(const LogosType* t) noexcept {
+    static bool is_numeric(TypeRef t) noexcept {
         if (!t) return false;
         auto k = TypeRef(t).kind();
         return k == LogosType::Kind::F64 ||
@@ -851,18 +851,18 @@ private:
                k == LogosType::Kind::TypeVar ||
                is_integer_kind(k);
     }
-    static bool is_integer(const LogosType* t) noexcept {
+    static bool is_integer(TypeRef t) noexcept {
         return t && is_integer_kind(TypeRef(t).kind());
     }
 
-    const LogosType* field_type_of(std::string_view sname, std::string_view fname,
+    TypeRef field_type_of(std::string_view sname, std::string_view fname,
                                     std::string_view pkg_hint = {});
-    const LogosType* field_type_of_for_type(const LogosType* struct_t, std::string_view fname);
+    TypeRef field_type_of_for_type(TypeRef struct_t, std::string_view fname);
     const SemaStructInfo* find_best_sema_struct_spec(std::string_view base_name,
-                                                     const std::vector<const LogosType*>& type_args);
-    std::string canonical_func_type_name(const LogosType* t) const;
+                                                     const std::vector<TypeRef>& type_args);
+    std::string canonical_func_type_name(TypeRef t) const;
     std::string function_signature_key(std::string_view base_name,
-                                       const std::vector<const LogosType*>& param_types,
+                                       const std::vector<TypeRef>& param_types,
                                        bool is_vararg) const;
     std::string function_symbol_name(std::string_view base_name,
                                      const SemaFuncInfo& info) const;
@@ -871,7 +871,7 @@ private:
     const SemaFuncInfo* find_generic_func(std::string_view base_name,
                                           size_t n_args) const;
     const SemaFuncInfo* find_func_by_base_and_signature(std::string_view base_name,
-                                                        const std::vector<const LogosType*>& param_types,
+                                                        const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
     const SemaFuncInfo* resolve_function_call(std::string_view base_name,
@@ -887,15 +887,15 @@ private:
     lir::LExprPtr lower_deref(hermes::TinyMapView node);
     lir::LExprPtr lower_call(hermes::TinyMapView node);
     void unify_types(TypeRef formal, TypeRef actual,
-                     logos::compiler::StrMap<const LogosType*>& bindings);
+                     logos::compiler::StrMap<TypeRef>& bindings);
     bool infer_type_args(const SemaFuncInfo& fi,
                          const std::vector<lir::LExprPtr>& arg_exprs,
-                         std::vector<const LogosType*>& out_type_args,
+                         std::vector<TypeRef>& out_type_args,
                          const SemaSubst& context = {},
                          size_t param_offset = 0);
     lir::LExprPtr finish_generic_call(std::string_view callee_sv,
                                       const SemaFuncInfo& fi,
-                                      std::vector<const LogosType*> type_args,
+                                      std::vector<TypeRef> type_args,
                                       std::vector<lir::LExprPtr> arg_exprs);
     lir::LExprPtr lower_generic_call(hermes::TinyMapView node);
     lir::LExprPtr lower_method_call(hermes::TinyMapView node);
@@ -910,7 +910,7 @@ private:
     lir::LExprPtr lower_hermes_map_comp(hermes::TinyMapView node);
     lir::LExprPtr coerce_to_hermes_anyval(lir::LExprPtr val,
                                           const std::string& ctr_var,
-                                          const LogosType* ctr_t,
+                                          TypeRef ctr_t,
                                           std::string_view context);
     lir::LExprPtr lower_hermes_lit(hermes::TinyMapView node);
 
@@ -918,7 +918,7 @@ private:
     // lower_hermes_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.
     struct HermesCapCtx {
         std::vector<lir::LExprPtr>               exprs;       // unique capture expressions
-        std::vector<const LogosType*>             types;       // corresponding types
+        std::vector<TypeRef>             types;       // corresponding types
         uint32_t                                  next_slot = 0; // next param_index
         // dedup: symbol binding name → value_index (for pure EIdent captures)
         logos::compiler::StrMap<uint32_t> ident_dedup;
@@ -944,7 +944,7 @@ private:
     lir::LStmt lower_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_assign(hermes::TinyMapView node);
     lir::LStmt lower_return(hermes::TinyMapView node);
-    lir::Pattern build_pattern(hermes::TinyMapView pnode, const LogosType* scrut_type);
+    lir::Pattern build_pattern(hermes::TinyMapView pnode, TypeRef scrut_type);
     // If pnode is a Hermes scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
     // bool-typed guard call that evaluates the pattern against `scrut_var`
     // (which must be an AnyVal).  Returns nullptr otherwise.
@@ -954,13 +954,13 @@ private:
     };
     lir::LExprPtr build_hermes_pat_guard(hermes::TinyMapView pnode,
                                          const std::string& scrut_var,
-                                         const LogosType* scrut_type,
+                                         TypeRef scrut_type,
                                          const std::string& base_var,
                                          std::vector<lir::LStmt>& out_stmts,
                                          std::vector<HermesPatBinding>& out_bindings);
     // Returns the "inner" (ref-stripped) view type if `t` is Hermes,
     // HermesView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
-    const LogosType* hermes_view_inner(const LogosType* t) const {
+    TypeRef hermes_view_inner(TypeRef t) const {
         TypeRef tr(t);
         if (!tr) return nullptr;
         TypeRef inner = tr;
@@ -981,7 +981,7 @@ private:
     // context, PAT_HERMES_* in build_pattern is a diagnostic.
     bool in_match_hermes_ctx_ = false;
     void bind_pattern(const lir::Pattern& pat,
-                      const LogosType* scrut_type = nullptr);
+                      TypeRef scrut_type = nullptr);
     lir::LStmt lower_if(hermes::TinyMapView node);
     lir::LStmt lower_while(hermes::TinyMapView node);
     lir::LStmt lower_for(hermes::TinyMapView node);
@@ -1080,7 +1080,7 @@ inline bool can_widen_int(LogosType::Kind from, LogosType::Kind to) noexcept {
     return false;
 }
 
-inline const LogosType* unify_int(const LogosType* a, const LogosType* b) noexcept {
+inline TypeRef unify_int(TypeRef a, TypeRef b) noexcept {
     if (TypeRef(a).kind() == LogosType::Kind::IntLit) return b;
     if (TypeRef(b).kind() == LogosType::Kind::IntLit) return a;
     // Widen narrower to wider when safe: caller has already verified compat.
@@ -1100,7 +1100,7 @@ inline const LogosType* unify_int(const LogosType* a, const LogosType* b) noexce
 // the cast is inserted even if the static narrow→narrow widening rule would
 // otherwise reject it. Lets `push_u8(0u64)` and similar typed-but-trivially-
 // fits literals coerce without an explicit `as` cast.
-inline void widen_int_expr(lir::LExprPtr& e, const LogosType* target) {
+inline void widen_int_expr(lir::LExprPtr& e, TypeRef target) {
     if (!e || !target || !e->type) return;
     auto ek = TypeRef(e->type).kind();
     auto tk = TypeRef(target).kind();
@@ -1124,8 +1124,8 @@ inline void widen_int_expr(lir::LExprPtr& e, const LogosType* target) {
 // without an explicit cast on the call site. The actual ECast is inserted
 // later by widen_int_expr once a candidate is picked.
 inline bool arg_compatible_for_dispatch(const lir::LExpr* arg,
-                                        const LogosType* at,
-                                        const LogosType* pt) noexcept {
+                                        TypeRef at,
+                                        TypeRef pt) noexcept {
     if (types_equal(at, pt)) return true;
     if (types_compatible(at, pt)) return true;
     if (arg && at && pt && is_integer_kind(TypeRef(at).kind()) && is_integer_kind(TypeRef(pt).kind()))
@@ -1137,7 +1137,7 @@ inline bool arg_compatible_for_dispatch(const lir::LExpr* arg,
 
 // Like unify_int but also promotes FloatLit to a concrete float type (F32/F64).
 // Use in contexts where both integers and floats need unification.
-inline const LogosType* unify_numeric(const LogosType* a, const LogosType* b) noexcept {
+inline TypeRef unify_numeric(TypeRef a, TypeRef b) noexcept {
     if (TypeRef(a).kind() == LogosType::Kind::IntLit || TypeRef(a).kind() == LogosType::Kind::FloatLit) return b;
     return a;
 }

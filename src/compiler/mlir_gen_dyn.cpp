@@ -735,7 +735,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
-                                              const LogosType* ret_logos_type) {
+                                              TypeRef ret_logos_type) {
     constexpr int kTier1Size = 256;
     auto ptr_t = ptr_type();
 
@@ -891,7 +891,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_dyn_dispatch(const EMethodCall& e,
-                                           const LogosType* ret_logos_type) {
+                                           TypeRef ret_logos_type) {
     // The receiver is a &dyn Trait — a pointer to {data_ptr, vtable_ptr}.
 
     // Check if receiver is a variable we know is dyn
@@ -963,7 +963,7 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(const EMethodCall& e,
 // Closure generation
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
+mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, TypeRef) {
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto save_pt = builder_.saveInsertionPoint();
 
@@ -1059,7 +1059,7 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
     // closures, dyn trait fat pointers) must stay pointers inside the env.
     llvm::SmallVector<mlir::Type> cap_fields;
     for (size_t i = 0; i < e.capture_types.size(); ++i) {
-        auto* ct = e.capture_types[i];
+        auto ct = e.capture_types[i];
         mlir::Type ft;
         if (capture_is_pointer_repr[i])
             ft = ptr_type();
@@ -1126,7 +1126,7 @@ mlir::Value MLIRGenImpl::gen_closure(const EClosure& e, const LogosType*) {
             loc_, ptr_type(), cap_struct, env_ptr, idx);
         auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i], fp);
 
-        const LogosType* ct = e.capture_types[i];
+        TypeRef ct = e.capture_types[i];
         bool is_struct_cap = capture_is_struct[i];
         bool is_class_cap  = capture_is_class[i];
         bool is_array_cap  = capture_is_array[i];
