@@ -1513,6 +1513,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     auto* scrut_le = lexpr_of(v.scrut());
     if (!scrut_le) return;
     auto& s = std::get<SMatch>(lstmt_of(v.self)->kind);
+    namespace pc = lir_schema::pat;
+    std::vector<lir_view::EMatchArmRef> arm_refs;
+    v.each_arm([&](lir_view::EMatchArmRef a){ arm_refs.push_back(a); });
     auto* region      = builder_.getBlock()->getParent();
     auto* merge_block = new mlir::Block();
 
@@ -1552,76 +1555,98 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     // Helper: is this pattern irrefutable (always matches)?
     // PatAt is irrefutable only if its sub-pattern is (e.g. n @ _ is irrefutable,
     // n @ 42 is refutable).
-    std::function<bool(const lir::Pattern&)> is_irrefutable;
-    is_irrefutable = [&](const lir::Pattern& p) -> bool {
-        if (std::holds_alternative<lir::PatWild>(p))     return true;
-        if (auto* pt = std::get_if<lir::PatTuple>(&p)) {
-            if (pt->subs.empty()) return true;  // legacy all-wild tuple
-            for (auto& s : pt->subs) if (!is_irrefutable(s)) return false;
-            return true;
+    std::function<bool(lir_view::PatRef)> is_irrefutable;
+    is_irrefutable = [&](lir_view::PatRef p) -> bool {
+        if (!p) return false;
+        switch (p.kind()) {
+            case pc::Code::Wild:    return true;
+            case pc::Code::RefBind: return true;
+            case pc::Code::Tuple: {
+                lir_view::PatTupleView tv{p};
+                if (tv.sub_count() == 0) return true;  // legacy all-wild tuple
+                bool all = true;
+                tv.each_sub([&](lir_view::PatRef sp){ if (all && !is_irrefutable(sp)) all = false; });
+                return all;
+            }
+            case pc::Code::Struct: {
+                bool all = true;
+                lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView fb){
+                    auto sub = fb.sub();
+                    if (all && sub && !is_irrefutable(sub)) all = false;
+                });
+                return all;
+            }
+            case pc::Code::Slice: {
+                bool all = true;
+                lir_view::PatSliceView sv{p};
+                sv.each_prefix([&](lir_view::PatRef sp){ if (all && !is_irrefutable(sp)) all = false; });
+                sv.each_rest  ([&](lir_view::PatRef sp){ if (all && !is_irrefutable(sp)) all = false; });
+                sv.each_suffix([&](lir_view::PatRef sp){ if (all && !is_irrefutable(sp)) all = false; });
+                return all;
+            }
+            case pc::Code::At: {
+                auto sub = lir_view::PatAtView{p}.sub();
+                return !sub || is_irrefutable(sub);
+            }
+            case pc::Code::RefPat: {
+                auto inner = lir_view::PatRefPatView{p}.inner();
+                return !inner || is_irrefutable(inner);
+            }
+            // NC5: PatOr is irrefutable only if all alternatives are irrefutable.
+            case pc::Code::Or: {
+                bool any_alts = false, all = true;
+                lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef alt){
+                    any_alts = true;
+                    if (all && !is_irrefutable(alt)) all = false;
+                });
+                return !any_alts || all;
+            }
+            default: return false;
         }
-        if (auto* ps = std::get_if<lir::PatStruct>(&p)) {
-            for (auto& pfb : ps->fields)
-                if (!pfb.sub.empty() && !is_irrefutable(pfb.sub[0])) return false;
-            return true;
-        }
-        if (auto* psl = std::get_if<lir::PatSlice>(&p)) {
-            for (auto& sp : psl->prefix) if (!is_irrefutable(sp)) return false;
-            for (auto& sp : psl->rest)   if (!is_irrefutable(sp)) return false;
-            for (auto& sp : psl->suffix) if (!is_irrefutable(sp)) return false;
-            return true;
-        }
-        if (std::holds_alternative<lir::PatRefBind>(p))  return true;
-        if (auto* pa = std::get_if<lir::PatAt>(&p))
-            return pa->sub.empty() || is_irrefutable(pa->sub[0]);
-        if (auto* prp = std::get_if<lir::PatRefPat>(&p))
-            return prp->inner.empty() || is_irrefutable(prp->inner[0]);
-        // NC5: PatOr is irrefutable only if all alternatives are irrefutable.
-        if (auto* por = std::get_if<lir::PatOr>(&p)) {
-            if (por->alts.empty()) return true;
-            for (auto& alt : por->alts)
-                if (!is_irrefutable(alt)) return false;
-            return true;
-        }
-        return false;
     };
     if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Tuple) {
         // Tuple patterns are always irrefutable.
-        for (auto& arm : s.arms) {
-            if (arm.guard) continue;
-            if (is_irrefutable(arm.pat)) { exhaustive_discrete = true; break; }
+        for (auto& a : arm_refs) {
+            if (a.guard()) continue;
+            if (is_irrefutable(a.pat())) { exhaustive_discrete = true; break; }
         }
     } else if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Bool) {
         bool has_true = false, has_false = false, has_wild = false;
-        for (auto& arm : s.arms) {
-            if (arm.guard) continue;
-            if (is_irrefutable(arm.pat)) { has_wild = true; break; }
-            auto check_bool = [&](const lir::Pattern& p) {
-                if (auto* pb = std::get_if<lir::PatBool>(&p)) {
-                    if (pb->value) has_true = true; else has_false = true;
+        for (auto& a : arm_refs) {
+            if (a.guard()) continue;
+            auto p = a.pat();
+            if (is_irrefutable(p)) { has_wild = true; break; }
+            auto check_bool = [&](lir_view::PatRef pp) {
+                if (pp && pp.kind() == pc::Code::Bool) {
+                    if (lir_view::PatBoolView{pp}.value()) has_true = true;
+                    else                                   has_false = true;
                 }
             };
-            if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
-                for (auto& alt : por->alts) check_bool(alt);
+            if (p && p.kind() == pc::Code::Or) {
+                lir_view::PatOrView{p}.each_alt(check_bool);
             } else {
-                check_bool(arm.pat);
+                check_bool(p);
             }
         }
         exhaustive_discrete = has_wild || (has_true && has_false);
     } else if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Enum) {
         std::set<int32_t> covered;
         bool has_wild = false;
-        auto cover_enum = [&](const lir::Pattern& p) {
-            if (auto* pv  = std::get_if<lir::PatVariant>(&p))     covered.insert(pv->disc);
-            else if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) covered.insert(pvd->disc);
+        auto cover_enum = [&](lir_view::PatRef pp) {
+            if (!pp) return;
+            if (pp.kind() == pc::Code::Variant)
+                covered.insert(static_cast<int32_t>(lir_view::PatVariantView{pp}.disc()));
+            else if (pp.kind() == pc::Code::VariantData)
+                covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{pp}.disc()));
         };
-        for (auto& arm : s.arms) {
-            if (arm.guard) continue;
-            if (is_irrefutable(arm.pat)) { has_wild = true; break; }
-            if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
-                for (auto& alt : por->alts) cover_enum(alt);
+        for (auto& a : arm_refs) {
+            if (a.guard()) continue;
+            auto p = a.pat();
+            if (is_irrefutable(p)) { has_wild = true; break; }
+            if (p && p.kind() == pc::Code::Or) {
+                lir_view::PatOrView{p}.each_alt(cover_enum);
             } else {
-                cover_enum(arm.pat);
+                cover_enum(p);
             }
         }
         if (has_wild) {
@@ -1935,7 +1960,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             }
         }
 
-        bool is_wild = is_irrefutable(arm.pat);
+        bool is_wild = is_irrefutable(arm_refs[i].pat());
         if (is_wild) {
             else_block = arm_entry;
         } else if (auto* pr = std::get_if<lir::PatRange>(&arm.pat)) {
