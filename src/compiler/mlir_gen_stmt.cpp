@@ -186,18 +186,18 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     auto val_code = expr_ref_of(*s.value).kind();
     // ── Struct literal ────────────────────────────────────────
     if (val_code == lir_schema::expr::Code::StructLit) {
-        auto& lit = std::get<EStructLit>(s.value->kind);
+        lir_view::EStructLitView lit{expr_ref_of(*s.value)};
         auto alloca = gen_struct_lit(lit);
         if (!alloca) return;
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
-        var_struct_[s.name] = s.type ? concrete_struct_name(s.type) : lit.name;
+        var_struct_[s.name] = s.type ? concrete_struct_name(s.type) : std::string(lit.name());
         return;
     }
 
     // ── Array literal ─────────────────────────────────────────
     if (val_code == lir_schema::expr::Code::ArrLit) {
-        auto& lit = std::get<EArrLit>(s.value->kind);
+        lir_view::EArrLitView lit{expr_ref_of(*s.value)};
         auto elem_type = logos_to_mlir(TypeRef(s.type).elem());
         if (!elem_type) elem_type = builder_.getI32Type();
         auto alloca = gen_arr_lit(lit, elem_type);

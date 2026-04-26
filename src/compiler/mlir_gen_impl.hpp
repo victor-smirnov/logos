@@ -465,12 +465,12 @@ private:
     mlir::Value gep_field(mlir::Value base, const StructInfo& info,
                           const std::string& field_name);
     std::pair<mlir::Value, std::string> gen_recv_struct(const LExpr& recv);
-    mlir::Value gen_struct_lit(const EStructLit& e);
+    mlir::Value gen_struct_lit(lir_view::EStructLitView v);
 
     // ── Array helpers ─────────────────────────────────────────────
     mlir::Value get_subscript_ptr(const std::string& name);
     mlir::Type subscript_elem_type(const std::string& name);
-    mlir::Value gen_arr_lit(const EArrLit& e, mlir::Type elem_type);
+    mlir::Value gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type);
 
     // ── format() built-in ─────────────────────────────────────────
     static int format_type_tag(TypeRef t) noexcept;

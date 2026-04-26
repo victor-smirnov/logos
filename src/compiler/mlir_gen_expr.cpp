@@ -1318,20 +1318,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EStructLitView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EStructLit>(_le->kind);
-    return gen_struct_lit(e);
+    return gen_struct_lit(v);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EArrLitView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EArrLit>(_le->kind);
     mlir::Type elem_type = builder_.getI32Type();
     if (type && TypeRef(type).elem()) {
         auto et = logos_to_mlir(TypeRef(type).elem());
         if (et) elem_type = et;
     }
-    return gen_arr_lit(e, elem_type);
+    return gen_arr_lit(v, elem_type);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) {

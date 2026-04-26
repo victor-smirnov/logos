@@ -556,8 +556,28 @@ struct EFormatCallView {
 
 struct EStructLitView {
     ExprRef self;
+    std::string_view name() const noexcept { return detail::read_string(self, ek::STRUCT_NAME.code); }
     template <class F> void each_field_value(F&& f) const noexcept {
         detail::for_each_field_value(self, std::forward<F>(f));
+    }
+    // Iterate (name, value) pairs from parallel FIELD_NAMES / FIELD_VALUES arrays.
+    template <class F> void each_field(F&& f) const noexcept {
+        auto names_av  = self.mirror()->get(ek::FIELD_NAMES.code,  self.base());
+        auto values_av = self.mirror()->get(ek::FIELD_VALUES.code, self.base());
+        if (names_av.is_null() || values_av.is_null()) return;
+        auto* names_arr  = names_av.as_ptr<const hermes::ObjectArray>(self.base());
+        auto* values_arr = values_av.as_ptr<const hermes::ObjectArray>(self.base());
+        uint64_t n = std::min(names_arr->size(), values_arr->size());
+        for (uint64_t i = 0; i < n; ++i) {
+            auto nv = names_arr->get(i, self.base());
+            auto vv = values_arr->get(i, self.base());
+            std::string_view fname;
+            if (!nv.is_null())
+                fname = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
+            ExprRef value;
+            if (!vv.is_null()) value = ExprRef(self.arena(), vv.to_offset());
+            f(fname, value);
+        }
     }
 };
 
@@ -593,6 +613,20 @@ struct EArrLitView {
     ExprRef self;
     template <class F> void each_elem(F&& f) const noexcept {
         detail::for_each_elem(self, std::forward<F>(f));
+    }
+    uint64_t count() const noexcept {
+        auto av = self.mirror()->get(ek::ELEMS.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+    ExprRef elem(uint64_t i) const noexcept {
+        auto av = self.mirror()->get(ek::ELEMS.code, self.base());
+        if (av.is_null()) return {};
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return {};
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return {};
+        return ExprRef(self.arena(), el.to_offset());
     }
 };
 
