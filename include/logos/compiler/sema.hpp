@@ -294,6 +294,19 @@ public:
     TypePool& operator=(const TypePool&) = delete;
 
     TypeRef alloc(LogosTypeBuilder t);
+
+    // Phase 3b: expose the underlying Hermes arena. The compiler's L-IR mirror
+    // shares this arena with the type mirror so cross-references (TypeRef
+    // offsets stored on L-IR nodes, sub-expression offsets, etc.) all live in
+    // a single offset space. Returns nullptr if the pool has not yet allocated
+    // (no calls to alloc()).
+    hermes::Arena*       arena() noexcept;
+    const hermes::Arena* arena() const noexcept;
+
+    // Phase 3b: ensure the pool's arena is initialised (allocates the empty
+    // arena if no types have been interned yet). Used by the L-IR mirror
+    // emitter when the program contains no LogosType allocations.
+    hermes::Arena&       arena_or_init();
 };
 
 // ── Diagnostics ────────────────────────────────────────────────────────────

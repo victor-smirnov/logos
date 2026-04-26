@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 namespace logos::hermes::schema {
 
@@ -24,6 +25,14 @@ constexpr uint64_t lir_stmt(int32_t code)  { return CAT_LIR_STMT | uint64_t(uint
 constexpr uint64_t lir_pat(int32_t code)   { return CAT_LIR_PAT  | uint64_t(uint32_t(code)); }
 constexpr uint64_t symbol(int32_t code)    { return CAT_SYMBOLS  | uint64_t(uint32_t(code)); }
 constexpr uint64_t diag(int32_t code)      { return CAT_DIAG     | uint64_t(uint32_t(code)); }
+
+// Convenience overloads for typed enum-class codes (e.g. lir_schema::expr::Code).
+template <class E, class = std::enable_if_t<std::is_enum_v<E>>>
+constexpr uint64_t lir_expr(E code) { return lir_expr(int32_t(code)); }
+template <class E, class = std::enable_if_t<std::is_enum_v<E>>>
+constexpr uint64_t lir_stmt(E code) { return lir_stmt(int32_t(code)); }
+template <class E, class = std::enable_if_t<std::is_enum_v<E>>>
+constexpr uint64_t lir_pat(E code)  { return lir_pat(int32_t(code)); }
 
 constexpr uint64_t category_of(uint64_t schema_code) { return schema_code & CATEGORY_MASK; }
 constexpr uint64_t variant_of(uint64_t schema_code)  { return schema_code & VARIANT_MASK; }

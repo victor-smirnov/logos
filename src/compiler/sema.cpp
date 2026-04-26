@@ -425,6 +425,17 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
 
 } // namespace
 
+hermes::Arena* TypePool::arena() noexcept {
+    return impl_ ? &impl_->arena_ : nullptr;
+}
+const hermes::Arena* TypePool::arena() const noexcept {
+    return impl_ ? &impl_->arena_ : nullptr;
+}
+hermes::Arena& TypePool::arena_or_init() {
+    if (!impl_) impl_ = TypePoolImpl::make();
+    return impl_->arena_;
+}
+
 TypeRef TypePool::alloc(LogosTypeBuilder t) {
     if (!impl_) impl_ = TypePoolImpl::make();
     LogosType::TypeUID uid = compute_type_uid(impl_.get(), t);

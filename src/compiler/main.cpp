@@ -13,6 +13,7 @@
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/mono.hpp>
 
 #include <logos/hermes/document.hpp>
@@ -599,6 +600,13 @@ int main(int argc, char** argv) {
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
     report("borrow");
+
+    // ── Step 2e: Emit Hermes mirror of L-IR (Phase 3b — write-only) ──
+    // Validates the variant→Hermes mapping on every compile; consumers
+    // arrive in Phase 3d.
+    prog.mirror_table = std::make_unique<logos::compiler::LirMirrorTable>(
+        logos::compiler::lir_mirror_emit(prog));
+    report("lir_mirror_emit");
 
     // ── Step 3: L-IR → MLIR ─────────────────────────────────────
     mlir::MLIRContext mlir_ctx;
