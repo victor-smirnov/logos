@@ -734,14 +734,18 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
 //   5. Indirect call through fn_ptr with (obj_ptr, user_args…).
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
+mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
                                               TypeRef ret_logos_type) {
     constexpr int kTier1Size = 256;
     auto ptr_t = ptr_type();
 
+    auto recv_ref = v.receiver();
+    auto* recv_le = lexpr_of(recv_ref);
+    if (!recv_le) return nullptr;
+
     // 1. Evaluate the receiver.
     mlir::Value obj_ptr = nullptr;
-    if (auto* vr = std::get_if<lir::EVarRef>(&e.receiver->kind)) {
+    if (auto* vr = std::get_if<lir::EVarRef>(&recv_le->kind)) {
         auto it = scope_.find(vr->name);
         if (it != scope_.end()) {
             if (let_vars_.count(vr->name))
@@ -750,7 +754,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
                 obj_ptr = it->second;
         }
     }
-    if (!obj_ptr) obj_ptr = gen_expr(*e.receiver);
+    if (!obj_ptr) obj_ptr = gen_expr(*recv_le);
     if (!obj_ptr) return nullptr;
 
     // 2. <TagSystem>::read_tag(nullptr_self, obj_ptr) → i64.
@@ -758,7 +762,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
     // encoding (legacy 2-byte tag vs. vlen datatag vs. TOM inline header).
     // TagSystems are unit structs with no state, so self can be a null pointer.
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    auto rtc_sym = e.tag_system + "__read_tag";
+    auto rtc_sym = std::string(v.tag_system()) + "__read_tag";
     auto rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
     if (!rtc_fn) {
         std::fprintf(stderr, "gen_tagged_dispatch: '%s' not found\n", rtc_sym.c_str());
@@ -770,7 +774,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
 
     // Identify available tables.
     // Must use the same "__" separator as emit_tag_dispatch_tables.
-    auto base_key    = e.tag_system + "__" + e.tag_trait + "__" + e.method;
+    auto base_key    = std::string(v.tag_system()) + "__" + std::string(v.tag_trait()) + "__" + std::string(v.method());
     auto table_sym   = "__logos_tag_dispatch__" + base_key;
     auto t2_lkp_sym  = "__logos_tier2__" + base_key + "_lookup";
     bool has_tier1   = (parent_mod.lookupSymbol<mlir::LLVM::GlobalOp>(table_sym) != nullptr);
@@ -860,12 +864,14 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
     llvm::SmallVector<mlir::Type> param_types;
     param_types.push_back(ptr_t);  // self: *const u8
 
-    for (auto& a : e.args) {
-        auto v = gen_expr(*a);
-        if (!v) return nullptr;
-        args.push_back(v);
-        param_types.push_back(v.getType());
-    }
+    v.each_arg([&](lir_view::ExprRef ar){
+        auto* le = lexpr_of(ar);
+        if (!le) { return; }
+        auto val = gen_expr(*le);
+        if (!val) return;
+        args.push_back(val);
+        param_types.push_back(val.getType());
+    });
 
     // 6. Build LLVM function type and call indirectly.
     mlir::Type ret_type;
@@ -890,18 +896,21 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(const EMethodCall& e,
 // Indirect call through &dyn Trait vtable.
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_dyn_dispatch(const EMethodCall& e,
+mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
                                            TypeRef ret_logos_type) {
     // The receiver is a &dyn Trait — a pointer to {data_ptr, vtable_ptr}.
 
+    auto* recv_le = lexpr_of(v.receiver());
+    if (!recv_le) return nullptr;
+
     // Check if receiver is a variable we know is dyn
     mlir::Value recv_alloca = nullptr;
-    if (auto* vr = std::get_if<EVarRef>(&e.receiver->kind)) {
+    if (auto* vr = std::get_if<EVarRef>(&recv_le->kind)) {
         auto it = scope_.find(vr->name);
         if (it != scope_.end()) recv_alloca = it->second;
     }
     if (!recv_alloca) {
-        recv_alloca = gen_expr(*e.receiver);
+        recv_alloca = gen_expr(*recv_le);
     }
     if (!recv_alloca) return nullptr;
 
@@ -921,7 +930,7 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(const EMethodCall& e,
     auto vtable_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vp);
 
     // GEP into vtable array to get fn_ptr at vtable_index
-    llvm::SmallVector<mlir::LLVM::GEPArg> slot_idx{int32_t(e.vtable_index)};
+    llvm::SmallVector<mlir::LLVM::GEPArg> slot_idx{int32_t(v.vtable_index())};
     auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), ptr_type(), vtable_ptr, slot_idx);
     auto fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
@@ -929,11 +938,13 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(const EMethodCall& e,
     // Build args: data_ptr (self) + user args
     llvm::SmallVector<mlir::Value> args;
     args.push_back(data_ptr);
-    for (auto& a : e.args) {
-        auto v = gen_expr(*a);
-        if (!v) return nullptr;
-        args.push_back(v);
-    }
+    v.each_arg([&](lir_view::ExprRef ar){
+        auto* le = lexpr_of(ar);
+        if (!le) return;
+        auto val = gen_expr(*le);
+        if (!val) return;
+        args.push_back(val);
+    });
 
     // Build LLVM function type for the indirect call.
     llvm::SmallVector<mlir::Type> param_types;

@@ -507,6 +507,7 @@ struct EMethodCallView {
     std::string_view resolved_symbol() const noexcept { return detail::read_string(self, ek::RESOLVED_SYMBOL.code); }
     std::string_view resolved_type() const noexcept   { return detail::read_string(self, ek::RESOLVED_TYPE.code); }
     std::string_view tag_system() const noexcept      { return detail::read_string(self, ek::TAG_SYSTEM.code); }
+    std::string_view tag_trait() const noexcept       { return detail::read_string(self, ek::TAG_TRAIT.code); }
     int32_t          vtable_index() const noexcept {
         auto av = self.mirror()->get(ek::VTABLE_INDEX.code, self.base());
         if (av.is_null()) return -1;

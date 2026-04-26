@@ -349,8 +349,8 @@ private:
                                      std::string_view type_name);
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
                                std::string_view src_type_name);
-    mlir::Value gen_dyn_dispatch(const EMethodCall& e, TypeRef ret_logos_type);
-    mlir::Value gen_tagged_dispatch(const EMethodCall& e, TypeRef ret_logos_type);
+    mlir::Value gen_dyn_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
+    mlir::Value gen_tagged_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
 
     // ── malloc / free helpers ─────────────────────────────────────
     void ensure_malloc_free(mlir::ModuleOp mod);

@@ -1056,18 +1056,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             return coerce_numeric(recv, builder_.getI32Type());
         }
     }
-    // Tagged- and dyn-dispatch helpers still consume the raw EMethodCall variant;
-    // pull it from lexpr_of(v.self) for the duration of Phase 3e.
-    if (!tag_system.empty()) {
-        auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-        auto& e = std::get<EMethodCall>(_le->kind);
-        return gen_tagged_dispatch(e, ret_logos_type);
-    }
-    if (recv_t && recv_t.kind() == LogosType::Kind::TraitObject && vtable_index >= 0) {
-        auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-        auto& e = std::get<EMethodCall>(_le->kind);
-        return gen_dyn_dispatch(e, ret_logos_type);
-    }
+    if (!tag_system.empty())
+        return gen_tagged_dispatch(v, ret_logos_type);
+    if (recv_t && recv_t.kind() == LogosType::Kind::TraitObject && vtable_index >= 0)
+        return gen_dyn_dispatch(v, ret_logos_type);
     auto [ptr, tname] = gen_recv_struct(*recv_le);
     if (!ptr || tname.empty()) return nullptr;
     if (tname == "AnyVal" && ptr.getType() != ptr_type()) {
