@@ -844,14 +844,15 @@ private:
 
     static bool is_numeric(const LogosType* t) noexcept {
         if (!t) return false;
-        return t->kind == LogosType::Kind::F64 ||
-               t->kind == LogosType::Kind::F32 ||
-               t->kind == LogosType::Kind::FloatLit ||
-               t->kind == LogosType::Kind::TypeVar ||
-               is_integer_kind(t->kind);
+        auto k = TypeRef(t).kind();
+        return k == LogosType::Kind::F64 ||
+               k == LogosType::Kind::F32 ||
+               k == LogosType::Kind::FloatLit ||
+               k == LogosType::Kind::TypeVar ||
+               is_integer_kind(k);
     }
     static bool is_integer(const LogosType* t) noexcept {
-        return t && is_integer_kind(t->kind);
+        return t && is_integer_kind(TypeRef(t).kind());
     }
 
     const LogosType* field_type_of(std::string_view sname, std::string_view fname,
@@ -1080,8 +1081,8 @@ inline bool can_widen_int(LogosType::Kind from, LogosType::Kind to) noexcept {
 }
 
 inline const LogosType* unify_int(const LogosType* a, const LogosType* b) noexcept {
-    if (a->kind == LogosType::Kind::IntLit) return b;
-    if (b->kind == LogosType::Kind::IntLit) return a;
+    if (TypeRef(a).kind() == LogosType::Kind::IntLit) return b;
+    if (TypeRef(b).kind() == LogosType::Kind::IntLit) return a;
     // Widen narrower to wider when safe: caller has already verified compat.
     if (can_widen_int(a->kind, b->kind)) return b;
     if (can_widen_int(b->kind, a->kind)) return a;
@@ -1101,9 +1102,9 @@ inline void widen_int_expr(lir::LExprPtr& e, const LogosType* target) {
     if (!e || !target || !e->type) return;
     if (e->type->kind == target->kind) return;
     bool ok = can_widen_int(e->type->kind, target->kind);
-    if (!ok && is_integer_kind(e->type->kind) && is_integer_kind(target->kind)) {
+    if (!ok && is_integer_kind(TypeRef(e->type).kind()) && is_integer_kind(TypeRef(target).kind())) {
         if (auto v = get_intlit_value(e.get()))
-            if (intlit_fits(*v, target->kind))
+            if (intlit_fits(*v, TypeRef(target).kind()))
                 ok = true;
     }
     if (!ok) return;
@@ -1123,9 +1124,9 @@ inline bool arg_compatible_for_dispatch(const lir::LExpr* arg,
                                         const LogosType* pt) noexcept {
     if (types_equal(at, pt)) return true;
     if (types_compatible(at, pt)) return true;
-    if (arg && at && pt && is_integer_kind(at->kind) && is_integer_kind(pt->kind))
+    if (arg && at && pt && is_integer_kind(TypeRef(at).kind()) && is_integer_kind(TypeRef(pt).kind()))
         if (auto v = get_intlit_value(arg))
-            if (intlit_fits(*v, pt->kind))
+            if (intlit_fits(*v, TypeRef(pt).kind()))
                 return true;
     return false;
 }
@@ -1133,7 +1134,7 @@ inline bool arg_compatible_for_dispatch(const lir::LExpr* arg,
 // Like unify_int but also promotes FloatLit to a concrete float type (F32/F64).
 // Use in contexts where both integers and floats need unification.
 inline const LogosType* unify_numeric(const LogosType* a, const LogosType* b) noexcept {
-    if (a->kind == LogosType::Kind::IntLit || a->kind == LogosType::Kind::FloatLit) return b;
+    if (TypeRef(a).kind() == LogosType::Kind::IntLit || TypeRef(a).kind() == LogosType::Kind::FloatLit) return b;
     return a;
 }
 

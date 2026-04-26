@@ -235,13 +235,14 @@ private:
             return coerce_float(v, to);
         // int → float: use unsigned op for unsigned Logos types
         if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::FloatType>(to)) {
+            auto src_k = src_lt ? TypeRef(src_lt).kind() : LogosType::Kind::Error;
             bool src_unsigned = src_lt &&
-                (src_lt->kind == LogosType::Kind::U8   ||
-                 src_lt->kind == LogosType::Kind::U16  ||
-                 src_lt->kind == LogosType::Kind::U32  ||
-                 src_lt->kind == LogosType::Kind::U56  ||
-                 src_lt->kind == LogosType::Kind::U64  ||
-                 src_lt->kind == LogosType::Kind::U128);
+                (src_k == LogosType::Kind::U8   ||
+                 src_k == LogosType::Kind::U16  ||
+                 src_k == LogosType::Kind::U32  ||
+                 src_k == LogosType::Kind::U56  ||
+                 src_k == LogosType::Kind::U64  ||
+                 src_k == LogosType::Kind::U128);
             if (src_unsigned)
                 return builder_.create<mlir::arith::UIToFPOp>(loc_, to, v);
             return builder_.create<mlir::arith::SIToFPOp>(loc_, to, v);

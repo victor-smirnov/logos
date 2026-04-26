@@ -578,14 +578,14 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
         // Detect comparisons against IntLit values that can't fit in the other operand.
         // E.g. x: i32 == 10000000000 — the literal can never equal any i32 value.
-        if (TypeRef(lt).kind() == LogosType::Kind::IntLit && is_integer_kind(rt->kind)) {
+        if (TypeRef(lt).kind() == LogosType::Kind::IntLit && is_integer_kind(TypeRef(rt).kind())) {
             if (auto v = get_intlit_value(lhs.get()))
-                if (!intlit_fits(*v, rt->kind))
+                if (!intlit_fits(*v, TypeRef(rt).kind()))
                     error(std::format("operator '{}': literal value {} does not fit in {}",
                           op, *v, type_str(rt)));
-        } else if (TypeRef(rt).kind() == LogosType::Kind::IntLit && is_integer_kind(lt->kind)) {
+        } else if (TypeRef(rt).kind() == LogosType::Kind::IntLit && is_integer_kind(TypeRef(lt).kind())) {
             if (auto v = get_intlit_value(rhs.get()))
-                if (!intlit_fits(*v, lt->kind))
+                if (!intlit_fits(*v, TypeRef(lt).kind()))
                     error(std::format("operator '{}': literal value {} does not fit in {}",
                           op, *v, type_str(lt)));
         }
@@ -595,7 +595,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             error(std::format("operator '{}': left must be numeric, got {}", op, type_str(lt)));
         if (!is_numeric(rt))
             error(std::format("operator '{}': right must be numeric, got {}", op, type_str(rt)));
-        bool both_int = is_integer_kind(lt->kind) && is_integer_kind(rt->kind);
+        bool both_int = is_integer_kind(TypeRef(lt).kind()) && is_integer_kind(TypeRef(rt).kind());
         if (!both_int) {
             bool compat = types_compatible(lt, rt) || types_compatible(rt, lt);
             if (is_numeric(lt) && is_numeric(rt) && !compat)
@@ -614,31 +614,31 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             // Check IntLit operand fits in the concrete type of the other operand.
             if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(lhs.get()))
-                    if (!intlit_fits(*v, rt->kind))
+                    if (!intlit_fits(*v, TypeRef(rt).kind()))
                         error(std::format("operator '{}': left value {} does not fit in {}",
                               op, *v, type_str(rt)));
             if (TypeRef(rt).kind() == LogosType::Kind::IntLit && TypeRef(lt).kind() != LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(rhs.get()))
-                    if (!intlit_fits(*v, lt->kind))
+                    if (!intlit_fits(*v, TypeRef(lt).kind()))
                         error(std::format("operator '{}': right value {} does not fit in {}",
                               op, *v, type_str(lt)));
         }
     } else if (op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") {
         // Bitwise and shift operators — require integer operands.
-        if (!is_integer_kind(lt->kind) && TypeRef(lt).kind() != LogosType::Kind::IntLit)
+        if (!is_integer_kind(TypeRef(lt).kind()) && TypeRef(lt).kind() != LogosType::Kind::IntLit)
             error(std::format("operator '{}': left must be integer, got {}", op, type_str(lt)));
-        if (!is_integer_kind(rt->kind) && TypeRef(rt).kind() != LogosType::Kind::IntLit)
+        if (!is_integer_kind(TypeRef(rt).kind()) && TypeRef(rt).kind() != LogosType::Kind::IntLit)
             error(std::format("operator '{}': right must be integer, got {}", op, type_str(rt)));
         result_type = unify_int(lt, rt);
         // Check IntLit operand fits in the concrete type of the other operand.
         if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
             if (auto v = get_intlit_value(lhs.get()))
-                if (!intlit_fits(*v, rt->kind))
+                if (!intlit_fits(*v, TypeRef(rt).kind()))
                     error(std::format("operator '{}': left value {} does not fit in {}",
                           op, *v, type_str(rt)));
         if (TypeRef(rt).kind() == LogosType::Kind::IntLit && TypeRef(lt).kind() != LogosType::Kind::IntLit)
             if (auto v = get_intlit_value(rhs.get()))
-                if (!intlit_fits(*v, lt->kind))
+                if (!intlit_fits(*v, TypeRef(lt).kind()))
                     error(std::format("operator '{}': right value {} does not fit in {}",
                           op, *v, type_str(lt)));
     } else {
@@ -708,7 +708,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     } else if (op == "!") {
         if (TypeRef(vt).kind() == LogosType::Kind::Bool) {
             result_type = bool_t();
-        } else if (is_integer_kind(vt->kind) || TypeRef(vt).kind() == LogosType::Kind::IntLit) {
+        } else if (is_integer_kind(TypeRef(vt).kind()) || TypeRef(vt).kind() == LogosType::Kind::IntLit) {
             // Bitwise NOT (~x) on integer types
             result_type = (TypeRef(vt).kind() == LogosType::Kind::IntLit) ? i32_t() : vt;
         } else {
@@ -853,7 +853,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                               callee, i + 1, type_str(pt), type_str(at)));
                     if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                         if (auto v = get_intlit_value(arg_exprs[i].get()))
-                            if (!intlit_fits(*v, pt->kind))
+                            if (!intlit_fits(*v, TypeRef(pt).kind()))
                                 error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                       callee, i + 1, *v, type_str(pt)));
                 }
@@ -874,7 +874,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                           callee, i + 1, type_str(pt), type_str(at)));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
-                        if (!intlit_fits(*v, pt->kind))
+                        if (!intlit_fits(*v, TypeRef(pt).kind()))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
@@ -1037,7 +1037,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                           callee, i + 1, type_str(pt), type_str(at)));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
-                        if (!intlit_fits(*v, pt->kind))
+                        if (!intlit_fits(*v, TypeRef(pt).kind()))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee, i + 1, *v, type_str(pt)));
             }
@@ -1058,7 +1058,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                       callee, i + 1, type_str(pt), type_str(at)));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                 if (auto v = get_intlit_value(arg_exprs[i].get()))
-                    if (!intlit_fits(*v, pt->kind))
+                    if (!intlit_fits(*v, TypeRef(pt).kind()))
                         error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                               callee, i + 1, *v, type_str(pt)));
             // Check array literal elements against narrow array param type.
@@ -1307,7 +1307,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                 if (auto v = get_intlit_value(arg_exprs[i].get()))
-                    if (!intlit_fits(*v, pt->kind))
+                    if (!intlit_fits(*v, TypeRef(pt).kind()))
                         error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                               callee_diag, i + 1, *v, type_str(pt)));
         }
@@ -1331,7 +1331,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
-                        if (!intlit_fits(*v, pt->kind))
+                        if (!intlit_fits(*v, TypeRef(pt).kind()))
                             error(std::format("call to '{}' arg {}: value {} does not fit in {}",
                                   callee_diag, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
@@ -1972,7 +1972,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 TypeRef(pt).kind() != LogosType::Kind::Error &&
                                 TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                                 if (auto v = get_intlit_value(arg_exprs[i].get()))
-                                    if (!intlit_fits(*v, pt->kind))
+                                    if (!intlit_fits(*v, TypeRef(pt).kind()))
                                         error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                                           std::string(method_name), i + 1, *v, type_str(pt)));
                             // Check array literal elements against narrow array param type.
@@ -2178,7 +2178,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                         TypeRef(pt).kind() != LogosType::Kind::AssocType)
                         if (auto v = get_intlit_value(arg_exprs[i].get()))
-                            if (!intlit_fits(*v, pt->kind))
+                            if (!intlit_fits(*v, TypeRef(pt).kind()))
                                 error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                                   std::string(method_name), i + 1,
                                                   *v, type_str(pt)));
@@ -2737,7 +2737,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                           mangled, i + 1, type_str(pt), type_str(at)));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i].get()))
-                        if (!intlit_fits(*v, pt->kind))
+                        if (!intlit_fits(*v, TypeRef(pt).kind()))
                             error(std::format("method '{}' arg {}: value {} does not fit in {}",
                                   mangled, i + 1, *v, type_str(pt)));
                 // Check array literal elements against narrow array param type.
@@ -3176,9 +3176,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         initialized[std::string(f.name)] = true;
                         matched_variadic = true;
                         // Type check against the variadic field's type
-                        if (f.type && f.type->kind != LogosType::Kind::Error &&
+                        if (f.type && TypeRef(f.type).kind() != LogosType::Kind::Error &&
                             TypeRef(fval->type).kind() != LogosType::Kind::Error &&
-                            f.type->kind != LogosType::Kind::TypeVar &&
+                            TypeRef(f.type).kind() != LogosType::Kind::TypeVar &&
                             !types_compatible(fval->type, f.type)) {
                             error(std::format("struct literal '{}' field '{}': expected {}, got {}",
                                   sname, fname, type_str(f.type), type_str(fval->type)));
@@ -3212,7 +3212,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // Check IntLit field value fits in the declared field type.
                 if (ft && TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(fval.get()))
-                        if (!intlit_fits(*v, ft->kind))
+                        if (!intlit_fits(*v, TypeRef(ft).kind()))
                             error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
                                   sname, fname, *v, type_str(ft)));
             }
@@ -3246,7 +3246,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                         TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
                         if (auto v = get_intlit_value(fval.get()))
-                            if (!intlit_fits(*v, ft->kind))
+                            if (!intlit_fits(*v, TypeRef(ft).kind()))
                                 error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
                                       sname, fname, *v, type_str(ft)));
                     break;
@@ -3271,7 +3271,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             // Check IntLit field value fits in the declared field type.
             if (ft && TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(fval.get()))
-                    if (!intlit_fits(*v, ft->kind))
+                    if (!intlit_fits(*v, TypeRef(ft).kind()))
                         error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
                               sname, fname, *v, type_str(ft)));
             // Check array literal elements against narrow array field type.
@@ -3430,7 +3430,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 if (TypeRef(t).kind() == LogosType::Kind::IntLit &&
                     TypeRef(elem_type).kind() != LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(elems[i].get()))
-                        if (!intlit_fits(*v, elem_type->kind))
+                        if (!intlit_fits(*v, TypeRef(elem_type).kind()))
                             error(std::format("array literal: element {}: value {} does not fit in {}",
                                   i, *v, type_str(elem_type)));
                 // Check array literal elements against narrow nested array element types.
@@ -3496,7 +3496,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
             // Scalar IntLit at element 0.
             if (TypeRef(t0).kind() == LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(e))
-                    if (!intlit_fits(*v, anchor->kind))
+                    if (!intlit_fits(*v, TypeRef(anchor).kind()))
                         error(std::format("array literal: element 0: value {} does not fit in {}",
                               *v, type_str(anchor)));
             // Array literal at element 0 (e.g. [[1,200,3], concrete_arr]).
@@ -4508,7 +4508,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 if (TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     TypeRef(payload[i]->type).kind() == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(payload[i].get()))
-                        if (!intlit_fits(*v, pack_t->kind))
+                        if (!intlit_fits(*v, TypeRef(pack_t).kind()))
                             error(std::format("{}::{} variadic arg {}: value {} does not fit in {}",
                                   ename, vname, i, *v, type_str(pack_t)));
             }
