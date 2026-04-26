@@ -124,6 +124,15 @@ private:
         if (it == mirror_->block_by_offset.end()) return nullptr;
         return it->second;
     }
+    const LStmt* lstmt_of(lir_view::StmtRef r) const noexcept {
+        if (!mirror_) return nullptr;
+        auto it = mirror_->stmt_by_offset.find(uint32_t(r.offset()));
+        if (it == mirror_->stmt_by_offset.end()) return nullptr;
+        return it->second;
+    }
+    const TypePoolImpl* pool_impl() const noexcept {
+        return prog_ ? prog_->type_pool.impl() : nullptr;
+    }
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
     std::unordered_map<std::string, const LStructDef*> all_struct_defs_; // name→def for recursive registration
@@ -360,29 +369,29 @@ private:
     // ── Statements ────────────────────────────────────────────────
     void gen_stmt(const LStmt& stmt);
 
-    void gen_stmt_kind(const SLet& s);
-    void gen_stmt_kind(const SAssign& s);
-    void gen_stmt_kind(const SReturn& s);
-    void gen_stmt_kind(const SIf& s);
-    void gen_stmt_kind(const SWhile& s);
-    void gen_stmt_kind(const SFor& s);
-    void gen_stmt_kind(const SLoop& s);
-    void gen_stmt_kind(const SBreak&);
-    void gen_stmt_kind(const SContinue&);
-    void gen_stmt_kind(const SFieldWrite& s);
-    void gen_stmt_kind(const STupleWrite& s);
-    void gen_stmt_kind(const SDerefFieldWrite& s);
-    void gen_stmt_kind(const SIndexWrite& s);
-    void gen_stmt_kind(const SFieldIndexWrite& s);
-    void gen_stmt_kind(const SExprStmt& s);
-    void gen_stmt_kind(const SMatch& s);
-    void gen_stmt_kind(const SDelete& s);
-    void gen_stmt_kind(const SForEach& s);
-    void gen_stmt_kind(const SBlock& s);
-    void gen_stmt_kind(const SDrop& s);
-    void gen_stmt_kind(const SDerefWrite& s);
-    void gen_stmt_kind(const SLetElse& s);
-    void gen_stmt_kind(const SChainFieldWrite& s);
+    void gen_stmt_kind(lir_view::SLetView v);
+    void gen_stmt_kind(lir_view::SAssignView v);
+    void gen_stmt_kind(lir_view::SReturnView v);
+    void gen_stmt_kind(lir_view::SIfView v);
+    void gen_stmt_kind(lir_view::SWhileView v);
+    void gen_stmt_kind(lir_view::SForView v);
+    void gen_stmt_kind(lir_view::SLoopView v);
+    void gen_stmt_kind(lir_view::SBreakView v);
+    void gen_stmt_kind(lir_view::SContinueView v);
+    void gen_stmt_kind(lir_view::SFieldWriteView v);
+    void gen_stmt_kind(lir_view::STupleWriteView v);
+    void gen_stmt_kind(lir_view::SDerefFieldWriteView v);
+    void gen_stmt_kind(lir_view::SIndexWriteView v);
+    void gen_stmt_kind(lir_view::SFieldIndexWriteView v);
+    void gen_stmt_kind(lir_view::SExprStmtView v);
+    void gen_stmt_kind(lir_view::SMatchView v);
+    void gen_stmt_kind(lir_view::SDeleteView v);
+    void gen_stmt_kind(lir_view::SForEachView v);
+    void gen_stmt_kind(lir_view::SBlockView v);
+    void gen_stmt_kind(lir_view::SDropView v);
+    void gen_stmt_kind(lir_view::SDerefWriteView v);
+    void gen_stmt_kind(lir_view::SLetElseView v);
+    void gen_stmt_kind(lir_view::SChainFieldWriteView v);
 
     void gen_let(const SLet& s);
     void gen_assign(const SAssign& s);

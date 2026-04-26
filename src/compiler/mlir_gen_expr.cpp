@@ -292,12 +292,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EEnumLit>(_le->kind);
+    std::string enum_name(v.enum_name());
+    int64_t     disc = v.disc();
     // Tagged enum without payload (e.g. Option::None, HttpError::Io):
     // heap-allocate so the pointer can safely escape — including being stored
     // into another enum's payload slot as a pointer (EEnumLitData path).
-    auto* te = resolve_tagged_enum(e.enum_name, type);
+    auto* te = resolve_tagged_enum(enum_name, type);
     if (te) {
         mlir::Value size = sizeof_struct(te->llvm_type);
         auto heap = call_malloc(size);
@@ -305,21 +305,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(0)};
         auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), te->llvm_type, heap, idx);
-        auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
+        auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
         builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
         return heap;
     }
     // C-style enum: just the discriminant, sized per backing type.
     return builder_.create<mlir::arith::ConstantIntOp>(
-        loc_, e.disc, enum_disc_bits(e.enum_name));
+        loc_, disc, enum_disc_bits(enum_name));
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EEnumLitData>(_le->kind);
-    auto* te = resolve_tagged_enum(e.enum_name, type);
+    std::string enum_name(v.enum_name());
+    int64_t disc = v.disc();
+    std::vector<lir_view::ExprRef> payload;
+    v.each_payload([&](lir_view::ExprRef pr){ payload.push_back(pr); });
+
+    auto* te = resolve_tagged_enum(enum_name, type);
     if (!te) {
-        std::fprintf(stderr, "mlir_gen: unknown tagged enum '%s'\n", e.enum_name.c_str());
+        std::fprintf(stderr, "mlir_gen: unknown tagged enum '%s'\n", enum_name.c_str());
         return nullptr;
     }
     auto& info = *te;
@@ -331,26 +334,28 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
     llvm::SmallVector<mlir::LLVM::GEPArg> disc_idx{int32_t(0), int32_t(0)};
     auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), info.llvm_type, alloca, disc_idx);
-    auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, e.disc, 32);
+    auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
     builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
     // Store payload into field 1 (the [N x i8] area), bitcasted
-    if (!e.payload.empty()) {
+    if (!payload.empty()) {
         // GEP to the payload area (field index 1)
         llvm::SmallVector<mlir::LLVM::GEPArg> pay_idx{int32_t(0), int32_t(1)};
         auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), info.llvm_type, alloca, pay_idx);
         // Find the variant's field types
         const TaggedEnumInfo::VariantPayload* vp = nullptr;
-        for (auto& v : info.variants)
-            if (v.disc == e.disc) { vp = &v; break; }
+        for (auto& vi : info.variants)
+            if (vi.disc == disc) { vp = &vi; break; }
         if (vp) {
             // Build a struct type for this variant's payload
             llvm::SmallVector<mlir::Type> ft;
             for (auto& t : vp->field_types) ft.push_back(t);
             auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
                 builder_.getContext(), ft);
-            for (size_t i = 0; i < e.payload.size() && i < vp->field_types.size(); ++i) {
-                auto val = gen_expr(*e.payload[i]);
+            for (size_t i = 0; i < payload.size() && i < vp->field_types.size(); ++i) {
+                auto* pl_le = lexpr_of(payload[i]);
+                if (!pl_le) return nullptr;
+                auto val = gen_expr(*pl_le);
                 if (!val) return nullptr;
                 llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(i)};
                 auto fp = builder_.create<mlir::LLVM::GEPOp>(
@@ -670,75 +675,78 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EAddrOfTemp>(_le->kind);
-    // Materialize a temporary rvalue to an anonymous stack slot and return its address.
-    // Aggregates (tuple, struct, array) are already pointer-represented by the codegen
-    // (their gen_expr returns an alloca directly) — no extra wrapping needed.
-    //
+    namespace ec = lir_schema::expr;
+    auto inner_ref = v.inner();
+    auto* inner_le = lexpr_of(inner_ref);
+    if (!inner_le) return nullptr;
+    TypeRef inner_t = inner_ref.type(pool_impl());
+
     // Special case: &mut <field_read> on an inline struct field must return a
     // GEP into the original struct, NOT a copy.  gen_expr(EFieldRead) always
     // loads, which would give us a by-value copy — useless for mutation.
-    if (auto* fr = std::get_if<EFieldRead>(&e.inner->kind)) {
-        auto [ptr, sname] = gen_recv_struct(*fr->receiver);
-        if (ptr && !sname.empty()) {
-            auto sit = struct_types_.find(sname);
-            if (sit != struct_types_.end()) {
-                auto& info = sit->second;
-                auto gep = gep_field(ptr, info, fr->field);
-                if (gep) return gep;  // field address into original struct
+    if (inner_ref.kind() == ec::Code::FieldRead) {
+        lir_view::EFieldReadView frv{inner_ref};
+        auto* fr_recv_le = lexpr_of(frv.receiver());
+        if (fr_recv_le) {
+            auto [ptr, sname] = gen_recv_struct(*fr_recv_le);
+            if (ptr && !sname.empty()) {
+                auto sit = struct_types_.find(sname);
+                if (sit != struct_types_.end()) {
+                    auto& info = sit->second;
+                    auto gep = gep_field(ptr, info, std::string(frv.field()));
+                    if (gep) return gep;
+                }
             }
         }
-        // Fall through to the general path for non-struct fields.
+        // Fall through.
     }
     // `&mut arr[i]` on a struct-element-typed array/pointer: take GEP address
-    // directly instead of loading the struct by value and then needing to
-    // re-spill.  Without this, EIndexRead's trailing LoadOp hands back a
-    // struct value that subsequent struct-access ops mis-interpret as a ptr.
-    if (auto* ir = std::get_if<EIndexRead>(&e.inner->kind)) {
-        auto t = e.inner->type;
-        if (t) {
-            mlir::Value base_ptr;
-            mlir::Type  elem_type;
-            if (auto* vr = std::get_if<EVarRef>(&ir->receiver->kind)) {
-                auto lpit = var_local_ptrs_.find(vr->name);
-                if (lpit != var_local_ptrs_.end()) {
-                    auto slot = get_subscript_ptr(vr->name);
-                    base_ptr  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
-                    elem_type = lpit->second;
-                } else if (TypeRef rt(ir->receiver->type);
-                           rt && rt.kind() == LogosType::Kind::Ptr && rt.pointee()) {
-                    auto cname = concrete_struct_name(rt.pointee());
-                    auto sit   = struct_types_.find(cname);
-                    if (sit != struct_types_.end()) {
-                        auto sc = scope_.find(vr->name);
-                        if (sc != scope_.end()) {
-                            base_ptr  = sc->second;
-                            elem_type = sit->second.llvm_type;
-                        }
-                    }
-                } else if (TypeRef rt(ir->receiver->type);
-                           rt && rt.kind() == LogosType::Kind::Array) {
-                    // Stack-allocated array: get_subscript_ptr returns the alloca
-                    // directly (no load needed since the alloca IS the array base).
-                    auto sp = get_subscript_ptr(vr->name);
-                    if (sp) {
-                        base_ptr  = sp;
-                        elem_type = logos_to_mlir(t);
+    // directly instead of loading the struct by value and then needing to re-spill.
+    if (inner_ref.kind() == ec::Code::IndexRead && inner_t) {
+        lir_view::EIndexReadView irv{inner_ref};
+        auto ir_recv  = irv.receiver();
+        auto ir_index = irv.index();
+        TypeRef ir_recv_t = ir_recv.type(pool_impl());
+        mlir::Value base_ptr;
+        mlir::Type  elem_type;
+        if (ir_recv.kind() == ec::Code::VarRef) {
+            std::string vn(lir_view::EVarRefView{ir_recv}.name());
+            auto lpit = var_local_ptrs_.find(vn);
+            if (lpit != var_local_ptrs_.end()) {
+                auto slot = get_subscript_ptr(vn);
+                base_ptr  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
+                elem_type = lpit->second;
+            } else if (ir_recv_t && ir_recv_t.kind() == LogosType::Kind::Ptr && ir_recv_t.pointee()) {
+                auto cname = concrete_struct_name(ir_recv_t.pointee());
+                auto sit   = struct_types_.find(cname);
+                if (sit != struct_types_.end()) {
+                    auto sc = scope_.find(vn);
+                    if (sc != scope_.end()) {
+                        base_ptr  = sc->second;
+                        elem_type = sit->second.llvm_type;
                     }
                 }
-            } else if (auto* fr = std::get_if<EFieldRead>(&ir->receiver->kind)) {
-                auto [struct_ptr, sname] = gen_recv_struct(*fr->receiver);
+            } else if (ir_recv_t && ir_recv_t.kind() == LogosType::Kind::Array) {
+                auto sp = get_subscript_ptr(vn);
+                if (sp) {
+                    base_ptr  = sp;
+                    elem_type = logos_to_mlir(inner_t);
+                }
+            }
+        } else if (ir_recv.kind() == ec::Code::FieldRead) {
+            lir_view::EFieldReadView frv{ir_recv};
+            auto* fr_recv_le = lexpr_of(frv.receiver());
+            if (fr_recv_le) {
+                auto [struct_ptr, sname] = gen_recv_struct(*fr_recv_le);
                 if (struct_ptr && !sname.empty()) {
                     auto& info = struct_types_[sname];
-                    auto field_ptr = gep_field(struct_ptr, info, fr->field);
+                    auto field_ptr = gep_field(struct_ptr, info, std::string(frv.field()));
                     if (field_ptr) {
-                        bool field_is_ptr = ir->receiver->type &&
-                                            TypeRef(ir->receiver->type).kind() == LogosType::Kind::Ptr;
+                        bool field_is_ptr = ir_recv_t && ir_recv_t.kind() == LogosType::Kind::Ptr;
                         if (field_is_ptr) {
                             base_ptr = builder_.create<mlir::LLVM::LoadOp>(
                                 loc_, ptr_type(), field_ptr);
-                            TypeRef rpt = TypeRef(ir->receiver->type).pointee();
+                            TypeRef rpt = ir_recv_t.pointee();
                             if (rpt &&
                                 (rpt.kind() == LogosType::Kind::Struct ||
                                  rpt.kind() == LogosType::Kind::ZonedStruct)) {
@@ -748,44 +756,45 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
                                     elem_type = sit2->second.llvm_type;
                             }
                             if (!elem_type)
-                                elem_type = logos_to_mlir(t);
+                                elem_type = logos_to_mlir(inner_t);
                         } else {
                             base_ptr  = field_ptr;
-                            elem_type = logos_to_mlir(t);
+                            elem_type = logos_to_mlir(inner_t);
                         }
                     }
                 }
             }
-            if (base_ptr && elem_type) {
-                auto idx = gen_expr(*ir->index);
-                if (!idx) return nullptr;
-                bool idx_unsigned = ir->index->type &&
-                    (TypeRef(ir->index->type).kind() == LogosType::Kind::U8  ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U16 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U32 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U24 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U56 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U64 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U128);
-                if (idx_unsigned && idx.getType() != builder_.getI64Type())
-                    idx = builder_.create<mlir::arith::ExtUIOp>(
-                        loc_, builder_.getI64Type(), idx);
-                llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
-                return builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_type(), elem_type, base_ptr, indices);
-            }
+        }
+        if (base_ptr && elem_type) {
+            auto* ir_index_le = lexpr_of(ir_index);
+            if (!ir_index_le) return nullptr;
+            auto idx = gen_expr(*ir_index_le);
+            if (!idx) return nullptr;
+            TypeRef ir_idx_t = ir_index.type(pool_impl());
+            bool idx_unsigned = ir_idx_t &&
+                (ir_idx_t.kind() == LogosType::Kind::U8  ||
+                 ir_idx_t.kind() == LogosType::Kind::U16 ||
+                 ir_idx_t.kind() == LogosType::Kind::U32 ||
+                 ir_idx_t.kind() == LogosType::Kind::U24 ||
+                 ir_idx_t.kind() == LogosType::Kind::U56 ||
+                 ir_idx_t.kind() == LogosType::Kind::U64 ||
+                 ir_idx_t.kind() == LogosType::Kind::U128);
+            if (idx_unsigned && idx.getType() != builder_.getI64Type())
+                idx = builder_.create<mlir::arith::ExtUIOp>(
+                    loc_, builder_.getI64Type(), idx);
+            llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
+            return builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), elem_type, base_ptr, indices);
         }
     }
-    auto val = gen_expr(*e.inner);
+    auto val = gen_expr(*inner_le);
     if (!val) return nullptr;
-    auto t = e.inner->type;
-    if (t && (TypeRef(t).kind() == LogosType::Kind::Tuple ||
-              TypeRef(t).kind() == LogosType::Kind::Struct ||
-              TypeRef(t).kind() == LogosType::Kind::ZonedStruct ||
-              TypeRef(t).kind() == LogosType::Kind::Array))
-        return val;  // already a pointer to the value on the stack
-    // Scalar: spill to a fresh stack slot.
-    auto llvm_type = logos_to_mlir(t);
+    if (inner_t && (inner_t.kind() == LogosType::Kind::Tuple ||
+                    inner_t.kind() == LogosType::Kind::Struct ||
+                    inner_t.kind() == LogosType::Kind::ZonedStruct ||
+                    inner_t.kind() == LogosType::Kind::Array))
+        return val;
+    auto llvm_type = logos_to_mlir(inner_t);
     if (!llvm_type) llvm_type = builder_.getI32Type();
     auto alloca = create_entry_alloca(llvm_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
@@ -1137,63 +1146,78 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EIndexRead>(_le->kind);
-    // Receiver: try to get the alloca pointer directly for VAR_REF.
+    namespace ec = lir_schema::expr;
+    auto recv_ref = v.receiver();
+    auto idx_ref  = v.index();
+    auto* recv_le = lexpr_of(recv_ref);
+    auto* idx_le  = lexpr_of(idx_ref);
+    if (!recv_le || !idx_le) return nullptr;
+    TypeRef recv_t = recv_ref.type(pool_impl());
+    TypeRef idx_t  = idx_ref.type(pool_impl());
+
     mlir::Value arr_ptr;
     mlir::Type  elem_type;
 
-    if (auto* vr = std::get_if<EVarRef>(&e.receiver->kind)) {
-        // Local pointer variable: scope_ holds alloca(ptr), load actual ptr first.
-        auto lpit = var_local_ptrs_.find(vr->name);
+    switch (recv_ref.kind()) {
+    case ec::Code::VarRef: {
+        std::string name(lir_view::EVarRefView{recv_ref}.name());
+        auto lpit = var_local_ptrs_.find(name);
         if (lpit != var_local_ptrs_.end()) {
-            auto alloca = get_subscript_ptr(vr->name);
+            auto alloca = get_subscript_ptr(name);
             arr_ptr   = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), alloca);
             elem_type = lpit->second;
-        } else if (TypeRef rt(e.receiver->type);
-                   rt && rt.kind() == LogosType::Kind::Ptr &&
-                   rt.pointee() &&
-                   (rt.pointee().kind() == LogosType::Kind::Struct ||
-                    rt.pointee().kind() == LogosType::Kind::ZonedStruct)) {
-            auto cname = concrete_struct_name(rt.pointee());
+        } else if (recv_t && recv_t.kind() == LogosType::Kind::Ptr &&
+                   recv_t.pointee() &&
+                   (recv_t.pointee().kind() == LogosType::Kind::Struct ||
+                    recv_t.pointee().kind() == LogosType::Kind::ZonedStruct)) {
+            auto cname = concrete_struct_name(recv_t.pointee());
             auto sit   = struct_types_.find(cname);
             if (sit != struct_types_.end()) {
-                auto sc = scope_.find(vr->name);
+                auto sc = scope_.find(name);
                 if (sc != scope_.end()) {
                     arr_ptr   = sc->second;
                     elem_type = sit->second.llvm_type;
                 }
             }
             if (!arr_ptr) {
-                arr_ptr   = get_subscript_ptr(vr->name);
-                elem_type = subscript_elem_type(vr->name);
+                arr_ptr   = get_subscript_ptr(name);
+                elem_type = subscript_elem_type(name);
             }
         } else {
-            arr_ptr   = get_subscript_ptr(vr->name);
-            elem_type = subscript_elem_type(vr->name);
+            arr_ptr   = get_subscript_ptr(name);
+            elem_type = subscript_elem_type(name);
         }
-    } else if (auto* ir = std::get_if<EIndexRead>(&e.receiver->kind)) {
+        break;
+    }
+    case ec::Code::IndexRead: {
         // Nested index: matrix[i][j] — get a pointer to matrix[i] without loading it.
+        lir_view::EIndexReadView irv{recv_ref};
+        auto ir_recv  = irv.receiver();
+        auto ir_index = irv.index();
+        auto* ir_recv_le  = lexpr_of(ir_recv);
+        auto* ir_index_le = lexpr_of(ir_index);
         mlir::Value inner_ptr;
         mlir::Type  inner_elem_type;
-        if (auto* vr2 = std::get_if<EVarRef>(&ir->receiver->kind)) {
-            inner_ptr       = get_subscript_ptr(vr2->name);
-            inner_elem_type = subscript_elem_type(vr2->name);
-        } else {
-            inner_ptr       = gen_expr(*ir->receiver);
-            inner_elem_type = inner_ptr ? logos_to_mlir(ir->receiver->type) : nullptr;
+        if (ir_recv.kind() == ec::Code::VarRef) {
+            std::string vn(lir_view::EVarRefView{ir_recv}.name());
+            inner_ptr       = get_subscript_ptr(vn);
+            inner_elem_type = subscript_elem_type(vn);
+        } else if (ir_recv_le) {
+            inner_ptr       = gen_expr(*ir_recv_le);
+            inner_elem_type = inner_ptr ? logos_to_mlir(ir_recv.type(pool_impl())) : nullptr;
         }
-        if (inner_ptr && inner_elem_type) {
-            auto i_idx = gen_expr(*ir->index);
+        if (inner_ptr && inner_elem_type && ir_index_le) {
+            auto i_idx = gen_expr(*ir_index_le);
             if (i_idx) {
-                bool i_unsigned = ir->index->type &&
-                    (TypeRef(ir->index->type).kind() == LogosType::Kind::U8  ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U16 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U32 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U24 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U56 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U64 ||
-                     TypeRef(ir->index->type).kind() == LogosType::Kind::U128);
+                TypeRef ir_idx_t = ir_index.type(pool_impl());
+                bool i_unsigned = ir_idx_t &&
+                    (ir_idx_t.kind() == LogosType::Kind::U8  ||
+                     ir_idx_t.kind() == LogosType::Kind::U16 ||
+                     ir_idx_t.kind() == LogosType::Kind::U32 ||
+                     ir_idx_t.kind() == LogosType::Kind::U24 ||
+                     ir_idx_t.kind() == LogosType::Kind::U56 ||
+                     ir_idx_t.kind() == LogosType::Kind::U64 ||
+                     ir_idx_t.kind() == LogosType::Kind::U128);
                 if (i_unsigned && i_idx.getType() != builder_.getI64Type())
                     i_idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), i_idx);
                 llvm::SmallVector<mlir::LLVM::GEPArg> inner_indices{i_idx};
@@ -1203,56 +1227,64 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
                 if (!elem_type) elem_type = builder_.getI32Type();
             }
         }
-    } else if (auto* fr = std::get_if<EFieldRead>(&e.receiver->kind)) {
+        break;
+    }
+    case ec::Code::FieldRead: {
         // Field index read: field may be an array or a pointer.
-        auto [struct_ptr, sname] = gen_recv_struct(*fr->receiver);
-        if (struct_ptr && !sname.empty()) {
-            auto& info = struct_types_[sname];
-            auto field_ptr = gep_field(struct_ptr, info, fr->field);
-            if (field_ptr) {
-                elem_type = logos_to_mlir(type);
-                if (!elem_type) elem_type = builder_.getI32Type();
-                bool field_is_ptr = e.receiver->type &&
-                                    TypeRef(e.receiver->type).kind() == LogosType::Kind::Ptr;
-                if (field_is_ptr) {
-                    arr_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_ptr);
-                    // Use struct LLVM type for stride when pointee is a struct/datatype.
-                    TypeRef rpt = TypeRef(e.receiver->type).pointee();
-                    if (rpt &&
-                        (rpt.kind() == LogosType::Kind::Struct ||
-                         rpt.kind() == LogosType::Kind::ZonedStruct)) {
-                        auto cname = concrete_struct_name(rpt);
-                        auto sit   = struct_types_.find(cname);
-                        if (sit != struct_types_.end())
-                            elem_type = sit->second.llvm_type;
+        lir_view::EFieldReadView frv{recv_ref};
+        auto fr_recv = frv.receiver();
+        auto* fr_recv_le = lexpr_of(fr_recv);
+        std::string field(frv.field());
+        if (fr_recv_le) {
+            auto [struct_ptr, sname] = gen_recv_struct(*fr_recv_le);
+            if (struct_ptr && !sname.empty()) {
+                auto& info = struct_types_[sname];
+                auto field_ptr = gep_field(struct_ptr, info, field);
+                if (field_ptr) {
+                    elem_type = logos_to_mlir(type);
+                    if (!elem_type) elem_type = builder_.getI32Type();
+                    bool field_is_ptr = recv_t && recv_t.kind() == LogosType::Kind::Ptr;
+                    if (field_is_ptr) {
+                        arr_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_ptr);
+                        TypeRef rpt = recv_t.pointee();
+                        if (rpt &&
+                            (rpt.kind() == LogosType::Kind::Struct ||
+                             rpt.kind() == LogosType::Kind::ZonedStruct)) {
+                            auto cname = concrete_struct_name(rpt);
+                            auto sit   = struct_types_.find(cname);
+                            if (sit != struct_types_.end())
+                                elem_type = sit->second.llvm_type;
+                        }
+                    } else {
+                        arr_ptr = field_ptr;
                     }
-                } else {
-                    arr_ptr = field_ptr;
                 }
             }
         }
         if (!arr_ptr) {
-            arr_ptr   = gen_expr(*e.receiver);
+            arr_ptr   = gen_expr(*recv_le);
             elem_type = logos_to_mlir(type);
             if (!elem_type) elem_type = builder_.getI32Type();
         }
-    } else {
-        arr_ptr   = gen_expr(*e.receiver);
+        break;
+    }
+    default:
+        arr_ptr   = gen_expr(*recv_le);
         elem_type = logos_to_mlir(type);
         if (!elem_type) elem_type = builder_.getI32Type();
+        break;
     }
 
-    auto idx = gen_expr(*e.index);
+    auto idx = gen_expr(*idx_le);
     if (!idx || !arr_ptr) return nullptr;
-    // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
-    bool idx_unsigned = e.index->type &&
-        (TypeRef(e.index->type).kind() == LogosType::Kind::U8  ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U16 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U32 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U24 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U56 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U64 ||
-         TypeRef(e.index->type).kind() == LogosType::Kind::U128);
+    bool idx_unsigned = idx_t &&
+        (idx_t.kind() == LogosType::Kind::U8  ||
+         idx_t.kind() == LogosType::Kind::U16 ||
+         idx_t.kind() == LogosType::Kind::U32 ||
+         idx_t.kind() == LogosType::Kind::U24 ||
+         idx_t.kind() == LogosType::Kind::U56 ||
+         idx_t.kind() == LogosType::Kind::U64 ||
+         idx_t.kind() == LogosType::Kind::U128);
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
         idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
@@ -1336,22 +1368,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ECast>(_le->kind);
+    auto* op_le = lexpr_of(v.operand());
+    if (!op_le) return nullptr;
+    std::string hermes_build_fn(v.hermes_build_fn());
     // ── Hermes typed container cast: &[T] as <I32>[] → Hermes. ──────────
-    if (!e.hermes_build_fn.empty()) {
-        auto val = gen_expr(*e.operand);
+    if (!hermes_build_fn.empty()) {
+        auto val = gen_expr(*op_le);
         if (!val) return nullptr;
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-        auto build_fn = find_func_op(parent_mod, e.hermes_build_fn);
+        auto build_fn = find_func_op(parent_mod, hermes_build_fn);
         if (!build_fn) {
             std::fprintf(stderr, "mlir_gen: '%s' not found — add 'use std.hermes.ctr;'\n",
-                         e.hermes_build_fn.c_str());
+                         hermes_build_fn.c_str());
             return nullptr;
         }
         // fix3: dispatch by function name prefix, not arg count — getNumArguments() is fragile
         // (any future 3-arg array builder would silently take the wrong path).
-        if (e.hermes_build_fn.rfind("hermes_build_map_", 0) == 0) {
+        if (hermes_build_fn.rfind("hermes_build_map_", 0) == 0) {
             // Map source: alloca ptr to MapSliceI32 { &[i32], &[AnyVal] }.
             // LLVM layout: { ptr (→keys_slice {ptr,i64}), ptr (→vals_slice {ptr,i64}) }
             auto mtype = mlir::LLVM::LLVMStructType::getLiteral(
@@ -1395,13 +1428,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
     }
 
-    auto val    = gen_expr(*e.operand);
+    auto val    = gen_expr(*op_le);
     if (!val) return nullptr;
 
     // str (Slice<u8> = fat pointer {ptr, i64}) as *const u8 → extract field 0.
     // Must be checked BEFORE the val.getType() == target early-return because
     // both the alloca ptr (fat struct) and *const u8 are !llvm.ptr in LLVM 17.
-    if (TypeRef ot(e.operand->type);
+    if (TypeRef ot(op_le->type);
         ot && ot.kind() == LogosType::Kind::Slice &&
         ot.elem() && ot.elem().kind() == LogosType::Kind::U8 &&
         type && TypeRef(type).kind() == LogosType::Kind::Ptr &&
@@ -1420,14 +1453,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     if (fi && ti) {
         if (ti.getWidth() > fi.getWidth()) {
             bool src_unsigned = fi.getWidth() == 1 ||
-                (e.operand->type &&
-                 (TypeRef(e.operand->type).kind() == LogosType::Kind::U8  ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U16 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U32 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U24 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U56 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U64 ||
-                  TypeRef(e.operand->type).kind() == LogosType::Kind::U128));
+                (op_le->type &&
+                 (TypeRef(op_le->type).kind() == LogosType::Kind::U8  ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U16 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U32 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U24 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U56 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U64 ||
+                  TypeRef(op_le->type).kind() == LogosType::Kind::U128));
             if (src_unsigned)
                 return builder_.create<mlir::arith::ExtUIOp>(loc_, target, val);
             return builder_.create<mlir::arith::ExtSIOp>(loc_, target, val);
@@ -1441,14 +1474,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // Bool (i1) must be zero-extended before conversion: sitofp(i1(1)) = -1.0 (wrong),
         // uitofp(i1(1)) = 1.0 (correct).  Treat i1 the same as unsigned integers.
         bool src_unsigned = (val.getType() == builder_.getI1Type()) ||
-            (e.operand->type &&
-             (TypeRef(e.operand->type).kind() == LogosType::Kind::U8  ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U16 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U32 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U24 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U56 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U64 ||
-              TypeRef(e.operand->type).kind() == LogosType::Kind::U128));
+            (op_le->type &&
+             (TypeRef(op_le->type).kind() == LogosType::Kind::U8  ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U16 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U32 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U24 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U56 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U64 ||
+              TypeRef(op_le->type).kind() == LogosType::Kind::U128));
         if (src_unsigned)
             return builder_.create<mlir::arith::UIToFPOp>(loc_, target, val);
         return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
@@ -1480,14 +1513,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     // int → ptr
     if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) && target == ptr_type()) {
         mlir::Value v64;
-        bool src_unsigned = e.operand->type &&
-            (TypeRef(e.operand->type).kind() == LogosType::Kind::U8  ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U16 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U32 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U24 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U56 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U64 ||
-             TypeRef(e.operand->type).kind() == LogosType::Kind::U128);
+        bool src_unsigned = op_le->type &&
+            (TypeRef(op_le->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(op_le->type).kind() == LogosType::Kind::U128);
         if (src_unsigned && val.getType() != builder_.getI64Type())
             v64 = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), val);
         else
@@ -1507,11 +1540,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ENewView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ENew>(_le->kind);
-    auto sit = struct_types_.find(e.class_name);
+    std::string class_name(v.class_name());
+    auto sit = struct_types_.find(class_name);
     if (sit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: unknown class '%s'\n", e.class_name.c_str());
+        std::fprintf(stderr, "mlir_gen: unknown class '%s'\n", class_name.c_str());
         return nullptr;
     }
     auto& info = sit->second;
@@ -1528,13 +1560,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ENewView v, TypeRef) {
     if (!raw) return nullptr;
 
     // Initialize user fields
-    for (auto& [fname, fval] : e.fields) {
-        auto val = gen_expr(*fval);
-        if (!val) return nullptr;
-        auto gep = gep_field(raw, info, fname);
-        if (!gep) return nullptr;
+    bool ok = true;
+    v.each_field([&](std::string_view fname, lir_view::ExprRef vr) {
+        if (!ok) return;
+        auto* fv_le = lexpr_of(vr);
+        if (!fv_le) { ok = false; return; }
+        auto val = gen_expr(*fv_le);
+        if (!val) { ok = false; return; }
+        auto gep = gep_field(raw, info, std::string(fname));
+        if (!gep) { ok = false; return; }
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-    }
+    });
+    if (!ok) return nullptr;
 
     return raw;  // *mut ClassName
 }
@@ -1884,9 +1921,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EClosureCall>(_le->kind);
-    auto closure = gen_expr(*e.callee);
+    auto* callee_le = lexpr_of(v.callee());
+    if (!callee_le) return nullptr;
+    auto closure = gen_expr(*callee_le);
     if (!closure) return nullptr;
 
     auto ctype = closure_llvm_type();
@@ -1906,12 +1943,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef typ
     // Build LLVM function type for indirect call
     llvm::SmallVector<mlir::Type> param_types;
     param_types.push_back(ptr_type());  // env
-    for (auto& a : e.args) {
-        auto val = gen_expr(*a);
-        if (!val) return nullptr;
+    bool arg_failed = false;
+    v.each_arg([&](lir_view::ExprRef ar) {
+        if (arg_failed) return;
+        auto* a_le = lexpr_of(ar);
+        if (!a_le) { arg_failed = true; return; }
+        auto val = gen_expr(*a_le);
+        if (!val) { arg_failed = true; return; }
         args.push_back(val);
         param_types.push_back(val.getType());
-    }
+    });
+    if (arg_failed) return nullptr;
 
     // See EFnPtrCall for the struct-return ABI rationale.
     mlir::Type ret = fn_call_ret_llvm_type(type);
@@ -1934,10 +1976,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef typ
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EFnPtrCall>(_le->kind);
     // Bare function pointer call: fn_ptr(arg1, arg2, ...) — no env_ptr.
-    auto fn_ptr = gen_expr(*e.callee);
+    auto* callee_le = lexpr_of(v.callee());
+    if (!callee_le) return nullptr;
+    auto fn_ptr = gen_expr(*callee_le);
     if (!fn_ptr) return nullptr;
 
     // fn_ptr is stored as a scalar (not in an alloca) when it's a let var;
@@ -1947,12 +1989,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type)
 
     llvm::SmallVector<mlir::Value> args;
     llvm::SmallVector<mlir::Type> param_types;
-    for (auto& a : e.args) {
-        auto val = gen_expr(*a);
-        if (!val) return nullptr;
+    bool arg_failed = false;
+    v.each_arg([&](lir_view::ExprRef ar) {
+        if (arg_failed) return;
+        auto* a_le = lexpr_of(ar);
+        if (!a_le) { arg_failed = true; return; }
+        auto val = gen_expr(*a_le);
+        if (!val) { arg_failed = true; return; }
         args.push_back(val);
         param_types.push_back(val.getType());
-    }
+    });
+    if (arg_failed) return nullptr;
 
     // Return type must match the callee's ABI — tuples/structs/enums are
     // returned by aggregate value (the callee uses sret promotion by the LLVM
@@ -2092,12 +2139,16 @@ int MLIRGenImpl::format_type_tag(TypeRef t) noexcept {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EFormatCall>(_le->kind);
-    auto fmt_val = gen_expr(*e.fmt);
+    auto* fmt_le = lexpr_of(v.fmt());
+    if (!fmt_le) return nullptr;
+    auto fmt_val = gen_expr(*fmt_le);
     if (!fmt_val) return nullptr;
 
-    int n = (int)e.args.size();
+    auto arg_types = v.arg_types(pool_impl());
+    std::vector<lir_view::ExprRef> arg_refs;
+    v.each_arg([&](lir_view::ExprRef r) { arg_refs.push_back(r); });
+    int n = (int)arg_refs.size();
+
     auto i32_type = builder_.getI32Type();
     auto i64_type = builder_.getI64Type();
 
@@ -2107,7 +2158,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
     auto data_alloca = create_entry_alloca(i64_type, n_cnt);
 
     for (int i = 0; i < n; ++i) {
-        int tag = format_type_tag(e.arg_types[i]);
+        int tag = format_type_tag(arg_types[i]);
 
         // Store tag at tags[i]
         llvm::SmallVector<mlir::LLVM::GEPArg> ti{int32_t(i)};
@@ -2118,21 +2169,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
 
         // Evaluate arg and widen to i64.
         // Unsigned types narrower than 64 bits must be zero-extended, not sign-extended.
-        auto arg_val = gen_expr(*e.args[i]);
+        auto* a_le = lexpr_of(arg_refs[i]);
+        if (!a_le) return nullptr;
+        auto arg_val = gen_expr(*a_le);
         if (!arg_val) return nullptr;
         mlir::Value as_i64;
         if (arg_val.getType() == ptr_type()) {
             as_i64 = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_type, arg_val);
         } else {
-            auto arg_lt = static_cast<size_t>(i) < e.arg_types.size() ? e.arg_types[i] : nullptr;
+            TypeRef arg_lt = static_cast<size_t>(i) < arg_types.size() ? arg_types[i] : TypeRef{};
             bool arg_unsigned = arg_lt &&
-                (TypeRef(arg_lt).kind() == LogosType::Kind::U8   ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U16  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U32  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U24  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U56  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U64  ||
-                 TypeRef(arg_lt).kind() == LogosType::Kind::U128);
+                (arg_lt.kind() == LogosType::Kind::U8   ||
+                 arg_lt.kind() == LogosType::Kind::U16  ||
+                 arg_lt.kind() == LogosType::Kind::U32  ||
+                 arg_lt.kind() == LogosType::Kind::U24  ||
+                 arg_lt.kind() == LogosType::Kind::U56  ||
+                 arg_lt.kind() == LogosType::Kind::U64  ||
+                 arg_lt.kind() == LogosType::Kind::U128);
             auto ai = mlir::dyn_cast<mlir::IntegerType>(arg_val.getType());
             if (arg_unsigned && ai && ai.getWidth() < 64)
                 as_i64 = builder_.create<mlir::arith::ExtUIOp>(loc_, i64_type, arg_val);
@@ -2171,19 +2224,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPackExpandView, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ESizeOf>(_le->kind);
+    TypeRef elem_type = v.elem_type(pool_impl());
     // For Struct/Datatype: logos_to_mlir returns ptr_type() (always passed by pointer),
     // but sizeof needs the actual aggregate type, not the pointer.
     mlir::Type elem_mlir = nullptr;
-    if (e.elem_type && (TypeRef(e.elem_type).kind() == LogosType::Kind::Struct ||
-                        TypeRef(e.elem_type).kind() == LogosType::Kind::ZonedStruct)) {
-        auto cname = concrete_struct_name(e.elem_type);
+    if (elem_type && (elem_type.kind() == LogosType::Kind::Struct ||
+                      elem_type.kind() == LogosType::Kind::ZonedStruct)) {
+        auto cname = concrete_struct_name(elem_type);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end())
             elem_mlir = sit->second.llvm_type;
     }
-    if (!elem_mlir) elem_mlir = logos_to_mlir(e.elem_type);
+    if (!elem_mlir) elem_mlir = logos_to_mlir(elem_type);
     if (!elem_mlir) {
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
     }
@@ -2197,36 +2249,40 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EPtrArith>(_le->kind);
-    auto p = gen_expr(*e.ptr);
-    auto n = gen_expr(*e.offset);
+    auto ptr_ref    = v.ptr();
+    auto offset_ref = v.offset();
+    auto op         = EPtrArith::Op(v.op_code());
+    auto* ptr_le    = lexpr_of(ptr_ref);
+    auto* off_le    = lexpr_of(offset_ref);
+    if (!ptr_le || !off_le) return nullptr;
+    auto p = gen_expr(*ptr_le);
+    auto n = gen_expr(*off_le);
     if (!p || !n) return nullptr;
     // Widen/narrow offset to i64 just in case.
     if (auto it = mlir::dyn_cast<mlir::IntegerType>(n.getType()))
         if (it.getWidth() != 64)
-            n = coerce_int(n, builder_.getI64Type(), e.offset->type);
+            n = coerce_int(n, builder_.getI64Type(), off_le->type);
     // Negate for Sub variants.
-    if (e.op == EPtrArith::ByteSub || e.op == EPtrArith::Sub) {
+    if (op == EPtrArith::ByteSub || op == EPtrArith::Sub) {
         auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
         n = builder_.create<mlir::arith::SubIOp>(loc_, zero, n);
     }
     mlir::Type elem_ty = builder_.getI8Type();  // default: byte indexing
-    if (e.op == EPtrArith::Add || e.op == EPtrArith::Sub) {
+    if (op == EPtrArith::Add || op == EPtrArith::Sub) {
         // Element indexing uses the pointee type from the receiver.
-        TypeRef pt = e.ptr->type;
-        if (pt && TypeRef(pt).pointee()) {
+        TypeRef pt = ptr_le->type;
+        if (pt && pt.pointee()) {
             // Struct/Datatype want their aggregate LLVM type, not ptr.
-            if (TypeRef(pt).pointee().kind() == LogosType::Kind::Struct ||
-                TypeRef(pt).pointee().kind() == LogosType::Kind::ZonedStruct) {
-                auto cname = concrete_struct_name(TypeRef(pt).pointee());
+            if (pt.pointee().kind() == LogosType::Kind::Struct ||
+                pt.pointee().kind() == LogosType::Kind::ZonedStruct) {
+                auto cname = concrete_struct_name(pt.pointee());
                 auto sit = struct_types_.find(cname);
                 if (sit != struct_types_.end())
                     elem_ty = sit->second.llvm_type;
                 else
-                    elem_ty = logos_to_mlir(TypeRef(pt).pointee());
+                    elem_ty = logos_to_mlir(pt.pointee());
             } else {
-                elem_ty = logos_to_mlir(TypeRef(pt).pointee());
+                elem_ty = logos_to_mlir(pt.pointee());
             }
         }
     }
@@ -2235,27 +2291,28 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrDiffView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EPtrDiff>(_le->kind);
-    auto a = gen_expr(*e.lhs);
-    auto b = gen_expr(*e.rhs);
+    auto* lhs_le = lexpr_of(v.lhs());
+    auto* rhs_le = lexpr_of(v.rhs());
+    if (!lhs_le || !rhs_le) return nullptr;
+    auto a = gen_expr(*lhs_le);
+    auto b = gen_expr(*rhs_le);
     if (!a || !b) return nullptr;
     auto i64ty = builder_.getI64Type();
     auto ai = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64ty, a);
     auto bi = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64ty, b);
     mlir::Value diff = builder_.create<mlir::arith::SubIOp>(loc_, ai, bi);
-    if (e.by_byte) return diff;
+    if (v.by_byte()) return diff;
     // Element distance: diff / sizeof(pointee).
-    TypeRef pt = e.lhs->type;
-    if (!pt || !TypeRef(pt).pointee()) return diff;
+    TypeRef pt = lhs_le->type;
+    if (!pt || !pt.pointee()) return diff;
     mlir::Type elem_mlir = nullptr;
-    if (TypeRef(pt).pointee().kind() == LogosType::Kind::Struct ||
-        TypeRef(pt).pointee().kind() == LogosType::Kind::ZonedStruct) {
-        auto cname = concrete_struct_name(TypeRef(pt).pointee());
+    if (pt.pointee().kind() == LogosType::Kind::Struct ||
+        pt.pointee().kind() == LogosType::Kind::ZonedStruct) {
+        auto cname = concrete_struct_name(pt.pointee());
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
     }
-    if (!elem_mlir) elem_mlir = logos_to_mlir(TypeRef(pt).pointee());
+    if (!elem_mlir) elem_mlir = logos_to_mlir(pt.pointee());
     if (!elem_mlir) return diff;
     // sizeof trick.
     mlir::Value zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
@@ -2266,12 +2323,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrDiffView v, TypeRef) {
     return builder_.create<mlir::arith::DivSIOp>(loc_, diff, sz);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETypeCodeOfView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<ETypeCodeOf>(_le->kind);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETypeCodeOfView, TypeRef) {
     // Should have been folded to ELitInt by mono.  Emit 0 as a defensive
     // fallback (not expected to be reached for well-formed programs).
-    (void)e;
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
 }
 
@@ -2699,13 +2753,11 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EReflectOfView v, TypeRef) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EReflectOf>(_le->kind);
     auto i8 = builder_.getIntegerType(8);
 
     // Compute symbol name deterministically from fqn (same formula as reflection_emit).
     std::string fqn;
-    if (TypeRef et = e.type) {
+    if (TypeRef et = v.type(pool_impl())) {
         auto pkg = et.pkg_name();
         auto sn  = et.struct_name();
         fqn = pkg.empty() ? std::string(sn) : std::string(pkg) + "::" + std::string(sn);

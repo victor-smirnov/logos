@@ -40,6 +40,7 @@ struct LirMirrorTable {
     // is still a C++ struct (e.g. visit_block(LBlock&) during Phase 3d).
     std::unordered_map<uint32_t, const lir::LBlock*> block_by_offset;
     std::unordered_map<uint32_t, const lir::LExpr*>  expr_by_offset;
+    std::unordered_map<uint32_t, const lir::LStmt*>  stmt_by_offset;
 
     bool empty() const noexcept {
         return expr.empty() && stmt.empty() && block.empty() && pat.empty()

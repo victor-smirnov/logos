@@ -141,6 +141,13 @@ public:
 
     // Helper: reach a sub-expression via a sparse key (used by view structs).
     ExprRef sub_expr(uint8_t key) const noexcept;
+
+    // Helper: reach a sub-type (RelPtr<LogosType>) via a sparse key.
+    TypeRef sub_type(uint8_t key, const TypePoolImpl* pool) const noexcept {
+        auto av = mirror()->get(key, base());
+        if (av.is_null()) return TypeRef{};
+        return TypeRef(arena(), av.to_offset(), pool);
+    }
 };
 
 // ── StmtRef ───────────────────────────────────────────────────────────────
@@ -327,6 +334,9 @@ struct ETupleIndexView {
 struct ECastView {
     ExprRef self;
     ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
+    std::string_view hermes_build_fn() const noexcept {
+        return detail::read_string(self, ek::HERMES_BUILD_FN.code);
+    }
 };
 
 // EIndexRead { receiver: LExpr, index: LExpr }
@@ -520,6 +530,19 @@ struct EFormatCallView {
     template <class F> void each_arg(F&& f) const noexcept {
         detail::for_each_arg(self, std::forward<F>(f));
     }
+    std::vector<TypeRef> arg_types(const TypePoolImpl* pool) const noexcept {
+        std::vector<TypeRef> out;
+        auto av = self.mirror()->get(ek::ARG_TYPES.code, self.base());
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        out.reserve(arr->size());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) { out.emplace_back(); continue; }
+            out.emplace_back(self.arena(), el.to_offset(), pool);
+        }
+        return out;
+    }
 };
 
 struct EStructLitView {
@@ -531,8 +554,29 @@ struct EStructLitView {
 
 struct ENewView {
     ExprRef self;
+    std::string_view class_name() const noexcept { return detail::read_string(self, ek::CLASS_NAME.code); }
     template <class F> void each_field_value(F&& f) const noexcept {
         detail::for_each_field_value(self, std::forward<F>(f));
+    }
+    // Iterate (name, value) pairs from parallel FIELD_NAMES / FIELD_VALUES arrays.
+    // F is called as f(std::string_view name, ExprRef value).
+    template <class F> void each_field(F&& f) const noexcept {
+        auto names_av  = self.mirror()->get(ek::FIELD_NAMES.code,  self.base());
+        auto values_av = self.mirror()->get(ek::FIELD_VALUES.code, self.base());
+        if (names_av.is_null() || values_av.is_null()) return;
+        auto* names_arr  = names_av.as_ptr<const hermes::ObjectArray>(self.base());
+        auto* values_arr = values_av.as_ptr<const hermes::ObjectArray>(self.base());
+        uint64_t n = std::min(names_arr->size(), values_arr->size());
+        for (uint64_t i = 0; i < n; ++i) {
+            auto nv = names_arr->get(i, self.base());
+            auto vv = values_arr->get(i, self.base());
+            std::string_view name;
+            if (!nv.is_null())
+                name = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
+            ExprRef value;
+            if (!vv.is_null()) value = ExprRef(self.arena(), vv.to_offset());
+            f(name, value);
+        }
     }
 };
 
@@ -552,6 +596,8 @@ struct ETupleLitView {
 
 struct EEnumLitDataView {
     ExprRef self;
+    std::string_view enum_name() const noexcept { return detail::read_string(self, ek::ENUM_NAME.code); }
+    int64_t          disc()      const noexcept { return detail::read_i64(self, ek::DISC.code); }
     template <class F> void each_payload(F&& f) const noexcept {
         detail::for_each_payload(self, std::forward<F>(f));
     }
@@ -595,13 +641,55 @@ struct EClosureBoxView {
 // ── Stub views (Phase 3d): bodies still go through lexpr_of() to reach the
 // underlying variant. Promoted to richer accessors as call-sites migrate.
 
-struct EAddrOfTempView { ExprRef self; };
-struct EEnumLitView    { ExprRef self; };
-struct ESizeOfView     { ExprRef self; };
-struct ETypeCodeOfView { ExprRef self; };
-struct EPtrArithView   { ExprRef self; };
-struct EPtrDiffView    { ExprRef self; };
-struct EReflectOfView  { ExprRef self; };
+struct EAddrOfTempView {
+    ExprRef self;
+    ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
+};
+
+struct EEnumLitView {
+    ExprRef self;
+    std::string_view enum_name() const noexcept { return detail::read_string(self, ek::ENUM_NAME.code); }
+    std::string_view variant()   const noexcept { return detail::read_string(self, ek::VARIANT.code); }
+    int64_t          disc()      const noexcept { return detail::read_i64(self, ek::DISC.code); }
+};
+
+struct ESizeOfView {
+    ExprRef self;
+    TypeRef elem_type(const TypePoolImpl* pool) const noexcept {
+        return self.sub_type(ek::ELEM_TYPE.code, pool);
+    }
+};
+
+struct ETypeCodeOfView {
+    ExprRef self;
+    TypeRef elem_type(const TypePoolImpl* pool) const noexcept {
+        return self.sub_type(ek::ELEM_TYPE.code, pool);
+    }
+};
+
+namespace pdk = lir_schema::ptrdiff_keys;
+
+struct EPtrArithView {
+    ExprRef self;
+    uint8_t op_code() const noexcept { return detail::read_u8(self, ek::PTR_ARITH_OP.code); }
+    ExprRef ptr()     const noexcept { return self.sub_expr(ek::BASE_PTR.code); }
+    ExprRef offset()  const noexcept { return self.sub_expr(ek::OFFSET.code); }
+};
+
+struct EPtrDiffView {
+    ExprRef self;
+    bool    by_byte() const noexcept { return detail::read_bool(self, pdk::BY_BYTE.code); }
+    ExprRef lhs()     const noexcept { return self.sub_expr(ek::LHS.code); }
+    ExprRef rhs()     const noexcept { return self.sub_expr(ek::RHS.code); }
+};
+
+struct EReflectOfView {
+    ExprRef self;
+    TypeRef type(const TypePoolImpl* pool) const noexcept {
+        return self.sub_type(ek::ELEM_TYPE.code, pool);
+    }
+};
+
 struct EHermesLitView  { ExprRef self; };
 struct EPackExpandView { ExprRef self; };
 
@@ -786,6 +874,9 @@ struct SBreakView {
     // Optional break-with-value expression (null ExprRef when absent).
     ExprRef value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
 };
+
+struct SContinueView { StmtRef self; };
+struct SDropView     { StmtRef self; };
 
 struct SMatchView {
     StmtRef self;

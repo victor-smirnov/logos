@@ -787,6 +787,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_stmt(const LStmt& s) {
         put(map_off, sc::LINE, put_u32(s.line));
 
     table_.stmt[&s] = map_off;
+    table_.stmt_by_offset[map_off.value()] = &s;
     return map_off;
 }
 
