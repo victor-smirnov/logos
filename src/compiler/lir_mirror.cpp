@@ -63,6 +63,13 @@ public:
         emit_block(f.body);
     }
 
+    // Public per-node entry points (Stage 3g.1). Called from
+    // lir_mirror_emit_*_node free functions; idempotent via table cache.
+    hermes::arena_offset_t emit_expr_public (const LExpr& e)    { return emit_expr(e); }
+    hermes::arena_offset_t emit_stmt_public (const LStmt& s)    { return emit_stmt(s); }
+    hermes::arena_offset_t emit_block_public(const LBlock& b)   { return emit_block(b); }
+    hermes::arena_offset_t emit_pat_public  (const Pattern& p)  { return emit_pat(p); }
+
 private:
     // ── primitive helpers ───────────────────────────────────────────────────
 
@@ -1107,7 +1114,10 @@ void LirMirrorEmitter::run(lir::LProgram& prog) {
 } // namespace logos::compiler
 
 namespace logos::compiler::lir {
-LProgram::LProgram() = default;
+// Stage 3g.1 — mirror_table is non-null from construction so LirBuilder can
+// emit per-node mirrors eagerly during sema, instead of waiting for a
+// post-sema bulk pass.
+LProgram::LProgram() : mirror_table(std::make_unique<::logos::compiler::LirMirrorTable>()) {}
 LProgram::~LProgram() = default;
 LProgram::LProgram(LProgram&&) noexcept = default;
 LProgram& LProgram::operator=(LProgram&&) noexcept = default;
@@ -1135,6 +1145,35 @@ void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, table);
     em.run(prog);
+}
+
+// ── Per-node entry points (Stage 3g.1) ────────────────────────────────────
+//
+// LirBuilder calls these immediately after constructing each variant. The
+// emitter's per-node emit_* functions are memoized via the table, so a node
+// emitted here is a cache hit when later walked by lir_mirror_emit_into /
+// lir_mirror_emit_function — which keeps existing post-sema and per-clone
+// passes correct without modification.
+
+hermes::arena_offset_t lir_mirror_emit_expr_node(lir::LProgram& prog, const lir::LExpr& e) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_expr_public(e);
+}
+hermes::arena_offset_t lir_mirror_emit_stmt_node(lir::LProgram& prog, const lir::LStmt& s) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_stmt_public(s);
+}
+hermes::arena_offset_t lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock& b) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_block_public(b);
+}
+hermes::arena_offset_t lir_mirror_emit_pat_node(lir::LProgram& prog, const lir::Pattern& p) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_pat_public(p);
 }
 
 } // namespace logos::compiler

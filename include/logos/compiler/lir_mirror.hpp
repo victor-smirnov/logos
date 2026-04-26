@@ -70,4 +70,16 @@ void lir_mirror_emit_function(lir::LProgram& prog,
 // structs). Already-emitted nodes are deduplicated by the table caches.
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table);
 
+// Stage 3g.1 — per-node entry points. Used by LirBuilder to emit a mirror
+// for a single freshly-constructed node (and any of its children that are
+// not yet in the table). Idempotent: calling on an already-mirrored node
+// is a cache hit and returns the existing offset.
+//
+// All four require `prog.mirror_table` to be non-null (LProgram() now
+// initializes it eagerly). The arena is `prog.type_pool.arena_or_init()`.
+hermes::arena_offset_t lir_mirror_emit_expr_node (lir::LProgram& prog, const lir::LExpr&    e);
+hermes::arena_offset_t lir_mirror_emit_stmt_node (lir::LProgram& prog, const lir::LStmt&    s);
+hermes::arena_offset_t lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock&   b);
+hermes::arena_offset_t lir_mirror_emit_pat_node  (lir::LProgram& prog, const lir::Pattern&  p);
+
 } // namespace logos::compiler
