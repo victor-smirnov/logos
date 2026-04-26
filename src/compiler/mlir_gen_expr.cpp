@@ -45,54 +45,58 @@ static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
-    auto er = expr_ref_of(e);
+    return gen_expr(expr_ref_of(e));
+}
+
+mlir::Value MLIRGenImpl::gen_expr(lir_view::ExprRef er) {
     if (!er) {
         std::fprintf(stderr, "mlir_gen: gen_expr called without LIR mirror\n");
         return nullptr;
     }
+    TypeRef ty = er.type(pool_impl());
     using C = lir_schema::expr::Code;
     switch (er.kind()) {
-    case C::LitInt:     return gen_expr_kind(lir_view::ELitIntView{er},     e.type);
-    case C::LitFloat:   return gen_expr_kind(lir_view::ELitFloatView{er},   e.type);
-    case C::LitBool:    return gen_expr_kind(lir_view::ELitBoolView{er},    e.type);
-    case C::LitStr:     return gen_expr_kind(lir_view::ELitStrView{er},     e.type);
-    case C::VarRef:     return gen_expr_kind(lir_view::EVarRefView{er},     e.type);
-    case C::EnumLit:    return gen_expr_kind(lir_view::EEnumLitView{er},    e.type);
-    case C::EnumLitData:return gen_expr_kind(lir_view::EEnumLitDataView{er},e.type);
-    case C::Call:       return gen_expr_kind(lir_view::ECallView{er},       e.type);
-    case C::MethodCall: return gen_expr_kind(lir_view::EMethodCallView{er}, e.type);
-    case C::BinOp:      return gen_expr_kind(lir_view::EBinOpView{er},      e.type);
-    case C::Unary:      return gen_expr_kind(lir_view::EUnaryView{er},      e.type);
-    case C::AddrOf:     return gen_expr_kind(lir_view::EAddrOfView{er},     e.type);
-    case C::AddrOfTemp: return gen_expr_kind(lir_view::EAddrOfTempView{er}, e.type);
-    case C::Deref:      return gen_expr_kind(lir_view::EDerefView{er},      e.type);
-    case C::FieldRead:  return gen_expr_kind(lir_view::EFieldReadView{er},  e.type);
-    case C::IndexRead:  return gen_expr_kind(lir_view::EIndexReadView{er},  e.type);
-    case C::StructLit:  return gen_expr_kind(lir_view::EStructLitView{er},  e.type);
-    case C::ArrLit:     return gen_expr_kind(lir_view::EArrLitView{er},     e.type);
-    case C::Cast:       return gen_expr_kind(lir_view::ECastView{er},       e.type);
-    case C::New:        return gen_expr_kind(lir_view::ENewView{er},        e.type);
-    case C::IfExpr:     return gen_expr_kind(lir_view::EIfExprView{er},     e.type);
-    case C::TupleLit:   return gen_expr_kind(lir_view::ETupleLitView{er},   e.type);
-    case C::TupleIndex: return gen_expr_kind(lir_view::ETupleIndexView{er}, e.type);
-    case C::SliceLit:   return gen_expr_kind(lir_view::ESliceLitView{er},   e.type);
-    case C::SliceIndex: return gen_expr_kind(lir_view::ESliceIndexView{er}, e.type);
-    case C::SliceLen:   return gen_expr_kind(lir_view::ESliceLenView{er},   e.type);
-    case C::SlicePtr:   return gen_expr_kind(lir_view::ESlicePtrView{er},   e.type);
-    case C::ClosureBox: return gen_expr_kind(lir_view::EClosureBoxView{er}, e.type);
-    case C::ClosureCall:return gen_expr_kind(lir_view::EClosureCallView{er},e.type);
-    case C::FnPtrCall:  return gen_expr_kind(lir_view::EFnPtrCallView{er},  e.type);
-    case C::FormatCall: return gen_expr_kind(lir_view::EFormatCallView{er}, e.type);
-    case C::PackExpand: return gen_expr_kind(lir_view::EPackExpandView{er}, e.type);
-    case C::Try:        return gen_expr_kind(lir_view::ETryView{er},        e.type);
-    case C::MatchExpr:  return gen_expr_kind(lir_view::EMatchExprView{er},  e.type);
-    case C::SizeOf:     return gen_expr_kind(lir_view::ESizeOfView{er},     e.type);
-    case C::TypeCodeOf: return gen_expr_kind(lir_view::ETypeCodeOfView{er}, e.type);
-    case C::BlockExpr:  return gen_expr_kind(lir_view::EBlockExprView{er},  e.type);
-    case C::HermesLit:  return gen_expr_kind(lir_view::EHermesLitView{er},  e.type);
-    case C::PtrArith:   return gen_expr_kind(lir_view::EPtrArithView{er},   e.type);
-    case C::PtrDiff:    return gen_expr_kind(lir_view::EPtrDiffView{er},    e.type);
-    case C::ReflectOf:  return gen_expr_kind(lir_view::EReflectOfView{er},  e.type);
+    case C::LitInt:     return gen_expr_kind(lir_view::ELitIntView{er},     ty);
+    case C::LitFloat:   return gen_expr_kind(lir_view::ELitFloatView{er},   ty);
+    case C::LitBool:    return gen_expr_kind(lir_view::ELitBoolView{er},    ty);
+    case C::LitStr:     return gen_expr_kind(lir_view::ELitStrView{er},     ty);
+    case C::VarRef:     return gen_expr_kind(lir_view::EVarRefView{er},     ty);
+    case C::EnumLit:    return gen_expr_kind(lir_view::EEnumLitView{er},    ty);
+    case C::EnumLitData:return gen_expr_kind(lir_view::EEnumLitDataView{er},ty);
+    case C::Call:       return gen_expr_kind(lir_view::ECallView{er},       ty);
+    case C::MethodCall: return gen_expr_kind(lir_view::EMethodCallView{er}, ty);
+    case C::BinOp:      return gen_expr_kind(lir_view::EBinOpView{er},      ty);
+    case C::Unary:      return gen_expr_kind(lir_view::EUnaryView{er},      ty);
+    case C::AddrOf:     return gen_expr_kind(lir_view::EAddrOfView{er},     ty);
+    case C::AddrOfTemp: return gen_expr_kind(lir_view::EAddrOfTempView{er}, ty);
+    case C::Deref:      return gen_expr_kind(lir_view::EDerefView{er},      ty);
+    case C::FieldRead:  return gen_expr_kind(lir_view::EFieldReadView{er},  ty);
+    case C::IndexRead:  return gen_expr_kind(lir_view::EIndexReadView{er},  ty);
+    case C::StructLit:  return gen_expr_kind(lir_view::EStructLitView{er},  ty);
+    case C::ArrLit:     return gen_expr_kind(lir_view::EArrLitView{er},     ty);
+    case C::Cast:       return gen_expr_kind(lir_view::ECastView{er},       ty);
+    case C::New:        return gen_expr_kind(lir_view::ENewView{er},        ty);
+    case C::IfExpr:     return gen_expr_kind(lir_view::EIfExprView{er},     ty);
+    case C::TupleLit:   return gen_expr_kind(lir_view::ETupleLitView{er},   ty);
+    case C::TupleIndex: return gen_expr_kind(lir_view::ETupleIndexView{er}, ty);
+    case C::SliceLit:   return gen_expr_kind(lir_view::ESliceLitView{er},   ty);
+    case C::SliceIndex: return gen_expr_kind(lir_view::ESliceIndexView{er}, ty);
+    case C::SliceLen:   return gen_expr_kind(lir_view::ESliceLenView{er},   ty);
+    case C::SlicePtr:   return gen_expr_kind(lir_view::ESlicePtrView{er},   ty);
+    case C::ClosureBox: return gen_expr_kind(lir_view::EClosureBoxView{er}, ty);
+    case C::ClosureCall:return gen_expr_kind(lir_view::EClosureCallView{er},ty);
+    case C::FnPtrCall:  return gen_expr_kind(lir_view::EFnPtrCallView{er},  ty);
+    case C::FormatCall: return gen_expr_kind(lir_view::EFormatCallView{er}, ty);
+    case C::PackExpand: return gen_expr_kind(lir_view::EPackExpandView{er}, ty);
+    case C::Try:        return gen_expr_kind(lir_view::ETryView{er},        ty);
+    case C::MatchExpr:  return gen_expr_kind(lir_view::EMatchExprView{er},  ty);
+    case C::SizeOf:     return gen_expr_kind(lir_view::ESizeOfView{er},     ty);
+    case C::TypeCodeOf: return gen_expr_kind(lir_view::ETypeCodeOfView{er}, ty);
+    case C::BlockExpr:  return gen_expr_kind(lir_view::EBlockExprView{er},  ty);
+    case C::HermesLit:  return gen_expr_kind(lir_view::EHermesLitView{er},  ty);
+    case C::PtrArith:   return gen_expr_kind(lir_view::EPtrArithView{er},   ty);
+    case C::PtrDiff:    return gen_expr_kind(lir_view::EPtrDiffView{er},    ty);
+    case C::ReflectOf:  return gen_expr_kind(lir_view::EReflectOfView{er},  ty);
     }
     std::fprintf(stderr, "mlir_gen: unhandled expr code %d\n", int(er.kind()));
     return nullptr;

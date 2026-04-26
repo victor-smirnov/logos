@@ -416,6 +416,7 @@ private:
 
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(const LExpr& e);
+    mlir::Value gen_expr(lir_view::ExprRef er);
 
     mlir::Value gen_expr_kind(lir_view::ELitIntView v,   TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ELitFloatView v, TypeRef type);
