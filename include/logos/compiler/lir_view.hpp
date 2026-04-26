@@ -200,6 +200,11 @@ public:
     HermesValRef() = default;
     HermesValRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : RefBase(a, o) {}
+
+    lir_schema::hermes_val::Code kind() const noexcept {
+        return lir_schema::hermes_val::Code(
+            int32_t(hermes::schema::variant_of(schema_type_code())));
+    }
 };
 
 // ── Inline accessors that need the above forward decls ───────────────────
@@ -507,6 +512,7 @@ struct EMethodCallView {
     std::string_view resolved_symbol() const noexcept { return detail::read_string(self, ek::RESOLVED_SYMBOL.code); }
     std::string_view resolved_type() const noexcept   { return detail::read_string(self, ek::RESOLVED_TYPE.code); }
     std::string_view tag_system() const noexcept      { return detail::read_string(self, ek::TAG_SYSTEM.code); }
+    std::string_view tag_trait() const noexcept       { return detail::read_string(self, ek::TAG_TRAIT.code); }
     int32_t          vtable_index() const noexcept {
         auto av = self.mirror()->get(ek::VTABLE_INDEX.code, self.base());
         if (av.is_null()) return -1;
@@ -824,7 +830,134 @@ struct EReflectOfView {
     }
 };
 
-struct EHermesLitView  { ExprRef self; };
+// ── HermesVal views ──────────────────────────────────────────────────────
+//
+// HermesVal is the Hermes-SDN literal tree under @{...}. Each variant maps
+// to a schema_type_code in lir_schema::hermes_val::Code. Mirror writers in
+// lir_mirror.cpp (emit_hv) populate the keys read here.
+
+namespace hvk = lir_schema::hv_keys;
+
+struct HVNullView   { HermesValRef self; };
+
+struct HVBoolView {
+    HermesValRef self;
+    bool value() const noexcept { return detail::read_bool(self, hvk::BOOL_VALUE.code); }
+};
+
+struct HVIntView {
+    HermesValRef self;
+    int64_t value() const noexcept { return detail::read_i64(self, hvk::INT_VALUE.code); }
+};
+
+struct HVFloatView {
+    HermesValRef self;
+    double value() const noexcept { return detail::read_f64(self, hvk::FLOAT_VALUE.code); }
+};
+
+struct HVStrView {
+    HermesValRef self;
+    std::string_view value() const noexcept { return detail::read_string(self, hvk::STR_VALUE.code); }
+};
+
+struct HVCaptureView {
+    HermesValRef self;
+    uint32_t param_index() const noexcept { return detail::read_u32(self, hvk::PARAM_INDEX.code); }
+    uint32_t value_index() const noexcept { return detail::read_u32(self, hvk::VALUE_INDEX.code); }
+};
+
+// HVMap entries are stored as two parallel arrays:
+//   keys[i]   — Varchar (string-keyed) or i64 (int-keyed); never mixed.
+//   values[i] — RelPtr<HermesVal>.
+// `key_type` is "" for string keys (ObjectMap) or "I32"/"U32"/"I64"/"U64"
+// for the typed-map specialisations.
+struct HVMapView {
+    HermesValRef self;
+    std::string_view key_type() const noexcept {
+        return detail::read_string(self, hvk::TYPE_NAME.code);
+    }
+    bool int_keyed() const noexcept { return !key_type().empty(); }
+    uint64_t size() const noexcept {
+        auto av = self.mirror()->get(hvk::MAP_VALUES.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+    HermesValRef value(uint64_t i) const noexcept {
+        auto av = self.mirror()->get(hvk::MAP_VALUES.code, self.base());
+        if (av.is_null()) return {};
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return {};
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return {};
+        return HermesValRef(self.arena(), el.to_offset());
+    }
+    std::string_view str_key(uint64_t i) const noexcept {
+        auto av = self.mirror()->get(hvk::MAP_KEYS.code, self.base());
+        if (av.is_null()) return {};
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return {};
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return {};
+        return el.as_ptr<const hermes::ArenaString>(self.base())->view();
+    }
+    int64_t int_key(uint64_t i) const noexcept {
+        auto av = self.mirror()->get(hvk::MAP_KEYS.code, self.base());
+        if (av.is_null()) return 0;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return 0;
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return 0;
+        return *el.as_ptr<const int64_t>(self.base());
+    }
+};
+
+struct HVArrayView {
+    HermesValRef self;
+    std::string_view elem_type() const noexcept {
+        return detail::read_string(self, hvk::TYPE_NAME.code);
+    }
+    uint64_t size() const noexcept {
+        auto av = self.mirror()->get(hvk::ELEMS.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+    HermesValRef elem(uint64_t i) const noexcept {
+        auto av = self.mirror()->get(hvk::ELEMS.code, self.base());
+        if (av.is_null()) return {};
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return {};
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return {};
+        return HermesValRef(self.arena(), el.to_offset());
+    }
+};
+
+namespace hl = lir_schema::hermes_lit_keys;
+
+struct EHermesLitView {
+    ExprRef self;
+    HermesValRef root() const noexcept {
+        auto av = self.mirror()->get(hl::ROOT.code, self.base());
+        if (av.is_null()) return {};
+        return HermesValRef(self.arena(), av.to_offset());
+    }
+    bool     has_captures()        const noexcept { return detail::read_bool(self, hl::HAS_CAPTURES.code); }
+    uint32_t capture_param_count() const noexcept { return detail::read_u32(self, hl::CAPTURE_PARAM_COUNT.code); }
+    template <class F> void each_capture_expr(F&& f) const noexcept {
+        detail::for_each_expr(self, hl::CAPTURE_EXPRS.code, std::forward<F>(f));
+    }
+    template <class F> void each_capture_type(const TypePoolImpl* pool, F&& f) const noexcept {
+        auto av = self.mirror()->get(hl::CAPTURE_TYPES.code, self.base());
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) { f(TypeRef{}); continue; }
+            f(TypeRef(self.arena(), el.to_offset(), pool));
+        }
+    }
+};
+
 struct EPackExpandView { ExprRef self; };
 
 // ── Pattern leaf exemplar ────────────────────────────────────────────────
@@ -1012,21 +1145,29 @@ struct SIfView {
 
 struct SWhileView {
     StmtRef self;
-    ExprRef  cond() const noexcept { return detail::stmt_sub_expr(self, sk::COND.code); }
-    BlockRef body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    ExprRef  cond() const noexcept  { return detail::stmt_sub_expr(self, sk::COND.code); }
+    BlockRef body() const noexcept  { return detail::stmt_sub_block(self, sk::BODY.code); }
+    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
 };
 
 struct SForView {
     StmtRef self;
-    std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
-    ExprRef          lo() const noexcept   { return detail::stmt_sub_expr(self, sk::LO.code); }
-    ExprRef          hi() const noexcept   { return detail::stmt_sub_expr(self, sk::HI.code); }
-    BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    std::string_view var() const noexcept   { return detail::stmt_str(self, sk::VAR.code); }
+    ExprRef          lo() const noexcept    { return detail::stmt_sub_expr(self, sk::LO.code); }
+    ExprRef          hi() const noexcept    { return detail::stmt_sub_expr(self, sk::HI.code); }
+    BlockRef         body() const noexcept  { return detail::stmt_sub_block(self, sk::BODY.code); }
+    bool             inclusive() const noexcept { return detail::read_bool(self, sk::INCLUSIVE.code); }
+    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
 };
 
 struct SLoopView {
     StmtRef self;
-    BlockRef body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    BlockRef         body() const noexcept       { return detail::stmt_sub_block(self, sk::BODY.code); }
+    std::string_view label() const noexcept      { return detail::stmt_str(self, sk::LABEL.code); }
+    std::string_view break_slot() const noexcept { return detail::stmt_str(self, sk::BREAK_SLOT.code); }
+    TypeRef          result_type(const TypePoolImpl* pool) const noexcept {
+        return detail::stmt_type(self, sk::RESULT_TYPE.code, pool);
+    }
 };
 
 struct SBlockView {
@@ -1039,6 +1180,11 @@ struct SForEachView {
     std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
     ExprRef          iter() const noexcept { return detail::stmt_sub_expr(self, sk::ITER.code); }
     BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    bool             is_slice() const noexcept { return detail::read_bool(self, sk::IS_SLICE.code); }
+    int64_t          arr_size() const noexcept { return detail::read_i64(self, sk::ARR_SIZE.code); }
+    TypeRef          elem_type(const TypePoolImpl* pool) const noexcept {
+        return detail::stmt_type(self, sk::ELEM_TYPE.code, pool);
+    }
 };
 
 struct SLetElseView {

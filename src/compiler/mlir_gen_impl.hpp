@@ -349,8 +349,8 @@ private:
                                      std::string_view type_name);
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
                                std::string_view src_type_name);
-    mlir::Value gen_dyn_dispatch(const EMethodCall& e, TypeRef ret_logos_type);
-    mlir::Value gen_tagged_dispatch(const EMethodCall& e, TypeRef ret_logos_type);
+    mlir::Value gen_dyn_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
+    mlir::Value gen_tagged_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
 
     // ── malloc / free helpers ─────────────────────────────────────
     void ensure_malloc_free(mlir::ModuleOp mod);
@@ -396,20 +396,20 @@ private:
     void gen_let(lir_view::SLetView v);
     void gen_assign(lir_view::SAssignView v);
     void gen_return(lir_view::SReturnView v);
-    void gen_if(const SIf& s);
-    void gen_while(const SWhile& s);
-    void gen_for(const SFor& s);
-    void gen_loop(const SLoop& s);
+    void gen_if(lir_view::SIfView v);
+    void gen_while(lir_view::SWhileView v);
+    void gen_for(lir_view::SForView v);
+    void gen_loop(lir_view::SLoopView v);
     void gen_break(lir_view::SBreakView v);
     void gen_continue();
-    void gen_for_each(const SForEach& s);
+    void gen_for_each(lir_view::SForEachView v);
     void gen_field_write(lir_view::SFieldWriteView v);
     void gen_deref_field_write(lir_view::SDerefFieldWriteView v);
     void gen_chain_field_write(lir_view::SChainFieldWriteView v);
     void gen_tuple_write(lir_view::STupleWriteView v);
     void gen_index_write(lir_view::SIndexWriteView v);
     void gen_field_index_write(lir_view::SFieldIndexWriteView v);
-    void gen_match(const SMatch& s);
+    void gen_match(lir_view::SMatchView v);
     void gen_delete(lir_view::SDeleteView v);
 
     // ── Expressions ───────────────────────────────────────────────

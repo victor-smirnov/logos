@@ -100,6 +100,26 @@ enum class Code : int32_t {
 inline constexpr int32_t Count = 23;
 } // namespace stmt
 
+// ── HermesVal variant codes ───────────────────────────────────────────────
+//
+// Synthetic category — HermesVal lives outside the LExpr/LStmt/Pattern enums
+// but reuses the lir_expr() encoder with HV_BASE offset. See lir_mirror.cpp
+// (LirMirrorEmitter::emit_hv) for the writer side.
+
+namespace hermes_val {
+inline constexpr int32_t HV_BASE = 200;
+enum class Code : int32_t {
+    Null    = HV_BASE + 0,
+    Bool    = HV_BASE + 1,
+    Int     = HV_BASE + 2,
+    Float   = HV_BASE + 3,
+    Str     = HV_BASE + 4,
+    Map     = HV_BASE + 5,
+    Array   = HV_BASE + 6,
+    Capture = HV_BASE + 7,
+};
+} // namespace hermes_val
+
 // ── Pattern variant codes ─────────────────────────────────────────────────
 
 namespace pat {
