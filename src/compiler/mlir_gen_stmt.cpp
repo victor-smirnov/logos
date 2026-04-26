@@ -88,7 +88,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldIndexWriteView v) { gen_field_in
 void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { if (auto* le = lexpr_of(v.expr())) gen_expr(*le); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(std::get<SMatch>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(std::get<SForEach>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { if (auto* lb = lblock_of(v.body())) gen_block(*lb); }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
@@ -859,7 +859,20 @@ void MLIRGenImpl::gen_continue() {
 // gen_for_each
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_for_each(const SForEach& s) {
+void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
+    auto* iter_le = lexpr_of(v.iter());
+    auto* body_lb = lblock_of(v.body());
+    if (!iter_le || !body_lb) return;
+    struct ForEachCtx {
+        std::string  var;
+        const LExpr* iter;
+        TypeRef      elem_type;
+        int64_t      arr_size;
+        bool         is_slice;
+        const LBlock* body;
+    };
+    ForEachCtx s{std::string(v.var()), iter_le, v.elem_type(pool_impl()),
+                 v.arr_size(), v.is_slice(), body_lb};
     // Evaluate the iter (array/slice) expression.
     mlir::Type elem_mlir = logos_to_mlir(s.elem_type);
     if (!elem_mlir) return;

@@ -1047,6 +1047,11 @@ struct SForEachView {
     std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
     ExprRef          iter() const noexcept { return detail::stmt_sub_expr(self, sk::ITER.code); }
     BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    bool             is_slice() const noexcept { return detail::read_bool(self, sk::IS_SLICE.code); }
+    int64_t          arr_size() const noexcept { return detail::read_i64(self, sk::ARR_SIZE.code); }
+    TypeRef          elem_type(const TypePoolImpl* pool) const noexcept {
+        return detail::stmt_type(self, sk::ELEM_TYPE.code, pool);
+    }
 };
 
 struct SLetElseView {
