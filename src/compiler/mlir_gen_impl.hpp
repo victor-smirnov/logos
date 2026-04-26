@@ -396,7 +396,7 @@ private:
     void gen_let(lir_view::SLetView v);
     void gen_assign(lir_view::SAssignView v);
     void gen_return(lir_view::SReturnView v);
-    void gen_if(const SIf& s);
+    void gen_if(lir_view::SIfView v);
     void gen_while(const SWhile& s);
     void gen_for(const SFor& s);
     void gen_loop(const SLoop& s);

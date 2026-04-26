@@ -62,7 +62,7 @@ void MLIRGenImpl::gen_stmt(const LStmt& stmt) {
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(std::get<SIf>(lstmt_of(v.self)->kind)); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(std::get<SWhile>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(std::get<SFor>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(std::get<SLoop>(lstmt_of(v.self)->kind)); }
@@ -597,8 +597,12 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
 // gen_if
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::gen_if(const SIf& s) {
-    auto cond = gen_expr(*s.cond);
+void MLIRGenImpl::gen_if(lir_view::SIfView v) {
+    auto* cond_le = lexpr_of(v.cond());
+    auto* then_lb = lblock_of(v.then_block());
+    if (!cond_le || !then_lb) return;
+    auto* else_lb = lblock_of(v.else_block());  // may be null
+    auto cond = gen_expr(*cond_le);
     if (!cond) return;
 
     auto* region      = builder_.getBlock()->getParent();
@@ -612,12 +616,12 @@ void MLIRGenImpl::gen_if(const SIf& s) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
 
     builder_.setInsertionPointToStart(then_block);
-    gen_block(*s.then_);
+    gen_block(*then_lb);
     bool then_falls = !is_terminated(builder_.getBlock());
     if (then_falls) builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
     builder_.setInsertionPointToStart(else_block);
-    if (s.else_) gen_block(**s.else_);
+    if (else_lb) gen_block(*else_lb);
     bool else_falls = !is_terminated(builder_.getBlock());
     if (else_falls) builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
