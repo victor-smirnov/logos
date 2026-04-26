@@ -378,8 +378,14 @@ class BorrowChecker {
         // 1. Definitely local → always dangling.
         if (prov.is_local) {
             std::string src;
-            if (auto* a = std::get_if<lir::EAddrOf>(&e->kind))  src = a->var_name;
-            else if (auto* v = std::get_if<lir::EVarRef>(&e->kind)) src = v->name;
+            auto er = expr_ref(e);
+            if (er) {
+                using Code = lir_schema::expr::Code;
+                if (er.kind() == Code::AddrOf)
+                    src = std::string(lir_view::EAddrOfView{er}.var_name());
+                else if (er.kind() == Code::VarRef)
+                    src = std::string(lir_view::EVarRefView{er}.name());
+            }
             report(line, std::format(
                 "cannot return reference to local variable '{}': dangling reference",
                 src.empty() ? "?" : src));
