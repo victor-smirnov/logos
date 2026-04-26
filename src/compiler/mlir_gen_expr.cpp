@@ -2806,6 +2806,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EReflectOfView v, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_type) {
+    // Phase 3e debt: the HermesVal payload tree (root + capture lists) lives
+    // entirely on lir::EHermesLit and is not yet mirrored to Hermes. A future
+    // slice will introduce HermesValView and migrate build_hermes_zone; until
+    // then we bridge through the variant.
     auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
     auto& e = std::get<EHermesLit>(_le->kind);
     auto [blob, param_slots] = build_hermes_zone(e);
