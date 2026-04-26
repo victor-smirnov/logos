@@ -403,9 +403,9 @@ private:
     void gen_break(lir_view::SBreakView v);
     void gen_continue();
     void gen_for_each(const SForEach& s);
-    void gen_field_write(const SFieldWrite& s);
-    void gen_deref_field_write(const SDerefFieldWrite& s);
-    void gen_chain_field_write(const SChainFieldWrite& s);
+    void gen_field_write(lir_view::SFieldWriteView v);
+    void gen_deref_field_write(lir_view::SDerefFieldWriteView v);
+    void gen_chain_field_write(lir_view::SChainFieldWriteView v);
     void gen_tuple_write(lir_view::STupleWriteView v);
     void gen_index_write(lir_view::SIndexWriteView v);
     void gen_field_index_write(lir_view::SFieldIndexWriteView v);

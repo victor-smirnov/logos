@@ -946,6 +946,7 @@ struct SExprStmtView {
 struct SFieldWriteView {
     StmtRef self;
     std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    std::string_view field() const noexcept    { return detail::stmt_str(self, sk::FIELD.code); }
     ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
 };
 
@@ -966,14 +967,18 @@ struct SFieldIndexWriteView {
 
 struct SChainFieldWriteView {
     StmtRef self;
-    std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
-    ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    std::string_view receiver()  const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    std::string_view mid_field() const noexcept { return detail::stmt_str(self, sk::MID_FIELD.code); }
+    std::string_view field()     const noexcept { return detail::stmt_str(self, sk::FIELD.code); }
+    ExprRef          value()     const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
 };
 
 struct SDerefFieldWriteView {
     StmtRef self;
-    std::string_view receiver() const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
-    ExprRef          value() const noexcept    { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    std::string_view receiver()  const noexcept { return detail::stmt_str(self, sk::RECEIVER.code); }
+    std::string_view type_name() const noexcept { return detail::stmt_str(self, sk::TYPE_NAME.code); }
+    std::string_view field()     const noexcept { return detail::stmt_str(self, sk::FIELD.code); }
+    ExprRef          value()     const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
 };
 
 struct SDerefWriteView {
