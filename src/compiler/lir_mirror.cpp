@@ -1077,7 +1077,11 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
 
 void LirMirrorEmitter::run(lir::LProgram& prog) {
     auto walk_fn = [&](LFunction& f) {
-        if (f.is_extern || f.is_metaprog_stub || f.from_binary_module) return;
+        // Skip extern (no body) and metaprog stubs (synthetic, never cloned).
+        // from_binary_module functions DO have bodies and DO get cloned by
+        // mono — their EPackExpand/etc. must be mirrored so subst_expr can
+        // dispatch via lir_view.
+        if (f.is_extern || f.is_metaprog_stub) return;
         emit_block(f.body);
     };
     for (auto& f : prog.functions)        walk_fn(*f);
