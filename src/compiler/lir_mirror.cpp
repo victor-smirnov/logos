@@ -11,6 +11,7 @@
 
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_schema.hpp>
+#include <logos/compiler/lir_view.hpp>  // header-compile smoke until 3d uses it
 #include <logos/hermes/arena_string.hpp>
 #include <logos/hermes/arena_value.hpp>
 #include <logos/hermes/object_array.hpp>
