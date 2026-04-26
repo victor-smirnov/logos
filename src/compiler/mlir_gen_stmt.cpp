@@ -68,11 +68,11 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(std::get<
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(std::get<SLoop>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
-    auto& s = std::get<SContinue>(lstmt_of(v.self)->kind);
     if (loop_stack_.empty()) return;
-    if (s.label.empty()) { gen_continue(); return; }
+    auto label = v.label();
+    if (label.empty()) { gen_continue(); return; }
     for (int i = (int)loop_stack_.size() - 1; i >= 0; --i) {
-        if (loop_stack_[i].label == s.label) {
+        if (loop_stack_[i].label == label) {
             builder_.create<mlir::cf::BranchOp>(loc_, loop_stack_[i].cont);
             return;
         }
@@ -85,11 +85,11 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefFieldWriteView v) { gen_deref_fi
 void MLIRGenImpl::gen_stmt_kind(lir_view::SChainFieldWriteView v) { gen_chain_field_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldIndexWriteView v) { gen_field_index_write(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { gen_expr(*std::get<SExprStmt>(lstmt_of(v.self)->kind).expr); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { if (auto* le = lexpr_of(v.expr())) gen_expr(*le); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(std::get<SMatch>(lstmt_of(v.self)->kind)); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(std::get<SForEach>(lstmt_of(v.self)->kind)); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { gen_block(*std::get<SBlock>(lstmt_of(v.self)->kind).body); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      { if (auto* lb = lblock_of(v.body())) gen_block(*lb); }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     std::string var_name(v.var_name());

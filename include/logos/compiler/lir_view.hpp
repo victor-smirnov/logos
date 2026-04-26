@@ -1053,7 +1053,10 @@ struct SBreakView {
     std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
 };
 
-struct SContinueView { StmtRef self; };
+struct SContinueView {
+    StmtRef self;
+    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
+};
 struct SDropView     {
     StmtRef self;
     std::string_view var_name() const noexcept { return detail::stmt_str(self, sk::NAME.code); }
