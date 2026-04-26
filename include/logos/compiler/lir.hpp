@@ -38,9 +38,11 @@ namespace logos::compiler::lir {
 struct LExpr;
 struct LStmt;
 struct LBlock;
+struct LFunction;
 
-using LExprPtr  = std::unique_ptr<LExpr>;
-using LBlockPtr = std::unique_ptr<LBlock>;
+using LExprPtr     = std::unique_ptr<LExpr>;
+using LBlockPtr    = std::unique_ptr<LBlock>;
+using LFunctionPtr = std::unique_ptr<LFunction>;
 
 // ── Patterns (for match arms) ─────────────────────────────────────────────
 
@@ -672,8 +674,8 @@ struct LStructDef {
     std::string              pkg;            // package that declares this struct/datatype
     std::vector<TypeParam>   type_params;    // empty for non-generic structs
     std::vector<std::string> lifetime_params; // e.g. ["'a", "'z"]; erased at codegen
-    std::vector<LField>      fields;
-    std::vector<LFunction>   methods;
+    std::vector<LField>       fields;
+    std::vector<LFunctionPtr> methods;
     bool                     is_pub        = false;
     bool                     is_zoned   = false;  // Hermes datatype (C POD layout)
     uint64_t                 type_code     = 0;      // explicit #[type_code=N]; 0 = auto-assign
@@ -742,8 +744,8 @@ struct LTraitDef {
 
 struct LImplBlock {
     std::string              trait_name;
-    std::string              target_type;  // concrete type name (e.g. "Point")
-    std::vector<LFunction>   methods;
+    std::string               target_type;  // concrete type name (e.g. "Point")
+    std::vector<LFunctionPtr> methods;
     // Associated type definitions: "Item" → i32
     StrMap<TypeRef> assoc_types;
     bool                     is_unsafe = false;  // declared as `unsafe impl`
@@ -827,8 +829,8 @@ struct LProgram {
     std::vector<LStructDef>      structs;
     std::vector<LStructDef>      struct_specializations;  // struct specs (consumed by mono)
     std::vector<LEnumDef>        enums;
-    std::vector<LFunction>       functions;        // free functions and extern fn
-    std::vector<LFunction>       specializations;  // fn specialisations (consumed by mono)
+    std::vector<LFunctionPtr>    functions;        // free functions and extern fn
+    std::vector<LFunctionPtr>    specializations;  // fn specialisations (consumed by mono)
     std::vector<LConst>          consts;
     std::vector<LTypeAlias>      type_aliases;
     std::vector<LTraitDef>       traits;

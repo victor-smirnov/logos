@@ -79,8 +79,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Index generic fn templates.
     for (auto& fn : in_.functions) {
-        if (!fn.type_params.empty())
-            templates_[fn.name] = &fn;
+        if (!fn->type_params.empty())
+            templates_[fn->name] = fn.get();
     }
 
     // Eagerly instantiate blanket-impl methods for every concrete type that
@@ -97,7 +97,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             const std::string& concrete = impl.target_type;
             // For each method of the blanket, clone template with T→concrete
             // and emit under `concrete__method`.
-            for (auto& tfn : in_.functions) {
+            for (auto& tfn_up : in_.functions) {
+                auto& tfn = *tfn_up;
                 if (tfn.name.rfind(tmpl_prefix, 0) != 0) continue;
                 std::string method = tfn.name.substr(tmpl_prefix.size());
                 std::string dest = concrete + "__" + method;
@@ -121,7 +122,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 cloned.name = dest;
                 cloned.type_params.clear();
                 scan_fn(cloned);
-                out_.functions.push_back(std::move(cloned));
+                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
                 done_.insert(dest);
             }
         }
@@ -129,18 +130,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Index fn specialisations.
     for (auto& spec : in_.specializations)
-        specs_[spec.name].push_back(&spec);
+        specs_[spec->name].push_back(spec.get());
 
     // Index struct specialisations.
     for (auto& ss : in_.struct_specializations)
         struct_specs_[ss.name].push_back(&ss);
 
     // Process non-generic free functions.
-    for (auto& fn : in_.functions) {
+    for (auto& fn_up : in_.functions) {
+        auto& fn = *fn_up;
         if (!fn.type_params.empty()) continue;
         auto cloned = clone_fn(fn, {});
         scan_fn(cloned);
-        out_.functions.push_back(std::move(cloned));
+        out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
     }
 
     // Process function work-list.
@@ -151,7 +153,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         depth_ = item.depth;
         auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
         scan_fn(inst);
-        out_.functions.push_back(std::move(inst));
+        out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
     }
     depth_ = 0;
 
@@ -202,9 +204,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     std::string sym = sd.name + "__" + tm.name;
                     // Only emit if the method actually exists (cloned by mono).
                     bool has = false;
-                    for (auto& sm : sd.methods) if (sm.name == sym) { has = true; break; }
+                    for (auto& sm : sd.methods) if (sm->name == sym) { has = true; break; }
                     if (!has) {
-                        for (auto& f : out_.functions) if (f.name == sym) { has = true; break; }
+                        for (auto& f : out_.functions) if (f->name == sym) { has = true; break; }
                     }
                     if (!has) continue;
                     // Dedup: skip if an equivalent entry already exists (sema

@@ -428,7 +428,7 @@ int main(int argc, char** argv) {
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         meta_prog.functions.erase(
             std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
-                [](const auto& f) { return f.is_metaprog_stub; }),
+                [](const auto& f) { return f->is_metaprog_stub; }),
             meta_prog.functions.end());
         meta_prog = logos::compiler::reflection_emit(std::move(meta_prog));
         meta_prog = logos::compiler::mono_pass(std::move(meta_prog));
@@ -581,7 +581,7 @@ int main(int argc, char** argv) {
         for (const auto& mh : prog.metaprog_handlers) hook_names.insert(mh.hook_fn);
         prog.functions.erase(
             std::remove_if(prog.functions.begin(), prog.functions.end(),
-                [&](const auto& f) { return hook_names.count(f.name) > 0; }),
+                [&](const auto& f) { return hook_names.count(f->name) > 0; }),
             prog.functions.end());
     }
 

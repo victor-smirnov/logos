@@ -55,15 +55,15 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         if (auto p = sym.find("__drop"); p != std::string_view::npos)
             ts.drop_types.insert(std::string(sym.substr(0, p)));
     };
-    auto scan_fns = [&](const std::vector<LFunction>& fns) {
+    auto scan_fns = [&](const std::vector<LFunctionPtr>& fns) {
         for (auto& fn : fns)
-            register_drop_symbol(fn.name);
+            register_drop_symbol(fn->name);
     };
     scan_fns(prog.functions);
     scan_fns(prog.specializations);
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            register_drop_symbol(m.name);
+            register_drop_symbol(m->name);
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);
@@ -1095,10 +1095,10 @@ lir::LProgram borrow_check(lir::LProgram prog) {
         BorrowChecker(prog.diags, "fn " + fn.name, prog, ts).check(fn);
     };
 
-    for (auto& fn : prog.functions)       check(fn);
-    for (auto& fn : prog.specializations) check(fn);
+    for (auto& fn : prog.functions)       check(*fn);
+    for (auto& fn : prog.specializations) check(*fn);
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods)        check(m);
+        for (auto& m : sd.methods)        check(*m);
 
     return prog;
 }

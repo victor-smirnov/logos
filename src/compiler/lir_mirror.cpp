@@ -1056,14 +1056,14 @@ void LirMirrorEmitter::run(lir::LProgram& prog) {
         if (f.is_extern || f.is_metaprog_stub || f.from_binary_module) return;
         emit_block(f.body);
     };
-    for (auto& f : prog.functions)        walk_fn(f);
-    for (auto& f : prog.specializations)  walk_fn(f);
+    for (auto& f : prog.functions)        walk_fn(*f);
+    for (auto& f : prog.specializations)  walk_fn(*f);
     for (auto& s : prog.structs)
-        for (auto& m : s.methods) walk_fn(m);
+        for (auto& m : s.methods) walk_fn(*m);
     for (auto& s : prog.struct_specializations)
-        for (auto& m : s.methods) walk_fn(m);
+        for (auto& m : s.methods) walk_fn(*m);
     for (auto& i : prog.impls)
-        for (auto& m : i.methods) walk_fn(m);
+        for (auto& m : i.methods) walk_fn(*m);
     for (auto& t : prog.traits) {
         // Trait method signatures don't carry bodies in LIR yet — skip.
         (void)t;
