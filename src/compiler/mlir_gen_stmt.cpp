@@ -1677,43 +1677,54 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     }
 
     // Helper: extract payload bindings into scope for the current arm.
-    std::function<void(const LMatchArm&)> extract_payload = [&](const LMatchArm& arm) {
+    std::function<void(lir_view::PatRef)> extract_payload = [&](lir_view::PatRef p) {
+        if (!p) return;
+        switch (p.kind()) {
         // ── PatTuple ───────────────────────────────────────────────────────
-        if (auto* pt = std::get_if<PatTuple>(&arm.pat)) {
+        case pc::Code::Tuple: {
             auto ttype = tuple_llvm_type(scrut_le->type);
             if (!ttype) return;
             mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
             if (!tptr) return;
-            for (size_t bi = 0; bi < pt->bindings.size() && bi < pt->binding_types.size(); ++bi) {
-                if (pt->bindings[bi] == "_") continue;
-                auto elem_mlir = logos_to_mlir(pt->binding_types[bi]);
+            lir_view::PatTupleView tv{p};
+            std::vector<std::string> bindings;
+            tv.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+            std::vector<TypeRef> btypes;
+            tv.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
+            for (size_t bi = 0; bi < bindings.size() && bi < btypes.size(); ++bi) {
+                if (bindings[bi] == "_") continue;
+                auto elem_mlir = logos_to_mlir(btypes[bi]);
                 if (!elem_mlir) continue;
                 llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                 auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, fi);
                 auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
                 auto alloca = create_entry_alloca(elem_mlir);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                scope_[pt->bindings[bi]] = alloca;
-                let_vars_.insert(pt->bindings[bi]);
-                var_elem_types_[pt->bindings[bi]] = elem_mlir;
+                scope_[bindings[bi]] = alloca;
+                let_vars_.insert(bindings[bi]);
+                var_elem_types_[bindings[bi]] = elem_mlir;
             }
             return;
         }
         // ── PatVariantData ────────────────────────────────────────────────
-        if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) {
+        case pc::Code::VariantData: {
             if (te_info && scrut_ptr) {
+                lir_view::PatVariantDataView pvd{p};
+                int32_t pvd_disc = static_cast<int32_t>(pvd.disc());
+                std::vector<std::string> bindings;
+                pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
                 llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
                 auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
                 const TaggedEnumInfo::VariantPayload* vp = nullptr;
-                for (auto& v : te_info->variants)
-                    if (v.disc == pvd->disc) { vp = &v; break; }
-                if (vp && !pvd->bindings.empty()) {
+                for (auto& vinfo : te_info->variants)
+                    if (vinfo.disc == pvd_disc) { vp = &vinfo; break; }
+                if (vp && !bindings.empty()) {
                     llvm::SmallVector<mlir::Type> ft;
                     for (auto& t : vp->field_types) ft.push_back(t);
                     auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
                         builder_.getContext(), ft);
-                    for (size_t bi = 0; bi < pvd->bindings.size() &&
+                    for (size_t bi = 0; bi < bindings.size() &&
                                          bi < vp->field_types.size(); ++bi) {
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                         auto fp = builder_.create<mlir::LLVM::GEPOp>(
@@ -1735,9 +1746,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             // directly as the struct pointer so SDrop of
                             // this binding calls T__drop on the inline
                             // struct bytes instead of on a ptr-holding slot.
-                            scope_[pvd->bindings[bi]] = fp;
-                            let_vars_.insert(pvd->bindings[bi]);
-                            var_struct_[pvd->bindings[bi]] = concrete_struct_name(lt);
+                            scope_[bindings[bi]] = fp;
+                            let_vars_.insert(bindings[bi]);
+                            var_struct_[bindings[bi]] = concrete_struct_name(lt);
                         } else {
                             mlir::Value bound_val;
                             if (is_inline_struct) {
@@ -1748,9 +1759,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             }
                             auto alloca = create_entry_alloca(vp->field_types[bi]);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
-                            scope_[pvd->bindings[bi]] = alloca;
-                            let_vars_.insert(pvd->bindings[bi]);
-                            var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
+                            scope_[bindings[bi]] = alloca;
+                            let_vars_.insert(bindings[bi]);
+                            var_elem_types_[bindings[bi]] = vp->field_types[bi];
                         }
                     }
                 }
@@ -1758,21 +1769,22 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             return;
         }
         // ── PatStruct: GEP-extract each named field ───────────────────────
-        if (auto* ps = std::get_if<PatStruct>(&arm.pat)) {
-            // Use struct_types_ for the concrete LLVM struct type (logos_to_mlir returns ptr).
-            auto sit = struct_types_.find(ps->struct_name);
+        case pc::Code::Struct: {
+            lir_view::PatStructView ps{p};
+            std::string sname(ps.struct_name());
+            auto sit = struct_types_.find(sname);
             if (sit == struct_types_.end()) return;
             const StructInfo& sinfo = sit->second;
             mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
             if (!sptr) return;
-            for (auto& pfb : ps->fields) {
-                // Helper: GEP + load a field value and bind it to `bind_name`.
+            ps.each_field([&](lir_view::PatFieldBindingView pfb) {
+                std::string field_name(pfb.field_name());
                 auto bind_struct_field = [&](const std::string& bind_name) {
-                    auto fp = gep_field(sptr, sinfo, pfb.field_name);
+                    auto fp = gep_field(sptr, sinfo, field_name);
                     if (!fp) return;
                     mlir::Type fmlir;
                     for (auto& sf : sinfo.fields)
-                        if (sf.name == pfb.field_name) { fmlir = sf.type; break; }
+                        if (sf.name == field_name) { fmlir = sf.type; break; }
                     if (!fmlir) return;
                     auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
                     auto alloca = create_entry_alloca(fmlir);
@@ -1781,89 +1793,96 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     let_vars_.insert(bind_name);
                     var_elem_types_[bind_name] = fmlir;
                 };
-                if (pfb.sub.empty()) {
+                auto sub = pfb.sub();
+                if (!sub) {
                     // Shorthand: Point { x } → bind field_name.
-                    bind_struct_field(pfb.field_name);
-                } else if (auto* pw = std::get_if<lir::PatWild>(&pfb.sub[0])) {
+                    bind_struct_field(field_name);
+                } else if (sub.kind() == pc::Code::Wild) {
                     // C1: Explicit rename: Point { x: a } → bind pw->name to x's value.
-                    if (pw->name != "_") bind_struct_field(pw->name);
-                } else if (auto* prb = std::get_if<lir::PatRefBind>(&pfb.sub[0])) {
+                    std::string pwn(lir_view::PatWildView{sub}.name());
+                    if (!pwn.empty() && pwn != "_") bind_struct_field(pwn);
+                } else if (sub.kind() == pc::Code::RefBind) {
                     // NC3: ref binding to struct field: Point { x: ref px } → px = &field.
-                    if (!prb->name.empty() && prb->name != "_") {
-                        auto fp = gep_field(sptr, sinfo, pfb.field_name);
+                    std::string prbn(lir_view::PatRefBindView{sub}.name());
+                    if (!prbn.empty() && prbn != "_") {
+                        auto fp = gep_field(sptr, sinfo, field_name);
                         if (fp) {
                             auto alloca = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
-                            scope_[prb->name] = alloca;
-                            let_vars_.insert(prb->name);
-                            var_elem_types_[prb->name] = ptr_type();
+                            scope_[prbn] = alloca;
+                            let_vars_.insert(prbn);
+                            var_elem_types_[prbn] = ptr_type();
                         }
                     }
                 }
-            }
+            });
             return;
         }
         // ── PatSlice: GEP-extract indexed elements ────────────────────────
-        if (auto* psl = std::get_if<PatSlice>(&arm.pat)) {
+        case pc::Code::Slice: {
             auto atype = scrut_le->type;
             if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
                 auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
                 auto arr_mlir  = logos_to_mlir(atype);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
                 if (aptr && elem_mlir && arr_mlir) {
-                    auto bind_elem = [&](const lir::Pattern& p, int32_t idx) {
+                    auto bind_elem = [&](lir_view::PatRef sp, int32_t idx) {
+                        if (!sp) return;
                         // GEP element pointer for this index.
                         llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
                         auto ep = builder_.create<mlir::LLVM::GEPOp>(
                             loc_, ptr_type(), arr_mlir, aptr, gi);
-                        if (auto* pw = std::get_if<lir::PatWild>(&p)) {
-                            if (pw->name == "_") return;
+                        if (sp.kind() == pc::Code::Wild) {
+                            std::string pwn(lir_view::PatWildView{sp}.name());
+                            if (pwn == "_" || pwn.empty()) return;
                             auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
                             auto alloca = create_entry_alloca(elem_mlir);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                            scope_[pw->name] = alloca;
-                            let_vars_.insert(pw->name);
-                            var_elem_types_[pw->name] = elem_mlir;
-                        } else if (auto* prb = std::get_if<lir::PatRefBind>(&p)) {
+                            scope_[pwn] = alloca;
+                            let_vars_.insert(pwn);
+                            var_elem_types_[pwn] = elem_mlir;
+                        } else if (sp.kind() == pc::Code::RefBind) {
                             // C4: ref x in slice pattern — bind name to pointer-to-element.
-                            if (prb->name == "_") return;
+                            std::string prbn(lir_view::PatRefBindView{sp}.name());
+                            if (prbn == "_" || prbn.empty()) return;
                             auto alloca = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
-                            scope_[prb->name] = alloca;
-                            let_vars_.insert(prb->name);
-                            var_elem_types_[prb->name] = ptr_type();
+                            scope_[prbn] = alloca;
+                            let_vars_.insert(prbn);
+                            var_elem_types_[prbn] = ptr_type();
                         }
                     };
-                    for (size_t i = 0; i < psl->prefix.size(); ++i)
-                        bind_elem(psl->prefix[i], (int32_t)i);
-                    size_t total = (size_t)TypeRef(atype).arr_size();
-                    for (size_t i = 0; i < psl->suffix.size(); ++i)
-                        bind_elem(psl->suffix[i], (int32_t)(total - psl->suffix.size() + i));
+                    lir_view::PatSliceView psl{p};
+                    int32_t idx = 0;
+                    psl.each_prefix([&](lir_view::PatRef sp){ bind_elem(sp, idx++); });
+                    size_t total  = (size_t)TypeRef(atype).arr_size();
+                    size_t suf_n  = psl.suffix_count();
+                    int32_t sidx  = (int32_t)(total - suf_n);
+                    psl.each_suffix([&](lir_view::PatRef sp){ bind_elem(sp, sidx++); });
                 }
             }
             return;
         }
         // ── PatAt: bind outer name then recurse into sub-pattern ─────────
-        if (auto* pa = std::get_if<PatAt>(&arm.pat)) {
+        case pc::Code::At: {
+            lir_view::PatAtView pa{p};
             mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-            if (!pa->name.empty() && pa->name != "_") {
+            std::string aname(pa.name());
+            if (!aname.empty() && aname != "_") {
                 auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                scope_[pa->name] = alloca;
-                let_vars_.insert(pa->name);
-                var_elem_types_[pa->name] = sv.getType();
+                scope_[aname] = alloca;
+                let_vars_.insert(aname);
+                var_elem_types_[aname] = sv.getType();
             }
-            // C5: recurse into sub-pattern to bind nested fields (e.g. n @ Point { x, y }).
-            if (!pa->sub.empty()) {
-                lir::LMatchArm sub_arm;
-                sub_arm.pat = pa->sub[0];
-                extract_payload(sub_arm);
-            }
+            // C5: recurse into sub-pattern to bind nested fields.
+            if (auto sub = pa.sub()) extract_payload(sub);
             return;
         }
         // ── PatRefBind: bind name as a reference (pointer to scrutinee) ──
-        if (auto* prb = std::get_if<PatRefBind>(&arm.pat)) {
-            if (!prb->name.empty() && prb->name != "_") {
+        case pc::Code::RefBind: {
+            std::string prbn(lir_view::PatRefBindView{p}.name());
+            if (!prbn.empty() && prbn != "_") {
                 // We need a pointer to the scrutinee. If scrut_ptr is available
                 // (enum scrutinee on stack), use it directly. Otherwise spill the
                 // value to a fresh alloca to obtain an address.
@@ -1871,51 +1890,47 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 if (scrut_ptr) {
                     sv_ptr = scrut_ptr;
                 } else {
-                    // Spill: alloca for the scrutinee value.
                     auto tmp = create_entry_alloca(scrut.getType());
                     builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
                     sv_ptr = tmp;
                 }
-                // n: &T → alloca(ptr) holding the address of the scrutinee.
                 auto alloca = create_entry_alloca(ptr_type());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv_ptr, alloca);
-                scope_[prb->name] = alloca;
-                let_vars_.insert(prb->name);
-                var_elem_types_[prb->name] = ptr_type();
+                scope_[prbn] = alloca;
+                let_vars_.insert(prbn);
+                var_elem_types_[prbn] = ptr_type();
             }
             return;
         }
         // ── PatRefPat: &pat or &mut pat — recurse into inner pattern ─────
-        // NC1: extract_payload was missing a PatRefPat handler.
-        if (auto* prp = std::get_if<PatRefPat>(&arm.pat)) {
-            if (!prp->inner.empty()) {
-                lir::LMatchArm sub_arm;
-                sub_arm.pat = prp->inner[0];
-                extract_payload(sub_arm);
-            }
+        case pc::Code::RefPat: {
+            if (auto inner = lir_view::PatRefPatView{p}.inner())
+                extract_payload(inner);
             return;
         }
         // ── PatOr: extract bindings from first alternative ────────────────
-        // NC2: extract_payload was missing a PatOr handler.
-        // All alts must bind the same names (sema ensures this); use first alt.
-        if (auto* por = std::get_if<PatOr>(&arm.pat)) {
-            if (!por->alts.empty()) {
-                lir::LMatchArm sub_arm;
-                sub_arm.pat = por->alts[0];
-                extract_payload(sub_arm);
-            }
+        case pc::Code::Or: {
+            lir_view::PatRef first;
+            lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef alt){
+                if (!first) first = alt;
+            });
+            if (first) extract_payload(first);
             return;
         }
         // ── PatWild (named wildcard) ───────────────────────────────────────
-        if (auto* pw = std::get_if<PatWild>(&arm.pat)) {
-            if (pw->name != "_") {
+        case pc::Code::Wild: {
+            std::string pwn(lir_view::PatWildView{p}.name());
+            if (!pwn.empty() && pwn != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
                 auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                scope_[pw->name] = alloca;
-                let_vars_.insert(pw->name);
-                var_elem_types_[pw->name] = sv.getType();
+                scope_[pwn] = alloca;
+                let_vars_.insert(pwn);
+                var_elem_types_[pwn] = sv.getType();
             }
+            return;
+        }
+        default: return;
         }
     };
 
@@ -1934,7 +1949,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(guard_block);
-                extract_payload(arm);
+                extract_payload(arm_refs[i].pat());
                 auto gval = gen_expr(**arm.guard);
                 gval = coerce_int(gval, builder_.getI1Type());
                 builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
@@ -1953,7 +1968,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(body_block);
-                extract_payload(arm);
+                extract_payload(arm_refs[i].pat());
                 gen_block(*arm.body);
                 if (!is_terminated(builder_.getBlock()))
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
