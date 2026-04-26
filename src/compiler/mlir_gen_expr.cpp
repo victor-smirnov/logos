@@ -58,6 +58,9 @@ mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
         case C::SliceLen: return gen_expr_kind(lir_view::ESliceLenView{er}, e.type);
         case C::SlicePtr: return gen_expr_kind(lir_view::ESlicePtrView{er}, e.type);
         case C::Try:      return gen_expr_kind(lir_view::ETryView{er},      e.type);
+        case C::VarRef:   return gen_expr_kind(lir_view::EVarRefView{er},   e.type);
+        case C::FieldRead: return gen_expr_kind(lir_view::EFieldReadView{er},  e.type);
+        case C::TupleIndex:return gen_expr_kind(lir_view::ETupleIndexView{er}, e.type);
         default: break;
         }
     }
@@ -72,7 +75,10 @@ mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
                       std::is_same_v<K, EDeref>    ||
                       std::is_same_v<K, ESliceLen> ||
                       std::is_same_v<K, ESlicePtr> ||
-                      std::is_same_v<K, ETry>) {
+                      std::is_same_v<K, ETry>     ||
+                      std::is_same_v<K, EVarRef>    ||
+                      std::is_same_v<K, EFieldRead> ||
+                      std::is_same_v<K, ETupleIndex>) {
             // Unreachable: handled by the schema-switch above.
             (void)k;
             return {};
@@ -201,22 +207,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
 // Variable reference
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
+    std::string name{v.name()};
     // Module constant: re-evaluate inline.
-    auto cit = module_consts_.find(e.name);
+    auto cit = module_consts_.find(name);
     if (cit != module_consts_.end())
         return gen_expr(*cit->second->value);
 
-    auto it = scope_.find(e.name);
+    auto it = scope_.find(name);
     if (it == scope_.end()) {
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
         // Check if name is a free function being used as a bare fn-ptr.
         if (type && TypeRef(type).kind() == LogosType::Kind::FnPtr) {
-            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.name);
+            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(name);
             if (fn_sym) {
                 // Return just the function address as a raw ptr.
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
-                    loc_, fn_sym.getFunctionType(), e.name);
+                    loc_, fn_sym.getFunctionType(), name);
                 return builder_.create<mlir::UnrealizedConversionCastOp>(
                     loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
             }
@@ -224,7 +231,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
         // Check if name is a free function being used as a value (closure fat pointer).
         // Create a non-capturing closure: {fn_ptr, null_env}.
         if (type && TypeRef(type).kind() == LogosType::Kind::Closure) {
-            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(e.name);
+            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(name);
             if (fn_sym) {
                 // Build closure fat pointer: { fn_ptr, env_ptr=null }
                 auto closure_struct_t = mlir::LLVM::LLVMStructType::getLiteral(
@@ -232,7 +239,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
                 auto alloca = create_entry_alloca(closure_struct_t);
                 // Store the function address as fn_ptr.
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
-                    loc_, fn_sym.getFunctionType(), e.name);
+                    loc_, fn_sym.getFunctionType(), name);
                 auto fn_addr = builder_.create<mlir::UnrealizedConversionCastOp>(
                     loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
                 llvm::SmallVector<mlir::LLVM::GEPArg> fp_idx{int32_t(0), int32_t(0)};
@@ -248,21 +255,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EVarRef& e, TypeRef type) {
                 return alloca;
             }
         }
-        std::fprintf(stderr, "mlir_gen: undefined '%s'\n", e.name.c_str());
+        std::fprintf(stderr, "mlir_gen: undefined '%s'\n", name.c_str());
         return nullptr;
     }
     // Mutable tagged enum: load struct ptr from pointer slot.
-    if (var_tagged_enum_ptr_.count(e.name))
+    if (var_tagged_enum_ptr_.count(name))
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
     // Struct/class/array/tuple/tagged-enum/dyn-trait variables: return pointer directly.
-    if (var_struct_.count(e.name) || var_class_.count(e.name))
-        return get_struct_ptr(e.name);
-    if (var_subscript_.count(e.name) || var_tuple_.count(e.name) ||
-        var_tagged_enum_.count(e.name) || var_dyn_trait_.count(e.name))
+    if (var_struct_.count(name) || var_class_.count(name))
+        return get_struct_ptr(name);
+    if (var_subscript_.count(name) || var_tuple_.count(name) ||
+        var_tagged_enum_.count(name) || var_dyn_trait_.count(name))
         return it->second;
     // Let-bound scalar: load from alloca.
-    if (let_vars_.count(e.name)) {
-        auto et = var_elem_types_.find(e.name);
+    if (let_vars_.count(name)) {
+        auto et = var_elem_types_.find(name);
         if (et == var_elem_types_.end()) return nullptr;
         return builder_.create<mlir::LLVM::LoadOp>(loc_, et->second, it->second);
     }
@@ -1076,29 +1083,32 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, TypeRef ret_logos_t
 // Field / index reads
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EFieldRead& e, TypeRef type) {
-    if (TypeRef rt(e.receiver->type); e.field == "raw" && rt) {
-        bool is_anyval = type_str(e.receiver->type) == "AnyVal";
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type) {
+    auto* recv_l = lexpr_of(v.receiver());
+    if (!recv_l) return nullptr;
+    std::string field{v.field()};
+    if (TypeRef rt(recv_l->type); field == "raw" && rt) {
+        bool is_anyval = type_str(recv_l->type) == "AnyVal";
         bool is_anyval_ptr = (rt.kind() == LogosType::Kind::Ptr ||
                               rt.kind() == LogosType::Kind::Ref ||
                               rt.kind() == LogosType::Kind::MutRef) &&
                              rt.pointee() &&
                              type_str(rt.pointee()) == "AnyVal";
         if (is_anyval || is_anyval_ptr) {
-            auto recv = gen_expr(*e.receiver);
+            auto recv = gen_expr(*recv_l);
             if (!recv) return nullptr;
             if (recv.getType() == ptr_type())
                 return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
             return coerce_numeric(recv, builder_.getI32Type());
         }
     }
-    auto [ptr, sname] = gen_recv_struct(*e.receiver);
+    auto [ptr, sname] = gen_recv_struct(*recv_l);
     if (!ptr || sname.empty()) return nullptr;
     auto& info = struct_types_[sname];
-    auto gep   = gep_field(ptr, info, e.field);
+    auto gep   = gep_field(ptr, info, field);
     if (!gep) return nullptr;
     for (auto& f : info.fields)
-        if (f.name == e.field)
+        if (f.name == field)
             return builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, gep);
     return nullptr;
 }
@@ -1262,12 +1272,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleLit& e, TypeRef type) {
     return alloca;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, TypeRef type) {
-    auto recv = gen_expr(*e.receiver);
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type) {
+    auto* recv_l = lexpr_of(v.receiver());
+    if (!recv_l) return nullptr;
+    auto recv = gen_expr(*recv_l);
     if (!recv) return nullptr;
     // Auto-deref: if receiver is &(tuple) or &mut(tuple), use pointee for GEP type.
     // recv is already a pointer to the tuple (passed as ptr in calling convention).
-    TypeRef recv_type = e.receiver->type;
+    TypeRef recv_type = recv_l->type;
     if (recv_type && TypeRef(recv_type).pointee() &&
         TypeRef(recv_type).pointee().kind() == LogosType::Kind::Tuple &&
         (TypeRef(recv_type).kind() == LogosType::Kind::Ref ||
@@ -1278,7 +1290,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, TypeRef type) {
     if (!stype) return nullptr;
     auto elem_mlir = logos_to_mlir(type);
     if (!elem_mlir) return nullptr;
-    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(e.index)};
+    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(v.index())};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, recv, idx);
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
 }

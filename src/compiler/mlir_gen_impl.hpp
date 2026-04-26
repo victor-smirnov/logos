@@ -404,7 +404,7 @@ private:
     mlir::Value gen_expr_kind(lir_view::ELitFloatView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ELitBoolView v,  TypeRef);
     mlir::Value gen_expr_kind(lir_view::ELitStrView v,   TypeRef);
-    mlir::Value gen_expr_kind(const EVarRef& e, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EVarRefView v, TypeRef type);
     mlir::Value gen_expr_kind(const EEnumLit& e, TypeRef type);
     mlir::Value gen_expr_kind(const EEnumLitData& e, TypeRef type);
     mlir::Value gen_expr_kind(const EBinOp& e, TypeRef);
@@ -414,7 +414,7 @@ private:
     mlir::Value gen_expr_kind(lir_view::EDerefView v, TypeRef type);
     mlir::Value gen_expr_kind(const ECall& e, TypeRef ret_logos_type);
     mlir::Value gen_expr_kind(const EMethodCall& e, TypeRef ret_logos_type);
-    mlir::Value gen_expr_kind(const EFieldRead& e, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::EFieldReadView v, TypeRef type);
     mlir::Value gen_expr_kind(const EIndexRead& e, TypeRef type);
     mlir::Value gen_expr_kind(const EStructLit& e, TypeRef);
     mlir::Value gen_expr_kind(const EArrLit& e, TypeRef type);
@@ -423,7 +423,7 @@ private:
     mlir::Value gen_expr_kind(const EIfExpr& e, TypeRef type);
     mlir::Value gen_expr_kind(const EMatchExpr& e, TypeRef type);
     mlir::Value gen_expr_kind(const ETupleLit& e, TypeRef type);
-    mlir::Value gen_expr_kind(const ETupleIndex& e, TypeRef type);
+    mlir::Value gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type);
     mlir::Value gen_expr_kind(const EClosureBox& box, TypeRef type);
     mlir::Value gen_closure(const EClosure& e, TypeRef);
     mlir::Value gen_expr_kind(const EClosureCall& e, TypeRef type);
