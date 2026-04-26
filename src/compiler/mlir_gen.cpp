@@ -29,6 +29,9 @@ using namespace lir;
 mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     auto mod = mlir::ModuleOp::create(loc_);
 
+    prog_   = &prog;
+    mirror_ = prog.mirror_table.get();
+
     // Pass 0: build struct lookup table so register_tagged_enum can compute
     // payload sizes from LogosType field trees (logos_abi_byte_size).
     for (auto& sd : prog.structs)
@@ -390,7 +393,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(const EStructLit& e) {
         // struct field instead of storing a pointer returned by gen_arr_lit.
         auto arr_llvm = fi ? mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(fi->type)
                            : mlir::LLVM::LLVMArrayType{};
-        if (arr_llvm && std::holds_alternative<EArrLit>(fval->kind)) {
+        if (arr_llvm && expr_ref_of(*fval).kind() == lir_schema::expr::Code::ArrLit) {
             auto& arr_lit = std::get<EArrLit>(fval->kind);
             auto elem_type = arr_llvm.getElementType();
             for (uint64_t i = 0; i < arr_lit.elems.size(); ++i) {

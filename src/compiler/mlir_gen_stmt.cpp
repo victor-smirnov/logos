@@ -150,8 +150,9 @@ void MLIRGenImpl::gen_let(const SLet& s) {
         var_elem_types_[s.name] = builder_.getI32Type();
         return;
     }
+    auto val_code = expr_ref_of(*s.value).kind();
     // ── Struct literal ────────────────────────────────────────
-    if (std::holds_alternative<EStructLit>(s.value->kind)) {
+    if (val_code == lir_schema::expr::Code::StructLit) {
         auto& lit = std::get<EStructLit>(s.value->kind);
         auto alloca = gen_struct_lit(lit);
         if (!alloca) return;
@@ -162,7 +163,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
 
     // ── Array literal ─────────────────────────────────────────
-    if (std::holds_alternative<EArrLit>(s.value->kind)) {
+    if (val_code == lir_schema::expr::Code::ArrLit) {
         auto& lit = std::get<EArrLit>(s.value->kind);
         auto elem_type = logos_to_mlir(TypeRef(s.type).elem());
         if (!elem_type) elem_type = builder_.getI32Type();
@@ -176,7 +177,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
 
     // ── Tuple literal ────────────────────────────────────────
-    if (std::holds_alternative<ETupleLit>(s.value->kind)) {
+    if (val_code == lir_schema::expr::Code::TupleLit) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         scope_[s.name] = val;
