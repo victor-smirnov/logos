@@ -2138,11 +2138,17 @@ void MLIRGenImpl::gen_delete(lir_view::SDeleteView v) {
 // For PatVariantData: test discriminant + extract payload bindings.
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
+    // pat-walking still goes through the C++ variant — will move to PatRef
+    // alongside the gen_match migration. scrut + else_block are already
+    // routed through the view.
     auto& s = std::get<lir::SLetElse>(lstmt_of(v.self)->kind);
+    auto* scrut_le = lexpr_of(v.scrut());
+    auto* else_lb  = lblock_of(v.else_block());
+    if (!scrut_le || !else_lb) return;
     auto* region = builder_.getBlock()->getParent();
 
     // ── Evaluate scrutinee ────────────────────────────────────────────────
-    auto scrut_val = gen_expr(*s.scrut);
+    auto scrut_val = gen_expr(*scrut_le);
     if (!scrut_val) return;
 
     // ── Handle PatWild: always matches, just bind name ────────────────────
@@ -2161,7 +2167,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         {
             mlir::OpBuilder::InsertionGuard ig(builder_);
             builder_.setInsertionPointToStart(dead);
-            gen_block(*s.else_block);
+            gen_block(*else_lb);
             if (!is_terminated(builder_.getBlock()))
                 builder_.create<mlir::LLVM::UnreachableOp>(loc_);
         }
@@ -2174,8 +2180,8 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     mlir::Value disc_val;
     int32_t expected_disc = 0;
 
-    if (TypeRef sct(s.scrut->type); sct && sct.kind() == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(std::string(sct.enum_name()), s.scrut->type);
+    if (TypeRef sct(scrut_le->type); sct && sct.kind() == LogosType::Kind::Enum) {
+        te_info = resolve_tagged_enum(std::string(sct.enum_name()), scrut_le->type);
         if (te_info) {
             // Spill to alloca if it's a value (not already a pointer)
             if (scrut_val.getType() != ptr_type()) {
@@ -2224,7 +2230,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     {
         mlir::OpBuilder::InsertionGuard ig(builder_);
         builder_.setInsertionPointToStart(else_block);
-        gen_block(*s.else_block);
+        gen_block(*else_lb);
         if (!is_terminated(builder_.getBlock()))
             builder_.create<mlir::LLVM::UnreachableOp>(loc_);
     }
@@ -2236,7 +2242,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
 
         if (auto* pt = std::get_if<PatTuple>(&s.pat)) {
             // Tuple pattern in let-else: always irrefutable, extract fields.
-            auto ttype = tuple_llvm_type(s.scrut->type);
+            auto ttype = tuple_llvm_type(scrut_le->type);
             if (ttype) {
                 for (size_t bi = 0; bi < pt->bindings.size() && bi < pt->binding_types.size(); ++bi) {
                     if (pt->bindings[bi] == "_") continue;
