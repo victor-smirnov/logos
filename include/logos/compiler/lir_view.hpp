@@ -197,21 +197,152 @@ inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
     return StmtRef(arena_, av.to_offset());
 }
 
-// ── Exemplar view structs (one per category) ─────────────────────────────
+// ── View structs ─────────────────────────────────────────────────────────
 //
-// Pattern: EXxxView holds the ExprRef; accessors lazily decode fields. The
-// remaining variants will follow as Phase 3d migrates each reader.
+// Each EXxxView holds the matching ref; accessors lazily decode fields.
+// Filled in JIT as readers migrate off the std::variant tree.
 
 namespace ek = lir_schema::expr_keys;
 namespace pk = lir_schema::pat_keys;
 
-// ELitInt — leaf, single i64 payload.
+namespace detail {
+
+// Iterate an Array<RelPtr<LExpr>> stored at `key`. F is called as
+// f(ExprRef) for each element. No-op if the key is null.
+template <class F>
+void for_each_expr(const RefBase& r, uint8_t key, F&& f) noexcept {
+    auto av = r.mirror()->get(key, r.base());
+    if (av.is_null()) return;
+    auto* arr = av.as_ptr<const hermes::ObjectArray>(r.base());
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        auto el = arr->get(i, r.base());
+        if (el.is_null()) { f(ExprRef{}); continue; }
+        f(ExprRef(r.arena(), el.to_offset()));
+    }
+}
+
+} // namespace detail
+
+// ── Match-arm views ──────────────────────────────────────────────────────
+//
+// The mirror represents both LMatchArm (statement-style, with body block)
+// and EMatchArm (expression-style, with value expr) as TinyObjectMaps.
+
+class EMatchArmRef : public detail::RefBase {
+public:
+    EMatchArmRef() = default;
+    EMatchArmRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
+        : RefBase(a, o) {}
+
+    PatRef  pat() const noexcept {
+        auto av = mirror()->get(ek::ARM_PAT.code, base());
+        if (av.is_null()) return {};
+        return PatRef(arena(), av.to_offset());
+    }
+    ExprRef value() const noexcept {
+        auto av = mirror()->get(ek::ARM_VALUE.code, base());
+        if (av.is_null()) return {};
+        return ExprRef(arena(), av.to_offset());
+    }
+    ExprRef guard() const noexcept {
+        auto av = mirror()->get(ek::ARM_GUARD.code, base());
+        if (av.is_null()) return {};
+        return ExprRef(arena(), av.to_offset());
+    }
+};
+
+// ── LExpr variant views ──────────────────────────────────────────────────
+
+// EVarRef { name: Varchar }
+struct EVarRefView {
+    ExprRef self;
+    std::string_view name() const noexcept { return detail::read_string(self, ek::NAME.code); }
+};
+
+// EAddrOf { var_name: Varchar }
+struct EAddrOfView {
+    ExprRef self;
+    std::string_view var_name() const noexcept { return detail::read_string(self, ek::NAME.code); }
+};
+
+// EFieldRead { receiver: LExpr, field: Varchar }
+struct EFieldReadView {
+    ExprRef self;
+    ExprRef receiver() const noexcept { return self.sub_expr(ek::RECEIVER.code); }
+    std::string_view field() const noexcept { return detail::read_string(self, ek::NAME.code); }
+};
+
+// EDeref { operand: LExpr }
+struct EDerefView {
+    ExprRef self;
+    ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
+};
+
+// ETupleIndex { receiver: LExpr, index: u32 }
+struct ETupleIndexView {
+    ExprRef self;
+    ExprRef receiver() const noexcept { return self.sub_expr(ek::RECEIVER.code); }
+    uint32_t index() const noexcept   { return detail::read_u32(self, ek::TUPLE_INDEX_VAL.code); }
+};
+
+// ECast { operand: LExpr }
+struct ECastView {
+    ExprRef self;
+    ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
+};
+
+// EIndexRead { receiver: LExpr, index: LExpr }
+struct EIndexReadView {
+    ExprRef self;
+    ExprRef receiver() const noexcept { return self.sub_expr(ek::RECEIVER.code); }
+    ExprRef index() const noexcept    { return self.sub_expr(ek::INDEX.code); }
+};
+
+// EIfExpr { cond: LExpr, then_val: LExpr, else_val: LExpr }
+struct EIfExprView {
+    ExprRef self;
+    ExprRef cond() const noexcept     { return self.sub_expr(ek::COND.code); }
+    ExprRef then_val() const noexcept { return self.sub_expr(ek::THEN_VAL.code); }
+    ExprRef else_val() const noexcept { return self.sub_expr(ek::ELSE_VAL.code); }
+};
+
+// EBlockExpr { block: BlockRef, result: LExpr }
+struct EBlockExprView {
+    ExprRef self;
+    ExprRef result() const noexcept { return self.sub_expr(ek::RESULT.code); }
+    BlockRef block() const noexcept {
+        auto av = self.mirror()->get(ek::BLOCK.code, self.base());
+        if (av.is_null()) return {};
+        return BlockRef(self.arena(), av.to_offset());
+    }
+};
+
+// EMatchExpr { scrut: LExpr, arms: Array<EMatchArm> }
+struct EMatchExprView {
+    ExprRef self;
+    ExprRef scrut() const noexcept { return self.sub_expr(ek::SCRUT.code); }
+
+    // Iterate arms. F is called as f(EMatchArmRef) for each arm.
+    template <class F>
+    void each_arm(F&& f) const noexcept {
+        auto av = self.mirror()->get(ek::ARMS.code, self.base());
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i, self.base());
+            if (el.is_null()) continue;
+            f(EMatchArmRef(self.arena(), el.to_offset()));
+        }
+    }
+};
+
+// ── Leaf-shape exemplars (kept for reference) ────────────────────────────
+
 struct ELitIntView {
     ExprRef self;
     int64_t value() const noexcept { return detail::read_i64(self, ek::LIT_I64.code); }
 };
 
-// EBinOp — two sub-expressions + Varchar op name.
 struct EBinOpView {
     ExprRef self;
     std::string_view op() const noexcept { return detail::read_string(self, ek::OP.code); }
@@ -219,13 +350,8 @@ struct EBinOpView {
     ExprRef rhs() const noexcept { return self.sub_expr(ek::RHS.code); }
 };
 
-// SLet — LSlot wrapped under sk::*; covers stmt-with-expr-and-pat shape.
-struct SLetView {
-    StmtRef self;
-    ExprRef value() const noexcept { return self.sub_expr(ek::OPERAND.code); }
-};
+// ── Pattern leaf exemplar ────────────────────────────────────────────────
 
-// PatBool — leaf pat.
 struct PatBoolView {
     PatRef self;
     bool value() const noexcept { return detail::read_bool(self, pk::BOOL_VALUE.code); }
