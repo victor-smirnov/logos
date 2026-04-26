@@ -2209,13 +2209,12 @@ void MLIRGenImpl::gen_delete(lir_view::SDeleteView v) {
 // For PatVariantData: test discriminant + extract payload bindings.
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
-    // pat-walking still goes through the C++ variant — will move to PatRef
-    // alongside the gen_match migration. scrut + else_block are already
-    // routed through the view.
-    auto& s = std::get<lir::SLetElse>(lstmt_of(v.self)->kind);
+    namespace pc = lir_schema::pat;
     auto* scrut_le = lexpr_of(v.scrut());
     auto* else_lb  = lblock_of(v.else_block());
     if (!scrut_le || !else_lb) return;
+    auto pat_ref = v.pat();
+    auto pat_kind = pat_ref ? pat_ref.kind() : pc::Code(-1);
     auto* region = builder_.getBlock()->getParent();
 
     // ── Evaluate scrutinee ────────────────────────────────────────────────
@@ -2223,13 +2222,14 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     if (!scrut_val) return;
 
     // ── Handle PatWild: always matches, just bind name ────────────────────
-    if (auto* pw = std::get_if<PatWild>(&s.pat)) {
-        if (pw->name != "_") {
+    if (pat_kind == pc::Code::Wild) {
+        std::string name(lir_view::PatWildView{pat_ref}.name());
+        if (!name.empty() && name != "_") {
             auto alloca = create_entry_alloca(scrut_val.getType());
             builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
-            scope_[pw->name]          = alloca;
-            let_vars_.insert(pw->name);
-            var_elem_types_[pw->name] = scrut_val.getType();
+            scope_[name]          = alloca;
+            let_vars_.insert(name);
+            var_elem_types_[name] = scrut_val.getType();
         }
         // Else block is unreachable because pattern always matches.
         // Still need to lower the else block in a dead block so stmts compile.
@@ -2271,10 +2271,10 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     }
 
     // Determine expected discriminant
-    if (auto* pv = std::get_if<PatVariant>(&s.pat)) {
-        expected_disc = pv->disc;
-    } else if (auto* pvd = std::get_if<PatVariantData>(&s.pat)) {
-        expected_disc = pvd->disc;
+    if (pat_kind == pc::Code::Variant) {
+        expected_disc = static_cast<int32_t>(lir_view::PatVariantView{pat_ref}.disc());
+    } else if (pat_kind == pc::Code::VariantData) {
+        expected_disc = static_cast<int32_t>(lir_view::PatVariantDataView{pat_ref}.disc());
     }
 
     // ── Build blocks ──────────────────────────────────────────────────────
@@ -2311,38 +2311,47 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         mlir::OpBuilder::InsertionGuard ig(builder_);
         builder_.setInsertionPointToStart(match_block);
 
-        if (auto* pt = std::get_if<PatTuple>(&s.pat)) {
+        if (pat_kind == pc::Code::Tuple) {
             // Tuple pattern in let-else: always irrefutable, extract fields.
             auto ttype = tuple_llvm_type(scrut_le->type);
             if (ttype) {
-                for (size_t bi = 0; bi < pt->bindings.size() && bi < pt->binding_types.size(); ++bi) {
-                    if (pt->bindings[bi] == "_") continue;
-                    auto elem_mlir = logos_to_mlir(pt->binding_types[bi]);
+                lir_view::PatTupleView tv{pat_ref};
+                std::vector<std::string> bindings;
+                tv.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+                std::vector<TypeRef> btypes;
+                tv.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
+                for (size_t bi = 0; bi < bindings.size() && bi < btypes.size(); ++bi) {
+                    if (bindings[bi] == "_") continue;
+                    auto elem_mlir = logos_to_mlir(btypes[bi]);
                     if (!elem_mlir) continue;
                     llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                     auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, scrut_val, fi);
                     auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
                     auto alloca = create_entry_alloca(elem_mlir);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                    scope_[pt->bindings[bi]]          = alloca;
-                    let_vars_.insert(pt->bindings[bi]);
-                    var_elem_types_[pt->bindings[bi]] = elem_mlir;
+                    scope_[bindings[bi]]          = alloca;
+                    let_vars_.insert(bindings[bi]);
+                    var_elem_types_[bindings[bi]] = elem_mlir;
                 }
             }
-        } else if (auto* pvd = std::get_if<PatVariantData>(&s.pat)) {
+        } else if (pat_kind == pc::Code::VariantData) {
             if (te_info && scrut_ptr) {
+                lir_view::PatVariantDataView pvd{pat_ref};
+                std::vector<std::string> bindings;
+                pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+                int32_t pvd_disc = static_cast<int32_t>(pvd.disc());
                 llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
                 auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
                 const TaggedEnumInfo::VariantPayload* vp = nullptr;
-                for (auto& v : te_info->variants)
-                    if (v.disc == pvd->disc) { vp = &v; break; }
-                if (vp && !pvd->bindings.empty()) {
+                for (auto& vinfo : te_info->variants)
+                    if (vinfo.disc == pvd_disc) { vp = &vinfo; break; }
+                if (vp && !bindings.empty()) {
                     llvm::SmallVector<mlir::Type> ft;
                     for (auto& t : vp->field_types) ft.push_back(t);
                     auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
                         builder_.getContext(), ft);
-                    for (size_t bi = 0; bi < pvd->bindings.size() &&
+                    for (size_t bi = 0; bi < bindings.size() &&
                                          bi < vp->field_types.size(); ++bi) {
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                         auto fp = builder_.create<mlir::LLVM::GEPOp>(
@@ -2351,9 +2360,9 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
                             loc_, vp->field_types[bi], fp);
                         auto alloca = create_entry_alloca(vp->field_types[bi]);
                         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                        scope_[pvd->bindings[bi]]          = alloca;
-                        let_vars_.insert(pvd->bindings[bi]);
-                        var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
+                        scope_[bindings[bi]]          = alloca;
+                        let_vars_.insert(bindings[bi]);
+                        var_elem_types_[bindings[bi]] = vp->field_types[bi];
                     }
                 }
             }

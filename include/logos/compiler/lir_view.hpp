@@ -1366,6 +1366,11 @@ struct SLetElseView {
     StmtRef self;
     ExprRef  scrut() const noexcept       { return detail::stmt_sub_expr(self, sk::SCRUT.code); }
     BlockRef else_block() const noexcept  { return detail::stmt_sub_block(self, sk::ELSE_DIVERGE.code); }
+    PatRef   pat() const noexcept {
+        auto av = self.mirror()->get(sk::PAT.code, self.base());
+        if (av.is_null()) return {};
+        return PatRef(self.arena(), av.to_offset());
+    }
 };
 
 struct SBreakView {
