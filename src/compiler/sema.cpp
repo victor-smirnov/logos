@@ -431,7 +431,6 @@ const LogosType* TypePool::alloc(LogosTypeBuilder t) {
 
     pool_.push_back(LogosType{});
     LogosType* mp = &pool_.back();
-    mp->kind = t.kind;
     mp->type_uid = uid;
     auto off = impl_->mirror(t);
     impl_->mirror_offsets_[mp] = off;

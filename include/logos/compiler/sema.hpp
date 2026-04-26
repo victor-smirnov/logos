@@ -65,10 +65,9 @@ struct LogosType {
         Error                     // sentinel for ill-typed expressions
     };
 
-    // Kept on the slim struct for fast type tagging without a mirror lookup
-    // (TypeRef::kind() still goes through the mirror so it works for any
-    // legacy raw pointer; this duplicate just speeds the hot debug path).
-    Kind kind = Kind::Error;
+    // 2c.6.5: slim .kind field removed — readers go through TypeRef(t).kind()
+    // which reads the mirror's schema_type_code. The mirror is the single
+    // source of truth.
 
     // 2c.5.4: 32-byte TypeUID — canonical structural identity used as the
     // equality oracle (types_equal is ptr-eq || memcmp(type_uid)).
