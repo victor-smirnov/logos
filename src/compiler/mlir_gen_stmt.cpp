@@ -135,13 +135,15 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
 }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
-    auto& s = std::get<SDerefWrite>(lstmt_of(v.self)->kind);
-    auto ptr = gen_expr(*s.ptr);
-    auto val = gen_expr(*s.value);
+    auto* ptr_le = lexpr_of(v.ptr());
+    auto* val_le = lexpr_of(v.value());
+    if (!ptr_le || !val_le) return;
+    auto ptr = gen_expr(*ptr_le);
+    auto val = gen_expr(*val_le);
     if (!ptr || !val) return;
     // Determine element type from pointer's pointee type (handles both *T and &mut T)
     mlir::Type elem_type = nullptr;
-    TypeRef pt(s.ptr->type);
+    TypeRef pt(ptr_le->type);
     if (pt && pt.pointee() &&
         (pt.kind() == LogosType::Kind::Ptr ||
          pt.kind() == LogosType::Kind::MutRef))
