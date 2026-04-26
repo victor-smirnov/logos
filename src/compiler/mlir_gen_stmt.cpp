@@ -1512,7 +1512,6 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     // through the view. Full PatRef migration is a separate slice.
     auto* scrut_le = lexpr_of(v.scrut());
     if (!scrut_le) return;
-    auto& s = std::get<SMatch>(lstmt_of(v.self)->kind);
     namespace pc = lir_schema::pat;
     std::vector<lir_view::EMatchArmRef> arm_refs;
     v.each_arm([&](lir_view::EMatchArmRef a){ arm_refs.push_back(a); });
@@ -1934,23 +1933,50 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         }
     };
 
+    // Helper: scalar discriminant value for a leaf pattern (PatVariant /
+    // PatVariantData / PatInt / PatBool). Returns INT64_MIN if not scalar.
+    auto get_scalar_disc = [](lir_view::PatRef pp) -> int64_t {
+        if (!pp) return std::numeric_limits<int64_t>::min();
+        switch (pp.kind()) {
+            case pc::Code::Variant:     return lir_view::PatVariantView{pp}.disc();
+            case pc::Code::VariantData: return lir_view::PatVariantDataView{pp}.disc();
+            case pc::Code::Int:         return lir_view::PatIntView{pp}.value();
+            case pc::Code::Bool:        return lir_view::PatBoolView{pp}.value() ? 1 : 0;
+            default:                    return std::numeric_limits<int64_t>::min();
+        }
+    };
+    auto scrut_unsigned = [&]() -> bool {
+        if (!scrut_le->type) return false;
+        switch (TypeRef(scrut_le->type).kind()) {
+            case LogosType::Kind::U8:  case LogosType::Kind::U16: case LogosType::Kind::U24:
+            case LogosType::Kind::U32: case LogosType::Kind::U56: case LogosType::Kind::U64:
+            case LogosType::Kind::U128: return true;
+            default: return false;
+        }
+    };
+
     // Build if-else chain from last arm down to first.
-    for (int i = (int)s.arms.size() - 1; i >= 0; --i) {
-        auto& arm = s.arms[i];
-        auto* body_block = new mlir::Block();
+    for (int i = (int)arm_refs.size() - 1; i >= 0; --i) {
+        auto arm_pat   = arm_refs[i].pat();
+        auto arm_kind  = arm_pat ? arm_pat.kind() : pc::Code(-1);
+        auto arm_guard_ref = arm_refs[i].guard();
+        auto arm_body_ref  = arm_refs[i].body();
+        auto* body_lb      = lblock_of(arm_body_ref);
+        auto* body_block   = new mlir::Block();
         region->push_back(body_block);
 
         mlir::Block* arm_entry = body_block;
 
-        if (arm.guard) {
+        if (arm_guard_ref) {
             // guard_block: extract bindings, evaluate guard, branch accordingly.
             auto* guard_block = new mlir::Block();
             region->push_back(guard_block);
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(guard_block);
-                extract_payload(arm_refs[i].pat());
-                auto gval = gen_expr(**arm.guard);
+                extract_payload(arm_pat);
+                auto* guard_le = lexpr_of(arm_guard_ref);
+                auto gval = guard_le ? gen_expr(*guard_le) : nullptr;
                 gval = coerce_int(gval, builder_.getI1Type());
                 builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
             }
@@ -1959,7 +1985,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(body_block);
-                gen_block(*arm.body);
+                if (body_lb) gen_block(*body_lb);
                 if (!is_terminated(builder_.getBlock()))
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
             }
@@ -1968,66 +1994,52 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(body_block);
-                extract_payload(arm_refs[i].pat());
-                gen_block(*arm.body);
+                extract_payload(arm_pat);
+                if (body_lb) gen_block(*body_lb);
                 if (!is_terminated(builder_.getBlock()))
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
             }
         }
 
-        bool is_wild = is_irrefutable(arm_refs[i].pat());
+        bool is_wild = is_irrefutable(arm_pat);
         if (is_wild) {
             else_block = arm_entry;
-        } else if (auto* pr = std::get_if<lir::PatRange>(&arm.pat)) {
+        } else if (arm_kind == pc::Code::Range) {
             // Range pattern: lo <= scrut && scrut <= hi
             // C2: use unsigned predicates for unsigned scrutinee types.
-            bool range_unsigned = scrut_le->type &&
-                (TypeRef(scrut_le->type).kind() == LogosType::Kind::U8  ||
-                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U16 ||
-                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U32 ||
-                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U24 ||
-                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U56 ||
-                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U64 ||
-                 TypeRef(scrut_le->type).kind() == LogosType::Kind::U128);
-            auto pred_ge = range_unsigned ? mlir::arith::CmpIPredicate::uge
-                                          : mlir::arith::CmpIPredicate::sge;
-            auto pred_le = range_unsigned ? mlir::arith::CmpIPredicate::ule
-                                          : mlir::arith::CmpIPredicate::sle;
+            lir_view::PatRangeView pr{arm_pat};
+            auto pred_ge = scrut_unsigned() ? mlir::arith::CmpIPredicate::uge
+                                            : mlir::arith::CmpIPredicate::sge;
+            auto pred_le = scrut_unsigned() ? mlir::arith::CmpIPredicate::ule
+                                            : mlir::arith::CmpIPredicate::sle;
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
                 auto lo_val = coerce_int(
-                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->lo, 64), scrut_type);
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), scrut_type);
                 auto hi_val = coerce_int(
-                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->hi, 64), scrut_type);
+                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), scrut_type);
                 auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, pred_ge, scrut, lo_val);
                 auto le = builder_.create<mlir::arith::CmpIOp>(loc_, pred_le, scrut, hi_val);
                 auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
             }
             else_block = test_block;
-        } else if (auto* por = std::get_if<lir::PatOr>(&arm.pat)) {
+        } else if (arm_kind == pc::Code::Or) {
             // OR pattern: chain of comparisons — any match goes to arm_entry.
             // Build right-to-left so each test falls through to the next.
-            // NC4: get_disc only handles scalar patterns; PatRange and structural
-            // patterns inside PatOr are not representable as a single discriminant.
-            // Callers must not pass PatOr with non-scalar alternatives here.
-            auto get_disc = [](const lir::Pattern& p) -> int64_t {
-                if (auto* pv  = std::get_if<lir::PatVariant>(&p))     return pv->disc;
-                if (auto* pvd = std::get_if<lir::PatVariantData>(&p)) return pvd->disc;
-                if (auto* pi  = std::get_if<lir::PatInt>(&p))         return pi->value;
-                if (auto* pb  = std::get_if<lir::PatBool>(&p))        return pb->value ? 1 : 0;
-                // PatRange and structural patterns inside PatOr are unsupported here;
-                // sema should reject them. Return INT64_MIN as sentinel.
-                return std::numeric_limits<int64_t>::min();
-            };
+            // NC4: get_scalar_disc only handles scalar patterns; PatRange and
+            // structural patterns inside PatOr are not representable as a single
+            // discriminant. Callers must not pass PatOr with non-scalar alts.
+            std::vector<lir_view::PatRef> alts;
+            lir_view::PatOrView{arm_pat}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
             mlir::Block* cur_else = else_block;
-            for (int64_t ai = static_cast<int64_t>(por->alts.size()) - 1; ai >= 0; --ai) {
+            for (int64_t ai = static_cast<int64_t>(alts.size()) - 1; ai >= 0; --ai) {
                 auto* test_block = new mlir::Block();
                 region->push_back(test_block);
-                int64_t disc = get_disc(por->alts[static_cast<size_t>(ai)]);
+                int64_t disc = get_scalar_disc(alts[static_cast<size_t>(ai)]);
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
                 if (disc == std::numeric_limits<int64_t>::min()) {
@@ -2045,23 +2057,16 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 cur_else = test_block;
             }
             else_block = cur_else;
-        } else if (auto* pa = std::get_if<lir::PatAt>(&arm.pat)) {
+        } else if (arm_kind == pc::Code::At) {
             // PatAt with refutable sub-pattern: dispatch on sub-pattern.
-            if (!pa->sub.empty()) {
-                const lir::Pattern& sub = pa->sub[0];
-                if (auto* pr = std::get_if<lir::PatRange>(&sub)) {
+            auto sub = lir_view::PatAtView{arm_pat}.sub();
+            if (sub) {
+                if (sub.kind() == pc::Code::Range) {
                     // C2: same unsigned predicate fix for PatAt + PatRange.
-                    bool pat_at_unsigned = scrut_le->type &&
-                        (TypeRef(scrut_le->type).kind() == LogosType::Kind::U8  ||
-                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U16 ||
-                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U32 ||
-                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U24 ||
-                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U56 ||
-                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U64 ||
-                         TypeRef(scrut_le->type).kind() == LogosType::Kind::U128);
-                    auto at_pred_ge = pat_at_unsigned ? mlir::arith::CmpIPredicate::uge
+                    lir_view::PatRangeView pr{sub};
+                    auto at_pred_ge = scrut_unsigned() ? mlir::arith::CmpIPredicate::uge
                                                       : mlir::arith::CmpIPredicate::sge;
-                    auto at_pred_le = pat_at_unsigned ? mlir::arith::CmpIPredicate::ule
+                    auto at_pred_le = scrut_unsigned() ? mlir::arith::CmpIPredicate::ule
                                                       : mlir::arith::CmpIPredicate::sle;
                     auto* test_block = new mlir::Block();
                     region->push_back(test_block);
@@ -2069,9 +2074,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         mlir::OpBuilder::InsertionGuard ig(builder_);
                         builder_.setInsertionPointToStart(test_block);
                         auto lo_val = coerce_int(
-                            builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->lo, 64), scrut_type);
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), scrut_type);
                         auto hi_val = coerce_int(
-                            builder_.create<mlir::arith::ConstantIntOp>(loc_, pr->hi, 64), scrut_type);
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), scrut_type);
                         auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, at_pred_ge, scrut, lo_val);
                         auto le = builder_.create<mlir::arith::CmpIOp>(loc_, at_pred_le, scrut, hi_val);
                         auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
@@ -2080,11 +2085,8 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     else_block = test_block;
                 } else {
                     // C3: Scalar sub-pattern: int, bool, variant (disc=0 was wrong for variants).
-                    int64_t disc = 0;
-                    if (auto* pi  = std::get_if<lir::PatInt>(&sub))         disc = pi->value;
-                    else if (auto* pb  = std::get_if<lir::PatBool>(&sub))   disc = pb->value ? 1 : 0;
-                    else if (auto* pv  = std::get_if<lir::PatVariant>(&sub)) disc = pv->disc;
-                    else if (auto* pvd = std::get_if<lir::PatVariantData>(&sub)) disc = pvd->disc;
+                    int64_t disc = get_scalar_disc(sub);
+                    if (disc == std::numeric_limits<int64_t>::min()) disc = 0;
                     auto* test_block = new mlir::Block();
                     region->push_back(test_block);
                     {
@@ -2102,8 +2104,14 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 // Irrefutable PatAt (no sub) — arm always runs.
                 else_block = arm_entry;
             }
-        } else if (auto* pt = std::get_if<lir::PatTuple>(&arm.pat); pt && !pt->subs.empty()) {
+        } else if (arm_kind == pc::Code::Tuple
+                   && lir_view::PatTupleView{arm_pat}.sub_count() > 0) {
             // Refutable tuple: GEP each refutable element and AND-chain equality tests.
+            lir_view::PatTupleView tv{arm_pat};
+            std::vector<lir_view::PatRef> subs;
+            tv.each_sub([&](lir_view::PatRef sp){ subs.push_back(sp); });
+            std::vector<TypeRef> btypes;
+            tv.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
             auto ttype = tuple_llvm_type(scrut_le->type);
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
@@ -2113,17 +2121,17 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
                 mlir::Value cond =
                     builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
-                for (size_t i = 0; i < pt->subs.size() && ttype; ++i) {
-                    const lir::Pattern& sub = pt->subs[i];
-                    if (std::holds_alternative<lir::PatWild>(sub)) continue;
+                for (size_t si = 0; si < subs.size() && ttype; ++si) {
+                    auto sub = subs[si];
+                    if (!sub || sub.kind() == pc::Code::Wild) continue;
                     int64_t sub_val = 0;
-                    if (auto* pi = std::get_if<lir::PatInt>(&sub))       sub_val = pi->value;
-                    else if (auto* pb = std::get_if<lir::PatBool>(&sub)) sub_val = pb->value ? 1 : 0;
+                    if (sub.kind() == pc::Code::Int)       sub_val = lir_view::PatIntView{sub}.value();
+                    else if (sub.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sub}.value() ? 1 : 0;
                     else continue;
-                    auto elem_mlir = i < pt->binding_types.size()
-                                     ? logos_to_mlir(pt->binding_types[i]) : mlir::Type();
+                    auto elem_mlir = si < btypes.size()
+                                     ? logos_to_mlir(btypes[si]) : mlir::Type();
                     if (!elem_mlir) continue;
-                    llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(i)};
+                    llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(si)};
                     auto fp = builder_.create<mlir::LLVM::GEPOp>(
                         loc_, ptr_type(), ttype, tptr, fi);
                     auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
@@ -2138,12 +2146,8 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             }
             else_block = test_block;
         } else {
-            bool have_disc = false;
-            int64_t disc = 0;
-            if (auto* pv = std::get_if<PatVariant>(&arm.pat))      { disc = pv->disc;  have_disc = true; }
-            else if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) { disc = pvd->disc; have_disc = true; }
-            else if (auto* pi = std::get_if<PatInt>(&arm.pat))     { disc = pi->value; have_disc = true; }
-            else if (auto* pb = std::get_if<PatBool>(&arm.pat))    { disc = pb->value ? 1 : 0; have_disc = true; }
+            int64_t disc = get_scalar_disc(arm_pat);
+            bool have_disc = (disc != std::numeric_limits<int64_t>::min());
 
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
