@@ -592,6 +592,19 @@ struct EClosureBoxView {
     }
 };
 
+// ── Stub views (Phase 3d): bodies still go through lexpr_of() to reach the
+// underlying variant. Promoted to richer accessors as call-sites migrate.
+
+struct EAddrOfTempView { ExprRef self; };
+struct EEnumLitView    { ExprRef self; };
+struct ESizeOfView     { ExprRef self; };
+struct ETypeCodeOfView { ExprRef self; };
+struct EPtrArithView   { ExprRef self; };
+struct EPtrDiffView    { ExprRef self; };
+struct EReflectOfView  { ExprRef self; };
+struct EHermesLitView  { ExprRef self; };
+struct EPackExpandView { ExprRef self; };
+
 // ── Pattern leaf exemplar ────────────────────────────────────────────────
 
 struct PatBoolView {

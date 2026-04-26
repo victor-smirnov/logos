@@ -45,59 +45,57 @@ static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
-    if (auto er = expr_ref_of(e); er) {
-        using C = lir_schema::expr::Code;
-        switch (er.kind()) {
-        case C::LitInt:   return gen_expr_kind(lir_view::ELitIntView{er},   e.type);
-        case C::LitFloat: return gen_expr_kind(lir_view::ELitFloatView{er}, e.type);
-        case C::LitBool:  return gen_expr_kind(lir_view::ELitBoolView{er},  e.type);
-        case C::LitStr:   return gen_expr_kind(lir_view::ELitStrView{er},   e.type);
-        case C::Unary:    return gen_expr_kind(lir_view::EUnaryView{er},    e.type);
-        case C::AddrOf:   return gen_expr_kind(lir_view::EAddrOfView{er},   e.type);
-        case C::Deref:    return gen_expr_kind(lir_view::EDerefView{er},    e.type);
-        case C::SliceLen: return gen_expr_kind(lir_view::ESliceLenView{er}, e.type);
-        case C::SlicePtr: return gen_expr_kind(lir_view::ESlicePtrView{er}, e.type);
-        case C::Try:      return gen_expr_kind(lir_view::ETryView{er},      e.type);
-        case C::VarRef:   return gen_expr_kind(lir_view::EVarRefView{er},   e.type);
-        case C::FieldRead: return gen_expr_kind(lir_view::EFieldReadView{er},  e.type);
-        case C::TupleIndex:return gen_expr_kind(lir_view::ETupleIndexView{er}, e.type);
-        case C::IfExpr:    return gen_expr_kind(lir_view::EIfExprView{er},     e.type);
-        case C::BlockExpr: return gen_expr_kind(lir_view::EBlockExprView{er},  e.type);
-        case C::TupleLit:  return gen_expr_kind(lir_view::ETupleLitView{er},   e.type);
-        case C::SliceLit:  return gen_expr_kind(lir_view::ESliceLitView{er},   e.type);
-        case C::SliceIndex:return gen_expr_kind(lir_view::ESliceIndexView{er}, e.type);
-        case C::BinOp:     return gen_expr_kind(lir_view::EBinOpView{er},      e.type);
-        default: break;
-        }
+    auto er = expr_ref_of(e);
+    if (!er) {
+        std::fprintf(stderr, "mlir_gen: gen_expr called without LIR mirror\n");
+        return nullptr;
     }
-    return std::visit([&](auto& k) -> mlir::Value {
-        using K = std::decay_t<decltype(k)>;
-        if constexpr (std::is_same_v<K, ELitInt>   ||
-                      std::is_same_v<K, ELitFloat> ||
-                      std::is_same_v<K, ELitBool>  ||
-                      std::is_same_v<K, ELitStr>   ||
-                      std::is_same_v<K, EUnary>    ||
-                      std::is_same_v<K, EAddrOf>   ||
-                      std::is_same_v<K, EDeref>    ||
-                      std::is_same_v<K, ESliceLen> ||
-                      std::is_same_v<K, ESlicePtr> ||
-                      std::is_same_v<K, ETry>     ||
-                      std::is_same_v<K, EVarRef>    ||
-                      std::is_same_v<K, EFieldRead> ||
-                      std::is_same_v<K, ETupleIndex> ||
-                      std::is_same_v<K, EIfExpr>    ||
-                      std::is_same_v<K, EBlockExpr> ||
-                      std::is_same_v<K, ETupleLit>  ||
-                      std::is_same_v<K, ESliceLit>  ||
-                      std::is_same_v<K, ESliceIndex>||
-                      std::is_same_v<K, EBinOp>) {
-            // Unreachable: handled by the schema-switch above.
-            (void)k;
-            return {};
-        } else {
-            return gen_expr_kind(k, e.type);
-        }
-    }, e.kind);
+    using C = lir_schema::expr::Code;
+    switch (er.kind()) {
+    case C::LitInt:     return gen_expr_kind(lir_view::ELitIntView{er},     e.type);
+    case C::LitFloat:   return gen_expr_kind(lir_view::ELitFloatView{er},   e.type);
+    case C::LitBool:    return gen_expr_kind(lir_view::ELitBoolView{er},    e.type);
+    case C::LitStr:     return gen_expr_kind(lir_view::ELitStrView{er},     e.type);
+    case C::VarRef:     return gen_expr_kind(lir_view::EVarRefView{er},     e.type);
+    case C::EnumLit:    return gen_expr_kind(lir_view::EEnumLitView{er},    e.type);
+    case C::EnumLitData:return gen_expr_kind(lir_view::EEnumLitDataView{er},e.type);
+    case C::Call:       return gen_expr_kind(lir_view::ECallView{er},       e.type);
+    case C::MethodCall: return gen_expr_kind(lir_view::EMethodCallView{er}, e.type);
+    case C::BinOp:      return gen_expr_kind(lir_view::EBinOpView{er},      e.type);
+    case C::Unary:      return gen_expr_kind(lir_view::EUnaryView{er},      e.type);
+    case C::AddrOf:     return gen_expr_kind(lir_view::EAddrOfView{er},     e.type);
+    case C::AddrOfTemp: return gen_expr_kind(lir_view::EAddrOfTempView{er}, e.type);
+    case C::Deref:      return gen_expr_kind(lir_view::EDerefView{er},      e.type);
+    case C::FieldRead:  return gen_expr_kind(lir_view::EFieldReadView{er},  e.type);
+    case C::IndexRead:  return gen_expr_kind(lir_view::EIndexReadView{er},  e.type);
+    case C::StructLit:  return gen_expr_kind(lir_view::EStructLitView{er},  e.type);
+    case C::ArrLit:     return gen_expr_kind(lir_view::EArrLitView{er},     e.type);
+    case C::Cast:       return gen_expr_kind(lir_view::ECastView{er},       e.type);
+    case C::New:        return gen_expr_kind(lir_view::ENewView{er},        e.type);
+    case C::IfExpr:     return gen_expr_kind(lir_view::EIfExprView{er},     e.type);
+    case C::TupleLit:   return gen_expr_kind(lir_view::ETupleLitView{er},   e.type);
+    case C::TupleIndex: return gen_expr_kind(lir_view::ETupleIndexView{er}, e.type);
+    case C::SliceLit:   return gen_expr_kind(lir_view::ESliceLitView{er},   e.type);
+    case C::SliceIndex: return gen_expr_kind(lir_view::ESliceIndexView{er}, e.type);
+    case C::SliceLen:   return gen_expr_kind(lir_view::ESliceLenView{er},   e.type);
+    case C::SlicePtr:   return gen_expr_kind(lir_view::ESlicePtrView{er},   e.type);
+    case C::ClosureBox: return gen_expr_kind(lir_view::EClosureBoxView{er}, e.type);
+    case C::ClosureCall:return gen_expr_kind(lir_view::EClosureCallView{er},e.type);
+    case C::FnPtrCall:  return gen_expr_kind(lir_view::EFnPtrCallView{er},  e.type);
+    case C::FormatCall: return gen_expr_kind(lir_view::EFormatCallView{er}, e.type);
+    case C::PackExpand: return gen_expr_kind(lir_view::EPackExpandView{er}, e.type);
+    case C::Try:        return gen_expr_kind(lir_view::ETryView{er},        e.type);
+    case C::MatchExpr:  return gen_expr_kind(lir_view::EMatchExprView{er},  e.type);
+    case C::SizeOf:     return gen_expr_kind(lir_view::ESizeOfView{er},     e.type);
+    case C::TypeCodeOf: return gen_expr_kind(lir_view::ETypeCodeOfView{er}, e.type);
+    case C::BlockExpr:  return gen_expr_kind(lir_view::EBlockExprView{er},  e.type);
+    case C::HermesLit:  return gen_expr_kind(lir_view::EHermesLitView{er},  e.type);
+    case C::PtrArith:   return gen_expr_kind(lir_view::EPtrArithView{er},   e.type);
+    case C::PtrDiff:    return gen_expr_kind(lir_view::EPtrDiffView{er},    e.type);
+    case C::ReflectOf:  return gen_expr_kind(lir_view::EReflectOfView{er},  e.type);
+    }
+    std::fprintf(stderr, "mlir_gen: unhandled expr code %d\n", int(er.kind()));
+    return nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +291,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
 // Enum literals
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLit& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EEnumLit>(_le->kind);
     // Tagged enum without payload (e.g. Option::None, HttpError::Io):
     // heap-allocate so the pointer can safely escape — including being stored
     // into another enum's payload slot as a pointer (EEnumLitData path).
@@ -314,7 +314,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLit& e, TypeRef type) {
         loc_, e.disc, enum_disc_bits(e.enum_name));
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EEnumLitData& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EEnumLitData>(_le->kind);
     auto* te = resolve_tagged_enum(e.enum_name, type);
     if (!te) {
         std::fprintf(stderr, "mlir_gen: unknown tagged enum '%s'\n", e.enum_name.c_str());
@@ -667,7 +669,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
     return it->second;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EAddrOfTemp& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EAddrOfTemp>(_le->kind);
     // Materialize a temporary rvalue to an anonymous stack slot and return its address.
     // Aggregates (tuple, struct, array) are already pointer-represented by the codegen
     // (their gen_expr returns an alloca directly) — no extra wrapping needed.
@@ -811,7 +815,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
 // Function calls
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, TypeRef ret_logos_type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ECall>(_le->kind);
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
     // ── Compiler intrinsics recognised by name ────────────────────────────────
@@ -994,7 +1000,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECall& e, TypeRef ret_logos_type) {
     return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EMethodCall& e, TypeRef ret_logos_type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_logos_type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EMethodCall>(_le->kind);
     if (e.method == "as_offset" && e.receiver && e.receiver->type) {
         const auto rt = e.receiver->type;
         bool is_anyval =
@@ -1128,7 +1136,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     return nullptr;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EIndexRead>(_le->kind);
     // Receiver: try to get the alloca pointer directly for VAR_REF.
     mlir::Value arr_ptr;
     mlir::Type  elem_type;
@@ -1255,11 +1265,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EIndexRead& e, TypeRef type) {
 // Struct / array / tuple literals
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EStructLit& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EStructLitView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EStructLit>(_le->kind);
     return gen_struct_lit(e);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EArrLit& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EArrLitView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EArrLit>(_le->kind);
     mlir::Type elem_type = builder_.getI32Type();
     if (type && TypeRef(type).elem()) {
         auto et = logos_to_mlir(TypeRef(type).elem());
@@ -1321,7 +1335,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
 // Cast
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ECast>(_le->kind);
     // ── Hermes typed container cast: &[T] as <I32>[] → Hermes. ──────────
     if (!e.hermes_build_fn.empty()) {
         auto val = gen_expr(*e.operand);
@@ -1490,7 +1506,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ECast& e, TypeRef type) {
 // Class new
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ENew& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ENewView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ENew>(_le->kind);
     auto sit = struct_types_.find(e.class_name);
     if (sit == struct_types_.end()) {
         std::fprintf(stderr, "mlir_gen: unknown class '%s'\n", e.class_name.c_str());
@@ -1567,7 +1585,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIfExprView v, TypeRef type) {
     return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EMatchExpr>(_le->kind);
     mlir::Type result_type = logos_to_mlir(type);
     if (!result_type) return nullptr;
 
@@ -1856,12 +1876,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EMatchExpr& e, TypeRef type) {
 // Closure call
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureBox& box, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& box = std::get<EClosureBox>(_le->kind);
     if (!box.inner) return nullptr;
     return gen_closure(*box.inner, type);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureCall& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EClosureCall>(_le->kind);
     auto closure = gen_expr(*e.callee);
     if (!closure) return nullptr;
 
@@ -1909,7 +1933,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EClosureCall& e, TypeRef type) {
     return result;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EFnPtrCall& e, TypeRef type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EFnPtrCall>(_le->kind);
     // Bare function pointer call: fn_ptr(arg1, arg2, ...) — no env_ptr.
     auto fn_ptr = gen_expr(*e.callee);
     if (!fn_ptr) return nullptr;
@@ -2065,7 +2091,9 @@ int MLIRGenImpl::format_type_tag(TypeRef t) noexcept {
     }
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EFormatCall& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EFormatCall>(_le->kind);
     auto fmt_val = gen_expr(*e.fmt);
     if (!fmt_val) return nullptr;
 
@@ -2137,12 +2165,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EFormatCall& e, TypeRef) {
 // Misc expression kinds
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EPackExpand&, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPackExpandView, TypeRef) {
     std::fprintf(stderr, "mlir_gen: unexpected EPackExpand (should be expanded by mono)\n");
     return nullptr;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ESizeOf& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ESizeOf>(_le->kind);
     // For Struct/Datatype: logos_to_mlir returns ptr_type() (always passed by pointer),
     // but sizeof needs the actual aggregate type, not the pointer.
     mlir::Type elem_mlir = nullptr;
@@ -2166,7 +2196,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ESizeOf& e, TypeRef) {
         loc_, builder_.getI64Type(), size_ptr);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrArith& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EPtrArith>(_le->kind);
     auto p = gen_expr(*e.ptr);
     auto n = gen_expr(*e.offset);
     if (!p || !n) return nullptr;
@@ -2202,7 +2234,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrArith& e, TypeRef) {
     return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_ty, p, idx);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrDiff& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrDiffView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EPtrDiff>(_le->kind);
     auto a = gen_expr(*e.lhs);
     auto b = gen_expr(*e.rhs);
     if (!a || !b) return nullptr;
@@ -2232,7 +2266,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EPtrDiff& e, TypeRef) {
     return builder_.create<mlir::arith::DivSIOp>(loc_, diff, sz);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const ETypeCodeOf& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETypeCodeOfView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<ETypeCodeOf>(_le->kind);
     // Should have been folded to ELitInt by mono.  Emit 0 as a defensive
     // fallback (not expected to be reached for well-formed programs).
     (void)e;
@@ -2662,7 +2698,9 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EReflectOf& e, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EReflectOfView v, TypeRef) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EReflectOf>(_le->kind);
     auto i8 = builder_.getIntegerType(8);
 
     // Compute symbol name deterministically from fqn (same formula as reflection_emit).
@@ -2706,7 +2744,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const EReflectOf& e, TypeRef) {
     return alloca;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(const EHermesLit& e, TypeRef ret_type) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_type) {
+    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
+    auto& e = std::get<EHermesLit>(_le->kind);
     auto [blob, param_slots] = build_hermes_zone(e);
 
     auto lit_idx    = hermes_lit_counter_++;
