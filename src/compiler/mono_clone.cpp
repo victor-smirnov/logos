@@ -582,34 +582,84 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
         } else if constexpr (std::is_same_v<K, lir::EAddrOfTemp>) {
             result->kind = lir::EAddrOfTemp{subst_expr(*k.inner, s), k.is_mut};
         } else if constexpr (std::is_same_v<K, lir::EHermesLit>) {
-            // Deep-clone the Hermes value tree (no type variables inside).
+            // Deep-clone the Hermes value tree, reading via HermesValRef views.
+            // Output side still builds lir::HermesVal variants (Stage 3g.4 will
+            // flip writers too). Falls back to variant access when mirror is
+            // missing (defensive — clone_hv on synthesized literals).
+            namespace hvc = lir_schema::hermes_val;
             std::function<lir::HermesValPtr(const lir::HermesVal&)> clone_hv =
                 [&](const lir::HermesVal& v) -> lir::HermesValPtr {
                 auto out = std::make_unique<lir::HermesVal>();
-                std::visit([&](const auto& kk) {
-                    using KK = std::decay_t<decltype(kk)>;
-                    if constexpr (std::is_same_v<KK, lir::HVNull>  ||
-                                  std::is_same_v<KK, lir::HVBool>  ||
-                                  std::is_same_v<KK, lir::HVInt>   ||
-                                  std::is_same_v<KK, lir::HVFloat> ||
-                                  std::is_same_v<KK, lir::HVStr>) {
-                        out->kind = kk;
-                    } else if constexpr (std::is_same_v<KK, lir::HVMap>) {
-                        lir::HVMap nm;
-                        nm.key_type = kk.key_type;
-                        for (auto& e : kk.entries)
+                auto vref = hv_ref_of(v);
+                if (!vref) {
+                    // No mirror (e.g. HermesVal synthesized after parse) —
+                    // fall back to variant-driven deep clone.
+                    std::visit([&](const auto& kk) {
+                        using KK = std::decay_t<decltype(kk)>;
+                        if constexpr (std::is_same_v<KK, lir::HVMap>) {
+                            lir::HVMap nm;
+                            nm.key_type = kk.key_type;
+                            for (auto& e : kk.entries)
+                                nm.entries.push_back({e.key, clone_hv(*e.val)});
+                            out->kind = std::move(nm);
+                        } else if constexpr (std::is_same_v<KK, lir::HVArray>) {
+                            lir::HVArray na;
+                            na.elem_type = kk.elem_type;
+                            for (auto& elem : kk.elements)
+                                na.elements.push_back(clone_hv(*elem));
+                            out->kind = std::move(na);
+                        } else {
+                            out->kind = kk;  // leaf: trivial copy
+                        }
+                    }, v.kind);
+                    return out;
+                }
+                switch (vref.kind()) {
+                case hvc::Code::Null:
+                    out->kind = lir::HVNull{};
+                    break;
+                case hvc::Code::Bool:
+                    out->kind = lir::HVBool{lir_view::HVBoolView{vref}.value()};
+                    break;
+                case hvc::Code::Int:
+                    out->kind = lir::HVInt{lir_view::HVIntView{vref}.value()};
+                    break;
+                case hvc::Code::Float:
+                    out->kind = lir::HVFloat{lir_view::HVFloatView{vref}.value()};
+                    break;
+                case hvc::Code::Str:
+                    out->kind = lir::HVStr{std::string(lir_view::HVStrView{vref}.value())};
+                    break;
+                case hvc::Code::Capture: {
+                    lir_view::HVCaptureView cv{vref};
+                    out->kind = lir::HVCapture{cv.param_index(), cv.value_index()};
+                    break;
+                }
+                case hvc::Code::Map: {
+                    // View doesn't expose entry HermesVal* (only ref); look up
+                    // input lir::HVMap to recurse on entry vals.
+                    auto* in_hv = std::get_if<lir::HVMap>(&v.kind);
+                    lir::HVMap nm;
+                    if (in_hv) {
+                        nm.key_type = in_hv->key_type;
+                        for (auto& e : in_hv->entries)
                             nm.entries.push_back({e.key, clone_hv(*e.val)});
-                        out->kind = std::move(nm);
-                    } else if constexpr (std::is_same_v<KK, lir::HVArray>) {
-                        lir::HVArray na;
-                        na.elem_type = kk.elem_type;
-                        for (auto& elem : kk.elements)
-                            na.elements.push_back(clone_hv(*elem));
-                        out->kind = std::move(na);
-                    } else if constexpr (std::is_same_v<KK, lir::HVCapture>) {
-                        out->kind = kk;  // plain struct copy (two uint32_t)
                     }
-                }, v.kind);
+                    out->kind = std::move(nm);
+                    break;
+                }
+                case hvc::Code::Array: {
+                    auto* in_hv = std::get_if<lir::HVArray>(&v.kind);
+                    lir::HVArray na;
+                    if (in_hv) {
+                        na.elem_type = in_hv->elem_type;
+                        for (auto& elem : in_hv->elements)
+                            na.elements.push_back(clone_hv(*elem));
+                    }
+                    out->kind = std::move(na);
+                    break;
+                }
+                }
                 return out;
             };
             lir::EHermesLit nl;

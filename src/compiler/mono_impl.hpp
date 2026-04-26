@@ -65,6 +65,10 @@ protected:
         if (b.mirror_offset_ == hermes::arena_offset_t{}) return {};
         return lir_view::BlockRef(out_.type_pool.arena(), b.mirror_offset_);
     }
+    lir_view::HermesValRef hv_ref_of(const lir::HermesVal& v) const noexcept {
+        if (v.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        return lir_view::HermesValRef(out_.type_pool.arena(), v.mirror_offset_);
+    }
     // Reverse maps: ref → variant pointer. Used by subst_* to look up the
     // input variant whose kind is being substituted while reading sub-refs
     // through views. The input mirror_table lives on `in_`.
