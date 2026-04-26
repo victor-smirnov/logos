@@ -39,6 +39,246 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
     auto result = std::make_unique<lir::LExpr>();
     result->type = subst_type(e.type, s);
 
+    // Stage 3g.3.5b: read input via ExprRef views for simple/leaf cases.
+    // Remaining complex cases (Call, MethodCall, StructLit, EnumLit*,
+    // New, MatchExpr, ClosureBox, HermesLit, TypeCodeOf, AddrOfTemp) still
+    // dispatch through the std::visit below — moves to 3g.3.5c.
+    if (auto eref = expr_ref_of(e)) {
+        auto subst_child_expr = [&](lir_view::ExprRef er) -> lir::LExprPtr {
+            auto* le = lexpr_of(er);
+            return le ? subst_expr(*le, s) : nullptr;
+        };
+        auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
+            auto* lb = lblock_of(br);
+            return lb ? subst_block(*lb, s) : lir::LBlock{};
+        };
+        using C = lir_schema::expr::Code;
+        bool handled = true;
+        switch (eref.kind()) {
+        case C::LitInt:
+            result->kind = lir::ELitInt{lir_view::ELitIntView{eref}.value()};
+            break;
+        case C::LitFloat:
+            result->kind = lir::ELitFloat{lir_view::ELitFloatView{eref}.value()};
+            break;
+        case C::LitBool:
+            result->kind = lir::ELitBool{lir_view::ELitBoolView{eref}.value()};
+            break;
+        case C::LitStr:
+            result->kind = lir::ELitStr{std::string(lir_view::ELitStrView{eref}.value())};
+            break;
+        case C::VarRef:
+            result->kind = lir::EVarRef{std::string(lir_view::EVarRefView{eref}.name())};
+            break;
+        case C::AddrOf:
+            result->kind = lir::EAddrOf{std::string(lir_view::EAddrOfView{eref}.var_name())};
+            break;
+        case C::PackExpand:
+            result->kind = lir::EPackExpand{std::string(lir_view::EPackExpandView{eref}.var_name())};
+            break;
+        case C::SizeOf: {
+            auto t = lir_view::ESizeOfView{eref}.elem_type(out_.type_pool.impl());
+            result->kind = lir::ESizeOf{subst_type(t, s)};
+            break;
+        }
+        case C::Deref:
+            result->kind = lir::EDeref{subst_child_expr(lir_view::EDerefView{eref}.operand())};
+            break;
+        case C::FieldRead: {
+            lir_view::EFieldReadView v{eref};
+            result->kind = lir::EFieldRead{subst_child_expr(v.receiver()),
+                                           std::string(v.field())};
+            break;
+        }
+        case C::TupleIndex: {
+            lir_view::ETupleIndexView v{eref};
+            result->kind = lir::ETupleIndex{subst_child_expr(v.receiver()), v.index()};
+            break;
+        }
+        case C::IndexRead: {
+            lir_view::EIndexReadView v{eref};
+            result->kind = lir::EIndexRead{subst_child_expr(v.receiver()),
+                                           subst_child_expr(v.index())};
+            break;
+        }
+        case C::Cast: {
+            lir_view::ECastView v{eref};
+            result->kind = lir::ECast{subst_child_expr(v.operand()),
+                                      std::string(v.hermes_build_fn())};
+            break;
+        }
+        case C::Try: {
+            lir_view::ETryView v{eref};
+            lir::ETry nt;
+            nt.inner    = subst_child_expr(v.inner());
+            nt.ok_disc  = v.ok_disc();
+            nt.err_disc = v.err_disc();
+            result->kind = std::move(nt);
+            break;
+        }
+        case C::SliceLit: {
+            lir_view::ESliceLitView v{eref};
+            result->kind = lir::ESliceLit{subst_child_expr(v.base()),
+                                          subst_child_expr(v.len())};
+            break;
+        }
+        case C::SliceIndex: {
+            lir_view::ESliceIndexView v{eref};
+            result->kind = lir::ESliceIndex{subst_child_expr(v.slice()),
+                                            subst_child_expr(v.index())};
+            break;
+        }
+        case C::SliceLen:
+            result->kind = lir::ESliceLen{subst_child_expr(lir_view::ESliceLenView{eref}.slice())};
+            break;
+        case C::SlicePtr:
+            result->kind = lir::ESlicePtr{subst_child_expr(lir_view::ESlicePtrView{eref}.slice())};
+            break;
+        case C::IfExpr: {
+            lir_view::EIfExprView v{eref};
+            lir::EIfExpr ni;
+            ni.cond     = subst_child_expr(v.cond());
+            ni.then_val = subst_child_expr(v.then_val());
+            ni.else_val = subst_child_expr(v.else_val());
+            result->kind = std::move(ni);
+            break;
+        }
+        case C::TupleLit: {
+            lir::ETupleLit nt;
+            lir_view::ETupleLitView{eref}.each_elem(
+                [&](lir_view::ExprRef er) { nt.elems.push_back(subst_child_expr(er)); });
+            result->kind = std::move(nt);
+            break;
+        }
+        case C::ArrLit: {
+            lir::EArrLit na;
+            lir_view::EArrLitView{eref}.each_elem(
+                [&](lir_view::ExprRef er) { na.elems.push_back(subst_child_expr(er)); });
+            result->kind = std::move(na);
+            break;
+        }
+        case C::ClosureCall: {
+            lir_view::EClosureCallView v{eref};
+            lir::EClosureCall nc;
+            nc.callee = subst_child_expr(v.callee());
+            v.each_arg([&](lir_view::ExprRef er) { nc.args.push_back(subst_child_expr(er)); });
+            result->kind = std::move(nc);
+            break;
+        }
+        case C::FnPtrCall: {
+            lir_view::EFnPtrCallView v{eref};
+            lir::EFnPtrCall nc;
+            nc.callee = subst_child_expr(v.callee());
+            v.each_arg([&](lir_view::ExprRef er) { nc.args.push_back(subst_child_expr(er)); });
+            result->kind = std::move(nc);
+            break;
+        }
+        case C::FormatCall: {
+            lir_view::EFormatCallView v{eref};
+            lir::EFormatCall nf;
+            nf.fmt       = subst_child_expr(v.fmt());
+            nf.arg_types = v.arg_types(out_.type_pool.impl());
+            v.each_arg([&](lir_view::ExprRef er) { nf.args.push_back(subst_child_expr(er)); });
+            result->kind = std::move(nf);
+            break;
+        }
+        case C::PtrArith: {
+            lir_view::EPtrArithView v{eref};
+            result->kind = lir::EPtrArith{lir::EPtrArith::Op(v.op_code()),
+                                          subst_child_expr(v.ptr()),
+                                          subst_child_expr(v.offset())};
+            break;
+        }
+        case C::PtrDiff: {
+            lir_view::EPtrDiffView v{eref};
+            result->kind = lir::EPtrDiff{v.by_byte(),
+                                         subst_child_expr(v.lhs()),
+                                         subst_child_expr(v.rhs())};
+            break;
+        }
+        case C::BlockExpr: {
+            lir_view::EBlockExprView v{eref};
+            lir::EBlockExpr nb;
+            if (auto br = v.block(); br)
+                nb.block = std::make_unique<lir::LBlock>(subst_child_block(br));
+            if (auto rr = v.result(); rr)
+                nb.result = subst_child_expr(rr);
+            result->kind = std::move(nb);
+            break;
+        }
+        case C::ReflectOf: {
+            auto resolved = subst_type(
+                lir_view::EReflectOfView{eref}.type(out_.type_pool.impl()), s);
+            result->kind = lir::EReflectOf{resolved};
+            if (resolved && TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct &&
+                TypeRef(resolved).type_args().empty()) {
+                std::string pkg{TypeRef(resolved).pkg_name()};
+                std::string fqn = pkg.empty() ? std::string(TypeRef(resolved).struct_name())
+                                              : pkg + "::" + std::string(TypeRef(resolved).struct_name());
+                out_.reflect_requests.insert(fqn);
+            }
+            break;
+        }
+        case C::Unary: {
+            lir_view::EUnaryView v{eref};
+            std::string op{v.op()};
+            auto new_op = subst_child_expr(v.operand());
+            auto vt = new_op ? new_op->type : TypeRef{};
+            if (vt && TypeRef(vt).kind() == LogosType::Kind::Struct) {
+                std::string method_name;
+                if      (op == "-") method_name = "neg";
+                else if (op == "!") method_name = "not_";
+                if (!method_name.empty()) {
+                    std::string cname = concrete_struct_name(vt);
+                    lir::ECall nc;
+                    nc.callee = cname + "__" + method_name;
+                    nc.args.push_back(std::move(new_op));
+                    result->kind = std::move(nc);
+                    break;
+                }
+            }
+            result->kind = lir::EUnary{op, std::move(new_op)};
+            break;
+        }
+        case C::BinOp: {
+            lir_view::EBinOpView v{eref};
+            std::string op{v.op()};
+            auto new_lhs = subst_child_expr(v.lhs());
+            auto new_rhs = subst_child_expr(v.rhs());
+            auto lt = new_lhs ? new_lhs->type : TypeRef{};
+            if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct) {
+                std::string method_name;
+                if      (op == "+")  method_name = "add";
+                else if (op == "-")  method_name = "sub";
+                else if (op == "*")  method_name = "mul";
+                else if (op == "/")  method_name = "div";
+                else if (op == "%")  method_name = "rem";
+                else if (op == "==") method_name = "eq";
+                else if (op == "!=") method_name = "ne";
+                else if (op == "<")  method_name = "lt";
+                else if (op == "<=") method_name = "le";
+                else if (op == ">")  method_name = "gt";
+                else if (op == ">=") method_name = "ge";
+                if (!method_name.empty()) {
+                    std::string cname = concrete_struct_name(lt);
+                    lir::ECall nc;
+                    nc.callee = cname + "__" + method_name;
+                    nc.args.push_back(std::move(new_lhs));
+                    nc.args.push_back(std::move(new_rhs));
+                    result->kind = std::move(nc);
+                    break;
+                }
+            }
+            result->kind = lir::EBinOp{op, std::move(new_lhs), std::move(new_rhs)};
+            break;
+        }
+        default:
+            handled = false;
+            break;
+        }
+        if (handled) return result;
+    }
+
     std::visit([&](const auto& k) {
         using K = std::decay_t<decltype(k)>;
 
