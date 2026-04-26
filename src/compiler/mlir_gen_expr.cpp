@@ -1684,29 +1684,30 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     mlir::Type scrut_type = scrut.getType();
 
     // Extract payload bindings for a PatVariantData arm into scope.
-    auto extract_arm_payload = [&](const EMatchArm& arm) -> std::vector<std::string> {
+    auto extract_arm_payload = [&](lir_view::PatRef pat_ref) -> std::vector<std::string> {
         std::vector<std::string> added;
-        if (auto* pvd = std::get_if<PatVariantData>(&arm.pat)) {
+        if (pat_ref.kind() == pc::Code::VariantData) {
+            lir_view::PatVariantDataView pvd{pat_ref};
+            std::vector<std::string> bindings;
+            pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+            int64_t pvd_disc = pvd.disc();
             if (te_info && scrut_ptr) {
                 llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
                 auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
                 const TaggedEnumInfo::VariantPayload* vp = nullptr;
                 for (auto& v : te_info->variants)
-                    if (v.disc == pvd->disc) { vp = &v; break; }
+                    if (v.disc == pvd_disc) { vp = &v; break; }
                 if (vp) {
                     llvm::SmallVector<mlir::Type> ft;
                     for (auto& t : vp->field_types) ft.push_back(t);
                     auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
                         builder_.getContext(), ft);
-                    for (size_t bi = 0; bi < pvd->bindings.size() &&
+                    for (size_t bi = 0; bi < bindings.size() &&
                                          bi < vp->field_types.size(); ++bi) {
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                         auto fp = builder_.create<mlir::LLVM::GEPOp>(
                             loc_, ptr_type(), pay_struct, pay_ptr, fi);
-                        // For inline structs (logos_to_mlir returns ptr but struct is stored
-                        // inline in the payload), fp already points to the struct bytes —
-                        // use fp directly as the variable (no extra load).
                         TypeRef lt = bi < vp->logos_types.size()
                                               ? vp->logos_types[bi] : nullptr;
                         bool is_inline_struct = lt &&
@@ -1718,18 +1719,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         if (is_inline_struct &&
                             (TypeRef(lt).kind() == LogosType::Kind::Struct ||
                              TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {
-                            // Bind the payload bytes directly: scope_[name]=fp
-                            // points at the inline struct, matching the normal
-                            // struct-var convention (scope_ holds a pointer
-                            // *to* the struct bytes, not a pointer-to-pointer).
-                            // Without this, SDrop would call T__drop(alloca)
-                            // where alloca is an 8-byte slot holding fp, so
-                            // T__drop would read garbage stack as field[1..]
-                            // and free an out-of-range pointer.
-                            scope_[pvd->bindings[bi]] = fp;
-                            let_vars_.insert(pvd->bindings[bi]);
-                            var_struct_[pvd->bindings[bi]] = concrete_struct_name(lt);
-                            added.push_back(pvd->bindings[bi]);
+                            scope_[bindings[bi]] = fp;
+                            let_vars_.insert(bindings[bi]);
+                            var_struct_[bindings[bi]] = concrete_struct_name(lt);
+                            added.push_back(bindings[bi]);
                         } else {
                             mlir::Value bound_val;
                             if (is_inline_struct) {
@@ -1740,23 +1733,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             }
                             auto alloca = create_entry_alloca(vp->field_types[bi]);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
-                            scope_[pvd->bindings[bi]] = alloca;
-                            let_vars_.insert(pvd->bindings[bi]);
-                            var_elem_types_[pvd->bindings[bi]] = vp->field_types[bi];
-                            added.push_back(pvd->bindings[bi]);
+                            scope_[bindings[bi]] = alloca;
+                            let_vars_.insert(bindings[bi]);
+                            var_elem_types_[bindings[bi]] = vp->field_types[bi];
+                            added.push_back(bindings[bi]);
                         }
                     }
                 }
             }
-        } else if (auto* pw = std::get_if<PatWild>(&arm.pat)) {
-            if (pw->name != "_") {
+        } else if (pat_ref.kind() == pc::Code::Wild) {
+            std::string name(lir_view::PatWildView{pat_ref}.name());
+            if (!name.empty() && name != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
                 auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                scope_[pw->name] = alloca;
-                let_vars_.insert(pw->name);
-                var_elem_types_[pw->name] = sv.getType();
-                added.push_back(pw->name);
+                scope_[name] = alloca;
+                let_vars_.insert(name);
+                var_elem_types_[name] = sv.getType();
+                added.push_back(name);
             }
         }
         return added;
@@ -1843,7 +1837,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(guard_block);
-                guard_added = extract_arm_payload(arm);
+                guard_added = extract_arm_payload(arm_pat_ref);
                 auto gval = gen_expr(**arm.guard);
                 gval = coerce_int(gval, builder_.getI1Type());
                 builder_.create<mlir::cf::CondBranchOp>(loc_, gval, body_block, else_block);
@@ -1866,7 +1860,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         } else {
             mlir::OpBuilder::InsertionGuard ig(builder_);
             builder_.setInsertionPointToStart(body_block);
-            auto added = extract_arm_payload(arm);
+            auto added = extract_arm_payload(arm_pat_ref);
             auto val = gen_expr(*arm.value);
             for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
             if (!is_terminated(builder_.getBlock())) {
