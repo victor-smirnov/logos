@@ -1884,9 +1884,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureBoxView v, TypeRef type
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EClosureCall>(_le->kind);
-    auto closure = gen_expr(*e.callee);
+    auto* callee_le = lexpr_of(v.callee());
+    if (!callee_le) return nullptr;
+    auto closure = gen_expr(*callee_le);
     if (!closure) return nullptr;
 
     auto ctype = closure_llvm_type();
@@ -1906,12 +1906,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef typ
     // Build LLVM function type for indirect call
     llvm::SmallVector<mlir::Type> param_types;
     param_types.push_back(ptr_type());  // env
-    for (auto& a : e.args) {
-        auto val = gen_expr(*a);
-        if (!val) return nullptr;
+    bool arg_failed = false;
+    v.each_arg([&](lir_view::ExprRef ar) {
+        if (arg_failed) return;
+        auto* a_le = lexpr_of(ar);
+        if (!a_le) { arg_failed = true; return; }
+        auto val = gen_expr(*a_le);
+        if (!val) { arg_failed = true; return; }
         args.push_back(val);
         param_types.push_back(val.getType());
-    }
+    });
+    if (arg_failed) return nullptr;
 
     // See EFnPtrCall for the struct-return ABI rationale.
     mlir::Type ret = fn_call_ret_llvm_type(type);
@@ -1934,10 +1939,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EClosureCallView v, TypeRef typ
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type) {
-    auto* _le = lexpr_of(v.self); if (!_le) return nullptr;
-    auto& e = std::get<EFnPtrCall>(_le->kind);
     // Bare function pointer call: fn_ptr(arg1, arg2, ...) — no env_ptr.
-    auto fn_ptr = gen_expr(*e.callee);
+    auto* callee_le = lexpr_of(v.callee());
+    if (!callee_le) return nullptr;
+    auto fn_ptr = gen_expr(*callee_le);
     if (!fn_ptr) return nullptr;
 
     // fn_ptr is stored as a scalar (not in an alloca) when it's a let var;
@@ -1947,12 +1952,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type)
 
     llvm::SmallVector<mlir::Value> args;
     llvm::SmallVector<mlir::Type> param_types;
-    for (auto& a : e.args) {
-        auto val = gen_expr(*a);
-        if (!val) return nullptr;
+    bool arg_failed = false;
+    v.each_arg([&](lir_view::ExprRef ar) {
+        if (arg_failed) return;
+        auto* a_le = lexpr_of(ar);
+        if (!a_le) { arg_failed = true; return; }
+        auto val = gen_expr(*a_le);
+        if (!val) { arg_failed = true; return; }
         args.push_back(val);
         param_types.push_back(val.getType());
-    }
+    });
+    if (arg_failed) return nullptr;
 
     // Return type must match the callee's ABI — tuples/structs/enums are
     // returned by aggregate value (the callee uses sret promotion by the LLVM
