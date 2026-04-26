@@ -114,7 +114,7 @@ void MLIRGenImpl::gen_stmt_kind(const SDerefWrite& s) {
          pt.kind() == LogosType::Kind::MutRef))
         elem_type = logos_to_mlir(pt.pointee());
     if (!elem_type) elem_type = builder_.getI32Type();
-    TypeRef pointee_t = (pt && pt.pointee()) ? pt.pointee().raw() : nullptr;
+    TypeRef pointee_t = (pt && pt.pointee()) ? pt.pointee() : nullptr;
     if (pointee_t && (TypeRef(pointee_t).kind() == LogosType::Kind::Struct ||
                       TypeRef(pointee_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -328,7 +328,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
             TypeRef src_logos_type = s.value->type;
             if (src_logos_type && TypeRef(src_logos_type).kind() == LogosType::Kind::Ptr &&
                 TypeRef(src_logos_type).pointee())
-                src_logos_type = TypeRef(src_logos_type).pointee().raw();
+                src_logos_type = TypeRef(src_logos_type).pointee();
             if (src_logos_type &&
                 TypeRef(src_logos_type).kind() == LogosType::Kind::Struct &&
                 TypeRef(src_logos_type).struct_name() == "Box" &&
@@ -404,7 +404,7 @@ void MLIRGenImpl::gen_let(const SLet& s) {
     }
     // Track local pointer variables so indexing can load the ptr before GEP.
     if (TypeRef st(s.type); st && st.kind() == LogosType::Kind::Ptr && st.pointee()) {
-        TypeRef pointee = st.pointee().raw();
+        TypeRef pointee = st.pointee();
         if (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct) {
             // logos_to_mlir(Struct/Datatype) == ptr_type(), which can't be matched
@@ -461,7 +461,7 @@ void MLIRGenImpl::gen_return(const SReturn& s) {
             if (!val) return;
             TypeRef src_lt = s.value->type;
             if (TypeRef(src_lt).kind() == LogosType::Kind::Ptr && TypeRef(src_lt).pointee())
-                src_lt = TypeRef(src_lt).pointee().raw();
+                src_lt = TypeRef(src_lt).pointee();
             auto vtable = build_inline_vtable(
                 TypeRef(cur_fn_ret_logos_type_).trait_name(), type_str(src_lt));
             // Heap-allocate the fat struct so it survives past this function's frame.
@@ -1129,7 +1129,7 @@ void MLIRGenImpl::gen_chain_field_write(const SChainFieldWrite& s) {
                 TypeRef ft = f.type;
                 // field is *mut S → descend into pointee
                 if (TypeRef(ft).kind() == LogosType::Kind::Ptr && TypeRef(ft).pointee())
-                    ft = TypeRef(ft).pointee().raw();
+                    ft = TypeRef(ft).pointee();
                 mid_type_name = concrete_struct_name(ft);
                 break;
             }

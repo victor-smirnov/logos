@@ -41,7 +41,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Enum: {
         // Tagged enums are passed by pointer; C-style enums use their
         // backing integer type (i32 by default, or `enum Foo : u64 {}`).
-        if (resolve_tagged_enum(std::string(tv.enum_name()), tv.raw())) return ptr_type();
+        if (resolve_tagged_enum(std::string(tv.enum_name()), tv)) return ptr_type();
         return enum_disc_mlir(std::string(tv.enum_name()));
     }
     case LogosType::Kind::Ptr:    return ptr_type();
@@ -217,7 +217,7 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
     case LogosType::Kind::U128:        return 16;
     case LogosType::Kind::Array:
         if (!tv.elem()) return 0;
-        return tv.arr_size() * logos_abi_byte_size(tv.elem().raw(), seen);
+        return tv.arr_size() * logos_abi_byte_size(tv.elem(), seen);
     case LogosType::Kind::Closure:
     case LogosType::Kind::TraitObject: return 16;  // two pointers
     case LogosType::Kind::Tuple: {

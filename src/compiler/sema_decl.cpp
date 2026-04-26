@@ -289,7 +289,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // return/param types.  Extract the innermost non-Array element for the check.
     auto datanode_name = [&](TypeRef t) -> std::string {
         if (!t) return {};
-        while (TypeRef(t).kind() == LogosType::Kind::Array) t = TypeRef(t).elem().raw();
+        while (TypeRef(t).kind() == LogosType::Kind::Array) t = TypeRef(t).elem();
         TypeRef tv{t};
         if (tv.kind() == LogosType::Kind::ZonedStruct && tv.type_args().empty()) {
             auto* dsi = get_datatype_si(t);

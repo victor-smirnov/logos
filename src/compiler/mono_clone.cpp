@@ -152,7 +152,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                                TypeRef(orig_inner).kind() == LogosType::Kind::Ref ||
                                TypeRef(orig_inner).kind() == LogosType::Kind::MutRef) &&
                 TypeRef(orig_inner).pointee())
-                orig_inner = TypeRef(orig_inner).pointee().raw();
+                orig_inner = TypeRef(orig_inner).pointee();
             if (orig_inner && TypeRef(orig_inner).kind() == LogosType::Kind::TypeVar &&
                 new_recv->type) {
                 // Trait method → direct call: TypeName__method(self, args...)
@@ -243,7 +243,7 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                     while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ptr ||
                                   TypeRef(rt).kind() == LogosType::Kind::Ref ||
                                   TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
-                        rt = TypeRef(rt).pointee().raw();
+                        rt = TypeRef(rt).pointee();
                     }
 
                     if (rt &&
@@ -523,8 +523,8 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 if (!t || has_tv) return;
                 if (TypeRef(t).kind() == LogosType::Kind::TypeVar) { has_tv = true; return; }
                 for (auto a : TypeRef(t).type_args()) walk(a);
-                if (TypeRef(t).pointee()) walk(TypeRef(t).pointee().raw());
-                if (TypeRef(t).elem())    walk(TypeRef(t).elem().raw());
+                if (TypeRef(t).pointee()) walk(TypeRef(t).pointee());
+                if (TypeRef(t).elem())    walk(TypeRef(t).elem());
             };
             walk(resolved);
             if (has_tv || !resolved) {

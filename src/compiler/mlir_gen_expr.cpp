@@ -1231,7 +1231,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(const ETupleIndex& e, TypeRef type) {
         (TypeRef(recv_type).kind() == LogosType::Kind::Ref ||
          TypeRef(recv_type).kind() == LogosType::Kind::MutRef ||
          TypeRef(recv_type).kind() == LogosType::Kind::Ptr))
-        recv_type = TypeRef(recv_type).pointee().raw();
+        recv_type = TypeRef(recv_type).pointee();
     auto stype = tuple_llvm_type(recv_type);
     if (!stype) return nullptr;
     auto elem_mlir = logos_to_mlir(type);

@@ -93,7 +93,7 @@ private:
                                 max_depth_, cname), {}, 0});
                 return;
             }
-            needed_struct_insts_[cname] = {tr.raw(), depth_ + 1};
+            needed_struct_insts_[cname] = {tr, depth_ + 1};
         }
     }
 
@@ -182,7 +182,7 @@ private:
             auto it = bindings.find(tvn);
             if (it != bindings.end())
                 return types_equal(c, TypeRef(it->second));
-            bindings[std::string(tvn)] = c.raw();
+            bindings[std::string(tvn)] = c;
             return true;
         }
         if (p.kind() != c.kind()) return false;

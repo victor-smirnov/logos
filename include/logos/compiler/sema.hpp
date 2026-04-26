@@ -9,12 +9,10 @@
 
 #pragma once
 
-#include <deque>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <memory>
-#include <unordered_map>
 #include <vector>
 #include <optional>
 #include <string>
@@ -32,10 +30,10 @@ namespace logos::compiler {
 
 // ── Type representation ────────────────────────────────────────────────────
 
-// 2c.4e.3.3: LogosType is now a slim handle. Reads happen through TypeRef
-// (which queries the Hermes mirror via the back-refs below). Writes happen
-// through LogosTypeBuilder, which carries the data fields and is consumed
-// by TypePool::alloc.
+// 2c.6.6.B.6: LogosType is no longer an instantiated struct — it has no
+// data and no instances. It survives only as a namespace-class holding the
+// Kind enum and the TypeUID nested datatype. All readers use TypeRef
+// (a fat pointer over the Hermes mirror); all writers use LogosTypeBuilder.
 struct LogosType {
     enum class Kind {
         Void,                     // no return value
@@ -86,50 +84,45 @@ struct LogosType {
         }
     };
 
-    // ── Hermes mirror back-refs ──
-    // Set by TypePool::alloc() after building the TinyObjectMap mirror.
-    // offset is stable across arena growth (arena is GrowableSingleChunk);
-    // mirror pointer is resolved on demand as `hermes_arena_->head().data()
-    // + hermes_mirror_off_`. All payload fields live in the mirror; reads go
-    // through TypeRef accessors.
-    const hermes::Arena*   hermes_arena_      = nullptr;
-    hermes::arena_offset_t hermes_mirror_off_ = hermes::NULL_OFFSET;
-    const class TypePoolImpl* hermes_pool_     = nullptr;
 };
+
+class TypePoolImpl;  // PIMPL — owns hermes::Arena and offset mapping
 
 struct LogosTypeBuilder;  // defined below TypeRef
 
 // ── TypeRef ───────────────────────────────────────────────────────────────
 //
-// Non-owning view over a LogosType living in a TypePool. Carries the fat
-// {arena base, offset, pool} triple needed to read the Hermes mirror
-// directly. Implicit conversion from `const LogosType*` is preserved during
-// the 2c.6.6.B refactor; the reverse implicit conversion is restored as a
-// transition aid and removed once every call site uses TypeRef.
+// Non-owning view over an interned type living in a TypePool. Carries the
+// fat {arena, offset, pool} triple needed to read the Hermes mirror.
+// Identity is the arena offset: two TypeRefs are equal iff they point at
+// the same mirror node.
 
 class TypeRef {
-    const LogosType*          p_     = nullptr;
     const hermes::Arena*      arena_ = nullptr;
-    hermes::arena_offset_t    off_{};
+    hermes::arena_offset_t    off_{};  // NULL_OFFSET when null
     const TypePoolImpl*       pool_  = nullptr;
 public:
     constexpr TypeRef() noexcept = default;
-    TypeRef(const LogosType* p) noexcept
-        : p_(p),
-          arena_(p ? p->hermes_arena_ : nullptr),
-          off_(p ? p->hermes_mirror_off_ : hermes::arena_offset_t{}),
-          pool_(p ? p->hermes_pool_ : nullptr) {}
     constexpr TypeRef(std::nullptr_t) noexcept {}
+    TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
+            const TypePoolImpl* p) noexcept
+        : arena_(a), off_(off), pool_(p) {}
 
-    constexpr explicit operator bool() const noexcept { return p_ != nullptr; }
+    constexpr explicit operator bool() const noexcept {
+        return off_ != hermes::NULL_OFFSET;
+    }
 
-    constexpr const LogosType* raw() const noexcept { return p_; }
+    hermes::arena_offset_t offset() const noexcept { return off_; }
 
-    friend constexpr bool operator==(TypeRef a, TypeRef b) noexcept { return a.p_ == b.p_; }
-    friend constexpr bool operator==(TypeRef a, std::nullptr_t) noexcept { return a.p_ == nullptr; }
-    friend constexpr bool operator==(std::nullptr_t, TypeRef a) noexcept { return a.p_ == nullptr; }
-    friend constexpr bool operator==(TypeRef a, const LogosType* b) noexcept { return a.p_ == b; }
-    friend constexpr bool operator==(const LogosType* a, TypeRef b) noexcept { return a == b.p_; }
+    friend constexpr bool operator==(TypeRef a, TypeRef b) noexcept {
+        return a.off_ == b.off_;
+    }
+    friend constexpr bool operator==(TypeRef a, std::nullptr_t) noexcept {
+        return a.off_ == hermes::NULL_OFFSET;
+    }
+    friend constexpr bool operator==(std::nullptr_t, TypeRef a) noexcept {
+        return a.off_ == hermes::NULL_OFFSET;
+    }
 
     uint8_t* mirror_base() const noexcept {
         return arena_ ? const_cast<uint8_t*>(arena_->head().data()) : nullptr;
@@ -192,11 +185,10 @@ public:
 
 // ── LogosTypeBuilder ──────────────────────────────────────────────────────
 //
-// 2c.4e.3.3: write-side companion to slim LogosType. Builder code populates
-// fields freely and hands the result to TypePool::alloc, which writes them
-// into the Hermes mirror and returns a slim LogosType*. The builder is also
-// what TypeRef::to_builder() returns when callers need to copy-and-mutate
-// an interned type.
+// Write-side companion to TypeRef. Builder code populates fields freely and
+// hands the result to TypePool::alloc, which writes them into the Hermes
+// mirror and returns a TypeRef. Also what TypeRef::to_builder() returns
+// when callers need to copy-and-mutate an interned type.
 struct LogosTypeBuilder {
     using Kind = LogosType::Kind;
 
@@ -284,19 +276,12 @@ std::string concrete_struct_name_raw(std::string_view base_name,
 
 // ── TypePool ───────────────────────────────────────────────────────────────
 //
-// Owns all LogosType objects.  std::deque gives pointer stability on push_back.
-// Moved into LProgram so pointers remain valid after sema_lower() returns.
-//
-// Phase 2c.2: TypePool also owns a Hermes arena and mirrors every allocated
-// LogosType into a TinyObjectMap node inside it. The mirror is not yet read
-// by anyone — Phase 2c.3 will switch TypeRef view accessors to read from it.
-// Readers that currently resolve through the raw struct pointer are
-// unaffected.
-
-class TypePoolImpl;  // PIMPL — owns hermes::Arena and offset mapping
+// Owns the Hermes arena that backs all interned types. Each unique type
+// lives as a TinyObjectMap inside that arena; TypeRef is a fat pointer
+// into it. The pool is moved into LProgram so the arena stays alive for
+// the rest of the compilation pipeline.
 
 class TypePool {
-    std::deque<LogosType>          pool_;
     std::unique_ptr<TypePoolImpl>  impl_;  // lazily created on first alloc()
 public:
     TypePool();

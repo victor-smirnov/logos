@@ -30,12 +30,11 @@
 
 namespace logos::compiler {
 
-// ── TypePool PIMPL (Phase 2c.2) ────────────────────────────────────────────
+// ── TypePool PIMPL ─────────────────────────────────────────────────────────
 //
-// Mirrors each LogosType into a Hermes TinyObjectMap inside a local Arena.
-// Not yet read by anyone: Phase 2c.3 will switch TypeRef accessors to consult
-// the mirror. For now the goal is simply: every alloc() builds a faithful
-// Hermes mirror of the new LogosType, and existing behaviour is unchanged.
+// Owns the single Hermes arena that backs every interned type. Each unique
+// type lives as a TinyObjectMap inside this arena; TypeRef is a fat pointer
+// {arena, offset, pool} into it.
 //
 // Arena mode: GrowableSingleChunk so that RelativePtrs resolved against
 // arena.head().data() are always valid (MultiChunk would scatter tail
@@ -45,36 +44,31 @@ namespace logos::compiler {
 class TypePoolImpl {
 public:
     hermes::Arena                                          arena_;
-    std::unordered_map<const LogosType*, hermes::arena_offset_t> mirror_offsets_;
-    // Inverse of mirror_offsets_; populated by TypePool::alloc() right after
-    // the forward map. Phase 2c.4d will use this to resolve AnyVal pointee
-    // offsets read from the mirror back to a TypeRef so TypeRef's
-    // pointer-valued accessors (pointee/elem/assoc_base/closure_ret) can
-    // source from the mirror. Not yet consumed.
-    std::unordered_map<hermes::arena_offset_t, const LogosType*> mirror_inverse_;
 
     // 2c.5.4: intern table keyed by TypeUID (32-byte SHA-256-derived).
-    // Forward-declared via LogosType::TypeUID. Bucket walk via
-    // builder_equals_typeref preserves byte-strict equality (lifetime,
-    // pkg_name, lifetime_args, const_val) which TypeUID intentionally
-    // collapses to match types_equal semantics.
+    // Bucket walk via builder_equals_typeref preserves byte-strict equality
+    // (lifetime, pkg_name, lifetime_args, const_val) which TypeUID
+    // intentionally collapses to match types_equal semantics.
     struct UIDHash {
         size_t operator()(const LogosType::TypeUID& u) const noexcept {
             size_t h = 0; std::memcpy(&h, u.bytes, sizeof(h)); return h;
         }
     };
     std::unordered_map<LogosType::TypeUID,
-                       std::vector<const LogosType*>, UIDHash> intern_buckets_;
+                       std::vector<hermes::arena_offset_t>, UIDHash> intern_buckets_;
 
-    // 2c.6.6.B.1: TypeUID lifted off the slim struct into this side map.
-    // Populated by TypePool::alloc(); read by put_sub (UID composition) and
-    // types_equal. The slim LogosType now carries only Hermes back-refs.
-    std::unordered_map<const LogosType*, LogosType::TypeUID> uid_of_;
+    // 2c.6.6.B.6: TypeUID per offset. Populated by TypePool::alloc(); read by
+    // put_sub (UID composition) and types_equal.
+    std::unordered_map<hermes::arena_offset_t, LogosType::TypeUID> uid_of_;
 
     LogosType::TypeUID uid_of(TypeRef p) const noexcept {
         if (!p) return LogosType::TypeUID{};
-        auto it = uid_of_.find(p.raw());
+        auto it = uid_of_.find(p.offset());
         return it != uid_of_.end() ? it->second : LogosType::TypeUID{};
+    }
+
+    TypeRef ref(hermes::arena_offset_t off) const noexcept {
+        return TypeRef{&arena_, off, this};
     }
 
     TypePoolImpl(logos::InitTag& tag)
@@ -119,15 +113,10 @@ public:
         return hermes::AnyVal::from_offset(offset_of(*p));
     }
 
-    // Translate a C++ LogosType pointer to an AnyVal pointing at its mirror.
-    // The mirror must already exist (children allocated before parents).
+    // Translate a TypeRef to an AnyVal pointing at its mirror.
     hermes::AnyVal ptr_to_mirror(TypeRef p) {
         if (!p) return hermes::AnyVal{};
-        auto it = mirror_offsets_.find(p.raw());
-        LOGOS_ASSERT(it != mirror_offsets_.end(), "SEMA-TYPEPOOL-004",
-            "ptr_to_mirror: child type has no mirror (allocation order bug)");
-        if (it->second.value() & 1) std::fprintf(stderr, "ptr_to_mirror ODD off=0x%lx p_kind=%d\n", (unsigned long)it->second.value(), (int)p.kind());
-        return hermes::AnyVal::from_offset(it->second);
+        return hermes::AnyVal::from_offset(p.offset());
     }
 
     // Build an ObjectArray from a vector<TypeRef> and return AnyVal.
@@ -136,7 +125,7 @@ public:
         LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
         auto arr_off = offset_of(*arr);
         for (auto elem : v) {
-            auto v_any = ptr_to_mirror(elem.raw());
+            auto v_any = ptr_to_mirror(elem);
             auto r = reinterpret_cast<hermes::ObjectArray*>(
                          arena_.head().data() + arr_off.value())
                      ->push_back(v_any, arena_);
@@ -249,15 +238,6 @@ public:
         put(k::GAT_ARGS,         v_gat_args);
         put(k::LIFETIME_ARGS,    v_lifetime_args);
 
-        {
-            auto av = at(map_off)->get(0, arena_.head().data());
-            if (!av.is_null() && av.is_value()) {
-                std::fprintf(stderr, "MIRROR POST-PUT POINTEE-as-value: kind=%d off=0x%lx av_bits=0x%lx v_pointee_bits=0x%lx pointee_p=%p\n",
-                    (int)t.kind, (unsigned long)map_off.value(), (unsigned long)av.to_offset().value(),
-                    (unsigned long)v_pointee.to_offset().value(), (const void*)t.pointee.raw());
-                std::abort();
-            }
-        }
         return map_off;
     }
 
@@ -387,7 +367,7 @@ namespace {
 bool vec_ptr_eq(const std::vector<TypeRef>& a,
                 const std::vector<TypeRef>& b) noexcept {
     if (a.size() != b.size()) return false;
-    for (size_t i = 0; i < a.size(); ++i) if (a[i].raw() != b[i].raw()) return false;
+    for (size_t i = 0; i < a.size(); ++i) if (a[i] != b[i]) return false;
     return true;
 }
 
@@ -397,15 +377,15 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     using K = LogosType::Kind;
     switch (t.kind) {
     case K::Ptr:
-        return t.mut_ptr == r.mut_ptr() && t.pointee == r.pointee().raw();
+        return t.mut_ptr == r.mut_ptr() && t.pointee == r.pointee();
     case K::Ref:
     case K::MutRef:
-        return t.pointee == r.pointee().raw() &&
+        return t.pointee == r.pointee() &&
                t.lifetime == r.lifetime();
     case K::Array:
         return t.arr_size == r.arr_size() &&
                t.arr_size_var == r.arr_size_var() &&
-               t.elem == r.elem().raw();
+               t.elem == r.elem();
     case K::Struct:
     case K::ZonedStruct:
         return t.struct_name == r.struct_name() &&
@@ -419,11 +399,11 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::Tuple:
         return vec_ptr_eq(t.tuple_elems, r.tuple_elems());
     case K::Slice:
-        return t.elem == r.elem().raw();
+        return t.elem == r.elem();
     case K::Closure:
     case K::FnPtr:
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
-               t.closure_ret == r.closure_ret().raw();
+               t.closure_ret == r.closure_ret();
     case K::TraitObject:
     case K::TaggedPtr:
         return t.trait_name == r.trait_name();
@@ -436,7 +416,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::AssocType:
         return t.trait_name == r.trait_name() &&
                t.assoc_type_name == r.assoc_type_name() &&
-               t.assoc_base == r.assoc_base().raw() &&
+               t.assoc_base == r.assoc_base() &&
                vec_ptr_eq(t.gat_args, r.gat_args());
     default:
         return true;  // primitives — kind alone is identity
@@ -449,20 +429,15 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
     if (!impl_) impl_ = TypePoolImpl::make();
     LogosType::TypeUID uid = compute_type_uid(impl_.get(), t);
     auto& bucket = impl_->intern_buckets_[uid];
-    for (TypeRef cand : bucket)
-        if (builder_equals_typeref(t, TypeRef(cand))) return cand;
+    for (auto cand_off : bucket) {
+        TypeRef cand = impl_->ref(cand_off);
+        if (builder_equals_typeref(t, cand)) return cand;
+    }
 
-    pool_.push_back(LogosType{});
-    LogosType* mp = &pool_.back();
-    impl_->uid_of_[mp] = uid;
     auto off = impl_->mirror(t);
-    impl_->mirror_offsets_[mp] = off;
-    impl_->mirror_inverse_[off] = mp;
-    mp->hermes_arena_      = &impl_->arena_;
-    mp->hermes_mirror_off_ = off;
-    mp->hermes_pool_       = impl_.get();
-    bucket.push_back(mp);
-    return mp;
+    impl_->uid_of_[off] = uid;
+    bucket.push_back(off);
+    return impl_->ref(off);
 }
 
 // ── TypeRef pointer-valued accessors (Phase 2c.4d.0) ───────────────────────
@@ -478,27 +453,7 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     if (!self) return {};
     auto av = self.mirror()->get(key.code, self.mirror_base());
     if (av.is_null()) return {};
-    auto& inv = self.pool()->mirror_inverse_;
-    auto it = inv.find(av.to_offset());
-    if (it == inv.end()) {
-        std::fprintf(stderr, "ptr_via_mirror miss: keycode=%u self_kind=%d key_off=0x%lx is_ptr=%d is_val=%d inv.size=%zu self_off=0x%lx self_pool=%p\n",
-                     (unsigned)key.code, (int)self.kind(),
-                     (unsigned long)av.to_offset().value(), (int)av.is_pointer(), (int)av.is_value(),
-                     inv.size(),
-                     (unsigned long)((const uint8_t*)self.mirror() - self.mirror_base()),
-                     (const void*)self.pool());
-        // Print all keys present in self's mirror
-        auto* m = self.mirror();
-        for (uint8_t k_code = 0; k_code < 32; ++k_code) {
-            auto v = m->get(k_code, const_cast<uint8_t*>(self.mirror_base()));
-            if (!v.is_null()) {
-                std::fprintf(stderr, "  key=%u is_ptr=%d is_val=%d val=0x%lx\n",
-                    k_code, (int)v.is_pointer(), (int)v.is_value(), (unsigned long)v.to_offset().value());
-            }
-        }
-        std::abort();
-    }
-    return TypeRef(it->second);
+    return self.pool()->ref(av.to_offset());
 }
 
 }  // namespace
@@ -522,7 +477,7 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
     result.reserve(arr->size());
     for (uint64_t i = 0; i < arr->size(); ++i) {
         auto e = const_cast<hermes::ObjectArray*>(arr)->get(i, base);
-        result.push_back(TypeRef(self.pool()->mirror_inverse_.at(e.to_offset())));
+        result.push_back(self.pool()->ref(e.to_offset()));
     }
     return result;
 }
@@ -550,12 +505,12 @@ std::vector<TypeRef> TypeRef::closure_params() const noexcept { return type_vec_
 std::vector<TypeRef> TypeRef::gat_args()       const noexcept { return type_vec_via_mirror(*this, sema_schema::GAT_ARGS); }
 std::vector<std::string> TypeRef::lifetime_args()  const noexcept { return string_vec_via_mirror(*this, sema_schema::LIFETIME_ARGS); }
 
-// 2c.4e.3.3: populate every field from the Hermes mirror via the accessors.
-// LogosType is slim (kind + back-refs); LogosTypeBuilder retains the data
-// fields and is consumed by TypePool::alloc.
+// Reconstruct a LogosTypeBuilder from a TypeRef by reading every field
+// through the mirror accessors. Callers use this when they want to
+// copy-and-mutate an interned type (e.g. mono substitution).
 LogosTypeBuilder TypeRef::to_builder() const {
     LogosTypeBuilder b;
-    if (!p_) return b;
+    if (!*this) return b;
     b.kind            = kind();
     b.mut_ptr         = mut_ptr();
     b.pointee         = pointee();
@@ -601,11 +556,11 @@ using hermes::MemHolder;
 // closing the inductive step for Closure/FnPtr/Ref/etc.
 bool types_equal(TypeRef a, TypeRef b) noexcept {
     if (!a || !b) return false;
-    if (a.raw() == b.raw()) return true;
+    if (a == b) return true;
     auto* pa = a.pool();
     auto* pb = b.pool();
     if (!pa || pa != pb) return false;
-    return pa->uid_of(a.raw()) == pa->uid_of(b.raw());
+    return pa->uid_of(a) == pa->uid_of(b);
 }
 
 // ── Generic struct name helpers ───────────────────────────────────────────────
@@ -1479,7 +1434,7 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
 
 TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                                                const SemaLifetimeSubst& ls) {
-    if (!t) return t.raw();
+    if (!t) return t;
     switch (t.kind()) {
     case LogosType::Kind::ConstVar:
     case LogosType::Kind::TypeVar: {
@@ -1502,12 +1457,12 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 }
             }
         }
-        if (elem == t.elem() && size == t.arr_size() && symbolic == t.arr_size_var()) return t.raw();
+        if (elem == t.elem() && size == t.arr_size() && symbolic == t.arr_size_var()) return t;
         return make_array(elem, size, symbolic);
     }
     case LogosType::Kind::Ptr: {
         auto inner = subst_type_sema(t.pointee(), s, ls);
-        if (inner == t.pointee()) return t.raw();
+        if (inner == t.pointee()) return t;
         return make_ptr(t.mut_ptr(), inner);
     }
     case LogosType::Kind::Ref:
@@ -1515,12 +1470,12 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         auto inner = subst_type_sema(t.pointee(), s, ls);
         std::string lt{t.lifetime()};
         if (!lt.empty()) { auto it = ls.find(lt); if (it != ls.end()) lt = it->second; }
-        if (inner == t.pointee() && lt == t.lifetime()) return t.raw();
+        if (inner == t.pointee() && lt == t.lifetime()) return t;
         return make_ref(t.kind() == LogosType::Kind::MutRef, inner, lt);
     }
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct: {
-        if (t.type_args().empty() && t.lifetime_args().empty()) return t.raw();
+        if (t.type_args().empty() && t.lifetime_args().empty()) return t;
         std::vector<TypeRef> new_args;
         bool changed = false;
         for (auto a : t.type_args()) {
@@ -1535,7 +1490,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             if (it != ls.end()) { new_lt_args.push_back(it->second); lt_changed = true; }
             else                  new_lt_args.push_back(lt);
         }
-        if (!changed && !lt_changed) return t.raw();
+        if (!changed && !lt_changed) return t;
         LogosTypeBuilder nt;
         nt.kind = t.kind();
         nt.struct_name = t.struct_name();
@@ -1545,7 +1500,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         return pool_.alloc(std::move(nt));
     }
     case LogosType::Kind::Enum: {
-        if (t.type_args().empty() && t.lifetime_args().empty()) return t.raw();
+        if (t.type_args().empty() && t.lifetime_args().empty()) return t;
         std::vector<TypeRef> new_args;
         bool changed = false;
         for (auto a : t.type_args()) {
@@ -1560,7 +1515,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             if (it != ls.end()) { new_lt_args.push_back(it->second); lt_changed = true; }
             else                  new_lt_args.push_back(lt);
         }
-        if (!changed && !lt_changed) return t.raw();
+        if (!changed && !lt_changed) return t;
         LogosTypeBuilder nt;
         nt.kind = LogosType::Kind::Enum;
         nt.enum_name = t.enum_name();
@@ -1576,12 +1531,12 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             changed |= (ne != e);
             new_elems.push_back(ne);
         }
-        if (!changed) return t.raw();
+        if (!changed) return t;
         return make_tuple_type(std::move(new_elems));
     }
     case LogosType::Kind::Slice: {
         auto elem = subst_type_sema(t.elem(), s, ls);
-        if (elem == t.elem()) return t.raw();
+        if (elem == t.elem()) return t;
         return make_slice_type(elem);
     }
     case LogosType::Kind::Closure:
@@ -1595,7 +1550,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         }
         auto new_ret = subst_type_sema(t.closure_ret(), s, ls);
         changed |= (new_ret != t.closure_ret());
-        if (!changed) return t.raw();
+        if (!changed) return t;
 
         LogosTypeBuilder nt;
         nt.kind = t.kind();  // preserve Closure vs FnPtr
@@ -1696,9 +1651,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             nt.gat_args   = std::move(subbed_gat_args);
             return pool_.alloc(std::move(nt));
         }
-        return t.raw();
+        return t;
     }
-    default: return t.raw();
+    default: return t;
     }
 }
 
@@ -2228,7 +2183,7 @@ static bool match_type_sema(TypeRef c, TypeRef p,
     if (p.kind() == LogosType::Kind::TypeVar) {
         auto it = bindings.find(p.type_var_name());
         if (it != bindings.end()) return types_equal(c, TypeRef(it->second));
-        bindings[std::string(p.type_var_name())] = c.raw();
+        bindings[std::string(p.type_var_name())] = c;
         return true;
     }
     if (p.kind() != c.kind()) return false;

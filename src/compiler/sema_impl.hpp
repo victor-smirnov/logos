@@ -179,7 +179,7 @@ private:
         for (size_t i = 0; i < at.closure_params().size(); ++i)
             if (!types_compatible(at.closure_params()[i], er.closure_params()[i])) return false;
         box->inner->as_fn_ptr = true;
-        arg->type = make_fn_ptr_type(at.closure_params(), at.closure_ret().raw());
+        arg->type = make_fn_ptr_type(at.closure_params(), at.closure_ret());
         return true;
     }
     TypeRef make_slice_type(TypeRef elem) {
@@ -973,7 +973,7 @@ private:
             (inner.struct_name() == "Hermes" ||
              inner.struct_name() == "HermesView" ||
              inner.struct_name() == "HermesStatic"))
-            return inner.raw();
+            return inner;
         return nullptr;
     }
     // True while lowering match arms where Hermes scalar patterns are
