@@ -26,6 +26,8 @@
 
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>
+#include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 
 #include <format>
@@ -301,49 +303,69 @@ class BorrowChecker {
     // params.empty() && !is_local → unknown/global — assumed safe (e.g. static data,
     //   or result of a function call where we don't track cross-call lifetimes).
 
-    RefProv prov_of(const LExprPtr& e) const {
-        if (!e) return {};
-        return std::visit([&](auto& k) -> RefProv {
-            using K = std::decay_t<decltype(k)>;
+    lir_view::ExprRef expr_ref(const LExprPtr& e) const {
+        auto& tbl = *prog_.mirror_table;
+        auto it = tbl.expr.find(e.get());
+        if (it == tbl.expr.end()) return {};
+        return lir_view::ExprRef(prog_.type_pool.arena(), it->second);
+    }
 
-            if constexpr (std::is_same_v<K, lir::EVarRef>) {
-                // A param variable used directly as a reference value.
-                if (param_names_.count(k.name) && is_ref_kind(e->type))
-                    return {{k.name}, false};
-                // A local ref variable whose provenance we've already computed.
-                auto it = prov_.find(k.name);
+    RefProv prov_of(lir_view::ExprRef e) const {
+        if (!e) return {};
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+
+        switch (e.kind()) {
+            case Code::VarRef: {
+                EVarRefView v{e};
+                std::string name(v.name());
+                if (param_names_.count(name) && is_ref_kind(e.type(pool)))
+                    return {{name}, false};
+                auto it = prov_.find(name);
                 if (it != prov_.end()) return it->second;
-                return {};   // unknown non-ref or untracked — assume safe
+                return {};
             }
-            if constexpr (std::is_same_v<K, lir::EAddrOf>) {
-                if (param_names_.count(k.var_name)) return {{k.var_name}, false};
-                if (states_.count(k.var_name))      return {{},           true};
-                return {};  // &global — safe
+            case Code::AddrOf: {
+                EAddrOfView v{e};
+                std::string name(v.var_name());
+                if (param_names_.count(name)) return {{name}, false};
+                if (states_.count(name))      return {{},     true};
+                return {};
             }
-            if constexpr (std::is_same_v<K, lir::EFieldRead>)
-                return prov_of(k.receiver);
-            if constexpr (std::is_same_v<K, lir::EDeref>)
-                return prov_of(k.operand);
-            if constexpr (std::is_same_v<K, lir::ETupleIndex>)
-                return prov_of(k.receiver);
-            if constexpr (std::is_same_v<K, lir::ECast>)
-                return prov_of(k.operand);
-            if constexpr (std::is_same_v<K, lir::EIndexRead>)
-                return prov_of(k.receiver);
-            if constexpr (std::is_same_v<K, lir::EIfExpr>)
-                return merge_prov(prov_of(k.then_val), prov_of(k.else_val));
-            if constexpr (std::is_same_v<K, lir::EBlockExpr>)
-                return prov_of(k.result);
-            if constexpr (std::is_same_v<K, lir::EMatchExpr>) {
+            case Code::FieldRead:
+                return prov_of(EFieldReadView{e}.receiver());
+            case Code::Deref:
+                return prov_of(EDerefView{e}.operand());
+            case Code::TupleIndex:
+                return prov_of(ETupleIndexView{e}.receiver());
+            case Code::Cast:
+                return prov_of(ECastView{e}.operand());
+            case Code::IndexRead:
+                return prov_of(EIndexReadView{e}.receiver());
+            case Code::IfExpr: {
+                EIfExprView v{e};
+                return merge_prov(prov_of(v.then_val()), prov_of(v.else_val()));
+            }
+            case Code::BlockExpr:
+                return prov_of(EBlockExprView{e}.result());
+            case Code::MatchExpr: {
                 RefProv merged = {};
-                for (auto& arm : k.arms)
-                    merged = merge_prov(merged, prov_of(arm.value));
+                EMatchExprView{e}.each_arm([&](EMatchArmRef arm) {
+                    merged = merge_prov(merged, prov_of(arm.value()));
+                });
                 return merged;
             }
-            // ECall / EMethodCall / EStructLit / literals — value is caller-owned,
-            // not a borrowed reference; leave provenance empty (= unknown/safe).
-            return {};
-        }, e->kind);
+            default:
+                // ECall / EMethodCall / EStructLit / literals — value is caller-owned,
+                // not a borrowed reference; leave provenance empty (= unknown/safe).
+                return {};
+        }
+    }
+
+    RefProv prov_of(const LExprPtr& e) const {
+        if (!e) return {};
+        return prov_of(expr_ref(e));
     }
 
     // ── Phase 3 + 4: dangling / lifetime check on return ──────────────────
