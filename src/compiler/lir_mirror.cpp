@@ -897,7 +897,15 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
         table_.expr_by_offset[e.mirror_offset_.value()] = &e;
         backfill_only = true;
     } else if (auto it = table_.expr.find(&e); it != table_.expr.end()) {
-        return it->second;
+        // Address-cache hit but the LExpr's own mirror_offset_ is unset:
+        // this is heap-address recycling after a prior LExpr was deleted.
+        // The cached offset points to the *old* arena map, which is stale
+        // for this fresh node. Invalidate and fall through to emit a new
+        // mirror for &e. (See line 884 comment: field-as-truth comes
+        // first; the address cache is only valid when mirror_offset_ also
+        // matches.)
+        table_.expr_by_offset.erase(uint32_t(it->second.value()));
+        table_.expr.erase(it);
     }
 
     bool save_dry = dry_run_;

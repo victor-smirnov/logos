@@ -209,16 +209,6 @@ private:
 
     TypeRef lookup_type_by_name(std::string_view name);
 
-    // ── L-IR node factories ──────────────────────────────────────
-
-    template<typename K>
-    static lir::LExprPtr make_expr(TypeRef t, K&& k) {
-        auto e = std::make_unique<lir::LExpr>();
-        e->type = t;
-        e->kind = std::forward<K>(k);
-        return e;
-    }
-
     lir::LExprPtr error_expr() {
         return builder().lit_int(0, error_t());
     }
