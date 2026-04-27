@@ -286,9 +286,8 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
                 }
                 for (auto& d : drops)
                     result.stmts.push_back(std::move(d));
-            } else if (auto lk = stmt_ref_of(lowered).kind();
-                       lk == lir_schema::stmt::Code::Break ||
-                       lk == lir_schema::stmt::Code::Continue) {
+            } else if (std::holds_alternative<lir::SBreak>(lowered.kind) ||
+                       std::holds_alternative<lir::SContinue>(lowered.kind)) {
                 for (auto& d : collect_drops())
                     result.stmts.push_back(std::move(d));
             }
@@ -296,13 +295,10 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
         }
     }
     // Insert drops for normal block exit (no return/break/continue)
-    auto last_kind = result.stmts.empty()
-        ? lir_schema::stmt::Code(0)
-        : stmt_ref_of(result.stmts.back()).kind();
     if (result.stmts.empty() ||
-        (last_kind != lir_schema::stmt::Code::Return &&
-         last_kind != lir_schema::stmt::Code::Break &&
-         last_kind != lir_schema::stmt::Code::Continue)) {
+        (!std::holds_alternative<lir::SReturn>(result.stmts.back().kind) &&
+         !std::holds_alternative<lir::SBreak>(result.stmts.back().kind) &&
+         !std::holds_alternative<lir::SContinue>(result.stmts.back().kind))) {
         for (auto& d : collect_drops())
             result.stmts.push_back(std::move(d));
     }
