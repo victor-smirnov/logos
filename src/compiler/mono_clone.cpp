@@ -415,25 +415,10 @@ lir::LExprPtr Mono::subst_expr(const lir::LExpr& e, const SubstMap& s,
                 auto out = std::make_unique<lir::HermesVal>();
                 auto vref = hv_ref_of(hv);
                 if (!vref) {
-                    std::visit([&](const auto& kk) {
-                        using KK = std::decay_t<decltype(kk)>;
-                        if constexpr (std::is_same_v<KK, lir::HVMap>) {
-                            lir::HVMap nm;
-                            nm.key_type = kk.key_type;
-                            for (auto& e : kk.entries)
-                                nm.entries.push_back({e.key, clone_hv(*e.val)});
-                            out->kind = std::move(nm);
-                        } else if constexpr (std::is_same_v<KK, lir::HVArray>) {
-                            lir::HVArray na;
-                            na.elem_type = kk.elem_type;
-                            for (auto& elem : kk.elements)
-                                na.elements.push_back(clone_hv(*elem));
-                            out->kind = std::move(na);
-                        } else {
-                            out->kind = kk;
-                        }
-                    }, hv.kind);
-                    return out;
+                    std::fprintf(stderr,
+                        "mono.clone_hv: input HermesVal lacks mirror_offset_ "
+                        "(variant index=%zu)\n", hv.kind.index());
+                    std::abort();
                 }
                 switch (vref.kind()) {
                 case hvc::Code::Null:    out->kind = lir::HVNull{}; break;
