@@ -1010,6 +1010,7 @@ private:
     bool in_match_hermes_ctx_ = false;
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
+    void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);
     lir::LStmt lower_if(hermes::TinyMapView node);
     lir::LStmt lower_while(hermes::TinyMapView node);
     lir::LStmt lower_for(hermes::TinyMapView node);
