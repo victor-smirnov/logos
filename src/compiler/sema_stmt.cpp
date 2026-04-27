@@ -2131,7 +2131,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
         }
     }
     if (var_t == i32_t()) {
-        auto intlit_overflows = [](const lir::LExpr* e) {
+        auto intlit_overflows = [this](const lir::LExpr* e) {
             if (auto v = get_intlit_value(e))
                 return !intlit_fits(*v, LogosType::Kind::I32);
             return false;
