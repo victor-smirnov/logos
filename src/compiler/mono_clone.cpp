@@ -29,6 +29,10 @@ private:
 lir::Pattern Mono::subst_pattern(const lir::Pattern& pat, const SubstMap& s) {
     auto pref = pat_ref_of(pat);
     if (!pref) return pat;  // mirror miss — pass through (defensive)
+    return subst_pattern(pref, s);
+}
+
+lir::Pattern Mono::subst_pattern(lir_view::PatRef pref, const SubstMap& s) {
     PatSubstWalker w([&](TypeRef t) { return subst_type(t, s); },
                      out_.type_pool.impl());
     return w.walk(pref);
@@ -1019,15 +1023,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
         nm.scrut = subst_child_expr(v.scrut());
         v.each_arm([&](lir_view::EMatchArmRef arm) {
             lir::LMatchArm na;
-            // pat: still need variant access for subst_pattern
-            if (auto* lstmt_in = lstmt_of(sref)) {
-                if (auto* sm = std::get_if<lir::SMatch>(&lstmt_in->kind)) {
-                    size_t idx = nm.arms.size();
-                    if (idx < sm->arms.size()) {
-                        na.pat = subst_pattern(sm->arms[idx].pat, s);
-                    }
-                }
-            }
+            if (auto pref = arm.pat()) na.pat = subst_pattern(pref, s);
             na.body = lir::alloc_block(out_, subst_child_block(arm.body()));
             if (auto g = arm.guard()) na.guard = subst_child_expr(g);
             nm.arms.push_back(std::move(na));
@@ -1050,12 +1046,7 @@ lir::LStmt Mono::subst_stmt(const lir::LStmt& st, const SubstMap& s) {
     case SCode::LetElse: {
         lir_view::SLetElseView v{sref};
         lir::SLetElse sle;
-        // pat: still via variant access
-        if (auto* lstmt_in = lstmt_of(sref)) {
-            if (auto* sle_in = std::get_if<lir::SLetElse>(&lstmt_in->kind)) {
-                sle.pat = subst_pattern(sle_in->pat, s);
-            }
-        }
+        if (auto pref = v.pat()) sle.pat = subst_pattern(pref, s);
         sle.scrut      = subst_child_expr(v.scrut());
         sle.else_block = lir::alloc_block(out_, subst_child_block(v.else_block()));
         ns.kind        = std::move(sle);

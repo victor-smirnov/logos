@@ -135,6 +135,7 @@ private:
 
     // Pattern substitution — view-based walk over the input mirror.
     lir::Pattern subst_pattern(const lir::Pattern& pat, const SubstMap& s);
+    lir::Pattern subst_pattern(lir_view::PatRef pref, const SubstMap& s);
 
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(TypeRef tr) {
