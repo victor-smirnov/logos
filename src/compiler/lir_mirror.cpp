@@ -52,6 +52,12 @@ namespace pdk = lir_schema::ptrdiff_keys;
 class LirMirrorEmitter {
     hermes::Arena&  arena_;
     LirMirrorTable& table_;
+    // Dry-run mode: when true, make_map / make_array / put / array_push are
+    // no-ops. Used to back-fill the table's reverse-lookup maps for nodes that
+    // were already mirrored under a different table (e.g. carried over via
+    // std::move(in_.consts)). The variant walk still recurses through child
+    // emit_* calls so descendants back-fill themselves.
+    bool dry_run_ = false;
 
 public:
     LirMirrorEmitter(hermes::Arena& a, LirMirrorTable& t) : arena_(a), table_(t) {}
@@ -161,11 +167,13 @@ private:
     // ── ObjectArray helpers ────────────────────────────────────────────────
 
     hermes::arena_offset_t make_array(size_t n) {
+        if (dry_run_) return hermes::arena_offset_t{};
         auto arr = hermes::ObjectArray::create(arena_, n == 0 ? 1 : n);
         LOGOS_ASSERT(arr.has_value(), "LIR-MIRROR-003", "ObjectArray alloc failed");
         return offset_of(*arr);
     }
     void array_push(hermes::arena_offset_t arr_off, hermes::AnyVal v) {
+        if (dry_run_) return;
         auto r = arr_at(arr_off)->push_back(v, arena_);
         LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-003", "ObjectArray push failed");
     }
@@ -242,6 +250,7 @@ private:
     // ── map creation + put helpers ─────────────────────────────────────────
 
     hermes::arena_offset_t make_map(uint64_t schema_code, uint64_t cap = 8) {
+        if (dry_run_) return hermes::arena_offset_t{};
         auto m = hermes::TinyObjectMap::create(arena_, cap);
         LOGOS_ASSERT(m.has_value(), "LIR-MIRROR-004",
             "TinyObjectMap allocation failed");
@@ -251,6 +260,7 @@ private:
     }
     void put(hermes::arena_offset_t map_off,
              const lir_schema::Key& key, hermes::AnyVal val) {
+        if (dry_run_) return;
         if (val.is_null()) return;
         auto r = tom_at(map_off)->put(key.code, val, arena_);
         LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-005",
@@ -275,8 +285,20 @@ private:
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_block(const LBlock& b) {
-    if (auto it = table_.block.find(&b); it != table_.block.end())
+    bool backfill_only = false;
+    if (b.mirror_offset_ != hermes::arena_offset_t{}) {
+        if (auto it = table_.block.find(&b); it != table_.block.end()) {
+            return it->second;
+        }
+        table_.block[&b] = b.mirror_offset_;
+        table_.block_by_offset[b.mirror_offset_.value()] = &b;
+        backfill_only = true;
+    } else if (auto it = table_.block.find(&b); it != table_.block.end()) {
         return it->second;
+    }
+
+    bool save_dry = dry_run_;
+    if (backfill_only) dry_run_ = true;
 
     // Pre-emit statements so child offsets exist before we create the array.
     std::vector<hermes::AnyVal> stmt_elems;
@@ -294,6 +316,10 @@ hermes::arena_offset_t LirMirrorEmitter::emit_block(const LBlock& b) {
     // — out-of-band of real stmt codes — to keep the category space simple.
     auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count));
     if (!stmts_av.is_null()) put(map_off, sk::ARMS, stmts_av);  // reuse ARMS key as STMTS list
+
+    dry_run_ = save_dry;
+    if (backfill_only) return b.mirror_offset_;
+
     b.mirror_offset_ = map_off;
     table_.block[&b] = map_off;
     table_.block_by_offset[map_off.value()] = &b;
@@ -436,8 +462,19 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
-    if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end())
+    bool backfill_only = false;
+    if (v.mirror_offset_ != hermes::arena_offset_t{}) {
+        if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
+            return it->second;
+        }
+        table_.hermes_val[&v] = v.mirror_offset_;
+        backfill_only = true;
+    } else if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
         return it->second;
+    }
+
+    bool save_dry = dry_run_;
+    if (backfill_only) dry_run_ = true;
 
     using namespace lir;
     int32_t code = v.kind.index();
@@ -519,6 +556,8 @@ hermes::arena_offset_t LirMirrorEmitter::emit_hv(const HermesVal& v) {
         }
     }, v.kind);
     (void)code;
+    dry_run_ = save_dry;
+    if (backfill_only) return v.mirror_offset_;
     v.mirror_offset_ = map_off;
     table_.hermes_val[&v] = map_off;
     return map_off;
@@ -623,7 +662,20 @@ hermes::arena_offset_t LirMirrorEmitter::emit_pat(const Pattern& p) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_stmt(const LStmt& s) {
-    if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) return it->second;
+    bool backfill_only = false;
+    if (s.mirror_offset_ != hermes::arena_offset_t{}) {
+        if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
+            return it->second;
+        }
+        table_.stmt[&s] = s.mirror_offset_;
+        table_.stmt_by_offset[s.mirror_offset_.value()] = &s;
+        backfill_only = true;
+    } else if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
+        return it->second;
+    }
+
+    bool save_dry = dry_run_;
+    if (backfill_only) dry_run_ = true;
 
     using namespace lir;
     hermes::arena_offset_t map_off;
@@ -813,6 +865,9 @@ hermes::arena_offset_t LirMirrorEmitter::emit_stmt(const LStmt& s) {
     if (s.line != 0)
         put(map_off, sc::LINE, put_u32(s.line));
 
+    dry_run_ = save_dry;
+    if (backfill_only) return s.mirror_offset_;
+
     s.mirror_offset_ = map_off;
     table_.stmt[&s] = map_off;
     table_.stmt_by_offset[map_off.value()] = &s;
@@ -824,7 +879,29 @@ hermes::arena_offset_t LirMirrorEmitter::emit_stmt(const LStmt& s) {
 // ──────────────────────────────────────────────────────────────────────────
 
 hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
-    if (auto it = table_.expr.find(&e); it != table_.expr.end()) return it->second;
+    // Field-as-truth fast path. The field is the cross-table back-pointer
+    // (set on first emission); honouring it before the cache prevents stale
+    // cache hits from reused heap addresses (LExpr deletion + std::make_unique
+    // recycling). When the field is set but the current table doesn't know
+    // about &e (e.g. nodes carried across via std::move(in_.consts) into
+    // out_), back-fill both directions of the current table so consumers
+    // (mlir_gen, borrow_check) that reverse-lookup by offset can find &e —
+    // and fall through to the variant walk in dry-run mode so each child
+    // emit_* call back-fills its own descendants.
+    bool backfill_only = false;
+    if (e.mirror_offset_ != hermes::arena_offset_t{}) {
+        if (auto it = table_.expr.find(&e); it != table_.expr.end()) {
+            return it->second;
+        }
+        table_.expr[&e] = e.mirror_offset_;
+        table_.expr_by_offset[e.mirror_offset_.value()] = &e;
+        backfill_only = true;
+    } else if (auto it = table_.expr.find(&e); it != table_.expr.end()) {
+        return it->second;
+    }
+
+    bool save_dry = dry_run_;
+    if (backfill_only) dry_run_ = true;
 
     using namespace lir;
     hermes::arena_offset_t map_off;
@@ -1075,6 +1152,9 @@ hermes::arena_offset_t LirMirrorEmitter::emit_expr(const LExpr& e) {
     }, e.kind);
 
     if (e.type) put(map_off, ec::TYPE, type_av(e.type));
+
+    dry_run_ = save_dry;
+    if (backfill_only) return e.mirror_offset_;
 
     e.mirror_offset_ = map_off;
     table_.expr[&e] = map_off;
