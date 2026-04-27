@@ -265,23 +265,23 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
             // (it may borrow variables that the drops would release).
             // Hoist the return value into a temporary, then drop, then return
             // the temporary.
-            if (auto* sr = std::get_if<lir::SReturn>(&lowered.kind)) {
+            if (auto sref = stmt_ref_of(lowered);
+                sref && sref.kind() == lir_schema::stmt::Code::Return) {
                 auto drops = collect_all_drops();
-                if (!drops.empty() && sr->value) {
-                    TypeRef rt = sr->value->type;
+                auto val_ref = lir_view::SReturnView{sref}.value();
+                if (!drops.empty() && val_ref) {
+                    TypeRef rt = val_ref.type(cur_prog_->type_pool.impl());
                     std::string tmp = "__ret_tmp_" +
                         std::to_string(tmp_var_count_++);
                     lir::SLet sl;
                     sl.name = tmp; sl.type = rt; sl.is_mut = false;
-                    sl.value = std::move(sr->value);
+                    sl.value = lexpr_of(val_ref);
                     result.stmts.push_back(
                         make_stmt(node_line_, std::move(sl)));
                     for (auto& d : drops)
                         result.stmts.push_back(std::move(d));
-                    lir::SReturn nsr;
-                    nsr.value = builder().var_ref(tmp, rt);
                     result.stmts.push_back(
-                        make_stmt(node_line_, std::move(nsr)));
+                        builder().stmt_return(builder().var_ref(tmp, rt), node_line_));
                     continue;
                 }
                 for (auto& d : drops)
