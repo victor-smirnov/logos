@@ -84,9 +84,10 @@ void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table);
 //
 // All four require `prog.mirror_table` to be non-null (LProgram() now
 // initializes it eagerly). The arena is `prog.type_pool.arena_or_init()`.
-hermes::arena_offset_t lir_mirror_emit_expr_node (lir::LProgram& prog, const lir::LExpr&    e);
-hermes::arena_offset_t lir_mirror_emit_stmt_node (lir::LProgram& prog, const lir::LStmt&    s);
-hermes::arena_offset_t lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock&   b);
-hermes::arena_offset_t lir_mirror_emit_pat_node  (lir::LProgram& prog, const lir::Pattern&  p);
+hermes::arena_offset_t lir_mirror_emit_expr_node (lir::LProgram& prog, const lir::LExpr&     e);
+hermes::arena_offset_t lir_mirror_emit_stmt_node (lir::LProgram& prog, const lir::LStmt&     s);
+hermes::arena_offset_t lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock&    b);
+hermes::arena_offset_t lir_mirror_emit_pat_node  (lir::LProgram& prog, const lir::Pattern&   p);
+hermes::arena_offset_t lir_mirror_emit_hv_node   (lir::LProgram& prog, const lir::HermesVal& v);
 
 } // namespace logos::compiler

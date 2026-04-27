@@ -5565,11 +5565,14 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 if (!hv) return nullptr;
                 // Bounds-check I32 elements at compile time.
                 if (type_name == "I32") {
-                    if (auto* hvi = std::get_if<lir::HVInt>(&hv->kind)) {
-                        if (hvi->value < -2147483648LL || hvi->value > 2147483647LL) {
+                    lir_mirror_emit_hv_node(*cur_prog_, *hv);
+                    lir_view::HermesValRef hvref(cur_prog_->type_pool.arena(), hv->mirror_offset_);
+                    if (hvref && hvref.kind() == lir_schema::hermes_val::Code::Int) {
+                        int64_t hv_val = lir_view::HVIntView{hvref}.value();
+                        if (hv_val < -2147483648LL || hv_val > 2147483647LL) {
                             error(std::format(
                                 "@<I32> element [{}] value {} is out of i32 range [-2147483648, 2147483647]",
-                                i, hvi->value));
+                                i, hv_val));
                             return nullptr;
                         }
                     }

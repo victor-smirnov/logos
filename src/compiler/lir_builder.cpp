@@ -150,6 +150,15 @@ lir::LExprPtr LirBuilder::closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty) {
     return closure_box(box->inner, new_ty);
 }
 
+void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,
+                                  lir::LExpr* new_value) {
+    auto* tl = std::get_if<lir::ETupleLit>(&tuple->kind);
+    if (!tl || idx >= tl->elems.size()) return;
+    tl->elems[idx] = new_value;
+    tuple->mirror_offset_ = hermes::arena_offset_t{};
+    lir_mirror_emit_expr_node(prog_, *tuple);
+}
+
 lir::LExprPtr LirBuilder::closure_call(lir::LExprPtr callee,
                                         std::vector<lir::LExprPtr> args,
                                         TypeRef ty) {

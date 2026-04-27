@@ -72,6 +72,12 @@ public:
     // mirror reflects the new type. Caller is responsible for verifying that
     // the input is an EClosureBox with no captures.
     lir::LExprPtr closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty);
+    // Replace one element of an existing ETupleLit and re-emit its mirror so
+    // view reads see the new child offset. Caller must ensure `tuple` is
+    // ETupleLit and has no already-mirrored ancestors (mutating an embedded
+    // child can't update parent mirrors, which is the parent-mirror
+    // invalidation blocker).
+    void set_tuple_elem(lir::LExpr* tuple, size_t idx, lir::LExpr* new_value);
     lir::LExprPtr closure_call(lir::LExprPtr callee,
                                std::vector<lir::LExprPtr> args, TypeRef ty);
     lir::LExprPtr fn_ptr_call(lir::LExprPtr callee,

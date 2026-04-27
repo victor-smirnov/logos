@@ -75,6 +75,7 @@ public:
     hermes::arena_offset_t emit_stmt_public (const LStmt& s)    { return emit_stmt(s); }
     hermes::arena_offset_t emit_block_public(const LBlock& b)   { return emit_block(b); }
     hermes::arena_offset_t emit_pat_public  (const Pattern& p)  { return emit_pat(p); }
+    hermes::arena_offset_t emit_hv_public   (const HermesVal& v){ return emit_hv(v); }
 
 private:
     // ── primitive helpers ───────────────────────────────────────────────────
@@ -1291,6 +1292,11 @@ hermes::arena_offset_t lir_mirror_emit_pat_node(lir::LProgram& prog, const lir::
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table);
     return em.emit_pat_public(p);
+}
+hermes::arena_offset_t lir_mirror_emit_hv_node(lir::LProgram& prog, const lir::HermesVal& v) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table);
+    return em.emit_hv_public(v);
 }
 
 } // namespace logos::compiler

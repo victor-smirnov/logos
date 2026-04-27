@@ -654,6 +654,20 @@ struct ETupleLitView {
     template <class F> void each_elem(F&& f) const noexcept {
         detail::for_each_elem(self, std::forward<F>(f));
     }
+    uint64_t count() const noexcept {
+        auto av = self.mirror()->get(ek::ELEMS.code, self.base());
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>(self.base())->size();
+    }
+    ExprRef elem(uint64_t i) const noexcept {
+        auto av = self.mirror()->get(ek::ELEMS.code, self.base());
+        if (av.is_null()) return {};
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return {};
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return {};
+        return ExprRef(self.arena(), el.to_offset());
+    }
 };
 
 struct EEnumLitDataView {
